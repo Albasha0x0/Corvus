@@ -170,10 +170,16 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     /// .NET (Core) app come from its runtime pack, .NET Framework assemblies are referenced by name (GAC). Only the
     /// app's own libraries get a HintPath.
     /// </summary>
-    private sealed class FrameworkClassifier(bool netFramework, int? targetMajor) : ICSharpCode.Decompiler.Metadata.AssemblyReferenceClassifier
+    private sealed class FrameworkClassifier(bool netFramework, int? targetMajor, IReadOnlyList<string>? netFrameworkReferences)
+        : ICSharpCode.Decompiler.Metadata.AssemblyReferenceClassifier
     {
+        // implicit for the build only when the target's reference assemblies have it (System.Runtime.WindowsRuntime
+        // is installed with .NET Framework but is not one of them: it gets a path)
         public override bool IsGacAssembly(ICSharpCode.Decompiler.Metadata.IAssemblyReference reference) =>
-            netFramework && (Frameworks.IsNetFrameworkAssembly(reference.Name) || reference.Name is "mscorlib" or "netstandard");
+            netFramework && (reference.Name is "mscorlib" or "netstandard"
+                             || (netFrameworkReferences != null
+                                 ? netFrameworkReferences.Any(d => File.Exists(Path.Combine(d, reference.Name + ".dll")))
+                                 : Frameworks.IsNetFrameworkAssembly(reference.Name)));
 
         public override bool IsSharedAssembly(ICSharpCode.Decompiler.Metadata.IAssemblyReference reference,
             [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? runtimePack)
@@ -199,8 +205,13 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         // Whole-project export is long-running by nature: it gets 10x the normal timeout.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(options.TimeoutSeconds * 10L));
-        var exporter = new ProjectExporter(Frameworks.TargetFrameworkOf(asm.Module), CreateSettings(), workspace.CreateDecompilerResolver(asm), null,
-            new FrameworkClassifier(Frameworks.TargetsNetFramework(asm.Module), Frameworks.NetCoreMajor(Frameworks.TargetFrameworkOf(asm.Module))), null);
+        // a project is for building: LINQ comes out as method calls, which the engine gets right where its query
+        // syntax rebuild leaks compiler names (<>h__TransparentIdentifier0)
+        var exportSettings = CreateSettings();
+        exportSettings.QueryExpressions = false;
+        var exporter = new ProjectExporter(Frameworks.TargetFrameworkOf(asm.Module), exportSettings, workspace.CreateDecompilerResolver(asm), null,
+            new FrameworkClassifier(Frameworks.TargetsNetFramework(asm.Module), Frameworks.NetCoreMajor(Frameworks.TargetFrameworkOf(asm.Module)),
+                Frameworks.NetFrameworkReferenceDirs(Frameworks.TargetFrameworkOf(asm.Module))), null);
         if (onProgress != null)
             exporter.ProgressIndicator = new Progress<DecompilationProgress>(p => onProgress(p.UnitsCompleted, p.TotalUnits, p.Status ?? "Decompiling"));
         try
@@ -211,9 +222,128 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         {
             throw new ToolError($"Project export timed out after {options.TimeoutSeconds * 10}s. Partial output is in {dir}.");
         }
+        IncludeEmbeddedReferences(asm, dir);
+        ThrowInFailedBodies(dir);
+        UseUnionWindowsMetadata(dir);
+        KeepIdentity(asm, dir);
         var files = Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).ToList();
         var failed = exporter.Errors.Select(e => FirstLine(e.Message)).ToList();
         return new ExportResult(dir, files.Count, files.FirstOrDefault(f => f.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)), failed);
+    }
+
+    /// <summary>
+    /// Assemblies packed inside the exported one (Costura) have no file to reference: they are written to the
+    /// project's lib folder, the references the engine wrote ("Host!Name.dll") point there, and the other packed
+    /// assemblies are referenced too (the compiler needs a dependency's own dependencies).
+    /// </summary>
+    private void IncludeEmbeddedReferences(LoadedAssembly asm, string dir)
+    {
+        var project = Directory.GetFiles(dir, "*.csproj").FirstOrDefault();
+        if (project == null) return;
+        Dictionary<string, byte[]> embedded;
+        try
+        {
+            embedded = Services.Analysis.Containers.Open(asm.OriginalBytes, asm.FilePath, Services.Analysis.AnalysisLimits.Default, default).Items
+                .Where(i => Services.Analysis.Blob.Identify(i.Bytes) == ".NET assembly" && i.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                .GroupBy(i => Path.GetFileNameWithoutExtension(i.Name), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().Bytes, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception) { return; }
+        if (embedded.Count == 0) return;
+
+        var text = File.ReadAllText(project);
+        var lib = Path.Combine(dir, "lib");
+        Directory.CreateDirectory(lib);
+        foreach (var (name, bytes) in embedded)
+            File.WriteAllBytes(Path.Combine(lib, name + ".dll"), bytes);
+        // the engine's placeholder paths for embedded references
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"<HintPath>[^<]*!([^<!]+\.dll)</HintPath>",
+            m => $"<HintPath>lib\\{m.Groups[1].Value}</HintPath>");
+        var referenced = System.Text.RegularExpressions.Regex.Matches(text, "<Reference Include=\"([^\"]+)\"")
+            .Select(m => m.Groups[1].Value.Split(',')[0]).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var extra = embedded.Keys.Where(n => !referenced.Contains(n) && !n.EndsWith(".resources", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .Select(n => $"    <Reference Include=\"{n}\">\n      <HintPath>lib\\{n}.dll</HintPath>\n    </Reference>").ToList();
+        if (extra.Count > 0)
+            text = text.Replace("</Project>", "  <ItemGroup>\n    <!-- packed inside the original assembly (dependencies of its dependencies) -->\n" + string.Join("\n", extra) + "\n  </ItemGroup>\n</Project>");
+        File.WriteAllText(project, text);
+    }
+
+    /// <summary>
+    /// Windows Runtime API contracts referenced one by one (Windows.Foundation.FoundationContract.winmd...) do not mix
+    /// with System.Runtime.WindowsRuntime, whose await support is written against the union "Windows" metadata
+    /// (CS0012). The contracts from the Windows SDK are replaced by that one union reference, which holds every type
+    /// they do.
+    /// </summary>
+    private static void UseUnionWindowsMetadata(string dir)
+    {
+        var project = Directory.GetFiles(dir, "*.csproj").FirstOrDefault();
+        if (project == null || Frameworks.WindowsMetadataFile("Windows", null) is not { } union) return;
+        var text = File.ReadAllText(project);
+        var contract = new System.Text.RegularExpressions.Regex(
+            @"[ \t]*<Reference Include=""Windows\.[^""]*Contract"">\s*<HintPath>[^<]*\.winmd</HintPath>\s*</Reference>\r?\n?");
+        if (!contract.IsMatch(text)) return;
+        text = contract.Replace(text, "");
+        if (!text.Contains("<Reference Include=\"Windows\">", StringComparison.Ordinal))
+            text = text.Replace("</Project>", $"  <ItemGroup>\n    <Reference Include=\"Windows\">\n      <HintPath>{union}</HintPath>\n    </Reference>\n  </ItemGroup>\n</Project>");
+        File.WriteAllText(project, text);
+    }
+
+    /// <summary>
+    /// What the original build settings decided and the project would otherwise lose: the class whose method the header
+    /// names as the entry point (StartupObject: a WPF app has its generated Main and often another one), and the public
+    /// key (public signing with the original key, no private key needed), so friend assemblies that grant internals
+    /// to it by key still do (CS0281) and the rebuilt assembly keeps its identity.
+    /// </summary>
+    private static void KeepIdentity(LoadedAssembly asm, string dir)
+    {
+        var project = Directory.GetFiles(dir, "*.csproj").FirstOrDefault();
+        if (project == null) return;
+        var text = File.ReadAllText(project);
+        var settings = new List<string>();
+        if (asm.Module.EntryPoint?.DeclaringType is { } entryType && !text.Contains("<StartupObject>", StringComparison.Ordinal))
+            settings.Add($"<StartupObject>{System.Security.SecurityElement.Escape(entryType.ReflectionFullName.Replace('+', '.'))}</StartupObject>");
+        if (asm.Module.Assembly?.PublicKey is { IsNullOrEmpty: false } key && !text.Contains("<AssemblyOriginatorKeyFile>", StringComparison.Ordinal))
+        {
+            File.WriteAllBytes(Path.Combine(dir, "PublicKey.snk"), key.Data);
+            settings.Add("<SignAssembly>True</SignAssembly>");
+            settings.Add("<PublicSign>True</PublicSign>");
+            settings.Add("<AssemblyOriginatorKeyFile>PublicKey.snk</AssemblyOriginatorKeyFile>");
+        }
+        if (settings.Count == 0) return;
+        int at = text.IndexOf("</PropertyGroup>", StringComparison.Ordinal);
+        if (at < 0) return;
+        text = text.Insert(at, string.Concat(settings.Select(x => "  " + x + "\n")) + "  ");
+        File.WriteAllText(project, text);
+    }
+
+    private const string FailedBodyMarker = "// ILSpy could not decompile this";
+
+    /// <summary>
+    /// A method the engine could not decompile is written as a body holding only its explanation comment, so the project
+    /// does not build (CS0161 and others). Such bodies throw, saying so; the comment stays.
+    /// </summary>
+    private static void ThrowInFailedBodies(string dir)
+    {
+        foreach (var file in Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories))
+        {
+            var text = File.ReadAllText(file);
+            if (!text.Contains(FailedBodyMarker, StringComparison.Ordinal)) continue;
+            var lines = text.Split('\n').ToList();
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (!lines[i].TrimStart().StartsWith(FailedBodyMarker, StringComparison.Ordinal)) continue;
+                int end = i;
+                while (end + 1 < lines.Count && lines[end + 1].TrimStart().StartsWith("//", StringComparison.Ordinal)) end++;
+                // the comment fills the whole body: the line before opens it, the line after closes it
+                if (i == 0 || lines[i - 1].Trim() != "{" || end + 1 >= lines.Count || lines[end + 1].Trim() != "}") continue;
+                var indent = lines[i][..(lines[i].Length - lines[i].TrimStart().Length)];
+                lines.Insert(end + 1, indent + "throw new global::System.NotSupportedException(\"The decompiler could not decompile this method; see the comment above.\");"
+                                      + (lines[i].EndsWith('\r') ? "\r" : ""));
+                i = end + 1;
+            }
+            File.WriteAllText(file, string.Join('\n', lines));
+        }
     }
 
     /// <summary>Project export with the same output cleanup as single members.</summary>

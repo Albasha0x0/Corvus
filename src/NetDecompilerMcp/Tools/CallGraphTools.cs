@@ -25,7 +25,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
         [Description(MaxCharsDescription)] int? maxChars = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
-        var sym = SymbolResolver.ResolveOne(workspace, assembly, method, SymbolKind.Method);
+        var sym = SymbolResolver.ResolveOne(workspace, assembly, method, SymbolKind.Method, referenced: true);
         bool callers = direction.Trim().ToLowerInvariant() switch
         {
             "callers" or "caller" or "up" or "in" => true,
@@ -49,7 +49,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
         [Description(AssemblyFilterDescription)] string? assembly = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
-        var target = SymbolResolver.ResolveOne(workspace, assembly, to, SymbolKind.Method);
+        var target = SymbolResolver.ResolveOne(workspace, assembly, to, SymbolKind.Method, referenced: true);
         var start = from == null ? null : SymbolResolver.ResolveOne(workspace, null, from, SymbolKind.Method);
         var paths = graph.PathSteps((MethodDef?)start?.Member, (MethodDef)target.Member, Math.Clamp(maxDepth, 1, 30), ClampLimit(maxPaths, 200), includeVirtual, cancellationToken);
         var sb = new StringBuilder($"{Plural(paths.Count, "path")} to {target.Label}{(start != null ? $" from {start.Label}" : " from entry points")}:\n");

@@ -92,12 +92,25 @@ public static class MetadataUtil
 
     public static bool IsAccessor(MethodDef m) => m.IsGetter || m.IsSetter || m.IsAddOn || m.IsRemoveOn || m.IsFire;
 
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ModuleDef, object> ReferenceOnly = new();
+
+    /// <summary>Marks a module read only to resolve references (a framework or dependency file, not a loaded assembly).</summary>
+    public static void MarkReferenceOnly(ModuleDef module) => ReferenceOnly.AddOrUpdate(module, true);
+
+    /// <summary>
+    /// A member of a reference-only module: the same API can come from several files (System.IDisposable from
+    /// mscorlib for one assembly and System.Private.CoreLib for another), so such members match by name and signature.
+    /// </summary>
+    public static bool IsReferenceOnly(IMemberDef member) => member.Module is { } m && ReferenceOnly.TryGetValue(m, out _);
+
     public static bool IsSameMethod(IMethod? op, MethodDef target)
     {
         if (op == null || op.Name != target.Name) return false;
         if (op is MethodDef md) return md == target;
         var resolved = Try(() => op.ResolveMethodDef());
-        if (resolved != null) return resolved == target;
+        if (resolved != null)
+            return resolved == target || (IsReferenceOnly(target) && IsReferenceOnly(resolved)
+                                          && new SigComparer(SigComparerOptions.DontCompareTypeScope).Equals(resolved, target));
         // Defining assembly not resolvable from the referencing module: compare name + signature.
         return new SigComparer(SigComparerOptions.DontCompareTypeScope).Equals(op is MethodSpec ms ? ms.Method : op, target);
     }
@@ -107,7 +120,8 @@ public static class MetadataUtil
         if (op == null || op.Name != target.Name) return false;
         if (op is FieldDef fd) return fd == target;
         var resolved = Try(() => op.ResolveFieldDef());
-        if (resolved != null) return resolved == target;
+        if (resolved != null)
+            return resolved == target || (IsReferenceOnly(target) && IsReferenceOnly(resolved) && resolved.DeclaringType?.FullName == target.DeclaringType?.FullName);
         return op.DeclaringType?.FullName == target.DeclaringType?.FullName;
     }
 
@@ -121,7 +135,9 @@ public static class MetadataUtil
         }
         if (t.Name != target.Name || t.Namespace != target.Namespace) return false;
         var resolved = Try(() => t.ResolveTypeDef());
-        return resolved != null ? resolved == target : t.FullName == target.FullName;
+        return resolved != null
+            ? resolved == target || (IsReferenceOnly(target) && IsReferenceOnly(resolved) && resolved.FullName == target.FullName)
+            : t.FullName == target.FullName;
     }
 
     /// <summary>True if the signature uses the type anywhere (arrays, generic arguments, byref, pointers...).</summary>

@@ -31,7 +31,11 @@ public sealed record ResolvedSymbol(LoadedAssembly Assembly, IMemberDef Member)
 /// </summary>
 public static class SymbolResolver
 {
-    public static IReadOnlyList<ResolvedSymbol> Resolve(AssemblyWorkspace ws, string? assembly, string symbol, SymbolKind kind = SymbolKind.Any)
+    /// <param name="referenced">
+    /// Also find types the loaded code only references (System.IDisposable, System.Diagnostics.Process), read from
+    /// the framework or dependency file: for tools that look for their users (references, overrides, derived types).
+    /// </param>
+    public static IReadOnlyList<ResolvedSymbol> Resolve(AssemblyWorkspace ws, string? assembly, string symbol, SymbolKind kind = SymbolKind.Any, bool referenced = false)
     {
         if (string.IsNullOrWhiteSpace(symbol))
             throw new ToolError("Symbol is empty.");
@@ -64,6 +68,7 @@ public static class SymbolResolver
         if (memberPart == null && kind is SymbolKind.Any or SymbolKind.Type && signature == null)
         {
             results.AddRange(FindTypes(scope, typePart));
+            if (results.Count == 0 && referenced) results.AddRange(FindReferencedTypes(ws, scope, typePart));
             if (results.Count > 0 || kind == SymbolKind.Type)
                 return Finish(results, symbol, scope, typePart, null);
         }
@@ -89,6 +94,7 @@ public static class SymbolResolver
         }
 
         var types = FindTypes(scope, typePart).ToList();
+        if (types.Count == 0 && referenced) types = FindReferencedTypes(ws, scope, typePart).ToList();
         if (types.Count == 0)
             return Finish(results, symbol, scope, typePart, null);
 
@@ -98,9 +104,9 @@ public static class SymbolResolver
     }
 
     /// <summary>Resolves to exactly one symbol, or throws with the candidate list.</summary>
-    public static ResolvedSymbol ResolveOne(AssemblyWorkspace ws, string? assembly, string symbol, SymbolKind kind = SymbolKind.Any)
+    public static ResolvedSymbol ResolveOne(AssemblyWorkspace ws, string? assembly, string symbol, SymbolKind kind = SymbolKind.Any, bool referenced = false)
     {
-        var all = Resolve(ws, assembly, symbol, kind);
+        var all = Resolve(ws, assembly, symbol, kind, referenced);
         if (all.Count == 1)
             return all[0];
         throw new ToolError($"'{symbol}' is ambiguous ({all.Count} matches). Pass a parameter signature like Method(int, string), " +
@@ -163,6 +169,35 @@ public static class SymbolResolver
             var hits = all.Where(x => level(x.t)).Select(x => new ResolvedSymbol(x.a, x.t)).ToList();
             if (hits.Count > 0)
                 return hits;
+        }
+        return [];
+    }
+
+    /// <summary>
+    /// Types named like the query that the assemblies in scope reference but do not define, resolved to their
+    /// defining file (one per full name, so mscorlib's and System.Private.CoreLib's IDisposable are one).
+    /// </summary>
+    private static IEnumerable<ResolvedSymbol> FindReferencedTypes(AssemblyWorkspace ws, IReadOnlyList<LoadedAssembly> scope, string typeQuery)
+    {
+        var q = NormalizeTypeName(typeQuery);
+        bool HasNs(string s) => s.Contains('.') || s.Contains('/');
+        var refs = scope.SelectMany(a => a.Module.GetTypeRefs()).ToList();
+        var levels = new Func<TypeRef, bool>[]
+        {
+            t => t.FullName == q,
+            t => Dotted(t.FullName) == Dotted(q) || Dotted(StripAllArity(t.FullName)) == Dotted(q),
+            t => !HasNs(q) && (t.Name == q || Format.StripArity(t.Name) == q),
+        };
+        foreach (var level in levels)
+        {
+            var hits = new List<ResolvedSymbol>();
+            foreach (var group in refs.Where(level).GroupBy(t => t.FullName))
+            {
+                var def = group.Select(t => Services.MetadataUtil.Try(() => t.ResolveTypeDef())).FirstOrDefault(d => d != null);
+                if (def?.Module is ModuleDefMD module && Services.MetadataUtil.IsReferenceOnly(def))
+                    hits.Add(new ResolvedSymbol(ws.ReferenceView(module), def));
+            }
+            if (hits.Count > 0) return hits;
         }
         return [];
     }

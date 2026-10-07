@@ -177,6 +177,35 @@ public class ExportBuildTests
     }
 
     /// <summary>
+    /// Real libraries and apps (opt-in: NDM_EXPORT_REAL=1, a few minutes): each present one exports to a project that
+    /// builds with no errors. Paths are relative to the NuGet cache, else absolute.
+    /// </summary>
+    [Theory]
+    [InlineData(@"newtonsoft.json\13.0.4\lib\net6.0\Newtonsoft.Json.dll")]           // ambiguous framework type names
+    [InlineData(@"nlog\6.1.4\lib\netstandard2.1\NLog.dll")]                          // netstandard reference assembly
+    [InlineData(@"system.text.json\10.0.1\lib\net8.0\System.Text.Json.dll")]         // scoped spans, source generators, packages
+    [InlineData(@"sharpcompress\0.48.1\lib\net8.0\SharpCompress.dll")]               // primary constructors, struct enumerators
+    [InlineData(@"asmresolver.pe\6.0.0-beta.5\lib\net8.0\AsmResolver.PE.dll")]       // dependencies from the NuGet cache
+    [InlineData(@"iced\1.21.0\lib\netstandard2.1\Iced.dll")]                         // constructor parameters in field initializers
+    [InlineData(@"dnlib\4.5.0\lib\net6.0\dnlib.dll")]                                // bool used as int
+    [InlineData(@"zstdsharp.port\0.8.8\lib\net8.0\ZstdSharp.dll")]                   // negative constants as nuint
+    [InlineData(@"C:\Program Files\PowerShell\7\System.Management.Automation.dll")]  // InternalsVisibleTo by key, LINQ
+    [InlineData(@"%USERPROFILE%\Downloads\WindowTop.v5.31.8.Portable\WindowTop.exe")] // obfuscated, Costura, WPF, WinRT, .NET Framework
+    public void RealExport_Builds(string file)
+    {
+        if (Environment.GetEnvironmentVariable("NDM_EXPORT_REAL") != "1") return;
+        var path = Environment.ExpandEnvironmentVariables(file);
+        if (!Path.IsPathRooted(path))
+            path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages", path);
+        if (!File.Exists(path)) return;
+        using var dir = new TempDir();
+        using var env = new Env(path);
+        int failures = NetDecompilerMcp.Services.AstCleanup.Failures;
+        AssertBuilds(env, dir.File("out"));
+        Assert.True(failures == NetDecompilerMcp.Services.AstCleanup.Failures, NetDecompilerMcp.Services.AstCleanup.LastError); // no cleanup step failed on it
+    }
+
+    /// <summary>
     /// Opt-in survey (NDM_EXPORT_CORPUS = a file listing one assembly path per line): exports and builds each, and writes the
     /// error counts by code next to the list. Not an assertion: libraries whose dependencies are not resolvable fail for that.
     /// </summary>
@@ -195,7 +224,7 @@ public class ExportBuildTests
             var (_, errors) = Build(env, outDir);
             report.AppendLine($"{Path.GetFileName(path)}: {errors.Count} errors  " +
                               string.Join(", ", errors.GroupBy(e => Regex.Match(e, @"CS\d+").Value).OrderByDescending(g => g.Count()).Select(g => $"{g.Key}x{g.Count()}")));
-            foreach (var e in errors.Take(60)) report.AppendLine("    " + e);
+            foreach (var e in errors.Take(150)) report.AppendLine("    " + e);
         }
         File.WriteAllText(list + ".report.txt", report.ToString());
     }

@@ -350,6 +350,20 @@ public sealed class AssemblyWorkspace : IDisposable
     /// <paramref name="netFramework"/> for .NET Framework apps); else an assembly embedded in a loaded one (Costura);
     /// else any loaded assembly of that name. Null when nothing matches.
     /// </summary>
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<ModuleDef, LoadedAssembly> _referenceViews = new();
+
+    /// <summary>
+    /// A module read only to resolve references (System.Private.CoreLib, a dependency), presented as an assembly so
+    /// tools can name its types and members ("System.Private.CoreLib (reference)"). It is not part of the workspace.
+    /// </summary>
+    internal LoadedAssembly ReferenceView(ModuleDefMD module) => _referenceViews.GetValue(module, m =>
+    {
+        byte[] bytes = [];
+        try { if (File.Exists(m.Location)) bytes = File.ReadAllBytes(m.Location); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        return new LoadedAssembly($"{m.Assembly?.Name ?? m.Name} (reference)", string.IsNullOrEmpty(m.Location) ? m.Name : m.Location, bytes, (ModuleDefMD)m);
+    });
+
     public ReferenceTarget? LocateReference(string name, Version? version, byte[]? token, string? requesterPath, bool netFramework, string? requesterFramework = null)
     {
         // a .NET Framework app reads framework assemblies from .NET Framework itself, never from a loaded modern .NET
@@ -373,15 +387,24 @@ public sealed class AssemblyWorkspace : IDisposable
                 && fileMajor > targetMajor && Frameworks.SharedFrameworkOf(name, targetMajor) != "Microsoft.NETCore.App"
                 && Frameworks.NuGetFile(name, version, netFramework, requesterFramework) is { } fitting)
                 return new(null, fitting, null, null);
-            // a file of another major version loses to an assembly embedded next to the app
-            bool exact = version == null || Frameworks.IsWildcard(version) || FileVersion(file) is not { } v || Frameworks.IsWildcard(v) || v.Major == version.Major;
-            if (exact || FindEmbedded(name, token) is not { } embeddedFirst) return new(null, file, null, null);
-            return embeddedFirst;
+            // a file of another major version, or a modern runtime's copy for a .NET Framework app (System.Text.Json of
+            // .NET 5 for a net48 app), loses to an assembly embedded next to the app and to the package built for it
+            bool exact = (version == null || Frameworks.IsWildcard(version) || FileVersion(file) is not { } v || Frameworks.IsWildcard(v) || v.Major == version.Major)
+                         && !(netFramework && Frameworks.SharedFrameworkMajor(file) != null);
+            if (exact) return new(null, file, null, null);
+            if (FindEmbedded(name, token) is { } embeddedFirst) return embeddedFirst;
+            if (Frameworks.NuGetFile(name, version, netFramework, requesterFramework) is { } packageFirst
+                && (token is not { Length: > 0 } || TokenMatches(packageFirst, token)))
+                return new(null, packageFirst, null, null);
+            return new(null, file, null, null);
         }
         if (FindEmbedded(name, token) is { } embedded) return embedded;
         // a dependency restored by NuGet on this machine (the global packages folder)
         if (Frameworks.NuGetFile(name, version, netFramework, requesterFramework) is { } package && (token is not { Length: > 0 } || TokenMatches(package, token)))
             return new(null, package, null, null);
+        // a Windows Runtime component of an installed app package (Microsoft.Management.Deployment of winget)
+        if (Frameworks.InstalledPackageMetadata(name) is { } packaged)
+            return new(null, packaged, null, null);
         return FindReference(name, version, token, requesterPath) is { } any ? new(any, null, null, null) : null;
 
         // a framework file, unless the app ships its own copy next to it (that one wins)
@@ -470,6 +493,7 @@ public sealed class AssemblyWorkspace : IDisposable
                     try
                     {
                         module = ModuleDefMD.Load(target.Bytes ?? File.ReadAllBytes(target.File!), ws.DnlibContext);
+                        Services.MetadataUtil.MarkReferenceOnly(module);
                         // its own references then resolve from its folder too (an embedded one: from its host's)
                         module.Location = target.File ?? (requester != null ? Path.Combine(SafeDirectory(requester) ?? "", name + ".dll") : name + ".dll");
                         module.EnableTypeDefFindCache = true;

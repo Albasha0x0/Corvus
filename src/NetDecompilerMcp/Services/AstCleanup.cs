@@ -30,12 +30,22 @@ internal static class AstCleanup
         decompiler.AstTransforms.Add(new Guarded(new SetterOnlyAutoProperties()));
         decompiler.AstTransforms.Add(new Guarded(new BoolToIntCasts()));
         decompiler.AstTransforms.Add(new Guarded(new SourceGeneratorTriggers()));
+        decompiler.AstTransforms.Add(new Guarded(new OperatorNamedArguments()));
+        decompiler.AstTransforms.Add(new Guarded(new AccessorValueParameters()));
+        decompiler.AstTransforms.Add(new Guarded(new PositionalNamedArguments()));
+        decompiler.AstTransforms.Add(new Guarded(new UnconstrainedNew()));
+        decompiler.AstTransforms.Add(new Guarded(new RenamedEntryPoint()));
+        decompiler.AstTransforms.Add(new Guarded(new NullConditionalExtensionCalls()));
+        decompiler.AstTransforms.Add(new Guarded(new GenericDelegateDefaults()));
         if (Frameworks.PublicTypeNames(targetFramework) is { } frameworkTypes)
             decompiler.AstTransforms.Add(new Guarded(new FrameworkAmbiguousNames(frameworkTypes)));
     }
 
     /// <summary>How many times a cleanup failed and the engine output was kept (tests check it stays 0).</summary>
     internal static int Failures;
+
+    /// <summary>The last cleanup failure (tests and diagnostics).</summary>
+    internal static string? LastError;
 
     /// <summary>A cleanup that fails leaves the engine's output as it is, instead of failing the whole member.</summary>
     private sealed class Guarded(IAstTransform inner) : IAstTransform
@@ -47,6 +57,7 @@ internal static class AstCleanup
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 Interlocked.Increment(ref Failures);
+                LastError = $"{inner.GetType().Name}: {ex}";
             }
         }
     }
@@ -628,7 +639,9 @@ internal sealed class ScopedSpanLocals : IAstTransform
 
             var locals = body.Descendants.OfType<VariableDeclarationStatement>()
                 .Where(d => d.Variables.Count == 1 && (d.Modifiers & Modifiers.Scoped) == 0 && d.Type is not ComposedType { HasRefSpecifier: true } && IsSpan(d.Variables.Single()))
-                .ToDictionary(d => d.Variables.Single().Name, d => d);
+                // a name declared in several scopes is several variables: left as it is
+                .GroupBy(d => d.Variables.Single().Name).Where(g => g.Count() == 1)
+                .ToDictionary(g => g.Key, g => g.Single());
             if (locals.Count == 0) continue;
             // stack memory: stackalloc'd locals and scoped ones (the engine keeps `scoped` where metadata says so)
             var stack = body.Descendants.OfType<VariableDeclarationStatement>()
@@ -672,5 +685,216 @@ internal sealed class ScopedSpanLocals : IAstTransform
                 && assignment.Left is not IdentifierExpression) return true;
         }
         return false;
+    }
+}
+
+/// <summary>
+/// A user-defined operator call written as an operator but with the engine's named-argument marker kept on an
+/// operand (<c>RunAsVirtualAccount == second: false</c>): a syntax error (CS1003). The marker is dropped.
+/// </summary>
+internal sealed class OperatorNamedArguments : IAstTransform
+{
+    public void Run(AstNode rootNode, TransformContext context)
+    {
+        foreach (var named in rootNode.Descendants.OfType<NamedArgumentExpression>().ToList())
+            if (named.Parent is BinaryOperatorExpression or UnaryOperatorExpression)
+                named.ReplaceWith(named.Expression.Clone());
+    }
+}
+
+/// <summary>
+/// An obfuscator renamed the implicit <c>value</c> parameter of a setter / adder / remover (<c>set { field = num; }</c>):
+/// C# only knows it as <c>value</c> (CS0103). Uses of that parameter are renamed back.
+/// </summary>
+internal sealed class AccessorValueParameters : IAstTransform
+{
+    public void Run(AstNode rootNode, TransformContext context)
+    {
+        foreach (var accessor in rootNode.Descendants.OfType<Accessor>().ToList())
+        {
+            // only accessors that take a value: setters, init, event add / remove (an indexer getter's parameters are its indexes)
+            if (accessor.Body is not { } body || accessor.GetSymbol() is not IMethod { AccessorKind: System.Reflection.MethodSemanticsAttributes.Setter
+                    or System.Reflection.MethodSemanticsAttributes.Adder or System.Reflection.MethodSemanticsAttributes.Remover } method
+                || method.Parameters.Count == 0) continue;
+            // indexer setters: the index parameters come first, the value is the last one
+            int valueIndex = method.Parameters.Count - 1;
+            foreach (var use in body.Descendants.OfType<IdentifierExpression>().ToList())
+            {
+                if (use.Identifier == "value") continue;
+                // the accessor's own parameter, not a lambda's inside it (which has its own index 0)
+                bool isValue = use.GetILVariable() is { Kind: ICSharpCode.Decompiler.IL.VariableKind.Parameter } v
+                    ? v.Index == valueIndex && Equals(v.Function?.Method, method)
+                    : use.GetSymbol() is IParameter p && Equals(p.Owner, method) && p.Name == method.Parameters[valueIndex].Name;
+                if (isValue) use.Identifier = "value";
+            }
+        }
+    }
+}
+
+/// <summary>
+/// Named arguments whose names an obfuscator made unspeakable (a parameter named " " comes out as <c>_0020:</c>),
+/// so the call does not bind (CS1739). A named argument already in its parameter's position becomes positional.
+/// </summary>
+internal sealed class PositionalNamedArguments : IAstTransform
+{
+    public void Run(AstNode rootNode, TransformContext context)
+    {
+        foreach (var named in rootNode.Descendants.OfType<NamedArgumentExpression>().ToList())
+        {
+            if (IsPlainIdentifier(named.Name)) continue;
+            if (named.Parent is not { } call) continue;
+            var arguments = call switch
+            {
+                InvocationExpression i => i.Arguments.ToList(),
+                ObjectCreateExpression o => o.Arguments.ToList(),
+                ConstructorInitializer c => c.Arguments.ToList(),
+                _ => null,
+            };
+            if (arguments == null || call.GetSymbol() is not IParameterizedMember member) continue;
+            int position = arguments.IndexOf(named);
+            // every argument before it positional, and it sits where its parameter is
+            if (position < 0 || position >= member.Parameters.Count || arguments.Take(position).Any(a => a is NamedArgumentExpression)) continue;
+            named.ReplaceWith(named.Expression.Clone());
+        }
+    }
+
+    /// <summary>An identifier as a person writes it: letters, digits, underscore, no escaped character (_0020).</summary>
+    private static bool IsPlainIdentifier(string? name) =>
+        !string.IsNullOrEmpty(name) && (char.IsLetter(name[0]) || name[0] == '_') && name.All(c => char.IsLetterOrDigit(c) || c == '_')
+        && !System.Text.RegularExpressions.Regex.IsMatch(name, "_[0-9A-F]{4}");
+}
+
+/// <summary>
+/// <c>new T()</c> or <c>new T { ... }</c> for a type parameter without the <c>new()</c> constraint (an obfuscator
+/// dropped it; the IL calls <c>Activator.CreateInstance&lt;T&gt;()</c>, which needs that constructor anyway): CS0304.
+/// The constraint is put back on the type parameter's declaration.
+/// </summary>
+internal sealed class UnconstrainedNew : IAstTransform
+{
+    public void Run(AstNode rootNode, TransformContext context)
+    {
+        foreach (var create in rootNode.Descendants.OfType<ObjectCreateExpression>().ToList())
+        {
+            if (create.Arguments.Count > 0) continue;
+            if (create.GetResolveResult()?.Type is not ITypeParameter { HasDefaultConstructorConstraint: false, HasValueTypeConstraint: false } parameter) continue;
+            // the method or type that declares it, in this syntax tree
+            var owner = create.Ancestors.OfType<EntityDeclaration>()
+                .FirstOrDefault(d => d is MethodDeclaration or TypeDeclaration && d.GetSymbol() is { } symbol && Equals(symbol, parameter.Owner));
+            var constraints = owner switch
+            {
+                MethodDeclaration m => m.Constraints,
+                TypeDeclaration t => t.Constraints,
+                _ => null,
+            };
+            if (constraints == null) continue;
+            var constraint = constraints.FirstOrDefault(c => c.TypeParameter is SimpleType { Identifier: var n } && n == parameter.Name);
+            if (constraint == null)
+            {
+                constraint = new Constraint { TypeParameter = new SimpleType(parameter.Name) };
+                constraints.Add(constraint);
+            }
+            if (!constraint.BaseTypes.Any(b => b is PrimitiveType { Keyword: "new" }))
+                constraint.BaseTypes.Add(new PrimitiveType("new"));
+        }
+    }
+}
+
+/// <summary>
+/// An executable whose entry point an obfuscator renamed (<c>C7.SY::Ory()</c>): the runtime starts whatever method the
+/// header names, but C# needs a <c>Main</c> (CS5001). A <c>Main</c> calling it is added to its class, with its
+/// <c>[STAThread]</c>.
+/// </summary>
+internal sealed class RenamedEntryPoint : IAstTransform
+{
+    public void Run(AstNode rootNode, TransformContext context)
+    {
+        if (context.TypeSystem.MainModule.MetadataFile is not ICSharpCode.Decompiler.Metadata.PEFile pe) return;
+        int token = pe.Reader.PEHeaders.CorHeader?.EntryPointTokenOrRelativeVirtualAddress ?? 0;
+        if (token == 0 || (pe.Reader.PEHeaders.CorHeader!.Flags & System.Reflection.PortableExecutable.CorFlags.NativeEntryPoint) != 0) return;
+        foreach (var method in rootNode.Descendants.OfType<MethodDeclaration>().ToList())
+        {
+            if (method.GetSymbol() is not IMethod symbol || symbol.Name == "Main"
+                || System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(symbol.MetadataToken) != token) continue;
+            if (method.Parent is not TypeDeclaration type || type.Members.Any(m => m.Name == "Main")) continue;
+            var call = new InvocationExpression(new IdentifierExpression(method.Name ?? symbol.Name),
+                method.Parameters.Select(p => (Expression)new IdentifierExpression(p.Name ?? "")));
+            var main = new MethodDeclaration
+            {
+                Name = "Main",
+                Modifiers = Modifiers.Static,
+                ReturnType = method.ReturnType.Clone(),
+                Body = new BlockStatement
+                {
+                    symbol.ReturnType.IsKnownType(KnownTypeCode.Void) ? new ExpressionStatement(call) : new ReturnStatement(call),
+                },
+            };
+            foreach (var parameter in method.Parameters)
+                main.Parameters.Add((ParameterDeclaration)parameter.Clone());
+            foreach (var section in method.Attributes)
+                if (section.Attributes.Any(a => a.Type.GetSymbol() is ITypeDefinition { FullName: "System.STAThreadAttribute" or "System.MTAThreadAttribute" }))
+                    main.Attributes.Add((AttributeSection)section.Clone());
+            type.Members.InsertAfter(method, main);
+            return;
+        }
+    }
+}
+
+/// <summary>
+/// An extension method called on a null-conditional chain, written as a static call
+/// (<c>Enumerable.Contains(x?.GetInvocationList(), d)</c>): the call no longer short-circuits on null and its result
+/// is not nullable, so <c>... ?? true</c> does not compile (CS0019). Written as the extension call inside the chain:
+/// <c>x?.GetInvocationList().Contains(d)</c>.
+/// </summary>
+internal sealed class NullConditionalExtensionCalls : IAstTransform
+{
+    public void Run(AstNode rootNode, TransformContext context)
+    {
+        foreach (var call in rootNode.Descendants.OfType<InvocationExpression>().ToList())
+        {
+            if (call.Target is not MemberReferenceExpression { Target: TypeReferenceExpression } target) continue;
+            if (call.GetSymbol() is not IMethod { IsExtensionMethod: true } || call.Arguments.Count == 0) continue;
+            var first = call.Arguments.First();
+            if (first is UnaryOperatorExpression { Operator: UnaryOperatorType.NullConditionalRewrap } rewrap) first = rewrap.Expression;
+            if (!HasNullConditional(first)) continue;
+            var rest = call.Arguments.Skip(1).Select(a => a.Clone()).ToList();
+            var member = new MemberReferenceExpression(first.Clone(), target.MemberName, target.TypeArguments.Select(t => t.Clone()));
+            call.ReplaceWith(new InvocationExpression(member, rest));
+        }
+    }
+
+    /// <summary>A member-access chain (a?.B().C) with a null-conditional step in it.</summary>
+    private static bool HasNullConditional(Expression e)
+    {
+        while (true)
+        {
+            switch (e)
+            {
+                case UnaryOperatorExpression { Operator: UnaryOperatorType.NullConditional }: return true;
+                case InvocationExpression i: e = i.Target; break;
+                case MemberReferenceExpression m: e = m.Target; break;
+                case IndexerExpression x when x.Target is not null: e = x.Target; break;
+                default: return false;
+            }
+        }
+    }
+}
+
+/// <summary>
+/// The delegate type the compiler makes for a lambda with default parameters (<c>&lt;&gt;f__AnonymousDelegate0&lt;T1,
+/// TResult&gt;(T1 arg = true)</c>): the default belongs to the instantiation, and a generic parameter cannot have it
+/// (CS1750). Calls in IL pass every argument, so the default is dropped.
+/// </summary>
+internal sealed class GenericDelegateDefaults : IAstTransform
+{
+    public void Run(AstNode rootNode, TransformContext context)
+    {
+        foreach (var declaration in rootNode.Descendants.OfType<DelegateDeclaration>())
+        {
+            var typeParameters = declaration.TypeParameters.Select(t => t.Name).ToHashSet();
+            foreach (var parameter in declaration.Parameters)
+                if (parameter.DefaultExpression is { } value && value is not (NullReferenceExpression or DefaultValueExpression)
+                    && parameter.Type is SimpleType { TypeArguments.Count: 0, Identifier: { } name } && typeParameters.Contains(name))
+                    parameter.DefaultExpression = null!;
+        }
     }
 }

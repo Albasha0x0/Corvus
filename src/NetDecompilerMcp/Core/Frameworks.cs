@@ -249,6 +249,52 @@ internal static class Frameworks
         return null;
     }
 
+    private static readonly Lazy<IReadOnlyDictionary<string, string>> PackageMetadata = new(() =>
+    {
+        var map = new Dictionary<string, (string File, DateTime Written)>(StringComparer.OrdinalIgnoreCase);
+        if (!OperatingSystem.IsWindows()) return new Dictionary<string, string>();
+        foreach (var package in InstalledPackageFolders())
+        {
+            IEnumerable<string> files;
+            try { files = Directory.EnumerateFiles(package, "*.winmd").ToList(); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { continue; }
+            foreach (var file in files)
+            {
+                // several packages ship the same component (winget's API in App Installer and the Store): the newest file
+                var name = Path.GetFileNameWithoutExtension(file);
+                var written = File.GetLastWriteTimeUtc(file);
+                if (!map.TryGetValue(name, out var known) || known.Written < written) map[name] = (file, written);
+            }
+        }
+        return map.ToDictionary(kv => kv.Key, kv => kv.Value.File, StringComparer.OrdinalIgnoreCase);
+    });
+
+    /// <summary>
+    /// The root folders of the app packages installed for this user, from the package repository in the registry
+    /// (WindowsApps itself cannot be listed by a normal process, but each package folder can be read).
+    /// </summary>
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static IEnumerable<string> InstalledPackageFolders()
+    {
+        var folders = new List<string>();
+        try
+        {
+            using var packages = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                @"Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\Repository\Packages");
+            if (packages == null) return folders;
+            foreach (var name in packages.GetSubKeyNames())
+            {
+                using var key = packages.OpenSubKey(name);
+                if (key?.GetValue("PackageRootFolder") is string root && Directory.Exists(root)) folders.Add(root);
+            }
+        }
+        catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException) { }
+        return folders;
+    }
+
+    /// <summary>The Windows Runtime metadata (.winmd) of that name shipped by an installed app package, if any.</summary>
+    public static string? InstalledPackageMetadata(string name) => PackageMetadata.Value.GetValueOrDefault(name);
+
     private static Version ParseVersion(string s) => Version.TryParse(s.Split('-')[0], out var v) ? v : new Version(0, 0);
 
     private static IEnumerable<string> SubDirectories(string dir)
@@ -441,6 +487,28 @@ internal static class Frameworks
     /// <summary>The .NET Framework 4 file of an assembly of this name, if .NET Framework ships one.</summary>
     public static string? NetFrameworkFile(string name) =>
         NetFramework.Value.Select(d => Path.Combine(d, name + ".dll")).FirstOrDefault(File.Exists);
+
+    /// <summary>
+    /// The .NET Framework reference assemblies a project of <paramref name="targetFramework"/> (".NETFramework,Version=v4.8")
+    /// compiles against: the targeting pack under Reference Assemblies, or the Microsoft.NETFramework.ReferenceAssemblies
+    /// package. Null when neither is on this machine.
+    /// </summary>
+    public static IReadOnlyList<string>? NetFrameworkReferenceDirs(string? targetFramework)
+    {
+        if (targetFramework?.Split(",Version=v", 2) is not [var id, var ver] || !id.Equals(".NETFramework", StringComparison.OrdinalIgnoreCase)) return null;
+        var candidates = new List<string>
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Reference Assemblies", "Microsoft", "Framework", ".NETFramework", "v" + ver),
+        };
+        if (NuGetRoot.Value is { } nuget)
+        {
+            var package = Path.Combine(nuget, "microsoft.netframework.referenceassemblies.net" + ver.Replace(".", ""));
+            if (FirstExisting(package, d => Path.Combine(d, "build", ".NETFramework", "v" + ver, "mscorlib.dll")) is { } mscorlib)
+                candidates.Add(Path.GetDirectoryName(mscorlib)!);
+        }
+        var dir = candidates.FirstOrDefault(d => File.Exists(Path.Combine(d, "mscorlib.dll")));
+        return dir == null ? null : [dir, Path.Combine(dir, "Facades")];
+    }
 
     /// <summary>Whether an assembly of this name is part of .NET Framework 4.</summary>
     public static bool IsNetFrameworkAssembly(string name) => NetFramework.Value.Any(d => File.Exists(Path.Combine(d, name + ".dll")));

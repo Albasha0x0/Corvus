@@ -24,7 +24,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
         [Description("Max results (default 300).")] int limit = 300,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
-        var target = SymbolResolver.ResolveOne(workspace, assembly, symbol, SymbolResolver.ParseKind(kind));
+        var target = SymbolResolver.ResolveOne(workspace, assembly, symbol, SymbolResolver.ParseKind(kind), referenced: true);
         var r = references.FindReferences(target, includeVirtualCalls, ClampLimit(limit), cancellationToken);
         var sb = new StringBuilder($"References to {target.Kind} {target.Label} [{target.Assembly.Id}]: {r.Total}{TruncationNote(r.Items.Count, r.Total)}\n");
         if (r.Total == 0)
@@ -75,9 +75,9 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
         [Description("Index of the first result to return.")] int offset = 0,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
-        var sym = SymbolResolver.ResolveOne(workspace, assembly, method, SymbolKind.Method);
+        var sym = SymbolResolver.ResolveOne(workspace, assembly, method, SymbolKind.Method, referenced: true);
         var list = references.FindOverrides((MethodDef)sym.Member, cancellationToken);
         var rows = list.Select(o => $"{o.Label}  [{o.Assembly.Id}] {Format.Token(o.Member)}").ToList();
-        return $"Overrides / implementations of {sym.Label}:\n" + pager.PageRows(rows, offset, ClampLimit(limit), "override/implementation");
+        return $"Overrides / implementations of {sym.Label}  [{sym.Assembly.Id}]:\n" + pager.PageRows(rows, offset, ClampLimit(limit), "override/implementation");
     }, cancellationToken);
 }

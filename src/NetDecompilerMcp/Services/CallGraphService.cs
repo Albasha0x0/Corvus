@@ -16,7 +16,8 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
 {
     public sealed record Edge(MethodDef Method, uint Offset, string OpCode);
 
-    private sealed record Graph(long Key, Dictionary<MethodDef, List<Edge>> Callees, Dictionary<MethodDef, List<Edge>> Callers, Dictionary<MethodDef, List<string>> External)
+    private sealed record Graph(long Key, Dictionary<MethodDef, List<Edge>> Callees, Dictionary<MethodDef, List<Edge>> Callers, Dictionary<MethodDef, List<string>> External,
+        Dictionary<string, List<Edge>> ExternalCallers)
     {
         /// <summary>Base/interface declarations per method (resolution across assemblies is costly; asked once per method).</summary>
         public ConcurrentDictionary<MethodDef, MethodDef[]> Bases { get; } = new();
@@ -42,7 +43,7 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
         }
         var resolved = new ConcurrentDictionary<IMethod, MethodDef?>();
         var loadedModules = workspace.Assemblies.Select(a => a.Module).ToHashSet();
-        var edges = ParallelCollect<(MethodDef From, MethodDef? To, string? External, uint Offset, string Op)>(workspace.Assemblies, (asm, type, found) =>
+        var edges = ParallelCollect<(MethodDef From, MethodDef? To, string? External, MethodDef? ExternalDef, uint Offset, string Op)>(workspace.Assemblies, (asm, type, found) =>
         {
             foreach (var m in type.Methods)
                 foreach (var instr in FastIlReader.Instructions(asm, m))
@@ -50,17 +51,24 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
                     if (!IsCall(instr.OpCode.Code) || AsMethod(instr.Operand) is not { } op) continue;
                     var target = resolved.GetOrAdd(op, o => Try(() => (o is MethodSpec spec ? spec.Method : o).ResolveMethodDef()));
                     if (target != null && loadedModules.Contains(target.Module))
-                        found.Add((m, target, null, instr.Offset, instr.OpCode.Name));
+                        found.Add((m, target, null, null, instr.Offset, instr.OpCode.Name));
                     else
-                        found.Add((m, null, Format.MemberLabel(op), instr.Offset, instr.OpCode.Name));
+                        found.Add((m, null, Format.MemberLabel(op), target, instr.Offset, instr.OpCode.Name));
                 }
         }, ct);
 
         var callees = new Dictionary<MethodDef, List<Edge>>();
         var callers = new Dictionary<MethodDef, List<Edge>>();
         var external = new Dictionary<MethodDef, List<string>>();
-        foreach (var (from, to, ext, offset, op) in edges)
+        var externalCallers = new Dictionary<string, List<Edge>>(StringComparer.Ordinal);
+        foreach (var (from, to, ext, extDef, offset, op) in edges)
         {
+            if (extDef != null)
+            {
+                var k = ExternalKey(extDef);
+                if (!externalCallers.TryGetValue(k, out var callersOfExternal)) externalCallers[k] = callersOfExternal = new List<Edge>();
+                callersOfExternal.Add(new Edge(from, offset, op));
+            }
             if (to != null)
             {
                 Add(callees, from, new Edge(to, offset, op));
@@ -72,7 +80,7 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
                 if (!list.Contains(ext!)) list.Add(ext!);
             }
         }
-        var graph = new Graph(key, callees, callers, external);
+        var graph = new Graph(key, callees, callers, external, externalCallers);
         lock (_sync) _graph = graph;
         return graph;
     }
@@ -88,13 +96,21 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
     /// <summary>Direct callers, plus callers of the base/interface declarations (dispatching here at runtime).</summary>
     private static IEnumerable<(Edge Edge, MethodDef? Via)> CallersOf(Graph g, MethodDef m)
     {
-        foreach (var e in g.Callers.GetValueOrDefault(m) ?? [])
+        foreach (var e in Direct(m))
             yield return (e, null);
         if (!m.IsVirtual) yield break;
         foreach (var b in g.Bases.GetOrAdd(m, x => ReferenceService.BaseDeclarations(x).ToArray()))
-            foreach (var e in g.Callers.GetValueOrDefault(b) ?? [])
+            foreach (var e in Direct(b))
                 yield return (e, b);
+
+        // a framework or dependency method (Process.Start) is matched by name and signature: its callers may
+        // reference it through different files (mscorlib, System.Private.CoreLib)
+        List<Edge> Direct(MethodDef x) => g.Callers.GetValueOrDefault(x)
+            ?? (MetadataUtil.IsReferenceOnly(x) ? g.ExternalCallers.GetValueOrDefault(ExternalKey(x)) : null) ?? [];
     }
+
+    private static string ExternalKey(MethodDef m) =>
+        $"{m.DeclaringType?.FullName}::{m.Name}({Format.ParameterTypes(m.MethodSig)}){m.GenericParameters.Count}";
 
     // ------------------------------------------------------------------ trees
 

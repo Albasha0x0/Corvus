@@ -128,7 +128,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         [Description("Max derived types to list (default 200).")] int limit = 200,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
-        var sym = SymbolResolver.ResolveOne(workspace, assembly, type, SymbolKind.Type);
+        var sym = SymbolResolver.ResolveOne(workspace, assembly, type, SymbolKind.Type, referenced: true);
         var t = (TypeDef)sym.Member;
         var h = references.GetHierarchy(t, ClampLimit(limit), cancellationToken);
         var sb = new StringBuilder($"{Format.TypeHeader(t)}   [{sym.Assembly.Id}]\n");
