@@ -209,7 +209,16 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
 
         var (full, bytes) = ReadFile(path!);
         var facts = Facts(full, bytes);
-        var managed = UnpackService.Managed(full, Limits, ct);
+        var fileHighlights = new List<string>();
+        if (facts.Certificate is { Present: true } fileSig) fileHighlights.AddRange(SignatureHighlights(fileSig, "the file"));
+        if (GameLayout.FileHint(full, bytes) is { } layout) fileHighlights.Add(layout);
+        (string Source, string Container, List<UnpackService.ManagedAssembly> Assemblies, List<string> Notes) managed;
+        try { managed = UnpackService.Managed(full, Limits, ct); }
+        catch (ToolError ex)
+        {
+            // a damaged container: the file facts still stand
+            return new FileSummary(facts, "unreadable container", [], [.. fileHighlights, $"The file is damaged: {ex.Message}"], [ex.Message]);
+        }
         var reportNotes = new List<string>(managed.Notes);
         var summarized = new List<AssemblySummary>();
         // The app's own code first: the host file, the assembly named like the file, other libraries; framework
@@ -238,9 +247,11 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
             }
             catch (ToolError ex)
             {
-                // the file is the assembly: nothing else to report on. In a container, the other assemblies still are.
-                if (managed.Container.StartsWith("none", StringComparison.Ordinal)) throw;
+                // a damaged assembly (truncated, metadata overwritten): reported, with the file facts; in a container
+                // the other assemblies are still summarized
                 reportNotes.Add(ex.Message);
+                if (managed.Container.StartsWith("none", StringComparison.Ordinal))
+                    fileHighlights.Add($"The .NET metadata is damaged: {ex.Message}");
             }
         }
         foreach (var (identity, paths) in copies.Where(c => c.Value.Count > 0))
@@ -256,8 +267,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
         if (managed.Assemblies.Count == 0)
             reportNotes.Add("No managed assemblies inside: nothing to summarize beyond the file facts.");
 
-        var highlights = new List<string>();
-        if (facts.Certificate is { Present: true } sig) highlights.AddRange(SignatureHighlights(sig, "the file"));
+        var highlights = new List<string>(fileHighlights);
         foreach (var (assemblyPath, list) in found)
             highlights.AddRange(found.Count == 1 ? list : list.Select(h => $"[{assemblyPath}] {h}"));
         return new FileSummary(facts, managed.Container, summarized, highlights.Distinct().ToList(), reportNotes);
@@ -346,9 +356,14 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
         }
         var packing = new PackingFacts(embedded, listed, sections) { EmbeddedAssemblyTotal = embeddedTotal };
 
-        // the summary keeps the first evidence line with one location; survey_features has them all
+        // the summary keeps the most specific evidence line (a string or native import before a common API) with one
+        // location; survey_features has them all
         var features = Features.Detect(scan, ct)
-            .Select(f => f with { Evidence = f.Evidence.Take(1).Select(e => e with { Locations = e.Locations.Take(1).ToList() }).ToList() }).ToList();
+            .Select(f => f with
+            {
+                Evidence = f.Evidence.OrderBy(e => e.Feature.StartsWith("api:", StringComparison.Ordinal) ? 1 : 0).Take(1)
+                    .Select(e => e with { Locations = e.Locations.Take(1).ToList() }).ToList(),
+            }).ToList();
         var values = Values.Find(scan, contents, ct);
         var valueSummary = new ValueSummary(values.Count, values.GroupBy(i => i.Type).ToDictionary(g => g.Key, g => g.Count()), values.Take(TopValues).ToList());
         var entryPoints = EntryPoints.Find(module, image);
@@ -444,7 +459,9 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
         if (signature.Certificate is { Present: true } sig) h.AddRange(SignatureHighlights(sig, "the assembly"));
         if (identity.Merged != null) h.Add(identity.Merged);
         if (packing.EmbeddedAssemblyTotal > 0) h.Add($"{packing.EmbeddedAssemblyTotal} embedded assembly(ies) (Costura or similar).");
-        foreach (var p in packing.Contents.Take(5))
+        // Costura's embedded assemblies and their PDBs are counted above, not listed one by one
+        foreach (var p in packing.Contents.Where(c => !(c.Source.StartsWith("resource 'costura.", StringComparison.OrdinalIgnoreCase)
+                                                         && c.Kind is ".NET assembly" or "portable pdb" or "pdb")).Take(5))
         {
             var how = p.Encoding.Count > 0 ? $", encoded as {string.Join(" > ", p.Encoding)}" : "";
             h.Add(p.Kind.StartsWith("high-entropy", StringComparison.Ordinal)

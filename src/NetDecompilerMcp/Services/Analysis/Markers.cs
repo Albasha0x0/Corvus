@@ -79,7 +79,7 @@ public static class Markers
                         && sig.Params.All(p => p?.ElementType is ElementType.I4 or ElementType.U4 or ElementType.I8))
             .GroupBy(c => (MethodDef)c.Target)
             .Select(g => (Method: g.Key, Callers: g.Select(c => c.Caller).Distinct().Count()))
-            .Where(x => x.Callers >= DecryptorMinCallers)
+            .Where(x => x.Callers >= DecryptorMinCallers && LooksLikeDecoder(x.Method))
             .OrderByDescending(x => x.Callers).Take(3);
         foreach (var (method, callers) in decryptors)
             indicators.Add($"Possible string decryptor {Format.MemberLabel(method)}: an int -> string method called from {callers} methods.");
@@ -99,6 +99,41 @@ public static class Markers
         : name == marker;
 
     /// <summary>Not a plausible hand-written identifier: control / private-use / zero-width characters, or 1-2 characters.</summary>
+    /// <summary>
+    /// Whether an int -> string method decodes something: XOR, an element of a static array or string, or a decoding
+    /// call (Encoding.GetString, Convert.FromBase64String, String.Intern of a built string). Formatting helpers
+    /// (padding, number to text) do none of these.
+    /// </summary>
+    private static bool LooksLikeDecoder(MethodDef method)
+    {
+        var body = MetadataUtil.SafeInstructions(method);
+        if (body.Count == 0) return true; // no readable body (encrypted / native): keep the call-count finding
+        bool staticData = false, element = false;
+        foreach (var i in body)
+        {
+            switch (i.OpCode.Code)
+            {
+                case dnlib.DotNet.Emit.Code.Xor:
+                    return true;
+                case dnlib.DotNet.Emit.Code.Ldsfld or dnlib.DotNet.Emit.Code.Ldsflda:
+                    if (i.Operand is IField f && (f.FieldSig?.Type is SZArraySig || f.FieldSig?.Type?.ElementType == ElementType.String || i.OpCode.Code == dnlib.DotNet.Emit.Code.Ldsflda))
+                        staticData = true;
+                    break;
+                case dnlib.DotNet.Emit.Code.Call or dnlib.DotNet.Emit.Code.Callvirt:
+                    var target = (i.Operand as IMethod)?.FullName ?? "";
+                    if (target.Contains("Encoding::GetString", StringComparison.Ordinal) || target.Contains("Convert::FromBase64", StringComparison.Ordinal)
+                        || target.Contains("System.String::Intern", StringComparison.Ordinal))
+                        return true;
+                    if (target.Contains("System.String::get_Chars", StringComparison.Ordinal)) element = true;
+                    break;
+                default:
+                    if (i.OpCode.Code.ToString().StartsWith("Ldelem", StringComparison.Ordinal)) element = true;
+                    break;
+            }
+        }
+        return staticData && element;
+    }
+
     internal static bool IsUnreadable(string name)
     {
         var bare = name.Split('`')[0];

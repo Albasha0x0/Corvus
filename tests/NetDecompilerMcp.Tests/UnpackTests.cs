@@ -264,7 +264,11 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         var corelib = Entry(r, "System.Private.CoreLib.dll");
         Assert.Equal(".NET assembly", corelib.Kind);
         Assert.Contains("deflate", corelib.Origin);
-        Assert.True(r.Files.Count(f => f.Kind == ".NET assembly") > 100, $"only {r.Files.Count} files");
+        // the whole runtime is extracted; the report lists 100 (the app first) and counts the rest
+        Assert.True(Directory.EnumerateFiles(r.OutputDirectory, "*.dll", SearchOption.AllDirectories).Count() > 100);
+        Assert.Equal(UnpackService.MaxListed, r.Files.Count);
+        Assert.Equal("Hello.dll", Path.GetFileName(r.Files.First(f => f.Kind == ".NET assembly").Path));
+        Assert.Contains(r.Notes, n => n.Contains($"; {UnpackService.MaxListed} listed (the app's assemblies first"));
         Assert.DoesNotContain(r.Notes, n => n.StartsWith("Skipped"));
     }
 

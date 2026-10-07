@@ -619,6 +619,13 @@ public class InspectionTests : IDisposable
             foreach (var (label, (path, error)) in inputs)
             {
                 var r = await client.CallToolAsync(tool, new Dictionary<string, object?> { ["path"] = path });
+                if (tool == "summarize_file" && label != "missing")
+                {
+                    // a damaged assembly: the file facts, with the damage as a highlight
+                    Assert.NotEqual(true, r.IsError);
+                    Assert.Contains("The .NET metadata is damaged: ", string.Join("\n", r.Content.OfType<TextContentBlock>().Select(c => c.Text)));
+                    continue;
+                }
                 var text = string.Join("\n", r.Content.OfType<TextContentBlock>().Select(c => c.Text));
                 Assert.True(r.IsError == true, $"{tool} / {label}: {text}");
                 Assert.Contains(error, text);

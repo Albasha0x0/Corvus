@@ -19,7 +19,11 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
 
     /// <summary>The workspace; plus, when list_assemblies is given a path, the managed assemblies inside that file.</summary>
     public sealed record WorkspaceState(IReadOnlyList<AssemblyEntry> Assemblies, IReadOnlyList<string> SearchDirectories, string BackgroundIndexing,
-        UnpackService.ContainerListing? Container = null);
+        UnpackService.ContainerListing? Container = null)
+    {
+        /// <summary>Loaded assemblies matching the filter (Assemblies is one page of them).</summary>
+        public int Total { get; init; }
+    }
 
     [McpServerTool(Name = "load_assembly", Title = "Load assembly", Idempotent = true, OpenWorld = false)]
     [Description("Load a .NET assembly (.dll/.exe) or every assembly in a directory (e.g. a Unity game's *_Data/Managed or an Il2CppDumper DummyDll folder). " +
@@ -43,6 +47,12 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         }
 
         var report = workspace.LoadDirectory(path, recursive, (done, total, file) => Report(progress, done, total, $"Loading {Path.GetFileName(file)}"));
+        return FormatLoad(workspace, path, report);
+    }, cancellationToken));
+
+    /// <summary>The message for a folder load: what loaded, native files in one line, damaged ones, game-layout hints.</summary>
+    internal static string FormatLoad(AssemblyWorkspace workspace, string path, AssemblyWorkspace.LoadReport report)
+    {
         var sb = new StringBuilder($"Loaded {Plural(report.Loaded.Count, "assembly")} from {Path.GetFullPath(path)}");
         if (report.Skipped.Count > 0) sb.Append($"; skipped {report.Skipped.Count} non-.NET/unreadable file(s)");
         sb.AppendLine(".");
@@ -52,32 +62,50 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                 sb.AppendLine($"  {a.Id}  ({MetadataUtil.CountedTypes(a.Module).Count} types)");
             return 0;
         });
-        foreach (var (file, error) in report.Skipped.Take(20))
+        // native DLLs (runtimes, plugins) in one line; other failures (damaged assemblies) one by one
+        var native = report.Skipped.Where(s => s.Error.Contains(".NET data directory", StringComparison.Ordinal)
+                                               || s.Error.Contains("Invalid DOS signature", StringComparison.Ordinal)).ToList();
+        if (native.Count > 0)
+            sb.AppendLine($"  skipped {Plural(native.Count, "native or non-PE file")}: " +
+                          string.Join(", ", native.Take(15).Select(s => Path.GetFileName(s.Path))) + (native.Count > 15 ? $", … {native.Count - 15} more" : ""));
+        var damaged = report.Skipped.Except(native).ToList();
+        foreach (var (file, error) in damaged.Take(20))
             sb.AppendLine($"  skipped {Path.GetFileName(file)}: {Format.Clip(error, 160)}");
-        if (report.Skipped.Count > 20) sb.AppendLine($"  … {report.Skipped.Count - 20} more skipped");
+        if (damaged.Count > 20) sb.AppendLine($"  … {damaged.Count - 20} more skipped");
+        foreach (var hint in Services.Analysis.GameLayout.FolderHints(path))
+            sb.AppendLine($"Note: {hint}");
         return sb.ToString();
-    }, cancellationToken));
+    }
 
     [McpServerTool(Name = "list_assemblies", Title = "List loaded assemblies", ReadOnly = true, OpenWorld = false, UseStructuredContent = true)]
     [Description("Loaded assemblies with their ids (use the id in other tools), versions, paths, whether they are Il2Cpp dummy DLLs, " +
                  "ReadyToRun (precompiled native code next to the IL), merged (ILMerge / ILRepack output, with the original module count), " +
-                 "and unsaved edits; plus the reference search directories. Pass path instead to list the managed assemblies inside a " +
+                 "and unsaved edits (paged: filter, offset, limit — total has the full count); plus the reference search directories. Pass path instead to list the managed assemblies inside a " +
                  "container file (single-file bundle, .nupkg, .apk / .aab, Costura host, zip) without extracting or loading them " +
                  "(only the container is listed then, not the workspace); unpack_container extracts and loads them.")]
     public Task<WorkspaceState> ListAssemblies(
         [Description("Optional: a container file whose managed assemblies to list (a plain assembly lists itself).")] string? path = null,
+        [Description("Only loaded assemblies whose id, name or path contains this text (case-insensitive).")] string? filter = null,
+        [Description("Index of the first loaded assembly to return.")] int offset = 0,
+        [Description("Max loaded assemblies to return (default 100; total has the full count).")] int limit = 100,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         var container = path == null ? null : unpacker.List(path, AnalysisLimits.Default, cancellationToken);
         if (container != null) // a question about the file: the workspace (possibly hundreds of assemblies) is not repeated
             return new WorkspaceState([], [], indexing.Status, container);
-        return workspace.Read(() => new WorkspaceState(
-            workspace.Assemblies.Select(a => new AssemblyEntry(a.Id, a.FullAssemblyName, a.Module.Assembly?.Version?.ToString() ?? "", a.FilePath,
-                MetadataUtil.CountedTypes(a.Module).Count, il2cpp.GetIndex(a).Count > 0, a.Edits.Select(e => e.Description).ToList(),
-                AssemblyTraits.IsReadyToRun(a.OriginalBytes), AssemblyTraits.MergeNote(a.Module))).ToList(),
-            workspace.SearchDirectories,
-            indexing.Status,
-            container));
+        return workspace.Read(() =>
+        {
+            var matching = workspace.Assemblies.Where(a => filter == null || a.Id.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                                                           || a.FullAssemblyName.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                                                           || a.FilePath.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+            return new WorkspaceState(
+                matching.Skip(Math.Max(0, offset)).Take(ClampLimit(limit, 1000)).Select(a => new AssemblyEntry(a.Id, a.FullAssemblyName,
+                    a.Module.Assembly?.Version?.ToString() ?? "", a.FilePath, MetadataUtil.CountedTypes(a.Module).Count, il2cpp.GetIndex(a).Count > 0,
+                    a.Edits.Select(e => e.Description).ToList(), AssemblyTraits.IsReadyToRun(a.OriginalBytes), AssemblyTraits.MergeNote(a.Module))).ToList(),
+                workspace.SearchDirectories,
+                indexing.Status,
+                container) { Total = matching.Count };
+        });
     }, cancellationToken);
 
     [McpServerTool(Name = "unload_assembly", Title = "Unload assembly", Idempotent = true, OpenWorld = false)]

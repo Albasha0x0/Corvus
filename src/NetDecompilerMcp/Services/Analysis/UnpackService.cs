@@ -62,9 +62,29 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         // a managed host (Costura, embedded images) holds the app's own code: list it, and load it with the rest
         if (Blob.Identify(data) == DotNet && walked.Container != "none")
             files.Insert(0, new UnpackedFile(source, DotNet, data.Length, sha, HostOrigin, null, AssemblyTraits.IsReadyToRun(data), Inspect(data)?.Merged));
+        // an apphost launcher: the application is the .dll next to it
+        if (AppNextToApphost(source, walked.Container, limits) is { } app)
+            files.Insert(0, new UnpackedFile(app.Path, DotNet, app.Bytes.Length, Blob.Sha256(app.Bytes), ApphostAppOrigin, null,
+                AssemblyTraits.IsReadyToRun(app.Bytes), Inspect(app.Bytes)?.Merged));
         if (load) LoadAssemblies(files, notes);
+        if (files.Count > MaxListed)
+        {
+            // a self-contained bundle holds the whole runtime: list the app's assemblies, count the rest
+            int total = files.Count;
+            files = files.OrderBy(f => ListOrder(f.Origin, f.Path, f.Kind == DotNet)).Take(MaxListed).ToList();
+            notes.Add($"{total} files written to {root}; {MaxListed} listed (the app's assemblies first, translations and other files last).");
+        }
         return new UnpackReport(source, walked.Container, root, files, notes);
     }
+
+    /// <summary>Most entries a listing returns (the rest are counted in its notes).</summary>
+    internal const int MaxListed = 100;
+
+    /// <summary>List order: the host / apphost app, assemblies, satellite (translation) assemblies, other files.</summary>
+    private static int ListOrder(string origin, string path, bool assembly) =>
+        origin == HostOrigin || origin == ApphostAppOrigin ? 0
+        : !assembly ? 3
+        : Path.GetFileNameWithoutExtension(path).EndsWith(".resources", StringComparison.OrdinalIgnoreCase) ? 2 : 1;
 
     /// <summary>
     /// The managed assemblies inside a container, without writing anything. A plain assembly lists itself.
@@ -73,8 +93,15 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     public ContainerListing List(string path, AnalysisLimits limits, CancellationToken ct)
     {
         var managed = Managed(path, limits, ct);
+        var assemblies = managed.Assemblies;
+        if (assemblies.Count > MaxListed)
+        {
+            managed.Notes.Add($"{assemblies.Count} assemblies; {MaxListed} listed (the app's first, translations last). search_container finds " +
+                              "types and members in all of them; unpack_container extracts them.");
+            assemblies = assemblies.OrderBy(a => ListOrder(a.Origin, a.Path, true)).Take(MaxListed).ToList();
+        }
         return new ContainerListing(managed.Source, managed.Container,
-            managed.Assemblies.Select(a => Describe(a.Path, a.Bytes, a.Sha256, a.Origin)).ToList(), managed.Notes);
+            assemblies.Select(a => Describe(a.Path, a.Bytes, a.Sha256, a.Origin)).ToList(), managed.Notes);
     }
 
     /// <summary>A symbol found by <see cref="Search"/>: where it lives in the container, and what it is.</summary>
@@ -176,7 +203,28 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             // a managed file that embeds others (Costura host, assembly with embedded images): its own code comes first
             assemblies.Insert(0, new ManagedAssembly(Path.GetFileName(source), data, sha, HostOrigin));
         }
+        else if (AppNextToApphost(source, container, limits) is { } app)
+        {
+            assemblies.Insert(0, new ManagedAssembly(Path.GetFileName(app.Path), app.Bytes, Blob.Sha256(app.Bytes), ApphostAppOrigin));
+            walked.Notes.Add($"Using the application next to the launcher: {Path.GetFileName(app.Path)}.");
+        }
         return (source, container, assemblies, walked.Notes);
+    }
+
+    internal const string ApphostAppOrigin = "the application next to the apphost launcher";
+
+    /// <summary>For an apphost launcher without a bundle: the managed .dll of the same name next to it, if there is one.</summary>
+    private static (string Path, byte[] Bytes)? AppNextToApphost(string source, string container, AnalysisLimits limits)
+    {
+        if (!container.StartsWith(".NET apphost", StringComparison.Ordinal)) return null;
+        var dll = Path.ChangeExtension(source, ".dll");
+        try
+        {
+            if (!File.Exists(dll) || new FileInfo(dll).Length > limits.MaxTotalBytes) return null;
+            var bytes = File.ReadAllBytes(dll);
+            return Blob.Identify(bytes) == DotNet ? (dll, bytes) : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
     }
 
     private static ContainedAssembly Describe(string path, byte[] bytes, string sha, string origin)
