@@ -29,7 +29,7 @@ of the next tool result, plus best-effort `resources/list_changed` and log notif
 | Containers | `unpack_container` (single-file bundles, Costura, NuGet, Xamarin / MAUI APKs, embedded images; extracts and loads the assemblies, each labelled ReadyToRun / merged) · `search_container` (types and members by name across every assembly in a container, without extracting; capped, with a truncation flag). See [Unpacking containers](#unpacking-containers) |
 | File inspection | `summarize_file` (one report: hashes, identity, strong name and Authenticode with digest check, protector markers, packing, features, typed strings, entry points; opens containers) · `survey_features` (capa-style rules over APIs, P/Invoke imports and strings, with ATT&CK techniques and evidence) · `extract_strings` (URLs, domains, IPs, paths, registry keys, mutexes, user agents, crypto keys; JSON / CSV export) · `extract_embedded` (resources, static arrays and strings decoded through base64 / hex / gzip / deflate / XOR). See [File inspection](#file-inspection) |
 | Il2Cpp | `get_il2cpp_info` (RVA, VA, file offset, slot, field offsets, tokens) · `find_method_by_address` (IDA/Ghidra address formats; exact start or containing method) · `export_il2cpp_symbols` (IDA and Ghidra scripts that name every function, a C header with struct layouts, and JSON) |
-| Native bindings | `generate_cpp_binding` (C++ binding for a type in a Mono game or app: class lookup, field/static offsets, method lookups with exact overloads, typed accessors and invoke wrappers. `style=mono` (default) is a self-contained header on the standard Mono embedding API, loaded from the runtime's exports; `style=hostapi` targets plugin frameworks whose host passes a HostApi table) |
+| Native bindings | `generate_cpp_binding` (C++ binding for a type in a Mono game or app: class lookup, field/static offsets, method lookups with exact overloads, typed accessors and invoke wrappers. Style `mono`: a self-contained header on the standard Mono embedding API. Style `hostapi`: for projects whose host passes a function table; with `projectDir`, the table, its handle types, the helpers' headers and namespace are detected and `#include` paths are computed relative to `headerPath`. Without `style`: detected from `projectDir`, else the server's `--binding-style`, else `mono`; the header's first line says which and why) |
 | Patch (in memory, `dryRun` on all) | `rename_symbol` · `rename_namespace` · `stub_method` · `patch_method_csharp` (new body in C#: lambdas, async, `yield`, LINQ, private/internal members accessible) · `add_members_csharp` (new methods, fields, properties, nested types) · `add_types_csharp` (whole new classes) · `patch_method_il` (IL assembler that accepts edited `get_il` output; replace or prepend) · `save_assembly` (never overwrites without `overwrite=true`, keeps `.bak`, atomic write) |
 | Edit history | `list_edits` · `diff_edits` (before/after decompiled C# of pending edits) · `undo_edit` · `revert_edits` · `export_edits` / `apply_edits` (replayable JSON edit scripts: re-apply a patch set to a new game build) |
 
@@ -257,7 +257,7 @@ are unset:
 | `NDM_COMPARE_OLD_DIR`, `NDM_COMPARE_NEW_DIR` | Two builds of the same app | build comparison |
 | `NDM_COMPARE_ASSEMBLY` | Optional: the assembly to compare (default: the largest application assembly in both) | build comparison |
 | `NDM_COMPARE_EXPECT` | Optional: known type moves to check, `Old.Name=>New.Name;Old2=>New2` | build comparison |
-| `NDM_HOSTAPI_INCLUDE_DIR` | Include folder of a HostApi plugin framework | `style=hostapi` bindings compile against its headers |
+| `NDM_HOSTAPI_PROJECT_DIR` | Root of a C/C++ project with a host function table | `hostapi` detection on a real project; bindings compile against its headers |
 
 The generated C, C++ and Python are compiled or parsed with clang (`C:\Program Files\LLVM\bin`) and python when
 they are installed.
@@ -297,6 +297,8 @@ args = ['--load', 'D:\Game\Managed']
 | `--timeout <seconds>` | Per-call decompilation timeout (default 180; `export_project` gets 10×). |
 | `--no-index` | Don't index method bodies and build the call graph in the background after loading. |
 | `--no-watch` | Don't watch loaded files or reload them when they change on disk. |
+| `--binding-style <mono\|hostapi>` | `generate_cpp_binding` style when a call gives none and no host table is detected (default `mono`). |
+| `--binding-project <dir>` | Project directory `generate_cpp_binding` scans for a host table when a call gives no `projectDir`. |
 
 Logs go to stderr; stdout is reserved for the protocol.
 

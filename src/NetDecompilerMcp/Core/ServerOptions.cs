@@ -8,6 +8,8 @@ namespace NetDecompilerMcp.Core;
 ///   --timeout &lt;seconds&gt;  per-call decompilation timeout (default 180)
 ///   --no-index            do not index method bodies / build the call graph in the background
 ///   --no-watch            do not reload assemblies when their files change on disk
+///   --binding-style &lt;s&gt;  default generate_cpp_binding style when none is requested or detected: mono or hostapi
+///   --binding-project &lt;d&gt; default project directory scanned for a host table by generate_cpp_binding
 /// The NETDECOMP_LOAD environment variable (';'-separated paths) is also honored.
 /// </summary>
 public sealed class ServerOptions
@@ -23,6 +25,12 @@ public sealed class ServerOptions
     /// <summary>Reload assemblies that change on disk (default on).</summary>
     public bool WatchFiles { get; set; } = true;
 
+    /// <summary>generate_cpp_binding style used when none is requested and no host table is detected (null: "mono").</summary>
+    public string? BindingStyle { get; set; }
+
+    /// <summary>Project directory generate_cpp_binding scans for a host table when the call gives none.</summary>
+    public string? BindingProject { get; set; }
+
     public static ServerOptions Parse(string[] args)
     {
         var o = new ServerOptions();
@@ -37,6 +45,11 @@ public sealed class ServerOptions
                 case "--timeout": o.TimeoutSeconds = Math.Max(5, int.Parse(Next())); break;
                 case "--no-index": o.BackgroundIndexing = false; break;
                 case "--no-watch": o.WatchFiles = false; break;
+                case "--binding-style":
+                    var style = Next().Trim().ToLowerInvariant();
+                    o.BindingStyle = style is "mono" or "hostapi" ? style : throw new ArgumentException($"--binding-style must be mono or hostapi, not '{style}'");
+                    break;
+                case "--binding-project": o.BindingProject = Next(); break;
                 default: throw new ArgumentException($"Unknown argument '{args[i]}'");
             }
         }

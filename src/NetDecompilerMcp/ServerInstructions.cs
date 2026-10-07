@@ -23,7 +23,7 @@ internal static class ServerInstructions
            renamed types/members and changed offsets forward; export_edits + apply_edits re-applies a patch set to the new build.
         6. Il2Cpp dummy DLLs have empty bodies: get_il2cpp_info (RVAs, field offsets), find_method_by_address (native address -> method),
            export_il2cpp_symbols (IDA/Ghidra scripts + C struct header). generate_cpp_binding emits C++ binding code for a Mono type
-           (standard Mono embedding API by default; style=hostapi for host-provided plugin APIs).
+           (standard Mono embedding API, or a host function table detected in projectDir with the include paths computed).
         7. Patch in memory (dryRun=true previews): rename_symbol, rename_namespace, stub_method, patch_method_csharp (C# body; lambdas,
            async, LINQ supported), add_members_csharp, add_types_csharp, patch_method_il. Review with list_edits / diff_edits, undo with
            undo_edit / revert_edits, then save_assembly (never overwrites the original without overwrite=true; keeps a .bak).

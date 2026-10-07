@@ -102,7 +102,10 @@ public class CppBindingTests : IDisposable
         Assert.Contains("int32_t Health(const HostApi* h, const void* obj) const { return ReadField<int32_t>(h, obj, m_healthOff); }", code);
         Assert.Contains("h->GetMethod(klass, \"CheckLicense\", 0);", code);
         Assert.Contains("return CallValue<bool>(h, m_getIsAlive, obj);", code);
-        Assert.Contains("namespace plugin {", code);
+        // no project to read: no includes or namespace are made up, the header says what to include
+        Assert.DoesNotContain("#include", code);
+        Assert.DoesNotContain("namespace", code);
+        Assert.Contains("// Include the header that defines HostApi and the helpers this code calls", code);
     }
 
     [Fact]
@@ -116,19 +119,187 @@ public class CppBindingTests : IDisposable
         Assert.Contains("GetMethodInHierarchy", Generate("Boss", inherited: true, style: "hostapi"));
     }
 
-    /// <summary>The hostapi output compiles against a real HostApi framework's headers (NDM_HOSTAPI_INCLUDE_DIR).</summary>
-    [RequiresRealDataFact(RealData.HostApiIncludeDir)]
+    /// <summary>
+    /// A real HostApi project (NDM_HOSTAPI_PROJECT_DIR, its root): detected without a style argument, and the output
+    /// compiles from a folder outside the project with the computed include paths.
+    /// </summary>
+    [RequiresRealDataFact(RealData.HostApiProjectDir)]
     public void HostApiBindingsCompileAgainstRealHeaders()
     {
-        if (!File.Exists(ClangPlusPlus)) return;
-        var include = RealData.Path(RealData.HostApiIncludeDir);
+        var project = RealData.Path(RealData.HostApiProjectDir);
         using var dir = new TempDir();
         foreach (var type in new[] { "Player", "Shop", "Boss" })
         {
-            File.WriteAllText(dir.File(type + ".h"), Generate(type, inherited: true, style: "hostapi"));
-            File.WriteAllText(dir.File(type + ".cpp"), $"#include \"{type}.h\"\nint main() {{ plugin::{type}Binding b; return b.Resolved() ? 0 : 1; }}\n");
-            var (code, text) = Tools.Run(ClangPlusPlus, $"-std=c++20 -fsyntax-only -I \"{include}\" -I \"{dir.Path}\" \"{dir.File(type + ".cpp")}\"");
+            var header = dir.File(type + ".h");
+            var target = CppBindingGenerator.ChooseStyle(null, project, header, null, default);
+            Assert.Equal("hostapi", target.Style);
+            var ns = target.Project!.Helpers.Values.Select(h => h.Namespace).FirstOrDefault(n => n != null);
+            File.WriteAllText(header, new CppBindingGenerator().Generate(_env.Fixture, _env.Def<TypeDef>(type, SymbolKind.Type), null, true, target));
+            if (!File.Exists(ClangPlusPlus)) continue;
+            File.WriteAllText(dir.File(type + ".cpp"), $"#include \"{type}.h\"\nint main() {{ {(ns != null ? ns + "::" : "")}{type}Binding* b = nullptr; return b ? 0 : 1; }}\n");
+            var (code, text) = Tools.Run(ClangPlusPlus, $"-std=c++20 -fsyntax-only \"{dir.File(type + ".cpp")}\"");
             Assert.True(code == 0, text);
         }
+    }
+}
+
+/// <summary>generate_cpp_binding style choice: explicit style, then projectDir detection, then the server default, then mono.</summary>
+public class CppBindingStyleTests : IDisposable
+{
+    private readonly Env _env = new();
+    private readonly TempDir _dir = new();
+
+    public void Dispose()
+    {
+        _env.Dispose();
+        _dir.Dispose();
+    }
+
+    private const string ClangPlusPlus = @"C:\Program Files\LLVM\bin\clang++.exe";
+
+    private string Write(string relative, string text)
+    {
+        var path = Path.Combine(_dir.Path, relative);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, text);
+        return path;
+    }
+
+    private string Generate(string type, CppBindingGenerator.BindingTarget target, bool inherited = false) =>
+        new CppBindingGenerator().Generate(_env.Fixture, _env.Def<TypeDef>(type, SymbolKind.Type), null, inherited, target);
+
+    /// <summary>
+    /// A host-table project unlike any particular framework: the table is "GameHost" with its own handle types, inside
+    /// extern "C"; a decoy struct with only some members and a commented-out full table must be ignored; the helpers
+    /// live in namespace tools::mem in another folder, and GetMethodExact is missing.
+    /// </summary>
+    private string HostTableProject()
+    {
+        Write("host/abi.h", """
+            #pragma once
+            #include <stdint.h>
+            typedef void* KlassRef;
+            typedef void* MethRef;
+            /* typedef struct Decoy { KlassRef (*FindClass)(const char*, const char*, const char*); MethRef (*GetMethod)(KlassRef, const char*, int);
+               int32_t (*FieldOffset)(KlassRef, const char*); int32_t (*StaticFieldOffset)(KlassRef, const char*);
+               void* (*GetStaticFieldData)(KlassRef); void* (*Invoke)(MethRef, void*, void**, int); } Decoy; */
+            struct Partial { KlassRef (*FindClass)(const char* a, const char* n, const char* c); };
+            #ifdef __cplusplus
+            extern "C" {
+            #endif
+            typedef struct GameHost {
+                uint32_t version; // "struct NotThis { }" in a comment
+                KlassRef (*FindClass)(const char* assembly, const char* ns, const char* name);
+                MethRef  (*GetMethod)(KlassRef klass, const char* name, int argc);
+                int32_t  (*FieldOffset)(KlassRef klass, const char* field);
+                int32_t  (*StaticFieldOffset)(KlassRef klass, const char* field);
+                void*    (*GetStaticFieldData)(KlassRef klass);
+                void*    (*Invoke)(MethRef method, void* instance, void** args, int argc);
+            } GameHost;
+            #ifdef __cplusplus
+            }
+            #endif
+            """);
+        Write("lib/helpers.hpp", """
+            #pragma once
+            #include <cstring>
+            #include "../host/abi.h"
+            namespace tools { namespace mem {
+            template <class T> inline T ReadField(const GameHost* h, const void* obj, int32_t offset, T def = T{}) {
+                (void)h; if (!obj || offset < 0) return def; T v; std::memcpy(&v, static_cast<const char*>(obj) + offset, sizeof v); return v;
+            }
+            template <class T> inline bool WriteField(const GameHost* h, void* obj, int32_t offset, const T& value) {
+                (void)h; if (!obj || offset < 0) return false; std::memcpy(static_cast<char*>(obj) + offset, &value, sizeof value); return true;
+            }
+            inline void* ReadPtr(const GameHost* h, const void* obj, int32_t offset) { return ReadField<void*>(h, obj, offset, nullptr); }
+            template <class T> inline T CallValue(const GameHost* h, MethRef m, void* instance, T def = T{}) {
+                void* boxed = h->Invoke(m, instance, nullptr, 0); return boxed ? ReadField<T>(h, boxed, 16, def) : def;
+            }
+            inline MethRef GetMethodInHierarchy(const GameHost* h, KlassRef klass, const char* name, int argc) { return h->GetMethod(klass, name, argc); }
+            } }
+            """);
+        Write("src/main.cpp", "int main() { return 0; }\n");
+        return _dir.Path;
+    }
+
+    [Fact]
+    public void HostTableProject_IsDetected_WithIncludesRelativeToTheHeader()
+    {
+        var project = HostTableProject();
+        var target = CppBindingGenerator.ChooseStyle(null, project, "src/bindings/Player.h", null, default);
+        Assert.Equal("hostapi", target.Style);
+        Assert.Equal("GameHost", target.Project!.TableName);
+        Assert.Equal(("KlassRef", "MethRef"), (target.Project.ClassHandle, target.Project.MethodHandle));
+        Assert.DoesNotContain("GetMethodExact", target.Project.Helpers.Keys);
+
+        var code = Generate("Player", target);
+        var lines = code.Split('\n').Select(l => l.TrimEnd('\r')).ToList();
+        Assert.StartsWith("// Style hostapi: projectDir has a host table: GameHost in host/abi.h (members FindClass, GetMethod, FieldOffset, StaticFieldOffset, GetStaticFieldData, Invoke).", lines[0]);
+        Assert.Contains("#include \"../../host/abi.h\"", lines);
+        Assert.Contains("#include \"../../lib/helpers.hpp\"", lines);
+        Assert.Contains("namespace tools::mem {", lines);
+        Assert.Contains("    KlassRef klass = nullptr;", lines);
+        Assert.Contains("    bool Resolve(const GameHost* h) {", lines);
+        Assert.Contains("int32_t Health(const GameHost* h, const void* obj) const { return ReadField<int32_t>(h, obj, m_healthOff); }", code);
+        Assert.DoesNotContain("HostApi", code);
+        Assert.DoesNotContain("plugin", code);
+
+        // a binding that needs the missing helper says so
+        var shop = Generate("Shop", CppBindingGenerator.ChooseStyle(null, project, "src/bindings/Shop.h", null, default));
+        Assert.Contains("// NOTE: not found in", shop);
+        Assert.Contains(": GetMethodExact. Define them (first parameter: const GameHost*)", shop);
+
+        // and the header compiles where it was meant to be written
+        if (!File.Exists(ClangPlusPlus)) return;
+        foreach (var type in new[] { "Player", "Boss" })
+        {
+            var header = Write($"src/bindings/{type}.h", Generate(type, CppBindingGenerator.ChooseStyle(null, project, $"src/bindings/{type}.h", null, default), inherited: true));
+            if (type == "Boss") Assert.Contains("GetMethodInHierarchy", File.ReadAllText(header)); // Player's getters, inherited
+            var cpp = Write($"src/bindings/{type}.cpp", $"#include \"{type}.h\"\nint main() {{ tools::mem::{type}Binding b; return b.Resolved() ? 0 : 1; }}\n");
+            var (exit, output) = Tools.Run(ClangPlusPlus, $"-std=c++17 -fsyntax-only -Wall -Werror \"{cpp}\"");
+            Assert.True(exit == 0, output);
+        }
+    }
+
+    [Fact]
+    public void PlainProject_FallsBackToMono()
+    {
+        Write("include/util.h", "#pragma once\nstruct Partial { void* (*FindClass)(const char*, const char*, const char*); int (*FieldOffset)(void*, const char*); };\n");
+        Write("src/app.cpp", "int main() { return 0; }\n");
+        var target = CppBindingGenerator.ChooseStyle(null, _dir.Path, null, null, default);
+        Assert.Equal("mono", target.Style);
+        Assert.Null(target.Project);
+        var first = Generate("Player", target).Split('\n')[0];
+        Assert.StartsWith("// Style mono: self-contained default; no struct with FindClass, GetMethod, FieldOffset, StaticFieldOffset, GetStaticFieldData, Invoke in ", first);
+        Assert.StartsWith("// Style mono: self-contained default; no projectDir.", Generate("Player", CppBindingGenerator.ChooseStyle(null, null, null, null, default)));
+    }
+
+    [Fact]
+    public void ExplicitStyle_BeatsDetection_DetectionBeatsServerDefault()
+    {
+        var project = HostTableProject();
+        var mono = CppBindingGenerator.ChooseStyle("mono", project, null, null, default);
+        Assert.Equal("mono", mono.Style);
+        Assert.StartsWith("// Style mono: style=mono requested.", Generate("Player", mono));
+
+        var serverMono = new ServerOptions { BindingStyle = "mono" };
+        Assert.Equal("hostapi", CppBindingGenerator.ChooseStyle(null, project, null, serverMono, default).Style); // detection beats the server default
+
+        var serverHost = new ServerOptions { BindingStyle = "hostapi" };
+        var fromServer = CppBindingGenerator.ChooseStyle(null, null, null, serverHost, default);
+        Assert.Equal("hostapi", fromServer.Style);
+        var code = Generate("Player", fromServer);
+        Assert.StartsWith("// Style hostapi: server default --binding-style hostapi; no projectDir.", code);
+        Assert.Contains("// Include the header that defines HostApi and the helpers this code calls (ReadField, WriteField, CallValue) before this one.", code);
+        Assert.DoesNotContain("#include", code);
+
+        // --binding-project stands in for projectDir; explicit hostapi still gets the detected includes
+        var serverProject = new ServerOptions { BindingProject = project };
+        Assert.Contains("--binding-project has a host table: GameHost", CppBindingGenerator.ChooseStyle(null, null, null, serverProject, default).Reason);
+        Assert.Contains("#include \"host/abi.h\"", Generate("Player", CppBindingGenerator.ChooseStyle("hostapi", project, null, null, default)));
+
+        Assert.Contains("Unknown style 'plugin'", Assert.Throws<ToolError>(() => CppBindingGenerator.ChooseStyle("plugin", null, null, null, default)).Message);
+        Assert.Contains("--binding-style must be mono or hostapi", Assert.Throws<ArgumentException>(() => ServerOptions.Parse(["--binding-style", "x"])).Message);
+        Assert.Equal(("hostapi", "D:/p"), (ServerOptions.Parse(["--binding-style", "HostApi", "--binding-project", "D:/p"]) is var o ? (o.BindingStyle, o.BindingProject) : default));
     }
 }

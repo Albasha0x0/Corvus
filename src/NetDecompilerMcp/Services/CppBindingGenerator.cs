@@ -42,16 +42,59 @@ public sealed class CppBindingGenerator
         List<MethodDef> Methods,
         HashSet<(string Name, int Argc)> Overloaded);
 
-    public string Generate(LoadedAssembly asm, TypeDef type, IReadOnlyCollection<string>? only, bool includeInherited, string style = "mono")
+    /// <summary>
+    /// The chosen style and why, plus for "hostapi" the detected project (null when none was found) and where the header
+    /// will be written (include paths are relative to its folder; default: the project root).
+    /// </summary>
+    public sealed record BindingTarget(string Style, string Reason, HostApiProject? Project = null, string? HeaderPath = null);
+
+    public static string NormalizeStyle(string style)
     {
-        style = style.Trim().ToLowerInvariant();
-        if (!Styles.Contains(style))
-            throw new ToolError($"Unknown style '{style}': use {string.Join(" or ", Styles)}.");
+        var s = style.Trim().ToLowerInvariant();
+        return Styles.Contains(s) ? s : throw new ToolError($"Unknown style '{style}': use {string.Join(" or ", Styles)}.");
+    }
+
+    /// <summary>
+    /// Chooses the style: an explicit <paramref name="style"/>; else "hostapi" when the project directory
+    /// (<paramref name="projectDir"/>, or the server's --binding-project) has a host table; else the server's
+    /// --binding-style; else "mono". The project is scanned whenever a directory is known, so an explicit "hostapi"
+    /// still gets computed include paths.
+    /// </summary>
+    public static BindingTarget ChooseStyle(string? style, string? projectDir, string? headerPath, ServerOptions? options, CancellationToken ct)
+    {
+        var dir = projectDir ?? options?.BindingProject;
+        var dirLabel = projectDir != null ? "projectDir" : "--binding-project";
+        var project = dir != null ? HostApiDetector.Detect(dir, ct) : null;
+        var header = headerPath == null ? null : Path.GetFullPath(Path.Combine(dir ?? Directory.GetCurrentDirectory(), headerPath));
+        var members = string.Join(", ", HostApiDetector.RequiredMembers);
+
+        if (style != null)
+        {
+            var s = NormalizeStyle(style);
+            return new BindingTarget(s, $"style={s} requested", s == "hostapi" ? project : null, header);
+        }
+        if (project != null)
+            return new BindingTarget("hostapi",
+                $"{dirLabel} has a host table: {project.TableName} in {Relative(project.Root, project.TableHeader)} (members {members})", project, header);
+        var why = dir != null ? $"no struct with {members} in {Path.GetFullPath(dir)}" : "no projectDir";
+        if (options?.BindingStyle is { } serverDefault)
+            return new BindingTarget(serverDefault, $"server default --binding-style {serverDefault}; {why}", null, header);
+        return new BindingTarget("mono", $"self-contained default; {why}", null, header);
+    }
+
+    public string Generate(LoadedAssembly asm, TypeDef type, IReadOnlyCollection<string>? only, bool includeInherited, string style = "mono") =>
+        Generate(asm, type, only, includeInherited, new BindingTarget(NormalizeStyle(style), $"style={NormalizeStyle(style)} requested"));
+
+    public string Generate(LoadedAssembly asm, TypeDef type, IReadOnlyCollection<string>? only, bool includeInherited, BindingTarget target)
+    {
         if (type.HasGenericParameters)
             throw new ToolError($"{type.FullName} is generic: generate a binding for a closed subclass, or resolve the instantiation's members by hand.");
         var selection = Select(type, only, includeInherited);
-        return style == "mono" ? RenderMono(asm, type, selection) : RenderHostApi(asm, type, selection);
+        var code = target.Style == "mono" ? RenderMono(asm, type, selection) : RenderHostApi(asm, type, selection, target);
+        return $"// Style {target.Style}: {target.Reason}.{Environment.NewLine}" + code;
     }
+
+    private static string Relative(string fromFolder, string file) => Path.GetRelativePath(fromFolder, file).Replace('\\', '/');
 
     private static Selection Select(TypeDef type, IReadOnlyCollection<string>? only, bool includeInherited)
     {
@@ -342,8 +385,15 @@ public sealed class CppBindingGenerator
 
     // ------------------------------------------------------------------ style "hostapi": a host-provided plugin ABI
 
-    private static string RenderHostApi(LoadedAssembly asm, TypeDef type, Selection s)
+    private static string RenderHostApi(LoadedAssembly asm, TypeDef type, Selection s, BindingTarget target)
     {
+        var project = target.Project;
+        var table = project?.TableName ?? "HostApi";
+        var hclass = project?.ClassHandle ?? "HClass";
+        var hmethod = project?.MethodHandle ?? "HMethod";
+        var h = $"const {table}* h";
+        var used = new HashSet<string>(StringComparer.Ordinal); // helpers this binding calls
+
         var top = TopLevel(type);
         var names = new HashSet<string>(StringComparer.Ordinal);
         string Unique(string n)
@@ -376,42 +426,54 @@ public sealed class CppBindingGenerator
                 if (isStruct)
                     accessors.AppendLine($"    void* {accessor}Addr() const {{ return m_static && {off} >= 0 ? static_cast<char*>(m_static) + {off} : nullptr; }}");
                 else if (isPointer)
-                    accessors.AppendLine($"    void* {accessor}(const HostApi* h) const {{ return ReadPtr(h, m_static, {off}); }}");
+                {
+                    used.Add("ReadPtr");
+                    accessors.AppendLine($"    void* {accessor}({h}) const {{ return ReadPtr(h, m_static, {off}); }}");
+                }
                 else
                 {
-                    accessors.AppendLine($"    {cpp} {accessor}(const HostApi* h) const {{ return ReadField<{cpp}>(h, m_static, {off}); }}");
-                    accessors.AppendLine($"    bool Set{accessor}(const HostApi* h, {cpp} value) const {{ return WriteField<{cpp}>(h, m_static, {off}, value); }}");
+                    used.Add("ReadField"); used.Add("WriteField");
+                    accessors.AppendLine($"    {cpp} {accessor}({h}) const {{ return ReadField<{cpp}>(h, m_static, {off}); }}");
+                    accessors.AppendLine($"    bool Set{accessor}({h}, {cpp} value) const {{ return WriteField<{cpp}>(h, m_static, {off}, value); }}");
                 }
             }
             else if (isStruct)
                 accessors.AppendLine($"    void* {accessor}Addr(void* obj) const {{ return obj && {off} >= 0 ? static_cast<char*>(obj) + {off} : nullptr; }}  // embedded {Format.Type(f.FieldType)}");
             else if (isPointer)
-                accessors.AppendLine($"    void* {accessor}(const HostApi* h, const void* obj) const {{ return ReadPtr(h, obj, {off}); }}");
+            {
+                used.Add("ReadPtr");
+                accessors.AppendLine($"    void* {accessor}({h}, const void* obj) const {{ return ReadPtr(h, obj, {off}); }}");
+            }
             else
             {
-                accessors.AppendLine($"    {cpp} {accessor}(const HostApi* h, const void* obj) const {{ return ReadField<{cpp}>(h, obj, {off}); }}");
-                accessors.AppendLine($"    bool Set{accessor}(const HostApi* h, void* obj, {cpp} value) const {{ return WriteField<{cpp}>(h, obj, {off}, value); }}");
+                used.Add("ReadField"); used.Add("WriteField");
+                accessors.AppendLine($"    {cpp} {accessor}({h}, const void* obj) const {{ return ReadField<{cpp}>(h, obj, {off}); }}");
+                accessors.AppendLine($"    bool Set{accessor}({h}, void* obj, {cpp} value) const {{ return WriteField<{cpp}>(h, obj, {off}, value); }}");
             }
         }
 
-        // ---- property getters (invoked: call inside BeginMono/EndMono)
+        // ---- property getters (invoked: needs the host's managed-call context)
         foreach (var (p, viaHierarchy) in s.Getters)
         {
             var getter = p.GetMethod!;
             var m = Unique($"m_get{Pascal(p.Name)}");
-            decls.AppendLine($"    HMethod {m} = nullptr;{Pad(m)}// {Format.Property(p)}");
+            decls.AppendLine($"    {hmethod} {m} = nullptr;{Pad(m)}// {Format.Property(p)}");
+            if (viaHierarchy || getter.DeclaringType != type) used.Add("GetMethodInHierarchy");
             resolve.AppendLine(viaHierarchy || getter.DeclaringType != type
                 ? $"        {m} = GetMethodInHierarchy(h, klass, \"{getter.Name}\", 0);"
                 : $"        {m} = h->GetMethod(klass, \"{getter.Name}\", 0);");
             checks.Add(m);
             var (cpp, isPointer, isStruct) = CppType(getter.ReturnType);
             var instance = getter.IsStatic ? "nullptr" : "obj";
-            var param = getter.IsStatic ? "const HostApi* h" : "const HostApi* h, void* obj";
+            var param = getter.IsStatic ? h : $"{h}, void* obj";
             var name = SafeName(Pascal(p.Name));
             if (isPointer)
-                accessors.AppendLine($"    void* {name}({param}) const {{ return h->Invoke({m}, {instance}, nullptr, 0); }}  // needs Mono scope");
+                accessors.AppendLine($"    void* {name}({param}) const {{ return h->Invoke({m}, {instance}, nullptr, 0); }}  // managed call");
             else if (!isStruct)
-                accessors.AppendLine($"    {cpp} {name}({param}) const {{ return CallValue<{cpp}>(h, {m}, {instance}); }}  // needs Mono scope");
+            {
+                used.Add("CallValue");
+                accessors.AppendLine($"    {cpp} {name}({param}) const {{ return CallValue<{cpp}>(h, {m}, {instance}); }}  // managed call");
+            }
         }
 
         // ---- methods (overloads with the same argument count are resolved by exact signature)
@@ -420,44 +482,71 @@ public sealed class CppBindingGenerator
         {
             var m = Unique($"m_{Camel(method.Name)}");
             int argc = ParamCount(method);
-            decls.AppendLine($"    HMethod {m} = nullptr;{Pad(m)}// {Format.Method(method)}");
-            resolve.AppendLine(s.Overloaded.Contains((method.Name.String, argc))
+            decls.AppendLine($"    {hmethod} {m} = nullptr;{Pad(m)}// {Format.Method(method)}");
+            bool exact = s.Overloaded.Contains((method.Name.String, argc));
+            if (exact) used.Add("GetMethodExact");
+            resolve.AppendLine(exact
                 ? $"        {m} = GetMethodExact(h, klass, \"{method.Name}\", \"{MonoParams(method)}\");"
                 : $"        {m} = h->GetMethod(klass, \"{method.Name}\", {argc});");
             checks.Add(m);
 
-            var (parameters, args) = WrapperParameters(method, "const HostApi* h");
+            var (parameters, args) = WrapperParameters(method, h);
             var argArray = args.Count == 0 ? "nullptr" : "a";
             var setup = args.Count == 0 ? "" : $"void* a[{args.Count}] = {{ {string.Join(", ", args)} }}; ";
             var wrapper = UniqueWrapper(wrapperSignatures, method.Name, parameters);
             accessors.AppendLine($"    void* {wrapper}({string.Join(", ", parameters)}) const {{ {setup}return h->Invoke({m}, {(method.IsStatic ? "nullptr" : "obj")}, {argArray}, {args.Count}); }}{ReturnNote(method, "Unbox<T>(h, result)")}");
         }
 
-        var ns = top.Namespace.String;
+        // ---- includes and namespace from the detected project
+        var includes = new List<string>();
+        var missing = new List<string>();
+        string? ns = null;
+        if (project != null)
+        {
+            var headerFolder = Path.GetDirectoryName(target.HeaderPath ?? Path.Combine(project.Root, StructName(type) + ".h"))!;
+            includes.Add(Relative(headerFolder, project.TableHeader));
+            foreach (var helper in HostApiDetector.HelperNames.Where(used.Contains))
+            {
+                if (project.Helpers.TryGetValue(helper, out var where))
+                {
+                    var include = Relative(headerFolder, where.File);
+                    if (!includes.Contains(include)) includes.Add(include);
+                    ns ??= where.Namespace;
+                }
+                else missing.Add(helper);
+            }
+        }
+
+        var managedNs = top.Namespace.String;
         var className = type.DeclaringType == null ? type.Name.String : NestedName(type);
         var sb = new StringBuilder();
         sb.AppendLine($"// Generated by net-decompiler from {asm.Id} ({asm.AssemblyName}.dll): {type.FullName}  [{Format.Token(type)}]");
-        sb.AppendLine("// For a plugin host that passes a HostApi table (shared/abi.h). Resolve(host) once in Init() (it runs inside the");
-        sb.AppendLine("// host's Mono scope); check Resolved() before use. Field reads/writes use SafeRead/SafeWrite (no Mono attach needed).");
-        sb.AppendLine("// Invokes and getters must run on the host's main thread inside h->BeginMono() / h->EndMono().");
+        sb.AppendLine($"// For a host that passes a {table} function table. Call Resolve(h) once where the host allows managed lookups;");
+        sb.AppendLine("// check Resolved() before use. Field accessors read and write through the project's ReadField / WriteField / ReadPtr;");
+        sb.AppendLine("// getters and method wrappers call h->Invoke, so they need whatever managed-call context the host requires.");
         sb.AppendLine("// Value-type arguments are passed by pointer; objects as their pointer.");
+        if (project == null && used.Count > 0)
+            sb.AppendLine($"// Include the header that defines {table} and the helpers this code calls ({string.Join(", ", HostApiDetector.HelperNames.Where(used.Contains))}) before this one.");
+        if (missing.Count > 0)
+            sb.AppendLine($"// NOTE: not found in {project!.Root}: {string.Join(", ", missing)}. Define them (first parameter: const {table}*) or edit the calls below.");
         if (type.DeclaringType != null)
             sb.AppendLine($"// NOTE: nested type. mono_class_from_name may not find \"{className}\" directly; if FindClass fails, resolve it from the outer class.");
         if (type.IsValueType)
             sb.AppendLine("// Value type: instance offsets include the object header (two pointers); subtract it for unboxed data.");
         sb.AppendLine("#pragma once");
-        sb.AppendLine("#include \"../shared/abi.h\"");
-        sb.AppendLine("#include \"mem.h\"");
-        sb.AppendLine("#include \"il2cpp_util.h\"");
+        foreach (var include in includes) sb.AppendLine($"#include \"{include}\"");
         sb.AppendLine();
-        sb.AppendLine("namespace plugin {");
-        sb.AppendLine();
+        if (ns != null)
+        {
+            sb.AppendLine($"namespace {ns} {{");
+            sb.AppendLine();
+        }
         sb.AppendLine($"struct {StructName(type)} {{");
-        sb.AppendLine("    HClass klass = nullptr;");
+        sb.AppendLine($"    {hclass} klass = nullptr;");
         sb.Append(decls);
         sb.AppendLine();
-        sb.AppendLine("    bool Resolve(const HostApi* h) {");
-        sb.AppendLine($"        klass = h->FindClass(\"{asm.AssemblyName}\", \"{ns}\", \"{className}\");");
+        sb.AppendLine($"    bool Resolve({h}) {{");
+        sb.AppendLine($"        klass = h->FindClass(\"{asm.AssemblyName}\", \"{managedNs}\", \"{className}\");");
         sb.AppendLine("        if (!klass) return false;");
         sb.Append(resolve);
         sb.AppendLine("        return Resolved();");
@@ -470,8 +559,11 @@ public sealed class CppBindingGenerator
             sb.Append(accessors);
         }
         sb.AppendLine("};");
-        sb.AppendLine();
-        sb.AppendLine("} // namespace plugin");
+        if (ns != null)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"}} // namespace {ns}");
+        }
         return sb.ToString();
     }
 

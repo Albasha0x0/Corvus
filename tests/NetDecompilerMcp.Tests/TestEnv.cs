@@ -97,8 +97,8 @@ public static class RealData
     public const string CompareExpect = "NDM_COMPARE_EXPECT";
     /// <summary>Optional: a method in the Mono game to search call paths to (default: one picked automatically).</summary>
     public const string CallPathTarget = "NDM_CALLPATH_TARGET";
-    /// <summary>Include folder of a HostApi plugin framework (has ../shared/abi.h, mem.h, il2cpp_util.h).</summary>
-    public const string HostApiIncludeDir = "NDM_HOSTAPI_INCLUDE_DIR";
+    /// <summary>Root of a C/C++ project with a host function table (generate_cpp_binding style=hostapi detection).</summary>
+    public const string HostApiProjectDir = "NDM_HOSTAPI_PROJECT_DIR";
 
     public static string? Get(string variable) => Environment.GetEnvironmentVariable(variable) is { Length: > 0 } v ? v : null;
 
