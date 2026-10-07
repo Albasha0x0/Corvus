@@ -264,8 +264,9 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
                 }
             }
         }
-        if (from == null && targets.Count == 0 && Callers(to).Count == 0)
-            targets.Add(to); // 'to' is itself an entry point
+        // 'to' is itself an entry point (a framework method nothing loaded calls is no path at all)
+        if (from == null && targets.Count == 0 && Callers(to).Count == 0 && !MetadataUtil.IsReferenceOnly(to))
+            targets.Add(to);
         foreach (var list in closer.Values) // direct calls are explored first
             list.Sort((a, b) => (a.Via != null).CompareTo(b.Via != null));
 

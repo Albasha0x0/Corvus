@@ -121,7 +121,7 @@ public sealed class SearchService
             }
         }, ct);
 
-        foreach (var (asm, field) in dataFields)
+        foreach (var (asm, field) in dataFields.OrderBy(d => d.Asm.Id, StringComparer.Ordinal).ThenBy(d => d.Field.MDToken.Raw))
         {
             if (MetadataUtil.Try(() => field.InitialValue) is not { Length: > 0 } data) continue;
             var (user, element) = users.TryGetValue(field, out var u) ? u : (null, null);
