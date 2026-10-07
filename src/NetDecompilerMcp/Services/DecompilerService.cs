@@ -240,7 +240,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     {
         var project = Directory.GetFiles(dir, "*.csproj").FirstOrDefault();
         if (project == null) return;
-        Dictionary<string, byte[]> embedded;
+        var embedded = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         try
         {
             embedded = Services.Analysis.Containers.Open(asm.OriginalBytes, asm.FilePath, Services.Analysis.AnalysisLimits.Default, default).Items
@@ -248,14 +248,25 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
                 .GroupBy(i => Path.GetFileNameWithoutExtension(i.Name), StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.First().Bytes, StringComparer.OrdinalIgnoreCase);
         }
-        catch (Exception) { return; }
-        if (embedded.Count == 0) return;
+        catch (Exception) { /* not a container */ }
+        // references found nowhere: the stand-ins built from what this code uses, so the project still builds
+        var stubs = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        bool netFramework = Frameworks.TargetsNetFramework(asm.Module);
+        foreach (var r in asm.Module.GetAssemblyRefs())
+            if (!embedded.ContainsKey(r.Name) && workspace.LocateReference(r.Name, r.Version, r.PublicKeyOrToken?.Token?.Data, asm.FilePath, netFramework,
+                    Frameworks.TargetFrameworkOf(asm.Module)) is { Stub: not null, Bytes: { } stubBytes })
+                stubs[r.Name] = stubBytes;
+        if (embedded.Count == 0 && stubs.Count == 0) return;
 
         var text = File.ReadAllText(project);
         var lib = Path.Combine(dir, "lib");
         Directory.CreateDirectory(lib);
-        foreach (var (name, bytes) in embedded)
+        foreach (var (name, bytes) in embedded.Concat(stubs))
             File.WriteAllBytes(Path.Combine(lib, name + ".dll"), bytes);
+        if (stubs.Count > 0)
+            text = text.Replace("</Project>", "  <!-- " + string.Join(", ", stubs.Keys.Order(StringComparer.OrdinalIgnoreCase)) +
+                                              (stubs.Count == 1 ? " was" : " were") + " not found on the machine that exported this project: lib\\ holds stand-ins " +
+                                              "built from what this code uses (their methods throw). Replace them with the real files to run it. -->\n</Project>");
         // the engine's placeholder paths for embedded references
         text = System.Text.RegularExpressions.Regex.Replace(text, @"<HintPath>[^<]*!([^<!]+\.dll)</HintPath>",
             m => $"<HintPath>lib\\{m.Groups[1].Value}</HintPath>");

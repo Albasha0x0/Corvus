@@ -339,10 +339,43 @@ public sealed class AssemblyWorkspace : IDisposable
     }
 
     /// <summary>Where a reference comes from: a loaded assembly, a file, or an assembly embedded in a loaded one (Costura).</summary>
-    public sealed record ReferenceTarget(LoadedAssembly? Loaded, string? File, byte[]? Bytes, string? EmbeddedIn)
+    public sealed record ReferenceTarget(LoadedAssembly? Loaded, string? File, byte[]? Bytes, string? EmbeddedIn, string? Stub = null)
     {
-        public string Describe() => Loaded != null ? $"loaded as {Loaded.Id}" : EmbeddedIn != null ? $"embedded in {EmbeddedIn}" : "resolvable from search path";
+        public string Describe() => Loaded != null ? $"loaded as {Loaded.Id}"
+            : Stub != null ? $"not found; {Stub}"
+            : EmbeddedIn != null ? $"embedded in {EmbeddedIn}" : "resolvable from search path";
     }
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<ReferenceTarget?>> _stubs = new(StringComparer.OrdinalIgnoreCase);
+    private int _stubGeneration = -1;
+
+    /// <summary>
+    /// A stand-in for a reference found nowhere, built from how the loaded assemblies use it (see
+    /// <see cref="ReferenceStubs"/>); one per name until the workspace changes.
+    /// </summary>
+    private ReferenceTarget? StubFor(string name, Version? version)
+    {
+        if (!ReferenceStubs.CanStub(name)) return null;
+        if (_stubGeneration != Generation)
+        {
+            _stubs.Clear();
+            _stubGeneration = Generation;
+        }
+        // while it is being built, looking at its own types (generic constraints) finds nothing rather than itself
+        _building ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (_building.Contains(name)) return null;
+        _building.Add(name);
+        try
+        {
+            return _stubs.GetOrAdd(name, n => new Lazy<ReferenceTarget?>(() =>
+                ReferenceStubs.Build(n, version, Assemblies) is { } stub
+                    ? new ReferenceTarget(null, null, stub.Image, null, $"stub built from what the loaded code uses ({stub.Types} types, {stub.Members} members)")
+                    : null)).Value;
+        }
+        finally { _building.Remove(name); }
+    }
+
+    [ThreadStatic] private static HashSet<string>? _building;
 
     /// <summary>
     /// Resolves a reference: a loaded assembly (same folder, or the same major version elsewhere); else a file (the
@@ -405,7 +438,9 @@ public sealed class AssemblyWorkspace : IDisposable
         // a Windows Runtime component of an installed app package (Microsoft.Management.Deployment of winget)
         if (Frameworks.InstalledPackageMetadata(name) is { } packaged)
             return new(null, packaged, null, null);
-        return FindReference(name, version, token, requesterPath) is { } any ? new(any, null, null, null) : null;
+        if (FindReference(name, version, token, requesterPath) is { } any) return new(any, null, null, null);
+        // nowhere on this machine: a stand-in built from how the loaded code uses it
+        return StubFor(name, version);
 
         // a framework file, unless the app ships its own copy next to it (that one wins)
         ReferenceTarget? FrameworkUnlessLocal(string frameworkFile)
@@ -485,7 +520,7 @@ public sealed class AssemblyWorkspace : IDisposable
                 return target.Loaded.Module.Assembly;
 
             // reference-only modules from files or embedded images, keyed by where they came from
-            var key = target.File ?? $"{target.EmbeddedIn}!{name}";
+            var key = target.File ?? $"{target.EmbeddedIn ?? "stub"}!{name}";
             lock (ws._referenceModules)
             {
                 if (!ws._referenceModules.TryGetValue(key, out var module))
@@ -559,7 +594,7 @@ public sealed class AssemblyWorkspace : IDisposable
                 try
                 {
                     var bytes = target.Bytes ?? File.ReadAllBytes(target.File!);
-                    file = new DecompilerMetadata.PEFile(target.File ?? $"{target.EmbeddedIn}!{reference.Name}.dll", new MemoryStream(bytes, writable: false),
+                    file = new DecompilerMetadata.PEFile(target.File ?? $"{target.EmbeddedIn ?? "stub"}!{reference.Name}.dll", new MemoryStream(bytes, writable: false),
                         System.Reflection.PortableExecutable.PEStreamOptions.PrefetchEntireImage);
                 }
                 catch { file = null; }

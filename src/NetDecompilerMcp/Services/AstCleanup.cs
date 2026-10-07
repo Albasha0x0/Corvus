@@ -19,6 +19,8 @@ internal static class AstCleanup
         decompiler.AstTransforms.Add(new Guarded(new InlineRefTemporaries()));
         if (Frameworks.NetCoreMajor(targetFramework) >= 5)
             decompiler.AstTransforms.Add(new Guarded(new UninitializedRefLocals()));
+        if (Frameworks.NetCoreMajor(targetFramework) >= 8)
+            decompiler.AstTransforms.Add(new Guarded(new ReturnRefThroughLocalCopy()));
         decompiler.AstTransforms.Add(new Guarded(new ScopedSpanLocals()));
         decompiler.AstTransforms.Add(new Guarded(new StackAllocInitializers()));
         decompiler.AstTransforms.Add(new Guarded(new UncheckedNegativeCasts()));
@@ -37,6 +39,9 @@ internal static class AstCleanup
         decompiler.AstTransforms.Add(new Guarded(new RenamedEntryPoint()));
         decompiler.AstTransforms.Add(new Guarded(new NullConditionalExtensionCalls()));
         decompiler.AstTransforms.Add(new Guarded(new GenericDelegateDefaults()));
+        decompiler.AstTransforms.Add(new Guarded(new SwitchExpressionHelpers()));
+        decompiler.AstTransforms.Add(new Guarded(new MissingLocalFunctions()));
+        decompiler.AstTransforms.Add(new Guarded(new DiscardParameters()));
         if (Frameworks.PublicTypeNames(targetFramework) is { } frameworkTypes)
             decompiler.AstTransforms.Add(new Guarded(new FrameworkAmbiguousNames(frameworkTypes)));
     }
@@ -896,5 +901,236 @@ internal sealed class GenericDelegateDefaults : IAstTransform
                     && parameter.Type is SimpleType { TypeArguments.Count: 0, Identifier: { } name } && typeParameters.Contains(name))
                     parameter.DefaultExpression = null!;
         }
+    }
+}
+
+/// <summary>
+/// A switch expression the engine could not rebuild leaves a call to the compiler's hidden helper
+/// (<c>&lt;PrivateImplementationDetails&gt;.ThrowSwitchExpressionException(value)</c>), which C# cannot name (CS0103).
+/// Written as what it does: <c>throw new SwitchExpressionException(value)</c>.
+/// </summary>
+internal sealed class SwitchExpressionHelpers : IAstTransform
+{
+    public void Run(AstNode rootNode, TransformContext context)
+    {
+        foreach (var statement in rootNode.Descendants.OfType<ExpressionStatement>().ToList())
+        {
+            if (statement.Expression is not InvocationExpression { Target: MemberReferenceExpression { MemberName: var name } } call
+                || name is not ("ThrowSwitchExpressionException" or "ThrowSwitchExpressionExceptionNoValue" or "ThrowInvalidOperationException")
+                || call.GetSymbol() is not IMethod { DeclaringType.Name: "<PrivateImplementationDetails>" })
+                continue;
+            var exception = name == "ThrowInvalidOperationException"
+                ? new MemberType(new MemberType(new SimpleType("global"), "System") { IsDoubleColon = true }, "InvalidOperationException")
+                : new MemberType(new MemberType(new MemberType(new MemberType(new SimpleType("global"), "System") { IsDoubleColon = true },
+                    "Runtime"), "CompilerServices"), "SwitchExpressionException");
+            statement.ReplaceWith(new ThrowStatement(new ObjectCreateExpression(exception, call.Arguments.Select(a => a.Clone()))));
+        }
+    }
+}
+
+/// <summary>
+/// A local function the engine calls but does not declare: it is compiled as a method of the closure class (because
+/// lambdas in the same method capture its variables), and the engine drops it, losing its code. Its method is
+/// decompiled on its own, the closure's fields become the captured variables again, and it is declared as a local
+/// function in the block that holds all its uses.
+/// </summary>
+internal sealed class MissingLocalFunctions : IAstTransform
+{
+    public void Run(AstNode rootNode, TransformContext context)
+    {
+        // member bodies only: a local function's own body is part of its member's (its declaration is a method node too)
+        foreach (var body in rootNode.DescendantsAndSelf.OfType<BlockStatement>()
+                     .Where(b => b.Parent is EntityDeclaration or Accessor && !b.Ancestors.Any(a => a is LocalFunctionDeclarationStatement)).ToList())
+        {
+            var declared = body.Descendants.OfType<LocalFunctionDeclarationStatement>().Select(d => d.Declaration.Name).ToHashSet();
+            var uses = body.Descendants.OfType<IdentifierExpression>()
+                .Where(i => !declared.Contains(i.Identifier) && LocalFunction(i) != null)
+                .GroupBy(i => i.Identifier).ToList();
+            foreach (var group in uses)
+            {
+                var method = LocalFunction(group.First())!;
+                if (Recover(method, group.Key, context) is not { } declaration) continue;
+                var block = CommonBlock(group.ToList()) ?? body;
+                var last = block.Statements.LastOrDefault();
+                if (last is BreakStatement or ReturnStatement or ContinueStatement or GotoStatement or ThrowStatement)
+                    block.Statements.InsertBefore(last, declaration);
+                else
+                    block.Statements.Add(declaration);
+            }
+        }
+    }
+
+    /// <summary>The local function an identifier names: called (the call has the symbol) or as a method group.</summary>
+    private static IMethod? LocalFunction(IdentifierExpression i) =>
+        (i.GetSymbol() ?? (i.Parent is InvocationExpression call && call.Target == i ? call.GetSymbol() : null)
+            ?? (i.GetResolveResult() as ICSharpCode.Decompiler.Semantics.MethodGroupResolveResult)?.Methods.FirstOrDefault()) is IMethod { IsLocalFunction: true } m
+            ? m : null;
+
+    /// <summary>The local function's declaration, from its compiled method.</summary>
+    private static LocalFunctionDeclarationStatement? Recover(IMethod method, string name, TransformContext context)
+    {
+        if (method.MetadataToken.IsNil || method.MetadataToken.Kind != System.Reflection.Metadata.HandleKind.MethodDefinition) return null;
+        var decompiler = new CSharpDecompiler(context.TypeSystem, context.Settings) { CancellationToken = context.CancellationToken };
+        var tree = decompiler.Decompile(method.MetadataToken);
+        if (tree.Descendants.OfType<MethodDeclaration>().FirstOrDefault() is not { Body: { } compiledBody } compiled) return null;
+
+        // parameters that carry the closure (a struct passed by ref) are not the local function's
+        var closureParameters = compiled.Parameters
+            .Where(p => p.Type is { } pt && pt.GetResolveResult()?.Type is { } t && IsClosure(t) || p.Type is ComposedType { BaseType: { } b } && b.GetResolveResult()?.Type is { } bt && IsClosure(bt))
+            .Select(p => p.Name).ToHashSet();
+        var bodyCopy = (BlockStatement)compiledBody.Clone();
+
+        // closure fields: the closure's copy of the outer `this` is `this`; a field holding an outer closure is a hop
+        // to drop; any other field is the captured variable of that name. Written `this.x`, `x` or `P_1.x`.
+        bool ClosureField(AstNode n, out IField field)
+        {
+            field = (n.GetSymbol() as IField)!;
+            return field != null && field.DeclaringType != null && IsClosure(field.DeclaringType);
+        }
+        string Captured(IField field) => field.Name.StartsWith('<') ? field.Name.Trim('<', '>') : field.Name;
+        bool IsThisCopy(IField field) => field.Name.EndsWith("4__this", StringComparison.Ordinal);
+        foreach (var node in bodyCopy.Descendants.Where(n => n is MemberReferenceExpression or IdentifierExpression).ToList())
+        {
+            if (node.Parent == null || !ClosureField(node, out var field)) continue;
+            if (node is MemberReferenceExpression member && !(member.Target is ThisReferenceExpression
+                    || member.Target is IdentifierExpression { Identifier: var t } && closureParameters.Contains(t)
+                    || member.Target.GetSymbol() is IField outer && outer.DeclaringType != null && IsClosure(outer.DeclaringType) && IsClosure(outer.Type)))
+                continue;
+            if (IsClosure(field.Type)) continue; // an outer closure: its members are rewritten below, this hop goes with them
+            node.ReplaceWith(IsThisCopy(field) ? new ThisReferenceExpression() : new IdentifierExpression(Captured(field)));
+        }
+        // what remains of hops to outer closures (`CS$<>8__locals1.x` became `CS$<>8__locals1` . x): x
+        foreach (var member in bodyCopy.Descendants.OfType<MemberReferenceExpression>().ToList())
+            if (member.Parent != null && member.Target.GetSymbol() is IField hop && hop.DeclaringType != null && IsClosure(hop.DeclaringType) && IsClosure(hop.Type))
+                member.ReplaceWith(member.GetSymbol() is IField f && IsThisCopy(f) ? new ThisReferenceExpression() : new IdentifierExpression(member.MemberName));
+
+        // calls to compiled local functions (itself when recursive, `<Outer>g__Name|1_0(..., ref P_2)`): by name, without the closure
+        foreach (var call in bodyCopy.Descendants.OfType<InvocationExpression>().ToList())
+        {
+            if (call.GetSymbol() is not IMethod callee || LocalName(callee.Name) is not { } calleeName) continue;
+            var arguments = call.Arguments.Where(a => !(a is DirectionExpression { Expression: var e } && e.GetResolveResult()?.Type is { } at && IsClosure(at)
+                                                        || a.GetResolveResult()?.Type is { } t && IsClosure(t)))
+                .Select(a => a.Clone()).ToList();
+            call.ReplaceWith(new InvocationExpression(new IdentifierExpression(calleeName), arguments));
+        }
+
+        // types fully qualified: the file that receives the body may not import their namespaces
+        var builder = new ICSharpCode.Decompiler.CSharp.Syntax.TypeSystemAstBuilder();
+        foreach (var type in bodyCopy.Descendants.OfType<AstType>().Where(t => t.Parent is not AstType).ToList())
+            if (type.GetResolveResult() is ICSharpCode.Decompiler.Semantics.TypeResolveResult { Type: { Kind: not TypeKind.Unknown } resolved } && resolved.Kind != TypeKind.TypeParameter)
+                type.ReplaceWith(builder.ConvertType(resolved));
+        foreach (var reference in bodyCopy.Descendants.OfType<TypeReferenceExpression>().ToList())
+            if (reference.GetResolveResult() is ICSharpCode.Decompiler.Semantics.TypeResolveResult { Type: { Kind: not TypeKind.Unknown } resolved } && resolved.Kind != TypeKind.TypeParameter)
+                reference.Type = builder.ConvertType(resolved);
+
+        var function = new MethodDeclaration
+        {
+            Name = name,
+            ReturnType = compiled.ReturnType.Clone(),
+            Modifiers = compiled.Modifiers & (Modifiers.Async | Modifiers.Unsafe),
+            Body = bodyCopy,
+        };
+        foreach (var tp in compiled.TypeParameters) function.TypeParameters.Add((TypeParameterDeclaration)tp.Clone());
+        foreach (var p in compiled.Parameters)
+            if (!closureParameters.Contains(p.Name)) function.Parameters.Add((ParameterDeclaration)p.Clone());
+        return new LocalFunctionDeclarationStatement(function);
+    }
+
+    /// <summary>The name of a compiled local function (<c>&lt;Outer&gt;g__Name|1_0</c>): Name; null for any other method.</summary>
+    private static string? LocalName(string compiled)
+    {
+        int g = compiled.IndexOf(">g__", StringComparison.Ordinal);
+        if (!compiled.StartsWith('<') || g < 0) return null;
+        int bar = compiled.IndexOf('|', g);
+        return bar > g + 4 ? compiled[(g + 4)..bar] : null;
+    }
+
+    private static bool IsClosure(IType type) =>
+        type.Name.Contains("DisplayClass", StringComparison.Ordinal) && type.GetDefinition()?.HasAttribute(KnownAttribute.CompilerGenerated) != false;
+
+    /// <summary>The innermost block that contains every use.</summary>
+    private static BlockStatement? CommonBlock(List<IdentifierExpression> uses)
+    {
+        var chains = uses.Select(u => u.Ancestors.OfType<BlockStatement>().Reverse().ToList()).ToList();
+        BlockStatement? common = null;
+        for (int depth = 0; chains.All(c => c.Count > depth) && chains.All(c => c[depth] == chains[0][depth]); depth++)
+            common = chains[0][depth];
+        // not inside a lambda that only some uses are in
+        while (common != null && common.Ancestors.Any(a => a is LambdaExpression or AnonymousMethodExpression)
+               && uses.Any(u => !u.Ancestors.Contains(common)))
+            common = common.Ancestors.OfType<BlockStatement>().FirstOrDefault();
+        return common;
+    }
+}
+
+/// <summary>
+/// A lambda parameter named <c>_</c> (<c>(CustomButton _) => { _ = item.rewardData; }</c>): the engine writes discards
+/// as <c>_ = ...</c>, which inside such a lambda assign the parameter instead (CS0029, or a silent change of meaning).
+/// The parameter is renamed when the body also discards.
+/// </summary>
+internal sealed class DiscardParameters : IAstTransform
+{
+    public void Run(AstNode rootNode, TransformContext context)
+    {
+        foreach (var function in rootNode.Descendants.Where(n => n is LambdaExpression or AnonymousMethodExpression).ToList())
+        {
+            var parameters = function is LambdaExpression l ? l.Parameters : ((AnonymousMethodExpression)function).Parameters;
+            if (parameters.FirstOrDefault(p => p.Name == "_") is not { } parameter) continue;
+            var body = function is LambdaExpression lambda ? lambda.Body : ((AnonymousMethodExpression)function).Body;
+            // discards written in this function's own body (not in a nested lambda that has its own parameters)
+            bool discards = body.DescendantsAndSelf.OfType<AssignmentExpression>().Any(a =>
+                a.Left is IdentifierExpression { Identifier: "_" } && a.Left.GetSymbol() is not IParameter
+                && a.Ancestors.TakeWhile(x => x != function).All(x => x is not (LambdaExpression or AnonymousMethodExpression)));
+            if (!discards) continue;
+            var taken = function.Descendants.OfType<Identifier>().Select(i => i.Name).ToHashSet();
+            var fresh = Enumerable.Range(1, 100).Select(n => "_" + n).First(n => !taken.Contains(n));
+            parameter.Name = fresh;
+            // reads of the parameter (not discard targets) follow it
+            foreach (var use in body.DescendantsAndSelf.OfType<IdentifierExpression>().Where(i => i.Identifier == "_" && i.GetSymbol() is IParameter).ToList())
+                use.Identifier = fresh;
+        }
+    }
+}
+
+/// <summary>
+/// <c>ref readonly T r = ref entity.TryGet&lt;T&gt;(out ok); return ref r;</c> where <c>entity</c> is a local copy passed
+/// by <c>in</c> / <c>ref</c>: the IL returns that reference (an IL-level rewrite of the original code), C# refuses it
+/// (CS8157). Written as <c>return ref Unsafe.AsRef(in r)</c> (.NET 8+, whose parameter is scoped): the same reference,
+/// so the same behaviour as the compiled code.
+/// </summary>
+internal sealed class ReturnRefThroughLocalCopy : IAstTransform
+{
+    public void Run(AstNode rootNode, TransformContext context)
+    {
+        foreach (var ret in rootNode.Descendants.OfType<ReturnStatement>().ToList())
+        {
+            if (ret.Expression is not DirectionExpression { FieldDirection: FieldDirection.Ref, Expression: IdentifierExpression { Identifier: var name } }) continue;
+            var body = ret.Ancestors.OfType<BlockStatement>().LastOrDefault(b => b.Parent is EntityDeclaration);
+            if (body == null) continue;
+            var declaration = body.Descendants.OfType<VariableDeclarationStatement>()
+                .FirstOrDefault(d => d.Type is ComposedType { HasRefSpecifier: true } && d.Variables.Any(v => v.Name == name));
+            if (declaration?.Variables.First(v => v.Name == name).Initializer is not DirectionExpression { Expression: InvocationExpression call }) continue;
+            if (!PassesLocalCopy(call, body)) continue;
+            var unsafeType = new MemberType(new MemberType(new MemberType(new MemberType(new SimpleType("global"), "System") { IsDoubleColon = true },
+                "Runtime"), "CompilerServices"), "Unsafe");
+            var asRef = new InvocationExpression(new MemberReferenceExpression(new TypeReferenceExpression(unsafeType), "AsRef"),
+                new DirectionExpression(FieldDirection.In, new IdentifierExpression(name)));
+            ret.Expression = new DirectionExpression(FieldDirection.Ref, asRef);
+        }
+    }
+
+    /// <summary>The call gets a by-value local of this method by reference (an `in` / `ref` argument, or the receiver of a `this in` extension).</summary>
+    private static bool PassesLocalCopy(InvocationExpression call, BlockStatement body)
+    {
+        var locals = body.Descendants.OfType<VariableDeclarationStatement>().Where(d => d.Type is not ComposedType { HasRefSpecifier: true })
+            .SelectMany(d => d.Variables.Select(v => v.Name))
+            .Concat(body.Descendants.OfType<ForeachStatement>().Where(f => f.VariableType is not ComposedType { HasRefSpecifier: true })
+                .Select(f => f.VariableDesignation is SingleVariableDesignation sv ? sv.Identifier : null).OfType<string>())
+            .ToHashSet();
+        bool IsLocal(Expression e) => e is IdentifierExpression { Identifier: var n } && locals.Contains(n);
+        if (call.Arguments.Any(a => a is DirectionExpression { FieldDirection: FieldDirection.In or FieldDirection.Ref, Expression: var x } && IsLocal(x)))
+            return true;
+        return call.Target is MemberReferenceExpression { Target: var receiver } && IsLocal(receiver)
+               && call.GetSymbol() is IMethod m && (m.ReducedFrom ?? m) is { IsExtensionMethod: true, Parameters: [{ ReferenceKind: ReferenceKind.In or ReferenceKind.Ref or ReferenceKind.RefReadOnly }, ..] };
     }
 }
