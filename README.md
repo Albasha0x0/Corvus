@@ -18,14 +18,14 @@ of the next tool result, plus best-effort `resources/list_changed` and log notif
 
 | Area | Tools |
 |---|---|
-| Workspace | `load_assembly` (a file or a whole folder; reports progress) · `list_assemblies` (ids, versions, ReadyToRun, merged-assembly label, unsaved edits; with `path`, the managed assemblies inside a container file without extracting them) · `unload_assembly` · `reload_assembly` · `add_search_directory` · `get_assembly_info` (identity, TFM, references and whether each resolves (to the loaded build in the same folder first), PE headers and sections, metadata streams, attributes, Il2Cpp detection, method bodies that are not valid IL — encrypted or dumped before decryption, also flagged in decompiled code and comparisons) |
+| Workspace | `load_assembly` (a file or a whole folder; reports progress) · `list_assemblies` (ids, versions, ReadyToRun, merged-assembly label, unsaved edits; `filter` / `offset` / `limit` for big folders; with `path`, the managed assemblies inside a container file without extracting them) · `unload_assembly` · `reload_assembly` · `add_search_directory` · `get_assembly_info` (identity, TFM, references and whether each resolves (to the loaded build in the same folder first), PE headers and sections, metadata streams, attributes, Il2Cpp detection, method bodies that are not valid IL — encrypted or dumped before decryption, also flagged in decompiled code and comparisons) |
 | Browse | `list_namespaces` · `list_types` · `get_type_info` (outline with tokens, constants, hex enum values, IL sizes, Il2Cpp RVAs and offsets) · `get_type_hierarchy` · `get_attributes` (type, member, parameter, return value, assembly or module) · `resolve_symbol` |
 | Decompile | `decompile_type` · `decompile_member` (overloads, async, iterators and lambdas folded back) · `get_il` (tokens, offsets, structured EH) · `decompile_assembly_attributes` · `export_project` (whole assembly → .csproj; reports progress and failed types) |
-| Search | `search_symbols` (substring, wildcard or regex) · `search_strings` · `search_constants` (IL literals, const and enum values, attribute arguments) · `search_il` (instruction-sequence patterns with wildcards and gaps) |
-| Cross-references | `find_references` (methods, including calls dispatched through base/interface methods; fields with read/write/address; properties; events; types in every position: base, interface, constraint, field/param/return/local, catch, attribute, cast, newobj) · `find_callees` · `find_overrides` |
+| Search | `search_symbols` (substring, wildcard or regex) · `search_strings` · `search_constants` (IL literals, const and enum values, attribute arguments, and elements of static array data such as crypto round constants and CRC tables for values of 0x10000 and up) · `search_il` (instruction-sequence patterns with wildcards and gaps) |
+| Cross-references | `find_references` (methods, including calls dispatched through base/interface methods; fields with read/write/address; properties; events; types in every position: base, interface, constraint, field/param/return/local, catch, attribute, cast, newobj) · `find_callees` · `find_overrides` (paged) |
 | Call graph | `get_call_tree` (callers or callees N levels deep, breadth-first so a node budget cuts the deepest level; repeats, recursion and virtual dispatch marked) · `find_call_paths` (shortest call chains from a method or from entry points to a target; direct calls preferred, virtual-dispatch hops marked, `includeVirtual=false` for direct calls only) |
-| Compare builds | `compare_assemblies` (added/removed/renamed types and members, signature, body, field-offset and RVA changes; renamed members matched by IL fingerprints and strings) · `find_counterpart` (where did this type/member go in the new build) |
-| Resources | `list_resources` · `get_resource` (text, hex, `.resources` entries; extract to disk) |
+| Compare builds | `compare_assemblies` (added/removed/renamed types and members, signature, body, field-offset and RVA changes; renamed members matched by IL fingerprints and strings; compiler-generated closures, state machines, backing fields and array data are hidden and counted unless `includeCompilerGenerated=true`) · `find_counterpart` (where did this type/member go in the new build) |
+| Resources | `list_resources` · `get_resource` (text, hex, `.resources` entries, WPF `.baml` entries as XAML; extract to disk) |
 | Containers | `unpack_container` (single-file bundles, Costura, NuGet, Xamarin / MAUI APKs, embedded images; extracts and loads the assemblies, each labelled ReadyToRun / merged) · `search_container` (types and members by name across every assembly in a container, without extracting; capped, with a truncation flag). See [Unpacking containers](#unpacking-containers) |
 | File inspection | `summarize_file` (one report: hashes, identity, strong name and Authenticode with digest check, protector markers, packing, features, typed strings, entry points; opens containers) · `survey_features` (capa-style rules over APIs, P/Invoke imports and strings, with ATT&CK techniques and evidence) · `extract_strings` (URLs, domains, IPs, paths, registry keys, mutexes, user agents, crypto keys; JSON / CSV export) · `extract_embedded` (resources, static arrays and strings decoded through base64 / hex / gzip / deflate / XOR). See [File inspection](#file-inspection) |
 | Il2Cpp | `get_il2cpp_info` (RVA, VA, file offset, slot, field offsets, tokens) · `find_method_by_address` (IDA/Ghidra address formats; exact start or containing method; dumper garbage addresses of methods without native code are ignored) · `export_il2cpp_symbols` (IDA and Ghidra scripts that name every function, a C header with struct layouts, and JSON) |
@@ -108,7 +108,9 @@ workspace id, if loaded), and for .NET assemblies `readyToRun` and `merged`), an
 To see what is inside without writing or loading anything, call `list_assemblies` with `path`. It walks the
 container the same way (same parser, same limits, nested containers included) and returns a `container` section:
 each managed assembly's path inside the container, full name, version, size, SHA-256, origin, `readyToRun` and
-`merged`. A plain assembly lists itself. A corrupt container returns a tool error that says what is wrong. Without
+`merged`. A plain assembly lists itself. A zip cut off or missing its central directory (a broken download) still
+lists the entries before the damage, read from their local headers, with a note. A container with nothing readable
+returns a tool error that says what is wrong. Without
 `path`, `list_assemblies` lists the workspace as before.
 
 `search_container` searches the metadata of every managed assembly in a container (or a plain assembly) by name,
@@ -157,7 +159,7 @@ Four tools that read an assembly's metadata, IL, resources and signature without
 | `summarize_file` | File hashes, type and entropy; per assembly: identity (name, version, MVID, target framework, GUI / console / library, architecture, ReadyToRun, merged), strong name and Authenticode signature, protector markers and heuristics, packing (embedded assemblies, decoded embedded content, high-entropy sections), features, a summary of typed strings, and entry points (Main, module initializers, native exports, installer / service / AppDomainManager / COM hooks). `highlights` lists the notable findings. |
 | `survey_features` | Rules over the APIs the code calls, the native functions it imports and its string literals, in categories: network, execution, registry, persistence, collection, credential access, anti-analysis, defense evasion, code loading, injection, discovery, crypto. Each matched feature has its evidence (pattern, count, up to 5 locations) and an ATT&CK technique where the operation is the technique itself. `category` filters by category or technique prefix. |
 | `extract_strings` | URLs, domains, IPv4 / IPv6, email addresses, file paths, named pipes, registry keys, mutex names, user agents and crypto keys from string literals, constants, resource text and decoded embedded text, with the APIs each value is passed to. `savePath` exports JSON or CSV (it refuses to replace a file unless `overwrite=true`). |
-| `extract_embedded` | Embedded resources, `.resources` entries, static byte arrays and string literals of 64+ characters, decoded through hex, base64, gzip / zlib / deflate and XOR until a recognized kind appears (PE / .NET images, archives, ELF / Mach-O, text), plus high-entropy blobs. Each item shows its source and encoding chain, e.g. `base64 > xor key 5a > gzip`. `save=true` writes them with defanged names; `load=true` also loads the .NET ones; `xorText=true` adds a single-byte XOR search over text (see below). |
+| `extract_embedded` | Embedded resources, `.resources` entries, static byte arrays and string literals of 64+ characters, decoded through hex, base64, gzip / zlib / deflate and XOR until a recognized kind appears (PE / .NET images, archives, ELF / Mach-O, text), plus high-entropy blobs. Each item shows its source and encoding chain, e.g. `base64 > xor key 5a > gzip`. `save=true` writes them with defanged names; `load=true` also loads the .NET ones; `xorText=true` adds a single-byte XOR search over text (see below); images (png, jpeg, gif, ico) are only counted unless `includeMedia=true`. |
 
 Limits:
 
@@ -212,7 +214,8 @@ add_types_csharp    assembly="Game"   code="namespace Mods { public static class
 
 **History:** every edit is recorded. `diff_edits` shows the decompiled C# before and after, `undo_edit` removes one edit
 (the rest are replayed), `export_edits` writes a JSON script, and `apply_edits` replays it, by token on the same build
-and by name on a new one.
+and by name on a new one. When a target was renamed in the new build, load the build the script was made from as well:
+`apply_edits` then follows the target through the same content match as `compare_assemblies` and reports the new name.
 
 **IL:** call `get_il` on the method, edit the instruction lines, and pass them back. The `/* token */` comments resolve
 operands exactly. Hand-written IL works too:
@@ -236,7 +239,7 @@ ret
 Requires the .NET 10 SDK.
 
 ```powershell
-dotnet test                    # 302 tests: services, IL/C# patching (with runtime execution), edit history,
+dotnet test                    # 344 tests: services, IL/C# patching (with runtime execution), edit history,
                                # build comparison, call graph, IDA/Ghidra/C/C++ generation (compiled with clang),
                                # background indexing, file watching, every tool over stdio, real-assembly stress,
                                # container unpacking and listing (fixtures built at test time, incl. crossgen2 ReadyToRun
