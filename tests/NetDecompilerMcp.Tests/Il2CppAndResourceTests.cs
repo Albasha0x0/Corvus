@@ -68,6 +68,23 @@ public class Il2CppTests : IDisposable
     }
 
     [Fact]
+    public async Task Il2CppInfo_SkipsSameNamedTypesWithoutMetadata()
+    {
+        // the game's managed build next to the dummy DLLs: both define Fixture.Native.NativeThing
+        using var dir = new TempDir();
+        var managed = dir.File("Managed.dll");
+        File.WriteAllBytes(managed, ContainerFixtures.Module("Managed", m => m.Types.Add(new dnlib.DotNet.TypeDefUser("Fixture.Native", "NativeThing", m.CorLibTypes.Object.TypeDefOrRef))));
+        _env.Workspace.Load(managed);
+        var tools = new NetDecompilerMcp.Tools.Il2CppTools(_env.Workspace, _env.Il2Cpp, new Il2CppExporter(_env.Il2Cpp), _env.Pager);
+        var text = await tools.GetIl2CppInfo("Fixture.Native.NativeThing");
+        Assert.Contains("1 match(es) in assemblies without Il2Cpp metadata skipped: Managed", text);
+        Assert.Contains("RVA=0x1100", text);
+        Assert.DoesNotContain("[Managed]", text);
+        // only the managed one in scope: shown as is (with the "no attributes" hint)
+        Assert.Contains("No Il2Cpp attributes found", await tools.GetIl2CppInfo("Fixture.Native.NativeThing", "Managed"));
+    }
+
+    [Fact]
     public void NonIl2CppAssemblyGivesClearError()
     {
         using var env = new Env(Env.ConsumerPath);

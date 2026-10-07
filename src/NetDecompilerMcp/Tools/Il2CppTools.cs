@@ -20,7 +20,17 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
     {
         var sb = new StringBuilder();
         bool any = false;
-        foreach (var sym in SymbolResolver.Resolve(workspace, assembly, symbol).Take(25))
+        var symbols = SymbolResolver.Resolve(workspace, assembly, symbol);
+        // the same name in the game's managed DLLs and in a dummy-DLL set: only the dummy (Il2Cpp) side has addresses
+        var withMetadata = symbols.Where(s => il2cpp.GetIndex(s.Assembly).Count > 0).ToList();
+        if (withMetadata.Count > 0 && withMetadata.Count < symbols.Count)
+        {
+            sb.AppendLine($"({symbols.Count - withMetadata.Count} match(es) in assemblies without Il2Cpp metadata skipped: " +
+                          string.Join(", ", symbols.Except(withMetadata).Select(s => s.Assembly.Id).Distinct().Take(5)) + ")");
+            sb.AppendLine();
+            symbols = withMetadata;
+        }
+        foreach (var sym in symbols.Take(25))
         {
             sb.AppendLine($"{sym.Kind} {sym.Label}  [{sym.Assembly.Id}] {Format.Token(sym.Member)}");
             foreach (var a in Il2CppService.GetAttributes(sym.Member)) { sb.AppendLine("  " + a); any = true; }
