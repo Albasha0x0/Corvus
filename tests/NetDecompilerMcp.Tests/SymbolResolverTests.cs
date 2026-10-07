@@ -91,6 +91,23 @@ public class SymbolResolverTests : IDisposable
     }
 
     [Fact]
+    public void BareMemberNames_AreSearchedInEveryType()
+    {
+        Assert.Equal("Fixture.Game.Player::CheckLicense()", _env.One("CheckLicense").Label);
+        Assert.Equal("Fixture.Game.Player::CheckLicense()", _env.One("checklicense").Label); // case-insensitive when nothing matches exactly
+        Assert.Equal("_health", _env.One("_health", SymbolKind.Field).Member.Name);
+        // the same name on several types: all of them, and the ambiguity error lists them
+        var score = SymbolResolver.Resolve(_env.Workspace, null, "Score");
+        Assert.Contains(score, s => s.Label == "Fixture.Game.Entity::Score()");
+        Assert.Contains(score, s => s.Label == "Fixture.Game.Boss::Score()");
+        Assert.Contains("Fixture.Game.Boss::Score()", Assert.Throws<ToolError>(() => _env.One("Score")).Message);
+        // a signature narrows overloads; a type name still resolves to the type first
+        Assert.Equal(2, _env.One("TakeDamage(int, string)").Member is MethodDef m ? m.Parameters.Count - 1 : 0);
+        Assert.IsAssignableFrom<TypeDef>(_env.One("Player").Member);
+        Assert.Contains("not found", Assert.Throws<ToolError>(() => _env.One("NoSuchMemberAnywhere")).Message);
+    }
+
+    [Fact]
     public void KindFilterAndParsing()
     {
         Assert.Equal(SymbolKind.Method, SymbolResolver.ParseKind("Methods"));

@@ -68,6 +68,19 @@ public static class SymbolResolver
                 return Finish(results, symbol, scope, typePart, null);
         }
 
+        if (memberPart == null && kind != SymbolKind.Type && IsBareIdentifier(query))
+        {
+            // a member name alone ("GetPredictedDurability", "Tick(float)"): the members of that name in every type in
+            // scope; exact-case matches win over case-insensitive ones
+            foreach (var a in scope)
+                foreach (var t in a.Module.GetTypes())
+                    results.AddRange(FindMembers(new ResolvedSymbol(a, t), query, signature, kind).Where(r => r.Member is not TypeDef));
+            if (results.Any(r => r.Member.Name == query))
+                return results.Where(r => r.Member.Name == query).ToList();
+            if (results.Count > 0)
+                return results;
+        }
+
         if (memberPart == null)
         {
             // "Ns.Type.Member" -> split at the last top-level dot, keeping ".ctor"/".cctor" intact.
@@ -209,6 +222,10 @@ public static class SymbolResolver
         return wanted == shortForm || wanted == fullForm || wanted == named
                || NormalizeSignature(string.Join(",", wanted.Split(',').Select(p => p.Replace("system.", "")))) == shortForm.Replace("system.", "");
     }
+
+    /// <summary>A plain identifier ("Tick", "get_Instance"): no namespace, type separator or constructor name.</summary>
+    private static bool IsBareIdentifier(string s) =>
+        s.Length > 0 && (char.IsLetter(s[0]) || s[0] == '_') && s.All(c => char.IsLetterOrDigit(c) || c == '_');
 
     private static bool TrySplitMember(string query, out string typePart, out string memberPart)
     {
