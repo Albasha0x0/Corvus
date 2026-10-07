@@ -38,17 +38,16 @@ public class Il2CppExportTests : IDisposable
         Assert.Throws<ToolError>(() => new Il2CppExporter(consumer.Il2Cpp).Export(consumer.Workspace.Assemblies, _dir.Path, "all", "x", default));
     }
 
-    private const string GameDummy = @"C:\work\RE\Game\tools\Il2CppDumper\DummyDll";
     private const string Clang = @"C:\Program Files\LLVM\bin\clang.exe";
 
     /// <summary>The real dump: the header must compile and the scripts must be valid Python.</summary>
-    [RequiresPathFact(GameDummy)]
+    [RequiresRealDataFact(RealData.Il2CppDummyDir)]
     public void RealDumpHeaderCompilesAndScriptsParse()
     {
         using var ws = new AssemblyWorkspace();
-        ws.LoadDirectory(GameDummy, false);
+        ws.LoadDirectory(RealData.Path(RealData.Il2CppDummyDir), false);
         var result = ws.Read(() => new Il2CppExporter(new Il2CppService(ws)).Export(ws.Assemblies, _dir.Path, "all", "game", default));
-        Assert.True(result.Methods > 50_000 && result.Structs > 5_000);
+        Assert.True(result.Methods > 0 && result.Structs > 0);
         if (File.Exists(Clang))
             Assert.Equal(0, Tools.Run(Clang, $"-fsyntax-only -x c \"{_dir.File("game.h")}\"").ExitCode);
         var python = Tools.Run("python", $"-c \"import py_compile,sys; [py_compile.compile(p, doraise=True) for p in sys.argv[1:]]\" \"{_dir.File("game_ida.py")}\" \"{_dir.File("game_ghidra.py")}\"");

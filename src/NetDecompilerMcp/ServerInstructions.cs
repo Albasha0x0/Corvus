@@ -10,6 +10,11 @@ internal static class ServerInstructions
            Load related assemblies too: cross-references and inherited members only see what is loaded or resolvable.
            Method bodies are indexed in the background after loading; files that change on disk are reloaded automatically
            (notices appear as "[workspace] ..." lines at the top of a tool result).
+           An app that ships packed (single-file .exe, Costura, .nupkg, Xamarin/MAUI .apk): list_assemblies with path shows the
+           assemblies inside, search_container finds types/members in them by name, and unpack_container extracts and loads them.
+           list_assemblies and unpack_container flag ReadyToRun and merged (ILMerge/ILRepack) assemblies.
+           summarize_file reports signature, markers, packing, features, typed strings and entry points of a file in one call;
+           survey_features, extract_strings and extract_embedded give the details. Nothing is executed.
         2. Discover: search_symbols, search_strings, search_constants, search_il, list_namespaces, list_types, get_type_info (cheap outline).
         3. Read code: decompile_member (one method) is faster and smaller than decompile_type; get_il for raw IL.
         4. Navigate: find_references (who uses X, incl. calls through base/interface methods), find_callees, get_call_tree
@@ -17,7 +22,8 @@ internal static class ServerInstructions
         5. Game updates: load both builds (the second gets an id like Name#2), then compare_assemblies and find_counterpart to carry
            renamed types/members and changed offsets forward; export_edits + apply_edits re-applies a patch set to the new build.
         6. Il2Cpp dummy DLLs have empty bodies: get_il2cpp_info (RVAs, field offsets), find_method_by_address (native address -> method),
-           export_il2cpp_symbols (IDA/Ghidra scripts + C struct header). generate_cpp_binding emits ModHost-style C++ lookup code.
+           export_il2cpp_symbols (IDA/Ghidra scripts + C struct header). generate_cpp_binding emits C++ binding code for a Mono type
+           (standard Mono embedding API by default; style=hostapi for host-provided plugin APIs).
         7. Patch in memory (dryRun=true previews): rename_symbol, rename_namespace, stub_method, patch_method_csharp (C# body; lambdas,
            async, LINQ supported), add_members_csharp, add_types_csharp, patch_method_il. Review with list_edits / diff_edits, undo with
            undo_edit / revert_edits, then save_assembly (never overwrites the original without overwrite=true; keeps a .bak).

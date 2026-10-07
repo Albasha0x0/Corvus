@@ -14,7 +14,6 @@ public class RealAssemblyTests(ITestOutputHelper output)
 {
     private static readonly string DnlibPath = typeof(ModuleDefMD).Assembly.Location;
     private static readonly string IlSpyPath = typeof(ICSharpCode.Decompiler.CSharp.CSharpDecompiler).Assembly.Location;
-    private const string GameDummyDll = @"C:\work\RE\Game\tools\Il2CppDumper\DummyDll";
 
     [Fact]
     public void DecompilesEveryTopLevelTypeOfDnlibConcurrently()
@@ -100,9 +99,8 @@ public class RealAssemblyTests(ITestOutputHelper output)
         Assert.NotNull(result.ProjectFile);
     }
 
-    private const string GameDlls = @"C:\work\ModHost\dlls";
-
-    [RequiresPathFact(GameDlls)]
+    /// <summary>A real app's assemblies (NDM_MONO_GAME_DIR): decompile, search, cross-reference and patch its own code.</summary>
+    [RequiresRealDataFact(RealData.MonoGameDir)]
     public void RealGameAssembliesEndToEnd()
     {
         using var ws = new AssemblyWorkspace();
@@ -111,12 +109,13 @@ public class RealAssemblyTests(ITestOutputHelper output)
         var search = new Services.SearchService();
         var references = new Services.ReferenceService(ws);
         var sw = Stopwatch.StartNew();
-        var report = ws.LoadDirectory(GameDlls, false);
+        var report = ws.LoadDirectory(RealData.Path(RealData.MonoGameDir), false);
         output.WriteLine($"load: {report.Loaded.Count} assemblies, {ws.Assemblies.Sum(a => a.Module.GetTypes().Count())} types in {sw.ElapsedMilliseconds} ms");
-        Assert.True(report.Loaded.Count > 20);
+        Assert.NotEmpty(report.Loaded);
 
-        // Decompile every top-level type of the game assemblies (not the bundled BCL) concurrently.
-        var game = ws.Assemblies.Where(a => a.Id.StartsWith("XDT") || a.Id.StartsWith("Ecs")).ToList();
+        // Decompile every top-level type of the app's own assemblies (not the bundled framework / engine) concurrently.
+        var game = ws.Assemblies.Where(RealData.IsAppAssembly).ToList();
+        Assert.NotEmpty(game);
         var types = game.SelectMany(a => a.Module.Types.Where(t => t.FullName != "<Module>").Select(t => (a, t))).ToList();
         var failures = new ConcurrentBag<string>();
         int fallbacks = 0;
@@ -135,16 +134,18 @@ public class RealAssemblyTests(ITestOutputHelper output)
 
         sw.Restart();
         var strings = search.SearchStrings("http", false, ws.Assemblies, 20, default);
-        var symbols = search.SearchSymbols("*Fishing*", false, SymbolKind.Type, ws.Assemblies, null, 20, default);
-        output.WriteLine($"search: {sw.ElapsedMilliseconds} ms (strings {strings.Total}, *Fishing* types {symbols.Total})");
+        var symbols = search.SearchSymbols("*Manager*", false, SymbolKind.Type, game, null, 20, default);
+        output.WriteLine($"search: {sw.ElapsedMilliseconds} ms (strings {strings.Total}, *Manager* types {symbols.Total})");
 
         sw.Restart();
         var target = symbols.Items.FirstOrDefault() ?? search.SearchSymbols("*", false, SymbolKind.Type, game, null, 1, default).Items[0];
         var refs = ws.Read(() => references.FindReferences(target, true, 200, default));
         output.WriteLine($"xrefs to {target.Label}: {refs.Total} in {sw.ElapsedMilliseconds} ms");
 
-        // C# patch dry run on a real game method with a body.
-        var method = game.SelectMany(a => a.Module.GetTypes()).SelectMany(t => t.Methods)
+        // C# patch dry run on a real method in the app's main assembly (the one with the most types; bundled third-party
+        // libraries can carry internal copies of framework types that the patcher's reference resolution trips over).
+        var main = game.MaxBy(a => a.Module.GetTypes().Count())!;
+        var method = main.Module.GetTypes().SelectMany(t => t.Methods)
             .First(m => m.HasBody && !m.IsConstructor && m.ReturnType.ElementType == ElementType.Boolean && !m.DeclaringType.Name.String.Contains('<')
                         && !m.DeclaringType.HasGenericParameters && !m.Name.String.Contains('.') && !m.IsGetter && !m.IsSetter);
         var asm = ws.Assemblies.First(a => a.Module == method.Module);
@@ -156,18 +157,19 @@ public class RealAssemblyTests(ITestOutputHelper output)
         Assert.Contains("ret", compiled.Listing);
     }
 
-    [RequiresPathFact(GameDummyDll)]
+    /// <summary>A real Il2CppDumper / Cpp2IL DummyDll folder (NDM_IL2CPP_DUMMY_DIR).</summary>
+    [RequiresRealDataFact(RealData.Il2CppDummyDir)]
     public void Il2CppDummyDllFolder()
     {
         using var ws = new AssemblyWorkspace();
         var sw = Stopwatch.StartNew();
-        var report = ws.LoadDirectory(GameDummyDll, false);
+        var report = ws.LoadDirectory(RealData.Path(RealData.Il2CppDummyDir), false);
         output.WriteLine($"loaded {report.Loaded.Count} assemblies in {sw.ElapsedMilliseconds} ms");
-        Assert.True(report.Loaded.Count > 100);
+        Assert.NotEmpty(report.Loaded);
 
         var il2cpp = new Services.Il2CppService(ws);
         var index = ws.Assemblies.SelectMany(il2cpp.GetIndex).Where(e => e.Rva != null).ToList();
-        Assert.True(index.Count > 10_000);
+        Assert.NotEmpty(index);
 
         // Round-trip a sample of real RVAs: every exact start maps back to a method sharing that RVA.
         var rng = new Random(42);

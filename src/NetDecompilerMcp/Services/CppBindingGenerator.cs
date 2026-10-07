@@ -6,33 +6,55 @@ using static NetDecompilerMcp.Services.MetadataUtil;
 namespace NetDecompilerMcp.Services;
 
 /// <summary>
-/// Generates C++ binding code for a managed type in the style of ModHost's plugin API (shared/abi.h HostApi,
-/// plugin/mem.h, plugin/il2cpp_util.h): a struct that resolves the class, field offsets, static field data and methods
-/// once in Init, plus typed accessors and invoke wrappers. Names come from the real Mono metadata, so the namespace and
-/// class strings are exactly what mono_class_from_name sees.
+/// Generates C++ binding code for a managed type: a struct that resolves the class, field offsets, static field data and
+/// methods once, plus typed accessors and invoke wrappers. Names come from the real metadata, so the namespace and class
+/// strings are exactly what mono_class_from_name sees. Two output styles:
+/// <list type="bullet">
+/// <item>"mono" (default): the standard Mono embedding API (mono_class_from_name, mono_field_get_offset,
+/// mono_runtime_invoke, ...) through a function table filled from the runtime's exports. Self-contained; works in any
+/// tool that hosts or injects into a Mono runtime.</item>
+/// <item>"hostapi": for plugin frameworks whose host passes a HostApi table (FindClass / FieldOffset / GetMethod /
+/// Invoke, with shared/abi.h, mem.h and il2cpp_util.h helpers).</item>
+/// </list>
 /// </summary>
 public sealed class CppBindingGenerator
 {
+    public static readonly IReadOnlyList<string> Styles = ["mono", "hostapi"];
+
     private const string CompilerGenerated = "System.Runtime.CompilerServices.CompilerGeneratedAttribute";
 
     /// <summary>C++ keywords and the names the generated wrappers use themselves.</summary>
     private static readonly HashSet<string> CppReserved = new(StringComparer.Ordinal)
     {
-        "h", "obj", "a", "value", "alignas", "alignof", "and", "asm", "auto", "bool", "break", "case", "catch", "char", "class", "const",
-        "constexpr", "const_cast", "continue", "decltype", "default", "delete", "do", "double", "dynamic_cast", "else", "enum", "explicit",
-        "export", "extern", "false", "float", "for", "friend", "goto", "if", "inline", "int", "long", "mutable", "namespace", "new",
-        "noexcept", "not", "nullptr", "operator", "or", "private", "protected", "public", "register", "reinterpret_cast", "return",
-        "short", "signed", "sizeof", "static", "static_assert", "static_cast", "struct", "switch", "template", "this", "throw", "true",
-        "try", "typedef", "typeid", "typename", "union", "unsigned", "using", "virtual", "void", "volatile", "while", "xor", "concept",
-        "requires", "co_await", "co_return", "co_yield", "char8_t", "char16_t", "char32_t", "wchar_t",
+        "h", "api", "obj", "a", "value", "exception", "alignas", "alignof", "and", "asm", "auto", "bool", "break", "case", "catch", "char",
+        "class", "const", "constexpr", "const_cast", "continue", "decltype", "default", "delete", "do", "double", "dynamic_cast", "else",
+        "enum", "explicit", "export", "extern", "false", "float", "for", "friend", "goto", "if", "inline", "int", "long", "mutable",
+        "namespace", "new", "noexcept", "not", "nullptr", "operator", "or", "private", "protected", "public", "register",
+        "reinterpret_cast", "return", "short", "signed", "sizeof", "static", "static_assert", "static_cast", "struct", "switch",
+        "template", "this", "throw", "true", "try", "typedef", "typeid", "typename", "union", "unsigned", "using", "virtual", "void",
+        "volatile", "while", "xor", "concept", "requires", "co_await", "co_return", "co_yield", "char8_t", "char16_t", "char32_t", "wchar_t",
     };
 
-    public string Generate(LoadedAssembly asm, TypeDef type, IReadOnlyCollection<string>? only, bool includeInherited)
+    /// <summary>The members to bind, chosen once and rendered by either style.</summary>
+    private sealed record Selection(
+        List<FieldDef> Fields,
+        List<(PropertyDef Property, bool ViaHierarchy)> Getters,
+        List<MethodDef> Methods,
+        HashSet<(string Name, int Argc)> Overloaded);
+
+    public string Generate(LoadedAssembly asm, TypeDef type, IReadOnlyCollection<string>? only, bool includeInherited, string style = "mono")
     {
+        style = style.Trim().ToLowerInvariant();
+        if (!Styles.Contains(style))
+            throw new ToolError($"Unknown style '{style}': use {string.Join(" or ", Styles)}.");
         if (type.HasGenericParameters)
-            throw new ToolError($"{type.FullName} is generic: bind the generic definition with host->MakeGeneric and resolve members on the instantiation.");
-        var top = TopLevel(type);
-        var structName = Identifier(Format.StripArity(type.Name)) + "Binding";
+            throw new ToolError($"{type.FullName} is generic: generate a binding for a closed subclass, or resolve the instantiation's members by hand.");
+        var selection = Select(type, only, includeInherited);
+        return style == "mono" ? RenderMono(asm, type, selection) : RenderHostApi(asm, type, selection);
+    }
+
+    private static Selection Select(TypeDef type, IReadOnlyCollection<string>? only, bool includeInherited)
+    {
         bool Wanted(string name) => only == null || only.Count == 0 || only.Contains(name, StringComparer.Ordinal);
 
         var fields = type.Fields.Where(f => !f.IsLiteral && !IsGenerated(f, f.Name) && Wanted(f.Name)).ToList();
@@ -49,7 +71,280 @@ public sealed class CppBindingGenerator
             if (unknown.Count > 0)
                 throw new ToolError($"{type.FullName} has no bindable member(s): {string.Join(", ", unknown)}.");
         }
+        var overloaded = methods.GroupBy(x => (x.Name.String, ParamCount(x))).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet();
+        return new Selection(fields, [.. properties.Select(p => (p, false)), .. inherited.Select(p => (p, true))], methods, overloaded);
+    }
 
+    // ------------------------------------------------------------------ style "mono": the Mono embedding API
+
+    /// <summary>
+    /// The function table and helpers every "mono" binding uses, guarded so several generated headers can be included
+    /// in one translation unit.
+    /// </summary>
+    private const string MonoPreamble = """
+        #include <cstdint>
+        #include <cstring>
+        #include <type_traits>
+
+        #ifndef NETDECOMP_MONOBIND
+        #define NETDECOMP_MONOBIND
+        // Shared by every net-decompiler binding of style "mono": Mono embedding API entry points and helpers.
+        namespace monobind {
+
+        struct MonoDomain; struct MonoImage; struct MonoClass; struct MonoClassField; struct MonoMethod;
+        struct MonoVTable; struct MonoObject;
+
+        // Fill with Load(lookup), where lookup(name) returns that export of the Mono runtime: GetProcAddress on
+        // mono-2.0-bdwgc.dll / mono.dll, dlsym on libmonobdwgc-2.0.so / libmono-2.0.so, or the function itself when linked.
+        struct MonoApi {
+            MonoDomain* (*get_root_domain)() = nullptr;
+            MonoImage* (*image_loaded)(const char* assemblyName) = nullptr;
+            MonoClass* (*class_from_name)(MonoImage* image, const char* ns, const char* name) = nullptr;
+            MonoClass* (*class_get_nested_types)(MonoClass* klass, void** iter) = nullptr;
+            const char* (*class_get_name)(MonoClass* klass) = nullptr;
+            MonoClass* (*class_get_parent)(MonoClass* klass) = nullptr;
+            MonoClassField* (*class_get_field_from_name)(MonoClass* klass, const char* name) = nullptr;
+            uint32_t (*field_get_offset)(MonoClassField* field) = nullptr;
+            MonoVTable* (*class_vtable)(MonoDomain* domain, MonoClass* klass) = nullptr;
+            void* (*vtable_get_static_field_data)(MonoVTable* vtable) = nullptr;
+            MonoMethod* (*class_get_method_from_name)(MonoClass* klass, const char* name, int paramCount) = nullptr;
+            MonoMethod* (*class_get_methods)(MonoClass* klass, void** iter) = nullptr;
+            uint32_t (*method_get_token)(MonoMethod* method) = nullptr;
+            MonoObject* (*runtime_invoke)(MonoMethod* method, void* obj, void** params, MonoObject** exc) = nullptr;
+            void* (*object_unbox)(MonoObject* obj) = nullptr;
+
+            // True when every entry point was found.
+            template <class Lookup> bool Load(Lookup&& lookup) {
+                bool ok = true;
+                auto get = [&](auto& fn, const char* name) {
+                    fn = reinterpret_cast<std::remove_reference_t<decltype(fn)>>(lookup(name));
+                    ok = ok && fn != nullptr;
+                };
+                get(get_root_domain, "mono_get_root_domain");
+                get(image_loaded, "mono_image_loaded");
+                get(class_from_name, "mono_class_from_name");
+                get(class_get_nested_types, "mono_class_get_nested_types");
+                get(class_get_name, "mono_class_get_name");
+                get(class_get_parent, "mono_class_get_parent");
+                get(class_get_field_from_name, "mono_class_get_field_from_name");
+                get(field_get_offset, "mono_field_get_offset");
+                get(class_vtable, "mono_class_vtable");
+                get(vtable_get_static_field_data, "mono_vtable_get_static_field_data");
+                get(class_get_method_from_name, "mono_class_get_method_from_name");
+                get(class_get_methods, "mono_class_get_methods");
+                get(method_get_token, "mono_method_get_token");
+                get(runtime_invoke, "mono_runtime_invoke");
+                get(object_unbox, "mono_object_unbox");
+                return ok;
+            }
+        };
+
+        inline MonoClass* FindClass(const MonoApi& api, const char* assembly, const char* ns, const char* name) {
+            MonoImage* image = api.image_loaded(assembly);
+            return image ? api.class_from_name(image, ns, name) : nullptr;
+        }
+
+        inline MonoClass* FindNested(const MonoApi& api, MonoClass* outer, const char* name) {
+            if (!outer) return nullptr;
+            void* iter = nullptr;
+            while (MonoClass* nested = api.class_get_nested_types(outer, &iter))
+                if (std::strcmp(api.class_get_name(nested), name) == 0) return nested;
+            return nullptr;
+        }
+
+        // Instance fields: offset from the start of the object (header included). Static fields: offset in StaticData().
+        inline int32_t FieldOffset(const MonoApi& api, MonoClass* klass, const char* name) {
+            MonoClassField* field = api.class_get_field_from_name(klass, name);
+            return field ? static_cast<int32_t>(api.field_get_offset(field)) : -1;
+        }
+
+        inline void* StaticData(const MonoApi& api, MonoClass* klass) {
+            MonoVTable* vtable = api.class_vtable(api.get_root_domain(), klass);
+            return vtable ? api.vtable_get_static_field_data(vtable) : nullptr;
+        }
+
+        inline MonoMethod* MethodByToken(const MonoApi& api, MonoClass* klass, uint32_t token) {
+            void* iter = nullptr;
+            while (MonoMethod* method = api.class_get_methods(klass, &iter))
+                if (api.method_get_token(method) == token) return method;
+            return nullptr;
+        }
+
+        inline MonoMethod* MethodInHierarchy(const MonoApi& api, MonoClass* klass, const char* name, int paramCount) {
+            for (MonoClass* c = klass; c; c = api.class_get_parent(c))
+                if (MonoMethod* method = api.class_get_method_from_name(c, name, paramCount)) return method;
+            return nullptr;
+        }
+
+        template <class T> T Read(const void* base, int32_t offset) {
+            T value{};
+            if (base && offset >= 0) std::memcpy(&value, static_cast<const char*>(base) + offset, sizeof value);
+            return value;
+        }
+
+        template <class T> bool Write(void* base, int32_t offset, T value) {
+            if (!base || offset < 0) return false;
+            std::memcpy(static_cast<char*>(base) + offset, &value, sizeof value);
+            return true;
+        }
+
+        // Calls a method. A managed exception goes to *exception (when given) and the result is nullptr.
+        inline MonoObject* Invoke(const MonoApi& api, MonoMethod* method, void* obj, void** args, MonoObject** exception = nullptr) {
+            MonoObject* exc = nullptr;
+            MonoObject* result = method ? api.runtime_invoke(method, obj, args, &exc) : nullptr;
+            if (exception) *exception = exc;
+            return exc ? nullptr : result;
+        }
+
+        // A value-type result, unboxed (T{} when the call failed or threw).
+        template <class T> T CallValue(const MonoApi& api, MonoMethod* method, void* obj, void** args = nullptr) {
+            T value{};
+            if (MonoObject* boxed = Invoke(api, method, obj, args)) std::memcpy(&value, api.object_unbox(boxed), sizeof value);
+            return value;
+        }
+
+        } // namespace monobind
+        #endif // NETDECOMP_MONOBIND
+        """;
+
+    private static string RenderMono(LoadedAssembly asm, TypeDef type, Selection s)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        string Unique(string n)
+        {
+            var name = n;
+            for (int i = 2; !names.Add(name); i++) name = $"{n}{i}";
+            return name;
+        }
+
+        var decls = new StringBuilder();
+        var resolve = new StringBuilder();
+        var checks = new List<string> { "klass" };
+        var accessors = new StringBuilder();
+
+        // ---- fields: read and written in place, no Mono call needed
+        bool anyStatic = s.Fields.Any(f => f.IsStatic);
+        if (anyStatic)
+        {
+            decls.AppendLine("    void* m_static = nullptr;          // static field data block");
+            resolve.AppendLine("        m_static = StaticData(api, klass);");
+            checks.Add("m_static");
+        }
+        foreach (var f in s.Fields)
+        {
+            var off = Unique($"m_{Camel(f.Name)}{(f.IsStatic ? "StaticOff" : "Off")}");
+            var (cpp, isPointer, isStruct) = CppType(f.FieldType);
+            decls.AppendLine($"    int32_t {off} = -1;{Pad(off)}// {(f.IsStatic ? "static " : "")}{Format.Type(f.FieldType)} {f.Name}");
+            resolve.AppendLine($"        {off} = FieldOffset(api, klass, \"{f.Name}\");");
+            checks.Add($"{off} >= 0");
+            var accessor = SafeName(Pascal(f.Name));
+            var (target, objParam, constObjParam) = f.IsStatic ? ("m_static", "", "") : ("obj", "void* obj", "const void* obj");
+            if (isStruct)
+                accessors.AppendLine($"    void* {accessor}Addr({objParam}) const {{ return {target} && {off} >= 0 ? static_cast<char*>({target}) + {off} : nullptr; }}  // embedded {Format.Type(f.FieldType)}");
+            else if (isPointer)
+                accessors.AppendLine($"    MonoObject* {accessor}({constObjParam}) const {{ return Read<MonoObject*>({target}, {off}); }}");
+            else
+            {
+                accessors.AppendLine($"    {cpp} {accessor}({constObjParam}) const {{ return Read<{cpp}>({target}, {off}); }}");
+                accessors.AppendLine($"    bool Set{accessor}({Join(objParam, $"{cpp} value")}) const {{ return Write<{cpp}>({target}, {off}, value); }}");
+            }
+        }
+
+        // ---- property getters (invoked: needs a thread attached to Mono)
+        foreach (var (p, viaHierarchy) in s.Getters)
+        {
+            var getter = p.GetMethod!;
+            var m = Unique($"m_get{Pascal(p.Name)}");
+            decls.AppendLine($"    MonoMethod* {m} = nullptr;{Pad(m)}// {Format.Property(p)}");
+            resolve.AppendLine(viaHierarchy || getter.DeclaringType != type
+                ? $"        {m} = MethodInHierarchy(api, klass, \"{getter.Name}\", 0);"
+                : $"        {m} = api.class_get_method_from_name(klass, \"{getter.Name}\", 0);");
+            checks.Add(m);
+            var (cpp, isPointer, isStruct) = CppType(getter.ReturnType);
+            var instance = getter.IsStatic ? "nullptr" : "obj";
+            var param = getter.IsStatic ? "const MonoApi& api" : "const MonoApi& api, void* obj";
+            var name = SafeName(Pascal(p.Name));
+            if (isPointer || isStruct)
+                accessors.AppendLine($"    MonoObject* {name}({param}) const {{ return Invoke(api, {m}, {instance}, nullptr); }}{(isStruct ? $"  // boxed {Format.Type(getter.ReturnType)}" : "")}");
+            else
+                accessors.AppendLine($"    {cpp} {name}({param}) const {{ return CallValue<{cpp}>(api, {m}, {instance}); }}");
+        }
+
+        // ---- methods (overloads with the same argument count are told apart by metadata token)
+        var wrapperSignatures = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var method in s.Methods)
+        {
+            var m = Unique($"m_{Camel(method.Name)}");
+            int argc = ParamCount(method);
+            bool byToken = s.Overloaded.Contains((method.Name.String, argc));
+            decls.AppendLine($"    MonoMethod* {m} = nullptr;{Pad(m)}// {Format.Method(method)}");
+            resolve.AppendLine(byToken
+                ? $"        {m} = MethodByToken(api, klass, 0x{method.MDToken.Raw:X8});  // overloaded {method.Name}({MonoParams(method)})"
+                : $"        {m} = api.class_get_method_from_name(klass, \"{method.Name}\", {argc});");
+            checks.Add(m);
+
+            var (parameters, args) = WrapperParameters(method, "const MonoApi& api");
+            var argArray = args.Count == 0 ? "nullptr" : "a";
+            var setup = args.Count == 0 ? "" : $"void* a[{args.Count}] = {{ {string.Join(", ", args)} }}; ";
+            var wrapper = UniqueWrapper(wrapperSignatures, method.Name, parameters);
+            parameters.Add("MonoObject** exception = nullptr");
+            accessors.AppendLine($"    MonoObject* {wrapper}({string.Join(", ", parameters)}) const {{ {setup}return Invoke(api, {m}, {(method.IsStatic ? "nullptr" : "obj")}, {argArray}, exception); }}{ReturnNote(method, "api.object_unbox(result)")}");
+        }
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"// Generated by net-decompiler from {asm.Id} ({asm.AssemblyName}.dll): {type.FullName}  [{Format.Token(type)}]");
+        sb.AppendLine("// Standard Mono embedding API, no other headers needed. Fill a monobind::MonoApi once with Load(), then call");
+        sb.AppendLine("// Resolve(api) on a thread attached to Mono (mono_thread_attach) and check Resolved(). Method calls and property");
+        sb.AppendLine("// getters also need an attached thread; field reads and writes only need a live object pointer.");
+        sb.AppendLine("// Value-type arguments are passed by value (by pointer for structs and ref parameters); objects as their pointer.");
+        if (s.Overloaded.Count > 0)
+            sb.AppendLine("// Overloaded methods are matched by metadata token: regenerate this header when the assembly changes.");
+        if (type.IsValueType)
+            sb.AppendLine("// Value type: instance offsets include the object header (two pointers); subtract it for unboxed data.");
+        sb.AppendLine("#pragma once");
+        sb.AppendLine(MonoPreamble);
+        sb.AppendLine();
+        sb.AppendLine("namespace monobind {");
+        sb.AppendLine();
+        sb.AppendLine($"struct {StructName(type)} {{");
+        sb.AppendLine("    MonoClass* klass = nullptr;");
+        sb.Append(decls);
+        sb.AppendLine();
+        sb.AppendLine("    bool Resolve(const MonoApi& api) {");
+        sb.AppendLine($"        klass = {MonoFindClass(asm, type)};");
+        sb.AppendLine("        if (!klass) return false;");
+        sb.Append(resolve);
+        sb.AppendLine("        return Resolved();");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine($"    bool Resolved() const {{ return {string.Join(" && ", checks)}; }}");
+        if (accessors.Length > 0)
+        {
+            sb.AppendLine();
+            sb.Append(accessors);
+        }
+        sb.AppendLine("};");
+        sb.AppendLine();
+        sb.AppendLine("} // namespace monobind");
+        return sb.ToString();
+    }
+
+    /// <summary>FindClass for a top-level type; nested types are found through their enclosing classes.</summary>
+    private static string MonoFindClass(LoadedAssembly asm, TypeDef type)
+    {
+        var chain = new List<TypeDef>();
+        for (var c = type; c != null; c = c.DeclaringType) chain.Insert(0, c);
+        var expr = $"FindClass(api, \"{asm.AssemblyName}\", \"{chain[0].Namespace}\", \"{chain[0].Name}\")";
+        foreach (var nested in chain.Skip(1))
+            expr = $"FindNested(api, {expr}, \"{nested.Name}\")";
+        return expr;
+    }
+
+    // ------------------------------------------------------------------ style "hostapi": a host-provided plugin ABI
+
+    private static string RenderHostApi(LoadedAssembly asm, TypeDef type, Selection s)
+    {
+        var top = TopLevel(type);
         var names = new HashSet<string>(StringComparer.Ordinal);
         string Unique(string n)
         {
@@ -64,17 +359,17 @@ public sealed class CppBindingGenerator
         var accessors = new StringBuilder();
 
         // ---- fields
-        bool anyStatic = fields.Any(f => f.IsStatic);
+        bool anyStatic = s.Fields.Any(f => f.IsStatic);
         if (anyStatic) decls.AppendLine("    void* m_static = nullptr;          // static field data block");
         if (anyStatic) resolve.AppendLine("        m_static = h->GetStaticFieldData(klass);");
-        foreach (var f in fields)
+        foreach (var f in s.Fields)
         {
             var off = Unique($"m_{Camel(f.Name)}{(f.IsStatic ? "StaticOff" : "Off")}");
             var (cpp, isPointer, isStruct) = CppType(f.FieldType);
             decls.AppendLine($"    int32_t {off} = -1;{Pad(off)}// {(f.IsStatic ? "static " : "")}{Format.Type(f.FieldType)} {f.Name}");
             resolve.AppendLine($"        {off} = h->{(f.IsStatic ? "StaticFieldOffset" : "FieldOffset")}(klass, \"{f.Name}\");");
             checks.Add($"{off} >= 0");
-            var accessor = Pascal(f.Name);
+            var accessor = SafeName(Pascal(f.Name));
             if (f.IsStatic)
             {
                 checks.Add("m_static");
@@ -100,7 +395,7 @@ public sealed class CppBindingGenerator
         }
 
         // ---- property getters (invoked: call inside BeginMono/EndMono)
-        foreach (var (p, viaHierarchy) in properties.Select(p => (p, false)).Concat(inherited.Select(p => (p, true))))
+        foreach (var (p, viaHierarchy) in s.Getters)
         {
             var getter = p.GetMethod!;
             var m = Unique($"m_get{Pascal(p.Name)}");
@@ -112,57 +407,44 @@ public sealed class CppBindingGenerator
             var (cpp, isPointer, isStruct) = CppType(getter.ReturnType);
             var instance = getter.IsStatic ? "nullptr" : "obj";
             var param = getter.IsStatic ? "const HostApi* h" : "const HostApi* h, void* obj";
+            var name = SafeName(Pascal(p.Name));
             if (isPointer)
-                accessors.AppendLine($"    void* {Pascal(p.Name)}({param}) const {{ return h->Invoke({m}, {instance}, nullptr, 0); }}  // needs Mono scope");
+                accessors.AppendLine($"    void* {name}({param}) const {{ return h->Invoke({m}, {instance}, nullptr, 0); }}  // needs Mono scope");
             else if (!isStruct)
-                accessors.AppendLine($"    {cpp} {Pascal(p.Name)}({param}) const {{ return CallValue<{cpp}>(h, {m}, {instance}); }}  // needs Mono scope");
+                accessors.AppendLine($"    {cpp} {name}({param}) const {{ return CallValue<{cpp}>(h, {m}, {instance}); }}  // needs Mono scope");
         }
 
         // ---- methods (overloads with the same argument count are resolved by exact signature)
-        var overloaded = methods.GroupBy(x => (x.Name.String, ParamCount(x))).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet();
         var wrapperSignatures = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var method in methods)
+        foreach (var method in s.Methods)
         {
             var m = Unique($"m_{Camel(method.Name)}");
             int argc = ParamCount(method);
             decls.AppendLine($"    HMethod {m} = nullptr;{Pad(m)}// {Format.Method(method)}");
-            resolve.AppendLine(overloaded.Contains((method.Name.String, argc))
+            resolve.AppendLine(s.Overloaded.Contains((method.Name.String, argc))
                 ? $"        {m} = GetMethodExact(h, klass, \"{method.Name}\", \"{MonoParams(method)}\");"
                 : $"        {m} = h->GetMethod(klass, \"{method.Name}\", {argc});");
             checks.Add(m);
 
-            var parameters = new List<string> { "const HostApi* h" };
-            if (!method.IsStatic) parameters.Add("void* obj");
-            var args = new List<string>();
-            foreach (var p in method.Parameters.Where(x => x.IsNormalMethodParameter))
-            {
-                var (cpp, isPointer, isStruct) = CppType(p.Type);
-                var name = Identifier(p.Name);
-                if (CppReserved.Contains(name)) name += "_";
-                if (p.Type is ByRefSig || isStruct) { parameters.Add($"void* {name}"); args.Add(name); }        // pointer to the value / ref
-                else if (isPointer) { parameters.Add($"void* {name}"); args.Add(name); }                      // object reference
-                else { parameters.Add($"{cpp} {name}"); args.Add($"&{name}"); }                              // value types by pointer
-            }
+            var (parameters, args) = WrapperParameters(method, "const HostApi* h");
             var argArray = args.Count == 0 ? "nullptr" : "a";
             var setup = args.Count == 0 ? "" : $"void* a[{args.Count}] = {{ {string.Join(", ", args)} }}; ";
-            var (retCpp, retPointer, retStruct) = CppType(method.ReturnType);
-            var returnNote = method.ReturnType.ElementType == ElementType.Void ? "" : retPointer ? "  // returns the object" : $"  // boxed {Format.Type(method.ReturnType)}: Unbox<{(retStruct ? "T" : retCpp)}>(h, result)";
-            // Overloads that differ only by managed reference types map to the same C++ parameter list: number them.
-            var wrapper = Pascal(method.Name);
-            string Key(string n) => n + "(" + string.Join(",", parameters.Select(p => p[..p.LastIndexOf(' ')])) + ")";
-            for (int i = 2; !wrapperSignatures.Add(Key(wrapper)); i++) wrapper = Pascal(method.Name) + i;
-            accessors.AppendLine($"    void* {wrapper}({string.Join(", ", parameters)}) const {{ {setup}return h->Invoke({m}, {(method.IsStatic ? "nullptr" : "obj")}, {argArray}, {args.Count}); }}{returnNote}");
+            var wrapper = UniqueWrapper(wrapperSignatures, method.Name, parameters);
+            accessors.AppendLine($"    void* {wrapper}({string.Join(", ", parameters)}) const {{ {setup}return h->Invoke({m}, {(method.IsStatic ? "nullptr" : "obj")}, {argArray}, {args.Count}); }}{ReturnNote(method, "Unbox<T>(h, result)")}");
         }
 
         var ns = top.Namespace.String;
         var className = type.DeclaringType == null ? type.Name.String : NestedName(type);
         var sb = new StringBuilder();
         sb.AppendLine($"// Generated by net-decompiler from {asm.Id} ({asm.AssemblyName}.dll): {type.FullName}  [{Format.Token(type)}]");
-        sb.AppendLine("// Resolve(host) once in Init() (it runs inside the host's Mono scope); check Resolved() before use.");
-        sb.AppendLine("// Field reads/writes use SafeRead/SafeWrite (no Mono attach needed). Invokes and getters must run on the Host main");
-        sb.AppendLine("// thread inside h->BeginMono() / h->EndMono(). Value-type arguments are passed by pointer; objects as their pointer.");
+        sb.AppendLine("// For a plugin host that passes a HostApi table (shared/abi.h). Resolve(host) once in Init() (it runs inside the");
+        sb.AppendLine("// host's Mono scope); check Resolved() before use. Field reads/writes use SafeRead/SafeWrite (no Mono attach needed).");
+        sb.AppendLine("// Invokes and getters must run on the host's main thread inside h->BeginMono() / h->EndMono().");
+        sb.AppendLine("// Value-type arguments are passed by pointer; objects as their pointer.");
         if (type.DeclaringType != null)
             sb.AppendLine($"// NOTE: nested type. mono_class_from_name may not find \"{className}\" directly; if FindClass fails, resolve it from the outer class.");
+        if (type.IsValueType)
+            sb.AppendLine("// Value type: instance offsets include the object header (two pointers); subtract it for unboxed data.");
         sb.AppendLine("#pragma once");
         sb.AppendLine("#include \"../shared/abi.h\"");
         sb.AppendLine("#include \"mem.h\"");
@@ -170,7 +452,7 @@ public sealed class CppBindingGenerator
         sb.AppendLine();
         sb.AppendLine("namespace plugin {");
         sb.AppendLine();
-        sb.AppendLine($"struct {structName} {{");
+        sb.AppendLine($"struct {StructName(type)} {{");
         sb.AppendLine("    HClass klass = nullptr;");
         sb.Append(decls);
         sb.AppendLine();
@@ -192,6 +474,50 @@ public sealed class CppBindingGenerator
         sb.AppendLine("} // namespace plugin");
         return sb.ToString();
     }
+
+    // ------------------------------------------------------------------ shared helpers
+
+    private static string StructName(TypeDef type) => Identifier(Format.StripArity(type.Name)) + "Binding";
+
+    /// <summary>Wrapper parameters after the API parameter, and the matching entries of the argument array.</summary>
+    private static (List<string> Parameters, List<string> Args) WrapperParameters(MethodDef method, string apiParameter)
+    {
+        var parameters = new List<string> { apiParameter };
+        if (!method.IsStatic) parameters.Add("void* obj");
+        var args = new List<string>();
+        foreach (var p in method.Parameters.Where(x => x.IsNormalMethodParameter))
+        {
+            var (cpp, isPointer, isStruct) = CppType(p.Type);
+            var name = Identifier(p.Name);
+            if (CppReserved.Contains(name)) name += "_";
+            if (p.Type is ByRefSig || isStruct) { parameters.Add($"void* {name}"); args.Add(name); }        // pointer to the value / ref
+            else if (isPointer) { parameters.Add($"void* {name}"); args.Add(name); }                      // object reference
+            else { parameters.Add($"{cpp} {name}"); args.Add($"&{name}"); }                              // value types by pointer
+        }
+        return (parameters, args);
+    }
+
+    /// <summary>Overloads that differ only by managed reference types map to the same C++ parameter list: number them.</summary>
+    private static string UniqueWrapper(HashSet<string> signatures, string methodName, List<string> parameters)
+    {
+        var baseName = SafeName(Pascal(methodName));
+        string Key(string n) => n + "(" + string.Join(",", parameters.Select(p => p[..p.LastIndexOf(' ')])) + ")";
+        var wrapper = baseName;
+        for (int i = 2; !signatures.Add(Key(wrapper)); i++) wrapper = baseName + i;
+        return wrapper;
+    }
+
+    private static string ReturnNote(MethodDef method, string unbox)
+    {
+        if (method.ReturnType.ElementType == ElementType.Void) return "";
+        var (retCpp, retPointer, retStruct) = CppType(method.ReturnType);
+        return retPointer ? "  // returns the object" : $"  // boxed {Format.Type(method.ReturnType)}: {unbox.Replace("<T>", $"<{(retStruct ? "T" : retCpp)}>")}";
+    }
+
+    /// <summary>Accessor and wrapper names must not collide with the struct's own Resolve / Resolved.</summary>
+    private static string SafeName(string name) => name is "Resolve" or "Resolved" ? name + "_" : name;
+
+    private static string Join(string a, string b) => a.Length == 0 ? b : $"{a}, {b}";
 
     private static IEnumerable<TypeDef> BaseChain(TypeDef t)
     {
@@ -240,7 +566,7 @@ public sealed class CppBindingGenerator
         return ("void*", true, false); // classes, strings, arrays, interfaces, delegates, generic class instances
     }
 
-    /// <summary>Mono short parameter names for GetMethodExact, e.g. "String,Color" or "Int32&,Boolean".</summary>
+    /// <summary>Mono short parameter names, e.g. "String,Color" or "Int32&,Boolean" (GetMethodExact; comments).</summary>
     private static string MonoParams(MethodDef m) =>
         string.Join(",", m.MethodSig.Params.Select(MonoName));
 

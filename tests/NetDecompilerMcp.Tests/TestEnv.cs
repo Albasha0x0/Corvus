@@ -79,6 +79,51 @@ public sealed class RequiresPathFactAttribute : FactAttribute
     }
 }
 
+/// <summary>
+/// Real-world test data, located by environment variables so nothing about one machine lives in the repo.
+/// Tests that need a variable are skipped when it is unset or points nowhere.
+/// </summary>
+public static class RealData
+{
+    /// <summary>The Managed folder of a Mono game (or any folder of real-world .NET assemblies).</summary>
+    public const string MonoGameDir = "NDM_MONO_GAME_DIR";
+    /// <summary>An Il2CppDumper / Cpp2IL DummyDll folder.</summary>
+    public const string Il2CppDummyDir = "NDM_IL2CPP_DUMMY_DIR";
+    /// <summary>Two builds of the same game (folders), and the assembly to compare between them.</summary>
+    public const string CompareOldDir = "NDM_COMPARE_OLD_DIR";
+    public const string CompareNewDir = "NDM_COMPARE_NEW_DIR";
+    public const string CompareAssembly = "NDM_COMPARE_ASSEMBLY";
+    /// <summary>Optional: known type moves between the two builds, "Old.Name=>New.Name;Old2=>New2".</summary>
+    public const string CompareExpect = "NDM_COMPARE_EXPECT";
+    /// <summary>Optional: a method in the Mono game to search call paths to (default: one picked automatically).</summary>
+    public const string CallPathTarget = "NDM_CALLPATH_TARGET";
+    /// <summary>Include folder of a HostApi plugin framework (has ../shared/abi.h, mem.h, il2cpp_util.h).</summary>
+    public const string HostApiIncludeDir = "NDM_HOSTAPI_INCLUDE_DIR";
+
+    public static string? Get(string variable) => Environment.GetEnvironmentVariable(variable) is { Length: > 0 } v ? v : null;
+
+    public static string Path(string variable) => Get(variable) ?? throw new InvalidOperationException($"{variable} is not set");
+
+    /// <summary>Assemblies that are not the framework or the engine: the application's own code.</summary>
+    public static bool IsAppAssembly(LoadedAssembly a) =>
+        !new[] { "System", "Microsoft.", "mscorlib", "netstandard", "Mono.", "UnityEngine", "Unity.", "Newtonsoft." }
+            .Any(p => a.AssemblyName.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+}
+
+/// <summary>A fact that only runs when every given environment variable names an existing path (see <see cref="RealData"/>).</summary>
+public sealed class RequiresRealDataFactAttribute : FactAttribute
+{
+    public RequiresRealDataFactAttribute(params string[] variables)
+    {
+        foreach (var v in variables)
+        {
+            var value = RealData.Get(v);
+            if (value == null) { Skip = $"Set {v} to run this real-data test."; return; }
+            if (!System.IO.Path.Exists(value)) { Skip = $"{v} points to a missing path: {value}"; return; }
+        }
+    }
+}
+
 /// <summary>Runs external tools (clang, python) used to check generated code.</summary>
 internal static class Tools
 {

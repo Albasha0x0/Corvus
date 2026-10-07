@@ -39,7 +39,7 @@ public sealed class SearchService
         return new(ordered.Take(limit).ToList(), ordered.Count);
     }
 
-    private static IEnumerable<IMemberDef> MembersOf(TypeDef type, SymbolKind kind)
+    internal static IEnumerable<IMemberDef> MembersOf(TypeDef type, SymbolKind kind)
     {
         if (kind is SymbolKind.Any or SymbolKind.Type) yield return type;
         if (kind is SymbolKind.Any or SymbolKind.Member or SymbolKind.Method)
@@ -52,7 +52,7 @@ public sealed class SearchService
             foreach (var e in type.Events) yield return e;
     }
 
-    private static int Rank(string name, string query) =>
+    internal static int Rank(string name, string query) =>
         name.Equals(query, StringComparison.Ordinal) ? 0
         : name.Equals(query, StringComparison.OrdinalIgnoreCase) ? 1
         : name.StartsWith(query, StringComparison.OrdinalIgnoreCase) ? 2

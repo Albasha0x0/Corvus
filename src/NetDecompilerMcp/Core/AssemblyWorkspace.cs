@@ -113,13 +113,15 @@ public sealed class AssemblyWorkspace : IDisposable
         try
         {
             module = ModuleDefMD.Load(bytes, DnlibContext);
+            // dnlib resolves type names constantly; without this every lookup is a linear scan.
+            // It reads the NestedClass table, so corrupt metadata fails here rather than in ModuleDefMD.Load.
+            module.EnableTypeDefFindCache = true;
         }
         catch (Exception ex)
         {
             throw new ToolError($"Not a loadable .NET assembly: {full} ({ex.Message})");
         }
         module.Location = full;
-        module.EnableTypeDefFindCache = true; // dnlib resolves type names constantly; without this every lookup is a linear scan
 
         var asm = new LoadedAssembly(MakeUniqueId(module, full), full, bytes, module);
         _assemblies.Add(asm);

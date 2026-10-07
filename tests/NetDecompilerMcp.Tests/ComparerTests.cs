@@ -47,22 +47,30 @@ public class ComparerTests(ITestOutputHelper output)
         Assert.Throws<ToolError>(() => comparer.Compare(env.Fixture, env.Fixture, default));
     }
 
-    private const string January = @"C:\work\RE\Game\dumps\memory_dump";
-    private const string September = @"C:\work\RE\Game\dumps\memory_dump_v2";
-
-    [RequiresPathFact(January)]
-    public void RealGameUpdate()
+    /// <summary>
+    /// Two real builds of one app (NDM_COMPARE_OLD_DIR / NDM_COMPARE_NEW_DIR). Compares NDM_COMPARE_ASSEMBLY, or the
+    /// largest application assembly present in both; NDM_COMPARE_EXPECT lists known moves ("Old=>New;Old2=>New2").
+    /// </summary>
+    [RequiresRealDataFact(RealData.CompareOldDir, RealData.CompareNewDir)]
+    public void RealBuildUpdate()
     {
         using var ws = new AssemblyWorkspace();
-        var jan = ws.LoadDirectory(January, false).Loaded.Single(a => a.AssemblyName == "EcsClient");
-        var sep = ws.LoadDirectory(September, false).Loaded.Single(a => a.AssemblyName == "EcsClient");
+        var older = ws.LoadDirectory(RealData.Path(RealData.CompareOldDir), false).Loaded;
+        var newer = ws.LoadDirectory(RealData.Path(RealData.CompareNewDir), false).Loaded;
+        var name = RealData.Get(RealData.CompareAssembly)
+                   ?? older.Where(RealData.IsAppAssembly).Where(a => newer.Any(b => b.AssemblyName == a.AssemblyName))
+                       .MaxBy(a => a.Module.GetTypes().Count())?.AssemblyName;
+        Assert.True(name != null, "no application assembly is present in both builds");
+        var old = older.Single(a => a.AssemblyName == name);
+        var @new = newer.Single(a => a.AssemblyName == name);
         var sw = Stopwatch.StartNew();
-        var cmp = ws.Read(() => new AssemblyComparer(ws).Compare(jan, sep, default));
-        output.WriteLine($"compared in {sw.ElapsedMilliseconds} ms: {cmp.TypeMap.Count} matched, {cmp.Types.Count} changes");
-        // Known moves/renames between these builds.
-        Assert.Contains(cmp.Types, t => t.Old?.FullName == "Sazabi.Scene.Share.ClinetShared.Modules.PartyGame.MorphComponent"
-                                        && t.New?.FullName == "XDT.Scene.Shared.Modules.PartyGame.MorphComponent");
-        Assert.Contains(cmp.Types, t => t.Old?.FullName == "TableAnimalBehaviacConf" && t.New?.FullName == "TableAnimalBehaviourConf");
-        Assert.True(cmp.TypeMap.Count > 8000);
+        var cmp = ws.Read(() => new AssemblyComparer(ws).Compare(old, @new, default));
+        output.WriteLine($"{name}: compared in {sw.ElapsedMilliseconds} ms: {cmp.TypeMap.Count} matched, {cmp.Types.Count} changes");
+        Assert.NotEmpty(cmp.TypeMap);
+        foreach (var move in (RealData.Get(RealData.CompareExpect) ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = move.Split("=>", StringSplitOptions.TrimEntries);
+            Assert.Contains(cmp.Types, t => t.Old?.FullName == parts[0] && t.New?.FullName == parts[1]);
+        }
     }
 }

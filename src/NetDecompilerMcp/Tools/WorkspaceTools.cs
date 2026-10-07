@@ -1,20 +1,25 @@
 using System.ComponentModel;
 using System.Text;
+using System.Text.Json.Serialization;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Services;
+using NetDecompilerMcp.Services.Analysis;
 using static NetDecompilerMcp.Tools.ToolSupport;
 
 namespace NetDecompilerMcp.Tools;
 
 [McpServerToolType]
-public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il2cpp, AssemblyReport report, IndexingService indexing)
+public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il2cpp, AssemblyReport report, IndexingService indexing, UnpackService unpacker)
 {
-    public sealed record AssemblyEntry(string Id, string Name, string Version, string Path, int Types, bool Il2CppDummy, IReadOnlyList<string> UnsavedEdits);
+    public sealed record AssemblyEntry(string Id, string Name, string Version, string Path, int Types, bool Il2CppDummy, IReadOnlyList<string> UnsavedEdits,
+        bool ReadyToRun, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Merged);
 
-    public sealed record WorkspaceState(IReadOnlyList<AssemblyEntry> Assemblies, IReadOnlyList<string> SearchDirectories, string BackgroundIndexing);
+    /// <summary>The workspace; plus, when list_assemblies is given a path, the managed assemblies inside that file.</summary>
+    public sealed record WorkspaceState(IReadOnlyList<AssemblyEntry> Assemblies, IReadOnlyList<string> SearchDirectories, string BackgroundIndexing,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] UnpackService.ContainerListing? Container = null);
 
     [McpServerTool(Name = "load_assembly", Title = "Load assembly", Idempotent = true, OpenWorld = false)]
     [Description("Load a .NET assembly (.dll/.exe) or every assembly in a directory (e.g. a Unity game's *_Data/Managed or an Il2CppDumper DummyDll folder). " +
@@ -54,13 +59,24 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     }, cancellationToken));
 
     [McpServerTool(Name = "list_assemblies", Title = "List loaded assemblies", ReadOnly = true, OpenWorld = false, UseStructuredContent = true)]
-    [Description("Loaded assemblies with their ids (use the id in other tools), versions, paths, whether they are Il2Cpp dummy DLLs, and unsaved edits; plus the reference search directories.")]
-    public Task<WorkspaceState> ListAssemblies(CancellationToken cancellationToken = default) => Task.Run(() => workspace.Read(() =>
-        new WorkspaceState(
+    [Description("Loaded assemblies with their ids (use the id in other tools), versions, paths, whether they are Il2Cpp dummy DLLs, " +
+                 "ReadyToRun (precompiled native code next to the IL), merged (ILMerge / ILRepack output, with the original module count), " +
+                 "and unsaved edits; plus the reference search directories. Pass path to also list the managed assemblies inside a " +
+                 "container file (single-file bundle, .nupkg, .apk / .aab, Costura host, zip) without extracting or loading them; " +
+                 "unpack_container extracts and loads them.")]
+    public Task<WorkspaceState> ListAssemblies(
+        [Description("Optional: a container file whose managed assemblies to list (a plain assembly lists itself).")] string? path = null,
+        CancellationToken cancellationToken = default) => Task.Run(() =>
+    {
+        var container = path == null ? null : unpacker.List(path, AnalysisLimits.Default, cancellationToken);
+        return workspace.Read(() => new WorkspaceState(
             workspace.Assemblies.Select(a => new AssemblyEntry(a.Id, a.FullAssemblyName, a.Module.Assembly?.Version?.ToString() ?? "", a.FilePath,
-                a.Module.GetTypes().Count(), il2cpp.GetIndex(a).Count > 0, a.Edits.Select(e => e.Description).ToList())).ToList(),
+                a.Module.GetTypes().Count(), il2cpp.GetIndex(a).Count > 0, a.Edits.Select(e => e.Description).ToList(),
+                AssemblyTraits.IsReadyToRun(a.OriginalBytes), AssemblyTraits.MergeNote(a.Module))).ToList(),
             workspace.SearchDirectories,
-            indexing.Status)), cancellationToken);
+            indexing.Status,
+            container));
+    }, cancellationToken);
 
     [McpServerTool(Name = "unload_assembly", Title = "Unload assembly", Idempotent = true, OpenWorld = false)]
     [Description("Remove an assembly from the workspace (unsaved edits are discarded).")]

@@ -7,6 +7,7 @@ using NetDecompilerMcp;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Mcp;
 using NetDecompilerMcp.Services;
+using NetDecompilerMcp.Services.Analysis;
 
 ServerOptions options;
 try
@@ -44,7 +45,9 @@ builder.Services
     .AddSingleton<Il2CppExporter>()
     .AddSingleton<CppBindingGenerator>()
     .AddSingleton<IndexingService>()
-    .AddSingleton<FileWatchService>();
+    .AddSingleton<FileWatchService>()
+    .AddSingleton<UnpackService>()
+    .AddSingleton<InspectionService>();
 
 builder.Services
     .AddMcpServer(o =>

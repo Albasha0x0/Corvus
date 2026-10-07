@@ -1,0 +1,198 @@
+using dnlib.DotNet;
+using dnlib.DotNet.Emit;
+using dnlib.DotNet.Resources;
+using NetDecompilerMcp.Core;
+
+namespace NetDecompilerMcp.Services.Analysis;
+
+/// <summary>Where an item was found, as text: "Ns.Type::Method(int) @IL_0012", "resource 'x.bin'", ...; Api: the API it is passed to.</summary>
+public sealed record Location(string Where, string? Api = null)
+{
+    public override string ToString() => Api == null ? Where : $"{Where} -> {Api}";
+}
+
+/// <summary>
+/// One pass over a module's metadata and method bodies: every API called (call / callvirt / newobj / ldftn / ldvirtftn),
+/// every string literal and string constant with the next APIs called after it, P/Invoke imports, static fields with
+/// initial data and the methods that use them, and embedded resources with the entries of .resources containers.
+/// Reads metadata only; nothing is loaded or executed. Unreadable types and resources are skipped with a note.
+/// </summary>
+public sealed class ModuleScan
+{
+    /// <summary>
+    /// A call / newobj / ldftn of a method, by "Ns.Type::Name" (generic arguments dropped), and with its parameter types:
+    /// "Ns.Type::Name(System.Byte[])".
+    /// </summary>
+    public sealed record ApiUse(MethodDef Caller, uint Offset, string Api, string Signature, IMethod Target);
+
+    /// <summary>A string literal (ldstr) or string constant; <see cref="Consumers"/> are the next APIs called after it.</summary>
+    public sealed record CodeString(string Value, Location Location, MethodDef? Method, IReadOnlyList<string> Consumers);
+
+    public sealed record NativeImport(MethodDef Method, string Module, string Entry);
+
+    /// <summary>A static field with initial data (array initializers live in &lt;PrivateImplementationDetails&gt;), and where it is used.</summary>
+    public sealed record FieldData(FieldDef Field, byte[] Data, IReadOnlyList<MethodDef> UsedIn);
+
+    /// <summary>An embedded resource, or one byte[] / stream / string entry of a .resources container.</summary>
+    public sealed record ResourceBlob(string Name, byte[]? Bytes, string? Text);
+
+    /// <summary>How many instructions after a string to look for the APIs that consume it.</summary>
+    private const int ConsumerWindow = 12;
+
+    public ModuleDef Module { get; }
+    public List<ApiUse> Calls { get; } = [];
+    public List<CodeString> Strings { get; } = [];
+    public List<NativeImport> Imports { get; } = [];
+    public List<FieldData> Data { get; } = [];
+    public List<ResourceBlob> Resources { get; } = [];
+    public List<string> Notes { get; } = [];
+    /// <summary>The APIs each scanned method calls.</summary>
+    public Dictionary<MethodDef, HashSet<string>> ApisByMethod { get; } = [];
+    public int MethodsScanned { get; private set; }
+
+    private ModuleScan(ModuleDef module) => Module = module;
+
+    /// <summary>Scans <paramref name="module"/>; <paramref name="instructions"/> reads a body (fast reader or dnlib).</summary>
+    public static ModuleScan Run(ModuleDef module, Func<MethodDef, IList<Instruction>> instructions, AnalysisLimits limits, CancellationToken ct)
+    {
+        var scan = new ModuleScan(module);
+        var fieldUses = new Dictionary<FieldDef, List<MethodDef>>();
+        List<TypeDef> types;
+        try { types = module.GetTypes().ToList(); }
+        catch (Exception ex) { scan.Notes.Add($"Type table unreadable: {ex.Message}"); types = []; }
+
+        foreach (var type in types)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                foreach (var field in type.Fields)
+                {
+                    if (field.HasConstant && field.Constant?.Value is string constant && constant.Length > 0)
+                        scan.Strings.Add(new CodeString(constant, new Location($"const {Format.MemberLabel(field)}"), null, []));
+                }
+                foreach (var method in type.Methods)
+                {
+                    if (method.ImplMap is { } map)
+                        scan.Imports.Add(new NativeImport(method, map.Module?.Name.String ?? "", map.Name.String));
+                    if (!method.HasBody && method.RVA == 0) continue;
+                    scan.ScanBody(method, instructions(method), fieldUses);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                scan.Notes.Add($"{type.FullName}: skipped ({ex.GetType().Name}).");
+            }
+        }
+
+        foreach (var (field, users) in fieldUses)
+        {
+            byte[]? data = MetadataUtil.Try(() => field.InitialValue);
+            if (data is { Length: > 0 }) scan.Data.Add(new FieldData(field, data, users));
+        }
+        scan.ReadResources(limits);
+        return scan;
+    }
+
+    private void ScanBody(MethodDef method, IList<Instruction> body, Dictionary<FieldDef, List<MethodDef>> fieldUses)
+    {
+        MethodsScanned++;
+        var apis = new HashSet<string>(StringComparer.Ordinal);
+        ApisByMethod[method] = apis;
+        for (int i = 0; i < body.Count; i++)
+        {
+            var instr = body[i];
+            switch (instr.OpCode.Code)
+            {
+                case Code.Call or Code.Callvirt or Code.Newobj or Code.Ldftn or Code.Ldvirtftn:
+                    if (MetadataUtil.AsMethod(instr.Operand) is { } target && ApiName(target) is { } api)
+                    {
+                        Calls.Add(new ApiUse(method, instr.Offset, api, $"{api}({string.Join(",", target.MethodSig?.Params.Select(p => p.FullName) ?? [])})", target));
+                        apis.Add(api);
+                    }
+                    break;
+                case Code.Ldstr when instr.Operand is string s && s.Length > 0:
+                    Strings.Add(new CodeString(s, new Location($"{Format.MemberLabel(method)} @IL_{instr.Offset:X4}"), method, Consumers(body, i)));
+                    break;
+                case Code.Ldtoken or Code.Ldsfld or Code.Ldsflda when MetadataUtil.AsField(instr.Operand) is { } f
+                                                                      && MetadataUtil.Try(() => f.ResolveFieldDef()) is { HasFieldRVA: true } fd:
+                    if (!fieldUses.TryGetValue(fd, out var users)) fieldUses[fd] = users = [];
+                    if (!users.Contains(method)) users.Add(method);
+                    break;
+            }
+        }
+    }
+
+    /// <summary>The first few APIs called after instruction <paramref name="at"/>: where a string ends up.</summary>
+    private static List<string> Consumers(IList<Instruction> body, int at)
+    {
+        var list = new List<string>();
+        for (int j = at + 1; j < body.Count && j <= at + ConsumerWindow && list.Count < 3; j++)
+        {
+            var code = body[j].OpCode.Code;
+            if (code is Code.Ret or Code.Throw) break;
+            if (code is Code.Call or Code.Callvirt or Code.Newobj && MetadataUtil.AsMethod(body[j].Operand) is { } m && ApiName(m) is { } api)
+                list.Add(api);
+        }
+        return list;
+    }
+
+    /// <summary>"Ns.Type::Name" for a method reference, with generic arguments dropped and nested types as Outer/Inner.</summary>
+    public static string? ApiName(IMethod method)
+    {
+        var type = method.DeclaringType;
+        if (type == null) return null;
+        var scope = type.ScopeType ?? type; // a generic instance's definition
+        return $"{scope.FullName}::{method.Name}";
+    }
+
+    private void ReadResources(AnalysisLimits limits)
+    {
+        List<EmbeddedResource> embedded;
+        try { embedded = Module.Resources.OfType<EmbeddedResource>().ToList(); }
+        catch (Exception ex) { Notes.Add($"Resource table unreadable: {ex.Message}"); return; }
+        foreach (var res in embedded)
+        {
+            byte[] bytes;
+            try { bytes = res.CreateReader().ToArray(); }
+            catch (Exception) { Notes.Add($"Resource '{res.Name}' unreadable."); continue; }
+            if (bytes.Length > limits.MaxItemBytes) { Notes.Add($"Resource '{res.Name}' skipped: larger than the limit."); continue; }
+            Resources.Add(new ResourceBlob(res.Name, bytes, null));
+            if (!res.Name.String.EndsWith(".resources", StringComparison.OrdinalIgnoreCase)) continue;
+            try
+            {
+                var set = ResourceReader.Read(Module, res.CreateReader());
+                foreach (var element in set.ResourceElements)
+                {
+                    var name = $"{res.Name}:{element.Name}";
+                    switch (element.ResourceData)
+                    {
+                        case BuiltInResourceData { Code: ResourceTypeCode.String, Data: string text }:
+                            Resources.Add(new ResourceBlob(name, null, text));
+                            break;
+                        case BuiltInResourceData { Code: ResourceTypeCode.ByteArray or ResourceTypeCode.Stream, Data: byte[] data }:
+                            Resources.Add(new ResourceBlob(name, data, null));
+                            break;
+                        case BinaryResourceData binary:
+                            Resources.Add(new ResourceBlob(name, binary.Data, null));
+                            break;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                Notes.Add($"Resource '{res.Name}' looks like a .resources container but could not be parsed.");
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ factories
+
+    /// <summary>Scans a loaded assembly (fast body reader). Call under the workspace read lock.</summary>
+    public static ModuleScan Of(LoadedAssembly asm, AnalysisLimits limits, CancellationToken ct) =>
+        Run(asm.Module, m => FastIlReader.Instructions(asm, m), limits, ct);
+
+    /// <summary>Scans an assembly that is only in memory (not in the workspace).</summary>
+    public static ModuleScan Of(ModuleDef module, AnalysisLimits limits, CancellationToken ct) =>
+        Run(module, MetadataUtil.SafeInstructions, limits, ct);
+}
