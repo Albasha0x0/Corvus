@@ -1,8 +1,8 @@
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using dnlib.DotNet;
 using dnlib.DotNet.Writer;
 using ICSharpCode.Decompiler.Metadata;
-using System.Reflection.Metadata;
-using System.Reflection.PortableExecutable;
 
 namespace NetDecompilerMcp.Core;
 

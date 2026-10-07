@@ -89,14 +89,14 @@ builder.Services
 var host = builder.Build();
 // Created before preloading so the preloaded assemblies are indexed and watched too.
 host.Services.GetRequiredService<IndexingService>();
-host.Services.GetRequiredService<FileWatchService>().Changed += message => NotifyClient(host.Services, message);
+host.Services.GetRequiredService<FileWatchService>().Changed += _ => NotifyResourcesChanged(host.Services);
 Preload(host.Services.GetRequiredService<AssemblyWorkspace>(), host.Services.GetRequiredService<ILogger<AssemblyWorkspace>>(), options);
 await host.RunAsync();
 return 0;
 
-// Best effort: tell the client that the resource list changed and log the event (the notice also rides along with
-// the next tool result, which works with every client).
-static void NotifyClient(IServiceProvider services, string message)
+// Best effort: tell the client that the resource list changed. The notice text itself rides along with the next tool
+// result, which works with every client.
+static void NotifyResourcesChanged(IServiceProvider services)
 {
     if (services.GetService<ModelContextProtocol.Server.McpServer>() is not { } server) return;
     _ = Task.Run(async () =>
@@ -104,16 +104,10 @@ static void NotifyClient(IServiceProvider services, string message)
         try
         {
             await server.SendNotificationAsync(NotificationMethods.ResourceListChangedNotification);
-            await server.SendNotificationAsync(NotificationMethods.LoggingMessageNotification, new LoggingMessageNotificationParams
-            {
-                Level = LoggingLevel.Info,
-                Logger = "net-decompiler",
-                Data = System.Text.Json.JsonSerializer.SerializeToElement(message),
-            });
         }
         catch
         {
-            // the client may not support or want notifications
+            // the client may not support notifications
         }
     });
 }

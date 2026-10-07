@@ -1,4 +1,4 @@
-using dnlib.DotNet;
+using System.Diagnostics;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Services;
 
@@ -76,5 +76,25 @@ public sealed class RequiresPathFactAttribute : FactAttribute
     {
         if (!System.IO.Path.Exists(path))
             Skip = $"Real-world data not present: {path}";
+    }
+}
+
+/// <summary>Runs external tools (clang, python) used to check generated code.</summary>
+internal static class Tools
+{
+    public static (int ExitCode, string Output) Run(string file, string args)
+    {
+        try
+        {
+            using var p = Process.Start(new ProcessStartInfo(file, args) { RedirectStandardError = true, RedirectStandardOutput = true, UseShellExecute = false })!;
+            var stderr = p.StandardError.ReadToEndAsync(); // read both pipes at once, or a full one blocks the process
+            var stdout = p.StandardOutput.ReadToEnd();
+            p.WaitForExit(600_000);
+            return (p.ExitCode, stdout + stderr.Result);
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return (-1, $"{file} not found");
+        }
     }
 }

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using ModelContextProtocol;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
@@ -202,13 +203,21 @@ public class McpProtocolTests : IAsyncLifetime
     {
         File.Copy(Env.FixturePath, _dir.File("A.dll"));
         File.Copy(Env.ConsumerPath, _dir.File("B.dll"));
-        var updates = new ConcurrentQueue<ProgressNotificationValue>();
+        // Observe notifications with a session-wide handler: the per-call progress callback is unregistered as soon as
+        // the response arrives, and the client dispatches notifications asynchronously, so it can miss ones that were
+        // on the wire before the response.
+        var updates = new ConcurrentQueue<ProgressNotificationParams>();
+        await using var handler = _client.RegisterNotificationHandler(NotificationMethods.ProgressNotification, (n, _) =>
+        {
+            updates.Enqueue(n.Params.Deserialize<ProgressNotificationParams>(McpJsonUtilities.DefaultOptions)!);
+            return ValueTask.CompletedTask;
+        });
         var result = await _client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = _dir.Path },
-            new SyncProgress(updates.Enqueue));
+            new SyncProgress(_ => { })); // gives the request a progress token
         Assert.NotEqual(true, result.IsError);
-        for (int i = 0; i < 250 && updates.Count < 2; i++) await Task.Delay(20); // notifications may trail the response
+        for (int i = 0; i < 250 && updates.Count < 2; i++) await Task.Delay(20);
         Assert.True(updates.Count >= 2, $"expected progress, got {updates.Count}");
-        Assert.All(updates, u => Assert.Equal(2, u.Total));
+        Assert.All(updates, u => Assert.Equal(2, u.Progress.Total));
     }
 
     [Fact]

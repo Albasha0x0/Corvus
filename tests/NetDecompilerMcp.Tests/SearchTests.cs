@@ -1,5 +1,4 @@
 using NetDecompilerMcp.Core;
-using NetDecompilerMcp.Services;
 
 namespace NetDecompilerMcp.Tests;
 

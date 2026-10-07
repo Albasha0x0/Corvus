@@ -252,10 +252,12 @@ public sealed class CppBindingGenerator
         _ => sig.ToTypeDefOrRef()?.Name.String ?? sig.TypeName,
     };
 
+    /// <summary>Accessor name for a member: "m_health" / "_health" / "health" -> "Health".</summary>
     private static string Pascal(string name)
     {
-        var id = Identifier(name.TrimStart('_', 'm').Length > 0 && name.StartsWith("m_") ? name[2..] : name.TrimStart('_'));
-        return id.Length == 0 ? "Value" : char.ToUpperInvariant(id[0]) + id[1..];
+        var bare = name.StartsWith("m_", StringComparison.Ordinal) ? name[2..] : name.TrimStart('_');
+        var id = bare.Length == 0 ? "Value" : Identifier(bare);
+        return char.ToUpperInvariant(id[0]) + id[1..];
     }
 
     private static string Camel(string name)

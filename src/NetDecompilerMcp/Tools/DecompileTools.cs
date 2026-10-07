@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using dnlib.DotNet;
 using ModelContextProtocol;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Services;
@@ -77,8 +78,8 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
     public Task<string> ExportProject(
         [Description(AssemblyDescription)] string assembly,
         [Description("Empty or new output directory.")] string outputDirectory,
-        IProgress<ProgressNotificationValue>? progress = null,
-        CancellationToken cancellationToken = default) => Read(workspace, () =>
+        RequestContext<CallToolRequestParams> context = null!, // bound by the SDK
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Read(workspace, () =>
     {
         var asm = workspace.Get(assembly);
         var result = decompiler.ExportProject(asm, outputDirectory, (done, total, status) => Report(progress, done, total, status), cancellationToken);
@@ -87,7 +88,7 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
             summary += $"\n{Plural(result.FailedTypes.Count, "type")} failed to decompile (their files contain the error):\n  " +
                        string.Join("\n  ", result.FailedTypes.Take(20));
         return summary;
-    }, cancellationToken);
+    }, cancellationToken));
 
     private string TypeSource(ResolvedSymbol sym, CancellationToken ct) =>
         pager.GetOrCreate(CacheKey("type", [sym]), () => $"// [{sym.Assembly.Id}] {sym.Label}\n" + decompiler.DecompileType(sym.Assembly, (TypeDef)sym.Member, ct));

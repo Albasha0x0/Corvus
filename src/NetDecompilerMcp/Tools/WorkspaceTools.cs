@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text;
 using ModelContextProtocol;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Services;
@@ -21,8 +22,8 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     public Task<string> LoadAssembly(
         [Description("Absolute path to an assembly file or a directory.")] string path,
         [Description("When path is a directory, also load assemblies in subdirectories.")] bool recursive = false,
-        IProgress<ProgressNotificationValue>? progress = null,
-        CancellationToken cancellationToken = default) => Task.Run(() =>
+        RequestContext<CallToolRequestParams> context = null!, // bound by the SDK
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
     {
         if (!Directory.Exists(path))
         {
@@ -50,7 +51,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
             sb.AppendLine($"  skipped {Path.GetFileName(file)}: {Format.Clip(error, 160)}");
         if (report.Skipped.Count > 20) sb.AppendLine($"  … {report.Skipped.Count - 20} more skipped");
         return sb.ToString();
-    }, cancellationToken);
+    }, cancellationToken));
 
     [McpServerTool(Name = "list_assemblies", Title = "List loaded assemblies", ReadOnly = true, OpenWorld = false, UseStructuredContent = true)]
     [Description("Loaded assemblies with their ids (use the id in other tools), versions, paths, whether they are Il2Cpp dummy DLLs, and unsaved edits; plus the reference search directories.")]

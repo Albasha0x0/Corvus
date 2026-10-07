@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Reflection.Metadata;
-using System.Runtime.CompilerServices;
 using System.Reflection.Metadata.Ecma335;
+using System.Runtime.CompilerServices;
 using dnlib.DotNet;
 using dnlib.DotNet.Emit;
 using NetDecompilerMcp.Core;

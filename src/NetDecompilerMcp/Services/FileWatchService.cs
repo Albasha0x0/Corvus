@@ -58,7 +58,7 @@ public sealed class FileWatchService : IDisposable
     private void Schedule(string path)
     {
         if (_workspace.Read(() => _workspace.FindByPath(Path.GetFullPath(path))) == null) return;
-        var timer = _pending.AddOrUpdate(path,
+        _pending.AddOrUpdate(path,
             p => new Timer(_ => Process(p), null, Debounce, Timeout.InfiniteTimeSpan),
             (_, existing) => { existing.Change(Debounce, Timeout.InfiniteTimeSpan); return existing; });
     }
