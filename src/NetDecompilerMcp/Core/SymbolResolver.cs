@@ -263,6 +263,15 @@ public static class SymbolResolver
         while (i < name.Length)
         {
             char c = name[i];
+            if (c == '<' && (i == 0 || name[i - 1] is '.' or '/'))
+            {
+                // a compiler-generated name (<Module>, <PrivateImplementationDetails>, <>c): part of the name, not generics
+                int close = name.IndexOf('>', i);
+                if (close < 0) close = name.Length - 1;
+                sb.Append(name, i, close - i + 1);
+                i = close + 1;
+                continue;
+            }
             if (c == '<')
             {
                 int depth = 0, commas = 0, j = i;

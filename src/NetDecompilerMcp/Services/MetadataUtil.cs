@@ -77,6 +77,13 @@ public static class MetadataUtil
     /// <summary>Distinct namespaces of <paramref name="types"/>, nested types counted under their top-level type's.</summary>
     public static int NamespaceCount(IEnumerable<TypeDef> types) => types.Select(t => TopLevel(t).Namespace.String).Distinct().Count();
 
+    /// <summary>A reference assembly ([ReferenceAssembly]): API surface only, every body is `throw null`.</summary>
+    public static bool IsReferenceAssembly(ModuleDef module)
+    {
+        try { return module.Assembly?.CustomAttributes.IsDefined("System.Runtime.CompilerServices.ReferenceAssemblyAttribute") == true; }
+        catch (Exception) { return false; }
+    }
+
     public static TypeDef TopLevel(TypeDef t)
     {
         while (t.DeclaringType != null) t = t.DeclaringType;

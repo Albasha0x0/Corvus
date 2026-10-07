@@ -24,7 +24,10 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         if (m.EntryPoint != null)
             sb.AppendLine($"Entry point: {Format.MemberLabel(m.EntryPoint)}  ({Format.Token(m.EntryPoint)})");
         sb.AppendLine($"Types: {types.Count} ({types.Count(t => t.DeclaringType != null)} nested)  Namespaces: {MetadataUtil.NamespaceCount(types)}  " +
-                      $"Methods: {types.Sum(t => t.Methods.Count)}  Fields: {types.Sum(t => t.Fields.Count)}  Resources: {m.Resources.Count}");
+                      $"Methods: {m.GetTypes().Sum(t => t.Methods.Count)}  Fields: {m.GetTypes().Sum(t => t.Fields.Count)}  Resources: {m.Resources.Count}");
+        if (MetadataUtil.IsReferenceAssembly(m))
+            sb.AppendLine("Reference assembly: metadata only (compile-time API surface); method bodies are `throw null`. Load the implementation " +
+                          "(the runtime's assembly, or the package's lib/ folder instead of ref/) to read code.");
         int addressed = il2cpp.GetIndex(asm).Count;
         if (addressed > 0)
             sb.AppendLine($"Il2Cpp metadata: {addressed} methods carry [Address] attributes (dummy DLL; method bodies are stubs — use get_il2cpp_info / find_method_by_address).");

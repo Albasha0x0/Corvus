@@ -43,8 +43,11 @@ public static class IlHealth
             foreach (var handle in md.MethodDefinitions)
             {
                 ct.ThrowIfCancellationRequested();
-                int rva = md.GetMethodDefinition(handle).RelativeVirtualAddress;
+                var def = md.GetMethodDefinition(handle);
+                int rva = def.RelativeVirtualAddress;
                 if (rva == 0) continue;
+                // native (C++/CLI) and runtime-implemented methods: the RVA points at machine code, not IL
+                if ((def.ImplAttributes & System.Reflection.MethodImplAttributes.CodeTypeMask) != System.Reflection.MethodImplAttributes.IL) continue;
                 bodies++;
                 if (!IsValid(pe, rva)) invalid.Add(MetadataTokens.GetToken(handle));
             }

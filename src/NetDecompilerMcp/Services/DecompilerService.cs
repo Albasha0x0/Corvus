@@ -96,6 +96,8 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     private string DecompileMemberSafe(LoadedAssembly asm, Dn.IMemberDef member, CSharpDecompiler decompiler, CancellationToken token)
     {
         var header = $"// {Format.MemberLabel(member)}  [token {Format.Token(member)}]";
+        if (MetadataUtil.IsReferenceAssembly(asm.Module))
+            header += "\n// Note: reference assembly — bodies are `throw null`, not the implementation (load the runtime's or the package's lib/ assembly).";
         if (member is Dn.MethodDef method && !asm.IsDirty && asm.BodyHealth.IsInvalid(method))
             header += "\n// Warning: this method body is not valid IL (encrypted, or dumped from memory before decryption): the code below is meaningless.";
         try
