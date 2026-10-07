@@ -18,8 +18,23 @@ public sealed class Il2CppService(AssemblyWorkspace workspace)
 
     public sealed record Il2CppMetadata(string Name, IReadOnlyDictionary<string, string> Values)
     {
-        public override string ToString() => $"[{Name.Replace("Attribute", "")}({string.Join(", ", Values.Select(kv => $"{kv.Key}={kv.Value}"))})]";
+        /// <summary>
+        /// An [Address] whose numbers cannot be a real location (see <see cref="IsInvalidAddress"/>): dumpers write such
+        /// garbage for some generic methods that have no native code of their own.
+        /// </summary>
+        public bool InvalidAddress => Name.Contains("Address", StringComparison.Ordinal)
+            && IsInvalidAddress(ParseNumber(Values.GetValueOrDefault("RVA")), ParseNumber(Values.GetValueOrDefault("Offset")), ParseNumber(Values.GetValueOrDefault("VA")));
+
+        public override string ToString() => $"[{Name.Replace("Attribute", "")}({string.Join(", ", Values.Select(kv => $"{kv.Key}={kv.Value}"))})]" +
+            (InvalidAddress ? " (not a real address: no native code of its own, e.g. a generic method only used through shared instantiations)" : "");
     }
+
+    /// <summary>
+    /// Address numbers that cannot point into a module: an RVA beyond 32 bits (a PE image is under 4 GB), an RVA without
+    /// a file offset, or a VA below the RVA.
+    /// </summary>
+    public static bool IsInvalidAddress(ulong? rva, ulong? offset, ulong? va) =>
+        rva > uint.MaxValue || (rva > 0 && offset == 0) || (va != null && rva != null && va < rva);
 
     public sealed record MethodAddress(LoadedAssembly Assembly, MethodDef Method, ulong? Rva, ulong? Va, ulong? Offset, ulong? Length, string? Slot);
 
@@ -46,7 +61,7 @@ public sealed class Il2CppService(AssemblyWorkspace workspace)
     public static string? CompactSummary(IHasCustomAttribute member)
     {
         var parts = GetAttributes(member)
-            .Where(a => a.Name is "AddressAttribute" or "FieldOffsetAttribute")
+            .Where(a => a.Name is "AddressAttribute" or "FieldOffsetAttribute" && !a.InvalidAddress)
             .SelectMany(a => a.Values.Where(kv => kv.Key is "RVA" or "Offset" or "VA" or "Slot" && kv.Value != "-1").Select(kv => $"{kv.Key}={kv.Value}"))
             .ToList();
         return parts.Count == 0 ? null : string.Join(" ", parts);
@@ -93,7 +108,7 @@ public sealed class Il2CppService(AssemblyWorkspace workspace)
             foreach (var m in type.Methods)
             {
                 var addr = GetAttributes(m).FirstOrDefault(a => a.Name.Contains("Address", StringComparison.Ordinal));
-                if (addr == null) continue;
+                if (addr == null || addr.InvalidAddress) continue; // no native code: kept out of lookups and exports
                 addr.Values.TryGetValue("RVA", out var rva);
                 addr.Values.TryGetValue("VA", out var va);
                 addr.Values.TryGetValue("Offset", out var off);
@@ -107,8 +122,15 @@ public sealed class Il2CppService(AssemblyWorkspace workspace)
     }
 
     /// <summary>
+    /// The largest distance from a function's start still reported as "inside" it when its length is unknown. Larger
+    /// gaps are unmapped space (or the address belongs to another module / address kind), not a containing function.
+    /// </summary>
+    public const ulong MaxFunctionSpan = 0x40000;
+
+    /// <summary>
     /// Finds the method at a native address. field = rva | va | offset | auto.
-    /// Exact starts win; otherwise reports the closest preceding method (likely containing function).
+    /// Exact starts win (in auto mode, an exact start under any address kind drops the approximate readings of the
+    /// others); otherwise reports the closest preceding method within <see cref="MaxFunctionSpan"/> (likely containing function).
     /// </summary>
     public List<AddressMatch> FindByAddress(ulong address, string field, IReadOnlyList<LoadedAssembly> scope)
     {
@@ -151,6 +173,7 @@ public sealed class Il2CppService(AssemblyWorkspace workspace)
             var entry = sorted[best];
             ulong start = get(entry)!.Value;
             ulong delta = address - start;
+            if (delta >= (entry.Length ?? 0) + MaxFunctionSpan) continue; // too far from any known function start
             ulong? next = best + 1 < sorted.Count ? get(sorted[best + 1]) : null;
             string relation = entry.Length is { } len
                 ? (delta < len ? $"inside (+0x{delta:X} of 0x{len:X} bytes)" : $"after end (+0x{delta:X}; length 0x{len:X})")
@@ -159,6 +182,6 @@ public sealed class Il2CppService(AssemblyWorkspace workspace)
                     : $"after the last known method (+0x{delta:X})";
             matches.Add(new AddressMatch(entry, f, start, relation));
         }
-        return matches;
+        return matches.Any(m => m.Relation == "exact start") ? matches.Where(m => m.Relation == "exact start").ToList() : matches;
     }
 }

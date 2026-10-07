@@ -36,9 +36,35 @@ public class Il2CppTests : IDisposable
     [Fact]
     public void AutoModeChecksAllFieldsAndRejectsBadInput()
     {
-        Assert.NotEmpty(_env.Il2Cpp.FindByAddress(0x1000, "auto", _env.Workspace.Assemblies));
+        // 0x1000 is First's exact RVA and also 0xB00 past Second's file offset: only the exact reading is reported
+        var exact = Assert.Single(_env.Il2Cpp.FindByAddress(0x1000, "auto", _env.Workspace.Assemblies));
+        Assert.Equal(("First", "rva", "exact start"), (exact.Entry.Method.Name.String, exact.Field, exact.Relation));
+        // no exact start anywhere: the approximate readings stay
+        Assert.Equal(2, _env.Il2Cpp.FindByAddress(0x1050, "auto", _env.Workspace.Assemblies).Count);
+        // far past every known function: no "inside" guess
+        Assert.Empty(_env.Il2Cpp.FindByAddress(0x1100 + Il2CppService.MaxFunctionSpan, "rva", _env.Workspace.Assemblies));
+        Assert.Single(_env.Il2Cpp.FindByAddress(0x1100 + Il2CppService.MaxFunctionSpan - 1, "rva", _env.Workspace.Assemblies));
         Assert.Empty(_env.Il2Cpp.FindByAddress(0x10, "rva", _env.Workspace.Assemblies)); // before every method
         Assert.Throws<ToolError>(() => _env.Il2Cpp.FindByAddress(0x1000, "banana", _env.Workspace.Assemblies));
+    }
+
+    [Fact]
+    public void InvalidDumperAddresses_MeanNoNativeCode()
+    {
+        var shared = _env.One("NativeThing::Shared").Member;
+        var attr = Assert.Single(Il2CppService.GetAttributes(shared));
+        Assert.True(attr.InvalidAddress);
+        Assert.Contains("not a real address", attr.ToString());
+        Assert.Null(Il2CppService.CompactSummary(shared));
+        Assert.DoesNotContain(_env.Il2Cpp.GetIndex(_env.Fixture), e => e.Method == shared);
+        Assert.Empty(_env.Il2Cpp.FindByAddress(0xA5399800A5350, "rva", _env.Workspace.Assemblies));
+        Assert.Empty(_env.Il2Cpp.FindByAddress(0xA5399800A5360, "auto", _env.Workspace.Assemblies));
+
+        Assert.True(Il2CppService.IsInvalidAddress(0x1_0000_0000, 0x400, 0x1_8000_0000));
+        Assert.True(Il2CppService.IsInvalidAddress(0x1000, 0, 0x180001000));
+        Assert.True(Il2CppService.IsInvalidAddress(0x2000, 0x400, 0x1000));
+        Assert.False(Il2CppService.IsInvalidAddress(0x1000, 0x400, 0x180001000));
+        Assert.False(Il2CppService.IsInvalidAddress(null, null, null));
     }
 
     [Fact]
