@@ -49,7 +49,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
     }, cancellationToken);
 
     [McpServerTool(Name = "search_constants", Title = "Search numeric constants", ReadOnly = true, OpenWorld = false)]
-    [Description("Find a numeric constant (magic number, packet/opcode id, flag, hash seed, crypto constant) wherever it appears: IL literals (ldc.*), const and enum field values, attribute arguments. Accepts decimal, 0x hex, negative and floating-point values.")]
+    [Description("Find a numeric constant (magic number, packet/opcode id, flag, hash seed, crypto constant) wherever it appears: IL literals (ldc.*), const and enum field values, attribute arguments, and static array data (lookup tables, S-boxes, CRC and crypto tables), read element by element as the array's own type. Accepts decimal, 0x hex, negative and floating-point values.")]
     public Task<string> SearchConstants(
         [Description("Number, e.g. 1337, 0xDEADBEEF, -1, 3.14.")] string value,
         [Description(AssemblyFilterDescription)] string? assembly = null,

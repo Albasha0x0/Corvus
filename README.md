@@ -20,9 +20,9 @@ of the next tool result, plus best-effort `resources/list_changed` and log notif
 |---|---|
 | Workspace | `load_assembly` (a file or a whole folder; reports progress) · `list_assemblies` (ids, versions, ReadyToRun, merged-assembly label, unsaved edits; `filter` / `offset` / `limit` for big folders; with `path`, the managed assemblies inside a container file without extracting them) · `unload_assembly` · `reload_assembly` · `add_search_directory` · `get_assembly_info` (identity, TFM, references and whether each resolves (to the loaded build in the same folder first), PE headers and sections, metadata streams, attributes, Il2Cpp detection, method bodies that are not valid IL — encrypted or dumped before decryption, also flagged in decompiled code and comparisons) |
 | Browse | `list_namespaces` · `list_types` · `get_type_info` (outline with tokens, constants, hex enum values, IL sizes, Il2Cpp RVAs and offsets) · `get_type_hierarchy` · `get_attributes` (type, member, parameter, return value, assembly or module) · `resolve_symbol` |
-| Decompile | `decompile_type` · `decompile_member` (overloads, async, iterators and lambdas folded back) · `get_il` (tokens, offsets, structured EH) · `decompile_assembly_attributes` · `export_project` (whole assembly → .csproj; reports progress and failed types) |
-| Search | `search_symbols` (substring, wildcard or regex) · `search_strings` · `search_constants` (IL literals, const and enum values, attribute arguments, and elements of static array data such as crypto round constants and CRC tables for values of 0x10000 and up) · `search_il` (instruction-sequence patterns with wildcards and gaps) |
-| Cross-references | `find_references` (methods, including calls dispatched through base/interface methods; fields with read/write/address; properties; events; types in every position: base, interface, constraint, field/param/return/local, catch, attribute, cast, newobj) · `find_callees` · `find_overrides` (paged) |
+| Decompile | `decompile_type` · `decompile_member` (overloads, async, iterators and lambdas folded back) · `get_il` (tokens, offsets, structured EH) · `decompile_assembly_attributes` · `export_project` (whole assembly → .csproj that builds: see [Exported projects](#exported-projects); reports progress and failed types) |
+| Search | `search_symbols` (substring, wildcard or regex) · `search_strings` · `search_constants` (IL literals, const and enum values, attribute arguments, and static array data such as S-boxes, CRC and crypto tables, read element by element as the array's own type) · `search_il` (instruction-sequence patterns with wildcards and gaps) |
+| Cross-references | `find_references` (methods, including calls dispatched through base/interface methods; fields with read/write/address; properties; events; types in every position: base, interface, constraint, field/param/return/local, catch, attribute, cast, newobj) · `find_callees` · `find_overrides` (paged). These, `get_type_hierarchy`, `get_call_tree` and `find_call_paths` also take framework and dependency symbols the loaded code uses (`System.IDisposable::Dispose`, `System.Diagnostics.Process::Start(string)`), matched across mscorlib / System.Private.CoreLib |
 | Call graph | `get_call_tree` (callers or callees N levels deep, breadth-first so a node budget cuts the deepest level; repeats, recursion and virtual dispatch marked) · `find_call_paths` (shortest call chains from a method or from entry points to a target; direct calls preferred, virtual-dispatch hops marked, `includeVirtual=false` for direct calls only) |
 | Compare builds | `compare_assemblies` (added/removed/renamed types and members, signature, body, field-offset and RVA changes; renamed members matched by IL fingerprints and strings; compiler-generated closures, state machines, backing fields and array data are hidden and counted unless `includeCompilerGenerated=true`) · `find_counterpart` (where did this type/member go in the new build) |
 | Resources | `list_resources` · `get_resource` (text, hex, `.resources` entries, WPF `.baml` entries as XAML; extract to disk) |
@@ -109,8 +109,9 @@ To see what is inside without writing or loading anything, call `list_assemblies
 container the same way (same parser, same limits, nested containers included) and returns a `container` section:
 each managed assembly's path inside the container, full name, version, size, SHA-256, origin, `readyToRun` and
 `merged`. A plain assembly lists itself. A zip cut off or missing its central directory (a broken download) still
-lists the entries before the damage, read from their local headers, with a note. A container with nothing readable
-returns a tool error that says what is wrong. Without
+lists its entries, read from their local headers (sizes from the header, zip64 field, or the data descriptor of a
+streamed zip, checked by CRC), with a note; encrypted or damaged entries are skipped by name. A container with nothing
+readable returns a tool error that says what is wrong. Without
 `path`, `list_assemblies` lists the workspace as before.
 
 `search_container` searches the metadata of every managed assembly in a container (or a plain assembly) by name,
@@ -168,12 +169,14 @@ Limits:
 - **XOR keys are recovered from known file headers** (PE, ZIP, gzip), so XOR is undone when it covers a binary or
   compressed item, with keys up to the header's length (up to 3 bytes for gzip, 4 for ZIP, 16 for PE). XOR straight
   over plain text has no known plaintext to recover a key from, so by default it is not decoded.
-- **`xorText=true`** (`extract_embedded`, off by default) tries all 255 single-byte keys on resources and arrays that
-  are not readable as they are. A decode is kept only when it is ASCII text of 32 bytes or more with 3-40% spaces,
-  mostly letters, spaces and common punctuation, clearly better than the input, and not UTF-16-shaped (one byte value
-  in 40% or more of the even or odd positions). Such items show `xor key NN (brute-forced)` in their chain. Multi-byte
-  keys, UTF-16 and non-ASCII text are not recovered; the search costs up to 255 passes over each candidate (sampled to
-  4 KB).
+- **`xorText=true`** (`extract_embedded`, off by default) recovers repeating XOR keys of 1-16 bytes over text in
+  resources and arrays that are not readable as they are: UTF-8 text in any script (English, Arabic, Cyrillic, CJK...)
+  and UTF-16 text. Key lengths come from the index of coincidence (flat, encrypted-looking data is skipped at once);
+  each key byte is chosen for the bytes it covers and, for other scripts, refined against the whole decode. A decode is
+  kept only when it is natural text: valid in its encoding, 32+ characters, no control characters, mostly letters of
+  one script with repeated letter pairs, 3-40% whitespace and word-sized runs. Such items show `xor key 1337c0de
+  (brute-forced)` (`, UTF-16 text` for UTF-16, returned as UTF-8) in their chain. Samples of 4 KB are searched; on
+  BouncyCastle and a 28 MB WPF app it takes 2-4 seconds and finds nothing false.
 - **Authenticode:** the digest check (was the file changed after signing?) and the signature check are exact. Whether the
   chain is trusted depends on the machine's root store; revocation is not checked (offline and deterministic).
 - **Lookalikes are excluded:** XML / schema namespace URLs, version numbers that look like IP addresses, and file
@@ -234,12 +237,40 @@ ret
 `mode=prepend` inserts code before the original body and can branch into it by its offsets (`bge IL_0000`).
 `.local <type>` declares a local variable.
 
+## Exported projects
+
+`export_project` writes a project meant to build, not just to read. On a survey of 30 real assemblies (NuGet libraries
+such as Newtonsoft.Json, System.Text.Json, NLog, SharpCompress, AsmResolver and BouncyCastle; PowerShell 7's
+System.Management.Automation; an obfuscated, Costura-packed WPF app; Windows Store installers; Unity game assemblies),
+every one whose dependencies exist on disk builds with no errors, and a rebuilt BouncyCastle computes the same results
+as the original. What makes that work:
+
+- **References for the target framework:** framework assemblies of the project's own .NET version (its reference pack
+  when that runtime is not installed), the .NET Standard reference assembly for netstandard libraries, .NET Framework
+  reference assemblies for .NET Framework apps (and a path for the ones outside them), dependencies from the NuGet
+  cache built for that framework, Windows Runtime metadata from the Windows SDK (one union `Windows.winmd`) and from
+  installed app packages.
+- **Packed dependencies:** assemblies inside the exported one (Costura) are written to `lib\` and referenced.
+- **Project settings the build needs:** `StartupObject` from the entry point, public signing with the original public
+  key (friend assemblies that grant internals by key keep doing so).
+- **Output the decompiler engine gets wrong, rewritten** (also in `decompile_type` / `decompile_member`): span-slicing
+  `ref` temporaries, `scoped` locals, initialized `stackalloc`, base constructor calls in bodies, constructor
+  parameters in field initializers, nested locals of one name, struct enumerators disposed by pattern, trimmed
+  getters, bools used as integers, negative constants cast to unsigned types, null-conditional extension calls,
+  framework type names that clash across imported namespaces, compiler-reserved and source-generator attributes, and
+  obfuscation leftovers (renamed `value` parameters, unspeakable parameter names, dropped `new()` constraints, a
+  renamed `Main`). LINQ comes out as method calls in exports.
+- A method the engine cannot decompile at all keeps the engine's explanation and throws `NotSupportedException`.
+
+What still does not build is code that is not expressible in C# (IL rewritten after compilation) and references to
+assemblies that are not on the machine.
+
 ## Build, test, publish
 
 Requires the .NET 10 SDK.
 
 ```powershell
-dotnet test                    # 345 tests: services, IL/C# patching (with runtime execution), edit history,
+dotnet test                    # 363 tests: services, IL/C# patching (with runtime execution), edit history,
                                # build comparison, call graph, IDA/Ghidra/C/C++ generation (compiled with clang),
                                # background indexing, file watching, every tool over stdio, real-assembly stress,
                                # container unpacking and listing (fixtures built at test time, incl. crossgen2 ReadyToRun
@@ -262,6 +293,8 @@ are unset:
 | `NDM_COMPARE_ASSEMBLY` | Optional: the assembly to compare (default: the largest application assembly in both) | build comparison |
 | `NDM_COMPARE_EXPECT` | Optional: known type moves to check, `Old.Name=>New.Name;Old2=>New2` | build comparison |
 | `NDM_HOSTAPI_PROJECT_DIR` | Root of a C/C++ project with a host function table | `hostapi` detection on a real project; bindings compile against its headers |
+| `NDM_EXPORT_REAL=1` | Exports real libraries from the NuGet cache, PowerShell 7 and a Downloads app (each when present) and builds them: 0 errors expected (a few minutes) | exported projects build |
+| `NDM_EXPORT_CORPUS` | A text file of assembly paths: exports and builds each, writes error counts by code next to it (a survey, no assertion) | export survey |
 
 The generated C, C++ and Python are compiled or parsed with clang (`C:\Program Files\LLVM\bin`) and python when
 they are installed.

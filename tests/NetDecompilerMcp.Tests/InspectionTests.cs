@@ -328,14 +328,13 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
-    public void Embedded_XorText_RejectsUtf16ReadableAndRandomData()
+    public void Embedded_XorText_RejectsReadableAndRandomData()
     {
         var random = new byte[2048];
         new Random(7).NextBytes(random);
         var fixture = ContainerFixtures.Module("NotXor", m =>
         {
             m.Resources.Add(new EmbeddedResource("utf16.txt", Encoding.Unicode.GetBytes(SecretText)));                 // UTF-16, not XORed
-            m.Resources.Add(new EmbeddedResource("utf16.xor", Xor(Encoding.Unicode.GetBytes(SecretText), [0x5A])));    // XORed UTF-16
             m.Resources.Add(new EmbeddedResource("readme.txt", Encoding.UTF8.GetBytes(SecretText + SecretText)));       // readable already
             m.Resources.Add(new EmbeddedResource("random.bin", random));
             m.Resources.Add(new EmbeddedResource("table.bin", [.. Enumerable.Range(0, 512).SelectMany(i => BitConverter.GetBytes(i * 7))]));
@@ -348,6 +347,33 @@ public class InspectionTests : IDisposable
         foreach (var real in new[] { Env.FixturePath, CachedDll("Microsoft.CodeAnalysis.Common", "Microsoft.CodeAnalysis.dll") })
             Assert.DoesNotContain(Inspection.ExtractEmbedded(null, real, false, null, false, default, xorText: true).Contents,
                 p => p.Encoding.Any(e => e.Contains("brute-forced")));
+    }
+
+    [Fact]
+    public void Embedded_XorText_RecoversMultiByteKeys_Utf16_AndOtherScripts()
+    {
+        const string Arabic = "ملاحظات ربع سنوية، ليست للمشاركة. خادم التجهيز جاهز الآن والنهاية قريبة.\n";
+        var text = SecretText + SecretText;
+        var fixture = ContainerFixtures.Module("MultiXor", m =>
+        {
+            m.Resources.Add(new EmbeddedResource("key4.bin", Xor(Encoding.UTF8.GetBytes(text), [0x13, 0x37, 0xC0, 0xDE])));
+            m.Resources.Add(new EmbeddedResource("utf16.bin", Xor(Encoding.Unicode.GetBytes(text), [0x5A, 0xA5, 0x3C])));
+            m.Resources.Add(new EmbeddedResource("arabic.bin", Xor(Encoding.UTF8.GetBytes(Arabic + Arabic + Arabic), [0x21, 0x42, 0x63, 0x84, 0xA5])));
+        });
+        var report = Inspection.ExtractEmbedded(null, Save("MultiXor.dll", fixture), false, null, false, default, xorText: true);
+        EmbeddedContent Found(string resource) => Assert.Single(report.Contents, p => p.Source == $"resource '{resource}'");
+
+        var key4 = Found("key4.bin");
+        Assert.Equal(["xor key 1337c0de (brute-forced)"], key4.Encoding);
+        Assert.Equal(text, Encoding.UTF8.GetString(key4.Bytes));
+
+        var utf16 = Found("utf16.bin");
+        Assert.Equal(["xor key 5aa53c (brute-forced, UTF-16 text)"], utf16.Encoding);
+        Assert.Equal(text, Encoding.UTF8.GetString(utf16.Bytes)); // returned as UTF-8
+
+        var arabic = Found("arabic.bin");
+        Assert.Equal(["xor key 21426384a5 (brute-forced)"], arabic.Encoding);
+        Assert.Equal(Arabic + Arabic + Arabic, Encoding.UTF8.GetString(arabic.Bytes));
     }
 
     // ------------------------------------------------------------------ values: string classification

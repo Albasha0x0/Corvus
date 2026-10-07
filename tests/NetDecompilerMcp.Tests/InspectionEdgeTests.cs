@@ -186,4 +186,52 @@ public class InspectionEdgeTests : IDisposable
         Assert.Contains(contents.Notes, n => n.StartsWith("Damaged zip") && n.Contains("1 entr(ies) recovered"));
         Assert.Throws<ToolError>(() => Containers.Open(full[..20], "tiny.zip", AnalysisLimits.Default, default));
     }
+
+    /// <summary>A stream that cannot seek: ZipArchive then writes each entry's sizes in a data descriptor after it.</summary>
+    private sealed class ForwardOnly(Stream inner) : Stream
+    {
+        public override bool CanRead => false; public override bool CanSeek => false; public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => inner.Position; set => throw new NotSupportedException(); }
+        public override void Flush() => inner.Flush();
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => inner.Write(buffer, offset, count);
+    }
+
+    [Fact]
+    public void StreamedZip_WithoutCentralDirectory_RecoversEveryEntry_AndStepsOverBadOnes()
+    {
+        var ms = new MemoryStream();
+        using (var zip = new System.IO.Compression.ZipArchive(new ForwardOnly(ms), System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var n in new[] { "A", "B", "C", "D" })
+                using (var s = zip.CreateEntry($"lib/{n}.dll").Open())
+                    s.Write(ReferenceResolutionTests.Compile(n, $"public class {n}Type {{ }}"));
+        }
+        var full = ms.ToArray();
+        var headers = new List<int>();
+        for (int i = full.AsSpan().IndexOf("PK\u0003\u0004"u8); i >= 0;)
+        {
+            headers.Add(i);
+            int nextAt = full.AsSpan(i + 4).IndexOf("PK\u0003\u0004"u8);
+            i = nextAt < 0 ? -1 : i + 4 + nextAt;
+        }
+        Assert.Equal(4, headers.Count);
+        Assert.All(headers, h => Assert.True((full[h + 6] & 0x08) != 0)); // sizes in descriptors
+
+        // central directory gone
+        var central = full.AsSpan().IndexOf("PK\u0001\u0002"u8);
+        var cut = full[..central];
+        cut[headers[1] + 6] |= 0x01;                    // B: marked encrypted
+        cut[headers[2] + 30 + 9 + 20] ^= 0xFF;          // C: data damaged (inside its compressed bytes)
+
+        var contents = Containers.Open(cut, "streamed.zip", AnalysisLimits.Default, default);
+        Assert.Equal(["lib/A.dll", "lib/D.dll"], contents.Items.Select(i => i.Name).ToArray());
+        Assert.Contains("Skipped lib/B.dll: encrypted.", contents.Notes);
+        Assert.Contains(contents.Notes, n => n.StartsWith("Skipped lib/C.dll:"));
+        Assert.Contains(contents.Notes, n => n.StartsWith("Damaged zip") && n.Contains("2 entr(ies) recovered") && !n.Contains("lost"));
+        Assert.All(contents.Items, i => Assert.Equal(".NET assembly", Blob.Identify(i.Bytes)));
+    }
 }

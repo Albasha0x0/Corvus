@@ -47,7 +47,7 @@ public static class Embedded
     private static bool IsBinaryKind(string kind) => kind is not ("text" or "data" or ".resources");
 
     /// <summary>
-    /// Embedded content of <paramref name="scan"/>. <paramref name="xorText"/>: also brute-force single-byte XOR keys over
+    /// Embedded content of <paramref name="scan"/>. <paramref name="xorText"/>: also brute-force repeating XOR keys over
     /// unrecognized resource / array data that is not readable as it is (see <see cref="TryXorText"/>).
     /// </summary>
     public static List<EmbeddedContent> Find(ModuleScan scan, AnalysisLimits limits, CancellationToken ct, bool xorText = false)
@@ -122,7 +122,7 @@ public static class Embedded
             if (TryBase64(text, limits) is { } b64) { Examine(b64, source, [.. chain, "base64"], add, limits, reportRaw: true, xorText); return; }
             if (xorText && reportRaw && TryXorText(data) is { } textXor)
             {
-                Examine(textXor.Decoded, source, [.. chain, $"xor key {textXor.Key:x2} (brute-forced)"], add, limits, reportRaw: true, xorText: false);
+                Examine(textXor.Decoded, source, [.. chain, XorLabel(textXor)], add, limits, reportRaw: true, xorText: false);
                 return;
             }
             if (chain.Count > 0 && text.Length >= 16) add(Make(data, source, chain, "text"));
@@ -141,10 +141,10 @@ public static class Embedded
             Examine(deflated, source, [.. chain, "deflate"], add, limits, reportRaw: true, xorText);
             return;
         }
-        // opt-in: single-byte XOR over text (no known header to recover the key from)
+        // opt-in: repeating-key XOR over text (no known header to recover the key from)
         if (xorText && reportRaw && TryXorText(data) is { } brute)
         {
-            Examine(brute.Decoded, source, [.. chain, $"xor key {brute.Key:x2} (brute-forced)"], add, limits, reportRaw: true, xorText: false);
+            Examine(brute.Decoded, source, [.. chain, XorLabel(brute)], add, limits, reportRaw: true, xorText: false);
             return;
         }
         if (reportRaw && data.Length >= MinEncryptedSize && Blob.Entropy(data) >= EncryptedEntropy)
@@ -228,62 +228,249 @@ public static class Embedded
     private const double XorTextMinScore = 0.85;
     private const double XorTextMinGain = 0.25;
 
+    private const int MaxXorKeyLength = 16;
+
+    /// <summary>"xor key 5a (brute-forced)", with ", UTF-16 text" when the plaintext was UTF-16.</summary>
+    private static string XorLabel((byte[] Key, byte[] Decoded, bool Utf16) x) =>
+        $"xor key {Convert.ToHexStringLower(x.Key)} (brute-forced{(x.Utf16 ? ", UTF-16 text" : "")})";
+
     /// <summary>
-    /// Single-byte XOR over text, by trying every key (1..255). A key is accepted only when the input is not readable
-    /// as it is (score below 0.85) and the best decode: is at least 32 bytes; is printable text without NUL bytes
-    /// (<see cref="Blob.LooksLikeText"/>); does not look like UTF-16 (one byte value in 40% or more of the even or of the
-    /// odd positions); has 3-40% spaces; scores 0.85 or more; and beats the input's score by 0.25 or more. The score is
-    /// the share of ASCII letters, digits, whitespace and common punctuation, with letters and spaces required to be at
-    /// least 60%. Multi-byte keys, UTF-16 text and non-ASCII text are not recovered.
+    /// XOR over text without a known header: repeating keys of 1 to 16 bytes, for UTF-8 text (any script) and UTF-16LE
+    /// text. Key lengths come from the index of coincidence of the columns (flat data is skipped at once); each key byte
+    /// is chosen for its column by how text-like it makes it, and for text in other scripts refined against the whole
+    /// decode (multi-byte characters span columns). A key is accepted only when the input is not readable text in
+    /// either encoding as it is, and the decode is: valid in that encoding; at least 32 characters with no control
+    /// characters but whitespace; half or more letters among the non-space characters, ten or more distinct ones, 80%
+    /// of them in one script; letter pairs that repeat (15% or more of them); 3-40% whitespace, words of 2-15 letters
+    /// on average; not a repeating block of the key length. UTF-16 results are returned as UTF-8.
     /// </summary>
-    internal static (byte Key, byte[] Decoded)? TryXorText(byte[] data)
+    internal static (byte[] Key, byte[] Decoded, bool Utf16)? TryXorText(byte[] data)
     {
         if (data.Length < MinXorTextLength) return null;
-        var sample = data.AsSpan(0, Math.Min(data.Length, 4096));
-        double input = TextScore(sample);
-        if (input >= XorTextMinScore) return null; // readable already: XOR could only shift it to other readable text
-        (byte Key, double Score)? best = null;
-        var decoded = new byte[sample.Length];
-        for (int k = 1; k < 256; k++)
-        {
-            for (int i = 0; i < sample.Length; i++) decoded[i] = (byte)(sample[i] ^ k);
-            if (!Blob.LooksLikeText(decoded) || LooksLikeUtf16(decoded)) continue;
-            int spaces = decoded.Count(b => b == ' ');
-            if (spaces < decoded.Length * 0.03 || spaces > decoded.Length * 0.40) continue;
-            double score = TextScore(decoded);
-            if (best == null || score > best.Value.Score) best = ((byte)k, score);
-        }
-        if (best is not { } b || b.Score < XorTextMinScore || b.Score - input < XorTextMinGain) return null;
-        var full = new byte[data.Length];
-        for (int i = 0; i < data.Length; i++) full[i] = (byte)(data[i] ^ b.Key);
-        return Blob.LooksLikeText(full) ? (b.Key, full) : null;
+        var sample = data.AsSpan(0, Math.Min(data.Length, 4096)).ToArray();
+        if (ReadableText(sample, utf16: false) || ReadableText(sample, utf16: true)) return null; // readable already
+        // the key length: text XORed with a repeating key keeps text's uneven byte distribution in every column of the
+        // key's length (index of coincidence well above random data's 1/256); the shortest such length first
+        var lengths = Enumerable.Range(1, MaxXorKeyLength).Where(l => sample.Length / l >= 24)
+            .Select(l => (Length: l, Coincidence: Coincidence(sample, l))).ToList();
+        if (lengths.Count == 0) return null;
+        double top = lengths.Max(x => x.Coincidence);
+        if (top < 0.02) return null; // flat: compressed, encrypted or random data
+        var candidates = lengths.Where(x => x.Coincidence >= Math.Max(0.02, top * 0.6)).Select(x => x.Length).Take(3).ToList();
+        foreach (bool utf16 in new[] { false, true })
+            foreach (int length in candidates)
+            {
+                var key = new byte[length];
+                for (int column = 0; column < length; column++)
+                {
+                    int bestScore = int.MinValue;
+                    for (int k = 0; k < 256; k++)
+                    {
+                        int score = 0;
+                        for (int i = column; i < sample.Length; i += length)
+                            score += utf16 ? Utf16Weight((byte)(sample[i] ^ k), i % 2 == 1) : Utf8Weight((byte)(sample[i] ^ k));
+                        if (score > bestScore) { bestScore = score; key[column] = (byte)k; }
+                    }
+                }
+                // text in another script: multi-byte characters span columns, so the per-column choice is refined
+                // against the whole decode (letters and spaces, minus invalid sequences and controls)
+                if (!utf16 && Apply(sample, key) is var first && !ReadableText(first, utf16: false)
+                    && first.Count(c => c == ' ') is var spaces && spaces >= first.Length * 0.03 && spaces <= first.Length * 0.4)
+                    RefineForUtf8(sample.AsSpan(0, Math.Min(sample.Length, 1024)).ToArray(), key);
+                if (key.All(b => b == 0)) continue; // no XOR
+                key = Shortest(key);                // 3 key bytes over 2-byte characters repeat every 6 bytes
+                var decoded = Apply(sample, key);
+                if (!ReadableText(decoded, utf16) || Repeats(decoded, key.Length)) continue;
+                var full = Apply(data, key);
+                if (!ReadableText(full.AsSpan(0, Math.Min(full.Length, 65536)).ToArray(), utf16)) continue;
+                return (key, utf16 ? Encoding.UTF8.GetBytes(Encoding.Unicode.GetString(full)) : full, utf16);
+            }
+        return null;
     }
 
-    /// <summary>Share of ASCII letters, digits, whitespace and common punctuation; 0 when letters and spaces are under 60%.</summary>
-    private static double TextScore(ReadOnlySpan<byte> bytes)
+    /// <summary>Coordinate ascent over the key bytes, two passes, on how readable the UTF-8 decode is.</summary>
+    private static void RefineForUtf8(byte[] sample, byte[] key)
     {
-        int letters = 0, other = 0;
-        foreach (var c in bytes)
+        // a UTF-8 scan: letters and spaces up, whole multi-byte characters up, invalid sequences and controls down
+        static int Score(byte[] d)
         {
-            if (c is >= (byte)'a' and <= (byte)'z' or >= (byte)'A' and <= (byte)'Z' or (byte)' ') letters++;
-            else if (c is >= (byte)'0' and <= (byte)'9' or (byte)'\n' or (byte)'\r' or (byte)'\t' or (byte)'.' or (byte)',' or (byte)';' or (byte)':'
-                     or (byte)'\'' or (byte)'"' or (byte)'!' or (byte)'?' or (byte)'-' or (byte)'(' or (byte)')' or (byte)'/') other++;
+            int score = 0;
+            for (int i = 0; i < d.Length;)
+            {
+                byte c = d[i];
+                if (c < 0x80)
+                {
+                    score += c is (byte)' ' or >= (byte)'a' and <= (byte)'z' or >= (byte)'A' and <= (byte)'Z' ? 2
+                        : c is 9 or 10 or 13 or >= (byte)'0' and <= (byte)'9' or (byte)'.' or (byte)',' ? 1
+                        : c < 0x20 || c == 0x7F ? -5 : -1;
+                    i++;
+                    continue;
+                }
+                // a lead byte and its continuation bytes, all present
+                int extra = c is >= 0xC2 and <= 0xDF ? 1 : c is >= 0xE0 and <= 0xEF ? 2 : c is >= 0xF0 and <= 0xF4 ? 3 : 0;
+                bool valid = extra > 0;
+                for (int k = 1; valid && k <= extra; k++)
+                    valid = i + k < d.Length && (d[i + k] & 0xC0) == 0x80;
+                if (valid) { score += 2; i += extra + 1; }
+                else { score -= 5; i++; }
+            }
+            return score;
         }
-        if (bytes.Length == 0 || letters < bytes.Length * 0.6) return 0;
-        return (double)(letters + other) / bytes.Length;
+        // the per-column choice can be off by one constant for every byte (a script's lead byte taken for a space):
+        // try shifting the whole key first
+        var shifted = new byte[key.Length];
+        int bestShift = 0, bestShiftScore = int.MinValue;
+        for (int c = 0; c < 256; c++)
+        {
+            for (int i = 0; i < key.Length; i++) shifted[i] = (byte)(key[i] ^ c);
+            int score = Score(Apply(sample, shifted));
+            if (score > bestShiftScore) { bestShiftScore = score; bestShift = c; }
+        }
+        for (int i = 0; i < key.Length; i++) key[i] ^= (byte)bestShift;
+
+        for (int pass = 0; pass < 2; pass++)
+            for (int column = 0; column < key.Length; column++)
+            {
+                int best = Score(Apply(sample, key));
+                byte keep = key[column];
+                for (int k = 0; k < 256; k++)
+                {
+                    key[column] = (byte)k;
+                    int score = Score(Apply(sample, key));
+                    if (score > best) { best = score; keep = (byte)k; }
+                }
+                key[column] = keep;
+            }
     }
 
-    /// <summary>One byte value in 40% or more of the even or of the odd positions: UTF-16 text, or text XORed with UTF-16 in mind.</summary>
-    private static bool LooksLikeUtf16(byte[] bytes)
+    private static byte[] Apply(byte[] data, byte[] key)
     {
-        foreach (int parity in new[] { 0, 1 })
+        var result = new byte[data.Length];
+        for (int i = 0; i < data.Length; i++) result[i] = (byte)(data[i] ^ key[i % key.Length]);
+        return result;
+    }
+
+    /// <summary>How text-like a byte of UTF-8 text is: spaces and letters most, controls and invalid UTF-8 bytes strongly against.</summary>
+    private static int Utf8Weight(byte c) => c switch
+    {
+        (byte)' ' => 6,
+        (byte)'e' or (byte)'t' or (byte)'a' or (byte)'o' or (byte)'i' or (byte)'n' or (byte)'s' or (byte)'h' or (byte)'r' => 4, // the most frequent letters
+        >= (byte)'a' and <= (byte)'z' => 3,
+        >= (byte)'A' and <= (byte)'Z' => 2,
+        >= (byte)'0' and <= (byte)'9' or (byte)'.' or (byte)',' or (byte)'\n' or (byte)'\r' or (byte)'\t' or (byte)'\'' or (byte)'"' or (byte)'-' => 1,
+        >= 0x21 and <= 0x7E => 0,
+        >= 0x80 and <= 0xBF or >= 0xC2 and <= 0xF4 => 1, // continuation and lead bytes of other scripts
+        _ => -8,
+    };
+
+    /// <summary>The same for UTF-16LE: the high byte of a character is 0 for Latin text, or a script's page (Arabic 06, Cyrillic 04...).</summary>
+    private static int Utf16Weight(byte c, bool high) => high
+        ? c switch { 0 => 4, 0x03 or 0x04 or 0x05 or 0x06 or 0x09 or 0x0E or 0x30 => 2, >= 0x4E and <= 0x9F or >= 0xAC and <= 0xD7 => 1, _ => -4 }
+        : c switch
         {
-            var counts = new int[256];
+            (byte)' ' => 5,
+            (byte)'e' or (byte)'t' or (byte)'a' or (byte)'o' or (byte)'i' or (byte)'n' or (byte)'s' or (byte)'h' or (byte)'r' => 3,
+            >= (byte)'a' and <= (byte)'z' => 2,
+            >= 0x21 and <= 0x7E => 1,
+            0 => -4,
+            _ => 0,
+        };
+
+    /// <summary>Readable text in UTF-8 or UTF-16LE, by the rules above.</summary>
+    private static bool ReadableText(byte[] bytes, bool utf16)
+    {
+        if (utf16 && bytes.Length % 2 == 1) bytes = bytes[..^1];
+        string text;
+        try { text = (utf16 ? new UnicodeEncoding(false, false, true) : (Encoding)new UTF8Encoding(false, true)).GetString(TrimPartial(bytes, utf16)); }
+        catch (DecoderFallbackException) { return false; }
+        if (text.Length < MinXorTextLength) return false;
+        int letters = 0, whitespace = 0, other = 0, words = 0, wordLetters = 0;
+        var distinct = new HashSet<char>();
+        bool inWord = false;
+        foreach (var c in text)
+        {
+            if (char.IsControl(c) && c is not ('\n' or '\r' or '\t')) return false;
+            if (char.IsLetter(c)) { letters++; distinct.Add(char.ToLowerInvariant(c)); wordLetters++; if (!inWord) { words++; inWord = true; } continue; }
+            inWord = false;
+            if (char.IsWhiteSpace(c)) whitespace++;
+            else other++;
+        }
+        int visible = letters + other;
+        if (!(visible > 0 && letters >= visible * 0.5 && distinct.Count >= 10)) return false;
+        // natural text keeps most letters in one script and repeats letter pairs; random code units that happen to be
+        // letters (CJK, Hangul) spread over scripts and almost never repeat a pair
+        var scripts = text.Where(char.IsLetter).GroupBy(Script).Select(g => g.Count()).OrderByDescending(n => n).ToList();
+        if (scripts[0] < letters * 0.8) return false;
+        var pairs = new Dictionary<int, int>();
+        for (int i = 0; i + 1 < text.Length; i++)
+            if (char.IsLetter(text[i]) && char.IsLetter(text[i + 1]))
+            {
+                int pair = (text[i] << 16) | text[i + 1];
+                pairs[pair] = pairs.GetValueOrDefault(pair) + 1;
+            }
+        int totalPairs = pairs.Values.Sum();
+        if (totalPairs >= 40 && pairs.Values.Where(n => n > 1).Sum() < totalPairs * 0.15) return false;
+        return letters >= visible * 0.5 && distinct.Count >= 10
+               && whitespace >= text.Length * 0.03 && whitespace <= text.Length * 0.40
+               && words > 0 && wordLetters / (double)words is >= 2 and <= 15;
+    }
+
+    /// <summary>A coarse script of a letter: Latin, Greek / Cyrillic, Hebrew / Arabic, Indic, Thai, CJK / kana, Hangul, other.</summary>
+    private static int Script(char c) => c switch
+    {
+        <= 'ɏ' => 0,
+        >= 'Ͱ' and <= 'ԯ' => 1,
+        >= '֐' and <= 'ࣿ' or >= 'יִ' and <= '﻿' => 2,
+        >= 'ऀ' and <= '෿' => 3,
+        >= '฀' and <= '໿' => 4,
+        >= '぀' and <= 'ヿ' or >= '㐀' and <= '鿿' or >= '豈' and <= '﫿' => 5,
+        >= '가' and <= '힯' or >= 'ᄀ' and <= 'ᇿ' => 6,
+        _ => 7,
+    };
+
+    /// <summary>Mean index of coincidence of the columns of a key length: the chance two bytes of a column are equal.</summary>
+    private static double Coincidence(byte[] sample, int length)
+    {
+        double total = 0;
+        var counts = new int[256];
+        for (int column = 0; column < length; column++)
+        {
+            Array.Clear(counts);
             int n = 0;
-            for (int i = parity; i < bytes.Length; i += 2) { counts[bytes[i]]++; n++; }
-            if (n > 0 && counts.Max() >= n * 0.4) return true;
+            for (int i = column; i < sample.Length; i += length) { counts[sample[i]]++; n++; }
+            long same = 0;
+            foreach (var c in counts) same += (long)c * (c - 1);
+            total += n > 1 ? same / ((double)n * (n - 1)) : 0;
         }
-        return false;
+        return total / length;
+    }
+
+    /// <summary>A sample cut mid-character: drop the incomplete UTF-8 sequence at its end.</summary>
+    private static byte[] TrimPartial(byte[] bytes, bool utf16)
+    {
+        if (utf16) return bytes;
+        int end = bytes.Length, back = 0;
+        while (end > 0 && back < 3 && (bytes[end - 1] & 0xC0) == 0x80) { end--; back++; }
+        if (end > 0 && bytes[end - 1] >= 0xC0) return bytes[..(end - 1)]; // a lead byte whose continuation is cut off
+        return back > 0 && end > 0 && bytes[end - 1] < 0x80 ? bytes[..end] : bytes;
+    }
+
+    /// <summary>A key that is a shorter key repeated (abcabc): the shorter one.</summary>
+    private static byte[] Shortest(byte[] key)
+    {
+        for (int p = 1; p < key.Length; p++)
+            if (key.Length % p == 0 && Enumerable.Range(0, key.Length).All(i => key[i] == key[i % p])) return key[..p];
+        return key;
+    }
+
+    /// <summary>Decoded text that is mostly the same block of the key's length again and again: a structure, not text.</summary>
+    private static bool Repeats(byte[] decoded, int length)
+    {
+        int width = Math.Max(length, 4), blocks = decoded.Length / width;
+        if (blocks < 4) return false;
+        var seen = new HashSet<string>();
+        for (int b = 0; b < blocks; b++) seen.Add(Convert.ToHexString(decoded, b * width, width));
+        return seen.Count < blocks / 2;
     }
 
     /// <summary>

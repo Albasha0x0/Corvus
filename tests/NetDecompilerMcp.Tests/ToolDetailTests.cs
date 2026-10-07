@@ -45,7 +45,31 @@ public class ToolDetailTests : IDisposable
         Assert.StartsWith("array initializer element [2] of uint[] (data ", hits["Spans"]);
         Assert.False(hits.ContainsKey("Bytes")); // four bytes of a byte[] are not a 32-bit value
         Assert.Equal(3, hits.Count);
-        Assert.Empty(env.Search.SearchConstants("0x1234", env.Workspace.Assemblies, 50, default).Items); // small values: IL / consts only
+        Assert.Empty(env.Search.SearchConstants("0x1234", env.Workspace.Assemblies, 50, default).Items);
+    }
+
+    [Fact]
+    public void Constants_SmallValues_AreFoundInArraysOfTheirOwnType()
+    {
+        using var dir = new TempDir();
+        var path = dir.File("Tables.dll");
+        File.WriteAllBytes(path, ReferenceResolutionTests.Compile("Tables", """
+            public static class SBox
+            {
+                private static readonly byte[] Box = { 0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x7B };
+                private static readonly short[] Steps = { -3, 1000, -3, 7, 9, 11, 13, 15 };
+                private static readonly double[] Weights = { 0.25, 3.14, 2.5, 1.0 };
+                public static int Get(int i) => Box[i] + Steps[i % 8] + (int)Weights[i % 4];
+            }
+            """));
+        using var env = new Env(path);
+        string Kind(string value) => Assert.Single(env.Search.SearchConstants(value, env.Workspace.Assemblies, 50, default).Items
+            .Where(h => h.Kind.StartsWith("array initializer", StringComparison.Ordinal))).Kind;
+        Assert.StartsWith("array initializer elements [3], [8] of byte[]", Kind("0x7B"));
+        Assert.StartsWith("array initializer elements [0], [2] of short[]", Kind("-3"));
+        Assert.StartsWith("array initializer element [1] of double[]", Kind("3.14"));
+        // a value that does not fit the element type is not looked for in it
+        Assert.DoesNotContain(env.Search.SearchConstants("1000", env.Workspace.Assemblies, 50, default).Items, h => h.Kind.Contains("byte[]"));
     }
 
     [Fact]

@@ -179,10 +179,12 @@ public static class Containers
         catch (InvalidDataException ex)
         {
             // a cut-off download or a carved file has no central directory: read what the local headers still hold
-            var recovered = RecoverLocalEntries(data, limits, ct);
+            var (recovered, skipped, complete) = RecoverLocalEntries(data, limits, ct);
             if (recovered.Count == 0) throw new ToolError($"{name}: corrupt zip ({ex.Message}).");
             var contents = ReadZipEntries(recovered.Select(e => (e.Name, (Func<byte[]?>)(() => e.Bytes))).ToList(), limits, ct);
-            contents.Notes.Insert(0, $"Damaged zip ({ex.Message}): {recovered.Count} entr(ies) recovered from local headers; entries past the damage are lost.");
+            contents.Notes.Insert(0, $"Damaged zip ({ex.Message}): {recovered.Count} entr(ies) recovered from local headers"
+                                     + (complete ? "." : "; the entries past the damage are lost."));
+            contents.Notes.InsertRange(1, skipped);
             return contents;
         }
         using (zip)
@@ -241,36 +243,112 @@ public static class Containers
     }
 
     /// <summary>
-    /// Entries read from the local file headers in order (stored or deflated, sizes in the header), stopping at the
-    /// first one that is cut off or unreadable. Used when the central directory is missing.
+    /// Entries read from the local file headers in order, for a zip whose central directory is missing or broken.
+    /// Sizes come from the header, its zip64 extra field, or (streamed zips) the data descriptor after the data whose
+    /// compressed size matches, checked by CRC. Encrypted or unreadable entries are stepped over with a note;
+    /// reading stops where the data is cut off or no header follows. <c>Complete</c>: it ended at the central
+    /// directory or the end of the file.
     /// </summary>
-    private static List<(string Name, byte[] Bytes)> RecoverLocalEntries(byte[] data, AnalysisLimits limits, CancellationToken ct)
+    private static (List<(string Name, byte[] Bytes)> Entries, List<string> Skipped, bool Complete) RecoverLocalEntries(byte[] data, AnalysisLimits limits, CancellationToken ct)
     {
         var result = new List<(string, byte[])>();
+        var skipped = new List<string>();
         int at = 0;
         while (at + 30 <= data.Length && result.Count < limits.MaxItems)
         {
             ct.ThrowIfCancellationRequested();
-            if (BitConverter.ToUInt32(data, at) != 0x04034B50) break; // "PK\x03\x04"
+            uint signature = BitConverter.ToUInt32(data, at);
+            if (signature is 0x02014B50 or 0x06054B50 or 0x06064B50) return (result, skipped, true); // central directory / end record
+            if (signature != 0x04034B50) break;
             ushort flags = BitConverter.ToUInt16(data, at + 6), method = BitConverter.ToUInt16(data, at + 8);
-            uint compressed = BitConverter.ToUInt32(data, at + 18);
+            uint crc = BitConverter.ToUInt32(data, at + 14);
+            long compressed = BitConverter.ToUInt32(data, at + 18);
             int nameLength = BitConverter.ToUInt16(data, at + 26), extraLength = BitConverter.ToUInt16(data, at + 28);
             int body = at + 30 + nameLength + extraLength;
-            if ((flags & 0x08) != 0 || (flags & 0x01) != 0) break; // sizes in a trailing descriptor / encrypted: cannot continue
-            if (body > data.Length || compressed > data.Length - body) break; // cut off here
+            if (body > data.Length) break;
             var name = Encoding.UTF8.GetString(data, at + 30, nameLength);
-            var raw = data.AsSpan(body, (int)compressed).ToArray();
-            byte[]? bytes = method switch
+            if (compressed == uint.MaxValue && Zip64CompressedSize(data, at + 30 + nameLength, extraLength) is { } large) compressed = large;
+
+            int next;
+            if ((flags & 0x08) != 0)
             {
-                0 => raw,
-                8 => Blob.TryDecompress(raw, "deflate", limits.MaxItemBytes),
-                _ => null,
-            };
-            if (bytes == null) break;
-            if (!name.EndsWith('/')) result.Add((name, bytes));
-            at = body + (int)compressed;
+                // sizes (and CRC) follow the data: find the descriptor that matches
+                if (FindDescriptor(data, body, out compressed, out crc, out next) == false) break;
+            }
+            else
+            {
+                if (compressed > data.Length - body) break; // cut off here
+                next = body + (int)compressed;
+            }
+
+            if ((flags & 0x01) != 0)
+                skipped.Add($"Skipped {name}: encrypted.");
+            else if (!name.EndsWith('/'))
+            {
+                var raw = data.AsSpan(body, (int)compressed);
+                byte[]? bytes = method switch
+                {
+                    0 => raw.ToArray(),
+                    8 => Blob.TryDecompress(raw, "deflate", limits.MaxItemBytes),
+                    _ => null,
+                };
+                if (bytes == null) skipped.Add($"Skipped {name}: {(method is 0 or 8 ? "unreadable data" : $"compression method {method} not supported")}.");
+                else if (Crc32(bytes) != crc) skipped.Add($"Skipped {name}: damaged data (CRC mismatch).");
+                else result.Add((name, bytes));
+            }
+            at = next;
         }
-        return result;
+        return (result, skipped, at >= data.Length);
+    }
+
+    /// <summary>
+    /// The data descriptor after an entry written with sizes unknown up front: the first one (with or without its
+    /// PK\x07\x08 signature, 32- or 64-bit sizes) whose compressed size is the distance from the data's start.
+    /// </summary>
+    private static bool FindDescriptor(byte[] data, int body, out long compressed, out uint crc, out int next)
+    {
+        for (int p = body; p + 12 <= data.Length; p++)
+        {
+            // with signature: PK 07 08, crc, compressed, uncompressed (4 or 8 bytes each)
+            if (data[p] == 0x50 && data[p + 1] == 0x4B && data[p + 2] == 0x07 && data[p + 3] == 0x08 && p + 16 <= data.Length)
+            {
+                if (BitConverter.ToUInt32(data, p + 8) == p - body) { crc = BitConverter.ToUInt32(data, p + 4); compressed = p - body; next = p + 16; return true; }
+                if (p + 24 <= data.Length && BitConverter.ToInt64(data, p + 8) == p - body) { crc = BitConverter.ToUInt32(data, p + 4); compressed = p - body; next = p + 24; return true; }
+            }
+            // without signature: crc, compressed, uncompressed right before the next header
+            if (p + 16 <= data.Length && data[p + 12] == 0x50 && data[p + 13] == 0x4B && BitConverter.ToUInt32(data, p + 4) == p - body)
+            {
+                crc = BitConverter.ToUInt32(data, p); compressed = p - body; next = p + 12; return true;
+            }
+        }
+        compressed = 0; crc = 0; next = data.Length;
+        return false;
+    }
+
+    /// <summary>The compressed size in a local header's zip64 extra field (id 1: uncompressed, then compressed size).</summary>
+    private static long? Zip64CompressedSize(byte[] data, int extra, int length)
+    {
+        for (int p = extra; p + 4 <= extra + length && p + 4 <= data.Length;)
+        {
+            ushort id = BitConverter.ToUInt16(data, p), size = BitConverter.ToUInt16(data, p + 2);
+            if (id == 1 && size >= 16 && p + 20 <= data.Length) return BitConverter.ToInt64(data, p + 12);
+            p += 4 + size;
+        }
+        return null;
+    }
+
+    private static readonly uint[] CrcTable = Enumerable.Range(0, 256).Select(n =>
+    {
+        uint c = (uint)n;
+        for (int k = 0; k < 8; k++) c = (c & 1) != 0 ? 0xEDB88320 ^ (c >> 1) : c >> 1;
+        return c;
+    }).ToArray();
+
+    private static uint Crc32(byte[] bytes)
+    {
+        uint c = 0xFFFFFFFF;
+        foreach (var b in bytes) c = CrcTable[(c ^ b) & 0xFF] ^ (c >> 8);
+        return c ^ 0xFFFFFFFF;
     }
 
     /// <summary>Archive entries extracted: .dll / .exe / .winmd, assembly stores, nested packages, and .deps.json / .runtimeconfig.json / assemblies.manifest.</summary>
