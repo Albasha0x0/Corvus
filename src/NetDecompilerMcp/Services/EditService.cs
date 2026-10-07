@@ -346,17 +346,6 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         _ => throw new ToolError($"Unknown edit kind '{record.Kind}'."),
     };
 
-    /// <summary>Checks that a recorded edit's target exists, without applying it.</summary>
-    public string Check(EditRecord record, LoadedAssembly asm, bool preferTokens)
-    {
-        foreach (var key in new[] { "symbol", "method", "type" })
-            if (record.Arg(key) != null)
-                return $"target found: {Recorded(asm, record, key, preferTokens)}";
-        if (record.Kind == "rename_namespace" && !asm.Module.Types.Any(t => t.Namespace == record.Arg("oldNamespace")))
-            throw new ToolError($"namespace '{record.Arg("oldNamespace")}' not found");
-        return "ok";
-    }
-
     /// <summary>Undoes one edit (1-based number; default the last) by rebuilding from the original image and replaying the others.</summary>
     public string Undo(LoadedAssembly asm, int? number, CancellationToken ct)
     {

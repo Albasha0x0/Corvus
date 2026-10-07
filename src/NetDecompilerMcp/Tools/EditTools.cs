@@ -141,13 +141,14 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
 
     [McpServerTool(Name = "apply_edits", Title = "Apply an edit script", Destructive = false, OpenWorld = false)]
     [Description("Replay a JSON edit script (from export_edits) onto an assembly. On the same build, recorded tokens are used; on a different build, symbols are re-resolved by name and each edit reports ok/FAILED. " +
-                 "dryRun checks every target without changing anything. With stopOnError (default) a failure rolls the assembly back to its state before the script.")]
+                 "dryRun applies every edit for real (C# compiled, IL stack-checked) and then rolls back, so it reports exactly what would fail, with the full compiler errors. " +
+                 "With stopOnError (default) a failure rolls the assembly back to its state before the script.")]
     public Task<string> ApplyEdits(
         [Description("Path to the .json edit script.")] string path,
         [Description("Target assembly. Omit to use the assembly named in the script.")] string? assembly = null,
-        [Description("Only check that every edit's target exists.")] bool dryRun = false,
+        [Description("Apply and compile every edit, report, then roll back: nothing changes.")] bool dryRun = false,
         [Description("Roll back everything on the first failure (default true).")] bool stopOnError = true,
-        CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
+        CancellationToken cancellationToken = default) => Write(workspace, () => // a dry run applies and rolls back: needs the write lock too
             history.Apply(path, assembly, dryRun, stopOnError, cancellationToken), cancellationToken);
 
     [McpServerTool(Name = "patch_method_il", Title = "Rewrite method body in IL", Destructive = false, OpenWorld = false)]

@@ -77,30 +77,43 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
 
         var sb = new StringBuilder($"{(dryRun ? "Dry run of" : "Applying")} {records.Count} edit(s) from {Path.GetFileName(path)} to {asm.Id}" +
                                    $" ({(sameImage ? "same build: using recorded tokens" : "different build: resolving symbols by name")}):\n");
+        // A dry run applies the script for real — C# is compiled, IL is stack-checked, later edits see the earlier ones —
+        // and then rolls the assembly back, so it reports exactly what a real run would.
         var before = asm.Edits.ToList();
         int ok = 0, failed = 0;
-        for (int i = 0; i < records.Count; i++)
+        try
         {
-            ct.ThrowIfCancellationRequested();
-            try
+            for (int i = 0; i < records.Count; i++)
             {
-                var result = dryRun ? edits.Check(records[i], asm, sameImage) : edits.Apply(records[i], asm, sameImage, ct);
-                sb.AppendLine($"  #{i + 1} ok      {records[i].Description}{(dryRun ? $" — {result}" : "")}");
-                ok++;
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                failed++;
-                sb.AppendLine($"  #{i + 1} FAILED  {records[i].Description}\n      {FirstLine(ex.Message)}");
-                if (stopOnError && !dryRun)
+                ct.ThrowIfCancellationRequested();
+                try
                 {
-                    edits.Rebuild(asm, before, ct);
-                    sb.AppendLine($"Stopped; {asm.Id} was rolled back to its state before the script. Fix the edit (or pass stopOnError=false to skip failures).");
-                    return sb.ToString();
+                    edits.Apply(records[i], asm, sameImage, ct);
+                    sb.AppendLine($"  #{i + 1} ok      {records[i].Description}");
+                    ok++;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    failed++;
+                    sb.AppendLine($"  #{i + 1} FAILED  {records[i].Description}");
+                    sb.AppendLine(Indent(ex.Message, "      "));
+                    if (stopOnError && !dryRun)
+                    {
+                        edits.Rebuild(asm, before, ct);
+                        sb.AppendLine($"Stopped; {asm.Id} was rolled back to its state before the script. Fix the edit (or pass stopOnError=false to skip failures).");
+                        return sb.ToString();
+                    }
                 }
             }
         }
-        sb.AppendLine($"{ok} applied{(dryRun ? " (dry run: targets checked only)" : "")}, {failed} failed.");
+        finally
+        {
+            if (dryRun && asm.Edits.Count != before.Count)
+                edits.Rebuild(asm, before, CancellationToken.None);
+        }
+        sb.AppendLine(dryRun
+            ? $"{ok} would apply, {failed} would fail (dry run: every edit was applied and compiled, then rolled back; nothing changed)."
+            : $"{ok} applied, {failed} failed.");
         return sb.ToString();
     }
 
@@ -153,9 +166,13 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
     private string Decompile(LoadedAssembly asm, IMemberDef member, CancellationToken ct) =>
         member is TypeDef t ? decompiler.DecompileType(asm, t, ct) : decompiler.DecompileMembers(asm, [member], ct);
 
-    private static string FirstLine(string s)
+    /// <summary>The whole (multi-line) error message, indented; very long ones are cut after <see cref="MaxErrorLines"/> lines.</summary>
+    private static string Indent(string message, string indent)
     {
-        int nl = s.IndexOf('\n');
-        return nl >= 0 ? s[..nl] : s;
+        var lines = message.TrimEnd().ReplaceLineEndings("\n").Split('\n');
+        var shown = lines.Take(MaxErrorLines).Select(l => indent + l);
+        return string.Join("\n", lines.Length > MaxErrorLines ? shown.Append($"{indent}… {lines.Length - MaxErrorLines} more line(s)") : shown);
     }
+
+    private const int MaxErrorLines = 40;
 }

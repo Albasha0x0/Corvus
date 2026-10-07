@@ -99,7 +99,8 @@ public class EditHistoryTests : IDisposable
         File.WriteAllText(script, File.ReadAllText(script).Replace("Player::Score", "Player::NoSuchMethod").Replace("\"mvid\"", "\"x\""));
 
         using var fresh = new Env();
-        var dry = fresh.History.Apply(script, null, dryRun: true, stopOnError: true, default);
+        var dry = fresh.Edit(() => fresh.History.Apply(script, null, dryRun: true, stopOnError: true, default));
+        Assert.False(fresh.Fixture.IsDirty); // #1 was applied for the check, then rolled back
         Assert.Contains("#1 ok", dry);
         Assert.Contains("#2 FAILED", dry);
         var report = fresh.Edit(() => fresh.History.Apply(script, null, dryRun: false, stopOnError: true, default));
@@ -108,5 +109,35 @@ public class EditHistoryTests : IDisposable
         var lenient = fresh.Edit(() => fresh.History.Apply(script, null, dryRun: false, stopOnError: false, default));
         Assert.Contains("1 applied", lenient);
         Assert.Single(fresh.Fixture.Edits);
+    }
+
+    [Fact]
+    public void DryRunCompilesCSharpEdits_AndShowsTheFullError()
+    {
+        // #1 adds a member, #2 uses it (a dry run must see #1), #3's code does not compile on the target
+        _env.Edit(() => _env.Edits.AddMembersCSharp(_env.One("Fixture.Game.Player", Core.SymbolKind.Type), "public int Bonus() => 7;", false, default));
+        _env.Edit(() => _env.Edits.PatchMethodCSharp(_env.One("Player::SumPositive"), "return values.Count(v => v > 0) + Bonus();", false, default));
+        _env.Edit(() => _env.Edits.PatchMethodCSharp(_env.One("Player::Score"), "return 11;", false, default));
+        using var dir = new TempDir();
+        var script = dir.File("edits.json");
+        _env.History.Export(_env.Fixture, script);
+        File.WriteAllText(script, File.ReadAllText(script).Replace("return 11;", "return NoSuchHelper(11);"));
+
+        using var fresh = new Env();
+        var dry = fresh.Edit(() => fresh.History.Apply(script, null, dryRun: true, stopOnError: true, default));
+        Assert.Contains("#1 ok", dry);
+        Assert.Contains("#2 ok", dry);
+        Assert.Contains("#3 FAILED", dry);
+        Assert.Contains("C# compilation failed", dry);
+        Assert.Contains("CS0103", dry);                 // the compiler error itself, past the first line
+        Assert.Contains("NoSuchHelper", dry);
+        Assert.Contains("2 would apply, 1 would fail", dry);
+        Assert.False(fresh.Fixture.IsDirty);
+        Assert.DoesNotContain("Bonus", fresh.Decompile("Fixture.Game.Player"));
+
+        // a dry run on an assembly that already has edits rolls back to those edits, not to the loaded file
+        fresh.Edit(() => fresh.Edits.StubMethod(fresh.One("Secret::Validate"), "true"));
+        fresh.Edit(() => fresh.History.Apply(script, null, dryRun: true, stopOnError: false, default));
+        Assert.Equal("stub_method", Assert.Single(fresh.Fixture.Edits).Kind);
     }
 }
