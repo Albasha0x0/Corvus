@@ -8,7 +8,7 @@ using static NetDecompilerMcp.Tools.ToolSupport;
 namespace NetDecompilerMcp.Tools;
 
 [McpServerToolType]
-public sealed class ResourceTools(AssemblyWorkspace workspace, ResourceService resources, OutputPager pager)
+public sealed class ResourceTools(AssemblyWorkspace workspace, ResourceService resources, DecompilerService decompiler, OutputPager pager)
 {
     [McpServerTool(Name = "list_resources", Title = "List manifest resources", ReadOnly = true, OpenWorld = false)]
     [Description("List manifest resources: embedded files, .resources containers (with entry counts), linked resources.")]
@@ -26,7 +26,7 @@ public sealed class ResourceTools(AssemblyWorkspace workspace, ResourceService r
     }, cancellationToken);
 
     [McpServerTool(Name = "get_resource", Title = "Read / extract resource", ReadOnly = true, OpenWorld = false)]
-    [Description("Read a resource: text as text, binary as a hex preview, .resources containers as an entry list (pass entry to read one). Pass savePath to extract the raw bytes to disk (images, asset bundles, configs).")]
+    [Description("Read a resource: text as text, binary as a hex preview, .resources containers as an entry list (pass entry to read one; WPF .baml entries come back as XAML). Pass savePath to extract the raw bytes to disk (images, asset bundles, configs).")]
     public Task<string> GetResource(
         [Description(AssemblyDescription)] string assembly,
         [Description("Resource name as shown by list_resources.")] string name,
@@ -35,5 +35,8 @@ public sealed class ResourceTools(AssemblyWorkspace workspace, ResourceService r
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
-            pager.Page(resources.Get(workspace.Get(assembly), name, entry, savePath), offset, maxChars), cancellationToken);
+        {
+            var asm = workspace.Get(assembly);
+            return pager.Page(resources.Get(asm, name, entry, savePath, baml: bytes => decompiler.DecompileBaml(asm, bytes, cancellationToken)), offset, maxChars);
+        }, cancellationToken);
 }

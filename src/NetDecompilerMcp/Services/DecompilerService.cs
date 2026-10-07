@@ -144,6 +144,21 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         return output.ToString();
     }
 
+    /// <summary>XAML decompiled from a BAML resource entry (a WPF window / control), or null when it cannot be.</summary>
+    public string? DecompileBaml(LoadedAssembly asm, byte[] baml, CancellationToken ct)
+    {
+        try
+        {
+            var decompiler = new ICSharpCode.BamlDecompiler.XamlDecompiler((ICSharpCode.Decompiler.Metadata.PEFile)asm.GetPEFile(),
+                workspace.CreateDecompilerResolver(asm), new ICSharpCode.BamlDecompiler.BamlDecompilerSettings()) { CancellationToken = ct };
+            return decompiler.Decompile(new MemoryStream(baml, writable: false)).Xaml.ToString();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return null;
+        }
+    }
+
     public sealed record ExportResult(string Directory, int FileCount, string? ProjectFile, IReadOnlyList<string> FailedTypes);
 
     /// <summary>

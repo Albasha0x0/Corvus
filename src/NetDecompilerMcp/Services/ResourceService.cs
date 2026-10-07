@@ -38,7 +38,7 @@ public sealed class ResourceService
     /// Returns a text rendering of a resource (or one entry of a .resources container) and,
     /// when <paramref name="savePath"/> is set, writes the raw bytes there.
     /// </summary>
-    public string Get(LoadedAssembly asm, string name, string? entry, string? savePath, int previewBytes = 4096)
+    public string Get(LoadedAssembly asm, string name, string? entry, string? savePath, int previewBytes = 4096, Func<byte[], string?>? baml = null)
     {
         var res = asm.Module.Resources.FirstOrDefault(r => r.Name == name)
                   ?? asm.Module.Resources.FirstOrDefault(r => string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase))
@@ -72,6 +72,9 @@ public sealed class ResourceService
                 Save(savePath, bytes);
                 return $"Saved entry '{entry}' ({bytes.Length} bytes) to {Path.GetFullPath(savePath)}";
             }
+            // WPF windows and controls are compiled XAML (BAML): shown as XAML
+            if (bytes != null && baml != null && entry.EndsWith(".baml", StringComparison.OrdinalIgnoreCase) && baml(bytes) is { } xaml)
+                return $"<!-- {entry}: XAML decompiled from BAML ({bytes.Length} bytes; savePath writes the raw BAML) -->{Environment.NewLine}{xaml}";
             return el.ResourceData is BuiltInResourceData { Data: string s }
                 ? s
                 : bytes != null ? Render(bytes, previewBytes) : Preview(el.ResourceData, 100_000);
