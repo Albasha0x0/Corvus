@@ -102,60 +102,110 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
     {
         var g = GetGraph(ct);
         var sb = new StringBuilder($"{(callers ? "Callers" : "Callees")} of {Format.MemberLabel(root)}  [{asm.Id}]  (depth {depth})\n");
-        var seen = new HashSet<MethodDef> { root };
+
+        // Breadth-first: every level is complete before the next one starts, so maxNodes cuts the deepest level, and a
+        // method reached several times is expanded once, at its shallowest occurrence (the others say where).
+        var children = new Dictionary<MethodDef, List<(MethodDef Child, string? Note, int Count)>>();
+        var expandedAt = new Dictionary<MethodDef, (MethodDef Parent, int Level)> { [root] = (root, 0) };
+        var parentOf = new Dictionary<MethodDef, MethodDef>();
         int nodes = 0;
         bool truncated = false;
-
-        void Walk(MethodDef m, int level, HashSet<MethodDef> path)
+        var level = new List<MethodDef> { root };
+        for (int l = 1; l <= depth && level.Count > 0 && !truncated; l++)
         {
-            if (level > depth) return;
-            var children = callers
-                ? CallersOf(g, m).GroupBy(x => x.Edge.Method).Select(x => (x.Key, Note: x.First().Via is { } via ? $"via {Format.MemberLabel(via)}" : null, Count: x.Count()))
-                : (g.Callees.GetValueOrDefault(m) ?? []).GroupBy(e => e.Method).Select(x => (x.Key, Note: x.First().OpCode == "callvirt" && x.Key.IsVirtual ? "virtual" : null, Count: x.Count()));
-            foreach (var (child, note, count) in children.OrderBy(c => Format.MemberLabel(c.Key), StringComparer.Ordinal))
+            var next = new List<MethodDef>();
+            foreach (var m in level)
             {
                 ct.ThrowIfCancellationRequested();
-                if (++nodes > maxNodes) { truncated = true; return; }
-                var indent = new string(' ', level * 2);
+                var list = (callers
+                        ? CallersOf(g, m).GroupBy(x => x.Edge.Method).Select(x => (x.Key, Note: x.First().Via is { } via ? $"via {Format.MemberLabel(via)}" : null, Count: x.Count()))
+                        : (g.Callees.GetValueOrDefault(m) ?? []).GroupBy(e => e.Method).Select(x => (x.Key, Note: x.First().OpCode == "callvirt" && x.Key.IsVirtual ? "virtual" : null, Count: x.Count())))
+                    .OrderBy(c => Format.MemberLabel(c.Key), StringComparer.Ordinal).ToList();
+                var kept = new List<(MethodDef, string?, int)>();
+                foreach (var c in list)
+                {
+                    if (++nodes > maxNodes) { truncated = true; break; }
+                    kept.Add(c);
+                    if (expandedAt.TryAdd(c.Key, (m, l)))
+                    {
+                        parentOf[c.Key] = m;
+                        next.Add(c.Key);
+                    }
+                }
+                children[m] = kept;
+                if (truncated) break;
+            }
+            level = next;
+        }
+
+        bool IsAncestor(MethodDef candidate, MethodDef of)
+        {
+            for (var x = of; ; x = parentOf[x])
+            {
+                if (x == candidate) return true;
+                if (x == root) return false;
+            }
+        }
+
+        void Print(MethodDef m, int l)
+        {
+            foreach (var (child, note, count) in children.GetValueOrDefault(m) ?? [])
+            {
                 var tags = new List<string>();
                 if (count > 1) tags.Add($"x{count}");
                 if (note != null) tags.Add(note);
-                if (path.Contains(child)) tags.Add("recursive");
-                else if (!seen.Add(child)) tags.Add("expanded above");
+                var home = expandedAt[child];
+                bool expandHere = child != root && home.Parent == m && home.Level == l;
+                if (!expandHere)
+                    tags.Add(IsAncestor(child, m) ? "recursive" : $"expanded under {(home.Parent == root ? "the root" : Format.MemberLabel(home.Parent))}");
                 var owner = workspace.FindByModule(child.Module)?.Id;
-                sb.AppendLine($"{indent}{Format.MemberLabel(child)}{(owner != null && owner != asm.Id ? $"  [{owner}]" : "")}{(tags.Count > 0 ? $"  ({string.Join(", ", tags)})" : "")}");
-                if (tags.Contains("recursive") || tags.Contains("expanded above")) continue;
-                path.Add(child);
-                Walk(child, level + 1, path);
-                path.Remove(child);
-                if (truncated) return;
+                sb.AppendLine($"{new string(' ', l * 2)}{Format.MemberLabel(child)}{(owner != null && owner != asm.Id ? $"  [{owner}]" : "")}{(tags.Count > 0 ? $"  ({string.Join(", ", tags)})" : "")}");
+                if (expandHere) Print(child, l + 1);
             }
-            if (!callers && includeExternal && g.External.TryGetValue(m, out var ext))
+            if (!callers && includeExternal && children.ContainsKey(m) && g.External.TryGetValue(m, out var ext))
                 foreach (var e in ext)
-                    sb.AppendLine($"{new string(' ', level * 2)}{e}  (external)");
+                    sb.AppendLine($"{new string(' ', l * 2)}{e}  (external)");
         }
 
-        Walk(root, 1, [root]);
+        Print(root, 1);
         if (nodes == 0)
             sb.AppendLine(callers ? "  (no callers in the loaded assemblies — load the assemblies that might call it)" : "  (calls nothing in the loaded assemblies; includeExternal=true shows framework calls)");
-        if (truncated) sb.AppendLine($"[Stopped after {maxNodes} nodes: raise maxNodes or lower depth.]");
+        if (truncated) sb.AppendLine($"[Stopped after {maxNodes} nodes (the levels above the last one shown are complete): raise maxNodes or lower depth.]");
         return sb.ToString();
     }
 
     // ------------------------------------------------------------------ paths
 
     /// <summary>
+    /// One step of a call path: the method, and — when the previous step reaches it by virtual dispatch — the
+    /// base/interface declaration that step actually calls (null for a direct call).
+    /// </summary>
+    public sealed record PathStep(MethodDef Method, MethodDef? Via);
+
+    /// <summary>Call chains as methods only (see <see cref="PathSteps"/>).</summary>
+    public List<List<MethodDef>> Paths(MethodDef? from, MethodDef to, int maxDepth, int maxPaths, CancellationToken ct, bool includeVirtual = true) =>
+        PathSteps(from, to, maxDepth, maxPaths, includeVirtual, ct).Select(p => p.Select(s => s.Method).ToList()).ToList();
+
+    /// <summary>
     /// Call chains ending at <paramref name="to"/>: from <paramref name="from"/> when given, otherwise from entry points
     /// (methods nothing in the workspace calls: Main, Unity callbacks, event handlers, reflection targets...).
+    /// Shortest first; among equally long ones, fewer virtual-dispatch hops first. Without <paramref name="includeVirtual"/>
+    /// only direct calls are followed.
     /// </summary>
-    public List<List<MethodDef>> Paths(MethodDef? from, MethodDef to, int maxDepth, int maxPaths, CancellationToken ct)
+    public List<List<PathStep>> PathSteps(MethodDef? from, MethodDef to, int maxDepth, int maxPaths, bool includeVirtual, CancellationToken ct)
     {
         var g = GetGraph(ct);
+
+        // a caller of m, and the base declaration it calls when it reaches m only through virtual dispatch
+        List<(MethodDef Caller, MethodDef? Via)> Callers(MethodDef m) =>
+            CallersOf(g, m).Where(x => includeVirtual || x.Via == null)
+                .GroupBy(x => x.Edge.Method)
+                .Select(x => (x.Key, x.Any(e => e.Via == null) ? null : x.First().Via)).ToList();
 
         // Backward BFS: distance of every method from 'to' (linear in the graph, unlike enumerating all simple paths,
         // which explodes on the cyclic call graphs of real games).
         var dist = new Dictionary<MethodDef, int> { [to] = 0 };
-        var closer = new Dictionary<MethodDef, List<MethodDef>>(); // caller -> its callees one step closer to 'to'
+        var closer = new Dictionary<MethodDef, List<PathStep>>(); // caller -> its callees one step closer to 'to'
         var targets = new List<MethodDef>();
         var queue = new Queue<MethodDef>();
         queue.Enqueue(to);
@@ -164,7 +214,7 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
             ct.ThrowIfCancellationRequested();
             var m = queue.Dequeue();
             int d = dist[m];
-            var callers = CallersOf(g, m).Select(x => x.Edge.Method).Distinct().ToList();
+            var callers = Callers(m);
             if (from != null ? m == from : callers.Count == 0 && m != to)
             {
                 targets.Add(m);
@@ -172,7 +222,7 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
                 continue;
             }
             if (d >= maxDepth) continue;
-            foreach (var c in callers)
+            foreach (var (c, via) in callers)
             {
                 if (!dist.TryGetValue(c, out var dc))
                 {
@@ -181,24 +231,26 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
                 }
                 if (dc == d + 1)
                 {
-                    if (!closer.TryGetValue(c, out var list)) closer[c] = list = new List<MethodDef>();
-                    list.Add(m);
+                    if (!closer.TryGetValue(c, out var list)) closer[c] = list = new List<PathStep>();
+                    list.Add(new PathStep(m, via));
                 }
             }
         }
-        if (from == null && targets.Count == 0 && !CallersOf(g, to).Any())
+        if (from == null && targets.Count == 0 && Callers(to).Count == 0)
             targets.Add(to); // 'to' is itself an entry point
+        foreach (var list in closer.Values) // direct calls are explored first
+            list.Sort((a, b) => (a.Via != null).CompareTo(b.Via != null));
 
         // Walk forward from each start along shortest-distance edges; one path per start first, for variety.
-        var results = new List<List<MethodDef>>();
+        var results = new List<List<PathStep>>();
         var seen = new HashSet<string>();
-        void Walk(List<MethodDef> path, int perStartLimit, ref int taken)
+        void Walk(List<PathStep> path, int perStartLimit, ref int taken)
         {
             if (results.Count >= maxPaths || taken >= perStartLimit) return;
-            var last = path[^1];
+            var last = path[^1].Method;
             if (last == to)
             {
-                if (seen.Add(string.Join("|", path.Select(x => x.MDToken.Raw + x.Module.Name)))) { results.Add(new List<MethodDef>(path)); taken++; }
+                if (seen.Add(string.Join("|", path.Select(x => x.Method.MDToken.Raw + x.Method.Module.Name)))) { results.Add(new List<PathStep>(path)); taken++; }
                 return;
             }
             if (!closer.TryGetValue(last, out var next)) return;
@@ -214,9 +266,9 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
             foreach (var start in targets)
             {
                 int taken = 0;
-                Walk(new List<MethodDef> { start }, limit, ref taken);
+                Walk(new List<PathStep> { new(start, null) }, limit, ref taken);
                 if (results.Count >= maxPaths) break;
             }
-        return results.OrderBy(p => p.Count).ToList();
+        return results.OrderBy(p => p.Count).ThenBy(p => p.Count(s => s.Via != null)).ToList();
     }
 }

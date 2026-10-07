@@ -37,7 +37,7 @@ public class ReferenceResolutionTests : IDisposable
     }
 
     /// <summary>C# compiled against the running framework plus <paramref name="references"/>.</summary>
-    private static byte[] Compile(string name, string source, params byte[][] references)
+    internal static byte[] Compile(string name, string source, params byte[][] references)
     {
         var tpa = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
             .Where(p => p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)).Select(p => MetadataReference.CreateFromFile(p));

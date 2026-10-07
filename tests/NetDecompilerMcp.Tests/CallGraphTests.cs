@@ -1,4 +1,5 @@
 using dnlib.DotNet;
+using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Services;
 
 namespace NetDecompilerMcp.Tests;
@@ -54,6 +55,71 @@ public class CallGraphTests : IDisposable
         var validate = _env.Def<MethodDef>("Secret::Validate");
         var fromRoots = _env.Workspace.Read(() => _graph.Paths(null, validate, 8, 10, default));
         Assert.Contains(fromRoots, p => p.First().Name == "CheckLicense" && p.Last() == validate);
+    }
+
+    [Fact]
+    public void VirtualHopsAreMarkedAndCanBeExcluded()
+    {
+        // Arena.Hit calls IDamageable.TakeDamage; Player.TakeDamage(int) is reached only through that interface call
+        var hit = _env.Def<MethodDef>("Consumer.Arena::Hit");
+        var target = _env.Def<MethodDef>("Player::TakeDamage(int)");
+        var path = Assert.Single(_env.Workspace.Read(() => _graph.PathSteps(hit, target, 8, 10, includeVirtual: true, default)));
+        Assert.Equal([hit, target], path.Select(s => s.Method));
+        Assert.Null(path[0].Via);
+        Assert.Equal("Fixture.Game.IDamageable::TakeDamage(int)", Format.MemberLabel(path[1].Via!));
+        Assert.Empty(_env.Workspace.Read(() => _graph.PathSteps(hit, target, 8, 10, includeVirtual: false, default)));
+
+        // the direct caller TakeDamage(int, string) is still found without virtual dispatch
+        var direct = _env.Workspace.Read(() => _graph.PathSteps(null, target, 8, 10, includeVirtual: false, default));
+        Assert.Contains(direct, p => p[^2].Method.Name == "TakeDamage" && p[^2].Method.Parameters.Count == 3);
+        Assert.All(direct, p => Assert.All(p, s => Assert.Null(s.Via)));
+    }
+
+    [Fact]
+    public void TreesExpandBreadthFirst()
+    {
+        // Root's callers: A (at the end of a long chain: A <- B <- C <- D) and Z (direct, nothing else).
+        // Depth-first with a small node budget would follow A's chain and never list Z.
+        using var dir = new TempDir();
+        var path = dir.File("Chain.dll");
+        File.WriteAllBytes(path, ReferenceResolutionTests.Compile("Chain", """
+            public static class G
+            {
+                public static void Root() { }
+                public static void A() { Root(); Shared(); }
+                public static void B() { A(); }
+                public static void C() { B(); Shared(); }
+                public static void D() { C(); }
+                public static void Z() { Root(); }
+                public static void Shared() { Root(); }
+            }
+            """));
+        using var env = new Env(path);
+        var graph = new CallGraphService(env.Workspace);
+        string Callers(int depth, int maxNodes) =>
+            env.Workspace.Read(() => graph.Tree(env.Fixture, env.Def<MethodDef>("G::Root"), true, depth, maxNodes, false, default));
+
+        var small = Callers(5, 3);
+        Assert.Contains("  G::Z()", small);        // all of level 1 (A, Shared, Z) before anything deeper
+        Assert.Contains("  G::Shared()", small);
+        Assert.DoesNotContain("G::B()", small);
+        Assert.Contains("[Stopped after 3 nodes", small);
+
+        // Shared is a caller of Root (level 1) and of A (level 2): expanded once, at level 1, referenced under A
+        var full = Callers(5, 300);
+        // C calls B (level 3 under A) and Shared (level 2): expanded at level 2
+        Assert.Equal("""
+            Callers of G::Root()  [Chain]  (depth 5)
+              G::A()
+                G::B()
+                  G::C()  (expanded under G::Shared())
+              G::Shared()
+                G::A()  (expanded under the root)
+                G::C()
+                  G::D()
+              G::Z()
+
+            """.ReplaceLineEndings("\n"), full.ReplaceLineEndings("\n"));
     }
 
     [Fact]
