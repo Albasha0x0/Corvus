@@ -79,7 +79,8 @@ builder.Services
             // Workspace events since the last call (files reloaded from disk...) ride along with the next result.
             var notices = context.Services?.GetService<AssemblyWorkspace>()?.DrainNotices();
             if (notices is { Count: > 0 })
-                result.Content.Insert(0, new TextContentBlock { Text = string.Join("\n", notices.Select(n => "[workspace] " + n)) });
+                // own lines: clients join content blocks without a separator
+                result.Content.Insert(0, new TextContentBlock { Text = string.Join("\n", notices.Select(n => "[workspace] " + n)) + "\n\n" });
             return result;
         }
         catch (Exception ex) when (ex is not McpException && ex is not OperationCanceledException)

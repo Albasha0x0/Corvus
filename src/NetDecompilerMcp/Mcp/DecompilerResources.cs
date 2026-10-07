@@ -46,8 +46,9 @@ public sealed class DecompilerResources(AssemblyWorkspace workspace, DecompilerS
     public string IL([Description("Assembly id.")] string assembly, [Description("Type or member.")] string symbol, CancellationToken cancellationToken) =>
         workspace.Read(() =>
         {
-            var sym = SymbolResolver.ResolveOne(workspace, Decode(assembly), Decode(symbol));
-            return decompiler.Disassemble(sym.Assembly, sym.Member, cancellationToken);
+            // every overload, as get_il gives them
+            return string.Join("\n", SymbolResolver.Resolve(workspace, Decode(assembly), Decode(symbol))
+                .Select(s => $"// [{s.Assembly.Id}] {s.Label}\n{decompiler.Disassemble(s.Assembly, s.Member, cancellationToken)}"));
         });
 
     private static string Decode(string value) => Uri.UnescapeDataString(value);

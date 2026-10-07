@@ -436,7 +436,13 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         m.ImplAttributes &= ~(MethodImplAttributes.InternalCall | MethodImplAttributes.Runtime);
     }
 
-    private static string Listing(IEnumerable<Instruction> instructions) => string.Join("\n", instructions.Select(i => "  " + i));
+    private static string Listing(IList<Instruction> instructions)
+    {
+        // a body not written yet has no offsets: number the instructions for the preview
+        uint offset = 0;
+        foreach (var i in instructions) { i.Offset = offset; offset += (uint)i.GetSize(); }
+        return string.Join("\n", instructions.Select(i => "  " + i));
+    }
 
     // ------------------------------------------------------------------ save
 

@@ -71,13 +71,13 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
     public Task<string> FindOverrides(
         [Description("Virtual, abstract or interface method. " + SymbolDescription)] string method,
         [Description(AssemblyFilterDescription)] string? assembly = null,
+        [Description("Max results (default 200).")] int limit = 200,
+        [Description("Index of the first result to return.")] int offset = 0,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, method, SymbolKind.Method);
         var list = references.FindOverrides((MethodDef)sym.Member, cancellationToken);
-        var sb = new StringBuilder($"{Plural(list.Count, "override/implementation")} of {sym.Label}:\n");
-        foreach (var o in list)
-            sb.AppendLine($"  {o.Label}  [{o.Assembly.Id}] {Format.Token(o.Member)}");
-        return sb.ToString();
+        var rows = list.Select(o => $"{o.Label}  [{o.Assembly.Id}] {Format.Token(o.Member)}").ToList();
+        return $"Overrides / implementations of {sym.Label}:\n" + pager.PageRows(rows, offset, ClampLimit(limit), "override/implementation");
     }, cancellationToken);
 }
