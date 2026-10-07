@@ -309,6 +309,47 @@ public class InspectionTests : IDisposable
         Assert.Contains(url.Locations, l => l.Contains("(decoded: "));
     }
 
+    [Fact]
+    public void Embedded_XorText_RecoversSingleByteKeys_WhenAskedTo()
+    {
+        var path = Save("Encoded.dll", EncodedFixture());
+        Assert.DoesNotContain(Inspection.ExtractEmbedded(null, path, false, null, false, default).Contents,
+            p => p.Source.StartsWith("resource 'notes.plainxor'", StringComparison.Ordinal)); // off by default
+
+        var on = Inspection.ExtractEmbedded(null, path, false, null, false, default, xorText: true);
+        var recovered = Assert.Single(on.Contents, p => p.Source.StartsWith("resource 'notes.plainxor'", StringComparison.Ordinal));
+        Assert.Equal("text", recovered.Kind);
+        Assert.Equal(["xor key 5a (brute-forced)"], recovered.Encoding);
+        Assert.Equal(Encoding.UTF8.GetBytes(SecretText), recovered.Bytes);
+        // everything the default path found is still found the same way
+        var off = Inspection.ExtractEmbedded(null, path, false, null, false, default);
+        Assert.Equal(off.Contents.Select(p => (p.Source, string.Join(">", p.Encoding))).Order(),
+            on.Contents.Where(p => p != recovered).Select(p => (p.Source, string.Join(">", p.Encoding))).Order());
+    }
+
+    [Fact]
+    public void Embedded_XorText_RejectsUtf16ReadableAndRandomData()
+    {
+        var random = new byte[2048];
+        new Random(7).NextBytes(random);
+        var fixture = ContainerFixtures.Module("NotXor", m =>
+        {
+            m.Resources.Add(new EmbeddedResource("utf16.txt", Encoding.Unicode.GetBytes(SecretText)));                 // UTF-16, not XORed
+            m.Resources.Add(new EmbeddedResource("utf16.xor", Xor(Encoding.Unicode.GetBytes(SecretText), [0x5A])));    // XORed UTF-16
+            m.Resources.Add(new EmbeddedResource("readme.txt", Encoding.UTF8.GetBytes(SecretText + SecretText)));       // readable already
+            m.Resources.Add(new EmbeddedResource("random.bin", random));
+            m.Resources.Add(new EmbeddedResource("table.bin", [.. Enumerable.Range(0, 512).SelectMany(i => BitConverter.GetBytes(i * 7))]));
+        });
+        var report = Inspection.ExtractEmbedded(null, Save("NotXor.dll", fixture), false, null, false, default, xorText: true);
+        Assert.DoesNotContain(report.Contents, p => p.Encoding.Any(e => e.Contains("brute-forced")));
+        Assert.Contains(report.Contents, p => p.Source == "resource 'random.bin'" && p.Kind.StartsWith("high-entropy")); // still reported as it was
+
+        // real-world resources and arrays: no single-byte "decodes"
+        foreach (var real in new[] { Env.FixturePath, CachedDll("Microsoft.CodeAnalysis.Common", "Microsoft.CodeAnalysis.dll") })
+            Assert.DoesNotContain(Inspection.ExtractEmbedded(null, real, false, null, false, default, xorText: true).Contents,
+                p => p.Encoding.Any(e => e.Contains("brute-forced")));
+    }
+
     // ------------------------------------------------------------------ values: string classification
 
     [Fact]

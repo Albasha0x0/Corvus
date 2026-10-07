@@ -157,7 +157,7 @@ Four tools that read an assembly's metadata, IL, resources and signature without
 | `summarize_file` | File hashes, type and entropy; per assembly: identity (name, version, MVID, target framework, GUI / console / library, architecture, ReadyToRun, merged), strong name and Authenticode signature, protector markers and heuristics, packing (embedded assemblies, decoded embedded content, high-entropy sections), features, a summary of typed strings, and entry points (Main, module initializers, native exports, installer / service / AppDomainManager / COM hooks). `highlights` lists the notable findings. |
 | `survey_features` | Rules over the APIs the code calls, the native functions it imports and its string literals, in categories: network, execution, registry, persistence, collection, credential access, anti-analysis, defense evasion, code loading, injection, discovery, crypto. Each matched feature has its evidence (pattern, count, up to 5 locations) and an ATT&CK technique where the operation is the technique itself. `category` filters by category or technique prefix. |
 | `extract_strings` | URLs, domains, IPv4 / IPv6, email addresses, file paths, named pipes, registry keys, mutex names, user agents and crypto keys from string literals, constants, resource text and decoded embedded text, with the APIs each value is passed to. `savePath` exports JSON or CSV (it refuses to replace a file unless `overwrite=true`). |
-| `extract_embedded` | Embedded resources, `.resources` entries, static byte arrays and string literals of 64+ characters, decoded through hex, base64, gzip / zlib / deflate and XOR until a recognized kind appears (PE / .NET images, archives, ELF / Mach-O, text), plus high-entropy blobs. Each item shows its source and encoding chain, e.g. `base64 > xor key 5a > gzip`. `save=true` writes them with defanged names; `load=true` also loads the .NET ones. |
+| `extract_embedded` | Embedded resources, `.resources` entries, static byte arrays and string literals of 64+ characters, decoded through hex, base64, gzip / zlib / deflate and XOR until a recognized kind appears (PE / .NET images, archives, ELF / Mach-O, text), plus high-entropy blobs. Each item shows its source and encoding chain, e.g. `base64 > xor key 5a > gzip`. `save=true` writes them with defanged names; `load=true` also loads the .NET ones; `xorText=true` adds a single-byte XOR search over text (see below). |
 
 Limits:
 
@@ -165,7 +165,13 @@ Limits:
   HTTP client call matches "send HTTP requests"); it does not tell whether or when the code runs.
 - **XOR keys are recovered from known file headers** (PE, ZIP, gzip), so XOR is undone when it covers a binary or
   compressed item, with keys up to the header's length (up to 3 bytes for gzip, 4 for ZIP, 16 for PE). XOR straight
-  over plain text has no known plaintext to recover a key from and is not decoded.
+  over plain text has no known plaintext to recover a key from, so by default it is not decoded.
+- **`xorText=true`** (`extract_embedded`, off by default) tries all 255 single-byte keys on resources and arrays that
+  are not readable as they are. A decode is kept only when it is ASCII text of 32 bytes or more with 3-40% spaces,
+  mostly letters, spaces and common punctuation, clearly better than the input, and not UTF-16-shaped (one byte value
+  in 40% or more of the even or odd positions). Such items show `xor key NN (brute-forced)` in their chain. Multi-byte
+  keys, UTF-16 and non-ASCII text are not recovered; the search costs up to 255 passes over each candidate (sampled to
+  4 KB).
 - **Authenticode:** the digest check (was the file changed after signing?) and the signature check are exact. Whether the
   chain is trusted depends on the machine's root store; revocation is not checked (offline and deterministic).
 - **Lookalikes are excluded:** XML / schema namespace URLs, version numbers that look like IP addresses, and file

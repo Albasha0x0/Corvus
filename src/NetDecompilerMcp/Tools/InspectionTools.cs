@@ -57,7 +57,7 @@ public sealed class InspectionTools(InspectionService inspection)
     [McpServerTool(Name = "extract_embedded", Title = "Extract embedded content", Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description("Embedded content of an assembly: embedded resources, .resources entries, static byte arrays (<PrivateImplementationDetails>) and " +
                  "string literals of 64+ characters, decoded through hex, base64, gzip / zlib / deflate and XOR (key recovered from a known PE / " +
-                 "ZIP / gzip header; XOR over plain text is not decoded) until a recognized kind appears: .NET / native PE images, archives, " +
+                 "ZIP / gzip header; single-byte XOR over plain text with xorText=true) until a recognized kind appears: .NET / native PE images, archives, " +
                  "ELF / Mach-O binaries, or text; plus high-entropy blobs (1 KB+, 7.5+ bits per byte). Each item shows its source and encoding " +
                  "chain. save=true writes them (defanged names) to a directory of their own; load=true also loads the .NET ones into the " +
                  "workspace. Nothing is executed.")]
@@ -67,6 +67,9 @@ public sealed class InspectionTools(InspectionService inspection)
         [Description("Write the items to disk.")] bool save = false,
         [Description("Directory to write into (new, empty, or an earlier extraction of the same file). Default: under the temp directory.")] string? outputDirectory = null,
         [Description("Load the .NET assemblies found into the workspace (implies save).")] bool load = false,
+        [Description("Also try every single-byte XOR key on resources and arrays that are not readable as they are, and keep a decode only " +
+                     "if it is clearly ASCII text (not UTF-16; letters, spaces and punctuation in natural proportions). Off by default: " +
+                     "heuristic, and slower on large data. Multi-byte keys and UTF-16 / non-ASCII text are not recovered.")] bool xorText = false,
         CancellationToken cancellationToken = default) =>
-        Task.Run(() => inspection.ExtractEmbedded(assembly, path, save, outputDirectory, load, cancellationToken), cancellationToken);
+        Task.Run(() => inspection.ExtractEmbedded(assembly, path, save, outputDirectory, load, cancellationToken, xorText), cancellationToken);
 }

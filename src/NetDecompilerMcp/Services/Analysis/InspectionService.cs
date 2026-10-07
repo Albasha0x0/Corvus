@@ -142,10 +142,11 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
     /// Finds embedded content. With save or load, writes each item as embedded_NN.ext (runnable extensions defanged) to a
     /// directory of its own (new, empty, or an earlier extraction of the same file) and, with load, loads the .NET ones.
     /// </summary>
-    public EmbeddedReport ExtractEmbedded(string? assembly, string? path, bool save, string? outputDirectory, bool load, CancellationToken ct)
+    public EmbeddedReport ExtractEmbedded(string? assembly, string? path, bool save, string? outputDirectory, bool load, CancellationToken ct,
+        bool xorText = false)
     {
         var (label, source, sha, contents, notes) = WithAssembly(assembly, path, s =>
-            (s.Label, assembly != null ? workspace.Get(assembly).FilePath : Path.GetFullPath(path!), Blob.Sha256(s.Image), Embedded.Find(s.Scan, Limits, ct), s.Scan.Notes), ct);
+            (s.Label, assembly != null ? workspace.Get(assembly).FilePath : Path.GetFullPath(path!), Blob.Sha256(s.Image), Embedded.Find(s.Scan, Limits, ct, xorText), s.Scan.Notes), ct);
         if (!save && !load && outputDirectory == null) return new EmbeddedReport(label, contents, null, notes);
 
         var root = UnpackService.PrepareOutput(outputDirectory ?? UnpackService.DefaultOutput(source, sha, "netdecomp-embedded"), source, sha);
