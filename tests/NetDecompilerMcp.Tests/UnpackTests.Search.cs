@@ -180,7 +180,7 @@ public partial class UnpackTests
         ContainerFixtures.SetBundleHeaderOffset(bundle, bundle.Length - 6);
         var corrupt = new Dictionary<string, (string File, string Error)>
         {
-            ["zip"] = (Save("cut.nupkg", nupkg[..(nupkg.Length / 2)]), "corrupt zip"),
+            ["zip"] = (Save("cut.nupkg", nupkg[..20]), "corrupt zip"),
             ["bundle"] = (Save("bad.exe", bundle), "Corrupt single-file bundle"),
             ["xalz"] = (Save("bad.dll", [.. "XALZ"u8, 0, 0, 0, 0, 100, 0, 0, 0, 1, 2, 3]), "corrupt XALZ"),
             ["missing"] = (_dir.File("missing.apk"), "File not found"),

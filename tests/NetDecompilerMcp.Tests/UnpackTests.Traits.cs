@@ -221,7 +221,10 @@ public partial class UnpackTests
     public void List_CorruptContainers_GiveAClearError()
     {
         var nupkg = System.IO.File.ReadAllBytes(ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"));
-        Assert.Contains("corrupt zip", Assert.Throws<ToolError>(() => List(Save("cut.nupkg", nupkg[..(nupkg.Length / 2)]))).Message);
+        Assert.Contains("corrupt zip", Assert.Throws<ToolError>(() => List(Save("cut.nupkg", nupkg[..20]))).Message);
+        // cut halfway: the entries before the cut are recovered from their local headers
+        var half = List(Save("half.nupkg", nupkg[..(nupkg.Length / 2)]));
+        Assert.Contains(half.Notes, n => n.StartsWith("Damaged zip"));
 
         var bundle = System.IO.File.ReadAllBytes(fx.Bundle);
         ContainerFixtures.SetBundleHeaderOffset(bundle, bundle.Length - 6);
@@ -272,7 +275,7 @@ public partial class UnpackTests
 
         // a corrupt container: a tool error with the reason, and the server keeps serving
         var nupkg = System.IO.File.ReadAllBytes(ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"));
-        var bad = await client.CallToolAsync("list_assemblies", new Dictionary<string, object?> { ["path"] = Save("cut.nupkg", nupkg[..(nupkg.Length / 2)]) });
+        var bad = await client.CallToolAsync("list_assemblies", new Dictionary<string, object?> { ["path"] = Save("cut.nupkg", nupkg[..20]) });
         Assert.True(bad.IsError);
         Assert.Contains("corrupt zip", string.Join("\n", bad.Content.OfType<TextContentBlock>().Select(c => c.Text)));
         var after = await client.CallToolAsync("list_assemblies", new Dictionary<string, object?>());

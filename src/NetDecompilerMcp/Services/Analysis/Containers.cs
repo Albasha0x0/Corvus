@@ -176,57 +176,101 @@ public static class Containers
             zip = new ZipArchive(new MemoryStream(data, writable: false), ZipArchiveMode.Read);
             entries = zip.Entries; // the central directory is read here, not in the constructor
         }
-        catch (InvalidDataException ex) { throw new ToolError($"{name}: corrupt zip ({ex.Message})."); }
-        using (zip)
+        catch (InvalidDataException ex)
         {
-            string kind = entries.Any(e => e.FullName == "AndroidManifest.xml")
-                    ? entries.Any(e => IsAndroidDotNet(e.FullName)) ? "Android package (Xamarin / MAUI)" : "Android package (no .NET runtime or assemblies)"
-                : entries.Any(e => e.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase)) ? "NuGet package"
-                : "zip archive";
-            var items = new List<ExtractedItem>();
-            var notes = new List<string>();
-            long total = 0;
-            foreach (var e in entries)
-            {
-                ct.ThrowIfCancellationRequested();
-                if (!IsInteresting(e.FullName)) continue;
-                if (items.Count >= limits.MaxItems) { notes.Add("Stopped: too many entries."); break; }
-                byte[]? bytes;
-                try
-                {
-                    using var s = e.Open();
-                    bytes = Blob.ReadBounded(s, limits.MaxItemBytes);
-                }
-                catch (Exception ex) when (ex is InvalidDataException or IOException or NotSupportedException)
-                {
-                    notes.Add($"Skipped {e.FullName}: {ex.Message}");
-                    continue;
-                }
-                if (bytes == null || (total += bytes.Length) > limits.MaxTotalBytes)
-                {
-                    notes.Add($"Skipped {e.FullName}: larger than the extraction limit.");
-                    continue;
-                }
-                if (Blob.StartsWith(bytes, "XALZ"u8))
-                {
-                    var decoded = Blob.TryXalz(bytes, limits.MaxItemBytes);
-                    if (decoded == null) { notes.Add($"Skipped {e.FullName}: corrupt XALZ data."); continue; }
-                    items.Add(new ExtractedItem(e.FullName, decoded, $"{kind} entry {e.FullName} (XALZ LZ4)"));
-                }
-                else if (IsAssemblyStore(e.FullName, bytes))
-                {
-                    var store = Carve(bytes, e.FullName, "Xamarin assembly store", limits, ct);
-                    items.AddRange(store.Items.Select(i => i with { Origin = $"{e.FullName}: {i.Origin}" }));
-                    notes.AddRange(store.Notes.Select(n => $"{e.FullName}: {n}"));
-                }
-                else
-                {
-                    items.Add(new ExtractedItem(e.FullName, bytes, $"{kind} entry"));
-                }
-            }
-            if (items.Count == 0) notes.Add("No assemblies or nested packages found in the archive.");
-            return new ContainerContents(kind, items, notes);
+            // a cut-off download or a carved file has no central directory: read what the local headers still hold
+            var recovered = RecoverLocalEntries(data, limits, ct);
+            if (recovered.Count == 0) throw new ToolError($"{name}: corrupt zip ({ex.Message}).");
+            var contents = ReadZipEntries(recovered.Select(e => (e.Name, (Func<byte[]?>)(() => e.Bytes))).ToList(), limits, ct);
+            contents.Notes.Insert(0, $"Damaged zip ({ex.Message}): {recovered.Count} entr(ies) recovered from local headers; entries past the damage are lost.");
+            return contents;
         }
+        using (zip)
+            return ReadZipEntries(entries.Select(e => (e.FullName, (Func<byte[]?>)(() =>
+            {
+                using var s = e.Open();
+                return Blob.ReadBounded(s, limits.MaxItemBytes);
+            }))).ToList(), limits, ct);
+    }
+
+    private static ContainerContents ReadZipEntries(List<(string FullName, Func<byte[]?> Read)> entries, AnalysisLimits limits, CancellationToken ct)
+    {
+        string kind = entries.Any(e => e.FullName == "AndroidManifest.xml")
+                ? entries.Any(e => IsAndroidDotNet(e.FullName)) ? "Android package (Xamarin / MAUI)" : "Android package (no .NET runtime or assemblies)"
+            : entries.Any(e => e.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase)) ? "NuGet package"
+            : "zip archive";
+        var items = new List<ExtractedItem>();
+        var notes = new List<string>();
+        long total = 0;
+        foreach (var e in entries)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!IsInteresting(e.FullName)) continue;
+            if (items.Count >= limits.MaxItems) { notes.Add("Stopped: too many entries."); break; }
+            byte[]? bytes;
+            try { bytes = e.Read(); }
+            catch (Exception ex) when (ex is InvalidDataException or IOException or NotSupportedException)
+            {
+                notes.Add($"Skipped {e.FullName}: {ex.Message}");
+                continue;
+            }
+            if (bytes == null || (total += bytes.Length) > limits.MaxTotalBytes)
+            {
+                notes.Add($"Skipped {e.FullName}: larger than the extraction limit.");
+                continue;
+            }
+            if (Blob.StartsWith(bytes, "XALZ"u8))
+            {
+                var decoded = Blob.TryXalz(bytes, limits.MaxItemBytes);
+                if (decoded == null) { notes.Add($"Skipped {e.FullName}: corrupt XALZ data."); continue; }
+                items.Add(new ExtractedItem(e.FullName, decoded, $"{kind} entry {e.FullName} (XALZ LZ4)"));
+            }
+            else if (IsAssemblyStore(e.FullName, bytes))
+            {
+                var store = Carve(bytes, e.FullName, "Xamarin assembly store", limits, ct);
+                items.AddRange(store.Items.Select(i => i with { Origin = $"{e.FullName}: {i.Origin}" }));
+                notes.AddRange(store.Notes.Select(n => $"{e.FullName}: {n}"));
+            }
+            else
+            {
+                items.Add(new ExtractedItem(e.FullName, bytes, $"{kind} entry"));
+            }
+        }
+        if (items.Count == 0) notes.Add("No assemblies or nested packages found in the archive.");
+        return new ContainerContents(kind, items, notes);
+    }
+
+    /// <summary>
+    /// Entries read from the local file headers in order (stored or deflated, sizes in the header), stopping at the
+    /// first one that is cut off or unreadable. Used when the central directory is missing.
+    /// </summary>
+    private static List<(string Name, byte[] Bytes)> RecoverLocalEntries(byte[] data, AnalysisLimits limits, CancellationToken ct)
+    {
+        var result = new List<(string, byte[])>();
+        int at = 0;
+        while (at + 30 <= data.Length && result.Count < limits.MaxItems)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (BitConverter.ToUInt32(data, at) != 0x04034B50) break; // "PK\x03\x04"
+            ushort flags = BitConverter.ToUInt16(data, at + 6), method = BitConverter.ToUInt16(data, at + 8);
+            uint compressed = BitConverter.ToUInt32(data, at + 18);
+            int nameLength = BitConverter.ToUInt16(data, at + 26), extraLength = BitConverter.ToUInt16(data, at + 28);
+            int body = at + 30 + nameLength + extraLength;
+            if ((flags & 0x08) != 0 || (flags & 0x01) != 0) break; // sizes in a trailing descriptor / encrypted: cannot continue
+            if (body > data.Length || compressed > data.Length - body) break; // cut off here
+            var name = Encoding.UTF8.GetString(data, at + 30, nameLength);
+            var raw = data.AsSpan(body, (int)compressed).ToArray();
+            byte[]? bytes = method switch
+            {
+                0 => raw,
+                8 => Blob.TryDecompress(raw, "deflate", limits.MaxItemBytes),
+                _ => null,
+            };
+            if (bytes == null) break;
+            if (!name.EndsWith('/')) result.Add((name, bytes));
+            at = body + (int)compressed;
+        }
+        return result;
     }
 
     /// <summary>Archive entries extracted: .dll / .exe / .winmd, assembly stores, nested packages, and .deps.json / .runtimeconfig.json / assemblies.manifest.</summary>

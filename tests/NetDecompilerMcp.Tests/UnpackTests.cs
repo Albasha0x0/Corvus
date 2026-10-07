@@ -482,7 +482,10 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         int eocd = zip.AsSpan().LastIndexOf("PK\x05\x06"u8);
         var badDirectory = zip.ToArray();
         BinaryPrimitives.WriteUInt32LittleEndian(badDirectory.AsSpan(eocd + 16), uint.MaxValue - 100); // central directory offset
-        Assert.Contains("corrupt zip", Assert.Throws<ToolError>(() => Unpack(Save("a.nupkg", badDirectory))).Message);
+        // the central directory lost: every entry is still read from its local header
+        var recovered = Unpack(Save("a.nupkg", badDirectory));
+        Assert.Contains(recovered.Notes, n => n.StartsWith("Damaged zip"));
+        Assert.Contains(recovered.Files, f => f.Path.EndsWith("K4os.Compression.LZ4.dll"));
 
         // a stored entry's data overwritten: the CRC check fails for that entry only
         var apk = ContainerFixtures.Zip(("a.dll", ContainerFixtures.Module("A")), ("b.dll", ContainerFixtures.Module("B")));

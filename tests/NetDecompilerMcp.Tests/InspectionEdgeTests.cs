@@ -42,7 +42,7 @@ public class InspectionEdgeTests : IDisposable
         Assert.Equal(64, truncated.File.Sha256.Length);
 
         var zip = ContainerFixtures.Zip(("lib/A.dll", ContainerFixtures.Module("A", _ => { })), ("lib/B.dll", ContainerFixtures.Module("B", _ => { })));
-        var cut = Inspection.Summarize(null, Save("cut.nupkg", zip[..(zip.Length / 2)]), default);
+        var cut = Inspection.Summarize(null, Save("cut.nupkg", zip[..20]), default);
         Assert.Equal("unreadable container", cut.Container);
         Assert.Contains(cut.Highlights, h => h.StartsWith("The file is damaged:", StringComparison.Ordinal));
     }
@@ -166,5 +166,24 @@ public class InspectionEdgeTests : IDisposable
         var s = Inspection.Summarize(null, host, default);
         Assert.Contains("[Host.exe] 1 embedded assembly(ies) (Costura or similar).", s.Highlights);
         Assert.DoesNotContain(s.Highlights, h => h.Contains("Embedded .NET assembly"));
+    }
+    [Fact]
+    public void TruncatedZip_RecoversTheCompleteEntries()
+    {
+        var ms = new MemoryStream();
+        using (var zip = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var n in new[] { "A", "B" })
+                using (var s = zip.CreateEntry($"lib/{n}.dll").Open())
+                    s.Write(ReferenceResolutionTests.Compile(n, $"public class {n}Type {{ }}"));
+        }
+        var full = ms.ToArray();
+        // cut inside the second entry: no central directory, the first entry still whole
+        var secondHeader = full.AsSpan(4).IndexOf("PK\u0003\u0004"u8) + 4;
+        var cut = full[..(secondHeader + 40)];
+        var contents = Containers.Open(cut, "cut.zip", AnalysisLimits.Default, default);
+        Assert.Equal("lib/A.dll", Assert.Single(contents.Items).Name);
+        Assert.Contains(contents.Notes, n => n.StartsWith("Damaged zip") && n.Contains("1 entr(ies) recovered"));
+        Assert.Throws<ToolError>(() => Containers.Open(full[..20], "tiny.zip", AnalysisLimits.Default, default));
     }
 }
