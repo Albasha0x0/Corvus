@@ -270,7 +270,7 @@ public class InspectionTests : IDisposable
         string Chain(string source)
         {
             var matches = texts.Where(p => p.Source.StartsWith(source, StringComparison.Ordinal)).ToList();
-            Assert.True(matches.Count == 1, $"{matches.Count} text payload(s) from {source}; found:\n{found}");
+            Assert.True(matches.Count == 1, $"{matches.Count} text item(s) from {source}; found:\n{found}");
             return string.Join(" > ", matches[0].Encoding);
         }
         Assert.Equal("base64", Chain("resource 'notes.b64'"));
@@ -298,6 +298,11 @@ public class InspectionTests : IDisposable
         Assert.NotNull(saved.OutputDirectory);
         Assert.All(saved.Contents, p => Assert.StartsWith(saved.OutputDirectory!, p.SavedTo));
         Assert.All(saved.Contents.Where(p => p.Kind == "text"), p => Assert.Equal(SecretText, File.ReadAllText(p.SavedTo!)));
+        Assert.All(saved.Contents, p => Assert.Matches(@"^embedded_\d\d\.\w+$", Path.GetFileName(p.SavedTo!)));
+
+        var byDefault = Inspection.ExtractEmbedded(null, path, true, null, false, default);
+        try { Assert.Equal("netdecomp-embedded", Path.GetFileName(Path.GetDirectoryName(byDefault.OutputDirectory!))); }
+        finally { Directory.Delete(byDefault.OutputDirectory!, recursive: true); }
 
         var url = Assert.Single(Inspection.ExtractStrings(null, path, ["url"], null, null, false, default).Values);
         Assert.Equal("https://drop.example.net/stage2", url.Value);
@@ -340,7 +345,7 @@ public class InspectionTests : IDisposable
         var json = Inspection.ExtractStrings(null, path, null, _dir.File("iocs.json"), null, false, default);
         Assert.Equal(json.Total, JsonDocument.Parse(File.ReadAllText(json.SavedTo!)).RootElement.GetArrayLength());
         Assert.Contains("exists", Assert.Throws<ToolError>(() => Inspection.ExtractStrings(null, path, null, _dir.File("iocs.json"), null, false, default)).Message);
-        Assert.Contains("Unknown IOC type", Assert.Throws<ToolError>(() => Inspection.ExtractStrings(null, path, ["phone"], null, null, false, default)).Message);
+        Assert.Contains("Unknown value type", Assert.Throws<ToolError>(() => Inspection.ExtractStrings(null, path, ["phone"], null, null, false, default)).Message);
     }
 
     // ------------------------------------------------------------------ signatures
@@ -432,6 +437,24 @@ public class InspectionTests : IDisposable
         Assert.Equal("zip archive", container.Container);
         Assert.Equal(["app/EverydayApis.dll", "lib/Encoded.dll"], container.Assemblies.Select(a => a.Path).Order());
         Assert.Contains(container.Highlights, h => h.StartsWith("[lib/Encoded.dll] Embedded text"));
+    }
+
+    [Fact]
+    public void Summary_Messages()
+    {
+        var many = Save("many.zip", ContainerFixtures.Zip([.. Enumerable.Range(0, 26).Select(i => ($"lib/A{i}.dll", ContainerFixtures.Module($"A{i}")))]));
+        var capped = Inspection.Summarize(null, many, default);
+        Assert.Equal(25, capped.Assemblies.Count);
+        Assert.Contains("Summarized the first 25 of 26 assemblies; list_assemblies with path lists them all.", capped.Notes);
+
+        var empty = Inspection.Summarize(null, Save("notes.txt", "just some text"u8.ToArray()), default);
+        Assert.Contains("No managed assemblies inside: nothing to summarize beyond the file facts.", empty.Notes);
+
+        var encoded = Inspection.Summarize(null, Save("Encoded.dll", EncodedFixture()), default);
+        Assert.Contains("6 more embedded item(s).", encoded.Highlights); // 11 decoded copies: 5 listed, 6 counted
+
+        var everyday = Inspection.Summarize(null, Save("EverydayApis.dll", EverydayApis()), default);
+        Assert.Contains(everyday.Highlights, h => h.StartsWith("Network values: ", StringComparison.Ordinal) && h.Contains(" url"));
     }
 
     [Fact]

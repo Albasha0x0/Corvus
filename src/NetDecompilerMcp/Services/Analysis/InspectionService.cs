@@ -117,7 +117,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
     {
         var unknown = types?.Where(t => !Values.Types.Contains(t)).ToList();
         if (unknown is { Count: > 0 })
-            throw new ToolError($"Unknown IOC type(s): {string.Join(", ", unknown)}. Types: {string.Join(", ", Values.Types)}.");
+            throw new ToolError($"Unknown value type(s): {string.Join(", ", unknown)}. Types: {string.Join(", ", Values.Types)}.");
         var fmt = (format ?? (savePath != null && savePath.EndsWith(".csv", StringComparison.OrdinalIgnoreCase) ? "csv" : "json")).ToLowerInvariant();
         if (fmt is not ("json" or "csv")) throw new ToolError($"Unknown format '{format}': use json or csv.");
 
@@ -139,7 +139,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
     // ------------------------------------------------------------------ contents
 
     /// <summary>
-    /// Finds embedded content. With save or load, writes each item as payload_NN.ext (runnable extensions defanged) to a
+    /// Finds embedded content. With save or load, writes each item as embedded_NN.ext (runnable extensions defanged) to a
     /// directory of its own (new, empty, or an earlier extraction of the same file) and, with load, loads the .NET ones.
     /// </summary>
     public EmbeddedReport ExtractEmbedded(string? assembly, string? path, bool save, string? outputDirectory, bool load, CancellationToken ct)
@@ -148,12 +148,12 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
             (s.Label, assembly != null ? workspace.Get(assembly).FilePath : Path.GetFullPath(path!), Blob.Sha256(s.Image), Embedded.Find(s.Scan, Limits, ct), s.Scan.Notes), ct);
         if (!save && !load && outputDirectory == null) return new EmbeddedReport(label, contents, null, notes);
 
-        var root = UnpackService.PrepareOutput(outputDirectory ?? UnpackService.DefaultOutput(source, sha, "netdecomp-contents"), source, sha);
+        var root = UnpackService.PrepareOutput(outputDirectory ?? UnpackService.DefaultOutput(source, sha, "netdecomp-embedded"), source, sha);
         var written = new List<EmbeddedContent>();
         for (int i = 0; i < contents.Count; i++)
         {
             var p = contents[i];
-            var file = Blob.WriteUnique(root, Blob.SafeRelativePath($"payload_{i + 1:D2}{Extension(p)}", $"payload_{i + 1:D2}"), p.Bytes);
+            var file = Blob.WriteUnique(root, Blob.SafeRelativePath($"embedded_{i + 1:D2}{Extension(p)}", $"embedded_{i + 1:D2}"), p.Bytes);
             string? loadedAs = null;
             if (load && p.Kind == ".NET assembly")
             {
@@ -214,9 +214,9 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
             }
         }
         if (managed.Assemblies.Count > MaxSummarizedAssemblies)
-            reportNotes.Add($"Triaged the first {MaxSummarizedAssemblies} of {managed.Assemblies.Count} assemblies; list_assemblies with path lists them all.");
+            reportNotes.Add($"Summarized the first {MaxSummarizedAssemblies} of {managed.Assemblies.Count} assemblies; list_assemblies with path lists them all.");
         if (managed.Assemblies.Count == 0)
-            reportNotes.Add("No managed assemblies inside: nothing to triage beyond the file facts.");
+            reportNotes.Add("No managed assemblies inside: nothing to summarize beyond the file facts.");
 
         var highlights = new List<string>();
         if (facts.Certificate is { Present: true } sig) highlights.AddRange(SignatureHighlights(sig, "the file"));
@@ -323,13 +323,13 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
                 ? $"High-entropy data ({p.Size:N0} bytes, possibly encrypted) in {p.Source}."
                 : $"Embedded {p.Kind}{(p.Detail != null && p.Kind != "text" ? $" ({p.Detail})" : "")} in {p.Source}{how}.");
         }
-        if (packing.Contents.Count > 5) h.Add($"{packing.Contents.Count - 5} more embedded payload(s).");
+        if (packing.Contents.Count > 5) h.Add($"{packing.Contents.Count - 5} more embedded item(s).");
         foreach (var s in packing.HighEntropySections) h.Add($"High-entropy PE section {s}: packed or encrypted code?");
         foreach (var c in features.Where(c => c.Attack != null && NotableCategories.Contains(c.Category)
                                                   || c.Attack is "T1105" or "T1102" or "T1095"))
             h.Add($"Can {c.Name} ({c.Attack} {c.AttackName}).");
         var network = new[] { "url", "domain", "ipv4", "ipv6" }.Where(values.ByType.ContainsKey).Select(t => $"{values.ByType[t]} {t}").ToList();
-        if (network.Count > 0) h.Add($"Network indicators: {string.Join(", ", network)}.");
+        if (network.Count > 0) h.Add($"Network values: {string.Join(", ", network)}.");
         foreach (var e in entryPoints.Where(e => e.Kind is not "Main"))
             h.Add($"Entry point: {e.Kind}: {e.Member}.");
         return h;
