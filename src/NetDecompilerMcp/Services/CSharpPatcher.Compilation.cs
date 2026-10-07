@@ -44,6 +44,7 @@ public sealed partial class CSharpPatcher
 
         Enqueue(asm.AssemblyName, targetImage ?? asm.GetImageBytes(), asm.Module, owned: false, asm.FilePath);
         bool netFramework = Frameworks.TargetsNetFramework(asm.Module); // the app's framework, for every reference in the closure
+        var targetFramework = Frameworks.TargetFrameworkOf(asm.Module);
         while (queue.Count > 0)
         {
             var (module, owned, from) = queue.Dequeue();
@@ -51,7 +52,7 @@ public sealed partial class CSharpPatcher
             {
                 string name = r.Name;
                 if (seen.Contains(name)) continue;
-                var target = workspace.LocateReference(name, r.Version, r.PublicKeyOrToken?.Token?.Data, from, netFramework);
+                var target = workspace.LocateReference(name, r.Version, r.PublicKeyOrToken?.Token?.Data, from, netFramework, targetFramework);
                 if (target?.Loaded is { } loaded)
                 {
                     Enqueue(name, loaded.GetImageBytes(), loaded.Module, owned: false, loaded.FilePath);

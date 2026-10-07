@@ -39,8 +39,12 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         return ts;
     }
 
-    private CSharpDecompiler CreateDecompiler(LoadedAssembly asm, CancellationToken token) =>
-        new(GetTypeSystem(asm), CreateSettings()) { CancellationToken = token };
+    private CSharpDecompiler CreateDecompiler(LoadedAssembly asm, CancellationToken token)
+    {
+        var decompiler = new CSharpDecompiler(GetTypeSystem(asm), CreateSettings()) { CancellationToken = token };
+        AstCleanup.AddTo(decompiler, Frameworks.TargetFrameworkOf(asm.Module));
+        return decompiler;
+    }
 
     /// <summary>Decompiles a whole type. If the engine fails on the type, falls back to member-by-member output so one bad method does not hide the rest.</summary>
     public string DecompileType(LoadedAssembly asm, Dn.TypeDef type, CancellationToken ct) => InvalidBodiesNote(asm, type) + WithTimeout(token =>
@@ -166,7 +170,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     /// .NET (Core) app come from its runtime pack, .NET Framework assemblies are referenced by name (GAC). Only the
     /// app's own libraries get a HintPath.
     /// </summary>
-    private sealed class FrameworkClassifier(bool netFramework) : ICSharpCode.Decompiler.Metadata.AssemblyReferenceClassifier
+    private sealed class FrameworkClassifier(bool netFramework, int? targetMajor) : ICSharpCode.Decompiler.Metadata.AssemblyReferenceClassifier
     {
         public override bool IsGacAssembly(ICSharpCode.Decompiler.Metadata.IAssemblyReference reference) =>
             netFramework && (Frameworks.IsNetFrameworkAssembly(reference.Name) || reference.Name is "mscorlib" or "netstandard");
@@ -174,8 +178,12 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         public override bool IsSharedAssembly(ICSharpCode.Decompiler.Metadata.IAssemblyReference reference,
             [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? runtimePack)
         {
-            runtimePack = netFramework ? null : Frameworks.SharedFrameworkOf(reference.Name)
+            // part of the framework the project targets (not merely of the newest one installed)
+            runtimePack = netFramework ? null : Frameworks.SharedFrameworkOf(reference.Name, targetMajor)
                 ?? (reference.Name is "netstandard" or "mscorlib" ? "Microsoft.NETCore.App" : null);
+            // ASP.NET Core is not part of a plain project: a library using one of its assemblies (System.IO.Pipelines)
+            // references the file instead
+            if (runtimePack == "Microsoft.AspNetCore.App") runtimePack = null;
             return runtimePack != null;
         }
     }
@@ -191,8 +199,8 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         // Whole-project export is long-running by nature: it gets 10x the normal timeout.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(options.TimeoutSeconds * 10L));
-        var exporter = new WholeProjectDecompiler(CreateSettings(), workspace.CreateDecompilerResolver(asm), null,
-            new FrameworkClassifier(Frameworks.TargetsNetFramework(asm.Module)), null);
+        var exporter = new ProjectExporter(Frameworks.TargetFrameworkOf(asm.Module), CreateSettings(), workspace.CreateDecompilerResolver(asm), null,
+            new FrameworkClassifier(Frameworks.TargetsNetFramework(asm.Module), Frameworks.NetCoreMajor(Frameworks.TargetFrameworkOf(asm.Module))), null);
         if (onProgress != null)
             exporter.ProgressIndicator = new Progress<DecompilationProgress>(p => onProgress(p.UnitsCompleted, p.TotalUnits, p.Status ?? "Decompiling"));
         try
@@ -206,6 +214,20 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         var files = Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).ToList();
         var failed = exporter.Errors.Select(e => FirstLine(e.Message)).ToList();
         return new ExportResult(dir, files.Count, files.FirstOrDefault(f => f.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)), failed);
+    }
+
+    /// <summary>Project export with the same output cleanup as single members.</summary>
+    private sealed class ProjectExporter(string? targetFramework, DecompilerSettings settings, ICSharpCode.Decompiler.Metadata.IAssemblyResolver resolver,
+        ICSharpCode.Decompiler.CSharp.ProjectDecompiler.IProjectFileWriter? projectWriter,
+        ICSharpCode.Decompiler.Metadata.AssemblyReferenceClassifier? classifier, ICSharpCode.Decompiler.DebugInfo.IDebugInfoProvider? debugInfo)
+        : WholeProjectDecompiler(settings, resolver, projectWriter, classifier, debugInfo)
+    {
+        protected override CSharpDecompiler CreateDecompiler(DecompilerTypeSystem ts)
+        {
+            var decompiler = base.CreateDecompiler(ts);
+            AstCleanup.AddTo(decompiler, targetFramework);
+            return decompiler;
+        }
     }
 
     /// <summary>The decompiler handle of a member in the assembly's current image (added members included).</summary>

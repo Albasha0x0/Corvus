@@ -350,27 +350,49 @@ public sealed class AssemblyWorkspace : IDisposable
     /// <paramref name="netFramework"/> for .NET Framework apps); else an assembly embedded in a loaded one (Costura);
     /// else any loaded assembly of that name. Null when nothing matches.
     /// </summary>
-    public ReferenceTarget? LocateReference(string name, Version? version, byte[]? token, string? requesterPath, bool netFramework)
+    public ReferenceTarget? LocateReference(string name, Version? version, byte[]? token, string? requesterPath, bool netFramework, string? requesterFramework = null)
     {
         // a .NET Framework app reads framework assemblies from .NET Framework itself, never from a loaded modern .NET
         // facade of the same name and version (mscorlib 4.0, System.ServiceModel 4.0 of a .NET 10 app folder)
-        if (netFramework && Frameworks.NetFrameworkFile(name) is { } netfx && (token is not { Length: > 0 } || TokenMatches(netfx, token)))
-        {
-            var requesterDir = requesterPath == null ? null : SafeDirectory(requesterPath);
-            var local = FindReference(name, version, token, requesterPath, sameMajor: true, netFramework);
-            if (local == null || !string.Equals(SafeDirectory(local.FilePath), requesterDir, StringComparison.OrdinalIgnoreCase))
-                return new(null, netfx, null, null); // only the app's own folder overrides it
-        }
+        if (netFramework && Frameworks.NetFrameworkFile(name) is { } netfx && (token is not { Length: > 0 } || TokenMatches(netfx, token))
+            && FrameworkUnlessLocal(netfx) is { } fx)
+            return fx;
+        // likewise netstandard: the .NET Standard reference assembly, not a newer runtime's facade of that name
+        if (string.Equals(name, "netstandard", StringComparison.OrdinalIgnoreCase) && Frameworks.NetStandardFile(version) is { } ns
+            && FrameworkUnlessLocal(ns) is { } standard)
+            return standard;
+        // Windows Runtime contracts (Windows.Foundation.FoundationContract...) from the Windows SDK's metadata
+        if (Frameworks.WindowsMetadataFile(name, version) is { } winmd && FindReference(name, version, token, requesterPath, sameMajor: true) == null)
+            return new(null, winmd, null, null);
         if (FindReference(name, version, token, requesterPath, sameMajor: true, netFramework) is { } loaded) return new(loaded, null, null, null);
         if (FindAssemblyFile(name, requesterPath, token, version, netFramework) is { } file)
         {
+            // from a newer runtime than the requester targets (System.IO.Pipelines 10 of .NET 10 for a net8.0 library):
+            // the package built for the requester's framework fits better
+            if (Frameworks.NetCoreMajor(requesterFramework) is { } targetMajor && Frameworks.SharedFrameworkMajor(file) is { } fileMajor
+                && fileMajor > targetMajor && Frameworks.SharedFrameworkOf(name, targetMajor) != "Microsoft.NETCore.App"
+                && Frameworks.NuGetFile(name, version, netFramework, requesterFramework) is { } fitting)
+                return new(null, fitting, null, null);
             // a file of another major version loses to an assembly embedded next to the app
             bool exact = version == null || Frameworks.IsWildcard(version) || FileVersion(file) is not { } v || Frameworks.IsWildcard(v) || v.Major == version.Major;
             if (exact || FindEmbedded(name, token) is not { } embeddedFirst) return new(null, file, null, null);
             return embeddedFirst;
         }
         if (FindEmbedded(name, token) is { } embedded) return embedded;
+        // a dependency restored by NuGet on this machine (the global packages folder)
+        if (Frameworks.NuGetFile(name, version, netFramework, requesterFramework) is { } package && (token is not { Length: > 0 } || TokenMatches(package, token)))
+            return new(null, package, null, null);
         return FindReference(name, version, token, requesterPath) is { } any ? new(any, null, null, null) : null;
+
+        // a framework file, unless the app ships its own copy next to it (that one wins)
+        ReferenceTarget? FrameworkUnlessLocal(string frameworkFile)
+        {
+            var requesterDir = requesterPath == null ? null : SafeDirectory(requesterPath);
+            var local = FindReference(name, version, token, requesterPath, sameMajor: true, netFramework);
+            return local == null || !string.Equals(SafeDirectory(local.FilePath), requesterDir, StringComparison.OrdinalIgnoreCase)
+                ? new(null, frameworkFile, null, null)
+                : null;
+        }
     }
 
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<LoadedAssembly, EmbeddedIndex> _embedded = new();
@@ -434,7 +456,7 @@ public sealed class AssemblyWorkspace : IDisposable
                 return null;
             var requester = sourceModule?.Location;
             var target = ws.LocateReference(name, assembly.Version, assembly.PublicKeyOrToken?.Token?.Data, requester,
-                sourceModule != null && Frameworks.TargetsNetFramework(sourceModule));
+                sourceModule != null && Frameworks.TargetsNetFramework(sourceModule), sourceModule == null ? null : Frameworks.TargetFrameworkOf(sourceModule));
             if (target == null) return null;
             if (target.Loaded != null)
                 return target.Loaded.Module.Assembly;
@@ -496,7 +518,7 @@ public sealed class AssemblyWorkspace : IDisposable
         public DecompilerMetadata.MetadataFile? Resolve(DecompilerMetadata.IAssemblyReference reference)
         {
             var target = _ws.LocateReference(reference.Name, reference.Version, reference.PublicKeyToken, _main.FilePath,
-                Frameworks.TargetsNetFramework(_main.Module));
+                Frameworks.TargetsNetFramework(_main.Module), Frameworks.TargetFrameworkOf(_main.Module));
             if (target?.Loaded != null)
                 return target.Loaded.GetPEFile();
 
