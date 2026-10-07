@@ -32,35 +32,36 @@ public sealed partial class CSharpPatcher
         missing = new List<string>();
         var references = new List<MetadataReference>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var queue = new Queue<(ModuleDef Module, bool Owned)>();
+        // each module with the file it came from: its references are resolved from that folder first
+        var queue = new Queue<(ModuleDef Module, bool Owned, string Path)>();
 
-        void Enqueue(string name, byte[] image, ModuleDef module, bool owned)
+        void Enqueue(string name, byte[] image, ModuleDef module, bool owned, string path)
         {
             if (!seen.Add(name)) { if (owned) module.Dispose(); return; }
             references.Add(MetadataReference.CreateFromImage(image));
-            queue.Enqueue((module, owned));
+            queue.Enqueue((module, owned, path));
         }
 
-        Enqueue(asm.AssemblyName, targetImage ?? asm.GetImageBytes(), asm.Module, owned: false);
+        Enqueue(asm.AssemblyName, targetImage ?? asm.GetImageBytes(), asm.Module, owned: false, asm.FilePath);
         while (queue.Count > 0)
         {
-            var (module, owned) = queue.Dequeue();
+            var (module, owned, from) = queue.Dequeue();
             foreach (var r in module.GetAssemblyRefs())
             {
                 string name = r.Name;
                 if (seen.Contains(name)) continue;
-                var loaded = workspace.FindByAssemblyName(name);
+                var loaded = workspace.FindReference(name, r.Version, r.PublicKeyOrToken?.Token?.Data, from);
                 if (loaded != null)
                 {
-                    Enqueue(name, loaded.GetImageBytes(), loaded.Module, owned: false);
+                    Enqueue(name, loaded.GetImageBytes(), loaded.Module, owned: false, loaded.FilePath);
                     continue;
                 }
-                var path = workspace.FindAssemblyFile(name);
+                var path = workspace.FindAssemblyFile(name, from, r.PublicKeyOrToken?.Token?.Data);
                 if (path == null) { seen.Add(name); missing.Add(name); continue; }
                 try
                 {
                     var bytes = File.ReadAllBytes(path);
-                    Enqueue(name, bytes, ModuleDefMD.Load(bytes), owned: true);
+                    Enqueue(name, bytes, ModuleDefMD.Load(bytes), owned: true, path);
                 }
                 catch
                 {

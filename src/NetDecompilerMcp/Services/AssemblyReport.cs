@@ -35,8 +35,8 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         sb.AppendLine("References:");
         foreach (var r in m.GetAssemblyRefs())
         {
-            var loaded = workspace.FindByAssemblyName(r.Name);
-            var status = loaded != null ? $"loaded as {loaded.Id}" : workspace.FindAssemblyFile(r.Name) != null ? "resolvable from search path" : "not found";
+            var loaded = workspace.FindReference(r.Name, r.Version, r.PublicKeyOrToken?.Token?.Data, asm.FilePath);
+            var status = loaded != null ? $"loaded as {loaded.Id}" : workspace.FindAssemblyFile(r.Name, asm.FilePath, r.PublicKeyOrToken?.Token?.Data) != null ? "resolvable from search path" : "not found";
             sb.AppendLine($"  {r.FullName}  [{status}]");
         }
 

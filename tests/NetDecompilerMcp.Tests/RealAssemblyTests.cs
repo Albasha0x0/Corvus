@@ -185,4 +185,49 @@ public class RealAssemblyTests(ITestOutputHelper output)
         foreach (var (asm, t) in sample)
             Assert.False(string.IsNullOrWhiteSpace(decompiler.DecompileType(asm, t, default)));
     }
+
+    /// <summary>
+    /// A real mixed workspace: the app's assemblies plus an Il2Cpp dummy-DLL set (its own mscorlib) — C# compiled
+    /// against an app type must not see two List&lt;T&gt; (CS0433), and every app reference to mscorlib must not bind to
+    /// the dummy one.
+    /// </summary>
+    [RequiresRealDataFact(RealData.MonoGameDir, RealData.Il2CppDummyDir)]
+    public void AppAndIl2CppDummySetLoadedTogether()
+    {
+        using var env = new Env(Env.FixturePath);
+        env.Workspace.LoadDirectory(RealData.Path(RealData.Il2CppDummyDir), false);   // dummy set first: its mscorlib loads first
+        var report = env.Workspace.LoadDirectory(RealData.Path(RealData.MonoGameDir), false);
+        var app = report.Loaded.Where(RealData.IsAppAssembly).MaxBy(a => a.Module.GetTypes().Count())!;
+        var type = env.Workspace.Read(() => app.Module.GetTypes().First(t => t.IsClass && !t.IsAbstract && !t.HasGenericParameters
+            && !t.IsNested && t.Methods.Any(m => m.HasBody) && !t.Name.String.Contains('<')));
+        var symbol = env.Workspace.Read(() => SymbolResolver.ResolveOne(env.Workspace, app.Id, type.FullName, SymbolKind.Type));
+        var added = env.Edit(() => env.Edits.AddMembersCSharp(symbol,
+            "public static int NdmProbe(int x) { var list = new System.Collections.Generic.List<int> { x, x }; return list.Count; }", true, default));
+        output.WriteLine($"{app.Id} {type.FullName}: {added.Split('\n')[0]}");
+
+        var dummyCorlib = env.Workspace.Assemblies.First(a => a.AssemblyName == "mscorlib");
+        foreach (var a in report.Loaded) // the game folder's assemblies (the dummy set's own refs rightly bind within it)
+            foreach (var r in env.Workspace.Read(() => a.Module.GetAssemblyRefs().Where(r => r.Name == "mscorlib").ToList()))
+                Assert.NotSame(dummyCorlib, env.Workspace.FindReference(r.Name, r.Version, r.PublicKeyOrToken?.Token?.Data, a.FilePath));
+    }
+
+    /// <summary>Two builds loaded together (NDM_COMPARE_OLD_DIR / NEW_DIR): each binds its references within its own folder.</summary>
+    [RequiresRealDataFact(RealData.CompareOldDir, RealData.CompareNewDir)]
+    public void TwoRealBuildsBindToTheirOwnFolders()
+    {
+        using var ws = new AssemblyWorkspace(new ServerOptions());
+        var newer = ws.LoadDirectory(RealData.Path(RealData.CompareNewDir), false).Loaded;   // newer first: worst case for the older one
+        var older = ws.LoadDirectory(RealData.Path(RealData.CompareOldDir), false).Loaded;
+        int checkedRefs = 0;
+        foreach (var a in older)
+            foreach (var r in ws.Read(() => a.Module.GetAssemblyRefs().ToList()))
+            {
+                var bound = ws.FindReference(r.Name, r.Version, r.PublicKeyOrToken?.Token?.Data, a.FilePath);
+                if (bound == null || !older.Any(o => o.AssemblyName == r.Name.String)) continue;
+                Assert.Contains(bound, older);
+                checkedRefs++;
+            }
+        output.WriteLine($"{checkedRefs} references of the older build bound within its folder");
+        Assert.True(checkedRefs > 10);
+    }
 }

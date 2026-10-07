@@ -233,8 +233,37 @@ public sealed class AssemblyWorkspace : IDisposable
         return [Get(identifier)];
     }
 
-    public LoadedAssembly? FindByAssemblyName(string simpleName) =>
-        _assemblies.FirstOrDefault(a => a.AssemblyName.Equals(simpleName, StringComparison.OrdinalIgnoreCase));
+    /// <summary>
+    /// The loaded assembly a reference binds to, when several builds or runtime families are loaded side by side.
+    /// Candidates have the referenced simple name. One from another folder than the referencing assembly must also
+    /// carry the requested public key token (when one is requested): an Il2Cpp dummy "mscorlib" never stands in for
+    /// the real one. Among the rest: the requester's own folder first, then the exact version, then the exact token,
+    /// then load order. Null when nothing qualifies (the caller then resolves from files).
+    /// </summary>
+    public LoadedAssembly? FindReference(string name, Version? version, byte[]? publicKeyToken, string? requesterPath)
+    {
+        var requesterDir = requesterPath == null ? null : SafeDirectory(requesterPath);
+        bool tokenRequested = publicKeyToken is { Length: > 0 };
+        LoadedAssembly? best = null;
+        int bestScore = -1;
+        foreach (var a in _assemblies)
+        {
+            if (!a.AssemblyName.Equals(name, StringComparison.OrdinalIgnoreCase)) continue;
+            bool sameDir = requesterDir != null && string.Equals(SafeDirectory(a.FilePath), requesterDir, StringComparison.OrdinalIgnoreCase);
+            var token = a.Module.Assembly?.PublicKeyToken?.Data;
+            bool tokenMatches = tokenRequested && token is { Length: > 0 } && token.AsSpan().SequenceEqual(publicKeyToken);
+            if (!sameDir && tokenRequested && !tokenMatches) continue;
+            int score = (sameDir ? 4 : 0) + (version != null && a.Module.Assembly?.Version == version ? 2 : 0) + (tokenMatches ? 1 : 0);
+            if (score > bestScore) { best = a; bestScore = score; }
+        }
+        return best;
+    }
+
+    private static string? SafeDirectory(string path)
+    {
+        try { return Path.GetDirectoryName(Path.GetFullPath(path)); }
+        catch { return null; }
+    }
 
     public LoadedAssembly? FindByPath(string path) =>
         _assemblies.FirstOrDefault(a => string.Equals(a.FilePath, path, StringComparison.OrdinalIgnoreCase));
@@ -266,16 +295,29 @@ public sealed class AssemblyWorkspace : IDisposable
     /// Looks in the search directories, then in the installed .NET framework directories as a last resort
     /// (resolves System.Runtime / System.Private.CoreLib for modern .NET targets).
     /// </summary>
-    public string? FindAssemblyFile(string simpleName)
+    public string? FindAssemblyFile(string simpleName, string? requesterPath = null, byte[]? publicKeyToken = null)
     {
-        foreach (var dir in _searchDirectories.Concat(FrameworkDirectories.Value))
+        var first = requesterPath == null ? null : SafeDirectory(requesterPath); // the referencing assembly's own folder first
+        var dirs = (first != null ? [first] : Array.Empty<string>()).Concat(_searchDirectories).Concat(FrameworkDirectories.Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        foreach (var dir in dirs)
             foreach (var ext in new[] { ".dll", ".exe", ".winmd" })
             {
                 var candidate = Path.Combine(dir, simpleName + ext);
-                if (File.Exists(candidate))
-                    return candidate;
+                if (!File.Exists(candidate)) continue;
+                // outside the requester's folder, a requested public key token must match (as for loaded assemblies)
+                if (publicKeyToken is { Length: > 0 } && !string.Equals(dir, first, StringComparison.OrdinalIgnoreCase)
+                    && !TokenMatches(candidate, publicKeyToken))
+                    continue;
+                return candidate;
             }
         return null;
+    }
+
+    private static bool TokenMatches(string file, byte[] token)
+    {
+        try { return System.Reflection.AssemblyName.GetAssemblyName(file).GetPublicKeyToken() is { } t && t.AsSpan().SequenceEqual(token); }
+        catch { return false; } // not an assembly / unreadable: not a match for a token-qualified reference
     }
 
     /// <summary>
@@ -321,26 +363,30 @@ public sealed class AssemblyWorkspace : IDisposable
             var name = assembly.Name?.String;
             if (string.IsNullOrEmpty(name))
                 return null;
-            var loaded = ws.FindByAssemblyName(name);
+            var requester = sourceModule?.Location;
+            var loaded = ws.FindReference(name, assembly.Version, assembly.PublicKeyOrToken?.Token?.Data, requester);
             if (loaded != null)
                 return loaded.Module.Assembly;
 
+            // reference-only modules from files, keyed by the folder they were found from as well as the name
+            var path = ws.FindAssemblyFile(name, requester, assembly.PublicKeyOrToken?.Token?.Data);
+            var key = path ?? name;
             lock (ws._referenceModules)
             {
-                if (!ws._referenceModules.TryGetValue(name, out var module))
+                if (!ws._referenceModules.TryGetValue(key, out var module))
                 {
                     module = null;
-                    var path = ws.FindAssemblyFile(name);
                     if (path != null)
                     {
                         try
                         {
                             module = ModuleDefMD.Load(File.ReadAllBytes(path), ws.DnlibContext);
+                            module.Location = path; // its own references then resolve from its folder too
                             module.EnableTypeDefFindCache = true;
                         }
                         catch { module = null; }
                     }
-                    ws._referenceModules[name] = module;
+                    ws._referenceModules[key] = module;
                 }
                 return module?.Assembly;
             }
@@ -382,20 +428,34 @@ public sealed class AssemblyWorkspace : IDisposable
 
         public DecompilerMetadata.MetadataFile? Resolve(DecompilerMetadata.IAssemblyReference reference)
         {
-            var loaded = _ws.FindByAssemblyName(reference.Name);
+            var loaded = _ws.FindReference(reference.Name, reference.Version, reference.PublicKeyToken, _main.FilePath);
             if (loaded != null)
                 return loaded.GetPEFile();
 
+            var cacheKey = SafeDirectory(_main.FilePath) + "|" + reference.FullName; // per requester folder
             lock (_ws._externalDecompilerRefs)
             {
-                if (_ws._externalDecompilerRefs.TryGetValue(reference.FullName, out var cached))
+                if (_ws._externalDecompilerRefs.TryGetValue(cacheKey, out var cached))
                     return cached;
             }
-            DecompilerMetadata.MetadataFile? file;
-            try { file = Fallback.Resolve(reference); }
-            catch { file = null; }
+            DecompilerMetadata.MetadataFile? file = null;
+            // our folder- and token-aware lookup first (the standard resolver matches search directories by name only)
+            if (_ws.FindAssemblyFile(reference.Name, _main.FilePath, reference.PublicKeyToken) is { } path)
+            {
+                try
+                {
+                    file = new DecompilerMetadata.PEFile(path, new MemoryStream(File.ReadAllBytes(path), writable: false),
+                        System.Reflection.PortableExecutable.PEStreamOptions.PrefetchEntireImage);
+                }
+                catch { file = null; }
+            }
+            if (file == null)
+            {
+                try { file = Fallback.Resolve(reference); }
+                catch { file = null; }
+            }
             lock (_ws._externalDecompilerRefs)
-                _ws._externalDecompilerRefs[reference.FullName] = file;
+                _ws._externalDecompilerRefs[cacheKey] = file;
             return file;
         }
 
