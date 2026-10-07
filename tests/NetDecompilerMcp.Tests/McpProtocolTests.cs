@@ -42,7 +42,27 @@ public class McpProtocolTests : IAsyncLifetime
         var result = await _client.CallToolAsync(tool, args);
         var text = Text(result);
         Assert.True(expectError == (result.IsError == true), $"{tool} IsError={result.IsError}: {text}");
+        if (!expectError) await AssertMatchesOutputSchema(_client, tool, result);
         return text;
+    }
+
+    private static readonly Dictionary<McpClient, Dictionary<string, JsonElement?>> Schemas = [];
+
+    /// <summary>A structured result must validate against the tool's advertised output schema (what clients enforce).</summary>
+    internal static async Task AssertMatchesOutputSchema(McpClient client, string tool, CallToolResult result)
+    {
+        Dictionary<string, JsonElement?>? schemas;
+        lock (Schemas) Schemas.TryGetValue(client, out schemas);
+        if (schemas == null)
+        {
+            schemas = (await client.ListToolsAsync()).ToDictionary(t => t.Name, t => t.ProtocolTool.OutputSchema);
+            lock (Schemas) Schemas[client] = schemas;
+        }
+        if (schemas.GetValueOrDefault(tool) is not { } schema) return;
+        Assert.True(result.StructuredContent != null, $"{tool} has an output schema but returned no structured content");
+        var value = JsonDocument.Parse(result.StructuredContent!.ToString()!).RootElement;
+        var errors = OutputSchema.Validate(schema, value);
+        Assert.True(errors.Count == 0, $"{tool}: structured content does not match its output schema:\n  {string.Join("\n  ", errors.Take(20))}");
     }
 
     /// <summary>One successful call per tool. Adding a tool without adding it here fails EveryToolIsCovered.</summary>

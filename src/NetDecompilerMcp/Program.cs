@@ -61,7 +61,12 @@ builder.Services
         o.ServerInstructions = ServerInstructions.Text;
     })
     .WithStdioServerTransport()
-    .WithToolsFromAssembly()
+    // Structured results: write null properties instead of omitting them. The generated output schemas list every
+    // property as required (nullable ones as "type or null"), so an omitted null fails schema validation in clients.
+    .WithToolsFromAssembly(serializerOptions: new System.Text.Json.JsonSerializerOptions(McpJsonUtilities.DefaultOptions)
+    {
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never,
+    })
     .WithResourcesFromAssembly()
     .WithPromptsFromAssembly()
     .WithCompleteHandler((context, _) =>

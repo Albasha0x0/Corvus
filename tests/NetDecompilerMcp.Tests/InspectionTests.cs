@@ -634,5 +634,17 @@ public class InspectionTests : IDisposable
         var ok = await client.CallToolAsync("survey_features", new Dictionary<string, object?> { ["path"] = Save("EverydayApis.dll", EverydayApis()) });
         Assert.NotEqual(true, ok.IsError);
         Assert.Contains("download files", ok.StructuredContent!.ToString());
+
+        // every inspection result, with its null fields (no savePath / outputDirectory, features without ATT&CK, no
+        // strong name...), must validate against the advertised output schema: clients reject it otherwise
+        var everyday = _dir.File("EverydayApis.dll");
+        foreach (var tool in new[] { "summarize_file", "survey_features", "extract_strings", "extract_embedded" })
+        {
+            var r = await client.CallToolAsync(tool, new Dictionary<string, object?> { ["path"] = everyday });
+            Assert.NotEqual(true, r.IsError);
+            await McpProtocolTests.AssertMatchesOutputSchema(client, tool, r);
+        }
+        var nulls = await client.CallToolAsync("summarize_file", new Dictionary<string, object?> { ["path"] = everyday });
+        Assert.Contains("\"merged\":null", nulls.StructuredContent!.ToString());
     }
 }

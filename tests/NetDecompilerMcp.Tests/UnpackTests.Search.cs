@@ -201,6 +201,7 @@ public partial class UnpackTests
             ["path"] = Save("ok.apk", BuildApk().Apk), ["query"] = "health", ["kind"] = "property",
         });
         Assert.NotEqual(true, ok.IsError);
+        await McpProtocolTests.AssertMatchesOutputSchema(client, "search_container", ok);
         var json = JsonDocument.Parse(ok.StructuredContent!.ToString()!).RootElement;
         Assert.False(Prop(json, "truncated").GetBoolean());
         var match = Assert.Single(Prop(json, "matches").EnumerateArray());

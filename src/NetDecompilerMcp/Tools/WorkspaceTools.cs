@@ -15,11 +15,11 @@ namespace NetDecompilerMcp.Tools;
 public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il2cpp, AssemblyReport report, IndexingService indexing, UnpackService unpacker)
 {
     public sealed record AssemblyEntry(string Id, string Name, string Version, string Path, int Types, bool Il2CppDummy, IReadOnlyList<string> UnsavedEdits,
-        bool ReadyToRun, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Merged);
+        bool ReadyToRun, string? Merged);
 
     /// <summary>The workspace; plus, when list_assemblies is given a path, the managed assemblies inside that file.</summary>
     public sealed record WorkspaceState(IReadOnlyList<AssemblyEntry> Assemblies, IReadOnlyList<string> SearchDirectories, string BackgroundIndexing,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] UnpackService.ContainerListing? Container = null);
+        UnpackService.ContainerListing? Container = null);
 
     [McpServerTool(Name = "load_assembly", Title = "Load assembly", Idempotent = true, OpenWorld = false)]
     [Description("Load a .NET assembly (.dll/.exe) or every assembly in a directory (e.g. a Unity game's *_Data/Managed or an Il2CppDumper DummyDll folder). " +

@@ -22,15 +22,15 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
     public sealed record FeatureReport(string Assembly, int MethodsScanned, IReadOnlyList<Feature> Features, IReadOnlyList<string> Notes);
 
     public sealed record ValueReport(string Assembly, int Total, IReadOnlyList<ExtractedValue> Values,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SavedTo, IReadOnlyList<string> Notes);
+        string? SavedTo, IReadOnlyList<string> Notes);
 
     public sealed record EmbeddedReport(string Assembly, IReadOnlyList<EmbeddedContent> Contents,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? OutputDirectory, IReadOnlyList<string> Notes);
+        string? OutputDirectory, IReadOnlyList<string> Notes);
 
     public sealed record FileFacts(string Path, long Size, string Md5, string Sha1, string Sha256, string Type, double Entropy, CertificateInfo Certificate);
 
     public sealed record IdentityFacts(string Name, string? Version, string Mvid, string? TargetFramework, string Kind, string Architecture,
-        bool ReadyToRun, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Merged, int Types, int Methods,
+        bool ReadyToRun, string? Merged, int Types, int Methods,
         IReadOnlyList<string> References);
 
     public sealed record SignatureFacts(bool StrongNamed, string? PublicKeyToken, CertificateInfo Certificate);

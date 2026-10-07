@@ -19,14 +19,14 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
 
     /// <summary>One extracted file. ReadyToRun and Merged are set for .NET assemblies only.</summary>
     public sealed record UnpackedFile(string Path, string Kind, long Size, string Sha256, string Origin, string? LoadedAs,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? ReadyToRun = null,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Merged = null);
+        bool? ReadyToRun = null,
+        string? Merged = null);
 
     public sealed record UnpackReport(string Source, string Container, string OutputDirectory, List<UnpackedFile> Files, List<string> Notes);
 
     /// <summary>A managed assembly inside a container. Path is its location inside the container (nested ones under "x_unpacked/").</summary>
     public sealed record ContainedAssembly(string Path, string? Name, string? Version, long Size, string Sha256, string Origin, bool ReadyToRun,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Merged);
+        string? Merged);
 
     public sealed record ContainerListing(string Source, string Container, List<ContainedAssembly> Assemblies, List<string> Notes);
 

@@ -247,17 +247,22 @@ public partial class UnpackTests
         var merged = Save("IlMerged.dll", IlMerged());
         await using var client = await McpProtocolTests.StartServerAsync("--no-index", "--load", fx.ReadyToRunDll, "--load", Env.FixturePath, "--load", merged);
 
-        // no path: the workspace, as before, with readyToRun / merged per assembly and no container section
-        var state = Structured(await client.CallToolAsync("list_assemblies", new Dictionary<string, object?>()));
-        Assert.False(Has(state, "container"));
+        // no path: the workspace, as before, with readyToRun / merged per assembly and a null container section
+        // (nulls are written, not omitted: the output schema lists every property as required)
+        var stateResult = await client.CallToolAsync("list_assemblies", new Dictionary<string, object?>());
+        await McpProtocolTests.AssertMatchesOutputSchema(client, "list_assemblies", stateResult);
+        var state = Structured(stateResult);
+        Assert.Equal(JsonValueKind.Null, Prop(state, "container").ValueKind);
         var byId = Prop(state, "assemblies").EnumerateArray().ToDictionary(a => Prop(a, "id").GetString()!);
         Assert.True(Prop(byId["Hello"], "readyToRun").GetBoolean());
         Assert.False(Prop(byId["TestFixture"], "readyToRun").GetBoolean());
-        Assert.False(Has(byId["TestFixture"], "merged"));
+        Assert.Equal(JsonValueKind.Null, Prop(byId["TestFixture"], "merged").ValueKind);
         Assert.StartsWith("Merged assembly (ILMerge-style)", Prop(byId["IlMerged"], "merged").GetString());
 
         // a container path: its managed assemblies, nothing loaded
-        var withBundle = Structured(await client.CallToolAsync("list_assemblies", new Dictionary<string, object?> { ["path"] = fx.Bundle }));
+        var bundleResult = await client.CallToolAsync("list_assemblies", new Dictionary<string, object?> { ["path"] = fx.Bundle });
+        await McpProtocolTests.AssertMatchesOutputSchema(client, "list_assemblies", bundleResult);
+        var withBundle = Structured(bundleResult);
         var container = Prop(withBundle, "container");
         Assert.Equal(".NET single-file bundle", Prop(container, "container").GetString());
         var hello = Assert.Single(Prop(container, "assemblies").EnumerateArray());
