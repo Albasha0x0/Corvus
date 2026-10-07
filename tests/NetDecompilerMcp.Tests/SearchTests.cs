@@ -61,6 +61,18 @@ public class SearchTests : IDisposable
         Assert.Contains(_env.Search.SearchConstants(value, All, 100, default).Items, h => h.Owner.Name == owner);
 
     [Fact]
+    public void AttributeArgumentsOfEveryKind_AreFormattedAndSearchable()
+    {
+        var tagged = _env.Def<dnlib.DotNet.TypeDef>("Fixture.Game.Tagged", SymbolKind.Type);
+        Assert.Equal("[Tags(new int[] { 1, 2, 3 }, 5, typeof(Vec2), Team.Blue, Names = new string[] { \"a\", \"b\" })]",
+            Format.Attribute(tagged.CustomAttributes.Single()));
+        var marked = _env.Def<dnlib.DotNet.MethodDef>("Tagged::Marked");
+        Assert.Equal("[Tags(null, new int[] { 935 }, typeof(int), (Team)7)]", Format.Attribute(marked.CustomAttributes.Single()));
+        // a number inside an attribute's array argument is found
+        Assert.Contains(_env.Search.SearchConstants("0x3A7", All, 100, default).Items, h => h.Owner.Name == "Marked" && h.Kind == "attribute [TagsAttribute]");
+    }
+
+    [Fact]
     public void ConstantsRejectText() =>
         Assert.Throws<ToolError>(() => _env.Search.SearchConstants("hello", All, 10, default));
 

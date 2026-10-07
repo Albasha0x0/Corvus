@@ -14,7 +14,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
     private const string CompilerGenerated = "System.Runtime.CompilerServices.CompilerGeneratedAttribute";
 
     [McpServerTool(Name = "list_namespaces", Title = "List namespaces", ReadOnly = true, OpenWorld = false)]
-    [Description("List namespaces with their type counts.")]
+    [Description("List namespaces with their type counts (nested types counted under their outer type's namespace, as list_types lists them; the counts add up to get_assembly_info's total).")]
     public Task<string> ListNamespaces(
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Only namespaces containing this text (case-insensitive).")] string? filter = null,
@@ -23,9 +23,8 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         var sb = new StringBuilder();
         foreach (var asm in workspace.Scope(assembly))
         {
-            var groups = asm.Module.Types
-                .Where(t => t.FullName != "<Module>")
-                .GroupBy(t => t.Namespace.String)
+            var groups = MetadataUtil.CountedTypes(asm.Module)
+                .GroupBy(t => MetadataUtil.TopLevel(t).Namespace.String)
                 .Where(g => filter == null || g.Key.Contains(filter, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(g => g.Key, StringComparer.Ordinal)
                 .ToList();

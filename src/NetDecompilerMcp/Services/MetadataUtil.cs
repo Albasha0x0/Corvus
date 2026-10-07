@@ -68,6 +68,15 @@ public static class MetadataUtil
         catch { return null; }
     }
 
+    /// <summary>
+    /// The types every tool counts and lists: all types, nested ones included, except the &lt;Module&gt; pseudo-type.
+    /// A nested type belongs to the namespace of its top-level type (its own Namespace is empty).
+    /// </summary>
+    public static List<TypeDef> CountedTypes(ModuleDef module) => module.GetTypes().Where(t => t.FullName != "<Module>").ToList();
+
+    /// <summary>Distinct namespaces of <paramref name="types"/>, nested types counted under their top-level type's.</summary>
+    public static int NamespaceCount(IEnumerable<TypeDef> types) => types.Select(t => TopLevel(t).Namespace.String).Distinct().Count();
+
     public static TypeDef TopLevel(TypeDef t)
     {
         while (t.DeclaringType != null) t = t.DeclaringType;

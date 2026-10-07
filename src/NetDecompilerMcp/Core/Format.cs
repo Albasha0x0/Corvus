@@ -264,10 +264,38 @@ public static class Format
             name = name[..^"Attribute".Length];
         if (!ca.HasConstructorArguments && !ca.HasNamedArguments)
             return $"[{name}]";
-        var args = ca.ConstructorArguments.Select(a => Literal(a.Value))
-            .Concat(ca.NamedArguments.Select(n => $"{n.Name} = {Literal(n.Argument.Value)}"));
+        var args = ca.ConstructorArguments.Select(AttributeArgument)
+            .Concat(ca.NamedArguments.Select(n => $"{n.Name} = {AttributeArgument(n.Argument)}"));
         return $"[{name}({string.Join(", ", args)})]";
     }
+
+    /// <summary>
+    /// An attribute argument as C#: arrays as "new[] { ... }" (null arrays as null), arguments of type object by their
+    /// boxed value, types as typeof(...), enum values by member name when it resolves (otherwise "(Enum)n").
+    /// </summary>
+    public static string AttributeArgument(CAArgument arg) => arg.Value switch
+    {
+        IList<CAArgument> items => $"new {(arg.Type is SZArraySig array ? Type(array.Next) : "")}[] {{ {string.Join(", ", items.Select(AttributeArgument))} }}",
+        null when arg.Type is SZArraySig => "null",
+        CAArgument boxed => AttributeArgument(boxed),
+        TypeSig type => $"typeof({Type(type)})",
+        _ when arg.Type is ValueTypeSig vt && Services.MetadataUtil.Try(() => vt.TypeDefOrRef.ResolveTypeDef()) is { IsEnum: true } e => EnumValue(e, arg.Value),
+        _ => Literal(arg.Value),
+    };
+
+    private static string EnumValue(TypeDef e, object? value)
+    {
+        var member = e.Fields.FirstOrDefault(f => f.IsLiteral && f.Constant != null && Equals(f.Constant.Value, value));
+        return member != null ? $"{e.Name}.{member.Name}" : $"({e.Name}){Literal(value)}";
+    }
+
+    /// <summary>The primitive values inside an attribute argument (array elements and boxed values included).</summary>
+    public static IEnumerable<object?> AttributeValues(CAArgument arg) => arg.Value switch
+    {
+        IList<CAArgument> items => items.SelectMany(AttributeValues),
+        CAArgument boxed => AttributeValues(boxed),
+        var v => [v],
+    };
 
     /// <summary>Integral constants with their hex form, e.g. "256 (0x100)".</summary>
     public static string LiteralWithHex(object? value) => value switch

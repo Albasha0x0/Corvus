@@ -35,9 +35,9 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
             var asm = workspace.Load(path);
             return workspace.Read(() =>
             {
-                var types = asm.Module.GetTypes().ToList();
+                var types = MetadataUtil.CountedTypes(asm.Module);
                 return $"Loaded {asm.Id}: {asm.FullAssemblyName}\n  {asm.FilePath}\n  {types.Count} types, " +
-                       $"{types.Select(t => t.Namespace.String).Distinct().Count()} namespaces" +
+                       $"{MetadataUtil.NamespaceCount(types)} namespaces" +
                        (il2cpp.GetIndex(asm).Count > 0 ? "\n  Il2Cpp dummy DLL: method bodies are stubs; use get_il2cpp_info / find_method_by_address." : "");
             });
         }
@@ -49,7 +49,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         workspace.Read(() =>
         {
             foreach (var a in report.Loaded)
-                sb.AppendLine($"  {a.Id}  ({a.Module.GetTypes().Count()} types)");
+                sb.AppendLine($"  {a.Id}  ({MetadataUtil.CountedTypes(a.Module).Count} types)");
             return 0;
         });
         foreach (var (file, error) in report.Skipped.Take(20))
@@ -71,7 +71,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         var container = path == null ? null : unpacker.List(path, AnalysisLimits.Default, cancellationToken);
         return workspace.Read(() => new WorkspaceState(
             workspace.Assemblies.Select(a => new AssemblyEntry(a.Id, a.FullAssemblyName, a.Module.Assembly?.Version?.ToString() ?? "", a.FilePath,
-                a.Module.GetTypes().Count(), il2cpp.GetIndex(a).Count > 0, a.Edits.Select(e => e.Description).ToList(),
+                MetadataUtil.CountedTypes(a.Module).Count, il2cpp.GetIndex(a).Count > 0, a.Edits.Select(e => e.Description).ToList(),
                 AssemblyTraits.IsReadyToRun(a.OriginalBytes), AssemblyTraits.MergeNote(a.Module))).ToList(),
             workspace.SearchDirectories,
             indexing.Status,

@@ -11,7 +11,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
     public string Build(LoadedAssembly asm)
     {
         var m = asm.Module;
-        var types = m.GetTypes().ToList();
+        var types = MetadataUtil.CountedTypes(m);
         var sb = new StringBuilder();
         sb.AppendLine($"Id: {asm.Id}");
         sb.AppendLine($"Assembly: {asm.FullAssemblyName}");
@@ -23,7 +23,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
             sb.AppendLine($"Target framework: {tfa.ConstructorArguments[0].Value}");
         if (m.EntryPoint != null)
             sb.AppendLine($"Entry point: {Format.MemberLabel(m.EntryPoint)}  ({Format.Token(m.EntryPoint)})");
-        sb.AppendLine($"Types: {types.Count}  Namespaces: {types.Select(t => t.Namespace.String).Distinct().Count()}  " +
+        sb.AppendLine($"Types: {types.Count} ({types.Count(t => t.DeclaringType != null)} nested)  Namespaces: {MetadataUtil.NamespaceCount(types)}  " +
                       $"Methods: {types.Sum(t => t.Methods.Count)}  Fields: {types.Sum(t => t.Fields.Count)}  Resources: {m.Resources.Count}");
         int addressed = il2cpp.GetIndex(asm).Count;
         if (addressed > 0)

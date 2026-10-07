@@ -93,7 +93,7 @@ public sealed class SearchService
             foreach (var m in type.Methods)
             {
                 foreach (var ca in m.CustomAttributes)
-                    foreach (var arg in ca.ConstructorArguments.Select(a => a.Value).Concat(ca.NamedArguments.Select(n => n.Argument.Value)))
+                    foreach (var arg in ca.ConstructorArguments.Concat(ca.NamedArguments.Select(n => n.Argument)).SelectMany(Format.AttributeValues))
                         if (NumericEquals(arg, target))
                             found.Add(new ConstantHit(asm, m, null, $"attribute [{Format.StripArity(ca.AttributeType.Name)}]", Format.Literal(arg)));
                 foreach (var instr in FastIlReader.Instructions(asm, m))

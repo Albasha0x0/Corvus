@@ -289,7 +289,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
                 : pe.MachineName;
         }
         List<TypeDef> types;
-        try { types = module.GetTypes().ToList(); } catch (Exception) { types = []; }
+        try { types = MetadataUtil.CountedTypes(module); } catch (Exception) { types = []; }
         List<string> references;
         try { references = module.GetAssemblyRefs().Select(r => $"{r.Name} {r.Version}").Take(100).ToList(); } catch (Exception) { references = []; }
         return new IdentityFacts(module.Assembly?.Name.String ?? module.Name.String, module.Assembly?.Version?.ToString(), module.Mvid?.ToString() ?? "",

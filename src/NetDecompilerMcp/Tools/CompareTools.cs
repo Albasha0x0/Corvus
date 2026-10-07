@@ -45,7 +45,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         var sb = new StringBuilder($"Comparing {oldAsm.Id} ({oldAsm.FilePath})\n       -> {newAsm.Id} ({newAsm.FilePath})\n");
         var memberCounts = types.SelectMany(t => t.Members).GroupBy(m => m.Change).ToDictionary(g => g.Key, g => g.Count());
         sb.AppendLine($"Types: {Count(types, "renamed")} renamed, {Count(types, "changed")} with member changes, {Count(types, "removed")} removed, {Count(types, "added")} added " +
-                      $"({cmp.TypeMap.Count} matched of {oldAsm.Module.GetTypes().Count() - 1} old).");
+                      $"({cmp.TypeMap.Count} matched of {MetadataUtil.CountedTypes(oldAsm.Module).Count} old).");
         sb.AppendLine("Members: " + string.Join(", ", AllKinds.Select(k => $"{memberCounts.GetValueOrDefault(k)} {k}")));
         foreach (var (side, asm) in new[] { ("old", oldAsm), ("new", newAsm) })
             if (asm.BodyHealth.Invalid > 0)
