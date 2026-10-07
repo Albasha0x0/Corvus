@@ -320,7 +320,7 @@ public sealed class CppBindingGenerator
         {
             var getter = p.GetMethod!;
             var m = Unique($"m_get{Pascal(p.Name)}");
-            decls.AppendLine($"    MonoMethod* {m} = nullptr;{Pad(m)}// {Format.Property(p)}");
+            decls.AppendLine($"    MonoMethod* {m} = nullptr;{Pad(m)}// {PropertyComment(type, p)}");
             resolve.AppendLine(viaHierarchy || getter.DeclaringType != type
                 ? $"        {m} = MethodInHierarchy(api, klass, \"{getter.Name}\", 0);"
                 : $"        {m} = api.class_get_method_from_name(klass, \"{getter.Name}\", 0);");
@@ -492,7 +492,7 @@ public sealed class CppBindingGenerator
         {
             var getter = p.GetMethod!;
             var m = Unique($"m_get{Pascal(p.Name)}");
-            decls.AppendLine($"    {hmethod} {m} = nullptr;{Pad(m)}// {Format.Property(p)}");
+            decls.AppendLine($"    {hmethod} {m} = nullptr;{Pad(m)}// {PropertyComment(type, p)}");
             if (viaHierarchy || getter.DeclaringType != type) used.Add("GetMethodInHierarchy");
             resolve.AppendLine(viaHierarchy || getter.DeclaringType != type
                 ? $"        {m} = GetMethodInHierarchy(h, klass, \"{getter.Name}\", 0);"
@@ -658,6 +658,17 @@ public sealed class CppBindingGenerator
     /// member becomes the argument <paramref name="type"/>'s base chain passes (DataModule&lt;T&gt;.Instance on
     /// "class ToolSystem : DataModule&lt;ToolSystem&gt;" is a ToolSystem). Other types are returned unchanged.
     /// </summary>
+    /// <summary>The property's declaration; for an inherited one also what its type parameter is here and where it is declared.</summary>
+    private static string PropertyComment(TypeDef type, PropertyDef p)
+    {
+        var getter = p.GetMethod!;
+        var seen = AsSeenFrom(type, getter, getter.ReturnType);
+        var notes = new List<string>();
+        if (!ReferenceEquals(seen, getter.ReturnType)) notes.Add($"{Format.Type(getter.ReturnType)} = {Format.Type(seen)}");
+        if (p.DeclaringType != type) notes.Add($"declared on {p.DeclaringType.FullName}");
+        return Format.Property(p) + (notes.Count > 0 ? $"  [{string.Join(", ", notes)}]" : "");
+    }
+
     private static TypeSig AsSeenFrom(TypeDef type, IMemberDef member, TypeSig sig)
     {
         if (sig is not GenericVar { Number: var n } || member.DeclaringType == type) return sig;

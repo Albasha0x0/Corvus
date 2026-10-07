@@ -70,6 +70,7 @@ public sealed class InspectionTools(InspectionService inspection)
         [Description("Also try every single-byte XOR key on resources and arrays that are not readable as they are, and keep a decode only " +
                      "if it is clearly ASCII text (not UTF-16; letters, spaces and punctuation in natural proportions). Off by default: " +
                      "heuristic, and slower on large data. Multi-byte keys and UTF-16 / non-ASCII text are not recovered.")] bool xorText = false,
+        [Description("Also list (and save) images: png, jpeg, gif, ico. By default they are only counted in notes.")] bool includeMedia = false,
         CancellationToken cancellationToken = default) =>
-        Task.Run(() => inspection.ExtractEmbedded(assembly, path, save, outputDirectory, load, cancellationToken, xorText), cancellationToken);
+        Task.Run(() => inspection.ExtractEmbedded(assembly, path, save, outputDirectory, load, cancellationToken, xorText, includeMedia), cancellationToken);
 }

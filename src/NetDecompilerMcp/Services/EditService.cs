@@ -206,6 +206,10 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         var oldBody = MetadataUtil.SafeBody(m);
         if (prepend && oldBody == null)
             throw new ToolError($"{symbol.Label} has no existing body to prepend to; use mode=replace.");
+        // the body as loaded from the file is not IL (encrypted / dumped before decryption) and no edit has replaced it yet
+        if (prepend && symbol.Assembly.BodyHealth.IsInvalid(m) && !symbol.Assembly.Edits.Any(e => e.Description.Contains(symbol.Label, StringComparison.Ordinal)))
+            throw new ToolError($"The body of {symbol.Label} is not valid IL (encrypted, or dumped from memory before decryption): there is no code to " +
+                                "prepend to. Use mode=replace (or patch_method_csharp / stub_method), or load the decrypted image.");
 
         var assembled = assembler.Assemble(m, il, oldBody?.Instructions);
         MethodUtils.SimplifyBranches(assembled.Instructions); // only our new instructions: the original body stays untouched until applied
@@ -385,7 +389,10 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 asm.RestoreState(previousModule, previousEdits);
-                throw new ToolError($"Edit #{i + 1} ({records[i].Description}) could not be re-applied: {ex.Message} Nothing was changed.");
+                // numbered as list_edits showed it before (undoing an earlier edit shifts the replayed ones)
+                int number = previousEdits.IndexOf(records[i]) is >= 0 and var at ? at + 1 : i + 1;
+                var reason = ex.Message.TrimEnd().Replace("Nothing was changed.", "").TrimEnd();
+                throw new ToolError($"Edit #{number} ({records[i].Description}) could not be re-applied: {reason}\nNothing was changed.");
             }
         }
         previousModule.Dispose();

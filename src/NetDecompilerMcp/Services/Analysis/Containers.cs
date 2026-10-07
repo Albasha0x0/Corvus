@@ -161,6 +161,12 @@ public static class Containers
 
     // ------------------------------------------------------------------ ZIP-based packages
 
+    /// <summary>An APK entry that only a .NET (Xamarin / MAUI) app has: its assemblies, assembly store or Mono runtime.</summary>
+    private static bool IsAndroidDotNet(string entry) =>
+        entry.StartsWith("assemblies/", StringComparison.Ordinal) || entry.Contains("libmonodroid", StringComparison.Ordinal)
+        || entry.Contains("libmonosgen", StringComparison.Ordinal) || entry.Contains("libassemblies.", StringComparison.Ordinal)
+        || entry.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || entry.EndsWith(".blob", StringComparison.OrdinalIgnoreCase);
+
     private static ContainerContents OpenZip(byte[] data, string name, AnalysisLimits limits, CancellationToken ct)
     {
         ZipArchive zip;
@@ -173,7 +179,8 @@ public static class Containers
         catch (InvalidDataException ex) { throw new ToolError($"{name}: corrupt zip ({ex.Message})."); }
         using (zip)
         {
-            string kind = entries.Any(e => e.FullName == "AndroidManifest.xml") ? "Android package (Xamarin / MAUI)"
+            string kind = entries.Any(e => e.FullName == "AndroidManifest.xml")
+                    ? entries.Any(e => IsAndroidDotNet(e.FullName)) ? "Android package (Xamarin / MAUI)" : "Android package (no .NET runtime or assemblies)"
                 : entries.Any(e => e.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase)) ? "NuGet package"
                 : "zip archive";
             var items = new List<ExtractedItem>();

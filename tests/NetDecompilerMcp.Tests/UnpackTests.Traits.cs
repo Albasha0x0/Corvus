@@ -268,7 +268,7 @@ public partial class UnpackTests
         var hello = Assert.Single(Prop(container, "assemblies").EnumerateArray());
         Assert.Equal("Hello.dll", Prop(hello, "path").GetString());
         Assert.False(Prop(hello, "readyToRun").GetBoolean());
-        Assert.Equal(3, Prop(withBundle, "assemblies").GetArrayLength());
+        Assert.Equal(0, Prop(withBundle, "assemblies").GetArrayLength()); // with path, only the container is listed
 
         // a corrupt container: a tool error with the reason, and the server keeps serving
         var nupkg = System.IO.File.ReadAllBytes(ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"));

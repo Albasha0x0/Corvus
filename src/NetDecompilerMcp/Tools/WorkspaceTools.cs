@@ -61,14 +61,16 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     [McpServerTool(Name = "list_assemblies", Title = "List loaded assemblies", ReadOnly = true, OpenWorld = false, UseStructuredContent = true)]
     [Description("Loaded assemblies with their ids (use the id in other tools), versions, paths, whether they are Il2Cpp dummy DLLs, " +
                  "ReadyToRun (precompiled native code next to the IL), merged (ILMerge / ILRepack output, with the original module count), " +
-                 "and unsaved edits; plus the reference search directories. Pass path to also list the managed assemblies inside a " +
-                 "container file (single-file bundle, .nupkg, .apk / .aab, Costura host, zip) without extracting or loading them; " +
-                 "unpack_container extracts and loads them.")]
+                 "and unsaved edits; plus the reference search directories. Pass path instead to list the managed assemblies inside a " +
+                 "container file (single-file bundle, .nupkg, .apk / .aab, Costura host, zip) without extracting or loading them " +
+                 "(only the container is listed then, not the workspace); unpack_container extracts and loads them.")]
     public Task<WorkspaceState> ListAssemblies(
         [Description("Optional: a container file whose managed assemblies to list (a plain assembly lists itself).")] string? path = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         var container = path == null ? null : unpacker.List(path, AnalysisLimits.Default, cancellationToken);
+        if (container != null) // a question about the file: the workspace (possibly hundreds of assemblies) is not repeated
+            return new WorkspaceState([], [], indexing.Status, container);
         return workspace.Read(() => new WorkspaceState(
             workspace.Assemblies.Select(a => new AssemblyEntry(a.Id, a.FullAssemblyName, a.Module.Assembly?.Version?.ToString() ?? "", a.FilePath,
                 MetadataUtil.CountedTypes(a.Module).Count, il2cpp.GetIndex(a).Count > 0, a.Edits.Select(e => e.Description).ToList(),
@@ -105,7 +107,20 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         Task.Run(() =>
         {
             workspace.AddSearchDirectory(directory);
-            return $"Added {Path.GetFullPath(directory)}. Search directories:\n  " + string.Join("\n  ", workspace.Read(() => workspace.SearchDirectories));
+            var full = Path.GetFullPath(directory);
+            var text = $"Added {full}. Search directories:\n  " + string.Join("\n  ", workspace.Read(() => workspace.SearchDirectories));
+            // references are looked up by file name in each directory itself, not in its subfolders
+            static bool HasAssemblies(string dir) =>
+                new[] { "*.dll", "*.exe", "*.winmd" }.Any(p => { try { return Directory.EnumerateFiles(dir, p).Any(); } catch (IOException) { return false; } catch (UnauthorizedAccessException) { return false; } });
+            if (Directory.Exists(full) && !HasAssemblies(full))
+            {
+                string[] subfolders;
+                try { subfolders = Directory.GetDirectories(full).Where(HasAssemblies).OrderByDescending(d => d, StringComparer.OrdinalIgnoreCase).Take(5).ToArray(); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { subfolders = []; }
+                text += $"\nNote: {full} has no assemblies itself; subfolders are not searched." +
+                        (subfolders.Length > 0 ? " Add one of these instead:\n  " + string.Join("\n  ", subfolders) : "");
+            }
+            return text;
         }, cancellationToken);
 
     [McpServerTool(Name = "get_assembly_info", Title = "Assembly overview", ReadOnly = true, OpenWorld = false)]

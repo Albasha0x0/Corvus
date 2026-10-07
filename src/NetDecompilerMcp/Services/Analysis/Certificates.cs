@@ -23,7 +23,8 @@ public sealed record CertificateInfo(
     bool? DigestMatches = null,
     bool? SignatureValid = null,
     string? Chain = null,
-    string? Problem = null);
+    string? Problem = null,
+    DateTime? Timestamp = null);
 
 /// <summary>
 /// Reads the Authenticode signature from a PE's security directory (one WIN_CERT_TYPE_PKCS_SIGNED_DATA entry) and checks
@@ -75,8 +76,33 @@ public static class Certificates
         try { signer.CheckSignature(verifySignatureOnly: true); valid = true; }
         catch (CryptographicException) { valid = false; }
 
+        var timestamp = SigningTime(signer);
         return new CertificateInfo(true, cert?.Subject, cert?.Issuer, cert?.Thumbprint, cert?.NotBefore.ToUniversalTime(), cert?.NotAfter.ToUniversalTime(),
-            algorithm != null ? HashName(algorithm)?.Name ?? algorithm : null, matches, valid, cert == null ? null : DescribeChain(cert, cms.Certificates));
+            algorithm != null ? HashName(algorithm)?.Name ?? algorithm : null, matches, valid, cert == null ? null : DescribeChain(cert, cms.Certificates, timestamp),
+            Timestamp: timestamp);
+    }
+
+    /// <summary>
+    /// The time a trusted timestamp authority vouches the file was signed: an RFC 3161 token (Microsoft's
+    /// 1.3.6.1.4.1.311.3.3.1 attribute) or a legacy countersignature's signing time. Null when not timestamped.
+    /// </summary>
+    private static DateTime? SigningTime(SignerInfo signer)
+    {
+        try
+        {
+            foreach (var attribute in signer.UnsignedAttributes)
+                if (attribute.Oid.Value == "1.3.6.1.4.1.311.3.3.1")
+                    foreach (var value in attribute.Values)
+                        if (Rfc3161TimestampToken.TryDecode(value.RawData, out var token, out _))
+                            return token!.TokenInfo.Timestamp.UtcDateTime;
+            foreach (var counter in signer.CounterSignerInfos)
+                foreach (var attribute in counter.SignedAttributes)
+                    foreach (var value in attribute.Values)
+                        if (value is Pkcs9SigningTime time)
+                            return time.SigningTime.ToUniversalTime();
+        }
+        catch (Exception ex) when (ex is CryptographicException or AsnContentException) { }
+        return null;
     }
 
     /// <summary>The digest algorithm OID and digest from SpcIndirectDataContent { data, DigestInfo { algorithm, digest } }.</summary>
@@ -126,17 +152,24 @@ public static class Certificates
         return hash.GetHashAndReset();
     }
 
-    /// <summary>How the signer's chain builds here (revocation not checked: offline and deterministic).</summary>
-    private static string DescribeChain(X509Certificate2 cert, X509Certificate2Collection extra)
+    /// <summary>
+    /// How the signer's chain builds here (revocation not checked: offline and deterministic). A timestamped signature is
+    /// checked at its signing time, as Windows does: a certificate that has expired since still validates it.
+    /// </summary>
+    private static string DescribeChain(X509Certificate2 cert, X509Certificate2Collection extra, DateTime? timestamp)
     {
         try
         {
             using var chain = new X509Chain();
             chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
             chain.ChainPolicy.ExtraStore.AddRange(extra);
+            if (timestamp is { } at) chain.ChainPolicy.VerificationTime = at.ToLocalTime();
             bool trusted = chain.Build(cert);
             var path = string.Join(" <- ", chain.ChainElements.Select(e => e.Certificate.GetNameInfo(X509NameType.SimpleName, false)));
-            if (trusted) return $"trusted on this machine: {path}";
+            if (trusted)
+                return timestamp is { } signed && cert.NotAfter.ToUniversalTime() < DateTime.UtcNow
+                    ? $"trusted on this machine (timestamped {signed:yyyy-MM-dd}, while the certificate was valid; it has expired since): {path}"
+                    : $"trusted on this machine: {path}";
             var problems = chain.ChainStatus.Select(s => s.Status.ToString()).Distinct();
             return $"not trusted on this machine ({string.Join(", ", problems)}): {path}";
         }

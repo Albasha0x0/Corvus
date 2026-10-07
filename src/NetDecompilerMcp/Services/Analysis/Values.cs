@@ -35,8 +35,9 @@ public static class Values
     private static readonly Regex Ipv4 = R(@"(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?![\d.])");
     private static readonly Regex Ipv6Candidate = R(@"(?<![\w:.])[0-9A-Fa-f:]*:[0-9A-Fa-f:]*:[0-9A-Fa-f:.]*(?![\w:])");
     private static readonly Regex Hostname = R(@"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+([a-z]{2,24})$");
-    private static readonly Regex WindowsPath = R(@"(?:\b[A-Za-z]:\\|%[A-Za-z_][A-Za-z0-9_]*%\\)[^\r\n""*?<>|]*[^\r\n""*?<>|\s.,;:)]");
-    private static readonly Regex UncPath = R(@"\\\\(?!\.\\pipe\\)[A-Za-z0-9._$-]+\\[^\r\n""*?<>|]*[^\r\n""*?<>|\s.,;:)]");
+    // a path ends at a quote, ';' or '`' too: in a command line those close the argument ("'C:\x\a.exe' -Arg ...; ...")
+    private static readonly Regex WindowsPath = R(@"(?:\b[A-Za-z]:\\|%[A-Za-z_][A-Za-z0-9_]*%\\)[^\r\n""'`;*?<>|]*[^\r\n""'`;*?<>|\s.,:)]");
+    private static readonly Regex UncPath = R(@"\\\\(?!\.\\pipe\\)[A-Za-z0-9._$-]+\\[^\r\n""'`;*?<>|]*[^\r\n""'`;*?<>|\s.,:)]");
     private static readonly Regex UnixPath = R(@"(?<![\w/])/(?:etc|tmp|var|usr|bin|sbin|home|dev|proc|opt|root|Library|Users|Applications|System)/[^\s""'<>|;]*[^\s""'<>|;.,)]");
     private static readonly Regex Pipe = R(@"\\\\\.\\pipe\\[^\s""'<>|]+");
     private static readonly Regex Registry = R(@"\b(?:HKEY_(?:LOCAL_MACHINE|CURRENT_USER|CLASSES_ROOT|USERS|CURRENT_CONFIG)|HKLM|HKCU|HKCR|HKU)(?:\\[^\r\n""]*[^\r\n""\s\\])?(?![\w])");
@@ -148,8 +149,10 @@ public static class Values
             var host = t.Contains(':') && !t.Contains("::") ? t[..t.IndexOf(':')] : t;
             if (IsDomain(host, requireKnownTld: true)) b.Add("domain", host, where, passedTo);
         }
-        foreach (var ip in Matches(Ipv4, text))
-            if (IsPlausibleIpv4(ip)) b.Add("ipv4", ip, where, passedTo);
+        foreach (var m in MatchesAt(Ipv4, text))
+            if (IsPlausibleIpv4(m.Value) && !IsVersionContext(text, m.Index)
+                && !text.Contains("Version=" + m.Value, StringComparison.OrdinalIgnoreCase)) // the same number given as a version elsewhere in the text
+                b.Add("ipv4", m.Value, where, passedTo);
         foreach (var candidate in Matches(Ipv6Candidate, text))
             if (candidate.Count(c => c == ':') >= 2 && IPAddress.TryParse(candidate, out var v6) && v6.AddressFamily == AddressFamily.InterNetworkV6
                 && candidate.Any(char.IsAsciiHexDigit))
@@ -215,6 +218,22 @@ public static class Values
     }
 
     /// <summary>Drops assembly-version-like values ("4.0.0.0") and "0.x.x.x"; keeps everything else, private ranges included.</summary>
+    /// <summary>"Version=4.0.3.0", "version 1.2.3.4", "v2.0.0.1": a version number written like an address.</summary>
+    private static bool IsVersionContext(string text, int index)
+    {
+        var before = text.AsSpan(Math.Max(0, index - 12), index - Math.Max(0, index - 12)).TrimEnd(" =:\t".AsSpan());
+        return before.EndsWith("version", StringComparison.OrdinalIgnoreCase) || before.EndsWith("ver", StringComparison.OrdinalIgnoreCase)
+               || (before.Length > 0 && (before[^1] is 'v' or 'V') && (before.Length == 1 || !char.IsLetterOrDigit(before[^2])));
+    }
+
+    private static IEnumerable<Match> MatchesAt(Regex regex, string text)
+    {
+        MatchCollection matches;
+        try { matches = regex.Matches(text); _ = matches.Count; }
+        catch (RegexMatchTimeoutException) { yield break; }
+        foreach (Match m in matches) yield return m;
+    }
+
     private static bool IsPlausibleIpv4(string ip)
     {
         var o = ip.Split('.').Select(int.Parse).ToArray();

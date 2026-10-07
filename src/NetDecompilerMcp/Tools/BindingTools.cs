@@ -24,7 +24,7 @@ public sealed class BindingTools(AssemblyWorkspace workspace, CppBindingGenerato
         [Description("Type to bind. " + SymbolDescription)] string type,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Only these members (comma-separated field/property/method names). Default: all non-compiler-generated members.")] string? members = null,
-        [Description("Also bind instance property getters inherited from base classes.")] bool includeInherited = false,
+        [Description("Also bind every property getter (static and instance) inherited from base classes. Base-class members named in members are bound without it.")] bool includeInherited = false,
         [Description("Output style: mono or hostapi. Omit to detect it from projectDir (see the description).")] string? style = null,
         [Description("The C/C++ project the header is for: scanned for a host function table and the helpers the hostapi code calls.")] string? projectDir = null,
         [Description("Where the header will be saved (absolute, or relative to projectDir); #include paths are computed from its folder. Default: projectDir.")] string? headerPath = null,

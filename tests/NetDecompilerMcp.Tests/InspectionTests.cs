@@ -485,14 +485,17 @@ public class InspectionTests : IDisposable
     {
         var many = Save("many.zip", ContainerFixtures.Zip([.. Enumerable.Range(0, 26).Select(i => ($"lib/A{i}.dll", ContainerFixtures.Module($"A{i}")))]));
         var capped = Inspection.Summarize(null, many, default);
-        Assert.Equal(25, capped.Assemblies.Count);
-        Assert.Contains("Summarized the first 25 of 26 assemblies; list_assemblies with path lists them all.", capped.Notes);
+        Assert.Equal(8, capped.Assemblies.Count);
+        Assert.Contains(capped.Notes, n => n.StartsWith("Summarized 8 of 26 assemblies (the app's own first, framework libraries last; the first in full, the others in brief)"));
+        Assert.All(capped.Assemblies.Skip(1), a => Assert.Empty(a.Highlights)); // brief: highlights are listed once, in the file's
 
         var empty = Inspection.Summarize(null, Save("notes.txt", "just some text"u8.ToArray()), default);
         Assert.Contains("No managed assemblies inside: nothing to summarize beyond the file facts.", empty.Notes);
 
         var encoded = Inspection.Summarize(null, Save("Encoded.dll", EncodedFixture()), default);
-        Assert.Contains("6 more embedded item(s).", encoded.Highlights); // 11 decoded copies: 5 listed, 6 counted
+        // 11 decoded copies: 5 listed (and highlighted), the count in the assembly's notes
+        Assert.Contains("Embedded content: 11 item(s), 5 listed. extract_embedded lists everything.", Assert.Single(encoded.Assemblies).Notes);
+        Assert.Equal(5, encoded.Highlights.Count(h => h.StartsWith("Embedded text", StringComparison.Ordinal)));
 
         var everyday = Inspection.Summarize(null, Save("EverydayApis.dll", EverydayApis()), default);
         Assert.Contains(everyday.Highlights, h => h.StartsWith("Network values: ", StringComparison.Ordinal) && h.Contains(" url"));

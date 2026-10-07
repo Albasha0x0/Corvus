@@ -189,10 +189,22 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
     /// <summary>
     /// Call chains ending at <paramref name="to"/>: from <paramref name="from"/> when given, otherwise from entry points
     /// (methods nothing in the workspace calls: Main, Unity callbacks, event handlers, reflection targets...).
-    /// Shortest first; among equally long ones, fewer virtual-dispatch hops first. Without <paramref name="includeVirtual"/>
-    /// only direct calls are followed.
+    /// Paths made of direct calls come first (shortest first); then, with <paramref name="includeVirtual"/>, paths that
+    /// need a virtual-dispatch hop (shortest first, fewer such hops first). Without it only direct calls are followed.
+    /// Entry points are judged by the same edges: a method only called through virtual dispatch is an entry point of the
+    /// direct-call paths, so a short direct chain is not hidden behind a longer chain through a broad base method.
     /// </summary>
     public List<List<PathStep>> PathSteps(MethodDef? from, MethodDef to, int maxDepth, int maxPaths, bool includeVirtual, CancellationToken ct)
+    {
+        var direct = Search(from, to, maxDepth, maxPaths, includeVirtual: false, ct);
+        if (!includeVirtual || direct.Count >= maxPaths) return direct;
+        string Key(List<PathStep> p) => string.Join("|", p.Select(x => x.Method.MDToken.Raw + x.Method.Module.Name));
+        var known = direct.Select(Key).ToHashSet();
+        return direct.Concat(Search(from, to, maxDepth, maxPaths, includeVirtual: true, ct).Where(p => p.Any(s => s.Via != null) && known.Add(Key(p))))
+            .Take(maxPaths).ToList();
+    }
+
+    private List<List<PathStep>> Search(MethodDef? from, MethodDef to, int maxDepth, int maxPaths, bool includeVirtual, CancellationToken ct)
     {
         var g = GetGraph(ct);
 

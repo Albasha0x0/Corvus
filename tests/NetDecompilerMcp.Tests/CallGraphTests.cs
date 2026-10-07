@@ -76,6 +76,27 @@ public class CallGraphTests : IDisposable
     }
 
     [Fact]
+    public void DirectPathsAreNotHiddenByVirtualDispatch()
+    {
+        // Impl.Run calls Target directly; nothing calls Impl.Run directly, but Driver.Kick reaches it through Base.Run.
+        // With virtual edges Impl.Run is no entry point, so only the longer Start -> Kick -> Run -> Target chain would show.
+        using var dir = new TempDir();
+        var path = dir.File("Dispatch.dll");
+        File.WriteAllBytes(path, ReferenceResolutionTests.Compile("Dispatch", """
+            public abstract class Base { public abstract void Run(); }
+            public class Impl : Base { public override void Run() { G.Target(); } }
+            public static class G { public static void Target() { } }
+            public static class Driver { public static void Kick(Base b) { b.Run(); } public static void Start() { Kick(null); } }
+            """));
+        using var env = new Env(path);
+        var graph = new CallGraphService(env.Workspace);
+        var paths = env.Workspace.Read(() => graph.PathSteps(null, env.Def<MethodDef>("G::Target"), 8, 10, includeVirtual: true, default));
+        Assert.Equal(["Impl::Run()", "G::Target()"], paths[0].Select(s => Format.MemberLabel(s.Method)));
+        Assert.All(paths[0], s => Assert.Null(s.Via));
+        Assert.Contains(paths, p => p.Select(s => s.Method.Name.String).SequenceEqual(["Start", "Kick", "Run", "Target"]) && p[2].Via != null);
+    }
+
+    [Fact]
     public void TreesExpandBreadthFirst()
     {
         // Root's callers: A (at the end of a long chain: A <- B <- C <- D) and Z (direct, nothing else).

@@ -51,23 +51,46 @@ public static class Blob
         if (StartsWith(b, "XALZ"u8)) return "xalz (Xamarin LZ4)";
         if (StartsWith(b, "XABA"u8)) return "xaba (Xamarin assembly store)";
         if (StartsWith(b, [0xCE, 0xCA, 0xEF, 0xBE])) return ".resources";
+        if (StartsWith(b, "BSJB"u8)) return "portable pdb";
+        if (StartsWith(b, "Microsoft C/C++ MSF 7.00"u8)) return "pdb";
         if (LooksLikeText(b)) return "text";
         return "data";
     }
 
     public static bool StartsWith(ReadOnlySpan<byte> b, ReadOnlySpan<byte> magic) => b.Length >= magic.Length && b[..magic.Length].SequenceEqual(magic);
 
-    /// <summary>Mostly printable UTF-8 / ASCII (checks a prefix).</summary>
+    /// <summary>Image formats: reported by kind but not decoded further, and grouped in summaries.</summary>
+    public static bool IsMedia(string kind) => kind is "png" or "jpeg" or "gif" or "ico";
+
+    /// <summary>
+    /// Readable text (checks a prefix): no NUL and at most 5% control bytes, and either 90% or more printable ASCII (a
+    /// few bytes of a legacy code page are fine) or valid UTF-8. Random binary has many high bytes that do not form
+    /// UTF-8, so it is not text.
+    /// </summary>
     public static bool LooksLikeText(ReadOnlySpan<byte> b)
     {
         if (b.Length == 0) return false;
         var sample = b[..Math.Min(b.Length, 4096)];
         if (StartsWith(sample, [0xEF, 0xBB, 0xBF])) sample = sample[3..];
-        int printable = 0;
+        if (sample.Length == 0) return false;
+        int printable = 0, ascii = 0;
         foreach (var c in sample)
+        {
+            if (c == 0) return false;
             if (c is 9 or 10 or 13 || (c >= 32 && c != 127)) printable++;
-            else if (c == 0) return false;
-        return printable >= sample.Length * 0.95;
+            if (c is 9 or 10 or 13 || (c >= 32 && c < 127)) ascii++;
+        }
+        if (printable < sample.Length * 0.95) return false;
+        if (ascii >= sample.Length * 0.9) return true;
+        // a sample cut inside a multi-byte character: drop the incomplete tail before validating
+        int end = sample.Length;
+        for (int i = 1; i <= 3 && i <= sample.Length; i++)
+        {
+            byte c = sample[sample.Length - i];
+            if ((c & 0xC0) == 0xC0) { int need = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : 2; if (need > i) end = sample.Length - i; break; }
+            if ((c & 0x80) == 0) break;
+        }
+        return System.Text.Unicode.Utf8.IsValid(sample[..end]);
     }
 
     /// <summary>Shannon entropy in bits per byte (0..8); above ~7.5 means compressed or encrypted.</summary>

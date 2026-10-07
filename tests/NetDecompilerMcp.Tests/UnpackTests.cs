@@ -326,7 +326,10 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         var r = Unpack(Save("CosturaHost.exe", host), load: true);
 
         Assert.Equal("Costura.Fody (embedded assemblies)", r.Container);
-        Assert.Equal(2, r.Files.Count);
+        Assert.Equal(3, r.Files.Count);
+        // the host itself first: the app's own code, loaded with the embedded assemblies (its path is the source file)
+        Assert.Equal((UnpackService.HostOrigin, "CosturaHost"), (r.Files[0].Origin, r.Files[0].LoadedAs));
+        Assert.Equal(System.IO.Path.GetFileName(r.Source), System.IO.Path.GetFileName(r.Files[0].Path));
         var a = Entry(r, "testfixture.dll");
         Assert.Equal(Blob.Sha256(fixture), a.Sha256);
         Assert.Equal("Costura resource costura.testfixture.dll.compressed (deflate)", a.Origin);
@@ -491,7 +494,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     {
         var host = ContainerFixtures.Module("Host", ("costura.broken.dll.compressed", [0xFF, 0xFF, 0xFF, 0xFF, 0x00]));
         var r = Unpack(Save("host.exe", host));
-        Assert.Empty(r.Files);
+        Assert.Equal(UnpackService.HostOrigin, Assert.Single(r.Files).Origin); // only the host: nothing could be extracted
         Assert.Contains(r.Notes, n => n.Contains("costura.broken.dll.compressed") && n.Contains("deflate"));
     }
 
@@ -601,7 +604,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         var r = new UnpackService(_workspace).Unpack(input, output, load: false, AnalysisLimits.Default, default);
 
         var prefix = Path.GetFullPath(output) + Path.DirectorySeparatorChar;
-        Assert.All(r.Files, f => Assert.StartsWith(prefix, f.Path));
+        Assert.All(r.Files.Where(f => f.Origin != UnpackService.HostOrigin), f => Assert.StartsWith(prefix, f.Path)); // the host is the input itself
         var everything = Directory.EnumerateFiles(sandbox.Path, "*", SearchOption.AllDirectories).Where(f => f != input).ToList();
         Assert.All(everything, f => Assert.StartsWith(prefix, f));
         Assert.DoesNotContain(everything, f => f.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)); // runnable extensions defanged
@@ -631,7 +634,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     [Fact]
     public void CosturaResources_WithTraversalNames_StayInsideTheOutput() =>
         AssertContained(ContainerFixtures.Module("Host", [.. HostileNames.Where(n => !n.Contains('\0')).Select((n, i) => ("costura." + n, Payload(i)))]), "hostile.dll",
-            r => Assert.Equal(HostileNames.Length - 1, r.Files.Count)); // metadata strings cannot hold NUL
+            r => Assert.Equal(HostileNames.Length - 1 + 1, r.Files.Count)); // metadata strings cannot hold NUL; + the host itself
 
     [Fact]
     public void NestedContainers_WithTraversalNames_StayInsideTheOutput()

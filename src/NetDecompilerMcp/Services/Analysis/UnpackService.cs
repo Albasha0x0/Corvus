@@ -16,6 +16,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
 {
     private const string Marker = ".netdecomp-unpack";
     private const string DotNet = ".NET assembly";
+    internal const string HostOrigin = "the file itself (container host)";
 
     /// <summary>One extracted file. ReadyToRun and Merged are set for .NET assemblies only.</summary>
     public sealed record UnpackedFile(string Path, string Kind, long Size, string Sha256, string Origin, string? LoadedAs,
@@ -58,6 +59,9 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             files.Add(file);
         }
 
+        // a managed host (Costura, embedded images) holds the app's own code: list it, and load it with the rest
+        if (Blob.Identify(data) == DotNet && walked.Container != "none")
+            files.Insert(0, new UnpackedFile(source, DotNet, data.Length, sha, HostOrigin, null, AssemblyTraits.IsReadyToRun(data), Inspect(data)?.Merged));
         if (load) LoadAssemblies(files, notes);
         return new UnpackReport(source, walked.Container, root, files, notes);
     }
@@ -166,6 +170,11 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             container = "none (plain .NET assembly)";
             assemblies = [new ManagedAssembly(Path.GetFileName(source), data, sha, "the file itself")];
             walked.Notes.RemoveAll(n => n.StartsWith("A plain .NET assembly", StringComparison.Ordinal));
+        }
+        else if (Blob.Identify(data) == DotNet)
+        {
+            // a managed file that embeds others (Costura host, assembly with embedded images): its own code comes first
+            assemblies.Insert(0, new ManagedAssembly(Path.GetFileName(source), data, sha, HostOrigin));
         }
         return (source, container, assemblies, walked.Notes);
     }

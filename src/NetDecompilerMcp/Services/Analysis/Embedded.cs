@@ -100,6 +100,7 @@ public static class Embedded
         bool xorText)
     {
         var kind = Blob.Identify(data);
+        if (kind == ".resources" && chain.Count == 0) return; // a .resources container: its entries are examined one by one
         if (IsBinaryKind(kind) && kind is not ("gzip" or "zlib"))
         {
             if (chain.Count > 0 || reportRaw) add(Make(data, source, chain, kind));
@@ -285,6 +286,21 @@ public static class Embedded
         return false;
     }
 
+    /// <summary>
+    /// A zip archive that opens: a central directory with at least one entry whose names are printable. (A key recovered
+    /// from the 4-byte local header always reproduces that header, so the header alone proves nothing.)
+    /// </summary>
+    private static bool IsRealZip(byte[] data)
+    {
+        try
+        {
+            using var zip = new System.IO.Compression.ZipArchive(new MemoryStream(data, writable: false), System.IO.Compression.ZipArchiveMode.Read);
+            var entries = zip.Entries;
+            return entries.Count > 0 && entries.All(e => e.FullName.Length > 0 && e.FullName.All(c => !char.IsControl(c)));
+        }
+        catch (Exception) { return false; }
+    }
+
     private static (byte[] Key, byte[] Decoded)? TryXorWithHeaders(byte[] data)
     {
         foreach (var (kind, header) in KnownHeaders)
@@ -305,7 +321,7 @@ public static class Embedded
                 bool valid = kind switch
                 {
                     "pe" => PeImage.TryParse(decoded) != null,
-                    "zip" => Blob.Identify(decoded) == "zip" && decoded.AsSpan().LastIndexOf("PK\x05\x06"u8) >= 0,
+                    "zip" => IsRealZip(decoded),
                     _ => Blob.TryDecompress(decoded, "gzip", 64L * 1024 * 1024) != null,
                 };
                 if (valid) return (key, decoded);
