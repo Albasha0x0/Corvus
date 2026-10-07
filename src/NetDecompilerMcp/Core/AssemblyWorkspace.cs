@@ -94,6 +94,7 @@ public sealed class AssemblyWorkspace : IDisposable
             throw new ToolError($"Not a loadable .NET assembly: {full} ({ex.Message})");
         }
         module.Location = full;
+        module.EnableTypeDefFindCache = true; // dnlib resolves type names constantly; without this every lookup is a linear scan
 
         var asm = new LoadedAssembly(MakeUniqueId(module, full), full, bytes, module);
         _assemblies.Add(asm);
@@ -108,7 +109,7 @@ public sealed class AssemblyWorkspace : IDisposable
     public sealed record LoadReport(List<LoadedAssembly> Loaded, List<(string Path, string Error)> Skipped);
 
     /// <summary>Loads every .dll/.exe in a directory. Non-.NET files are skipped, not fatal.</summary>
-    public LoadReport LoadDirectory(string directory, bool recursive)
+    public LoadReport LoadDirectory(string directory, bool recursive, Action<int, int, string>? onProgress = null)
     {
         var full = Path.GetFullPath(directory);
         if (!Directory.Exists(full))
@@ -122,8 +123,10 @@ public sealed class AssemblyWorkspace : IDisposable
         return Write(() =>
         {
             var report = new LoadReport(new(), new());
-            foreach (var f in files)
+            for (int i = 0; i < files.Count; i++)
             {
+                var f = files[i];
+                onProgress?.Invoke(i, files.Count, f);
                 try { report.Loaded.Add(LoadCore(f)); }
                 catch (Exception ex) { report.Skipped.Add((f, ex.Message)); }
             }
@@ -149,12 +152,6 @@ public sealed class AssemblyWorkspace : IDisposable
         _assemblies.Remove(fresh);
         _assemblies.Insert(Math.Max(0, Math.Min(index, _assemblies.Count)), fresh);
         return fresh;
-    });
-
-    internal void MarkEdited(LoadedAssembly asm, string description) => Write(() =>
-    {
-        asm.RecordEdit(description);
-        return 0;
     });
 
     /// <summary>
@@ -225,7 +222,7 @@ public sealed class AssemblyWorkspace : IDisposable
     /// Looks in the search directories, then in this process's .NET runtime directory as a last resort
     /// (resolves System.Runtime / System.Private.CoreLib for modern .NET targets).
     /// </summary>
-    private string? FindInSearchDirectories(string simpleName)
+    public string? FindAssemblyFile(string simpleName)
     {
         var runtimeDir = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory();
         foreach (var dir in _searchDirectories.Append(runtimeDir))
@@ -255,10 +252,14 @@ public sealed class AssemblyWorkspace : IDisposable
                 if (!ws._referenceModules.TryGetValue(name, out var module))
                 {
                     module = null;
-                    var path = ws.FindInSearchDirectories(name);
+                    var path = ws.FindAssemblyFile(name);
                     if (path != null)
                     {
-                        try { module = ModuleDefMD.Load(File.ReadAllBytes(path), ws.DnlibContext); }
+                        try
+                        {
+                            module = ModuleDefMD.Load(File.ReadAllBytes(path), ws.DnlibContext);
+                            module.EnableTypeDefFindCache = true;
+                        }
                         catch { module = null; }
                     }
                     ws._referenceModules[name] = module;

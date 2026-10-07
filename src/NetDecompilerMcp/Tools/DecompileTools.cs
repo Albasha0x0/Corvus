@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using dnlib.DotNet;
+using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Services;
@@ -10,88 +11,94 @@ namespace NetDecompilerMcp.Tools;
 [McpServerToolType]
 public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerService decompiler, OutputPager pager)
 {
-    [McpServerTool(Name = "decompile_type", ReadOnly = true)]
-    [Description("Decompile a whole type (class/struct/interface/enum/delegate, including nested types) to C#. " +
-                 "Large output is paged: call again with the offset from the footer. If one method breaks the decompiler, the rest is still returned with IL for the broken part.")]
+    private const int MaxMembersPerCall = 25;
+
+    [McpServerTool(Name = "decompile_type", Title = "Decompile type to C#", ReadOnly = true, OpenWorld = false)]
+    [Description("Decompile a whole type (class/struct/interface/enum/delegate, including nested types) to C#. Long output is paged: call again with the offset from the footer. " +
+                 "If one method breaks the decompiler, the rest is still returned with IL for the broken part.")]
     public Task<string> DecompileType(
         [Description("Type name or token. " + SymbolDescription)] string type,
-        [Description(AssemblyDescription)] string? assembly = null,
+        [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
-        var sym = SymbolResolver.ResolveType(workspace, assembly, type);
-        var text = pager.GetOrCreate($"{workspace.Generation}|type|{sym.Assembly.Id}|{Format.Token(sym.Member)}",
-            () => $"// [{sym.Assembly.Id}] {sym.Label}\n" + decompiler.DecompileType(sym.Assembly, (TypeDef)sym.Member, cancellationToken));
-        return pager.Page(text, offset, maxChars);
+        var sym = SymbolResolver.ResolveOne(workspace, assembly, type, SymbolKind.Type);
+        return pager.Page(TypeSource(sym, cancellationToken), offset, maxChars);
     }, cancellationToken);
 
-    [McpServerTool(Name = "decompile_member", ReadOnly = true)]
-    [Description("Decompile a method, property, field, event or constructor to C#. When a name has several overloads, all of them are returned unless a parameter list narrows it, e.g. 'Ns.Type::Foo(int, string)'. " +
-                 "Async/iterator state machines and lambdas are folded back into the original method.")]
+    [McpServerTool(Name = "decompile_member", Title = "Decompile member to C#", ReadOnly = true, OpenWorld = false)]
+    [Description("Decompile a method, property, field, event or constructor to C#. When a name has several overloads all are returned, unless a parameter list narrows it ('Ns.Type::Foo(int, string)'). " +
+                 "Async/iterator state machines and lambdas are folded back into the original method. A type name decompiles the whole type.")]
     public Task<string> DecompileMember(
         [Description(SymbolDescription)] string member,
-        [Description(AssemblyDescription)] string? assembly = null,
+        [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Restrict to: method, field, property, event (default any).")] string? kind = null,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
-        var parsedKind = SymbolResolver.ParseKind(kind);
-        var all = SymbolResolver.Resolve(workspace, assembly, member, parsedKind == SymbolKind.Any ? SymbolKind.Any : parsedKind);
-        if (all.Count == 1 && all[0].Member is TypeDef td)
-        {
-            var typeText = pager.GetOrCreate($"{workspace.Generation}|type|{all[0].Assembly.Id}|{Format.Token(td)}",
-                () => $"// [{all[0].Assembly.Id}] {all[0].Label}\n" + decompiler.DecompileType(all[0].Assembly, td, cancellationToken));
-            return pager.Page(typeText, offset, maxChars);
-        }
-        if (all.Count > 25)
-            throw new ToolError($"'{member}' matches {all.Count} members; narrow it with a type name, parameter list or token. First matches:\n" +
-                                string.Join("\n", all.Take(25).Select(a => "  " + a)));
+        var all = SymbolResolver.Resolve(workspace, assembly, member, SymbolResolver.ParseKind(kind));
+        if (all.Count == 1 && all[0].Member is TypeDef)
+            return pager.Page(TypeSource(all[0], cancellationToken), offset, maxChars);
+        RequireFew(all, member);
 
-        var key = $"{workspace.Generation}|member|{string.Join(",", all.Select(a => a.Assembly.Id + Format.Token(a.Member)))}";
-        var text = pager.GetOrCreate(key, () => string.Join("\n", all.GroupBy(a => a.Assembly).Select(g =>
+        var text = pager.GetOrCreate(CacheKey("member", all), () => string.Join("\n", all.GroupBy(a => a.Assembly).Select(g =>
             $"// [{g.Key.Id}]\n" + decompiler.DecompileMembers(g.Key, g.Select(s => s.Member), cancellationToken))));
         return pager.Page(text, offset, maxChars);
     }, cancellationToken);
 
-    [McpServerTool(Name = "get_il", ReadOnly = true)]
-    [Description("IL disassembly (ildasm style, with metadata tokens and structured try/catch blocks) of a method, or of a whole type when a type is given. Use when the C# looks wrong, for obfuscated code, or to get IL offsets.")]
+    [McpServerTool(Name = "get_il", Title = "IL disassembly", ReadOnly = true, OpenWorld = false)]
+    [Description("IL disassembly (ildasm style, with /* metadata token */ comments, IL offsets and structured try/catch blocks) of a method, field, property, event, or a whole type. " +
+                 "Use it when the C# looks wrong, for obfuscated code, or as the starting point for patch_method_il.")]
     public Task<string> GetIL(
         [Description(SymbolDescription)] string symbol,
-        [Description(AssemblyDescription)] string? assembly = null,
+        [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var all = SymbolResolver.Resolve(workspace, assembly, symbol);
-        if (all.Count > 25)
-            throw new ToolError($"'{symbol}' matches {all.Count} symbols; narrow it down.");
-        var key = $"{workspace.Generation}|il|{string.Join(",", all.Select(a => a.Assembly.Id + Format.Token(a.Member)))}";
-        var text = pager.GetOrCreate(key, () => string.Join("\n", all.Select(s =>
+        RequireFew(all, symbol);
+        var text = pager.GetOrCreate(CacheKey("il", all), () => string.Join("\n", all.Select(s =>
             $"// [{s.Assembly.Id}] {s.Label}\n{decompiler.Disassemble(s.Assembly, s.Member, cancellationToken)}")));
         return pager.Page(text, offset, maxChars);
     }, cancellationToken);
 
-    [McpServerTool(Name = "decompile_assembly_attributes", ReadOnly = true)]
-    [Description("Decompile assembly- and module-level attributes (InternalsVisibleTo, versions, TargetFramework, etc.) to C#.")]
+    [McpServerTool(Name = "decompile_assembly_attributes", Title = "Decompile assembly attributes", ReadOnly = true, OpenWorld = false)]
+    [Description("Decompile assembly- and module-level attributes (InternalsVisibleTo, versions, TargetFramework...) to C#.")]
     public Task<string> DecompileAssemblyAttributes(
-        [Description("Assembly id, name or path.")] string assembly,
+        [Description(AssemblyDescription)] string assembly,
+        CancellationToken cancellationToken = default) => Read(workspace, () =>
+            pager.Page(decompiler.DecompileAssemblyAttributes(workspace.Get(assembly), cancellationToken)), cancellationToken);
+
+    [McpServerTool(Name = "export_project", Title = "Export C# project", OpenWorld = false)]
+    [Description("Decompile an entire assembly into a C# project on disk (one .cs file per type, a .csproj, and resources). Best way to grep or browse a large codebase with normal file tools. Reports progress.")]
+    public Task<string> ExportProject(
+        [Description(AssemblyDescription)] string assembly,
+        [Description("Empty or new output directory.")] string outputDirectory,
+        IProgress<ProgressNotificationValue>? progress = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var asm = workspace.Get(assembly);
-        return pager.Page(decompiler.DecompileAssemblyAttributes(asm, cancellationToken));
+        var result = decompiler.ExportProject(asm, outputDirectory, (done, total, status) => Report(progress, done, total, status), cancellationToken);
+        var summary = $"Exported {asm.Id} to {result.Directory}: {result.FileCount} files.{(result.ProjectFile != null ? $" Project: {result.ProjectFile}" : "")}";
+        if (result.FailedTypes.Count > 0)
+            summary += $"\n{Plural(result.FailedTypes.Count, "type")} failed to decompile (their files contain the error):\n  " +
+                       string.Join("\n  ", result.FailedTypes.Take(20));
+        return summary;
     }, cancellationToken);
 
-    [McpServerTool(Name = "export_project")]
-    [Description("Decompile an entire assembly into a C# project on disk (one .cs file per type plus a .csproj and resources). Best way to grep or browse a large codebase with normal file tools afterwards.")]
-    public Task<string> ExportProject(
-        [Description("Assembly id, name or path.")] string assembly,
-        [Description("Empty or new output directory.")] string outputDirectory,
-        CancellationToken cancellationToken = default) => Read(workspace, () =>
+    private string TypeSource(ResolvedSymbol sym, CancellationToken ct) =>
+        pager.GetOrCreate(CacheKey("type", [sym]), () => $"// [{sym.Assembly.Id}] {sym.Label}\n" + decompiler.DecompileType(sym.Assembly, (TypeDef)sym.Member, ct));
+
+    private string CacheKey(string kind, IEnumerable<ResolvedSymbol> symbols) =>
+        $"{workspace.Generation}|{kind}|{string.Join(",", symbols.Select(s => s.Assembly.Id + Format.Token(s.Member)))}";
+
+    private static void RequireFew(IReadOnlyList<ResolvedSymbol> all, string query)
     {
-        var asm = workspace.Get(assembly);
-        var result = decompiler.ExportProject(asm, outputDirectory, cancellationToken);
-        return $"Exported {asm.Id} to {result.Directory}: {result.FileCount} files.{(result.ProjectFile != null ? $" Project: {result.ProjectFile}" : "")}";
-    }, cancellationToken);
+        if (all.Count > MaxMembersPerCall)
+            throw new ToolError($"'{query}' matches {all.Count} symbols; narrow it with a type name, parameter list or token. First matches:\n" +
+                                string.Join("\n", all.Take(MaxMembersPerCall).Select(a => "  " + a)));
+    }
 }

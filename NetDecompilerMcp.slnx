@@ -4,6 +4,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/NetDecompilerMcp.Tests/NetDecompilerMcp.Tests.csproj" />
+    <Project Path="tests/TestFixture.Consumer/TestFixture.Consumer.csproj" />
     <Project Path="tests/TestFixture/TestFixture.csproj" />
   </Folder>
 </Solution>

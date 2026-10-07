@@ -39,7 +39,7 @@ public sealed class IlAssembler(AssemblyWorkspace workspace)
     private sealed record ParsedLine(int LineNumber, string? Label, string OpCode, string Operand, string? Token, string Raw);
 
     /// <summary>Parses <paramref name="source"/> into instructions for <paramref name="method"/>. Does not modify the method.</summary>
-    public Result Assemble(LoadedAssembly asm, MethodDef method, string source, IList<Instruction>? originalForLabels)
+    public Result Assemble(MethodDef method, string source, IList<Instruction>? originalForLabels)
     {
         var lines = Tokenize(source);
         if (lines.Count == 0)
@@ -48,45 +48,45 @@ public sealed class IlAssembler(AssemblyWorkspace workspace)
         var module = method.Module;
         var importer = new Importer(module, ImporterOptions.TryToUseDefs);
         var newLocals = new List<Local>();
-        var existingLocals = AnalysisService.SafeBody(method)?.Variables.ToList() ?? [];
+        var existingLocals = MetadataUtil.SafeBody(method)?.Variables.ToList() ?? [];
 
         // Pass 1: create instructions, remember labels; branch operands are fixed up in pass 2.
         var labels = new Dictionary<string, Instruction>(StringComparer.Ordinal);
         var pending = new List<(Instruction Instr, ParsedLine Line)>();
         var instructions = new List<Instruction>();
-        string? pendingLabel = null;
+        var pendingLabels = new List<(string Name, ParsedLine Line)>(); // labels on their own line(s), waiting for the next instruction
 
         foreach (var line in lines)
         {
+            if (line.Label != null)
+            {
+                if (labels.ContainsKey(line.Label) || pendingLabels.Any(p => p.Name == line.Label))
+                    throw Error(line, $"label '{line.Label}' defined twice");
+                pendingLabels.Add((line.Label, line));
+            }
             if (line.OpCode.Equals(".local", StringComparison.OrdinalIgnoreCase))
             {
-                newLocals.Add(new Local(ParseTypeSig(asm, module, importer, line.Operand, line)));
+                newLocals.Add(new Local(ParseTypeSig(module, importer, line.Operand, line)));
                 continue;
             }
             if (line.OpCode.Length == 0)
-            {
-                pendingLabel = line.Label ?? pendingLabel;
                 continue;
-            }
             if (!OpCodesByName.TryGetValue(line.OpCode, out var op))
                 throw Error(line, $"unknown opcode '{line.OpCode}'");
 
             var instr = new Instruction(op);
-            foreach (var label in new[] { pendingLabel, line.Label }.Where(l => l != null).Distinct())
-            {
-                if (!labels.TryAdd(label!, instr))
-                    throw Error(line, $"label '{label}' defined twice");
-            }
-            pendingLabel = null;
+            foreach (var (name, _) in pendingLabels)
+                labels[name] = instr;
+            pendingLabels.Clear();
             instructions.Add(instr);
             pending.Add((instr, line));
         }
-        if (pendingLabel != null)
-            throw new ToolError($"Label '{pendingLabel}' is not followed by an instruction.");
+        if (pendingLabels.Count > 0)
+            throw Error(pendingLabels[0].Line, $"label '{pendingLabels[0].Name}' is not followed by an instruction");
 
         var allLocals = existingLocals.Concat(newLocals).ToList();
         foreach (var (instr, line) in pending)
-            instr.Operand = ParseOperand(asm, method, module, importer, instr.OpCode, line, labels, originalForLabels, allLocals);
+            instr.Operand = ParseOperand(method, module, importer, instr.OpCode, line, labels, originalForLabels, allLocals);
 
         return new Result(instructions, newLocals);
     }
@@ -165,7 +165,7 @@ public sealed class IlAssembler(AssemblyWorkspace workspace)
         return sb.ToString();
     }
 
-    private object? ParseOperand(LoadedAssembly asm, MethodDef method, ModuleDef module, Importer importer, OpCode op, ParsedLine line,
+    private object? ParseOperand(MethodDef method, ModuleDef module, Importer importer, OpCode op, ParsedLine line,
         Dictionary<string, Instruction> labels, IList<Instruction>? original, List<Local> locals)
     {
         var text = line.Operand;
@@ -198,13 +198,13 @@ public sealed class IlAssembler(AssemblyWorkspace workspace)
             case OperandType.ShortInlineVar:
                 return IsArgOpcode(op.Code) ? Argument(line, method, text) : LocalVar(line, locals, text);
             case OperandType.InlineMethod:
-                return ResolveMember(asm, module, importer, line, SymbolKind.Method) as IMethod ?? throw Error(line, "operand is not a method");
+                return MetadataUtil.AsMethod(ResolveMember(module, importer, line, SymbolKind.Method)) ?? throw Error(line, "operand is not a method");
             case OperandType.InlineField:
-                return ResolveMember(asm, module, importer, line, SymbolKind.Field) as IField ?? throw Error(line, "operand is not a field");
+                return MetadataUtil.AsField(ResolveMember(module, importer, line, SymbolKind.Field)) ?? throw Error(line, "operand is not a field");
             case OperandType.InlineType:
-                return ParseTypeSig(asm, module, importer, text, line).ToTypeDefOrRef();
+                return ParseTypeSig(module, importer, text, line).ToTypeDefOrRef();
             case OperandType.InlineTok:
-                return ResolveMember(asm, module, importer, line, SymbolKind.Any) as ITokenOperand ?? throw Error(line, "operand is not a type, method or field");
+                return ResolveMember(module, importer, line, SymbolKind.Any) as ITokenOperand ?? throw Error(line, "operand is not a type, method or field");
             default:
                 throw Error(line, $"operand type {op.OperandType} ({op.Name}) is not supported");
         }
@@ -255,7 +255,7 @@ public sealed class IlAssembler(AssemblyWorkspace workspace)
         throw Error(line, $"'{text}' is not an integer");
     }
 
-    private object ResolveMember(LoadedAssembly asm, ModuleDef module, Importer importer, ParsedLine line, SymbolKind kind)
+    private object ResolveMember(ModuleDef module, Importer importer, ParsedLine line, SymbolKind kind)
     {
         // 1. Token comment copied from get_il output (refers to this module).
         if (line.Token != null && module.ResolveToken(uint.Parse(line.Token, NumberStyles.HexNumber, CultureInfo.InvariantCulture)) is { } byComment)
@@ -264,7 +264,7 @@ public sealed class IlAssembler(AssemblyWorkspace workspace)
         var text = line.Operand.Trim();
         // 2. Explicit token.
         if (SymbolResolver.TryParseToken(text, out uint token) || TryParseRefToken(text, out token))
-            return module.ResolveToken(token) ?? throw Error(line, $"token {text} not found in {asm.Id}");
+            return module.ResolveToken(token) ?? throw Error(line, $"token {text} not found in {module.Name}");
 
         // 3. ILSpy-style operand text without token: strip the leading return type / 'instance' for symbol lookup.
         var symbol = SimplifyIlMemberSyntax(text);
@@ -406,7 +406,7 @@ public sealed class IlAssembler(AssemblyWorkspace workspace)
 
     private static string Normalize(string s) => new string(s.Where(c => !char.IsWhiteSpace(c)).ToArray()).ToLowerInvariant();
 
-    private TypeSig ParseTypeSig(LoadedAssembly asm, ModuleDef module, Importer importer, string text, ParsedLine line)
+    private TypeSig ParseTypeSig(ModuleDef module, Importer importer, string text, ParsedLine line)
     {
         var t = Regex.Replace(text.Trim(), @"\[[^\]]+\]", "").Replace("class ", "").Replace("valuetype ", "").Trim();
         if (line.Token != null && module.ResolveToken(uint.Parse(line.Token, NumberStyles.HexNumber, CultureInfo.InvariantCulture)) is ITypeDefOrRef byComment)

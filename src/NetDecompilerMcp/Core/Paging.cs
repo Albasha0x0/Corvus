@@ -35,6 +35,22 @@ public sealed class OutputPager(ServerOptions options)
         return text;
     }
 
+    /// <summary>
+    /// Pages a list of rows by index (offset/limit), with a header line and a "more" hint, then applies the character limit.
+    /// </summary>
+    public string PageRows(IReadOnlyList<string> rows, int offset, int limit, string noun)
+    {
+        limit = Math.Clamp(limit, 1, 5_000);
+        offset = Math.Max(0, offset);
+        var page = rows.Skip(offset).Take(limit).ToList();
+        var sb = new System.Text.StringBuilder()
+            .AppendLine($"{rows.Count} {(rows.Count == 1 ? noun : noun + "s")} (showing {(page.Count == 0 ? 0 : offset + 1)}-{offset + page.Count}):");
+        foreach (var r in page) sb.Append("  ").AppendLine(r);
+        if (offset + page.Count < rows.Count)
+            sb.AppendLine($"[More: call again with offset={offset + page.Count}]");
+        return Page(sb.ToString());
+    }
+
     /// <summary>Returns the slice starting at <paramref name="offset"/>, cut at a line break when possible.</summary>
     public string Page(string text, int offset = 0, int? maxChars = null)
     {

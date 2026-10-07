@@ -9,18 +9,15 @@ namespace NetDecompilerMcp.Services;
 /// In-memory edits on the dnlib module. Nothing touches disk until <see cref="Save"/>.
 /// Callers must hold the workspace write lock (AssemblyWorkspace.Write).
 /// </summary>
-public sealed class EditService(IlAssembler assembler)
+public sealed class EditService(IlAssembler assembler, CSharpPatcher csharp)
 {
     /// <summary>
     /// Replaces (mode=replace) or prefixes (mode=prepend) a method body with IL assembled from text.
-    /// The result is stack-validated before anything is changed; dryRun only reports the resulting body.
+    /// Everything is validated before the method is touched; dryRun only reports the resulting body.
     /// </summary>
     public string PatchMethodIL(ResolvedSymbol symbol, string il, string mode, bool dryRun)
     {
-        if (symbol.Member is not MethodDef m)
-            throw new ToolError($"{symbol.Label} is a {symbol.Kind}, not a method.");
-        if (m.IsAbstract || m.IsPinvokeImpl || m.IsRuntime)
-            throw new ToolError($"{symbol.Label} has no IL body (abstract/extern/runtime).");
+        var m = RequireBodyMethod(symbol);
         bool prepend = mode.Trim().ToLowerInvariant() switch
         {
             "replace" or "" => false,
@@ -28,46 +25,81 @@ public sealed class EditService(IlAssembler assembler)
             _ => throw new ToolError($"Unknown mode '{mode}'. Use replace or prepend."),
         };
 
-        var oldBody = AnalysisService.SafeBody(m);
+        var oldBody = MetadataUtil.SafeBody(m);
         if (prepend && oldBody == null)
             throw new ToolError($"{symbol.Label} has no existing body to prepend to; use mode=replace.");
 
-        var assembled = assembler.Assemble(symbol.Assembly, m, il, oldBody?.Instructions);
-        var finalInstructions = prepend ? assembled.Instructions.Concat(oldBody!.Instructions).ToList() : assembled.Instructions;
+        var assembled = assembler.Assemble(m, il, oldBody?.Instructions);
+        MethodUtils.SimplifyBranches(assembled.Instructions); // only our new instructions: the original body stays untouched until applied
+        var final = prepend ? assembled.Instructions.Concat(oldBody!.Instructions).ToList() : assembled.Instructions;
         var handlers = prepend ? oldBody!.ExceptionHandlers.ToList() : new List<ExceptionHandler>();
 
-        // Validate on a scratch body so the real method is untouched on failure or dry run.
-        var scratch = new CilBody(oldBody?.InitLocals ?? true, finalInstructions, handlers, new List<Local>());
-        scratch.SimplifyBranches();
-        scratch.OptimizeBranches();
-        scratch.UpdateInstructionOffsets();
-        if (finalInstructions.Count == 0 || !IsTerminator(finalInstructions[^1].OpCode))
+        if (final.Count == 0 || !IsTerminator(final[^1].OpCode))
             throw new ToolError("The patched body must end with ret, throw, rethrow or an unconditional branch.");
-        if (!dnlib.DotNet.Writer.MaxStackCalculator.GetMaxStack(finalInstructions, handlers, out uint maxStack))
+        if (!dnlib.DotNet.Writer.MaxStackCalculator.GetMaxStack(final, handlers, out uint maxStack))
             throw new ToolError("Stack imbalance: the IL leaves the evaluation stack inconsistent (check pushes/pops before branches and ret).");
 
-        var listing = string.Join("\n", finalInstructions.Select(i => "  " + i));
-        oldBody?.UpdateInstructionOffsets(); // restore offsets of shared original instructions
+        string listing;
+        try
+        {
+            new CilBody(true, final, handlers, new List<Local>()).UpdateInstructionOffsets();
+            listing = Listing(final);
+        }
+        finally
+        {
+            oldBody?.UpdateInstructionOffsets(); // offsets of the shared original instructions were recomputed above
+        }
         if (dryRun)
-            return $"Dry run — {symbol.Label} would become ({finalInstructions.Count} instructions, maxstack {maxStack}" +
+            return $"Dry run — {symbol.Label} would become ({final.Count} instructions, maxstack {maxStack}" +
                    $"{(assembled.NewLocals.Count > 0 ? $", +{assembled.NewLocals.Count} locals" : "")}):\n{listing}";
 
         var body = oldBody ?? new CilBody();
-        if (!prepend)
-            body.ExceptionHandlers.Clear();
+        if (!prepend) body.ExceptionHandlers.Clear();
         body.Instructions.Clear();
-        foreach (var instr in finalInstructions) body.Instructions.Add(instr);
+        foreach (var instr in final) body.Instructions.Add(instr);
         foreach (var local in assembled.NewLocals) body.Variables.Add(local);
+        Apply(m, body);
+
+        var description = $"patch IL ({(prepend ? "prepend" : "replace")}, {assembled.Instructions.Count} instructions) {symbol.Label}";
+        symbol.Assembly.RecordEdit(description);
+        return $"{description}\nNew body:\n{Listing(body.Instructions)}";
+    }
+
+    /// <summary>Replaces a method body with C# statements compiled against the assembly (see <see cref="CSharpPatcher"/>).</summary>
+    public string PatchMethodCSharp(ResolvedSymbol symbol, string code, bool dryRun, CancellationToken ct)
+    {
+        var m = RequireBodyMethod(symbol);
+        var compiled = csharp.Compile(symbol, code, ct);
+        if (!dnlib.DotNet.Writer.MaxStackCalculator.GetMaxStack(compiled.Body.Instructions, compiled.Body.ExceptionHandlers, out _))
+            throw new ToolError("Internal: the compiled body failed stack validation; nothing was changed.");
+        if (dryRun)
+            return $"Dry run — compiled OK; {symbol.Label} would become ({compiled.Body.Instructions.Count} IL instructions):\n{compiled.Listing}";
+
+        Apply(m, compiled.Body);
+        var description = $"patch C# {symbol.Label}";
+        symbol.Assembly.RecordEdit(description);
+        return description;
+    }
+
+    private static MethodDef RequireBodyMethod(ResolvedSymbol symbol)
+    {
+        if (symbol.Member is not MethodDef m)
+            throw new ToolError($"{symbol.Label} is a {symbol.Kind}, not a method.");
+        if (m.IsAbstract || m.IsPinvokeImpl || m.IsRuntime || m.IsInternalCall)
+            throw new ToolError($"{symbol.Label} has no IL body (abstract/extern/runtime).");
+        return m;
+    }
+
+    private static void Apply(MethodDef m, CilBody body)
+    {
         body.SimplifyBranches();
         body.OptimizeBranches();
         body.UpdateInstructionOffsets();
         m.Body = body;
         m.ImplAttributes &= ~(MethodImplAttributes.InternalCall | MethodImplAttributes.Runtime);
-
-        var description = $"patch IL ({(prepend ? "prepend" : "replace")}, {assembled.Instructions.Count} instructions) {symbol.Label}";
-        symbol.Assembly.RecordEdit(description);
-        return $"{description}\nNew body:\n{listing}";
     }
+
+    private static string Listing(IEnumerable<Instruction> instructions) => string.Join("\n", instructions.Select(i => "  " + i));
 
     private static bool IsTerminator(OpCode op) =>
         op.FlowControl is FlowControl.Return or FlowControl.Throw or FlowControl.Branch;
@@ -138,7 +170,7 @@ public sealed class EditService(IlAssembler assembler)
     {
         if (symbol.Member is not MethodDef m)
             throw new ToolError($"{symbol.Label} is a {symbol.Kind}, not a method.");
-        if (m.IsAbstract || m.IsPinvokeImpl || m.IsRuntime)
+        if (m.IsAbstract || m.IsPinvokeImpl || m.IsRuntime || m.IsInternalCall)
             throw new ToolError($"{symbol.Label} has no IL body to replace (abstract/extern/runtime).");
 
         var body = new CilBody { InitLocals = true };
@@ -161,9 +193,7 @@ public sealed class EditService(IlAssembler assembler)
         if (dryRun)
             return $"Dry run — {symbol.Label} would become: {shown}\n" + string.Join("\n", il.Select(i => "  " + i));
 
-        m.Body = body;
-        m.ImplAttributes &= ~(MethodImplAttributes.InternalCall | MethodImplAttributes.Runtime);
-        m.ImplAttributes |= MethodImplAttributes.IL;
+        Apply(m, body);
         var description = $"stub {symbol.Label} => {shown}";
         symbol.Assembly.RecordEdit(description);
         return description;

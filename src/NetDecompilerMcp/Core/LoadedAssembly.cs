@@ -19,6 +19,8 @@ public sealed class LoadedAssembly : IDisposable
     private readonly byte[] _originalBytes;
     private PEFile? _peFile;
     private int _peFileVersion = -1;
+    private byte[]? _editedBytes;
+    private int _editedBytesVersion = -1;
 
     internal LoadedAssembly(string id, string filePath, byte[] bytes, ModuleDefMD module)
     {
@@ -50,19 +52,37 @@ public sealed class LoadedAssembly : IDisposable
         {
             Edits.Add(description);
             Version++;
+            // Renames change type names: rebuild dnlib's name -> TypeDef cache.
+            Module.EnableTypeDefFindCache = false;
+            Module.EnableTypeDefFindCache = true;
         }
     }
 
-    /// <summary>The decompiler's view, rebuilt from the edited module when needed.</summary>
+    /// <summary>The current image: the original file bytes, or the edited module serialized (cached per edit version).</summary>
+    public byte[] GetImageBytes()
+    {
+        lock (_sync)
+        {
+            if (!IsDirty)
+                return _originalBytes;
+            if (_editedBytes == null || _editedBytesVersion != Version)
+            {
+                _editedBytes = WriteToBytes();
+                _editedBytesVersion = Version;
+            }
+            return _editedBytes;
+        }
+    }
+
+    /// <summary>The decompiler's view of <see cref="GetImageBytes"/>, rebuilt after edits.</summary>
     public PEFile GetPEFile()
     {
         lock (_sync)
         {
             if (_peFile == null || _peFileVersion != Version)
             {
-                var bytes = IsDirty ? WriteToBytes() : _originalBytes;
                 var old = _peFile;
-                _peFile = new PEFile(FilePath, new MemoryStream(bytes, writable: false),
+                _peFile = new PEFile(FilePath, new MemoryStream(GetImageBytes(), writable: false),
                     PEStreamOptions.PrefetchEntireImage, MetadataReaderOptions.None);
                 _peFileVersion = Version;
                 old?.Dispose();

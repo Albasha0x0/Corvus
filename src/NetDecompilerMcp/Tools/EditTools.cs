@@ -7,82 +7,97 @@ using static NetDecompilerMcp.Tools.ToolSupport;
 namespace NetDecompilerMcp.Tools;
 
 /// <summary>
-/// In-memory edits. They show up immediately in decompile/IL output and are written to disk only by save_assembly.
+/// In-memory edits: visible immediately in decompile/IL/search output, written to disk only by save_assembly.
 /// </summary>
 [McpServerToolType]
-public sealed class EditTools(AssemblyWorkspace workspace, EditService edits)
+public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, DecompilerService decompiler)
 {
-    [McpServerTool(Name = "rename_symbol")]
-    [Description("Rename a type, method, field, property (and its accessors) or event in memory — e.g. to give obfuscated names meaning. Visible in later decompilation; persisted only by save_assembly. Other assemblies that reference the old name are not updated.")]
+    [McpServerTool(Name = "rename_symbol", Title = "Rename symbol", Destructive = false, OpenWorld = false)]
+    [Description("Rename a type, method, field, property (with its accessors) or event in memory — e.g. to give obfuscated names meaning. Other assemblies that reference the old name are not updated.")]
     public Task<string> RenameSymbol(
         [Description(SymbolDescription)] string symbol,
         [Description("New name (for a type: the simple name without namespace).")] string newName,
-        [Description(AssemblyDescription)] string? assembly = null,
+        [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Restrict symbol resolution to: type, method, field, property, event.")] string? kind = null,
-        [Description("Preview the change without applying it.")] bool dryRun = false,
-        CancellationToken cancellationToken = default) => Write(workspace, () =>
+        [Description(DryRunDescription)] bool dryRun = false,
+        CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, symbol, SymbolResolver.ParseKind(kind));
-        return $"[{sym.Assembly.Id}] {edits.Rename(sym, newName, dryRun)}. Unsaved edits: {sym.Assembly.Edits.Count}.";
+        return $"[{sym.Assembly.Id}] {edits.Rename(sym, newName, dryRun)}{Pending(sym.Assembly, dryRun)}";
     }, cancellationToken);
 
-    [McpServerTool(Name = "rename_namespace")]
+    [McpServerTool(Name = "rename_namespace", Title = "Rename namespace", Destructive = false, OpenWorld = false)]
     [Description("Move every type in a namespace (optionally including sub-namespaces) to a new namespace, in memory.")]
     public Task<string> RenameNamespace(
-        [Description("Assembly id, name or path.")] string assembly,
+        [Description(AssemblyDescription)] string assembly,
         [Description("Existing namespace ('' for the global namespace).")] string oldNamespace,
         [Description("New namespace.")] string newNamespace,
         [Description("Also rewrite namespaces that start with oldNamespace + '.'.")] bool includeSubNamespaces = false,
-        [Description("Preview the change without applying it.")] bool dryRun = false,
-        CancellationToken cancellationToken = default) => Write(workspace, () =>
+        [Description(DryRunDescription)] bool dryRun = false,
+        CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
         var asm = workspace.Get(assembly);
-        return $"[{asm.Id}] {edits.RenameNamespace(asm, oldNamespace, newNamespace, includeSubNamespaces, dryRun)}.";
+        return $"[{asm.Id}] {edits.RenameNamespace(asm, oldNamespace, newNamespace, includeSubNamespaces, dryRun)}{Pending(asm, dryRun)}";
     }, cancellationToken);
 
-    [McpServerTool(Name = "stub_method")]
-    [Description("Replace a method's body with 'return <value>;' (or 'return;' for void) in memory — e.g. force a check to return true, disable a call. " +
-                 "value: true/false, an integer (decimal or 0x hex), a float, a \"quoted string\", null, or default (omit). Persisted only by save_assembly.")]
+    [McpServerTool(Name = "stub_method", Title = "Stub method (return constant)", Destructive = false, OpenWorld = false)]
+    [Description("Replace a method's body with 'return <value>;' (or 'return;' for void) in memory — force a check to return true, disable a call. " +
+                 "value: true/false, an integer (decimal or 0x hex), a float, a \"quoted string\", null, or default (omit).")]
     public Task<string> StubMethod(
         [Description("Method. " + SymbolDescription)] string method,
         [Description("Return value; omit for void methods or default(T).")] string? value = null,
-        [Description(AssemblyDescription)] string? assembly = null,
-        [Description("Preview the change without applying it.")] bool dryRun = false,
-        CancellationToken cancellationToken = default) => Write(workspace, () =>
+        [Description(AssemblyFilterDescription)] string? assembly = null,
+        [Description(DryRunDescription)] bool dryRun = false,
+        CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, method, SymbolKind.Method);
-        return $"[{sym.Assembly.Id}] {edits.StubMethod(sym, value, dryRun)}. Unsaved edits: {sym.Assembly.Edits.Count}.";
+        return $"[{sym.Assembly.Id}] {edits.StubMethod(sym, value, dryRun)}{Pending(sym.Assembly, dryRun)}";
     }, cancellationToken);
 
-    [McpServerTool(Name = "patch_method_il")]
-    [Description("Rewrite a method body from IL text, in memory. Easiest workflow: get_il the method, edit the instruction lines, pass them back here " +
-                 "(header lines are ignored; the /* token */ comments get_il prints resolve operands exactly). " +
-                 "Syntax per line: '[label:] opcode [operand]'. Operands: numbers, \"strings\", labels, switch (L1, L2), arg/local index or name, " +
-                 "members as 'Ns.Type::Method(int, string)' or tokens. '.local <type>' adds a local. " +
-                 "mode=replace swaps the whole body (no try/catch support); mode=prepend inserts before the original code, which can branch to original IL_xxxx labels. " +
-                 "The result is stack-validated; use dryRun=true to preview. Persisted only by save_assembly.")]
+    [McpServerTool(Name = "patch_method_csharp", Title = "Replace method body with C#", Destructive = false, OpenWorld = false)]
+    [Description("Replace a method's body with C# statements, compiled against the assembly and its references (private/internal members are accessible, like in dnSpy's Edit Method). " +
+                 "Pass only the body (statements), e.g. 'if (amount < 0) return; _health -= amount;'. Works for methods, constructors and property/indexer/event accessors. " +
+                 "Compile errors are reported with line numbers relative to your code. Lambdas, local functions, async/await, yield and LINQ need compiler-generated types and are rejected — use loops/if-chains or patch_method_il. " +
+                 "Returns the decompiled result. Persisted only by save_assembly.")]
+    public Task<string> PatchMethodCSharp(
+        [Description("Method. " + SymbolDescription)] string method,
+        [Description("C# statements forming the new body.")] string code,
+        [Description(AssemblyFilterDescription)] string? assembly = null,
+        [Description(DryRunDescription + " Compiles and shows the IL that would be written.")] bool dryRun = false,
+        CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
+    {
+        var sym = SymbolResolver.ResolveOne(workspace, assembly, method, SymbolKind.Method);
+        var result = edits.PatchMethodCSharp(sym, code, dryRun, cancellationToken);
+        if (dryRun) return $"[{sym.Assembly.Id}] {result}";
+        var after = decompiler.DecompileMembers(sym.Assembly, [sym.Member], cancellationToken);
+        return $"[{sym.Assembly.Id}] {result}{Pending(sym.Assembly, dryRun)}\n\nDecompiled result:\n{after}";
+    }, cancellationToken);
+
+    [McpServerTool(Name = "patch_method_il", Title = "Rewrite method body in IL", Destructive = false, OpenWorld = false)]
+    [Description("Rewrite a method body from IL text, in memory. Easiest: get_il the method, edit the instruction lines, pass them back (header lines are ignored; the /* token */ comments resolve operands exactly). " +
+                 "Line syntax: '[label:] opcode [operand]'. Operands: numbers, \"strings\", labels, switch (L1, L2), arg/local index or name, members as 'Ns.Type::Method(int, string)' (framework members included) or tokens. '.local <type>' adds a local. " +
+                 "mode=replace swaps the whole body (no try/catch); mode=prepend inserts before the original code and can branch to its IL_xxxx labels. Stack-validated before applying.")]
     public Task<string> PatchMethodIL(
         [Description("Method. " + SymbolDescription)] string method,
         [Description("IL instructions, one per line.")] string il,
         [Description("replace (default) or prepend.")] string mode = "replace",
-        [Description(AssemblyDescription)] string? assembly = null,
-        [Description("Preview the change without applying it.")] bool dryRun = false,
-        CancellationToken cancellationToken = default) => Write(workspace, () =>
+        [Description(AssemblyFilterDescription)] string? assembly = null,
+        [Description(DryRunDescription)] bool dryRun = false,
+        CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, method, SymbolKind.Method);
-        return $"[{sym.Assembly.Id}] {edits.PatchMethodIL(sym, il, mode, dryRun)}";
+        return $"[{sym.Assembly.Id}] {edits.PatchMethodIL(sym, il, mode, dryRun)}{Pending(sym.Assembly, dryRun)}";
     }, cancellationToken);
 
-    [McpServerTool(Name = "save_assembly", Destructive = true)]
-    [Description("Write an assembly (with its in-memory edits) to disk. Default output is '<name>.patched.dll' next to the original. " +
-                 "Overwriting an existing file requires overwrite=true; when that file is the original, it is first copied to '<file>.bak'.")]
+    [McpServerTool(Name = "save_assembly", Title = "Save patched assembly", Destructive = true, OpenWorld = false)]
+    [Description("Write an assembly with its in-memory edits to disk. Default output: '<name>.patched.dll' next to the original. " +
+                 "Replacing an existing file requires overwrite=true; when that file is the original, it is first copied to '<file>.bak'. Writes atomically.")]
     public Task<string> SaveAssembly(
-        [Description("Assembly id, name or path.")] string assembly,
+        [Description(AssemblyDescription)] string assembly,
         [Description("Output file path. Omit for '<original>.patched.dll'.")] string? outputPath = null,
         [Description("Allow replacing an existing file.")] bool overwrite = false,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
-    {
-        var asm = workspace.Get(assembly);
-        return edits.Save(asm, outputPath, overwrite);
-    }, cancellationToken);
+            edits.Save(workspace.Get(assembly), outputPath, overwrite), cancellationToken);
+
+    private static string Pending(LoadedAssembly asm, bool dryRun) => dryRun ? "" : $"\nUnsaved edits in {asm.Id}: {asm.Edits.Count}.";
 }

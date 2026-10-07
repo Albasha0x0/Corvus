@@ -22,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\NetDecompilerMcp\NetDecompilerMcp.csproj" />
     <ProjectReference Include="..\TestFixture\TestFixture.csproj" />
+    <ProjectReference Include="..\TestFixture.Consumer\TestFixture.Consumer.csproj" />
   </ItemGroup>
 
 </Project>

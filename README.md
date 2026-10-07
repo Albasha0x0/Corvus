@@ -4,58 +4,71 @@ A headless .NET decompiler for AI agents, served over the [Model Context Protoco
 It decompiles, searches, cross-references and patches .NET assemblies, including Unity Mono games and
 Il2CppDumper / Cpp2IL dummy DLLs. No GUI, no dnSpy instance, no admin rights and no network port.
 
-- **Decompiler:** the ILSpy engine (`ICSharpCode.Decompiler`), the same one dnSpy uses.
-- **Metadata, analysis and patching:** [dnlib](https://github.com/0xd4d/dnlib).
+- **Decompiler:** the ILSpy engine (`ICSharpCode.Decompiler`), the same engine dnSpy uses.
+- **Metadata and patching:** [dnlib](https://github.com/0xd4d/dnlib), plus a fast `System.Reflection.Metadata` IL scanner.
+- **C# method patching:** Roslyn.
 - **Transport:** stdio, using the official [MCP C# SDK](https://github.com/modelcontextprotocol/csharp-sdk).
 
-## Why
+## What it covers
 
-Most dnSpy MCP integrations run inside the dnSpy GUI. That means dnSpy has to stay open, the HTTP listener needs
-administrator rights, there's a dialog to click through on startup, and older MCP clients need an SSE↔stdio proxy.
-This server is a single process that the MCP client starts and stops by itself.
+**MCP features:** 36 tools (every one with a title and read-only / destructive / closed-world annotations),
+resources and resource templates, 5 prompts, argument completion, progress notifications, structured output
+(`list_assemblies`), cancellation, and server instructions.
 
-Reliability features:
+| Area | Tools |
+|---|---|
+| Workspace | `load_assembly` (a file or a whole folder; reports progress) · `list_assemblies` · `unload_assembly` · `reload_assembly` · `add_search_directory` · `get_assembly_info` (identity, TFM, references and whether each resolves, PE headers and sections, metadata streams, attributes, Il2Cpp detection) |
+| Browse | `list_namespaces` · `list_types` · `get_type_info` (outline with tokens, constants, hex enum values, IL sizes, Il2Cpp RVAs and offsets) · `get_type_hierarchy` · `get_attributes` (type, member, parameter, return value, assembly or module) · `resolve_symbol` |
+| Decompile | `decompile_type` · `decompile_member` (overloads, async, iterators and lambdas folded back) · `get_il` (tokens, offsets, structured EH) · `decompile_assembly_attributes` · `export_project` (whole assembly → .csproj; reports progress and failed types) |
+| Search | `search_symbols` (substring, wildcard or regex) · `search_strings` · `search_constants` (IL literals, const and enum values, attribute arguments) · `search_il` (instruction-sequence patterns with wildcards and gaps) |
+| Cross-references | `find_references` (methods, including calls dispatched through base/interface methods; fields with read/write/address; properties; events; types in every position: base, interface, constraint, field/param/return/local, catch, attribute, cast, newobj) · `find_callees` · `find_overrides` |
+| Resources | `list_resources` · `get_resource` (text, hex, `.resources` entries; extract to disk) |
+| Il2Cpp | `get_il2cpp_info` (RVA, VA, file offset, slot, field offsets, tokens) · `find_method_by_address` (IDA/Ghidra address formats; exact start or containing method) |
+| Patch (in memory, `dryRun` on all) | `rename_symbol` · `rename_namespace` · `stub_method` · `patch_method_csharp` (new body in C#, private/internal members accessible) · `patch_method_il` (IL assembler that accepts edited `get_il` output; replace or prepend) · `save_assembly` (never overwrites without `overwrite=true`, keeps `.bak`, atomic write) |
+
+**Resources:** `netdecomp://assemblies`, `netdecomp://assembly/{assembly}/info`, `netdecomp://assembly/{assembly}/type/{type}`
+(decompiled C#), `netdecomp://assembly/{assembly}/il/{symbol}`.
+
+**Prompts:** `analyze_assembly`, `find_feature`, `explain_type`, `plan_patch`, `map_native_address`.
+
+**Completion:** assembly ids, type names (full or short), and file paths for prompt and resource-template arguments.
+
+### Compared with [tuna1999/dnspy-mcp](https://github.com/tuna1999/dnspy-mcp)
+
+| | dnspy-mcp | NetDecompilerMcp |
+|---|---|---|
+| Runs without dnSpy / GUI | headless mode only (36 tools) | always (36 tools) |
+| Cross-references | methods and fields (`get_xrefs_to`) | methods (incl. virtual/interface dispatch), fields (read/write/address), properties, events, types in every position, overrides, hierarchy with derived types |
+| Search | types, methods, strings, `grep` | symbols (wildcard/regex, all member kinds), strings, numeric constants, IL instruction patterns |
+| Method patching | C# statements (`update_method_body`) | C# bodies (Roslyn, private access, ctor initializers preserved), IL assembler (accepts edited `get_il` output, prepend hooks), constant stubs |
+| Saving patched DLLs | no (in-memory only) | yes: `.bak`, atomic write, stable tokens |
+| Il2Cpp dummy DLLs | not supported | addresses, field offsets, native address → method |
+| Resources | list and raw bytes | text/hex view, `.resources` entries, extraction |
+| Whole-project export | `decompile_assembly` (first 10 types) | full .csproj with progress |
+| MCP resources / prompts / completion / progress | — | yes |
+| Large output | truncation | paging with cached pages |
+
+## Reliability
 
 | Concern | How it is handled |
 |---|---|
-| Locked game files | Assemblies are read into memory; files on disk are never locked and can be replaced while loaded. |
-| Concurrent tool calls | Reads share a lock; edits/loads take it exclusively, so no call sees a half-edited module. Covered by a parallel-calls test. |
-| One broken method | `decompile_type` falls back to member-by-member output with IL for the part that fails. |
-| Huge output | Every long result is paged (`offset` / `maxChars`); pages come from a cache, so paging doesn't re-decompile. |
-| Runaway decompilation | Per-call timeout (default 180 s) with a clear message. |
-| Vague symbol names | A resolver accepts many spellings and tokens; ambiguity and misses return candidate lists. |
-| Unexpected exceptions | Returned to the agent as tool errors; the server keeps running. |
-| Writing patches | Never overwrites the original without `overwrite=true`, keeps a `.bak`, and writes atomically. |
+| Locked game files | Assemblies are read into memory; files on disk are never locked. |
+| Concurrency | Reads share a lock; edits take it exclusively. Stress-tested with interleaved readers and writers, and with 40 parallel MCP calls. |
+| Corrupt or obfuscated bodies | The IL scanner stops at invalid opcodes instead of throwing; `decompile_type` falls back to member-by-member output with IL for the broken part. |
+| Huge output | Paged (`offset` / `maxChars`); pages come from a cache. |
+| Runaway work | Per-call timeout (default 180 s) and MCP cancellation. |
+| Vague names | A symbol resolver accepts many spellings and tokens; ambiguity and misses return candidates. |
+| Unexpected exceptions | Returned as tool errors; the server keeps running. |
+| Invalid patches | IL is stack-validated, C# is compiled (errors point at your line), and nothing changes on failure. Patched assemblies are executed in the tests to prove the IL is valid at runtime. |
 
-## Tools (32)
+Measured on a real game (36 assemblies, 40,895 types, ~300k methods):
 
-**Workspace:** `load_assembly` (file or whole folder) · `list_assemblies` · `unload_assembly` · `reload_assembly` ·
-`add_search_directory` · `get_assembly_info` (identity, TFM, references and whether each resolves, PE headers and
-sections, metadata streams, Il2Cpp detection)
+- Load all assemblies: 94 ms.
+- Decompile every one of 23,327 game types concurrently: 40 s, with 0 failures.
+- First full string search: 2.7 s; repeat searches: 0.3 s.
+- Type cross-references across everything: 1.9 s.
 
-**Browse:** `list_namespaces` · `list_types` (namespace, kind, wildcard or regex filter, paging) · `get_type_info` (outline
-with tokens, constants, enum values, field offsets and RVAs) · `get_type_hierarchy` (base chain, interfaces, derived
-types or implementors) · `get_attributes` (type, member, parameter, return value, assembly or module) · `resolve_symbol`
-
-**Decompile:** `decompile_type` · `decompile_member` (all overloads, or one picked by parameter list; async, iterators and
-lambdas are folded back into the original method) · `get_il` (ildasm-style, with tokens and structured try/catch
-blocks) · `decompile_assembly_attributes` · `export_project` (whole assembly → .csproj plus one file per type)
-
-**Search and cross-references:** `search_symbols` (substring, wildcard or regex) · `search_strings` (ldstr and string
-constants) · `search_constants` (IL literals, const and enum values, attribute arguments) · `find_references`
-(methods, fields with read/write/address-taken, properties, events, types in any position) · `find_callees` ·
-`find_overrides` (virtual overrides and interface implementations)
-
-**Resources:** `list_resources` · `get_resource` (text, hex dump or `.resources` entries; extract to disk)
-
-**Il2Cpp:** `get_il2cpp_info` (RVA, VA, file offset and slot for methods; field offsets; tokens) ·
-`find_method_by_address` (accepts IDA/Ghidra address formats; exact start, or the method that contains the address)
-
-**Edit (in memory until saved):** `rename_symbol` · `rename_namespace` · `stub_method` (`return <value>;`) ·
-`patch_method_il` (IL assembler, replace or prepend, stack-validated) · `save_assembly`.
-Every edit tool supports `dryRun`.
-
-### Symbol syntax
+## Symbol syntax
 
 ```
 Ns.Type          Ns.Outer+Inner   Ns.Outer/Inner   Ns.Outer.Inner   Type (short name)
@@ -64,15 +77,26 @@ Ns.Type::Method  Ns.Type.Method   Ns.Type::Method(int, string)      Ns.Type::.ct
 0x06000123       (metadata token; pass `assembly` when several assemblies are loaded)
 ```
 
-### Patching IL
+## Patching
 
-The easiest workflow is to call `get_il` on the method, edit the instruction lines, and pass them back to
-`patch_method_il`. Header lines are ignored. The `/* 0A000025 */` token comments that `get_il` prints resolve
-operands exactly. You can also write IL by hand:
+**C#:** pass only the new body.
+
+```
+patch_method_csharp  method="Game.Player::TakeDamage(int)"
+                     code="if (amount < 0) return; _health -= amount / 2;"
+```
+
+The containing type is decompiled, every other body is stubbed, and the result is compiled against the assembly's real
+references with accessibility checks off. The new IL is then transplanted, with references mapped back to the
+original definitions and reference scopes. Lambdas, async, yield and LINQ need compiler-generated types and are
+rejected with guidance; use loops, or `patch_method_il`.
+
+**IL:** call `get_il` on the method, edit the instruction lines, and pass them back. The `/* token */` comments resolve
+operands exactly. Hand-written IL works too:
 
 ```
 ldarg.0
-call System.String::IsNullOrEmpty(string)   // framework members resolve through the module's references
+call System.String::IsNullOrEmpty(string)
 brtrue.s fail
 ldc.i4.1
 ret
@@ -81,21 +105,22 @@ ldc.i4.0
 ret
 ```
 
-`mode=prepend` inserts the code in front of the original body and can branch into it by its offsets (`bge IL_0000`).
-`.local <type>` declares a new local variable.
+`mode=prepend` inserts code before the original body and can branch into it by its offsets (`bge IL_0000`).
+`.local <type>` declares a local variable.
 
-## Requirements
+## Build, test, publish
 
-- .NET 10 SDK (to build). The published server needs the .NET 10 runtime, or none at all if you publish it self-contained.
-- Windows, Linux or macOS. `publish.ps1` targets win-x64; use `dotnet publish -r <rid>` for other platforms.
-
-## Build and test
+Requires the .NET 10 SDK.
 
 ```powershell
-dotnet test                 # 74 tests, including stdio end-to-end and parallel-call tests
-./publish.ps1               # -> publish/NetDecompilerMcp.exe
-./publish.ps1 -SelfContained
+dotnet test                    # 175 tests: services, IL/C# patching (with runtime execution), concurrency,
+                               # every tool over stdio, resources/prompts/completion/progress, real-assembly stress
+./publish.ps1                  # -> publish/NetDecompilerMcp.exe (needs the .NET 10 runtime)
+./publish.ps1 -SelfContained   # no runtime needed
 ```
+
+Some tests use real-world data that only exists on the author's machine (a game folder, an Il2CppDumper output).
+They are skipped automatically when the paths are missing.
 
 ## Configure an MCP client
 
@@ -103,44 +128,48 @@ Claude Code:
 
 ```powershell
 claude mcp add net-decompiler -s user -- "C:\path\to\publish\NetDecompilerMcp.exe"
+# per project, preloading a game:
+claude mcp add net-decompiler -s local -- "C:\path\to\publish\NetDecompilerMcp.exe" --load "D:\Game\Game_Data\Managed"
 ```
 
 Generic `mcpServers` JSON (Claude Desktop, Cursor, and others):
 
 ```json
-{
-  "mcpServers": {
-    "net-decompiler": {
-      "command": "C:\\path\\to\\publish\\NetDecompilerMcp.exe",
-      "args": ["--load", "D:\\Game\\Game_Data\\Managed"]
-    }
-  }
-}
+{ "mcpServers": { "net-decompiler": { "command": "C:\\path\\to\\publish\\NetDecompilerMcp.exe", "args": ["--load", "D:\\Game\\Managed"] } } }
 ```
 
-Command-line options:
+Codex (`config.toml`):
+
+```toml
+[mcp_servers.net-decompiler]
+command = 'C:\path\to\publish\NetDecompilerMcp.exe'
+args = ['--load', 'D:\Game\Managed']
+```
 
 | Option | Meaning |
 |---|---|
 | `--load <path>` | Assembly file or folder to load at startup (repeatable). The `NETDECOMP_LOAD` env var takes `;`-separated paths. |
 | `--search-dir <dir>` | Extra directory for resolving references (repeatable). |
 | `--max-output <chars>` | Page size for long results (default 60000). |
-| `--timeout <seconds>` | Decompilation timeout per call (default 180; `export_project` gets 10×). |
+| `--timeout <seconds>` | Per-call decompilation timeout (default 180; `export_project` gets 10×). |
 
-Logs go to stderr. stdout is reserved for the protocol.
+Logs go to stderr; stdout is reserved for the protocol.
 
 ## Layout
 
 ```
 src/NetDecompilerMcp/
-  Core/       workspace (loading, locking, reference resolution), symbol resolver, formatting, paging
-  Services/   decompiler, analysis (search/xrefs), Il2Cpp, resources, edits, IL assembler
-  Tools/      thin MCP tool classes; each one resolves input, calls a service, and formats text
+  Core/      workspace (loading, locking, reference resolution), symbol resolver, formatting, paging
+  Services/  decompiler, search, references, fast IL reader, Il2Cpp, resources, assembly report,
+             edits, IL assembler, C# patcher
+  Tools/     thin MCP tool classes: resolve input, call a service, format text
+  Mcp/       resources, prompts, completion
 tests/
-  TestFixture/              sample assembly covering every feature (inheritance, async, resources, fake Il2Cpp attributes)
-  NetDecompilerMcp.Tests/   service tests and stdio end-to-end tests
+  TestFixture/            sample assembly covering every feature (inheritance, async, resources, fake Il2Cpp attributes)
+  TestFixture.Consumer/   second assembly that uses the first (cross-assembly and virtual-dispatch references)
+  NetDecompilerMcp.Tests/ service, patching, concurrency, protocol and real-assembly tests
 ```
 
 To add a tool, put the logic in a service, then add a `[McpServerTool]` method in `Tools/` that wraps it in
-`ToolSupport.Read` (or `Write` if it mutates) and returns text. Throw `ToolError` for anything the agent should
-read and act on.
+`ToolSupport.Read`, `Write` or `Edit` and returns text. Throw `ToolError` for anything the agent should read and
+act on. `McpProtocolTests.ToolCases` must get an entry, or the coverage test fails.

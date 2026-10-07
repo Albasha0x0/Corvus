@@ -154,7 +154,7 @@ public static class Format
         }
         if (!m.IsConstructor)
             sb.Append(Type(m.ReturnType)).Append(' ');
-        sb.Append(m.IsConstructor ? StripArity(m.DeclaringType.Name) + (m.IsStatic ? " /*.cctor*/" : "") : m.Name.String);
+        sb.Append(m.IsConstructor ? (m.IsStatic ? "static " : "") + StripArity(m.DeclaringType.Name) : m.Name.String);
         if (m.GenericParameters.Count > 0)
             sb.Append('<').Append(string.Join(", ", m.GenericParameters.Select(g => g.Name.String))).Append('>');
         sb.Append('(').Append(Parameters(m)).Append(')');
@@ -214,6 +214,7 @@ public static class Format
     {
         TypeDef t => t.FullName,
         MethodDef md => $"{md.DeclaringType?.FullName}::{md.Name}({ParameterTypes(md.MethodSig)})",
+        MemberRef { IsFieldRef: true } fr => $"{fr.DeclaringType?.FullName}::{fr.Name}",
         IMethod im => $"{im.DeclaringType?.FullName}::{im.Name}({ParameterTypes(im.MethodSig)})",
         IField f => $"{f.DeclaringType?.FullName}::{f.Name}",
         PropertyDef p => $"{p.DeclaringType?.FullName}::{p.Name}",
@@ -253,6 +254,33 @@ public static class Format
         }
         return sb.ToString();
     }
+
+    /// <summary>"[Name(args, Named = value)]" with the Attribute suffix dropped.</summary>
+    public static string Attribute(CustomAttribute ca)
+    {
+        var name = StripArity(ca.AttributeType?.Name ?? "?");
+        if (name.EndsWith("Attribute", StringComparison.Ordinal) && name.Length > "Attribute".Length)
+            name = name[..^"Attribute".Length];
+        if (!ca.HasConstructorArguments && !ca.HasNamedArguments)
+            return $"[{name}]";
+        var args = ca.ConstructorArguments.Select(a => Literal(a.Value))
+            .Concat(ca.NamedArguments.Select(n => $"{n.Name} = {Literal(n.Argument.Value)}"));
+        return $"[{name}({string.Join(", ", args)})]";
+    }
+
+    /// <summary>Integral constants with their hex form, e.g. "256 (0x100)".</summary>
+    public static string LiteralWithHex(object? value) => value switch
+    {
+        int i => $"{i} (0x{i:X})",
+        uint u => $"{u} (0x{u:X})",
+        long l => $"{l} (0x{l:X})",
+        ulong ul => $"{ul} (0x{ul:X})",
+        short sh => $"{sh} (0x{sh:X})",
+        ushort us => $"{us} (0x{us:X})",
+        byte b => $"{b} (0x{b:X})",
+        sbyte sb => $"{sb} (0x{sb:X})",
+        _ => Literal(value),
+    };
 
     /// <summary>Truncates a single line for previews.</summary>
     public static string Clip(string s, int max) => s.Length <= max ? s : s[..max] + "…";

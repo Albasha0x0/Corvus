@@ -43,11 +43,20 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         new(GetTypeSystem(asm), CreateSettings()) { CancellationToken = token };
 
     /// <summary>Decompiles a whole type. If the engine fails on the type, falls back to member-by-member output so one bad method does not hide the rest.</summary>
-    public string DecompileType(LoadedAssembly asm, Dn.TypeDef type, CancellationToken ct) => WithTimeout(ct, token =>
+    public string DecompileType(LoadedAssembly asm, Dn.TypeDef type, CancellationToken ct) => WithTimeout(token =>
     {
         var decompiler = CreateDecompiler(asm, token);
         try
         {
+            // Top-level types go through the full-type-name API, which emits the namespace declaration and usings
+            // (decompiling by handle omits the namespace). Nested types are decompiled on their own by handle.
+            // Compiler-generated types (e.g. <PrivateImplementationDetails>) come back empty from the name API, so fall back to the handle.
+            if (type.DeclaringType == null)
+            {
+                var withNamespace = decompiler.DecompileTypeAsString(new FullTypeName(type.ReflectionFullName));
+                if (!string.IsNullOrWhiteSpace(withNamespace))
+                    return withNamespace;
+            }
             return decompiler.DecompileAsString(ToHandle(type));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -65,15 +74,15 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
             }
             return sb.ToString();
         }
-    });
+    }, ct);
 
     /// <summary>Decompiles members (all overloads that matched). Failures fall back to IL for that member.</summary>
-    public string DecompileMembers(LoadedAssembly asm, IEnumerable<Dn.IMemberDef> members, CancellationToken ct) => WithTimeout(ct, token =>
+    public string DecompileMembers(LoadedAssembly asm, IEnumerable<Dn.IMemberDef> members, CancellationToken ct) => WithTimeout(token =>
     {
         var decompiler = CreateDecompiler(asm, token);
         var parts = members.Select(m => DecompileMemberSafe(asm, m, decompiler, token));
         return string.Join("\n", parts);
-    });
+    }, ct);
 
     private string DecompileMemberSafe(LoadedAssembly asm, Dn.IMemberDef member, CSharpDecompiler decompiler, CancellationToken token)
     {
@@ -94,8 +103,8 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     }
 
     /// <summary>Assembly-level attributes and module info as C#.</summary>
-    public string DecompileAssemblyAttributes(LoadedAssembly asm, CancellationToken ct) => WithTimeout(ct, token =>
-        CreateDecompiler(asm, token).DecompileModuleAndAssemblyAttributesToString());
+    public string DecompileAssemblyAttributes(LoadedAssembly asm, CancellationToken ct) => WithTimeout(token =>
+        CreateDecompiler(asm, token).DecompileModuleAndAssemblyAttributesToString(), ct);
 
     /// <summary>ildasm-style IL with metadata tokens and resolved operands.</summary>
     public string Disassemble(LoadedAssembly asm, Dn.IMemberDef member, CancellationToken ct)
@@ -121,35 +130,38 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         return output.ToString();
     }
 
-    public sealed record ExportResult(string Directory, int FileCount, string? ProjectFile);
+    public sealed record ExportResult(string Directory, int FileCount, string? ProjectFile, IReadOnlyList<string> FailedTypes);
 
-    /// <summary>Writes a compilable-ish C# project (one file per type) to disk.</summary>
-    public ExportResult ExportProject(LoadedAssembly asm, string outputDirectory, CancellationToken ct)
+    /// <summary>Writes a C# project (one file per type, .csproj, resources) to an empty directory.</summary>
+    public ExportResult ExportProject(LoadedAssembly asm, string outputDirectory, Action<int, int, string>? onProgress, CancellationToken ct)
     {
         var dir = Path.GetFullPath(outputDirectory);
         Directory.CreateDirectory(dir);
         if (Directory.EnumerateFileSystemEntries(dir).Any())
             throw new ToolError($"Output directory is not empty: {dir}. Choose an empty or new directory.");
 
-        // Whole-project export is long-running by nature: give it 10x the normal timeout.
+        // Whole-project export is long-running by nature: it gets 10x the normal timeout.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(options.TimeoutSeconds * 10L));
-        var decompiler = new WholeProjectDecompiler(CreateSettings(), workspace.CreateDecompilerResolver(asm), null, null, null);
+        var exporter = new WholeProjectDecompiler(CreateSettings(), workspace.CreateDecompilerResolver(asm), null, null, null);
+        if (onProgress != null)
+            exporter.ProgressIndicator = new Progress<DecompilationProgress>(p => onProgress(p.UnitsCompleted, p.TotalUnits, p.Status ?? "Decompiling"));
         try
         {
-            decompiler.DecompileProject(asm.GetPEFile(), dir, cts.Token);
+            exporter.DecompileProject(asm.GetPEFile(), dir, cts.Token);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             throw new ToolError($"Project export timed out after {options.TimeoutSeconds * 10}s. Partial output is in {dir}.");
         }
         var files = Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).ToList();
-        return new ExportResult(dir, files.Count, files.FirstOrDefault(f => f.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)));
+        var failed = exporter.Errors.Select(e => FirstLine(e.Message)).ToList();
+        return new ExportResult(dir, files.Count, files.FirstOrDefault(f => f.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)), failed);
     }
 
     internal static EntityHandle ToHandle(Dn.IMDTokenProvider member) => MetadataTokens.EntityHandle((int)member.MDToken.Raw);
 
-    private string WithTimeout(CancellationToken ct, Func<CancellationToken, string> action)
+    private string WithTimeout(Func<CancellationToken, string> action, CancellationToken ct)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(options.TimeoutSeconds));

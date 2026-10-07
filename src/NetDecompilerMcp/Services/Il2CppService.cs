@@ -16,7 +16,7 @@ public sealed class Il2CppService(AssemblyWorkspace workspace)
 
     private readonly Dictionary<LoadedAssembly, (int Generation, List<MethodAddress> Index)> _indexes = new();
 
-    public sealed record Il2CppAttribute(string Name, IReadOnlyDictionary<string, string> Values)
+    public sealed record Il2CppMetadata(string Name, IReadOnlyDictionary<string, string> Values)
     {
         public override string ToString() => $"[{Name.Replace("Attribute", "")}({string.Join(", ", Values.Select(kv => $"{kv.Key}={kv.Value}"))})]";
     }
@@ -25,9 +25,9 @@ public sealed class Il2CppService(AssemblyWorkspace workspace)
 
     public sealed record AddressMatch(MethodAddress Entry, string Field, ulong Start, string Relation);
 
-    public static List<Il2CppAttribute> GetAttributes(IHasCustomAttribute member)
+    public static List<Il2CppMetadata> GetAttributes(IHasCustomAttribute member)
     {
-        var list = new List<Il2CppAttribute>();
+        var list = new List<Il2CppMetadata>();
         foreach (var ca in member.CustomAttributes)
         {
             var name = ca.AttributeType?.Name?.String;
@@ -37,9 +37,19 @@ public sealed class Il2CppService(AssemblyWorkspace workspace)
                 values[$"arg{i}"] = ValueString(ca.ConstructorArguments[i].Value);
             foreach (var na in ca.NamedArguments)
                 values[na.Name.String] = ValueString(na.Argument.Value);
-            list.Add(new Il2CppAttribute(name, values));
+            list.Add(new Il2CppMetadata(name, values));
         }
         return list;
+    }
+
+    /// <summary>Compact "RVA=0x.. Offset=0x.." summary for listings, or null when the member has no Il2Cpp metadata.</summary>
+    public static string? CompactSummary(IHasCustomAttribute member)
+    {
+        var parts = GetAttributes(member)
+            .Where(a => a.Name is "AddressAttribute" or "FieldOffsetAttribute")
+            .SelectMany(a => a.Values.Where(kv => kv.Key is "RVA" or "Offset" or "VA" or "Slot" && kv.Value != "-1").Select(kv => $"{kv.Key}={kv.Value}"))
+            .ToList();
+        return parts.Count == 0 ? null : string.Join(" ", parts);
     }
 
     private static string ValueString(object? v) => v switch

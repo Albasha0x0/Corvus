@@ -1,0 +1,74 @@
+using System.Text;
+using dnlib.DotNet;
+using NetDecompilerMcp.Core;
+
+namespace NetDecompilerMcp.Services;
+
+/// <summary>The assembly overview shared by the get_assembly_info tool and the assembly info resource.</summary>
+public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il2cpp)
+{
+    /// <summary>Call under the workspace read lock.</summary>
+    public string Build(LoadedAssembly asm)
+    {
+        var m = asm.Module;
+        var types = m.GetTypes().ToList();
+        var sb = new StringBuilder();
+        sb.AppendLine($"Id: {asm.Id}");
+        sb.AppendLine($"Assembly: {asm.FullAssemblyName}");
+        sb.AppendLine($"File: {asm.FilePath}");
+        sb.AppendLine($"Module: {m.Name}  MVID {m.Mvid}");
+        sb.AppendLine($"Runtime: {m.RuntimeVersion}  Kind: {m.Kind}  Machine: {m.Machine}  IL-only: {m.IsILOnly}  32-bit required: {m.Is32BitRequired}");
+        var tfa = m.Assembly?.CustomAttributes.FirstOrDefault(c => c.TypeFullName == "System.Runtime.Versioning.TargetFrameworkAttribute");
+        if (tfa?.ConstructorArguments.Count > 0)
+            sb.AppendLine($"Target framework: {tfa.ConstructorArguments[0].Value}");
+        if (m.EntryPoint != null)
+            sb.AppendLine($"Entry point: {Format.MemberLabel(m.EntryPoint)}  ({Format.Token(m.EntryPoint)})");
+        sb.AppendLine($"Types: {types.Count}  Namespaces: {types.Select(t => t.Namespace.String).Distinct().Count()}  " +
+                      $"Methods: {types.Sum(t => t.Methods.Count)}  Fields: {types.Sum(t => t.Fields.Count)}  Resources: {m.Resources.Count}");
+        int addressed = il2cpp.GetIndex(asm).Count;
+        if (addressed > 0)
+            sb.AppendLine($"Il2Cpp metadata: {addressed} methods carry [Address] attributes (dummy DLL; method bodies are stubs — use get_il2cpp_info / find_method_by_address).");
+        if (asm.IsDirty)
+            sb.AppendLine($"Unsaved edits: {string.Join("; ", asm.Edits)}");
+        AppendPeInfo(sb, m);
+
+        sb.AppendLine("References:");
+        foreach (var r in m.GetAssemblyRefs())
+        {
+            var loaded = workspace.FindByAssemblyName(r.Name);
+            var status = loaded != null ? $"loaded as {loaded.Id}" : workspace.FindAssemblyFile(r.Name) != null ? "resolvable from search path" : "not found";
+            sb.AppendLine($"  {r.FullName}  [{status}]");
+        }
+
+        var attrs = m.Assembly?.CustomAttributes.Where(c => c != tfa).ToList() ?? [];
+        if (attrs.Count > 0)
+        {
+            sb.AppendLine("Assembly attributes:");
+            foreach (var ca in attrs.Take(40)) sb.AppendLine("  " + Format.Attribute(ca));
+        }
+        return sb.ToString();
+    }
+
+    private static void AppendPeInfo(StringBuilder sb, ModuleDefMD m)
+    {
+        try
+        {
+            var pe = m.Metadata.PEImage;
+            var fh = pe.ImageNTHeaders.FileHeader;
+            var oh = pe.ImageNTHeaders.OptionalHeader;
+            var stamp = DateTimeOffset.FromUnixTimeSeconds(fh.TimeDateStamp);
+            sb.AppendLine($"PE: {(oh.Magic == 0x20B ? "PE32+" : "PE32")}  ImageBase 0x{oh.ImageBase:X}  Subsystem {oh.Subsystem}  " +
+                          $"Characteristics {fh.Characteristics}  DllCharacteristics {oh.DllCharacteristics}");
+            sb.AppendLine($"Timestamp: 0x{fh.TimeDateStamp:X8}{(stamp.Year is > 1995 and < 2100 ? $" ({stamp:yyyy-MM-dd HH:mm} UTC)" : " (deterministic build hash)")}  " +
+                          $"CLR flags: {m.Metadata.ImageCor20Header.Flags}  Metadata version: {m.Metadata.VersionString}");
+            sb.AppendLine("Sections:");
+            foreach (var s in pe.ImageSectionHeaders)
+                sb.AppendLine($"  {s.DisplayName,-8} VA 0x{(uint)s.VirtualAddress:X8}  VSize 0x{s.VirtualSize:X}  Raw 0x{s.PointerToRawData:X}+0x{s.SizeOfRawData:X}  flags 0x{s.Characteristics:X8}");
+            sb.AppendLine("Metadata streams: " + string.Join(", ", m.Metadata.AllStreams.Select(st => $"{st.Name} ({st.StreamLength} bytes)")));
+        }
+        catch (Exception ex)
+        {
+            sb.AppendLine($"PE: unavailable ({ex.Message})");
+        }
+    }
+}

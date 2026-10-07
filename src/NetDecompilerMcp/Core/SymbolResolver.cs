@@ -94,12 +94,6 @@ public static class SymbolResolver
                             $"the assembly parameter, or a metadata token:\n" + string.Join("\n", all.Take(30).Select(r => "  " + r)));
     }
 
-    public static ResolvedSymbol ResolveType(AssemblyWorkspace ws, string? assembly, string symbol)
-    {
-        var r = ResolveOne(ws, assembly, symbol, SymbolKind.Type);
-        return r;
-    }
-
     private static IReadOnlyList<ResolvedSymbol> Finish(List<ResolvedSymbol> results, string original, IReadOnlyList<LoadedAssembly> scope,
         string typePart, (List<ResolvedSymbol> Types, string Member)? memberSearch)
     {
