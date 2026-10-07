@@ -43,7 +43,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         new(GetTypeSystem(asm), CreateSettings()) { CancellationToken = token };
 
     /// <summary>Decompiles a whole type. If the engine fails on the type, falls back to member-by-member output so one bad method does not hide the rest.</summary>
-    public string DecompileType(LoadedAssembly asm, Dn.TypeDef type, CancellationToken ct) => WithTimeout(token =>
+    public string DecompileType(LoadedAssembly asm, Dn.TypeDef type, CancellationToken ct) => InvalidBodiesNote(asm, type) + WithTimeout(token =>
     {
         var decompiler = CreateDecompiler(asm, token);
         try
@@ -76,6 +76,15 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         }
     }, ct);
 
+    /// <summary>A leading comment when some of the type's method bodies are not valid IL (empty otherwise).</summary>
+    private static string InvalidBodiesNote(LoadedAssembly asm, Dn.TypeDef type)
+    {
+        if (asm.IsDirty || asm.BodyHealth.Invalid == 0) return "";
+        var methods = type.Methods.Where(m => m.RVA != 0).ToList();
+        int invalid = methods.Count(asm.BodyHealth.IsInvalid);
+        return invalid == 0 ? "" : $"// Warning: {invalid} of {methods.Count} method bodies of this type are not valid IL (encrypted, or dumped from memory before decryption): their code below is meaningless.\n";
+    }
+
     /// <summary>Decompiles members (all overloads that matched). Failures fall back to IL for that member.</summary>
     public string DecompileMembers(LoadedAssembly asm, IEnumerable<Dn.IMemberDef> members, CancellationToken ct) => WithTimeout(token =>
     {
@@ -87,6 +96,8 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     private string DecompileMemberSafe(LoadedAssembly asm, Dn.IMemberDef member, CSharpDecompiler decompiler, CancellationToken token)
     {
         var header = $"// {Format.MemberLabel(member)}  [token {Format.Token(member)}]";
+        if (member is Dn.MethodDef method && !asm.IsDirty && asm.BodyHealth.IsInvalid(method))
+            header += "\n// Warning: this method body is not valid IL (encrypted, or dumped from memory before decryption): the code below is meaningless.";
         try
         {
             return header + "\n" + decompiler.DecompileAsString(Handle(asm, member)).TrimEnd() + "\n";

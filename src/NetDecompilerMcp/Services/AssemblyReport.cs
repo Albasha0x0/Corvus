@@ -28,6 +28,12 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         int addressed = il2cpp.GetIndex(asm).Count;
         if (addressed > 0)
             sb.AppendLine($"Il2Cpp metadata: {addressed} methods carry [Address] attributes (dummy DLL; method bodies are stubs — use get_il2cpp_info / find_method_by_address).");
+        var health = asm.BodyHealth;
+        if (health.MostlyInvalid)
+            sb.AppendLine($"IL: {health.Describe()} Load the decrypted image (e.g. a dump taken after the code ran) to read code.");
+        else if (health.Invalid > 0)
+            sb.AppendLine($"IL: {health.Invalid} of {health.Bodies} method bodies are not valid IL (e.g. " +
+                          string.Join(", ", m.GetTypes().SelectMany(t => t.Methods).Where(health.IsInvalid).Take(3).Select(Format.MemberLabel)) + ").");
         if (asm.IsDirty)
             sb.AppendLine($"Unsaved edits: {string.Join("; ", asm.Edits)}");
         AppendPeInfo(sb, m);

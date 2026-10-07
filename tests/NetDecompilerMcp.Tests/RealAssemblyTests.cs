@@ -211,6 +211,26 @@ public class RealAssemblyTests(ITestOutputHelper output)
                 Assert.NotSame(dummyCorlib, env.Workspace.FindReference(r.Name, r.Version, r.PublicKeyOrToken?.Token?.Data, a.FilePath));
     }
 
+    /// <summary>
+    /// Assemblies shipped with encrypted method bodies (decrypted by a modified runtime) are flagged, and decompiling
+    /// one of their methods carries the warning.
+    /// </summary>
+    [RequiresRealDataFact(RealData.MonoGameDir)]
+    public void EncryptedBodiesInARealFolderAreFlagged()
+    {
+        using var env = new Env(Env.FixturePath);
+        var loaded = env.Workspace.LoadDirectory(RealData.Path(RealData.MonoGameDir), false).Loaded;
+        var flagged = loaded.Where(a => a.BodyHealth.Invalid > 0).ToList();
+        output.WriteLine($"{loaded.Sum(a => a.BodyHealth.Bodies)} bodies; flagged: " +
+                         string.Join("; ", flagged.Select(a => $"{a.Id} {a.BodyHealth.Invalid}/{a.BodyHealth.Bodies}")));
+        if (flagged.Count == 0) return; // a folder without encrypted code: nothing more to check
+        var asm = flagged[0];
+        var method = env.Workspace.Read(() => asm.Module.GetTypes().SelectMany(t => t.Methods).First(asm.BodyHealth.IsInvalid));
+        var code = new Services.DecompilerService(env.Workspace, new ServerOptions()).DecompileMembers(asm, [method], default);
+        Assert.Contains("this method body is not valid IL", code);
+        Assert.Contains("IL: ", env.Workspace.Read(() => new Services.AssemblyReport(env.Workspace, new Services.Il2CppService(env.Workspace)).Build(asm)));
+    }
+
     /// <summary>Two builds loaded together (NDM_COMPARE_OLD_DIR / NEW_DIR): each binds its references within its own folder.</summary>
     [RequiresRealDataFact(RealData.CompareOldDir, RealData.CompareNewDir)]
     public void TwoRealBuildsBindToTheirOwnFolders()

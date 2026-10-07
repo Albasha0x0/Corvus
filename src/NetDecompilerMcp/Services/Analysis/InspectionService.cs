@@ -257,9 +257,12 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
         var values = Values.Find(scan, contents, ct);
         var valueSummary = new ValueSummary(values.Count, values.GroupBy(i => i.Type).ToDictionary(g => g.Key, g => g.Count()), values.Take(TopValues).ToList());
         var entryPoints = EntryPoints.Find(module, image);
+        var health = IlHealth.Assess(image, ct);
+        if (health.Invalid > 0) notes.Add(health.Describe());
 
         return new AssemblySummary(path, Blob.Sha256(image), identity, signature, markers, packing, features, valueSummary, entryPoints,
-            Highlights(identity, signature, markers, packing, features, valueSummary, entryPoints), notes);
+            [.. health.MostlyInvalid ? ["Method bodies are not valid IL (encrypted or dumped before decryption)"] : Array.Empty<string>(),
+             .. Highlights(identity, signature, markers, packing, features, valueSummary, entryPoints)], notes);
     }
 
     private static IdentityFacts Identity(ModuleDef module, byte[] image, PeImage? pe)

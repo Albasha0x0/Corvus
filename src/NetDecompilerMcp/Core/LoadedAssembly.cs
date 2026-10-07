@@ -47,6 +47,11 @@ public sealed class LoadedAssembly : IDisposable
     /// <summary>The bytes the assembly was loaded from (the state before any edit).</summary>
     public byte[] OriginalBytes => _originalBytes;
 
+    private Services.IlHealth.Result? _bodyHealth;
+
+    /// <summary>Which method bodies of the loaded file are not valid IL (encrypted / dumped images); computed once.</summary>
+    public Services.IlHealth.Result BodyHealth => _bodyHealth ??= Services.IlHealth.Assess(_originalBytes);
+
     /// <summary>Increments whenever the module is edited; invalidates the decompiler view.</summary>
     public int Version { get; private set; }
 

@@ -47,6 +47,9 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         sb.AppendLine($"Types: {Count(types, "renamed")} renamed, {Count(types, "changed")} with member changes, {Count(types, "removed")} removed, {Count(types, "added")} added " +
                       $"({cmp.TypeMap.Count} matched of {oldAsm.Module.GetTypes().Count() - 1} old).");
         sb.AppendLine("Members: " + string.Join(", ", AllKinds.Select(k => $"{memberCounts.GetValueOrDefault(k)} {k}")));
+        foreach (var (side, asm) in new[] { ("old", oldAsm), ("new", newAsm) })
+            if (asm.BodyHealth.Invalid > 0)
+                sb.AppendLine($"Warning ({side} build {asm.Id}): {asm.BodyHealth.Describe()} Those body changes are marked \"not comparable\"; name matches and signature/field-offset changes are still reliable, renames found by content less so.");
 
         foreach (var t in types.Where(t => t.Change is "renamed" or "changed"))
         {

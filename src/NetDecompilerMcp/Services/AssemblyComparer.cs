@@ -353,7 +353,15 @@ public sealed class AssemblyComparer(AssemblyWorkspace workspace)
             else if (om.Signature != nm.Signature)
                 changes.Add(new MemberChange("signature", om.Method, nm.Method, $"{om.Signature} -> {nm.Signature}"));
             else if (om.Full != nm.Full && (om.Size > 0 || nm.Size > 0))
-                changes.Add(new MemberChange("body", om.Method, nm.Method, $"{om.Size} -> {nm.Size} instructions"));
+            {
+                // a body that is not valid IL (encrypted / dumped before decryption) cannot be compared meaningfully
+                bool oldBad = !oldInfo.Assembly.IsDirty && oldInfo.Assembly.BodyHealth.IsInvalid(om.Method);
+                bool newBad = !newInfo.Assembly.IsDirty && newInfo.Assembly.BodyHealth.IsInvalid(nm.Method);
+                var detail = oldBad || newBad
+                    ? $"{(oldBad ? "old" : "")}{(oldBad && newBad ? " and " : "")}{(newBad ? "new" : "")} body not valid IL (encrypted?); not comparable"
+                    : $"{om.Size} -> {nm.Size} instructions";
+                changes.Add(new MemberChange("body", om.Method, nm.Method, detail));
+            }
             var oldAddress = Il2CppService.CompactSummary(om.Method);
             var newAddress = Il2CppService.CompactSummary(nm.Method);
             if (oldAddress != null && newAddress != null && oldAddress != newAddress)
