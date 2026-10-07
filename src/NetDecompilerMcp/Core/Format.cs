@@ -6,7 +6,8 @@ namespace NetDecompilerMcp.Core;
 /// <summary>C#-flavoured, compact signatures for dnlib members (used in listings and search results).</summary>
 public static class Format
 {
-    public static string Token(IMDTokenProvider p) => $"0x{p.MDToken.Raw:X8}";
+    /// <summary>"0x06000123", or "(new)" for members added by an edit (they get a token when the image is written).</summary>
+    public static string Token(IMDTokenProvider p) => p.MDToken.Rid == 0 ? "(new)" : $"0x{p.MDToken.Raw:X8}";
 
     public static string Type(TypeSig? sig)
     {

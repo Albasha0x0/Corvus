@@ -79,6 +79,20 @@ public class McpProtocolTests : IAsyncLifetime
         ["stub_method"] = (new() { ["method"] = "Secret::Validate", ["value"] = "true" }, "stub"),
         ["patch_method_csharp"] = (new() { ["method"] = "Shop::PriceOf(string, int)", ["code"] = "return quantity;" }, "Decompiled result"),
         ["patch_method_il"] = (new() { ["method"] = "Player::Score", ["il"] = "ldc.i4.7\nret" }, "New body"),
+        ["add_members_csharp"] = (new() { ["type"] = "Shop", ["code"] = "public int Twice(int x) { return x * 2; }" }, "Twice"),
+        ["add_types_csharp"] = (new() { ["assembly"] = "TestFixture", ["code"] = "namespace Mods { public static class M { public static int One() => 1; } }" }, "Mods.M"),
+        ["list_edits"] = (new() { ["assembly"] = "TestFixture" }, "#5"),
+        ["diff_edits"] = (new() { ["assembly"] = "TestFixture" }, "+public int Twice(int x)"),
+        ["export_edits"] = (new() { ["assembly"] = "TestFixture", ["path"] = _dir.File("edits.json") }, "Exported 5 edit(s)"),
+        ["undo_edit"] = (new() { ["assembly"] = "TestFixture" }, "Undid #5"),
+        ["revert_edits"] = (new() { ["assembly"] = "TestFixture" }, "4 edit(s) discarded"),
+        ["apply_edits"] = (new() { ["path"] = _dir.File("edits.json") }, "5 applied"),
+        ["compare_assemblies"] = (new() { ["oldAssembly"] = "TestFixture", ["newAssembly"] = "TestFixture.Consumer" }, "Comparing TestFixture"),
+        ["find_counterpart"] = (new() { ["symbol"] = "Shop", ["oldAssembly"] = "TestFixture", ["newAssembly"] = "TestFixture.Consumer" }, "not found"),
+        ["get_call_tree"] = (new() { ["method"] = "Secret::Validate", ["direction"] = "callers" }, "Player::CheckLicense"),
+        ["find_call_paths"] = (new() { ["to"] = "Player::TakeDamage(int)", ["from"] = "Consumer.Arena::Hit" }, "1 path"),
+        ["export_il2cpp_symbols"] = (new() { ["outputDirectory"] = _dir.File("il2cpp"), ["assembly"] = "TestFixture" }, "Exported 2 functions"),
+        ["generate_cpp_binding"] = (new() { ["type"] = "Player" }, "h->FindClass(\"TestFixture\", \"Fixture.Game\", \"Player\")"),
         ["save_assembly"] = (new() { ["assembly"] = "TestFixture", ["outputPath"] = _dir.File("saved.dll") }, "Wrote"),
         ["unload_assembly"] = (new() { ["assembly"] = "TestFixture.Consumer" }, "Unloaded"),
     };
@@ -192,7 +206,7 @@ public class McpProtocolTests : IAsyncLifetime
         var result = await _client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = _dir.Path },
             new SyncProgress(updates.Enqueue));
         Assert.NotEqual(true, result.IsError);
-        for (int i = 0; i < 50 && updates.Count < 2; i++) await Task.Delay(20); // notifications may trail the response
+        for (int i = 0; i < 250 && updates.Count < 2; i++) await Task.Delay(20); // notifications may trail the response
         Assert.True(updates.Count >= 2, $"expected progress, got {updates.Count}");
         Assert.All(updates, u => Assert.Equal(2, u.Total));
     }
@@ -207,6 +221,29 @@ public class McpProtocolTests : IAsyncLifetime
         Assert.Contains("Invalid regex", await Call("search_symbols", new() { ["query"] = "(", ["regex"] = true }, expectError: true));
         Assert.Contains("compilation failed", await Call("patch_method_csharp", new() { ["method"] = "Shop::Buy", ["code"] = "return nope;" }, expectError: true));
         Assert.Contains("TakeDamage", await Call("get_type_info", new() { ["type"] = "Player" }));
+    }
+
+    [Fact]
+    public async Task FileChangeNoticesRideAlongWithTheNextResult()
+    {
+        var path = _dir.File("Watched.dll");
+        File.Copy(Env.FixturePath, path);
+        await Call("load_assembly", new() { ["path"] = path });
+        using (var build = new Env())
+        {
+            build.Edit(() => build.Edits.Rename(build.One("Shop::Describe"), "DescribeV2"));
+            build.Edits.Save(build.Fixture, _dir.File("v2.dll"), false);
+        }
+        File.Copy(_dir.File("v2.dll"), path, overwrite: true);
+
+        string text = "";
+        for (int i = 0; i < 50 && !text.Contains("[workspace]"); i++)
+        {
+            await Task.Delay(200);
+            text = await Call("list_namespaces", new() { ["assembly"] = "TestFixture" });
+        }
+        Assert.Contains("[workspace]", text);
+        Assert.Contains("reloaded", text);
     }
 
     [Fact]

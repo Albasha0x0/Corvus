@@ -14,7 +14,10 @@ namespace NetDecompilerMcp.Services;
 /// <summary>C# decompilation and IL disassembly via the ILSpy engine (ICSharpCode.Decompiler).</summary>
 public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions options)
 {
-    private readonly Dictionary<LoadedAssembly, (int Generation, DecompilerTypeSystem TypeSystem)> _typeSystems = new();
+    // Weak keys: entries disappear with their assembly (unloaded assemblies, original views used for diffs).
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<LoadedAssembly, TypeSystemEntry> _typeSystems = new();
+
+    private sealed record TypeSystemEntry(long Key, DecompilerTypeSystem TypeSystem);
 
     public static DecompilerSettings CreateSettings() => new(LanguageVersion.Latest)
     {
@@ -26,16 +29,13 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
 
     private DecompilerTypeSystem GetTypeSystem(LoadedAssembly asm)
     {
-        lock (_typeSystems)
-        {
-            if (_typeSystems.TryGetValue(asm, out var entry) && entry.Generation == workspace.Generation)
-                return entry.TypeSystem;
-            foreach (var stale in _typeSystems.Keys.Where(k => !workspace.Assemblies.Contains(k)).ToList())
-                _typeSystems.Remove(stale);
-        }
+        // Keyed by workspace generation (other assemblies changed) and by the assembly's own edit version: several edits
+        // can happen inside one write lock (undo replays), and each must see the module as it is now.
+        long key = ((long)workspace.Generation << 32) | (uint)asm.Version;
+        if (_typeSystems.TryGetValue(asm, out var entry) && entry.Key == key)
+            return entry.TypeSystem;
         var ts = new DecompilerTypeSystem(asm.GetPEFile(), workspace.CreateDecompilerResolver(asm), CreateSettings());
-        lock (_typeSystems)
-            _typeSystems[asm] = (workspace.Generation, ts);
+        _typeSystems.AddOrUpdate(asm, new TypeSystemEntry(key, ts));
         return ts;
     }
 
@@ -57,7 +57,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
                 if (!string.IsNullOrWhiteSpace(withNamespace))
                     return withNamespace;
             }
-            return decompiler.DecompileAsString(ToHandle(type));
+            return decompiler.DecompileAsString(Handle(asm, type));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -89,7 +89,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         var header = $"// {Format.MemberLabel(member)}  [token {Format.Token(member)}]";
         try
         {
-            return header + "\n" + decompiler.DecompileAsString(ToHandle(member)).TrimEnd() + "\n";
+            return header + "\n" + decompiler.DecompileAsString(Handle(asm, member)).TrimEnd() + "\n";
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -118,13 +118,14 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
             ExpandMemberDefinitions = true,
         };
         var pe = asm.GetPEFile();
-        switch (ToHandle(member).Kind)
+        var handle = Handle(asm, member);
+        switch (handle.Kind)
         {
-            case HandleKind.TypeDefinition: dis.DisassembleType(pe, (TypeDefinitionHandle)ToHandle(member)); break;
-            case HandleKind.MethodDefinition: dis.DisassembleMethod(pe, (MethodDefinitionHandle)ToHandle(member)); break;
-            case HandleKind.FieldDefinition: dis.DisassembleField(pe, (FieldDefinitionHandle)ToHandle(member)); break;
-            case HandleKind.PropertyDefinition: dis.DisassembleProperty(pe, (PropertyDefinitionHandle)ToHandle(member)); break;
-            case HandleKind.EventDefinition: dis.DisassembleEvent(pe, (EventDefinitionHandle)ToHandle(member)); break;
+            case HandleKind.TypeDefinition: dis.DisassembleType(pe, (TypeDefinitionHandle)handle); break;
+            case HandleKind.MethodDefinition: dis.DisassembleMethod(pe, (MethodDefinitionHandle)handle); break;
+            case HandleKind.FieldDefinition: dis.DisassembleField(pe, (FieldDefinitionHandle)handle); break;
+            case HandleKind.PropertyDefinition: dis.DisassembleProperty(pe, (PropertyDefinitionHandle)handle); break;
+            case HandleKind.EventDefinition: dis.DisassembleEvent(pe, (EventDefinitionHandle)handle); break;
             default: throw new ToolError($"Cannot disassemble {member.GetType().Name}.");
         }
         return output.ToString();
@@ -159,7 +160,8 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         return new ExportResult(dir, files.Count, files.FirstOrDefault(f => f.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)), failed);
     }
 
-    internal static EntityHandle ToHandle(Dn.IMDTokenProvider member) => MetadataTokens.EntityHandle((int)member.MDToken.Raw);
+    /// <summary>The decompiler handle of a member in the assembly's current image (added members included).</summary>
+    internal static EntityHandle Handle(LoadedAssembly asm, Dn.IMDTokenProvider member) => MetadataTokens.EntityHandle((int)asm.ImageToken(member));
 
     private string WithTimeout(Func<CancellationToken, string> action, CancellationToken ct)
     {

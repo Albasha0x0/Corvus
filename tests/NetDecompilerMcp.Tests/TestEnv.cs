@@ -20,6 +20,7 @@ public sealed class Env : IDisposable
     public ResourceService Resources { get; } = new();
     public AssemblyReport Report { get; }
     public EditService Edits { get; }
+    public EditHistoryService History { get; }
     public LoadedAssembly Fixture { get; }
 
     public Env(string? path = null, bool withConsumer = false)
@@ -30,7 +31,8 @@ public sealed class Env : IDisposable
         References = new ReferenceService(Workspace);
         Il2Cpp = new Il2CppService(Workspace);
         Report = new AssemblyReport(Workspace, Il2Cpp);
-        Edits = new EditService(new IlAssembler(Workspace), new CSharpPatcher(Workspace, Decompiler));
+        Edits = new EditService(Workspace, new IlAssembler(Workspace), new CSharpPatcher(Workspace, Decompiler));
+        History = new EditHistoryService(Workspace, Edits, Decompiler);
         Fixture = Workspace.Load(path ?? FixturePath);
         if (withConsumer)
             Workspace.Load(ConsumerPath);

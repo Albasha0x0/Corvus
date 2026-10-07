@@ -49,7 +49,7 @@ public static class WorkflowPrompts
         [Description("Assembly id (optional).")] string? assembly = null) => $"""
         Goal: {goal}{(assembly is null ? "" : $" (assembly {assembly})")}.
         1. Locate the decisive method (search_strings / search_symbols / find_references) and read it with decompile_member.
-        2. Pick the smallest change: stub_method for "always return X"; patch_method_csharp for logic changes; patch_method_il when C# cannot express it (lambdas/async) or for surgical prepend hooks.
+        2. Pick the smallest change: stub_method for "always return X"; patch_method_csharp for logic changes (lambdas, async and LINQ work); add_members_csharp / add_types_csharp for new code; patch_method_il for surgical prepend hooks or IL that C# cannot express. Check the result with diff_edits; undo_edit if it is wrong.
         3. Run the edit with dryRun=true first and check the result; then apply it and re-read with decompile_member.
         4. save_assembly to a new file (never overwrite the original unless explicitly asked). Report exactly what changed and how to revert.
         """;

@@ -31,4 +31,9 @@ public class Shop
     public T Pick<T>(T first, T second) => first;
 
     public static Shop Create() => new();
+
+    // Same-arity overloads (C++ bindings must resolve these by exact signature).
+    public int Apply(int amount) => amount;
+
+    public int Apply(string code) => code.Length;
 }

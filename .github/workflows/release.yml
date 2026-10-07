@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    strategy:
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-latest
+          - rid: linux-x64
+            os: ubuntu-latest
+          - rid: osx-arm64
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Test
+        run: dotnet test -c Release
+      - name: Publish self-contained single file
+        run: >
+          dotnet publish src/NetDecompilerMcp/NetDecompilerMcp.csproj -c Release -r ${{ matrix.rid }}
+          --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -o out/${{ matrix.rid }}
+      - name: Package
+        shell: pwsh
+        run: Compress-Archive -Path out/${{ matrix.rid }}/* -DestinationPath NetDecompilerMcp-${{ github.ref_name }}-${{ matrix.rid }}.zip
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: NetDecompilerMcp-${{ github.ref_name }}-${{ matrix.rid }}.zip
+          generate_release_notes: true

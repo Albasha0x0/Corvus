@@ -37,7 +37,14 @@ builder.Services
     .AddSingleton<AssemblyReport>()
     .AddSingleton<IlAssembler>()
     .AddSingleton<CSharpPatcher>()
-    .AddSingleton<EditService>();
+    .AddSingleton<EditService>()
+    .AddSingleton<EditHistoryService>()
+    .AddSingleton<AssemblyComparer>()
+    .AddSingleton<CallGraphService>()
+    .AddSingleton<Il2CppExporter>()
+    .AddSingleton<CppBindingGenerator>()
+    .AddSingleton<IndexingService>()
+    .AddSingleton<FileWatchService>();
 
 builder.Services
     .AddMcpServer(o =>
@@ -60,7 +67,12 @@ builder.Services
     {
         try
         {
-            return await next(context, cancellationToken);
+            var result = await next(context, cancellationToken);
+            // Workspace events since the last call (files reloaded from disk...) ride along with the next result.
+            var notices = context.Services?.GetService<AssemblyWorkspace>()?.DrainNotices();
+            if (notices is { Count: > 0 })
+                result.Content.Insert(0, new TextContentBlock { Text = string.Join("\n", notices.Select(n => "[workspace] " + n)) });
+            return result;
         }
         catch (Exception ex) when (ex is not McpException && ex is not OperationCanceledException)
         {
@@ -75,9 +87,36 @@ builder.Services
     }));
 
 var host = builder.Build();
+// Created before preloading so the preloaded assemblies are indexed and watched too.
+host.Services.GetRequiredService<IndexingService>();
+host.Services.GetRequiredService<FileWatchService>().Changed += message => NotifyClient(host.Services, message);
 Preload(host.Services.GetRequiredService<AssemblyWorkspace>(), host.Services.GetRequiredService<ILogger<AssemblyWorkspace>>(), options);
 await host.RunAsync();
 return 0;
+
+// Best effort: tell the client that the resource list changed and log the event (the notice also rides along with
+// the next tool result, which works with every client).
+static void NotifyClient(IServiceProvider services, string message)
+{
+    if (services.GetService<ModelContextProtocol.Server.McpServer>() is not { } server) return;
+    _ = Task.Run(async () =>
+    {
+        try
+        {
+            await server.SendNotificationAsync(NotificationMethods.ResourceListChangedNotification);
+            await server.SendNotificationAsync(NotificationMethods.LoggingMessageNotification, new LoggingMessageNotificationParams
+            {
+                Level = LoggingLevel.Info,
+                Logger = "net-decompiler",
+                Data = System.Text.Json.JsonSerializer.SerializeToElement(message),
+            });
+        }
+        catch
+        {
+            // the client may not support or want notifications
+        }
+    });
+}
 
 static void Preload(AssemblyWorkspace workspace, ILogger log, ServerOptions options)
 {

@@ -8,15 +8,19 @@ internal static class ServerInstructions
         Workflow:
         1. load_assembly with a file or a whole folder (e.g. a Unity game's *_Data/Managed, or an Il2CppDumper DummyDll folder).
            Load related assemblies too: cross-references and inherited members only see what is loaded or resolvable.
+           Method bodies are indexed in the background after loading; files that change on disk are reloaded automatically
+           (notices appear as "[workspace] ..." lines at the top of a tool result).
         2. Discover: search_symbols, search_strings, search_constants, search_il, list_namespaces, list_types, get_type_info (cheap outline).
         3. Read code: decompile_member (one method) is faster and smaller than decompile_type; get_il for raw IL.
-        4. Navigate: find_references (who uses X, incl. calls through base/interface methods), find_callees (what X uses),
-           find_overrides, get_type_hierarchy, get_attributes.
-        5. Il2Cpp dummy DLLs have empty bodies: use get_il2cpp_info for RVAs/field offsets and find_method_by_address to map
-           native addresses (IDA/Ghidra/crash logs) back to methods.
-        6. Patch in memory, preview with dryRun=true: rename_symbol, rename_namespace, stub_method (return constant),
-           patch_method_csharp (new body in C#), patch_method_il (IL text, replace or prepend). Then save_assembly — it never
-           overwrites the original without overwrite=true and keeps a .bak.
+        4. Navigate: find_references (who uses X, incl. calls through base/interface methods), find_callees, get_call_tree
+           (multi-level callers/callees), find_call_paths (how execution reaches a method), find_overrides, get_type_hierarchy, get_attributes.
+        5. Game updates: load both builds (the second gets an id like Name#2), then compare_assemblies and find_counterpart to carry
+           renamed types/members and changed offsets forward; export_edits + apply_edits re-applies a patch set to the new build.
+        6. Il2Cpp dummy DLLs have empty bodies: get_il2cpp_info (RVAs, field offsets), find_method_by_address (native address -> method),
+           export_il2cpp_symbols (IDA/Ghidra scripts + C struct header). generate_cpp_binding emits ModHost-style C++ lookup code.
+        7. Patch in memory (dryRun=true previews): rename_symbol, rename_namespace, stub_method, patch_method_csharp (C# body; lambdas,
+           async, LINQ supported), add_members_csharp, add_types_csharp, patch_method_il. Review with list_edits / diff_edits, undo with
+           undo_edit / revert_edits, then save_assembly (never overwrites the original without overwrite=true; keeps a .bak).
 
         Symbols: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method', 'Ns.Type::Method(int, string)', 'Ns.Type::.ctor', short names,
         or tokens like '0x06000123'. The assembly parameter is optional unless a name is ambiguous; errors list candidates.

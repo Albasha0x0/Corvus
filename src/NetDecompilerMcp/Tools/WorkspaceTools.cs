@@ -9,11 +9,11 @@ using static NetDecompilerMcp.Tools.ToolSupport;
 namespace NetDecompilerMcp.Tools;
 
 [McpServerToolType]
-public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il2cpp, AssemblyReport report)
+public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il2cpp, AssemblyReport report, IndexingService indexing)
 {
     public sealed record AssemblyEntry(string Id, string Name, string Version, string Path, int Types, bool Il2CppDummy, IReadOnlyList<string> UnsavedEdits);
 
-    public sealed record WorkspaceState(IReadOnlyList<AssemblyEntry> Assemblies, IReadOnlyList<string> SearchDirectories);
+    public sealed record WorkspaceState(IReadOnlyList<AssemblyEntry> Assemblies, IReadOnlyList<string> SearchDirectories, string BackgroundIndexing);
 
     [McpServerTool(Name = "load_assembly", Title = "Load assembly", Idempotent = true, OpenWorld = false)]
     [Description("Load a .NET assembly (.dll/.exe) or every assembly in a directory (e.g. a Unity game's *_Data/Managed or an Il2CppDumper DummyDll folder). " +
@@ -57,8 +57,9 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     public Task<WorkspaceState> ListAssemblies(CancellationToken cancellationToken = default) => Task.Run(() => workspace.Read(() =>
         new WorkspaceState(
             workspace.Assemblies.Select(a => new AssemblyEntry(a.Id, a.FullAssemblyName, a.Module.Assembly?.Version?.ToString() ?? "", a.FilePath,
-                a.Module.GetTypes().Count(), il2cpp.GetIndex(a).Count > 0, a.Edits.ToList())).ToList(),
-            workspace.SearchDirectories)), cancellationToken);
+                a.Module.GetTypes().Count(), il2cpp.GetIndex(a).Count > 0, a.Edits.Select(e => e.Description).ToList())).ToList(),
+            workspace.SearchDirectories,
+            indexing.Status)), cancellationToken);
 
     [McpServerTool(Name = "unload_assembly", Title = "Unload assembly", Idempotent = true, OpenWorld = false)]
     [Description("Remove an assembly from the workspace (unsaved edits are discarded).")]

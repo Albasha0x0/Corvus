@@ -220,14 +220,6 @@ public class CSharpPatchTests : IDisposable
     }
 
     [Fact]
-    public void LambdasAreRejectedWithGuidance()
-    {
-        var ex = Assert.Throws<ToolError>(() => Patch("Player::SumPositive", "return values.Where(x => x > 1).Sum();"));
-        Assert.Contains("compiler-generated", ex.Message);
-        Assert.False(_env.Fixture.IsDirty);
-    }
-
-    [Fact]
     public void UnsupportedTargetsExplainAlternatives()
     {
         var auto = Assert.Throws<ToolError>(() => Patch("Shop::get_Discount", "return 1;"));

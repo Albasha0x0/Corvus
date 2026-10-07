@@ -27,6 +27,25 @@ public sealed class AssemblyWorkspace : IDisposable
             AddSearchDirectory(dir);
     }
 
+    /// <summary>Raised (outside the lock) after assemblies were loaded or reloaded.</summary>
+    public event Action<IReadOnlyList<LoadedAssembly>>? AssembliesLoaded;
+
+    /// <summary>Raised (outside the lock) after an assembly was unloaded.</summary>
+    public event Action<LoadedAssembly>? AssemblyUnloaded;
+
+    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _notices = new();
+
+    /// <summary>Queues a message for the client (e.g. "reloaded from disk"); shown with the next tool result.</summary>
+    public void Notify(string message) => _notices.Enqueue(message);
+
+    /// <summary>Takes all pending notices.</summary>
+    public List<string> DrainNotices()
+    {
+        var list = new List<string>();
+        while (_notices.TryDequeue(out var n)) list.Add(n);
+        return list;
+    }
+
     /// <summary>Bumped on any change (load, unload, edit, search path) to invalidate caches.</summary>
     public int Generation { get; private set; }
 
@@ -71,7 +90,13 @@ public sealed class AssemblyWorkspace : IDisposable
     }
 
     /// <summary>Loads a single assembly file. Returns the existing entry if the same path is already loaded.</summary>
-    public LoadedAssembly Load(string path) => Write(() => LoadCore(path));
+    public LoadedAssembly Load(string path)
+    {
+        int before = _assemblies.Count;
+        var asm = Write(() => LoadCore(path));
+        if (_assemblies.Count != before) AssembliesLoaded?.Invoke([asm]);
+        return asm;
+    }
 
     private LoadedAssembly LoadCore(string path)
     {
@@ -120,7 +145,7 @@ public sealed class AssemblyWorkspace : IDisposable
             .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        return Write(() =>
+        var result = Write(() =>
         {
             var report = new LoadReport(new(), new());
             for (int i = 0; i < files.Count; i++)
@@ -132,17 +157,31 @@ public sealed class AssemblyWorkspace : IDisposable
             }
             return report;
         });
+        if (result.Loaded.Count > 0) AssembliesLoaded?.Invoke(result.Loaded);
+        return result;
     }
 
-    public void Unload(LoadedAssembly asm) => Write(() =>
+    public void Unload(LoadedAssembly asm)
     {
-        _assemblies.Remove(asm);
-        asm.Dispose();
-        return 0;
-    });
+        Write(() =>
+        {
+            _assemblies.Remove(asm);
+            asm.Dispose();
+            return 0;
+        });
+        AssemblyUnloaded?.Invoke(asm);
+    }
 
     /// <summary>Re-reads the file from disk, discarding in-memory edits.</summary>
-    public LoadedAssembly Reload(LoadedAssembly asm) => Write(() =>
+    public LoadedAssembly Reload(LoadedAssembly asm)
+    {
+        var fresh = ReloadCore(asm);
+        AssemblyUnloaded?.Invoke(asm);
+        AssembliesLoaded?.Invoke([fresh]);
+        return fresh;
+    }
+
+    private LoadedAssembly ReloadCore(LoadedAssembly asm) => Write(() =>
     {
         int index = _assemblies.IndexOf(asm);
         _assemblies.Remove(asm);
@@ -195,6 +234,9 @@ public sealed class AssemblyWorkspace : IDisposable
     public LoadedAssembly? FindByAssemblyName(string simpleName) =>
         _assemblies.FirstOrDefault(a => a.AssemblyName.Equals(simpleName, StringComparison.OrdinalIgnoreCase));
 
+    public LoadedAssembly? FindByPath(string path) =>
+        _assemblies.FirstOrDefault(a => string.Equals(a.FilePath, path, StringComparison.OrdinalIgnoreCase));
+
     public LoadedAssembly? FindByModule(ModuleDef? module) =>
         module == null ? null : _assemblies.FirstOrDefault(a => ReferenceEquals(a.Module, module));
 
@@ -219,13 +261,12 @@ public sealed class AssemblyWorkspace : IDisposable
     }
 
     /// <summary>
-    /// Looks in the search directories, then in this process's .NET runtime directory as a last resort
+    /// Looks in the search directories, then in the installed .NET framework directories as a last resort
     /// (resolves System.Runtime / System.Private.CoreLib for modern .NET targets).
     /// </summary>
     public string? FindAssemblyFile(string simpleName)
     {
-        var runtimeDir = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory();
-        foreach (var dir in _searchDirectories.Append(runtimeDir))
+        foreach (var dir in _searchDirectories.Concat(FrameworkDirectories.Value))
             foreach (var ext in new[] { ".dll", ".exe", ".winmd" })
             {
                 var candidate = Path.Combine(dir, simpleName + ext);
@@ -234,6 +275,41 @@ public sealed class AssemblyWorkspace : IDisposable
             }
         return null;
     }
+
+    /// <summary>
+    /// Framework assembly directories: this process's runtime directory when its assemblies are on disk, otherwise
+    /// (self-contained single-file builds bundle them inside the exe) the newest installed shared frameworks.
+    /// </summary>
+    private static readonly Lazy<IReadOnlyList<string>> FrameworkDirectories = new(() =>
+    {
+        var dirs = new List<string>();
+        var runtimeDir = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory();
+        if (!string.IsNullOrEmpty(runtimeDir) && File.Exists(Path.Combine(runtimeDir, "System.Runtime.dll")))
+            dirs.Add(runtimeDir);
+
+        var roots = new[]
+        {
+            Environment.GetEnvironmentVariable("DOTNET_ROOT"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dotnet"),
+            "/usr/share/dotnet", "/usr/lib/dotnet", "/usr/local/share/dotnet", "/opt/homebrew/opt/dotnet/libexec",
+        };
+        foreach (var framework in new[] { "Microsoft.NETCore.App", "Microsoft.WindowsDesktop.App", "Microsoft.AspNetCore.App" })
+            foreach (var root in roots.Where(r => !string.IsNullOrEmpty(r)).Distinct())
+            {
+                var shared = Path.Combine(root!, "shared", framework);
+                if (!Directory.Exists(shared)) continue;
+                var newest = Directory.EnumerateDirectories(shared)
+                    .Select(d => (Dir: d, Version: Version.TryParse(Path.GetFileName(d).Split('-')[0], out var v) ? v : null))
+                    .Where(x => x.Version != null)
+                    .OrderByDescending(x => x.Version)
+                    .FirstOrDefault();
+                if (newest.Dir != null && !dirs.Contains(newest.Dir, StringComparer.OrdinalIgnoreCase))
+                    dirs.Add(newest.Dir);
+                break;
+            }
+        return dirs;
+    });
 
     /// <summary>dnlib resolution: loaded assemblies first, then reference-only modules from the search directories.</summary>
     private sealed class DnlibResolver(AssemblyWorkspace ws) : dnlib.DotNet.IAssemblyResolver

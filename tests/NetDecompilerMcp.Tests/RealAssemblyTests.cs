@@ -150,9 +150,10 @@ public class RealAssemblyTests(ITestOutputHelper output)
         var asm = ws.Assemblies.First(a => a.Module == method.Module);
         var patcher = new Services.CSharpPatcher(ws, decompiler);
         sw.Restart();
-        var compiled = ws.Read(() => patcher.Compile(new ResolvedSymbol(asm, method), "return true;", default));
-        output.WriteLine($"C# patch dry run of {Format.MemberLabel(method)}: {compiled.Body.Instructions.Count} instructions in {sw.ElapsedMilliseconds} ms");
-        Assert.NotEmpty(compiled.Body.Instructions);
+        using var scratch = ModuleDefMD.Load(asm.GetImageBytes(), ws.DnlibContext);
+        var compiled = ws.Read(() => patcher.PatchMethod(new ResolvedSymbol(asm, method), "return true;", scratch, default));
+        output.WriteLine($"C# patch dry run of {Format.MemberLabel(method)}: {compiled.Listing.Split('\n').Length} instructions in {sw.ElapsedMilliseconds} ms");
+        Assert.Contains("ret", compiled.Listing);
     }
 
     [RequiresPathFact(GameDummyDll)]
