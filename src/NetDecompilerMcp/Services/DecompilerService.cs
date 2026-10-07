@@ -144,6 +144,25 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
 
     public sealed record ExportResult(string Directory, int FileCount, string? ProjectFile, IReadOnlyList<string> FailedTypes);
 
+    /// <summary>
+    /// Tells the project writer which references are part of the target framework: shared-framework assemblies of a
+    /// .NET (Core) app come from its runtime pack, .NET Framework assemblies are referenced by name (GAC). Only the
+    /// app's own libraries get a HintPath.
+    /// </summary>
+    private sealed class FrameworkClassifier(bool netFramework) : ICSharpCode.Decompiler.Metadata.AssemblyReferenceClassifier
+    {
+        public override bool IsGacAssembly(ICSharpCode.Decompiler.Metadata.IAssemblyReference reference) =>
+            netFramework && (Frameworks.IsNetFrameworkAssembly(reference.Name) || reference.Name is "mscorlib" or "netstandard");
+
+        public override bool IsSharedAssembly(ICSharpCode.Decompiler.Metadata.IAssemblyReference reference,
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? runtimePack)
+        {
+            runtimePack = netFramework ? null : Frameworks.SharedFrameworkOf(reference.Name)
+                ?? (reference.Name is "netstandard" or "mscorlib" ? "Microsoft.NETCore.App" : null);
+            return runtimePack != null;
+        }
+    }
+
     /// <summary>Writes a C# project (one file per type, .csproj, resources) to an empty directory.</summary>
     public ExportResult ExportProject(LoadedAssembly asm, string outputDirectory, Action<int, int, string>? onProgress, CancellationToken ct)
     {
@@ -155,7 +174,8 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         // Whole-project export is long-running by nature: it gets 10x the normal timeout.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(options.TimeoutSeconds * 10L));
-        var exporter = new WholeProjectDecompiler(CreateSettings(), workspace.CreateDecompilerResolver(asm), null, null, null);
+        var exporter = new WholeProjectDecompiler(CreateSettings(), workspace.CreateDecompilerResolver(asm), null,
+            new FrameworkClassifier(Frameworks.TargetsNetFramework(asm.Module)), null);
         if (onProgress != null)
             exporter.ProgressIndicator = new Progress<DecompilationProgress>(p => onProgress(p.UnitsCompleted, p.TotalUnits, p.Status ?? "Decompiling"));
         try

@@ -51,6 +51,18 @@ public sealed partial class CSharpPatcher
     private ModuleDefMD Compile(LoadedAssembly asm, SyntaxTree tree, byte[]? targetImage, CancellationToken ct)
     {
         var withUsings = CreateCompilation(asm, tree, targetImage, out var missing, withUsings: true);
+        // the decompiled context's using directives of namespaces no resolved reference provides (an unavailable WinRT
+        // contract, a missing library) are dropped: an unused import must not fail the whole patch
+        var root = tree.GetRoot(ct);
+        var unknown = root.DescendantNodes().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.UsingDirectiveSyntax>()
+            .Where(u => u.Alias == null && u.StaticKeyword.IsKind(SyntaxKind.None) && u.Name != null && !u.HasAnnotation(UserCode)
+                        && u.Ancestors().All(a => !a.HasAnnotation(UserCode)) && !NamespaceExists(withUsings, u.Name.ToString()))
+            .ToList();
+        if (unknown.Count > 0)
+        {
+            tree = tree.WithRootAndOptions(root.RemoveNodes(unknown, SyntaxRemoveOptions.KeepNoTrivia)!, tree.Options);
+            withUsings = CreateCompilation(asm, tree, targetImage, out missing, withUsings: true);
+        }
         using var pe = new MemoryStream();
         var emit = withUsings.Emit(pe, cancellationToken: ct);
         if (!emit.Success && withUsings.SyntaxTrees.Length > 1)

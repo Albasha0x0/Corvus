@@ -43,6 +43,7 @@ public sealed partial class CSharpPatcher
         }
 
         Enqueue(asm.AssemblyName, targetImage ?? asm.GetImageBytes(), asm.Module, owned: false, asm.FilePath);
+        bool netFramework = Frameworks.TargetsNetFramework(asm.Module); // the app's framework, for every reference in the closure
         while (queue.Count > 0)
         {
             var (module, owned, from) = queue.Dequeue();
@@ -50,18 +51,18 @@ public sealed partial class CSharpPatcher
             {
                 string name = r.Name;
                 if (seen.Contains(name)) continue;
-                var loaded = workspace.FindReference(name, r.Version, r.PublicKeyOrToken?.Token?.Data, from);
-                if (loaded != null)
+                var target = workspace.LocateReference(name, r.Version, r.PublicKeyOrToken?.Token?.Data, from, netFramework);
+                if (target?.Loaded is { } loaded)
                 {
                     Enqueue(name, loaded.GetImageBytes(), loaded.Module, owned: false, loaded.FilePath);
                     continue;
                 }
-                var path = workspace.FindAssemblyFile(name, from, r.PublicKeyOrToken?.Token?.Data);
-                if (path == null) { seen.Add(name); missing.Add(name); continue; }
+                if (target == null) { seen.Add(name); missing.Add(name); continue; }
                 try
                 {
-                    var bytes = File.ReadAllBytes(path);
-                    Enqueue(name, bytes, ModuleDefMD.Load(bytes), owned: true, path);
+                    // an embedded (Costura) assembly resolves its own references from its host's folder
+                    var bytes = target.Bytes ?? File.ReadAllBytes(target.File!);
+                    Enqueue(name, bytes, ModuleDefMD.Load(bytes), owned: true, target.File ?? from);
                 }
                 catch
                 {

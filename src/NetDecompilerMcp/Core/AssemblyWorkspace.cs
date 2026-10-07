@@ -240,7 +240,8 @@ public sealed class AssemblyWorkspace : IDisposable
     /// the real one. Among the rest: the requester's own folder first, then the exact version, then the exact token,
     /// then load order. Null when nothing qualifies (the caller then resolves from files).
     /// </summary>
-    public LoadedAssembly? FindReference(string name, Version? version, byte[]? publicKeyToken, string? requesterPath)
+    public LoadedAssembly? FindReference(string name, Version? version, byte[]? publicKeyToken, string? requesterPath, bool sameMajor = false,
+        bool netFramework = false)
     {
         var requesterDir = requesterPath == null ? null : SafeDirectory(requesterPath);
         bool tokenRequested = publicKeyToken is { Length: > 0 };
@@ -253,6 +254,13 @@ public sealed class AssemblyWorkspace : IDisposable
             var token = a.Module.Assembly?.PublicKeyToken?.Data;
             bool tokenMatches = tokenRequested && token is { Length: > 0 } && token.AsSpan().SequenceEqual(publicKeyToken);
             if (!sameDir && tokenRequested && !tokenMatches) continue;
+            // another folder's build of another major version (System.Runtime 10.0 for a 6.0 reference): only as a last resort
+            if (sameMajor && !sameDir && version != null && !Frameworks.IsWildcard(version)
+                && a.Module.Assembly?.Version is { } have && !Frameworks.IsWildcard(have) && have.Major != version.Major)
+                continue;
+            // a .NET Framework app is not read against a modern .NET facade of the same name (mscorlib 4.0 of .NET 10)
+            if (sameMajor && netFramework && !sameDir && Frameworks.IsModernNet(a.Module))
+                continue;
             int score = (sameDir ? 4 : 0) + (version != null && a.Module.Assembly?.Version == version ? 2 : 0) + (tokenMatches ? 1 : 0);
             if (score > bestScore) { best = a; bestScore = score; }
         }
@@ -295,23 +303,119 @@ public sealed class AssemblyWorkspace : IDisposable
     /// Looks in the search directories, then in the installed .NET framework directories as a last resort
     /// (resolves System.Runtime / System.Private.CoreLib for modern .NET targets).
     /// </summary>
-    public string? FindAssemblyFile(string simpleName, string? requesterPath = null, byte[]? publicKeyToken = null)
+    public string? FindAssemblyFile(string simpleName, string? requesterPath = null, byte[]? publicKeyToken = null, Version? version = null,
+        bool netFramework = false)
     {
         var first = requesterPath == null ? null : SafeDirectory(requesterPath); // the referencing assembly's own folder first
-        var dirs = (first != null ? [first] : Array.Empty<string>()).Concat(_searchDirectories).Concat(FrameworkDirectories.Value)
+        var dirs = (first != null ? [first] : Array.Empty<string>()).Concat(_searchDirectories).Concat(Frameworks.DirectoriesFor(version, netFramework))
             .Distinct(StringComparer.OrdinalIgnoreCase);
+        string? otherMajor = null; // a file of another major version, used when nothing better exists
         foreach (var dir in dirs)
             foreach (var ext in new[] { ".dll", ".exe", ".winmd" })
             {
                 var candidate = Path.Combine(dir, simpleName + ext);
                 if (!File.Exists(candidate)) continue;
+                bool sameDir = string.Equals(dir, first, StringComparison.OrdinalIgnoreCase);
                 // outside the requester's folder, a requested public key token must match (as for loaded assemblies)
-                if (publicKeyToken is { Length: > 0 } && !string.Equals(dir, first, StringComparison.OrdinalIgnoreCase)
-                    && !TokenMatches(candidate, publicKeyToken))
+                if (publicKeyToken is { Length: > 0 } && !sameDir && !TokenMatches(candidate, publicKeyToken))
                     continue;
+                if (!sameDir && ((version != null && !Frameworks.IsWildcard(version) && FileVersion(candidate) is { } have
+                                  && !Frameworks.IsWildcard(have) && have.Major != version.Major)
+                                 // a .NET Framework app is not read against a modern .NET runtime folder's facades
+                                 || (netFramework && File.Exists(Path.Combine(dir, "System.Private.CoreLib.dll")))))
+                {
+                    otherMajor ??= candidate;
+                    continue;
+                }
                 return candidate;
             }
+        return otherMajor;
+    }
+
+    private static Version? FileVersion(string file)
+    {
+        try { return System.Reflection.AssemblyName.GetAssemblyName(file).Version; }
+        catch { return null; }
+    }
+
+    /// <summary>Where a reference comes from: a loaded assembly, a file, or an assembly embedded in a loaded one (Costura).</summary>
+    public sealed record ReferenceTarget(LoadedAssembly? Loaded, string? File, byte[]? Bytes, string? EmbeddedIn)
+    {
+        public string Describe() => Loaded != null ? $"loaded as {Loaded.Id}" : EmbeddedIn != null ? $"embedded in {EmbeddedIn}" : "resolvable from search path";
+    }
+
+    /// <summary>
+    /// Resolves a reference: a loaded assembly (same folder, or the same major version elsewhere); else a file (the
+    /// requester's folder, the search directories, then the installed framework of the requested version —
+    /// <paramref name="netFramework"/> for .NET Framework apps); else an assembly embedded in a loaded one (Costura);
+    /// else any loaded assembly of that name. Null when nothing matches.
+    /// </summary>
+    public ReferenceTarget? LocateReference(string name, Version? version, byte[]? token, string? requesterPath, bool netFramework)
+    {
+        // a .NET Framework app reads framework assemblies from .NET Framework itself, never from a loaded modern .NET
+        // facade of the same name and version (mscorlib 4.0, System.ServiceModel 4.0 of a .NET 10 app folder)
+        if (netFramework && Frameworks.NetFrameworkFile(name) is { } netfx && (token is not { Length: > 0 } || TokenMatches(netfx, token)))
+        {
+            var requesterDir = requesterPath == null ? null : SafeDirectory(requesterPath);
+            var local = FindReference(name, version, token, requesterPath, sameMajor: true, netFramework);
+            if (local == null || !string.Equals(SafeDirectory(local.FilePath), requesterDir, StringComparison.OrdinalIgnoreCase))
+                return new(null, netfx, null, null); // only the app's own folder overrides it
+        }
+        if (FindReference(name, version, token, requesterPath, sameMajor: true, netFramework) is { } loaded) return new(loaded, null, null, null);
+        if (FindAssemblyFile(name, requesterPath, token, version, netFramework) is { } file)
+        {
+            // a file of another major version loses to an assembly embedded next to the app
+            bool exact = version == null || Frameworks.IsWildcard(version) || FileVersion(file) is not { } v || Frameworks.IsWildcard(v) || v.Major == version.Major;
+            if (exact || FindEmbedded(name, token) is not { } embeddedFirst) return new(null, file, null, null);
+            return embeddedFirst;
+        }
+        if (FindEmbedded(name, token) is { } embedded) return embedded;
+        return FindReference(name, version, token, requesterPath) is { } any ? new(any, null, null, null) : null;
+    }
+
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<LoadedAssembly, EmbeddedIndex> _embedded = new();
+
+    private sealed record EmbeddedIndex(int Version, Dictionary<string, byte[]> Assemblies);
+
+    /// <summary>An assembly of this name embedded (Costura) in a loaded assembly, decompressed in memory.</summary>
+    private ReferenceTarget? FindEmbedded(string name, byte[]? token)
+    {
+        foreach (var host in _assemblies)
+        {
+            if (!HasCostura(host)) continue;
+            if (!_embedded.TryGetValue(host, out var index) || index.Version != host.Version)
+            {
+                var map = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+                try
+                {
+                    var contents = Services.Analysis.Containers.Open(host.OriginalBytes, host.FilePath, Services.Analysis.AnalysisLimits.Default, default);
+                    foreach (var item in contents.Items)
+                        if (Services.Analysis.Blob.Identify(item.Bytes) == ".NET assembly")
+                            map[Path.GetFileNameWithoutExtension(item.Name)] = item.Bytes;
+                }
+                catch (Exception) { /* unreadable resources: nothing embedded */ }
+                index = new EmbeddedIndex(host.Version, map);
+                _embedded.AddOrUpdate(host, index);
+            }
+            if (!index.Assemblies.TryGetValue(name, out var bytes)) continue;
+            if (token is { Length: > 0 })
+            {
+                try
+                {
+                    using var m = ModuleDefMD.Load(bytes);
+                    if (m.Assembly?.PublicKeyToken?.Data is not { } t || !t.AsSpan().SequenceEqual(token)) continue;
+                }
+                catch (Exception) { continue; }
+            }
+            return new ReferenceTarget(null, null, bytes, host.Id);
+        }
         return null;
+    }
+
+    private static bool HasCostura(LoadedAssembly a)
+    {
+        try { return a.Module.Resources.Any(r => r.Name.String.StartsWith("costura.", StringComparison.OrdinalIgnoreCase)); }
+        catch (Exception) { return false; }
     }
 
     private static bool TokenMatches(string file, byte[] token)
@@ -319,41 +423,6 @@ public sealed class AssemblyWorkspace : IDisposable
         try { return System.Reflection.AssemblyName.GetAssemblyName(file).GetPublicKeyToken() is { } t && t.AsSpan().SequenceEqual(token); }
         catch { return false; } // not an assembly / unreadable: not a match for a token-qualified reference
     }
-
-    /// <summary>
-    /// Framework assembly directories: this process's runtime directory when its assemblies are on disk, otherwise
-    /// (self-contained single-file builds bundle them inside the exe) the newest installed shared frameworks.
-    /// </summary>
-    private static readonly Lazy<IReadOnlyList<string>> FrameworkDirectories = new(() =>
-    {
-        var dirs = new List<string>();
-        var runtimeDir = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory();
-        if (!string.IsNullOrEmpty(runtimeDir) && File.Exists(Path.Combine(runtimeDir, "System.Runtime.dll")))
-            dirs.Add(runtimeDir);
-
-        var roots = new[]
-        {
-            Environment.GetEnvironmentVariable("DOTNET_ROOT"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dotnet"),
-            "/usr/share/dotnet", "/usr/lib/dotnet", "/usr/local/share/dotnet", "/opt/homebrew/opt/dotnet/libexec",
-        };
-        foreach (var framework in new[] { "Microsoft.NETCore.App", "Microsoft.WindowsDesktop.App", "Microsoft.AspNetCore.App" })
-            foreach (var root in roots.Where(r => !string.IsNullOrEmpty(r)).Distinct())
-            {
-                var shared = Path.Combine(root!, "shared", framework);
-                if (!Directory.Exists(shared)) continue;
-                var newest = Directory.EnumerateDirectories(shared)
-                    .Select(d => (Dir: d, Version: Version.TryParse(Path.GetFileName(d).Split('-')[0], out var v) ? v : null))
-                    .Where(x => x.Version != null)
-                    .OrderByDescending(x => x.Version)
-                    .FirstOrDefault();
-                if (newest.Dir != null && !dirs.Contains(newest.Dir, StringComparer.OrdinalIgnoreCase))
-                    dirs.Add(newest.Dir);
-                break;
-            }
-        return dirs;
-    });
 
     /// <summary>dnlib resolution: loaded assemblies first, then reference-only modules from the search directories.</summary>
     private sealed class DnlibResolver(AssemblyWorkspace ws) : dnlib.DotNet.IAssemblyResolver
@@ -364,28 +433,26 @@ public sealed class AssemblyWorkspace : IDisposable
             if (string.IsNullOrEmpty(name))
                 return null;
             var requester = sourceModule?.Location;
-            var loaded = ws.FindReference(name, assembly.Version, assembly.PublicKeyOrToken?.Token?.Data, requester);
-            if (loaded != null)
-                return loaded.Module.Assembly;
+            var target = ws.LocateReference(name, assembly.Version, assembly.PublicKeyOrToken?.Token?.Data, requester,
+                sourceModule != null && Frameworks.TargetsNetFramework(sourceModule));
+            if (target == null) return null;
+            if (target.Loaded != null)
+                return target.Loaded.Module.Assembly;
 
-            // reference-only modules from files, keyed by the folder they were found from as well as the name
-            var path = ws.FindAssemblyFile(name, requester, assembly.PublicKeyOrToken?.Token?.Data);
-            var key = path ?? name;
+            // reference-only modules from files or embedded images, keyed by where they came from
+            var key = target.File ?? $"{target.EmbeddedIn}!{name}";
             lock (ws._referenceModules)
             {
                 if (!ws._referenceModules.TryGetValue(key, out var module))
                 {
-                    module = null;
-                    if (path != null)
+                    try
                     {
-                        try
-                        {
-                            module = ModuleDefMD.Load(File.ReadAllBytes(path), ws.DnlibContext);
-                            module.Location = path; // its own references then resolve from its folder too
-                            module.EnableTypeDefFindCache = true;
-                        }
-                        catch { module = null; }
+                        module = ModuleDefMD.Load(target.Bytes ?? File.ReadAllBytes(target.File!), ws.DnlibContext);
+                        // its own references then resolve from its folder too (an embedded one: from its host's)
+                        module.Location = target.File ?? (requester != null ? Path.Combine(SafeDirectory(requester) ?? "", name + ".dll") : name + ".dll");
+                        module.EnableTypeDefFindCache = true;
                     }
+                    catch { module = null; }
                     ws._referenceModules[key] = module;
                 }
                 return module?.Assembly;
@@ -428,9 +495,10 @@ public sealed class AssemblyWorkspace : IDisposable
 
         public DecompilerMetadata.MetadataFile? Resolve(DecompilerMetadata.IAssemblyReference reference)
         {
-            var loaded = _ws.FindReference(reference.Name, reference.Version, reference.PublicKeyToken, _main.FilePath);
-            if (loaded != null)
-                return loaded.GetPEFile();
+            var target = _ws.LocateReference(reference.Name, reference.Version, reference.PublicKeyToken, _main.FilePath,
+                Frameworks.TargetsNetFramework(_main.Module));
+            if (target?.Loaded != null)
+                return target.Loaded.GetPEFile();
 
             var cacheKey = SafeDirectory(_main.FilePath) + "|" + reference.FullName; // per requester folder
             lock (_ws._externalDecompilerRefs)
@@ -439,12 +507,13 @@ public sealed class AssemblyWorkspace : IDisposable
                     return cached;
             }
             DecompilerMetadata.MetadataFile? file = null;
-            // our folder- and token-aware lookup first (the standard resolver matches search directories by name only)
-            if (_ws.FindAssemblyFile(reference.Name, _main.FilePath, reference.PublicKeyToken) is { } path)
+            // our folder-, version- and token-aware lookup first (the standard resolver matches by name only)
+            if (target is { File: not null } or { Bytes: not null })
             {
                 try
                 {
-                    file = new DecompilerMetadata.PEFile(path, new MemoryStream(File.ReadAllBytes(path), writable: false),
+                    var bytes = target.Bytes ?? File.ReadAllBytes(target.File!);
+                    file = new DecompilerMetadata.PEFile(target.File ?? $"{target.EmbeddedIn}!{reference.Name}.dll", new MemoryStream(bytes, writable: false),
                         System.Reflection.PortableExecutable.PEStreamOptions.PrefetchEntireImage);
                 }
                 catch { file = null; }
