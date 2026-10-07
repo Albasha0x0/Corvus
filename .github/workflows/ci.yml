@@ -4,29 +4,76 @@ on:
   push:
     branches: [master, main]
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
+  NUGET_XMLDOC_MODE: skip
+  # One package folder for restore and for everything the tests download: they `dotnet publish` hello-world apps
+  # (single-file, self-contained + compressed, ReadyToRun) for the runner's own RID, which pulls runtime and crossgen2
+  # packs, and they open dnlib / K4os / Roslyn packages from this folder. One cache entry covers all of it.
+  NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
 
 jobs:
   test:
+    name: test (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
+
+      - name: SDK version
+        id: sdk
+        shell: bash
+        run: echo "version=$(dotnet --version)" >> "$GITHUB_OUTPUT"
+
+      # Keyed on the SDK version too: runtime / crossgen2 pack versions follow the SDK, so a new SDK gets a new entry
+      # (saved after the job, with the packs the tests downloaded) instead of re-downloading them on every run.
+      - name: Cache NuGet packages and runtime packs
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.NUGET_PACKAGES }}
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-sdk${{ steps.sdk.outputs.version }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-sdk${{ steps.sdk.outputs.version }}-
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Restore
         run: dotnet restore
+
       - name: Build
         run: dotnet build --no-restore -c Release
+
+      # Real-data tests (a game folder, an Il2CppDumper output, two builds, a HostApi project) need NDM_* environment
+      # variables pointing at local data; none are set here, so they report as skipped. C++ / C / Python generation
+      # is compiled or parsed when clang / python are installed (clang is on the Windows image).
       - name: Test
-        # Real-world tests skip themselves when their data is not on the machine.
-        run: dotnet test --no-build -c Release --logger "trx;LogFileName=results.trx"
+        run: >-
+          dotnet test --no-build -c Release
+          --blame-hang-timeout 15m
+          --logger "trx;LogFileName=results.trx"
+          --logger "console;verbosity=normal"
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-results-${{ matrix.os }}
-          path: "**/TestResults/*.trx"
+          path: |
+            **/TestResults/*.trx
+            **/TestResults/**/*.dmp
+          if-no-files-found: ignore
