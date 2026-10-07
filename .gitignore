@@ -1,0 +1,10 @@
+# Build output
+bin/
+obj/
+publish/
+*.user
+*.suo
+.vs/
+.idea/
+TestResults/
+*.binlog

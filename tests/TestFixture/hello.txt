@@ -1,0 +1,2 @@
+Hello from an embedded resource.
+Second line.

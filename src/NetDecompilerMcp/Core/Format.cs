@@ -1,0 +1,259 @@
+using System.Text;
+using dnlib.DotNet;
+
+namespace NetDecompilerMcp.Core;
+
+/// <summary>C#-flavoured, compact signatures for dnlib members (used in listings and search results).</summary>
+public static class Format
+{
+    public static string Token(IMDTokenProvider p) => $"0x{p.MDToken.Raw:X8}";
+
+    public static string Type(TypeSig? sig)
+    {
+        switch (sig)
+        {
+            case null: return "?";
+            case CorLibTypeSig c:
+                return c.ElementType switch
+                {
+                    ElementType.Void => "void",
+                    ElementType.Boolean => "bool",
+                    ElementType.Char => "char",
+                    ElementType.I1 => "sbyte",
+                    ElementType.U1 => "byte",
+                    ElementType.I2 => "short",
+                    ElementType.U2 => "ushort",
+                    ElementType.I4 => "int",
+                    ElementType.U4 => "uint",
+                    ElementType.I8 => "long",
+                    ElementType.U8 => "ulong",
+                    ElementType.R4 => "float",
+                    ElementType.R8 => "double",
+                    ElementType.String => "string",
+                    ElementType.Object => "object",
+                    ElementType.I => "nint",
+                    ElementType.U => "nuint",
+                    _ => c.TypeName,
+                };
+            case GenericInstSig g:
+                return $"{StripArity(g.GenericType?.TypeDefOrRef?.Name ?? "?")}<{string.Join(", ", g.GenericArguments.Select(Type))}>";
+            case SZArraySig a:
+                return Type(a.Next) + "[]";
+            case ArraySig a:
+                return Type(a.Next) + "[" + new string(',', (int)Math.Max(0, a.Rank - 1)) + "]";
+            case ByRefSig b:
+                return "ref " + Type(b.Next);
+            case PtrSig p:
+                return Type(p.Next) + "*";
+            case GenericSig gs:
+                return gs.GenericParam?.Name?.String is { Length: > 0 } n ? n : (gs.IsMethodVar ? "!!" : "!") + gs.Number;
+            case FnPtrSig:
+                return "delegate*";
+            case TypeDefOrRefSig t:
+                return TypeName(t.TypeDefOrRef);
+            case NonLeafSig nl:
+                return Type(nl.Next);
+            default:
+                return sig.TypeName;
+        }
+    }
+
+    public static string TypeName(ITypeDefOrRef? t)
+    {
+        if (t == null) return "?";
+        if (t is TypeSpec spec) return Type(spec.TypeSig);
+        var name = StripArity(t.Name);
+        if (t is TypeDef td && td.GenericParameters.Count > 0)
+            name += "<" + string.Join(", ", td.GenericParameters.Select(gp => gp.Name.String)) + ">";
+        return name;
+    }
+
+    public static string StripArity(string name)
+    {
+        int i = name.IndexOf('`');
+        return i > 0 ? name[..i] : name;
+    }
+
+    public static string Access(TypeDef t) => t.Visibility switch
+    {
+        TypeAttributes.Public or TypeAttributes.NestedPublic => "public",
+        TypeAttributes.NestedPrivate => "private",
+        TypeAttributes.NestedFamily => "protected",
+        TypeAttributes.NestedAssembly or TypeAttributes.NotPublic => "internal",
+        TypeAttributes.NestedFamORAssem => "protected internal",
+        TypeAttributes.NestedFamANDAssem => "private protected",
+        _ => "internal",
+    };
+
+    public static string Access(MethodDef m) => m.Access switch
+    {
+        MethodAttributes.Public => "public",
+        MethodAttributes.Private => "private",
+        MethodAttributes.Family => "protected",
+        MethodAttributes.Assembly => "internal",
+        MethodAttributes.FamORAssem => "protected internal",
+        MethodAttributes.FamANDAssem => "private protected",
+        _ => "privatescope",
+    };
+
+    public static string Access(FieldDef f) => f.Access switch
+    {
+        FieldAttributes.Public => "public",
+        FieldAttributes.Private => "private",
+        FieldAttributes.Family => "protected",
+        FieldAttributes.Assembly => "internal",
+        FieldAttributes.FamORAssem => "protected internal",
+        FieldAttributes.FamANDAssem => "private protected",
+        _ => "privatescope",
+    };
+
+    public static string Kind(TypeDef t) =>
+        t.IsInterface ? "interface"
+        : t.IsEnum ? "enum"
+        : t.IsDelegate ? "delegate"
+        : t.IsValueType ? "struct"
+        : (t.IsAbstract && t.IsSealed) ? "static class"
+        : "class";
+
+    public static string TypeHeader(TypeDef t)
+    {
+        var sb = new StringBuilder();
+        sb.Append(Access(t)).Append(' ');
+        if (!t.IsInterface && !t.IsValueType)
+        {
+            if (t.IsAbstract && t.IsSealed) sb.Append("static ");
+            else if (t.IsAbstract) sb.Append("abstract ");
+            else if (t.IsSealed && !t.IsDelegate) sb.Append("sealed ");
+        }
+        sb.Append(Kind(t) == "static class" ? "class" : Kind(t)).Append(' ').Append(TypeName(t));
+        var bases = new List<string>();
+        if (t.BaseType != null && !t.IsValueType && !t.IsEnum && !t.IsDelegate && t.BaseType.FullName != "System.Object")
+            bases.Add(TypeName(t.BaseType));
+        if (t.IsEnum && t.GetEnumUnderlyingType() is { } underlying && underlying.ElementType != ElementType.I4)
+            bases.Add(Type(underlying));
+        bases.AddRange(t.Interfaces.Select(i => TypeName(i.Interface)));
+        if (bases.Count > 0)
+            sb.Append(" : ").Append(string.Join(", ", bases));
+        return sb.ToString();
+    }
+
+    public static string Method(MethodDef m, bool withModifiers = true)
+    {
+        var sb = new StringBuilder();
+        if (withModifiers)
+        {
+            sb.Append(Access(m)).Append(' ');
+            if (m.IsStatic) sb.Append("static ");
+            if (m.IsAbstract && !m.DeclaringType.IsInterface) sb.Append("abstract ");
+            else if (m.IsVirtual && !m.IsAbstract)
+            {
+                if (m.IsNewSlot) { if (!m.IsFinal) sb.Append("virtual "); }
+                else sb.Append(m.IsFinal ? "sealed override " : "override ");
+            }
+            if (m.IsPinvokeImpl) sb.Append("extern ");
+        }
+        if (!m.IsConstructor)
+            sb.Append(Type(m.ReturnType)).Append(' ');
+        sb.Append(m.IsConstructor ? StripArity(m.DeclaringType.Name) + (m.IsStatic ? " /*.cctor*/" : "") : m.Name.String);
+        if (m.GenericParameters.Count > 0)
+            sb.Append('<').Append(string.Join(", ", m.GenericParameters.Select(g => g.Name.String))).Append('>');
+        sb.Append('(').Append(Parameters(m)).Append(')');
+        return sb.ToString();
+    }
+
+    public static string Parameters(MethodDef m) =>
+        string.Join(", ", m.Parameters.Where(p => p.IsNormalMethodParameter).Select(p => $"{Type(p.Type)} {p.Name}".TrimEnd()));
+
+    public static string ParameterTypes(MethodSig? sig) =>
+        sig == null ? "" : string.Join(", ", sig.Params.Select(Type));
+
+    public static string Field(FieldDef f)
+    {
+        var sb = new StringBuilder();
+        sb.Append(Access(f)).Append(' ');
+        if (f.IsLiteral) sb.Append("const ");
+        else
+        {
+            if (f.IsStatic) sb.Append("static ");
+            if (f.IsInitOnly) sb.Append("readonly ");
+        }
+        sb.Append(Type(f.FieldType)).Append(' ').Append(f.Name.String);
+        if (f.IsLiteral && f.Constant != null)
+            sb.Append(" = ").Append(Literal(f.Constant.Value));
+        return sb.ToString();
+    }
+
+    public static string Property(PropertyDef p)
+    {
+        var accessor = p.GetMethod ?? p.SetMethod;
+        var sb = new StringBuilder();
+        if (accessor != null)
+        {
+            sb.Append(Access(accessor)).Append(' ');
+            if (accessor.IsStatic) sb.Append("static ");
+        }
+        sb.Append(Type(p.PropertySig?.RetType)).Append(' ').Append(p.Name.String);
+        if (p.PropertySig?.Params.Count > 0)
+            sb.Append('[').Append(string.Join(", ", p.PropertySig.Params.Select(Type))).Append(']');
+        sb.Append(" {");
+        if (p.GetMethod != null) sb.Append(" get;");
+        if (p.SetMethod != null) sb.Append(" set;");
+        sb.Append(" }");
+        return sb.ToString();
+    }
+
+    public static string Event(EventDef e)
+    {
+        var accessor = e.AddMethod ?? e.RemoveMethod;
+        var prefix = accessor != null ? Access(accessor) + (accessor.IsStatic ? " static" : "") + " " : "";
+        return $"{prefix}event {TypeName(e.EventType)} {e.Name}";
+    }
+
+    /// <summary>"Ns.Type::Method(int, string)" — unambiguous label for search/xref output.</summary>
+    public static string MemberLabel(IMemberRef m) => m switch
+    {
+        TypeDef t => t.FullName,
+        MethodDef md => $"{md.DeclaringType?.FullName}::{md.Name}({ParameterTypes(md.MethodSig)})",
+        IMethod im => $"{im.DeclaringType?.FullName}::{im.Name}({ParameterTypes(im.MethodSig)})",
+        IField f => $"{f.DeclaringType?.FullName}::{f.Name}",
+        PropertyDef p => $"{p.DeclaringType?.FullName}::{p.Name}",
+        EventDef e => $"{e.DeclaringType?.FullName}::{e.Name}",
+        _ => m.FullName,
+    };
+
+    public static string Literal(object? value) => value switch
+    {
+        null => "null",
+        string s => "\"" + Escape(s) + "\"",
+        UTF8String u => "\"" + Escape(u.String) + "\"",
+        char c => "'" + Escape(c.ToString()) + "'",
+        bool b => b ? "true" : "false",
+        float f => f.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "f",
+        double d => d.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+        IFormattable fmt => fmt.ToString(null, System.Globalization.CultureInfo.InvariantCulture),
+        _ => value.ToString() ?? "",
+    };
+
+    public static string Escape(string s)
+    {
+        var sb = new StringBuilder(s.Length);
+        foreach (var ch in s)
+        {
+            sb.Append(ch switch
+            {
+                '\\' => "\\\\",
+                '"' => "\\\"",
+                '\n' => "\\n",
+                '\r' => "\\r",
+                '\t' => "\\t",
+                '\0' => "\\0",
+                _ when char.IsControl(ch) => $"\\u{(int)ch:x4}",
+                _ => ch.ToString(),
+            });
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>Truncates a single line for previews.</summary>
+    public static string Clip(string s, int max) => s.Length <= max ? s : s[..max] + "…";
+}
