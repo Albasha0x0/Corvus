@@ -32,7 +32,7 @@ public sealed class Env : IDisposable
         Il2Cpp = new Il2CppService(Workspace);
         Report = new AssemblyReport(Workspace, Il2Cpp);
         Edits = new EditService(Workspace, new IlAssembler(Workspace), new CSharpPatcher(Workspace, Decompiler));
-        History = new EditHistoryService(Workspace, Edits, Decompiler);
+        History = new EditHistoryService(Workspace, Edits, Decompiler, new AssemblyComparer(Workspace));
         Fixture = Workspace.Load(path ?? FixturePath);
         if (withConsumer)
             Workspace.Load(ConsumerPath);

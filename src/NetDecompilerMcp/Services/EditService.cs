@@ -338,6 +338,12 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
     // ------------------------------------------------------------------ replay / undo
 
     /// <summary>Applies a recorded edit again (undo, edit scripts). <paramref name="preferTokens"/> when replaying on the same original image.</summary>
+    /// <summary>
+    /// Maps a recorded symbol that no longer exists by name to its counterpart in the target build (set while a script
+    /// is replayed onto another build whose original is loaded); null when there is none.
+    /// </summary>
+    internal Func<EditRecord, string, ResolvedSymbol?>? Remap { get; set; }
+
     public string Apply(EditRecord record, LoadedAssembly asm, bool preferTokens, CancellationToken ct) => record.Kind switch
     {
         "rename_symbol" => Rename(Recorded(asm, record, "symbol", preferTokens), Required(record, "newName")),
@@ -412,7 +418,14 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         if (preferTokens && SymbolResolver.TryParseToken(record.Arg(key + "Token") ?? "", out uint token)
             && (token & 0x00FFFFFF) != 0 && asm.Module.ResolveToken(token) is IMemberDef def)
             return new ResolvedSymbol(asm, def);
-        return SymbolResolver.ResolveOne(workspace, asm.Id, Required(record, key), SymbolResolver.ParseKind(record.Arg(key + "Kind")));
+        try
+        {
+            return SymbolResolver.ResolveOne(workspace, asm.Id, Required(record, key), SymbolResolver.ParseKind(record.Arg(key + "Kind")));
+        }
+        catch (ToolError) when (Remap?.Invoke(record, key) is { } renamed)
+        {
+            return renamed; // renamed or moved in this build: found through the original build's content match
+        }
     }
 
     private static string Required(EditRecord record, string key) =>

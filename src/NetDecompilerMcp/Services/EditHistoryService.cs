@@ -10,7 +10,7 @@ namespace NetDecompilerMcp.Services;
 /// The edit history of an assembly: listing, before/after diffs, and edit scripts (JSON) that re-apply a patch set —
 /// typically to a new build of a game after an update.
 /// </summary>
-public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService edits, DecompilerService decompiler)
+public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService edits, DecompilerService decompiler, AssemblyComparer comparer)
 {
     public const string ScriptFormat = "net-decompiler-edits/1";
 
@@ -75,8 +75,26 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
         bool sameImage = script.Mvid != null && script.Mvid == original.Mvid?.ToString();
         var records = script.Edits.Select(e => new EditRecord(e.Kind, e.Args, e.Description, [])).ToList();
 
+        // another build: a target renamed since is found through the build the script was made from, when it is loaded
+        var originalBuild = sameImage ? null : workspace.Assemblies.FirstOrDefault(a => a != asm && a.Module.Mvid?.ToString() == script.Mvid);
+        var remapped = new List<string>();
+        AssemblyComparer.Comparison? comparison = null;
+        if (originalBuild != null)
+            edits.Remap = (record, key) =>
+            {
+                ResolvedSymbol old;
+                try { old = SymbolResolver.ResolveOne(workspace, originalBuild.Id, record.Arg(key)!, SymbolResolver.ParseKind(record.Arg(key + "Kind"))); }
+                catch (ToolError) { return null; }
+                comparison ??= comparer.Compare(originalBuild, asm, ct);
+                var (match, how) = comparer.FindCounterpart(comparison, old.Member);
+                if (match == null) return null;
+                remapped.Add($"{old.Label} -> {Format.MemberLabel(match)} ({how})");
+                return new ResolvedSymbol(asm, match);
+            };
         var sb = new StringBuilder($"{(dryRun ? "Dry run of" : "Applying")} {records.Count} edit(s) from {Path.GetFileName(path)} to {asm.Id}" +
-                                   $" ({(sameImage ? "same build: using recorded tokens" : "different build: resolving symbols by name")}):\n");
+                                   $" ({(sameImage ? "same build: using recorded tokens" : originalBuild != null
+                                       ? $"different build: resolving symbols by name, renamed ones through {originalBuild.Id} (the build the script was made from)"
+                                       : "different build: resolving symbols by name")}):\n");
         // A dry run applies the script for real — C# is compiled, IL is stack-checked, later edits see the earlier ones —
         // and then rolls the assembly back, so it reports exactly what a real run would.
         var before = asm.Edits.ToList();
@@ -88,8 +106,10 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
                 ct.ThrowIfCancellationRequested();
                 try
                 {
+                    remapped.Clear();
                     edits.Apply(records[i], asm, sameImage, ct);
                     sb.AppendLine($"  #{i + 1} ok      {records[i].Description}");
+                    foreach (var r in remapped) sb.AppendLine($"      target renamed in this build: {r}");
                     ok++;
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
@@ -97,6 +117,8 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
                     failed++;
                     sb.AppendLine($"  #{i + 1} FAILED  {records[i].Description}");
                     sb.AppendLine(Indent(ex.Message, "      "));
+                    if (!sameImage && originalBuild == null && ex.Message.Contains("not found", StringComparison.Ordinal))
+                        sb.AppendLine($"      (load the build the script was made from, MVID {script.Mvid}, to follow renamed targets)");
                     if (stopOnError && !dryRun)
                     {
                         edits.Rebuild(asm, before, ct);
@@ -108,6 +130,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
         }
         finally
         {
+            edits.Remap = null;
             if (dryRun && asm.Edits.Count != before.Count)
                 edits.Rebuild(asm, before, CancellationToken.None);
         }

@@ -25,6 +25,8 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         [Description("Only types whose old or new full name starts with this.")] string? @namespace = null,
         [Description("Member change kinds to include, comma-separated: renamed, signature, body, type, offset, address, added, removed. Default: all except address.")] string? changes = null,
         [Description("Also list the names of added and removed types (otherwise only counts).")] bool listAddedRemovedTypes = true,
+        [Description("Also show compiler-generated types and members (closures, iterator / async state machines, backing fields, " +
+                     "<PrivateImplementationDetails> data): they change with every recompile, so they are hidden and counted by default.")] bool includeCompilerGenerated = false,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
@@ -41,12 +43,23 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
             || (t.Old?.FullName.StartsWith(@namespace, StringComparison.Ordinal) ?? false)
             || (t.New?.FullName.StartsWith(@namespace, StringComparison.Ordinal) ?? false);
         var types = cmp.Types.Where(InScope).ToList();
+        int hiddenTypes = 0, hiddenMembers = 0;
+        if (!includeCompilerGenerated)
+        {
+            hiddenTypes = types.Count(t => IsGenerated(t.Old ?? t.New));
+            types = types.Where(t => !IsGenerated(t.Old ?? t.New)).ToList();
+            hiddenMembers = types.Sum(t => t.Members.Count(m => IsGenerated(m.Old ?? m.New)));
+            types = types.Select(t => t with { Members = t.Members.Where(m => !IsGenerated(m.Old ?? m.New)).ToList() }).ToList();
+        }
 
         var sb = new StringBuilder($"Comparing {oldAsm.Id} ({oldAsm.FilePath})\n       -> {newAsm.Id} ({newAsm.FilePath})\n");
         var memberCounts = types.SelectMany(t => t.Members).GroupBy(m => m.Change).ToDictionary(g => g.Key, g => g.Count());
         sb.AppendLine($"Types: {Count(types, "renamed")} renamed, {Count(types, "changed")} with member changes, {Count(types, "removed")} removed, {Count(types, "added")} added " +
                       $"({cmp.TypeMap.Count} matched of {MetadataUtil.CountedTypes(oldAsm.Module).Count} old).");
         sb.AppendLine("Members: " + string.Join(", ", AllKinds.Select(k => $"{memberCounts.GetValueOrDefault(k)} {k}")));
+        if (hiddenTypes + hiddenMembers > 0)
+            sb.AppendLine($"Hidden: {hiddenTypes} compiler-generated type change(s) and {hiddenMembers} member change(s) " +
+                          "(closures, state machines, backing fields, array data; includeCompilerGenerated=true shows them).");
         foreach (var (side, asm) in new[] { ("old", oldAsm), ("new", newAsm) })
             if (asm.BodyHealth.Invalid > 0)
                 sb.AppendLine($"Warning ({side} build {asm.Id}): {asm.BodyHealth.Describe()} Those body changes are marked \"not comparable\"; name matches and signature/field-offset changes are still reliable, renames found by content less so.");
@@ -106,6 +119,14 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
     }, cancellationToken);
 
     private static int Count(List<TypeChange> types, string change) => types.Count(t => t.Change == change);
+
+    /// <summary>Compiler-generated: a '&lt;' in its own or an enclosing type's name (C# never allows one in source).</summary>
+    private static bool IsGenerated(IMemberDef? member)
+    {
+        for (IMemberDef? m = member; m != null; m = m.DeclaringType)
+            if (m.Name.String.Contains('<')) return true;
+        return false;
+    }
 
     private static string Describe(MemberChange m)
     {
