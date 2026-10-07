@@ -87,7 +87,7 @@ public sealed class SearchService
         // tables (crypto round constants, CRC tables, S-boxes of words) live in array initializer data, not in IL;
         // values of 0x10000 and more only — small ones would match everywhere
         bool searchData = target == decimal.Truncate(target) && Math.Abs(target) >= 0x10000 && target >= long.MinValue && target <= ulong.MaxValue;
-        var arrayHits = new System.Collections.Concurrent.ConcurrentBag<(LoadedAssembly Asm, FieldDef Field, int Index)>();
+        var arrayHits = new System.Collections.Concurrent.ConcurrentBag<(LoadedAssembly Asm, FieldDef Field, int ByteOffset)>();
         var hits = ParallelCollect<ConstantHit>(scope, (asm, type, found) =>
         {
             foreach (var f in type.Fields)
@@ -95,8 +95,8 @@ public sealed class SearchService
                 if (f.HasConstant && NumericEquals(f.Constant.Value, target))
                     found.Add(new ConstantHit(asm, f, null, type.IsEnum ? "enum member" : "const field", Format.Literal(f.Constant.Value)));
                 if (searchData && f.HasFieldRVA && MetadataUtil.Try(() => f.InitialValue) is { Length: >= 4 } data)
-                    foreach (var index in ArrayElements(data, target))
-                        arrayHits.Add((asm, f, index));
+                    foreach (var at in ArrayMatches(data, target))
+                        arrayHits.Add((asm, f, at));
             }
 
             foreach (var m in type.Methods)
@@ -114,32 +114,76 @@ public sealed class SearchService
                 }
             }
         }, ct);
-        // the method that initializes each array (ldtoken of the data field) owns the hit
+        // the method that initializes each array (ldtoken / ldsflda of the data field) owns the hit
         foreach (var group in arrayHits.GroupBy(h => (h.Asm, h.Field)))
         {
             var (asm, field) = group.Key;
-            var user = asm.Module.GetTypes().SelectMany(t => t.Methods)
-                .FirstOrDefault(m => FastIlReader.Instructions(asm, m).Any(i => i.OpCode.Code == Code.Ldtoken && i.Operand is IField f && f.MDToken == field.MDToken));
-            foreach (var (_, _, index) in group.OrderBy(h => h.Index))
+            var (user, elementType) = ArrayUser(asm, field);
+            int? size = ElementSize(elementType);
+            int width = target >= int.MinValue && target <= uint.MaxValue ? 4 : 8;
+            foreach (var (_, _, at) in group.OrderBy(h => h.ByteOffset))
+            {
+                if (size is { } n && n < width) continue; // a byte / short array: the match straddles elements, not a value
+                string where = size is { } es
+                    ? es > width ? $"element [{at / es}] ({(at % es == 0 ? "low" : "high")} half)" : $"element [{at / es}]"
+                    : $"bytes at offset {at}";
                 hits.Add(new ConstantHit(asm, (IMemberDef?)user ?? field, null,
-                    $"array initializer element [{index}]{(user != null ? $" (data {field.Name})" : "")}", Format.Literal(target)));
+                    $"array initializer {where}{(elementType != null ? $" of {Format.Type(elementType)}[]" : "")} (data {field.Name})", Format.Literal(target)));
+            }
         }
         return SearchResult<ConstantHit>.From(hits, limit);
     }
 
-    /// <summary>Indexes of 4- or 8-byte little-endian elements equal to <paramref name="target"/> (signed or unsigned).</summary>
-    private static IEnumerable<int> ArrayElements(byte[] data, decimal target)
+    /// <summary>Byte offsets of aligned 4- or 8-byte little-endian values equal to <paramref name="target"/> (signed or unsigned).</summary>
+    private static IEnumerable<int> ArrayMatches(byte[] data, decimal target)
     {
         bool fits32 = target >= int.MinValue && target <= uint.MaxValue;
         int width = fits32 ? 4 : 8;
-        for (int i = 0, n = 0; i + width <= data.Length; i += width, n++)
+        for (int i = 0; i + width <= data.Length; i += width)
         {
             bool match = fits32
                 ? (target >= 0 ? BitConverter.ToUInt32(data, i) == (uint)target : BitConverter.ToInt32(data, i) == (int)target)
                 : (target >= 0 ? BitConverter.ToUInt64(data, i) == (ulong)target : BitConverter.ToInt64(data, i) == (long)target);
-            if (match) yield return n;
+            if (match) yield return i;
         }
     }
+
+    /// <summary>
+    /// The method that reads the data field and the array's element type: from the newarr before
+    /// <c>ldtoken</c> + InitializeArray, or the T of <c>CreateSpan&lt;T&gt;</c> / <c>new ReadOnlySpan&lt;T&gt;(ptr, n)</c>.
+    /// </summary>
+    private static (MethodDef? User, TypeSig? Element) ArrayUser(LoadedAssembly asm, FieldDef field)
+    {
+        foreach (var m in asm.Module.GetTypes().SelectMany(t => t.Methods))
+        {
+            var il = FastIlReader.Instructions(asm, m).ToList();
+            int at = il.FindIndex(i => i.OpCode.Code is Code.Ldtoken or Code.Ldsflda && i.Operand is IField f && f.MDToken == field.MDToken);
+            if (at < 0) continue;
+            for (int k = Math.Max(0, at - 3); k <= Math.Min(il.Count - 1, at + 3); k++)
+            {
+                var sig = il[k].Operand switch
+                {
+                    ITypeDefOrRef t when il[k].OpCode.Code == Code.Newarr => t.ToTypeSig(),
+                    MethodSpec { GenericInstMethodSig.GenericArguments.Count: 1 } ms when k > at => ms.GenericInstMethodSig.GenericArguments[0],
+                    IMethod { DeclaringType: TypeSpec { TypeSig: GenericInstSig { GenericArguments.Count: 1 } g } } when k > at
+                        && il[k].OpCode.Code == Code.Newobj && g.GenericType.FullName.StartsWith("System.ReadOnlySpan", StringComparison.Ordinal) => g.GenericArguments[0],
+                    _ => null,
+                };
+                if (sig != null) return (m, sig);
+            }
+            return (m, null);
+        }
+        return (null, null);
+    }
+
+    private static int? ElementSize(TypeSig? sig) => sig?.ElementType switch
+    {
+        ElementType.U1 or ElementType.I1 or ElementType.Boolean => 1,
+        ElementType.U2 or ElementType.I2 or ElementType.Char => 2,
+        ElementType.U4 or ElementType.I4 or ElementType.R4 => 4,
+        ElementType.U8 or ElementType.I8 or ElementType.R8 => 8,
+        _ => null,
+    };
 
     private static decimal ParseConstant(string value)
     {
