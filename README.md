@@ -236,7 +236,7 @@ ret
 Requires the .NET 10 SDK.
 
 ```powershell
-dotnet test                    # 272 tests: services, IL/C# patching (with runtime execution), edit history,
+dotnet test                    # 279 tests: services, IL/C# patching (with runtime execution), edit history,
                                # build comparison, call graph, IDA/Ghidra/C/C++ generation (compiled with clang),
                                # background indexing, file watching, every tool over stdio, real-assembly stress,
                                # container unpacking and listing (fixtures built at test time, incl. crossgen2 ReadyToRun
