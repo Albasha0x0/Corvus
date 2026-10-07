@@ -66,7 +66,7 @@ public class CppBindingTests : IDisposable
     {
         if (!File.Exists(ClangPlusPlus)) return;
         using var dir = new TempDir();
-        var types = new[] { "Player", "Shop", "Boss", "Player+Inventory", "Vec2", "Entity" };
+        var types = new[] { "Player", "Shop", "Boss", "Player+Inventory", "Vec2", "Entity", "Bank", "CountHolder" };
         var includes = new List<string>();
         foreach (var type in types)
         {
@@ -119,6 +119,39 @@ public class CppBindingTests : IDisposable
         Assert.Contains("GetMethodInHierarchy", Generate("Boss", inherited: true, style: "hostapi"));
     }
 
+    [Theory]
+    [InlineData("mono")]
+    [InlineData("hostapi")]
+    public void InheritedMembersNamedExplicitly_AreBoundThroughTheHierarchy(string style)
+    {
+        // Instance (static, on Singleton<Bank>), Version (protected field) and Touch (method) are declared on the base
+        var code = Generate("Bank", "Instance,Version,Touch,Gold", style: style);
+        var (lookup, field) = style == "mono"
+            ? ("MethodInHierarchy(api, klass, ", "FieldOffset(api, klass, \"Version\")")
+            : ("GetMethodInHierarchy(h, klass, ", "h->FieldOffset(klass, \"Version\")");
+        Assert.Contains(lookup + "\"get_Instance\", 0);", code);
+        Assert.Contains(lookup + "\"Touch\", 0);  // declared on Fixture.Game.Singleton`1", code);
+        Assert.Contains(field, code);
+        Assert.Contains(style == "mono" ? "MonoObject* Instance(const MonoApi& api) const" : "void* Instance(const HostApi* h) const", code); // static: no object
+        Assert.DoesNotContain("has no bindable", code);
+
+        // the base's T seen from the derived class: Holder<int>.Current is an int
+        Assert.Contains(style == "mono" ? "int32_t Current(const MonoApi& api) const" : "int32_t Current(const HostApi* h) const", Generate("CountHolder", "Current", style: style));
+
+        // static fields of a base class cannot be reached from the derived class's static data: a clear error
+        var error = Assert.Throws<ToolError>(() => Generate("Bank", "_instance", style: style)).Message;
+        Assert.Contains("Static fields of a base class (_instance)", error);
+        Assert.Contains("has no bindable member(s): Nope", Assert.Throws<ToolError>(() => Generate("Bank", "Nope", style: style)).Message);
+    }
+
+    [Fact]
+    public void Mono_HeaderNamesEveryRuntimeFileName()
+    {
+        var code = Generate("Player");
+        Assert.Contains("mono-2.0-bdwgc.dll / mono-2.0-sgen.dll / mono.dll", code);
+        Assert.Contains("libmonosgen-2.0.so", code);
+    }
+
     /// <summary>
     /// A real HostApi project (NDM_HOSTAPI_PROJECT_DIR, its root): detected without a style argument, and the output
     /// compiles from a folder outside the project with the computed include paths.
@@ -128,7 +161,7 @@ public class CppBindingTests : IDisposable
     {
         var project = RealData.Path(RealData.HostApiProjectDir);
         using var dir = new TempDir();
-        foreach (var type in new[] { "Player", "Shop", "Boss" })
+        foreach (var type in new[] { "Player", "Shop", "Boss", "Bank", "CountHolder", "Vec2" })
         {
             var header = dir.File(type + ".h");
             var target = CppBindingGenerator.ChooseStyle(null, project, header, null, default);
@@ -140,6 +173,47 @@ public class CppBindingTests : IDisposable
             var (code, text) = Tools.Run(ClangPlusPlus, $"-std=c++20 -fsyntax-only \"{dir.File(type + ".cpp")}\"");
             Assert.True(code == 0, text);
         }
+    }
+
+    /// <summary>
+    /// Real game singletons whose static Instance is declared on a generic base class: bound by name (no
+    /// includeInherited needed), found through the hierarchy, typed as the derived class, and compiled against the
+    /// real host headers.
+    /// </summary>
+    [RequiresRealDataFact(RealData.HostApiProjectDir, RealData.MonoGameDir)]
+    public void RealInheritedSingletonsBindAndCompile()
+    {
+        using var game = new Env(Env.FixturePath);
+        game.Workspace.LoadDirectory(RealData.Path(RealData.MonoGameDir), false);
+        var singletons = game.Workspace.Read(() => game.Workspace.Assemblies.Where(RealData.IsAppAssembly)
+            .SelectMany(a => a.Module.GetTypes().Select(t => (a, t)))
+            .Where(x => !x.t.HasGenericParameters && !x.t.IsAbstract && x.t.BaseType is TypeSpec
+                        && x.t.Properties.All(p => p.Name != "Instance")
+                        && Try(() => x.t.BaseType.ResolveTypeDef())?.Properties.Any(p => p.Name == "Instance" && p.GetMethod is { IsStatic: true }) == true)
+            .Take(5).ToList());
+        Assert.NotEmpty(singletons);
+        using var dir = new TempDir();
+        var project = RealData.Path(RealData.HostApiProjectDir);
+        foreach (var (asm, type) in singletons)
+        {
+            var name = Format.StripArity(type.Name);
+            var header = dir.File(name + ".h");
+            var target = CppBindingGenerator.ChooseStyle(null, project, header, null, default);
+            var code = game.Workspace.Read(() => new CppBindingGenerator().Generate(asm, type, ["Instance"], false, target));
+            Assert.Contains("GetMethodInHierarchy(h, klass, \"get_Instance\", 0);", code);
+            File.WriteAllText(header, code);
+            if (!File.Exists(ClangPlusPlus)) continue;
+            var ns = target.Project!.Helpers.Values.Select(h => h.Namespace).FirstOrDefault(n => n != null);
+            File.WriteAllText(dir.File(name + ".cpp"), $"#include \"{name}.h\"\nint main() {{ {(ns != null ? ns + "::" : "")}{name}Binding* b = nullptr; return b ? 0 : 1; }}\n");
+            var (exit, text) = Tools.Run(ClangPlusPlus, $"-std=c++20 -fsyntax-only \"{dir.File(name + ".cpp")}\"");
+            Assert.True(exit == 0, text + "\n" + code);
+        }
+    }
+
+    private static T? Try<T>(Func<T> f) where T : class
+    {
+        try { return f(); }
+        catch { return null; }
     }
 }
 
@@ -259,6 +333,41 @@ public class CppBindingStyleTests : IDisposable
             var (exit, output) = Tools.Run(ClangPlusPlus, $"-std=c++17 -fsyntax-only -Wall -Werror \"{cpp}\"");
             Assert.True(exit == 0, output);
         }
+    }
+
+    [Fact]
+    public void ValueTypes_UseUnboxedOffsetsAndSize_WhenTheTableHasThem()
+    {
+        var project = HostTableProject();
+        // without the optional members: boxed offsets and the note to subtract the header
+        var plain = Generate("Vec2", CppBindingGenerator.ChooseStyle(null, project, "src/bindings/Vec2.h", null, default));
+        Assert.Contains("m_xOff = h->FieldOffset(klass, \"X\");", plain);
+        Assert.Contains("instance offsets include the object header", plain);
+        Assert.DoesNotContain("GetValueTypeSize", plain);
+
+        // a table that offers them
+        var abi = Path.Combine(project, "host", "abi.h");
+        File.WriteAllText(abi, File.ReadAllText(abi).Replace(
+            "    void*    (*Invoke)(MethRef method, void* instance, void** args, int argc);",
+            "    void*    (*Invoke)(MethRef method, void* instance, void** args, int argc);\n" +
+            "    int32_t  (*EmbeddedStructOffset)(KlassRef klass, const char* field);\n" +
+            "    int32_t  (*GetValueTypeSize)(KlassRef klass);"));
+        var target = CppBindingGenerator.ChooseStyle(null, project, "src/bindings/Vec2.h", null, default);
+        Assert.True(target.Project!.Has("EmbeddedStructOffset"));
+        var code = Generate("Vec2", target);
+        Assert.Contains("m_xOff = h->EmbeddedStructOffset(klass, \"X\");", code);
+        Assert.Contains("m_size = h->GetValueTypeSize(klass);", code);
+        Assert.Contains("int32_t Size() const { return m_size; }", code);
+        Assert.Contains("instance offsets are into the unboxed data", code);
+        // reference types keep FieldOffset
+        Assert.Contains("m_healthOff = h->FieldOffset(klass, \"_health\");", Generate("Player", target));
+        Assert.DoesNotContain("GetValueTypeSize", Generate("Player", target));
+
+        if (!File.Exists(ClangPlusPlus)) return;
+        var header = Write("src/bindings/Vec2.h", code);
+        var cpp = Write("src/bindings/Vec2.cpp", "#include \"Vec2.h\"\nint main() { tools::mem::Vec2Binding b; return b.Resolved() && b.Size() == 8 ? 0 : 1; }\n");
+        var (exit, output) = Tools.Run(ClangPlusPlus, $"-std=c++17 -fsyntax-only -Wall -Werror \"{cpp}\"");
+        Assert.True(exit == 0, output + "\n" + File.ReadAllText(header));
     }
 
     [Fact]

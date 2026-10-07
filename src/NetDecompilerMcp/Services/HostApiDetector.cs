@@ -7,7 +7,8 @@ namespace NetDecompilerMcp.Services;
 /// A C/C++ project that provides a host function table for the "hostapi" binding style: the struct, the header that
 /// defines it, the class / method handle types (FindClass / GetMethod return types), and where the helper functions the
 /// generated code calls are defined (file and namespace). Helpers the project does not define are absent from
-/// <see cref="Helpers"/>.
+/// <see cref="Helpers"/>. <see cref="Members"/> lists every member of the table, so optional ones
+/// (<see cref="HostApiDetector.OptionalMembers"/>) are used only when present.
 /// </summary>
 public sealed record HostApiProject(
     string Root,
@@ -15,7 +16,11 @@ public sealed record HostApiProject(
     string TableHeader,
     string ClassHandle,
     string MethodHandle,
-    IReadOnlyDictionary<string, (string File, string? Namespace)> Helpers);
+    IReadOnlyDictionary<string, (string File, string? Namespace)> Helpers,
+    IReadOnlySet<string> Members)
+{
+    public bool Has(string member) => Members.Contains(member);
+}
 
 /// <summary>
 /// Finds a host function table in a project's headers (*.h, *.hh, *.hpp, *.hxx; build-output folders skipped; at most
@@ -29,6 +34,12 @@ public static class HostApiDetector
 {
     public static readonly IReadOnlyList<string> RequiredMembers = ["FindClass", "GetMethod", "FieldOffset", "StaticFieldOffset", "GetStaticFieldData", "Invoke"];
     public static readonly IReadOnlyList<string> HelperNames = ["ReadField", "WriteField", "ReadPtr", "CallValue", "GetMethodExact", "GetMethodInHierarchy"];
+
+    /// <summary>
+    /// Table members used when present: EmbeddedStructOffset(klass, field) — a field's offset in the unboxed data of a
+    /// value type; GetValueTypeSize(klass) — the unboxed size of a value type.
+    /// </summary>
+    public static readonly IReadOnlyList<string> OptionalMembers = ["EmbeddedStructOffset", "GetValueTypeSize"];
 
     private const int MaxFiles = 20_000;
     private const long MaxFileBytes = 2 * 1024 * 1024;
@@ -73,7 +84,8 @@ public static class HostApiDetector
                         break;
                     }
                 }
-                return new HostApiProject(Path.GetFullPath(root), name, file, Handle(members["FindClass"], "HClass"), Handle(members["GetMethod"], "HMethod"), helpers);
+                return new HostApiProject(Path.GetFullPath(root), name, file, Handle(members["FindClass"], "HClass"), Handle(members["GetMethod"], "HMethod"), helpers,
+                    members.Keys.ToHashSet(StringComparer.Ordinal));
             }
         }
         return null;

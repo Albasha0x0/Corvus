@@ -100,19 +100,40 @@ public sealed class CppBindingGenerator
     {
         bool Wanted(string name) => only == null || only.Count == 0 || only.Contains(name, StringComparer.Ordinal);
 
+        bool Named(string name) => only is { Count: > 0 } && only.Contains(name, StringComparer.Ordinal);
+
         var fields = type.Fields.Where(f => !f.IsLiteral && !IsGenerated(f, f.Name) && Wanted(f.Name)).ToList();
         var properties = type.Properties.Where(p => p.GetMethod != null && !IsGenerated(p, p.Name) && Wanted(p.Name)).ToList();
         var methods = type.Methods.Where(m => !m.IsConstructor && !IsAccessor(m) && !IsGenerated(m, m.Name) && Wanted(m.Name)).ToList();
-        var inherited = includeInherited
-            ? BaseChain(type).SelectMany(b => b.Properties.Where(p => p.GetMethod is { IsStatic: false, IsPrivate: false } && !p.Name.String.Contains('.') && !IsGenerated(p, p.Name) && Wanted(p.Name))).ToList()
-            : [];
+
+        // Base-class members: all public/protected getters with includeInherited, and any base member named in 'only'
+        // (e.g. a singleton's static Instance declared on a generic base). The nearest declaration of a name wins.
+        var own = fields.Select(f => f.Name.String).Concat(properties.Select(p => p.Name.String)).Concat(methods.Select(m => m.Name.String))
+            .ToHashSet(StringComparer.Ordinal);
+        var inherited = new List<PropertyDef>();
+        foreach (var b in BaseChain(type))
+        {
+            foreach (var p in b.Properties)
+                if (p.GetMethod is { IsPrivate: false } && !p.Name.String.Contains('.') && !IsGenerated(p, p.Name)
+                    && ((includeInherited && Wanted(p.Name)) || Named(p.Name)) && own.Add(p.Name))
+                    inherited.Add(p);
+            foreach (var f in b.Fields)
+                if (Named(f.Name) && !f.IsLiteral && !f.IsStatic && own.Add(f.Name)) // instance fields: offsets are looked up through the parents
+                    fields.Add(f);
+            foreach (var m in b.Methods)
+                if (Named(m.Name) && !m.IsConstructor && !IsAccessor(m) && !m.IsPrivate && !own.Contains(m.Name))
+                    methods.Add(m);
+            foreach (var m in b.Methods.Where(m => Named(m.Name))) own.Add(m.Name);
+        }
         if (only is { Count: > 0 })
         {
-            var known = fields.Select(f => f.Name.String).Concat(properties.Select(p => p.Name.String)).Concat(methods.Select(m => m.Name.String))
-                .Concat(inherited.Select(p => p.Name.String)).ToHashSet(StringComparer.Ordinal);
-            var unknown = only.Where(n => !known.Contains(n)).ToList();
+            var unknown = only.Where(n => !own.Contains(n)).ToList();
             if (unknown.Count > 0)
-                throw new ToolError($"{type.FullName} has no bindable member(s): {string.Join(", ", unknown)}.");
+            {
+                var staticBaseFields = unknown.Where(n => BaseChain(type).Any(b => b.Fields.Any(f => f.Name == n && f.IsStatic && !f.IsLiteral))).ToList();
+                throw new ToolError($"{type.FullName} has no bindable member(s): {string.Join(", ", unknown)}." +
+                    (staticBaseFields.Count > 0 ? $" Static fields of a base class ({string.Join(", ", staticBaseFields)}) live in that class's static data: generate a binding for the base class." : ""));
+            }
         }
         var overloaded = methods.GroupBy(x => (x.Name.String, ParamCount(x))).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet();
         return new Selection(fields, [.. properties.Select(p => (p, false)), .. inherited.Select(p => (p, true))], methods, overloaded);
@@ -138,7 +159,8 @@ public sealed class CppBindingGenerator
         struct MonoVTable; struct MonoObject;
 
         // Fill with Load(lookup), where lookup(name) returns that export of the Mono runtime: GetProcAddress on
-        // mono-2.0-bdwgc.dll / mono.dll, dlsym on libmonobdwgc-2.0.so / libmono-2.0.so, or the function itself when linked.
+        // mono-2.0-bdwgc.dll / mono-2.0-sgen.dll / mono.dll, dlsym on libmonobdwgc-2.0.so / libmonosgen-2.0.so /
+        // libmono-2.0.so, or the function itself when linked.
         struct MonoApi {
             MonoDomain* (*get_root_domain)() = nullptr;
             MonoImage* (*image_loaded)(const char* assemblyName) = nullptr;
@@ -303,7 +325,7 @@ public sealed class CppBindingGenerator
                 ? $"        {m} = MethodInHierarchy(api, klass, \"{getter.Name}\", 0);"
                 : $"        {m} = api.class_get_method_from_name(klass, \"{getter.Name}\", 0);");
             checks.Add(m);
-            var (cpp, isPointer, isStruct) = CppType(getter.ReturnType);
+            var (cpp, isPointer, isStruct) = CppType(AsSeenFrom(type, getter, getter.ReturnType));
             var instance = getter.IsStatic ? "nullptr" : "obj";
             var param = getter.IsStatic ? "const MonoApi& api" : "const MonoApi& api, void* obj";
             var name = SafeName(Pascal(p.Name));
@@ -321,9 +343,13 @@ public sealed class CppBindingGenerator
             int argc = ParamCount(method);
             bool byToken = s.Overloaded.Contains((method.Name.String, argc));
             decls.AppendLine($"    MonoMethod* {m} = nullptr;{Pad(m)}// {Format.Method(method)}");
+            if (byToken && method.DeclaringType != type)
+                throw new ToolError($"{Format.MemberLabel(method)} is overloaded on the base class {method.DeclaringType.FullName}: generate a binding for that class.");
             resolve.AppendLine(byToken
                 ? $"        {m} = MethodByToken(api, klass, 0x{method.MDToken.Raw:X8});  // overloaded {method.Name}({MonoParams(method)})"
-                : $"        {m} = api.class_get_method_from_name(klass, \"{method.Name}\", {argc});");
+                : method.DeclaringType != type
+                    ? $"        {m} = MethodInHierarchy(api, klass, \"{method.Name}\", {argc});  // declared on {method.DeclaringType.FullName}"
+                    : $"        {m} = api.class_get_method_from_name(klass, \"{method.Name}\", {argc});");
             checks.Add(m);
 
             var (parameters, args) = WrapperParameters(method, "const MonoApi& api");
@@ -408,6 +434,15 @@ public sealed class CppBindingGenerator
         var checks = new List<string> { "klass" };
         var accessors = new StringBuilder();
 
+        // value types: offsets into the unboxed data when the host offers them (see HostApiDetector.OptionalMembers)
+        bool unboxedOffsets = type.IsValueType && project?.Has("EmbeddedStructOffset") == true;
+        if (type.IsValueType && project?.Has("GetValueTypeSize") == true)
+        {
+            decls.AppendLine("    int32_t m_size = -1;               // unboxed size (compare with a hand-written mirror's sizeof)");
+            resolve.AppendLine("        m_size = h->GetValueTypeSize(klass);");
+            accessors.AppendLine("    int32_t Size() const { return m_size; }");
+        }
+
         // ---- fields
         bool anyStatic = s.Fields.Any(f => f.IsStatic);
         if (anyStatic) decls.AppendLine("    void* m_static = nullptr;          // static field data block");
@@ -417,7 +452,7 @@ public sealed class CppBindingGenerator
             var off = Unique($"m_{Camel(f.Name)}{(f.IsStatic ? "StaticOff" : "Off")}");
             var (cpp, isPointer, isStruct) = CppType(f.FieldType);
             decls.AppendLine($"    int32_t {off} = -1;{Pad(off)}// {(f.IsStatic ? "static " : "")}{Format.Type(f.FieldType)} {f.Name}");
-            resolve.AppendLine($"        {off} = h->{(f.IsStatic ? "StaticFieldOffset" : "FieldOffset")}(klass, \"{f.Name}\");");
+            resolve.AppendLine($"        {off} = h->{(f.IsStatic ? "StaticFieldOffset" : unboxedOffsets ? "EmbeddedStructOffset" : "FieldOffset")}(klass, \"{f.Name}\");");
             checks.Add($"{off} >= 0");
             var accessor = SafeName(Pascal(f.Name));
             if (f.IsStatic)
@@ -463,7 +498,7 @@ public sealed class CppBindingGenerator
                 ? $"        {m} = GetMethodInHierarchy(h, klass, \"{getter.Name}\", 0);"
                 : $"        {m} = h->GetMethod(klass, \"{getter.Name}\", 0);");
             checks.Add(m);
-            var (cpp, isPointer, isStruct) = CppType(getter.ReturnType);
+            var (cpp, isPointer, isStruct) = CppType(AsSeenFrom(type, getter, getter.ReturnType));
             var instance = getter.IsStatic ? "nullptr" : "obj";
             var param = getter.IsStatic ? h : $"{h}, void* obj";
             var name = SafeName(Pascal(p.Name));
@@ -484,10 +519,15 @@ public sealed class CppBindingGenerator
             int argc = ParamCount(method);
             decls.AppendLine($"    {hmethod} {m} = nullptr;{Pad(m)}// {Format.Method(method)}");
             bool exact = s.Overloaded.Contains((method.Name.String, argc));
+            if (exact && method.DeclaringType != type)
+                throw new ToolError($"{Format.MemberLabel(method)} is overloaded on the base class {method.DeclaringType.FullName}: generate a binding for that class.");
             if (exact) used.Add("GetMethodExact");
+            if (!exact && method.DeclaringType != type) used.Add("GetMethodInHierarchy");
             resolve.AppendLine(exact
                 ? $"        {m} = GetMethodExact(h, klass, \"{method.Name}\", \"{MonoParams(method)}\");"
-                : $"        {m} = h->GetMethod(klass, \"{method.Name}\", {argc});");
+                : method.DeclaringType != type
+                    ? $"        {m} = GetMethodInHierarchy(h, klass, \"{method.Name}\", {argc});  // declared on {method.DeclaringType.FullName}"
+                    : $"        {m} = h->GetMethod(klass, \"{method.Name}\", {argc});");
             checks.Add(m);
 
             var (parameters, args) = WrapperParameters(method, h);
@@ -531,7 +571,9 @@ public sealed class CppBindingGenerator
             sb.AppendLine($"// NOTE: not found in {project!.Root}: {string.Join(", ", missing)}. Define them (first parameter: const {table}*) or edit the calls below.");
         if (type.DeclaringType != null)
             sb.AppendLine($"// NOTE: nested type. mono_class_from_name may not find \"{className}\" directly; if FindClass fails, resolve it from the outer class.");
-        if (type.IsValueType)
+        if (unboxedOffsets)
+            sb.AppendLine("// Value type: instance offsets are into the unboxed data (EmbeddedStructOffset): pass a pointer to the struct itself, or a boxed object + 2 pointers.");
+        else if (type.IsValueType)
             sb.AppendLine("// Value type: instance offsets include the object header (two pointers); subtract it for unboxed data.");
         sb.AppendLine("#pragma once");
         foreach (var include in includes) sb.AppendLine($"#include \"{include}\"");
@@ -610,6 +652,30 @@ public sealed class CppBindingGenerator
     private static string SafeName(string name) => name is "Resolve" or "Resolved" ? name + "_" : name;
 
     private static string Join(string a, string b) => a.Length == 0 ? b : $"{a}, {b}";
+
+    /// <summary>
+    /// A member's type as seen from <paramref name="type"/>: a type parameter of the generic base class that declares the
+    /// member becomes the argument <paramref name="type"/>'s base chain passes (DataModule&lt;T&gt;.Instance on
+    /// "class ToolSystem : DataModule&lt;ToolSystem&gt;" is a ToolSystem). Other types are returned unchanged.
+    /// </summary>
+    private static TypeSig AsSeenFrom(TypeDef type, IMemberDef member, TypeSig sig)
+    {
+        if (sig is not GenericVar { Number: var n } || member.DeclaringType == type) return sig;
+        IList<TypeSig>? args = null;
+        for (var t = type; t != null && t != member.DeclaringType; )
+        {
+            var baseSig = t.BaseType?.ToTypeSig();
+            var next = BaseTypeDef(t);
+            if (baseSig is GenericInstSig inst)
+            {
+                // the base's arguments, themselves possibly parameters of t (resolved with the previous level's arguments)
+                args = inst.GenericArguments.Select(a => a is GenericVar { Number: var k } && args != null && k < args.Count ? args[(int)k] : a).ToList();
+            }
+            else args = null;
+            t = next;
+        }
+        return args != null && n < args.Count && args[(int)n] is not GenericVar ? args[(int)n] : sig;
+    }
 
     private static IEnumerable<TypeDef> BaseChain(TypeDef t)
     {
