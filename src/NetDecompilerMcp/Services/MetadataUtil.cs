@@ -7,8 +7,6 @@ namespace NetDecompilerMcp.Services;
 /// <summary>A page of results plus the total number found.</summary>
 public sealed record SearchResult<T>(List<T> Items, int Total)
 {
-    public bool Truncated => Total > Items.Count;
-
     public static SearchResult<T> From(List<T> all, int limit) => new(all.Count <= limit ? all : all.GetRange(0, limit), all.Count);
 }
 

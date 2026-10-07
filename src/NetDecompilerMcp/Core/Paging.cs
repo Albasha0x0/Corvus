@@ -9,8 +9,6 @@ public sealed class OutputPager(ServerOptions options)
     private const int CacheCapacity = 24;
     private readonly LinkedList<(string Key, string Text)> _cache = new();
 
-    public int DefaultMaxChars => options.MaxOutputChars;
-
     /// <summary>Returns the cached text for <paramref name="key"/> or produces and caches it.</summary>
     public string GetOrCreate(string key, Func<string> produce)
     {
@@ -54,7 +52,7 @@ public sealed class OutputPager(ServerOptions options)
     /// <summary>Returns the slice starting at <paramref name="offset"/>, cut at a line break when possible.</summary>
     public string Page(string text, int offset = 0, int? maxChars = null)
     {
-        int max = Math.Clamp(maxChars is > 0 ? maxChars.Value : DefaultMaxChars, 1_000, 500_000);
+        int max = Math.Clamp(maxChars is > 0 ? maxChars.Value : options.MaxOutputChars, 1_000, 500_000);
         if (offset < 0) offset = 0;
         if (offset >= text.Length && text.Length > 0)
             throw new ToolError($"offset {offset} is past the end of the output ({text.Length} chars).");

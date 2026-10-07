@@ -39,7 +39,7 @@ public class SearchTests : IDisposable
         Assert.All(ns.Items, s => Assert.Equal("TestFixture.Consumer", s.Assembly.Id));
         var limited = _env.Search.SearchSymbols("e", false, SymbolKind.Any, All, null, 3, default);
         Assert.Equal(3, limited.Items.Count);
-        Assert.True(limited.Truncated);
+        Assert.True(limited.Total > limited.Items.Count);
     }
 
     [Fact]

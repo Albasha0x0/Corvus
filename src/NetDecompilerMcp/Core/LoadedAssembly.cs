@@ -28,14 +28,12 @@ public sealed class LoadedAssembly : IDisposable
         FilePath = filePath;
         _originalBytes = bytes;
         Module = module;
-        LoadedAt = DateTime.Now;
     }
 
     /// <summary>Short unique handle used in tool calls (usually the assembly simple name).</summary>
     public string Id { get; }
     public string FilePath { get; }
     public ModuleDefMD Module { get; }
-    public DateTime LoadedAt { get; }
     public string AssemblyName => Module.Assembly?.Name ?? Path.GetFileNameWithoutExtension(FilePath);
     public string FullAssemblyName => Module.Assembly?.FullName ?? Module.Name;
 
