@@ -115,7 +115,9 @@ public sealed partial class CSharpPatcher
     private static string HelperMethod(IMethodSymbol symbol, string name, BlockSyntax body)
     {
         var fq = SymbolDisplayFormat.FullyQualifiedFormat;
-        var sb = new StringBuilder("    public static unsafe ");
+        // private: the helper is compiled into a separate assembly, so a target type that is internal (to the target)
+        // in its signature would be less accessible than a public method (CS0051). Helpers are only copied, never called.
+        var sb = new StringBuilder("    private static unsafe ");
         if (symbol.IsAsync) sb.Append("async ");
         sb.Append(symbol.ReturnsVoid ? "void" : symbol.ReturnType.ToDisplayString(fq)).Append(' ').Append(name);
         if (symbol.TypeParameters.Length > 0)

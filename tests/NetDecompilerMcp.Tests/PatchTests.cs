@@ -147,6 +147,49 @@ public class CSharpPatchTests : IDisposable
     private string Patch(string symbol, string code, bool dryRun = false) =>
         _env.Edit(() => _env.Edits.PatchMethodCSharp(_env.One(symbol), code, dryRun, default));
 
+    /// <summary>
+    /// An internal value type in the signature (like a library's internal copy of a framework reader type): the helper
+    /// method compiled in a separate assembly must not be more accessible than that type (CS0051), so valid patches use
+    /// the helper path and invalid ones report only their own errors.
+    /// </summary>
+    [Fact]
+    public void InternalTypesInSignatures_CompileAndReportOnlyRealErrors()
+    {
+        using var dir = new TempDir();
+        var path = dir.File("Internals.dll");
+        File.WriteAllBytes(path, InspectionTests.Compile("Internals", """
+            internal struct RowReader
+            {
+                public int Position;
+                public string Text;
+
+                public bool TryNext(string key, out string value)
+                {
+                    value = key;
+                    return Position < Text.Length;
+                }
+
+                internal static int Skip(ref RowReader reader, int count) => reader.Position += count;
+            }
+            """));
+        using var env = new Env(path);
+        string PatchHere(string symbol, string code, bool dryRun = false) =>
+            env.Edit(() => env.Edits.PatchMethodCSharp(env.One(symbol), code, dryRun, default));
+
+        PatchHere("RowReader::TryNext", "value = key + \"!\"; return false;");
+        Assert.Contains("key + \"!\"", env.Decompile("RowReader::TryNext"));
+        PatchHere("RowReader::Skip", "return reader.Position - count;");
+        Assert.Contains("reader.Position - count", env.Decompile("RowReader::Skip"));
+
+        var outParam = Assert.Throws<ToolError>(() => PatchHere("RowReader::TryNext", "return true;", dryRun: true));
+        Assert.Contains("CS0177", outParam.Message);
+        Assert.DoesNotContain("CS0051", outParam.Message);
+        Assert.Contains("1 error(s)", outParam.Message);
+        var badReturn = Assert.Throws<ToolError>(() => PatchHere("RowReader::Skip", "return \"text\";", dryRun: true));
+        Assert.Contains("CS0029", badReturn.Message);
+        Assert.DoesNotContain("CS0051", badReturn.Message);
+    }
+
     [Fact]
     public void ReplacesBodyUsingPrivateStateAndInternalTypes()
     {

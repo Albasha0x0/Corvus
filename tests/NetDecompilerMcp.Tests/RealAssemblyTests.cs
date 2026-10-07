@@ -142,12 +142,12 @@ public class RealAssemblyTests(ITestOutputHelper output)
         var refs = ws.Read(() => references.FindReferences(target, true, 200, default));
         output.WriteLine($"xrefs to {target.Label}: {refs.Total} in {sw.ElapsedMilliseconds} ms");
 
-        // C# patch dry run on a real method in the app's main assembly (the one with the most types; bundled third-party
-        // libraries can carry internal copies of framework types that the patcher's reference resolution trips over).
-        var main = game.MaxBy(a => a.Module.GetTypes().Count())!;
-        var method = main.Module.GetTypes().SelectMany(t => t.Methods)
+        // C# patch dry run on a real method: the first bool method without out / ref parameters ("return true;" must be
+        // a valid body for it). In a typical game folder that is in a bundled library with internal types in signatures.
+        var method = game.SelectMany(a => a.Module.GetTypes()).SelectMany(t => t.Methods)
             .First(m => m.HasBody && !m.IsConstructor && m.ReturnType.ElementType == ElementType.Boolean && !m.DeclaringType.Name.String.Contains('<')
-                        && !m.DeclaringType.HasGenericParameters && !m.Name.String.Contains('.') && !m.IsGetter && !m.IsSetter);
+                        && !m.DeclaringType.HasGenericParameters && !m.Name.String.Contains('.') && !m.IsGetter && !m.IsSetter
+                        && m.Parameters.All(p => p.Type is not ByRefSig));
         var asm = ws.Assemblies.First(a => a.Module == method.Module);
         var patcher = new Services.CSharpPatcher(ws, decompiler);
         sw.Restart();
