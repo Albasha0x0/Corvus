@@ -163,6 +163,62 @@ public sealed class RealScenarioRegressionTests
     }
 
     /// <summary>
+    /// Two builds of an obfuscated app (Dotfuscator in PDFelement's Office add-in): every type is renamed at each build,
+    /// member names are handed out afresh, and control-flow obfuscation plants random integer constants in every body.
+    /// compare_assemblies paired none of the renamed types, so find_counterpart and apply_edits could not carry anything
+    /// across. Strings, constants and bodies without their numeric constants still identify them.
+    /// </summary>
+    private static byte[] ObfuscatedBuild(int seed, string classType, string constType, string enumType, string[] methodNames)
+    {
+        var random = new Random(seed);
+        var lab = new IlLab("Obf");
+        lab.Module.Mvid = new Guid(seed, 0, 0, [1, 2, 3, 4, 5, 6, 7, 8]); // each build its own
+        var worker = lab.NewType("", classType);
+        string[] texts = ["https://api.example.test/v2/upload", "Upload failed: {0}", "settings.json corrupt", "retry-after", "X-Session-Token"];
+        for (int i = 0; i < texts.Length; i++)
+        {
+            // junk: ldc.i4 <random>; stloc; ldloc; pop — then the real work
+            var local = new Local(lab.T.Int32);
+            var m = lab.Method(methodNames[i], lab.T.String, [], [IlLab.Ldc(random.Next()), OpCodes.Stloc.ToInstruction(local), OpCodes.Ldloc.ToInstruction(local),
+                IlLab.Op(OpCodes.Pop), OpCodes.Ldstr.ToInstruction(texts[i]), IlLab.Ret()], owner: worker);
+            m.Body.Variables.Add(local);
+        }
+        var consts = lab.NewType("", constType, abstractSealed: true);
+        foreach (var (name, value) in new[] { ("y", "815BAF99-0C5D-4FA8-8CCD-1129EE6D25B9"), ("d", "Example Corp PDF Previewer"), ("i", "PEOfficeAddIn.Connect") })
+            consts.Fields.Add(new FieldDefUser(name, new FieldSig(lab.T.String), FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault)
+            { Constant = new ConstantUser(value) });
+        var e = new TypeDefUser("", enumType, lab.Module.CorLibTypes.GetTypeRef("System", "Enum")) { Attributes = TypeAttributes.Public | TypeAttributes.Sealed };
+        e.Fields.Add(new FieldDefUser("value__", new FieldSig(lab.T.Int32), FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName));
+        int n = 0;
+        foreach (var member in new[] { "Word", "Excel", "PowerPoint", "Outlook", "Visio" })
+            e.Fields.Add(new FieldDefUser(member, new FieldSig(new ValueTypeSig(e)), FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault)
+            { Constant = new ConstantUser(n++) });
+        lab.Module.Types.Add(e);
+        return lab.Write();
+    }
+
+    [Fact]
+    public void RenamedTypesOfAnObfuscatedRebuildAreMatchedByContent()
+    {
+        using var dir = new TempDir();
+        File.WriteAllBytes(dir.File("Old.dll"), ObfuscatedBuild(1, "c7x", "cwb", "c7u", ["y", "d", "i", "n", "s"]));
+        File.WriteAllBytes(dir.File("New.dll"), ObfuscatedBuild(2, "ak7", "akl", "ak4", ["i", "y", "d", "s", "n"]));
+        using var env = new Env(dir.File("Old.dll"));
+        var newBuild = env.Workspace.Load(dir.File("New.dll"));
+        var comparer = new NetDecompilerMcp.Services.AssemblyComparer(env.Workspace);
+        var comparison = env.Workspace.Read(() => comparer.Compare(env.Fixture, newBuild, default));
+
+        string Counterpart(string symbol) => env.Workspace.Read(() =>
+            comparer.FindCounterpart(comparison, (IMemberDef)SymbolResolver.ResolveOne(env.Workspace, env.Fixture.Id, symbol).Member).Match is { } m ? Format.MemberLabel(m) : "none");
+        Assert.Equal("ak7", Counterpart("c7x"));
+        Assert.Equal("akl", Counterpart("cwb"));
+        Assert.Equal("ak4", Counterpart("c7u"));
+        // Same body (but for the junk constant), new name: old y() returned the upload URL, which new i() returns.
+        Assert.Equal("ak7::i()", Counterpart("c7x::y"));
+        Assert.Equal("ak7::y()", Counterpart("c7x::d"));
+    }
+
+    /// <summary>
     /// After an async method was stubbed, the decompiler showed its closure class (&lt;&gt;c__DisplayClass45_0) as a nested
     /// type, whose names do not parse as C#: every later C# patch of the class failed (Docker Desktop's installer). The
     /// patcher's source escapes such names.

@@ -81,15 +81,26 @@ public sealed class AssemblyComparer(AssemblyWorkspace workspace)
             : (null, "removed in the new build (no match)");
     }
 
-    private sealed record MethodPrint(MethodDef Method, string Signature, ulong Shape, ulong Full, int Size, HashSet<string> Strings);
+    /// <summary>
+    /// Shape: opcodes and literals. Skeleton: opcodes and string literals only. Control-flow obfuscators (Dotfuscator,
+    /// ConfuserEx) plant random integer constants that change with every build, so only the skeleton survives a rebuild.
+    /// </summary>
+    private sealed record MethodPrint(MethodDef Method, string Signature, ulong Shape, ulong Skeleton, ulong Full, int Size, HashSet<string> Strings);
 
     /// <summary>RareShapes: method bodies that occur in at most two types of the build — boilerplate shared by many types is no evidence of identity.</summary>
-    private sealed record TypePrint(TypeDef Type, string Kind, int Arity, string BaseName, List<string> FieldTypes, HashSet<ulong> Shapes, HashSet<string> Strings)
+    private sealed record TypePrint(TypeDef Type, string Kind, int Arity, string BaseName, List<string> FieldTypes, HashSet<ulong> Shapes,
+        HashSet<ulong> Skeletons, HashSet<string> Strings)
     {
         public HashSet<ulong> RareShapes { get; set; } = [];
 
         /// <summary>Rare shapes of substantial methods (20+ instructions): one shared is already strong evidence.</summary>
         public HashSet<ulong> BigShapes { get; set; } = [];
+
+        public HashSet<ulong> RareSkeletons { get; set; } = [];
+        public HashSet<ulong> BigSkeletons { get; set; } = [];
+
+        /// <summary>Strings (literals, constants, enum member names) that occur in at most two types of the build.</summary>
+        public HashSet<string> RareStrings { get; set; } = [];
     }
 
     private sealed class Info
@@ -117,20 +128,33 @@ public sealed class AssemblyComparer(AssemblyWorkspace workspace)
                 t.BaseType?.FullName ?? "",
                 t.Fields.Where(f => !f.IsLiteral).Select(f => Format.Type(f.FieldType)).OrderBy(x => x, StringComparer.Ordinal).ToList(),
                 prints.Where(p => p.Size > 2).Select(p => p.Shape).ToHashSet(),
-                t.IsEnum ? t.Fields.Where(f => f.IsLiteral).Select(f => f.Name.String).ToHashSet() : prints.SelectMany(p => p.Strings).ToHashSet());
+                prints.Where(p => p.Size > 2).Select(p => p.Skeleton).ToHashSet(),
+                t.IsEnum ? t.Fields.Where(f => f.IsLiteral).Select(f => f.Name.String).ToHashSet()
+                    : prints.SelectMany(p => p.Strings).Concat(ConstantValues(t)).ToHashSet());
         }
         var frequency = info.Types.Values.SelectMany(t => t.Shapes).GroupBy(x => x).ToDictionary(g => g.Key, g => g.Count());
+        var skeletonFrequency = info.Types.Values.SelectMany(t => t.Skeletons).GroupBy(x => x).ToDictionary(g => g.Key, g => g.Count());
+        var stringFrequency = info.Types.Values.SelectMany(t => t.Strings).GroupBy(x => x, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
         foreach (var t in info.Types.Values)
         {
             t.RareShapes = t.Shapes.Where(x => frequency[x] <= 2).ToHashSet();
             t.BigShapes = t.Type.Methods.Select(m => info.Methods[m]).Where(p => p.Size >= 20 && t.RareShapes.Contains(p.Shape)).Select(p => p.Shape).ToHashSet();
+            t.RareSkeletons = t.Skeletons.Where(x => skeletonFrequency[x] <= 2).ToHashSet();
+            t.BigSkeletons = t.Type.Methods.Select(m => info.Methods[m]).Where(p => p.Size >= 20 && t.RareSkeletons.Contains(p.Skeleton)).Select(p => p.Skeleton).ToHashSet();
+            t.RareStrings = t.Strings.Where(x => stringFrequency[x] <= 2).ToHashSet(StringComparer.Ordinal);
         }
         return info;
     }
 
+    /// <summary>Values of the type's constants (const fields): product names, keys, GUIDs, versions survive renaming.</summary>
+    private static IEnumerable<string> ConstantValues(TypeDef t) =>
+        t.Fields.Where(f => f.IsLiteral && f.Constant?.Value is not null)
+            .Select(f => "c:" + Convert.ToString(f.Constant.Value, CultureInfo.InvariantCulture))
+            .Where(v => v.Length > 4); // "c:0", "c:1": no evidence
+
     private static MethodPrint MethodFingerprint(LoadedAssembly asm, MethodDef m)
     {
-        ulong shape = 14695981039346656037UL, full = shape;
+        ulong shape = 14695981039346656037UL, full = shape, skeleton = shape;
         var strings = new HashSet<string>(StringComparer.Ordinal);
         int size = 0;
         foreach (var i in FastIlReader.Instructions(asm, m))
@@ -138,6 +162,7 @@ public sealed class AssemblyComparer(AssemblyWorkspace workspace)
             size++;
             var op = Canonical(i.OpCode.Code);
             shape = Mix(shape, (ulong)op);
+            skeleton = Mix(skeleton, (ulong)op);
             full = Mix(full, (ulong)op);
             string? literal = i.Operand switch
             {
@@ -154,14 +179,18 @@ public sealed class AssemblyComparer(AssemblyWorkspace workspace)
             {
                 shape = Mix(shape, Hash(literal));
                 full = Mix(full, Hash(literal));
-                if (i.Operand is string str) strings.Add(str);
+                if (i.Operand is string str)
+                {
+                    strings.Add(str);
+                    skeleton = Mix(skeleton, Hash(literal));
+                }
             }
             else if (AsMethod(i.Operand) is { } callee) full = Mix(full, Hash(Format.MemberLabel(callee)));
             else if (AsField(i.Operand) is { } field) full = Mix(full, Hash(Format.MemberLabel(field)));
             else if (i.Operand is ITypeDefOrRef type) full = Mix(full, Hash(type.FullName));
         }
         var signature = $"{(m.IsStatic ? "static " : "")}{Format.Type(m.ReturnType)}({Format.ParameterTypes(m.MethodSig)})";
-        return new MethodPrint(m, signature, shape, full, size, strings);
+        return new MethodPrint(m, signature, shape, skeleton, full, size, strings);
     }
 
     /// <summary>Short and long forms of an opcode count as the same instruction (compilers pick either).</summary>
@@ -245,25 +274,35 @@ public sealed class AssemblyComparer(AssemblyWorkspace workspace)
     private static double TypeScore(TypePrint o, TypePrint n)
     {
         bool rare = o.RareShapes.Count > 0 || n.RareShapes.Count > 0;
-        double shapes = rare ? Jaccard(o.RareShapes, n.RareShapes) : 0.5 * Jaccard(o.Shapes, n.Shapes);
+        // Bodies compared with and without numeric constants (see MethodPrint); the stronger match counts.
+        double shapes = Math.Max(rare ? Jaccard(o.RareShapes, n.RareShapes) : 0.5 * Jaccard(o.Shapes, n.Shapes),
+            o.RareSkeletons.Count > 0 || n.RareSkeletons.Count > 0 ? Jaccard(o.RareSkeletons, n.RareSkeletons) : 0.5 * Jaccard(o.Skeletons, n.Skeletons));
         double fields = MultisetJaccard(o.FieldTypes, n.FieldTypes);
         double strings = o.Strings.Count + n.Strings.Count == 0 ? fields : Jaccard(o.Strings, n.Strings);
+        double rareStrings = o.RareStrings.Count + n.RareStrings.Count == 0 ? 0 : Jaccard(o.RareStrings, n.RareStrings);
+        int sharedRareStrings = o.RareStrings.Count(n.RareStrings.Contains);
         double counts = 1.0 - Math.Min(1.0, Math.Abs(o.Type.Methods.Count - n.Type.Methods.Count) / (double)Math.Max(1, Math.Max(o.Type.Methods.Count, n.Type.Methods.Count)));
         double baseSame = o.BaseName == n.BaseName ? 1 : 0;
-        double structural = 0.4 * shapes + 0.2 * fields + 0.2 * strings + 0.1 * counts + 0.1 * baseSame;
+        double structural = 0.4 * Math.Max(shapes, rareStrings) + 0.2 * fields + 0.2 * strings + 0.1 * counts + 0.1 * baseSame;
 
         string oName = NormalizeName(o.Type.Name), nName = NormalizeName(n.Type.Name);
         if (oName == nName)
             return 0.6 + 0.4 * structural; // moved to another namespace (or generated name renumbered)
 
-        int sharedShapes = o.RareShapes.Count(n.RareShapes.Contains);
+        int sharedShapes = Math.Max(o.RareShapes.Count(n.RareShapes.Contains), o.RareSkeletons.Count(n.RareSkeletons.Contains));
         int sharedStrings = o.Strings.Count(n.Strings.Contains);
         double nameSimilarity = Similarity(oName, nName);
         bool evidence = sharedShapes >= 2 || sharedStrings >= 2
                         || (sharedShapes >= 1 && sharedStrings >= 1)
-                        || o.BigShapes.Overlaps(n.BigShapes)
+                        || o.BigShapes.Overlaps(n.BigShapes) || o.BigSkeletons.Overlaps(n.BigSkeletons)
                         || (nameSimilarity >= 0.8 && structural >= 0.5);
-        return evidence ? 0.3 * nameSimilarity + 0.7 * structural : 0;
+        if (!evidence) return 0;
+        // Content that only these two types share decides on its own: obfuscators rename every type at each build,
+        // so the names carry no evidence at all.
+        bool strong = (sharedRareStrings >= 3 && rareStrings >= 0.6) || (sharedShapes >= 2 && shapes >= 0.6)
+                      || (o.Type.IsEnum && sharedStrings >= 4 && strings >= 0.6); // an enum's member names, often kept by obfuscators
+        double score = 0.3 * nameSimilarity + 0.7 * structural;
+        return strong ? Math.Max(score, structural) : score;
     }
 
     /// <summary>Simple name without generic arity and without compiler-generated numbering (&lt;&gt;c__DisplayClass154_0 -> &lt;&gt;c__DisplayClass_).</summary>
@@ -326,10 +365,15 @@ public sealed class AssemblyComparer(AssemblyWorkspace workspace)
                 newMethods.Remove(candidates[0]);
             }
         }
+        // Identical content outranks an identical name: obfuscators hand out names (a, b, c...) afresh at each build, so
+        // the method called r() in the new build may be another method than the old r().
+        Take((a, b) => a.Method.Name == b.Method.Name && a.Signature == b.Signature && (a.Size <= 2 || a.Shape == b.Shape), "same name");
+        Take((a, b) => a.Size > 2 && a.Shape == b.Shape && a.Signature == b.Signature, "identical body (renamed)");
+        Take((a, b) => a.Size > 2 && a.Skeleton == b.Skeleton && a.Signature == b.Signature, "identical body but for numeric constants (renamed)");
         Take((a, b) => a.Method.Name == b.Method.Name && a.Signature == b.Signature, "same name");
         Take((a, b) => a.Method.Name == b.Method.Name, "same name, signature changed");
-        Take((a, b) => a.Size > 2 && a.Shape == b.Shape && a.Signature == b.Signature, "identical body (renamed)");
         Take((a, b) => a.Size > 2 && a.Shape == b.Shape, "identical body shape (renamed)");
+        Take((a, b) => a.Size > 2 && a.Skeleton == b.Skeleton, "identical body shape but for numeric constants (renamed)");
         foreach (var om in oldMethods.ToList())
         {
             var best = newMethods.Select(nm => (nm, Score: MethodScore(om, nm))).Where(x => x.Score >= MethodThreshold).OrderByDescending(x => x.Score).FirstOrDefault();
