@@ -511,6 +511,8 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
             throw new ToolError($"{symbol.Label} is a {symbol.Kind}, not a method.");
         if (m.IsAbstract || m.IsPinvokeImpl || m.IsRuntime || m.IsInternalCall)
             throw new ToolError($"{symbol.Label} has no IL body (abstract/extern/runtime).");
+        if (m.MethodSig is not { RetType: not null } sig || sig.Params.Any(p => p == null))
+            throw new ToolError($"{symbol.Label} has a signature that cannot be read (malformed metadata); it cannot be patched.");
         return m;
     }
 
