@@ -397,7 +397,36 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         AppendList(sb, "Left unchanged:", rejected);
         if (changed.Count == 0 && bailouts.Count == 0 && skipped.Count == 0 && rejected.Count == 0)
             sb.Append($"\nNothing to simplify in {total} method(s){(dryRun ? "" : "; no edit recorded")}.");
+        else if (total > 1)
+            sb.Append("\n\n").Append(SimplifyTotals(changes));
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// One line summing up a multi-method run, whatever the lists above left out: the effects of the methods that changed,
+    /// and every fallback by reason code.
+    /// </summary>
+    internal static string SimplifyTotals(List<MethodChange> changes)
+    {
+        var changed = changes.Where(c => c.Changed).ToList();
+        var effects = new List<string>();
+        void Add(int n, string what)
+        {
+            if (n > 0) effects.Add($"{n} {what}");
+        }
+        Add(changed.Sum(c => c.Folded.Count), "call(s) folded");
+        Add(changed.Sum(c => c.Inlined.Count), "forwarder call(s) inlined");
+        Add(changed.Sum(c => c.ConstantBranches), "constant branch(es) folded");
+        Add(changed.Sum(c => c.Dispatchers), $"dispatcher(s) unflattened ({changed.Sum(c => c.Transitions)} transition(s))");
+        Add(changed.Sum(c => c.RemovedBlocks), "unreachable block(s) removed");
+        Add(changed.Sum(c => c.RemovedHandlers), "handler(s) removed");
+        var fallbacks = changes
+            .SelectMany(c => c.Bailouts.Concat(c.Skipped).Select(f => f.Reason).Concat(c.Rejected is { } r ? [r.Reason] : Array.Empty<FallbackReason>()))
+            .GroupBy(SimplifyManifest.CodeOf).OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal)
+            .Select(g => $"{g.Key} {g.Count()}").ToList();
+        return $"Totals: {changed.Count} of {changes.Count} method(s) changed" +
+               (effects.Count > 0 ? "; " + string.Join(", ", effects) : "") +
+               (fallbacks.Count > 0 ? $". Fallbacks: {string.Join(", ", fallbacks)}" : "") + ".";
     }
 
     private static void AppendList(System.Text.StringBuilder sb, string title, List<string> items)

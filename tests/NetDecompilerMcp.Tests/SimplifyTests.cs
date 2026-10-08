@@ -492,6 +492,16 @@ public sealed class SimplifyTests : IDisposable
         Assert.Contains("Nothing to simplify", Simplify(env, "Paths.Flow::LocalSwitch"));
     }
 
+    [Fact]
+    public void ReportOfManyMethodsEndsWithTotals()
+    {
+        using var env = new Env(FlatFixture());
+        var report = Simplify(env, "Flat.Steps", Options("cfg"), dryRun: true);
+        Assert.EndsWith("Totals: 1 of 2 method(s) changed; 1 dispatcher(s) unflattened (5 transition(s)), 3 unreachable block(s) removed. " +
+                        "Fallbacks: flattened-shape 1.", report);
+        Assert.DoesNotContain("Totals:", Simplify(env, "Flat.Steps::Run", Options("cfg"), dryRun: true));
+    }
+
     // ---- 3. forwarders
 
     [Fact]
