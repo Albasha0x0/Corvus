@@ -331,7 +331,8 @@ dotnet test                    # services, IL/C# patching (with runtime executio
                                # container unpacking and listing (fixtures built at test time, incl. crossgen2 ReadyToRun
                                # output) with truncation/fuzz/path-traversal cases, merged-assembly detection,
                                # file inspection (features, typed strings, embedded-content decoding, Authenticode, fuzzed inputs),
-                               # invalid-IL detection, reference binding across side-by-side builds
+                               # invalid-IL detection, reference binding across side-by-side builds,
+                               # simplify_methods over generated IL (fuzz)
 ./publish.ps1                  # -> publish/NetDecompilerMcp.exe (needs the .NET 10 runtime)
 ./publish.ps1 -SelfContained   # no runtime needed
 ```
@@ -350,6 +351,19 @@ are unset:
 | `NDM_HOSTAPI_PROJECT_DIR` | Root of a C/C++ project with a host function table | `hostapi` detection on a real project; bindings compile against its headers |
 | `NDM_EXPORT_REAL=1` | Exports real NuGet libraries (downloaded on restore) and builds them: 0 errors expected (a few minutes) | exported projects build |
 | `NDM_EXPORT_LIST` | A text file of assembly paths: exports and builds each, 0 errors expected; writes error counts by code next to it | exported projects build |
+
+simplify_methods is fuzzed in a collection that runs alone after the parallel tests:
+
+- **Fuzz** (`SimplifyFuzzTests`): seeded random IL methods (nested try / catch / finally / fault / filter, loops,
+  switches, flattened dispatchers, many locals, struct operations). The engine must not crash and must stay within its
+  time and memory limits. Every rewrite must verify and survive save / reload.
+  The originals and the simplified methods are JIT-compiled and run, and their results must match. A failure names
+  its seed, also when the runtime crashes (`[fuzz] seed N` on stderr).
+
+| Variable | Effect |
+|---|---|
+| `NDM_FUZZ_COUNT` | Fuzz seeds 1..N (default 40) |
+| `NDM_FUZZ_SEED` | Run one seed (`random` for a fresh one) |
 
 The generated C, C++ and Python are compiled or parsed with clang (`C:\Program Files\LLVM\bin`) and python when
 they are installed.
