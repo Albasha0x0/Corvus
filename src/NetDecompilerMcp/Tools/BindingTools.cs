@@ -11,7 +11,7 @@ namespace NetDecompilerMcp.Tools;
 public sealed class BindingTools(AssemblyWorkspace workspace, CppBindingGenerator generator, OutputPager pager, ServerOptions options)
 {
     [McpServerTool(Name = "generate_cpp_binding", Title = "Generate C++ binding", ReadOnly = true, OpenWorld = false)]
-    [Description("Generate C++ binding code for a managed type in a Mono game or app: a struct that resolves the class, field offsets, " +
+    [Description("Generate C++ binding code for a managed type in a Mono-hosted application: a struct that resolves the class, field offsets, " +
                  "static field data and methods once, with typed field accessors, property getters and method invoke wrappers. " +
                  "style=mono: a self-contained header on the standard Mono embedding API (mono_class_from_name, " +
                  "mono_field_get_offset, mono_runtime_invoke, ...), loaded from the runtime's exports; works with any injector or host. " +

@@ -6,7 +6,7 @@ internal static class ServerInstructions
         Headless .NET decompiler (ILSpy engine + dnlib + Roslyn). No GUI, no dnSpy needed.
 
         Workflow:
-        1. load_assembly with a file or a whole folder (e.g. a Unity game's *_Data/Managed, or an Il2CppDumper DummyDll folder).
+        1. load_assembly with a file or a whole folder (e.g. an application folder, a Unity *_Data/Managed folder, or an Il2CppDumper DummyDll folder).
            Load related assemblies too: cross-references and inherited members only see what is loaded or resolvable.
            Method bodies are indexed in the background after loading; files that change on disk are reloaded automatically
            (notices appear as "[workspace] ..." lines at the top of a tool result).
@@ -19,7 +19,7 @@ internal static class ServerInstructions
         3. Read code: decompile_member (one method) is faster and smaller than decompile_type; get_il for raw IL.
         4. Navigate: find_references (who uses X, incl. calls through base/interface methods), find_callees, get_call_tree
            (multi-level callers/callees), find_call_paths (how execution reaches a method), find_overrides, get_type_hierarchy, get_attributes.
-        5. Game updates: load both builds (the second gets an id like Name#2), then compare_assemblies and find_counterpart to carry
+        5. New versions: load both builds (the second gets an id like Name#2), then compare_assemblies and find_counterpart to carry
            renamed types/members and changed offsets forward; export_edits + apply_edits re-applies a patch set to the new build.
         6. Il2Cpp dummy DLLs have empty bodies: get_il2cpp_info (RVAs, field offsets), find_method_by_address (native address -> method),
            export_il2cpp_symbols (IDA/Ghidra scripts + C struct header). generate_cpp_binding emits C++ binding code for a Mono type

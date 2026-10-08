@@ -75,15 +75,15 @@ public partial class UnpackTests
     public void Search_ApkStyleZip()
     {
         var apk = Save("app.apk", BuildApk().Apk);
-        var player = Assert.Single(Search(apk, "Player", "type").Matches, m => m.Name == "Fixture.Game.Player");
-        Assert.Equal(("assemblies/TestFixture.dll", "TestFixture"), (player.Path, player.Assembly)); // decoded from XALZ
+        var account = Assert.Single(Search(apk, "Account", "type").Matches, m => m.Name == "Fixture.Model.Account");
+        Assert.Equal(("assemblies/TestFixture.dll", "TestFixture"), (account.Path, account.Assembly)); // decoded from XALZ
         Assert.Contains(Search(apk, "Marker", "type").Matches, m => m.Assembly == "StoreRaw" && m.Path.StartsWith("carved_0x"));
 
         AssertNothingFound(Search(apk, NoSuchSymbol));
-        Assert.Equal(["Fixture.Game.Player::MaxHealth", "Fixture.Game.Player::_health"], Search(apk, "health", "field").Matches.Select(m => m.Name).Order(StringComparer.Ordinal));
-        Assert.Equal(["Fixture.Game.Player::Health"], Search(apk, "health", "property").Matches.Select(m => m.Name));
-        Assert.Empty(Search(apk, "health", "type").Matches);
-        AssertKindFilterNarrows(apk, "health", "field", "property");
+        Assert.Equal(["Fixture.Model.Account::MaxBalance", "Fixture.Model.Account::_balance"], Search(apk, "balance", "field").Matches.Select(m => m.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(["Fixture.Model.Account::Balance"], Search(apk, "balance", "property").Matches.Select(m => m.Name));
+        Assert.Empty(Search(apk, "balance", "type").Matches);
+        AssertKindFilterNarrows(apk, "balance", "field", "property");
     }
 
     [Fact]
@@ -92,23 +92,23 @@ public partial class UnpackTests
         var nupkg = System.IO.File.ReadAllBytes(ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"));
         var outer = Save("outer.zip", ContainerFixtures.Zip(("packages/k4os.nupkg", nupkg), ("app/CosturaHost.exe", CosturaHostWithFixture())));
 
-        var player = Assert.Single(Search(outer, "Player", "type").Matches, m => m.Name == "Fixture.Game.Player");
-        Assert.Equal("app/CosturaHost.exe_unpacked/testfixture.dll", player.Path);
+        var account = Assert.Single(Search(outer, "Account", "type").Matches, m => m.Name == "Fixture.Model.Account");
+        Assert.Equal("app/CosturaHost.exe_unpacked/testfixture.dll", account.Path);
         Assert.All(Search(outer, "LZ4Codec", "type").Matches, m => Assert.Matches(@"^packages/k4os\.nupkg_unpacked/lib/[^/]+/K4os\.Compression\.LZ4\.dll$", m.Path));
 
         AssertNothingFound(Search(outer, NoSuchSymbol));
-        AssertKindFilterNarrows(outer, "TakeDamage", "method");
-        Assert.Empty(Search(outer, "TakeDamage", "property").Matches);
+        AssertKindFilterNarrows(outer, "Charge", "method");
+        Assert.Empty(Search(outer, "Charge", "property").Matches);
     }
 
     [Fact]
     public void Search_PlainAssembly_AndFullNameQueries()
     {
-        var s = Search(Env.FixturePath, "Player::TakeDamage", "method");
+        var s = Search(Env.FixturePath, "Account::Charge", "method");
         Assert.Equal("none (plain .NET assembly)", s.Container);
         Assert.Equal(2, s.Matches.Count); // both overloads, matched on the full name
         Assert.All(s.Matches, m => Assert.Equal("TestFixture.dll", m.Path));
-        Assert.Contains(Search(Env.FixturePath, "Take*").Matches, m => m.Name.StartsWith("Fixture.Game.Player::TakeDamage("));
+        Assert.Contains(Search(Env.FixturePath, "Charg*").Matches, m => m.Name.StartsWith("Fixture.Model.Account::Charge("));
     }
 
     // ------------------------------------------------------------------ limits, safety, errors
@@ -151,7 +151,7 @@ public partial class UnpackTests
         var tempBefore = Directory.Exists(Path.Combine(Path.GetTempPath(), "netdecomp-unpacked"))
             ? Directory.GetDirectories(Path.Combine(Path.GetTempPath(), "netdecomp-unpacked")).Length : 0;
 
-        Assert.NotEmpty(Search(input, "Player").Matches);
+        Assert.NotEmpty(Search(input, "Account").Matches);
 
         Assert.Equal([input], Directory.GetFileSystemEntries(sandbox.Path));
         var tempAfter = Directory.Exists(Path.Combine(Path.GetTempPath(), "netdecomp-unpacked"))
@@ -187,7 +187,7 @@ public partial class UnpackTests
         };
         foreach (var (label, (file, error)) in corrupt)
         {
-            var r = await client.CallToolAsync("search_container", new Dictionary<string, object?> { ["path"] = file, ["query"] = "Player" });
+            var r = await client.CallToolAsync("search_container", new Dictionary<string, object?> { ["path"] = file, ["query"] = "Account" });
             Assert.True(r.IsError, label);
             Assert.Contains(error, string.Join("\n", r.Content.OfType<TextContentBlock>().Select(c => c.Text)));
         }
@@ -198,7 +198,7 @@ public partial class UnpackTests
         // still serving: a real search over stdio, with the structured result
         var ok = await client.CallToolAsync("search_container", new Dictionary<string, object?>
         {
-            ["path"] = Save("ok.apk", BuildApk().Apk), ["query"] = "health", ["kind"] = "property",
+            ["path"] = Save("ok.apk", BuildApk().Apk), ["query"] = "balance", ["kind"] = "property",
         });
         Assert.NotEqual(true, ok.IsError);
         await McpProtocolTests.AssertMatchesOutputSchema(client, "search_container", ok);
@@ -207,7 +207,7 @@ public partial class UnpackTests
         var match = Assert.Single(Prop(json, "matches").EnumerateArray());
         Assert.Equal("assemblies/TestFixture.dll", Prop(match, "path").GetString());
         Assert.Equal("TestFixture", Prop(match, "assembly").GetString());
-        Assert.Equal("Fixture.Game.Player::Health", Prop(match, "name").GetString());
+        Assert.Equal("Fixture.Model.Account::Balance", Prop(match, "name").GetString());
         Assert.Equal("property", Prop(match, "kind").GetString());
     }
 }

@@ -302,7 +302,7 @@ are unset:
 
 | Variable | What it points to | Tests |
 |---|---|---|
-| `NDM_MONO_GAME_DIR` | A Mono game's `Managed` folder (or any folder of real .NET assemblies) | decompile / search / xrefs / C# patch of the app's own code; call-path timing |
+| `NDM_ASSEMBLY_DIR` | A Mono game's `Managed` folder (or any folder of real .NET assemblies) | decompile / search / xrefs / C# patch of the app's own code; call-path timing |
 | `NDM_CALLPATH_TARGET` | Optional: a method in that game to search call paths to (default: picked automatically) | call-path timing |
 | `NDM_IL2CPP_DUMMY_DIR` | An Il2CppDumper / Cpp2IL `DummyDll` folder | address round-trips; IDA / Ghidra / C header export |
 | `NDM_COMPARE_OLD_DIR`, `NDM_COMPARE_NEW_DIR` | Two builds of the same app | build comparison |

@@ -73,11 +73,9 @@ public class ToolDetailTests : IDisposable
     }
 
     [Fact]
-    public void Constants_RealSha2Tables_WhenPresent()
+    public void Constants_RealSha2Tables()
     {
-        var bc = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".nuget", "packages", "bouncycastle.cryptography", "2.6.2", "lib", "net6.0", "BouncyCastle.Cryptography.dll");
-        if (!File.Exists(bc)) return;
+        var bc = RealPackages.Lib("BouncyCastle.Cryptography", "2.6.2", "net6.0", "BouncyCastle.Cryptography.dll");
         using var env = new Env(bc);
         var kinds = env.Search.SearchConstants("0x428A2F98", env.Workspace.Assemblies, 50, default).Items
             .Select(h => $"{h.Owner.DeclaringType.Name}: {h.Kind}").ToList();
@@ -89,10 +87,10 @@ public class ToolDetailTests : IDisposable
     public async Task FindOverrides_Pages()
     {
         var tools = new ReferenceTools(_env.Workspace, _env.References, _env.Pager);
-        var all = await tools.FindOverrides("Fixture.Game.Entity::Score");
-        Assert.Contains("Fixture.Game.Player::Score()", all);
-        Assert.Contains("Fixture.Game.Boss::Score()", all);
-        var first = await tools.FindOverrides("Fixture.Game.Entity::Score", limit: 1);
+        var all = await tools.FindOverrides("Fixture.Model.Entity::Score");
+        Assert.Contains("Fixture.Model.Account::Score()", all);
+        Assert.Contains("Fixture.Model.PremiumAccount::Score()", all);
+        var first = await tools.FindOverrides("Fixture.Model.Entity::Score", limit: 1);
         Assert.Contains("(showing 1-1)", first);
         Assert.Contains("[More: call again with offset=1]", first);
     }
@@ -112,15 +110,15 @@ public class ToolDetailTests : IDisposable
     public void IlResource_GivesEveryOverload()
     {
         var resources = new DecompilerResources(_env.Workspace, _env.Decompiler, _env.Report);
-        var il = resources.IL(_env.Fixture.Id, "Fixture.Game.Player::TakeDamage", default);
-        Assert.Contains("Player::TakeDamage(int)", il);
-        Assert.Contains("Player::TakeDamage(int, string)", il);
+        var il = resources.IL(_env.Fixture.Id, "Fixture.Model.Account::Charge", default);
+        Assert.Contains("Account::Charge(int)", il);
+        Assert.Contains("Account::Charge(int, string)", il);
     }
 
     [Fact]
     public void StubDryRun_NumbersTheInstructions()
     {
-        var preview = _env.Edits.StubMethod(_env.One("Player::CheckLicense"), "true", dryRun: true);
+        var preview = _env.Edits.StubMethod(_env.One("Account::CheckLicense"), "true", dryRun: true);
         Assert.Contains("IL_0000: ldc.i4 1", preview);
         Assert.Contains("IL_0005: ret", preview); // real offsets, not IL_0000 for every line
     }

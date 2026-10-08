@@ -99,9 +99,9 @@ public class RealAssemblyTests(ITestOutputHelper output)
         Assert.NotNull(result.ProjectFile);
     }
 
-    /// <summary>A real app's assemblies (NDM_MONO_GAME_DIR): decompile, search, cross-reference and patch its own code.</summary>
-    [RequiresRealDataFact(RealData.MonoGameDir)]
-    public void RealGameAssembliesEndToEnd()
+    /// <summary>A real app's assemblies (NDM_ASSEMBLY_DIR): decompile, search, cross-reference and patch its own code.</summary>
+    [RequiresRealDataFact(RealData.AssemblyDir)]
+    public void RealAssembliesEndToEnd()
     {
         using var ws = new AssemblyWorkspace();
         var options = new ServerOptions();
@@ -109,14 +109,14 @@ public class RealAssemblyTests(ITestOutputHelper output)
         var search = new Services.SearchService();
         var references = new Services.ReferenceService(ws);
         var sw = Stopwatch.StartNew();
-        var report = ws.LoadDirectory(RealData.Path(RealData.MonoGameDir), false);
+        var report = ws.LoadDirectory(RealData.Path(RealData.AssemblyDir), false);
         output.WriteLine($"load: {report.Loaded.Count} assemblies, {ws.Assemblies.Sum(a => a.Module.GetTypes().Count())} types in {sw.ElapsedMilliseconds} ms");
         Assert.NotEmpty(report.Loaded);
 
         // Decompile every top-level type of the app's own assemblies (not the bundled framework / engine) concurrently.
-        var game = ws.Assemblies.Where(RealData.IsAppAssembly).ToList();
-        Assert.NotEmpty(game);
-        var types = game.SelectMany(a => a.Module.Types.Where(t => t.FullName != "<Module>").Select(t => (a, t))).ToList();
+        var app = ws.Assemblies.Where(RealData.IsAppAssembly).ToList();
+        Assert.NotEmpty(app);
+        var types = app.SelectMany(a => a.Module.Types.Where(t => t.FullName != "<Module>").Select(t => (a, t))).ToList();
         var failures = new ConcurrentBag<string>();
         int fallbacks = 0;
         sw.Restart();
@@ -129,22 +129,22 @@ public class RealAssemblyTests(ITestOutputHelper output)
             }
             catch (Exception ex) { failures.Add($"{x.t.FullName}: {ex.GetType().Name}: {ex.Message}"); }
         });
-        output.WriteLine($"decompiled {types.Count} game types in {sw.Elapsed.TotalSeconds:F1}s; {fallbacks} used member fallback; {failures.Count} failed");
+        output.WriteLine($"decompiled {types.Count} app types in {sw.Elapsed.TotalSeconds:F1}s; {fallbacks} used member fallback; {failures.Count} failed");
         Assert.Empty(failures);
 
         sw.Restart();
         var strings = search.SearchStrings("http", false, ws.Assemblies, 20, default);
-        var symbols = search.SearchSymbols("*Manager*", false, SymbolKind.Type, game, null, 20, default);
+        var symbols = search.SearchSymbols("*Manager*", false, SymbolKind.Type, app, null, 20, default);
         output.WriteLine($"search: {sw.ElapsedMilliseconds} ms (strings {strings.Total}, *Manager* types {symbols.Total})");
 
         sw.Restart();
-        var target = symbols.Items.FirstOrDefault() ?? search.SearchSymbols("*", false, SymbolKind.Type, game, null, 1, default).Items[0];
+        var target = symbols.Items.FirstOrDefault() ?? search.SearchSymbols("*", false, SymbolKind.Type, app, null, 1, default).Items[0];
         var refs = ws.Read(() => references.FindReferences(target, true, 200, default));
         output.WriteLine($"xrefs to {target.Label}: {refs.Total} in {sw.ElapsedMilliseconds} ms");
 
         // C# patch dry run on a real method: the first bool method without out / ref parameters ("return true;" must be
-        // a valid body for it). In a typical game folder that is in a bundled library with internal types in signatures.
-        var method = game.SelectMany(a => a.Module.GetTypes()).SelectMany(t => t.Methods)
+        // a valid body for it). In a typical app folder that is in a bundled library with internal types in signatures.
+        var method = app.SelectMany(a => a.Module.GetTypes()).SelectMany(t => t.Methods)
             .First(m => m.HasBody && !m.IsConstructor && m.ReturnType.ElementType == ElementType.Boolean && !m.DeclaringType.Name.String.Contains('<')
                         && !m.DeclaringType.HasGenericParameters && !m.Name.String.Contains('.') && !m.IsGetter && !m.IsSetter
                         && m.Parameters.All(p => p.Type is not ByRefSig));
@@ -191,12 +191,12 @@ public class RealAssemblyTests(ITestOutputHelper output)
     /// against an app type must not see two List&lt;T&gt; (CS0433), and every app reference to mscorlib must not bind to
     /// the dummy one.
     /// </summary>
-    [RequiresRealDataFact(RealData.MonoGameDir, RealData.Il2CppDummyDir)]
+    [RequiresRealDataFact(RealData.AssemblyDir, RealData.Il2CppDummyDir)]
     public void AppAndIl2CppDummySetLoadedTogether()
     {
         using var env = new Env(Env.FixturePath);
         env.Workspace.LoadDirectory(RealData.Path(RealData.Il2CppDummyDir), false);   // dummy set first: its mscorlib loads first
-        var report = env.Workspace.LoadDirectory(RealData.Path(RealData.MonoGameDir), false);
+        var report = env.Workspace.LoadDirectory(RealData.Path(RealData.AssemblyDir), false);
         var app = report.Loaded.Where(RealData.IsAppAssembly).MaxBy(a => a.Module.GetTypes().Count())!;
         var type = env.Workspace.Read(() => app.Module.GetTypes().First(t => t.IsClass && !t.IsAbstract && !t.HasGenericParameters
             && !t.IsNested && t.Methods.Any(m => m.HasBody) && !t.Name.String.Contains('<')));
@@ -206,7 +206,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
         output.WriteLine($"{app.Id} {type.FullName}: {added.Split('\n')[0]}");
 
         var dummyCorlib = env.Workspace.Assemblies.First(a => a.AssemblyName == "mscorlib");
-        foreach (var a in report.Loaded) // the game folder's assemblies (the dummy set's own refs rightly bind within it)
+        foreach (var a in report.Loaded) // the app folder's assemblies (the dummy set's own refs rightly bind within it)
             foreach (var r in env.Workspace.Read(() => a.Module.GetAssemblyRefs().Where(r => r.Name == "mscorlib").ToList()))
                 Assert.NotSame(dummyCorlib, env.Workspace.FindReference(r.Name, r.Version, r.PublicKeyOrToken?.Token?.Data, a.FilePath));
     }
@@ -215,11 +215,11 @@ public class RealAssemblyTests(ITestOutputHelper output)
     /// Assemblies shipped with encrypted method bodies (decrypted by a modified runtime) are flagged, and decompiling
     /// one of their methods carries the warning.
     /// </summary>
-    [RequiresRealDataFact(RealData.MonoGameDir)]
+    [RequiresRealDataFact(RealData.AssemblyDir)]
     public void EncryptedBodiesInARealFolderAreFlagged()
     {
         using var env = new Env(Env.FixturePath);
-        var loaded = env.Workspace.LoadDirectory(RealData.Path(RealData.MonoGameDir), false).Loaded;
+        var loaded = env.Workspace.LoadDirectory(RealData.Path(RealData.AssemblyDir), false).Loaded;
         var flagged = loaded.Where(a => a.BodyHealth.Invalid > 0).ToList();
         output.WriteLine($"{loaded.Sum(a => a.BodyHealth.Bodies)} bodies; flagged: " +
                          string.Join("; ", flagged.Select(a => $"{a.Id} {a.BodyHealth.Invalid}/{a.BodyHealth.Bodies}")));

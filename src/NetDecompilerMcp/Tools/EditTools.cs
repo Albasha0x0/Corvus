@@ -132,7 +132,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
             pager.Page(history.Diff(workspace.Get(assembly), number, cancellationToken), offset, maxChars), cancellationToken);
 
     [McpServerTool(Name = "export_edits", Title = "Export edits as a script", OpenWorld = false)]
-    [Description("Save the edits of an assembly as a JSON edit script. apply_edits can replay it later — e.g. on the next game build after an update, where symbols are re-resolved by name.")]
+    [Description("Save the edits of an assembly as a JSON edit script. apply_edits can replay it later — e.g. on the next build after an update, where symbols are re-resolved by name.")]
     public Task<string> ExportEdits(
         [Description(AssemblyDescription)] string assembly,
         [Description("Output .json path.")] string path,

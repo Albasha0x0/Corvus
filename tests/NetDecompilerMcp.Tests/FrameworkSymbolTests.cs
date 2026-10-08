@@ -68,14 +68,12 @@ public class FrameworkSymbolTests : IDisposable
     }
 
     [Fact]
-    public async Task NetFrameworkAndModernCopies_AreOneApi_WhenPresent()
+    public async Task NetFrameworkAndModernCopies_AreOneApi()
     {
-        var app = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), @"Downloads\WindowTop.v5.31.8.Portable\WindowTop.exe");
-        if (!File.Exists(app)) return; // a .NET Framework app (mscorlib) on the developer machine
-        using var env = Load();      // a modern one (System.Private.CoreLib)
-        env.Workspace.Load(app);
+        using var env = Load(); // System.Private.CoreLib
+        env.Workspace.Load(RealPackages.Lib("Newtonsoft.Json", "13.0.1", "net45", "Newtonsoft.Json.dll")); // mscorlib
         var overrides = await new ReferenceTools(env.Workspace, env.References, env.Pager).FindOverrides("System.IDisposable::Dispose", limit: 1000);
         Assert.Contains("[Users]", overrides);
-        Assert.Contains("[WindowTop]", overrides);
+        Assert.Contains("[Newtonsoft.Json]", overrides);
     }
 }

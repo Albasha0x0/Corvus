@@ -1,9 +1,9 @@
-namespace Fixture.Game;
+namespace Fixture.Model;
 
-public interface IDamageable
+public interface IChargeable
 {
-    void TakeDamage(int amount);
-    bool IsAlive { get; }
+    void Charge(int amount);
+    bool IsActive { get; }
 }
 
 public abstract class Entity
@@ -13,51 +13,51 @@ public abstract class Entity
     public virtual int Score() => 0;
 }
 
-public class Player : Entity, IDamageable
+public class Account : Entity, IChargeable
 {
-    public const int MaxHealth = 100;
-    private int _health = MaxHealth;
-    public static int PlayerCount;
+    public const int MaxBalance = 100;
+    private int _balance = MaxBalance;
+    public static int AccountCount;
 
-    public event EventHandler? Died;
+    public event EventHandler? Closed;
 
-    public Player(string name)
+    public Account(string name)
     {
         Name = name;
-        PlayerCount++;
+        AccountCount++;
     }
 
-    public int Health
+    public int Balance
     {
-        get => _health;
-        set => _health = value;
+        get => _balance;
+        set => _balance = value;
     }
 
-    public bool IsAlive => _health > 0;
+    public bool IsActive => _balance > 0;
 
-    public void TakeDamage(int amount)
+    public void Charge(int amount)
     {
-        _health -= amount;
-        if (_health <= 0)
-            Died?.Invoke(this, EventArgs.Empty);
+        _balance -= amount;
+        if (_balance <= 0)
+            Closed?.Invoke(this, EventArgs.Empty);
     }
 
-    public void TakeDamage(int amount, string source)
+    public void Charge(int amount, string source)
     {
-        Log("hit by " + source);
-        TakeDamage(amount);
+        Log("charged by " + source);
+        Charge(amount);
     }
 
     public override void Tick(float dt) { }
 
-    public override int Score() => _health * 2;
+    public override int Score() => _balance * 2;
 
     public bool CheckLicense() => Secret.Validate("LICENSE-KEY-123");
 
     public async Task<int> LoadAsync()
     {
         await Task.Delay(1);
-        return Health;
+        return Balance;
     }
 
     public IEnumerable<int> Range()
@@ -68,7 +68,7 @@ public class Player : Entity, IDamageable
 
     public int SumPositive(List<int> values) => values.Where(v => v > 0).Sum();
 
-    private static void Log(string message) => Console.WriteLine("[Player] " + message);
+    private static void Log(string message) => Console.WriteLine("[Account] " + message);
 
     public class Inventory
     {
@@ -77,9 +77,9 @@ public class Player : Entity, IDamageable
     }
 }
 
-public sealed class Boss : Player
+public sealed class PremiumAccount : Account
 {
-    public Boss() : base("Boss") { }
+    public PremiumAccount() : base("PremiumAccount") { }
     public override int Score() => 1000;
 }
 

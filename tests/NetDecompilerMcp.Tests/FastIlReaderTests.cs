@@ -59,8 +59,8 @@ public class FastIlReaderTests
     public void EditedAssembliesUseTheDnlibModule()
     {
         using var env = new Env();
-        env.Edit(() => env.Edits.StubMethod(env.One("Player::Score"), "7"));
-        var body = FastIlReader.Read(env.Fixture, env.Def<MethodDef>("Player::Score"));
+        env.Edit(() => env.Edits.StubMethod(env.One("Account::Score"), "7"));
+        var body = FastIlReader.Read(env.Fixture, env.Def<MethodDef>("Account::Score"));
         Assert.Equal([Code.Ldc_I4, Code.Ret], body!.Instructions.Select(i => i.OpCode.Code).Take(2).Select(c => c == Code.Ldc_I4_7 ? Code.Ldc_I4 : c));
     }
 }

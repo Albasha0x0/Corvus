@@ -207,10 +207,10 @@ public class RealWorldShapeTests : IDisposable
     {
         using var env = new Env();
         env.Edit(() => env.Edits.StubMethod(env.One("Secret::Validate"), "true"));                                                     // #1
-        env.Edit(() => env.Edits.AddMembersCSharp(env.One("Fixture.Game.Player", SymbolKind.Type), "public int Bonus() => 7;", false, default)); // #2
-        env.Edit(() => env.Edits.PatchMethodCSharp(env.One("Player::Score"), "return Bonus();", false, default));                          // #3 uses #2
+        env.Edit(() => env.Edits.AddMembersCSharp(env.One("Fixture.Model.Account", SymbolKind.Type), "public int Bonus() => 7;", false, default)); // #2
+        env.Edit(() => env.Edits.PatchMethodCSharp(env.One("Account::Score"), "return Bonus();", false, default));                          // #3 uses #2
         var error = Assert.Throws<ToolError>(() => env.Edit(() => env.Edits.Undo(env.Fixture, 2, default))).Message;
-        Assert.StartsWith("Edit #3 (patch C# Fixture.Game.Player::Score()) could not be re-applied:", error);
+        Assert.StartsWith("Edit #3 (patch C# Fixture.Model.Account::Score()) could not be re-applied:", error);
         Assert.EndsWith("\nNothing was changed.", error);
         Assert.Equal(1, error.Split("Nothing was changed.").Length - 1);
     }
@@ -235,16 +235,16 @@ public class RealWorldShapeTests : IDisposable
             }
         }
         using var env = new Env(Save("enc/TestFixture.dll", bytes));
-        var error = Assert.Throws<ToolError>(() => env.Edit(() => env.Edits.PatchMethodIL(env.One("Player::CheckLicense"), "nop", "prepend", false))).Message;
+        var error = Assert.Throws<ToolError>(() => env.Edit(() => env.Edits.PatchMethodIL(env.One("Account::CheckLicense"), "nop", "prepend", false))).Message;
         Assert.Contains("is not valid IL (encrypted, or dumped from memory before decryption): there is no code to prepend to", error);
-        env.Edit(() => env.Edits.PatchMethodIL(env.One("Player::CheckLicense"), "ldc.i4.1\nret", "replace", false)); // replace still works
+        env.Edit(() => env.Edits.PatchMethodIL(env.One("Account::CheckLicense"), "ldc.i4.1\nret", "replace", false)); // replace still works
     }
 
     [Fact]
     public void Binding_InheritedGenericProperty_CommentShowsTheTypeArgument()
     {
         using var env = new Env();
-        var code = new CppBindingGenerator().Generate(env.Fixture, env.Def<TypeDef>("Fixture.Game.Bank", SymbolKind.Type), ["Instance"], false, "mono");
-        Assert.Contains("// public static T Instance { get; }  [T = Bank, declared on Fixture.Game.Singleton`1]", code);
+        var code = new CppBindingGenerator().Generate(env.Fixture, env.Def<TypeDef>("Fixture.Model.Bank", SymbolKind.Type), ["Instance"], false, "mono");
+        Assert.Contains("// public static T Instance { get; }  [T = Bank, declared on Fixture.Model.Singleton`1]", code);
     }
 }

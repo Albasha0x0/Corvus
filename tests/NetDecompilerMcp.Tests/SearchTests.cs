@@ -12,18 +12,18 @@ public class SearchTests : IDisposable
     [Fact]
     public void SymbolsBySubstringWildcardRegexAndRanking()
     {
-        var r = _env.Search.SearchSymbols("damage", false, SymbolKind.Any, All, null, 100, default);
-        Assert.Contains(r.Items, s => s.Member.Name == "TakeDamage");
-        Assert.Contains(r.Items, s => s.Member.Name == "IDamageable");
+        var r = _env.Search.SearchSymbols("charge", false, SymbolKind.Any, All, null, 100, default);
+        Assert.Contains(r.Items, s => s.Member.Name == "Charge");
+        Assert.Contains(r.Items, s => s.Member.Name == "IChargeable");
 
-        var wildcard = _env.Search.SearchSymbols("Take*", false, SymbolKind.Method, All, null, 100, default);
-        Assert.All(wildcard.Items, s => Assert.StartsWith("Take", s.Member.Name));
+        var wildcard = _env.Search.SearchSymbols("Charg*", false, SymbolKind.Method, All, null, 100, default);
+        Assert.All(wildcard.Items, s => Assert.StartsWith("Charg", s.Member.Name));
 
         var regex = _env.Search.SearchSymbols("^Check.*e$", true, SymbolKind.Method, All, null, 100, default);
         Assert.Equal("CheckLicense", Assert.Single(regex.Items).Member.Name);
 
-        var exactFirst = _env.Search.SearchSymbols("Player", false, SymbolKind.Any, All, null, 100, default);
-        Assert.Equal("Player", exactFirst.Items[0].Member.Name);
+        var exactFirst = _env.Search.SearchSymbols("Account", false, SymbolKind.Any, All, null, 100, default);
+        Assert.Equal("Account", exactFirst.Items[0].Member.Name);
 
         Assert.Throws<ToolError>(() => _env.Search.SearchSymbols("(", true, SymbolKind.Any, All, null, 10, default));
         Assert.Throws<ToolError>(() => _env.Search.SearchSymbols("", false, SymbolKind.Any, All, null, 10, default));
@@ -32,7 +32,7 @@ public class SearchTests : IDisposable
     [Fact]
     public void SymbolsByFullNameNamespaceFilterAndLimit()
     {
-        var full = _env.Search.SearchSymbols("Game.Player::Take", false, SymbolKind.Method, All, null, 100, default);
+        var full = _env.Search.SearchSymbols("Model.Account::Charg", false, SymbolKind.Method, All, null, 100, default);
         Assert.Equal(2, full.Total);
         var ns = _env.Search.SearchSymbols("a", false, SymbolKind.Type, All, "Consumer", 100, default);
         Assert.All(ns.Items, s => Assert.Equal("TestFixture.Consumer", s.Assembly.Id));
@@ -47,13 +47,13 @@ public class SearchTests : IDisposable
         var r = _env.Search.SearchStrings("license-", false, All, 50, default);
         Assert.Contains(r.Items, h => h.Owner.Name == "CheckLicense" && h.ILOffset != null);
         Assert.Contains(r.Items, h => h.Owner.Name == "Validate");
-        var re = _env.Search.SearchStrings(@"^\[Player\]", true, All, 50, default);
+        var re = _env.Search.SearchStrings(@"^\[Account\]", true, All, 50, default);
         Assert.Contains(re.Items, h => h.Owner.Name == "Log");
     }
 
     [Theory]
-    [InlineData("100", "MaxHealth")]     // const field
-    [InlineData("0x3E8", "Score")]       // ldc.i4 1000 in Boss.Score
+    [InlineData("100", "MaxBalance")]     // const field
+    [InlineData("0x3E8", "Score")]       // ldc.i4 1000 in PremiumAccount.Score
     [InlineData("2", "Blue")]            // enum member
     [InlineData("30", ".ctor")]          // dictionary initializer in Shop
     [InlineData("1_000", "Score")]
@@ -63,7 +63,7 @@ public class SearchTests : IDisposable
     [Fact]
     public void AttributeArgumentsOfEveryKind_AreFormattedAndSearchable()
     {
-        var tagged = _env.Def<dnlib.DotNet.TypeDef>("Fixture.Game.Tagged", SymbolKind.Type);
+        var tagged = _env.Def<dnlib.DotNet.TypeDef>("Fixture.Model.Tagged", SymbolKind.Type);
         Assert.Equal("[Tags(new int[] { 1, 2, 3 }, 5, typeof(Vec2), Team.Blue, Names = new string[] { \"a\", \"b\" })]",
             Format.Attribute(tagged.CustomAttributes.Single()));
         var marked = _env.Def<dnlib.DotNet.MethodDef>("Tagged::Marked");
@@ -78,11 +78,11 @@ public class SearchTests : IDisposable
 
     [Theory]
     [InlineData("ldstr *LICENSE*; call *Validate*", "CheckLicense")]
-    [InlineData("ldstr \"hit by \"; ...; call *::Log*", "TakeDamage")]
+    [InlineData("ldstr \"charged by \"; ...; call *::Log*", "Charge")]
     [InlineData("ldc.i4 0x3E8; ret", "Score")]
-    [InlineData("callvirt *IDamageable::TakeDamage*", "Hit")]
-    [InlineData("newobj *Player::.ctor*", "Spawn")]
-    [InlineData("ldfld *_health; ldc.i4.2; mul", "Score")]
+    [InlineData("callvirt *IChargeable::Charge*", "Bill")]
+    [InlineData("newobj *Account::.ctor*", "Open")]
+    [InlineData("ldfld *_balance; ldc.i4.2; mul", "Score")]
     public void IlPatterns(string pattern, string method)
     {
         var r = _env.Search.SearchIL(pattern, All, 50, default);

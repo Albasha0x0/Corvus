@@ -87,7 +87,7 @@ public class FrameworkResolutionTests : IDisposable
         var appImage = ReferenceResolutionTests.Compile("App", """
             public class Shop
             {
-                public static string Who() => typeof(Fixture.Game.Player).Name;
+                public static string Who() => typeof(Fixture.Model.Account).Name;
                 public int Price() => 1;
             }
             """, fixture);
@@ -107,10 +107,10 @@ public class FrameworkResolutionTests : IDisposable
         Assert.Equal(("App", "embedded in App"), (target.EmbeddedIn, target.Describe()));
         var info = env.Workspace.Read(() => env.Report.Build(app));
         Assert.True(System.Text.RegularExpressions.Regex.IsMatch(info, @"TestFixture, Version=[^\]]*\[embedded in App\]"), info);
-        Assert.Contains("typeof(Player)", env.Decompile("Shop::Who"));
-        // the type's decompiled context needs Fixture.Game: compiles against the embedded copy
-        env.Edit(() => env.Edits.PatchMethodCSharp(env.One("Shop::Price"), "return new Fixture.Game.Player(\"p\").Health;", false, default));
-        Assert.Contains("Health", env.Decompile("Shop::Price"));
+        Assert.Contains("typeof(Account)", env.Decompile("Shop::Who"));
+        // the type's decompiled context needs Fixture.Model: compiles against the embedded copy
+        env.Edit(() => env.Edits.PatchMethodCSharp(env.One("Shop::Price"), "return new Fixture.Model.Account(\"p\").Balance;", false, default));
+        Assert.Contains("Balance", env.Decompile("Shop::Price"));
     }
 
     [Fact]

@@ -19,6 +19,22 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!-- Real libraries the tests decompile, compare and export (downloaded on restore, not referenced). -->
+  <ItemGroup>
+    <PackageDownload Include="BouncyCastle.Cryptography" Version="[2.6.2]" />
+    <PackageDownload Include="Newtonsoft.Json" Version="[12.0.2];[13.0.1];[13.0.4]" />
+    <PackageDownload Include="NLog" Version="[6.1.4]" />
+    <PackageDownload Include="System.Text.Json" Version="[10.0.1]" />
+    <PackageDownload Include="System.IO.Pipelines" Version="[10.0.1]" />
+    <PackageDownload Include="SharpCompress" Version="[0.48.1]" />
+    <PackageDownload Include="ZstdSharp.Port" Version="[0.8.8]" />
+    <PackageDownload Include="AsmResolver" Version="[6.0.0-beta.5]" />
+    <PackageDownload Include="AsmResolver.PE.File" Version="[6.0.0-beta.5]" />
+    <PackageDownload Include="AsmResolver.PE" Version="[6.0.0-beta.5]" />
+    <PackageDownload Include="Iced" Version="[1.21.0]" />
+    <PackageDownload Include="OggVorbisEncoder" Version="[1.2.2]" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\NetDecompilerMcp\NetDecompilerMcp.csproj" />
     <ProjectReference Include="..\TestFixture\TestFixture.csproj" />

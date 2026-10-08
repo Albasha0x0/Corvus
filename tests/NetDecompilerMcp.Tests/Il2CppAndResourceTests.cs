@@ -17,7 +17,7 @@ public class Il2CppTests : IDisposable
         Assert.Equal("0x10", Il2CppService.GetAttributes(_env.One("NativeThing::Counter").Member).Single().Values["Offset"]);
         Assert.Equal("0x2000010", Il2CppService.GetAttributes(_env.One("NativeThing").Member).Single().Values["Token"]);
         Assert.Equal("RVA=0x1100 Offset=0x500 VA=0x180001100 Slot=4", Il2CppService.CompactSummary(_env.One("NativeThing::Second").Member));
-        Assert.Null(Il2CppService.CompactSummary(_env.One("Player::CheckLicense").Member));
+        Assert.Null(Il2CppService.CompactSummary(_env.One("Account::CheckLicense").Member));
     }
 
     [Theory]

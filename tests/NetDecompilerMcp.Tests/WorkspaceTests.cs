@@ -38,8 +38,8 @@ public class WorkspaceTests
         var b = ws.Load(copy);
         Assert.Equal("TestFixture", a.Id);
         Assert.Equal("TestFixture#2", b.Id);
-        Assert.Throws<ToolError>(() => ws.Read(() => SymbolResolver.ResolveOne(ws, null, "Player", SymbolKind.Type)));
-        Assert.Same(b, ws.Read(() => SymbolResolver.ResolveOne(ws, "TestFixture#2", "Player", SymbolKind.Type)).Assembly);
+        Assert.Throws<ToolError>(() => ws.Read(() => SymbolResolver.ResolveOne(ws, null, "Account", SymbolKind.Type)));
+        Assert.Same(b, ws.Read(() => SymbolResolver.ResolveOne(ws, "TestFixture#2", "Account", SymbolKind.Type)).Assembly);
         Assert.Same(b, ws.Get(copy)); // by full path
         Assert.Throws<ToolError>(() => ws.Get("TestFixture.dll")); // file name matches both
     }

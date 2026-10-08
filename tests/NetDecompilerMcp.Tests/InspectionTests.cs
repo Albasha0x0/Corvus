@@ -343,12 +343,13 @@ public class InspectionTests : IDisposable
         Assert.DoesNotContain(report.Contents, p => p.Encoding.Any(e => e.Contains("brute-forced")));
         Assert.Contains(report.Contents, p => p.Source == "resource 'random.bin'" && p.Kind.StartsWith("high-entropy")); // still reported as it was
 
-        // real-world resources and arrays: no single-byte "decodes"
-        // plus table-heavy libraries whose codec / opcode tables decoded into look-alike text before (when in the NuGet cache)
-        var packages = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
-        var tables = new[] { @"oggvorbisencoder\1.2.2\lib\net6.0\OggVorbisEncoder.dll", @"iced\1.21.0\lib\netstandard2.1\Iced.dll" }
-            .Select(p => Path.Combine(packages, p)).Where(File.Exists);
-        foreach (var real in new[] { Env.FixturePath, CachedDll("Microsoft.CodeAnalysis.Common", "Microsoft.CodeAnalysis.dll") }.Concat(tables))
+        // real resources and arrays, including codec and opcode tables: no brute-forced decodes
+        foreach (var real in new[]
+                 {
+                     Env.FixturePath, CachedDll("Microsoft.CodeAnalysis.Common", "Microsoft.CodeAnalysis.dll"),
+                     RealPackages.Lib("OggVorbisEncoder", "1.2.2", "net6.0", "OggVorbisEncoder.dll"),
+                     RealPackages.Lib("Iced", "1.21.0", "netstandard2.1", "Iced.dll"),
+                 })
             Assert.DoesNotContain(Inspection.ExtractEmbedded(null, real, false, null, false, default, xorText: true).Contents,
                 p => p.Encoding.Any(e => e.Contains("brute-forced")));
     }

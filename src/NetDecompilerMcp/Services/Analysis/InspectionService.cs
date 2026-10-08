@@ -211,7 +211,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
         var facts = Facts(full, bytes);
         var fileHighlights = new List<string>();
         if (facts.Certificate is { Present: true } fileSig) fileHighlights.AddRange(SignatureHighlights(fileSig, "the file"));
-        if (GameLayout.FileHint(full, bytes) is { } layout) fileHighlights.Add(layout);
+        if (UnityLayout.FileHint(full, bytes) is { } layout) fileHighlights.Add(layout);
         (string Source, string Container, List<UnpackService.ManagedAssembly> Assemblies, List<string> Notes) managed;
         try { managed = UnpackService.Managed(full, Limits, ct); }
         catch (ToolError ex)

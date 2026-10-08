@@ -16,7 +16,7 @@ public class TypeCountTests : IDisposable
         var browse = new BrowseTools(_env.Workspace, _env.References, _env.Pager);
         var expected = _env.Workspace.Read(() => _env.Fixture.Module.GetTypes().Count(t => t.FullName != "<Module>"));
         var nested = _env.Workspace.Read(() => _env.Fixture.Module.GetTypes().Count(t => t.DeclaringType != null));
-        Assert.True(nested > 0); // the fixture has nested types (Player.Inventory, compiler-generated closures)
+        Assert.True(nested > 0); // the fixture has nested types (Account.Inventory, compiler-generated closures)
 
         var info = _env.Workspace.Read(() => _env.Report.Build(_env.Fixture));
         Assert.Contains($"Types: {expected} ({nested} nested)", info);
@@ -32,7 +32,7 @@ public class TypeCountTests : IDisposable
         Assert.Equal(expected, _env.Workspace.Read(() => MetadataUtil.CountedTypes(_env.Fixture.Module).Count)); // list_assemblies, load_assembly
 
         // per namespace: list_namespaces' count is what list_types lists for it
-        var game = int.Parse(Regex.Match(namespaces, @"^  Fixture\.Game  \((\d+)\)", RegexOptions.Multiline).Groups[1].Value);
-        Assert.StartsWith($"{game} types", await browse.ListTypes(@namespace: "Fixture.Game", limit: 1));
+        var model = int.Parse(Regex.Match(namespaces, @"^  Fixture\.Model  \((\d+)\)", RegexOptions.Multiline).Groups[1].Value);
+        Assert.StartsWith($"{model} types", await browse.ListTypes(@namespace: "Fixture.Model", limit: 1));
     }
 }

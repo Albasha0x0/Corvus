@@ -26,7 +26,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     }
 
     [McpServerTool(Name = "load_assembly", Title = "Load assembly", Idempotent = true, OpenWorld = false)]
-    [Description("Load a .NET assembly (.dll/.exe) or every assembly in a directory (e.g. a Unity game's *_Data/Managed or an Il2CppDumper DummyDll folder). " +
+    [Description("Load a .NET assembly (.dll/.exe) or every assembly in a directory (e.g. an application folder, a Unity *_Data/Managed folder or an Il2CppDumper DummyDll folder). " +
                  "Files are read into memory and never locked. The directory joins the reference search path. Loading the same path twice is a no-op.")]
     public Task<string> LoadAssembly(
         [Description("Absolute path to an assembly file or a directory.")] string path,
@@ -50,7 +50,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         return FormatLoad(workspace, path, report);
     }, cancellationToken));
 
-    /// <summary>The message for a folder load: what loaded, native files in one line, damaged ones, game-layout hints.</summary>
+    /// <summary>The message for a folder load: what loaded, native files in one line, damaged ones, Unity layout hints.</summary>
     internal static string FormatLoad(AssemblyWorkspace workspace, string path, AssemblyWorkspace.LoadReport report)
     {
         var sb = new StringBuilder($"Loaded {Plural(report.Loaded.Count, "assembly")} from {Path.GetFullPath(path)}");
@@ -72,7 +72,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         foreach (var (file, error) in damaged.Take(20))
             sb.AppendLine($"  skipped {Path.GetFileName(file)}: {Format.Clip(error, 160)}");
         if (damaged.Count > 20) sb.AppendLine($"  … {damaged.Count - 20} more skipped");
-        foreach (var hint in Services.Analysis.GameLayout.FolderHints(path))
+        foreach (var hint in Services.Analysis.UnityLayout.FolderHints(path))
             sb.AppendLine($"Note: {hint}");
         return sb.ToString();
     }
@@ -120,7 +120,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         }, cancellationToken);
 
     [McpServerTool(Name = "reload_assembly", Title = "Reload assembly", OpenWorld = false)]
-    [Description("Re-read an assembly from disk (e.g. after a game update or after save_assembly overwrote it), discarding unsaved in-memory edits.")]
+    [Description("Re-read an assembly from disk (e.g. after an update or after save_assembly overwrote it), discarding unsaved in-memory edits.")]
     public Task<string> ReloadAssembly([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
         {
@@ -130,7 +130,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         }, cancellationToken);
 
     [McpServerTool(Name = "add_search_directory", Title = "Add reference search directory", Idempotent = true, OpenWorld = false)]
-    [Description("Add a directory for resolving referenced assemblies that are not loaded (a game's Managed folder, a framework directory). Improves decompilation, cross-assembly navigation and C# patching.")]
+    [Description("Add a directory for resolving referenced assemblies that are not loaded (an application folder, a framework directory). Improves decompilation, cross-assembly navigation and C# patching.")]
     public Task<string> AddSearchDirectory([Description("Directory path.")] string directory, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
         {

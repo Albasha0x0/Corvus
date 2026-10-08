@@ -25,9 +25,9 @@ public class ConcurrencyTests
         var readers = new[]
         {
             Loop(() => env.Workspace.Read(() => env.Decompiler.DecompileType(env.Fixture, env.Def<dnlib.DotNet.TypeDef>("Shop", SymbolKind.Type), default))),
-            Loop(() => env.Workspace.Read(() => env.References.FindReferences(env.One("Player::_health"), true, 100, default).Total)),
+            Loop(() => env.Workspace.Read(() => env.References.FindReferences(env.One("Account::_balance"), true, 100, default).Total)),
             Loop(() => env.Workspace.Read(() => env.Search.SearchStrings("LICENSE", false, env.Workspace.Assemblies, 10, default).Total)),
-            Loop(() => env.Workspace.Read(() => env.Decompiler.Disassemble(env.Fixture, env.One("Player::Score").Member, default))),
+            Loop(() => env.Workspace.Read(() => env.Decompiler.Disassemble(env.Fixture, env.One("Account::Score").Member, default))),
         };
         int i = 0;
         string current = "Describe";
@@ -36,7 +36,7 @@ public class ConcurrencyTests
             var next = ++i % 2 == 0 ? "DescribeA" : "DescribeB";
             env.Edit(() => env.Edits.Rename(env.One("Shop::" + current), next));
             current = next;
-            env.Edit(() => env.Edits.StubMethod(env.One("Player::Score"), (i % 100).ToString()));
+            env.Edit(() => env.Edits.StubMethod(env.One("Account::Score"), (i % 100).ToString()));
         });
 
         await Task.WhenAll(readers.Append(writer));

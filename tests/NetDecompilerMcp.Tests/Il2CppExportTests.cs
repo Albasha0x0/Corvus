@@ -46,11 +46,11 @@ public class Il2CppExportTests : IDisposable
     {
         using var ws = new AssemblyWorkspace();
         ws.LoadDirectory(RealData.Path(RealData.Il2CppDummyDir), false);
-        var result = ws.Read(() => new Il2CppExporter(new Il2CppService(ws)).Export(ws.Assemblies, _dir.Path, "all", "game", default));
+        var result = ws.Read(() => new Il2CppExporter(new Il2CppService(ws)).Export(ws.Assemblies, _dir.Path, "all", "app", default));
         Assert.True(result.Methods > 0 && result.Structs > 0);
         if (File.Exists(Clang))
-            Assert.Equal(0, Tools.Run(Clang, $"-fsyntax-only -x c \"{_dir.File("game.h")}\"").ExitCode);
-        var python = Tools.Run("python", $"-c \"import py_compile,sys; [py_compile.compile(p, doraise=True) for p in sys.argv[1:]]\" \"{_dir.File("game_ida.py")}\" \"{_dir.File("game_ghidra.py")}\"");
+            Assert.Equal(0, Tools.Run(Clang, $"-fsyntax-only -x c \"{_dir.File("app.h")}\"").ExitCode);
+        var python = Tools.Run("python", $"-c \"import py_compile,sys; [py_compile.compile(p, doraise=True) for p in sys.argv[1:]]\" \"{_dir.File("app_ida.py")}\" \"{_dir.File("app_ghidra.py")}\"");
         Assert.True(python.ExitCode == 0 || python.ExitCode == -1, python.Output); // -1: no python on this machine
     }
 }

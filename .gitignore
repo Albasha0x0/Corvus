@@ -2,9 +2,23 @@
 bin/
 obj/
 publish/
-*.user
-*.suo
-.vs/
-.idea/
+artifacts/
 TestResults/
 *.binlog
+
+# IDE and OS files
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local data and scratch files
+*.bak
+*.log
+*.report.txt
+*.cleanup-log.txt
+.env

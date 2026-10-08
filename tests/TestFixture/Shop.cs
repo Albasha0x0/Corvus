@@ -1,12 +1,12 @@
-namespace Fixture.Game;
+namespace Fixture.Model;
 
 /// <summary>Targets for C# patching: private state, initializers, expression bodies, overloads, indexers, generics.</summary>
 public class Shop
 {
-    private int _gold = 50;
-    private readonly Dictionary<string, int> _prices = new() { ["sword"] = 30, ["shield"] = 20 };
+    private int _credit = 50;
+    private readonly Dictionary<string, int> _prices = new() { ["pen"] = 30, ["book"] = 20 };
 
-    public int Gold => _gold;
+    public int Credit => _credit;
 
     public int Discount { get; set; } = 10;
 
@@ -16,9 +16,9 @@ public class Shop
     {
         if (!_prices.TryGetValue(item, out var price))
             return false;
-        if (price > _gold)
+        if (price > _credit)
             return false;
-        _gold -= price;
+        _credit -= price;
         return true;
     }
 

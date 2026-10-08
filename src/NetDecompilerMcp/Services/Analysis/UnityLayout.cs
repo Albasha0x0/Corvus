@@ -1,31 +1,30 @@
 namespace NetDecompilerMcp.Services.Analysis;
 
 /// <summary>
-/// Recognizes Unity game layouts that hold no loadable IL themselves, to say what to do instead: an IL2CPP build
-/// (managed code compiled into GameAssembly.dll, metadata in *_Data/il2cpp_data/Metadata/global-metadata.dat) and a
-/// Mono build loaded from its root folder (the assemblies are in *_Data/Managed).
+/// Recognizes Unity build layouts without loadable IL: IL2CPP (native GameAssembly.dll plus global-metadata.dat) and
+/// Mono builds whose assemblies are under *_Data/Managed.
 /// </summary>
-internal static class GameLayout
+internal static class UnityLayout
 {
-    private const uint MetadataMagic = 0xFAB11BAF; // global-metadata.dat, little-endian
+    private const uint MetadataMagic = 0xFAB11BAF;
 
-    /// <summary>What a file is when it is an IL2CPP binary or metadata file, else null.</summary>
+    /// <summary>A description of an IL2CPP binary or metadata file, else null.</summary>
     public static string? FileHint(string path, byte[] bytes)
     {
         if (bytes.Length >= 4 && BitConverter.ToUInt32(bytes, 0) == MetadataMagic)
-            return "Unity IL2CPP metadata (global-metadata.dat): the type and method definitions of an IL2CPP game. Run Il2CppDumper or Cpp2IL on it " +
-                   "with the game's GameAssembly.dll to produce dummy DLLs, then load_assembly that folder (get_il2cpp_info, find_method_by_address).";
+            return "Unity IL2CPP metadata (global-metadata.dat): type and method definitions of an IL2CPP build. Run Il2CppDumper or Cpp2IL on it " +
+                   "with the build's GameAssembly.dll to produce dummy DLLs, then load_assembly that folder (get_il2cpp_info, find_method_by_address).";
         if (PeImage.TryParse(bytes) is { } pe && pe.Exports(bytes, 4000).Any(e => e.StartsWith("il2cpp_", StringComparison.Ordinal)))
         {
             var metadata = FindMetadata(Path.GetDirectoryName(Path.GetFullPath(path))!);
-            return "Unity IL2CPP game code (exports il2cpp_*): the game's C# was compiled to native code, there is no IL here. " +
-                   (metadata != null ? $"With its metadata ({metadata}), " : "With its global-metadata.dat (in <Game>_Data/il2cpp_data/Metadata), ") +
+            return "Unity IL2CPP native code (exports il2cpp_*): the C# was compiled to native code, there is no IL here. " +
+                   (metadata != null ? $"With its metadata ({metadata}), " : "With its global-metadata.dat (in <Product>_Data/il2cpp_data/Metadata), ") +
                    "Il2CppDumper or Cpp2IL produce dummy DLLs: load_assembly that folder for names, addresses and field offsets.";
         }
         return null;
     }
 
-    /// <summary>Hints for a folder that was loaded: Unity layouts whose managed code is elsewhere or not IL.</summary>
+    /// <summary>Hints for a loaded folder whose managed code is elsewhere or not IL.</summary>
     public static List<string> FolderHints(string directory)
     {
         var hints = new List<string>();
@@ -36,12 +35,12 @@ internal static class GameLayout
             {
                 var managed = Path.Combine(data, "Managed");
                 if (Directory.Exists(managed) && Directory.EnumerateFiles(managed, "*.dll").Any())
-                    hints.Add($"Unity (Mono) game: its managed assemblies are in {managed} — load_assembly that folder.");
+                    hints.Add($"Unity (Mono) build: the managed assemblies are in {managed}; load_assembly that folder.");
             }
             if (File.Exists(Path.Combine(dir, "GameAssembly.dll")) || FindMetadata(dir) != null)
             {
                 var metadata = FindMetadata(dir);
-                hints.Add("Unity IL2CPP game: the C# code is compiled into GameAssembly.dll (native, no IL)" +
+                hints.Add("Unity IL2CPP build: the C# code is compiled into GameAssembly.dll (native, no IL)" +
                           (metadata != null ? $", metadata in {metadata}" : "") +
                           ". Run Il2CppDumper or Cpp2IL on GameAssembly.dll + global-metadata.dat and load the DummyDll folder they write.");
             }

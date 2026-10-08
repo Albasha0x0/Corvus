@@ -16,11 +16,11 @@ public class SerialTimingTests
     /// A real game's call graph is full of cycles: the path search must stay linear, not enumerate every path.
     /// Searches paths to NDM_CALLPATH_TARGET, or to the first app method that has a path from an entry point.
     /// </summary>
-    [RequiresRealDataFact(RealData.MonoGameDir)]
-    public void PathSearchIsFastOnARealGame()
+    [RequiresRealDataFact(RealData.AssemblyDir)]
+    public void PathSearchIsFastOnRealAssemblies()
     {
         using var ws = new AssemblyWorkspace();
-        ws.LoadDirectory(RealData.Path(RealData.MonoGameDir), false);
+        ws.LoadDirectory(RealData.Path(RealData.AssemblyDir), false);
         var graph = new CallGraphService(ws);
         ws.Read(() => { graph.EnsureBuilt(default); return 0; });
         var target = RealData.Get(RealData.CallPathTarget) is { } named

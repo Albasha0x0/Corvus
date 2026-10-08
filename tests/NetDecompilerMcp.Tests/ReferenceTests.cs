@@ -24,22 +24,22 @@ public class ReferenceTests : IDisposable
     [Fact]
     public void CrossAssemblyReferences()
     {
-        Assert.Contains(Refs("Player::.ctor"), r => r.Where.Name == "Spawn" && r.Assembly.Id == "TestFixture.Consumer");
+        Assert.Contains(Refs("Account::.ctor"), r => r.Where.Name == "Open" && r.Assembly.Id == "TestFixture.Consumer");
         Assert.Contains(Refs("Shop::Buy"), r => r.Where.Name == "TryBuy");
-        Assert.Contains(Refs("Entity", kind: SymbolKind.Type), r => r.Kind == "base type" && r.Where.Name == "Minion");
+        Assert.Contains(Refs("Entity", kind: SymbolKind.Type), r => r.Kind == "base type" && r.Where.Name == "Archive");
     }
 
     [Fact]
     public void VirtualAndInterfaceDispatch()
     {
-        // Arena.Hit calls IDamageable.TakeDamage, Arena.Total calls Entity.Score: both dispatch to Player.
-        var takeDamage = Refs("Player::TakeDamage(int)");
-        Assert.Contains(takeDamage, r => r.Where.Name == "Hit" && r.Detail.Contains("IDamageable::TakeDamage"));
-        Assert.Contains(Refs("Player::Score"), r => r.Where.Name == "Total" && r.Detail.Contains("Entity::Score"));
-        Assert.DoesNotContain(Refs("Player::TakeDamage(int)", virtualCalls: false), r => r.Where.Name == "Hit");
+        // Branch.Bill calls IChargeable.Charge, Branch.Total calls Entity.Score: both dispatch to Account.
+        var charge = Refs("Account::Charge(int)");
+        Assert.Contains(charge, r => r.Where.Name == "Bill" && r.Detail.Contains("IChargeable::Charge"));
+        Assert.Contains(Refs("Account::Score"), r => r.Where.Name == "Total" && r.Detail.Contains("Entity::Score"));
+        Assert.DoesNotContain(Refs("Account::Charge(int)", virtualCalls: false), r => r.Where.Name == "Bill");
 
-        var bases = ReferenceService.BaseDeclarations(_env.Def<MethodDef>("Boss::Score"));
-        Assert.Contains(bases, m => m.DeclaringType.Name == "Player");
+        var bases = ReferenceService.BaseDeclarations(_env.Def<MethodDef>("PremiumAccount::Score"));
+        Assert.Contains(bases, m => m.DeclaringType.Name == "Account");
         Assert.Contains(bases, m => m.DeclaringType.Name == "Entity");
     }
 
@@ -48,40 +48,40 @@ public class ReferenceTests : IDisposable
     {
         // A MemberRef to a field in another assembly is both IMethod and IField in dnlib; it must be treated as a field.
         Assert.Contains(Refs("Entity::Name"), r => r.Where.Name == "NameOf" && r.Kind == "read");
-        var callees = _env.References.FindCallees(_env.Def<MethodDef>("Consumer.Arena::NameOf"));
+        var callees = _env.References.FindCallees(_env.Def<MethodDef>("Consumer.Branch::NameOf"));
         var field = Assert.Single(callees);
         Assert.Equal("field read", field.Kind);
-        Assert.Equal("Fixture.Game.Entity::Name", field.Target);
+        Assert.Equal("Fixture.Model.Entity::Name", field.Target);
         Assert.Single(_env.Search.SearchIL("ldfld *Entity::Name", _env.Workspace.Assemblies, 10, default).Items);
     }
 
     [Fact]
     public void FieldReadsWritesAndAddresses()
     {
-        var r = Refs("Player::_health");
-        Assert.Contains(r, i => i.Kind == "write" && i.Where.Name == "set_Health");
-        Assert.Contains(r, i => i.Kind == "read" && i.Where.Name == "get_IsAlive");
+        var r = Refs("Account::_balance");
+        Assert.Contains(r, i => i.Kind == "write" && i.Where.Name == "set_Balance");
+        Assert.Contains(r, i => i.Kind == "read" && i.Where.Name == "get_IsActive");
         Assert.Contains(r, i => i.Kind == "write" && i.Where.Name == ".ctor");
-        Assert.Contains(Refs("Player::PlayerCount"), i => i.Kind == "write" && i.Where.Name == ".ctor");
+        Assert.Contains(Refs("Account::AccountCount"), i => i.Kind == "write" && i.Where.Name == ".ctor");
     }
 
     [Fact]
     public void PropertyAndEventAccessors()
     {
-        Assert.Contains(Refs("Player::Health"), i => i.Kind == "get" && i.Where.Name == "MoveNext"); // inside LoadAsync's state machine
-        Assert.Empty(Refs("Fixture.Game.Player::Died", kind: SymbolKind.Event)); // raised through the backing field
+        Assert.Contains(Refs("Account::Balance"), i => i.Kind == "get" && i.Where.Name == "MoveNext"); // inside LoadAsync's state machine
+        Assert.Empty(Refs("Fixture.Model.Account::Closed", kind: SymbolKind.Event)); // raised through the backing field
     }
 
     [Fact]
     public void TypeUsagesInEveryPosition()
     {
-        var damageable = Refs("IDamageable", kind: SymbolKind.Type);
-        Assert.Contains(damageable, i => i.Kind == "implements" && i.Where.Name == "Player");
-        Assert.Contains(damageable, i => i.Kind == "parameter type" && i.Where.Name == "Hit");
-        var player = Refs("Player", kind: SymbolKind.Type);
-        Assert.Contains(player, i => i.Kind == "base type" && i.Where.Name == "Boss");
-        Assert.Contains(player, i => i.Kind == "return type" && i.Where.Name == "Spawn");
-        Assert.Contains(player, i => i.Kind == "newobj");
+        var chargeable = Refs("IChargeable", kind: SymbolKind.Type);
+        Assert.Contains(chargeable, i => i.Kind == "implements" && i.Where.Name == "Account");
+        Assert.Contains(chargeable, i => i.Kind == "parameter type" && i.Where.Name == "Bill");
+        var account = Refs("Account", kind: SymbolKind.Type);
+        Assert.Contains(account, i => i.Kind == "base type" && i.Where.Name == "PremiumAccount");
+        Assert.Contains(account, i => i.Kind == "return type" && i.Where.Name == "Open");
+        Assert.Contains(account, i => i.Kind == "newobj");
         var address = Refs("Il2CppDummyDll.AddressAttribute", kind: SymbolKind.Type);
         Assert.Contains(address, i => i.Kind == "attribute" && i.Where.Name == "First");
     }
@@ -89,7 +89,7 @@ public class ReferenceTests : IDisposable
     [Fact]
     public void LimitKeepsTotal()
     {
-        var r = _env.References.FindReferences(_env.One("Player::_health"), true, 2, default);
+        var r = _env.References.FindReferences(_env.One("Account::_balance"), true, 2, default);
         Assert.Equal(2, r.Items.Count);
         Assert.True(r.Total > 2);
     }
@@ -97,10 +97,10 @@ public class ReferenceTests : IDisposable
     [Fact]
     public void Callees()
     {
-        var list = _env.References.FindCallees(_env.Def<MethodDef>("Player::TakeDamage(int, string)"));
+        var list = _env.References.FindCallees(_env.Def<MethodDef>("Account::Charge(int, string)"));
         Assert.Contains(list, c => c.Target.Contains("::Log("));
-        Assert.Contains(list, c => c.Target.Contains("::TakeDamage(int)") && c.TargetAssembly?.Id == "TestFixture");
-        Assert.Contains(list, c => c.Kind == "string" && c.Target.Contains("hit by"));
+        Assert.Contains(list, c => c.Target.Contains("::Charge(int)") && c.TargetAssembly?.Id == "TestFixture");
+        Assert.Contains(list, c => c.Kind == "string" && c.Target.Contains("charged by"));
         Assert.Throws<ToolError>(() => _env.References.FindCallees(_env.Def<MethodDef>("Entity::Tick")));
     }
 
@@ -108,24 +108,24 @@ public class ReferenceTests : IDisposable
     public void OverridesAndImplementationsAcrossAssemblies()
     {
         var tick = _env.References.FindOverrides(_env.Def<MethodDef>("Entity::Tick"), default);
-        Assert.Contains(tick, s => ((MethodDef)s.Member).DeclaringType.Name == "Minion");
+        Assert.Contains(tick, s => ((MethodDef)s.Member).DeclaringType.Name == "Archive");
         var score = _env.References.FindOverrides(_env.Def<MethodDef>("Entity::Score"), default);
-        Assert.Equal(["Boss", "Player"], score.Select(s => ((MethodDef)s.Member).DeclaringType.Name.String).Order());
-        Assert.Contains(_env.References.FindOverrides(_env.Def<MethodDef>("IDamageable::TakeDamage"), default),
-            s => ((MethodDef)s.Member).DeclaringType.Name == "Player");
-        Assert.Throws<ToolError>(() => _env.References.FindOverrides(_env.Def<MethodDef>("Player::CheckLicense"), default));
+        Assert.Equal(["Account", "PremiumAccount"], score.Select(s => ((MethodDef)s.Member).DeclaringType.Name.String).Order());
+        Assert.Contains(_env.References.FindOverrides(_env.Def<MethodDef>("IChargeable::Charge"), default),
+            s => ((MethodDef)s.Member).DeclaringType.Name == "Account");
+        Assert.Throws<ToolError>(() => _env.References.FindOverrides(_env.Def<MethodDef>("Account::CheckLicense"), default));
     }
 
     [Fact]
     public void Hierarchy()
     {
-        var h = _env.References.GetHierarchy(_env.Def<TypeDef>("Player", SymbolKind.Type), 100, default);
-        Assert.StartsWith("Fixture.Game.Entity", h.BaseChain[0]);
-        Assert.Contains("Fixture.Game.IDamageable", h.Interfaces);
+        var h = _env.References.GetHierarchy(_env.Def<TypeDef>("Account", SymbolKind.Type), 100, default);
+        Assert.StartsWith("Fixture.Model.Entity", h.BaseChain[0]);
+        Assert.Contains("Fixture.Model.IChargeable", h.Interfaces);
         Assert.Single(h.Derived);
         var entity = _env.References.GetHierarchy(_env.Def<TypeDef>("Entity", SymbolKind.Type), 100, default);
-        Assert.Equal(2, entity.DerivedTotal); // Player + Minion (other assembly)
-        var iface = _env.References.GetHierarchy(_env.Def<TypeDef>("IDamageable", SymbolKind.Type), 100, default);
-        Assert.Contains(iface.Derived, d => d.Member.Name == "Player");
+        Assert.Equal(2, entity.DerivedTotal); // Account + Archive (other assembly)
+        var iface = _env.References.GetHierarchy(_env.Def<TypeDef>("IChargeable", SymbolKind.Type), 100, default);
+        Assert.Contains(iface.Derived, d => d.Member.Name == "Account");
     }
 }

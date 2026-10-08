@@ -1,4 +1,4 @@
-namespace Fixture.Game;
+namespace Fixture.Model;
 
 // Attribute arguments of every encodable kind: arrays, object, Type, enum.
 [AttributeUsage(AttributeTargets.All, AllowMultiple = true)]

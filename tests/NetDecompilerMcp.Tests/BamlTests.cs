@@ -28,17 +28,4 @@ public class BamlTests
         await tools.GetResource(env.Fixture.Id, "PresentationFramework.Aero2.g.resources", entry, saved);
         Assert.Equal((byte)0x0C, File.ReadAllBytes(saved)[0]); // BAML stream header: "MSBAML" length prefix
     }
-
-    [Fact]
-    public async Task RealAppWindow_WhenPresent()
-    {
-        var app = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), @"Downloads\WindowTop.v5.31.8.Portable\WindowTop.exe");
-        if (!File.Exists(app)) return; // a Costura-packed WPF app on the developer machine
-        using var env = new Env(app);
-        var xaml = await new ResourceTools(env.Workspace, env.Resources, env.Decompiler, env.Pager)
-            .GetResource(env.Fixture.Id, "WindowTop.g.resources", "managers/activationmanagers/common/ui/loginlicenseprogresswindow.baml");
-        // the root type lives in FluentWPF, which ships only inside the exe (Costura): resolved from there
-        Assert.Contains("<fw:AcrylicWindow x:Class=", xaml);
-        Assert.Contains("xmlns:fw=\"clr-namespace:SourceChord.FluentWPF;assembly=FluentWPF\"", xaml);
-    }
 }

@@ -65,9 +65,9 @@ public class IlHealthTests : IDisposable
         var flagged = new List<string>();
         foreach (var file in Directory.EnumerateFiles(dir, "*.dll"))
         {
-            var health = IlHealth.Assess(File.ReadAllBytes(file));
-            bodies += health.Bodies;
-            if (health.Invalid > 0) flagged.Add($"{Path.GetFileName(file)} {health.Invalid}/{health.Bodies}");
+            var balance = IlHealth.Assess(File.ReadAllBytes(file));
+            bodies += balance.Bodies;
+            if (balance.Invalid > 0) flagged.Add($"{Path.GetFileName(file)} {balance.Invalid}/{balance.Bodies}");
         }
         Assert.True(bodies > 50_000, $"{bodies} bodies");
         Assert.Empty(flagged);
@@ -78,20 +78,20 @@ public class IlHealthTests : IDisposable
     [Fact]
     public void SomeBodiesInvalid_FlaggedInInfoAndDecompilation()
     {
-        var path = WriteCopy("partial", Corrupt(File.ReadAllBytes(Env.FixturePath), t => t == "Player"));
+        var path = WriteCopy("partial", Corrupt(File.ReadAllBytes(Env.FixturePath), t => t == "Account"));
         using var env = new Env(path);
-        var health = env.Fixture.BodyHealth;
-        Assert.InRange(health.Invalid, 3, health.Bodies - 1);
-        Assert.False(health.MostlyInvalid);
-        Assert.True(health.IsInvalid(env.Def<dnlib.DotNet.MethodDef>("Fixture.Game.Player::CheckLicense")));
-        Assert.False(health.IsInvalid(env.Def<dnlib.DotNet.MethodDef>("Fixture.Game.Entity::Score")));
+        var balance = env.Fixture.BodyHealth;
+        Assert.InRange(balance.Invalid, 3, balance.Bodies - 1);
+        Assert.False(balance.MostlyInvalid);
+        Assert.True(balance.IsInvalid(env.Def<dnlib.DotNet.MethodDef>("Fixture.Model.Account::CheckLicense")));
+        Assert.False(balance.IsInvalid(env.Def<dnlib.DotNet.MethodDef>("Fixture.Model.Entity::Score")));
 
         var info = env.Workspace.Read(() => env.Report.Build(env.Fixture));
-        Assert.Matches($@"IL: {health.Invalid} of {health.Bodies} method bodies are not valid IL \(e\.g\. .*Player", info);
-        Assert.Contains("// Warning: this method body is not valid IL", env.Decompile("Fixture.Game.Player::CheckLicense"));
-        Assert.DoesNotContain("not valid IL", env.Decompile("Fixture.Game.Entity::Score"));
+        Assert.Matches($@"IL: {balance.Invalid} of {balance.Bodies} method bodies are not valid IL \(e\.g\. .*Account", info);
+        Assert.Contains("// Warning: this method body is not valid IL", env.Decompile("Fixture.Model.Account::CheckLicense"));
+        Assert.DoesNotContain("not valid IL", env.Decompile("Fixture.Model.Entity::Score"));
         Assert.StartsWith("// Warning: ", env.Workspace.Read(() =>
-            env.Decompiler.DecompileType(env.Fixture, env.Def<dnlib.DotNet.TypeDef>("Fixture.Game.Player", SymbolKind.Type), default)));
+            env.Decompiler.DecompileType(env.Fixture, env.Def<dnlib.DotNet.TypeDef>("Fixture.Model.Account", SymbolKind.Type), default)));
     }
 
     [Fact]

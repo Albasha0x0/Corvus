@@ -16,7 +16,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
     private static readonly string[] AllKinds = ["renamed", "signature", "body", "type", "offset", "address", "added", "removed"];
 
     [McpServerTool(Name = "compare_assemblies", Title = "Compare two builds", ReadOnly = true, OpenWorld = false)]
-    [Description("Compare two builds of an assembly (e.g. before and after a game update; load both — the second gets an id like Name#2). " +
+    [Description("Compare two builds of an assembly (e.g. before and after an update; load both — the second gets an id like Name#2). " +
                  "Reports renamed/moved types and members (matched by content, so obfuscated or refactored names carry forward), added and removed members, " +
                  "signature changes, changed method bodies, field type changes, and Il2Cpp field-offset / address changes.")]
     public Task<string> CompareAssemblies(
@@ -85,7 +85,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
 
     [McpServerTool(Name = "find_counterpart", Title = "Find symbol in another build", ReadOnly = true, OpenWorld = false)]
     [Description("Where did a type or member of the old build go in the new build? Matches by name, then by content (renamed/obfuscated members). " +
-                 "Shows the new name and token, how it was matched, and Il2Cpp offset/address changes — use it to update FindClass names and offsets after a game update.")]
+                 "Shows the new name and token, how it was matched, and Il2Cpp offset/address changes — use it to update FindClass names and offsets after an update.")]
     public Task<string> FindCounterpart(
         [Description("Symbol in the old build. " + SymbolDescription)] string symbol,
         [Description("The old build (id, name or path).")] string oldAssembly,

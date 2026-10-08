@@ -58,9 +58,8 @@ jobs:
       - name: Build
         run: dotnet build --no-restore -c Release
 
-      # Real-data tests (a game folder, an Il2CppDumper output, two builds, a HostApi project) need NDM_* environment
-      # variables pointing at local data; none are set here, so they report as skipped. C++ / C / Python generation
-      # is compiled or parsed when clang / python are installed (clang is on the Windows image).
+      # Tests that need local data (NDM_* variables) are skipped. Generated C / C++ / Python is compiled or parsed
+      # when clang and python are installed.
       - name: Test
         run: >-
           dotnet test --no-build -c Release

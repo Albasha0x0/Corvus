@@ -7,8 +7,8 @@ namespace NetDecompilerMcp.Tests;
 /// <summary>A fresh workspace with the fixture assembly (and optionally the consumer assembly) loaded, plus all services.</summary>
 public sealed class Env : IDisposable
 {
-    public static readonly string FixturePath = typeof(Fixture.Game.Player).Assembly.Location;
-    public static readonly string ConsumerPath = typeof(Consumer.Arena).Assembly.Location;
+    public static readonly string FixturePath = typeof(Fixture.Model.Account).Assembly.Location;
+    public static readonly string ConsumerPath = typeof(Consumer.Branch).Assembly.Location;
 
     public ServerOptions Options { get; } = new() { TimeoutSeconds = 120 };
     public AssemblyWorkspace Workspace { get; }
@@ -83,19 +83,33 @@ public sealed class RequiresPathFactAttribute : FactAttribute
 /// Real-world test data, located by environment variables so nothing about one machine lives in the repo.
 /// Tests that need a variable are skipped when it is unset or points nowhere.
 /// </summary>
+public static class RealPackages
+{
+    /// <summary>A library from the NuGet global packages folder (the test project downloads it on restore).</summary>
+    public static string Lib(string id, string version, string framework, string file)
+    {
+        var root = Environment.GetEnvironmentVariable("NUGET_PACKAGES") is { Length: > 0 } custom
+            ? custom
+            : System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
+        var path = System.IO.Path.Combine(root, id.ToLowerInvariant(), version, "lib", framework, file);
+        Assert.True(File.Exists(path), $"{path} not found: restore the test project");
+        return path;
+    }
+}
+
 public static class RealData
 {
-    /// <summary>The Managed folder of a Mono game (or any folder of real-world .NET assemblies).</summary>
-    public const string MonoGameDir = "NDM_MONO_GAME_DIR";
+    /// <summary>A folder of real-world .NET assemblies.</summary>
+    public const string AssemblyDir = "NDM_ASSEMBLY_DIR";
     /// <summary>An Il2CppDumper / Cpp2IL DummyDll folder.</summary>
     public const string Il2CppDummyDir = "NDM_IL2CPP_DUMMY_DIR";
-    /// <summary>Two builds of the same game (folders), and the assembly to compare between them.</summary>
+    /// <summary>Two builds of the same application (folders), and the assembly to compare between them.</summary>
     public const string CompareOldDir = "NDM_COMPARE_OLD_DIR";
     public const string CompareNewDir = "NDM_COMPARE_NEW_DIR";
     public const string CompareAssembly = "NDM_COMPARE_ASSEMBLY";
     /// <summary>Optional: known type moves between the two builds, "Old.Name=>New.Name;Old2=>New2".</summary>
     public const string CompareExpect = "NDM_COMPARE_EXPECT";
-    /// <summary>Optional: a method in the Mono game to search call paths to (default: one picked automatically).</summary>
+    /// <summary>Optional: a method to search call paths to (default: picked automatically).</summary>
     public const string CallPathTarget = "NDM_CALLPATH_TARGET";
     /// <summary>Root of a C/C++ project with a host function table (generate_cpp_binding style=hostapi detection).</summary>
     public const string HostApiProjectDir = "NDM_HOSTAPI_PROJECT_DIR";

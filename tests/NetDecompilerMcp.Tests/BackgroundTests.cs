@@ -48,12 +48,12 @@ public class BackgroundTests
         using var watcher = new FileWatchService(ws, new ServerOptions());
         ws.Load(path);
         File.Copy(patched, path, overwrite: true);
-        Assert.True(await Eventually(() => ws.Read(() => ws.Assemblies.Single().Module.Find("Fixture.Game.Shop", false)?.FindMethod("DescribeV2") != null)));
+        Assert.True(await Eventually(() => ws.Read(() => ws.Assemblies.Single().Module.Find("Fixture.Model.Shop", false)?.FindMethod("DescribeV2") != null)));
         Assert.Contains(ws.DrainNotices(), n => n.Contains("reloaded"));
 
         // With unsaved edits the assembly is not reloaded; the client is told instead.
         var edits = new EditService(ws, new IlAssembler(ws), new CSharpPatcher(ws, new DecompilerService(ws, new ServerOptions())));
-        ws.Write(() => edits.StubMethod(SymbolResolver.ResolveOne(ws, null, "Player::Score"), "1"));
+        ws.Write(() => edits.StubMethod(SymbolResolver.ResolveOne(ws, null, "Account::Score"), "1"));
         File.Copy(Env.FixturePath, path, overwrite: true);
         Assert.True(await Eventually(() => ws.DrainNotices() is { Count: > 0 } n && n.Any(x => x.Contains("unsaved edit"))));
         Assert.True(ws.Read(() => ws.Assemblies.Single().IsDirty));

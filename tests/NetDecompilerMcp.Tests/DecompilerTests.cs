@@ -11,28 +11,28 @@ public class DecompilerTests : IDisposable
     [Fact]
     public void DecompilesTypeWithNestedTypes()
     {
-        var code = _env.Decompiler.DecompileType(_env.Fixture, _env.Def<TypeDef>("Player"), default);
-        Assert.Contains("public class Player : Entity, IDamageable", code);
-        Assert.Contains("TakeDamage(int amount, string source)", code);
+        var code = _env.Decompiler.DecompileType(_env.Fixture, _env.Def<TypeDef>("Account"), default);
+        Assert.Contains("public class Account : Entity, IChargeable", code);
+        Assert.Contains("Charge(int amount, string source)", code);
         Assert.Contains("class Inventory", code);
-        Assert.Contains("public const int MaxHealth = 100;", code);
+        Assert.Contains("public const int MaxBalance = 100;", code);
     }
 
     [Theory]
-    [InlineData("Player::LoadAsync", "await Task.Delay(1)")]
-    [InlineData("Player::Range", "yield return 1")]
-    [InlineData("Player::SumPositive", "v > 0")]
-    [InlineData("Player::Health", "get")]
-    [InlineData("Player::Died", "event EventHandler")]
-    [InlineData("Player::_health", "private int _health")]
-    [InlineData("Player::.ctor", "PlayerCount++")]
+    [InlineData("Account::LoadAsync", "await Task.Delay(1)")]
+    [InlineData("Account::Range", "yield return 1")]
+    [InlineData("Account::SumPositive", "v > 0")]
+    [InlineData("Account::Balance", "get")]
+    [InlineData("Account::Closed", "event EventHandler")]
+    [InlineData("Account::_balance", "private int _balance")]
+    [InlineData("Account::.ctor", "AccountCount++")]
     [InlineData("Vec2::Length", "MathF.Sqrt")]
     public void DecompilesMembersBackToSource(string symbol, string expected) =>
         Assert.Contains(expected, _env.Decompile(symbol));
 
     [Theory]
     [InlineData("Team", "Red = 1")]
-    [InlineData("IDamageable", "interface IDamageable")]
+    [InlineData("IChargeable", "interface IChargeable")]
     [InlineData("Vec2", "struct Vec2")]
     [InlineData("Container", "where T : class")]
     public void DecompilesEveryTypeKind(string type, string expected) =>
@@ -41,7 +41,7 @@ public class DecompilerTests : IDisposable
     [Fact]
     public void DisassemblesWithTokensAndOffsets()
     {
-        var il = _env.Decompiler.Disassemble(_env.Fixture, _env.One("Player::CheckLicense").Member, default);
+        var il = _env.Decompiler.Disassemble(_env.Fixture, _env.One("Account::CheckLicense").Member, default);
         Assert.Contains("ldstr \"LICENSE-KEY-123\"", il);
         Assert.Contains("IL_0000", il);
         Assert.Matches(@"/\* 06[0-9A-F]{6} \*/", il);
@@ -50,7 +50,7 @@ public class DecompilerTests : IDisposable
     [Fact]
     public void DisassemblesTypesFieldsPropertiesEvents()
     {
-        foreach (var symbol in new[] { "Player", "Player::_health", "Player::Health", "Player::Died" })
+        foreach (var symbol in new[] { "Account", "Account::_balance", "Account::Balance", "Account::Closed" })
             Assert.False(string.IsNullOrWhiteSpace(_env.Decompiler.Disassemble(_env.Fixture, _env.One(symbol).Member, default)));
     }
 
@@ -63,7 +63,7 @@ public class DecompilerTests : IDisposable
         Assert.NotNull(result.ProjectFile);
         Assert.True(result.FileCount > 3);
         Assert.Empty(result.FailedTypes);
-        Assert.Contains(Directory.EnumerateFiles(dir.Path, "*.cs", SearchOption.AllDirectories), f => f.EndsWith("Player.cs"));
+        Assert.Contains(Directory.EnumerateFiles(dir.Path, "*.cs", SearchOption.AllDirectories), f => f.EndsWith("Account.cs"));
         Assert.Throws<ToolError>(() => _env.Decompiler.ExportProject(_env.Fixture, dir.Path, null, default));
     }
 
@@ -80,7 +80,7 @@ public class DecompilerTests : IDisposable
         using var cts = new CancellationTokenSource();
         cts.Cancel();
         // Caller cancellation propagates as cancellation (not a tool error).
-        Assert.ThrowsAny<OperationCanceledException>(() => decompiler.DecompileType(env.Fixture, env.Def<TypeDef>("Player"), cts.Token));
+        Assert.ThrowsAny<OperationCanceledException>(() => decompiler.DecompileType(env.Fixture, env.Def<TypeDef>("Account"), cts.Token));
     }
 
     [Fact]

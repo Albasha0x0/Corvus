@@ -30,57 +30,57 @@ public class IlPatchTests : IDisposable
     [Fact]
     public void RoundTripsEditedGetIlOutput()
     {
-        var il = _env.Decompiler.Disassemble(_env.Fixture, _env.One("Player::TakeDamage(int, string)").Member, default);
-        Patch("Player::TakeDamage(int, string)", il.Replace("\"hit by \"", "\"struck by \""));
-        Assert.Contains("\"struck by \" + source", _env.Decompile("Player::TakeDamage(int, string)"));
+        var il = _env.Decompiler.Disassemble(_env.Fixture, _env.One("Account::Charge(int, string)").Member, default);
+        Patch("Account::Charge(int, string)", il.Replace("\"charged by \"", "\"billed by \""));
+        Assert.Contains("\"billed by \" + source", _env.Decompile("Account::Charge(int, string)"));
     }
 
     [Fact]
     public void RoundTripsGenericAndLambdaHeavyMethod()
     {
         // MethodSpec (Enumerable.Where<int>), cached lambda field, ldftn, delegate ctor — all via token comments.
-        var il = _env.Decompiler.Disassemble(_env.Fixture, _env.One("Player::SumPositive").Member, default);
-        Patch("Player::SumPositive", il);
-        Assert.Contains("v > 0", _env.Decompile("Player::SumPositive"));
+        var il = _env.Decompiler.Disassemble(_env.Fixture, _env.One("Account::SumPositive").Member, default);
+        Patch("Account::SumPositive", il);
+        Assert.Contains("v > 0", _env.Decompile("Account::SumPositive"));
     }
 
     [Fact]
     public void ResolvesMembersBySymbolAcrossTypes()
     {
-        Patch("Player::CheckLicense", """
+        Patch("Account::CheckLicense", """
             ldstr "anything"
-            call Fixture.Game.Secret::Validate(string)
+            call Fixture.Model.Secret::Validate(string)
             pop
             ldarg.0
-            call Fixture.Game.Player::get_IsAlive()
+            call Fixture.Model.Account::get_IsActive()
             ret
             """);
-        var code = _env.Decompile("Player::CheckLicense");
+        var code = _env.Decompile("Account::CheckLicense");
         Assert.Contains("Secret.Validate(\"anything\")", code);
-        Assert.Contains("IsAlive", code);
+        Assert.Contains("IsActive", code);
     }
 
     [Fact]
     public void PrependKeepsOriginalAndBranchesIntoIt()
     {
-        Patch("Player::TakeDamage(int)", """
+        Patch("Account::Charge(int)", """
             ldarg.1
             ldc.i4.0
             bge IL_0000
             ret
             """, mode: "prepend");
-        var code = _env.Decompile("Player::TakeDamage(int)");
+        var code = _env.Decompile("Account::Charge(int)");
         Assert.Contains("if (amount >= 0)", code);
-        Assert.Contains("_health -= amount", code);
+        Assert.Contains("_balance -= amount", code);
     }
 
     [Fact]
     public void FieldsArgumentsLocalsSwitchAndTypes()
     {
-        Patch("Player::Score", """
+        Patch("Account::Score", """
             .local int
             ldarg.0
-            ldfld Fixture.Game.Player::_health
+            ldfld Fixture.Model.Account::_balance
             stloc 0
             ldloc V_0
             switch (zero, one)
@@ -90,22 +90,22 @@ public class IlPatchTests : IDisposable
             ldc.i4.0
             ret
             one:
-            ldsfld Fixture.Game.Player::PlayerCount
+            ldsfld Fixture.Model.Account::AccountCount
             ret
             """);
-        var code = _env.Decompile("Player::Score");
+        var code = _env.Decompile("Account::Score");
         Assert.Contains("switch", code);
-        Assert.Contains("PlayerCount", code);
+        Assert.Contains("AccountCount", code);
     }
 
     [Fact]
     public void DryRunLeavesOriginalUntouchedIncludingPrepend()
     {
-        var before = _env.Decompiler.Disassemble(_env.Fixture, _env.One("Player::TakeDamage(int)").Member, default);
-        Assert.StartsWith("Dry run", Patch("Player::TakeDamage(int)", "ldarg.1\nldc.i4.0\nbge IL_0000\nret", "prepend", dryRun: true));
-        Assert.StartsWith("Dry run", Patch("Player::Score", ".local int\nldc.i4 0x10\nstloc 0\nldloc 0\nret", dryRun: true));
+        var before = _env.Decompiler.Disassemble(_env.Fixture, _env.One("Account::Charge(int)").Member, default);
+        Assert.StartsWith("Dry run", Patch("Account::Charge(int)", "ldarg.1\nldc.i4.0\nbge IL_0000\nret", "prepend", dryRun: true));
+        Assert.StartsWith("Dry run", Patch("Account::Score", ".local int\nldc.i4 0x10\nstloc 0\nldloc 0\nret", dryRun: true));
         Assert.False(_env.Fixture.IsDirty);
-        Assert.Equal(before, _env.Decompiler.Disassemble(_env.Fixture, _env.One("Player::TakeDamage(int)").Member, default));
+        Assert.Equal(before, _env.Decompiler.Disassemble(_env.Fixture, _env.One("Account::Charge(int)").Member, default));
     }
 
     [Theory]
@@ -123,7 +123,7 @@ public class IlPatchTests : IDisposable
     [InlineData("", "No IL instructions")]
     public void RejectsBadILWithoutTouchingTheMethod(string il, string expected)
     {
-        var ex = Assert.Throws<ToolError>(() => Patch("Player::Score", il));
+        var ex = Assert.Throws<ToolError>(() => Patch("Account::Score", il));
         Assert.Contains(expected, ex.Message);
         Assert.False(_env.Fixture.IsDirty);
     }
@@ -193,14 +193,14 @@ public class CSharpPatchTests : IDisposable
     [Fact]
     public void ReplacesBodyUsingPrivateStateAndInternalTypes()
     {
-        // _health is private to Player; Secret is internal to the assembly: both must be accessible.
-        Patch("Player::CheckLicense", """
-            if (_health <= 0)
+        // _balance is private to Account; Secret is internal to the assembly: both must be accessible.
+        Patch("Account::CheckLicense", """
+            if (_balance <= 0)
                 return false;
             return Secret.Validate("LICENSE-OVERRIDE-0001");
             """);
-        var code = _env.Decompile("Player::CheckLicense");
-        Assert.Contains("_health <= 0", code);
+        var code = _env.Decompile("Account::CheckLicense");
+        Assert.Contains("_balance <= 0", code);
         Assert.Contains("LICENSE-OVERRIDE-0001", code);
         Assert.True(_env.Fixture.IsDirty);
     }
@@ -210,20 +210,20 @@ public class CSharpPatchTests : IDisposable
     {
         Patch("Shop::PriceOf(string, int)", "return PriceOf(item) * quantity - Discount;");
         Assert.Contains("- Discount", _env.Decompile("Shop::PriceOf(string, int)"));
-        Patch("Shop::Buy", "{ _gold += 1; return true; }");
-        Assert.Contains("_gold++", _env.Decompile("Shop::Buy"));
+        Patch("Shop::Buy", "{ _credit += 1; return true; }");
+        Assert.Contains("_credit++", _env.Decompile("Shop::Buy"));
     }
 
     [Fact]
     public void ConstructorsAccessorsAndStatics()
     {
-        Patch("Player::.ctor", "Name = name.ToUpperInvariant(); PlayerCount += 10;");
-        Assert.Contains("ToUpperInvariant", _env.Decompile("Player::.ctor"));
+        Patch("Account::.ctor", "Name = name.ToUpperInvariant(); AccountCount += 10;");
+        Assert.Contains("ToUpperInvariant", _env.Decompile("Account::.ctor"));
 
-        Patch("Player::set_Health", "_health = value < 0 ? 0 : value;");
-        Assert.Matches(@"value (<|>=) 0", _env.Decompiler.DecompileType(_env.Fixture, (dnlib.DotNet.TypeDef)_env.One("Player", SymbolKind.Type).Member, default));
+        Patch("Account::set_Balance", "_balance = value < 0 ? 0 : value;");
+        Assert.Matches(@"value (<|>=) 0", _env.Decompiler.DecompileType(_env.Fixture, (dnlib.DotNet.TypeDef)_env.One("Account", SymbolKind.Type).Member, default));
 
-        Patch("Shop::get_Gold", "return _gold * 2;"); // expression-bodied property
+        Patch("Shop::get_Credit", "return _credit * 2;"); // expression-bodied property
         Patch("Shop::Create", "var s = new Shop(); s.Discount = 50; return s;");
         Assert.Contains("Discount = 50", _env.Decompile("Shop::Create"));
     }
@@ -238,14 +238,14 @@ public class CSharpPatchTests : IDisposable
     [Fact]
     public void PatchInOtherAssemblyReferencingFixture()
     {
-        Patch("Consumer.Arena::Total", "return entity.Score() + 1;");
-        Assert.Contains("entity.Score() + 1", _env.Decompile("Consumer.Arena::Total"));
+        Patch("Consumer.Branch::Total", "return entity.Score() + 1;");
+        Assert.Contains("entity.Score() + 1", _env.Decompile("Consumer.Branch::Total"));
     }
 
     [Fact]
     public void DryRunCompilesButChangesNothing()
     {
-        var result = Patch("Player::CheckLicense", "return true;", dryRun: true);
+        var result = Patch("Account::CheckLicense", "return true;", dryRun: true);
         Assert.StartsWith("Dry run — compiled OK", result);
         Assert.False(_env.Fixture.IsDirty);
     }
@@ -253,13 +253,13 @@ public class CSharpPatchTests : IDisposable
     [Fact]
     public void CompileErrorsPointAtUserCode()
     {
-        var ex = Assert.Throws<ToolError>(() => Patch("Player::CheckLicense", "return doesNotExist;"));
+        var ex = Assert.Throws<ToolError>(() => Patch("Account::CheckLicense", "return doesNotExist;"));
         Assert.Contains("CS0103", ex.Message);
         Assert.Contains("your code line 1", ex.Message);
         Assert.False(_env.Fixture.IsDirty);
-        Assert.Throws<ToolError>(() => Patch("Player::CheckLicense", "return 5;")); // wrong type
-        Assert.Throws<ToolError>(() => Patch("Player::CheckLicense", "public void X() {}")); // not statements
-        Assert.Throws<ToolError>(() => Patch("Player::CheckLicense", "   "));
+        Assert.Throws<ToolError>(() => Patch("Account::CheckLicense", "return 5;")); // wrong type
+        Assert.Throws<ToolError>(() => Patch("Account::CheckLicense", "public void X() {}")); // not statements
+        Assert.Throws<ToolError>(() => Patch("Account::CheckLicense", "   "));
     }
 
     [Fact]
@@ -269,15 +269,15 @@ public class CSharpPatchTests : IDisposable
         Assert.Contains("auto-property", auto.Message);
         Assert.Contains("patch_method_il", auto.Message);
         Assert.Throws<ToolError>(() => Patch("Entity::Tick", "return;"));                 // abstract
-        Assert.Contains("field-like event", Assert.Throws<ToolError>(() => Patch("Player::add_Died", "return;")).Message);
+        Assert.Contains("field-like event", Assert.Throws<ToolError>(() => Patch("Account::add_Closed", "return;")).Message);
     }
 
     [Fact]
     public void PatchedCodeSavesAndRunsCorrectly()
     {
         Patch("Shop::PriceOf(string)", "return item.Length * 100;");
-        Patch("Player::.ctor", "Name = name.ToUpperInvariant();");
-        Patch("Player::set_Health", "_health = value < 0 ? 0 : value;");
+        Patch("Account::.ctor", "Name = name.ToUpperInvariant();");
+        Patch("Account::set_Balance", "_balance = value < 0 ? 0 : value;");
         using var dir = new TempDir();
         var path = dir.File("TestFixture.dll");
         _env.Edits.Save(_env.Fixture, path, false);
@@ -287,18 +287,18 @@ public class CSharpPatchTests : IDisposable
         try
         {
             var asm = context.LoadFromStream(new MemoryStream(File.ReadAllBytes(path)));
-            var shop = Activator.CreateInstance(asm.GetType("Fixture.Game.Shop")!)!;
-            var price = shop.GetType().GetMethod("PriceOf", [typeof(string)])!.Invoke(shop, ["sword"]);
-            Assert.Equal(500, price);
-            var buy = shop.GetType().GetMethod("Buy")!.Invoke(shop, ["sword"]);
+            var shop = Activator.CreateInstance(asm.GetType("Fixture.Model.Shop")!)!;
+            var price = shop.GetType().GetMethod("PriceOf", [typeof(string)])!.Invoke(shop, ["pen"]);
+            Assert.Equal(300, price);
+            var buy = shop.GetType().GetMethod("Buy")!.Invoke(shop, ["pen"]);
             Assert.Equal(true, buy); // untouched method still works, and the field initializers ran
 
-            var playerType = asm.GetType("Fixture.Game.Player")!;
-            var player = Activator.CreateInstance(playerType, "bob")!;
-            Assert.Equal("BOB", (string)playerType.GetField("Name")!.GetValue(player)!);
-            Assert.Equal(100, (int)playerType.GetProperty("Health")!.GetValue(player)!); // initializer kept in the patched ctor
-            playerType.GetProperty("Health")!.SetValue(player, -5);
-            Assert.Equal(0, (int)playerType.GetProperty("Health")!.GetValue(player)!);
+            var accountType = asm.GetType("Fixture.Model.Account")!;
+            var account = Activator.CreateInstance(accountType, "bob")!;
+            Assert.Equal("BOB", (string)accountType.GetField("Name")!.GetValue(account)!);
+            Assert.Equal(100, (int)accountType.GetProperty("Balance")!.GetValue(account)!); // initializer kept in the patched ctor
+            accountType.GetProperty("Balance")!.SetValue(account, -5);
+            Assert.Equal(0, (int)accountType.GetProperty("Balance")!.GetValue(account)!);
         }
         finally
         {

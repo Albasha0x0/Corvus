@@ -19,36 +19,36 @@ public class CallGraphTests : IDisposable
     [Fact]
     public void CallerAndCalleeTrees()
     {
-        Assert.Contains("Fixture.Game.Player::CheckLicense()", Tree("Secret::Validate", callers: true));
-        var callees = Tree("Player::TakeDamage(int, string)", callers: false);
-        Assert.Contains("Fixture.Game.Player::Log(string)", callees);
-        Assert.Contains("Fixture.Game.Player::TakeDamage(int)", callees);
-        Assert.Contains("String::Concat", Tree("Player::TakeDamage(int, string)", callers: false, external: true));
-        Assert.Contains("no callers", Tree("Player::CheckLicense", callers: true));
+        Assert.Contains("Fixture.Model.Account::CheckLicense()", Tree("Secret::Validate", callers: true));
+        var callees = Tree("Account::Charge(int, string)", callers: false);
+        Assert.Contains("Fixture.Model.Account::Log(string)", callees);
+        Assert.Contains("Fixture.Model.Account::Charge(int)", callees);
+        Assert.Contains("String::Concat", Tree("Account::Charge(int, string)", callers: false, external: true));
+        Assert.Contains("no callers", Tree("Account::CheckLicense", callers: true));
     }
 
     [Fact]
     public void VirtualDispatchAndCrossAssembly()
     {
-        var callers = Tree("Player::TakeDamage(int)", callers: true);
-        Assert.Contains("Consumer.Arena::Hit(IDamageable)", callers);
-        Assert.Contains("via Fixture.Game.IDamageable::TakeDamage(int)", callers);
+        var callers = Tree("Account::Charge(int)", callers: true);
+        Assert.Contains("Consumer.Branch::Bill(IChargeable)", callers);
+        Assert.Contains("via Fixture.Model.IChargeable::Charge(int)", callers);
         Assert.Contains("[TestFixture.Consumer]", callers);
     }
 
     [Fact]
     public void RecursionAndRepeatsAreMarked()
     {
-        // TakeDamage(int, string) calls TakeDamage(int); Shop.PriceOf(string, int) calls PriceOf(string).
+        // Charge(int, string) calls Charge(int); Shop.PriceOf(string, int) calls PriceOf(string).
         var tree = Tree("Shop::PriceOf(string)", callers: true, depth: 5);
-        Assert.Contains("Fixture.Game.Shop::PriceOf(string, int)", tree);
+        Assert.Contains("Fixture.Model.Shop::PriceOf(string, int)", tree);
     }
 
     [Fact]
     public void PathsFromStartAndFromEntryPoints()
     {
-        var hit = _env.Def<MethodDef>("Consumer.Arena::Hit");
-        var target = _env.Def<MethodDef>("Player::TakeDamage(int)");
+        var hit = _env.Def<MethodDef>("Consumer.Branch::Bill");
+        var target = _env.Def<MethodDef>("Account::Charge(int)");
         var fromHit = _env.Workspace.Read(() => _graph.Paths(hit, target, 8, 10, default));
         Assert.Contains(fromHit, p => p.First() == hit && p.Last() == target);
 
@@ -60,18 +60,18 @@ public class CallGraphTests : IDisposable
     [Fact]
     public void VirtualHopsAreMarkedAndCanBeExcluded()
     {
-        // Arena.Hit calls IDamageable.TakeDamage; Player.TakeDamage(int) is reached only through that interface call
-        var hit = _env.Def<MethodDef>("Consumer.Arena::Hit");
-        var target = _env.Def<MethodDef>("Player::TakeDamage(int)");
+        // Branch.Bill calls IChargeable.Charge; Account.Charge(int) is reached only through that interface call
+        var hit = _env.Def<MethodDef>("Consumer.Branch::Bill");
+        var target = _env.Def<MethodDef>("Account::Charge(int)");
         var path = Assert.Single(_env.Workspace.Read(() => _graph.PathSteps(hit, target, 8, 10, includeVirtual: true, default)));
         Assert.Equal([hit, target], path.Select(s => s.Method));
         Assert.Null(path[0].Via);
-        Assert.Equal("Fixture.Game.IDamageable::TakeDamage(int)", Format.MemberLabel(path[1].Via!));
+        Assert.Equal("Fixture.Model.IChargeable::Charge(int)", Format.MemberLabel(path[1].Via!));
         Assert.Empty(_env.Workspace.Read(() => _graph.PathSteps(hit, target, 8, 10, includeVirtual: false, default)));
 
-        // the direct caller TakeDamage(int, string) is still found without virtual dispatch
+        // the direct caller Charge(int, string) is still found without virtual dispatch
         var direct = _env.Workspace.Read(() => _graph.PathSteps(null, target, 8, 10, includeVirtual: false, default));
-        Assert.Contains(direct, p => p[^2].Method.Name == "TakeDamage" && p[^2].Method.Parameters.Count == 3);
+        Assert.Contains(direct, p => p[^2].Method.Name == "Charge" && p[^2].Method.Parameters.Count == 3);
         Assert.All(direct, p => Assert.All(p, s => Assert.Null(s.Via)));
     }
 
@@ -148,7 +148,7 @@ public class CallGraphTests : IDisposable
     {
         _env.Workspace.Read(() => { _graph.EnsureBuilt(default); return 0; });
         Assert.True(_graph.IsBuilt);
-        _env.Edit(() => _env.Edits.StubMethod(_env.One("Player::CheckLicense"), "true")); // removes the call to Validate
+        _env.Edit(() => _env.Edits.StubMethod(_env.One("Account::CheckLicense"), "true")); // removes the call to Validate
         Assert.False(_graph.IsBuilt);
         Assert.Contains("no callers", Tree("Secret::Validate", callers: true));
     }

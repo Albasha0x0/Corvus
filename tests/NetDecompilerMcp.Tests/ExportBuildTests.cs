@@ -124,9 +124,7 @@ public class ExportBuildTests
     [Fact]
     public void BouncyCastle_RebuiltFromExport_BehavesTheSame()
     {
-        var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".nuget", "packages", "bouncycastle.cryptography", "2.6.2", "lib", "net6.0", "BouncyCastle.Cryptography.dll");
-        if (!File.Exists(path)) return; // from the NuGet cache of the developer machine
+        var path = RealPackages.Lib("BouncyCastle.Cryptography", "2.6.2", "net6.0", "BouncyCastle.Cryptography.dll");
         using var dir = new TempDir();
         using var env = new Env(path);
         var rebuilt = AssertBuilds(env, dir.File("out"));
@@ -176,28 +174,20 @@ public class ExportBuildTests
         finally { context.Unload(); }
     }
 
-    /// <summary>
-    /// Real libraries and apps (opt-in: NDM_EXPORT_REAL=1, a few minutes): each present one exports to a project that
-    /// builds with no errors. Paths are relative to the NuGet cache, else absolute.
-    /// </summary>
+    /// <summary>Real libraries export to projects that build with no errors (opt-in: NDM_EXPORT_REAL=1, a few minutes).</summary>
     [Theory]
-    [InlineData(@"newtonsoft.json\13.0.4\lib\net6.0\Newtonsoft.Json.dll")]           // ambiguous framework type names
-    [InlineData(@"nlog\6.1.4\lib\netstandard2.1\NLog.dll")]                          // netstandard reference assembly
-    [InlineData(@"system.text.json\10.0.1\lib\net8.0\System.Text.Json.dll")]         // scoped spans, source generators, packages
-    [InlineData(@"sharpcompress\0.48.1\lib\net8.0\SharpCompress.dll")]               // primary constructors, struct enumerators
-    [InlineData(@"asmresolver.pe\6.0.0-beta.5\lib\net8.0\AsmResolver.PE.dll")]       // dependencies from the NuGet cache
-    [InlineData(@"iced\1.21.0\lib\netstandard2.1\Iced.dll")]                         // constructor parameters in field initializers
-    [InlineData(@"dnlib\4.5.0\lib\net6.0\dnlib.dll")]                                // bool used as int
-    [InlineData(@"zstdsharp.port\0.8.8\lib\net8.0\ZstdSharp.dll")]                   // negative constants as nuint
-    [InlineData(@"C:\Program Files\PowerShell\7\System.Management.Automation.dll")]  // InternalsVisibleTo by key, LINQ
-    [InlineData(@"%USERPROFILE%\Downloads\WindowTop.v5.31.8.Portable\WindowTop.exe")] // obfuscated, Costura, WPF, WinRT, .NET Framework
-    public void RealExport_Builds(string file)
+    [InlineData("Newtonsoft.Json", "13.0.4", "net6.0", "Newtonsoft.Json.dll")]
+    [InlineData("NLog", "6.1.4", "netstandard2.1", "NLog.dll")]
+    [InlineData("System.Text.Json", "10.0.1", "net8.0", "System.Text.Json.dll")]
+    [InlineData("SharpCompress", "0.48.1", "net8.0", "SharpCompress.dll")]
+    [InlineData("AsmResolver.PE", "6.0.0-beta.5", "net8.0", "AsmResolver.PE.dll")]
+    [InlineData("Iced", "1.21.0", "netstandard2.1", "Iced.dll")]
+    [InlineData("dnlib", "4.5.0", "net6.0", "dnlib.dll")]
+    [InlineData("ZstdSharp.Port", "0.8.8", "net8.0", "ZstdSharp.dll")]
+    public void RealExport_Builds(string package, string version, string framework, string file)
     {
         if (Environment.GetEnvironmentVariable("NDM_EXPORT_REAL") != "1") return;
-        var path = Environment.ExpandEnvironmentVariables(file);
-        if (!Path.IsPathRooted(path))
-            path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages", path);
-        if (!File.Exists(path)) return;
+        var path = RealPackages.Lib(package, version, framework, file);
         using var dir = new TempDir();
         using var env = new Env(path);
         int failures = NetDecompilerMcp.Services.AstCleanup.Failures;
@@ -206,22 +196,23 @@ public class ExportBuildTests
     }
 
     /// <summary>
-    /// Opt-in survey (NDM_EXPORT_CORPUS = a file listing one assembly path per line): exports and builds each, and writes the
-    /// error counts by code next to the list. Not an assertion: libraries whose dependencies are not resolvable fail for that.
+    /// Every assembly listed in the file NDM_EXPORT_LIST (one path per line) exports to a project that builds with no
+    /// errors. Errors by assembly are written to "&lt;list&gt;.report.txt", the projects to "&lt;list&gt;.out".
     /// </summary>
     [Fact]
-    public void Corpus_Survey()
+    public void ExportList_Builds()
     {
-        var list = Environment.GetEnvironmentVariable("NDM_EXPORT_CORPUS");
+        var list = Environment.GetEnvironmentVariable("NDM_EXPORT_LIST");
         if (string.IsNullOrEmpty(list) || !File.Exists(list)) return;
         var report = new System.Text.StringBuilder();
+        int failed = 0;
         foreach (var path in File.ReadAllLines(list).Select(l => l.Trim()).Where(l => l.Length > 0 && File.Exists(l)))
         {
-            // kept next to the list for reading the failing code
             var outDir = Path.Combine(list + ".out", Path.GetFileNameWithoutExtension(path));
             if (Directory.Exists(outDir)) Directory.Delete(outDir, recursive: true);
             using var env = new Env(path);
             var (_, errors) = Build(env, outDir);
+            if (errors.Count > 0) failed++;
             report.AppendLine($"{Path.GetFileName(path)}: {errors.Count} errors  " +
                               string.Join(", ", errors.GroupBy(e => Regex.Match(e, @"CS\d+").Value).OrderByDescending(g => g.Count()).Select(g => $"{g.Key}x{g.Count()}")));
             foreach (var e in errors.Take(150)) report.AppendLine("    " + e);
@@ -229,6 +220,7 @@ public class ExportBuildTests
         File.WriteAllText(list + ".report.txt", report.ToString());
         if (NetDecompilerMcp.Services.AstCleanup.Logging)
             File.WriteAllLines(list + ".cleanup-log.txt", NetDecompilerMcp.Services.AstCleanup.Log.Distinct().Order());
+        Assert.True(failed == 0, report.ToString());
     }
 
     /// <summary>A release build, as libraries ship: the patterns come from the optimizer.</summary>

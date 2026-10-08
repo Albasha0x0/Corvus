@@ -54,10 +54,10 @@ public class CSharpAdvancedTests : IDisposable
     [Fact]
     public void LambdasLinqAndCapturedThis()
     {
-        Patch("Player::SumPositive", "return values.Where(v => v % 2 == 0).Select(v => v * _health).Sum();");
+        Patch("Account::SumPositive", "return values.Where(v => v % 2 == 0).Select(v => v * _balance).Sum();");
         using var run = new Runner(_env);
-        var player = run.New("Fixture.Game.Player", "p");
-        Assert.Equal(600, run.Call(player, "SumPositive", new List<int> { 1, 2, 3, 4 }));
+        var account = run.New("Fixture.Model.Account", "p");
+        Assert.Equal(600, run.Call(account, "SumPositive", new List<int> { 1, 2, 3, 4 }));
     }
 
     [Fact]
@@ -65,25 +65,25 @@ public class CSharpAdvancedTests : IDisposable
     {
         Patch("Shop::PriceOf(string, int)", "int bonus = quantity + 1; Func<int, int> f = x => x * bonus; return f(PriceOf(item));");
         using var run = new Runner(_env);
-        Assert.Equal(90, run.Call(run.New("Fixture.Game.Shop"), "PriceOf", "sword", 2));
+        Assert.Equal(90, run.Call(run.New("Fixture.Model.Shop"), "PriceOf", "pen", 2));
     }
 
     [Fact]
     public async Task AsyncStateMachine()
     {
-        Patch("Player::LoadAsync", "await Task.Delay(1); await Task.Yield(); return Health + 1;");
-        Assert.Contains("await", _env.Decompile("Player::LoadAsync"));
+        Patch("Account::LoadAsync", "await Task.Delay(1); await Task.Yield(); return Balance + 1;");
+        Assert.Contains("await", _env.Decompile("Account::LoadAsync"));
         using var run = new Runner(_env);
-        var task = (Task<int>)run.Call(run.New("Fixture.Game.Player", "p"), "LoadAsync")!;
+        var task = (Task<int>)run.Call(run.New("Fixture.Model.Account", "p"), "LoadAsync")!;
         Assert.Equal(101, await task);
     }
 
     [Fact]
     public void IteratorStateMachine()
     {
-        Patch("Player::Range", "for (int i = 0; i < 3; i++) yield return i * 10;");
+        Patch("Account::Range", "for (int i = 0; i < 3; i++) yield return i * 10;");
         using var run = new Runner(_env);
-        var items = ((IEnumerable<int>)run.Call(run.New("Fixture.Game.Player", "p"), "Range")!).ToList();
+        var items = ((IEnumerable<int>)run.Call(run.New("Fixture.Model.Account", "p"), "Range")!).ToList();
         Assert.Equal([0, 10, 20], items);
     }
 
@@ -103,21 +103,21 @@ public class CSharpAdvancedTests : IDisposable
             }
             """);
         using var run = new Runner(_env);
-        var shop = run.New("Fixture.Game.Shop");
+        var shop = run.New("Fixture.Model.Shop");
         Assert.Equal("OK!", run.Call(shop, "Describe"));
         Assert.Equal(5, run.Call(shop, "PriceOf", "e"));
-        Assert.Equal(16, run.Call(shop, "PriceOf", "sword"));
+        Assert.Equal(14, run.Call(shop, "PriceOf", "pen"));
     }
 
     [Fact]
     public void RepeatedPatchesGetFreshHelperNames()
     {
-        Patch("Player::SumPositive", "return values.Where(v => v > 1).Sum();");
-        Patch("Player::SumPositive", "return values.Where(v => v > 2).Sum();");
+        Patch("Account::SumPositive", "return values.Where(v => v > 1).Sum();");
+        Patch("Account::SumPositive", "return values.Where(v => v > 2).Sum();");
         Patch("Shop::PriceOf(string, int)", "return new[] { 1, 2, 3 }.Select(x => x * quantity).Sum();");
         using var run = new Runner(_env);
-        Assert.Equal(7, run.Call(run.New("Fixture.Game.Player", "p"), "SumPositive", new List<int> { 1, 2, 3, 4 }));
-        Assert.Equal(12, run.Call(run.New("Fixture.Game.Shop"), "PriceOf", "x", 2));
+        Assert.Equal(7, run.Call(run.New("Fixture.Model.Account", "p"), "SumPositive", new List<int> { 1, 2, 3, 4 }));
+        Assert.Equal(12, run.Call(run.New("Fixture.Model.Shop"), "PriceOf", "x", 2));
     }
 
     [Fact]
@@ -133,10 +133,10 @@ public class CSharpAdvancedTests : IDisposable
             public class Receipt { public int Total; public override string ToString() => "R:" + Total; }
             """);
         Assert.Contains("Twice", result);
-        Patch("Shop::Describe", "var r = new Receipt { Total = Twice(PriceOf(\"sword\", 2, 5)) }; Counter = 3; AutoValue = SumAll(1, -1, 2); return r + \"/\" + Counter + \"/\" + AutoValue;");
+        Patch("Shop::Describe", "var r = new Receipt { Total = Twice(PriceOf(\"pen\", 2, 5)) }; Counter = 3; AutoValue = SumAll(1, -1, 2); return r + \"/\" + Counter + \"/\" + AutoValue;");
 
         using var run = new Runner(_env);
-        Assert.Equal("R:110/3/3", run.Call(run.New("Fixture.Game.Shop"), "Describe"));
+        Assert.Equal("R:110/3/3", run.Call(run.New("Fixture.Model.Shop"), "Describe"));
     }
 
     [Fact]
@@ -156,32 +156,32 @@ public class CSharpAdvancedTests : IDisposable
             {
                 public static class Cheats
                 {
-                    public static int Gold(Fixture.Game.Shop shop) => shop.Gold * 10;
+                    public static int Credit(Fixture.Model.Shop shop) => shop.Credit * 10;
                     public static IEnumerable<int> Evens(int n) { for (int i = 0; i < n; i += 2) yield return i; }
                 }
                 public enum Mode { Off, On }
             }
             """);
-        Patch("Shop::Describe", "return Mods.Cheats.Gold(this) + \":\" + string.Join(\",\", Mods.Cheats.Evens(5)) + \":\" + Mods.Mode.On;");
+        Patch("Shop::Describe", "return Mods.Cheats.Credit(this) + \":\" + string.Join(\",\", Mods.Cheats.Evens(5)) + \":\" + Mods.Mode.On;");
         using var run = new Runner(_env);
-        Assert.Equal("500:0,2,4:On", run.Call(run.New("Fixture.Game.Shop"), "Describe"));
+        Assert.Equal("500:0,2,4:On", run.Call(run.New("Fixture.Model.Shop"), "Describe"));
         Assert.Contains("already exists", Assert.Throws<ToolError>(() => AddTypes("namespace Mods { public static class Cheats { } }")).Message);
     }
 
     [Fact]
     public void PrivateMembersOfOtherTypesWorkAtRuntime()
     {
-        // Shop reads Player's private field and calls its private static method: compiles with access checks off,
+        // Shop reads Account's private field and calls its private static method: compiles with access checks off,
         // and must also pass the runtime's access checks.
-        Patch("Shop::PriceOf(string)", "var p = new Player(item); Player.Log(\"x\"); return p._health + Secret.Validate(\"LICENSE-12345\").GetHashCode();");
+        Patch("Shop::PriceOf(string)", "var p = new Account(item); Account.Log(\"x\"); return p._balance + Secret.Validate(\"LICENSE-12345\").GetHashCode();");
         using var run = new Runner(_env);
-        Assert.Equal(100 + true.GetHashCode(), run.Call(run.New("Fixture.Game.Shop"), "PriceOf", "a"));
+        Assert.Equal(100 + true.GetHashCode(), run.Call(run.New("Fixture.Model.Shop"), "PriceOf", "a"));
     }
 
     [Fact]
     public void DryRunsLeaveTheAssemblyUntouched()
     {
-        var preview = _env.Edit(() => _env.Edits.PatchMethodCSharp(_env.One("Player::SumPositive"), "return values.Select(v => v * 2).Sum();", true, default));
+        var preview = _env.Edit(() => _env.Edits.PatchMethodCSharp(_env.One("Account::SumPositive"), "return values.Select(v => v * 2).Sum();", true, default));
         Assert.StartsWith("Dry run", preview);
         Assert.Contains("IL_0001:", preview); // real offsets, not IL_0000 everywhere
         _env.Edits.AddMembersCSharp(_env.One("Shop", SymbolKind.Type), "public int Twice(int x) { return x * 2; }", true, default);

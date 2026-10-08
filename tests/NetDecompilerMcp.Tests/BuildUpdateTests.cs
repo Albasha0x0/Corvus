@@ -93,10 +93,8 @@ public class BuildUpdateTests : IDisposable
     [Fact]
     public async Task RealLibraryUpgrade_ShowsTheApiChangesFirst()
     {
-        var packages = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages", "newtonsoft.json");
-        var v12 = Path.Combine(packages, "12.0.2", "lib", "netstandard2.0", "Newtonsoft.Json.dll");
-        var v13 = Path.Combine(packages, "13.0.1", "lib", "netstandard2.0", "Newtonsoft.Json.dll");
-        if (!File.Exists(v12) || !File.Exists(v13)) return; // two builds of a real library from the NuGet cache
+        var v12 = RealPackages.Lib("Newtonsoft.Json", "12.0.2", "netstandard2.0", "Newtonsoft.Json.dll");
+        var v13 = RealPackages.Lib("Newtonsoft.Json", "13.0.1", "netstandard2.0", "Newtonsoft.Json.dll");
         using var env = new Env(v12);
         var newer = env.Workspace.Load(v13);
         var text = await new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager).CompareAssemblies(env.Fixture.Id, newer.Id, maxChars: 200_000);

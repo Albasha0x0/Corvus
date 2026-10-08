@@ -1,4 +1,4 @@
-namespace Fixture.Game;
+namespace Fixture.Model;
 
 // A singleton whose static accessor is declared on a generic base class (a common game-code pattern).
 public abstract class Singleton<T> where T : class, new()
@@ -11,7 +11,7 @@ public abstract class Singleton<T> where T : class, new()
 
 public sealed class Bank : Singleton<Bank>
 {
-    public int Gold;
+    public int Credit;
 }
 
 // A static property whose type is the base's type parameter, instantiated with a value type.

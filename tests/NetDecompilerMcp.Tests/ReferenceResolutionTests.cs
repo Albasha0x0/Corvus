@@ -7,7 +7,7 @@ using NetDecompilerMcp.Services;
 namespace NetDecompilerMcp.Tests;
 
 /// <summary>
-/// Several builds or runtime families loaded side by side (a game's current folder, an older memory dump, an Il2Cpp
+/// Several builds or runtime families loaded side by side (a managed's current folder, an older memory dump, an Il2Cpp
 /// dummy-DLL set): a reference binds to the right same-named assembly.
 /// </summary>
 public class ReferenceResolutionTests : IDisposable
@@ -88,11 +88,11 @@ public class ReferenceResolutionTests : IDisposable
             var list = AddType(m, "System.Collections.Generic", "List`1");
             list.GenericParameters.Add(new GenericParamUser(0, GenericParamAttributes.NonVariant, "T"));
         }));
-        // a game folder: a library referencing the real mscorlib (Microsoft's token), and an app on .NET using List<T>
-        var game = Folder("Managed");
+        // a managed folder: a library referencing the real mscorlib (Microsoft's token), and an app on .NET using List<T>
+        var managed = Folder("Managed");
         var plugin = ContainerFixtures.Module("Plugin", m => AddType(m, "Plugin", "Marker"));
-        Write(game, "Plugin.dll", plugin);
-        Write(game, "Host.dll", Compile("Host", """
+        Write(managed, "Plugin.dll", plugin);
+        Write(managed, "Host.dll", Compile("Host", """
             public class Host
             {
                 public static System.Type P() => typeof(Plugin.Marker);
@@ -100,9 +100,9 @@ public class ReferenceResolutionTests : IDisposable
             }
             """, plugin));
 
-        using var env = new Env(Path.Combine(game, "Host.dll"));
+        using var env = new Env(Path.Combine(managed, "Host.dll"));
         env.Workspace.LoadDirectory(dummy, false);
-        env.Workspace.LoadDirectory(game, false);
+        env.Workspace.LoadDirectory(managed, false);
 
         // the patch compilation sees one List<T> (CS0433 "exists in both mscorlib and System.Private.CoreLib" before)
         env.Edit(() => env.Edits.AddMembersCSharp(env.One("Host", NetDecompilerMcp.Core.SymbolKind.Type),

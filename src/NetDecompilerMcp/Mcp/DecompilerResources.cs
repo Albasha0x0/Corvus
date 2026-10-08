@@ -9,7 +9,7 @@ namespace NetDecompilerMcp.Mcp;
 
 /// <summary>
 /// MCP resources: let a client attach decompiled code, IL or an assembly overview as context by URI.
-/// Template values are URL-decoded, so ids like "Game#2" can be passed as "Game%232".
+/// Template values are URL-decoded, so ids like "App#2" can be passed as "App%232".
 /// Nested types use '+' (Ns.Outer+Inner) because '/' separates URI segments.
 /// </summary>
 [McpServerResourceType]

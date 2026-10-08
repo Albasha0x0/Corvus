@@ -48,29 +48,29 @@ public class InspectionEdgeTests : IDisposable
     }
 
     [Fact]
-    public void Il2CppGames_AreRecognized()
+    public void Il2CppBuilds_AreRecognized()
     {
-        // layout: GameAssembly.dll + Game_Data/il2cpp_data/Metadata/global-metadata.dat
-        var root = _dir.File("il2cppgame");
-        Save("il2cppgame/GameAssembly.dll", [0x4D, 0x5A, 0, 0]);
-        var metadata = Save("il2cppgame/Game_Data/il2cpp_data/Metadata/global-metadata.dat", [0xAF, 0x1B, 0xB1, 0xFA, 29, 0, 0, 0, 1, 2, 3, 4]);
-        Assert.Contains(GameLayout.FolderHints(root), h => h.StartsWith("Unity IL2CPP game") && h.Contains(Path.GetFullPath(metadata)));
-        Assert.StartsWith("Unity IL2CPP metadata", GameLayout.FileHint(metadata, File.ReadAllBytes(metadata)));
+        // layout: GameAssembly.dll + App_Data/il2cpp_data/Metadata/global-metadata.dat
+        var root = _dir.File("il2cppbuild");
+        Save("il2cppbuild/GameAssembly.dll", [0x4D, 0x5A, 0, 0]);
+        var metadata = Save("il2cppbuild/App_Data/il2cpp_data/Metadata/global-metadata.dat", [0xAF, 0x1B, 0xB1, 0xFA, 29, 0, 0, 0, 1, 2, 3, 4]);
+        Assert.Contains(UnityLayout.FolderHints(root), h => h.StartsWith("Unity IL2CPP build") && h.Contains(Path.GetFullPath(metadata)));
+        Assert.StartsWith("Unity IL2CPP metadata", UnityLayout.FileHint(metadata, File.ReadAllBytes(metadata)));
         Assert.Contains(Inspection.Summarize(null, metadata, default).Highlights, h => h.StartsWith("Unity IL2CPP metadata"));
 
         // a Mono game loaded from its root: the assemblies are in *_Data/Managed
-        var mono = _dir.File("monogame");
-        Save("monogame/Game_Data/Managed/Assembly-CSharp.dll", ContainerFixtures.Module("Assembly-CSharp", _ => { }));
-        Assert.Contains(GameLayout.FolderHints(mono), h => h.StartsWith("Unity (Mono) game") && h.Contains(Path.Combine(mono, "Game_Data", "Managed")));
+        var mono = _dir.File("monobuild");
+        Save("monobuild/App_Data/Managed/Assembly-CSharp.dll", ContainerFixtures.Module("Assembly-CSharp", _ => { }));
+        Assert.Contains(UnityLayout.FolderHints(mono), h => h.StartsWith("Unity (Mono) build") && h.Contains(Path.Combine(mono, "App_Data", "Managed")));
 
         // a real IL2CPP binary on this machine, when there is one
         var real = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\WildWorks\Animal Jam\Data\build\GameAssembly.dll");
         if (File.Exists(real))
-            Assert.StartsWith("Unity IL2CPP game code", GameLayout.FileHint(real, File.ReadAllBytes(real)));
+            Assert.StartsWith("Unity IL2CPP native code", UnityLayout.FileHint(real, File.ReadAllBytes(real)));
     }
 
     [Fact]
-    public void FolderLoad_GroupsNativeFiles_AndHintsGameLayouts()
+    public void FolderLoad_GroupsNativeFiles_AndHintsUnityLayouts()
     {
         var root = _dir.File("mixed");
         File.Copy(Env.FixturePath, Save("mixed/TestFixture.dll", []), overwrite: true);
@@ -80,7 +80,7 @@ public class InspectionEdgeTests : IDisposable
         var text = WorkspaceTools.FormatLoad(_workspace, root, _workspace.LoadDirectory(root, false));
         Assert.True(text.Contains("skipped 2 native or non-PE files: native1.dll, native2.dll"), text); // the 2-byte GameAssembly.dll is a damaged PE: listed on its own
         Assert.DoesNotContain("data directory RVA", text);
-        Assert.Contains("Note: Unity IL2CPP game", text);
+        Assert.Contains("Note: Unity IL2CPP build", text);
     }
 
     [Fact]

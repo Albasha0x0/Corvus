@@ -1,22 +1,22 @@
-using Fixture.Game;
+using Fixture.Model;
 
 namespace Consumer;
 
 /// <summary>Uses TestFixture from another assembly: cross-assembly and virtual-dispatch references.</summary>
-public class Arena
+public class Branch
 {
-    public void Hit(IDamageable target) => target.TakeDamage(5);
+    public void Bill(IChargeable target) => target.Charge(5);
 
     public int Total(Entity entity) => entity.Score();
 
-    public Player Spawn() => new("spawned");
+    public Account Open() => new("opened");
 
-    public bool TryBuy(Shop shop) => shop.Buy("sword");
+    public bool TryBuy(Shop shop) => shop.Buy("pen");
 
     public string NameOf(Entity entity) => entity.Name;
 }
 
-public class Minion : Entity
+public class Archive : Entity
 {
     public override void Tick(float dt) { }
 }

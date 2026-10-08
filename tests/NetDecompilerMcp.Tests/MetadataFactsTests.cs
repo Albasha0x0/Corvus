@@ -50,9 +50,9 @@ public class MetadataFactsTests : IDisposable
     {
         var wrapper = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), @"Microsoft.NET\Framework64\v4.0.30319\System.EnterpriseServices.Wrapper.dll");
         if (!File.Exists(wrapper)) return; // a mixed-mode C++/CLI module shipped with .NET Framework
-        var health = IlHealth.Assess(File.ReadAllBytes(wrapper));
-        Assert.True(health.Bodies > 100);
-        Assert.Equal(0, health.Invalid);
+        var balance = IlHealth.Assess(File.ReadAllBytes(wrapper));
+        Assert.True(balance.Bodies > 100);
+        Assert.Equal(0, balance.Invalid);
     }
 
     [Fact]
