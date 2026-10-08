@@ -9,6 +9,8 @@ using NetDecompilerMcp.Mcp;
 using NetDecompilerMcp.Services;
 using NetDecompilerMcp.Services.Analysis;
 
+if (NetDecompilerMcp.Setup.SetupCli.TryRun(args) is { } setupExitCode) return setupExitCode;
+
 ServerOptions options;
 try
 {

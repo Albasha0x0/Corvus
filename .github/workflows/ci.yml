@@ -72,7 +72,63 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-results-${{ matrix.os }}
-          path: |
-            **/TestResults/*.trx
-            **/TestResults/**/*.dmp
+          path: "**/TestResults/*.trx"
           if-no-files-found: ignore
+
+  # The one-line installers, end to end on a fresh machine: package, install, register, check, reinstall, uninstall.
+  install:
+    name: install script (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Package
+        shell: bash
+        run: |
+          rid=$(dotnet --info | grep -m1 'RID:' | awk '{print $2}')
+          dotnet publish src/NetDecompilerMcp/NetDecompilerMcp.csproj -c Release -r "$rid" --self-contained true -p:Version=9.9.9 -o out
+          if [ "$RUNNER_OS" = Windows ]; then pwsh -c 'Compress-Archive -Path out/* -DestinationPath package.zip'
+          else tar -czf package.tar.gz -C out .; fi
+
+      - name: Install, check, uninstall (Windows PowerShell 5.1)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force "$HOME\.cursor" | Out-Null
+          $env:NDM_ARCHIVE = (Resolve-Path package.zip).Path
+          Get-Content install.ps1 -Raw | Invoke-Expression
+          $exe = "$env:LOCALAPPDATA\NetDecompilerMcp\current\NetDecompilerMcp.exe"
+          $entry = (Get-Content "$HOME\.cursor\mcp.json" -Raw | ConvertFrom-Json).mcpServers.'net-decompiler'
+          if ($entry.command -ne $exe) { throw "Cursor entry: $($entry.command)" }
+          & $exe status
+          if ($LASTEXITCODE -ne 0) { throw 'status failed' }
+          Get-Content install.ps1 -Raw | Invoke-Expression
+          & ([scriptblock]::Create((Get-Content install.ps1 -Raw))) -Uninstall
+          Start-Sleep -Seconds 5
+          if ((Get-Content "$HOME\.cursor\mcp.json" -Raw) -match 'net-decompiler') { throw 'still registered' }
+          if (Test-Path "$env:LOCALAPPDATA\NetDecompilerMcp") { throw 'files left behind' }
+
+      - name: Install, check, uninstall (sh)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -eux
+          mkdir -p ~/.cursor
+          NDM_ARCHIVE="$PWD/package.tar.gz" sh < install.sh
+          grep -q "$HOME/.local/share/net-decompiler-mcp/current/NetDecompilerMcp" ~/.cursor/mcp.json
+          ~/.local/bin/NetDecompilerMcp status
+          NDM_ARCHIVE="$PWD/package.tar.gz" sh < install.sh
+          sh -s -- --uninstall < install.sh
+          ! grep -q net-decompiler ~/.cursor/mcp.json
+          test ! -e ~/.local/share/net-decompiler-mcp
+          test ! -e ~/.local/bin/NetDecompilerMcp

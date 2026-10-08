@@ -9,6 +9,45 @@ Il2CppDumper / Cpp2IL dummy DLLs. No GUI, no dnSpy instance, no admin rights and
 - **C# method patching:** Roslyn.
 - **Transport:** stdio, using the official [MCP C# SDK](https://github.com/modelcontextprotocol/csharp-sdk).
 
+## Install
+
+One command installs everything and registers the server with every MCP client on the machine. Nothing to
+configure, no admin rights, no .NET needed (the download is self-contained).
+
+**Windows** (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1 | iex
+```
+
+**Linux / macOS:**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh
+```
+
+Then restart your MCP client. What the installer does:
+
+1. Downloads the latest release for your system (Windows, Linux glibc / musl, macOS; x64 and arm64) into a per-user
+   folder (`%LOCALAPPDATA%\NetDecompilerMcp`, `~/.local/share/net-decompiler-mcp`) and puts `NetDecompilerMcp` on PATH.
+2. Starts the server once and checks it answers (MCP handshake and tool list).
+3. Registers it as `net-decompiler` with every installed client it finds, keeping their other settings (each changed
+   file is backed up once as `<file>.netdecompiler.bak`; a file it cannot parse is left untouched and reported).
+
+Supported clients: Claude Code, Claude Desktop, Cursor, Windsurf, VS Code, VS Code Insiders, VSCodium, Cline, Roo Code,
+Kilo Code, Visual Studio, Codex, Gemini CLI, Qwen Code, GitHub Copilot CLI, OpenCode, Crush, Zed, LM Studio,
+Amazon Q, Kiro and Antigravity. Any other client: add the output of `NetDecompilerMcp config`.
+
+| Command | What it does |
+|---|---|
+| `NetDecompilerMcp status` | Which clients have it registered (and with which copy), plus a live server check. |
+| `NetDecompilerMcp install [client...]` | Register again, e.g. after installing a new client; names register clients not detected. |
+| `NetDecompilerMcp update` | Install the latest release; client settings point at a stable path and need no change. |
+| `NetDecompilerMcp config [client]` | Print the configuration for a client, or the generic `mcpServers` JSON. |
+| `NetDecompilerMcp uninstall` | Remove it from every client and delete the installed files (`--keep-files` keeps them). |
+
+From source instead: `./publish.ps1`, then `publish/NetDecompilerMcp install`.
+
 ## What it covers
 
 **MCP features:** 54 tools (every one with a title and read-only / destructive / closed-world annotations),
@@ -320,29 +359,10 @@ download runtime / crossgen2 packs and NuGet packages at test time; CI keeps the
 SDK version and project files. Real-data tests have no data there and report as skipped. Pushing a `v*` tag runs
 `release.yml`, which attaches self-contained single-file builds for win-x64, linux-x64 and osx-arm64 to a GitHub release.
 
-## Configure an MCP client
+## Server options
 
-Claude Code:
-
-```powershell
-claude mcp add net-decompiler -s user -- "C:\path\to\publish\NetDecompilerMcp.exe"
-# per project, preloading a folder:
-claude mcp add net-decompiler -s local -- "C:\path\to\publish\NetDecompilerMcp.exe" --load "D:\App\App_Data\Managed"
-```
-
-Generic `mcpServers` JSON (Claude Desktop, Cursor, and others):
-
-```json
-{ "mcpServers": { "net-decompiler": { "command": "C:\\path\\to\\publish\\NetDecompilerMcp.exe", "args": ["--load", "D:\\App\\Managed"] } } }
-```
-
-Codex (`config.toml`):
-
-```toml
-[mcp_servers.net-decompiler]
-command = 'C:\path\to\publish\NetDecompilerMcp.exe'
-args = ['--load', 'D:\App\Managed']
-```
+Options go after the command in a client's configuration (`args`), e.g. to preload a folder:
+`"args": ["--load", "D:\\App\\App_Data\\Managed"]`.
 
 | Option | Meaning |
 |---|---|
@@ -356,6 +376,10 @@ args = ['--load', 'D:\App\Managed']
 | `--binding-project <dir>` | Project directory `generate_cpp_binding` scans for a host table when a call gives no `projectDir`. |
 
 Logs go to stderr; stdout is reserved for the protocol.
+
+Code that targets a .NET version not installed on the machine is read against that version's reference pack, which
+is downloaded once from nuget.org into the local app data folder. Set `NDM_OFFLINE=1` to never download; such code is
+then read against the nearest installed version.
 
 ## Layout
 
