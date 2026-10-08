@@ -730,10 +730,16 @@ public sealed class MethodSimplifier
     {
         unclean.Clear();
         bool changed = false;
+        // The body's graph is rebuilt only after a dispatcher is rewritten.
+        BodyGraph? graph = null;
+        int[]? depth = null;
         foreach (var sw in body.Instructions.Where(i => i.OpCode.Code == Code.Switch).ToList())
         {
-            var graph = new BodyGraph(body);
-            var depth = graph.Verify(hasReturnValue, out _);
+            if (graph == null)
+            {
+                graph = new BodyGraph(body);
+                depth = graph.Verify(hasReturnValue, out _);
+            }
             if (depth == null) break;
             int s = graph.IndexOf(sw);
             if (s < 0 || depth[s] < 0) continue;
@@ -757,6 +763,7 @@ public sealed class MethodSimplifier
                 change.Dispatchers++;
                 change.Transitions += computed.Transitions;
                 changed = true;
+                graph = null;
                 continue;
             }
             foreach (var ins in plan.Dead) MakeDead(ins, dead);
@@ -766,6 +773,7 @@ public sealed class MethodSimplifier
             change.Dispatchers++;
             change.Transitions += plan.Transitions;
             changed = true;
+            graph = null;
         }
         return changed;
     }
@@ -1012,6 +1020,28 @@ public sealed class MethodSimplifier
             }
         }
         var members = DispatcherMembers(body, graph, depth, start, s);
+        // Ways in that no plan could rewrite are found before the (costly) analysis.
+        for (int e = 0; e < code.Count; e++)
+        {
+            if (depth[e] < 0 || code[e].OpCode.FlowControl is not FlowControl.Cond_Branch and not FlowControl.Branch) continue;
+            bool leave = code[e].OpCode.Code is Code.Leave or Code.Leave_S;
+            foreach (var t in BodyGraph.BranchTargets(code[e]))
+            {
+                int to = graph.IndexOf(t);
+                if (!members.Contains(to) || members.Contains(e) || depth[to] == 0) continue;
+                if (leave)
+                {
+                    why = $"{At(code[e])} leaves into the dispatcher with values on the stack";
+                    return null;
+                }
+                if (code[e].OpCode.FlowControl == FlowControl.Cond_Branch &&
+                    (graph.Regions(e).Length > 0 || body.ExceptionHandlers.Any(h => h.HandlerEnd == null) || BodyGraph.FallsThrough(code[^1])))
+                {
+                    why = $"{At(code[e])} enters the dispatcher by a conditional branch with values on the stack inside a protected region";
+                    return null;
+                }
+            }
+        }
         var flow = new ConstantFlow(body, graph, hasReturnValue, _evaluator);
         var locals = new SortedSet<int>();
         foreach (int k in members)
