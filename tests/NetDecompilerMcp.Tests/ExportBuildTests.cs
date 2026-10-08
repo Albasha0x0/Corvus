@@ -232,14 +232,9 @@ public class ExportBuildTests
     {
         var result = env.Decompiler.ExportProject(env.Fixture, outDir, null, default);
         var bin = Path.Combine(outDir, "bin-out");
-        var psi = new ProcessStartInfo("dotnet", $"build \"{result.ProjectFile}\" -nologo -c Release -o \"{bin}\" -clp:NoSummary;ErrorsOnly")
-            { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
-        using var p = Process.Start(psi)!;
-        var stdout = p.StandardOutput.ReadToEndAsync();
-        var output = p.StandardError.ReadToEnd() + stdout.Result;
-        p.WaitForExit();
+        var (exitCode, output) = Tools.Dotnet(null, "build", result.ProjectFile!, "-nologo", "-c", "Release", "-o", bin, "-clp:NoSummary;ErrorsOnly");
         var errors = Regex.Matches(output, @"[^\\/\r\n]+\.cs\(\d+,\d+\): error CS\d+: [^\[\r\n]*").Select(m => m.Value.Trim()).Distinct().ToList();
-        if (p.ExitCode != 0 && errors.Count == 0) errors.Add(output);
+        if (exitCode != 0 && errors.Count == 0) errors.Add(output);
         var built = Path.Combine(bin, Path.GetFileName(env.Fixture.FilePath));
         return (File.Exists(built) ? built : null, errors);
     }

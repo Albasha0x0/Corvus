@@ -112,7 +112,7 @@ public class ReferenceResolutionTests : IDisposable
         var report = env.Workspace.Read(() => new AssemblyReport(env.Workspace, new Il2CppService(env.Workspace)).Build(env.Workspace.Get("Plugin")));
         Assert.DoesNotContain("[loaded as mscorlib]", report);
         Assert.True(System.Text.RegularExpressions.Regex.IsMatch(report,
-            @"mscorlib, Version=[0-9.]+, Culture=neutral, PublicKeyToken=b77a5c561934e089\s+\[resolvable from search path\]"), report);
+            @"mscorlib, Version=[0-9.]+, Culture=neutral, PublicKeyToken=b77a5c561934e089\s+\[resolvable from search path(, version [^\]]+)?\]"), report);
     }
 
     [Fact]

@@ -136,22 +136,50 @@ public sealed class RequiresRealDataFactAttribute : FactAttribute
     }
 }
 
-/// <summary>Runs external tools (clang, python) used to check generated code.</summary>
+/// <summary>Runs external tools (dotnet, clang, python) with a timeout, collecting stdout and stderr.</summary>
 internal static class Tools
 {
-    public static (int ExitCode, string Output) Run(string file, string args)
+    public static (int ExitCode, string Output) Run(string file, string args) => Run(new ProcessStartInfo(file, args));
+
+    /// <summary>
+    /// Runs the dotnet CLI without build servers or reusable MSBuild nodes: those outlive the command and keep its
+    /// output pipes open.
+    /// </summary>
+    public static (int ExitCode, string Output) Dotnet(string? workingDirectory, params string[] args)
     {
-        try
+        var psi = new ProcessStartInfo("dotnet") { WorkingDirectory = workingDirectory ?? "" };
+        foreach (var a in args) psi.ArgumentList.Add(a);
+        foreach (var key in psi.Environment.Keys.Where(k => k.StartsWith("MSBuild", StringComparison.OrdinalIgnoreCase)).ToList()) psi.Environment.Remove(key);
+        psi.Environment["MSBUILDDISABLENODEREUSE"] = "1";
+        psi.Environment["DOTNET_CLI_USE_MSBUILD_SERVER"] = "0";
+        psi.Environment["UseSharedCompilation"] = "false";
+        psi.Environment["DOTNET_NOLOGO"] = "1";
+        psi.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
+        return Run(psi);
+    }
+
+    public static (int ExitCode, string Output) Run(ProcessStartInfo psi, int timeoutMs = 900_000)
+    {
+        psi.RedirectStandardOutput = psi.RedirectStandardError = true;
+        psi.UseShellExecute = false;
+        var output = new System.Text.StringBuilder();
+        using var stdoutDone = new ManualResetEventSlim();
+        using var stderrDone = new ManualResetEventSlim();
+        using var p = new Process { StartInfo = psi };
+        p.OutputDataReceived += (_, e) => { if (e.Data == null) stdoutDone.Set(); else lock (output) output.AppendLine(e.Data); };
+        p.ErrorDataReceived += (_, e) => { if (e.Data == null) stderrDone.Set(); else lock (output) output.AppendLine(e.Data); };
+        try { p.Start(); }
+        catch (System.ComponentModel.Win32Exception) { return (-1, $"{psi.FileName} not found"); }
+        p.BeginOutputReadLine();
+        p.BeginErrorReadLine();
+        if (!p.WaitForExit(timeoutMs))
         {
-            using var p = Process.Start(new ProcessStartInfo(file, args) { RedirectStandardError = true, RedirectStandardOutput = true, UseShellExecute = false })!;
-            var stderr = p.StandardError.ReadToEndAsync(); // read both pipes at once, or a full one blocks the process
-            var stdout = p.StandardOutput.ReadToEnd();
-            p.WaitForExit(600_000);
-            return (p.ExitCode, stdout + stderr.Result);
+            try { p.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+            lock (output) return (-2, $"{psi.FileName} timed out after {timeoutMs / 1000} s\n{output}");
         }
-        catch (System.ComponentModel.Win32Exception)
-        {
-            return (-1, $"{file} not found");
-        }
+        // A child process that inherited the pipes may keep them open; do not wait for it.
+        stdoutDone.Wait(10_000);
+        stderrDone.Wait(10_000);
+        lock (output) return (p.ExitCode, output.ToString());
     }
 }

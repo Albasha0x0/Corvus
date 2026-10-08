@@ -106,10 +106,13 @@ internal static class Frameworks
     }
 
     /// <summary>
-    /// Targeting-pack directory for a shared framework major, from dotnet packs or the NuGet cache
-    /// (<c>packs/Microsoft.NETCore.App.Ref/6.0.x/ref/net6.0</c>).
+    /// Targeting-pack directory for a shared framework major, from dotnet packs, the NuGet cache or the download cache
+    /// (<c>packs/Microsoft.NETCore.App.Ref/6.0.x/ref/net6.0</c>); downloaded when none has it.
     /// </summary>
-    public static string? ReferencePackDir(string framework, int major)
+    public static string? ReferencePackDir(string framework, int major) =>
+        InstalledReferencePackDir(framework, major) ?? ReferencePacks.Get(framework + ".Ref", major);
+
+    private static string? InstalledReferencePackDir(string framework, int major)
     {
         var id = framework + ".Ref";
         var candidates = DotnetRoots.Value.Select(r => Path.Combine(r, "packs", id))
@@ -327,8 +330,9 @@ internal static class Frameworks
         string key;
         if (NetCoreMajor(targetFramework) is { } major)
         {
-            var dir = ReferencePackDir("Microsoft.NETCore.App", major)
-                      ?? All.Value.FirstOrDefault(s => s.Name == "Microsoft.NETCore.App" && s.Version.Major == major)?.Dir;
+            var dir = InstalledReferencePackDir("Microsoft.NETCore.App", major)
+                      ?? All.Value.FirstOrDefault(s => s.Name == "Microsoft.NETCore.App" && s.Version.Major == major)?.Dir
+                      ?? ReferencePacks.Get("Microsoft.NETCore.App.Ref", major);
             if (dir == null) return null;
             key = dir;
             files = SafeFiles(dir);
@@ -439,12 +443,12 @@ internal static class Frameworks
         {
             // With a major given, only that version's runtime or reference pack is checked.
             var dirs = major is { } m
-                ? group.Where(s => s.Version.Major == m).Select(s => s.Dir).Take(1)
-                    .Concat(ReferencePackDir(group.Key, m) is { } pack ? [pack] : [])
+                ? (group.FirstOrDefault(s => s.Version.Major == m)?.Dir ?? ReferencePackDir(group.Key, m)) is { } dir ? [dir] : []
                 : group.Take(1).Select(s => s.Dir);
             if (dirs.Any(d => File.Exists(Path.Combine(d, name + ".dll")))) return group.Key;
         }
-        return null;
+        // Target version unavailable: which framework owns an assembly name does not change between versions.
+        return major != null ? SharedFrameworkOf(name) : null;
     }
 
     /// <summary>Major version of the shared framework directory containing the file, if any.</summary>

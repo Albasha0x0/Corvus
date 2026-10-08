@@ -104,13 +104,8 @@ public class MissingReferenceTests : IDisposable
         var result = env.Decompiler.ExportProject(env.Fixture, out_, null, default);
         Assert.True(File.Exists(Path.Combine(out_, "lib", "Lib.dll")));
         Assert.Contains("not found on the machine that exported this project", File.ReadAllText(result.ProjectFile!));
-        var psi = new ProcessStartInfo("dotnet", $"build \"{result.ProjectFile}\" -nologo -clp:NoSummary;ErrorsOnly")
-            { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
-        using var p = Process.Start(psi)!;
-        var stdout = p.StandardOutput.ReadToEndAsync();
-        var output = p.StandardError.ReadToEnd() + stdout.Result;
-        p.WaitForExit();
-        Assert.True(p.ExitCode == 0, string.Join("\n", Regex.Matches(output, @"[^\\/\r\n]+\.cs\(\d+,\d+\): error [^\r\n]*").Select(m => m.Value).Distinct()));
+        var (exitCode, output) = Tools.Dotnet(null, "build", result.ProjectFile!, "-nologo", "-clp:NoSummary;ErrorsOnly");
+        Assert.True(exitCode == 0, string.Join("\n", Regex.Matches(output, @"[^\\/\r\n]+\.cs\(\d+,\d+\): error [^\r\n]*").Select(m => m.Value).Distinct()));
     }
 
     [Fact]

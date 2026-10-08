@@ -66,7 +66,7 @@ public class InspectionEdgeTests : IDisposable
     {
         var root = _dir.File("mixed");
         File.Copy(Env.FixturePath, Save("mixed/TestFixture.dll", []), overwrite: true);
-        File.Copy(Path.Combine(Environment.SystemDirectory, "kernel32.dll"), Save("mixed/native1.dll", []), overwrite: true);
+        Save("mixed/native1.dll", ContainerFixtures.NativeLibrary());
         Save("mixed/native2.dll", Encoding.ASCII.GetBytes("not a PE at all"));
         Save("mixed/GameAssembly.dll", [0x4D, 0x5A]);
         var text = WorkspaceTools.FormatLoad(_workspace, root, _workspace.LoadDirectory(root, false));
@@ -78,9 +78,11 @@ public class InspectionEdgeTests : IDisposable
     [Fact]
     public void ApphostLauncher_SummarizesTheAppNextToIt()
     {
-        var host = Directory.EnumerateFiles(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet", "packs"), "apphost.exe", SearchOption.AllDirectories)
-            .FirstOrDefault();
-        if (host == null) return; // needs a .NET SDK's apphost
+        var root = new DirectoryInfo(System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory());
+        while (root != null && !Directory.Exists(Path.Combine(root.FullName, "packs"))) root = root.Parent;
+        Assert.NotNull(root);
+        var host = Directory.EnumerateFiles(Path.Combine(root.FullName, "packs"), "apphost*", SearchOption.AllDirectories)
+            .First(f => Path.GetFileName(f) is "apphost" or "apphost.exe");
         var exe = Save("app/TestFixture.exe", File.ReadAllBytes(host));
         File.Copy(Env.FixturePath, Path.Combine(Path.GetDirectoryName(exe)!, "TestFixture.dll"));
         var s = Inspection.Summarize(null, exe, default);

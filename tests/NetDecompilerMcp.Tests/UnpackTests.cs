@@ -58,16 +58,8 @@ public sealed class ContainerFixtures : IDisposable
     private string Publish(string name, params string[] args)
     {
         var output = Path.Combine(_dir.Path, name);
-        var psi = new ProcessStartInfo("dotnet") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, WorkingDirectory = HelloProject };
-        foreach (var a in (string[])["publish", "-c", "Release", "-r", Rid, "-p:PublishSingleFile=true", "-o", output, .. args]) psi.ArgumentList.Add(a);
-        foreach (var key in psi.Environment.Keys.Where(k => k.StartsWith("MSBuild", StringComparison.OrdinalIgnoreCase)).ToList()) psi.Environment.Remove(key);
-        psi.Environment["DOTNET_NOLOGO"] = "1";
-        psi.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
-        using var p = Process.Start(psi)!;
-        var stderr = p.StandardError.ReadToEndAsync();
-        var stdout = p.StandardOutput.ReadToEnd();
-        Assert.True(p.WaitForExit(600_000), "dotnet publish timed out");
-        Assert.True(p.ExitCode == 0, $"dotnet publish {name} failed:\n{stdout}{stderr.Result}");
+        var (exitCode, log) = Tools.Dotnet(HelloProject, ["publish", "-c", "Release", "-r", Rid, "-p:PublishSingleFile=true", "-o", output, .. args]);
+        Assert.True(exitCode == 0, $"dotnet publish {name} failed:\n{log}");
         return Path.Combine(output, OperatingSystem.IsWindows() ? "Hello.exe" : "Hello");
     }
 
@@ -85,6 +77,32 @@ public sealed class ContainerFixtures : IDisposable
             .FirstOrDefault();
         Assert.True(package != null, $"{id} is not in the NuGet cache at {root}");
         return package!;
+    }
+
+    /// <summary>A minimal native (non-.NET) PE32+ DLL with one code section.</summary>
+    public static byte[] NativeLibrary()
+    {
+        var blob = new System.Reflection.Metadata.BlobBuilder();
+        new NativePe().Serialize(blob);
+        return blob.ToArray();
+    }
+
+    private sealed class NativePe() : System.Reflection.PortableExecutable.PEBuilder(
+        System.Reflection.PortableExecutable.PEHeaderBuilder.CreateLibraryHeader(), deterministicIdProvider: null)
+    {
+        protected override System.Collections.Immutable.ImmutableArray<Section> CreateSections() =>
+            [new Section(".text", System.Reflection.PortableExecutable.SectionCharacteristics.ContainsCode |
+                                  System.Reflection.PortableExecutable.SectionCharacteristics.MemExecute |
+                                  System.Reflection.PortableExecutable.SectionCharacteristics.MemRead)];
+
+        protected override System.Reflection.Metadata.BlobBuilder SerializeSection(string name, System.Reflection.PortableExecutable.SectionLocation location)
+        {
+            var section = new System.Reflection.Metadata.BlobBuilder();
+            section.WriteBytes(0xC3, 16);
+            return section;
+        }
+
+        protected override System.Reflection.PortableExecutable.PEDirectoriesBuilder GetDirectories() => new();
     }
 
     /// <summary>A tiny, distinct .NET assembly.</summary>
