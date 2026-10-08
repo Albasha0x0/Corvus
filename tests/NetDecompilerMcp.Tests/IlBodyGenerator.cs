@@ -770,11 +770,21 @@ internal sealed class IlBodyGenerator
                 Op(OpCodes.Ldfld, _fieldA);
                 break;
             case 4: case 5: case 6:
+            {
                 Expr(VT.I4, depth - 1);
                 Expr(VT.I4, depth - 1);
-                Op(Pick(new[] { OpCodes.Add, OpCodes.Sub, OpCodes.Mul, OpCodes.And, OpCodes.Or, OpCodes.Xor, OpCodes.Shl, OpCodes.Shr,
-                    OpCodes.Shr_Un, OpCodes.Div, OpCodes.Rem, OpCodes.Div_Un, OpCodes.Rem_Un, OpCodes.Add_Ovf, OpCodes.Sub_Ovf, OpCodes.Mul_Ovf }));
+                var op = Pick(new[] { OpCodes.Add, OpCodes.Sub, OpCodes.Mul, OpCodes.And, OpCodes.Or, OpCodes.Xor, OpCodes.Shl, OpCodes.Shr,
+                    OpCodes.Shr_Un, OpCodes.Div, OpCodes.Rem, OpCodes.Div_Un, OpCodes.Rem_Un, OpCodes.Add_Ovf, OpCodes.Sub_Ovf, OpCodes.Mul_Ovf });
+                if (op.Code is Code.Shl or Code.Shr or Code.Shr_Un)
+                {
+                    // A shift by 32 or more is unspecified in IL, and the JIT's constant folding and the processor disagree on
+                    // it: mask the count as C# does, so the program has one meaning to compare.
+                    Ldc(31);
+                    Op(OpCodes.And);
+                }
+                Op(op);
                 break;
+            }
             case 7:
                 Expr(VT.I4, depth - 1);
                 Op(_r.Next(2) == 0 ? OpCodes.Neg : OpCodes.Not);
