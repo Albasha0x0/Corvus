@@ -338,7 +338,7 @@ public sealed class AssemblyWorkspace : IDisposable
             : EmbeddedIn != null ? $"embedded in {EmbeddedIn}" : "resolvable from search path";
     }
 
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<ReferenceTarget?>> _stubs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ReferenceTarget?> _stubs = new(StringComparer.OrdinalIgnoreCase);
     private int _stubGeneration = -1;
 
     /// <summary>
@@ -348,23 +348,32 @@ public sealed class AssemblyWorkspace : IDisposable
     private ReferenceTarget? StubFor(string name, Version? version)
     {
         if (!ReferenceStubs.CanStub(name)) return null;
-        if (_stubGeneration != Generation)
+        // One builder at a time: building one stub can require another, and two threads building each other's
+        // dependency would wait forever. The lock is re-entrant for the building thread.
+        lock (_stubs)
         {
-            _stubs.Clear();
-            _stubGeneration = Generation;
+            if (_stubGeneration != Generation)
+            {
+                _stubs.Clear();
+                _stubGeneration = Generation;
+            }
+            // Re-entrant resolution of the stub being built (e.g. via generic constraints) returns null.
+            _building ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (_building.Contains(name)) return null;
+            _building.Add(name);
+            try
+            {
+                if (!_stubs.TryGetValue(name, out var target))
+                {
+                    target = ReferenceStubs.Build(name, version, Assemblies) is { } stub
+                        ? new ReferenceTarget(null, null, stub.Image, null, $"stub built from what the loaded code uses ({stub.Types} types, {stub.Members} members)")
+                        : null;
+                    _stubs[name] = target;
+                }
+                return target;
+            }
+            finally { _building.Remove(name); }
         }
-        // Re-entrant resolution of the stub being built (e.g. via generic constraints) returns null.
-        _building ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (_building.Contains(name)) return null;
-        _building.Add(name);
-        try
-        {
-            return _stubs.GetOrAdd(name, n => new Lazy<ReferenceTarget?>(() =>
-                ReferenceStubs.Build(n, version, Assemblies) is { } stub
-                    ? new ReferenceTarget(null, null, stub.Image, null, $"stub built from what the loaded code uses ({stub.Types} types, {stub.Members} members)")
-                    : null)).Value;
-        }
-        finally { _building.Remove(name); }
     }
 
     [ThreadStatic] private static HashSet<string>? _building;

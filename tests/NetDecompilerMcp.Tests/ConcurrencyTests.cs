@@ -11,16 +11,19 @@ public class ConcurrencyTests
     {
         using var env = new Env(withConsumer: true);
         var errors = new ConcurrentBag<Exception>();
-        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        // A clock deadline and dedicated threads: a timer callback can starve on a busy thread pool.
+        var deadline = System.Diagnostics.Stopwatch.StartNew();
+        bool Running() => (deadline.Elapsed < TimeSpan.FromSeconds(5) || env.Fixture.Edits.Count <= 10)
+                         && deadline.Elapsed < TimeSpan.FromSeconds(60) && env.Fixture.Edits.Count < 2_000;
 
-        async Task Loop(Action body) => await Task.Run(() =>
+        Task Loop(Action body) => Task.Factory.StartNew(() =>
         {
-            while (!stop.IsCancellationRequested)
+            while (Running())
             {
                 try { body(); }
                 catch (Exception ex) { errors.Add(ex); }
             }
-        });
+        }, TaskCreationOptions.LongRunning);
 
         var readers = new[]
         {
