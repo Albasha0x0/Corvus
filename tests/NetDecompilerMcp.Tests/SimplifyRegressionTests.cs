@@ -119,4 +119,39 @@ public sealed class SimplifyRegressionTests : IDisposable
         Assert.Equal(((object?)0, (Exception?)null), runner.Call("Lab.P", "Run", 0));
         Assert.Equal(((object?)0, (Exception?)null), runner.Call("Lab.P", "Run", 5));
     }
+
+    /// <summary>
+    /// Fuzz seed 16: simplifying a method that always throws left a fault handler of one endfinally at the very end of
+    /// the body. Valid IL, but dnlib reads a region ending at the end of the code as ending at the last instruction, so
+    /// the saved image read back without the handler. Such results are refused; the method is left unchanged.
+    /// </summary>
+    [Fact]
+    public void OneInstructionHandlerAtTheEndIsRefused()
+    {
+        var lab = new IlLab("FaultAtEnd");
+        var ctor = lab.Module.Import(typeof(InvalidOperationException).GetConstructor([typeof(string)]));
+        Instruction tryStart = I(OpCodes.Ldstr, "always"), handler = Ldc(1), end = I(OpCodes.Endfinally);
+        var method = lab.Method("Run", lab.T.Int32, [],
+        [
+            tryStart, I(OpCodes.Newobj, ctor), I(OpCodes.Throw),
+            handler, I(OpCodes.Brtrue, end), I(OpCodes.Nop), end,
+        ], handlers:
+        [
+            new ExceptionHandler(ExceptionHandlerType.Fault) { TryStart = tryStart, TryEnd = handler, HandlerStart = handler, HandlerEnd = null },
+        ]);
+
+        var change = new MethodSimplifier(lab.Module, new SimplifyOptions()).Simplify(method)!;
+        Assert.False(change.Changed);
+        Assert.Equal(FallbackReason.ResultUnverifiable, change.Rejected?.Reason);
+        Assert.Contains("a one-instruction handler ends the body (dnlib reads it back without the handler)", change.Rejected!.Detail);
+
+        // What the refusal guards against: dnlib drops the handler when it reads such a body back.
+        var body = method.Body;
+        body.Instructions.Clear();
+        foreach (var ins in new[] { tryStart, I(OpCodes.Newobj, ctor), I(OpCodes.Throw), end }) body.Instructions.Add(ins);
+        body.ExceptionHandlers[0].TryEnd = end;
+        body.ExceptionHandlers[0].HandlerStart = end;
+        using var module = ModuleDefMD.Load(lab.Write());
+        Assert.Empty(module.Find("Lab.P", false)!.FindMethod("Run").Body.ExceptionHandlers);
+    }
 }

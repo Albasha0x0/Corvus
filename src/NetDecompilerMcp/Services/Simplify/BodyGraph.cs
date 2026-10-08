@@ -161,6 +161,10 @@ internal sealed class BodyGraph
             { error = "exception handler boundary outside the body"; return (null, error); }
             if (IndexOf(eh.TryStart) >= IndexOrEnd(eh.TryEnd) || IndexOf(eh.HandlerStart) >= IndexOrEnd(eh.HandlerEnd))
             { error = "empty protected region"; return (null, error); }
+            // Valid IL, but dnlib (4.5) reads a region ending at the end of the code as ending at the last instruction's
+            // offset, and drops a one-instruction handler there: the body would not read back as written.
+            if (eh.HandlerEnd == null && IndexOf(eh.HandlerStart) == Instructions.Count - 1)
+            { error = "a one-instruction handler ends the body (dnlib reads it back without the handler)"; return (null, error); }
         }
 
         var depth = Enumerable.Repeat(-1, Instructions.Count).ToArray();
