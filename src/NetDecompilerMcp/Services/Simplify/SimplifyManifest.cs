@@ -27,10 +27,12 @@ public enum FallbackReason
     MemoryLimit,
     TimeLimit,
 
+    // One rewrite skipped; the rest of the method is still simplified.
+    FlattenedShape,
+
     // Whole methods.
     OriginalUnverifiable,
     ResultUnverifiable,
-    FlattenedShape,
     Unexpected,
 }
 
@@ -62,9 +64,9 @@ public static class SimplifyManifest
         new(FallbackReason.InstructionBudget, "instruction-budget", "the evaluation, including nested calls and static constructors, executed more instructions than the budget allows, or the method's total budget ran out", Transient: true),
         new(FallbackReason.MemoryLimit, "memory-limit", "the evaluation allocated more simulated memory (arrays, strings, builders) than the limit", Transient: true),
         new(FallbackReason.TimeLimit, "time-limit", "simplifying the method took longer than its time limit; the method is left unchanged", Transient: true),
+        new(FallbackReason.FlattenedShape, "flattened-shape", "flattened control flow (a loop over a switch on a state local) that is not in the clean form: the state's address is taken, it is read outside the dispatcher, a transition stores a state that is not a constant, or the dispatcher is entered another way; the dispatcher is kept as it is and the other passes still apply to the method"),
         new(FallbackReason.OriginalUnverifiable, "original-unverifiable", "the original body does not pass the stack verifier, so it is not rewritten"),
         new(FallbackReason.ResultUnverifiable, "result-unverifiable", "the rewritten body did not pass the stack verifier; the method is left unchanged"),
-        new(FallbackReason.FlattenedShape, "flattened-shape", "the method has flattened control flow (a loop over a switch on a state local) that is not in the clean form: the state's address is taken, it is read outside the dispatcher, a transition stores a state that is not a constant, or the dispatcher is entered another way; the method is left unchanged"),
         new(FallbackReason.Unexpected, "unexpected", "an unexpected error while reading or rewriting the body (malformed metadata or a defect); the method is left unchanged"),
     ];
 

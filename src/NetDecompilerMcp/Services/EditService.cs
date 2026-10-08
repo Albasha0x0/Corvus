@@ -391,9 +391,11 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
 
         var bailouts = changes.SelectMany(c => c.Bailouts.Select(b => $"{Format.MemberLabel(c.Method)} {b}")).ToList();
         AppendList(sb, "Not folded (evaluation bailed out; the call is kept):", bailouts);
+        var skipped = changes.SelectMany(c => c.Skipped.Select(s => $"{Format.MemberLabel(c.Method)} {s}")).ToList();
+        AppendList(sb, "Not rewritten (the code is kept; the other passes still apply):", skipped);
         var rejected = changes.Where(c => c.Rejected != null).Select(c => $"{Format.MemberLabel(c.Method)}: {c.Rejected}").ToList();
         AppendList(sb, "Left unchanged:", rejected);
-        if (changed.Count == 0 && bailouts.Count == 0 && rejected.Count == 0)
+        if (changed.Count == 0 && bailouts.Count == 0 && skipped.Count == 0 && rejected.Count == 0)
             sb.Append($"\nNothing to simplify in {total} method(s){(dryRun ? "" : "; no edit recorded")}.");
         return sb.ToString();
     }

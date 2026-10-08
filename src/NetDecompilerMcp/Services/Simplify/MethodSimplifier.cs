@@ -40,6 +40,8 @@ public sealed class MethodChange(MethodDef method)
     public List<string> Inlined { get; } = new();
     /// <summary>Calls of the module's own helpers that could not be evaluated (the call is kept).</summary>
     public List<Fallback> Bailouts { get; } = new();
+    /// <summary>Rewrites refused for a piece of the method, which is kept as it is; the other passes still apply.</summary>
+    public List<Fallback> Skipped { get; } = new();
     public int ConstantBranches { get; set; }
     public int CollapsedChains { get; set; }
     public int RemovedBlocks { get; set; }
@@ -146,7 +148,7 @@ public sealed class MethodSimplifier
     {
         var body = BodyGraph.Clone(original);
         var dead = new HashSet<Instruction>(); // instructions turned into nops by the passes; removed at the end
-        Fallback? unflattenFailure = null; // a flattened dispatcher not in the clean form, as of the last round
+        var unclean = new List<Fallback>(); // flattened dispatchers not in the clean form, as of the last round
         if (_options.Forwarders) InlineForwarders(method, body, change);
         if (_options.Fold) FoldStringCalls(body, dead, change);
         if (_options.ControlFlow)
@@ -157,7 +159,7 @@ public sealed class MethodSimplifier
                 bool changed = FoldBranches(body, dead, change);
                 changed |= RemoveNops(body, dead);
                 changed |= CollapseChains(body, change);
-                changed |= Unflatten(body, hasReturnValue, dead, change, out unflattenFailure);
+                changed |= Unflatten(body, hasReturnValue, dead, change, unclean);
                 changed |= SimplifyTryRegions(body, dead, hasReturnValue, change);
                 changed |= RemoveNops(body, dead);
                 changed |= RemoveUnreachable(body, dead, change);
@@ -167,8 +169,7 @@ public sealed class MethodSimplifier
             }
         }
         RemoveNops(body, dead);
-        if (unflattenFailure != null)
-            return new MethodChange(method) { InstructionsBefore = change.InstructionsBefore, Rejected = unflattenFailure };
+        change.Skipped.AddRange(unclean);
         AfterPasses?.Invoke(body);
 
         if (!change.HasEffects) return change;
@@ -411,12 +412,12 @@ public sealed class MethodSimplifier
     /// Flattened control flow: a loop whose body is a switch over a state local, each case storing the next state as a
     /// constant and branching back to the switch. Only the clean form (<see cref="PlanUnflatten"/>) is rewritten: every
     /// transition goes straight to the case its state selects, the constant stores are deleted, and the dispatcher, no
-    /// longer entered, is removed as unreachable code. A dispatcher in any other form is returned in
-    /// <paramref name="unclean"/>; the caller then leaves the whole method unchanged.
+    /// longer entered, is removed as unreachable code. A dispatcher in any other form is kept as it is and listed in
+    /// <paramref name="unclean"/> (refilled on every call); the other passes still apply to the method.
     /// </summary>
-    private bool Unflatten(CilBody body, bool hasReturnValue, HashSet<Instruction> dead, MethodChange change, out Fallback? unclean)
+    private bool Unflatten(CilBody body, bool hasReturnValue, HashSet<Instruction> dead, MethodChange change, List<Fallback> unclean)
     {
-        unclean = null;
+        unclean.Clear();
         bool changed = false;
         foreach (var sw in body.Instructions.Where(i => i.OpCode.Code == Code.Switch).ToList())
         {
@@ -429,7 +430,7 @@ public sealed class MethodSimplifier
             if (plan == null)
             {
                 if (why != null)
-                    unclean ??= new(FallbackReason.FlattenedShape, $"switch dispatcher at {At(head!)}: {why}; the method is left unchanged");
+                    unclean.Add(new(FallbackReason.FlattenedShape, $"switch dispatcher at {At(head!)}: {why}; the dispatcher is kept"));
                 continue;
             }
             foreach (var ins in plan.Dead) MakeDead(ins, dead);

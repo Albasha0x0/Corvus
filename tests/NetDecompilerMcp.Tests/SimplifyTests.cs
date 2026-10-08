@@ -418,20 +418,21 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void ComputedStateLeavesTheMethodByteIdentical()
+    public void ComputedStateKeepsTheDispatcher()
     {
+        // Nothing else in Dynamic simplifies, so keeping the dispatcher leaves the method as it was.
         using var env = new Env(FlatFixture());
         var before = Il(env, "Flat.Steps::Dynamic");
         var report = Simplify(env, "Flat.Steps::Dynamic");
         Assert.Contains("0 of 1 method(s) changed", report);
-        Assert.Matches(@"Flat\.Steps::Dynamic\(int\): switch dispatcher at IL_\w{4}: the state stored at IL_\w{4} is not a constant that selects a case; " +
-                       @"the method is left unchanged \[flattened-shape\]", report);
+        Assert.Matches(@"Flat\.Steps::Dynamic\(int\) switch dispatcher at IL_\w{4}: the state stored at IL_\w{4} is not a constant that selects a case; " +
+                       @"the dispatcher is kept \[flattened-shape\]", report);
         Assert.Equal(before, Il(env, "Flat.Steps::Dynamic"));
         Assert.Empty(env.Fixture.Edits);
-        Assert.Same(env.Fixture.OriginalBytes, env.Fixture.GetImageBytes());
 
         var preview = env.Workspace.Read(() => env.Decompiler.DecompileSimplified(env.Fixture, [env.One("Flat.Steps::Dynamic").Member], new SimplifyOptions(), default));
         Assert.Contains("0 of 1 method(s) simplified", preview);
+        Assert.Contains("1 switch dispatcher(s) kept", preview);
     }
 
     [Fact]
@@ -450,16 +451,38 @@ public sealed class SimplifyTests : IDisposable
     [InlineData("AddressTaken", @"the address of the state local is taken at IL_\w{4}")]
     [InlineData("ReadElsewhere", @"the state local is read at IL_\w{4}, outside the dispatcher")]
     [InlineData("CondEntry", @"IL_\w{4} enters the dispatcher by a conditional branch, switch or leave")]
-    public void FlattenedCodeOutsideTheCleanFormIsLeftByteIdentical(string method, string why)
+    public void DispatcherOutsideTheCleanFormIsKept(string method, string why)
     {
-        // ReadElsewhere also has a constant branch the cfg pass would fold: the method is still left as it is.
         using var env = new Env(FlowFixture());
-        var before = Il(env, "Paths.Flow::" + method);
         var report = Simplify(env, "Paths.Flow::" + method);
-        Assert.Contains($"Paths.Flow::{method}", report);
-        Assert.Matches($@": {why}; the method is left unchanged \[flattened-shape\]", report);
-        Assert.Equal(before, Il(env, "Paths.Flow::" + method));
-        Assert.Empty(env.Fixture.Edits);
+        Assert.Contains("Not rewritten (the code is kept; the other passes still apply):", report);
+        Assert.Matches($@"Paths\.Flow::{method}\(\w*\) switch dispatcher at IL_\w{{4}}: {why}; the dispatcher is kept \[flattened-shape\]", report);
+        Assert.Single(Body(env, "Paths.Flow::" + method), i => i.OpCode.Code == Code.Switch);
+    }
+
+    [Fact]
+    public void DispatcherOutsideTheCleanFormKeepsTheOtherSimplifications()
+    {
+        // Mixed: the state is read in a case, so its dispatcher stays; the string fold, the forwarder call and the
+        // constant branch around it are simplified as in any other method.
+        using var env = new Env(FlowFixture());
+        var report = Simplify(env, "Paths.Flow::Mixed");
+        Assert.Contains("1 of 1 method(s) changed", report);
+        Assert.Contains("-> \"ab\"", report);
+        Assert.Contains("inlined Paths.Flow::PlainW(int) -> Paths.Flow::Plain(int)", report);
+        Assert.Contains("folded 1 constant branch(es)", report);
+        Assert.Matches(@"Paths\.Flow::Mixed\(int\) switch dispatcher at IL_\w{4}: the state local is read at IL_\w{4}, outside the dispatcher; " +
+                       @"the dispatcher is kept \[flattened-shape\]", report);
+
+        var code = Body(env, "Paths.Flow::Mixed");
+        Assert.Single(code, i => i.OpCode.Code == Code.Switch);
+        Assert.DoesNotContain(code, i => i.Operand is IMethod { Name.String: "PlainW" or "Concat" });
+        Assert.Contains(code, i => i.OpCode.Code == Code.Ldstr && "ab".Equals(i.Operand));
+        Assert.DoesNotContain(code, i => i.IsLdcI4() && i.GetLdcI4Value() == 99); // the branch that skipped it is gone
+
+        var image = env.Fixture.GetImageBytes();
+        foreach (var x in new[] { 0, 5, -9 })
+            Assert.Equal(Run(env.Fixture.OriginalBytes, "Paths.Flow", "Mixed", x), Run(image, "Paths.Flow", "Mixed", x));
     }
 
     [Fact]
@@ -655,7 +678,7 @@ public sealed class SimplifyTests : IDisposable
     [
         ("ConstIf", []), ("Switch", []), ("Dead", [0]), ("Dead", [5]), ("Chain", [0]), ("Chain", [1]),
         ("Guarded", []), ("EmptyFinally", [41]), ("DeadCatch", []), ("Keyed", [4]), ("Keyed", [-1]), ("AddressTaken", []),
-        ("ReadElsewhere", [5]), ("CondEntry", [0]), ("CondEntry", [3]), ("LocalSwitch", [1]),
+        ("ReadElsewhere", [5]), ("CondEntry", [0]), ("CondEntry", [3]), ("LocalSwitch", [1]), ("Mixed", [5]),
     ];
 
     /// <summary>Methods whose control flow only an IL writer (or an obfuscator) would produce.</summary>
@@ -853,10 +876,31 @@ public sealed class SimplifyTests : IDisposable
                 OpCodes.Switch.ToInstruction(new[] { c0, c1 }), Ldc(-1), Ret(), c0, Ret(), c1, Ret());
         }
         // Plain: nothing to simplify.
+        var plain = Method("Plain", i4);
+        Emit(plain.Body, OpCodes.Ldarg_0.ToInstruction(), Ldc(1), OpCodes.Add.ToInstruction(), Ret());
+        // PlainW: a forwarder to Plain.
+        var plainW = Method("PlainW", i4);
+        Emit(plainW.Body, OpCodes.Ldarg_0.ToInstruction(), OpCodes.Call.ToInstruction(plain), Ret());
+        // Mixed: x + 3 through a dispatcher whose state is read in a case (not the clean form), around a constant
+        // branch, a forwarder call and a string fold: x = PlainW(x) in case 0, then "ab".Length + x in case 1.
         {
-            var m = Method("Plain", i4);
+            var m = Method("Mixed", i4);
             var b = m.Body;
-            Emit(b, OpCodes.Ldarg_0.ToInstruction(), Ldc(1), OpCodes.Add.ToInstruction(), Ret());
+            b.InitLocals = true;
+            var state = new Local(i4);
+            b.Variables.Add(state);
+            var head = OpCodes.Ldloc.ToInstruction(state);
+            Instruction c0 = Ldc(1), c1 = OpCodes.Ldloc.ToInstruction(state), work = OpCodes.Ldarg_0.ToInstruction();
+            var concat = module.Import(typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]));
+            var length = module.Import(typeof(string).GetProperty(nameof(string.Length))!.GetGetMethod());
+            Emit(b, Ldc(0), OpCodes.Stloc.ToInstruction(state),
+                head, OpCodes.Switch.ToInstruction(new[] { c0, c1 }), Ldc(-1), Ret(),
+                c0, OpCodes.Brtrue.ToInstruction(work), Ldc(99), Ret(),
+                work, OpCodes.Call.ToInstruction(plainW), OpCodes.Starg.ToInstruction(m.Parameters[0]),
+                Ldc(1), OpCodes.Stloc.ToInstruction(state), OpCodes.Br.ToInstruction(head),
+                c1, OpCodes.Pop.ToInstruction(), OpCodes.Ldstr.ToInstruction("a"), OpCodes.Ldstr.ToInstruction("b"),
+                OpCodes.Call.ToInstruction(concat), OpCodes.Callvirt.ToInstruction(length), OpCodes.Ldarg_0.ToInstruction(),
+                OpCodes.Add.ToInstruction(), Ret());
         }
 
         using var ms = new MemoryStream();

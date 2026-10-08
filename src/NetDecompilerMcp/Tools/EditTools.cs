@@ -175,7 +175,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
                  "subset (I/O, reflection, exceptions, instance objects, native code, mutable statics) or over the depth / instruction budget are kept and reported. " +
                  "cfg: branches on constant conditions are folded, branch-to-branch chains collapsed, flattened control flow (a loop over a switch on a state " +
                  "local whose cases store the next state as a constant) unflattened so each case flows into the next — only in that clean form; any other " +
-                 "flattened method is left unchanged and reported (flattened-shape) —, empty try/finally and dead handlers " +
+                 "dispatcher is kept and reported (flattened-shape) while the rest of the method is still simplified —, empty try/finally and dead handlers " +
                  "removed, unreachable code deleted. " +
                  "inline: call sites of forwarders (methods that only pass their arguments on to another method) call the real target; " +
                  "virtually dispatched wrappers and inaccessible targets are skipped. " +
