@@ -111,8 +111,7 @@ public sealed class SimplifySweepTests(ITestOutputHelper output)
                 $"| {entry.Origin} | {entry.Name} | {o.Methods:N0} | {o.Changed:N0} | {changed.Sum(c => c.Folded.Count):N0} | " +
                 $"{changed.Sum(c => c.ConstantBranches):N0} | {changed.Sum(c => c.Dispatchers):N0} | {fallbacks} | {ms:N0} | {totalMs:N0} | " +
                 $"{totalMs / Math.Max(o.Methods, 1):0.000} | {o.Slowest.Method} {o.Slowest.Time.TotalMilliseconds:0} ms | " +
-                $"{(o.Problems.Count == 0 ? "ok" : $"{o.Problems.Count} problem(s)")}" +
-                $"{(o.InvalidOriginalsReencoded > 0 ? $" ({o.InvalidOriginalsReencoded:N0} invalid original bodies re-encoded by the writer)" : "")} |"));
+                $"{(o.Problems.Count == 0 ? "ok" : $"{o.Problems.Count} problem(s)")} |"));
         }
         return sb.ToString();
     }

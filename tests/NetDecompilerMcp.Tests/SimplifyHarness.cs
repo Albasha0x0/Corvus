@@ -44,12 +44,6 @@ internal static class SimplifyHarness
         public byte[]? Image { get; init; }
         /// <summary>Crashes, limit overruns and round-trip mismatches; empty when the run is clean.</summary>
         public List<string> Problems { get; } = new();
-        /// <summary>
-        /// Untouched methods whose original body is not valid IL (empty, or failing the verifier) and came back
-        /// different: the writer re-encodes what it cannot represent. Not the engine's doing; reported, not failed.
-        /// </summary>
-        public int InvalidOriginalsReencoded { get; set; }
-
         public int Methods => Changes.Count;
         public int Changed => Changes.Count(c => c.Changed);
         public bool TimedOut(string method) => Changes.Any(c => c.Rejected?.Reason == FallbackReason.TimeLimit && Label(c.Method) == method);
@@ -112,8 +106,6 @@ internal static class SimplifyHarness
         // The image must contain the rewritten bodies and the untouched originals.
         foreach (var c in changes.Where(c => c.Changed)) c.Method.Body = c.NewBody!;
         var expected = methods.ToDictionary(m => m.MDToken.Raw);
-        var invalid = methods.Where(m => m.Body.Instructions.Count == 0).Select(m => m.MDToken.Raw)
-            .Concat(changes.Where(c => c.Rejected?.Reason == FallbackReason.OriginalUnverifiable).Select(c => c.Method.MDToken.Raw)).ToHashSet();
 
         byte[]? image = null;
         try
@@ -125,24 +117,20 @@ internal static class SimplifyHarness
             problems.Add($"save: {ex.GetType().Name}: {ex.Message}");
         }
         var total = Stopwatch.GetElapsedTime(start);
-        int reencoded = 0;
-        if (image != null) problems.AddRange(CheckImage(image, expected, invalid, changes, out reencoded));
+        if (image != null) problems.AddRange(CheckImage(image, expected, changes));
 
         var outcome = new Outcome
         {
             Name = asm.AssemblyName, Changes = changes, Elapsed = elapsed, Total = total, Slowest = slowest, Hungriest = hungriest, Image = image,
-            InvalidOriginalsReencoded = reencoded,
         };
         outcome.Problems.AddRange(problems);
         return outcome;
     }
 
     /// <summary>Reloads the image with dnlib and with the decompiler's reader; every body must be the one written.</summary>
-    private static IEnumerable<string> CheckImage(byte[] image, Dictionary<uint, MethodDef> expected, HashSet<uint> invalid,
-        List<MethodChange> changes, out int reencoded)
+    private static IEnumerable<string> CheckImage(byte[] image, Dictionary<uint, MethodDef> expected, List<MethodChange> changes)
     {
         var problems = new List<string>();
-        reencoded = 0;
         var rewritten = changes.Where(c => c.Changed).Select(c => c.Method.MDToken.Raw).ToHashSet();
         try
         {
@@ -154,11 +142,6 @@ internal static class SimplifyHarness
                 seen++;
                 var body = Describe(source.Body);
                 var actual = Describe(m.Body);
-                if (actual != body && invalid.Contains(m.MDToken.Raw))
-                {
-                    reencoded++;
-                    continue;
-                }
                 if (actual != body)
                 {
                     problems.Add($"reload: {Label(m)} differs from the body written{FirstDifference(body, actual)}");
@@ -171,10 +154,8 @@ internal static class SimplifyHarness
                     if (new BodyGraph(m.Body).Verify(hasReturn, out var error) == null) problems.Add($"reload: {Label(m)} does not verify: {error}");
                 }
             }
-            // An empty original body is written as no body at all.
-            int dropped = expected.Keys.Count(t => invalid.Contains(t) && expected[t].Body.Instructions.Count == 0 && !Reloaded(module, t));
-            reencoded += dropped;
-            int missing = expected.Count - seen - dropped;
+            // Untouched bodies keep their original bytes, invalid ones (empty, branches outside the code) included.
+            int missing = expected.Count - seen;
             if (missing != 0) problems.Add($"reload: {missing} method bodies missing");
         }
         catch (Exception ex)
@@ -201,8 +182,6 @@ internal static class SimplifyHarness
         }
         return problems;
     }
-
-    private static bool Reloaded(ModuleDefMD module, uint token) => module.ResolveToken(token) is MethodDef { HasBody: true };
 
     /// <summary>
     /// Methods whose bodies differ between two images of the same input; an empty list means the outputs agree method
