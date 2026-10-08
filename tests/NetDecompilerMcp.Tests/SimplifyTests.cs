@@ -502,6 +502,162 @@ public sealed class SimplifyTests : IDisposable
         Assert.DoesNotContain("Totals:", Simplify(env, "Flat.Steps::Run", Options("cfg"), dryRun: true));
     }
 
+    // ---- 2b. conditions constant through locals (the C# compiler does not propagate locals)
+
+    private const string PredsSource = """
+        namespace Preds
+        {
+            public static class P
+            {
+                private static readonly int Seed = 12;
+                private static int Mutable = 3;
+
+                public static int Local(int x)
+                {
+                    int k = 7;
+                    int m = k * k + k; // k stays a local: Roslyn keeps single-use locals on the stack
+                    if (m % 4 == 3) x += 100; else x -= 1;
+                    return x;
+                }
+
+                public static int Joined(int x)
+                {
+                    int k;
+                    if (x > 0) { k = 5; x++; } else { k = 5; x--; }
+                    if (k == 5) return x;
+                    return -x;
+                }
+
+                public static int Loop(int x)
+                {
+                    int k = 3;
+                    int acc = 0;
+                    for (int i = 0; i < 4; i++)
+                    {
+                        if (k > 2) acc += x; else acc -= x;
+                    }
+                    return acc;
+                }
+
+                public static int Selector(int x)
+                {
+                    int sel = (Seed ^ 10) - 4;
+                    switch (sel)
+                    {
+                        case 0: return x;
+                        case 1: return x * 2;
+                        case 2: return x * 3;
+                        default: return 0;
+                    }
+                }
+
+                public static int Wide(int x)
+                {
+                    long w = 1L << 40;
+                    double d = 0.5;
+                    if ((w >> 40) == 1 && d * 4 == 2.0) return x + 1;
+                    return x;
+                }
+
+                public static int Unknown(int x)
+                {
+                    int k = x & 1;
+                    if (k == 0) return 1;
+                    return 2;
+                }
+
+                public static int MutableRead(int x)
+                {
+                    if (Mutable == 3) return x;
+                    return -x;
+                }
+
+                public static int Differs(int x)
+                {
+                    int k = 1;
+                    if (x > 5) k = 2;
+                    if (k == 1) return 10;
+                    return 20;
+                }
+
+                public static int AddressTaken(int x)
+                {
+                    int k = 1;
+                    Bump(ref k, x);
+                    if (k == 1) return 10;
+                    return 20;
+                }
+
+                private static void Bump(ref int k, int by) => k += by;
+            }
+        }
+        """;
+
+    private string PredsFixture()
+    {
+        var path = _dir.File("Preds.dll");
+        if (!File.Exists(path)) File.WriteAllBytes(path, CompileRelease("Preds", PredsSource));
+        return path;
+    }
+
+    private static readonly int[] PredsInputs = [0, 1, 5, 6, -7, 1000];
+
+    [Theory]
+    [InlineData("Local", 1, "x += 100")]
+    [InlineData("Joined", 1, "-x")]
+    [InlineData("Loop", 1, "acc -= x")]
+    [InlineData("Selector", 1, "switch")]
+    [InlineData("Wide", 2, "return x;")]
+    public void ConditionsConstantThroughLocalsFold(string method, int branches, string gone)
+    {
+        using var env = new Env(PredsFixture());
+        var report = Simplify(env, "Preds.P::" + method, Options("cfg"));
+        Assert.Contains("1 of 1 method(s) changed", report);
+        Assert.Contains($"folded {branches} constant branch(es)", report);
+
+        Assert.DoesNotContain(Body(env, "Preds.P::" + method), i => i.OpCode.Code == Code.Switch);
+        Assert.DoesNotContain(gone, env.Decompile("Preds.P::" + method));
+
+        var image = env.Fixture.GetImageBytes();
+        foreach (var x in PredsInputs)
+            Assert.Equal(Run(env.Fixture.OriginalBytes, "Preds.P", method, x), Run(image, "Preds.P", method, x));
+    }
+
+    [Fact]
+    public void LocalsFoldedAwayLoseTheirStores()
+    {
+        using var env = new Env(PredsFixture());
+        var report = Simplify(env, "Preds.P::Local", Options("cfg"));
+        Assert.Contains("removed 1 dead store(s)", report);
+        Assert.DoesNotContain(Body(env, "Preds.P::Local"), i => i.IsStloc());
+        Assert.Equal("x--;\nreturn x;", Statements(env.Decompile("Preds.P::Local")));
+        Simplify(env, "Preds.P::Selector", Options("cfg"));
+        Assert.Equal("return x * 3;", Statements(env.Decompile("Preds.P::Selector")));
+    }
+
+    /// <summary>The method body's statements, one per line, without the signature and braces.</summary>
+    private static string Statements(string csharp)
+    {
+        var lines = csharp.ReplaceLineEndings("\n").Split('\n');
+        int open = Array.FindIndex(lines, l => l.Trim() == "{");
+        int close = Array.FindLastIndex(lines, l => l.Trim() == "}");
+        return string.Join("\n", lines[(open + 1)..close].Select(l => l.Trim()).Where(l => l.Length > 0));
+    }
+
+    [Theory]
+    [InlineData("Unknown")]
+    [InlineData("MutableRead")]
+    [InlineData("Differs")]
+    [InlineData("AddressTaken")]
+    public void ConditionsThatVaryStay(string method)
+    {
+        using var env = new Env(PredsFixture());
+        var before = Il(env, "Preds.P::" + method);
+        var report = Simplify(env, "Preds.P::" + method, Options("cfg"));
+        Assert.Contains("0 of 1 method(s) changed", report);
+        Assert.Equal(before, Il(env, "Preds.P::" + method));
+    }
+
     // ---- 3. forwarders
 
     [Fact]
@@ -891,8 +1047,8 @@ public sealed class SimplifyTests : IDisposable
         // PlainW: a forwarder to Plain.
         var plainW = Method("PlainW", i4);
         Emit(plainW.Body, OpCodes.Ldarg_0.ToInstruction(), OpCodes.Call.ToInstruction(plain), Ret());
-        // Mixed: x + 3 through a dispatcher whose state is read in a case (not the clean form), around a constant
-        // branch, a forwarder call and a string fold: x = PlainW(x) in case 0, then "ab".Length + x in case 1.
+        // Mixed: x + 4 through a dispatcher whose state is read in a case (not the clean form), around a constant
+        // branch, a forwarder call and a string fold: x = PlainW(x) in case 0, then x += state; "ab".Length + x in case 1.
         {
             var m = Method("Mixed", i4);
             var b = m.Body;
@@ -908,7 +1064,8 @@ public sealed class SimplifyTests : IDisposable
                 c0, OpCodes.Brtrue.ToInstruction(work), Ldc(99), Ret(),
                 work, OpCodes.Call.ToInstruction(plainW), OpCodes.Starg.ToInstruction(m.Parameters[0]),
                 Ldc(1), OpCodes.Stloc.ToInstruction(state), OpCodes.Br.ToInstruction(head),
-                c1, OpCodes.Pop.ToInstruction(), OpCodes.Ldstr.ToInstruction("a"), OpCodes.Ldstr.ToInstruction("b"),
+                c1, OpCodes.Ldarg_0.ToInstruction(), OpCodes.Add.ToInstruction(), OpCodes.Starg.ToInstruction(m.Parameters[0]),
+                OpCodes.Ldstr.ToInstruction("a"), OpCodes.Ldstr.ToInstruction("b"),
                 OpCodes.Call.ToInstruction(concat), OpCodes.Callvirt.ToInstruction(length), OpCodes.Ldarg_0.ToInstruction(),
                 OpCodes.Add.ToInstruction(), Ret());
         }

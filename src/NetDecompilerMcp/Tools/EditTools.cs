@@ -173,7 +173,9 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
                  "fold: calls that compute a string from constant inputs (string decryptors; char, array, StringBuilder, Encoding and Base64 helpers; " +
                  "nested helper calls of the same assembly) are run by a safe IL interpreter and replaced with the string literal. Calls outside the safe " +
                  "subset (I/O, reflection, exceptions, instance objects, native code, mutable statics) or over the depth / instruction budget are kept and reported. " +
-                 "cfg: branches on constant conditions are folded, branch-to-branch chains collapsed, flattened control flow (a loop over a switch on a state " +
+                 "cfg: branches and switches on constant conditions are folded, also when the condition is computed through locals and blocks " +
+                 "(constant propagation; readonly statics and calls with constant arguments are evaluated), and stores to locals left unread are removed; " +
+                 "branch-to-branch chains collapsed, flattened control flow (a loop over a switch on a state " +
                  "local whose cases store the next state as a constant) unflattened so each case flows into the next — only in that clean form; any other " +
                  "dispatcher is kept and reported (flattened-shape) while the rest of the method is still simplified —, empty try/finally and dead handlers " +
                  "removed, unreachable code deleted. " +

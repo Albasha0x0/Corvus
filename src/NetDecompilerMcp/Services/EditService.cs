@@ -384,6 +384,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
             if (c.Dispatchers > 0) flow.Add($"unflattened {c.Dispatchers} switch dispatcher(s) ({c.Transitions} transition(s) go straight to their case)");
             if (c.RemovedBlocks > 0) flow.Add($"removed {c.RemovedBlocks} unreachable block(s) ({c.RemovedInstructions} instructions)");
             if (c.RemovedHandlers > 0) flow.Add($"removed {c.RemovedHandlers} exception handler(s)");
+            if (c.RemovedStores > 0) flow.Add($"removed {c.RemovedStores} dead store(s)");
             if (flow.Count > 0) sb.Append("\n  ").Append(string.Join(", ", flow));
         }
         if (changed.Count > MaxReportedMethods)
@@ -420,6 +421,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         Add(changed.Sum(c => c.Dispatchers), $"dispatcher(s) unflattened ({changed.Sum(c => c.Transitions)} transition(s))");
         Add(changed.Sum(c => c.RemovedBlocks), "unreachable block(s) removed");
         Add(changed.Sum(c => c.RemovedHandlers), "handler(s) removed");
+        Add(changed.Sum(c => c.RemovedStores), "dead store(s) removed");
         var fallbacks = changes
             .SelectMany(c => c.Bailouts.Concat(c.Skipped).Select(f => f.Reason).Concat(c.Rejected is { } r ? [r.Reason] : Array.Empty<FallbackReason>()))
             .GroupBy(SimplifyManifest.CodeOf).OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal)

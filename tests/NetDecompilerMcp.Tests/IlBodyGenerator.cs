@@ -169,6 +169,7 @@ internal sealed class IlBodyGenerator
             case 18: TryFilter(depth, inProtected, noExit); break;
             case 19: DeadBlock(); break;
             case 20: OpaqueIf(depth, inProtected, noExit); break;
+            case 21: LocalConstantIf(depth, inProtected, noExit); break;
             default: Assign(); break;
         }
     }
@@ -318,6 +319,81 @@ internal sealed class IlBodyGenerator
     }
 
     /// <summary>if (Opaque() == 42): a call the evaluator can run.</summary>
+    /// <summary>
+    /// A condition that is the same on every run though computed through fresh locals: <c>k = c</c>, then statements
+    /// that leave k alone or an if / else whose arms both store c, then <c>m = k * a + b</c> (int32 or int64, or a xor),
+    /// and a comparison of m or a switch on <c>m &amp; 7</c>.
+    /// </summary>
+    private void LocalConstantIf(int depth, bool inProtected, bool noExit)
+    {
+        var k = NewLocal(VT.I4, pooled: false);
+        int value = _r.Next(-50, 50);
+        Ldc(value);
+        Op(OpCodes.Stloc, k);
+        if (_r.Next(2) == 0) Block(depth + 1, inProtected, noExit);
+        else
+        {
+            Label other = new(), joined = new();
+            Expr(VT.I4, 1);
+            Op(OpCodes.Brfalse, other);
+            Ldc(value);
+            Op(OpCodes.Stloc, k);
+            Op(OpCodes.Br, joined);
+            Mark(other);
+            Ldc(value);
+            Op(OpCodes.Stloc, k);
+            Mark(joined);
+        }
+
+        bool wide = _r.Next(2) == 0;
+        var m = NewLocal(wide ? VT.I8 : VT.I4, pooled: false);
+        int a = _r.Next(1, 9), b = _r.Next(-20, 20);
+        Op(OpCodes.Ldloc, k);
+        if (wide)
+        {
+            Op(OpCodes.Conv_I8);
+            Op(OpCodes.Ldc_I8, (long)a);
+            Op(OpCodes.Mul);
+            Op(OpCodes.Ldc_I8, (long)b);
+            Op(OpCodes.Add);
+        }
+        else
+        {
+            Ldc(a);
+            Op(OpCodes.Mul);
+            Ldc(b);
+            Op(_r.Next(2) == 0 ? OpCodes.Add : OpCodes.Xor);
+        }
+        Op(OpCodes.Stloc, m);
+
+        var skip = new Label();
+        if (!wide && _r.Next(3) == 0)
+        {
+            var cases = Enumerable.Range(0, _r.Next(2, 6)).Select(_ => new Label()).ToArray();
+            Op(OpCodes.Ldloc, m);
+            Ldc(7);
+            Op(OpCodes.And);
+            Op(OpCodes.Switch, cases);
+            Block(depth + 1, inProtected, noExit); // default
+            Op(OpCodes.Br, skip);
+            foreach (var c in cases)
+            {
+                Mark(c);
+                Block(depth + 1, inProtected, noExit);
+                Op(OpCodes.Br, skip);
+            }
+            Mark(skip);
+            return;
+        }
+        Op(OpCodes.Ldloc, m);
+        int bound = _r.Next(-100, 100);
+        if (wide) Op(OpCodes.Ldc_I8, (long)bound);
+        else Ldc(bound);
+        Op(Pick(new[] { OpCodes.Beq, OpCodes.Bne_Un, OpCodes.Blt, OpCodes.Bge, OpCodes.Bgt, OpCodes.Ble, OpCodes.Blt_Un, OpCodes.Bge_Un }), skip);
+        Block(depth + 1, inProtected, noExit);
+        Mark(skip);
+    }
+
     private void OpaqueIf(int depth, bool inProtected, bool noExit)
     {
         var skip = new Label();

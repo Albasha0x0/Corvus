@@ -47,6 +47,8 @@ public sealed class MethodChange(MethodDef method)
     public int RemovedBlocks { get; set; }
     public int RemovedInstructions { get; set; }
     public int RemovedHandlers { get; set; }
+    /// <summary>Stores to locals that the other passes left unread.</summary>
+    public int RemovedStores { get; set; }
     /// <summary>Switch dispatchers of flattened control flow removed: each transition goes straight to its case.</summary>
     public int Dispatchers { get; set; }
     public int Transitions { get; set; }
@@ -58,7 +60,7 @@ public sealed class MethodChange(MethodDef method)
 
     public bool Changed => NewBody != null;
 
-    public bool HasEffects => Folded.Count + Inlined.Count + ConstantBranches + CollapsedChains + RemovedBlocks + RemovedHandlers + Transitions > 0;
+    public bool HasEffects => Folded.Count + Inlined.Count + ConstantBranches + CollapsedChains + RemovedBlocks + RemovedHandlers + Transitions + RemovedStores > 0;
 }
 
 /// <summary>
@@ -67,7 +69,8 @@ public sealed class MethodChange(MethodDef method)
 /// <list type="number">
 /// <item>inline: call sites of forwarder methods (bodies that only pass their arguments on to another method) call the target directly;</item>
 /// <item>fold: calls producing a string from constant inputs are evaluated with <see cref="IlEvaluator"/> and replaced by ldstr;</item>
-/// <item>cfg: branches on constant conditions are folded, branch-to-branch chains collapsed, flattened switch dispatchers
+/// <item>cfg: branches on constant conditions are folded (also conditions computed through locals and blocks:
+/// <see cref="ConstantFlow"/>), stores to locals left unread removed, branch-to-branch chains collapsed, flattened switch dispatchers
 /// unflattened, empty try regions and handlers removed, and unreachable code deleted.</item>
 /// </list>
 /// Every rewritten body must pass <see cref="BodyGraph.Verify"/>; otherwise the method is reported and left unchanged.
@@ -78,6 +81,8 @@ public sealed class MethodSimplifier
     private readonly SimplifyOptions _options;
     private readonly IlEvaluator _evaluator;
     private readonly Forwarders _forwarders;
+    /// <summary>Calls and static reads of the method being simplified that the evaluator computed (they only produce their value).</summary>
+    private readonly HashSet<Instruction> _evaluated = new();
 
     public MethodSimplifier(ModuleDef module, SimplifyOptions options)
     {
@@ -147,8 +152,11 @@ public sealed class MethodSimplifier
     private MethodChange Rewrite(MethodDef method, CilBody original, bool hasReturnValue, MethodChange change, MethodMeter meter)
     {
         var body = BodyGraph.Clone(original);
+        _evaluated.Clear();
         var dead = new HashSet<Instruction>(); // instructions turned into nops by the passes; removed at the end
         var unclean = new List<Fallback>(); // flattened dispatchers not in the clean form, as of the last round
+        var readOriginally = body.Instructions
+            .Where(i => i.IsLdloc() || i.OpCode.Code is Code.Ldloca or Code.Ldloca_S).Select(i => i.GetLocal(body.Variables)).OfType<Local>().ToHashSet();
         if (_options.Forwarders) InlineForwarders(method, body, change);
         if (_options.Fold) FoldStringCalls(body, dead, change);
         if (_options.ControlFlow)
@@ -157,13 +165,16 @@ public sealed class MethodSimplifier
             {
                 meter.CheckTime();
                 bool changed = FoldBranches(body, dead, change);
+                changed |= PropagateConstants(body, hasReturnValue, dead, change, meter);
                 changed |= RemoveNops(body, dead);
                 changed |= CollapseChains(body, change);
                 changed |= Unflatten(body, hasReturnValue, dead, change, unclean);
                 changed |= SimplifyTryRegions(body, dead, hasReturnValue, change);
                 changed |= RemoveNops(body, dead);
                 changed |= RemoveUnreachable(body, dead, change);
+                changed |= RemoveDeadStores(body, readOriginally, dead, change);
                 changed |= DropBranchesToNext(body, dead);
+                changed |= RemovePurePops(body, dead);
                 changed |= RemoveNops(body, dead);
                 if (!changed) break;
             }
@@ -325,6 +336,136 @@ public sealed class MethodSimplifier
             }
             for (int k = start.Value + 1; k <= j; k++) MakeDead(code[k], dead);
             change.ConstantBranches++;
+            changed = true;
+        }
+        return changed;
+    }
+
+    /// <summary>
+    /// Branches and switches whose operands are the same on every run though computed across instructions, locals and
+    /// blocks (<see cref="ConstantFlow"/>) go straight to the code they select. The instructions computing the operands are
+    /// deleted when they only compute them (loads, arithmetic, evaluated calls and static reads right before the branch);
+    /// otherwise the branch pops them. Stores whose local is no longer read are removed afterwards (<see cref="RemoveDeadStores"/>).
+    /// </summary>
+    private bool PropagateConstants(CilBody body, bool hasReturnValue, HashSet<Instruction> dead, MethodChange change, MethodMeter meter)
+    {
+        if (!body.Instructions.Any(i => i.OpCode.FlowControl == FlowControl.Cond_Branch && !dead.Contains(i))) return false;
+        var graph = new BodyGraph(body);
+        if (graph.Verify(hasReturnValue, out _) == null) return false;
+        var flow = new ConstantFlow(body, graph, hasReturnValue, _evaluator);
+        var decisions = flow.Decisions(meter);
+        _evaluated.UnionWith(flow.Evaluated);
+        if (decisions.Count == 0) return false;
+
+        var code = body.Instructions;
+        var insertions = new List<(Instruction After, Instruction[] Code)>();
+        foreach (var (branch, next) in decisions)
+        {
+            int j = graph.IndexOf(branch);
+            branch.CalculateStackUsage(false, out _, out int pops);
+            bool falls = j + 1 < code.Count && next == code[j + 1];
+            if (OperandSlice(code, graph, j, pops, mayThrow: true) is { } start)
+            {
+                var head = code[start];
+                if (falls) MakeDead(head, dead);
+                else
+                {
+                    head.OpCode = OpCodes.Br;
+                    head.Operand = next;
+                }
+                for (int k = start + 1; k <= j; k++) MakeDead(code[k], dead);
+            }
+            else
+            {
+                // The operands stay computed (they may have effects); the branch only drops them.
+                branch.OpCode = OpCodes.Pop;
+                branch.Operand = null;
+                var after = Enumerable.Range(1, pops - 1).Select(_ => OpCodes.Pop.ToInstruction()).ToList();
+                if (!falls) after.Add(OpCodes.Br.ToInstruction(next));
+                if (after.Count > 0) insertions.Add((branch, after.ToArray()));
+            }
+            change.ConstantBranches++;
+        }
+        foreach (var (after, added) in insertions)
+        {
+            int at = code.IndexOf(after) + 1;
+            for (int k = 0; k < added.Length; k++) code.Insert(at + k, added[k]);
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Start of the run of instructions right before code[end] that pushes its <paramref name="needed"/> operands and
+    /// does nothing else, so that it can be deleted with code[end]: constants, loads of locals and arguments, arithmetic,
+    /// comparisons and conversions, and calls or static reads the evaluator computed; null when there is none.
+    /// <paramref name="mayThrow"/>: operations that throw for some operands (division, checked arithmetic and
+    /// conversions) are included, which is right only when their operands are known not to make them throw.
+    /// </summary>
+    private int? OperandSlice(IList<Instruction> code, BodyGraph graph, int end, int needed, bool mayThrow)
+    {
+        int i = end;
+        while (needed > 0)
+        {
+            if (--i < 0) return null;
+            var ins = code[i];
+            bool pure = ins.IsLdcI4() || ins.IsLdloc() || ins.IsLdarg() || ins.OpCode.Code is Code.Ldc_I8 or Code.Ldc_R4 or Code.Ldc_R8
+                or Code.Ldnull or Code.Ldstr or Code.Nop or Code.Dup || IsArithmetic(ins.OpCode.Code) && (mayThrow || !Throws(ins.OpCode.Code)) ||
+                (ins.OpCode.Code is Code.Call or Code.Callvirt or Code.Ldsfld && _evaluated.Contains(ins) && !(i > 0 && code[i - 1].OpCode.OpCodeType == OpCodeType.Prefix));
+            if (!pure) return null;
+            ins.CalculateStackUsage(false, out int pushes, out int pops);
+            needed -= pushes;
+            if (needed < 0) return null;
+            needed += pops;
+        }
+        for (int k = i + 1; k <= end; k++)
+            if (graph.Targets.Contains(code[k])) return null;
+        return i;
+    }
+
+    /// <summary>Arithmetic that throws for some operands: division and remainder, checked arithmetic and conversions, ckfinite.</summary>
+    private static bool Throws(Code op) => op is Code.Div or Code.Div_Un or Code.Rem or Code.Rem_Un or Code.Ckfinite
+        || op.ToOpCode().Name.Contains(".ovf", StringComparison.Ordinal);
+
+    private static bool IsArithmetic(Code op) => op is Code.Add or Code.Sub or Code.Mul or Code.Div or Code.Div_Un or Code.Rem or Code.Rem_Un
+        or Code.And or Code.Or or Code.Xor or Code.Shl or Code.Shr or Code.Shr_Un or Code.Add_Ovf or Code.Add_Ovf_Un or Code.Sub_Ovf
+        or Code.Sub_Ovf_Un or Code.Mul_Ovf or Code.Mul_Ovf_Un or Code.Neg or Code.Not or Code.Ckfinite
+        or Code.Ceq or Code.Cgt or Code.Cgt_Un or Code.Clt or Code.Clt_Un
+        or Code.Conv_I1 or Code.Conv_I2 or Code.Conv_I4 or Code.Conv_I8 or Code.Conv_U1 or Code.Conv_U2 or Code.Conv_U4 or Code.Conv_U8
+        or Code.Conv_I or Code.Conv_U or Code.Conv_R4 or Code.Conv_R8 or Code.Conv_R_Un
+        or Code.Conv_Ovf_I1 or Code.Conv_Ovf_I2 or Code.Conv_Ovf_I4 or Code.Conv_Ovf_I8 or Code.Conv_Ovf_U1 or Code.Conv_Ovf_U2
+        or Code.Conv_Ovf_U4 or Code.Conv_Ovf_U8 or Code.Conv_Ovf_I or Code.Conv_Ovf_U or Code.Conv_Ovf_I1_Un or Code.Conv_Ovf_I2_Un
+        or Code.Conv_Ovf_I4_Un or Code.Conv_Ovf_I8_Un or Code.Conv_Ovf_U1_Un or Code.Conv_Ovf_U2_Un or Code.Conv_Ovf_U4_Un
+        or Code.Conv_Ovf_U8_Un or Code.Conv_Ovf_I_Un or Code.Conv_Ovf_U_Un;
+
+    /// <summary>
+    /// Locals the passes left unread (the original body read them): their stores do nothing any more. A store whose value
+    /// is computed right before it without effects (<see cref="OperandSlice"/>, nothing that may throw) is deleted with
+    /// that computation; any other store pops its value instead.
+    /// </summary>
+    private bool RemoveDeadStores(CilBody body, HashSet<Local> readOriginally, HashSet<Instruction> dead, MethodChange change)
+    {
+        var code = body.Instructions;
+        var read = new HashSet<Local>();
+        foreach (var ins in code)
+            if ((ins.IsLdloc() || ins.OpCode.Code is Code.Ldloca or Code.Ldloca_S) && ins.GetLocal(body.Variables) is { } l) read.Add(l);
+        var unread = readOriginally.Where(l => !read.Contains(l)).ToHashSet();
+        if (unread.Count == 0) return false;
+        var graph = new BodyGraph(body);
+        bool changed = false;
+        for (int i = 0; i < code.Count; i++)
+        {
+            var store = code[i];
+            if (!store.IsStloc() || dead.Contains(store) || store.GetLocal(body.Variables) is not { } local || !unread.Contains(local)) continue;
+            if (OperandSlice(code, graph, i, 1, mayThrow: false) is { } start && !code.Skip(start).Take(i - start).Any(dead.Contains))
+            {
+                for (int k = start; k <= i; k++) MakeDead(code[k], dead);
+            }
+            else
+            {
+                store.OpCode = OpCodes.Pop;
+                store.Operand = null;
+            }
+            change.RemovedStores++;
             changed = true;
         }
         return changed;
@@ -801,6 +942,27 @@ public sealed class MethodSimplifier
                 for (int k = 1; k < pops; k++) code.Insert(i + 1, OpCodes.Pop.ToInstruction());
                 changed = true;
             }
+        }
+        return changed;
+    }
+
+    /// <summary>A pop right after a constant or a load (what folding leaves behind) is deleted with it.</summary>
+    private static bool RemovePurePops(CilBody body, HashSet<Instruction> dead)
+    {
+        var code = body.Instructions;
+        HashSet<Instruction>? targets = null;
+        bool changed = false;
+        for (int i = 1; i < code.Count; i++)
+        {
+            var pop = code[i];
+            var push = code[i - 1];
+            if (pop.OpCode.Code != Code.Pop || dead.Contains(pop) || dead.Contains(push)) continue;
+            if (!(push.IsLdcI4() || push.IsLdloc() || push.IsLdarg() || push.OpCode.Code is Code.Ldc_I8 or Code.Ldc_R4 or Code.Ldc_R8 or Code.Ldnull or Code.Ldstr))
+                continue;
+            if ((targets ??= new BodyGraph(body).Targets).Contains(pop)) continue;
+            MakeDead(push, dead);
+            MakeDead(pop, dead);
+            changed = true;
         }
         return changed;
     }
