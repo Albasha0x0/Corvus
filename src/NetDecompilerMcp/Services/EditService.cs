@@ -534,10 +534,12 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
     }
 
     /// <summary>
-    /// Writes the (edited) module. Refuses to overwrite the original file unless asked;
-    /// when overwriting, the original is first copied to &lt;file&gt;.bak.
+    /// Writes the (edited) module. Refuses to overwrite the original file unless asked; when overwriting, the original
+    /// is first copied to &lt;file&gt;.bak. Whatever no edit touched is written as in the original; the result lists what
+    /// could not be (and what is invalid in the original). <paramref name="strict"/>: refuse the save instead when
+    /// anything would be written differently without an edit asking for it. Nothing is written when the save fails.
     /// </summary>
-    public string Save(LoadedAssembly asm, string? outputPath, bool overwrite)
+    public string Save(LoadedAssembly asm, string? outputPath, bool overwrite, bool strict = false)
     {
         var target = Path.GetFullPath(string.IsNullOrWhiteSpace(outputPath)
             ? Path.Combine(Path.GetDirectoryName(asm.FilePath)!, Path.GetFileNameWithoutExtension(asm.FilePath) + ".patched" + Path.GetExtension(asm.FilePath))
@@ -546,6 +548,20 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         bool isOriginal = string.Equals(target, asm.FilePath, StringComparison.OrdinalIgnoreCase);
         if (File.Exists(target) && !overwrite)
             throw new ToolError($"{target} already exists. Pass overwrite=true to replace it{(isOriginal ? " (the original will be backed up to .bak)" : "")}.");
+
+        byte[] image;
+        SaveReport report;
+        try
+        {
+            (image, report) = asm.IsDirty ? asm.GetImage() : (asm.OriginalBytes, asm.SurveyOriginal());
+        }
+        catch (Exception ex) when (ex is not (ToolError or OperationCanceledException))
+        {
+            throw new ToolError($"Could not write {asm.Id}: {ex.GetType().Name}: {ex.Message.TrimEnd('.')}. Nothing was written.");
+        }
+        if (strict && report.HasChanges)
+            throw new ToolError($"Not saved (strict=true): {report.Changed.Count()} member(s) would be written differently from the original " +
+                                $"without an edit asking for it. Nothing was written; save without strict to accept the changes listed.{report.Describe()}");
 
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
         string? backup = null;
@@ -558,7 +574,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         var temp = target + ".tmp-" + Environment.ProcessId;
         try
         {
-            File.WriteAllBytes(temp, asm.GetImageBytes());
+            File.WriteAllBytes(temp, image);
             File.Move(temp, target, overwrite: true);
         }
         finally
@@ -566,6 +582,8 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
             if (File.Exists(temp)) File.Delete(temp);
         }
 
-        return $"Wrote {target} ({new FileInfo(target).Length:N0} bytes, {asm.Edits.Count} edit(s)).{(backup != null ? $" Original backed up to {backup}." : "")}";
+        var kept = asm.IsDirty ? "everything no edit touched is as in the original" : "no edits: the original bytes";
+        return $"Wrote {target} ({new FileInfo(target).Length:N0} bytes, {asm.Edits.Count} edit(s); {kept})." +
+               $"{(backup != null ? $" Original backed up to {backup}." : "")}{report.Describe()}";
     }
 }

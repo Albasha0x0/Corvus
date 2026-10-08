@@ -216,8 +216,9 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description(AssemblyDescription)] string assembly,
         [Description("Output file path. Omit for '<original>.patched.dll'.")] string? outputPath = null,
         [Description("Allow replacing an existing file.")] bool overwrite = false,
+        [Description("Refuse the save (writing nothing) when any member would be written differently from the original without an edit asking for it. Default: save and list them.")] bool strict = false,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
-            edits.Save(workspace.Get(assembly), outputPath, overwrite), cancellationToken);
+            edits.Save(workspace.Get(assembly), outputPath, overwrite, strict), cancellationToken);
 
     private static string Pending(LoadedAssembly asm, bool dryRun) => dryRun ? "" : $"\nUnsaved edits in {asm.Id}: {asm.Edits.Count}.";
 }

@@ -9,7 +9,7 @@ namespace NetDecompilerMcp.Core;
 /// <summary>
 /// A workspace assembly with two views of one in-memory image: a dnlib module (metadata, analysis, editing) and an
 /// ICSharpCode PEFile (decompilation). The file on disk is never locked. Edits are written with PreserveAll so
-/// metadata tokens stay identical across both views.
+/// metadata tokens stay identical across both views, and what no edit touched keeps its original bytes.
 /// </summary>
 public sealed class LoadedAssembly : IDisposable
 {
@@ -18,7 +18,10 @@ public sealed class LoadedAssembly : IDisposable
     private PEFile? _peFile;
     private int _peFileVersion = -1;
     private byte[]? _editedBytes;
+    private SaveReport? _editedReport;
     private int _editedBytesVersion = -1;
+    private RawImage? _rawOriginal;
+    private ModuleDefMD? _pristine;
     private LoadedAssembly? _originalView;
     private ModuleDefMD? _imageModule;
     private int _imageModuleVersion = -1;
@@ -117,19 +120,55 @@ public sealed class LoadedAssembly : IDisposable
     }
 
     /// <summary>The original bytes, or the edited module serialized and cached per <see cref="Version"/>.</summary>
-    public byte[] GetImageBytes()
+    public byte[] GetImageBytes() => GetImage().Bytes;
+
+    /// <summary>
+    /// The image with what writing it reported: the original bytes when there are no edits, else the edited module
+    /// written with everything no edit touched kept byte-for-byte (see <see cref="FaithfulWriter"/>). Cached per
+    /// <see cref="Version"/>. With no edits the report is empty; <see cref="SurveyOriginal"/> lists what is invalid.
+    /// </summary>
+    public (byte[] Bytes, SaveReport Report) GetImage()
     {
         lock (_sync)
         {
             if (!IsDirty)
-                return _originalBytes;
+                return (_originalBytes, SaveReport.Empty);
             if (_editedBytes == null || _editedBytesVersion != Version)
             {
-                _editedBytes = WriteToBytes();
+                using var ms = new MemoryStream();
+                _editedReport = Write(ms);
+                _editedBytes = ms.ToArray();
                 _editedBytesVersion = Version;
             }
-            return _editedBytes;
+            return (_editedBytes, _editedReport!);
         }
+    }
+
+    /// <summary>
+    /// What a save with no edits reports: the original is written as it is, so every listed member (invalid IL, bodies
+    /// that cannot be read, signatures that do not read back as stored) is kept byte-for-byte.
+    /// </summary>
+    public SaveReport SurveyOriginal()
+    {
+        lock (_sync)
+        {
+            try { return FaithfulWriter.Survey(Pristine(), RawOriginal); }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                return new SaveReport([new SaveIssue(SaveIssueReason.InvalidBody, 0, "module", $"the image's metadata cannot be read for a survey ({ex.Message}); it is written as it is")]);
+            }
+        }
+    }
+
+    internal RawImage RawOriginal
+    {
+        get { lock (_sync) return _rawOriginal ??= new RawImage(_originalBytes); }
+    }
+
+    /// <summary>A separate, never edited load of the original image: tells what edits changed.</summary>
+    private ModuleDefMD Pristine()
+    {
+        lock (_sync) return _pristine ??= ModuleDefMD.Load(_originalBytes);
     }
 
     /// <summary>
@@ -194,20 +233,22 @@ public sealed class LoadedAssembly : IDisposable
         return ms.ToArray();
     }
 
-    public void Write(Stream output)
+    /// <summary>
+    /// Writes the module with PreserveAll (tokens and heap offsets kept); bodies and signatures no edit touched keep
+    /// their original bytes. Returns what could not be kept and what is invalid in the original.
+    /// </summary>
+    public SaveReport Write(Stream output)
     {
-        if (Module.IsILOnly)
+        lock (_sync)
         {
-            var opts = new ModuleWriterOptions(Module) { Logger = DummyLogger.NoThrowInstance };
-            opts.MetadataOptions.Flags |= MetadataFlags.PreserveAll;
-            Module.Write(output, opts);
-        }
-        else
-        {
-            // Mixed-mode image: the native writer preserves native code and sections.
-            var opts = new NativeModuleWriterOptions(Module, optimizeImageSize: false) { Logger = DummyLogger.NoThrowInstance };
-            opts.MetadataOptions.Flags |= MetadataFlags.PreserveAll;
-            Module.NativeWrite(output, opts);
+            RawImage? original = null;
+            string? unreadable = null;
+            try { original = RawOriginal; }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                unreadable = ex.Message;
+            }
+            return FaithfulWriter.Write(Module, original, unreadable, Pristine, output);
         }
     }
 
@@ -221,6 +262,10 @@ public sealed class LoadedAssembly : IDisposable
             _originalView = null;
             _imageModule?.Dispose();
             _imageModule = null;
+            _pristine?.Dispose();
+            _pristine = null;
+            _rawOriginal?.Dispose();
+            _rawOriginal = null;
         }
         Module.Dispose();
     }
