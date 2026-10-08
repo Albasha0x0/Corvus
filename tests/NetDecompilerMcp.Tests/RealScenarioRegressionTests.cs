@@ -317,6 +317,15 @@ public sealed class RealScenarioRegressionTests
     }
 
     [Fact]
+    public void StaticConstructorDeclarationSaysStaticOnce()
+    {
+        var lab = new IlLab("Ctors");
+        var cctor = lab.StaticConstructor(lab.Type, IlLab.Ret());
+        Assert.Equal("private static P()", Format.Method(cctor));
+        Assert.Equal("static P()", Format.Method(cctor, withModifiers: false));
+    }
+
+    [Fact]
     public async Task MissingRequiredArgumentIsAClearToolError()
     {
         await using var client = await McpProtocolTests.StartServerAsync("--load", Env.FixturePath);
@@ -324,6 +333,16 @@ public sealed class RealScenarioRegressionTests
         var text = string.Join("\n", result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(c => c.Text));
         Assert.True(result.IsError);
         Assert.Equal("Missing required parameter 'member' for decompile_member.", text);
+    }
+
+    [Fact]
+    public void ADirectoryPassedForAFileGetsAnExplainingError()
+    {
+        using var dir = new TempDir();
+        using var env = new Env();
+        var inspection = new NetDecompilerMcp.Services.Analysis.InspectionService(env.Workspace);
+        var error = Assert.Throws<ToolError>(() => inspection.Summarize(null, dir.Path, default)).Message;
+        Assert.Contains("is a directory", error);
     }
 
     [Fact]

@@ -155,7 +155,7 @@ public static class Format
         }
         if (!m.IsConstructor)
             sb.Append(Type(m.ReturnType)).Append(' ');
-        sb.Append(m.IsConstructor ? (m.IsStatic ? "static " : "") + StripArity(m.DeclaringType.Name) : m.Name.String);
+        sb.Append(m.IsConstructor ? (m.IsStatic && !withModifiers ? "static " : "") + StripArity(m.DeclaringType.Name) : m.Name.String);
         if (m.GenericParameters.Count > 0)
             sb.Append('<').Append(string.Join(", ", m.GenericParameters.Select(g => g.Name.String))).Append('>');
         bool extension = withModifiers && m.IsStatic && m.Parameters.Any(p => p.IsNormalMethodParameter)

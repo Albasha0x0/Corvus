@@ -84,6 +84,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
     private static (string Full, byte[] Bytes) ReadFile(string path)
     {
         var full = Path.GetFullPath(path);
+        if (Directory.Exists(full)) throw new ToolError($"{full} is a directory; pass a file (list_assemblies with path lists the assemblies a folder or container holds).");
         if (!File.Exists(full)) throw new ToolError($"File not found: {full}");
         var length = new FileInfo(full).Length;
         if (length > Math.Min(Limits.MaxTotalBytes, Array.MaxLength)) throw new ToolError($"{full} is too large to analyze ({length:N0} bytes).");

@@ -23,7 +23,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         [Description("The old build (id, name or path).")] string oldAssembly,
         [Description("The new build (id, name or path).")] string newAssembly,
         [Description("Only types whose old or new full name starts with this.")] string? @namespace = null,
-        [Description("Member change kinds to include, comma-separated: renamed, signature, body, type, offset, address, added, removed. Default: all except address.")] string? changes = null,
+        [Description("Member change kinds to include, comma-separated: renamed, signature, body, type, offset, address, added, removed, or all. Default: all except address.")] string? changes = null,
         [Description("Also list the names of added and removed types (otherwise only counts).")] bool listAddedRemovedTypes = true,
         [Description("Also show compiler-generated types and members (closures, iterator / async state machines, backing fields, " +
                      "<PrivateImplementationDetails> data): they change with every recompile, so they are hidden and counted by default.")] bool includeCompilerGenerated = false,
@@ -35,6 +35,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         var newAsm = workspace.Get(newAssembly);
         var kinds = (changes?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? AllKinds.Where(k => k != "address").ToArray())
             .Select(k => k.ToLowerInvariant()).ToHashSet();
+        if (kinds.Remove("all")) kinds.UnionWith(AllKinds);
         foreach (var k in kinds.Where(k => !AllKinds.Contains(k)))
             throw new ToolError($"Unknown change kind '{k}'. Use: {string.Join(", ", AllKinds)}.");
 
