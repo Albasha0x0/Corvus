@@ -8,6 +8,49 @@ namespace NetDecompilerMcp.Tests;
 public sealed class RealScenarioRegressionTests
 {
     /// <summary>
+    /// A .NET 10 application that uses a .NET Standard library (Newtonsoft.Json netstandard2.0), as most real apps do.
+    /// netstandard resolves to the .NET Standard reference assembly, which defines System.Object itself next to the
+    /// runtime's System.Private.CoreLib: Roslyn then had no core library ("Predefined type 'System.Void' is not defined").
+    /// </summary>
+    private static string NetAppUsingNetStandardLibrary(TempDir dir)
+    {
+        var token = new PublicKeyToken("b03f5f7f11d50a3a");
+        var runtime = new AssemblyRefUser("System.Runtime", new Version(10, 0, 0, 0), token);
+        var module = new ModuleDefUser("NetApp.dll", Guid.NewGuid(), runtime)
+        {
+            Kind = ModuleKind.Dll,
+            RuntimeVersion = dnlib.DotNet.MD.MDHeaderRuntimeVersion.MS_CLR_40,
+        };
+        var assembly = new AssemblyDefUser("NetApp", new Version(1, 0, 0, 0));
+        assembly.Modules.Add(module);
+        var t = module.CorLibTypes;
+        var tfa = new TypeRefUser(module, "System.Runtime.Versioning", "TargetFrameworkAttribute", runtime);
+        assembly.CustomAttributes.Add(new CustomAttribute(new MemberRefUser(module, ".ctor", MethodSig.CreateInstance(t.Void, t.String), tfa),
+            [new CAArgument(t.String, ".NETCoreApp,Version=v10.0")]));
+
+        var newtonsoft = new AssemblyRefUser("Newtonsoft.Json", new Version(13, 0, 0, 0), new PublicKeyToken("30ad4fe6b2a6aeed"));
+        var serialize = new MemberRefUser(module, "SerializeObject", MethodSig.CreateStatic(t.String, t.Object),
+            new TypeRefUser(module, "Newtonsoft.Json", "JsonConvert", newtonsoft));
+        var program = new TypeDefUser("NetApp", "Program", t.Object.TypeDefOrRef)
+        {
+            Attributes = TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed | TypeAttributes.BeforeFieldInit,
+        };
+        module.Types.Add(program);
+        var run = new MethodDefUser("Run", MethodSig.CreateStatic(t.String, t.Object), MethodImplAttributes.IL | MethodImplAttributes.Managed,
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig);
+        run.ParamDefs.Add(new ParamDefUser("value", 1));
+        program.Methods.Add(run);
+        run.Body = new CilBody();
+        foreach (var i in new[] { OpCodes.Ldarg_0.ToInstruction(), OpCodes.Call.ToInstruction(serialize), OpCodes.Ret.ToInstruction() })
+            run.Body.Instructions.Add(i);
+
+        var path = dir.File("NetApp.dll");
+        module.Write(path);
+        File.Copy(RealPackages.Lib("newtonsoft.json", "13.0.4", "netstandard2.0", "Newtonsoft.Json.dll"), dir.File("Newtonsoft.Json.dll"));
+        return path;
+    }
+
+    /// <summary>
     /// find_references: a call to a constructor in an assembly that is not loaded or resolvable (a framework assembly
     /// of a single-file app, say) matched every other ".ctor()": dnlib's SigComparer ignores the declaring type unless
     /// asked. Found in a WinForms + WebView2 app, where WebView2's "new Container()" was listed as creating a view model.
@@ -106,5 +149,21 @@ public sealed class RealScenarioRegressionTests
         var text = string.Join("\n", result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(c => c.Text));
         Assert.True(result.IsError);
         Assert.Equal("Missing required parameter 'member' for decompile_member.", text);
+    }
+
+    [Fact]
+    public void CSharpPatchesCompileForANetAppThatUsesANetStandardLibrary()
+    {
+        using var dir = new TempDir();
+        using var env = new Env(NetAppUsingNetStandardLibrary(dir));
+        var added = env.Edit(() => env.Edits.AddTypesCSharp(env.Fixture,
+            "namespace Probe { public static class Added { public static string Hello() => \"hi\"; } }", dryRun: true, default));
+        Assert.Contains("compiled OK", added, StringComparison.OrdinalIgnoreCase);
+        var patched = env.Edit(() => env.Edits.PatchMethodCSharp(env.One("NetApp.Program::Run"),
+            "return Newtonsoft.Json.JsonConvert.SerializeObject(value) + \"!\";", dryRun: false, default));
+        Assert.StartsWith("patch C#", patched);
+        Assert.Contains("JsonConvert.SerializeObject(value) + \"!\"", env.Decompile("NetApp.Program::Run"));
+        var members = env.Edit(() => env.Edits.AddMembersCSharp(env.One("NetApp.Program"), "public static int Twice(int x) { return x * 2; }", dryRun: false, default));
+        Assert.DoesNotContain("failed", members);
     }
 }

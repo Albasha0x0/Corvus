@@ -31,6 +31,7 @@ public sealed partial class CSharpPatcher
     {
         missing = new List<string>();
         var references = new List<MetadataReference>();
+        var images = new List<(string Name, byte[] Image, string Path)>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         // References of each module resolve from its own folder first.
         var queue = new Queue<(ModuleDef Module, bool Owned, string Path)>();
@@ -39,6 +40,7 @@ public sealed partial class CSharpPatcher
         {
             if (!seen.Add(name)) { if (owned) module.Dispose(); return; }
             references.Add(MetadataReference.CreateFromImage(image));
+            images.Add((name, image, path));
             queue.Enqueue((module, owned, path));
         }
 
@@ -73,7 +75,53 @@ public sealed partial class CSharpPatcher
             }
             if (owned) module.Dispose();
         }
-        return references;
+        return SingleCoreLibrary(references, images);
+    }
+
+    /// <summary>
+    /// Roslyn takes the core library to be the one assembly without references that defines System.Object, and finds
+    /// none when there are two. A .NET target's closure has System.Private.CoreLib, while netstandard (and mscorlib)
+    /// resolve to reference assemblies that define every type themselves, for the decompiler's sake. For compiling,
+    /// such duplicates are replaced by the facade of the same name next to the core library, or dropped.
+    /// </summary>
+    private static List<MetadataReference> SingleCoreLibrary(List<MetadataReference> references, List<(string Name, byte[] Image, string Path)> images)
+    {
+        var cores = Enumerable.Range(0, images.Count).Where(i => IsCoreLibrary(images[i].Image)).ToList();
+        if (cores.Count < 2) return references;
+        string[] preference = ["System.Private.CoreLib", "mscorlib", "System.Runtime", "netstandard"];
+        int Rank(int i) => Array.FindIndex(preference, n => string.Equals(n, images[i].Name, StringComparison.OrdinalIgnoreCase)) is var r and >= 0 ? r : preference.Length;
+        int keep = cores.OrderBy(Rank).First();
+        var dir = Path.GetDirectoryName(images[keep].Path);
+        var result = new List<MetadataReference>(references);
+        foreach (int i in cores.Where(i => i != keep).OrderByDescending(i => i))
+        {
+            var facade = dir == null ? null : Path.Combine(dir, images[i].Name + ".dll");
+            byte[]? bytes = null;
+            try { if (facade != null && File.Exists(facade)) bytes = File.ReadAllBytes(facade); }
+            catch (IOException) { }
+            if (bytes != null && !IsCoreLibrary(bytes)) result[i] = MetadataReference.CreateFromImage(bytes);
+            else result.RemoveAt(i);
+        }
+        return result;
+    }
+
+    /// <summary>Whether an image references no other assembly and defines System.Object.</summary>
+    private static bool IsCoreLibrary(byte[] image)
+    {
+        try
+        {
+            using var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(image, writable: false));
+            var md = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+            if (md.AssemblyReferences.Count != 0) return false;
+            foreach (var h in md.TypeDefinitions)
+            {
+                var t = md.GetTypeDefinition(h);
+                if (md.StringComparer.Equals(t.Name, "Object") && md.StringComparer.Equals(t.Namespace, "System")) return true;
+            }
+            return false;
+        }
+        catch (BadImageFormatException) { return false; }
+        catch (InvalidOperationException) { return false; }
     }
 
     private static string MemberName(SyntaxNode node) => node switch
