@@ -46,6 +46,17 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         {
             var target = workspace.LocateReference(r.Name, r.Version, r.PublicKeyOrToken?.Token?.Data, asm.FilePath, Frameworks.TargetsNetFramework(m), Frameworks.TargetFrameworkOf(m));
             var status = target?.Describe() ?? "not found";
+            // another major version than asked for (that framework or package version is not on this machine): the
+            // code is read against that version's API
+            // (.NET Framework 2.0-4.x references unify to the 4.x files by design: not a mismatch)
+            if (target?.File is { } file && r.Version is { } wanted && !Frameworks.IsWildcard(wanted)
+                && !(wanted.Major <= 4 && Frameworks.IsNetFrameworkAssembly(r.Name)))
+            {
+                Version? found = null;
+                try { found = System.Reflection.AssemblyName.GetAssemblyName(file).Version; } catch (Exception) { }
+                if (found != null && !Frameworks.IsWildcard(found) && found.Major != wanted.Major)
+                    status += $", version {found} (no {wanted.Major}.x on this machine)";
+            }
             sb.AppendLine($"  {r.FullName}  [{status}]");
         }
 
