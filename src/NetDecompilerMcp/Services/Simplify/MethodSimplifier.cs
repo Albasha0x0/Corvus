@@ -26,13 +26,20 @@ public sealed record SimplifyOptions(bool Fold = true, bool ControlFlow = true, 
     public string Describe() => string.Join(",", PassNames.Where((_, i) => new[] { Fold, ControlFlow, Forwarders }[i]));
 }
 
+/// <summary>A fallback: what was left alone, and why.</summary>
+public sealed record Fallback(FallbackReason Reason, string Detail)
+{
+    public override string ToString() => $"{Detail} [{SimplifyManifest.CodeOf(Reason)}]";
+}
+
 /// <summary>What the passes did to one method. <see cref="NewBody"/> is set when the method changed and the result verified.</summary>
 public sealed class MethodChange(MethodDef method)
 {
     public MethodDef Method { get; } = method;
     public List<string> Folded { get; } = new();
     public List<string> Inlined { get; } = new();
-    public List<string> Bailouts { get; } = new();
+    /// <summary>Calls of the module's own helpers that could not be evaluated (the call is kept).</summary>
+    public List<Fallback> Bailouts { get; } = new();
     public int ConstantBranches { get; set; }
     public int CollapsedChains { get; set; }
     public int RemovedBlocks { get; set; }
@@ -41,8 +48,8 @@ public sealed class MethodChange(MethodDef method)
     public int InstructionsBefore { get; set; }
     public int InstructionsAfter { get; set; }
     public CilBody? NewBody { get; set; }
-    /// <summary>Why the method was left alone although passes changed it (the result did not verify), or why it was skipped.</summary>
-    public string? Rejected { get; set; }
+    /// <summary>Why the method was left unchanged as a whole (it did not verify before or after, it took too long, or an error).</summary>
+    public Fallback? Rejected { get; set; }
 
     public bool Changed => NewBody != null;
 
@@ -75,6 +82,9 @@ public sealed class MethodSimplifier
         _forwarders = new Forwarders(module);
     }
 
+    /// <summary>Test hook: runs on the rewritten body before it is verified.</summary>
+    internal Action<CilBody>? AfterPasses { get; set; }
+
     public List<MethodChange> Run(IEnumerable<MethodDef> methods, CancellationToken ct)
     {
         var changes = new List<MethodChange>();
@@ -88,7 +98,7 @@ public sealed class MethodSimplifier
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                change = new MethodChange(m) { Rejected = $"skipped: {ex.GetType().Name}: {ex.Message}" }; // malformed body or metadata
+                change = new MethodChange(m) { Rejected = new(FallbackReason.Unexpected, $"{ex.GetType().Name}: {ex.Message}") };
             }
             if (change != null) changes.Add(change);
         }
@@ -106,11 +116,31 @@ public sealed class MethodSimplifier
 
         if (new BodyGraph(original).Verify(hasReturnValue, out var originalError) == null)
         {
-            change.Rejected = $"skipped: the original body does not verify ({originalError})";
+            change.Rejected = new(FallbackReason.OriginalUnverifiable, $"the original body does not verify ({originalError})");
             return change;
         }
 
-        _evaluator.InitializingType = method.IsStaticConstructor ? method.DeclaringType : null;
+        var meter = new MethodMeter(_options.EffectiveLimits);
+        _evaluator.CurrentMethod = method;
+        _evaluator.Meter = meter;
+        try
+        {
+            return Rewrite(method, original, hasReturnValue, change, meter);
+        }
+        catch (MethodTimeout ex)
+        {
+            var timedOut = new MethodChange(method) { InstructionsBefore = change.InstructionsBefore, Rejected = new(FallbackReason.TimeLimit, ex.Message) };
+            return timedOut;
+        }
+        finally
+        {
+            _evaluator.CurrentMethod = null;
+            _evaluator.Meter = null;
+        }
+    }
+
+    private MethodChange Rewrite(MethodDef method, CilBody original, bool hasReturnValue, MethodChange change, MethodMeter meter)
+    {
         var body = BodyGraph.Clone(original);
         var dead = new HashSet<Instruction>(); // instructions turned into nops by the passes; removed at the end
         if (_options.Forwarders) InlineForwarders(method, body, change);
@@ -119,6 +149,7 @@ public sealed class MethodSimplifier
         {
             for (int round = 0; round < 16; round++)
             {
+                meter.CheckTime();
                 bool changed = FoldBranches(body, dead, change);
                 changed |= RemoveNops(body, dead);
                 changed |= CollapseChains(body, change);
@@ -131,11 +162,12 @@ public sealed class MethodSimplifier
             }
         }
         RemoveNops(body, dead);
+        AfterPasses?.Invoke(body);
 
         if (!change.HasEffects) return change;
         if (new BodyGraph(body).Verify(hasReturnValue, out var error) == null)
         {
-            change.Rejected = $"the simplified body would not verify ({error}); left unchanged";
+            change.Rejected = new(FallbackReason.ResultUnverifiable, $"the simplified body would not verify ({error}); left unchanged");
             return change;
         }
         body.SimplifyBranches();
@@ -197,7 +229,7 @@ public sealed class MethodSimplifier
             {
                 // Reported for the assembly's own helpers; framework calls that cannot be evaluated are expected.
                 if (callee is MethodDef def && def.Module == _module)
-                    change.Bailouts.Add($"{At(call)} {Describe(callee)}: {ex.Message}");
+                    change.Bailouts.Add(new(ex.Reason, $"{At(call)} {Describe(callee)}: {ex.Message}"));
                 continue;
             }
 
@@ -296,7 +328,7 @@ public sealed class MethodSimplifier
         if (op == Code.Switch)
         {
             var targets = (IList<Instruction>)branch.Operand;
-            var index = operands[0] as int? ?? throw new EvaluationBailout("switch on a non-int32");
+            var index = operands[0] as int? ?? throw new EvaluationBailout(FallbackReason.InvalidCode, "switch on a non-int32");
             return (uint)index < (uint)targets.Count ? targets[index] : null;
         }
         bool taken = op switch

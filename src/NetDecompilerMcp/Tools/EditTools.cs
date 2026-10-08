@@ -176,7 +176,9 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
                  "cfg: branches on constant conditions are folded, branch-to-branch chains collapsed, empty try/finally and dead handlers removed, unreachable code deleted. " +
                  "inline: call sites of forwarders (methods that only pass their arguments on to another method) call the real target; " +
                  "virtually dispatched wrappers and inaccessible targets are skipped. " +
-                 "Scope: a method, a type (nested types included), or omit symbol for the whole assembly. Each rewritten body is stack-verified or left unchanged. " +
+                 "Scope: a method, a type (nested types included), or omit symbol for the whole assembly. Each rewritten body is stack-verified or left unchanged; " +
+                 "every call left alone and every method left unchanged is reported with a reason code (docs/simplify.md lists the evaluated instructions, " +
+                 "the limits and the codes). Limits: per-evaluation budget, per-method budget, 16 MB of simulated memory, 5 s per method. " +
                  "Persisted only by save_assembly. To preview the C# without editing, use decompile_member / decompile_type with simplified=true.")]
     public Task<string> SimplifyMethods(
         [Description("Method or type. " + SymbolDescription + " Omit to simplify every method of the assembly.")] string? symbol = null,

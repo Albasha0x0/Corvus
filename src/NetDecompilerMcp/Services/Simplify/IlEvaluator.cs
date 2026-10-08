@@ -1,14 +1,68 @@
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Text;
 using dnlib.DotNet;
 using dnlib.DotNet.Emit;
 
 namespace NetDecompilerMcp.Services.Simplify;
 
-/// <summary>Evaluation left the supported subset; the message says why.</summary>
-internal sealed class EvaluationBailout(string reason) : Exception(reason);
+/// <summary>Evaluation left the supported subset (see <see cref="SimplifyManifest"/>); the message says where.</summary>
+internal sealed class EvaluationBailout(FallbackReason reason, string message) : Exception(message)
+{
+    public FallbackReason Reason { get; } = reason;
 
-/// <summary>Limits of one evaluation: call depth (frames, the evaluated call itself included) and executed instructions.</summary>
-public sealed record EvaluationLimits(int MaxDepth = 8, int InstructionBudget = 100_000);
+    /// <summary>"message [code]", as reports show it.</summary>
+    public string Describe() => $"{Message} [{SimplifyManifest.CodeOf(Reason)}]";
+}
+
+/// <summary>
+/// Limits of the evaluator: call depth (frames, the evaluated call itself included), instructions per evaluation (nested
+/// calls and the static constructors they trigger included), instructions across all evaluations of one method,
+/// simulated allocations per evaluation, and the time one method may take across all passes.
+/// </summary>
+public sealed record EvaluationLimits(
+    int MaxDepth = 8,
+    int InstructionBudget = 100_000,
+    long MethodInstructionBudget = 5_000_000,
+    long MemoryLimit = 16 * 1024 * 1024,
+    int MethodTimeLimitMs = 5_000)
+{
+    public TimeSpan MethodTimeLimit => TimeSpan.FromMilliseconds(MethodTimeLimitMs);
+}
+
+/// <summary>Resources of simplifying one method, shared by its passes and every evaluation they run.</summary>
+internal sealed class MethodMeter(EvaluationLimits limits)
+{
+    private readonly long _start = Stopwatch.GetTimestamp();
+
+    public long InstructionsLeft { get; set; } = limits.MethodInstructionBudget;
+
+    public TimeSpan Elapsed => Stopwatch.GetElapsedTime(_start + _excluded);
+
+    /// <summary>Time spent on module-wide analysis, which is not the method's own work.</summary>
+    public IDisposable Exclude()
+    {
+        long start = Stopwatch.GetTimestamp();
+        return new Resume(() => _excluded += Stopwatch.GetTimestamp() - start);
+    }
+
+    private long _excluded;
+
+    private sealed class Resume(Action done) : IDisposable
+    {
+        public void Dispose() => done();
+    }
+
+    /// <summary>Throws <see cref="MethodTimeout"/> once the method's time limit has passed.</summary>
+    public void CheckTime()
+    {
+        if (Elapsed > limits.MethodTimeLimit)
+            throw new MethodTimeout($"simplifying the method took longer than its time limit of {limits.MethodTimeLimit.TotalSeconds:0.###} s");
+    }
+}
+
+/// <summary>The method's time limit passed: the method is left unchanged. Not an <see cref="EvaluationBailout"/>, so no pass absorbs it.</summary>
+internal sealed class MethodTimeout(string message) : Exception(message);
 
 /// <summary>
 /// Heap objects of the evaluator. Objects created by a static constructor are static state: later evaluations may read
@@ -29,52 +83,69 @@ internal sealed class BuilderObject : HeapObject
     public StringBuilder Text { get; } = new();
 }
 
+/// <summary>A struct of the module being simplified: a value, copied on every load and store.</summary>
+internal sealed class StructValue(TypeDef type, object?[] fields)
+{
+    public TypeDef Type { get; } = type;
+    public object?[] Fields { get; } = fields;
+
+    public StructValue Clone() => new(Type, Fields.Select(f => f is StructValue s ? s.Clone() : f).ToArray());
+
+    public bool HoldsObjects => Fields.Any(f => f is HeapObject || (f is StructValue s && s.HoldsObjects));
+}
+
 /// <summary>The result of ldtoken on a field (only consumed by RuntimeHelpers.InitializeArray).</summary>
 internal sealed record FieldHandle(FieldDef Field);
 
-/// <summary>A managed pointer to a local, an argument or an array element.</summary>
+/// <summary>A managed pointer to a local, an argument, an array element or a struct field. Reads return the stored value itself.</summary>
 internal sealed class Pointer(Func<object?> get, Action<object?> set)
 {
     public object? Get() => get();
     public void Set(object? value) => set(value);
 }
 
-/// <summary>Value of a slot whose type the evaluator does not model (structs, pointers); reading it bails out.</summary>
+/// <summary>Value of a slot whose type the evaluator does not model (structs of other modules, pointers); reading it bails out.</summary>
 internal sealed class Opaque
 {
     public static readonly Opaque Instance = new();
 }
 
 /// <summary>
-/// Interprets a safe subset of IL to compute values at analysis time: integer and floating-point arithmetic, bit
-/// operations, conversions, branches, locals, arrays of primitives and strings, read-only static fields (after running
-/// the static constructor), strings, StringBuilder, Encoding and Base64, and calls to static methods of the same module.
-/// Anything else (I/O, reflection, exceptions, instance objects, calli, native code) throws <see cref="EvaluationBailout"/>.
-/// Stack values: int (int32), long (int64 and native int), double (F), null, string and the heap types above.
-/// Static state computed by static constructors is cached for the evaluator's lifetime.
+/// Interprets the IL subset listed in <see cref="SimplifyManifest"/> to compute values at analysis time. Anything else
+/// throws <see cref="EvaluationBailout"/> with a <see cref="FallbackReason"/>.
+/// Stack values: int (int32), long (int64), nint (native int, int32 range), float / double (F), null, string, the heap
+/// types above, structs, pointers and Encoding instances. Static state computed by static constructors is cached for
+/// the evaluator's lifetime; failures caused by resource limits are not, so a later evaluation with budget left retries.
 /// </summary>
 internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits limits)
 {
     private const int MaxArrayLength = 1 << 20;
     private const int MaxStringLength = 1 << 20;
+    private const int TimeCheckInterval = 4096;
 
+    private readonly ModuleFacts _facts = new(module);
     private readonly Dictionary<FieldDef, object?> _statics = new();
-    private readonly Dictionary<TypeDef, string?> _initialized = new(); // null: initialized; otherwise why it failed
-    private readonly HashSet<TypeDef> _initializing = new();
+    private readonly Dictionary<TypeDef, EvaluationBailout?> _initialized = new(); // null: initialized; otherwise why it failed
+    private readonly List<TypeDef> _initializing = new();
     private readonly Dictionary<MethodDef, Dictionary<Instruction, int>> _indexes = new();
-    private int _budget;
+    private readonly Dictionary<TypeDef, StructLayout?> _layouts = new();
+    private long _budget;
+    private bool _methodBudgetBound; // the budget of this evaluation is what is left of the method's
     private int _depth;
     private int _cctorDepth;
+    private long _allocated;
+    private long _retained; // allocations of static constructors that completed: live static state
+    private int _sinceTimeCheck;
 
     private static readonly object Void = new();
 
     public EvaluationLimits Limits => limits;
 
-    /// <summary>
-    /// A type whose static constructor is the code being simplified: its static state is not known at that point (the
-    /// constructor is still running), so evaluations that need it bail out.
-    /// </summary>
-    public TypeDef? InitializingType { get; set; }
+    /// <summary>The method being simplified: code reading static state must not run during that state's initialization.</summary>
+    public MethodDef? CurrentMethod { get; set; }
+
+    /// <summary>The resources of the method being simplified; evaluations draw on its instruction budget and time.</summary>
+    public MethodMeter? Meter { get; set; }
 
     /// <summary>
     /// Runs a straight-line instruction sequence (no branches, arguments or locals) on an empty stack and returns the
@@ -82,17 +153,28 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
     /// </summary>
     public List<object?> EvaluateSlice(IList<Instruction> slice)
     {
-        _budget = limits.InstructionBudget;
+        long left = Meter?.InstructionsLeft ?? long.MaxValue;
+        _methodBudgetBound = left < limits.InstructionBudget;
+        long start = _budget = Math.Min(limits.InstructionBudget, left);
         _depth = 0;
+        _allocated = _retained;
         var frame = new Frame(null, slice, [], [], [], []);
         try
         {
             Interpret(frame, sliceMode: true);
         }
-        catch (Exception ex) when (ex is not (EvaluationBailout or OperationCanceledException))
+        catch (Exception ex) when (ex is InsufficientExecutionStackException)
+        {
+            throw Bail(FallbackReason.CallDepth, "nested calls exhaust the evaluator's stack");
+        }
+        catch (Exception ex) when (ex is not (EvaluationBailout or MethodTimeout or OperationCanceledException))
         {
             // Malformed operands or metadata in the evaluated code.
-            throw Bail($"evaluation failed ({ex.GetType().Name}: {ex.Message})");
+            throw Bail(FallbackReason.InvalidCode, $"evaluation failed ({ex.GetType().Name}: {ex.Message})");
+        }
+        finally
+        {
+            if (Meter != null) Meter.InstructionsLeft -= start - Math.Max(_budget, 0);
         }
         return frame.Stack;
     }
@@ -108,32 +190,36 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         public List<object?> Stack { get; } = new();
     }
 
-    private static EvaluationBailout Bail(string reason) => new(reason);
+    private static EvaluationBailout Bail(FallbackReason reason, string message) => new(reason, message);
 
     private object? Execute(MethodDef method, object?[] args)
     {
         if (_depth + 1 > limits.MaxDepth)
-            throw Bail($"call depth exceeds the limit of {limits.MaxDepth}");
+            throw Bail(FallbackReason.CallDepth, $"call depth exceeds the limit of {limits.MaxDepth}");
         if (method.Module != module)
-            throw Bail($"calls {Describe(method)} in another module");
-        if (method.IsPinvokeImpl || method.IsInternalCall || method.IsRuntime || method.IsNative || !method.HasBody)
-            throw Bail($"calls {Describe(method)}, which has no IL body (native or runtime code)");
+            throw Bail(FallbackReason.OtherModule, $"calls {Describe(method)} in another module");
+        if (method.IsPinvokeImpl || method.IsInternalCall || method.IsRuntime || method.IsNative || method.IsAbstract || !method.HasBody)
+            throw Bail(FallbackReason.NoBody, $"calls {Describe(method)}, which has no IL body (native or runtime code)");
         if (method.HasGenericParameters || method.DeclaringType.HasGenericParameters)
-            throw Bail($"calls generic {Describe(method)}");
+            throw Bail(FallbackReason.Generic, $"calls generic {Describe(method)}");
         var body = method.Body;
         if (body.HasExceptionHandlers)
-            throw Bail($"{Describe(method)} uses exception handling");
+            throw Bail(FallbackReason.ExceptionHandling, $"{Describe(method)} uses exception handling");
+        if (args.Length != method.Parameters.Count)
+            throw Bail(FallbackReason.InvalidCode, $"calls {Describe(method)} with {args.Length} argument(s)");
+        RuntimeHelpers.EnsureSufficientExecutionStack();
 
         var argSlots = method.Parameters.Select(p => SlotOf(p.Type)).ToArray();
         var actual = new object?[args.Length];
-        for (int i = 0; i < args.Length; i++) actual[i] = Store(argSlots[i], args[i]);
+        for (int i = 0; i < args.Length; i++) actual[i] = argSlots[i].Kind == Kind.Opaque ? Opaque.Instance : Store(argSlots[i], args[i]);
         var localSlots = body.Variables.Select(v => SlotOf(v.Type)).ToArray();
         var locals = localSlots.Select(Default).ToArray();
 
         _depth++;
         try
         {
-            return Interpret(new Frame(method, body.Instructions, actual, argSlots, locals, localSlots), sliceMode: false);
+            var result = Interpret(new Frame(method, body.Instructions, actual, argSlots, locals, localSlots), sliceMode: false);
+            return result == Void ? Void : Store(SlotOf(method.MethodSig.RetType), result);
         }
         finally
         {
@@ -150,14 +236,29 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         return index;
     }
 
+    private void Tick()
+    {
+        if (--_budget < 0)
+        {
+            throw _methodBudgetBound
+                ? Bail(FallbackReason.InstructionBudget, $"the method's total instruction budget of {limits.MethodInstructionBudget:N0} is exhausted")
+                : Bail(FallbackReason.InstructionBudget, $"instruction budget of {limits.InstructionBudget:N0} exhausted");
+        }
+        if (++_sinceTimeCheck >= TimeCheckInterval)
+        {
+            _sinceTimeCheck = 0;
+            Meter?.CheckTime();
+        }
+    }
+
     /// <summary>Runs a frame until ret (returns the value, or <see cref="Void"/>) or, in slice mode, the end of the code.</summary>
     private object? Interpret(Frame f, bool sliceMode)
     {
         var code = f.Code;
         var stack = f.Stack;
         Dictionary<Instruction, int>? index = null;
-        int Target(Instruction target) => (index ??= IndexOf(f)).TryGetValue(target, out int i) ? i : throw Bail("branch target outside the method");
-        object? Pop() => stack.Count > 0 ? Pop1(stack) : throw Bail("stack underflow");
+        int Target(Instruction target) => (index ??= IndexOf(f)).TryGetValue(target, out int i) ? i : throw Bail(FallbackReason.InvalidCode, "branch target outside the method");
+        object? Pop() => stack.Count > 0 ? Pop1(stack) : throw Bail(FallbackReason.InvalidCode, "stack underflow");
         void Push(object? v) => stack.Add(v);
 
         int pc = 0;
@@ -166,20 +267,22 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
             if (pc >= code.Count)
             {
                 if (sliceMode) return Void;
-                throw Bail($"execution runs past the end of {Describe(f.Method!)}");
+                throw Bail(FallbackReason.InvalidCode, $"execution runs past the end of {Describe(f.Method!)}");
             }
-            if (--_budget < 0)
-                throw Bail($"instruction budget of {limits.InstructionBudget:N0} exhausted");
+            Tick();
             var ins = code[pc++];
             var op = ins.OpCode.Code;
             switch (op)
             {
-                case Code.Nop:
+                case Code.Nop: case Code.Tailcall: case Code.Volatile: case Code.Unaligned: case Code.Readonly:
                     break;
 
                 case Code.Ldarg: case Code.Ldarg_S: case Code.Ldarg_0: case Code.Ldarg_1: case Code.Ldarg_2: case Code.Ldarg_3:
-                    Push(Load(f.Args, ArgIndex(f, ins)));
+                {
+                    int i = ArgIndex(f, ins);
+                    Push(Load(f.ArgSlots[i], f.Args[i]));
                     break;
+                }
                 case Code.Starg: case Code.Starg_S:
                 {
                     int i = ArgIndex(f, ins);
@@ -189,14 +292,15 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                 case Code.Ldarga: case Code.Ldarga_S:
                 {
                     int i = ArgIndex(f, ins);
-                    var args = f.Args;
-                    var slot = f.ArgSlots[i];
-                    Push(new Pointer(() => Load(args, i), v => args[i] = Store(slot, v)));
+                    Push(SlotPointer(f.Args, i, f.ArgSlots[i]));
                     break;
                 }
                 case Code.Ldloc: case Code.Ldloc_S: case Code.Ldloc_0: case Code.Ldloc_1: case Code.Ldloc_2: case Code.Ldloc_3:
-                    Push(Load(f.Locals, LocalIndex(f, ins)));
+                {
+                    int i = LocalIndex(f, ins);
+                    Push(Load(f.LocalSlots[i], f.Locals[i]));
                     break;
+                }
                 case Code.Stloc: case Code.Stloc_S: case Code.Stloc_0: case Code.Stloc_1: case Code.Stloc_2: case Code.Stloc_3:
                 {
                     int i = LocalIndex(f, ins);
@@ -206,9 +310,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                 case Code.Ldloca: case Code.Ldloca_S:
                 {
                     int i = LocalIndex(f, ins);
-                    var locals = f.Locals;
-                    var slot = f.LocalSlots[i];
-                    Push(new Pointer(() => Load(locals, i), v => locals[i] = Store(slot, v)));
+                    Push(SlotPointer(f.Locals, i, f.LocalSlots[i]));
                     break;
                 }
 
@@ -220,7 +322,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                     Push((long)ins.Operand);
                     break;
                 case Code.Ldc_R4:
-                    Push((double)(float)ins.Operand);
+                    Push((float)ins.Operand);
                     break;
                 case Code.Ldc_R8:
                     Push((double)ins.Operand);
@@ -235,7 +337,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                 {
                     var v = Pop();
                     Push(v);
-                    Push(v);
+                    Push(v is StructValue s ? s.Clone() : v);
                     break;
                 }
                 case Code.Pop:
@@ -252,21 +354,13 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                     break;
                 }
                 case Code.Neg:
-                    Push(Pop() switch
-                    {
-                        int i => unchecked(-i),
-                        long l => unchecked(-l),
-                        double d => -d,
-                        _ => throw Bail("neg on a non-number"),
-                    });
+                    Push(Numeric.Negate(Pop()));
                     break;
                 case Code.Not:
-                    Push(Pop() switch
-                    {
-                        int i => ~i,
-                        long l => ~l,
-                        _ => throw Bail("not on a non-integer"),
-                    });
+                    Push(Numeric.Not(Pop()));
+                    break;
+                case Code.Ckfinite:
+                    Push(Numeric.CheckFinite(Pop()));
                     break;
                 case Code.Ceq: case Code.Cgt: case Code.Cgt_Un: case Code.Clt: case Code.Clt_Un:
                 {
@@ -305,33 +399,47 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                 case Code.Switch:
                 {
                     var targets = (IList<Instruction>)ins.Operand;
-                    var value = Pop() as int? ?? throw Bail("switch on a non-int32 value");
+                    var value = Pop() as int? ?? throw Bail(FallbackReason.InvalidCode, "switch on a non-int32 value");
                     if ((uint)value < (uint)targets.Count) pc = Target(targets[value]);
                     break;
                 }
                 case Code.Ret:
-                    if (sliceMode) throw Bail("ret in a slice");
+                    if (sliceMode) throw Bail(FallbackReason.InvalidCode, "ret in a slice");
                     return HasReturnValue(f.Method!) ? Pop() : Void;
 
                 case Code.Newarr:
                 {
                     var length = Numeric.Index(Pop());
-                    if (length < 0) throw Bail("negative array length");
-                    if (length > MaxArrayLength) throw Bail($"array of {length:N0} elements is too large");
-                    Push(new ArrayObject(Array.CreateInstance(ElementClrType(((ITypeDefOrRef)ins.Operand).ToTypeSig()), (int)length)) { Shared = _cctorDepth > 0 });
+                    if (length < 0) throw Bail(FallbackReason.RuntimeError, "negative array length");
+                    if (length > MaxArrayLength) throw Bail(FallbackReason.MemoryLimit, $"array of {length:N0} elements is too large");
+                    var type = ElementClrType(((ITypeDefOrRef)ins.Operand).ToTypeSig());
+                    Push(NewArray(Array.CreateInstance(type, (int)length)));
                     break;
                 }
                 case Code.Ldlen:
-                    Push((long)ArrayOf(Pop()).Data.Length);
+                    Push((nint)ArrayOf(Pop()).Data.Length);
                     break;
                 case Code.Ldelem_I1: case Code.Ldelem_U1: case Code.Ldelem_I2: case Code.Ldelem_U2: case Code.Ldelem_I4: case Code.Ldelem_U4:
                 case Code.Ldelem_I8: case Code.Ldelem_I: case Code.Ldelem_R4: case Code.Ldelem_R8: case Code.Ldelem_Ref: case Code.Ldelem:
                 {
                     var i = Numeric.Index(Pop());
                     var array = ArrayOf(Pop());
-                    if ((ulong)i >= (ulong)array.Data.Length) throw Bail("array index out of range");
+                    CheckIndex(array, i);
                     var slot = op == Code.Ldelem ? SlotOf(((ITypeDefOrRef)ins.Operand).ToTypeSig()) : ElementSlot(op);
                     Push(Store(slot, NaturalElement(array.Data, (int)i)));
+                    break;
+                }
+                case Code.Ldelema:
+                {
+                    var at = Numeric.Index(Pop());
+                    var array = ArrayOf(Pop());
+                    CheckIndex(array, at);
+                    int i = (int)at;
+                    Push(new Pointer(() => NaturalElement(array.Data, i), v =>
+                    {
+                        RequireMutable(array);
+                        SetElement(array.Data, i, v);
+                    }));
                     break;
                 }
                 case Code.Stelem_I1: case Code.Stelem_I2: case Code.Stelem_I4: case Code.Stelem_I8: case Code.Stelem_I:
@@ -341,20 +449,54 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                     var i = Numeric.Index(Pop());
                     var array = ArrayOf(Pop());
                     RequireMutable(array);
-                    if ((ulong)i >= (ulong)array.Data.Length) throw Bail("array index out of range");
+                    CheckIndex(array, i);
                     SetElement(array.Data, (int)i, value);
                     break;
                 }
 
                 case Code.Ldind_I1: case Code.Ldind_U1: case Code.Ldind_I2: case Code.Ldind_U2: case Code.Ldind_I4: case Code.Ldind_U4:
                 case Code.Ldind_I8: case Code.Ldind_I: case Code.Ldind_R4: case Code.Ldind_R8: case Code.Ldind_Ref:
-                    Push(Store(IndirectSlot(op), PointerOf(Pop()).Get()));
+                    Push(Store(IndirectSlot(op), Known(PointerOf(Pop()).Get())));
                     break;
                 case Code.Stind_I1: case Code.Stind_I2: case Code.Stind_I4: case Code.Stind_I8: case Code.Stind_I:
                 case Code.Stind_R4: case Code.Stind_R8: case Code.Stind_Ref:
                 {
                     var value = Pop();
-                    PointerOf(Pop()).Set(value);
+                    PointerOf(Pop()).Set(Store(IndirectSlot(op), value));
+                    break;
+                }
+
+                case Code.Ldobj:
+                    Push(Store(SlotOf(((ITypeDefOrRef)ins.Operand).ToTypeSig()), Known(PointerOf(Pop()).Get())));
+                    break;
+                case Code.Stobj:
+                {
+                    var value = Pop();
+                    PointerOf(Pop()).Set(Store(SlotOf(((ITypeDefOrRef)ins.Operand).ToTypeSig()), value));
+                    break;
+                }
+                case Code.Initobj:
+                    PointerOf(Pop()).Set(Default(SlotOf(((ITypeDefOrRef)ins.Operand).ToTypeSig())));
+                    break;
+                case Code.Ldfld:
+                {
+                    var (s, k, slot) = FieldOf(Pop(), ins.Operand, viaPointerOnly: false);
+                    Push(Load(slot, s.Fields[k]));
+                    break;
+                }
+                case Code.Ldflda:
+                {
+                    var target = Pop();
+                    var (_, k, slot) = FieldOf(target, ins.Operand, viaPointerOnly: true);
+                    var parent = (Pointer)target!;
+                    Push(new Pointer(() => ((StructValue)parent.Get()!).Fields[k], v => ((StructValue)parent.Get()!).Fields[k] = Store(slot, v)));
+                    break;
+                }
+                case Code.Stfld:
+                {
+                    var value = Pop();
+                    var (s, k, slot) = FieldOf(Pop(), ins.Operand, viaPointerOnly: true);
+                    s.Fields[k] = Store(slot, value);
                     break;
                 }
 
@@ -365,16 +507,25 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                     StoreStatic((IField)ins.Operand, Pop());
                     break;
                 case Code.Ldtoken:
-                    Push(ins.Operand is FieldDef fd ? new FieldHandle(fd) : throw Bail("ldtoken of a type or method"));
+                    Push(ins.Operand is FieldDef fd ? new FieldHandle(fd) : throw Bail(FallbackReason.UnsupportedValue, "ldtoken of a type or method"));
                     break;
+
+                case Code.Isinst: case Code.Castclass:
+                {
+                    var v = Pop();
+                    bool matches = v == null || IsInstance(v, (ITypeDefOrRef)ins.Operand);
+                    if (!matches && op == Code.Castclass) throw Bail(FallbackReason.RuntimeError, $"invalid cast to {((ITypeDefOrRef)ins.Operand).FullName}");
+                    Push(matches ? v : null);
+                    break;
+                }
 
                 case Code.Call: case Code.Callvirt: case Code.Newobj:
                 {
                     var method = (IMethod)ins.Operand;
-                    var sig = method.MethodSig ?? throw Bail("call without a signature");
+                    var sig = method.MethodSig ?? throw Bail(FallbackReason.InvalidCode, "call without a signature");
                     int count = sig.Params.Count + (sig.HasThis && op != Code.Newobj ? 1 : 0);
-                    if (sig.ExplicitThis || sig.CallingConvention == CallingConvention.VarArg) throw Bail("vararg or explicit-this call");
-                    if (stack.Count < count) throw Bail("stack underflow");
+                    if (sig.ExplicitThis || sig.CallingConvention == CallingConvention.VarArg) throw Bail(FallbackReason.UnsupportedCall, "vararg or explicit-this call");
+                    if (stack.Count < count) throw Bail(FallbackReason.InvalidCode, "stack underflow");
                     var args = new object?[count];
                     for (int i = count - 1; i >= 0; i--) args[i] = Pop();
                     var result = Invoke(method, op, args);
@@ -382,8 +533,13 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                     break;
                 }
 
+                case Code.Throw: case Code.Rethrow:
+                    throw Bail(FallbackReason.ExceptionHandling, "the code throws an exception");
+                case Code.Box: case Code.Unbox: case Code.Unbox_Any:
+                    throw Bail(FallbackReason.UnsupportedValue, $"{ins.OpCode.Name}: boxed values are not modelled");
+
                 default:
-                    throw Bail($"unsupported instruction {ins.OpCode.Name}");
+                    throw Bail(FallbackReason.UnsupportedInstruction, $"unsupported instruction {ins.OpCode.Name}");
             }
         }
     }
@@ -395,26 +551,38 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         return v;
     }
 
-    private static object? Load(object?[] slots, int i) =>
-        slots[i] is Opaque ? throw Bail("reads a struct or pointer variable") : slots[i];
-
     private static int ArgIndex(Frame f, Instruction ins)
     {
         int i = ins.GetParameterIndex();
-        return i >= 0 && i < f.Args.Length ? i : throw Bail("argument access outside a method");
+        return i >= 0 && i < f.Args.Length ? i : throw Bail(FallbackReason.InvalidCode, "argument access outside a method");
     }
 
     private static int LocalIndex(Frame f, Instruction ins)
     {
-        if (f.Method == null) throw Bail("local access outside a method");
+        if (f.Method == null) throw Bail(FallbackReason.InvalidCode, "local access outside a method");
         var local = ins.GetLocal(f.Method.Body.Variables);
         int i = local?.Index ?? -1;
-        return i >= 0 && i < f.Locals.Length ? i : throw Bail("local access outside a method");
+        return i >= 0 && i < f.Locals.Length ? i : throw Bail(FallbackReason.InvalidCode, "local access outside a method");
     }
+
+    private Pointer SlotPointer(object?[] slots, int i, Slot slot) => new(() => slots[i], v => slots[i] = Store(slot, v));
 
     private static bool HasReturnValue(IMethod m) => m.MethodSig.RetType.RemovePinnedAndModifiers().ElementType != ElementType.Void;
 
     internal static string Describe(IMethod m) => $"{m.DeclaringType?.FullName}::{m.Name}({Core.Format.ParameterTypes(m.MethodSig)})";
+
+    // ---- type tests
+
+    private static bool IsInstance(object value, ITypeDefOrRef type) => type.FullName switch
+    {
+        "System.Object" => value is not (StructValue or Pointer or Opaque) && !Numeric.IsNumber(value)
+            ? true
+            : throw Bail(FallbackReason.InvalidCode, "type test of a value that is not a reference"),
+        "System.String" => value is string,
+        "System.Text.StringBuilder" => value is BuilderObject,
+        "System.Text.Encoding" => value is Encoding,
+        _ => throw Bail(FallbackReason.UnsupportedValue, $"type test against {type.FullName}"),
+    };
 
     // ---- static state
 
@@ -423,46 +591,75 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         if (field.FullName == "System.String System.String::Empty") return "";
         var fd = field as FieldDef;
         if (fd == null || fd.Module != module)
-            throw Bail($"reads static field {field.FullName} of another module");
-        if (!fd.IsStatic) throw Bail("ldsfld of an instance field");
-        if (_cctorDepth == 0 && !fd.IsInitOnly)
-            throw Bail($"reads mutable static field {fd.DeclaringType.FullName}::{fd.Name}");
-        EnsureInitialized(fd.DeclaringType);
-        return _statics.TryGetValue(fd, out var v) ? Load([v], 0) : Default(SlotOf(fd.FieldType));
+            throw Bail(FallbackReason.OtherModule, $"reads static field {field.FullName} of another module");
+        if (!fd.IsStatic) throw Bail(FallbackReason.InvalidCode, "ldsfld of an instance field");
+        if (fd.IsLiteral) throw Bail(FallbackReason.InvalidCode, $"ldsfld of the constant {fd.Name}");
+        var type = fd.DeclaringType;
+        if (type.HasGenericParameters) throw Bail(FallbackReason.Generic, $"static state of generic type {type.FullName}");
+        bool initializing = _initializing.Contains(type);
+        if (!initializing && !fd.IsInitOnly)
+            throw Bail(FallbackReason.MutableStatic, $"reads mutable static field {type.FullName}::{fd.Name}");
+        RequireSettledState(type);
+        EnsureInitialized(type);
+        var value = _statics.TryGetValue(fd, out var v) ? v : Default(SlotOf(fd.FieldType));
+        if (!initializing && value is HeapObject or StructValue { HoldsObjects: true } && !Frozen(fd))
+            throw Bail(FallbackReason.MutableStatic, $"the object in static field {type.FullName}::{fd.Name} may be modified by other code");
+        return Load(SlotOf(fd.FieldType), value);
+    }
+
+    private bool Frozen(FieldDef field)
+    {
+        using var analysis = Meter?.Exclude();
+        return _facts.IsFrozen(field);
     }
 
     private void StoreStatic(IField field, object? value)
     {
-        if (_cctorDepth == 0)
-            throw Bail($"writes static field {field.FullName}");
         var fd = field as FieldDef;
         if (fd == null || fd.Module != module || !fd.IsStatic)
-            throw Bail($"writes static field {field.FullName} of another module");
-        EnsureInitialized(fd.DeclaringType);
+            throw Bail(FallbackReason.OtherModule, $"writes static field {field.FullName} of another module");
+        if (!_initializing.Contains(fd.DeclaringType))
+            throw Bail(FallbackReason.MutableStatic, $"writes static field {fd.DeclaringType.FullName}::{fd.Name} outside its static constructor");
         _statics[fd] = Store(SlotOf(fd.FieldType), value);
     }
 
-    /// <summary>Calling a static method of a type without beforefieldinit runs its static constructor.</summary>
+    /// <summary>
+    /// The state of <paramref name="type"/> is partial while its static constructor runs. Reading it is sound only when the
+    /// code being evaluated cannot run then: neither the method being simplified nor a static constructor evaluated on its
+    /// behalf may be reachable from that constructor (unless the evaluator is running that constructor itself).
+    /// </summary>
+    private void RequireSettledState(TypeDef type)
+    {
+        if (_initializing.Contains(type)) return;
+        using var analysis = Meter?.Exclude();
+        if (CurrentMethod != null && _facts.RunsDuringInitialization(type, CurrentMethod))
+            throw Bail(FallbackReason.StaticInitializer, CurrentMethod.IsStaticConstructor && CurrentMethod.DeclaringType == type
+                ? $"needs the static state of {type.FullName} inside its own static constructor"
+                : $"needs the static state of {type.FullName}, and {Describe(CurrentMethod)} can run during its static constructor");
+        foreach (var outer in _initializing)
+            if (outer.FindStaticConstructor() is { } cctor && _facts.RunsDuringInitialization(type, cctor))
+                throw Bail(FallbackReason.StaticInitializer, $"the static constructor of {outer.FullName} can run during that of {type.FullName}");
+    }
+
+    /// <summary>Calling a static method of a type without beforefieldinit (or any member of such a struct) runs its static constructor.</summary>
     private void TriggerTypeInitializer(MethodDef method)
     {
+        // Reads of the type's state check RequireSettledState; the constructor's own run in the sandbox has no visible effect.
         if (!method.DeclaringType.IsBeforeFieldInit) EnsureInitialized(method.DeclaringType);
     }
 
     /// <summary>
-    /// Runs a type's static constructor once, with a fresh budget. If it cannot be evaluated, statics it wrote are rolled
-    /// back and every later access to the type bails out with the same reason.
+    /// Runs a type's static constructor once, on the current evaluation's budget. If it cannot be evaluated, statics it
+    /// wrote are rolled back and later accesses bail out with the same reason (unless a resource limit stopped it).
     /// </summary>
     private void EnsureInitialized(TypeDef type)
     {
-        if (type == InitializingType)
-            throw Bail($"needs the static state of {type.FullName} inside its own static constructor");
         if (_initialized.TryGetValue(type, out var failure))
         {
-            if (failure != null) throw Bail(failure);
+            if (failure != null) throw failure;
             return;
         }
         if (_initializing.Contains(type)) return; // recursive initialization sees the partially initialized type, as at run time
-        if (type.HasGenericParameters) throw Bail($"static state of generic type {type.FullName}");
         var cctor = type.FindStaticConstructor();
         if (cctor == null)
         {
@@ -471,118 +668,213 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         }
 
         var snapshot = new Dictionary<FieldDef, object?>(_statics);
-        var (budget, depth) = (_budget, _depth);
+        long allocatedBefore = _allocated;
         _initializing.Add(type);
         _cctorDepth++;
-        _budget = limits.InstructionBudget;
-        _depth = 0;
+        bool completed = false;
         try
         {
             Execute(cctor, []);
             _initialized[type] = null;
+            _retained += _allocated - allocatedBefore;
+            completed = true;
         }
         catch (EvaluationBailout ex)
         {
-            _statics.Clear();
-            foreach (var (k, v) in snapshot) _statics[k] = v;
-            var reason = $"static constructor of {type.FullName} cannot be evaluated: {ex.Message}";
-            _initialized[type] = reason;
-            throw Bail(reason);
+            var reason = Bail(ex.Reason is FallbackReason.CallDepth or FallbackReason.InstructionBudget or FallbackReason.MemoryLimit
+                    ? ex.Reason
+                    : FallbackReason.StaticInitializer,
+                $"static constructor of {type.FullName} cannot be evaluated: {ex.Message}");
+            if (!SimplifyManifest.Info(ex.Reason).Transient) _initialized[type] = reason;
+            throw reason;
         }
         finally
         {
+            if (!completed)
+            {
+                _statics.Clear();
+                foreach (var (k, v) in snapshot) _statics[k] = v;
+            }
             _cctorDepth--;
             _initializing.Remove(type);
-            (_budget, _depth) = (budget, depth);
         }
     }
 
     private void RequireMutable(HeapObject obj)
     {
         if (obj.Shared && _cctorDepth == 0)
-            throw Bail("modifies an object held in a static field");
+            throw Bail(FallbackReason.MutableStatic, "modifies an object held in a static field");
+    }
+
+    // ---- memory
+
+    private void Allocate(long bytes)
+    {
+        _allocated += bytes;
+        if (_allocated > limits.MemoryLimit)
+            throw Bail(FallbackReason.MemoryLimit, $"simulated allocations exceed the memory limit of {limits.MemoryLimit / (1024 * 1024)} MB");
+    }
+
+    private ArrayObject NewArray(Array data)
+    {
+        if (data.Length > MaxArrayLength) throw Bail(FallbackReason.MemoryLimit, "array too large");
+        Allocate(24 + (long)data.Length * (data is object?[] or nint[] ? 8 : Buffer.ByteLength(data) / Math.Max(data.Length, 1)));
+        return new ArrayObject(data) { Shared = _cctorDepth > 0 };
+    }
+
+    private string NewString(string s)
+    {
+        if (s.Length > MaxStringLength) throw Bail(FallbackReason.MemoryLimit, "string result too long");
+        Allocate(22 + 2L * s.Length);
+        return s;
     }
 
     // ---- slots: how values are stored in typed locations
 
-    private enum Slot { I1, U1, I2, U2, Bool, I4, I8, R4, R8, Ref, Opaque }
+    private enum Kind { I1, U1, I2, U2, Bool, I4, I8, Native, R4, R8, Ref, Struct, Opaque }
 
-    private Slot SlotOf(TypeSig? sig)
+    private readonly record struct Slot(Kind Kind, StructLayout? Layout = null);
+
+    /// <summary>The instance fields of a module struct, in declaration order.</summary>
+    private sealed record StructLayout(TypeDef Type, List<FieldDef> Fields, Slot[] Slots);
+
+    private Slot SlotOf(TypeSig? sig) => SlotOf(sig, 0);
+
+    private Slot SlotOf(TypeSig? sig, int nesting)
     {
         sig = sig?.RemovePinnedAndModifiers();
         switch (sig?.ElementType)
         {
-            case ElementType.I1: return Slot.I1;
-            case ElementType.U1: return Slot.U1;
-            case ElementType.Boolean: return Slot.Bool;
-            case ElementType.I2: return Slot.I2;
-            case ElementType.U2: case ElementType.Char: return Slot.U2;
-            case ElementType.I4: case ElementType.U4: return Slot.I4;
-            case ElementType.I8: case ElementType.U8: case ElementType.I: case ElementType.U: return Slot.I8;
-            case ElementType.R4: return Slot.R4;
-            case ElementType.R8: return Slot.R8;
+            case ElementType.I1: return new(Kind.I1);
+            case ElementType.U1: return new(Kind.U1);
+            case ElementType.Boolean: return new(Kind.Bool);
+            case ElementType.I2: return new(Kind.I2);
+            case ElementType.U2: case ElementType.Char: return new(Kind.U2);
+            case ElementType.I4: case ElementType.U4: return new(Kind.I4);
+            case ElementType.I8: case ElementType.U8: return new(Kind.I8);
+            case ElementType.I: case ElementType.U: return new(Kind.Native);
+            case ElementType.R4: return new(Kind.R4);
+            case ElementType.R8: return new(Kind.R8);
             case ElementType.String: case ElementType.Object: case ElementType.Class: case ElementType.SZArray:
             case ElementType.Array: case ElementType.ByRef:
-                return Slot.Ref;
+                return new(Kind.Ref);
             case ElementType.GenericInst:
-                return sig.IsValueType ? Slot.Opaque : Slot.Ref;
+                return sig.IsValueType ? new(Kind.Opaque) : new(Kind.Ref);
             case ElementType.ValueType:
                 var td = sig.ToTypeDefOrRef()?.ResolveTypeDef();
-                return td is { IsEnum: true } && td.GetEnumUnderlyingType() is { } underlying ? SlotOf(underlying) : Slot.Opaque;
+                if (td is { IsEnum: true }) return td.GetEnumUnderlyingType() is { } underlying ? SlotOf(underlying, nesting) : new(Kind.Opaque);
+                return LayoutOf(td, nesting) is { } layout ? new(Kind.Struct, layout) : new(Kind.Opaque);
             default:
-                return Slot.Opaque;
+                return new(Kind.Opaque);
         }
     }
 
-    private static object? Default(Slot slot) => slot switch
+    /// <summary>The layout of a struct of this module the evaluator can model, or null.</summary>
+    private StructLayout? LayoutOf(TypeDef? type, int nesting)
     {
-        Slot.I8 => 0L,
-        Slot.R4 or Slot.R8 => 0.0,
-        Slot.Ref => null,
-        Slot.Opaque => Opaque.Instance,
+        if (type == null || type.Module != module || !type.IsValueType || type.IsEnum || type.HasGenericParameters || type.IsExplicitLayout) return null;
+        if (_layouts.TryGetValue(type, out var cached)) return cached;
+        if (nesting > 8) return null;
+        _layouts[type] = null; // a struct containing itself (malformed) stays unsupported
+        var fields = type.Fields.Where(f => !f.IsStatic).ToList();
+        var layout = new StructLayout(type, fields, fields.Select(f => SlotOf(f.FieldType, nesting + 1)).ToArray());
+        _layouts[type] = layout;
+        return layout;
+    }
+
+    private object? Default(Slot slot) => slot.Kind switch
+    {
+        Kind.I8 => 0L,
+        Kind.Native => (nint)0,
+        Kind.R4 => 0f,
+        Kind.R8 => 0.0,
+        Kind.Ref => null,
+        Kind.Struct => NewStruct(slot.Layout!),
+        Kind.Opaque => Opaque.Instance,
         _ => 0,
     };
 
-    /// <summary>The value as it reads back after being stored in a slot (small integers truncate, float rounds).</summary>
-    private static object? Store(Slot slot, object? value) => slot switch
+    private StructValue NewStruct(StructLayout layout)
     {
-        Slot.I1 => (int)unchecked((sbyte)Numeric.Bits(value)),
-        Slot.U1 or Slot.Bool => (int)unchecked((byte)Numeric.Bits(value)),
-        Slot.I2 => (int)unchecked((short)Numeric.Bits(value)),
-        Slot.U2 => (int)unchecked((ushort)Numeric.Bits(value)),
-        Slot.I4 => unchecked((int)Numeric.Bits(value)),
-        Slot.I8 => Numeric.Bits(value),
-        Slot.R4 => value is double d ? (double)(float)d : throw Bail("float slot holds a non-float"),
-        Slot.R8 => value is double d ? d : throw Bail("double slot holds a non-float"),
-        Slot.Ref => value is int or long or double ? throw Bail("reference slot holds a number") : value,
-        _ => throw Bail("stores a struct or pointer value"),
+        Allocate(16 + 8L * layout.Fields.Count);
+        return new StructValue(layout.Type, layout.Slots.Select(Default).ToArray());
+    }
+
+    /// <summary>A slot's value as pushed by a load: structs are copied.</summary>
+    private static object? Load(Slot slot, object? value) => Known(value) is StructValue s ? s.Clone() : value;
+
+    private static object? Known(object? value) =>
+        value is Opaque ? throw Bail(FallbackReason.UnsupportedValue, "reads a variable of a type the interpreter does not model") : value;
+
+    /// <summary>The value as it reads back after being stored in a slot (small integers truncate, floats round, structs copy).</summary>
+    private static object? Store(Slot slot, object? value) => slot.Kind switch
+    {
+        Kind.I1 => (int)unchecked((sbyte)Numeric.Bits(value)),
+        Kind.U1 or Kind.Bool => (int)unchecked((byte)Numeric.Bits(value)),
+        Kind.I2 => (int)unchecked((short)Numeric.Bits(value)),
+        Kind.U2 => (int)unchecked((ushort)Numeric.Bits(value)),
+        Kind.I4 => unchecked((int)Numeric.Bits(value)),
+        Kind.I8 => Numeric.Bits(value),
+        Kind.Native => Numeric.Native(Numeric.Bits(value)),
+        Kind.R4 => value switch { float f => f, double d => (float)d, _ => throw Bail(FallbackReason.InvalidCode, "float slot holds a non-float") },
+        Kind.R8 => value switch { double d => d, float f => (double)f, _ => throw Bail(FallbackReason.InvalidCode, "double slot holds a non-float") },
+        Kind.Ref => Numeric.IsNumber(value) || value is StructValue
+            ? throw Bail(FallbackReason.InvalidCode, "reference slot holds a value type")
+            : value,
+        Kind.Struct => value is StructValue s && s.Type == slot.Layout!.Type
+            ? s.Clone()
+            : throw Bail(FallbackReason.InvalidCode, $"{slot.Layout!.Type.FullName} slot holds another value"),
+        _ => throw Bail(FallbackReason.UnsupportedValue, "stores a value of a type the interpreter does not model"),
     };
 
     private static Slot ElementSlot(Code op) => op switch
     {
-        Code.Ldelem_I1 => Slot.I1,
-        Code.Ldelem_U1 => Slot.U1,
-        Code.Ldelem_I2 => Slot.I2,
-        Code.Ldelem_U2 => Slot.U2,
-        Code.Ldelem_I4 or Code.Ldelem_U4 => Slot.I4,
-        Code.Ldelem_I8 or Code.Ldelem_I => Slot.I8,
-        Code.Ldelem_R4 => Slot.R4,
-        Code.Ldelem_R8 => Slot.R8,
-        _ => Slot.Ref,
+        Code.Ldelem_I1 => new(Kind.I1),
+        Code.Ldelem_U1 => new(Kind.U1),
+        Code.Ldelem_I2 => new(Kind.I2),
+        Code.Ldelem_U2 => new(Kind.U2),
+        Code.Ldelem_I4 or Code.Ldelem_U4 => new(Kind.I4),
+        Code.Ldelem_I8 => new(Kind.I8),
+        Code.Ldelem_I => new(Kind.Native),
+        Code.Ldelem_R4 => new(Kind.R4),
+        Code.Ldelem_R8 => new(Kind.R8),
+        _ => new(Kind.Ref),
     };
 
     private static Slot IndirectSlot(Code op) => op switch
     {
-        Code.Ldind_I1 => Slot.I1,
-        Code.Ldind_U1 => Slot.U1,
-        Code.Ldind_I2 => Slot.I2,
-        Code.Ldind_U2 => Slot.U2,
-        Code.Ldind_I4 or Code.Ldind_U4 => Slot.I4,
-        Code.Ldind_I8 or Code.Ldind_I => Slot.I8,
-        Code.Ldind_R4 => Slot.R4,
-        Code.Ldind_R8 => Slot.R8,
-        _ => Slot.Ref,
+        Code.Ldind_I1 or Code.Stind_I1 => new(Kind.I1),
+        Code.Ldind_U1 => new(Kind.U1),
+        Code.Ldind_I2 or Code.Stind_I2 => new(Kind.I2),
+        Code.Ldind_U2 => new(Kind.U2),
+        Code.Ldind_I4 or Code.Ldind_U4 or Code.Stind_I4 => new(Kind.I4),
+        Code.Ldind_I8 or Code.Stind_I8 => new(Kind.I8),
+        Code.Ldind_I or Code.Stind_I => new(Kind.Native),
+        Code.Ldind_R4 or Code.Stind_R4 => new(Kind.R4),
+        Code.Ldind_R8 or Code.Stind_R8 => new(Kind.R8),
+        _ => new(Kind.Ref),
     };
+
+    // ---- struct fields
+
+    /// <summary>The struct and field index an ldfld / ldflda / stfld addresses: a pointer to a module struct, or (ldfld) a struct value.</summary>
+    private (StructValue Struct, int Index, Slot Slot) FieldOf(object? target, object operand, bool viaPointerOnly)
+    {
+        var field = operand as FieldDef ?? (operand as MemberRef)?.ResolveField();
+        var s = target switch
+        {
+            Pointer p => p.Get() as StructValue,
+            StructValue v when !viaPointerOnly => v,
+            null => throw Bail(FallbackReason.RuntimeError, "null reference"),
+            _ => null,
+        };
+        if (s == null) throw Bail(FallbackReason.InstanceObject, $"accesses field {field?.Name ?? "?"} of a class instance");
+        if (field == null || field.IsStatic || field.DeclaringType != s.Type)
+            throw Bail(FallbackReason.InvalidCode, "field access on a struct of another type");
+        var layout = LayoutOf(s.Type, 0)!;
+        int k = layout.Fields.IndexOf(field);
+        return (s, k, layout.Slots[k]);
+    }
 
     // ---- arrays
 
@@ -593,7 +885,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         {
             ElementType.I1 => typeof(sbyte),
             ElementType.U1 => typeof(byte),
-            ElementType.Boolean => typeof(bool),
+            ElementType.Boolean => typeof(byte), // a bool element holds the stored byte
             ElementType.I2 => typeof(short),
             ElementType.U2 => typeof(ushort),
             ElementType.Char => typeof(char),
@@ -601,20 +893,31 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
             ElementType.U4 => typeof(uint),
             ElementType.I8 => typeof(long),
             ElementType.U8 => typeof(ulong),
+            ElementType.I or ElementType.U => typeof(nint),
             ElementType.R4 => typeof(float),
             ElementType.R8 => typeof(double),
-            _ => SlotOf(sig) == Slot.Ref ? typeof(object) : throw Bail($"array of {sig.FullName}"),
+            _ => SlotOf(sig).Kind == Kind.Ref ? typeof(object) : throw Bail(FallbackReason.UnsupportedValue, $"array of {sig.FullName}"),
         };
     }
 
     private static ArrayObject ArrayOf(object? value) => value switch
     {
         ArrayObject a => a,
-        null => throw Bail("null array access"),
-        _ => throw Bail("array access on a non-array"),
+        null => throw Bail(FallbackReason.RuntimeError, "null array access"),
+        _ => throw Bail(FallbackReason.InvalidCode, "array access on a non-array"),
     };
 
-    private static Pointer PointerOf(object? value) => value as Pointer ?? throw Bail("indirect access through a non-pointer");
+    private static void CheckIndex(ArrayObject array, long i)
+    {
+        if ((ulong)i >= (ulong)array.Data.Length) throw Bail(FallbackReason.RuntimeError, "array index out of range");
+    }
+
+    private static Pointer PointerOf(object? value) => value switch
+    {
+        Pointer p => p,
+        null => throw Bail(FallbackReason.RuntimeError, "null reference"),
+        _ => throw Bail(FallbackReason.UnsupportedValue, "indirect access through something other than a managed pointer"),
+    };
 
     /// <summary>An element as a stack value (small integers widen to int32).</summary>
     private static object? NaturalElement(Array data, int i) => data switch
@@ -629,10 +932,11 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         uint[] a => unchecked((int)a[i]),
         long[] a => a[i],
         ulong[] a => unchecked((long)a[i]),
-        float[] a => (double)a[i],
+        nint[] a => a[i],
+        float[] a => a[i],
         double[] a => a[i],
         object?[] a => a[i],
-        _ => throw Bail("unsupported array"),
+        _ => throw Bail(FallbackReason.UnsupportedValue, "unsupported array"),
     };
 
     private static void SetElement(Array data, int i, object? value)
@@ -641,7 +945,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         {
             case byte[] a: a[i] = unchecked((byte)Numeric.Bits(value)); break;
             case sbyte[] a: a[i] = unchecked((sbyte)Numeric.Bits(value)); break;
-            case bool[] a: a[i] = Numeric.Bits(value) != 0; break;
+            case bool[] a: a[i] = (byte)Numeric.Bits(value) != 0; break;
             case short[] a: a[i] = unchecked((short)Numeric.Bits(value)); break;
             case ushort[] a: a[i] = unchecked((ushort)Numeric.Bits(value)); break;
             case char[] a: a[i] = unchecked((char)Numeric.Bits(value)); break;
@@ -649,10 +953,13 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
             case uint[] a: a[i] = unchecked((uint)Numeric.Bits(value)); break;
             case long[] a: a[i] = Numeric.Bits(value); break;
             case ulong[] a: a[i] = unchecked((ulong)Numeric.Bits(value)); break;
-            case float[] a: a[i] = value is double d ? (float)d : throw Bail("float element from a non-float"); break;
-            case double[] a: a[i] = value is double e ? e : throw Bail("double element from a non-float"); break;
-            case object?[] a: a[i] = value is int or long or double ? throw Bail("boxing is not supported") : value; break;
-            default: throw Bail("unsupported array");
+            case nint[] a: a[i] = Numeric.Native(Numeric.Bits(value)); break;
+            case float[] a: a[i] = value switch { float f => f, double d => (float)d, _ => throw Bail(FallbackReason.InvalidCode, "float element from a non-float") }; break;
+            case double[] a: a[i] = value switch { double d => d, float f => f, _ => throw Bail(FallbackReason.InvalidCode, "double element from a non-float") }; break;
+            case object?[] a:
+                a[i] = Numeric.IsNumber(value) || value is StructValue ? throw Bail(FallbackReason.UnsupportedValue, "boxing is not modelled") : value;
+                break;
+            default: throw Bail(FallbackReason.UnsupportedValue, "unsupported array");
         }
     }
 
@@ -660,22 +967,43 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
 
     private object? Invoke(IMethod method, Code op, object?[] args)
     {
-        if (method is MethodSpec) throw Bail($"calls generic method {Describe(method)}");
+        if (method is MethodSpec) throw Bail(FallbackReason.Generic, $"calls generic method {Describe(method)}");
         if (Intrinsics.TryGetValue(method.FullName, out var intrinsic))
         {
-            if (op == Code.Callvirt && args.Length > 0 && args[0] == null) throw Bail("null reference");
+            if (op == Code.Callvirt && args.Length > 0 && args[0] == null) throw Bail(FallbackReason.RuntimeError, "null reference");
             var result = intrinsic(this, args);
-            if (result is string { Length: > MaxStringLength }) throw Bail("string result too long");
+            if (result is string s) NewString(s);
             return HasReturnValue(method) || op == Code.Newobj ? result : Void;
         }
         if (method is MethodDef md && md.Module == module)
         {
-            if (op == Code.Newobj) throw Bail($"creates an instance of {md.DeclaringType.FullName}");
-            if (!md.IsStatic) throw Bail($"calls instance method {Describe(md)}");
+            if (md.IsStatic)
+            {
+                if (op == Code.Newobj) throw Bail(FallbackReason.InvalidCode, "newobj of a static method");
+                TriggerTypeInitializer(md);
+                var result = Execute(md, args);
+                return HasReturnValue(md) ? result : Void;
+            }
+            var layout = LayoutOf(md.DeclaringType, 0);
+            if (layout == null)
+                throw Bail(FallbackReason.InstanceObject, op == Code.Newobj
+                    ? $"creates an instance of {md.DeclaringType.FullName}"
+                    : $"calls instance method {Describe(md)}");
             TriggerTypeInitializer(md);
-            var result = Execute(md, args);
-            return HasReturnValue(md) ? result : Void;
+            if (op == Code.Newobj)
+            {
+                if (!md.IsInstanceConstructor) throw Bail(FallbackReason.InvalidCode, "newobj of a method that is not a constructor");
+                var cell = new object?[] { NewStruct(layout) };
+                Execute(md, [SlotPointer(cell, 0, new Slot(Kind.Struct, layout)), .. args]);
+                return cell[0];
+            }
+            if (args[0] is not Pointer) throw Bail(FallbackReason.InvalidCode, "struct method called without a managed pointer");
+            if (op == Code.Callvirt) throw Bail(FallbackReason.InvalidCode, "callvirt on a struct method without constrained.");
+            var value = Execute(md, args);
+            return HasReturnValue(md) ? value : Void;
         }
-        throw Bail($"calls {Describe(method)}, which is not evaluable");
+        if (method is MethodDef other)
+            throw Bail(FallbackReason.OtherModule, $"calls {Describe(other)} in another module");
+        throw Bail(FallbackReason.UnsupportedCall, $"calls {Describe(method)}, which is not evaluable");
     }
 }

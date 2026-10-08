@@ -11,6 +11,21 @@ internal sealed partial class IlEvaluator
 {
     private static readonly Dictionary<string, Func<IlEvaluator, object?[], object?>> Intrinsics = BuildIntrinsics();
 
+    public static IReadOnlySet<string> IntrinsicNames { get; } = Intrinsics.Keys.ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>The arguments (receiver first) an intrinsic modifies, or returns as an alias; the others are only read.</summary>
+    public static IReadOnlyList<int> MutatedArguments(string intrinsic) => intrinsic switch
+    {
+        "System.Void System.Array::Reverse(System.Array)" => [0],
+        "System.Void System.Array::Copy(System.Array,System.Array,System.Int32)" => [1],
+        "System.Void System.Array::Copy(System.Array,System.Int32,System.Array,System.Int32,System.Int32)" => [2],
+        "System.Void System.Runtime.CompilerServices.RuntimeHelpers::InitializeArray(System.Array,System.RuntimeFieldHandle)" => [0],
+        _ when intrinsic.Contains("System.Text.StringBuilder::Append(", StringComparison.Ordinal) ||
+               intrinsic.Contains("System.Text.StringBuilder::Insert(", StringComparison.Ordinal) ||
+               intrinsic.Contains("System.Text.StringBuilder::set_Length(", StringComparison.Ordinal) => [0],
+        _ => [],
+    };
+
     private static Dictionary<string, Func<IlEvaluator, object?[], object?>> BuildIntrinsics()
     {
         const string S = "System.String", I = "System.Int32", C = "System.Char", B = "System.Boolean", SB = "System.Text.StringBuilder";
@@ -54,8 +69,8 @@ internal sealed partial class IlEvaluator
         {
             string s => s,
             BuilderObject b => b.Text.ToString(),
-            null => throw Bail("null reference"),
-            _ => throw Bail("ToString of an unsupported object"),
+            null => throw Bail(FallbackReason.RuntimeError, "null reference"),
+            _ => throw Bail(FallbackReason.UnsupportedValue, "ToString of an object the interpreter does not model"),
         });
 
         // System.Char, System.Int32
@@ -74,6 +89,7 @@ internal sealed partial class IlEvaluator
         Add(SB, SB, "Insert", $"{I},{S}", (e, a) =>
         {
             var b = e.MutableBuilder(a[0]);
+            e.Allocate(2L * NStr(a[2]).Length);
             Try(() => b.Text.Insert(I4(a[1]), NStr(a[2])));
             return e.CheckLength(b);
         });
@@ -82,6 +98,7 @@ internal sealed partial class IlEvaluator
         Add("System.Void", SB, "set_Length", I, (e, a) =>
         {
             var b = e.MutableBuilder(a[0]);
+            if (I4(a[1]) > b.Text.Length) e.Allocate(2L * (I4(a[1]) - b.Text.Length));
             Try(() => b.Text.Length = I4(a[1]));
             return e.CheckLength(b);
         });
@@ -122,11 +139,11 @@ internal sealed partial class IlEvaluator
         Add("System.Void", "System.Runtime.CompilerServices.RuntimeHelpers", "InitializeArray", "System.Array,System.RuntimeFieldHandle", (e, a) =>
         {
             var target = e.MutableArray(a[0]);
-            var field = a[1] as FieldHandle ?? throw Bail("InitializeArray without a field handle");
-            var data = field.Field.InitialValue ?? throw Bail("InitializeArray field has no data");
-            if (target.Data is object?[]) throw Bail("InitializeArray of a reference array");
+            var field = a[1] as FieldHandle ?? throw Bail(FallbackReason.InvalidCode, "InitializeArray without a field handle");
+            var data = field.Field.InitialValue ?? throw Bail(FallbackReason.InvalidCode, "InitializeArray field has no data");
+            if (target.Data is object?[]) throw Bail(FallbackReason.InvalidCode, "InitializeArray of a reference array");
             int size = Buffer.ByteLength(target.Data);
-            if (data.Length < size) throw Bail("InitializeArray data is shorter than the array");
+            if (data.Length < size) throw Bail(FallbackReason.InvalidCode, "InitializeArray data is shorter than the array");
             Buffer.BlockCopy(data, 0, target.Data, 0, size);
             return null;
         });
@@ -134,28 +151,26 @@ internal sealed partial class IlEvaluator
         // System.Math
         Add(I, "System.Math", "Min", $"{I},{I}", (_, a) => Math.Min(I4(a[0]), I4(a[1])));
         Add(I, "System.Math", "Max", $"{I},{I}", (_, a) => Math.Max(I4(a[0]), I4(a[1])));
-        Add(I, "System.Math", "Abs", I, (_, a) => I4(a[0]) == int.MinValue ? throw Bail("Math.Abs overflow") : Math.Abs(I4(a[0])));
+        Add(I, "System.Math", "Abs", I, (_, a) => I4(a[0]) == int.MinValue ? throw Bail(FallbackReason.RuntimeError, "Math.Abs overflow") : Math.Abs(I4(a[0])));
         return t;
     }
 
-    private ArrayObject NewArray(Array data) =>
-        data.Length > MaxArrayLength ? throw Bail("array too large") : new ArrayObject(data) { Shared = _cctorDepth > 0 };
-
     private BuilderObject NewBuilder(string initial = "")
     {
+        Allocate(32);
         var b = new BuilderObject { Shared = _cctorDepth > 0 };
-        b.Text.Append(initial);
-        return b;
+        return Append(b, initial);
     }
 
     private BuilderObject Append(object? builder, string text)
     {
         var b = MutableBuilder(builder);
+        Allocate(2L * text.Length);
         b.Text.Append(text);
         return CheckLength(b);
     }
 
-    private BuilderObject CheckLength(BuilderObject b) => b.Text.Length > MaxStringLength ? throw Bail("string too long") : b;
+    private BuilderObject CheckLength(BuilderObject b) => b.Text.Length > MaxStringLength ? throw Bail(FallbackReason.MemoryLimit, "string too long") : b;
 
     private BuilderObject MutableBuilder(object? builder)
     {
@@ -176,27 +191,27 @@ internal sealed partial class IlEvaluator
         try { return f(); }
         catch (Exception ex) when (ex is ArgumentException or FormatException or IndexOutOfRangeException or RankException or InvalidCastException or ArrayTypeMismatchException)
         {
-            throw Bail($"the call throws {ex.GetType().Name}");
+            throw Bail(FallbackReason.RuntimeError, $"the call throws {ex.GetType().Name}");
         }
     }
 
     private static void Try(Action f) => Try(() => { f(); return 0; });
 
-    private static int I4(object? v) => v as int? ?? throw Bail("expected an int32");
+    private static int I4(object? v) => v as int? ?? throw Bail(FallbackReason.InvalidCode, "expected an int32");
 
     private static char Chr(object? v) => (char)I4(v);
 
-    private static int NonNegative(int v) => v >= 0 ? v : throw Bail("formatting a negative number depends on the culture");
+    private static int NonNegative(int v) => v >= 0 ? v : throw Bail(FallbackReason.PlatformDependent, "formatting a negative number depends on the culture");
 
-    private static int InRange(int i, int length) => (uint)i < (uint)length ? i : throw Bail("index out of range");
+    private static int InRange(int i, int length) => (uint)i < (uint)length ? i : throw Bail(FallbackReason.RuntimeError, "index out of range");
 
-    private static object? Deref(object? v) => v is Pointer p ? p.Get() : throw Bail("expected a pointer to a value");
+    private static object? Deref(object? v) => v is Pointer p ? p.Get() : throw Bail(FallbackReason.InvalidCode, "expected a pointer to a value");
 
     private static string Str(object? v) => v switch
     {
         string s => s,
-        null => throw Bail("null reference"),
-        _ => throw Bail("expected a string"),
+        null => throw Bail(FallbackReason.RuntimeError, "null reference"),
+        _ => throw Bail(FallbackReason.InvalidCode, "expected a string"),
     };
 
     private static string? NullableStr(object? v) => v == null ? null : Str(v);
@@ -206,13 +221,13 @@ internal sealed partial class IlEvaluator
 
     private static string?[] Strings(object? v) => ArrayOf(v).Data is object?[] items
         ? items.Select(NullableStr).ToArray()
-        : throw Bail("expected a string array");
+        : throw Bail(FallbackReason.InvalidCode, "expected a string array");
 
-    private static char[] Chars(object? v) => ArrayOf(v).Data as char[] ?? throw Bail("expected a char array");
+    private static char[] Chars(object? v) => ArrayOf(v).Data as char[] ?? throw Bail(FallbackReason.InvalidCode, "expected a char array");
 
-    private static byte[] Bytes(object? v) => ArrayOf(v).Data as byte[] ?? throw Bail("expected a byte array");
+    private static byte[] Bytes(object? v) => ArrayOf(v).Data as byte[] ?? throw Bail(FallbackReason.InvalidCode, "expected a byte array");
 
-    private static BuilderObject Builder(object? v) => v as BuilderObject ?? throw Bail(v == null ? "null reference" : "expected a StringBuilder");
+    private static BuilderObject Builder(object? v) => v as BuilderObject ?? throw (v == null ? Bail(FallbackReason.RuntimeError, "null reference") : Bail(FallbackReason.InvalidCode, "expected a StringBuilder"));
 
-    private static Encoding Enc(object? v) => v as Encoding ?? throw Bail(v == null ? "null reference" : "expected an Encoding");
+    private static Encoding Enc(object? v) => v as Encoding ?? throw (v == null ? Bail(FallbackReason.RuntimeError, "null reference") : Bail(FallbackReason.InvalidCode, "expected an Encoding"));
 }
