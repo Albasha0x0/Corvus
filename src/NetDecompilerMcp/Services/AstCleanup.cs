@@ -52,6 +52,10 @@ internal static class AstCleanup
     /// <summary>The last cleanup failure (tests and diagnostics).</summary>
     internal static string? LastError;
 
+    /// <summary>Decisions worth reviewing (NDM_CLEANUP_LOG set): what was rewritten where, and why.</summary>
+    internal static readonly System.Collections.Concurrent.ConcurrentQueue<string> Log = new();
+    internal static readonly bool Logging = Environment.GetEnvironmentVariable("NDM_CLEANUP_LOG") != null;
+
     /// <summary>A cleanup that fails leaves the engine's output as it is, instead of failing the whole member.</summary>
     private sealed class Guarded(IAstTransform inner) : IAstTransform
     {
@@ -301,7 +305,9 @@ internal sealed class ReservedAttributes : IAstTransform
 /// A constructor that assigns members before calling the base constructor (what a primary constructor or a
 /// <c>required</c>-style initializer compiles to) comes out as <c>base._002Ector(type);</c> in the body, which is not
 /// C# (CS0117, CS7036). The call becomes the constructor initializer <c>: base(type)</c>, so the plain assignments
-/// before it now run after the base constructor: the same unless that constructor calls overridden members reading them.
+/// before it now run after the base constructor. That is only done when the base constructor chain calls nothing
+/// overridable (checked in its IL, with the helpers it calls), so nothing can observe the difference; otherwise the
+/// compiled order is kept. A base constructor that cannot be read (a missing assembly) is assumed not to.
 /// </summary>
 internal sealed class BaseConstructorCalls : IAstTransform
 {
@@ -325,6 +331,14 @@ internal sealed class BaseConstructorCalls : IAstTransform
             var before = ctor.Body.Statements.TakeWhile(s => s != call).ToList();
             if (before.Any(s => s is not ExpressionStatement { Expression: AssignmentExpression })) continue;
 
+            var target = invocation.GetSymbol() as IMethod;
+            var safety = before.Count == 0 ? "nothing moved" : target == null ? "base constructor unknown" : VirtualCalls(target, 0, []) ?? "safe";
+            if (AstCleanup.Logging)
+                AstCleanup.Log.Enqueue($"BaseConstructorCalls {(ctor.GetSymbol() as IEntity)?.DeclaringType?.FullName}: {before.Count} assignment(s) moved after {target?.DeclaringType?.FullName}..ctor: {safety}");
+            // the base constructor would see the assignments missing (it calls something overridable): keep the
+            // compiled order, which is what the code does, rather than code that builds and behaves differently
+            if (safety.StartsWith("calls overridable", StringComparison.Ordinal)) continue;
+
             var initializer = new ConstructorInitializer
             {
                 ConstructorInitializerType = viaThis ? ConstructorInitializerType.This : ConstructorInitializerType.Base,
@@ -334,6 +348,48 @@ internal sealed class BaseConstructorCalls : IAstTransform
             ctor.Initializer = initializer;
             call.Remove();
         }
+    }
+
+    /// <summary>
+    /// The first call the constructor makes (through its own base constructors and helper methods of the object,
+    /// three levels deep) to an overridable method of the object: what would see the moved assignments not done
+    /// yet. Null when there is none.
+    /// </summary>
+    internal static string? VirtualCalls(IMethod method, int depth, HashSet<IMethod> seen)
+    {
+        if (depth > 3 || !seen.Add(method)) return null;
+        if (method.ParentModule?.MetadataFile is not ICSharpCode.Decompiler.Metadata.PEFile file || method.MetadataToken.IsNil
+            || method.MetadataToken.Kind != System.Reflection.Metadata.HandleKind.MethodDefinition)
+            return method.DeclaringType?.FullName == "System.Object" ? null : $"{method.DeclaringType?.FullName}..ctor not readable";
+        if (method.ParentModule is not ICSharpCode.Decompiler.TypeSystem.MetadataModule module) return null;
+        var definition = file.Metadata.GetMethodDefinition((System.Reflection.Metadata.MethodDefinitionHandle)method.MetadataToken);
+        if (definition.RelativeVirtualAddress == 0) return null;
+        System.Reflection.Metadata.BlobReader il;
+        try { il = file.Reader.GetMethodBody(definition.RelativeVirtualAddress).GetILReader(); }
+        catch (Exception) { return $"{method.FullName} body not readable"; }
+        while (il.RemainingBytes > 0)
+        {
+            var opCode = ICSharpCode.Decompiler.Disassembler.ILParser.DecodeOpCode(ref il);
+            if (opCode is System.Reflection.Metadata.ILOpCode.Call or System.Reflection.Metadata.ILOpCode.Callvirt or System.Reflection.Metadata.ILOpCode.Ldvirtftn)
+            {
+                var token = System.Reflection.Metadata.Ecma335.MetadataTokens.EntityHandle(il.ReadInt32());
+                IMethod? callee;
+                try { callee = module.ResolveMethod(token, default); }
+                catch (Exception) { continue; }
+                if (callee == null || callee.IsStatic) continue;
+                bool onObject = method.DeclaringType != null && method.DeclaringType.GetAllBaseTypeDefinitions().Contains(callee.DeclaringTypeDefinition)
+                                || callee.DeclaringTypeDefinition?.Kind == TypeKind.Interface;
+                if (!onObject) continue;
+                if (opCode != System.Reflection.Metadata.ILOpCode.Call && callee.IsOverridable && !callee.IsConstructor)
+                    return $"calls overridable {callee.FullName}";
+                // its own base constructor, or a helper of the object: look inside
+                if (callee.IsConstructor || !callee.IsOverridable)
+                    if (VirtualCalls(callee, depth + 1, seen) is { } inner) return inner;
+                continue;
+            }
+            ICSharpCode.Decompiler.Disassembler.ILParser.SkipOperand(ref il, opCode);
+        }
+        return null;
     }
 }
 
@@ -350,6 +406,16 @@ internal sealed class ParameterFieldInitializers : IAstTransform
         {
             var ctors = type.Members.OfType<ConstructorDeclaration>().Where(c => !c.HasModifier(Modifiers.Static)).ToList();
             if (ctors.Count != 1 || ctors[0].Body is not { } body) continue;
+            // the initializer would now run after the base constructor: only where that cannot be observed (a struct
+            // has none; a class's base constructor chain calling nothing overridable)
+            if (type.ClassType != ClassType.Struct && type.GetSymbol() is ITypeDefinition typeDef)
+            {
+                var baseCtor = ctors[0].Initializer?.GetSymbol() as IMethod
+                               ?? typeDef.DirectBaseTypes.FirstOrDefault(b => b.Kind == TypeKind.Class)?.GetConstructors(c => c.Parameters.Count == 0).FirstOrDefault();
+                var safety = baseCtor == null ? "base constructor unknown" : BaseConstructorCalls.VirtualCalls(baseCtor, 0, []);
+                if (AstCleanup.Logging) AstCleanup.Log.Enqueue($"ParameterFieldInitializers {typeDef.FullName}: {safety ?? "safe"}");
+                if (safety?.StartsWith("calls overridable", StringComparison.Ordinal) == true) continue;
+            }
             var parameters = ctors[0].Parameters.Select(p => p.Name).ToHashSet();
             var members = type.Members.Select(m => m.Name).ToHashSet();
             int insertAt = 0;

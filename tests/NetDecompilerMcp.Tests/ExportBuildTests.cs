@@ -227,6 +227,8 @@ public class ExportBuildTests
             foreach (var e in errors.Take(150)) report.AppendLine("    " + e);
         }
         File.WriteAllText(list + ".report.txt", report.ToString());
+        if (NetDecompilerMcp.Services.AstCleanup.Logging)
+            File.WriteAllLines(list + ".cleanup-log.txt", NetDecompilerMcp.Services.AstCleanup.Log.Distinct().Order());
     }
 
     /// <summary>A release build, as libraries ship: the patterns come from the optimizer.</summary>

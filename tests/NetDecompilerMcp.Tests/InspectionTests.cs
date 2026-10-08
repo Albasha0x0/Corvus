@@ -344,9 +344,38 @@ public class InspectionTests : IDisposable
         Assert.Contains(report.Contents, p => p.Source == "resource 'random.bin'" && p.Kind.StartsWith("high-entropy")); // still reported as it was
 
         // real-world resources and arrays: no single-byte "decodes"
-        foreach (var real in new[] { Env.FixturePath, CachedDll("Microsoft.CodeAnalysis.Common", "Microsoft.CodeAnalysis.dll") })
+        // plus table-heavy libraries whose codec / opcode tables decoded into look-alike text before (when in the NuGet cache)
+        var packages = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
+        var tables = new[] { @"oggvorbisencoder\1.2.2\lib\net6.0\OggVorbisEncoder.dll", @"iced\1.21.0\lib\netstandard2.1\Iced.dll" }
+            .Select(p => Path.Combine(packages, p)).Where(File.Exists);
+        foreach (var real in new[] { Env.FixturePath, CachedDll("Microsoft.CodeAnalysis.Common", "Microsoft.CodeAnalysis.dll") }.Concat(tables))
             Assert.DoesNotContain(Inspection.ExtractEmbedded(null, real, false, null, false, default, xorText: true).Contents,
                 p => p.Encoding.Any(e => e.Contains("brute-forced")));
+    }
+
+    [Fact]
+    public void Embedded_XorText_RecoversStructuredConfiguration()
+    {
+        const string Json = "{\"c2\":[\"https://update.example-cdn.net/api/v2/beacon\",\"https://backup.example.org/gate.php\"],\"interval\":300,\"jitter\":0.2,\"campaign\":\"q3-rollout\",\"install\":{\"path\":\"%APPDATA%\\\\svc\",\"autorun\":true}}";
+        const string Urls = "https://a.example.net/x.bin\nhttps://b.example.org/payload/stage2.dat\nhttp://10.20.30.40:8080/up\n";
+        const string Ini = "[server]\nhost=relay.example.com\nport=4433\nkey=6f1e2d3c4b5a\nretry=5\n";
+        var fixture = ContainerFixtures.Module("Configs", m =>
+        {
+            m.Resources.Add(new EmbeddedResource("config.bin", Xor(Encoding.UTF8.GetBytes(Json), [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77])));
+            m.Resources.Add(new EmbeddedResource("urls.bin", Xor(Encoding.UTF8.GetBytes(Urls), [0xA5, 0x5A, 0x3C])));
+            m.Resources.Add(new EmbeddedResource("ini.bin", Xor(Encoding.UTF8.GetBytes(Ini), [0x7E])));
+        });
+        var report = Inspection.ExtractEmbedded(null, Save("Configs.dll", fixture), false, null, false, default, xorText: true);
+        EmbeddedContent Found(string resource)
+        {
+            var hit = report.Contents.FirstOrDefault(p => p.Source == $"resource '{resource}'");
+            Assert.True(hit != null, string.Join(" | ", report.Contents.Select(c => $"{c.Source} [{string.Join(">", c.Encoding)}] {c.Kind}")));
+            return hit!;
+        }
+        Assert.Equal(Json, Encoding.UTF8.GetString(Found("config.bin").Bytes));
+        Assert.Equal(["xor key 11223344556677 (brute-forced)"], Found("config.bin").Encoding);
+        Assert.Equal(Urls, Encoding.UTF8.GetString(Found("urls.bin").Bytes));
+        Assert.Equal(Ini, Encoding.UTF8.GetString(Found("ini.bin").Bytes));
     }
 
     [Fact]
@@ -361,7 +390,12 @@ public class InspectionTests : IDisposable
             m.Resources.Add(new EmbeddedResource("arabic.bin", Xor(Encoding.UTF8.GetBytes(Arabic + Arabic + Arabic), [0x21, 0x42, 0x63, 0x84, 0xA5])));
         });
         var report = Inspection.ExtractEmbedded(null, Save("MultiXor.dll", fixture), false, null, false, default, xorText: true);
-        EmbeddedContent Found(string resource) => Assert.Single(report.Contents, p => p.Source == $"resource '{resource}'");
+        EmbeddedContent Found(string resource)
+        {
+            var hit = report.Contents.FirstOrDefault(p => p.Source == $"resource '{resource}'");
+            Assert.True(hit != null, string.Join(" | ", report.Contents.Select(c => $"{c.Source} [{string.Join(">", c.Encoding)}] {c.Kind}")));
+            return hit!;
+        }
 
         var key4 = Found("key4.bin");
         Assert.Equal(["xor key 1337c0de (brute-forced)"], key4.Encoding);

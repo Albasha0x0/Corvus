@@ -171,12 +171,15 @@ Limits:
   over plain text has no known plaintext to recover a key from, so by default it is not decoded.
 - **`xorText=true`** (`extract_embedded`, off by default) recovers repeating XOR keys of 1-16 bytes over text in
   resources and arrays that are not readable as they are: UTF-8 text in any script (English, Arabic, Cyrillic, CJK...)
-  and UTF-16 text. Key lengths come from the index of coincidence (flat, encrypted-looking data is skipped at once);
-  each key byte is chosen for the bytes it covers and, for other scripts, refined against the whole decode. A decode is
-  kept only when it is natural text: valid in its encoding, 32+ characters, no control characters, mostly letters of
-  one script with repeated letter pairs, 3-40% whitespace and word-sized runs. Such items show `xor key 1337c0de
-  (brute-forced)` (`, UTF-16 text` for UTF-16, returned as UTF-8) in their chain. Samples of 4 KB are searched; on
-  BouncyCastle and a 28 MB WPF app it takes 2-4 seconds and finds nothing false.
+  and UTF-16 text, including structured configuration (JSON, XML, URL lists, key=value / INI). Key lengths come from
+  the index of coincidence (flat, encrypted-looking data is skipped at once); each key byte is chosen for the bytes it
+  covers, then refined by how likely the decoded character pairs are, with known starts of configuration (`{"`,
+  `https://`, `<?xml`, `[`) tried as plaintext for the first key bytes; text in other scripts is refined as UTF-8. A
+  decode is kept only when it is natural text (valid in its encoding, no control or stray characters, words of real
+  length with vowels in Latin script, likely letter pairs, natural repetition in CJK) or parses as JSON / XML / config
+  lines. Such items show `xor key 1337c0de (brute-forced)` (`, UTF-16 text` for UTF-16, returned as UTF-8) in their
+  chain. Measured on 30 real assemblies (libraries with codec and opcode tables, PowerShell, WPF apps, games): no false
+  decodes, 32 seconds for all of them.
 - **Authenticode:** the digest check (was the file changed after signing?) and the signature check are exact. Whether the
   chain is trusted depends on the machine's root store; revocation is not checked (offline and deterministic).
 - **Lookalikes are excluded:** XML / schema namespace URLs, version numbers that look like IP addresses, and file
@@ -262,15 +265,28 @@ as the original. What makes that work:
   renamed `Main`). LINQ comes out as method calls in exports.
 - A method the engine cannot decompile at all keeps the engine's explanation and throws `NotSupportedException`.
 
-What still does not build is code that is not expressible in C# (IL rewritten after compilation) and references to
-assemblies that are not on the machine.
+**Dependencies that are not on the machine** (a game's assembly missing from a dump) do not stop decompilation: a
+stand-in is rebuilt from how the loaded code uses it: every type it references with its kind (struct, enum,
+interface, delegate, exception, attribute), every member with its exact signature, properties and events, the virtual
+members the code overrides, and what generic constraints require. The decompiler then reads the rest against real
+types (no "unknown result type" guesses, properties instead of accessor calls), `get_assembly_info` lists the reference
+as `not found; stub built from what the loaded code uses (N types, M members)`, and an exported project references the
+stand-in from `lib\` (with a note saying so) and builds. Enum member names of a missing enum are compiled away, so
+its values show as numbers (`(Mode)2`).
+
+Also recovered: local functions the engine drops (compiled into a closure because lambdas capture their variables),
+and a constructor's work the engine shows as field initializers or a primary constructor: `decompile_member` on such
+a constructor shows it inside its type, trimmed to what runs as part of it.
+
+On 30 real assemblies, including a game's game code with three dependencies missing, every exported project builds
+with 0 errors.
 
 ## Build, test, publish
 
 Requires the .NET 10 SDK.
 
 ```powershell
-dotnet test                    # 363 tests: services, IL/C# patching (with runtime execution), edit history,
+dotnet test                    # 368 tests: services, IL/C# patching (with runtime execution), edit history,
                                # build comparison, call graph, IDA/Ghidra/C/C++ generation (compiled with clang),
                                # background indexing, file watching, every tool over stdio, real-assembly stress,
                                # container unpacking and listing (fixtures built at test time, incl. crossgen2 ReadyToRun

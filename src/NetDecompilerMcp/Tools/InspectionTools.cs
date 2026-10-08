@@ -69,8 +69,8 @@ public sealed class InspectionTools(InspectionService inspection)
         [Description("Directory to write into (new, empty, or an earlier extraction of the same file). Default: under the temp directory.")] string? outputDirectory = null,
         [Description("Load the .NET assemblies found into the workspace (implies save).")] bool load = false,
         [Description("Also recover XOR keys of 1-16 bytes over text on resources and arrays that are not readable as they are (UTF-8 in any " +
-                     "script, or UTF-16), keeping a decode only if it is clearly natural text (letters of one script, words, spaces, repeated " +
-                     "letter pairs). Off by default: heuristic, and slower on large data.")] bool xorText = false,
+                     "script, or UTF-16), keeping a decode only if it is clearly natural text (words of one script, spaces, likely letter pairs) " +
+                     "or structured configuration (JSON, XML, URL / key=value lines). Off by default: heuristic, and slower on large data.")] bool xorText = false,
         [Description("Also list (and save) images: png, jpeg, gif, ico. By default they are only counted in notes.")] bool includeMedia = false,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => inspection.ExtractEmbedded(assembly, path, save, outputDirectory, load, cancellationToken, xorText, includeMedia), cancellationToken);

@@ -1,5 +1,6 @@
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using Syn = ICSharpCode.Decompiler.CSharp.Syntax;
 using System.Text;
 using ICSharpCode.Decompiler;
 using ICSharpCode.Decompiler.CSharp;
@@ -97,6 +98,41 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         return string.Join("\n", parts);
     }, ct);
 
+    /// <summary>
+    /// A constructor whose work the engine shows elsewhere: assignments made before the base constructor become field
+    /// and property initializers, or a primary constructor (<c>class Safe(int x) : Plain { int f = x; }</c>), which the
+    /// constructor alone does not show. Such a constructor is shown inside its type, trimmed to what runs as part of
+    /// it: the type's header, the initializers of its kind (instance or static), and its constructors. Null when there
+    /// is nothing of that kind.
+    /// </summary>
+    private static string? ConstructorInContext(LoadedAssembly asm, Dn.MethodDef ctor, CSharpDecompiler decompiler)
+    {
+        var tree = decompiler.Decompile(Handle(asm, ctor.DeclaringType));
+        var declaration = tree.Descendants.OfType<Syn.TypeDeclaration>().FirstOrDefault(t =>
+            t.GetSymbol() is ITypeDefinition td && !td.MetadataToken.IsNil && MetadataTokens.GetToken(td.MetadataToken) == (int)asm.ImageToken(ctor.DeclaringType));
+        if (declaration == null) return null;
+        bool isStatic = ctor.IsStatic;
+        bool Initialized(Syn.EntityDeclaration m) => m.HasModifier(Syn.Modifiers.Static) == isStatic && m switch
+        {
+            Syn.FieldDeclaration f => f.Variables.Any(v => v.Initializer is not null),
+            Syn.PropertyDeclaration p => p.Initializer is not null,
+            Syn.EventDeclaration e => e.Variables.Any(v => v.Initializer is not null),
+            _ => false,
+        };
+        bool primary = !isStatic && declaration.PrimaryConstructorParameters.Count > 0;
+        if (!primary && !declaration.Members.Any(Initialized)) return null;
+
+        foreach (var m in declaration.Members.ToList())
+            if (!(m is Syn.ConstructorDeclaration c && c.HasModifier(Syn.Modifiers.Static) == isStatic || Initialized(m)))
+                m.Remove();
+        using var writer = new StringWriter();
+        tree.AcceptVisitor(new ICSharpCode.Decompiler.CSharp.OutputVisitor.CSharpOutputVisitor(writer,
+            ICSharpCode.Decompiler.CSharp.OutputVisitor.FormattingOptionsFactory.CreateAllman()));
+        return $"// {(primary ? "a primary constructor" : isStatic ? "static field initializers" : "field initializers")}: " +
+               $"they run as part of this constructor{(isStatic ? "" : ", before the base constructor")}, so the type is shown around it\n" +
+               writer.ToString().TrimEnd() + "\n";
+    }
+
     private string DecompileMemberSafe(LoadedAssembly asm, Dn.IMemberDef member, CSharpDecompiler decompiler, CancellationToken token)
     {
         var header = $"// {Format.MemberLabel(member)}  [token {Format.Token(member)}]";
@@ -106,6 +142,8 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
             header += "\n// Warning: this method body is not valid IL (encrypted, or dumped from memory before decryption): the code below is meaningless.";
         try
         {
+            if (member is Dn.MethodDef { IsConstructor: true } ctor && ConstructorInContext(asm, ctor, decompiler) is { } inContext)
+                return header + "\n" + inContext;
             return header + "\n" + decompiler.DecompileAsString(Handle(asm, member)).TrimEnd() + "\n";
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

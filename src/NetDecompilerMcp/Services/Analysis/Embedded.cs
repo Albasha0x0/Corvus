@@ -225,8 +225,6 @@ public static class Embedded
         => TryXorWithHeaders(data);
 
     private const int MinXorTextLength = 32;
-    private const double XorTextMinScore = 0.85;
-    private const double XorTextMinGain = 0.25;
 
     private const int MaxXorKeyLength = 16;
 
@@ -257,10 +255,11 @@ public static class Embedded
         double top = lengths.Max(x => x.Coincidence);
         if (top < 0.02) return null; // flat: compressed, encrypted or random data
         var candidates = lengths.Where(x => x.Coincidence >= Math.Max(0.02, top * 0.6)).Select(x => x.Length).Take(3).ToList();
-        foreach (bool utf16 in new[] { false, true })
+        // UTF-16 first: its zero high bytes, XORed, can be refined into look-alike UTF-8 letters
+        foreach (bool utf16 in new[] { true, false })
             foreach (int length in candidates)
             {
-                var key = new byte[length];
+                var scored = new byte[length];
                 for (int column = 0; column < length; column++)
                 {
                     int bestScore = int.MinValue;
@@ -269,23 +268,148 @@ public static class Embedded
                         int score = 0;
                         for (int i = column; i < sample.Length; i += length)
                             score += utf16 ? Utf16Weight((byte)(sample[i] ^ k), i % 2 == 1) : Utf8Weight((byte)(sample[i] ^ k));
-                        if (score > bestScore) { bestScore = score; key[column] = (byte)k; }
+                        if (score > bestScore) { bestScore = score; scored[column] = (byte)k; }
                     }
                 }
-                // text in another script: multi-byte characters span columns, so the per-column choice is refined
-                // against the whole decode (letters and spaces, minus invalid sequences and controls)
-                if (!utf16 && Apply(sample, key) is var first && !ReadableText(first, utf16: false)
-                    && first.Count(c => c == ' ') is var spaces && spaces >= first.Length * 0.03 && spaces <= first.Length * 0.4)
-                    RefineForUtf8(sample.AsSpan(0, Math.Min(sample.Length, 1024)).ToArray(), key);
-                if (key.All(b => b == 0)) continue; // no XOR
-                key = Shortest(key);                // 3 key bytes over 2-byte characters repeat every 6 bytes
-                var decoded = Apply(sample, key);
-                if (!ReadableText(decoded, utf16) || Repeats(decoded, key.Length)) continue;
-                var full = Apply(data, key);
+                // the scored key refined two ways (by ASCII character pairs; as UTF-8 text in another script, whose
+                // multi-byte characters span columns), and keys whose first bytes come from what configuration usually
+                // starts with ({", https://, <?xml...), refined by pairs; validation keeps the ones that give text
+                var tries = new List<(byte[] Key, bool[] Fixed, bool Utf8Script)> { (scored, new bool[length], false) };
+                if (!utf16)
+                {
+                    tries.Add((scored, new bool[length], true));
+                    foreach (var crib in Cribs)
+                    {
+                        var key = (byte[])scored.Clone();
+                        var fixedBytes = new bool[length];
+                        for (int i = 0; i < Math.Min(length, crib.Length) && i < sample.Length; i++) { key[i] = (byte)(sample[i] ^ crib[i]); fixedBytes[i] = true; }
+                        if (key.AsSpan().SequenceEqual(scored)) continue; // the crib agrees with the scored key: nothing new
+                        tries.Add((key, fixedBytes, false));
+                    }
+                }
+                (byte[] Key, double Score)? best = null;
+                var slice = sample.Length > 512 ? sample[..512] : sample;
+                // text under its per-column key is already nearly all printable (or another script's bytes); tables
+                // and code are not, and refining them is wasted time
+                if (!utf16 && Apply(slice, scored) is var firstPass
+                    && firstPass.Count(c => c is >= 0x20 and < 0x7F or 9 or 10 or 13 or >= 0x80) < firstPass.Length * 0.85)
+                    continue;
+                var seenKeys = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var (start0, fixedBytes, utf8Script) in tries)
+                {
+                    var key = (byte[])start0.Clone();
+                    if (!utf16)
+                    {
+                        if (!utf8Script) RefineByBigrams(slice, key, fixedBytes);
+                        else if (Apply(sample, key) is var first && !ReadableText(first, utf16: false) && first.Count(c => c == ' ') is var spaces
+                                 && spaces >= first.Length * 0.03 && spaces <= first.Length * 0.4)
+                            RefineForUtf8(sample.AsSpan(0, Math.Min(sample.Length, 1024)).ToArray(), key);
+                        else continue;
+                    }
+                    if (key.All(b => b == 0) || !seenKeys.Add(Convert.ToHexString(key))) continue; // no XOR, or tried already
+                    var decoded = Apply(sample, key);
+                    if (!ReadableText(decoded, utf16) || Repeats(decoded, length) || !utf16 && Utf16Shaped(decoded)) continue;
+                    double rank = utf16 ? 0 : BigramScore(decoded);
+                    if (best == null || rank > best.Value.Score) best = (key, rank);
+                }
+                if (best is not { } chosen) continue;
+                var shortest = Shortest(chosen.Key); // 3 key bytes over 2-byte characters repeat every 6 bytes
+                var full = Apply(data, shortest);
                 if (!ReadableText(full.AsSpan(0, Math.Min(full.Length, 65536)).ToArray(), utf16)) continue;
-                return (key, utf16 ? Encoding.UTF8.GetBytes(Encoding.Unicode.GetString(full)) : full, utf16);
+                return (shortest, utf16 ? Encoding.UTF8.GetBytes(Encoding.Unicode.GetString(full)) : full, utf16);
             }
         return null;
+    }
+
+    /// <summary>What hidden configuration usually starts with: known plaintext for the first key bytes.</summary>
+    private static readonly byte[][] Cribs = new[] { "{\"", "[{\"", "[\"", "https://", "http://", "<?xml ", "<config", "[" }
+        .Select(Encoding.ASCII.GetBytes).ToArray();
+
+    /// <summary>
+    /// Log-probabilities of ASCII character pairs, learnt from a sample of prose, JSON, URLs, INI, XML, paths and code:
+    /// what makes "https://a.example" likelier than a decode with one key byte off.
+    /// </summary>
+    private static readonly double[,] Bigrams = TrainBigrams(
+        "The quick brown fox jumps over the lazy dog. Quarterly notes, not for sharing with anyone outside the team. " +
+        "Please send the report to the staging server before the end of the day, and keep a copy of the settings. " +
+        "{\"name\":\"value\",\"url\":\"https://update.example.com/api/v1/check\",\"interval\":300,\"enabled\":true," +
+        "\"servers\":[\"https://cdn.example.net/files/latest.zip\",\"http://10.0.0.1:8080/upload\"],\"path\":\"C:\\\\Users\\\\Public\"}\n" +
+        "https://www.example.org/index.html?id=42&lang=en\nhttp://download.example.com/setup.exe\n" +
+        "[settings]\nhost=relay.example.com\nport=443\nuser=admin\npassword=secret\ntimeout=30\nlog_level=info\n" +
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?><configuration><appSettings><add key=\"server\" value=\"https://example.com\" />" +
+        "</appSettings></configuration>\n" +
+        "public static void Main(string[] args) { var client = new HttpClient(); var data = await client.GetStringAsync(url); }\n" +
+        "SELECT name, value FROM settings WHERE id = 1; INSERT INTO log (time, message) VALUES (now(), 'started');\n" +
+        "Software\\Microsoft\\Windows\\CurrentVersion\\Run /usr/local/bin/service --config /etc/app/config.json\n");
+
+    private static double[,] TrainBigrams(string text)
+    {
+        var counts = new double[128, 128];
+        for (int a = 0; a < 128; a++)
+            for (int b = 0; b < 128; b++)
+                counts[a, b] = 0.05; // unseen pairs: unlikely, not impossible
+        for (int i = 0; i + 1 < text.Length; i++)
+            if (text[i] < 128 && text[i + 1] < 128) counts[text[i], text[i + 1]] += 1;
+        var logs = new double[128, 128];
+        for (int a = 0; a < 128; a++)
+        {
+            double row = 0;
+            for (int b = 0; b < 128; b++) row += counts[a, b];
+            for (int b = 0; b < 128; b++) logs[a, b] = Math.Log(counts[a, b] / row);
+        }
+        return logs;
+    }
+
+    /// <summary>The pair table over all byte values: non-text bytes score -12.</summary>
+    private static readonly double[] PairTable = BuildPairTable();
+
+    private static double[] BuildPairTable()
+    {
+        static bool Text(int c) => c < 128 && (c >= 0x20 || c is 9 or 10 or 13) && c != 0x7F;
+        var table = new double[256 * 256];
+        for (int a = 0; a < 256; a++)
+            for (int b = 0; b < 256; b++)
+                table[a * 256 + b] = Text(a) && Text(b) ? Bigrams[a, b] : -12;
+        return table;
+    }
+
+    private static double Pair(byte a, byte b) => PairTable[a * 256 + b];
+
+    private static double BigramScore(byte[] decoded)
+    {
+        double score = 0;
+        for (int i = 0; i + 1 < decoded.Length; i++) score += Pair(decoded[i], decoded[i + 1]);
+        return score / Math.Max(1, decoded.Length - 1);
+    }
+
+    /// <summary>Coordinate ascent over the key bytes not fixed by a crib, three passes, on the pairs each byte is part of.</summary>
+    private static void RefineByBigrams(byte[] sample, byte[] key, bool[] fixedBytes)
+    {
+        int length = key.Length, n = sample.Length;
+        var decoded = new byte[n];
+        for (int i = 0; i < n; i++) decoded[i] = (byte)(sample[i] ^ key[i % length]);
+        var table = PairTable;
+        for (int pass = 0; pass < 2; pass++)
+            for (int column = 0; column < length; column++)
+            {
+                if (fixedBytes[column]) continue;
+                double bestScore = double.NegativeInfinity;
+                int best = key[column];
+                for (int k = 0; k < 256; k++)
+                {
+                    // only this column's bytes change: score the pairs they are in
+                    double score = 0;
+                    for (int i = column; i < n; i += length)
+                    {
+                        int c = sample[i] ^ k;
+                        if (i > 0) score += table[decoded[i - 1] * 256 + c];
+                        if (i + 1 < n) score += table[c * 256 + decoded[i + 1]];
+                    }
+                    if (score > bestScore) { bestScore = score; best = k; }
+                }
+                key[column] = (byte)best;
+                for (int i = column; i < n; i += length) decoded[i] = (byte)(sample[i] ^ best);
+            }
     }
 
     /// <summary>Coordinate ascent over the key bytes, two passes, on how readable the UTF-8 decode is.</summary>
@@ -376,8 +500,68 @@ public static class Embedded
             _ => 0,
         };
 
-    /// <summary>Readable text in UTF-8 or UTF-16LE, by the rules above.</summary>
-    private static bool ReadableText(byte[] bytes, bool utf16)
+    /// <summary>Readable text in UTF-8 or UTF-16LE: natural language, or structured text (JSON, XML, config / URL lines).</summary>
+    private static bool ReadableText(byte[] bytes, bool utf16) => NaturalText(bytes, utf16) || StructuredText(bytes, utf16);
+
+    private static readonly System.Text.RegularExpressions.Regex ConfigLine = new(
+        @"^(?:[a-z][a-z0-9+.\-]*://[\w.\-]*[a-z][\w.\-]*\S*|[a-z_][\w.\-\[\] ]{0,63}\s*[=:]\s*\S.*|(?=[\w.\-]*[a-z])[\w\-]+(?:\.[\w\-]+)+:\d{1,5}|[a-z]:\\[\w .\\\-]*[a-z][\w .\\\-]*|/(?:[\w.\-]*[a-z][\w.\-]*/?)+|#\s*[a-z].*|;\s*[a-z].*|\[[a-z][^\]]*\])$",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Configuration hidden this way is usually structured, not prose: JSON (tokens read without error, a cut sample
+    /// allowed), XML (tags, well-formed when whole), or lines that are almost all URLs, key=value / key: value pairs,
+    /// host:port, paths, comments or [sections]. Printable, no control characters but whitespace, 24+ characters.
+    /// </summary>
+    private static bool StructuredText(byte[] bytes, bool utf16)
+    {
+        if (utf16 && bytes.Length % 2 == 1) bytes = bytes[..^1];
+        string text;
+        try { text = (utf16 ? new UnicodeEncoding(false, false, true) : (Encoding)new UTF8Encoding(false, true)).GetString(TrimPartial(bytes, utf16)); }
+        catch (DecoderFallbackException) { return false; }
+        text = text.Trim();
+        if (text.Length < 24 || text.Any(c => char.IsControl(c) && c is not ('\n' or '\r' or '\t'))) return false;
+        if (text.Count(c => c is >= ' ' and <= '~' or '\n' or '\r' or '\t') < text.Length * 0.9) return false;
+        if (text.Count(char.IsLetter) < text.Count(c => !char.IsWhiteSpace(c)) * 0.3) return false; // tables of numbers are not configuration
+
+        if (text[0] is '{' or '[')
+        {
+            try
+            {
+                var utf8 = Encoding.UTF8.GetBytes(text);
+                var reader = new System.Text.Json.Utf8JsonReader(utf8, isFinalBlock: false, state: default);
+                int tokens = 0, names = 0;
+                while (reader.Read())
+                {
+                    tokens++;
+                    if (reader.TokenType == System.Text.Json.JsonTokenType.PropertyName) names++;
+                }
+                return tokens >= 6 && (names >= 2 || tokens >= 10);
+            }
+            catch (System.Text.Json.JsonException) { return false; }
+        }
+        if (text[0] == '<')
+        {
+            if (System.Text.RegularExpressions.Regex.Matches(text, @"<[A-Za-z_][\w.:\-]*(\s[^<>]*)?/?>").Count < 3) return false;
+            try
+            {
+                using var xml = System.Xml.XmlReader.Create(new StringReader(text), new System.Xml.XmlReaderSettings { DtdProcessing = System.Xml.DtdProcessing.Prohibit, XmlResolver = null });
+                while (xml.Read()) { }
+                return true;
+            }
+            catch (System.Xml.XmlException ex)
+            {
+                // a sample cut inside the document: well-formed as far as it goes
+                return ex.LineNumber >= text.Count(c => c == '\n') && bytes.Length >= 4096;
+            }
+        }
+        var lines = text.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
+        if (lines.Count < 2) lines = text.Split(';', '|').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
+        if (lines.Count < 2) return false;
+        int matching = lines.Count(l => ConfigLine.IsMatch(l));
+        return matching >= 2 && matching >= lines.Count * 0.9;
+    }
+
+    private static bool NaturalText(byte[] bytes, bool utf16)
     {
         if (utf16 && bytes.Length % 2 == 1) bytes = bytes[..^1];
         string text;
@@ -397,6 +581,30 @@ public static class Embedded
         }
         int visible = letters + other;
         if (!(visible > 0 && letters >= visible * 0.5 && distinct.Count >= 10)) return false;
+        var letterChars = text.Where(char.IsLetter).ToList();
+        int dominant = letterChars.GroupBy(Script).OrderByDescending(g => g.Count()).First().Key;
+        // real text stays within its script, Latin, digits and the usual punctuation; data decoded with a wrong key
+        // scatters over unrelated blocks (U+FFDF, Lepcha, Glagolitic, zero-width marks)
+        int stray = text.Count(c => !(char.IsWhiteSpace(c) || c is >= ' ' and <= '~' || char.IsLetter(c) && (Script(c) == dominant || Script(c) == 0)
+                                      || c is >= '\u2010' and <= '\u205E' or >= '\u3000' and <= '\u303F' or >= '\uFF01' and <= '\uFF5E'
+                                      || char.IsDigit(c) || (char.IsPunctuation(c) && Script(c) == dominant)));
+        if (stray > text.Length * 0.03) return false;
+        if (dominant == 0)
+        {
+            // Latin-script words have vowels; decoded tables give consonant runs ("Rmjb Qafn")
+            // and words of real length: decoded tables give runs of two letters ("gi cj cd nd ag")
+            var wordLengths = System.Text.RegularExpressions.Regex.Matches(text, @"\p{L}+").Select(m => m.Length).ToList();
+            if (wordLengths.Count >= 10 && wordLengths.Average() < 3.0) return false;
+            var runs = System.Text.RegularExpressions.Regex.Matches(text, @"\p{L}{3,}").Select(m => m.Value).ToList();
+            if (runs.Count >= 5 && runs.Count(w => w.Any(c => "aeiouyAEIOUYàáâäèéêëìíîïòóôöùúûü".Contains(c))) < runs.Count * 0.8) return false;
+            if (text.Count(c => c < 128) >= text.Length * 0.9 && BigramScore(Encoding.ASCII.GetBytes(text)) < -4.2) return false;
+        }
+        else if (dominant is 5 or 6)
+        {
+            // natural Chinese / Japanese / Korean repeats its common characters; code points from random data do not
+            int covered = letterChars.GroupBy(c => c).Select(g => g.Count()).OrderByDescending(n => n).Take(30).Sum();
+            if (letterChars.Count >= 60 && covered < letterChars.Count * 0.35) return false;
+        }
         // natural text keeps most letters in one script and repeats letter pairs; random code units that happen to be
         // letters (CJK, Hangul) spread over scripts and almost never repeat a pair
         var scripts = text.Where(char.IsLetter).GroupBy(Script).Select(g => g.Count()).OrderByDescending(n => n).ToList();
@@ -455,6 +663,24 @@ public static class Embedded
         return back > 0 && end > 0 && bytes[end - 1] < 0x80 ? bytes[..end] : bytes;
     }
 
+    /// <summary>
+    /// Every other byte drawn from a handful of values (the top three fill 80% of the even or of the odd positions):
+    /// UTF-16 text decoded as if it were UTF-8, not UTF-8 text.
+    /// </summary>
+    private static bool Utf16Shaped(byte[] bytes)
+    {
+        // (text in another script alternates lead and continuation bytes too, but is not ASCII)
+        if (bytes.Count(c => c >= 0x80) >= bytes.Length * 0.1) return false;
+        foreach (int parity in new[] { 0, 1 })
+        {
+            var counts = new int[256];
+            int n = 0;
+            for (int i = parity; i < bytes.Length; i += 2) { counts[bytes[i]]++; n++; }
+            if (n >= 16 && counts.OrderByDescending(c => c).Take(3).Sum() >= n * 0.8) return true;
+        }
+        return false;
+    }
+
     /// <summary>A key that is a shorter key repeated (abcabc): the shorter one.</summary>
     private static byte[] Shortest(byte[] key)
     {
@@ -471,6 +697,17 @@ public static class Embedded
         var seen = new HashSet<string>();
         for (int b = 0; b < blocks; b++) seen.Add(Convert.ToHexString(decoded, b * width, width));
         return seen.Count < blocks / 2;
+    }
+
+    /// <summary>
+    /// A gzip stream that decompresses to something, with reserved flag bits clear and a trailer whose size field matches
+    /// (a 3-byte key always reproduces the 3-byte magic, and the decompressor accepts some garbage without error).
+    /// </summary>
+    private static bool IsRealGzip(byte[] data)
+    {
+        if (data.Length < 18 || (data[3] & 0xE0) != 0) return false;
+        if (Blob.TryDecompress(data, "gzip", 64L * 1024 * 1024) is not { Length: > 0 } inflated) return false;
+        return BitConverter.ToUInt32(data, data.Length - 4) == (uint)inflated.Length;
     }
 
     /// <summary>
@@ -509,7 +746,7 @@ public static class Embedded
                 {
                     "pe" => PeImage.TryParse(decoded) != null,
                     "zip" => IsRealZip(decoded),
-                    _ => Blob.TryDecompress(decoded, "gzip", 64L * 1024 * 1024) != null,
+                    _ => IsRealGzip(decoded),
                 };
                 if (valid) return (key, decoded);
             }
