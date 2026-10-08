@@ -230,13 +230,15 @@ internal static class ReferenceStubs
                         if (o.MethodDeclaration is MemberRef { Class: ITypeDefOrRef decl } omr && Of(decl) is { } overridden
                             && overridden.Members.TryGetValue($"M:{omr.Name}:{omr.MethodSig}", out var om))
                             om.Virtual = true;
-                    if (!md.HasBody) continue;
+                    // Not dnlib's lazy Body: a stub is built while dnlib resolves a reference, possibly in the middle of
+                    // reading this very method's body, whose lock would then be taken recursively.
+                    if (FastIlReader.Read(asm, md) is not { } body) continue;
                     try
                     {
-                        foreach (var local in md.Body.Variables) Visit(local.Type);
-                        foreach (var eh in md.Body.ExceptionHandlers)
-                            if (Of(eh.CatchType) is { } ex) ex.Exception = true;
-                        var il = FastIlReader.Instructions(asm, md);
+                        foreach (var local in body.LocalTypes) Visit(local);
+                        foreach (var (catchType, _) in body.Catches)
+                            if (Of(catchType) is { } ex) ex.Exception = true;
+                        var il = body.Instructions;
                         for (int k = 0; k < il.Count; k++)
                         {
                             var instr = il[k];
