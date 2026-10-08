@@ -103,6 +103,8 @@ of the next tool result, plus best-effort `resources/list_changed` and log notif
 | Locked files | Assemblies are read into memory; files on disk are never locked. |
 | Concurrency | Reads share a lock; edits take it exclusively. Stress-tested with interleaved readers and writers, and with 40 parallel MCP calls. |
 | Corrupt or obfuscated bodies | The IL scanner stops at invalid opcodes instead of throwing; `decompile_type` falls back to member-by-member output with IL for the broken part. |
+| Protected metadata | Out-of-range names and coded indexes that protectors (Babel, Goliath, ConfuserEx-style) leave behind are read leniently by dnlib but not by the decompiler; such assemblies are decompiled from a copy normalized by dnlib, with the same tokens, and the output says so. |
+| Invisible names | Names made of zero-width and bidi characters (U+202E reverses the rest of a line) are shown as `\uXXXX`, as the decompiler does; symbols are accepted back in that form. |
 | Huge output | Paged (`offset` / `maxChars`); pages come from a cache. |
 | Files changing on disk | Watched: clean assemblies reload automatically; ones with unsaved edits are left alone and the agent is told. |
 | Slow first queries | Method bodies are indexed and the call graph is built in the background after loading, in small chunks that never block edits. |
