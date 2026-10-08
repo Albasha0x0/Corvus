@@ -668,6 +668,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         }
 
         var snapshot = new Dictionary<FieldDef, object?>(_statics);
+        var initializedBefore = new HashSet<TypeDef>(_initialized.Keys);
         long allocatedBefore = _allocated;
         _initializing.Add(type);
         _cctorDepth++;
@@ -692,8 +693,11 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         {
             if (!completed)
             {
+                // Types whose initialization ran within this one lose their state with it: they are initialized again
+                // when next needed (only this type's own failure is remembered).
                 _statics.Clear();
                 foreach (var (k, v) in snapshot) _statics[k] = v;
+                foreach (var t in _initialized.Keys.Where(t => t != type && !initializedBefore.Contains(t)).ToList()) _initialized.Remove(t);
             }
             _cctorDepth--;
             _initializing.Remove(type);

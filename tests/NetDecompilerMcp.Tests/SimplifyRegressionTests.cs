@@ -121,6 +121,40 @@ public sealed class SimplifyRegressionTests : IDisposable
     }
 
     /// <summary>
+    /// Real application (RebornBuddy): a type initializer that ran inside another one whose evaluation then failed kept
+    /// its "initialized" mark while the failed one's rollback erased its static state, so later reads saw default values:
+    /// B.X (set to 5 by B's initializer, run from A's) read back as 0 and a branch on it folded the wrong way.
+    /// </summary>
+    [Fact]
+    public void InitializationsInsideAFailedOneAreForgottenWithIt()
+    {
+        var lab = new IlLab("Rollback");
+        var t = lab.T;
+        var b = lab.NewType("Lab", "B", abstractSealed: true, beforeFieldInit: false);
+        var x = lab.StaticField(b, "X", t.Int32, readOnly: true);
+        lab.StaticConstructor(b, Ldc(5), I(OpCodes.Stsfld, x), Ret());
+        var a = lab.NewType("Lab", "A", abstractSealed: true, beforeFieldInit: false);
+        var y = lab.StaticField(a, "Y", t.Int32, readOnly: true);
+        var exists = lab.Module.Import(typeof(File).GetMethod(nameof(File.Exists), [typeof(string)]));
+        lab.StaticConstructor(a, I(OpCodes.Ldsfld, x), I(OpCodes.Stsfld, y), I(OpCodes.Ldstr, "x"), I(OpCodes.Call, exists), I(OpCodes.Pop), Ret());
+
+        var touchEnd = Ldc(0);
+        var touch = lab.Method("Touch", t.Int32, I(OpCodes.Ldsfld, y), Ldc(0), I(OpCodes.Bgt, touchEnd), Ldc(1), Ret(), touchEnd, Ret());
+        var ok = Ldc(1);
+        var uses = lab.Method("Uses", t.Int32, I(OpCodes.Ldsfld, x), Ldc(5), I(OpCodes.Beq, ok), Ldc(2), Ret(), ok, Ret());
+
+        var evaluator = new IlEvaluator(lab.Module, new EvaluationLimits());
+        Assert.Throws<EvaluationBailout>(() => evaluator.EvaluateSlice([I(OpCodes.Ldsfld, y)]));
+        Assert.Equal(5, evaluator.EvaluateSlice([I(OpCodes.Ldsfld, x)]).Single());
+
+        // Through the passes, in that order, with one simplifier: Uses must still return 1.
+        var changes = new MethodSimplifier(lab.Module, new SimplifyOptions()).Run([touch, uses], default);
+        foreach (var c in changes.Where(c => c.Changed)) c.Method.Body = c.NewBody!;
+        using var runner = new LabRunner(lab.Write());
+        Assert.Equal(((object?)1, (Exception?)null), runner.Call("Lab.P", "Uses"));
+    }
+
+    /// <summary>
     /// Fuzz seed 16: simplifying a method that always throws left a fault handler of one endfinally at the very end of
     /// the body. Valid IL, but dnlib reads a region ending at the end of the code as ending at the last instruction, so
     /// the saved image read back without the handler. Such results are refused; the method is left unchanged.
