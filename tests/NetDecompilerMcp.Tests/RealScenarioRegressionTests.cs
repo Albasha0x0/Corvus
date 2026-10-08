@@ -296,6 +296,26 @@ public sealed class RealScenarioRegressionTests
         Assert.Contains("\"stubbed\"", env.Workspace.Read(() => env.Decompiler.DecompileMembers(newBuild, [(IMemberDef)SymbolResolver.ResolveOne(env.Workspace, newBuild.Id, "Uploader::i").Member], default)));
     }
 
+    /// <summary>
+    /// Saving an edited signed assembly drops its Authenticode signature and leaves a strong-name signature that no longer
+    /// matches; both happened without a word. Found on PDFelement's signed Office add-in.
+    /// </summary>
+    [Fact]
+    public void SavingAnEditedSignedAssemblySaysWhatHappensToItsSignatures()
+    {
+        var path = RealPackages.Lib("newtonsoft.json", "13.0.4", "netstandard2.0", "Newtonsoft.Json.dll");
+        using var dir = new TempDir();
+        using var env = new Env(path);
+        env.Edit(() => env.Edits.StubMethod(env.One("Newtonsoft.Json.JsonConvert::ToString(bool)"), "\"x\""));
+        var result = env.Workspace.Read(() => env.Edits.Save(env.Fixture, dir.File("Newtonsoft.Json.dll"), overwrite: false));
+        Assert.Contains("strong-name signed", result);
+        using var pe = new System.Reflection.PortableExecutable.PEReader(File.OpenRead(path));
+        Assert.Equal(pe.PEHeaders.PEHeader!.CertificateTableDirectory.Size > 0, result.Contains("Authenticode-signed"));
+
+        using var clean = new Env(path);
+        Assert.DoesNotContain("Signatures:", clean.Workspace.Read(() => clean.Edits.Save(clean.Fixture, dir.File("Unedited.dll"), overwrite: false)));
+    }
+
     [Fact]
     public async Task MissingRequiredArgumentIsAClearToolError()
     {

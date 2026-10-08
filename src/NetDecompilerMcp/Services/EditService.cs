@@ -584,6 +584,23 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
 
         var kept = asm.IsDirty ? "everything no edit touched is as in the original" : "no edits: the original bytes";
         return $"Wrote {target} ({new FileInfo(target).Length:N0} bytes, {asm.Edits.Count} edit(s); {kept})." +
-               $"{(backup != null ? $" Original backed up to {backup}." : "")}{report.Describe()}";
+               $"{(backup != null ? $" Original backed up to {backup}." : "")}{report.Describe()}{(asm.IsDirty ? SignatureNotes(asm) : "")}";
+    }
+
+    /// <summary>What an edit does to the file's signatures: they cover the original bytes, so none survives a change.</summary>
+    private static string SignatureNotes(LoadedAssembly asm)
+    {
+        var notes = new List<string>();
+        try
+        {
+            using var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(asm.OriginalBytes, writable: false));
+            if (pe.PEHeaders.PEHeader?.CertificateTableDirectory.Size > 0)
+                notes.Add("The original is Authenticode-signed; the signature is not carried over (it covers the original bytes), so the saved file is unsigned.");
+        }
+        catch (BadImageFormatException) { }
+        if (asm.Module.Assembly?.PublicKey is { IsNullOrEmpty: false } && (asm.Module.Cor20HeaderFlags & dnlib.DotNet.MD.ComImageFlags.StrongNameSigned) != 0)
+            notes.Add("The assembly is strong-name signed, and its signature no longer matches: .NET Framework refuses it where strong names are " +
+                      "verified (the GAC, signed hosts) unless it is re-signed with the original key or verification is skipped (sn -Vr). .NET (Core) does not verify strong names.");
+        return notes.Count == 0 ? "" : "\n\nSignatures:\n" + string.Join("\n", notes.Select(n => "  " + n));
     }
 }

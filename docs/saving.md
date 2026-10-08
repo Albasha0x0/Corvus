@@ -14,6 +14,8 @@ Generated from `SaveManifest` (src/NetDecompilerMcp/Core/SaveReport.cs); a test 
   silently. The comparison covers method bodies, the signature blobs of methods, fields, properties, member
   references, type specs, method specs and local variable signatures, and the #US and #Blob heaps; other
   metadata (names, attributes, resources) is written by dnlib from the edited model.
+- **Signatures:** an Authenticode signature is not carried over and a strong-name signature no longer matches
+  (both cover the original bytes); a save with edits says so when the original had either.
 
 ## The report
 
