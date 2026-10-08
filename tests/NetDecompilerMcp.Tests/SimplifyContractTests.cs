@@ -546,13 +546,53 @@ public sealed class SimplifyContractTests
             Add(FallbackReason.ExceptionHandling, lab.Method("CallsGuarded", t.Int32, I(OpCodes.Call, guarded), Ret()));
             Add(FallbackReason.ExceptionHandling, lab.Method("Throws", t.Int32, I(OpCodes.Ldnull), I(OpCodes.Throw)));
         }
+        // Classes: one case per path outside the modelled subset.
+        MethodDef Ctor(TypeDef type)
+        {
+            var ctor = new MethodDefUser(".ctor", MethodSig.CreateInstance(t.Void), MethodImplAttributes.IL,
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName);
+            type.Methods.Add(ctor);
+            ctor.Body = new CilBody();
+            ctor.Body.Instructions.Add(Ret());
+            return ctor;
+        }
+        MethodDef NewOf(string name, TypeDef type) => lab.Method(name, t.Object, I(OpCodes.Newobj, Ctor(type)), Ret());
         var cls = lab.NewType("Lab", "Cls");
-        var clsCtor = new MethodDefUser(".ctor", MethodSig.CreateInstance(t.Void), MethodImplAttributes.IL,
-            MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName);
-        cls.Methods.Add(clsCtor);
-        clsCtor.Body = new CilBody();
-        clsCtor.Body.Instructions.Add(Ret());
-        Add(FallbackReason.InstanceObject, lab.Method("NewClass", t.Object, I(OpCodes.Newobj, clsCtor), Ret()));
+        var clsCtor = Ctor(cls);
+        var target = lab.Method("Target", t.Int32, Ldc(1), Ret());
+        var instanceTarget = new MethodDefUser("Get", MethodSig.CreateInstance(t.Int32), MethodImplAttributes.IL, MethodAttributes.Public);
+        cls.Methods.Add(instanceTarget);
+        instanceTarget.Body = new CilBody();
+        foreach (var i in new[] { Ldc(1), Ret() }) instanceTarget.Body.Instructions.Add(i);
+        var func = typeof(Func<int>);
+        Add(FallbackReason.InstanceObject, lab.Method("BoundDelegate", t.Object,
+            I(OpCodes.Newobj, clsCtor), I(OpCodes.Ldftn, instanceTarget), I(OpCodes.Newobj, lab.Module.Import(func.GetConstructors()[0])), Ret()));
+        {
+            var finalized = lab.NewType("Lab", "Finalized");
+            var finalize = new MethodDefUser("Finalize", MethodSig.CreateInstance(t.Void), MethodImplAttributes.IL,
+                MethodAttributes.Family | MethodAttributes.Virtual | MethodAttributes.HideBySig);
+            finalized.Methods.Add(finalize);
+            finalize.Body = new CilBody();
+            finalize.Body.Instructions.Add(Ret());
+            Add(FallbackReason.UnmodeledInstance, NewOf("NewFinalized", finalized));
+            var withEvent = lab.NewType("Lab", "WithEvent");
+            withEvent.Events.Add(new EventDefUser("Changed", lab.Module.Import(typeof(EventHandler))));
+            Add(FallbackReason.UnmodeledInstance, NewOf("NewWithEvent", withEvent));
+            var generic = lab.NewType("Lab", "Generic`1");
+            generic.GenericParameters.Add(new GenericParamUser(0, 0, "T"));
+            Add(FallbackReason.UnmodeledInstance, NewOf("NewGeneric", generic));
+            Add(FallbackReason.UnmodeledInstance, NewOf("NewException", lab.NewType("Lab", "Failure", baseType: lab.Module.Import(typeof(Exception)))));
+            var explicitLayout = lab.NewType("Lab", "Overlay");
+            explicitLayout.Attributes |= TypeAttributes.ExplicitLayout;
+            Add(FallbackReason.UnmodeledInstance, NewOf("NewInterop", explicitLayout));
+            TypeDef deep = lab.NewType("Lab", "Level0");
+            for (int level = 1; level <= 10; level++) deep = lab.NewType("Lab", "Level" + level, baseType: deep);
+            Add(FallbackReason.UnmodeledInstance, NewOf("NewDeep", deep));
+        }
+        Add(FallbackReason.VirtualDispatch, lab.Method("FrameworkVirtual", t.String,
+            I(OpCodes.Newobj, clsCtor), I(OpCodes.Callvirt, lab.Module.Import(typeof(object).GetMethod(nameof(ToString)))), Ret()));
+        Add(FallbackReason.VirtualDispatch, lab.Method("PlainObject", t.Int32,
+            I(OpCodes.Newobj, lab.Module.Import(typeof(object).GetConstructor(Type.EmptyTypes))), I(OpCodes.Callvirt, lab.Module.Import(typeof(object).GetMethod(nameof(GetHashCode)))), Ret()));
         Add(FallbackReason.UnsupportedValue, lab.Method("Box", t.Object, Ldc(1), I(OpCodes.Box, t.Int32.ToTypeDefOrRef()), Ret()));
         var counter = lab.StaticField(lab.Type, "Counter", t.Int32, readOnly: false);
         Add(FallbackReason.MutableStatic, lab.Method("ReadsCounter", t.Int32, I(OpCodes.Ldsfld, counter), Ret()));

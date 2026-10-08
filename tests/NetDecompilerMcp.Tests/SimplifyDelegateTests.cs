@@ -316,7 +316,7 @@ public sealed class SimplifyDelegateTests : IDisposable
     [Theory]
     [InlineData("UseSwapped", "Swapped", "reads mutable static field Proxies.Unprovable::Swapped")]
     [InlineData("UseVisible", "Visible", "reads mutable static field Proxies.Unprovable::Visible")]
-    [InlineData("UseBound", "Bound", "creates an instance of Proxies.Box")]
+    [InlineData("UseBound", "Bound", "creates a delegate bound to an object")]
     public void UnprovableDelegateCallsAreKeptAndReported(string method, string field, string why)
     {
         using var env = new Env(Fixture());

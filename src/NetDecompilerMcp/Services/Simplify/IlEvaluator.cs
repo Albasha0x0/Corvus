@@ -540,13 +540,31 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                     break;
                 case Code.Ldfld:
                 {
-                    var (s, k, slot) = FieldOf(Pop(), ins.Operand, viaPointerOnly: false);
+                    var target = Pop();
+                    if (target is InstanceObject obj)
+                    {
+                        var field = InstanceField(obj, ins.Operand);
+                        Push(Load(SlotOf(field.FieldType), obj.Fields[field]));
+                        break;
+                    }
+                    var (s, k, slot) = FieldOf(target, ins.Operand, viaPointerOnly: false);
                     Push(Load(slot, s.Fields[k]));
                     break;
                 }
                 case Code.Ldflda:
                 {
                     var target = Pop();
+                    if (target is InstanceObject obj)
+                    {
+                        var field = InstanceField(obj, ins.Operand);
+                        var fieldSlot = SlotOf(field.FieldType);
+                        Push(new Pointer(() => obj.Fields[field], v =>
+                        {
+                            RequireMutable(obj);
+                            obj.Fields[field] = Store(fieldSlot, v);
+                        }));
+                        break;
+                    }
                     var (_, k, slot) = FieldOf(target, ins.Operand, viaPointerOnly: true);
                     var parent = (Pointer)target!;
                     Push(new Pointer(() => ((StructValue)parent.Get()!).Fields[k], v => ((StructValue)parent.Get()!).Fields[k] = Store(slot, v)));
@@ -555,7 +573,15 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                 case Code.Stfld:
                 {
                     var value = Pop();
-                    var (s, k, slot) = FieldOf(Pop(), ins.Operand, viaPointerOnly: true);
+                    var target = Pop();
+                    if (target is InstanceObject obj)
+                    {
+                        var field = InstanceField(obj, ins.Operand);
+                        RequireMutable(obj);
+                        obj.Fields[field] = Store(SlotOf(field.FieldType), value);
+                        break;
+                    }
+                    var (s, k, slot) = FieldOf(target, ins.Operand, viaPointerOnly: true);
                     s.Fields[k] = Store(slot, value);
                     break;
                 }
@@ -699,7 +725,9 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
 
     // ---- type tests
 
-    private static bool IsInstance(object value, ITypeDefOrRef type) => value is ReflectionObject r ? r.Is(type.FullName) : type.FullName switch
+    private bool IsInstance(object value, ITypeDefOrRef type) => value is ReflectionObject r ? r.Is(type.FullName)
+        : value is InstanceObject o ? IsInstanceOf(o, type.FullName)
+        : type.FullName switch
     {
         "System.Object" => value is not (StructValue or Pointer or Opaque) && !Numeric.IsNumber(value)
             ? true
@@ -732,6 +760,13 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         if (!initializing && value is HeapObject or StructValue { HoldsObjects: true } or DynamicMethodObject or ILGeneratorObject && !Frozen(fd))
             throw Bail(FallbackReason.MutableStatic, $"the object in static field {type.FullName}::{fd.Name} may be modified by other code");
         return Load(SlotOf(fd.FieldType), value);
+    }
+
+    /// <summary>See <see cref="ModuleFacts.NeverWritten"/>.</summary>
+    public bool NeverWritten(FieldDef field)
+    {
+        using var analysis = Meter?.Exclude();
+        return _facts.NeverWritten(field);
     }
 
     private bool WrittenOnlyByInitialization(FieldDef field)
@@ -1121,6 +1156,11 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
             return CreateDelegate(method.DeclaringType.ToTypeSig(), pointer.Method, target);
         if (method.Name == "Invoke" && op != Code.Newobj && args.Length > 0 && args[0] is DelegateObject d)
             return InvokeDelegate(d, args[1..]);
+        if (op == Code.Newobj && IsObjectConstructor(method)) return NewPlainObject();
+        if (op != Code.Newobj && args.Length > 0 && args[0] is InstanceObject instance && (method.MethodSig?.HasThis ?? false))
+            return InvokeInstance(instance, method, op, args);
+        if (op == Code.Newobj && method is MethodDef { DeclaringType.IsValueType: false, IsInstanceConstructor: true } classCtor && classCtor.Module == module)
+            return NewInstance(classCtor, args);
         if (method is MethodSpec) throw Bail(FallbackReason.Generic, $"calls generic method {Describe(method)}");
         if (Intrinsics.TryGetValue(method.FullName, out var intrinsic))
         {

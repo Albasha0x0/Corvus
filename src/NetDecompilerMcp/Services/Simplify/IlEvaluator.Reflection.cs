@@ -313,7 +313,9 @@ internal sealed partial class IlEvaluator
                  {
                      ("System.RuntimeTypeHandle", MH, "ResolveTypeHandle", "type"), ("System.RuntimeMethodHandle", MH, "ResolveMethodHandle", "method"),
                      ("System.RuntimeFieldHandle", MH, "ResolveFieldHandle", "field"), (T, Mod, "ResolveType", "type"), (MB, Mod, "ResolveMethod", "method"),
-                     (FI, Mod, "ResolveField", "field"),
+                     (FI, Mod, "ResolveField", "field"), ("System.RuntimeTypeHandle", MH, "GetRuntimeTypeHandleFromMetadataToken", "type"),
+                     ("System.RuntimeMethodHandle", MH, "GetRuntimeMethodHandleFromMetadataToken", "method"),
+                     ("System.RuntimeFieldHandle", MH, "GetRuntimeFieldHandleFromMetadataToken", "field"),
                  })
         {
             add(ret, owner, name, I, (e, a) =>

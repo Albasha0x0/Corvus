@@ -32,6 +32,8 @@ internal sealed class IlBodyGenerator
     private readonly MethodDef _add, _addW, _twice, _opaque, _decrypt;
     private readonly FieldDef _twiceField, _addField, _decryptField; // static readonly delegates of Twice, Add and Decrypt
     private readonly IMethod _invoke1, _invoke2, _invokeString;
+    private readonly FieldDef _config, _configMode, _configZero, _counter, _counterN; // a startup singleton, and an object statements modify
+    private readonly int _mode;
     private readonly IMethod _concat, _length, _upper, _toString, _invalidOpCtor;
     private readonly ITypeDefOrRef[] _catchTypes;
 
@@ -90,7 +92,31 @@ internal sealed class IlBodyGenerator
         _invoke1 = module.Import(func1.GetMethod("Invoke"));
         _invoke2 = module.Import(func2.GetMethod("Invoke"));
         _invokeString = module.Import(funcString.GetMethod("Invoke"));
+        // Config(mode): Mode = mode; Zero is never written. Counter: N, incremented by statements.
+        MethodDefUser Ctor(TypeDef type, params TypeSig[] parameters)
+        {
+            var ctor = new MethodDefUser(".ctor", MethodSig.CreateInstance(_t.Void, parameters), MethodImplAttributes.IL | MethodImplAttributes.Managed,
+                MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName);
+            type.Methods.Add(ctor);
+            ctor.Body = new CilBody();
+            return ctor;
+        }
+        var config = _lab.NewType("Lab", "Config");
+        config.Fields.Add((FieldDef)(_configMode = new FieldDefUser("Mode", new FieldSig(_t.Int32), FieldAttributes.Assembly)));
+        config.Fields.Add((FieldDef)(_configZero = new FieldDefUser("Zero", new FieldSig(_t.Int32), FieldAttributes.Assembly)));
+        var configCtor = Ctor(config, _t.Int32);
+        foreach (var i in new[] { I(OpCodes.Ldarg_0), I(OpCodes.Ldarg_1), I(OpCodes.Stfld, _configMode), I(OpCodes.Ret) }) configCtor.Body.Instructions.Add(i);
+        var counter = _lab.NewType("Lab", "Counter");
+        counter.Fields.Add((FieldDef)(_counterN = new FieldDefUser("N", new FieldSig(_t.Int32), FieldAttributes.Assembly)));
+        var counterCtor = Ctor(counter);
+        counterCtor.Body.Instructions.Add(I(OpCodes.Ret));
+        _config = _lab.StaticField(_lab.Type, "Cfg", new ClassSig(config), readOnly: true);
+        _counter = _lab.StaticField(_lab.Type, "Ctr", new ClassSig(counter), readOnly: true);
+        _mode = _r.Next(0, 5);
+
         _lab.StaticConstructor(_lab.Type,
+            IlLab.Ldc(_mode), I(OpCodes.Newobj, configCtor), I(OpCodes.Stsfld, _config),
+            I(OpCodes.Newobj, counterCtor), I(OpCodes.Stsfld, _counter),
             I(OpCodes.Ldnull), I(OpCodes.Ldftn, _twice), I(OpCodes.Newobj, module.Import(func1.GetConstructors()[0])), I(OpCodes.Stsfld, _twiceField),
             I(OpCodes.Ldnull), I(OpCodes.Ldftn, _add), I(OpCodes.Newobj, module.Import(func2.GetConstructors()[0])), I(OpCodes.Stsfld, _addField),
             I(OpCodes.Ldnull), I(OpCodes.Ldftn, _decrypt), I(OpCodes.Newobj, module.Import(funcString.GetConstructors()[0])), I(OpCodes.Stsfld, _decryptField),
@@ -165,7 +191,7 @@ internal sealed class IlBodyGenerator
     private void Statement(int depth, bool inProtected, bool noExit)
     {
         bool nest = depth < _maxDepth && _budget > 20;
-        int kind = _r.Next(nest ? 24 : 8);
+        int kind = _r.Next(nest ? 25 : 8);
         switch (kind)
         {
             case 0: case 1: case 2: Assign(); break;
@@ -190,6 +216,7 @@ internal sealed class IlBodyGenerator
             case 21: LocalConstantIf(depth, inProtected, noExit); break;
             case 22: ObfuscatedFlattened(depth, inProtected, noExit); break;
             case 23: DelegateCall(); break;
+            case 24: InstanceFields(depth, inProtected, noExit); break;
             default: Assign(); break;
         }
     }
@@ -275,6 +302,45 @@ internal sealed class IlBodyGenerator
                 Op(OpCodes.Stloc, Pick(_pool[VT.Str]));
                 break;
         }
+    }
+
+    /// <summary>
+    /// Fields of objects created at startup: a condition on the singleton's Mode or never-written Zero (constant), or on
+    /// the counter's N, which statements increment (not constant); or an increment of N.
+    /// </summary>
+    private void InstanceFields(int depth, bool inProtected, bool noExit)
+    {
+        var skip = new Label();
+        switch (_r.Next(4))
+        {
+            case 0:
+                Op(OpCodes.Ldsfld, _config);
+                Op(OpCodes.Ldfld, _configMode);
+                Ldc(_r.Next(0, 5));
+                Op(OpCodes.Bne_Un, skip);
+                break;
+            case 1:
+                Op(OpCodes.Ldsfld, _config);
+                Op(OpCodes.Ldfld, _configZero);
+                Op(OpCodes.Brtrue, skip);
+                break;
+            case 2:
+                Op(OpCodes.Ldsfld, _counter);
+                Op(OpCodes.Ldfld, _counterN);
+                Ldc(_r.Next(0, 3));
+                Op(OpCodes.Bgt, skip);
+                break;
+            default:
+                Op(OpCodes.Ldsfld, _counter);
+                Op(OpCodes.Dup);
+                Op(OpCodes.Ldfld, _counterN);
+                Ldc(1);
+                Op(OpCodes.Add);
+                Op(OpCodes.Stfld, _counterN);
+                return;
+        }
+        Block(depth + 1, inProtected, noExit);
+        Mark(skip);
     }
 
     private void CallStatement()

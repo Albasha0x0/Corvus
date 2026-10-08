@@ -25,6 +25,7 @@ internal sealed class ModuleFacts(ModuleDef module)
     private Dictionary<MethodDef, HashSet<MethodDef>>? _callers; // direct callers (virtual methods count as externally callable)
     private Dictionary<FieldDef, List<(MethodDef Method, int Index)>>? _fieldUses;
     private Dictionary<FieldDef, List<MethodDef>>? _fieldWrites; // stsfld, and ldsflda (the address may be written through)
+    private HashSet<FieldDef>? _writtenInstanceFields; // stfld, ldflda
     private readonly Dictionary<TypeDef, HashSet<MethodDef>> _reach = new();
     private readonly Dictionary<TypeDef, HashSet<MethodDef>> _initOnly = new();
     private readonly Dictionary<FieldDef, bool> _frozen = new();
@@ -125,6 +126,31 @@ internal sealed class ModuleFacts(ModuleDef module)
         return (_fieldWrites!.GetValueOrDefault(field) ?? []).All(init.Contains);
     }
 
+    /// <summary>
+    /// Whether an instance field of a class is never written: no stfld or ldflda of it in the module, and no other assembly
+    /// can access it. Every object of the class then holds the field's default value (reflection aside).
+    /// </summary>
+    public bool NeverWritten(FieldDef field)
+    {
+        if (field.IsStatic || field.DeclaringType.IsValueType || !Hidden(field)) return false;
+        Build();
+        return !_writtenInstanceFields!.Contains(field);
+    }
+
+    /// <summary>The field a reference names when it is declared by a type of this module.</summary>
+    private FieldDef? Local(IField field) => field switch
+    {
+        FieldDef fd => fd.Module == module ? fd : null,
+        MemberRef mr when mr.Class is TypeDef or TypeSpec => SafeResolveField(mr) is { } fd && fd.Module == module ? fd : null,
+        _ => null,
+    };
+
+    private static FieldDef? SafeResolveField(MemberRef mr)
+    {
+        try { return mr.ResolveField(); }
+        catch { return null; }
+    }
+
     /// <summary>Whether no other assembly can access the field: private, or internal to an assembly that grants no friends.</summary>
     private bool Hidden(FieldDef field) => field.Access switch
     {
@@ -179,6 +205,10 @@ internal sealed class ModuleFacts(ModuleDef module)
             case Code.Ldelem_Ref: case Code.Ldelem:
                 // Elements that are themselves mutable objects are followed in turn.
                 return immutableElements || ValueOnlyRead(m, body, j, false, depth, visited);
+            case Code.Ldfld:
+                // A field of the object: a number or string is only read; an object it holds is followed in turn.
+                return ins.Operand is IField { FieldSig.Type: var type } && (type.IsPrimitive || type.ElementType == ElementType.String || IsEnum(type))
+                       || ValueOnlyRead(m, body, j, false, depth, visited);
             case Code.Stloc: case Code.Stloc_S: case Code.Stloc_0: case Code.Stloc_1: case Code.Stloc_2: case Code.Stloc_3:
             {
                 var local = ins.GetLocal(body.Variables);
@@ -207,6 +237,12 @@ internal sealed class ModuleFacts(ModuleDef module)
             default:
                 return false;
         }
+    }
+
+    private static bool IsEnum(TypeSig type)
+    {
+        try { return type.ElementType == ElementType.ValueType && type.ToTypeDefOrRef()?.ResolveTypeDef() is { IsEnum: true }; }
+        catch { return false; }
     }
 
     private bool ParameterOnlyRead(MethodDef m, int parameter, bool immutableElements, int depth, HashSet<(MethodDef, int, bool)> visited)
@@ -239,6 +275,7 @@ internal sealed class ModuleFacts(ModuleDef module)
         var callers = new Dictionary<MethodDef, HashSet<MethodDef>>();
         var fieldUses = new Dictionary<FieldDef, List<(MethodDef, int)>>();
         var fieldWrites = new Dictionary<FieldDef, List<MethodDef>>();
+        var writtenInstanceFields = new HashSet<FieldDef>();
         var methods = module.GetTypes().SelectMany(t => t.Methods).ToList();
         var cctors = new Dictionary<TypeDef, MethodDef?>();
         MethodDef? Cctor(TypeDef t) => cctors.TryGetValue(t, out var c) ? c : cctors[t] = t.FindStaticConstructor();
@@ -294,10 +331,14 @@ internal sealed class ModuleFacts(ModuleDef module)
                             }
                         }
                         break;
+                    case Code.Stfld: case Code.Ldflda:
+                        if (MetadataUtil.AsField(ins.Operand) is { } written && Local(written) is { } instanceField)
+                            writtenInstanceFields.Add(instanceField);
+                        break;
                 }
             }
         }
-        (_callees, _callers, _fieldUses, _fieldWrites) = (callees, callers, fieldUses, fieldWrites);
+        (_callees, _callers, _fieldUses, _fieldWrites, _writtenInstanceFields) = (callees, callers, fieldUses, fieldWrites, writtenInstanceFields);
     }
 
     /// <summary>

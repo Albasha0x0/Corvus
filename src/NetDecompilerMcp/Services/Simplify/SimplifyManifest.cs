@@ -17,6 +17,8 @@ public enum FallbackReason
     UnsupportedValue,
     MutableStatic,
     StaticInitializer,
+    UnmodeledInstance,
+    VirtualDispatch,
     RuntimeError,
     PlatformDependent,
     InvalidCode,
@@ -54,9 +56,11 @@ public static class SimplifyManifest
         new(FallbackReason.OtherModule, "other-module", "the callee or a static field belongs to another module, whose code may differ at run time"),
         new(FallbackReason.Generic, "generic", "a generic method or a member of a generic type"),
         new(FallbackReason.ExceptionHandling, "exception-handling", "the callee has exception handlers, or the code throws"),
-        new(FallbackReason.InstanceObject, "instance-object", "creates or uses an instance of a class other than the modelled string, array, StringBuilder and Encoding objects"),
+        new(FallbackReason.InstanceObject, "instance-object", "uses an object the evaluation did not create (an instance passed in from outside, or a delegate bound to an object) or calls an instance method on such an object"),
         new(FallbackReason.UnsupportedValue, "unsupported-value", "a value the interpreter does not model: boxing, unmanaged pointers, typed references, structs of other modules or with explicit layout, arrays of structs, type tokens"),
         new(FallbackReason.MutableStatic, "mutable-static", "reads a static field that is not readonly, writes a static field outside a static constructor, or modifies an object held in a static field"),
+        new(FallbackReason.UnmodeledInstance, "unmodeled-instance", "creates an instance of a class outside the modelled subset: a class with a finalizer or events, a generic class, a class whose base class belongs to another assembly (exceptions, framework classes), an interop class (COM import, explicit layout), or a hierarchy deeper than 8 levels"),
+        new(FallbackReason.VirtualDispatch, "virtual-dispatch", "a call on a modelled instance that does not resolve to one method of the module: a framework method or the framework implementation of a virtual method (ToString, Equals, ...), an abstract method, or an interface method the class does not implement in the module"),
         new(FallbackReason.StaticInitializer, "static-initializer", "the static constructor of a type the code needs cannot be evaluated, or the method being simplified is that static constructor"),
         new(FallbackReason.RuntimeError, "runtime-error", "the code would throw at run time: division by zero, checked overflow, index out of range, null reference, invalid cast, invalid argument"),
         new(FallbackReason.PlatformDependent, "platform-dependent", "the result would differ between platforms or cultures: native int values outside the 32-bit range, out-of-range float to integer conversion, culture-sensitive formatting"),
@@ -121,7 +125,7 @@ public static class SimplifyManifest
             Code.Ldind_I1, Code.Ldind_U1, Code.Ldind_I2, Code.Ldind_U2, Code.Ldind_I4, Code.Ldind_U4, Code.Ldind_I8, Code.Ldind_I,
             Code.Ldind_R4, Code.Ldind_R8, Code.Ldind_Ref, Code.Stind_I1, Code.Stind_I2, Code.Stind_I4, Code.Stind_I8, Code.Stind_I,
             Code.Stind_R4, Code.Stind_R8, Code.Stind_Ref]),
-        new("Value types", "structs defined in the same module (sequential or auto layout), enums and primitives", [
+        new("Objects and value types", "structs defined in the same module (sequential or auto layout), enums and primitives; instances of the module's classes (see unmodeled-instance) created by the evaluated code, with their fields, constructors, and instance and virtual methods dispatched within the module; new object(); a field of a class that nothing in the module writes (and no other assembly can) reads as its default on every object, which folds conditions on it even where the object itself cannot be evaluated (the load is kept: it still throws on null)", [
             Code.Ldobj, Code.Stobj, Code.Initobj, Code.Ldfld, Code.Ldflda, Code.Stfld]),
         new("Static state",
             "static fields of the same module that are readonly, or that only the type's initialization writes and other assemblies cannot, after evaluating the type's static constructor once; writes only inside static constructors (by stsfld or FieldInfo.SetValue); ldtoken of fields, types and methods", [

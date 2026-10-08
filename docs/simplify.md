@@ -21,7 +21,7 @@ every method left unchanged is reported with one of the reasons below.
 | Arrays | `newarr` `ldlen` `ldelema` `ldelem.i1` `ldelem.u1` `ldelem.i2` `ldelem.u2` `ldelem.i4` `ldelem.u4` `ldelem.i8` `ldelem.i` `ldelem.r4` `ldelem.r8` `ldelem.ref` `ldelem` `stelem.i1` `stelem.i2` `stelem.i4` `stelem.i8` `stelem.i` `stelem.r4` `stelem.r8` `stelem.ref` `stelem` | one-dimensional arrays of primitives, strings and other references; at most 1M elements |
 | Stack memory | `localloc` | localloc (stackalloc) gives a zeroed buffer of at most 1M bytes; pointers into it move by add / sub, and ldind / stind read and write it little-endian |
 | Indirect access | `ldind.i1` `ldind.u1` `ldind.i2` `ldind.u2` `ldind.i4` `ldind.u4` `ldind.i8` `ldind.i` `ldind.r4` `ldind.r8` `ldind.ref` `stind.i1` `stind.i2` `stind.i4` `stind.i8` `stind.i` `stind.r4` `stind.r8` `stind.ref` | through managed pointers to arguments, locals, array elements, struct fields and static fields, and through pointers into stack memory |
-| Value types | `ldobj` `stobj` `initobj` `ldfld` `ldflda` `stfld` | structs defined in the same module (sequential or auto layout), enums and primitives |
+| Objects and value types | `ldobj` `stobj` `initobj` `ldfld` `ldflda` `stfld` | structs defined in the same module (sequential or auto layout), enums and primitives; instances of the module's classes (see unmodeled-instance) created by the evaluated code, with their fields, constructors, and instance and virtual methods dispatched within the module; new object(); a field of a class that nothing in the module writes (and no other assembly can) reads as its default on every object, which folds conditions on it even where the object itself cannot be evaluated (the load is kept: it still throws on null) |
 | Static state | `ldsfld` `ldsflda` `stsfld` `ldtoken` | static fields of the same module that are readonly, or that only the type's initialization writes and other assemblies cannot, after evaluating the type's static constructor once; writes only inside static constructors (by stsfld or FieldInfo.SetValue); ldtoken of fields, types and methods |
 | Type tests | `isinst` `castclass` | System.Object, System.String, System.Text.StringBuilder and System.Text.Encoding targets |
 | Calls | `call` `callvirt` `newobj` `ldftn` | intrinsics (below), and static methods and struct methods with IL bodies in the same module (not generic); newobj of strings, StringBuilder and module structs; delegates of static methods (ldftn and the delegate constructor, Delegate.CreateDelegate) and of dynamic methods, invoked through Invoke |
@@ -73,8 +73,11 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 - `System.Reflection.Module System.Type::get_Module()`
 - `System.Reflection.Module[] System.Reflection.Assembly::GetModules()`
 - `System.Reflection.ParameterInfo[] System.Reflection.MethodBase::GetParameters()`
+- `System.RuntimeFieldHandle System.ModuleHandle::GetRuntimeFieldHandleFromMetadataToken(System.Int32)`
 - `System.RuntimeFieldHandle System.ModuleHandle::ResolveFieldHandle(System.Int32)`
+- `System.RuntimeMethodHandle System.ModuleHandle::GetRuntimeMethodHandleFromMetadataToken(System.Int32)`
 - `System.RuntimeMethodHandle System.ModuleHandle::ResolveMethodHandle(System.Int32)`
+- `System.RuntimeTypeHandle System.ModuleHandle::GetRuntimeTypeHandleFromMetadataToken(System.Int32)`
 - `System.RuntimeTypeHandle System.ModuleHandle::ResolveTypeHandle(System.Int32)`
 - `System.RuntimeTypeHandle System.Type::get_TypeHandle()`
 - `System.String System.Char::ToString()`
@@ -168,9 +171,11 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 | `other-module` | the callee or a static field belongs to another module, whose code may differ at run time |
 | `generic` | a generic method or a member of a generic type |
 | `exception-handling` | the callee has exception handlers, or the code throws |
-| `instance-object` | creates or uses an instance of a class other than the modelled string, array, StringBuilder and Encoding objects |
+| `instance-object` | uses an object the evaluation did not create (an instance passed in from outside, or a delegate bound to an object) or calls an instance method on such an object |
 | `unsupported-value` | a value the interpreter does not model: boxing, unmanaged pointers, typed references, structs of other modules or with explicit layout, arrays of structs, type tokens |
 | `mutable-static` | reads a static field that is not readonly, writes a static field outside a static constructor, or modifies an object held in a static field |
+| `unmodeled-instance` | creates an instance of a class outside the modelled subset: a class with a finalizer or events, a generic class, a class whose base class belongs to another assembly (exceptions, framework classes), an interop class (COM import, explicit layout), or a hierarchy deeper than 8 levels |
+| `virtual-dispatch` | a call on a modelled instance that does not resolve to one method of the module: a framework method or the framework implementation of a virtual method (ToString, Equals, ...), an abstract method, or an interface method the class does not implement in the module |
 | `static-initializer` | the static constructor of a type the code needs cannot be evaluated, or the method being simplified is that static constructor |
 | `runtime-error` | the code would throw at run time: division by zero, checked overflow, index out of range, null reference, invalid cast, invalid argument |
 | `platform-dependent` | the result would differ between platforms or cultures: native int values outside the 32-bit range, out-of-range float to integer conversion, culture-sensitive formatting |

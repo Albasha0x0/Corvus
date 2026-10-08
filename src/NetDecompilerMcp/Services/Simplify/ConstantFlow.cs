@@ -55,6 +55,20 @@ internal sealed class ConstantFlow
     /// <summary>The address of a local, pushed by an <c>ldloca</c> that an <c>ldind</c> reads right away.</summary>
     private sealed record LocalAddress(int Index);
 
+    /// <summary>
+    /// A non-null object read from static state the evaluator models (a singleton, say): the loads that reach it,
+    /// <c>ldsfld S</c> then <c>ldfld F</c>.... Reading a number or string field through it evaluates the whole path.
+    /// </summary>
+    private sealed class FieldPath(IReadOnlyList<Instruction> loads)
+    {
+        public IReadOnlyList<Instruction> Loads { get; } = loads;
+        public string Key => string.Join("/", Loads.Select(l => ((IField)l.Operand).FullName));
+        public override bool Equals(object? obj) => obj is FieldPath other && Loads.SequenceEqual(other.Loads);
+        public override int GetHashCode() => Loads.Count == 0 ? 0 : Loads[^1].GetHashCode();
+    }
+
+    private readonly Dictionary<string, object?> _paths = new(StringComparer.Ordinal);
+
     public ConstantFlow(CilBody body, BodyGraph graph, bool hasReturnValue, IlEvaluator evaluator)
     {
         _body = body;
@@ -571,6 +585,16 @@ internal sealed class ConstantFlow
                 Push(v);
                 return null;
             }
+            case Code.Ldfld:
+            {
+                var target = Pop();
+                if (target is FieldPath path && ins.Operand is IField)
+                    Push(PathValue(new FieldPath([.. path.Loads, ins])));
+                else
+                    // A field nothing writes holds its default on every object; the load stays (it throws on null).
+                    Push(ins.Operand is FieldDef { FieldType: var type } field && Modelled(type) && _evaluator.NeverWritten(field) ? Initial(ValueType(type), true) : Unknown);
+                return null;
+            }
             case Code.Call: case Code.Callvirt:
             {
                 var method = ins.Operand as IMethod;
@@ -629,7 +653,7 @@ internal sealed class ConstantFlow
     /// null (two strings may or may not be the same object, depending on interning).
     /// </summary>
     private static bool Comparable(object? a, object? b) =>
-        IsConstant(a) && IsConstant(b) && (Numeric.IsNumber(a) && Numeric.IsNumber(b) || (a is null or string && b is null or string && (a == null || b == null)));
+        IsConstant(a) && IsConstant(b) && (Numeric.IsNumber(a) && Numeric.IsNumber(b) || (a is null or string or FieldPath && b is null or string or FieldPath && (a == null || b == null)));
 
     /// <summary>The value as it reads back from a local of the given type (small integers truncate); unknown when it does not fit.</summary>
     private static object? Stored(TypeSig? type, object? v)
@@ -662,13 +686,43 @@ internal sealed class ConstantFlow
     /// <summary>A readonly static field of the module, as its static constructor leaves it (evaluated once per field).</summary>
     private object? StaticValue(Instruction ins, IField field)
     {
-        if (field is not FieldDef { IsStatic: true, IsInitOnly: true } fd || !Modelled(fd.FieldType)) return Unknown;
+        if (field is not FieldDef { IsStatic: true } fd) return Unknown;
+        if (!Modelled(fd.FieldType)) return fd.FieldType.IsValueType ? Unknown : PathValue(new FieldPath([ins]));
         if (!_fields.TryGetValue(field, out var value))
         {
             value = Evaluate([new Instruction(OpCodes.Ldsfld, field)]);
             _fields[field] = value;
         }
         if (IsConstant(value)) Evaluated.Add(ins);
+        return value;
+    }
+
+    /// <summary>
+    /// What a path of loads reads, as the evaluator computes it: a number or string, null, or (for an object the evaluator
+    /// models) the path itself; unknown when the evaluator cannot read it.
+    /// </summary>
+    private object? PathValue(FieldPath path)
+    {
+        var key = path.Key;
+        if (!_paths.TryGetValue(key, out var value))
+        {
+            try
+            {
+                value = _evaluator.EvaluateSlice(path.Loads.Select(l => new Instruction(l.OpCode, l.Operand)).ToList()) switch
+                {
+                    [var v] when v is null or string || Numeric.IsNumber(v) => v,
+                    [InstanceObject or ArrayObject or ReflectionObject] => path,
+                    _ => Unknown,
+                };
+            }
+            catch (EvaluationBailout)
+            {
+                value = Unknown;
+            }
+            _paths[key] = value;
+        }
+        if (value is FieldPath) return path;
+        if (IsConstant(value)) Evaluated.UnionWith(path.Loads);
         return value;
     }
 
@@ -692,11 +746,21 @@ internal sealed class ConstantFlow
             value = slice == null ? Unknown : Evaluate([.. slice, new Instruction(ins.OpCode, ins.Operand)]);
             _calls[key] = value;
         }
-        if (IsConstant(value)) Evaluated.Add(ins);
+        if (IsConstant(value))
+        {
+            Evaluated.Add(ins);
+            foreach (var path in args.OfType<FieldPath>()) Evaluated.UnionWith(path.Loads);
+        }
         return value;
     }
 
     private static string Key(object? v) => v switch
+    {
+        FieldPath path => "path:" + path.Key,
+        _ => KeyOf(v),
+    };
+
+    private static string KeyOf(object? v) => v switch
     {
         null => "null",
         double d => "d" + BitConverter.DoubleToInt64Bits(d),
@@ -723,6 +787,7 @@ internal sealed class ConstantFlow
     /// <summary>Instructions pushing a constant, or null for values that have none.</summary>
     private static Instruction[]? Materialize(object? v) => v switch
     {
+        FieldPath path => path.Loads.Select(l => new Instruction(l.OpCode, l.Operand)).ToArray(),
         null => [OpCodes.Ldnull.ToInstruction()],
         int i => [OpCodes.Ldc_I4.ToInstruction(i)],
         long l => [OpCodes.Ldc_I8.ToInstruction(l)],
