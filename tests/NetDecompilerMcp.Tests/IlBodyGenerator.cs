@@ -30,6 +30,8 @@ internal sealed class IlBodyGenerator
     private readonly TypeDef _struct;
     private readonly FieldDef _fieldA, _fieldB;
     private readonly MethodDef _add, _addW, _twice, _opaque, _decrypt;
+    private readonly FieldDef _twiceField, _addField, _decryptField; // static readonly delegates of Twice, Add and Decrypt
+    private readonly IMethod _invoke1, _invoke2, _invokeString;
     private readonly IMethod _concat, _length, _upper, _toString, _invalidOpCtor;
     private readonly ITypeDefOrRef[] _catchTypes;
 
@@ -77,6 +79,22 @@ internal sealed class IlBodyGenerator
             cond, IlLab.Ldc(4), I(OpCodes.Blt, body),
             I(OpCodes.Ldloc_0), I(OpCodes.Newobj, stringCtor), I(OpCodes.Ret),
         ], locals: [charArray, _t.Int32]);
+
+        // Delegate fields of Twice, Add and Decrypt, set by the type initializer.
+        var func1 = typeof(Func<int, int>);
+        var func2 = typeof(Func<int, int, int>);
+        var funcString = typeof(Func<int, string>);
+        _twiceField = _lab.StaticField(_lab.Type, "TwiceF", module.Import(func1).ToTypeSig(), readOnly: true);
+        _addField = _lab.StaticField(_lab.Type, "AddF", module.Import(func2).ToTypeSig(), readOnly: true);
+        _decryptField = _lab.StaticField(_lab.Type, "DecryptF", module.Import(funcString).ToTypeSig(), readOnly: true);
+        _invoke1 = module.Import(func1.GetMethod("Invoke"));
+        _invoke2 = module.Import(func2.GetMethod("Invoke"));
+        _invokeString = module.Import(funcString.GetMethod("Invoke"));
+        _lab.StaticConstructor(_lab.Type,
+            I(OpCodes.Ldnull), I(OpCodes.Ldftn, _twice), I(OpCodes.Newobj, module.Import(func1.GetConstructors()[0])), I(OpCodes.Stsfld, _twiceField),
+            I(OpCodes.Ldnull), I(OpCodes.Ldftn, _add), I(OpCodes.Newobj, module.Import(func2.GetConstructors()[0])), I(OpCodes.Stsfld, _addField),
+            I(OpCodes.Ldnull), I(OpCodes.Ldftn, _decrypt), I(OpCodes.Newobj, module.Import(funcString.GetConstructors()[0])), I(OpCodes.Stsfld, _decryptField),
+            I(OpCodes.Ret));
 
         _concat = module.Import(typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]));
         _length = module.Import(typeof(string).GetProperty(nameof(string.Length))!.GetGetMethod());
@@ -147,7 +165,7 @@ internal sealed class IlBodyGenerator
     private void Statement(int depth, bool inProtected, bool noExit)
     {
         bool nest = depth < _maxDepth && _budget > 20;
-        int kind = _r.Next(nest ? 23 : 8);
+        int kind = _r.Next(nest ? 24 : 8);
         switch (kind)
         {
             case 0: case 1: case 2: Assign(); break;
@@ -171,6 +189,7 @@ internal sealed class IlBodyGenerator
             case 20: OpaqueIf(depth, inProtected, noExit); break;
             case 21: LocalConstantIf(depth, inProtected, noExit); break;
             case 22: ObfuscatedFlattened(depth, inProtected, noExit); break;
+            case 23: DelegateCall(); break;
             default: Assign(); break;
         }
     }
@@ -223,6 +242,37 @@ internal sealed class IlBodyGenerator
                 Op(OpCodes.Ldloca, Pick(_pool[VT.Struct]));
                 Op(OpCodes.Ldobj, _struct);
                 Op(OpCodes.Stobj, _struct);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// A call through a static delegate field: <c>ldsfld F; arguments; callvirt Invoke</c>, the arguments any expression
+    /// (or a constant, which string folding then evaluates through Decrypt).
+    /// </summary>
+    private void DelegateCall()
+    {
+        switch (_r.Next(3))
+        {
+            case 0:
+                Op(OpCodes.Ldsfld, _twiceField);
+                Expr(VT.I4, _r.Next(0, 3));
+                Op(OpCodes.Callvirt, _invoke1);
+                Op(OpCodes.Stloc, Pick(_pool[VT.I4]));
+                break;
+            case 1:
+                Op(OpCodes.Ldsfld, _addField);
+                Expr(VT.I4, _r.Next(0, 3));
+                Expr(VT.I4, _r.Next(0, 3));
+                Op(OpCodes.Callvirt, _invoke2);
+                Op(OpCodes.Stloc, Pick(_pool[VT.I4]));
+                break;
+            default:
+                Op(OpCodes.Ldsfld, _decryptField);
+                if (_r.Next(2) == 0) Ldc(_r.Next(100));
+                else Expr(VT.I4, 1);
+                Op(OpCodes.Callvirt, _invokeString);
+                Op(OpCodes.Stloc, Pick(_pool[VT.Str]));
                 break;
         }
     }

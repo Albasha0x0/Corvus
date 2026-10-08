@@ -182,7 +182,9 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
                  "the method is still simplified —, reads of locals through their address that are constant become the constant, empty try/finally and dead handlers " +
                  "removed, unreachable code deleted. " +
                  "inline: call sites of forwarders (methods that only pass their arguments on to another method) call the real target; " +
-                 "virtually dispatched wrappers and inaccessible targets are skipped. " +
+                 "virtually dispatched wrappers and inaccessible targets are skipped; calls through static delegate fields (call proxies and string " +
+                 "delegates of ConfuserEx, SmartAssembly and others) call the delegate's target directly when the field's type initializer, run in the " +
+                 "interpreter (reflection-based initializers with DynamicMethod included), always sets the same target; others are reported (delegate-target). " +
                  "Scope: a method, a type (nested types included), or omit symbol for the whole assembly. Each rewritten body is stack-verified or left unchanged; " +
                  "every call left alone and every method left unchanged is reported with a reason code (docs/simplify.md lists the evaluated instructions, " +
                  "the limits and the codes). Limits: per-evaluation budget, per-method budget, 16 MB of simulated memory, 5 s per method. " +

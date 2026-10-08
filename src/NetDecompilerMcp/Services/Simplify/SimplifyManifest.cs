@@ -29,6 +29,7 @@ public enum FallbackReason
 
     // One rewrite skipped; the rest of the method is still simplified.
     FlattenedShape,
+    DelegateTarget,
 
     // Whole methods.
     OriginalUnverifiable,
@@ -65,6 +66,7 @@ public static class SimplifyManifest
         new(FallbackReason.MemoryLimit, "memory-limit", "the evaluation allocated more simulated memory (arrays, strings, builders) than the limit", Transient: true),
         new(FallbackReason.TimeLimit, "time-limit", "simplifying the method took longer than its time limit; the method is left unchanged", Transient: true),
         new(FallbackReason.FlattenedShape, "flattened-shape", "flattened control flow (a loop over a switch on a state) whose dispatcher cannot be removed: run through per state, some way into it does not select the same case on every run (the state depends on arguments or other unknown values, or on the path taken), a case reads the state with a value that depends on the path taken, the state's address is taken, the dispatcher or a case is in another protected region, or the analysis exceeds its limits (1,024 states); the dispatcher is kept as it is and the other passes still apply to the method"),
+        new(FallbackReason.DelegateTarget, "delegate-target", "a call through a static delegate field whose target is not known to be the same on every run: the field is written outside its type's initialization or is accessible to other assemblies, the initialization cannot be evaluated (the message says why), the delegate is bound to an object or calls an instance method directly, its dynamic method does more than pass its arguments on, or the delegate is not loaded right before its arguments; the call is kept"),
         new(FallbackReason.OriginalUnverifiable, "original-unverifiable", "the original body does not pass the stack verifier, so it is not rewritten"),
         new(FallbackReason.ResultUnverifiable, "result-unverifiable", "the rewritten body did not pass the stack verifier; the method is left unchanged"),
         new(FallbackReason.Unexpected, "unexpected", "an unexpected error while reading or rewriting the body (malformed metadata or a defect); the method is left unchanged"),

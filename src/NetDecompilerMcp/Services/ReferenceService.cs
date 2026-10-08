@@ -23,7 +23,7 @@ public sealed class ReferenceService(AssemblyWorkspace workspace)
     {
         Action<LoadedAssembly, TypeDef, List<Reference>> visit = target.Member switch
         {
-            MethodDef method => MethodVisitor(method, includeVirtualCalls),
+            MethodDef method => MethodVisitor(method, includeVirtualCalls, ct),
             FieldDef field => InstructionVisitor((asm, m, instr, found) =>
             {
                 if (AsField(instr.Operand) is { } op && IsSameField(op, field))
@@ -39,12 +39,12 @@ public sealed class ReferenceService(AssemblyWorkspace workspace)
         return SearchResult<Reference>.From(ParallelCollect(workspace.Assemblies, visit, ct), limit);
     }
 
-    private static Action<LoadedAssembly, TypeDef, List<Reference>> MethodVisitor(MethodDef method, bool includeVirtualCalls)
+    private static Action<LoadedAssembly, TypeDef, List<Reference>> MethodVisitor(MethodDef method, bool includeVirtualCalls, CancellationToken ct)
     {
         var targets = new List<(MethodDef Method, string? Via)> { (method, null) };
         if (includeVirtualCalls)
             targets.AddRange(BaseDeclarations(method).Select(b => (b, (string?)$"via {Format.MemberLabel(b)}")));
-        return InstructionVisitor((asm, m, instr, found) =>
+        var direct = InstructionVisitor((asm, m, instr, found) =>
         {
             if (AsMethod(instr.Operand) is not { } op) return;
             foreach (var (t, via) in targets)
@@ -54,6 +54,14 @@ public sealed class ReferenceService(AssemblyWorkspace workspace)
                     break;
                 }
         });
+        // Calls through static delegate fields whose delegate calls the method (resolved once per assembly).
+        return (asm, type, found) =>
+        {
+            direct(asm, type, found);
+            foreach (var site in Simplify.DelegateCalls.ByType(asm, ct)[type])
+                if (targets.Any(t => IsSameMethod(site.Target, t.Method)))
+                    found.Add(new Reference(asm, site.Caller, site.Offset, "delegate", $"via {Format.MemberLabel(site.Field)}"));
+        };
     }
 
     private static Action<LoadedAssembly, TypeDef, List<Reference>> AccessorVisitor(List<(MethodDef Accessor, string Kind)> accessors) =>
@@ -156,8 +164,17 @@ public sealed class ReferenceService(AssemblyWorkspace workspace)
         var body = SafeBody(method)
                    ?? throw new ToolError($"{Format.MemberLabel(method)} has no IL body (abstract, extern, runtime-implemented or an Il2Cpp stub).");
         var list = new List<Callee>();
+        var owner = workspace.FindByModule(method.Module);
+        var throughFields = owner == null ? [] : Simplify.DelegateCalls.Of(owner, default).Where(s => s.Caller == method).ToDictionary(s => s.Offset);
         foreach (var instr in body.Instructions)
         {
+            if (throughFields.TryGetValue(instr.Offset, out var site))
+            {
+                var target = Try(() => site.Target.ResolveMethodDef());
+                list.Add(new Callee(instr.Offset, $"{instr.OpCode.Name} via {Format.MemberLabel(site.Field)}", "method", Format.MemberLabel(site.Target),
+                    workspace.FindByModule(target?.Module)));
+                continue;
+            }
             if (AsMethod(instr.Operand) is { } m)
             {
                 var md = Try(() => m.ResolveMethodDef());

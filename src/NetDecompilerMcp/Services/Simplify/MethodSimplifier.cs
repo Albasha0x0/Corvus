@@ -19,7 +19,7 @@ public sealed record SimplifyOptions(bool Fold = true, bool ControlFlow = true, 
         if (names.Count == 0 || names.Contains("all")) return new SimplifyOptions(Limits: limits);
         var unknown = names.Except(PassNames).ToList();
         if (unknown.Count > 0)
-            throw new ToolError($"Unknown pass '{unknown[0]}'. Passes: fold (evaluate string-producing calls), cfg (control-flow cleanup), inline (forwarder inlining), or all.");
+            throw new ToolError($"Unknown pass '{unknown[0]}'. Passes: fold (evaluate string-producing calls), cfg (control-flow cleanup), inline (forwarder inlining and calls through delegate fields), or all.");
         return new SimplifyOptions(names.Contains("fold"), names.Contains("cfg"), names.Contains("inline"), limits);
     }
 
@@ -38,6 +38,8 @@ public sealed class MethodChange(MethodDef method)
     public MethodDef Method { get; } = method;
     public List<string> Folded { get; } = new();
     public List<string> Inlined { get; } = new();
+    /// <summary>Calls through delegate fields that now call the delegate's target directly.</summary>
+    public List<string> Delegates { get; } = new();
     /// <summary>Calls of the module's own helpers that could not be evaluated (the call is kept).</summary>
     public List<Fallback> Bailouts { get; } = new();
     /// <summary>Rewrites refused for a piece of the method, which is kept as it is; the other passes still apply.</summary>
@@ -62,7 +64,7 @@ public sealed class MethodChange(MethodDef method)
 
     public bool Changed => NewBody != null;
 
-    public bool HasEffects => Folded.Count + Inlined.Count + ConstantBranches + CollapsedChains + RemovedBlocks + RemovedHandlers + Transitions + RemovedStores
+    public bool HasEffects => Folded.Count + Inlined.Count + Delegates.Count + ConstantBranches + CollapsedChains + RemovedBlocks + RemovedHandlers + Transitions + RemovedStores
                               + ConstantReads > 0;
 }
 
@@ -161,7 +163,12 @@ public sealed class MethodSimplifier
         var unclean = new List<Fallback>(); // flattened dispatchers not in the clean form, as of the last round
         var readOriginally = body.Instructions
             .Where(i => i.IsLdloc() || i.OpCode.Code is Code.Ldloca or Code.Ldloca_S).Select(i => i.GetLocal(body.Variables)).OfType<Local>().ToHashSet();
-        if (_options.Forwarders) InlineForwarders(method, body, change);
+        if (_options.Forwarders)
+        {
+            ResolveDelegateCalls(body, dead, change);
+            RemoveNops(body, dead);
+            InlineForwarders(method, body, change);
+        }
         if (_options.Fold) FoldStringCalls(body, dead, change);
         if (_options.ControlFlow)
         {
@@ -224,6 +231,139 @@ public sealed class MethodSimplifier
             if (!ReferenceEquals(site.Operand, first))
                 change.Inlined.Add($"{Describe(first!)} -> {Describe((IMethod)site.Operand)} at {At(site)}");
         }
+    }
+
+    // ---- pass: calls through delegate fields
+
+    /// <summary>
+    /// Call sites <c>ldsfld F; args; call(virt) D::Invoke</c> through a static delegate field of this module whose value
+    /// the evaluator computes (the field's type initializer run in the sandbox, reflection-based initializers included)
+    /// call the delegate's target directly: <c>args; call M</c> for a delegate of a static method, or the code of its
+    /// dynamic method after it has loaded its arguments, in order (<c>ldarg.0 ... ldarg.n-1; [code]; ret</c>). The field
+    /// must only be written while its type initializes (readonly, or proven by <see cref="ModuleFacts"/>); anything else is
+    /// reported (delegate-target) and the call is kept.
+    /// </summary>
+    private void ResolveDelegateCalls(CilBody body, HashSet<Instruction> dead, MethodChange change)
+    {
+        var code = body.Instructions;
+        BodyGraph? graph = null;
+        for (int i = 0; i < code.Count; i++)
+        {
+            var site = code[i];
+            if (site.OpCode.Code is not (Code.Call or Code.Callvirt) || site.Operand is not IMethod { Name.String: "Invoke" } invoke) continue;
+            if (invoke.MethodSig is not { HasThis: true } sig || (i > 0 && code[i - 1].OpCode.OpCodeType == OpCodeType.Prefix)) continue;
+            graph ??= new BodyGraph(body);
+            int producer = Producer(code, graph.Targets, i, sig.Params.Count);
+            if (producer < 0 || code[producer] is not { OpCode.Code: Code.Ldsfld, Operand: FieldDef { IsStatic: true } field } || field.Module != _module ||
+                field.FieldType.FullName != invoke.DeclaringType.FullName)
+                continue;
+
+            string where = $"call through {field.DeclaringType.FullName}::{field.Name} at {At(site)}";
+            object? value;
+            try
+            {
+                value = _evaluator.EvaluateSlice([new Instruction(OpCodes.Ldsfld, field)]) is [var v] ? v : null;
+            }
+            catch (EvaluationBailout ex)
+            {
+                change.Skipped.Add(new(FallbackReason.DelegateTarget, $"{where}: {ex.Message}"));
+                continue;
+            }
+            if (value is not DelegateObject d)
+            {
+                change.Skipped.Add(new(FallbackReason.DelegateTarget, $"{where}: the field holds {(value == null ? "null" : "no delegate")} after its type's initialization"));
+                continue;
+            }
+            if (DelegateCode(d, sig.Params.Count, out var target, out var why) is not { } replacement)
+            {
+                change.Skipped.Add(new(FallbackReason.DelegateTarget, $"{where}: {why}"));
+                continue;
+            }
+
+            MakeDead(code[producer], dead);
+            site.OpCode = replacement[0].OpCode;
+            site.Operand = replacement[0].Operand;
+            for (int k = 1; k < replacement.Count; k++)
+            {
+                replacement[k].Offset = site.Offset; // reported at the call they replace
+                code.Insert(i + k, replacement[k]);
+            }
+            i += replacement.Count - 1;
+            graph = null;
+            change.Delegates.Add($"{field.DeclaringType.FullName}::{field.Name}.Invoke -> {target} at {At(site)}");
+        }
+    }
+
+    /// <summary>
+    /// Index of the instruction that pushes the stack slot <paramref name="depth"/> positions below the top before
+    /// code[end] (0: the top), found in the straight-line code before it (no instruction after it is in
+    /// <paramref name="targets"/>); -1 when it is not a single push there.
+    /// </summary>
+    internal static int Producer(IList<Instruction> code, ISet<Instruction> targets, int end, int depth)
+    {
+        for (int k = end - 1; k >= 0; k--)
+        {
+            if (targets.Contains(code[k + 1])) return -1;
+            var ins = code[k];
+            if (ins.OpCode.FlowControl is not (FlowControl.Next or FlowControl.Call) || ins.OpCode.OpCodeType == OpCodeType.Prefix) return -1;
+            ins.CalculateStackUsage(false, out int pushes, out int pops);
+            if (pops < 0) return -1;
+            if (depth < pushes) return pushes == 1 ? k : -1;
+            depth = depth - pushes + pops;
+        }
+        return -1;
+    }
+
+    /// <summary>The code that does what invoking the delegate with its arguments on the stack does, or null with <paramref name="why"/>.</summary>
+    internal static List<Instruction>? DelegateCode(DelegateObject d, int arguments, out string target, out string? why)
+    {
+        why = null;
+        target = "";
+        if (d.Dynamic is { } dynamic)
+        {
+            var body = dynamic.Code;
+            if (dynamic.Parameters.Length != arguments || body.Count < arguments + 1 || body[^1].OpCode.Code != Code.Ret)
+            {
+                why = "its dynamic method does not match the delegate's signature";
+                return null;
+            }
+            for (int k = 0; k < arguments; k++)
+            {
+                if (!body[k].IsLdarg() || body[k].GetParameterIndex() != k)
+                {
+                    why = "its dynamic method does not load its arguments in order first";
+                    return null;
+                }
+            }
+            var tail = new List<Instruction>();
+            for (int k = arguments; k < body.Count - 1; k++)
+            {
+                var ins = body[k];
+                if (ins.OpCode.Code == Code.Tailcall) continue; // the call is followed by its ret
+                if (ins.IsLdarg() || ins.IsStarg() || ins.OpCode.Code is Code.Ldarga or Code.Ldarga_S || ins.OpCode.FlowControl is not (FlowControl.Next or FlowControl.Call)
+                    || ins.OpCode.OpCodeType == OpCodeType.Prefix)
+                {
+                    why = $"its dynamic method does more than pass its arguments on ({ins.OpCode.Name})";
+                    return null;
+                }
+                tail.Add(new Instruction(ins.OpCode, ins.Operand));
+            }
+            if (tail.Count == 0)
+            {
+                why = "its dynamic method only returns its argument";
+                return null;
+            }
+            var call = tail.LastOrDefault(i => i.Operand is IMethod);
+            target = call?.Operand is IMethod m ? (tail.Count == 1 ? Describe(m) : $"{Describe(m)} (after {string.Join("; ", tail.Take(tail.Count - 1).Select(i => $"{i.OpCode.Name} {i.Operand}".Trim()))})") : "dynamic code";
+            return tail;
+        }
+        if (d.Method is { } method && d.Target == null && !(method.MethodSig?.HasThis ?? true) && method.MethodSig!.Params.Count == arguments)
+        {
+            target = Describe(method);
+            return [OpCodes.Call.ToInstruction(method)];
+        }
+        why = "the delegate is bound to an object or does not match its signature";
+        return null;
     }
 
     // ---- pass: evaluation of string-producing calls

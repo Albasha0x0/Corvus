@@ -53,7 +53,21 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
                     else
                         found.Add((m, null, Format.MemberLabel(op), target, instr.Offset, instr.OpCode.Name));
                 }
-        }, ct);
+        }, ct).ToList();
+
+        // Calls through static delegate fields, to the method each field's delegate calls.
+        foreach (var asm in workspace.Assemblies)
+        {
+            foreach (var site in Simplify.DelegateCalls.Of(asm, ct))
+            {
+                var target = resolved.GetOrAdd(site.Target, o => Try(() => (o is MethodSpec spec ? spec.Method : o).ResolveMethodDef()));
+                var via = "via " + Format.MemberLabel(site.Field);
+                if (target != null && loadedModules.Contains(target.Module))
+                    edges.Add((site.Caller, target, null, null, site.Offset, via));
+                else
+                    edges.Add((site.Caller, null, Format.MemberLabel(site.Target), target, site.Offset, via));
+            }
+        }
 
         var callees = new Dictionary<MethodDef, List<Edge>>();
         var callers = new Dictionary<MethodDef, List<Edge>>();
@@ -88,6 +102,9 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
         if (!map.TryGetValue(key, out var list)) map[key] = list = new List<Edge>();
         list.Add(edge);
     }
+
+    /// <summary>"via Type::field" for a call through a delegate field (see <see cref="Simplify.DelegateCalls"/>).</summary>
+    private static string? DelegateNote(Edge e) => e.OpCode.StartsWith("via ", StringComparison.Ordinal) ? e.OpCode : null;
 
     private static bool IsCall(Code c) => c is Code.Call or Code.Callvirt or Code.Newobj or Code.Ldftn or Code.Ldvirtftn or Code.Jmp;
 
@@ -128,8 +145,8 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
             {
                 ct.ThrowIfCancellationRequested();
                 var list = (callers
-                        ? CallersOf(g, m).GroupBy(x => x.Edge.Method).Select(x => (x.Key, Note: x.First().Via is { } via ? $"via {Format.MemberLabel(via)}" : null, Count: x.Count()))
-                        : (g.Callees.GetValueOrDefault(m) ?? []).GroupBy(e => e.Method).Select(x => (x.Key, Note: x.First().OpCode == "callvirt" && x.Key.IsVirtual ? "virtual" : null, Count: x.Count())))
+                        ? CallersOf(g, m).GroupBy(x => x.Edge.Method).Select(x => (x.Key, Note: x.First().Via is { } via ? $"via {Format.MemberLabel(via)}" : DelegateNote(x.First().Edge), Count: x.Count()))
+                        : (g.Callees.GetValueOrDefault(m) ?? []).GroupBy(e => e.Method).Select(x => (x.Key, Note: x.First().OpCode == "callvirt" && x.Key.IsVirtual ? "virtual" : DelegateNote(x.First()), Count: x.Count())))
                     .OrderBy(c => Format.MemberLabel(c.Key), StringComparer.Ordinal).ToList();
                 var kept = new List<(MethodDef, string?, int)>();
                 foreach (var c in list)

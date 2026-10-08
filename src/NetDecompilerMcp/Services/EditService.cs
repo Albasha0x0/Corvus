@@ -378,6 +378,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
             sb.Append($"\n{Format.MemberLabel(c.Method)}  [{c.InstructionsBefore} -> {c.InstructionsAfter} instructions]");
             foreach (var f in c.Folded) sb.Append("\n  folded ").Append(f);
             foreach (var i in c.Inlined) sb.Append("\n  inlined ").Append(i);
+            foreach (var d in c.Delegates) sb.Append("\n  resolved ").Append(d);
             var flow = new List<string>();
             if (c.ConstantBranches > 0) flow.Add($"folded {c.ConstantBranches} constant branch(es)");
             if (c.CollapsedChains > 0) flow.Add($"collapsed {c.CollapsedChains} branch chain(s)");
@@ -418,6 +419,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         }
         Add(changed.Sum(c => c.Folded.Count), "call(s) folded");
         Add(changed.Sum(c => c.Inlined.Count), "forwarder call(s) inlined");
+        Add(changed.Sum(c => c.Delegates.Count), "delegate call(s) resolved");
         Add(changed.Sum(c => c.ConstantBranches), "constant branch(es) folded");
         Add(changed.Sum(c => c.Dispatchers), $"dispatcher(s) unflattened ({changed.Sum(c => c.Transitions)} transition(s))");
         Add(changed.Sum(c => c.RemovedBlocks), "unreachable block(s) removed");
