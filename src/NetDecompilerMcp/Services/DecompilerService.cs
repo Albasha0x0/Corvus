@@ -39,17 +39,20 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         return ts;
     }
 
-    private CSharpDecompiler CreateDecompiler(LoadedAssembly asm, CancellationToken token)
+    private CSharpDecompiler CreateDecompiler(LoadedAssembly asm, CancellationToken token, bool compilable = false)
     {
         var decompiler = new CSharpDecompiler(GetTypeSystem(asm), CreateSettings()) { CancellationToken = token };
         AstCleanup.AddTo(decompiler, Frameworks.TargetFrameworkOf(asm.Module));
+        // Compiler-generated names (<>c__DisplayClass1_0, <Run>d__4) shown as nested types do not parse as C#.
+        if (compilable) decompiler.AstTransforms.Add(new ICSharpCode.Decompiler.CSharp.Transforms.EscapeInvalidIdentifiers());
         return decompiler;
     }
 
     /// <summary>Decompiles a whole type, falling back to member-by-member output if the engine fails on the type.</summary>
-    public string DecompileType(LoadedAssembly asm, Dn.TypeDef type, CancellationToken ct) => InvalidBodiesNote(asm, type) + WithTimeout(token =>
+    /// <param name="compilable">Escape identifiers C# cannot express, for source that is compiled again (C# patches).</param>
+    public string DecompileType(LoadedAssembly asm, Dn.TypeDef type, CancellationToken ct, bool compilable = false) => InvalidBodiesNote(asm, type) + WithTimeout(token =>
     {
-        var decompiler = CreateDecompiler(asm, token);
+        var decompiler = CreateDecompiler(asm, token, compilable);
         try
         {
             // The name API emits the namespace and usings; decompiling by handle does not. Nested and

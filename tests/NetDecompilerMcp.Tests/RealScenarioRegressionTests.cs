@@ -141,6 +141,82 @@ public sealed class RealScenarioRegressionTests
         Assert.Equal("a\\u0041", Format.UnescapeInvisible("a\\u0041")); // visible characters stay escaped
     }
 
+    /// <summary>
+    /// IL allows a public member to use an internal type; C# rejects the decompiled declaration with CS0050-CS0061, which
+    /// failed every C# patch of such a type (found in Docker Desktop's installer).
+    /// </summary>
+    [Fact]
+    public void CSharpPatchesCompileWhenTheDecompiledTypeHasInconsistentAccessibility()
+    {
+        using var dir = new TempDir();
+        var lab = new IlLab("Access");
+        var hidden = lab.NewType("Lab", "Step", beforeFieldInit: true);
+        hidden.Attributes = (hidden.Attributes & ~TypeAttributes.VisibilityMask) | TypeAttributes.NotPublic | TypeAttributes.Interface | TypeAttributes.Abstract;
+        hidden.BaseType = null;
+        var holder = lab.NewType("Lab", "Holder", abstractSealed: true);
+        holder.Fields.Add(new FieldDefUser("Current", new FieldSig(hidden.ToTypeSig()), FieldAttributes.Public | FieldAttributes.Static));
+        lab.Method("Count", lab.T.Int32, [], [IlLab.Ldc(1), IlLab.Ret()], owner: holder);
+        File.WriteAllBytes(dir.File("Access.dll"), lab.Write());
+        using var env = new Env(dir.File("Access.dll"));
+        var result = env.Edit(() => env.Edits.PatchMethodCSharp(env.One("Lab.Holder::Count"), "return Current == null ? 2 : 3;", dryRun: false, default));
+        Assert.DoesNotContain("failed", result);
+    }
+
+    /// <summary>
+    /// After an async method was stubbed, the decompiler showed its closure class (&lt;&gt;c__DisplayClass45_0) as a nested
+    /// type, whose names do not parse as C#: every later C# patch of the class failed (Docker Desktop's installer). The
+    /// patcher's source escapes such names.
+    /// </summary>
+    [Fact]
+    public void CSharpPatchesWorkNextToAnOrphanedClosureClass()
+    {
+        using var dir = new TempDir();
+        var lab = new IlLab("Closures");
+        var holder = lab.NewType("Lab", "Holder");
+        lab.Method("Run", lab.T.Int32, [], [IlLab.Ldc(1), IlLab.Ret()], owner: holder);
+        lab.StaticField(holder, "Count", lab.T.Int32, readOnly: false);
+        var closure = new TypeDefUser("", "<>c__DisplayClass0_0", lab.T.Object.TypeDefOrRef)
+        {
+            Attributes = TypeAttributes.NestedPrivate | TypeAttributes.Sealed | TypeAttributes.BeforeFieldInit,
+        };
+        holder.NestedTypes.Add(closure);
+        // Without [CompilerGenerated] the decompiler always shows it, as it does when it falls back to decompiling a
+        // type member by member.
+        var captured = new FieldDefUser("p", new FieldSig(lab.T.Int32), FieldAttributes.Public);
+        closure.Fields.Add(captured);
+        var lambda = lab.Method("<Run>b__0", lab.T.Int32, [], [OpCodes.Ldarg_0.ToInstruction(), OpCodes.Ldfld.ToInstruction(captured), IlLab.Ret()], owner: closure);
+        lambda.Attributes = MethodAttributes.Assembly | MethodAttributes.HideBySig;
+        lambda.MethodSig.HasThis = true;
+        File.WriteAllBytes(dir.File("Closures.dll"), lab.Write());
+
+        using var env = new Env(dir.File("Closures.dll"));
+        var holderType = (TypeDef)env.One("Lab.Holder").Member;
+        int SyntaxErrors(bool compilable) => Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree
+            .ParseText(env.Workspace.Read(() => env.Decompiler.DecompileType(env.Fixture, holderType, default, compilable)))
+            .GetDiagnostics().Count(d => d.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error);
+        Assert.NotEqual(0, SyntaxErrors(compilable: false)); // what the user reads: the names as they are
+        Assert.Equal(0, SyntaxErrors(compilable: true)); // what the patcher compiles
+        var result = env.Edit(() => env.Edits.PatchMethodCSharp(env.One("Lab.Holder::Run"), "return Count + 2;", dryRun: false, default));
+        Assert.StartsWith("patch C#", result);
+        Assert.Contains("return Count + 2;", env.Decompile("Lab.Holder::Run"));
+    }
+
+    /// <summary>
+    /// The decompiled declaration is compiled as a separate assembly that references the target, so its members that
+    /// override or use the target's internals failed: "internal override" (CS0115) and "protected internal override"
+    /// (CS0507) of base members in the target, internal members using its internal types (CS0051-CS0053). Found in
+    /// Newtonsoft.Json, CoseSignTool and PowerShell; the reference copy of the target now grants the patch assembly access
+    /// to its internals.
+    /// </summary>
+    [Fact]
+    public void CSharpPatchesCompileWhenTheTypeOverridesInternalsOfItsAssembly()
+    {
+        using var env = new Env(RealPackages.Lib("newtonsoft.json", "13.0.4", "netstandard2.0", "Newtonsoft.Json.dll"));
+        var result = env.Edit(() => env.Edits.PatchMethodCSharp(env.One("Newtonsoft.Json.Linq.JTokenWriter::WriteValue(char)"),
+            "base.WriteValue(value);", dryRun: true, default));
+        Assert.Contains("compiled OK", result, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task MissingRequiredArgumentIsAClearToolError()
     {

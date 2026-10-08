@@ -112,7 +112,7 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
             (CompilationUnitSyntax)new StubRewriter(null, null).Visit(root.ReplaceNode(typeNode, typeNode.AddMembers(declarations.ToArray())))!, ct);
         using var compiled = Compile(asm, phase1, null, ct);
         var merger = new ModuleMerger(target, compiled, asm.AssemblyName);
-        var compiledType = compiled.Find(type.FullName, isReflectionName: false)
+        var compiledType = compiled.Find(type.FullName, isReflectionName: false) ?? compiled.Find(CompiledFullName(type), isReflectionName: false)
                            ?? throw new ToolError($"Internal: compiled shadow of {type.FullName} not found.");
         var targetType = CounterpartType(target, type);
         var comparer = new SigComparer(SigComparerOptions.DontCompareTypeScope);
@@ -147,7 +147,7 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
             foreach (var body in phase2.GetRoot(ct).GetAnnotatedNodes(UserCode).SelectMany(n => n.DescendantNodesAndSelf()).OfType<BlockSyntax>()
                          .Where(b => b.Parent is BaseMethodDeclarationSyntax or AccessorDeclarationSyntax && b.Parent is not ConstructorDeclarationSyntax && b.Parent.Parent?.Parent is not null))
             {
-                if (OwnerTypeOf(body) is not { } owner || owner.Identifier.Text != Format.StripArity(type.Name) || IsInNestedUserType(body)) continue;
+                if (OwnerTypeOf(body) is not { } owner || !SameName(owner.Identifier, Format.StripArity(type.Name)) || IsInNestedUserType(body)) continue;
                 if (model.GetDeclaredSymbol(body.Parent!, ct) is not IMethodSymbol symbol) continue;
                 var targetMethod = addedMethods.FirstOrDefault(a => a.Compiled.Name == symbol.MetadataName && SameParameters(a.Compiled, symbol)).Target;
                 if (targetMethod != null) jobs.Add(new HelperJob(body, targetMethod));
@@ -274,11 +274,12 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
 
     private static MethodDef FindCompiledMethod(ModuleDef compiled, MethodDef original)
     {
-        var type = compiled.Find(original.DeclaringType.FullName, isReflectionName: false)
+        var type = compiled.Find(original.DeclaringType.FullName, isReflectionName: false) ?? compiled.Find(CompiledFullName(original.DeclaringType), isReflectionName: false)
                    ?? throw new ToolError($"Internal: compiled shadow type {original.DeclaringType.FullName} not found. Compiled types: " +
                                           string.Join(", ", compiled.GetTypes().Take(15).Select(t => t.FullName)));
         var comparer = new SigComparer(SigComparerOptions.DontCompareTypeScope);
-        return type.Methods.FirstOrDefault(m => m.Name == original.Name && comparer.Equals(m.MethodSig, original.MethodSig))
-               ?? type.Methods.Single(m => m.Name == original.Name && ParamCount(m) == ParamCount(original));
+        bool Named(MethodDef m) => m.Name == original.Name || m.Name == SourceName(original.Name);
+        return type.Methods.FirstOrDefault(m => Named(m) && comparer.Equals(m.MethodSig, original.MethodSig))
+               ?? type.Methods.Single(m => Named(m) && ParamCount(m) == ParamCount(original));
     }
 }

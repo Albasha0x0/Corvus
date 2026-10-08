@@ -15,12 +15,42 @@ public sealed partial class CSharpPatcher
     /// <summary>Decompiles the top-level type containing <paramref name="type"/> and applies <paramref name="transform"/>.</summary>
     private SyntaxTree ShadowTree(LoadedAssembly asm, TypeDef type, Func<CompilationUnitSyntax, TypeDeclarationSyntax, CompilationUnitSyntax> transform, CancellationToken ct)
     {
-        var source = decompiler.DecompileType(asm, TopLevel(type), ct);
+        var source = decompiler.DecompileType(asm, TopLevel(type), ct, compilable: true);
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         var root = CSharpSyntaxTree.ParseText(source, parseOptions, cancellationToken: ct).GetCompilationUnitRoot(ct);
         var typeNode = FindTypeDeclaration(root, type)
-                       ?? throw new ToolError($"Could not locate {type.FullName} in its decompiled source; use patch_method_il instead.");
-        return CSharpSyntaxTree.Create(transform(root, typeNode), parseOptions);
+                       ?? throw new ToolError(IsDelegate(type)
+                           ? $"{type.FullName} is a delegate that also declares methods or fields (an obfuscator trick); C# cannot declare those, so its code cannot be patched in C#: use patch_method_il instead."
+                           : $"Could not locate {type.FullName} in its decompiled source; use patch_method_il instead.");
+        return CSharpSyntaxTree.Create((CompilationUnitSyntax)new PublicTypes().Visit(transform(root, typeNode))!, parseOptions);
+    }
+
+    private static bool IsDelegate(TypeDef type) => type.BaseType?.FullName is "System.MulticastDelegate" or "System.Delegate";
+
+    /// <summary>
+    /// Makes the decompiled types public. IL allows a member to use a type less accessible than itself; C# reports it
+    /// as an error (CS0050-CS0061) that fails the compilation. Access is not checked when compiling patches, and only
+    /// bodies and added members are taken from the result, so the types' accessibility in the shadow tree is moot.
+    /// </summary>
+    private sealed class PublicTypes : CSharpSyntaxRewriter
+    {
+        private static SyntaxTokenList Public(SyntaxTokenList modifiers)
+        {
+            var kept = modifiers.Where(m => !m.IsKind(SyntaxKind.PrivateKeyword) && !m.IsKind(SyntaxKind.ProtectedKeyword) && !m.IsKind(SyntaxKind.InternalKeyword)
+                                            && !m.IsKind(SyntaxKind.FileKeyword)).ToList();
+            if (!kept.Any(m => m.IsKind(SyntaxKind.PublicKeyword)))
+                kept.Insert(0, SF.Token(SyntaxKind.PublicKeyword).WithTrailingTrivia(SF.Space));
+            return SF.TokenList(kept);
+        }
+
+        public override SyntaxNode? Visit(SyntaxNode? node) => node != null && node.HasAnnotation(UserCode) ? node : base.Visit(node);
+
+        public override SyntaxNode? VisitClassDeclaration(ClassDeclarationSyntax node) => ((ClassDeclarationSyntax)base.VisitClassDeclaration(node)!).WithModifiers(Public(node.Modifiers));
+        public override SyntaxNode? VisitStructDeclaration(StructDeclarationSyntax node) => ((StructDeclarationSyntax)base.VisitStructDeclaration(node)!).WithModifiers(Public(node.Modifiers));
+        public override SyntaxNode? VisitInterfaceDeclaration(InterfaceDeclarationSyntax node) => ((InterfaceDeclarationSyntax)base.VisitInterfaceDeclaration(node)!).WithModifiers(Public(node.Modifiers));
+        public override SyntaxNode? VisitRecordDeclaration(RecordDeclarationSyntax node) => ((RecordDeclarationSyntax)base.VisitRecordDeclaration(node)!).WithModifiers(Public(node.Modifiers));
+        public override SyntaxNode? VisitEnumDeclaration(EnumDeclarationSyntax node) => ((EnumDeclarationSyntax)base.VisitEnumDeclaration(node)!).WithModifiers(Public(node.Modifiers));
+        public override SyntaxNode? VisitDelegateDeclaration(DelegateDeclarationSyntax node) => ((DelegateDeclarationSyntax)base.VisitDelegateDeclaration(node)!).WithModifiers(Public(node.Modifiers));
     }
 
     /// <summary>A semantic model of <paramref name="tree"/> (not emitted; errors are irrelevant for binding).</summary>
@@ -32,7 +62,7 @@ public sealed partial class CSharpPatcher
 
     private CSharpCompilation CreateCompilation(LoadedAssembly asm, SyntaxTree tree, byte[]? targetImage, out List<string> missing, bool withUsings)
     {
-        var plain = CSharpCompilation.Create(asm.AssemblyName + ".__patch", [tree], BuildReferences(asm, targetImage, out missing), CreateOptions());
+        var plain = CSharpCompilation.Create(asm.AssemblyName + PatchSuffix, [tree], BuildReferences(asm, targetImage, out missing), CreateOptions());
         if (!withUsings) return plain;
         var usings = DefaultUsings.Where(ns => NamespaceExists(plain, ns)).ToList();
         return usings.Count == 0 ? plain
@@ -64,6 +94,17 @@ public sealed partial class CSharpPatcher
         }
         using var pe = new MemoryStream();
         var emit = withUsings.Emit(pe, cancellationToken: ct);
+        if (!emit.Success && UnboundAttributes(emit.Diagnostics, tree) is { Count: > 0 } unbound)
+        {
+            // Attributes of the decompiled declaration whose type does not bind (compiler-generated attribute types the
+            // decompiler hides, such as Microsoft.CodeAnalysis.EmbeddedAttribute): irrelevant to the patch, left out.
+            var newRoot = tree.GetRoot(ct).RemoveNodes(unbound.SelectMany(a => a.Parent is AttributeListSyntax { Attributes.Count: 1 } list ? [list] : new SyntaxNode[] { a }),
+                SyntaxRemoveOptions.KeepNoTrivia)!;
+            tree = tree.WithRootAndOptions(newRoot, tree.Options);
+            withUsings = CreateCompilation(asm, tree, targetImage, out missing, withUsings: true);
+            pe.SetLength(0);
+            emit = withUsings.Emit(pe, cancellationToken: ct);
+        }
         if (!emit.Success && withUsings.SyntaxTrees.Length > 1)
         {
             using var retry = new MemoryStream();
@@ -73,6 +114,19 @@ public sealed partial class CSharpPatcher
         if (!emit.Success)
             throw new ToolError(FormatErrors(emit.Diagnostics, tree, missing));
         return ModuleDefMD.Load(pe.ToArray(), workspace.DnlibContext);
+    }
+
+    /// <summary>Attributes outside the user's code whose type is not found (CS0246, CS0234) or is not an attribute (CS0616).</summary>
+    private static List<AttributeSyntax> UnboundAttributes(IEnumerable<Diagnostic> diagnostics, SyntaxTree tree)
+    {
+        var root = tree.GetRoot();
+        return diagnostics
+            .Where(d => d.Severity == DiagnosticSeverity.Error && d.Id is "CS0246" or "CS0234" or "CS0616" && d.Location.SourceTree == tree)
+            .Select(d => root.FindNode(d.Location.SourceSpan).AncestorsAndSelf().OfType<AttributeSyntax>().FirstOrDefault())
+            .OfType<AttributeSyntax>()
+            .Where(a => !a.AncestorsAndSelf().Any(n => n.HasAnnotation(UserCode)))
+            .Distinct()
+            .ToList();
     }
 
     private static bool NamespaceExists(Compilation compilation, string name)
@@ -101,7 +155,7 @@ public sealed partial class CSharpPatcher
             int arity = tick > 0 && int.TryParse(t.Name.String[(tick + 1)..], out var n) ? n : 0;
             found = scope.DescendantNodes(n => n == scope || n is BaseNamespaceDeclarationSyntax || n is CompilationUnitSyntax)
                 .OfType<TypeDeclarationSyntax>()
-                .FirstOrDefault(d => d.Identifier.Text == name && (d.TypeParameterList?.Parameters.Count ?? 0) == arity);
+                .FirstOrDefault(d => SameName(d.Identifier, name) && (d.TypeParameterList?.Parameters.Count ?? 0) == arity);
             if (found == null) return null;
             scope = found;
         }
@@ -131,7 +185,7 @@ public sealed partial class CSharpPatcher
             var name = LastSegment(property.Name);
             BasePropertyDeclarationSyntax? decl = property.PropertySig?.Params.Count > 0
                 ? members.OfType<IndexerDeclarationSyntax>().FirstOrDefault(i => i.ParameterList.Parameters.Count == property.PropertySig.Params.Count)
-                : members.OfType<PropertyDeclarationSyntax>().FirstOrDefault(p => p.Identifier.Text == name);
+                : members.OfType<PropertyDeclarationSyntax>().FirstOrDefault(p => SameName(p.Identifier, name));
             if (decl == null) throw new ToolError($"Property {property.Name} not found in the decompiled source.");
             if (decl is PropertyDeclarationSyntax { ExpressionBody: not null } or IndexerDeclarationSyntax { ExpressionBody: not null })
                 return decl; // expression-bodied property; the rewriter converts it to a get accessor
@@ -145,7 +199,7 @@ public sealed partial class CSharpPatcher
         var ev = method.DeclaringType.Events.FirstOrDefault(e => e.AddMethod == method || e.RemoveMethod == method);
         if (ev != null)
         {
-            var decl = members.OfType<EventDeclarationSyntax>().FirstOrDefault(e => e.Identifier.Text == LastSegment(ev.Name))
+            var decl = members.OfType<EventDeclarationSyntax>().FirstOrDefault(e => SameName(e.Identifier, LastSegment(ev.Name)))
                        ?? throw new ToolError(Unsupported("an accessor of a field-like event"));
             var kind = ev.AddMethod == method ? SyntaxKind.AddAccessorDeclaration : SyntaxKind.RemoveAccessorDeclaration;
             return decl.AccessorList?.Accessors.FirstOrDefault(a => a.IsKind(kind)) ?? throw new ToolError($"Accessor not found for event {ev.Name}.");
@@ -157,7 +211,7 @@ public sealed partial class CSharpPatcher
         var methodName = LastSegment(method.Name);
         bool isExplicit = method.Name.String.Contains('.');
         var candidates = members.OfType<MethodDeclarationSyntax>()
-            .Where(m => m.Identifier.Text == methodName
+            .Where(m => SameName(m.Identifier, methodName)
                         && (m.ExplicitInterfaceSpecifier != null) == isExplicit
                         && (m.TypeParameterList?.Parameters.Count ?? 0) == method.GenericParameters.Count
                         && m.ParameterList.Parameters.Count == paramCount)
@@ -185,6 +239,32 @@ public sealed partial class CSharpPatcher
         s = Regex.Replace(s, @"Nullable<([^<>]+)>", "$1?");
         s = Regex.Replace(s, @"\b(?:[A-Za-z_]\w*\.)+(?=[A-Za-z_])", ""); // drop namespace qualifiers
         return s.Replace("?", "");
+    }
+
+    /// <summary>
+    /// The identifier the decompiler gives a metadata name that is not a valid C# identifier when its output is meant
+    /// to compile (ILSpy's EscapeInvalidIdentifiers: every character other than a letter, digit or '_' becomes _XXXX).
+    /// </summary>
+    internal static string SourceName(string name)
+    {
+        var escaped = string.Concat(name.Select(ch => char.IsLetterOrDigit(ch) || ch == '_' ? ch.ToString() : $"_{(int)ch:X4}"));
+        return escaped.Length >= 1 && !char.IsLetter(escaped[0]) && escaped[0] != '_' ? "_" + escaped : escaped;
+    }
+
+    private static bool SameName(SyntaxToken identifier, string name) =>
+        identifier.ValueText == name || identifier.Text == name || identifier.ValueText == SourceName(name);
+
+    /// <summary>The full metadata name a type gets when its decompiled declaration is compiled again (see <see cref="SourceName"/>).</summary>
+    internal static string CompiledFullName(TypeDef type)
+    {
+        string Simple(TypeDef t)
+        {
+            int tick = t.Name.String.IndexOf('`');
+            return SourceName(Format.StripArity(t.Name)) + (tick > 0 ? t.Name.String[tick..] : "");
+        }
+        if (type.DeclaringType != null) return CompiledFullName(type.DeclaringType) + "/" + Simple(type);
+        var ns = type.Namespace.String;
+        return (ns.Length == 0 ? "" : string.Join(".", ns.Split('.').Select(SourceName)) + ".") + Simple(type);
     }
 
     private static string LastSegment(string name)

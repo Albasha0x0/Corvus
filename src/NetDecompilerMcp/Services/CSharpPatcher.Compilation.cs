@@ -44,7 +44,7 @@ public sealed partial class CSharpPatcher
             queue.Enqueue((module, owned, path));
         }
 
-        Enqueue(asm.AssemblyName, targetImage ?? asm.GetImageBytes(), asm.Module, owned: false, asm.FilePath);
+        Enqueue(asm.AssemblyName, FriendImage(targetImage ?? asm.GetImageBytes(), asm.AssemblyName + PatchSuffix), asm.Module, owned: false, asm.FilePath);
         bool netFramework = Frameworks.TargetsNetFramework(asm.Module); // applies to the whole reference closure
         var targetFramework = Frameworks.TargetFrameworkOf(asm.Module);
         while (queue.Count > 0)
@@ -76,6 +76,43 @@ public sealed partial class CSharpPatcher
             if (owned) module.Dispose();
         }
         return SingleCoreLibrary(references, images);
+    }
+
+    /// <summary>Name suffix of the assembly a patch is compiled into (it references the target).</summary>
+    internal const string PatchSuffix = ".__patch";
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], byte[]> FriendImages = new();
+
+    /// <summary>
+    /// The target image as a compile reference that grants the patch assembly access to its internals
+    /// ([InternalsVisibleTo]). The decompiled declaration compiled with the patch is a separate assembly: its internal
+    /// members using internal types of the target failed the accessibility consistency checks (CS0050-CS0061), which
+    /// ignoring access checks does not cover. Only the reference copy changes; cached per image.
+    /// </summary>
+    private static byte[] FriendImage(byte[] image, string friend)
+    {
+        lock (FriendImages)
+        {
+            if (FriendImages.TryGetValue(image, out var cached)) return cached;
+            byte[] result;
+            try
+            {
+                using var module = ModuleDefMD.Load(image);
+                if (module.Assembly is not { } assembly) return image;
+                var ivt = new TypeRefUser(module, "System.Runtime.CompilerServices", "InternalsVisibleToAttribute", module.CorLibTypes.AssemblyRef);
+                var ctor = new MemberRefUser(module, ".ctor", MethodSig.CreateInstance(module.CorLibTypes.Void, module.CorLibTypes.String), ivt);
+                assembly.CustomAttributes.Add(new CustomAttribute(ctor, [new CAArgument(module.CorLibTypes.String, friend)]));
+                using var ms = new MemoryStream();
+                FaithfulWriter.WritePlain(module, ms);
+                result = ms.ToArray();
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                result = image; // unwritable image: compile against it as it is
+            }
+            FriendImages.AddOrUpdate(image, result);
+            return result;
+        }
     }
 
     /// <summary>
