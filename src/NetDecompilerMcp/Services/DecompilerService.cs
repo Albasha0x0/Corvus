@@ -207,8 +207,10 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         var changed = changes.Where(c => c.Changed).ToList();
         var summary = $"// Simplified view ({options.Describe()}; the assembly is unchanged): {changed.Count} of {changes.Count} method(s) simplified";
         int folded = changed.Sum(c => c.Folded.Count), inlined = changed.Sum(c => c.Inlined.Count), branches = changed.Sum(c => c.ConstantBranches);
+        int dispatchers = changed.Sum(c => c.Dispatchers);
         int blocks = changed.Sum(c => c.RemovedBlocks), bailed = changes.Sum(c => c.Bailouts.Count);
         var parts = new[] { (folded, "call(s) folded"), (inlined, "forwarder call(s) inlined"), (branches, "constant branch(es) folded"),
+                            (dispatchers, "switch dispatcher(s) unflattened"),
                             (blocks, "unreachable block(s) removed"), (bailed, "call(s) not evaluable") }
             .Where(p => p.Item1 > 0).Select(p => $"{p.Item1} {p.Item2}").ToList();
         if (parts.Count > 0) summary += ": " + string.Join(", ", parts);

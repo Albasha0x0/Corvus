@@ -525,7 +525,7 @@ public sealed class SimplifyContractTests
         }
 
         // Every evaluation reason of the manifest is covered here (method-level reasons have their own tests).
-        var methodLevel = new[] { FallbackReason.TimeLimit, FallbackReason.OriginalUnverifiable, FallbackReason.ResultUnverifiable, FallbackReason.Unexpected };
+        var methodLevel = new[] { FallbackReason.TimeLimit, FallbackReason.OriginalUnverifiable, FallbackReason.ResultUnverifiable, FallbackReason.FlattenedShape, FallbackReason.Unexpected };
         var uncovered = Enum.GetValues<FallbackReason>().Where(r => r <= FallbackReason.MemoryLimit).Except(cases.Select(c => c.Reason)).Except(methodLevel).ToList();
         Assert.True(uncovered.Count == 0, "reasons without a case: " + string.Join(", ", uncovered));
         Assert.All(Enum.GetValues<FallbackReason>(), r => Assert.False(string.IsNullOrEmpty(SimplifyManifest.Info(r).Description)));
@@ -540,6 +540,12 @@ public sealed class SimplifyContractTests
         var spin = lab.Method("SpinString", t.String, spinStart, I(OpCodes.Br, spinStart));
         var slow = lab.Method("Slow", t.String, I(OpCodes.Call, spin), Ret());
         var invalid = lab.Method("Invalid", t.Void, Ldc(1), Ret());
+        // Flattened, but the next state is the argument: not the clean form.
+        var head = I(OpCodes.Ldloc_0);
+        Instruction case0 = I(OpCodes.Ldarg_0), case1 = Ldc(7);
+        var flattened = lab.Method("Flattened", t.Int32, [t.Int32],
+            [Ldc(0), I(OpCodes.Stloc_0), head, I(OpCodes.Switch, new[] { case0, case1 }), Ldc(-1), Ret(),
+             case0, I(OpCodes.Stloc_0), I(OpCodes.Br, head), case1, Ret()], locals: [t.Int32]);
         var foldable = lab.Method("Foldable", t.String, I(OpCodes.Ldstr, "a"), I(OpCodes.Ldstr, "b"),
             I(OpCodes.Call, lab.Module.Import(typeof(string).GetMethod("Concat", [typeof(string), typeof(string)]))), Ret());
 
@@ -551,6 +557,10 @@ public sealed class SimplifyContractTests
         Assert.False(timed.Changed);
 
         Assert.Equal(FallbackReason.OriginalUnverifiable, simplifier.Simplify(invalid)!.Rejected?.Reason);
+        var unflattened = simplifier.Simplify(flattened)!;
+        Assert.Equal(FallbackReason.FlattenedShape, unflattened.Rejected?.Reason);
+        Assert.Contains("[flattened-shape]", unflattened.Rejected!.ToString());
+        Assert.False(unflattened.Changed);
 
         simplifier.AfterPasses = body => body.Instructions.RemoveAt(body.Instructions.Count - 1);
         var unverified = simplifier.Simplify(foldable)!;

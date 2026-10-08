@@ -178,6 +178,55 @@ public sealed class SimplifyTests : IDisposable
         }
         """;
 
+    /// <summary>Flattened control flow as C#: a loop over a switch on a state variable.</summary>
+    private const string FlatSource = """
+        namespace Flat
+        {
+            public static class Steps
+            {
+                public static int Run(int x)
+                {
+                    int state = 0;
+                    int acc = x;
+                    while (true)
+                    {
+                        switch (state)
+                        {
+                            case 0: acc += 3; state = 2; break;
+                            case 1: return acc;
+                            case 2: acc *= 5; state = acc > 50 ? 3 : 1; break;
+                            case 3: acc -= 7; state = 1; break;
+                            default: return -1;
+                        }
+                    }
+                }
+
+                // Case 0 computes the next state at run time; the other transitions are constant.
+                public static int Dynamic(int x)
+                {
+                    int state = x & 1;
+                    while (true)
+                    {
+                        switch (state)
+                        {
+                            case 0: x += 10; state = x & 3; break;
+                            case 1: return x;
+                            case 2: x *= 2; state = 3; break;
+                            default: x--; state = 1; break;
+                        }
+                    }
+                }
+            }
+        }
+        """;
+
+    private string FlatFixture()
+    {
+        var path = _dir.File("Flat.dll");
+        if (!File.Exists(path)) File.WriteAllBytes(path, CompileRelease("Flat", FlatSource));
+        return path;
+    }
+
     private string ObfFixture()
     {
         var path = _dir.File("Obf.dll");
@@ -342,6 +391,84 @@ public sealed class SimplifyTests : IDisposable
             Assert.Equal(Run(env.Fixture.OriginalBytes, "Paths.Flow", name, args), Run(image, "Paths.Flow", name, args));
     }
 
+    [Fact]
+    public void FlattenedSwitchLoopBecomesSequentialCode()
+    {
+        using var env = new Env(FlatFixture());
+        Assert.Contains("switch", env.Decompile("Flat.Steps::Run"));
+        var preview = env.Workspace.Read(() => env.Decompiler.DecompileSimplified(env.Fixture, [env.One("Flat.Steps::Run").Member], new SimplifyOptions(), default));
+        Assert.Contains("1 switch dispatcher(s) unflattened", preview);
+        Assert.DoesNotContain("switch (", preview);
+
+        var report = Simplify(env, "Flat.Steps::Run", Options("cfg"));
+        Assert.Contains("unflattened 1 switch dispatcher(s) (5 transition(s) go straight to their case)", report);
+
+        var run = env.Def<MethodDef>("Flat.Steps::Run").Body;
+        Assert.DoesNotContain(run.Instructions, i => i.OpCode.Code == Code.Switch);
+        Assert.DoesNotContain(run.Instructions, i => (i.IsLdloc() || i.IsStloc()) && i.GetLocal(run.Variables).Index == 0);
+        var csharp = env.Decompile("Flat.Steps::Run");
+        Assert.DoesNotContain("switch", csharp);
+        Assert.DoesNotContain("while", csharp);
+        Assert.DoesNotContain("return -1", csharp); // the default case is never selected
+        Assert.DoesNotContain("state", csharp);
+
+        var image = env.Fixture.GetImageBytes();
+        foreach (var x in new[] { 0, 5, 7, 8, 20, -3, int.MaxValue })
+            Assert.Equal(Run(env.Fixture.OriginalBytes, "Flat.Steps", "Run", x), Run(image, "Flat.Steps", "Run", x));
+    }
+
+    [Fact]
+    public void ComputedStateLeavesTheMethodByteIdentical()
+    {
+        using var env = new Env(FlatFixture());
+        var before = Il(env, "Flat.Steps::Dynamic");
+        var report = Simplify(env, "Flat.Steps::Dynamic");
+        Assert.Contains("0 of 1 method(s) changed", report);
+        Assert.Matches(@"Flat\.Steps::Dynamic\(int\): switch dispatcher at IL_\w{4}: the state stored at IL_\w{4} is not a constant that selects a case; " +
+                       @"the method is left unchanged \[flattened-shape\]", report);
+        Assert.Equal(before, Il(env, "Flat.Steps::Dynamic"));
+        Assert.Empty(env.Fixture.Edits);
+        Assert.Same(env.Fixture.OriginalBytes, env.Fixture.GetImageBytes());
+
+        var preview = env.Workspace.Read(() => env.Decompiler.DecompileSimplified(env.Fixture, [env.One("Flat.Steps::Dynamic").Member], new SimplifyOptions(), default));
+        Assert.Contains("0 of 1 method(s) simplified", preview);
+    }
+
+    [Fact]
+    public void KeyedDispatcherEnteredByFallThroughIsUnflattened()
+    {
+        using var env = new Env(FlowFixture());
+        var report = Simplify(env, "Paths.Flow::Keyed");
+        Assert.Contains("unflattened 1 switch dispatcher(s) (3 transition(s) go straight to their case)", report);
+        var code = Body(env, "Paths.Flow::Keyed");
+        Assert.DoesNotContain(code, i => i.OpCode.Code is Code.Switch or Code.Xor || i.IsLdloc() || i.IsStloc());
+        Assert.Equal(15, Run(env.Fixture.GetImageBytes(), "Paths.Flow", "Keyed", 4));
+        Assert.Contains("x++;\n\tx *= 3;\n\treturn x;", env.Decompile("Paths.Flow::Keyed").ReplaceLineEndings("\n"));
+    }
+
+    [Theory]
+    [InlineData("AddressTaken", @"the address of the state local is taken at IL_\w{4}")]
+    [InlineData("ReadElsewhere", @"the state local is read at IL_\w{4}, outside the dispatcher")]
+    [InlineData("CondEntry", @"IL_\w{4} enters the dispatcher by a conditional branch, switch or leave")]
+    public void FlattenedCodeOutsideTheCleanFormIsLeftByteIdentical(string method, string why)
+    {
+        // ReadElsewhere also has a constant branch the cfg pass would fold: the method is still left as it is.
+        using var env = new Env(FlowFixture());
+        var before = Il(env, "Paths.Flow::" + method);
+        var report = Simplify(env, "Paths.Flow::" + method);
+        Assert.Contains($"Paths.Flow::{method}", report);
+        Assert.Matches($@": {why}; the method is left unchanged \[flattened-shape\]", report);
+        Assert.Equal(before, Il(env, "Paths.Flow::" + method));
+        Assert.Empty(env.Fixture.Edits);
+    }
+
+    [Fact]
+    public void SwitchOnALocalWithoutALoopIsNotFlattenedCode()
+    {
+        using var env = new Env(FlowFixture());
+        Assert.Contains("Nothing to simplify", Simplify(env, "Paths.Flow::LocalSwitch"));
+    }
+
     // ---- 3. forwarders
 
     [Fact]
@@ -443,6 +570,7 @@ public sealed class SimplifyTests : IDisposable
                  {
                      (ObfFixture(), "Obf.Callers", new[] { ("Use", Array.Empty<object?>()) }),
                      (FlowFixture(), "Paths.Flow", FlowCalls),
+                     (FlatFixture(), "Flat.Steps", new[] { ("Run", new object?[] { 9 }), ("Dynamic", new object?[] { 4 }) }),
                  })
         {
             string saved;
@@ -526,7 +654,8 @@ public sealed class SimplifyTests : IDisposable
     private static readonly (string Name, object?[] Args)[] FlowCalls =
     [
         ("ConstIf", []), ("Switch", []), ("Dead", [0]), ("Dead", [5]), ("Chain", [0]), ("Chain", [1]),
-        ("Guarded", []), ("EmptyFinally", [41]), ("DeadCatch", []),
+        ("Guarded", []), ("EmptyFinally", [41]), ("DeadCatch", []), ("Keyed", [4]), ("Keyed", [-1]), ("AddressTaken", []),
+        ("ReadElsewhere", [5]), ("CondEntry", [0]), ("CondEntry", [3]), ("LocalSwitch", [1]),
     ];
 
     /// <summary>Methods whose control flow only an IL writer (or an obfuscator) would produce.</summary>
@@ -648,6 +777,80 @@ public sealed class SimplifyTests : IDisposable
             {
                 TryStart = tryStart, TryEnd = handler, HandlerStart = handler, HandlerEnd = end, CatchType = exception,
             });
+        }
+        // Keyed: flattened (x + 1) * 3. The dispatcher switches on state ^ 0x5A; the entry falls into it.
+        {
+            var m = Method("Keyed", i4);
+            var b = m.Body;
+            b.InitLocals = true;
+            var state = new Local(i4);
+            b.Variables.Add(state);
+            var head = OpCodes.Ldloc.ToInstruction(state);
+            Instruction c0 = OpCodes.Ldarg_0.ToInstruction(), c1 = OpCodes.Ldarg_0.ToInstruction(), c2 = OpCodes.Ldarg_0.ToInstruction();
+            Emit(b, Ldc(0 ^ 0x5A), OpCodes.Stloc.ToInstruction(state),
+                head, Ldc(0x5A), OpCodes.Xor.ToInstruction(), OpCodes.Switch.ToInstruction(new[] { c0, c1, c2 }), Ldc(-1), Ret(),
+                c0, Ldc(1), OpCodes.Add.ToInstruction(), OpCodes.Starg.ToInstruction(m.Parameters[0]),
+                Ldc(2 ^ 0x5A), OpCodes.Stloc.ToInstruction(state), OpCodes.Br.ToInstruction(head),
+                c1, Ret(),
+                c2, Ldc(3), OpCodes.Mul.ToInstruction(), OpCodes.Starg.ToInstruction(m.Parameters[0]),
+                Ldc(1 ^ 0x5A), OpCodes.Stloc.ToInstruction(state), OpCodes.Br.ToInstruction(head));
+        }
+        // AddressTaken: the state is written through a pointer, so its value at the dispatcher is not known from the stores.
+        {
+            var m = Method("AddressTaken");
+            var b = m.Body;
+            b.InitLocals = true;
+            var state = new Local(i4);
+            b.Variables.Add(state);
+            var head = OpCodes.Ldloc.ToInstruction(state);
+            Instruction c0 = Ldc(1), c1 = Ldc(7);
+            Emit(b, OpCodes.Ldloca.ToInstruction(state), Ldc(0), OpCodes.Stind_I4.ToInstruction(),
+                head, OpCodes.Switch.ToInstruction(new[] { c0, c1 }), Ldc(-1), Ret(),
+                c0, OpCodes.Stloc.ToInstruction(state), OpCodes.Br.ToInstruction(head),
+                c1, Ret());
+        }
+        // ReadElsewhere: x + 1, but case 1 reads the state; case 0 has a constant branch.
+        {
+            var m = Method("ReadElsewhere", i4);
+            var b = m.Body;
+            b.InitLocals = true;
+            var state = new Local(i4);
+            b.Variables.Add(state);
+            var head = OpCodes.Ldloc.ToInstruction(state);
+            Instruction c0 = Ldc(1), c1 = OpCodes.Ldloc.ToInstruction(state), skip = Ldc(1);
+            Emit(b, Ldc(0), OpCodes.Stloc.ToInstruction(state),
+                head, OpCodes.Switch.ToInstruction(new[] { c0, c1 }), Ldc(-1), Ret(),
+                c0, OpCodes.Brtrue.ToInstruction(skip), Ldc(99), Ret(),
+                skip, OpCodes.Stloc.ToInstruction(state), OpCodes.Br.ToInstruction(head),
+                c1, OpCodes.Ldarg_0.ToInstruction(), OpCodes.Add.ToInstruction(), Ret());
+        }
+        // CondEntry: x == 0 ? 5 : x, the dispatcher entered by a conditional branch.
+        {
+            var m = Method("CondEntry", i4);
+            var b = m.Body;
+            b.InitLocals = true;
+            var state = new Local(i4);
+            b.Variables.Add(state);
+            var head = OpCodes.Ldloc.ToInstruction(state);
+            Instruction c0 = OpCodes.Ldarg_0.ToInstruction(), c1 = OpCodes.Ldarg_0.ToInstruction();
+            Emit(b, Ldc(1), OpCodes.Stloc.ToInstruction(state),
+                OpCodes.Ldarg_0.ToInstruction(), OpCodes.Brtrue.ToInstruction(head),
+                Ldc(0), OpCodes.Stloc.ToInstruction(state), OpCodes.Br.ToInstruction(head),
+                head, OpCodes.Switch.ToInstruction(new[] { c0, c1 }), Ldc(-1), Ret(),
+                c0, Ldc(5), OpCodes.Add.ToInstruction(), OpCodes.Starg.ToInstruction(m.Parameters[0]),
+                Ldc(1), OpCodes.Stloc.ToInstruction(state), OpCodes.Br.ToInstruction(head),
+                c1, Ret());
+        }
+        // LocalSwitch: switch (local) as a debug build emits it; no loop, so not flattened control flow.
+        {
+            var m = Method("LocalSwitch", i4);
+            var b = m.Body;
+            b.InitLocals = true;
+            var copy = new Local(i4);
+            b.Variables.Add(copy);
+            Instruction c0 = Ldc(10), c1 = Ldc(20);
+            Emit(b, OpCodes.Ldarg_0.ToInstruction(), OpCodes.Stloc.ToInstruction(copy), OpCodes.Ldloc.ToInstruction(copy),
+                OpCodes.Switch.ToInstruction(new[] { c0, c1 }), Ldc(-1), Ret(), c0, Ret(), c1, Ret());
         }
         // Plain: nothing to simplify.
         {

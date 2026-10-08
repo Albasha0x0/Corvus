@@ -45,6 +45,9 @@ public sealed class MethodChange(MethodDef method)
     public int RemovedBlocks { get; set; }
     public int RemovedInstructions { get; set; }
     public int RemovedHandlers { get; set; }
+    /// <summary>Switch dispatchers of flattened control flow removed: each transition goes straight to its case.</summary>
+    public int Dispatchers { get; set; }
+    public int Transitions { get; set; }
     public int InstructionsBefore { get; set; }
     public int InstructionsAfter { get; set; }
     public CilBody? NewBody { get; set; }
@@ -53,7 +56,7 @@ public sealed class MethodChange(MethodDef method)
 
     public bool Changed => NewBody != null;
 
-    public bool HasEffects => Folded.Count + Inlined.Count + ConstantBranches + CollapsedChains + RemovedBlocks + RemovedHandlers > 0;
+    public bool HasEffects => Folded.Count + Inlined.Count + ConstantBranches + CollapsedChains + RemovedBlocks + RemovedHandlers + Transitions > 0;
 }
 
 /// <summary>
@@ -62,8 +65,8 @@ public sealed class MethodChange(MethodDef method)
 /// <list type="number">
 /// <item>inline: call sites of forwarder methods (bodies that only pass their arguments on to another method) call the target directly;</item>
 /// <item>fold: calls producing a string from constant inputs are evaluated with <see cref="IlEvaluator"/> and replaced by ldstr;</item>
-/// <item>cfg: branches on constant conditions are folded, branch-to-branch chains collapsed, empty try regions and handlers
-/// removed, and unreachable code deleted.</item>
+/// <item>cfg: branches on constant conditions are folded, branch-to-branch chains collapsed, flattened switch dispatchers
+/// unflattened, empty try regions and handlers removed, and unreachable code deleted.</item>
 /// </list>
 /// Every rewritten body must pass <see cref="BodyGraph.Verify"/>; otherwise the method is reported and left unchanged.
 /// </summary>
@@ -143,6 +146,7 @@ public sealed class MethodSimplifier
     {
         var body = BodyGraph.Clone(original);
         var dead = new HashSet<Instruction>(); // instructions turned into nops by the passes; removed at the end
+        Fallback? unflattenFailure = null; // a flattened dispatcher not in the clean form, as of the last round
         if (_options.Forwarders) InlineForwarders(method, body, change);
         if (_options.Fold) FoldStringCalls(body, dead, change);
         if (_options.ControlFlow)
@@ -153,6 +157,7 @@ public sealed class MethodSimplifier
                 bool changed = FoldBranches(body, dead, change);
                 changed |= RemoveNops(body, dead);
                 changed |= CollapseChains(body, change);
+                changed |= Unflatten(body, hasReturnValue, dead, change, out unflattenFailure);
                 changed |= SimplifyTryRegions(body, dead, hasReturnValue, change);
                 changed |= RemoveNops(body, dead);
                 changed |= RemoveUnreachable(body, dead, change);
@@ -162,6 +167,8 @@ public sealed class MethodSimplifier
             }
         }
         RemoveNops(body, dead);
+        if (unflattenFailure != null)
+            return new MethodChange(method) { InstructionsBefore = change.InstructionsBefore, Rejected = unflattenFailure };
         AfterPasses?.Invoke(body);
 
         if (!change.HasEffects) return change;
@@ -250,7 +257,8 @@ public sealed class MethodSimplifier
     /// <paramref name="needed"/> operands of code[end] from an empty stack, without branches, arguments, locals or
     /// incoming branches in between; null when there is none.
     /// </summary>
-    private static int? SliceStart(IList<Instruction> code, BodyGraph graph, int end, int needed)
+    /// <remarks><paramref name="endMayBeTarget"/>: code[end] may be entered from elsewhere (the slice ends just before it).</remarks>
+    private static int? SliceStart(IList<Instruction> code, BodyGraph graph, int end, int needed, bool endMayBeTarget = false)
     {
         int i = end;
         while (needed > 0)
@@ -265,7 +273,7 @@ public sealed class MethodSimplifier
             needed += pops;
         }
         for (int k = i + 1; k <= end; k++)
-            if (graph.Targets.Contains(code[k])) return null;
+            if (graph.Targets.Contains(code[k]) && !(endMayBeTarget && k == end)) return null;
         return i;
     }
 
@@ -383,6 +391,246 @@ public sealed class MethodSimplifier
             }
         }
         return changed;
+    }
+
+    // ---- pass: control flow, flattened switch dispatchers
+
+    /// <summary>What unflattening one dispatcher does to the body.</summary>
+    private sealed class UnflattenPlan
+    {
+        /// <summary>The constants stored to the state local, and the stores.</summary>
+        public List<Instruction> Dead { get; } = new();
+        /// <summary>Branches into the dispatcher (or a shared tail) that now go straight to their case.</summary>
+        public List<(Instruction Branch, Instruction Target)> Retarget { get; } = new();
+        /// <summary>Transitions that fell into the dispatcher (or a shared tail): a br to their case is inserted before it.</summary>
+        public List<(Instruction Before, Instruction Target)> Insert { get; } = new();
+        public int Transitions => Retarget.Count + Insert.Count;
+    }
+
+    /// <summary>
+    /// Flattened control flow: a loop whose body is a switch over a state local, each case storing the next state as a
+    /// constant and branching back to the switch. Only the clean form (<see cref="PlanUnflatten"/>) is rewritten: every
+    /// transition goes straight to the case its state selects, the constant stores are deleted, and the dispatcher, no
+    /// longer entered, is removed as unreachable code. A dispatcher in any other form is returned in
+    /// <paramref name="unclean"/>; the caller then leaves the whole method unchanged.
+    /// </summary>
+    private bool Unflatten(CilBody body, bool hasReturnValue, HashSet<Instruction> dead, MethodChange change, out Fallback? unclean)
+    {
+        unclean = null;
+        bool changed = false;
+        foreach (var sw in body.Instructions.Where(i => i.OpCode.Code == Code.Switch).ToList())
+        {
+            var graph = new BodyGraph(body);
+            var depth = graph.Verify(hasReturnValue, out _);
+            if (depth == null) break;
+            int s = graph.IndexOf(sw);
+            if (s < 0 || depth[s] < 0) continue;
+            var plan = PlanUnflatten(body, graph, depth, s, out var head, out var why);
+            if (plan == null)
+            {
+                if (why != null)
+                    unclean ??= new(FallbackReason.FlattenedShape, $"switch dispatcher at {At(head!)}: {why}; the method is left unchanged");
+                continue;
+            }
+            foreach (var ins in plan.Dead) MakeDead(ins, dead);
+            foreach (var (branch, target) in plan.Retarget) branch.Operand = target;
+            foreach (var (before, target) in plan.Insert)
+                body.Instructions.Insert(body.Instructions.IndexOf(before), OpCodes.Br.ToInstruction(target));
+            change.Dispatchers++;
+            change.Transitions += plan.Transitions;
+            changed = true;
+        }
+        return changed;
+    }
+
+    /// <summary>
+    /// Plans unflattening the switch at code[s]. Null with <paramref name="why"/> null: not flattened control flow, i.e. not
+    /// <c>ldloc state; ...; switch</c> where code reachable from the switch stores the state and goes back to the ldloc
+    /// (a plain <c>switch (local)</c> is not a candidate). Null with <paramref name="why"/> set: flattened, but not in the
+    /// clean form, which is:
+    /// <list type="bullet">
+    /// <item>the dispatcher <c>ldloc state; key; switch</c> is entered only at the ldloc, with an empty stack, and the key
+    /// only computes on the stack (e.g. <c>ldc.i4 k; xor</c>);</item>
+    /// <item>the state is an int local whose address is never taken, read only by the dispatcher;</item>
+    /// <item>every entry into the dispatcher is a transition: <c>constant; stloc state</c>, straight-line code that leaves
+    /// the state alone, then <c>br dispatcher</c> or falling into it. A shared tail <c>stloc state; br dispatcher</c>
+    /// (what <c>state = c ? 3 : 5;</c> compiles to) counts when every way into it is a br or fall-through after a constant;</item>
+    /// <item>every store to the state belongs to a transition, and the constants are computed without calls.</item>
+    /// </list>
+    /// Unreachable code is ignored: it is removed with the dispatcher.
+    /// </summary>
+    private UnflattenPlan? PlanUnflatten(CilBody body, BodyGraph graph, int[] depth, int s, out Instruction? head, out string? why)
+    {
+        head = null;
+        why = null;
+        var code = graph.Instructions;
+        int h = s - 1;
+        while (h >= 0 && !code[h].IsLdloc() && code[h].OpCode.FlowControl is FlowControl.Next or FlowControl.Call) h--;
+        if (h < 0 || !code[h].IsLdloc() || code[h].GetLocal(body.Variables) is not { } state) return null;
+        var entry = code[h];
+        // Flattened control flow loops: some case stores the state and goes back to the dispatcher.
+        var loop = graph.ReachableFrom(s);
+        bool IsEntry(int e) => BodyGraph.BranchTargets(code[e]).Contains(entry) || (e + 1 == h && BodyGraph.FallsThrough(code[e]));
+        if (!Enumerable.Range(0, code.Count).Any(e => loop[e] && IsEntry(e) &&
+                StateStore(code, graph, code[e].OpCode.FlowControl == FlowControl.Branch ? e - 1 : e, state, body) >= 0)) return null;
+        head = entry;
+
+        if (state.Type.RemovePinnedAndModifiers().ElementType is not (ElementType.I4 or ElementType.U4))
+        {
+            why = $"the state local V_{state.Index} is not an int";
+            return null;
+        }
+        foreach (var ins in code)
+        {
+            if (ins.OpCode.Code is Code.Ldloca or Code.Ldloca_S && ins.GetLocal(body.Variables) == state)
+            {
+                why = $"the address of the state local is taken at {At(ins)}";
+                return null;
+            }
+            if (ins.IsLdloc() && ins != entry && ins.GetLocal(body.Variables) == state)
+            {
+                why = $"the state local is read at {At(ins)}, outside the dispatcher";
+                return null;
+            }
+        }
+        if (depth[h] != 0)
+        {
+            why = "the dispatcher is entered with values on the stack";
+            return null;
+        }
+        for (int k = h + 1; k <= s; k++)
+        {
+            bool pure = k == s || (Sliceable(code[k]) && code[k].OpCode.FlowControl == FlowControl.Next);
+            if (!pure || graph.Targets.Contains(code[k]) || depth[k] < 1)
+            {
+                why = $"the switch value is not computed from the state alone (at {At(code[k])})";
+                return null;
+            }
+        }
+        if (RegionStartsAt(graph, entry))
+        {
+            why = "a protected region starts at the dispatcher";
+            return null;
+        }
+
+        var key = code.Skip(h + 1).Take(s - h - 1).ToList();
+        Instruction? Case(int start, int end)
+        {
+            if (ConstantState(code, start, end) is not { } value) return null;
+            try
+            {
+                var operands = _evaluator.EvaluateSlice(key.Prepend(OpCodes.Ldc_I4.ToInstruction(value)).ToList());
+                var target = operands.Count == 1 ? Decide(code[s], operands) ?? code[s + 1] : null;
+                return target == entry ? null : target;
+            }
+            catch (EvaluationBailout)
+            {
+                return null;
+            }
+        }
+
+        var plan = new UnflattenPlan();
+        var transitionStores = new HashSet<Instruction>();
+        for (int e = 0; e < code.Count; e++)
+        {
+            bool jumps = BodyGraph.BranchTargets(code[e]).Contains(entry);
+            bool falls = e + 1 == h && BodyGraph.FallsThrough(code[e]);
+            if (!jumps && !falls || depth[e] < 0) continue;
+            if (jumps ? code[e].OpCode.Code is not (Code.Br or Code.Br_S) : code[e].OpCode.FlowControl is not (FlowControl.Next or FlowControl.Call))
+            {
+                why = $"{At(code[e])} enters the dispatcher by a conditional branch, switch or leave";
+                return null;
+            }
+            int store = jumps && graph.Targets.Contains(code[e]) ? -1 : StateStore(code, graph, jumps ? e - 1 : e, state, body);
+            if (store < 0)
+            {
+                why = $"{At(code[e])} enters the dispatcher without storing a state";
+                return null;
+            }
+            transitionStores.Add(code[store]);
+            string notConstant = $"the state stored at {At(code[store])} is not a constant that selects a case";
+
+            if (!graph.Targets.Contains(code[store]))
+            {
+                // constant; stloc state; ...; br dispatcher
+                if (!graph.SameRegions(store, h) || SliceStart(code, graph, store, 1) is not { } start || Case(start, store - 1) is not { } target)
+                {
+                    why = notConstant;
+                    return null;
+                }
+                plan.Dead.AddRange(code.Skip(start).Take(store - start + 1));
+                if (jumps) plan.Retarget.Add((code[e], target));
+                else plan.Insert.Add((entry, target));
+                continue;
+            }
+
+            // Shared tail stloc state; br dispatcher: each way in pushes a constant and goes straight to its case instead.
+            if (store != (jumps ? e - 1 : e) || depth[store] != 1 || !graph.SameRegions(store, h) || RegionStartsAt(graph, code[store]))
+            {
+                why = notConstant;
+                return null;
+            }
+            for (int p = 0; p < code.Count; p++)
+            {
+                bool into = BodyGraph.BranchTargets(code[p]).Contains(code[store]);
+                bool fallsInto = p + 1 == store && BodyGraph.FallsThrough(code[p]);
+                if (!into && !fallsInto || depth[p] < 0) continue;
+                int end = into ? p - 1 : p;
+                int? start = into
+                    ? code[p].OpCode.Code is Code.Br or Code.Br_S ? SliceStart(code, graph, p, 1) : null
+                    : code[p].OpCode.FlowControl == FlowControl.Next ? SliceStart(code, graph, store, 1, endMayBeTarget: true) : null;
+                if (start == null || !graph.SameRegions(start.Value, store) || Case(start.Value, end) is not { } target)
+                {
+                    why = notConstant;
+                    return null;
+                }
+                plan.Dead.AddRange(code.Skip(start.Value).Take(end - start.Value + 1));
+                if (into) plan.Retarget.Add((code[p], target));
+                else plan.Insert.Add((code[store], target));
+            }
+        }
+
+        for (int i = 0; i < code.Count; i++)
+        {
+            if (depth[i] < 0 || !IsStore(code[i], state, body) || transitionStores.Contains(code[i])) continue;
+            why = $"the state local is written at {At(code[i])} outside a transition";
+            return null;
+        }
+        return plan.Transitions > 0 ? plan : null;
+    }
+
+    private static bool RegionStartsAt(BodyGraph graph, Instruction ins) =>
+        graph.Handlers.Any(eh => eh.TryStart == ins || eh.HandlerStart == ins || eh.FilterStart == ins);
+
+    /// <summary>
+    /// The store to the state local that code[last] is reached from by straight-line code that leaves the local alone
+    /// (e.g. <c>state = 0; acc = x;</c> before the loop), or -1.
+    /// </summary>
+    private static int StateStore(IList<Instruction> code, BodyGraph graph, int last, Local state, CilBody body)
+    {
+        for (int k = last; k >= 0; k--)
+        {
+            if (IsStore(code[k], state, body)) return k;
+            if (graph.Targets.Contains(code[k]) || code[k].OpCode.FlowControl is not (FlowControl.Next or FlowControl.Call)) return -1;
+        }
+        return -1;
+    }
+
+    private static bool IsStore(Instruction ins, Local local, CilBody body) => ins.IsStloc() && ins.GetLocal(body.Variables) == local;
+
+    /// <summary>The int32 that code[start..end] pushes without calls, or null when it is not such a constant.</summary>
+    private int? ConstantState(IList<Instruction> code, int start, int end)
+    {
+        for (int i = start; i <= end; i++)
+            if (code[i].OpCode.FlowControl != FlowControl.Next) return null;
+        try
+        {
+            return _evaluator.EvaluateSlice(code.Skip(start).Take(end - start + 1).ToList()) is [int value] ? value : null;
+        }
+        catch (EvaluationBailout)
+        {
+            return null;
+        }
     }
 
     /// <summary>

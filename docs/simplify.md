@@ -127,4 +127,5 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 | `time-limit` | simplifying the method took longer than its time limit; the method is left unchanged (resource limit) |
 | `original-unverifiable` | the original body does not pass the stack verifier, so it is not rewritten |
 | `result-unverifiable` | the rewritten body did not pass the stack verifier; the method is left unchanged |
+| `flattened-shape` | the method has flattened control flow (a loop over a switch on a state local) that is not in the clean form: the state's address is taken, it is read outside the dispatcher, a transition stores a state that is not a constant, or the dispatcher is entered another way; the method is left unchanged |
 | `unexpected` | an unexpected error while reading or rewriting the body (malformed metadata or a defect); the method is left unchanged |

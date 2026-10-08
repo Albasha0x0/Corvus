@@ -381,6 +381,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
             var flow = new List<string>();
             if (c.ConstantBranches > 0) flow.Add($"folded {c.ConstantBranches} constant branch(es)");
             if (c.CollapsedChains > 0) flow.Add($"collapsed {c.CollapsedChains} branch chain(s)");
+            if (c.Dispatchers > 0) flow.Add($"unflattened {c.Dispatchers} switch dispatcher(s) ({c.Transitions} transition(s) go straight to their case)");
             if (c.RemovedBlocks > 0) flow.Add($"removed {c.RemovedBlocks} unreachable block(s) ({c.RemovedInstructions} instructions)");
             if (c.RemovedHandlers > 0) flow.Add($"removed {c.RemovedHandlers} exception handler(s)");
             if (flow.Count > 0) sb.Append("\n  ").Append(string.Join(", ", flow));

@@ -106,6 +106,26 @@ internal sealed class BodyGraph
         }
     }
 
+    /// <summary>Instructions reachable from code[start] by branches and fall-through (exceptions not followed).</summary>
+    public bool[] ReachableFrom(int start)
+    {
+        var reached = new bool[Instructions.Count];
+        var work = new Stack<int>();
+        void Visit(int i)
+        {
+            if (i >= 0 && i < reached.Length && !reached[i]) { reached[i] = true; work.Push(i); }
+        }
+
+        Visit(start);
+        while (work.Count > 0)
+        {
+            int i = work.Pop();
+            foreach (var t in BranchTargets(Instructions[i])) Visit(IndexOf(t));
+            if (FallsThrough(Instructions[i])) Visit(i + 1);
+        }
+        return reached;
+    }
+
     private bool AnyReached(bool[] reached, Instruction start, Instruction? end)
     {
         int from = IndexOf(start), to = IndexOrEnd(end);
