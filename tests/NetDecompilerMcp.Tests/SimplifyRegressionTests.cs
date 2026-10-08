@@ -44,4 +44,39 @@ public sealed class SimplifyRegressionTests : IDisposable
         Assert.DoesNotContain(changes, c => c.Rejected != null);
         Assert.Contains(changes, c => c.Method.Name == "Folds" && c.Changed);
     }
+
+    /// <summary>
+    /// Fuzz: <c>try {} catch {} try {} ...</c> — the first region's leave targets the first instruction of the next try,
+    /// which ECMA allows (and C# emits). The verifier refused it as "leave enters a protected region", so such methods
+    /// were reported original-unverifiable and never simplified.
+    /// </summary>
+    [Fact]
+    public void LeaveIntoTheNextTryBlockVerifies()
+    {
+        var lab = new IlLab("BackToBack");
+        var exception = lab.Module.CorLibTypes.GetTypeRef("System", "Exception");
+        Instruction try1 = I(OpCodes.Nop), handler1 = I(OpCodes.Pop), try2 = Ldc(1), handler2 = I(OpCodes.Pop), end = Ldc(7), skip = I(OpCodes.Nop);
+        var method = lab.Method("Run", lab.T.Int32, [],
+        [
+            try1, I(OpCodes.Leave, try2),
+            handler1, I(OpCodes.Leave, try2),
+            try2, I(OpCodes.Brfalse, skip), I(OpCodes.Nop), skip, I(OpCodes.Leave, end),
+            handler2, I(OpCodes.Leave, end),
+            end, Ret(),
+        ], handlers:
+        [
+            new ExceptionHandler(ExceptionHandlerType.Catch) { TryStart = try1, TryEnd = handler1, HandlerStart = handler1, HandlerEnd = try2, CatchType = exception },
+            new ExceptionHandler(ExceptionHandlerType.Catch) { TryStart = try2, TryEnd = handler2, HandlerStart = handler2, HandlerEnd = end, CatchType = exception },
+        ]);
+
+        Assert.NotNull(new BodyGraph(method.Body).Verify(hasReturnValue: true, out var error));
+        Assert.Null(error);
+        var change = new MethodSimplifier(lab.Module, new SimplifyOptions()).Simplify(method)!;
+        Assert.Null(change.Rejected);
+        Assert.True(change.Changed);
+
+        method.Body = change.NewBody!;
+        using var runner = new LabRunner(lab.Write());
+        Assert.Equal(((object?)7, (Exception?)null), runner.Call("Lab.P", "Run"));
+    }
 }

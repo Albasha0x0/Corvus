@@ -200,7 +200,10 @@ internal sealed class BodyGraph
                 case Code.Leave: case Code.Leave_S:
                 {
                     int t = IndexOf((Instruction)ins.Operand);
-                    if (!Regions(t).All(Regions(i).Contains)) { error = $"leave enters a protected region at {Where(i)}"; return (null, error); }
+                    // A leave exits regions; the only region it may enter is a try, at its first instruction (as when
+                    // one try block directly follows another).
+                    if (!Regions(t).Where(id => !Regions(i).Contains(id)).All(id => id % 3 == 0 && Handlers[id / 3].TryStart == Instructions[t]))
+                    { error = $"leave enters a protected region at {Where(i)}"; return (null, error); }
                     if (!Flow(t, 0, i)) return (null, error);
                     continue;
                 }
