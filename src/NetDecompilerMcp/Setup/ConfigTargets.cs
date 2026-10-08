@@ -204,3 +204,54 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
         return new ConfigChange(true, "removed");
     }
 }
+
+/// <summary>
+/// Claude Code through its own CLI (`claude mcp add/remove --scope user`), which coordinates with a running Claude Code
+/// that rewrites ~/.claude.json; falls back to editing the file when the CLI fails.
+/// </summary>
+internal sealed class ClaudeCliTarget(string cli, JsonTarget file) : ConfigTarget(file.Path)
+{
+    public override string? Registered(string name) => file.Registered(name);
+
+    public override ConfigChange Install(string name, ServerLaunch launch)
+    {
+        if (Registered(name) is { } existing && existing.Equals(launch.Command, StringComparison.OrdinalIgnoreCase))
+            return new ConfigChange(false, "already registered");
+        Run(["mcp", "remove", "--scope", "user", name]);
+        if (Run(["mcp", "add", "--scope", "user", name, "--", launch.Command, .. launch.Args])
+            && Registered(name) is { } now && now.Equals(launch.Command, StringComparison.OrdinalIgnoreCase))
+            return new ConfigChange(true, "registered");
+        return file.Install(name, launch);
+    }
+
+    public override ConfigChange Uninstall(string name)
+    {
+        if (Registered(name) == null) return new ConfigChange(false, "not registered");
+        if (Run(["mcp", "remove", "--scope", "user", name]) && Registered(name) == null) return new ConfigChange(true, "removed");
+        return file.Uninstall(name);
+    }
+
+    private bool Run(string[] args)
+    {
+        var batch = cli.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase) || cli.EndsWith(".bat", StringComparison.OrdinalIgnoreCase);
+        var psi = batch
+            ? new System.Diagnostics.ProcessStartInfo("cmd.exe") { Arguments = "/d /s /c \"" + string.Join(" ", new[] { cli }.Concat(args).Select(Quote)) + "\"" }
+            : new System.Diagnostics.ProcessStartInfo(cli);
+        if (!batch) foreach (var a in args) psi.ArgumentList.Add(a);
+        psi.UseShellExecute = false;
+        psi.RedirectStandardOutput = psi.RedirectStandardError = psi.RedirectStandardInput = true;
+        psi.CreateNoWindow = true;
+        try
+        {
+            using var p = System.Diagnostics.Process.Start(psi)!;
+            p.StandardInput.Close();
+            _ = p.StandardOutput.ReadToEndAsync();
+            _ = p.StandardError.ReadToEndAsync();
+            if (!p.WaitForExit(60_000)) { try { p.Kill(true); } catch (InvalidOperationException) { } return false; }
+            return p.ExitCode == 0;
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException) { return false; }
+    }
+
+    private static string Quote(string s) => s.Length > 0 && s.IndexOfAny([' ', '&', '(', ')', '^', '"']) < 0 ? s : "\"" + s.Replace("\"", "\"\"") + "\"";
+}

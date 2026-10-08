@@ -171,6 +171,24 @@ public sealed class SetupTests : IDisposable
     }
 
     [Fact]
+    public void ClaudeCode_FallsBackToTheFile_WhenItsCliFails()
+    {
+        var env = new SetupEnvironment
+        {
+            Os = _env.Os, Home = _env.Home, AppData = _env.AppData, LocalAppData = _env.LocalAppData, XdgConfig = _env.XdgConfig,
+            Variable = _ => null,
+            FindTool = t => t == "claude" ? Home("missing", OperatingSystem.IsWindows() ? "claude.exe" : "claude") : null,
+        };
+        var client = ClientCatalog.All(env).Single(c => c.Id == "claude-code");
+        Assert.IsType<ClaudeCliTarget>(client.Target);
+        Assert.True(client.Present);
+        Assert.Equal("registered", client.Target.Install("net-decompiler", Launch).Message);
+        Assert.Equal(Launch.Command, client.Target.Registered("net-decompiler"));
+        Assert.Equal("already registered", client.Target.Install("net-decompiler", Launch).Message);
+        Assert.Equal("removed", client.Target.Uninstall("net-decompiler").Message);
+    }
+
+    [Fact]
     public void ServerArguments_AreNotTreatedAsCommands()
     {
         Assert.Null(SetupCli.TryRun(["--load", "x.dll"], new StringWriter(), _env, Launch));

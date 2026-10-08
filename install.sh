@@ -4,7 +4,7 @@
 # Uninstall:
 #   curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh -s -- --uninstall
 # Environment: NDM_REPO (owner/name), NDM_HOME (install folder), NDM_ARCHIVE (local release archive),
-# GITHUB_TOKEN (private repositories; uses the gh CLI).
+# GITHUB_TOKEN (private repositories).
 set -eu
 
 REPO="${NDM_REPO:-Albasha0x0/Corvus}"
@@ -39,8 +39,12 @@ archive="$tmp/$asset"
 
 if [ -n "${NDM_ARCHIVE:-}" ]; then
     cp "$NDM_ARCHIVE" "$archive"
-elif [ -n "${GITHUB_TOKEN:-}" ] && command -v gh >/dev/null 2>&1; then
-    GH_TOKEN="$GITHUB_TOKEN" gh release download --repo "$REPO" --pattern "$asset" --output "$archive"
+elif [ -n "${GITHUB_TOKEN:-}" ]; then
+    auth="Authorization: Bearer $GITHUB_TOKEN"
+    url=$(curl -fsSL -H "$auth" "https://api.github.com/repos/$REPO/releases/latest" | tr -d '\r\n' | tr '{' '\n' \
+        | grep "\"name\": *\"$asset\"" | sed -n 's/.*"url": *"\([^"]*\/releases\/assets\/[0-9]*\)".*/\1/p' | head -n 1)
+    [ -n "$url" ] || fail "the latest release of $REPO has no $asset"
+    curl -fsSL -H "$auth" -H "Accept: application/octet-stream" "$url" -o "$archive"
 else
     echo "Downloading $asset..."
     url="https://github.com/$REPO/releases/latest/download/$asset"
@@ -55,7 +59,11 @@ rm -rf "$staging"
 mkdir -p "$staging"
 tar -xzf "$archive" -C "$staging"
 chmod +x "$staging/NetDecompilerMcp"
-version=$("$staging/NetDecompilerMcp" version) || fail "the downloaded build does not run on this machine"
+if ! version=$("$staging/NetDecompilerMcp" version); then
+    rm -rf "$staging"
+    if [ "$os" = linux-musl ]; then fail "the build needs the C++ runtime: apk add libstdc++ libgcc, then run this again"; fi
+    fail "the downloaded build does not run on this machine"
+fi
 
 target="$ROOT/versions/$version"
 rm -rf "$target"

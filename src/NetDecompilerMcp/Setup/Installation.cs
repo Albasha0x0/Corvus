@@ -154,6 +154,9 @@ internal static class Installation
     /// <summary>Removes the install folder and its PATH entry. On Windows the running files are deleted after exit.</summary>
     public static void RemoveFiles(string root, TextWriter output)
     {
+        // Report first: this program's own files are deleted below, and later output may need to load one of them.
+        output.WriteLine($"Removed {root}.");
+        output.Flush();
         var current = Path.Combine(root, "current");
         if (OperatingSystem.IsWindows())
         {
@@ -173,6 +176,5 @@ internal static class Installation
             catch (IOException) { }
             Directory.Delete(root, recursive: true);
         }
-        output.WriteLine($"Removed {root}.");
     }
 }

@@ -16,7 +16,9 @@ internal sealed class SetupEnvironment
     /// <summary>Linux: $XDG_CONFIG_HOME or ~/.config.</summary>
     public string XdgConfig { get; init; } = "";
     public Func<string, string?> Variable { get; init; } = Environment.GetEnvironmentVariable;
-    public Func<string, bool> HasTool { get; init; } = _ => false;
+    /// <summary>Full path of a command on PATH, else null.</summary>
+    public Func<string, string?> FindTool { get; init; } = _ => null;
+    public bool HasTool(string tool) => FindTool(tool) != null;
     public Func<string, bool> DirectoryExists { get; init; } = Directory.Exists;
 
     public static SetupEnvironment Current()
@@ -31,7 +33,7 @@ internal sealed class SetupEnvironment
             AppData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             LocalAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             XdgConfig = string.IsNullOrEmpty(xdg) ? Path.Combine(home, ".config") : xdg,
-            HasTool = OnPath,
+            FindTool = OnPath,
         };
     }
 
@@ -45,18 +47,22 @@ internal sealed class SetupEnvironment
 
     public string InHome(params string[] parts) => Path.Combine([Home, .. parts]);
 
-    private static bool OnPath(string tool)
+    private static string? OnPath(string tool)
     {
         var dirs = (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
         string[] extensions = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-            ? (Environment.GetEnvironmentVariable("PATHEXT") ?? ".EXE;.CMD;.BAT").Split(';', StringSplitOptions.RemoveEmptyEntries).Prepend("").ToArray()
+            ? (Environment.GetEnvironmentVariable("PATHEXT") ?? ".EXE;.CMD;.BAT").Split(';', StringSplitOptions.RemoveEmptyEntries)
             : [""];
         foreach (var dir in dirs)
             foreach (var ext in extensions)
             {
-                try { if (File.Exists(Path.Combine(dir.Trim('"'), tool + ext))) return true; }
+                try
+                {
+                    var candidate = Path.Combine(dir.Trim('"'), tool + ext);
+                    if (File.Exists(candidate)) return candidate;
+                }
                 catch (ArgumentException) { }
             }
-        return false;
+        return null;
     }
 }

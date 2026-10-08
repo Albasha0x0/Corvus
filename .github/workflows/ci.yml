@@ -30,9 +30,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
@@ -44,7 +44,7 @@ jobs:
       # Keyed on the SDK version too: runtime / crossgen2 pack versions follow the SDK, so a new SDK gets a new entry
       # (saved after the job, with the packs the tests downloaded) instead of re-downloading them on every run.
       - name: Cache NuGet packages and runtime packs
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.NUGET_PACKAGES }}
           key: nuget-${{ runner.os }}-${{ runner.arch }}-sdk${{ steps.sdk.outputs.version }}-${{ hashFiles('**/*.csproj') }}
@@ -69,7 +69,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-${{ matrix.os }}
           path: "**/TestResults/*.trx"
@@ -85,9 +85,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 

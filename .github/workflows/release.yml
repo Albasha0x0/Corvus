@@ -19,8 +19,8 @@ jobs:
         os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
       - run: dotnet test -c Release --blame-hang-timeout 15m
@@ -40,8 +40,8 @@ jobs:
           - { rid: osx-arm64, os: macos-latest, smoke: true }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
@@ -70,7 +70,7 @@ jobs:
         if: ${{ !startsWith(matrix.rid, 'win-') }}
         run: tar -czf NetDecompilerMcp-${{ matrix.rid }}.tar.gz -C out .
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: package-${{ matrix.rid }}
           path: NetDecompilerMcp-${{ matrix.rid }}.*
@@ -79,11 +79,11 @@ jobs:
     needs: package
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: package-*
           merge-multiple: true
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: NetDecompilerMcp-*
           generate_release_notes: true

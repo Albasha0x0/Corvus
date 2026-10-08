@@ -23,7 +23,9 @@ catch (Exception ex)
 }
 
 // Arguments are not passed to the host, and stdout carries the MCP protocol, so all logging goes to stderr.
-var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = [] });
+// No configuration files and no content root in the client's working directory: clients start servers from any
+// folder, and watching or reading it slows startup and lets a stray appsettings.json change the server.
+var builder = Host.CreateEmptyApplicationBuilder(new HostApplicationBuilderSettings { Args = [], ContentRootPath = AppContext.BaseDirectory });
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 builder.Logging.SetMinimumLevel(LogLevel.Information);

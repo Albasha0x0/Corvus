@@ -37,7 +37,10 @@ internal static class ClientCatalog
             new(path, container.Length == 0 ? Servers : container, entry);
 
         var claudeJson = env.InHome(".claude.json");
-        Add("claude-code", "Claude Code", ["claude"], Json(claudeJson, ClaudeCode),
+        var claudeTarget = env.FindTool("claude") is { } claudeCli
+            ? (ConfigTarget)new ClaudeCliTarget(claudeCli, Json(claudeJson, ClaudeCode))
+            : Json(claudeJson, ClaudeCode);
+        Add("claude-code", "Claude Code", ["claude"], claudeTarget,
             File.Exists(claudeJson) || Dir(env.InHome(".claude")) || env.HasTool("claude"));
 
         if (env.Os != HostOs.Linux)
