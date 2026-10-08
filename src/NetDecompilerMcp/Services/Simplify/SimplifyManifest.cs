@@ -106,23 +106,28 @@ public static class SimplifyManifest
             Code.Br, Code.Br_S, Code.Brtrue, Code.Brtrue_S, Code.Brfalse, Code.Brfalse_S, Code.Beq, Code.Beq_S, Code.Bne_Un, Code.Bne_Un_S,
             Code.Bge, Code.Bge_S, Code.Bge_Un, Code.Bge_Un_S, Code.Bgt, Code.Bgt_S, Code.Bgt_Un, Code.Bgt_Un_S, Code.Ble, Code.Ble_S,
             Code.Ble_Un, Code.Ble_Un_S, Code.Blt, Code.Blt_S, Code.Blt_Un, Code.Blt_Un_S, Code.Switch, Code.Ret]),
+        new("Exception regions",
+            "try blocks run as plain code and leave runs the finally handlers it exits; nothing is ever caught: code that throws stops evaluation, so catch and fault handlers never run; exception filters are not modelled", [
+            Code.Leave, Code.Leave_S, Code.Endfinally]),
         new("Arrays", "one-dimensional arrays of primitives, strings and other references; at most 1M elements", [
             Code.Newarr, Code.Ldlen, Code.Ldelema, Code.Ldelem_I1, Code.Ldelem_U1, Code.Ldelem_I2, Code.Ldelem_U2, Code.Ldelem_I4, Code.Ldelem_U4,
             Code.Ldelem_I8, Code.Ldelem_I, Code.Ldelem_R4, Code.Ldelem_R8, Code.Ldelem_Ref, Code.Ldelem, Code.Stelem_I1, Code.Stelem_I2,
             Code.Stelem_I4, Code.Stelem_I8, Code.Stelem_I, Code.Stelem_R4, Code.Stelem_R8, Code.Stelem_Ref, Code.Stelem]),
-        new("Indirect access", "through managed pointers to arguments, locals, array elements and struct fields", [
+        new("Stack memory", "localloc (stackalloc) gives a zeroed buffer of at most 1M bytes; pointers into it move by add / sub, and ldind / stind read and write it little-endian", [
+            Code.Localloc]),
+        new("Indirect access", "through managed pointers to arguments, locals, array elements, struct fields and static fields, and through pointers into stack memory", [
             Code.Ldind_I1, Code.Ldind_U1, Code.Ldind_I2, Code.Ldind_U2, Code.Ldind_I4, Code.Ldind_U4, Code.Ldind_I8, Code.Ldind_I,
             Code.Ldind_R4, Code.Ldind_R8, Code.Ldind_Ref, Code.Stind_I1, Code.Stind_I2, Code.Stind_I4, Code.Stind_I8, Code.Stind_I,
             Code.Stind_R4, Code.Stind_R8, Code.Stind_Ref]),
         new("Value types", "structs defined in the same module (sequential or auto layout), enums and primitives", [
             Code.Ldobj, Code.Stobj, Code.Initobj, Code.Ldfld, Code.Ldflda, Code.Stfld]),
         new("Static state",
-            "readonly static fields of the same module, after evaluating the type's static constructor once; writes only inside static constructors", [
-            Code.Ldsfld, Code.Stsfld, Code.Ldtoken]),
+            "static fields of the same module that are readonly, or that only the type's initialization writes and other assemblies cannot, after evaluating the type's static constructor once; writes only inside static constructors (by stsfld or FieldInfo.SetValue); ldtoken of fields, types and methods", [
+            Code.Ldsfld, Code.Ldsflda, Code.Stsfld, Code.Ldtoken]),
         new("Type tests", "System.Object, System.String, System.Text.StringBuilder and System.Text.Encoding targets", [Code.Isinst, Code.Castclass]),
         new("Calls",
-            "intrinsics (below), and static methods and struct methods with IL bodies in the same module (no exception handlers, not generic); newobj of strings, StringBuilder and module structs", [
-            Code.Call, Code.Callvirt, Code.Newobj]),
+            "intrinsics (below), and static methods and struct methods with IL bodies in the same module (not generic); newobj of strings, StringBuilder and module structs; delegates of static methods (ldftn and the delegate constructor, Delegate.CreateDelegate) and of dynamic methods, invoked through Invoke", [
+            Code.Call, Code.Callvirt, Code.Newobj, Code.Ldftn]),
     ];
 
     public static readonly IReadOnlySet<Code> SupportedInstructions = Instructions.SelectMany(g => g.Codes).ToHashSet();

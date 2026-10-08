@@ -308,6 +308,59 @@ public sealed class SimplifyContractTests
         p.Add("static", t.String, false, [I(OpCodes.Ldsfld, name), Ret()]);
         p.Add("readonly", t.Int32, false,
             [I(OpCodes.Ldsfld, arr), Ldc(1), I(OpCodes.Readonly), I(OpCodes.Ldelema, t.Int32.ToTypeDefOrRef()), I(OpCodes.Ldind_I4), Ret()]);
+        p.Add("ldsflda", t.Int32, false, [I(OpCodes.Ldsflda, num), I(OpCodes.Ldind_I4), Ret()]);
+
+        // Stack memory: an int and a byte written and read back through pointers that moved.
+        var pointer = new PtrSig(t.Void);
+        p.Add("localloc", t.Int32, false,
+        [
+            Ldc(16), I(OpCodes.Localloc), I(OpCodes.Stloc_0),
+            I(OpCodes.Ldloc_0), Ldc(4), I(OpCodes.Add), Ldc(77), I(OpCodes.Stind_I4),
+            I(OpCodes.Ldloc_0), Ldc(9), I(OpCodes.Add), Ldc(-3), I(OpCodes.Stind_I1),
+            I(OpCodes.Ldloc_0), Ldc(4), I(OpCodes.Add), I(OpCodes.Ldind_I4),
+            I(OpCodes.Ldloc_0), Ldc(9), I(OpCodes.Add), I(OpCodes.Ldind_U1), I(OpCodes.Add),
+            I(OpCodes.Ldloc_0), Ldc(12), I(OpCodes.Add), I(OpCodes.Ldind_I4), I(OpCodes.Add), Ret(),
+        ], [pointer]);
+
+        // Exception regions: try { x++ } finally { x *= 10 }, left by leave; nothing throws.
+        {
+            Instruction tryStart = I(OpCodes.Ldloc_0), handler = I(OpCodes.Ldloc_0), end = I(OpCodes.Ldloc_0);
+            var m = lab.Method("Finally", t.Int32, [],
+            [
+                Ldc(4), I(OpCodes.Stloc_0),
+                tryStart, Ldc(1), I(OpCodes.Add), I(OpCodes.Stloc_0), I(OpCodes.Leave_S, end),
+                handler, Ldc(10), I(OpCodes.Mul), I(OpCodes.Stloc_0), I(OpCodes.Endfinally),
+                end, Ret(),
+            ], [t.Int32], handlers: [new ExceptionHandler(ExceptionHandlerType.Finally) { TryStart = tryStart, TryEnd = handler, HandlerStart = handler, HandlerEnd = end }]);
+            p.Cases.Add(new("finally", m, false));
+        }
+        // Nested: try { try { x = 3 } finally { x += 4 } } finally { x *= 5 }, both left by one leave; inner finally first.
+        {
+            Instruction outerTry = I(OpCodes.Nop), innerTry = Ldc(3), innerHandler = I(OpCodes.Ldloc_0), outerHandler = I(OpCodes.Ldloc_0), end = I(OpCodes.Ldloc_0);
+            var m = lab.Method("NestedFinally", t.Int32, [],
+            [
+                outerTry, innerTry, I(OpCodes.Stloc_0), I(OpCodes.Leave, end),
+                innerHandler, Ldc(4), I(OpCodes.Add), I(OpCodes.Stloc_0), I(OpCodes.Endfinally),
+                outerHandler, Ldc(5), I(OpCodes.Mul), I(OpCodes.Stloc_0), I(OpCodes.Endfinally),
+                end, Ret(),
+            ], [t.Int32], handlers:
+            [
+                new ExceptionHandler(ExceptionHandlerType.Finally) { TryStart = innerTry, TryEnd = innerHandler, HandlerStart = innerHandler, HandlerEnd = outerHandler },
+                new ExceptionHandler(ExceptionHandlerType.Finally) { TryStart = outerTry, TryEnd = outerHandler, HandlerStart = outerHandler, HandlerEnd = end },
+            ]);
+            p.Cases.Add(new("nested finally", m, false));
+        }
+
+        // Delegates: ldftn, the delegate constructor and Invoke.
+        {
+            var twice = lab.Method("TwiceTarget", t.Int32, [t.Int32], [I(OpCodes.Ldarg_0), Ldc(2), I(OpCodes.Mul), Ret()]);
+            var func = typeof(Func<int, int>);
+            p.Add("delegate", t.Int32, false,
+            [
+                I(OpCodes.Ldnull), I(OpCodes.Ldftn, twice), I(OpCodes.Newobj, lab.Module.Import(func.GetConstructors()[0])),
+                Ldc(21), I(OpCodes.Callvirt, lab.Module.Import(func.GetMethod("Invoke"))), Ret(),
+            ]);
+        }
 
         // Value types: a struct of the module, nested structs, constructors and instance methods.
         var pt = lab.NewStruct("Pt", ("X", t.Int32), ("Y", t.Int64), ("Name", t.String));
@@ -482,12 +535,14 @@ public sealed class SimplifyContractTests
         id.Body.Instructions.Add(Ret());
         Add(FallbackReason.Generic, lab.Method("CallsGeneric", t.Int32, Ldc(5), I(OpCodes.Call, new MethodSpecUser(id, new GenericInstMethodSig(t.Int32))), Ret()));
         {
+            // try { } filter { 1 } { }: exception filters are not modelled (try / catch / finally run as long as nothing throws).
             var end = Ldc(1);
             var tryStart = I(OpCodes.Nop);
-            var handler = I(OpCodes.Endfinally);
-            var leave = I(OpCodes.Leave, end);
-            var guarded = lab.Method("Guarded", t.Int32, [], [tryStart, leave, handler, end, Ret()], handlers:
-                [new ExceptionHandler(ExceptionHandlerType.Finally) { TryStart = tryStart, TryEnd = handler, HandlerStart = handler, HandlerEnd = end }]);
+            var filter = I(OpCodes.Pop);
+            var handler = I(OpCodes.Pop);
+            var guarded = lab.Method("Guarded", t.Int32, [],
+                [tryStart, I(OpCodes.Leave, end), filter, Ldc(1), I(OpCodes.Endfilter), handler, I(OpCodes.Leave, end), end, Ret()], handlers:
+                [new ExceptionHandler(ExceptionHandlerType.Filter) { TryStart = tryStart, TryEnd = filter, FilterStart = filter, HandlerStart = handler, HandlerEnd = end }]);
             Add(FallbackReason.ExceptionHandling, lab.Method("CallsGuarded", t.Int32, I(OpCodes.Call, guarded), Ret()));
             Add(FallbackReason.ExceptionHandling, lab.Method("Throws", t.Int32, I(OpCodes.Ldnull), I(OpCodes.Throw)));
         }

@@ -709,6 +709,8 @@ public sealed class SimplifyTests : IDisposable
                     return -x;
                 }
 
+                public static void SetMutable(int value) => Mutable = value;
+
                 public static int Differs(int x)
                 {
                     int k = 1;

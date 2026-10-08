@@ -24,6 +24,7 @@ internal sealed class ModuleFacts(ModuleDef module)
     private Dictionary<object, HashSet<object>>? _callees;
     private Dictionary<MethodDef, HashSet<MethodDef>>? _callers; // direct callers (virtual methods count as externally callable)
     private Dictionary<FieldDef, List<(MethodDef Method, int Index)>>? _fieldUses;
+    private Dictionary<FieldDef, List<MethodDef>>? _fieldWrites; // stsfld, and ldsflda (the address may be written through)
     private readonly Dictionary<TypeDef, HashSet<MethodDef>> _reach = new();
     private readonly Dictionary<TypeDef, HashSet<MethodDef>> _initOnly = new();
     private readonly Dictionary<FieldDef, bool> _frozen = new();
@@ -110,6 +111,33 @@ internal sealed class ModuleFacts(ModuleDef module)
         _frozen[field] = frozen;
         return frozen;
     }
+
+    /// <summary>
+    /// Whether a static field is only written while its type initializes: every stsfld (and ldsflda, except of the
+    /// immutable framework handle structs) is in the type's initialization (<see cref="InitOnly"/>). Writes by reflection
+    /// from other code are not seen (see the class remarks).
+    /// </summary>
+    public bool WrittenOnlyByInitialization(FieldDef field)
+    {
+        if (!Hidden(field)) return false;
+        Build();
+        var init = InitOnly(field.DeclaringType);
+        return (_fieldWrites!.GetValueOrDefault(field) ?? []).All(init.Contains);
+    }
+
+    /// <summary>Whether no other assembly can access the field: private, or internal to an assembly that grants no friends.</summary>
+    private bool Hidden(FieldDef field) => field.Access switch
+    {
+        FieldAttributes.Private or FieldAttributes.PrivateScope => true,
+        FieldAttributes.Assembly or FieldAttributes.FamANDAssem => !(module.Assembly?.CustomAttributes.Any(a =>
+            a.TypeFullName == "System.Runtime.CompilerServices.InternalsVisibleToAttribute") ?? false),
+        _ => false,
+    };
+
+    private static readonly HashSet<string> ImmutableStructs = new(StringComparer.Ordinal)
+    {
+        "System.RuntimeTypeHandle", "System.RuntimeMethodHandle", "System.RuntimeFieldHandle", "System.ModuleHandle",
+    };
 
     /// <summary>Whether the reference pushed by code[k] is only read: follows it to the instruction that consumes it.</summary>
     private bool ValueOnlyRead(MethodDef m, CilBody body, int k, bool immutableElements, int depth, HashSet<(MethodDef, int, bool)> visited)
@@ -210,6 +238,7 @@ internal sealed class ModuleFacts(ModuleDef module)
         var callees = new Dictionary<object, HashSet<object>>();
         var callers = new Dictionary<MethodDef, HashSet<MethodDef>>();
         var fieldUses = new Dictionary<FieldDef, List<(MethodDef, int)>>();
+        var fieldWrites = new Dictionary<FieldDef, List<MethodDef>>();
         var methods = module.GetTypes().SelectMany(t => t.Methods).ToList();
         var cctors = new Dictionary<TypeDef, MethodDef?>();
         MethodDef? Cctor(TypeDef t) => cctors.TryGetValue(t, out var c) ? c : cctors[t] = t.FindStaticConstructor();
@@ -253,6 +282,11 @@ internal sealed class ModuleFacts(ModuleDef module)
                         if (ins.Operand is FieldDef fd && fd.Module == module)
                         {
                             Edge(m, Cctor(fd.DeclaringType));
+                            if (ins.OpCode.Code == Code.Stsfld || (ins.OpCode.Code == Code.Ldsflda && !ImmutableStructs.Contains(fd.FieldType.FullName)))
+                            {
+                                if (!fieldWrites.TryGetValue(fd, out var writes)) fieldWrites[fd] = writes = new List<MethodDef>();
+                                writes.Add(m);
+                            }
                             if (ins.OpCode.Code != Code.Stsfld)
                             {
                                 if (!fieldUses.TryGetValue(fd, out var uses)) fieldUses[fd] = uses = new List<(MethodDef, int)>();
@@ -263,7 +297,7 @@ internal sealed class ModuleFacts(ModuleDef module)
                 }
             }
         }
-        (_callees, _callers, _fieldUses) = (callees, callers, fieldUses);
+        (_callees, _callers, _fieldUses, _fieldWrites) = (callees, callers, fieldUses, fieldWrites);
     }
 
     /// <summary>

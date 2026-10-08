@@ -104,6 +104,25 @@ internal sealed class Pointer(Func<object?> get, Action<object?> set)
     public void Set(object? value) => set(value);
 }
 
+/// <summary>
+/// Memory from <c>localloc</c> (stackalloc) and an offset into it: an unmanaged pointer. Pointer arithmetic moves the offset;
+/// ldind / stind read and write the bytes, little-endian.
+/// </summary>
+internal sealed class BufferPointer(byte[] memory, int offset)
+{
+    public byte[] Memory { get; } = memory;
+    public int Offset { get; } = offset;
+
+    public BufferPointer Move(long delta) => new(Memory, checked((int)(Offset + delta)));
+
+    public Span<byte> Bytes(int size) => Offset >= 0 && Offset + size <= Memory.Length
+        ? Memory.AsSpan(Offset, size)
+        : throw new EvaluationBailout(FallbackReason.RuntimeError, "access outside stack-allocated memory");
+}
+
+/// <summary>The result of ldftn: a method, as passed to a delegate constructor.</summary>
+internal sealed record FunctionPointer(IMethod Method);
+
 /// <summary>Value of a slot whose type the evaluator does not model (structs of other modules, pointers); reading it bails out.</summary>
 internal sealed class Opaque
 {
@@ -182,6 +201,11 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
     private sealed class Frame(MethodDef? method, IList<Instruction> code, object?[] args, Slot[] argSlots, object?[] locals, Slot[] localSlots)
     {
         public MethodDef? Method { get; } = method;
+        /// <summary>Whether ret returns a value (a dynamic method has no MethodDef to tell).</summary>
+        public bool ReturnsValue { get; init; } = method != null && HasReturnValue(method);
+        /// <summary>The slot ret stores its value through.</summary>
+        public Slot? ReturnSlot { get; init; }
+        public IList<ExceptionHandler> Handlers { get; init; } = method?.Body?.ExceptionHandlers ?? (IList<ExceptionHandler>)Array.Empty<ExceptionHandler>();
         public IList<Instruction> Code { get; } = code;
         public object?[] Args { get; } = args;
         public Slot[] ArgSlots { get; } = argSlots;
@@ -203,8 +227,8 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         if (method.HasGenericParameters || method.DeclaringType.HasGenericParameters)
             throw Bail(FallbackReason.Generic, $"calls generic {Describe(method)}");
         var body = method.Body;
-        if (body.HasExceptionHandlers)
-            throw Bail(FallbackReason.ExceptionHandling, $"{Describe(method)} uses exception handling");
+        if (body.ExceptionHandlers.Any(eh => eh.HandlerType is not (ExceptionHandlerType.Catch or ExceptionHandlerType.Finally or ExceptionHandlerType.Fault)))
+            throw Bail(FallbackReason.ExceptionHandling, $"{Describe(method)} uses an exception filter");
         if (args.Length != method.Parameters.Count)
             throw Bail(FallbackReason.InvalidCode, $"calls {Describe(method)} with {args.Length} argument(s)");
         RuntimeHelpers.EnsureSufficientExecutionStack();
@@ -251,8 +275,12 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         }
     }
 
-    /// <summary>Runs a frame until ret (returns the value, or <see cref="Void"/>) or, in slice mode, the end of the code.</summary>
-    private object? Interpret(Frame f, bool sliceMode)
+    /// <summary>
+    /// Runs a frame until ret (returns the value, or <see cref="Void"/>) or, in slice mode, the end of the code. In
+    /// finally mode it runs a finally handler from <paramref name="start"/> to its endfinally. An exception is never
+    /// caught: the code throwing stops evaluation, so catch and fault handlers never run.
+    /// </summary>
+    private object? Interpret(Frame f, bool sliceMode, int start = 0, bool finallyMode = false)
     {
         var code = f.Code;
         var stack = f.Stack;
@@ -261,7 +289,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         object? Pop() => stack.Count > 0 ? Pop1(stack) : throw Bail(FallbackReason.InvalidCode, "stack underflow");
         void Push(object? v) => stack.Add(v);
 
-        int pc = 0;
+        int pc = start;
         while (true)
         {
             if (pc >= code.Count)
@@ -350,7 +378,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                 {
                     var b = Pop();
                     var a = Pop();
-                    Push(Numeric.Binary(op, a, b));
+                    Push(a is BufferPointer || b is BufferPointer ? PointerArithmetic(op, a, b) : Numeric.Binary(op, a, b));
                     break;
                 }
                 case Code.Neg:
@@ -375,8 +403,13 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                 case Code.Conv_Ovf_U2: case Code.Conv_Ovf_U4: case Code.Conv_Ovf_U8: case Code.Conv_Ovf_I: case Code.Conv_Ovf_U:
                 case Code.Conv_Ovf_I1_Un: case Code.Conv_Ovf_I2_Un: case Code.Conv_Ovf_I4_Un: case Code.Conv_Ovf_I8_Un: case Code.Conv_Ovf_U1_Un:
                 case Code.Conv_Ovf_U2_Un: case Code.Conv_Ovf_U4_Un: case Code.Conv_Ovf_U8_Un: case Code.Conv_Ovf_I_Un: case Code.Conv_Ovf_U_Un:
-                    Push(Numeric.Convert(op, Pop()));
+                {
+                    var v = Pop();
+                    Push(v is BufferPointer bp
+                        ? op is Code.Conv_I or Code.Conv_U ? bp : throw Bail(FallbackReason.UnsupportedValue, "conversion of a pointer to a fixed-size integer")
+                        : Numeric.Convert(op, v));
                     break;
+                }
 
                 case Code.Br: case Code.Br_S:
                     pc = Target((Instruction)ins.Operand);
@@ -404,8 +437,30 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                     break;
                 }
                 case Code.Ret:
-                    if (sliceMode) throw Bail(FallbackReason.InvalidCode, "ret in a slice");
-                    return HasReturnValue(f.Method!) ? Pop() : Void;
+                    if (sliceMode || finallyMode) throw Bail(FallbackReason.InvalidCode, "ret in a slice or a finally handler");
+                    return f.ReturnsValue ? Pop() : Void;
+                case Code.Leave: case Code.Leave_S:
+                {
+                    int target = Target((Instruction)ins.Operand);
+                    stack.Clear();
+                    RunFinallies(f, pc - 1, target);
+                    pc = target;
+                    break;
+                }
+                case Code.Endfinally:
+                    if (!finallyMode) throw Bail(FallbackReason.InvalidCode, "endfinally outside a finally handler");
+                    return Void;
+                case Code.Localloc:
+                {
+                    var size = Numeric.Index(Pop());
+                    if (size < 0 || size > MaxArrayLength) throw Bail(FallbackReason.MemoryLimit, $"stackalloc of {size:N0} bytes");
+                    Allocate(size);
+                    Push(new BufferPointer(new byte[size], 0));
+                    break;
+                }
+                case Code.Ldftn:
+                    Push(new FunctionPointer((IMethod)ins.Operand));
+                    break;
 
                 case Code.Newarr:
                 {
@@ -456,13 +511,18 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
 
                 case Code.Ldind_I1: case Code.Ldind_U1: case Code.Ldind_I2: case Code.Ldind_U2: case Code.Ldind_I4: case Code.Ldind_U4:
                 case Code.Ldind_I8: case Code.Ldind_I: case Code.Ldind_R4: case Code.Ldind_R8: case Code.Ldind_Ref:
-                    Push(Store(IndirectSlot(op), Known(PointerOf(Pop()).Get())));
+                {
+                    var address = Pop();
+                    Push(address is BufferPointer bp ? ReadBuffer(bp, op) : Store(IndirectSlot(op), Known(PointerOf(address).Get())));
                     break;
+                }
                 case Code.Stind_I1: case Code.Stind_I2: case Code.Stind_I4: case Code.Stind_I8: case Code.Stind_I:
                 case Code.Stind_R4: case Code.Stind_R8: case Code.Stind_Ref:
                 {
                     var value = Pop();
-                    PointerOf(Pop()).Set(Store(IndirectSlot(op), value));
+                    var address = Pop();
+                    if (address is BufferPointer bp) WriteBuffer(bp, op, value);
+                    else PointerOf(address).Set(Store(IndirectSlot(op), value));
                     break;
                 }
 
@@ -503,11 +563,24 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                 case Code.Ldsfld:
                     Push(LoadStatic((IField)ins.Operand));
                     break;
+                case Code.Ldsflda:
+                {
+                    var field = (IField)ins.Operand;
+                    Push(new Pointer(() => LoadStatic(field), v => StoreStatic(field, v)));
+                    break;
+                }
                 case Code.Stsfld:
                     StoreStatic((IField)ins.Operand, Pop());
                     break;
                 case Code.Ldtoken:
-                    Push(ins.Operand is FieldDef fd ? new FieldHandle(fd) : throw Bail(FallbackReason.UnsupportedValue, "ldtoken of a type or method"));
+                    Push(ins.Operand switch
+                    {
+                        FieldDef fd => new FieldHandle(fd),
+                        MemberRef { IsFieldRef: true } => throw Bail(FallbackReason.OtherModule, "ldtoken of a field of another module"),
+                        ITypeDefOrRef t => TypeObjectOf(t.ToTypeSig()),
+                        IMethod m => MethodObjectOf(m),
+                        _ => throw Bail(FallbackReason.UnsupportedValue, "ldtoken of a member of another module"),
+                    });
                     break;
 
                 case Code.Isinst: case Code.Castclass:
@@ -544,6 +617,59 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         }
     }
 
+    /// <summary>Runs the finally handlers a leave from code[from] to code[to] exits, innermost first.</summary>
+    private void RunFinallies(Frame f, int from, int to)
+    {
+        if (f.Handlers.Count == 0) return;
+        var index = IndexOf(f);
+        int Index(Instruction? i) => i == null ? f.Code.Count : index.TryGetValue(i, out int k) ? k : throw Bail(FallbackReason.InvalidCode, "handler boundary outside the method");
+        foreach (var eh in f.Handlers)
+        {
+            int tryStart = Index(eh.TryStart), tryEnd = Index(eh.TryEnd);
+            bool exits = from >= tryStart && from < tryEnd && !(to >= tryStart && to < tryEnd);
+            if (!exits || eh.HandlerType != ExceptionHandlerType.Finally) continue;
+            var handler = new Frame(f.Method, f.Code, f.Args, f.ArgSlots, f.Locals, f.LocalSlots) { Handlers = f.Handlers, ReturnsValue = f.ReturnsValue };
+            Interpret(handler, sliceMode: false, start: Index(eh.HandlerStart), finallyMode: true);
+        }
+    }
+
+    private static object PointerArithmetic(Code op, object? a, object? b) => (op, a, b) switch
+    {
+        (Code.Add, BufferPointer p, var n) when Numeric.IsNumber(n) && n is not (float or double) => p.Move(Numeric.Bits(n)),
+        (Code.Add, var n, BufferPointer p) when Numeric.IsNumber(n) && n is not (float or double) => p.Move(Numeric.Bits(n)),
+        (Code.Sub, BufferPointer p, var n) when Numeric.IsNumber(n) && n is not (float or double) => p.Move(-Numeric.Bits(n)),
+        (Code.Sub, BufferPointer p, BufferPointer q) when p.Memory == q.Memory => (nint)(p.Offset - q.Offset),
+        _ => throw Bail(FallbackReason.UnsupportedValue, $"{op.ToOpCode().Name} on a pointer"),
+    };
+
+    // Each arm is boxed as its own type (a switch expression would otherwise convert them all to double).
+    private static object ReadBuffer(BufferPointer p, Code op) => op switch
+    {
+        Code.Ldind_I1 => (object)(int)(sbyte)p.Bytes(1)[0],
+        Code.Ldind_U1 => (object)(int)p.Bytes(1)[0],
+        Code.Ldind_I2 => (object)(int)System.Buffers.Binary.BinaryPrimitives.ReadInt16LittleEndian(p.Bytes(2)),
+        Code.Ldind_U2 => (object)(int)System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(p.Bytes(2)),
+        Code.Ldind_I4 or Code.Ldind_U4 => (object)System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(p.Bytes(4)),
+        Code.Ldind_I8 => (object)System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(p.Bytes(8)),
+        Code.Ldind_R4 => (object)System.Buffers.Binary.BinaryPrimitives.ReadSingleLittleEndian(p.Bytes(4)),
+        Code.Ldind_R8 => (object)System.Buffers.Binary.BinaryPrimitives.ReadDoubleLittleEndian(p.Bytes(8)),
+        _ => throw Bail(FallbackReason.UnsupportedValue, "native-size or reference read from stack-allocated memory"),
+    };
+
+    private static void WriteBuffer(BufferPointer p, Code op, object? value)
+    {
+        switch (op)
+        {
+            case Code.Stind_I1: p.Bytes(1)[0] = unchecked((byte)Numeric.Bits(value)); break;
+            case Code.Stind_I2: System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(p.Bytes(2), unchecked((short)Numeric.Bits(value))); break;
+            case Code.Stind_I4: System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(p.Bytes(4), unchecked((int)Numeric.Bits(value))); break;
+            case Code.Stind_I8: System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(p.Bytes(8), Numeric.Bits(value)); break;
+            case Code.Stind_R4 when value is float f: System.Buffers.Binary.BinaryPrimitives.WriteSingleLittleEndian(p.Bytes(4), f); break;
+            case Code.Stind_R8 when value is double d: System.Buffers.Binary.BinaryPrimitives.WriteDoubleLittleEndian(p.Bytes(8), d); break;
+            default: throw Bail(FallbackReason.UnsupportedValue, "native-size, float or reference write to stack-allocated memory");
+        }
+    }
+
     private static object? Pop1(List<object?> stack)
     {
         var v = stack[^1];
@@ -573,7 +699,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
 
     // ---- type tests
 
-    private static bool IsInstance(object value, ITypeDefOrRef type) => type.FullName switch
+    private static bool IsInstance(object value, ITypeDefOrRef type) => value is ReflectionObject r ? r.Is(type.FullName) : type.FullName switch
     {
         "System.Object" => value is not (StructValue or Pointer or Opaque) && !Numeric.IsNumber(value)
             ? true
@@ -589,6 +715,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
     private object? LoadStatic(IField field)
     {
         if (field.FullName == "System.String System.String::Empty") return "";
+        if (field.DeclaringType?.FullName == "System.Reflection.Emit.OpCodes") return OpCodeOf(field.Name);
         var fd = field as FieldDef;
         if (fd == null || fd.Module != module)
             throw Bail(FallbackReason.OtherModule, $"reads static field {field.FullName} of another module");
@@ -597,14 +724,20 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         var type = fd.DeclaringType;
         if (type.HasGenericParameters) throw Bail(FallbackReason.Generic, $"static state of generic type {type.FullName}");
         bool initializing = _initializing.Contains(type);
-        if (!initializing && !fd.IsInitOnly)
+        if (!initializing && !fd.IsInitOnly && !WrittenOnlyByInitialization(fd))
             throw Bail(FallbackReason.MutableStatic, $"reads mutable static field {type.FullName}::{fd.Name}");
         RequireSettledState(type);
         EnsureInitialized(type);
         var value = _statics.TryGetValue(fd, out var v) ? v : Default(SlotOf(fd.FieldType));
-        if (!initializing && value is HeapObject or StructValue { HoldsObjects: true } && !Frozen(fd))
+        if (!initializing && value is HeapObject or StructValue { HoldsObjects: true } or DynamicMethodObject or ILGeneratorObject && !Frozen(fd))
             throw Bail(FallbackReason.MutableStatic, $"the object in static field {type.FullName}::{fd.Name} may be modified by other code");
         return Load(SlotOf(fd.FieldType), value);
+    }
+
+    private bool WrittenOnlyByInitialization(FieldDef field)
+    {
+        using var analysis = Meter?.Exclude();
+        return _facts.WrittenOnlyByInitialization(field);
     }
 
     private bool Frozen(FieldDef field)
@@ -735,7 +868,13 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
 
     // ---- slots: how values are stored in typed locations
 
-    private enum Kind { I1, U1, I2, U2, Bool, I4, I8, Native, R4, R8, Ref, Struct, Opaque }
+    private enum Kind { I1, U1, I2, U2, Bool, I4, I8, Native, R4, R8, Ref, Struct, Opaque, UnmanagedPointer }
+
+    /// <summary>Framework structs that hold a reflection object: the evaluator keeps them as that object.</summary>
+    private static readonly HashSet<string> ReflectionStructs = new(StringComparer.Ordinal)
+    {
+        "System.RuntimeTypeHandle", "System.RuntimeMethodHandle", "System.RuntimeFieldHandle", "System.ModuleHandle", "System.Reflection.Emit.OpCode",
+    };
 
     private readonly record struct Slot(Kind Kind, StructLayout? Layout = null);
 
@@ -764,6 +903,10 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                 return new(Kind.Ref);
             case ElementType.GenericInst:
                 return sig.IsValueType ? new(Kind.Opaque) : new(Kind.Ref);
+            case ElementType.Ptr: case ElementType.FnPtr:
+                return new(Kind.UnmanagedPointer);
+            case ElementType.ValueType when ReflectionStructs.Contains(sig.FullName):
+                return new(Kind.Ref);
             case ElementType.ValueType:
                 var td = sig.ToTypeDefOrRef()?.ResolveTypeDef();
                 if (td is { IsEnum: true }) return td.GetEnumUnderlyingType() is { } underlying ? SlotOf(underlying, nesting) : new(Kind.Opaque);
@@ -795,6 +938,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         Kind.Ref => null,
         Kind.Struct => NewStruct(slot.Layout!),
         Kind.Opaque => Opaque.Instance,
+        Kind.UnmanagedPointer => (nint)0,
         _ => 0,
     };
 
@@ -819,7 +963,9 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         Kind.U2 => (int)unchecked((ushort)Numeric.Bits(value)),
         Kind.I4 => unchecked((int)Numeric.Bits(value)),
         Kind.I8 => Numeric.Bits(value),
+        Kind.Native or Kind.UnmanagedPointer when value is BufferPointer => value,
         Kind.Native => Numeric.Native(Numeric.Bits(value)),
+        Kind.UnmanagedPointer => Numeric.Native(Numeric.Bits(value)),
         Kind.R4 => value switch { float f => f, double d => (float)d, _ => throw Bail(FallbackReason.InvalidCode, "float slot holds a non-float") },
         Kind.R8 => value switch { double d => d, float f => (double)f, _ => throw Bail(FallbackReason.InvalidCode, "double slot holds a non-float") },
         Kind.Ref => Numeric.IsNumber(value) || value is StructValue
@@ -971,6 +1117,10 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
 
     private object? Invoke(IMethod method, Code op, object?[] args)
     {
+        if (op == Code.Newobj && args is [var target, FunctionPointer pointer])
+            return CreateDelegate(method.DeclaringType.ToTypeSig(), pointer.Method, target);
+        if (method.Name == "Invoke" && op != Code.Newobj && args.Length > 0 && args[0] is DelegateObject d)
+            return InvokeDelegate(d, args[1..]);
         if (method is MethodSpec) throw Bail(FallbackReason.Generic, $"calls generic method {Describe(method)}");
         if (Intrinsics.TryGetValue(method.FullName, out var intrinsic))
         {

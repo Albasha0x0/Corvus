@@ -17,12 +17,14 @@ every method left unchanged is reported with one of the reasons below.
 | Comparisons | `ceq` `cgt` `cgt.un` `clt` `clt.un` | references compare by identity or against null |
 | Conversions | `conv.i1` `conv.i2` `conv.i4` `conv.i8` `conv.u1` `conv.u2` `conv.u4` `conv.u8` `conv.i` `conv.u` `conv.r4` `conv.r8` `conv.r.un` `conv.ovf.i1` `conv.ovf.i2` `conv.ovf.i4` `conv.ovf.i8` `conv.ovf.u1` `conv.ovf.u2` `conv.ovf.u4` `conv.ovf.u8` `conv.ovf.i` `conv.ovf.u` `conv.ovf.i1.un` `conv.ovf.i2.un` `conv.ovf.i4.un` `conv.ovf.i8.un` `conv.ovf.u1.un` `conv.ovf.u2.un` `conv.ovf.u4.un` `conv.ovf.u8.un` `conv.ovf.i.un` `conv.ovf.u.un` | exact ECMA-335 semantics: truncation, sign / zero extension, overflow checks of conv.ovf; out-of-range float to integer conversion (undefined) stops evaluation |
 | Branches | `br` `br.s` `brtrue` `brtrue.s` `brfalse` `brfalse.s` `beq` `beq.s` `bne.un` `bne.un.s` `bge` `bge.s` `bge.un` `bge.un.s` `bgt` `bgt.s` `bgt.un` `bgt.un.s` `ble` `ble.s` `ble.un` `ble.un.s` `blt` `blt.s` `blt.un` `blt.un.s` `switch` `ret` | loops run within the shared instruction budget |
+| Exception regions | `leave` `leave.s` `endfinally` | try blocks run as plain code and leave runs the finally handlers it exits; nothing is ever caught: code that throws stops evaluation, so catch and fault handlers never run; exception filters are not modelled |
 | Arrays | `newarr` `ldlen` `ldelema` `ldelem.i1` `ldelem.u1` `ldelem.i2` `ldelem.u2` `ldelem.i4` `ldelem.u4` `ldelem.i8` `ldelem.i` `ldelem.r4` `ldelem.r8` `ldelem.ref` `ldelem` `stelem.i1` `stelem.i2` `stelem.i4` `stelem.i8` `stelem.i` `stelem.r4` `stelem.r8` `stelem.ref` `stelem` | one-dimensional arrays of primitives, strings and other references; at most 1M elements |
-| Indirect access | `ldind.i1` `ldind.u1` `ldind.i2` `ldind.u2` `ldind.i4` `ldind.u4` `ldind.i8` `ldind.i` `ldind.r4` `ldind.r8` `ldind.ref` `stind.i1` `stind.i2` `stind.i4` `stind.i8` `stind.i` `stind.r4` `stind.r8` `stind.ref` | through managed pointers to arguments, locals, array elements and struct fields |
+| Stack memory | `localloc` | localloc (stackalloc) gives a zeroed buffer of at most 1M bytes; pointers into it move by add / sub, and ldind / stind read and write it little-endian |
+| Indirect access | `ldind.i1` `ldind.u1` `ldind.i2` `ldind.u2` `ldind.i4` `ldind.u4` `ldind.i8` `ldind.i` `ldind.r4` `ldind.r8` `ldind.ref` `stind.i1` `stind.i2` `stind.i4` `stind.i8` `stind.i` `stind.r4` `stind.r8` `stind.ref` | through managed pointers to arguments, locals, array elements, struct fields and static fields, and through pointers into stack memory |
 | Value types | `ldobj` `stobj` `initobj` `ldfld` `ldflda` `stfld` | structs defined in the same module (sequential or auto layout), enums and primitives |
-| Static state | `ldsfld` `stsfld` `ldtoken` | readonly static fields of the same module, after evaluating the type's static constructor once; writes only inside static constructors |
+| Static state | `ldsfld` `ldsflda` `stsfld` `ldtoken` | static fields of the same module that are readonly, or that only the type's initialization writes and other assemblies cannot, after evaluating the type's static constructor once; writes only inside static constructors (by stsfld or FieldInfo.SetValue); ldtoken of fields, types and methods |
 | Type tests | `isinst` `castclass` | System.Object, System.String, System.Text.StringBuilder and System.Text.Encoding targets |
-| Calls | `call` `callvirt` `newobj` | intrinsics (below), and static methods and struct methods with IL bodies in the same module (no exception handlers, not generic); newobj of strings, StringBuilder and module structs |
+| Calls | `call` `callvirt` `newobj` `ldftn` | intrinsics (below), and static methods and struct methods with IL bodies in the same module (not generic); newobj of strings, StringBuilder and module structs; delegates of static methods (ldftn and the delegate constructor, Delegate.CreateDelegate) and of dynamic methods, invoked through Invoke |
 
 Every other instruction stops evaluation with `unsupported-instruction`.
 
@@ -30,28 +32,57 @@ Every other instruction stops evaluation with `unsupported-instruction`.
 
 Framework methods evaluated directly (deterministic and culture-independent for the values they accept):
 
+- `System.Boolean System.Reflection.MethodBase::get_IsStatic()`
 - `System.Boolean System.String::Equals(System.String)`
 - `System.Boolean System.String::Equals(System.String,System.String)`
 - `System.Boolean System.String::IsNullOrEmpty(System.String)`
 - `System.Boolean System.String::op_Equality(System.String,System.String)`
 - `System.Boolean System.String::op_Inequality(System.String,System.String)`
+- `System.Boolean System.Type::op_Equality(System.Type,System.Type)`
+- `System.Boolean System.Type::op_Inequality(System.Type,System.Type)`
 - `System.Byte[] System.Convert::FromBase64String(System.String)`
 - `System.Byte[] System.Text.Encoding::GetBytes(System.String)`
 - `System.Char System.String::get_Chars(System.Int32)`
 - `System.Char System.Text.StringBuilder::get_Chars(System.Int32)`
 - `System.Char[] System.String::ToCharArray()`
+- `System.Delegate System.Delegate::CreateDelegate(System.Type,System.Reflection.MethodInfo)`
+- `System.Delegate System.Reflection.Emit.DynamicMethod::CreateDelegate(System.Type)`
+- `System.Delegate System.Reflection.MethodInfo::CreateDelegate(System.Type)`
 - `System.Int32 System.Array::get_Length()`
 - `System.Int32 System.Math::Abs(System.Int32)`
 - `System.Int32 System.Math::Max(System.Int32,System.Int32)`
 - `System.Int32 System.Math::Min(System.Int32,System.Int32)`
+- `System.Int32 System.Reflection.MemberInfo::get_MetadataToken()`
 - `System.Int32 System.String::IndexOf(System.Char)`
 - `System.Int32 System.String::get_Length()`
 - `System.Int32 System.Text.StringBuilder::get_Length()`
+- `System.ModuleHandle System.Reflection.Module::get_ModuleHandle()`
+- `System.Reflection.Assembly System.Reflection.Assembly::GetExecutingAssembly()`
+- `System.Reflection.Emit.ILGenerator System.Reflection.Emit.DynamicMethod::GetILGenerator()`
+- `System.Reflection.FieldInfo System.Reflection.FieldInfo::GetFieldFromHandle(System.RuntimeFieldHandle)`
+- `System.Reflection.FieldInfo System.Reflection.Module::ResolveField(System.Int32)`
+- `System.Reflection.FieldInfo System.Type::GetField(System.String)`
+- `System.Reflection.FieldInfo System.Type::GetField(System.String,System.Reflection.BindingFlags)`
+- `System.Reflection.FieldInfo[] System.Type::GetFields(System.Reflection.BindingFlags)`
+- `System.Reflection.MethodBase System.Reflection.MethodBase::GetMethodFromHandle(System.RuntimeMethodHandle)`
+- `System.Reflection.MethodBase System.Reflection.Module::ResolveMethod(System.Int32)`
+- `System.Reflection.MethodInfo System.Type::GetMethod(System.String)`
+- `System.Reflection.MethodInfo System.Type::GetMethod(System.String,System.Reflection.BindingFlags)`
+- `System.Reflection.MethodInfo[] System.Type::GetMethods(System.Reflection.BindingFlags)`
+- `System.Reflection.Module System.Reflection.Assembly::get_ManifestModule()`
+- `System.Reflection.Module System.Type::get_Module()`
+- `System.Reflection.Module[] System.Reflection.Assembly::GetModules()`
+- `System.Reflection.ParameterInfo[] System.Reflection.MethodBase::GetParameters()`
+- `System.RuntimeFieldHandle System.ModuleHandle::ResolveFieldHandle(System.Int32)`
+- `System.RuntimeMethodHandle System.ModuleHandle::ResolveMethodHandle(System.Int32)`
+- `System.RuntimeTypeHandle System.ModuleHandle::ResolveTypeHandle(System.Int32)`
+- `System.RuntimeTypeHandle System.Type::get_TypeHandle()`
 - `System.String System.Char::ToString()`
 - `System.String System.Char::ToString(System.Char)`
 - `System.String System.Convert::ToBase64String(System.Byte[])`
 - `System.String System.Int32::ToString()`
 - `System.String System.Object::ToString()`
+- `System.String System.Reflection.MemberInfo::get_Name()`
 - `System.String System.String::Concat(System.Object,System.Object)`
 - `System.String System.String::Concat(System.Object,System.Object,System.Object)`
 - `System.String System.String::Concat(System.String,System.String)`
@@ -81,9 +112,32 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 - `System.Text.StringBuilder System.Text.StringBuilder::Append(System.Int32)`
 - `System.Text.StringBuilder System.Text.StringBuilder::Append(System.String)`
 - `System.Text.StringBuilder System.Text.StringBuilder::Insert(System.Int32,System.String)`
+- `System.Type System.Reflection.FieldInfo::get_FieldType()`
+- `System.Type System.Reflection.MethodInfo::get_ReturnType()`
+- `System.Type System.Reflection.Module::ResolveType(System.Int32)`
+- `System.Type System.Reflection.ParameterInfo::get_ParameterType()`
+- `System.Type System.Type::GetTypeFromHandle(System.RuntimeTypeHandle)`
 - `System.Void System.Array::Copy(System.Array,System.Array,System.Int32)`
 - `System.Void System.Array::Copy(System.Array,System.Int32,System.Array,System.Int32,System.Int32)`
 - `System.Void System.Array::Reverse(System.Array)`
+- `System.Void System.Reflection.Emit.DynamicMethod::.ctor(System.String,System.Type,System.Type[])`
+- `System.Void System.Reflection.Emit.DynamicMethod::.ctor(System.String,System.Type,System.Type[],System.Boolean)`
+- `System.Void System.Reflection.Emit.DynamicMethod::.ctor(System.String,System.Type,System.Type[],System.Reflection.Module)`
+- `System.Void System.Reflection.Emit.DynamicMethod::.ctor(System.String,System.Type,System.Type[],System.Reflection.Module,System.Boolean)`
+- `System.Void System.Reflection.Emit.DynamicMethod::.ctor(System.String,System.Type,System.Type[],System.Type)`
+- `System.Void System.Reflection.Emit.DynamicMethod::.ctor(System.String,System.Type,System.Type[],System.Type,System.Boolean)`
+- `System.Void System.Reflection.Emit.ILGenerator::Emit(System.Reflection.Emit.OpCode)`
+- `System.Void System.Reflection.Emit.ILGenerator::Emit(System.Reflection.Emit.OpCode,System.Byte)`
+- `System.Void System.Reflection.Emit.ILGenerator::Emit(System.Reflection.Emit.OpCode,System.Int16)`
+- `System.Void System.Reflection.Emit.ILGenerator::Emit(System.Reflection.Emit.OpCode,System.Int32)`
+- `System.Void System.Reflection.Emit.ILGenerator::Emit(System.Reflection.Emit.OpCode,System.Int64)`
+- `System.Void System.Reflection.Emit.ILGenerator::Emit(System.Reflection.Emit.OpCode,System.Reflection.ConstructorInfo)`
+- `System.Void System.Reflection.Emit.ILGenerator::Emit(System.Reflection.Emit.OpCode,System.Reflection.FieldInfo)`
+- `System.Void System.Reflection.Emit.ILGenerator::Emit(System.Reflection.Emit.OpCode,System.Reflection.MethodInfo)`
+- `System.Void System.Reflection.Emit.ILGenerator::Emit(System.Reflection.Emit.OpCode,System.SByte)`
+- `System.Void System.Reflection.Emit.ILGenerator::Emit(System.Reflection.Emit.OpCode,System.String)`
+- `System.Void System.Reflection.Emit.ILGenerator::Emit(System.Reflection.Emit.OpCode,System.Type)`
+- `System.Void System.Reflection.FieldInfo::SetValue(System.Object,System.Object)`
 - `System.Void System.Runtime.CompilerServices.RuntimeHelpers::InitializeArray(System.Array,System.RuntimeFieldHandle)`
 - `System.Void System.String::.ctor(System.Char,System.Int32)`
 - `System.Void System.String::.ctor(System.Char[])`
