@@ -19,6 +19,7 @@ public enum FallbackReason
     StaticInitializer,
     UnmodeledInstance,
     VirtualDispatch,
+    CacheDependent,
     RuntimeError,
     PlatformDependent,
     InvalidCode,
@@ -61,6 +62,7 @@ public static class SimplifyManifest
         new(FallbackReason.MutableStatic, "mutable-static", "reads a static field that is not readonly, writes a static field outside a static constructor, or modifies an object held in a static field"),
         new(FallbackReason.UnmodeledInstance, "unmodeled-instance", "creates an instance of a class outside the modelled subset: a class with a finalizer or events, a generic class, a class whose base class belongs to another assembly (exceptions, framework classes), an interop class (COM import, explicit layout), or a hierarchy deeper than 8 levels"),
         new(FallbackReason.VirtualDispatch, "virtual-dispatch", "a call on a modelled instance that does not resolve to one method of the module: a framework method or the framework implementation of a virtual method (ToString, Equals, ...), an abstract method, or an interface method the class does not implement in the module"),
+        new(FallbackReason.CacheDependent, "cache-dependent", "a static Dictionary or List the code reads is not a cache whose contents cannot change the result: called again on the state the first call left, the call gives another result; or the collection is used other than through its own methods (passed on, stored, returned, its address taken), is visible to other assemblies, is written outside its type's initialization, or compares keys with a custom comparer"),
         new(FallbackReason.StaticInitializer, "static-initializer", "the static constructor of a type the code needs cannot be evaluated, or the method being simplified is that static constructor"),
         new(FallbackReason.RuntimeError, "runtime-error", "the code would throw at run time: division by zero, checked overflow, index out of range, null reference, invalid cast, invalid argument"),
         new(FallbackReason.PlatformDependent, "platform-dependent", "the result would differ between platforms or cultures: native int values outside the 32-bit range, out-of-range float to integer conversion, culture-sensitive formatting"),
@@ -91,7 +93,7 @@ public static class SimplifyManifest
             Code.Nop, Code.Ldc_I4, Code.Ldc_I4_S, Code.Ldc_I4_M1, Code.Ldc_I4_0, Code.Ldc_I4_1, Code.Ldc_I4_2, Code.Ldc_I4_3,
             Code.Ldc_I4_4, Code.Ldc_I4_5, Code.Ldc_I4_6, Code.Ldc_I4_7, Code.Ldc_I4_8, Code.Ldc_I8, Code.Ldc_R4, Code.Ldc_R8,
             Code.Ldnull, Code.Ldstr, Code.Dup, Code.Pop]),
-        new("Prefixes", "no effect on the evaluated result", [Code.Tailcall, Code.Volatile, Code.Unaligned, Code.Readonly]),
+        new("Prefixes", "no effect on the evaluated result; after constrained., callvirt gets the value's address as its receiver", [Code.Tailcall, Code.Volatile, Code.Unaligned, Code.Readonly, Code.Constrained]),
         new("Arguments and locals", "struct values are copied on load and store; ldarga / ldloca give managed pointers", [
             Code.Ldarg, Code.Ldarg_S, Code.Ldarg_0, Code.Ldarg_1, Code.Ldarg_2, Code.Ldarg_3, Code.Starg, Code.Starg_S, Code.Ldarga, Code.Ldarga_S,
             Code.Ldloc, Code.Ldloc_S, Code.Ldloc_0, Code.Ldloc_1, Code.Ldloc_2, Code.Ldloc_3, Code.Stloc, Code.Stloc_S,
@@ -130,6 +132,9 @@ public static class SimplifyManifest
         new("Static state",
             "static fields of the same module that are readonly, or that only the type's initialization writes and other assemblies cannot, after evaluating the type's static constructor once; writes only inside static constructors (by stsfld or FieldInfo.SetValue); ldtoken of fields, types and methods", [
             Code.Ldsfld, Code.Ldsflda, Code.Stsfld, Code.Ldtoken]),
+        new("Collections",
+            "Dictionary<K, V> (keys: numbers and strings) and List<T>: construction, Add, indexers, TryGetValue, ContainsKey, Remove, Count, Clear, Contains, IndexOf, Insert, RemoveAt, ToArray, and foreach over them in the order of addition (a dictionary after a removal is not enumerated); Monitor.Enter / Exit (lock) succeed at once. A static collection the code only uses through its own methods, written only by its type's initialization, counts as a cache: each evaluation starts from the state the initialization left, and the call made again on the state it leaves must give the same result (see cache-dependent)",
+            []),
         new("Type tests", "System.Object, System.String, System.Text.StringBuilder and System.Text.Encoding targets", [Code.Isinst, Code.Castclass]),
         new("Calls",
             "intrinsics (below), and static methods and struct methods with IL bodies in the same module (not generic); newobj of strings, StringBuilder and module structs; delegates of static methods (ldftn and the delegate constructor, Delegate.CreateDelegate) and of dynamic methods, invoked through Invoke", [

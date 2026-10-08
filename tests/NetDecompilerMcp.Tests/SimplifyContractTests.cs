@@ -309,6 +309,22 @@ public sealed class SimplifyContractTests
         p.Add("readonly", t.Int32, false,
             [I(OpCodes.Ldsfld, arr), Ldc(1), I(OpCodes.Readonly), I(OpCodes.Ldelema, t.Int32.ToTypeDefOrRef()), I(OpCodes.Ldind_I4), Ret()]);
         p.Add("ldsflda", t.Int32, false, [I(OpCodes.Ldsflda, num), I(OpCodes.Ldind_I4), Ret()]);
+        var toInt32 = lab.Module.Import(typeof(Convert).GetMethod(nameof(Convert.ToInt32), [typeof(string)]));
+        p.Add("ToInt32", t.Int32, false, [I(OpCodes.Ldstr, "0042"), I(OpCodes.Call, toInt32), Ret()]);
+        p.Add("ToInt32", t.Int32, false, [I(OpCodes.Ldnull), I(OpCodes.Call, toInt32), Ret()]);
+        p.Add("ToInt32", t.Int32, false, [I(OpCodes.Ldstr, "99999999999"), I(OpCodes.Call, toInt32), Ret()]);
+        p.Add("ToInt32", t.Int32, true, [I(OpCodes.Ldstr, "-5"), I(OpCodes.Call, toInt32), Ret()]);
+        {
+            // constrained. int32 callvirt Object::ToString on a local's address.
+            var m = lab.Method("Constrained", t.String, [], [], [t.Int32]);
+            foreach (var i in new[]
+                     {
+                         Ldc(42), I(OpCodes.Stloc_0), I(OpCodes.Ldloca_S, m.Body.Variables[0]), I(OpCodes.Constrained, t.Int32.ToTypeDefOrRef()),
+                         I(OpCodes.Callvirt, lab.Module.Import(typeof(object).GetMethod(nameof(ToString)))), Ret(),
+                     })
+                m.Body.Instructions.Add(i);
+            p.Cases.Add(new("constrained", m, false));
+        }
 
         // Stack memory: an int and a byte written and read back through pointers that moved.
         var pointer = new PtrSig(t.Void);
@@ -594,6 +610,16 @@ public sealed class SimplifyContractTests
         Add(FallbackReason.VirtualDispatch, lab.Method("PlainObject", t.Int32,
             I(OpCodes.Newobj, lab.Module.Import(typeof(object).GetConstructor(Type.EmptyTypes))), I(OpCodes.Callvirt, lab.Module.Import(typeof(object).GetMethod(nameof(GetHashCode)))), Ret()));
         Add(FallbackReason.UnsupportedValue, lab.Method("Box", t.Object, Ldc(1), I(OpCodes.Box, t.Int32.ToTypeDefOrRef()), Ret()));
+        {
+            // A static dictionary that escapes (a method returns it) is not a cache.
+            var holder = lab.NewType("Lab", "CacheHolder", abstractSealed: true, beforeFieldInit: false);
+            var dictionary = typeof(Dictionary<string, string>);
+            var cache = new FieldDefUser("Cache", new FieldSig(lab.Module.Import(dictionary).ToTypeSig()), FieldAttributes.Private | FieldAttributes.Static);
+            holder.Fields.Add(cache);
+            lab.StaticConstructor(holder, I(OpCodes.Newobj, lab.Module.Import(dictionary.GetConstructor(Type.EmptyTypes))), I(OpCodes.Stsfld, cache), Ret());
+            var escapes = lab.Method("Escapes", lab.Module.Import(dictionary).ToTypeSig(), [], [I(OpCodes.Ldsfld, cache), Ret()], owner: holder);
+            Add(FallbackReason.CacheDependent, lab.Method("ReturnsCache", t.Object, I(OpCodes.Call, escapes), Ret()));
+        }
         var counter = lab.StaticField(lab.Type, "Counter", t.Int32, readOnly: false);
         Add(FallbackReason.MutableStatic, lab.Method("ReadsCounter", t.Int32, I(OpCodes.Ldsfld, counter), Ret()));
         var broken = lab.NewType("Lab", "Broken", abstractSealed: true, beforeFieldInit: false);

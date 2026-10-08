@@ -34,6 +34,7 @@ internal sealed class IlBodyGenerator
     private readonly IMethod _invoke1, _invoke2, _invokeString;
     private readonly FieldDef _config, _configMode, _configZero, _counter, _counterN; // a startup singleton, and an object statements modify
     private readonly int _mode;
+    private readonly MethodDef _cached, _joined; // Decrypt memoized in a static Dictionary; Decrypt(0..n-1) joined through a List
     private readonly IMethod _concat, _length, _upper, _toString, _invalidOpCtor;
     private readonly ITypeDefOrRef[] _catchTypes;
 
@@ -111,11 +112,47 @@ internal sealed class IlBodyGenerator
         var counterCtor = Ctor(counter);
         counterCtor.Body.Instructions.Add(I(OpCodes.Ret));
         _config = _lab.StaticField(_lab.Type, "Cfg", new ClassSig(config), readOnly: true);
+
+        // Cached(k): if (Memo.TryGetValue(k, out s)) return s; s = Decrypt(k); Memo[k] = s; return s;
+        var dictionary = typeof(Dictionary<int, string>);
+        var memo = new FieldDefUser("Memo", new FieldSig(module.Import(dictionary).ToTypeSig()), FieldAttributes.Private | FieldAttributes.Static | FieldAttributes.InitOnly);
+        _lab.Type.Fields.Add(memo);
+        var found = I(OpCodes.Ldloc_0);
+        _cached = _lab.Method("Cached", _t.String, [_t.Int32],
+        [
+            I(OpCodes.Ldsfld, memo), I(OpCodes.Ldarg_0), new Instruction(OpCodes.Ldloca_S, new Local(_t.String)), I(OpCodes.Callvirt, module.Import(dictionary.GetMethod("TryGetValue"))),
+            I(OpCodes.Brtrue, found),
+            I(OpCodes.Ldarg_0), I(OpCodes.Call, _decrypt), I(OpCodes.Stloc_0),
+            I(OpCodes.Ldsfld, memo), I(OpCodes.Ldarg_0), I(OpCodes.Ldloc_0), I(OpCodes.Callvirt, module.Import(dictionary.GetMethod("set_Item"))),
+            found, I(OpCodes.Ret),
+        ], locals: [_t.String]);
+        _cached.Body.Instructions[2].Operand = _cached.Body.Variables[0];
+
+        // Joined(n): a List of Decrypt(0..(n & 3)), concatenated by index.
+        var list = typeof(List<string>);
+        var loop = I(OpCodes.Ldloc_0);
+        var test = I(OpCodes.Ldloc_1);
+        var join = I(OpCodes.Ldloc_2);
+        var joinTest = I(OpCodes.Ldloc_1);
+        _joined = _lab.Method("Joined", _t.String, [_t.Int32],
+        [
+            I(OpCodes.Newobj, module.Import(list.GetConstructor(Type.EmptyTypes))), I(OpCodes.Stloc_0), IlLab.Ldc(0), I(OpCodes.Stloc_1), I(OpCodes.Br, test),
+            loop, I(OpCodes.Ldloc_1), I(OpCodes.Call, _decrypt), I(OpCodes.Callvirt, module.Import(list.GetMethod("Add"))),
+            I(OpCodes.Ldloc_1), IlLab.Ldc(1), I(OpCodes.Add), I(OpCodes.Stloc_1),
+            test, I(OpCodes.Ldarg_0), IlLab.Ldc(3), I(OpCodes.And), I(OpCodes.Ble, loop),
+            I(OpCodes.Ldstr, ""), I(OpCodes.Stloc_2), IlLab.Ldc(0), I(OpCodes.Stloc_1), I(OpCodes.Br, joinTest),
+            join, I(OpCodes.Ldloc_0), I(OpCodes.Ldloc_1), I(OpCodes.Callvirt, module.Import(list.GetMethod("get_Item"))),
+            I(OpCodes.Call, module.Import(typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]))), I(OpCodes.Stloc_2),
+            I(OpCodes.Ldloc_1), IlLab.Ldc(1), I(OpCodes.Add), I(OpCodes.Stloc_1),
+            joinTest, I(OpCodes.Ldloc_0), I(OpCodes.Callvirt, module.Import(list.GetMethod("get_Count"))), I(OpCodes.Blt, join),
+            I(OpCodes.Ldloc_2), I(OpCodes.Ret),
+        ], locals: [module.Import(list).ToTypeSig(), _t.Int32, _t.String]);
         _counter = _lab.StaticField(_lab.Type, "Ctr", new ClassSig(counter), readOnly: true);
         _mode = _r.Next(0, 5);
 
         _lab.StaticConstructor(_lab.Type,
             IlLab.Ldc(_mode), I(OpCodes.Newobj, configCtor), I(OpCodes.Stsfld, _config),
+            I(OpCodes.Newobj, module.Import(dictionary.GetConstructor(Type.EmptyTypes))), I(OpCodes.Stsfld, memo),
             I(OpCodes.Newobj, counterCtor), I(OpCodes.Stsfld, _counter),
             I(OpCodes.Ldnull), I(OpCodes.Ldftn, _twice), I(OpCodes.Newobj, module.Import(func1.GetConstructors()[0])), I(OpCodes.Stsfld, _twiceField),
             I(OpCodes.Ldnull), I(OpCodes.Ldftn, _add), I(OpCodes.Newobj, module.Import(func2.GetConstructors()[0])), I(OpCodes.Stsfld, _addField),
@@ -191,7 +228,7 @@ internal sealed class IlBodyGenerator
     private void Statement(int depth, bool inProtected, bool noExit)
     {
         bool nest = depth < _maxDepth && _budget > 20;
-        int kind = _r.Next(nest ? 25 : 8);
+        int kind = _r.Next(nest ? 26 : 8);
         switch (kind)
         {
             case 0: case 1: case 2: Assign(); break;
@@ -217,6 +254,7 @@ internal sealed class IlBodyGenerator
             case 22: ObfuscatedFlattened(depth, inProtected, noExit); break;
             case 23: DelegateCall(); break;
             case 24: InstanceFields(depth, inProtected, noExit); break;
+            case 25: CacheCall(); break;
             default: Assign(); break;
         }
     }
@@ -341,6 +379,15 @@ internal sealed class IlBodyGenerator
         }
         Block(depth + 1, inProtected, noExit);
         Mark(skip);
+    }
+
+    /// <summary>A call of the memoizing Cached(k) or of Joined(n), with a constant (which folds to the string) or computed argument.</summary>
+    private void CacheCall()
+    {
+        if (_r.Next(2) == 0) Ldc(_r.Next(0, 40));
+        else Expr(VT.I4, 1);
+        Op(OpCodes.Call, _r.Next(3) == 0 ? _joined : _cached);
+        Op(OpCodes.Stloc, Pick(_pool[VT.Str]));
     }
 
     private void CallStatement()

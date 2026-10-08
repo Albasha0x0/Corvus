@@ -11,7 +11,7 @@ every method left unchanged is reported with one of the reasons below.
 | Group | Instructions | Notes |
 |---|---|---|
 | Constants and stack | `nop` `ldc.i4` `ldc.i4.s` `ldc.i4.m1` `ldc.i4.0` `ldc.i4.1` `ldc.i4.2` `ldc.i4.3` `ldc.i4.4` `ldc.i4.5` `ldc.i4.6` `ldc.i4.7` `ldc.i4.8` `ldc.i8` `ldc.r4` `ldc.r8` `ldnull` `ldstr` `dup` `pop` |  |
-| Prefixes | `tail.` `volatile.` `unaligned.` `readonly.` | no effect on the evaluated result |
+| Prefixes | `tail.` `volatile.` `unaligned.` `readonly.` `constrained.` | no effect on the evaluated result; after constrained., callvirt gets the value's address as its receiver |
 | Arguments and locals | `ldarg` `ldarg.s` `ldarg.0` `ldarg.1` `ldarg.2` `ldarg.3` `starg` `starg.s` `ldarga` `ldarga.s` `ldloc` `ldloc.s` `ldloc.0` `ldloc.1` `ldloc.2` `ldloc.3` `stloc` `stloc.s` `stloc.0` `stloc.1` `stloc.2` `stloc.3` `ldloca` `ldloca.s` | struct values are copied on load and store; ldarga / ldloca give managed pointers |
 | Arithmetic and bit operations | `add` `sub` `mul` `div` `div.un` `rem` `rem.un` `and` `or` `xor` `shl` `shr` `shr.un` `add.ovf` `add.ovf.un` `sub.ovf` `sub.ovf.un` `mul.ovf` `mul.ovf.un` `neg` `not` `ckfinite` | int32, int64 and native int; native int results must be the same on 32- and 64-bit platforms; float32 operands are computed in single precision as the JIT does; division by zero and checked overflow stop evaluation |
 | Comparisons | `ceq` `cgt` `cgt.un` `clt` `clt.un` | references compare by identity or against null |
@@ -23,6 +23,7 @@ every method left unchanged is reported with one of the reasons below.
 | Indirect access | `ldind.i1` `ldind.u1` `ldind.i2` `ldind.u2` `ldind.i4` `ldind.u4` `ldind.i8` `ldind.i` `ldind.r4` `ldind.r8` `ldind.ref` `stind.i1` `stind.i2` `stind.i4` `stind.i8` `stind.i` `stind.r4` `stind.r8` `stind.ref` | through managed pointers to arguments, locals, array elements, struct fields and static fields, and through pointers into stack memory |
 | Objects and value types | `ldobj` `stobj` `initobj` `ldfld` `ldflda` `stfld` | structs defined in the same module (sequential or auto layout), enums and primitives; instances of the module's classes (see unmodeled-instance) created by the evaluated code, with their fields, constructors, and instance and virtual methods dispatched within the module; new object(); a field of a class that nothing in the module writes (and no other assembly can) reads as its default on every object, which folds conditions on it even where the object itself cannot be evaluated (the load is kept: it still throws on null) |
 | Static state | `ldsfld` `ldsflda` `stsfld` `ldtoken` | static fields of the same module that are readonly, or that only the type's initialization writes and other assemblies cannot, after evaluating the type's static constructor once; writes only inside static constructors (by stsfld or FieldInfo.SetValue); ldtoken of fields, types and methods |
+| Collections |  | Dictionary<K, V> (keys: numbers and strings) and List<T>: construction, Add, indexers, TryGetValue, ContainsKey, Remove, Count, Clear, Contains, IndexOf, Insert, RemoveAt, ToArray, and foreach over them in the order of addition (a dictionary after a removal is not enumerated); Monitor.Enter / Exit (lock) succeed at once. A static collection the code only uses through its own methods, written only by its type's initialization, counts as a cache: each evaluation starts from the state the initialization left, and the call made again on the state it leaves must give the same result (see cache-dependent) |
 | Type tests | `isinst` `castclass` | System.Object, System.String, System.Text.StringBuilder and System.Text.Encoding targets |
 | Calls | `call` `callvirt` `newobj` `ldftn` | intrinsics (below), and static methods and struct methods with IL bodies in the same module (not generic); newobj of strings, StringBuilder and module structs; delegates of static methods (ldftn and the delegate constructor, Delegate.CreateDelegate) and of dynamic methods, invoked through Invoke |
 
@@ -49,6 +50,7 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 - `System.Delegate System.Reflection.Emit.DynamicMethod::CreateDelegate(System.Type)`
 - `System.Delegate System.Reflection.MethodInfo::CreateDelegate(System.Type)`
 - `System.Int32 System.Array::get_Length()`
+- `System.Int32 System.Convert::ToInt32(System.String)`
 - `System.Int32 System.Math::Abs(System.Int32)`
 - `System.Int32 System.Math::Max(System.Int32,System.Int32)`
 - `System.Int32 System.Math::Min(System.Int32,System.Int32)`
@@ -106,6 +108,8 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 - `System.String System.Text.Encoding::GetString(System.Byte[])`
 - `System.String System.Text.Encoding::GetString(System.Byte[],System.Int32,System.Int32)`
 - `System.String System.Text.StringBuilder::ToString()`
+- `System.StringComparer System.StringComparer::get_Ordinal()`
+- `System.StringComparer System.StringComparer::get_OrdinalIgnoreCase()`
 - `System.Text.Encoding System.Text.Encoding::get_ASCII()`
 - `System.Text.Encoding System.Text.Encoding::get_BigEndianUnicode()`
 - `System.Text.Encoding System.Text.Encoding::get_UTF8()`
@@ -149,6 +153,9 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 - `System.Void System.Text.StringBuilder::.ctor(System.Int32)`
 - `System.Void System.Text.StringBuilder::.ctor(System.String)`
 - `System.Void System.Text.StringBuilder::set_Length(System.Int32)`
+- `System.Void System.Threading.Monitor::Enter(System.Object)`
+- `System.Void System.Threading.Monitor::Enter(System.Object,System.Boolean&)`
+- `System.Void System.Threading.Monitor::Exit(System.Object)`
 
 ## Limits
 
@@ -176,6 +183,7 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 | `mutable-static` | reads a static field that is not readonly, writes a static field outside a static constructor, or modifies an object held in a static field |
 | `unmodeled-instance` | creates an instance of a class outside the modelled subset: a class with a finalizer or events, a generic class, a class whose base class belongs to another assembly (exceptions, framework classes), an interop class (COM import, explicit layout), or a hierarchy deeper than 8 levels |
 | `virtual-dispatch` | a call on a modelled instance that does not resolve to one method of the module: a framework method or the framework implementation of a virtual method (ToString, Equals, ...), an abstract method, or an interface method the class does not implement in the module |
+| `cache-dependent` | a static Dictionary or List the code reads is not a cache whose contents cannot change the result: called again on the state the first call left, the call gives another result; or the collection is used other than through its own methods (passed on, stored, returned, its address taken), is visible to other assemblies, is written outside its type's initialization, or compares keys with a custom comparer |
 | `static-initializer` | the static constructor of a type the code needs cannot be evaluated, or the method being simplified is that static constructor |
 | `runtime-error` | the code would throw at run time: division by zero, checked overflow, index out of range, null reference, invalid cast, invalid argument |
 | `platform-dependent` | the result would differ between platforms or cultures: native int values outside the 32-bit range, out-of-range float to integer conversion, culture-sensitive formatting |

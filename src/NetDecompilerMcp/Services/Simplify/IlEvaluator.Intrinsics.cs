@@ -69,6 +69,7 @@ internal sealed partial class IlEvaluator
         {
             string s => s,
             BuilderObject b => b.Text.ToString(),
+            Pointer { } p when p.Get() is int i => NonNegative(i).ToString(System.Globalization.CultureInfo.InvariantCulture), // constrained. int32
             null => throw Bail(FallbackReason.RuntimeError, "null reference"),
             _ => throw Bail(FallbackReason.UnsupportedValue, "ToString of an object the interpreter does not model"),
         });
@@ -116,6 +117,11 @@ internal sealed partial class IlEvaluator
         // System.Convert
         Add("System.Byte[]", "System.Convert", "FromBase64String", S, (e, a) => e.NewArray(Try(() => Convert.FromBase64String(Str(a[0])))));
         Add(S, "System.Convert", "ToBase64String", "System.Byte[]", (_, a) => Convert.ToBase64String(Bytes(a[0])));
+        // Only digits parse the same in every culture (signs and white space are the culture's own).
+        Add(I, "System.Convert", "ToInt32", S, (_, a) => a[0] == null ? 0
+            : Str(a[0]) is { Length: > 0 } digits && digits.All(char.IsAsciiDigit)
+                ? int.TryParse(digits, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int v) ? v : throw Bail(FallbackReason.RuntimeError, "the number does not fit an int32")
+                : throw Bail(FallbackReason.PlatformDependent, "parsing anything but digits depends on the culture"));
 
         // System.Array, RuntimeHelpers
         Add(I, "System.Array", "get_Length", "", (_, a) => ArrayOf(a[0]).Data.Length);
@@ -152,6 +158,20 @@ internal sealed partial class IlEvaluator
         Add(I, "System.Math", "Min", $"{I},{I}", (_, a) => Math.Min(I4(a[0]), I4(a[1])));
         Add(I, "System.Math", "Max", $"{I},{I}", (_, a) => Math.Max(I4(a[0]), I4(a[1])));
         Add(I, "System.Math", "Abs", I, (_, a) => I4(a[0]) == int.MinValue ? throw Bail(FallbackReason.RuntimeError, "Math.Abs overflow") : Math.Abs(I4(a[0])));
+
+        // StringComparer, as dictionary comparers
+        Add("System.StringComparer", "System.StringComparer", "get_Ordinal", "", (_, _) => new ComparerObject(false));
+        Add("System.StringComparer", "System.StringComparer", "get_OrdinalIgnoreCase", "", (_, _) => new ComparerObject(true));
+
+        // System.Threading.Monitor: evaluation is single-threaded, so lock always succeeds at once.
+        Add("System.Void", "System.Threading.Monitor", "Enter", "System.Object", (_, a) => a[0] == null ? throw Bail(FallbackReason.RuntimeError, "null reference") : null);
+        Add("System.Void", "System.Threading.Monitor", "Enter", "System.Object,System.Boolean&", (_, a) =>
+        {
+            if (a[0] == null) throw Bail(FallbackReason.RuntimeError, "null reference");
+            (a[1] as Pointer ?? throw Bail(FallbackReason.InvalidCode, "Monitor.Enter without a lockTaken address")).Set(1);
+            return null;
+        });
+        Add("System.Void", "System.Threading.Monitor", "Exit", "System.Object", (_, _) => null);
 
         AddReflection(Add);
         return t;

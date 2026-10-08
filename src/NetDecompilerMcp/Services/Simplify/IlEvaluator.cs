@@ -178,9 +178,20 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         _depth = 0;
         _allocated = _retained;
         var frame = new Frame(null, slice, [], [], [], []);
+        _scratch.Clear();
         try
         {
             Interpret(frame, sliceMode: true);
+            if (_scratch.Count > 0)
+            {
+                // A static collection was used as a cache: the same call made again, on the state this one left, must
+                // give the same result.
+                var again = new Frame(null, slice, [], [], [], []);
+                _depth = 0;
+                Interpret(again, sliceMode: true);
+                if (frame.Stack.Count != again.Stack.Count || frame.Stack.Zip(again.Stack).Any(p => !SameResult(p.First, p.Second)))
+                    throw Bail(FallbackReason.CacheDependent, "the result differs when the call is made again (it depends on what the cache holds)");
+            }
         }
         catch (Exception ex) when (ex is InsufficientExecutionStackException)
         {
@@ -194,6 +205,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         finally
         {
             if (Meter != null) Meter.InstructionsLeft -= start - Math.Max(_budget, 0);
+            _scratch.Clear();
         }
         return frame.Stack;
     }
@@ -303,6 +315,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
             switch (op)
             {
                 case Code.Nop: case Code.Tailcall: case Code.Volatile: case Code.Unaligned: case Code.Readonly:
+                case Code.Constrained: // the callvirt that follows gets a managed pointer to the value as its receiver
                     break;
 
                 case Code.Ldarg: case Code.Ldarg_S: case Code.Ldarg_0: case Code.Ldarg_1: case Code.Ldarg_2: case Code.Ldarg_3:
@@ -757,6 +770,8 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         RequireSettledState(type);
         EnsureInitialized(type);
         var value = _statics.TryGetValue(fd, out var v) ? v : Default(SlotOf(fd.FieldType));
+        if (!initializing && value is DictionaryObject or ListObject && !Frozen(fd))
+            return Load(SlotOf(fd.FieldType), Scratch(fd, (HeapObject)value));
         if (!initializing && value is HeapObject or StructValue { HoldsObjects: true } or DynamicMethodObject or ILGeneratorObject && !Frozen(fd))
             throw Bail(FallbackReason.MutableStatic, $"the object in static field {type.FullName}::{fd.Name} may be modified by other code");
         return Load(SlotOf(fd.FieldType), value);
@@ -850,7 +865,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         }
         catch (EvaluationBailout ex)
         {
-            var reason = Bail(ex.Reason is FallbackReason.CallDepth or FallbackReason.InstructionBudget or FallbackReason.MemoryLimit
+            var reason = Bail(ex.Reason is FallbackReason.CallDepth or FallbackReason.InstructionBudget or FallbackReason.MemoryLimit or FallbackReason.CacheDependent
                     ? ex.Reason
                     : FallbackReason.StaticInitializer,
                 $"static constructor of {type.FullName} cannot be evaluated: {ex.Message}");
@@ -937,7 +952,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
             case ElementType.Array: case ElementType.ByRef:
                 return new(Kind.Ref);
             case ElementType.GenericInst:
-                return sig.IsValueType ? new(Kind.Opaque) : new(Kind.Ref);
+                return !sig.IsValueType || IsCollectionStruct((GenericInstSig)sig) ? new(Kind.Ref) : new(Kind.Opaque);
             case ElementType.Ptr: case ElementType.FnPtr:
                 return new(Kind.UnmanagedPointer);
             case ElementType.ValueType when ReflectionStructs.Contains(sig.FullName):
@@ -1161,6 +1176,10 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
             return InvokeInstance(instance, method, op, args);
         if (op == Code.Newobj && method is MethodDef { DeclaringType.IsValueType: false, IsInstanceConstructor: true } classCtor && classCtor.Module == module)
             return NewInstance(classCtor, args);
+        var collection = CollectionCall(method, op, args, out bool handled);
+        if (handled) return collection;
+        if (method.FullName == "System.Void System.IDisposable::Dispose()" && args.Length == 1 && (args[0] is Pointer p ? p.Get() : args[0]) is EnumeratorObject)
+            return Void;
         if (method is MethodSpec) throw Bail(FallbackReason.Generic, $"calls generic method {Describe(method)}");
         if (Intrinsics.TryGetValue(method.FullName, out var intrinsic))
         {
@@ -1192,7 +1211,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                 return cell[0];
             }
             if (args[0] is not Pointer) throw Bail(FallbackReason.InvalidCode, "struct method called without a managed pointer");
-            if (op == Code.Callvirt) throw Bail(FallbackReason.InvalidCode, "callvirt on a struct method without constrained.");
+            // callvirt on a struct method comes after constrained. (the receiver is a managed pointer, checked above).
             var value = Execute(md, args);
             return HasReturnValue(md) ? value : Void;
         }

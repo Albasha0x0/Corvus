@@ -228,6 +228,10 @@ internal sealed class ModuleFacts(ModuleDef module)
             case Code.Call: case Code.Callvirt: case Code.Newobj:
             {
                 if (MetadataUtil.AsMethod(ins.Operand) is not { } callee) return false;
+                // Reading a modelled collection through its own methods.
+                if (operand == 0 && IsCollection(callee.DeclaringType) && callee.Name.String is "get_Item" or "TryGetValue" or "ContainsKey" or "get_Count"
+                        or "Contains" or "IndexOf" or "GetEnumerator")
+                    return immutableElements || callee.Name.String is not ("get_Item" or "GetEnumerator") || ValueOnlyRead(m, body, j, false, depth, visited);
                 if (IlEvaluator.IntrinsicNames.Contains(callee.FullName))
                     return !IlEvaluator.MutatedArguments(callee.FullName).Contains(operand);
                 if (callee is not MethodDef def || def.Module != module) return false;
@@ -237,6 +241,75 @@ internal sealed class ModuleFacts(ModuleDef module)
             default:
                 return false;
         }
+    }
+
+    private static bool IsCollection(ITypeDefOrRef? type) => type?.TryGetGenericInstSig()?.GenericType.FullName is
+        "System.Collections.Generic.Dictionary`2" or "System.Collections.Generic.List`1";
+
+    /// <summary>
+    /// Why a static Dictionary or List is not a cache the evaluator may fill, or null when it is: no other assembly can
+    /// access it, only its type's initialization writes it, and every other load of it is the receiver of one of its own
+    /// methods (or of Monitor.Enter / Exit, for lock).
+    /// </summary>
+    public string? CacheUse(FieldDef field)
+    {
+        if (!IsCollection(field.FieldType.ToTypeDefOrRef())) return "is not a Dictionary or List";
+        if (!Hidden(field)) return "is visible to other assemblies";
+        if (!WrittenOnlyByInitialization(field)) return "is written outside its type's initialization";
+        var init = InitOnly(field.DeclaringType);
+        foreach (var (method, index) in _fieldUses!.GetValueOrDefault(field) ?? [])
+        {
+            if (init.Contains(method)) continue;
+            var body = MetadataUtil.SafeBody(method);
+            if (body == null || body.Instructions[index].OpCode.Code != Code.Ldsfld) return $"has its address taken in {method.FullName}";
+            if (Consumer(method, body, index) is not var (j, operand) || operand != 0 || !CacheConsumer(method, body, j, field))
+                return $"is used other than through its own methods in {method.FullName}";
+        }
+        return null;
+    }
+
+    private static bool IsMonitor(IMethod method) => method.FullName.StartsWith("System.Void System.Threading.Monitor::", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Whether code[j], which takes the cache as its first operand, is one of the cache's own methods or Monitor.Enter /
+    /// Exit, or stores it in a local that only lock uses (lock (cache) { ... } compiles to that).
+    /// </summary>
+    private bool CacheConsumer(MethodDef method, CilBody body, int j, FieldDef field)
+    {
+        var ins = body.Instructions[j];
+        if (MetadataUtil.AsMethod(ins.Operand) is { } callee)
+            return callee.DeclaringType?.FullName == field.FieldType.FullName || IsMonitor(callee);
+        if (!ins.IsStloc() || ins.GetLocal(body.Variables) is not { } local) return false;
+        var code = body.Instructions;
+        for (int q = 0; q < code.Count; q++)
+        {
+            if (code[q].OpCode.Code is Code.Ldloca or Code.Ldloca_S && code[q].GetLocal(body.Variables) == local) return false;
+            if (!code[q].IsLdloc() || code[q].GetLocal(body.Variables) != local) continue;
+            if (Consumer(method, body, q) is not var (use, operand) || operand != 0 ||
+                MetadataUtil.AsMethod(code[use].Operand) is not { } monitor || !IsMonitor(monitor))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>The instruction that consumes the value code[k] pushes, and the operand it is (0: the first), or null.</summary>
+    private (int Index, int Operand)? Consumer(MethodDef m, CilBody body, int k)
+    {
+        var code = body.Instructions;
+        var targets = Targets(m, body);
+        bool hasReturn = m.MethodSig?.RetType.RemovePinnedAndModifiers().ElementType != ElementType.Void;
+        int position = 0;
+        for (int j = k + 1; j < code.Count && j <= k + MaxConsumerScan; j++)
+        {
+            var ins = code[j];
+            if (targets.Contains(ins)) return null;
+            ins.CalculateStackUsage(hasReturn, out int pushes, out int pops);
+            if (pops < 0) return null;
+            if (pops > position) return (j, pops - 1 - position);
+            position += pushes - pops;
+            if (!BodyGraph.FallsThrough(ins)) return null;
+        }
+        return null;
     }
 
     private static bool IsEnum(TypeSig type)
