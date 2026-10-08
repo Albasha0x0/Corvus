@@ -361,8 +361,8 @@ simplify_methods is checked two ways, both in a collection that runs alone after
   its seed, also when the runtime crashes (`[fuzz] seed N` on stderr).
 - **Sweep** (`SimplifySweepTests`): every method of real libraries found on the machine: .NET Framework reference and
   runtime libraries (C#, VB.NET, C++/CLI mixed mode), ReadyToRun shared frameworks of several .NET versions, F#, and
-  NuGet packages. It checks for crashes and clean save / reload round trips, and repeats runs
-  for byte-identical output. Absent assemblies are skipped.
+  NuGet packages. It checks for crashes and clean save / reload round trips, repeats runs for byte-identical output,
+  and guards performance (whole-library time per method against a 0.6 ms baseline). Absent assemblies are skipped.
   Per-assembly statistics (methods simplified, fallback reasons, time) are printed with
   `dotnet test --filter SimplifySweepTests --logger "console;verbosity=detailed"`.
 
@@ -371,6 +371,7 @@ simplify_methods is checked two ways, both in a collection that runs alone after
 | `NDM_FUZZ_COUNT` | Fuzz seeds 1..N (default 40) |
 | `NDM_FUZZ_SEED` | Run one seed (`random` for a fresh one) |
 | `NDM_SWEEP=full` | Add the largest libraries to the sweep (System.Private.CoreLib, mscorlib, Roslyn VB, BouncyCastle, Math.NET) |
+| `NDM_PERF_FACTOR` | Allowed multiple of the per-method baseline (default 5) |
 
 The generated C, C++ and Python are compiled or parsed with clang (`C:\Program Files\LLVM\bin`) and python when
 they are installed.

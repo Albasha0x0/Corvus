@@ -13,6 +13,23 @@ namespace NetDecompilerMcp.Tests;
 [Collection(SweepCollection.Name)]
 public sealed class SimplifySweepTests(ITestOutputHelper output)
 {
+    /// <summary>
+    /// Whole-library time per method (load, read bodies, simplify, save) the guard is measured against. The sweep in
+    /// this suite measured ~0.3 ms (engine alone ~0.05 ms) when the guard was written; 0.6 ms is the stated baseline.
+    /// </summary>
+    private const double BaselineMsPerMethod = 0.6;
+
+    /// <summary>
+    /// How far above the baseline a sweep may run before the test fails. Generous on purpose: machines and load vary;
+    /// a real regression (an accidental quadratic pass, a missing cache) shows up as an order of magnitude.
+    /// Override with NDM_PERF_FACTOR.
+    /// </summary>
+    private static double PerfFactor =>
+        double.TryParse(Environment.GetEnvironmentVariable("NDM_PERF_FACTOR"), NumberStyles.Float, CultureInfo.InvariantCulture, out var f) ? f : 5;
+
+    /// <summary>Assemblies smaller than this have too few methods for a stable per-method time on their own.</summary>
+    private const int PerfMinMethods = 2_000;
+
     [SweepFact]
     public void LibrariesSimplifyWithoutCrashesAndRoundTrip()
     {
@@ -26,6 +43,23 @@ public sealed class SimplifySweepTests(ITestOutputHelper output)
 
         var problems = ran.SelectMany(r => r.Outcome!.Problems.Take(10).Select(p => $"{r.Entry.Origin} {r.Entry.Name}: {p}")).ToList();
         Assert.True(problems.Count == 0, "simplify sweep problems:\n" + string.Join("\n", problems));
+
+        // Performance guard over the whole sweep, and for each assembly large enough to time on its own.
+        int methods = ran.Sum(r => r.Outcome!.Methods);
+        double total = ran.Sum(r => r.Outcome!.Total.TotalMilliseconds);
+        double engine = ran.Sum(r => r.Outcome!.Elapsed.TotalMilliseconds);
+        double allowed = BaselineMsPerMethod * PerfFactor;
+        output.WriteLine($"Whole-library time: {total / methods:0.000} ms/method over {methods:N0} methods (engine alone {engine / methods:0.000} ms); " +
+                         $"baseline {BaselineMsPerMethod} ms, limit {allowed:0.0} ms (NDM_PERF_FACTOR={PerfFactor})");
+        Assert.True(total / methods <= allowed,
+            $"simplify sweep: {total / methods:0.000} ms/method exceeds {PerfFactor}x the {BaselineMsPerMethod} ms baseline");
+        foreach (var (entry, outcome) in ran.Where(r => r.Outcome!.Methods >= PerfMinMethods))
+        {
+            double perMethod = outcome!.Total.TotalMilliseconds / outcome.Methods;
+            Assert.True(perMethod <= allowed * 2,
+                $"{entry.Origin} {entry.Name}: {perMethod:0.000} ms/method exceeds {PerfFactor * 2}x the {BaselineMsPerMethod} ms baseline " +
+                $"(slowest method {outcome.Slowest.Method}, {outcome.Slowest.Time.TotalMilliseconds:0} ms)");
+        }
     }
 
     [SweepFact]
@@ -61,22 +95,22 @@ public sealed class SimplifySweepTests(ITestOutputHelper output)
     private static string Table(List<(SweepCatalog.Entry Entry, SimplifyHarness.Outcome? Outcome)> rows)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("| Origin | Assembly | Methods | Simplified | Folded | Const. branches | Dispatchers | Fallbacks | Engine ms | ms/method | Slowest method | Status |");
-        sb.AppendLine("|---|---|---:|---:|---:|---:|---:|---|---:|---:|---|---|");
+        sb.AppendLine("| Origin | Assembly | Methods | Simplified | Folded | Const. branches | Dispatchers | Fallbacks | Engine ms | Total ms | Total ms/method | Slowest method | Status |");
+        sb.AppendLine("|---|---|---:|---:|---:|---:|---:|---|---:|---:|---:|---|---|");
         foreach (var (entry, o) in rows)
         {
             if (o == null)
             {
-                sb.AppendLine($"| {entry.Origin} | {entry.Name} | | | | | | | | | | skipped: not found |");
+                sb.AppendLine($"| {entry.Origin} | {entry.Name} | | | | | | | | | | | skipped: not found |");
                 continue;
             }
             var changed = o.Changes.Where(c => c.Changed).ToList();
             var fallbacks = string.Join(", ", o.Fallbacks().OrderByDescending(f => f.Value).Select(f => $"{f.Key} {f.Value}"));
-            double ms = o.Elapsed.TotalMilliseconds;
+            double ms = o.Elapsed.TotalMilliseconds, totalMs = o.Total.TotalMilliseconds;
             sb.AppendLine(string.Create(CultureInfo.InvariantCulture,
                 $"| {entry.Origin} | {entry.Name} | {o.Methods:N0} | {o.Changed:N0} | {changed.Sum(c => c.Folded.Count):N0} | " +
-                $"{changed.Sum(c => c.ConstantBranches):N0} | {changed.Sum(c => c.Dispatchers):N0} | {fallbacks} | {ms:N0} | " +
-                $"{ms / Math.Max(o.Methods, 1):0.000} | {o.Slowest.Method} {o.Slowest.Time.TotalMilliseconds:0} ms | " +
+                $"{changed.Sum(c => c.ConstantBranches):N0} | {changed.Sum(c => c.Dispatchers):N0} | {fallbacks} | {ms:N0} | {totalMs:N0} | " +
+                $"{totalMs / Math.Max(o.Methods, 1):0.000} | {o.Slowest.Method} {o.Slowest.Time.TotalMilliseconds:0} ms | " +
                 $"{(o.Problems.Count == 0 ? "ok" : $"{o.Problems.Count} problem(s)")}" +
                 $"{(o.InvalidOriginalsReencoded > 0 ? $" ({o.InvalidOriginalsReencoded:N0} invalid original bodies re-encoded by the writer)" : "")} |"));
         }

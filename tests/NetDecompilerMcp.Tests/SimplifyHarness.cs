@@ -37,6 +37,8 @@ internal static class SimplifyHarness
         public required List<MethodChange> Changes { get; init; }
         /// <summary>Time spent in the engine only (loading, writing and checking excluded).</summary>
         public required TimeSpan Elapsed { get; init; }
+        /// <summary>The whole library path: load, read the bodies, simplify, save (checking excluded).</summary>
+        public required TimeSpan Total { get; init; }
         public required (string Method, TimeSpan Time) Slowest { get; init; }
         public required (string Method, long Bytes) Hungriest { get; init; }
         public byte[]? Image { get; init; }
@@ -61,12 +63,13 @@ internal static class SimplifyHarness
     /// <summary>Loads <paramref name="path"/> into a fresh workspace, simplifies every method, writes and checks the image.</summary>
     public static Outcome Run(string path, SimplifyOptions? options = null, CancellationToken ct = default)
     {
+        long start = Stopwatch.GetTimestamp();
         using var workspace = new AssemblyWorkspace(new ServerOptions { BackgroundIndexing = false, WatchFiles = false });
         var asm = workspace.Load(path);
-        return workspace.Write(() => Run(asm, options ?? new SimplifyOptions(), ct));
+        return workspace.Write(() => Run(asm, options ?? new SimplifyOptions(), start, ct));
     }
 
-    private static Outcome Run(LoadedAssembly asm, SimplifyOptions options, CancellationToken ct)
+    private static Outcome Run(LoadedAssembly asm, SimplifyOptions options, long start, CancellationToken ct)
     {
         var methods = asm.Module.GetTypes().SelectMany(t => t.Methods).Where(m => m.HasBody).ToList();
         var simplifier = new MethodSimplifier(asm.Module, options);
@@ -121,12 +124,13 @@ internal static class SimplifyHarness
         {
             problems.Add($"save: {ex.GetType().Name}: {ex.Message}");
         }
+        var total = Stopwatch.GetElapsedTime(start);
         int reencoded = 0;
         if (image != null) problems.AddRange(CheckImage(image, expected, invalid, changes, out reencoded));
 
         var outcome = new Outcome
         {
-            Name = asm.AssemblyName, Changes = changes, Elapsed = elapsed, Slowest = slowest, Hungriest = hungriest, Image = image,
+            Name = asm.AssemblyName, Changes = changes, Elapsed = elapsed, Total = total, Slowest = slowest, Hungriest = hungriest, Image = image,
             InvalidOriginalsReencoded = reencoded,
         };
         outcome.Problems.AddRange(problems);
