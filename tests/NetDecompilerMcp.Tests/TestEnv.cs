@@ -69,7 +69,7 @@ public sealed class TempDir : IDisposable
     }
 }
 
-/// <summary>A fact that only runs when the given path exists on this machine (real-world data).</summary>
+/// <summary>A fact that is skipped when the given path does not exist.</summary>
 public sealed class RequiresPathFactAttribute : FactAttribute
 {
     public RequiresPathFactAttribute(string path)
@@ -79,13 +79,10 @@ public sealed class RequiresPathFactAttribute : FactAttribute
     }
 }
 
-/// <summary>
-/// Real-world test data, located by environment variables so nothing about one machine lives in the repo.
-/// Tests that need a variable are skipped when it is unset or points nowhere.
-/// </summary>
+/// <summary>Real-world libraries restored as NuGet packages by the test project.</summary>
 public static class RealPackages
 {
-    /// <summary>A library from the NuGet global packages folder (the test project downloads it on restore).</summary>
+    /// <summary>Path of a library in the NuGet global packages folder.</summary>
     public static string Lib(string id, string version, string framework, string file)
     {
         var root = Environment.GetEnvironmentVariable("NUGET_PACKAGES") is { Length: > 0 } custom
@@ -97,6 +94,7 @@ public static class RealPackages
     }
 }
 
+/// <summary>Environment variables locating real-world test data; tests needing an unset variable are skipped.</summary>
 public static class RealData
 {
     /// <summary>A folder of real-world .NET assemblies.</summary>

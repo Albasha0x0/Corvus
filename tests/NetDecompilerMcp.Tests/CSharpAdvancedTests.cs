@@ -91,7 +91,7 @@ public class CSharpAdvancedTests : IDisposable
     public void LocalFunctionsStringSwitchAndArrayInitializers()
     {
         Patch("Shop::Describe", "string Up(string s) => s.ToUpperInvariant() + \"!\"; return Up(\"ok\");");
-        // A large string switch compiles to a hash switch using <PrivateImplementationDetails>.ComputeStringHash.
+        // Large enough to compile to a hash switch using <PrivateImplementationDetails>.ComputeStringHash.
         Patch("Shop::PriceOf(string)", """
             switch (item)
             {
@@ -152,9 +152,9 @@ public class CSharpAdvancedTests : IDisposable
     public void AddTypesThatUseTheAssembly()
     {
         AddTypes("""
-            namespace Mods
+            namespace Extensions
             {
-                public static class Cheats
+                public static class Helpers
                 {
                     public static int Credit(Fixture.Model.Shop shop) => shop.Credit * 10;
                     public static IEnumerable<int> Evens(int n) { for (int i = 0; i < n; i += 2) yield return i; }
@@ -162,17 +162,16 @@ public class CSharpAdvancedTests : IDisposable
                 public enum Mode { Off, On }
             }
             """);
-        Patch("Shop::Describe", "return Mods.Cheats.Credit(this) + \":\" + string.Join(\",\", Mods.Cheats.Evens(5)) + \":\" + Mods.Mode.On;");
+        Patch("Shop::Describe", "return Extensions.Helpers.Credit(this) + \":\" + string.Join(\",\", Extensions.Helpers.Evens(5)) + \":\" + Extensions.Mode.On;");
         using var run = new Runner(_env);
         Assert.Equal("500:0,2,4:On", run.Call(run.New("Fixture.Model.Shop"), "Describe"));
-        Assert.Contains("already exists", Assert.Throws<ToolError>(() => AddTypes("namespace Mods { public static class Cheats { } }")).Message);
+        Assert.Contains("already exists", Assert.Throws<ToolError>(() => AddTypes("namespace Extensions { public static class Helpers { } }")).Message);
     }
 
     [Fact]
     public void PrivateMembersOfOtherTypesWorkAtRuntime()
     {
-        // Shop reads Account's private field and calls its private static method: compiles with access checks off,
-        // and must also pass the runtime's access checks.
+        // Compiled with access checks off; the runtime must still accept the private accesses.
         Patch("Shop::PriceOf(string)", "var p = new Account(item); Account.Log(\"x\"); return p._balance + Secret.Validate(\"LICENSE-12345\").GetHashCode();");
         using var run = new Runner(_env);
         Assert.Equal(100 + true.GetHashCode(), run.Call(run.New("Fixture.Model.Shop"), "PriceOf", "a"));
@@ -185,7 +184,7 @@ public class CSharpAdvancedTests : IDisposable
         Assert.StartsWith("Dry run", preview);
         Assert.Contains("IL_0001:", preview); // real offsets, not IL_0000 everywhere
         _env.Edits.AddMembersCSharp(_env.One("Shop", SymbolKind.Type), "public int Twice(int x) { return x * 2; }", true, default);
-        _env.Edits.AddTypesCSharp(_env.Fixture, "namespace Mods { public class X { } }", true, default);
+        _env.Edits.AddTypesCSharp(_env.Fixture, "namespace Extensions { public class X { } }", true, default);
         Assert.False(_env.Fixture.IsDirty);
         Assert.Null(((dnlib.DotNet.TypeDef)_env.One("Shop", SymbolKind.Type).Member).FindMethod("Twice"));
     }

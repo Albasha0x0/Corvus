@@ -13,10 +13,7 @@ using NetDecompilerMcp.Services.Analysis;
 
 namespace NetDecompilerMcp.Tests;
 
-/// <summary>
-/// summarize_file / survey_features / extract_strings / extract_embedded, with every fixture built at test time: C# compiled
-/// with Roslyn against the running framework, and assemblies written with dnlib.
-/// </summary>
+/// <summary>summarize_file, survey_features, extract_strings and extract_embedded over fixtures built at test time.</summary>
 public class InspectionTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -35,8 +32,6 @@ public class InspectionTests : IDisposable
         File.WriteAllBytes(path, bytes);
         return path;
     }
-
-    // ------------------------------------------------------------------ fixture builders
 
     /// <summary>Compiles C# against the running framework's assemblies.</summary>
     internal static byte[] Compile(string name, string source)
@@ -119,12 +114,7 @@ public class InspectionTests : IDisposable
         return ms.ToArray();
     }
 
-    /// <summary>
-    /// The same small text file, hidden in an assembly in every way the embedded-content finder decodes: base64 and hex string
-    /// literals, resources (base64, hex, gzip > base64, XOR over gzip with 1- and 3-byte keys, base64 > XOR > gzip),
-    /// a .resources byte[] and string entry, and a static byte array (array initializer data). Plus the text XORed
-    /// directly, which has no known header to recover a key from.
-    /// </summary>
+    /// <summary>One text file embedded with every encoding chain the finder decodes, plus a raw XOR it cannot.</summary>
     private static byte[] EncodedFixture()
     {
         var text = Encoding.UTF8.GetBytes(SecretText);
@@ -142,7 +132,7 @@ public class InspectionTests : IDisposable
             m.Resources.Add(new EmbeddedResource("notes.plainxor", Xor(text, [0x5A])));
             m.Resources.Add(new EmbeddedResource("Encoded.Strings.resources", ResourcesFile(xor1, Convert.ToHexString(text))));
 
-            // a static array initializer: <PrivateImplementationDetails>::data, a FieldRVA of a fixed-size struct type
+            // Static array initializer: <PrivateImplementationDetails>::data, a FieldRVA of a fixed-size struct.
             var details = new TypeDefUser("", "<PrivateImplementationDetails>", m.CorLibTypes.Object.TypeDefOrRef) { Attributes = TypeAttributes.NotPublic | TypeAttributes.Sealed };
             var valueType = new TypeRefUser(m, "System", "ValueType", m.CorLibTypes.AssemblyRef);
             var size = new TypeDefUser("", $"__StaticArrayInitTypeSize={xor1.Length}", valueType)
@@ -156,7 +146,7 @@ public class InspectionTests : IDisposable
             details.Fields.Add(field);
             m.Types.Add(details);
 
-            // string literals, and a method that uses the array
+            // String literals and a method referencing the array.
             var holder = new TypeDefUser("Encoded", "Holder", m.CorLibTypes.Object.TypeDefOrRef) { Attributes = TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed };
             var method = new MethodDefUser("Strings", MethodSig.CreateStatic(m.CorLibTypes.Void), MethodAttributes.Public | MethodAttributes.Static);
             method.Body = new CilBody();
@@ -220,8 +210,6 @@ public class InspectionTests : IDisposable
         return found!;
     }
 
-    // ------------------------------------------------------------------ features
-
     [Fact]
     public void Features_OfEverydayFrameworkApis()
     {
@@ -236,7 +224,7 @@ public class InspectionTests : IDisposable
         Assert.Contains(byName["create processes"].Evidence, e => e.Feature == "api:System.Diagnostics.Process::Start" && e.Locations.Any(l => l.Contains("Everyday::OpenEditor")));
         Assert.Equal("T1070.006", byName["change file timestamps"].Attack); // File.SetCreationTime
 
-        // reading a file, starting notepad and writing an app's own key are not command shells, Run keys or downloads to disk
+        // Benign file, process and registry use must not match the stronger features.
         Assert.DoesNotContain("run the Windows command shell", byName.Keys);
         Assert.DoesNotContain("persist through a Run registry key", byName.Keys);
         Assert.True(report.MethodsScanned > 5);
@@ -256,15 +244,13 @@ public class InspectionTests : IDisposable
         Assert.Equal(fromFile.Order(), fromWorkspace.Order());
     }
 
-    // ------------------------------------------------------------------ embedded content: encoding round-trips
-
     [Fact]
     public void Embedded_EncodedCopiesOfATextFile_AreDecodedWithTheirChain()
     {
         var report = Inspection.ExtractEmbedded(null, Save("Encoded.dll", EncodedFixture()), false, null, false, default);
         var original = Encoding.UTF8.GetBytes(SecretText);
         var texts = report.Contents.Where(p => p.Kind == "text").ToList();
-        Assert.All(texts, p => Assert.Equal(original, p.Bytes)); // every decoded copy is byte-for-byte the original
+        Assert.All(texts, p => Assert.Equal(original, p.Bytes));
 
         var found = string.Join("\n", report.Contents.Select(p => $"{p.Source} [{p.Kind}] {string.Join(" > ", p.Encoding)}"));
         string Chain(string source)
@@ -286,7 +272,7 @@ public class InspectionTests : IDisposable
         Assert.Equal("hex", Chain("string Encoded.Holder::Strings() @IL_0006"));
         Assert.Equal(11, texts.Count);
 
-        // XOR straight over text has no known header to recover the key from: not decoded, and not misreported
+        // Raw XOR over text has no known header to recover the key from.
         Assert.DoesNotContain(report.Contents, p => p.Source.StartsWith("resource 'notes.plainxor'", StringComparison.Ordinal));
     }
 
@@ -321,7 +307,7 @@ public class InspectionTests : IDisposable
         Assert.Equal("text", recovered.Kind);
         Assert.Equal(["xor key 5a (brute-forced)"], recovered.Encoding);
         Assert.Equal(Encoding.UTF8.GetBytes(SecretText), recovered.Bytes);
-        // everything the default path found is still found the same way
+        // Default results are unchanged.
         var off = Inspection.ExtractEmbedded(null, path, false, null, false, default);
         Assert.Equal(off.Contents.Select(p => (p.Source, string.Join(">", p.Encoding))).Order(),
             on.Contents.Where(p => p != recovered).Select(p => (p.Source, string.Join(">", p.Encoding))).Order());
@@ -341,9 +327,9 @@ public class InspectionTests : IDisposable
         });
         var report = Inspection.ExtractEmbedded(null, Save("NotXor.dll", fixture), false, null, false, default, xorText: true);
         Assert.DoesNotContain(report.Contents, p => p.Encoding.Any(e => e.Contains("brute-forced")));
-        Assert.Contains(report.Contents, p => p.Source == "resource 'random.bin'" && p.Kind.StartsWith("high-entropy")); // still reported as it was
+        Assert.Contains(report.Contents, p => p.Source == "resource 'random.bin'" && p.Kind.StartsWith("high-entropy"));
 
-        // real resources and arrays, including codec and opcode tables: no brute-forced decodes
+        // Real resources and tables (codec, opcode) must not yield false decodes.
         foreach (var real in new[]
                  {
                      Env.FixturePath, CachedDll("Microsoft.CodeAnalysis.Common", "Microsoft.CodeAnalysis.dll"),
@@ -411,8 +397,6 @@ public class InspectionTests : IDisposable
         Assert.Equal(Arabic + Arabic + Arabic, Encoding.UTF8.GetString(arabic.Bytes));
     }
 
-    // ------------------------------------------------------------------ values: string classification
-
     [Fact]
     public void Values_ClassifiedByType_AndLookalikesLeftOut()
     {
@@ -423,7 +407,7 @@ public class InspectionTests : IDisposable
         Assert.Contains(("url", "https://example.com/path"), found);
         Assert.Contains(("domain", "example.com"), found);
         Assert.Contains(("file_path", @"C:\Users\Public\Documents\report.txt"), found);
-        Assert.Equal(4, found.Count); // and nothing from the lookalikes
+        Assert.Equal(4, found.Count);
 
         Assert.DoesNotContain(found, f => f.Value.Contains("w3.org") || f.Value.Contains("schemas.microsoft.com"));
         Assert.DoesNotContain(found, f => f.Value is "readme.txt" or "settings.json" or "app.config" or "4.0.0.0");
@@ -449,8 +433,6 @@ public class InspectionTests : IDisposable
         Assert.Contains("exists", Assert.Throws<ToolError>(() => Inspection.ExtractStrings(null, path, null, _dir.File("iocs.json"), null, false, default)).Message);
         Assert.Contains("Unknown value type", Assert.Throws<ToolError>(() => Inspection.ExtractStrings(null, path, ["phone"], null, null, false, default)).Message);
     }
-
-    // ------------------------------------------------------------------ signatures
 
     [Fact]
     public void Certificates_MicrosoftSignedRoslyn_AndUnsignedDnlib()
@@ -487,7 +469,7 @@ public class InspectionTests : IDisposable
         Assert.False(unsigned.Signature.Certificate.Present);
         Assert.DoesNotContain(unsigned.Highlights, h => h.Contains("Authenticode"));
 
-        // one byte changed in the middle of the file: the signature still verifies, but over a digest the file no longer has
+        // One changed byte: the signature verifies but the digest no longer matches.
         var tampered = roslyn.ToArray();
         tampered[tampered.Length / 2] ^= 0xFF;
         var t = Certificates.Read(tampered);
@@ -495,13 +477,11 @@ public class InspectionTests : IDisposable
         Assert.True(t.SignatureValid);
         Assert.Contains(Inspection.Summarize(null, Save("tampered.dll", tampered), default).Highlights, h => h.Contains("modified after signing"));
 
-        // cut inside the certificate table
+        // Truncated inside the certificate table.
         var cut = Certificates.Read(roslyn[..(roslyn.Length - 100)]);
         Assert.True(cut.Present);
         Assert.Contains("outside the file", cut.Problem);
     }
-
-    // ------------------------------------------------------------------ markers
 
     [Fact]
     public void Markers_AreNamed_PlainAssembliesGiveNothing()
@@ -517,8 +497,6 @@ public class InspectionTests : IDisposable
             Assert.Empty(facts.Indicators);
         }
     }
-
-    // ------------------------------------------------------------------ summary
 
     [Fact]
     public void Summary_OfAnAssemblyAndOfAContainer()
@@ -548,13 +526,12 @@ public class InspectionTests : IDisposable
         var capped = Inspection.Summarize(null, many, default);
         Assert.Equal(8, capped.Assemblies.Count);
         Assert.Contains(capped.Notes, n => n.StartsWith("Summarized 8 of 26 assemblies (the app's own first, framework libraries last; the first in full, the others in brief)"));
-        Assert.All(capped.Assemblies.Skip(1), a => Assert.Empty(a.Highlights)); // brief: highlights are listed once, in the file's
+        Assert.All(capped.Assemblies.Skip(1), a => Assert.Empty(a.Highlights)); // brief entries: highlights only at file level
 
         var empty = Inspection.Summarize(null, Save("notes.txt", "just some text"u8.ToArray()), default);
         Assert.Contains("No managed assemblies inside: nothing to summarize beyond the file facts.", empty.Notes);
 
         var encoded = Inspection.Summarize(null, Save("Encoded.dll", EncodedFixture()), default);
-        // 11 decoded copies: 5 listed (and highlighted), the count in the assembly's notes
         Assert.Contains("Embedded content: 11 item(s), 5 listed. extract_embedded lists everything.", Assert.Single(encoded.Assemblies).Notes);
         Assert.Equal(5, encoded.Highlights.Count(h => h.StartsWith("Embedded text", StringComparison.Ordinal)));
 
@@ -572,8 +549,6 @@ public class InspectionTests : IDisposable
             Assert.Throws<ToolError>(() => Inspection.SurveyFeatures(null, Save("a.zip", ContainerFixtures.Zip(("a.dll", [1, 2]))), null, default)).Message);
         Assert.Contains("Unknown format", Assert.Throws<ToolError>(() => Inspection.ExtractStrings(null, path, null, null, "xml", false, default)).Message);
     }
-
-    // ------------------------------------------------------------------ robustness
 
     private static readonly int FuzzCases = int.TryParse(Environment.GetEnvironmentVariable("NDM_FUZZ_CASES"), out var n) ? n : 30;
 
@@ -600,7 +575,7 @@ public class InspectionTests : IDisposable
                 var mutated = bytes.ToArray();
                 for (int k = 0; k < 1 + i % 8; k++)
                 {
-                    // half the changes land in the headers and metadata tables, the rest anywhere
+                    // Half the mutations target headers and metadata tables.
                     int at = random.Next(2) == 0 ? random.Next(Math.Min(8192, mutated.Length)) : random.Next(mutated.Length);
                     mutated[at] = (byte)random.Next(256);
                 }
@@ -626,10 +601,7 @@ public class InspectionTests : IDisposable
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));
     }
 
-    /// <summary>
-    /// A signed file with its certificate table damaged (the PKCS#7 blob, the WIN_CERTIFICATE header, the directory entry):
-    /// the signature is reported with a problem or a failed check, never an exception.
-    /// </summary>
+    /// <summary>Fuzzes the security directory, WIN_CERTIFICATE header and PKCS#7 blob of a signed file.</summary>
     [Fact]
     public void DamagedSignatures_AreReportedNotThrown()
     {
@@ -658,9 +630,7 @@ public class InspectionTests : IDisposable
         Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));
     }
 
-    // ------------------------------------------------------------------ robustness over MCP
-
-    /// <summary>Truncated and corrupt inputs to each of the four tools: a tool error with the reason, and the server keeps serving.</summary>
+    /// <summary>Corrupt inputs give tool errors and the server keeps serving.</summary>
     [Fact]
     public async Task CorruptInputs_GiveClearErrorsOverMcp()
     {
@@ -682,7 +652,7 @@ public class InspectionTests : IDisposable
                 var r = await client.CallToolAsync(tool, new Dictionary<string, object?> { ["path"] = path });
                 if (tool == "summarize_file" && label != "missing")
                 {
-                    // a damaged assembly: the file facts, with the damage as a highlight
+                    // summarize_file reports file facts with the damage as a highlight.
                     Assert.NotEqual(true, r.IsError);
                     Assert.Contains("The .NET metadata is damaged: ", string.Join("\n", r.Content.OfType<TextContentBlock>().Select(c => c.Text)));
                     continue;
@@ -692,7 +662,7 @@ public class InspectionTests : IDisposable
                 Assert.Contains(error, text);
             }
 
-        // not .NET at all: the three single-assembly tools say so; summarize_file reports the file facts
+        // Not .NET at all.
         var notes = Save("notes.txt", "just some text"u8.ToArray());
         foreach (var tool in new[] { "survey_features", "extract_strings", "extract_embedded" })
         {
@@ -701,13 +671,11 @@ public class InspectionTests : IDisposable
             Assert.Contains("is not a .NET assembly (text)", string.Join("\n", r.Content.OfType<TextContentBlock>().Select(c => c.Text)));
         }
 
-        // still serving
         var ok = await client.CallToolAsync("survey_features", new Dictionary<string, object?> { ["path"] = Save("EverydayApis.dll", EverydayApis()) });
         Assert.NotEqual(true, ok.IsError);
         Assert.Contains("download files", ok.StructuredContent!.ToString());
 
-        // every inspection result, with its null fields (no savePath / outputDirectory, features without ATT&CK, no
-        // strong name...), must validate against the advertised output schema: clients reject it otherwise
+        // Results with null fields must still validate against the advertised output schema.
         var everyday = _dir.File("EverydayApis.dll");
         foreach (var tool in new[] { "summarize_file", "survey_features", "extract_strings", "extract_embedded" })
         {

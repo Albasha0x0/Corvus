@@ -12,7 +12,7 @@ public class BackgroundTests
         using var ws = new AssemblyWorkspace();
         var graph = new CallGraphService(ws);
         using var indexing = new IndexingService(ws, graph, new ServerOptions());
-        ws.Load(typeof(ModuleDefMD).Assembly.Location); // dnlib: a few thousand methods
+        ws.Load(typeof(ModuleDefMD).Assembly.Location); // large enough to keep indexing busy
         Assert.True(indexing.WaitForIdle(TimeSpan.FromMinutes(2)));
         Assert.Equal("done", indexing.Status);
         Assert.True(ws.Read(() => graph.IsBuilt));

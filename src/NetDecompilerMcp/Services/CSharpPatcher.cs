@@ -11,15 +11,13 @@ namespace NetDecompilerMcp.Services;
 /// <summary>
 /// C# editing of compiled assemblies: replace a method body, add members to a type, or add new types.
 ///
-/// Method bodies are compiled as static helper methods against the original assembly (see CSharpPatcher.Helper.cs), with
-/// accessibility checks off so private/internal members are usable. Declarations of new members are compiled inside a
-/// "shadow" of the type: the decompiled top-level type with every other body replaced by "throw null" (so decompiler
-/// output that does not round-trip cannot break the build). Constructors and generic contexts, which the helper cannot
-/// express, are compiled in the shadow too. The result is merged into the target module with <see cref="ModuleMerger"/>:
-/// shadow types map back onto the originals, while new members and compiler-generated helpers (lambda closures,
-/// async/iterator state machines, local functions, &lt;PrivateImplementationDetails&gt;) are copied in.
+/// Method bodies compile as static helper methods against the original assembly with accessibility checks off
+/// (see CSharpPatcher.Helper.cs). New member declarations, constructors and generic contexts compile inside a "shadow"
+/// of the type: the decompiled type with every other body replaced by "throw null", so decompiler output that does not
+/// round-trip cannot break the build. <see cref="ModuleMerger"/> maps shadow types back onto the originals and copies in
+/// new members and compiler-generated helpers (closures, state machines, local functions, &lt;PrivateImplementationDetails&gt;).
 ///
-/// Every operation takes the module to modify, so callers can run it on a scratch copy first (dry run / validation).
+/// Every operation takes the target module, so callers can run it on a scratch copy first.
 /// </summary>
 public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, DecompilerService decompiler)
 {
@@ -35,8 +33,6 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
     private static readonly string[] DefaultUsings =
         ["System", "System.Collections", "System.Collections.Generic", "System.Linq", "System.Text", "System.Threading", "System.Threading.Tasks"];
 
-    // ------------------------------------------------------------------ replace a method body
-
     public Outcome PatchMethod(ResolvedSymbol symbol, string code, ModuleDef target, CancellationToken ct)
     {
         if (symbol.Member is not MethodDef method)
@@ -49,7 +45,7 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
         var tree = ShadowTree(asm, method.DeclaringType,
             (root, typeNode) => (CompilationUnitSyntax)new StubRewriter(FindMemberNode(typeNode, method), body).Visit(root)!, ct);
 
-        // Preferred: compile the body as a helper method against the original assembly (keeps type identity).
+        // A helper compiled against the original assembly preserves type identity; the shadow is the fallback.
         ToolError? helperError = null;
         if (HelperApplicable(method, body))
         {
@@ -70,7 +66,7 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
         }
         catch (ToolError) when (helperError != null)
         {
-            throw helperError; // the helper's errors are about the user's code; the shadow is only a fallback
+            throw helperError; // helper errors describe the user's code
         }
     }
 
@@ -97,8 +93,6 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
         return new Outcome(merger.Added, string.Join("\n", newBody.Instructions.Select(i => "  " + i)), relaxed);
     }
 
-    // ------------------------------------------------------------------ add members to an existing type
-
     public Outcome AddMembers(ResolvedSymbol typeSymbol, string code, ModuleDef target, CancellationToken ct)
     {
         if (typeSymbol.Member is not TypeDef type)
@@ -109,11 +103,11 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
         var asm = typeSymbol.Assembly;
         var members = ParseMembers(code, Format.StripArity(type.Name));
         var names = DeclaredNames(members);
-        // Bodies that can be compiled as helpers are stubbed for phase 1 (declarations); the rest compile in the shadow.
+        // Two phases: declare members with stubbed helper bodies, then compile the real bodies as helpers.
+        // Without helpers (generic context) bodies compile directly in the shadow.
         bool helpers = !HasGenericContext(type);
         var declarations = members.Select(m => helpers ? StubHelperBodies(m) : m).ToList();
 
-        // Phase 1: declare the new members (with stub bodies where phase 2 provides the real ones).
         var phase1 = ShadowTree(asm, type, (root, typeNode) =>
             (CompilationUnitSyntax)new StubRewriter(null, null).Visit(root.ReplaceNode(typeNode, typeNode.AddMembers(declarations.ToArray())))!, ct);
         using var compiled = Compile(asm, phase1, null, ct);
@@ -123,8 +117,7 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
         var targetType = CounterpartType(target, type);
         var comparer = new SigComparer(SigComparerOptions.DontCompareTypeScope);
 
-        // Members with a user-declared name that already exist are the original overloads/members of the shadow type
-        // (a real duplicate declaration is a compile error, CS0111/CS0102): only the new ones are added.
+        // Same-named members that already exist are original overloads (a true duplicate fails with CS0111/CS0102).
         foreach (var nested in compiledType.NestedTypes.Where(n => names.Contains(n.Name) && !targetType.NestedTypes.Any(x => x.Name == n.Name)).ToList())
             merger.AddTypeTree(nested, targetType, nested.Name);
         var addedMethods = new List<(MethodDef Compiled, MethodDef Target)>();
@@ -144,7 +137,7 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
         FinalizeBodies(merger.NewMethodTargets);
         var added = merger.Added.ToList();
 
-        // Phase 2: compile the real bodies as helper methods against the image that now contains the new members.
+        // Compile the real bodies as helpers against the image that now contains the new members.
         if (helpers)
         {
             var phase2 = ShadowTree(asm, type, (root, typeNode) =>
@@ -169,8 +162,6 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
         }
         return new Outcome(added, "", relaxed);
     }
-
-    // ------------------------------------------------------------------ add new types
 
     public Outcome AddTypes(LoadedAssembly asm, string code, ModuleDef target, CancellationToken ct)
     {
@@ -198,8 +189,6 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
         FinalizeBodies(merger.NewMethodTargets);
         return new Outcome(merger.Added, "", relaxed);
     }
-
-    // ------------------------------------------------------------------ shared merge helpers
 
     /// <summary>
     /// Declares the compiler-generated helpers of the compiled code as new definitions: nested '&lt;...&gt;' types (closures,
@@ -245,7 +234,6 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
                                 string.Join(", ", merger.Unmapped.Distinct().Take(10)) +
                                 ". This usually means the decompiled declaration of the surrounding type does not match the original; use patch_method_il.");
     }
-
 
     /// <summary>Normalizes branches and validates the evaluation stack of every body produced.</summary>
     private static void FinalizeBodies(IEnumerable<MethodDef> methods)

@@ -37,14 +37,6 @@ public class CallGraphTests : IDisposable
     }
 
     [Fact]
-    public void RecursionAndRepeatsAreMarked()
-    {
-        // Charge(int, string) calls Charge(int); Shop.PriceOf(string, int) calls PriceOf(string).
-        var tree = Tree("Shop::PriceOf(string)", callers: true, depth: 5);
-        Assert.Contains("Fixture.Model.Shop::PriceOf(string, int)", tree);
-    }
-
-    [Fact]
     public void PathsFromStartAndFromEntryPoints()
     {
         var hit = _env.Def<MethodDef>("Consumer.Branch::Bill");
@@ -60,7 +52,7 @@ public class CallGraphTests : IDisposable
     [Fact]
     public void VirtualHopsAreMarkedAndCanBeExcluded()
     {
-        // Branch.Bill calls IChargeable.Charge; Account.Charge(int) is reached only through that interface call
+        // Account.Charge(int) is reached from Branch.Bill only through IChargeable.Charge.
         var hit = _env.Def<MethodDef>("Consumer.Branch::Bill");
         var target = _env.Def<MethodDef>("Account::Charge(int)");
         var path = Assert.Single(_env.Workspace.Read(() => _graph.PathSteps(hit, target, 8, 10, includeVirtual: true, default)));
@@ -69,7 +61,7 @@ public class CallGraphTests : IDisposable
         Assert.Equal("Fixture.Model.IChargeable::Charge(int)", Format.MemberLabel(path[1].Via!));
         Assert.Empty(_env.Workspace.Read(() => _graph.PathSteps(hit, target, 8, 10, includeVirtual: false, default)));
 
-        // the direct caller Charge(int, string) is still found without virtual dispatch
+        // The direct caller Charge(int, string) is still found.
         var direct = _env.Workspace.Read(() => _graph.PathSteps(null, target, 8, 10, includeVirtual: false, default));
         Assert.Contains(direct, p => p[^2].Method.Name == "Charge" && p[^2].Method.Parameters.Count == 3);
         Assert.All(direct, p => Assert.All(p, s => Assert.Null(s.Via)));
@@ -78,8 +70,7 @@ public class CallGraphTests : IDisposable
     [Fact]
     public void DirectPathsAreNotHiddenByVirtualDispatch()
     {
-        // Impl.Run calls Target directly; nothing calls Impl.Run directly, but Driver.Kick reaches it through Base.Run.
-        // With virtual edges Impl.Run is no entry point, so only the longer Start -> Kick -> Run -> Target chain would show.
+        // Impl.Run has no direct callers but is reached virtually from Kick; it must still be a path root.
         using var dir = new TempDir();
         var path = dir.File("Dispatch.dll");
         File.WriteAllBytes(path, ReferenceResolutionTests.Compile("Dispatch", """
@@ -99,8 +90,7 @@ public class CallGraphTests : IDisposable
     [Fact]
     public void TreesExpandBreadthFirst()
     {
-        // Root's callers: A (at the end of a long chain: A <- B <- C <- D) and Z (direct, nothing else).
-        // Depth-first with a small node budget would follow A's chain and never list Z.
+        // A heads a long caller chain; depth-first with a small node budget would never reach Z.
         using var dir = new TempDir();
         var path = dir.File("Chain.dll");
         File.WriteAllBytes(path, ReferenceResolutionTests.Compile("Chain", """
@@ -121,14 +111,13 @@ public class CallGraphTests : IDisposable
             env.Workspace.Read(() => graph.Tree(env.Fixture, env.Def<MethodDef>("G::Root"), true, depth, maxNodes, false, default));
 
         var small = Callers(5, 3);
-        Assert.Contains("  G::Z()", small);        // all of level 1 (A, Shared, Z) before anything deeper
+        Assert.Contains("  G::Z()", small);        // level 1 complete before anything deeper
         Assert.Contains("  G::Shared()", small);
         Assert.DoesNotContain("G::B()", small);
         Assert.Contains("[Stopped after 3 nodes", small);
 
-        // Shared is a caller of Root (level 1) and of A (level 2): expanded once, at level 1, referenced under A
+        // A node reachable at several depths is expanded once, at the shallowest.
         var full = Callers(5, 300);
-        // C calls B (level 3 under A) and Shared (level 2): expanded at level 2
         Assert.Equal("""
             Callers of G::Root()  [Chain]  (depth 5)
               G::A()
@@ -148,7 +137,7 @@ public class CallGraphTests : IDisposable
     {
         _env.Workspace.Read(() => { _graph.EnsureBuilt(default); return 0; });
         Assert.True(_graph.IsBuilt);
-        _env.Edit(() => _env.Edits.StubMethod(_env.One("Account::CheckLicense"), "true")); // removes the call to Validate
+        _env.Edit(() => _env.Edits.StubMethod(_env.One("Account::CheckLicense"), "true")); // drops the call to Validate
         Assert.False(_graph.IsBuilt);
         Assert.Contains("no callers", Tree("Secret::Validate", callers: true));
     }

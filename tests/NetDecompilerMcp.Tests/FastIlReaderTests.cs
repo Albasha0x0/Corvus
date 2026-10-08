@@ -40,7 +40,7 @@ public class FastIlReaderTests
         Assert.True(methods > (largeRealAssembly ? 5_000 : 30), $"only {methods} bodies compared");
     }
 
-    /// <summary>Operand identity independent of representation (dnlib gives Local/Parameter objects, the fast reader indexes).</summary>
+    /// <summary>Operand identity independent of representation (objects in dnlib, indexes in the fast reader).</summary>
     private static string Describe(Instruction instr) => instr.OpCode.OperandType is OperandType.InlineVar or OperandType.ShortInlineVar
         ? "var " + instr.Operand switch { Local l => l.Index, Parameter p => p.Index, var o => Convert.ToInt32(o) }
         : Describe(instr.Operand);

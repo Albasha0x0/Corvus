@@ -4,7 +4,7 @@ using NetDecompilerMcp.Core;
 
 namespace NetDecompilerMcp.Services;
 
-/// <summary>The assembly overview shared by the get_assembly_info tool and the assembly info resource.</summary>
+/// <summary>Assembly overview used by the get_assembly_info tool and the assembly info resource.</summary>
 public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il2cpp)
 {
     /// <summary>Call under the workspace read lock.</summary>
@@ -46,9 +46,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         {
             var target = workspace.LocateReference(r.Name, r.Version, r.PublicKeyOrToken?.Token?.Data, asm.FilePath, Frameworks.TargetsNetFramework(m), Frameworks.TargetFrameworkOf(m));
             var status = target?.Describe() ?? "not found";
-            // another major version than asked for (that framework or package version is not on this machine): the
-            // code is read against that version's API
-            // (.NET Framework 2.0-4.x references unify to the 4.x files by design: not a mismatch)
+            // Flag a resolved major version that differs from the requested one; .NET Framework 2.0-4.x unification is expected.
             if (target?.File is { } file && r.Version is { } wanted && !Frameworks.IsWildcard(wanted)
                 && !(wanted.Major <= 4 && Frameworks.IsNetFrameworkAssembly(r.Name)))
             {

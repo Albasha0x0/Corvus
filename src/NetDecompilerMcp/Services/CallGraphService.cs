@@ -8,9 +8,8 @@ using static NetDecompilerMcp.Services.MetadataUtil;
 namespace NetDecompilerMcp.Services;
 
 /// <summary>
-/// Whole-workspace call graph (callers and callees of every method), built once per workspace state with the fast IL
-/// reader and cached. Drives call trees ("who calls the callers of X") and call paths ("how does execution get from A to B").
-/// Callers include calls made through a base or interface method the target overrides/implements.
+/// Workspace-wide call graph, cached per workspace state, for call trees and call paths. Callers include calls made
+/// through a base or interface method the target overrides or implements.
 /// </summary>
 public sealed class CallGraphService(AssemblyWorkspace workspace)
 {
@@ -19,19 +18,18 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
     private sealed record Graph(long Key, Dictionary<MethodDef, List<Edge>> Callees, Dictionary<MethodDef, List<Edge>> Callers, Dictionary<MethodDef, List<string>> External,
         Dictionary<string, List<Edge>> ExternalCallers)
     {
-        /// <summary>Base/interface declarations per method (resolution across assemblies is costly; asked once per method).</summary>
+        /// <summary>Base/interface declarations per method, memoized because cross-assembly resolution is costly.</summary>
         public ConcurrentDictionary<MethodDef, MethodDef[]> Bases { get; } = new();
     }
 
     private readonly object _sync = new();
     private Graph? _graph;
 
-    /// <summary>True when the graph for the current workspace state is already built.</summary>
     public bool IsBuilt => _graph?.Key == StateKey();
 
     private long StateKey() => ((long)workspace.Generation << 32) | (uint)workspace.Assemblies.Sum(a => a.Version);
 
-    /// <summary>Builds (or returns) the graph. Call under the workspace read lock.</summary>
+    /// <summary>Call under the workspace read lock.</summary>
     public void EnsureBuilt(CancellationToken ct) => GetGraph(ct);
 
     private Graph GetGraph(CancellationToken ct)
@@ -93,7 +91,7 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
 
     private static bool IsCall(Code c) => c is Code.Call or Code.Callvirt or Code.Newobj or Code.Ldftn or Code.Ldvirtftn or Code.Jmp;
 
-    /// <summary>Direct callers, plus callers of the base/interface declarations (dispatching here at runtime).</summary>
+    /// <summary>Direct callers plus callers of the base/interface declarations that dispatch here.</summary>
     private static IEnumerable<(Edge Edge, MethodDef? Via)> CallersOf(Graph g, MethodDef m)
     {
         foreach (var e in Direct(m))
@@ -103,8 +101,7 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
             foreach (var e in Direct(b))
                 yield return (e, b);
 
-        // a framework or dependency method (Process.Start) is matched by name and signature: its callers may
-        // reference it through different files (mscorlib, System.Private.CoreLib)
+        // External methods match by name and signature, since callers may reference different facades.
         List<Edge> Direct(MethodDef x) => g.Callers.GetValueOrDefault(x)
             ?? (MetadataUtil.IsReferenceOnly(x) ? g.ExternalCallers.GetValueOrDefault(ExternalKey(x)) : null) ?? [];
     }
@@ -112,15 +109,12 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
     private static string ExternalKey(MethodDef m) =>
         $"{m.DeclaringType?.FullName}::{m.Name}({Format.ParameterTypes(m.MethodSig)}){m.GenericParameters.Count}";
 
-    // ------------------------------------------------------------------ trees
-
     public string Tree(LoadedAssembly asm, MethodDef root, bool callers, int depth, int maxNodes, bool includeExternal, CancellationToken ct)
     {
         var g = GetGraph(ct);
         var sb = new StringBuilder($"{(callers ? "Callers" : "Callees")} of {Format.MemberLabel(root)}  [{asm.Id}]  (depth {depth})\n");
 
-        // Breadth-first: every level is complete before the next one starts, so maxNodes cuts the deepest level, and a
-        // method reached several times is expanded once, at its shallowest occurrence (the others say where).
+        // Breadth-first so maxNodes truncates only the deepest level; each method is expanded once, at its shallowest occurrence.
         var children = new Dictionary<MethodDef, List<(MethodDef Child, string? Note, int Count)>>();
         var expandedAt = new Dictionary<MethodDef, (MethodDef Parent, int Level)> { [root] = (root, 0) };
         var parentOf = new Dictionary<MethodDef, MethodDef>();
@@ -190,25 +184,18 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
         return sb.ToString();
     }
 
-    // ------------------------------------------------------------------ paths
-
-    /// <summary>
-    /// One step of a call path: the method, and — when the previous step reaches it by virtual dispatch — the
-    /// base/interface declaration that step actually calls (null for a direct call).
-    /// </summary>
+    /// <summary>A call path step; <c>Via</c> is the base/interface method called when reached by virtual dispatch.</summary>
     public sealed record PathStep(MethodDef Method, MethodDef? Via);
 
-    /// <summary>Call chains as methods only (see <see cref="PathSteps"/>).</summary>
+    /// <summary><see cref="PathSteps"/> as plain method lists.</summary>
     public List<List<MethodDef>> Paths(MethodDef? from, MethodDef to, int maxDepth, int maxPaths, CancellationToken ct, bool includeVirtual = true) =>
         PathSteps(from, to, maxDepth, maxPaths, includeVirtual, ct).Select(p => p.Select(s => s.Method).ToList()).ToList();
 
     /// <summary>
-    /// Call chains ending at <paramref name="to"/>: from <paramref name="from"/> when given, otherwise from entry points
-    /// (methods nothing in the workspace calls: Main, Unity callbacks, event handlers, reflection targets...).
-    /// Paths made of direct calls come first (shortest first); then, with <paramref name="includeVirtual"/>, paths that
-    /// need a virtual-dispatch hop (shortest first, fewer such hops first). Without it only direct calls are followed.
-    /// Entry points are judged by the same edges: a method only called through virtual dispatch is an entry point of the
-    /// direct-call paths, so a short direct chain is not hidden behind a longer chain through a broad base method.
+    /// Call chains ending at <paramref name="to"/>, starting at <paramref name="from"/> or, if null, at entry points
+    /// (methods with no callers in the workspace). Direct-call paths come first, shortest first; with
+    /// <paramref name="includeVirtual"/>, paths needing virtual-dispatch hops follow. Entry points are determined per
+    /// edge set, so short direct chains are not hidden behind longer chains through a broad base method.
     /// </summary>
     public List<List<PathStep>> PathSteps(MethodDef? from, MethodDef to, int maxDepth, int maxPaths, bool includeVirtual, CancellationToken ct)
     {
@@ -224,14 +211,13 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
     {
         var g = GetGraph(ct);
 
-        // a caller of m, and the base declaration it calls when it reaches m only through virtual dispatch
+        // Via is set only when the caller reaches m solely through virtual dispatch.
         List<(MethodDef Caller, MethodDef? Via)> Callers(MethodDef m) =>
             CallersOf(g, m).Where(x => includeVirtual || x.Via == null)
                 .GroupBy(x => x.Edge.Method)
                 .Select(x => (x.Key, x.Any(e => e.Via == null) ? null : x.First().Via)).ToList();
 
-        // Backward BFS: distance of every method from 'to' (linear in the graph, unlike enumerating all simple paths,
-        // which explodes on the cyclic call graphs of real games).
+        // Backward BFS from 'to': linear, unlike enumerating all simple paths in a cyclic graph.
         var dist = new Dictionary<MethodDef, int> { [to] = 0 };
         var closer = new Dictionary<MethodDef, List<PathStep>>(); // caller -> its callees one step closer to 'to'
         var targets = new List<MethodDef>();
@@ -264,13 +250,13 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
                 }
             }
         }
-        // 'to' is itself an entry point (a framework method nothing loaded calls is no path at all)
+        // 'to' is itself an entry point, unless it is an external method.
         if (from == null && targets.Count == 0 && Callers(to).Count == 0 && !MetadataUtil.IsReferenceOnly(to))
             targets.Add(to);
-        foreach (var list in closer.Values) // direct calls are explored first
+        foreach (var list in closer.Values) // direct calls first
             list.Sort((a, b) => (a.Via != null).CompareTo(b.Via != null));
 
-        // Walk forward from each start along shortest-distance edges; one path per start first, for variety.
+        // Walk forward along shortest-distance edges; one path per start first, for variety.
         var results = new List<List<PathStep>>();
         var seen = new HashSet<string>();
         void Walk(List<PathStep> path, int perStartLimit, ref int taken)

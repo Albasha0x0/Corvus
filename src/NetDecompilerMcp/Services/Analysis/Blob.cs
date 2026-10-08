@@ -23,8 +23,6 @@ public sealed record AnalysisLimits
 /// <summary>Byte-level helpers: file-type identification, entropy, hashes, bounded decompression, carving.</summary>
 public static class Blob
 {
-    // ------------------------------------------------------------------ identification
-
     /// <summary>A short type name from magic bytes: "pe", "zip", "gzip", "elf", ... or "text" / "data".</summary>
     public static string Identify(ReadOnlySpan<byte> b)
     {
@@ -59,13 +57,11 @@ public static class Blob
 
     public static bool StartsWith(ReadOnlySpan<byte> b, ReadOnlySpan<byte> magic) => b.Length >= magic.Length && b[..magic.Length].SequenceEqual(magic);
 
-    /// <summary>Image formats: reported by kind but not decoded further, and grouped in summaries.</summary>
+    /// <summary>Image formats: reported but not decoded further.</summary>
     public static bool IsMedia(string kind) => kind is "png" or "jpeg" or "gif" or "ico";
 
     /// <summary>
-    /// Readable text (checks a prefix): no NUL and at most 5% control bytes, and either 90% or more printable ASCII (a
-    /// few bytes of a legacy code page are fine) or valid UTF-8. Random binary has many high bytes that do not form
-    /// UTF-8, so it is not text.
+    /// Checks a 4 KB prefix: no NUL, at most 5% control bytes, and either 90%+ printable ASCII or valid UTF-8.
     /// </summary>
     public static bool LooksLikeText(ReadOnlySpan<byte> b)
     {
@@ -82,7 +78,7 @@ public static class Blob
         }
         if (printable < sample.Length * 0.95) return false;
         if (ascii >= sample.Length * 0.9) return true;
-        // a sample cut inside a multi-byte character: drop the incomplete tail before validating
+        // Drop a trailing incomplete UTF-8 sequence before validating.
         int end = sample.Length;
         for (int i = 1; i <= 3 && i <= sample.Length; i++)
         {
@@ -112,8 +108,6 @@ public static class Blob
     public static string Sha256(ReadOnlySpan<byte> b) => Convert.ToHexStringLower(SHA256.HashData(b));
     public static string Sha1(ReadOnlySpan<byte> b) => Convert.ToHexStringLower(SHA1.HashData(b));
     public static string Md5(ReadOnlySpan<byte> b) => Convert.ToHexStringLower(MD5.HashData(b));
-
-    // ------------------------------------------------------------------ decompression
 
     /// <summary>Decompresses gzip / zlib / raw deflate within the limit; null if the data is not valid for the format.</summary>
     public static byte[]? TryDecompress(ReadOnlySpan<byte> data, string format, long maxBytes)
@@ -153,14 +147,12 @@ public static class Blob
     {
         if (!StartsWith(data, "XALZ"u8) || data.Length < 12) return null;
         uint size = BinaryPrimitives.ReadUInt32LittleEndian(data[8..]);
-        // LZ4 expands at most ~255x, so a larger claimed size is a corrupt header: don't allocate it
+        // LZ4 expands at most ~255x; a larger claimed size is a corrupt header.
         if (size == 0 || size > maxBytes || size > (long)(data.Length - 12) * 255) return null;
         var output = new byte[size];
         int written = K4os.Compression.LZ4.LZ4Codec.Decode(data[12..], output);
         return written == size ? output : null;
     }
-
-    // ------------------------------------------------------------------ carving
 
     public sealed record Carved(int Offset, int Length, bool IsDotNet);
 
@@ -178,7 +170,7 @@ public static class Blob
             if (pe != null && pe.EndOfImage <= data.Length - at && pe.EndOfImage > 0)
             {
                 found.Add(new Carved(at, (int)pe.EndOfImage, pe.IsDotNet(data)));
-                i = at + (int)pe.EndOfImage; // nested images are reported by their container's own analysis
+                i = at + (int)pe.EndOfImage; // nested images are found by analyzing the container
             }
             else
             {
@@ -189,7 +181,7 @@ public static class Blob
         return found;
     }
 
-    /// <summary>Offsets of "XALZ" chunks (Xamarin assembly stores contain one per assembly).</summary>
+    /// <summary>Offsets of every occurrence of <paramref name="magic"/>.</summary>
     public static List<int> FindAll(ReadOnlySpan<byte> data, ReadOnlySpan<byte> magic, int maxResults = 100_000)
     {
         var found = new List<int>();
@@ -204,8 +196,6 @@ public static class Blob
         return found;
     }
 
-    // ------------------------------------------------------------------ safe output
-
     private static readonly HashSet<string> RunnableExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".exe", ".scr", ".com", ".pif", ".bat", ".cmd", ".ps1", ".psm1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh",
@@ -213,10 +203,8 @@ public static class Blob
     };
 
     /// <summary>
-    /// A relative path that cannot escape its output directory: separators normalized, "." / ".." / rooted and drive
-    /// parts dropped, invalid and control characters replaced, parts cut to 120 characters and at most 8 parts kept,
-    /// reserved device names prefixed with "_", and runnable extensions given a ".bin" suffix (".dll" is kept so
-    /// extracted assemblies resolve by name).
+    /// Sanitizes a name into a relative path that cannot escape the output directory. Runnable extensions get a ".bin"
+    /// suffix; ".dll" is kept so extracted assemblies resolve by name.
     /// </summary>
     public static string SafeRelativePath(string name, string fallback)
     {
@@ -231,7 +219,7 @@ public static class Blob
         var file = parts[^1];
         if (RunnableExtensions.Contains(Path.GetExtension(file))) parts[^1] = file + ".bin";
         if (IsReservedDeviceName(Path.GetFileNameWithoutExtension(parts[^1]))) parts[^1] = "_" + parts[^1];
-        if (parts.Count > 8) parts = [.. parts.Take(7), parts[^1]]; // keep paths short
+        if (parts.Count > 8) parts = [.. parts.Take(7), parts[^1]];
         return Path.Combine([.. parts]);
     }
 
@@ -248,7 +236,7 @@ public static class Blob
         return full;
     }
 
-    /// <summary>Writes <paramref name="bytes"/> to a unique path under root (never overwrites a different file).</summary>
+    /// <summary>Writes to a unique path under root; never overwrites a different file.</summary>
     public static string WriteUnique(string root, string relative, ReadOnlySpan<byte> bytes)
     {
         var path = UnderRoot(root, relative);
@@ -258,7 +246,7 @@ public static class Blob
         var ext = Path.GetExtension(path);
         for (int i = 2; File.Exists(path); i++)
         {
-            if (new FileInfo(path).Length == bytes.Length && File.ReadAllBytes(path).AsSpan().SequenceEqual(bytes)) return path; // same content
+            if (new FileInfo(path).Length == bytes.Length && File.ReadAllBytes(path).AsSpan().SequenceEqual(bytes)) return path;
             path = Path.Combine(dir, $"{stem}_{i}{ext}");
         }
         File.WriteAllBytes(path, bytes.ToArray());

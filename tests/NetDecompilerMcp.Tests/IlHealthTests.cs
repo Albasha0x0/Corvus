@@ -7,16 +7,13 @@ using NetDecompilerMcp.Services.Analysis;
 
 namespace NetDecompilerMcp.Tests;
 
-/// <summary>
-/// Method bodies that are not valid IL (encrypted on disk, or a memory dump taken before a modified runtime decrypted
-/// them) are detected and flagged by get_assembly_info, decompilation, compare_assemblies and summarize_file.
-/// </summary>
+/// <summary>Invalid (encrypted) method bodies are detected and flagged by every tool that reads them.</summary>
 public class IlHealthTests : IDisposable
 {
     private readonly TempDir _dir = new();
     public void Dispose() => _dir.Dispose();
 
-    /// <summary>A copy of the fixture whose bodies (of methods selected by declaring type) are overwritten with bytes that are not IL.</summary>
+    /// <summary>Overwrites the bodies of the selected types' methods with bytes that are not IL.</summary>
     private static byte[] Corrupt(byte[] image, Func<string, bool> declaringType)
     {
         var copy = (byte[])image.Clone();
@@ -32,7 +29,7 @@ public class IlHealthTests : IDisposable
             (int codeStart, int codeSize) = (header & 3) == 2
                 ? (offset + 1, header >> 2)                                  // tiny header
                 : (offset + 12, BitConverter.ToInt32(copy, offset + 4));     // fat header
-            // what an encrypted body looks like: high-entropy bytes, starting with an opcode that does not exist
+            // Simulated encryption: random bytes starting with an unused opcode.
             for (int i = 0; i < codeSize; i++) copy[codeStart + i] = (byte)rng.Next(256);
             copy[codeStart] = 0xA6;
         }
@@ -59,7 +56,7 @@ public class IlHealthTests : IDisposable
     [Fact]
     public void TheInstalledRuntime_HasNoInvalidBodies()
     {
-        // false-positive guard: every managed assembly of the running .NET (R2R images still carry their IL)
+        // False-positive guard over the running runtime's assemblies (R2R images still carry IL).
         var dir = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
         int bodies = 0;
         var flagged = new List<string>();
@@ -105,13 +102,12 @@ public class IlHealthTests : IDisposable
         Assert.Equal(encrypted.BodyHealth.Bodies, encrypted.BodyHealth.Invalid);
         Assert.Contains("Load the decrypted image", env.Workspace.Read(() => env.Report.Build(encrypted)));
 
-        // compare: the clean build vs the encrypted dump of the same code — body changes are not presented as real
+        // compare_assemblies does not report invalid bodies as real changes.
         var cmp = env.Workspace.Read(() => new AssemblyComparer(env.Workspace).Compare(env.Fixture, encrypted, default));
         var bodies = cmp.Types.SelectMany(t => t.Members).Where(m => m.Change == "body").ToList();
         Assert.NotEmpty(bodies);
         Assert.All(bodies, m => Assert.Equal("new body not valid IL (encrypted?); not comparable", m.Detail));
 
-        // summarize_file on the file: a note and a highlight
         var summary = new InspectionService(env.Workspace).Summarize(null, path, default);
         var one = Assert.Single(summary.Assemblies);
         Assert.Contains(one.Notes, n => n.Contains("method bodies are not valid IL"));

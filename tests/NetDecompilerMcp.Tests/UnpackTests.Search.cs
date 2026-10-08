@@ -40,8 +40,6 @@ public partial class UnpackTests
     private static byte[] CosturaHostWithFixture() => ContainerFixtures.Module("CosturaHost",
         ("costura.testfixture.dll.compressed", ContainerFixtures.Deflate(System.IO.File.ReadAllBytes(Env.FixturePath))));
 
-    // ------------------------------------------------------------------ per container type
-
     [Fact]
     public void Search_SingleFileBundle()
     {
@@ -53,7 +51,7 @@ public partial class UnpackTests
         Assert.StartsWith("Program::<Main>$(", main.Name);
 
         AssertNothingFound(Search(fx.Bundle, NoSuchSymbol));
-        Assert.Empty(Search(fx.Bundle, "Program", "method").Matches); // the type matches, but no method is named that
+        Assert.Empty(Search(fx.Bundle, "Program", "method").Matches); // only the type has that name
         Assert.Equal(".NET single-file bundle", Search(fx.Bundle, "Program").Container);
     }
 
@@ -111,8 +109,6 @@ public partial class UnpackTests
         Assert.Contains(Search(Env.FixturePath, "Charg*").Matches, m => m.Name.StartsWith("Fixture.Model.Account::Charge("));
     }
 
-    // ------------------------------------------------------------------ limits, safety, errors
-
     [Fact]
     public void Search_CapsResults_BestMatchesFirst()
     {
@@ -168,8 +164,6 @@ public partial class UnpackTests
         Assert.Contains("File not found", Assert.Throws<ToolError>(() => Search(_dir.File("missing.zip"), "x")).Message);
     }
 
-    // ------------------------------------------------------------------ over MCP
-
     [Fact]
     public async Task SearchContainerTool_CorruptContainers_ErrorClearly_AndTheServerKeepsServing()
     {
@@ -195,7 +189,7 @@ public partial class UnpackTests
         var bad = await client.CallToolAsync("search_container", new Dictionary<string, object?> { ["path"] = fx.Bundle, ["query"] = "x", ["kind"] = "namespace" });
         Assert.True(bad.IsError);
 
-        // still serving: a real search over stdio, with the structured result
+        // The server still serves a valid structured result.
         var ok = await client.CallToolAsync("search_container", new Dictionary<string, object?>
         {
             ["path"] = Save("ok.apk", BuildApk().Apk), ["query"] = "balance", ["kind"] = "property",

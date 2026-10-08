@@ -10,8 +10,6 @@ namespace NetDecompilerMcp.Tests;
 /// <summary>ReadyToRun status, merged-assembly labels, and list_assemblies on container files.</summary>
 public partial class UnpackTests
 {
-    // ------------------------------------------------------------------ merged-assembly fixtures
-
     private static TypeDefUser AddType(ModuleDefUser m, string ns, string name, bool compilerGenerated = false)
     {
         var t = new TypeDefUser(ns, name, m.CorLibTypes.Object.TypeDefOrRef) { Attributes = TypeAttributes.NotPublic | TypeAttributes.Sealed };
@@ -24,11 +22,7 @@ public partial class UnpackTests
         return t;
     }
 
-    /// <summary>
-    /// What ILMerge leaves when inputs LibB, Contoso.Utils and Lib2 each had a clashing non-public type: the first input
-    /// keeps "Helper" / "&lt;PrivateImplementationDetails&gt;", later ones get "Input.Name" (compiler-generated) or
-    /// "Input&lt;key&gt;.Name" (the rest), in the same namespace.
-    /// </summary>
+    /// <summary>ILMerge renames of clashing types: "Input.Name" for compiler-generated, "Input&lt;key&gt;.Name" otherwise.</summary>
     private static byte[] IlMerged() => ContainerFixtures.Module("IlMerged", m =>
     {
         AddType(m, "", "<PrivateImplementationDetails>", compilerGenerated: true);
@@ -74,8 +68,6 @@ public partial class UnpackTests
         return AssemblyTraits.MergeNote(module);
     }
 
-    // ------------------------------------------------------------------ ReadyToRun
-
     [Fact]
     public void ReadyToRun_DetectedOnCrossgenOutput_NotOnIlOnlyAssemblies()
     {
@@ -96,8 +88,6 @@ public partial class UnpackTests
         var plain = Unpack(fx.Bundle);
         Assert.False(Entry(plain, "Hello.dll").ReadyToRun);
     }
-
-    // ------------------------------------------------------------------ merged assemblies
 
     [Fact]
     public void IlMergeRenames_AreLabelledWithTheRecoveredInputs()
@@ -131,9 +121,9 @@ public partial class UnpackTests
     public void UnmergedAssemblies_AreNotLabelled()
     {
         Assert.Null(MergeNote(System.IO.File.ReadAllBytes(Env.FixturePath)));
-        // a dotted type name alone is not enough: the undotted original must be there too
+        // A dotted type name alone is not enough; the undotted original must exist too.
         Assert.Null(MergeNote(ContainerFixtures.Module("Odd", m => AddType(m, "Ns", "Weird.Name"))));
-        // every assembly of the shared framework (none of them merged): no false positives on real compiler output
+        // False-positive guard over the shared framework.
         var framework = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
         var labelled = Directory.EnumerateFiles(framework, "*.dll")
             .Where(f => Blob.Identify(System.IO.File.ReadAllBytes(f)) == ".NET assembly")
@@ -151,8 +141,6 @@ public partial class UnpackTests
         Assert.StartsWith("Merged by ILRepack from 3", Entry(r, "Repacked.dll").Merged);
         Assert.Null(Entry(r, "TestFixture.dll").Merged);
     }
-
-    // ------------------------------------------------------------------ list_assemblies on a container (service)
 
     private UnpackService.ContainerListing List(string path) => Unpacker.List(path, AnalysisLimits.Default, default);
 
@@ -222,7 +210,7 @@ public partial class UnpackTests
     {
         var nupkg = System.IO.File.ReadAllBytes(ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"));
         Assert.Contains("corrupt zip", Assert.Throws<ToolError>(() => List(Save("cut.nupkg", nupkg[..20]))).Message);
-        // cut halfway: the entries before the cut are recovered from their local headers
+        // Cut halfway: earlier entries are recovered from local headers.
         var half = List(Save("half.nupkg", nupkg[..(nupkg.Length / 2)]));
         Assert.Contains(half.Notes, n => n.StartsWith("Damaged zip"));
 
@@ -233,8 +221,6 @@ public partial class UnpackTests
         Assert.Contains("corrupt XALZ", Assert.Throws<ToolError>(() => List(Save("bad.dll", [.. "XALZ"u8, 0, 0, 0, 0, 100, 0, 0, 0, 1, 2, 3]))).Message);
         Assert.Contains("File not found", Assert.Throws<ToolError>(() => List(_dir.File("missing.apk"))).Message);
     }
-
-    // ------------------------------------------------------------------ list_assemblies over MCP
 
     private static JsonElement Prop(JsonElement e, string name) =>
         e.EnumerateObject().First(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)).Value;
@@ -250,8 +236,7 @@ public partial class UnpackTests
         var merged = Save("IlMerged.dll", IlMerged());
         await using var client = await McpProtocolTests.StartServerAsync("--no-index", "--load", fx.ReadyToRunDll, "--load", Env.FixturePath, "--load", merged);
 
-        // no path: the workspace, as before, with readyToRun / merged per assembly and a null container section
-        // (nulls are written, not omitted: the output schema lists every property as required)
+        // No path: the workspace, with a null container (nulls are emitted; the schema marks every property required).
         var stateResult = await client.CallToolAsync("list_assemblies", new Dictionary<string, object?>());
         await McpProtocolTests.AssertMatchesOutputSchema(client, "list_assemblies", stateResult);
         var state = Structured(stateResult);
@@ -262,7 +247,7 @@ public partial class UnpackTests
         Assert.Equal(JsonValueKind.Null, Prop(byId["TestFixture"], "merged").ValueKind);
         Assert.StartsWith("Merged assembly (ILMerge-style)", Prop(byId["IlMerged"], "merged").GetString());
 
-        // a container path: its managed assemblies, nothing loaded
+        // A container path lists its assemblies without loading them.
         var bundleResult = await client.CallToolAsync("list_assemblies", new Dictionary<string, object?> { ["path"] = fx.Bundle });
         await McpProtocolTests.AssertMatchesOutputSchema(client, "list_assemblies", bundleResult);
         var withBundle = Structured(bundleResult);
@@ -273,7 +258,7 @@ public partial class UnpackTests
         Assert.False(Prop(hello, "readyToRun").GetBoolean());
         Assert.Equal(0, Prop(withBundle, "assemblies").GetArrayLength()); // with path, only the container is listed
 
-        // a corrupt container: a tool error with the reason, and the server keeps serving
+        // A corrupt container gives a tool error; the server keeps serving.
         var nupkg = System.IO.File.ReadAllBytes(ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"));
         var bad = await client.CallToolAsync("list_assemblies", new Dictionary<string, object?> { ["path"] = Save("cut.nupkg", nupkg[..20]) });
         Assert.True(bad.IsError);

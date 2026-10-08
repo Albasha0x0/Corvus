@@ -6,16 +6,15 @@ using static NetDecompilerMcp.Services.MetadataUtil;
 namespace NetDecompilerMcp.Services;
 
 /// <summary>
-/// Patched code is compiled with accessibility checks off, but the runtime still enforces them when the method is JIT-
-/// compiled (MethodAccessException / FieldAccessException). This makes such code legal:
-/// - members and nested types of the same assembly that the new code cannot see are relaxed to internal (assembly);
-/// - for other assemblies, the target gets [assembly: IgnoresAccessChecksTo("Other")], which the .NET and Mono runtimes honor.
+/// Makes patched code (compiled with accessibility checks off) pass runtime access checks: inaccessible members and
+/// nested types in the same assembly are relaxed to internal; other assemblies get
+/// <c>[assembly: IgnoresAccessChecksTo("Other")]</c>, honored by the .NET and Mono runtimes.
 /// </summary>
 internal static class AccessFixer
 {
     private const string IgnoresAccessChecksTo = "System.Runtime.CompilerServices.IgnoresAccessChecksToAttribute";
 
-    /// <summary>Returns a description of every change made.</summary>
+    /// <returns>A description of each change made.</returns>
     public static List<string> Fix(ModuleDef module, IEnumerable<MethodDef> methods)
     {
         var changes = new List<string>();
@@ -124,7 +123,7 @@ internal static class AccessFixer
 
     private static bool SameModule(TypeDef a, TypeDef b) => a.Module == b.Module;
 
-    /// <summary>True if <paramref name="accessor"/> is <paramref name="owner"/> or nested (at any depth) inside it.</summary>
+    /// <summary>True if <paramref name="accessor"/> is <paramref name="owner"/> or nested within it at any depth.</summary>
     private static bool IsWithin(TypeDef accessor, TypeDef owner)
     {
         for (var t = accessor; t != null; t = t.DeclaringType)
@@ -140,7 +139,7 @@ internal static class AccessFixer
         return false;
     }
 
-    /// <summary>Adds the attribute (defining its type if the assembly does not have it yet). Returns false if already present.</summary>
+    /// <summary>Adds the attribute, defining its type if missing. Returns false if already present.</summary>
     private static bool AddIgnoresAccessChecksTo(ModuleDef module, string assemblyName)
     {
         var assembly = module.Assembly ?? throw new ToolError("The target module has no assembly manifest.");

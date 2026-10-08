@@ -6,10 +6,7 @@ using Xunit.Abstractions;
 
 namespace NetDecompilerMcp.Tests;
 
-/// <summary>
-/// Robustness on large real-world assemblies (dnlib, the ILSpy engine itself) and, when present on this machine,
-/// on a real Il2CppDumper DummyDll folder.
-/// </summary>
+/// <summary>Robustness on large real assemblies (dnlib, ILSpy) and on optional real data.</summary>
 public class RealAssemblyTests(ITestOutputHelper output)
 {
     private static readonly string DnlibPath = typeof(ModuleDefMD).Assembly.Location;
@@ -113,7 +110,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
         output.WriteLine($"load: {report.Loaded.Count} assemblies, {ws.Assemblies.Sum(a => a.Module.GetTypes().Count())} types in {sw.ElapsedMilliseconds} ms");
         Assert.NotEmpty(report.Loaded);
 
-        // Decompile every top-level type of the app's own assemblies (not the bundled framework / engine) concurrently.
+        // Decompile every top-level app type concurrently.
         var app = ws.Assemblies.Where(RealData.IsAppAssembly).ToList();
         Assert.NotEmpty(app);
         var types = app.SelectMany(a => a.Module.Types.Where(t => t.FullName != "<Module>").Select(t => (a, t))).ToList();
@@ -142,8 +139,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
         var refs = ws.Read(() => references.FindReferences(target, true, 200, default));
         output.WriteLine($"xrefs to {target.Label}: {refs.Total} in {sw.ElapsedMilliseconds} ms");
 
-        // C# patch dry run on a real method: the first bool method without out / ref parameters ("return true;" must be
-        // a valid body for it). In a typical app folder that is in a bundled library with internal types in signatures.
+        // C# patch dry run on the first bool method without by-ref parameters, so "return true;" is a valid body.
         var method = app.SelectMany(a => a.Module.GetTypes()).SelectMany(t => t.Methods)
             .First(m => m.HasBody && !m.IsConstructor && m.ReturnType.ElementType == ElementType.Boolean && !m.DeclaringType.Name.String.Contains('<')
                         && !m.DeclaringType.HasGenericParameters && !m.Name.String.Contains('.') && !m.IsGetter && !m.IsSetter
@@ -186,11 +182,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
             Assert.False(string.IsNullOrWhiteSpace(decompiler.DecompileType(asm, t, default)));
     }
 
-    /// <summary>
-    /// A real mixed workspace: the app's assemblies plus an Il2Cpp dummy-DLL set (its own mscorlib) — C# compiled
-    /// against an app type must not see two List&lt;T&gt; (CS0433), and every app reference to mscorlib must not bind to
-    /// the dummy one.
-    /// </summary>
+    /// <summary>With a dummy-DLL mscorlib also loaded, app code compiles without CS0433 and binds to the real mscorlib.</summary>
     [RequiresRealDataFact(RealData.AssemblyDir, RealData.Il2CppDummyDir)]
     public void AppAndIl2CppDummySetLoadedTogether()
     {
@@ -206,15 +198,12 @@ public class RealAssemblyTests(ITestOutputHelper output)
         output.WriteLine($"{app.Id} {type.FullName}: {added.Split('\n')[0]}");
 
         var dummyCorlib = env.Workspace.Assemblies.First(a => a.AssemblyName == "mscorlib");
-        foreach (var a in report.Loaded) // the app folder's assemblies (the dummy set's own refs rightly bind within it)
+        foreach (var a in report.Loaded) // app assemblies only; the dummy set binds within itself
             foreach (var r in env.Workspace.Read(() => a.Module.GetAssemblyRefs().Where(r => r.Name == "mscorlib").ToList()))
                 Assert.NotSame(dummyCorlib, env.Workspace.FindReference(r.Name, r.Version, r.PublicKeyOrToken?.Token?.Data, a.FilePath));
     }
 
-    /// <summary>
-    /// Assemblies shipped with encrypted method bodies (decrypted by a modified runtime) are flagged, and decompiling
-    /// one of their methods carries the warning.
-    /// </summary>
+    /// <summary>Real assemblies with encrypted method bodies are flagged and decompile with a warning.</summary>
     [RequiresRealDataFact(RealData.AssemblyDir)]
     public void EncryptedBodiesInARealFolderAreFlagged()
     {
@@ -223,7 +212,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
         var flagged = loaded.Where(a => a.BodyHealth.Invalid > 0).ToList();
         output.WriteLine($"{loaded.Sum(a => a.BodyHealth.Bodies)} bodies; flagged: " +
                          string.Join("; ", flagged.Select(a => $"{a.Id} {a.BodyHealth.Invalid}/{a.BodyHealth.Bodies}")));
-        if (flagged.Count == 0) return; // a folder without encrypted code: nothing more to check
+        if (flagged.Count == 0) return; // no encrypted code in this folder
         var asm = flagged[0];
         var method = env.Workspace.Read(() => asm.Module.GetTypes().SelectMany(t => t.Methods).First(asm.BodyHealth.IsInvalid));
         var code = new Services.DecompilerService(env.Workspace, new ServerOptions()).DecompileMembers(asm, [method], default);

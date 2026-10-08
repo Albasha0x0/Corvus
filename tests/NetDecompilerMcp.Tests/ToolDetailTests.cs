@@ -5,7 +5,7 @@ using NetDecompilerMcp.Tools;
 
 namespace NetDecompilerMcp.Tests;
 
-/// <summary>Details the full sweep found: constants in array data, paging, extension signatures, resources, previews.</summary>
+/// <summary>Tool details: constants in array data, paging, extension signatures, IL resources, previews.</summary>
 public class ToolDetailTests : IDisposable
 {
     private readonly Env _env = new();
@@ -68,7 +68,7 @@ public class ToolDetailTests : IDisposable
         Assert.StartsWith("array initializer elements [3], [8] of byte[]", Kind("0x7B"));
         Assert.StartsWith("array initializer elements [0], [2] of short[]", Kind("-3"));
         Assert.StartsWith("array initializer element [1] of double[]", Kind("3.14"));
-        // a value that does not fit the element type is not looked for in it
+        // Values that do not fit the element type are not matched.
         Assert.DoesNotContain(env.Search.SearchConstants("1000", env.Workspace.Assemblies, 50, default).Items, h => h.Kind.Contains("byte[]"));
     }
 

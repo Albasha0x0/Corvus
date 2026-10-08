@@ -7,10 +7,7 @@ using NetDecompilerMcp.Tools;
 
 namespace NetDecompilerMcp.Tests;
 
-/// <summary>
-/// Inspection on the shapes the third live pass met: damaged files, IL2CPP games, apphost launchers, big bundles and
-/// workspaces, string-helper look-alikes, evidence choice.
-/// </summary>
+/// <summary>Inspection edge cases: damaged files, IL2CPP builds, apphost launchers, large containers, heuristics.</summary>
 public class InspectionEdgeTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -50,7 +47,7 @@ public class InspectionEdgeTests : IDisposable
     [Fact]
     public void Il2CppBuilds_AreRecognized()
     {
-        // layout: GameAssembly.dll + App_Data/il2cpp_data/Metadata/global-metadata.dat
+        // Unity IL2CPP layout: GameAssembly.dll + *_Data/il2cpp_data/Metadata/global-metadata.dat
         var root = _dir.File("il2cppbuild");
         Save("il2cppbuild/GameAssembly.dll", [0x4D, 0x5A, 0, 0]);
         var metadata = Save("il2cppbuild/App_Data/il2cpp_data/Metadata/global-metadata.dat", [0xAF, 0x1B, 0xB1, 0xFA, 29, 0, 0, 0, 1, 2, 3, 4]);
@@ -58,15 +55,10 @@ public class InspectionEdgeTests : IDisposable
         Assert.StartsWith("Unity IL2CPP metadata", UnityLayout.FileHint(metadata, File.ReadAllBytes(metadata)));
         Assert.Contains(Inspection.Summarize(null, metadata, default).Highlights, h => h.StartsWith("Unity IL2CPP metadata"));
 
-        // a Mono game loaded from its root: the assemblies are in *_Data/Managed
+        // Unity Mono layout: assemblies in *_Data/Managed
         var mono = _dir.File("monobuild");
         Save("monobuild/App_Data/Managed/Assembly-CSharp.dll", ContainerFixtures.Module("Assembly-CSharp", _ => { }));
         Assert.Contains(UnityLayout.FolderHints(mono), h => h.StartsWith("Unity (Mono) build") && h.Contains(Path.Combine(mono, "App_Data", "Managed")));
-
-        // a real IL2CPP binary on this machine, when there is one
-        var real = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\WildWorks\Animal Jam\Data\build\GameAssembly.dll");
-        if (File.Exists(real))
-            Assert.StartsWith("Unity IL2CPP native code", UnityLayout.FileHint(real, File.ReadAllBytes(real)));
     }
 
     [Fact]
@@ -78,7 +70,7 @@ public class InspectionEdgeTests : IDisposable
         Save("mixed/native2.dll", Encoding.ASCII.GetBytes("not a PE at all"));
         Save("mixed/GameAssembly.dll", [0x4D, 0x5A]);
         var text = WorkspaceTools.FormatLoad(_workspace, root, _workspace.LoadDirectory(root, false));
-        Assert.True(text.Contains("skipped 2 native or non-PE files: native1.dll, native2.dll"), text); // the 2-byte GameAssembly.dll is a damaged PE: listed on its own
+        Assert.True(text.Contains("skipped 2 native or non-PE files: native1.dll, native2.dll"), text); // the 2-byte GameAssembly.dll counts as a damaged PE
         Assert.DoesNotContain("data directory RVA", text);
         Assert.Contains("Note: Unity IL2CPP build", text);
     }
@@ -178,7 +170,7 @@ public class InspectionEdgeTests : IDisposable
                     s.Write(ReferenceResolutionTests.Compile(n, $"public class {n}Type {{ }}"));
         }
         var full = ms.ToArray();
-        // cut inside the second entry: no central directory, the first entry still whole
+        // Cut inside the second entry: no central directory, first entry intact.
         var secondHeader = full.AsSpan(4).IndexOf("PK\u0003\u0004"u8) + 4;
         var cut = full[..(secondHeader + 40)];
         var contents = Containers.Open(cut, "cut.zip", AnalysisLimits.Default, default);
@@ -187,7 +179,7 @@ public class InspectionEdgeTests : IDisposable
         Assert.Throws<ToolError>(() => Containers.Open(full[..20], "tiny.zip", AnalysisLimits.Default, default));
     }
 
-    /// <summary>A stream that cannot seek: ZipArchive then writes each entry's sizes in a data descriptor after it.</summary>
+    /// <summary>Non-seekable stream: ZipArchive writes entry sizes in trailing data descriptors.</summary>
     private sealed class ForwardOnly(Stream inner) : Stream
     {
         public override bool CanRead => false; public override bool CanSeek => false; public override bool CanWrite => true;
@@ -221,7 +213,7 @@ public class InspectionEdgeTests : IDisposable
         Assert.Equal(4, headers.Count);
         Assert.All(headers, h => Assert.True((full[h + 6] & 0x08) != 0)); // sizes in descriptors
 
-        // central directory gone
+        // Drop the central directory.
         var central = full.AsSpan().IndexOf("PK\u0001\u0002"u8);
         var cut = full[..central];
         cut[headers[1] + 6] |= 0x01;                    // B: marked encrypted

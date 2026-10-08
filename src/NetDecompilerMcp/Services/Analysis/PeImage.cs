@@ -3,11 +3,7 @@ using System.Text;
 
 namespace NetDecompilerMcp.Services.Analysis;
 
-/// <summary>
-/// Minimal, bounds-checked PE header parsing over a byte span. Never throws on malformed input: every accessor
-/// validates offsets, and <see cref="TryParse"/> returns null when the bytes are not a plausible PE image (header
-/// offset up to 4 KB, at most 96 sections).
-/// </summary>
+/// <summary>Minimal, bounds-checked PE header parser. Never throws on malformed input.</summary>
 public sealed class PeImage
 {
     private const int MaxHeaderOffset = 0x1000;
@@ -35,12 +31,12 @@ public sealed class PeImage
     public bool Is64 { get; }
     public ushort Characteristics { get; }
     public bool IsDll => (Characteristics & 0x2000) != 0;
-    /// <summary>Offset (from <see cref="Start"/>) of the optional header.</summary>
+    /// <summary>Relative to <see cref="Start"/>.</summary>
     public int OptionalHeaderOffset { get; }
     public int DataDirectoryCount { get; }
     public int DataDirectoriesOffset { get; }
     public IReadOnlyList<Section> Sections { get; }
-    /// <summary>Length of the image on disk: the end of the last section's raw data (overlay excluded).</summary>
+    /// <summary>On-disk image length: end of the last section's raw data, overlay excluded.</summary>
     public long EndOfImage { get; }
 
     public string MachineName => Machine switch
@@ -52,7 +48,7 @@ public sealed class PeImage
         _ => $"0x{Machine:X4}",
     };
 
-    /// <summary>Parses the PE whose MZ header is at <paramref name="start"/>; null if it is not a plausible PE.</summary>
+    /// <summary>Parses the PE whose MZ header is at <paramref name="start"/>; null if not a plausible PE.</summary>
     public static PeImage? TryParse(ReadOnlySpan<byte> data, int start = 0)
     {
         if (start < 0 || data.Length - start < 0x40 || data[start] != 'M' || data[start + 1] != 'Z')
@@ -105,7 +101,7 @@ public sealed class PeImage
         return (BinaryPrimitives.ReadUInt32LittleEndian(data[at..]), BinaryPrimitives.ReadUInt32LittleEndian(data[(at + 4)..]));
     }
 
-    /// <summary>File offset of a data directory entry itself (the security directory's 8 bytes are excluded from the Authenticode digest).</summary>
+    /// <summary>File offset of the data directory entry itself.</summary>
     public int DirectoryEntryOffset(int index) => Start + DataDirectoriesOffset + index * 8;
 
     /// <summary>Windows subsystem: 2 = GUI, 3 = console (same offset in PE32 and PE32+).</summary>
@@ -118,7 +114,7 @@ public sealed class PeImage
     /// <summary>File offset of the optional header's CheckSum field.</summary>
     public int ChecksumOffset => Start + OptionalHeaderOffset + 64;
 
-    /// <summary>Maps an RVA to a file offset (relative to the start of the buffer); -1 if it lies in no section's raw data.</summary>
+    /// <summary>Maps an RVA to a buffer offset; -1 if outside every section's raw data.</summary>
     public long RvaToOffset(uint rva)
     {
         foreach (var s in Sections)
@@ -133,13 +129,11 @@ public sealed class PeImage
         return -1;
     }
 
-    // ------------------------------------------------------------------ .NET specifics
-
     public const int ComDescriptorDirectory = 14;
     public const int SecurityDirectory = 4;
     public const int ExportDirectory = 0;
 
-    /// <summary>True when the image has a CLI (COR20) header, i.e. it contains .NET metadata.</summary>
+    /// <summary>True when the image has a CLI (COR20) header.</summary>
     public bool IsDotNet(ReadOnlySpan<byte> data) => CorHeader(data) >= 0;
 
     private long CorHeader(ReadOnlySpan<byte> data)
@@ -157,7 +151,7 @@ public sealed class PeImage
         return at < 0 ? 0 : BinaryPrimitives.ReadUInt32LittleEndian(data[(int)(at + 16)..]);
     }
 
-    /// <summary>ReadyToRun: the COR20 ManagedNativeHeader points to an "RTR" header with precompiled native code.</summary>
+    /// <summary>True when the COR20 ManagedNativeHeader points to an "RTR" header.</summary>
     public bool IsReadyToRun(ReadOnlySpan<byte> data)
     {
         long at = CorHeader(data);
@@ -168,7 +162,7 @@ public sealed class PeImage
         return header >= 0 && header + 4 <= data.Length && BinaryPrimitives.ReadUInt32LittleEndian(data[(int)header..]) == 0x00525452; // "RTR\0"
     }
 
-    /// <summary>Names exported by the image (bounded; empty when there is no export directory).</summary>
+    /// <summary>Exported names, up to <paramref name="max"/>.</summary>
     public List<string> Exports(ReadOnlySpan<byte> data, int max = 4096)
     {
         var result = new List<string>();
@@ -192,10 +186,7 @@ public sealed class PeImage
         return result;
     }
 
-    /// <summary>
-    /// NativeAOT images carry no IL: the runtime exports DotNetRuntimeDebugHeader and the managed code lives in a
-    /// ".managed" section (hydrated data in ".hydrated").
-    /// </summary>
+    /// <summary>NativeAOT: no CLI header, plus a ".managed" / ".hydrated" section or a DotNetRuntimeDebugHeader export.</summary>
     public bool IsNativeAot(ReadOnlySpan<byte> data) =>
         !IsDotNet(data) && (Sections.Any(s => s.Name is ".managed" or ".hydrated") || Exports(data).Contains("DotNetRuntimeDebugHeader"));
 }

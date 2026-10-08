@@ -14,8 +14,6 @@ public class CppBindingTests : IDisposable
 
     private const string ClangPlusPlus = @"C:\Program Files\LLVM\bin\clang++.exe";
 
-    // ------------------------------------------------------------------ style "mono" (default)
-
     [Fact]
     public void GeneratesMonoEmbeddingApiBinding()
     {
@@ -60,7 +58,7 @@ public class CppBindingTests : IDisposable
         Assert.Contains("Unknown style 'il2cpp'", Assert.Throws<ToolError>(() => Generate("Account", style: "il2cpp")).Message);
     }
 
-    /// <summary>Every mono-style header compiles on its own, and several of them together in one translation unit.</summary>
+    /// <summary>Mono headers compile together in one translation unit.</summary>
     [Fact]
     public void MonoBindingsCompile()
     {
@@ -89,8 +87,6 @@ public class CppBindingTests : IDisposable
         Assert.True(code == 0, text);
     }
 
-    // ------------------------------------------------------------------ style "hostapi"
-
     [Fact]
     public void GeneratesHostApiBinding()
     {
@@ -102,7 +98,7 @@ public class CppBindingTests : IDisposable
         Assert.Contains("int32_t Balance(const HostApi* h, const void* obj) const { return ReadField<int32_t>(h, obj, m_balanceOff); }", code);
         Assert.Contains("h->GetMethod(klass, \"CheckLicense\", 0);", code);
         Assert.Contains("return CallValue<bool>(h, m_getIsActive, obj);", code);
-        // no project to read: no includes or namespace are made up, the header says what to include
+        // Without a project no includes or namespace are invented.
         Assert.DoesNotContain("#include", code);
         Assert.DoesNotContain("namespace", code);
         Assert.Contains("// Include the header that defines HostApi and the helpers this code calls", code);
@@ -124,7 +120,7 @@ public class CppBindingTests : IDisposable
     [InlineData("hostapi")]
     public void InheritedMembersNamedExplicitly_AreBoundThroughTheHierarchy(string style)
     {
-        // Instance (static, on Singleton<Bank>), Version (protected field) and Touch (method) are declared on the base
+        // Instance, Version and Touch are declared on Singleton<Bank>.
         var code = Generate("Bank", "Instance,Version,Touch,Credit", style: style);
         var (lookup, field) = style == "mono"
             ? ("MethodInHierarchy(api, klass, ", "FieldOffset(api, klass, \"Version\")")
@@ -135,10 +131,10 @@ public class CppBindingTests : IDisposable
         Assert.Contains(style == "mono" ? "MonoObject* Instance(const MonoApi& api) const" : "void* Instance(const HostApi* h) const", code); // static: no object
         Assert.DoesNotContain("has no bindable", code);
 
-        // the base's T seen from the derived class: Holder<int>.Current is an int
+        // The base's T is substituted: Holder<int>.Current is int.
         Assert.Contains(style == "mono" ? "int32_t Current(const MonoApi& api) const" : "int32_t Current(const HostApi* h) const", Generate("CountHolder", "Current", style: style));
 
-        // static fields of a base class cannot be reached from the derived class's static data: a clear error
+        // Base-class static fields are not in the derived class's static data.
         var error = Assert.Throws<ToolError>(() => Generate("Bank", "_instance", style: style)).Message;
         Assert.Contains("Static fields of a base class (_instance)", error);
         Assert.Contains("has no bindable member(s): Nope", Assert.Throws<ToolError>(() => Generate("Bank", "Nope", style: style)).Message);
@@ -152,10 +148,7 @@ public class CppBindingTests : IDisposable
         Assert.Contains("libmonosgen-2.0.so", code);
     }
 
-    /// <summary>
-    /// A real HostApi project (NDM_HOSTAPI_PROJECT_DIR, its root): detected without a style argument, and the output
-    /// compiles from a folder outside the project with the computed include paths.
-    /// </summary>
+    /// <summary>Detects a real host-table project and compiles the output against its headers.</summary>
     [RequiresRealDataFact(RealData.HostApiProjectDir)]
     public void HostApiBindingsCompileAgainstRealHeaders()
     {
@@ -175,11 +168,7 @@ public class CppBindingTests : IDisposable
         }
     }
 
-    /// <summary>
-    /// Real game singletons whose static Instance is declared on a generic base class: bound by name (no
-    /// includeInherited needed), found through the hierarchy, typed as the derived class, and compiled against the
-    /// real host headers.
-    /// </summary>
+    /// <summary>Real singletons with Instance on a generic base bind by name and compile against real host headers.</summary>
     [RequiresRealDataFact(RealData.HostApiProjectDir, RealData.AssemblyDir)]
     public void RealInheritedSingletonsBindAndCompile()
     {
@@ -242,11 +231,7 @@ public class CppBindingStyleTests : IDisposable
     private string Generate(string type, CppBindingGenerator.BindingTarget target, bool inherited = false) =>
         new CppBindingGenerator().Generate(_env.Fixture, _env.Def<TypeDef>(type, SymbolKind.Type), null, inherited, target);
 
-    /// <summary>
-    /// A host-table project unlike any particular framework: the table is "AppHost" with its own handle types, inside
-    /// extern "C"; a decoy struct with only some members and a commented-out full table must be ignored; the helpers
-    /// live in namespace tools::mem in another folder, and GetMethodExact is missing.
-    /// </summary>
+    /// <summary>Host table "AppHost" in extern "C" with decoys to ignore, helpers in another folder, no GetMethodExact.</summary>
     private string HostTableProject()
     {
         Write("host/abi.h", """
@@ -318,12 +303,12 @@ public class CppBindingStyleTests : IDisposable
         Assert.DoesNotContain("HostApi", code);
         Assert.DoesNotContain("plugin", code);
 
-        // a binding that needs the missing helper says so
+        // A binding that needs the missing helper reports it.
         var shop = Generate("Shop", CppBindingGenerator.ChooseStyle(null, project, "src/bindings/Shop.h", null, default));
         Assert.Contains("// NOTE: not found in", shop);
         Assert.Contains(": GetMethodExact. Define them (first parameter: const AppHost*)", shop);
 
-        // and the header compiles where it was meant to be written
+        // Include paths are relative to the header's location.
         if (!File.Exists(ClangPlusPlus)) return;
         foreach (var type in new[] { "Account", "PremiumAccount" })
         {
@@ -339,13 +324,13 @@ public class CppBindingStyleTests : IDisposable
     public void ValueTypes_UseUnboxedOffsetsAndSize_WhenTheTableHasThem()
     {
         var project = HostTableProject();
-        // without the optional members: boxed offsets and the note to subtract the header
+        // Without the optional members: boxed offsets.
         var plain = Generate("Vec2", CppBindingGenerator.ChooseStyle(null, project, "src/bindings/Vec2.h", null, default));
         Assert.Contains("m_xOff = h->FieldOffset(klass, \"X\");", plain);
         Assert.Contains("instance offsets include the object header", plain);
         Assert.DoesNotContain("GetValueTypeSize", plain);
 
-        // a table that offers them
+        // With EmbeddedStructOffset and GetValueTypeSize: unboxed offsets.
         var abi = Path.Combine(project, "host", "abi.h");
         File.WriteAllText(abi, File.ReadAllText(abi).Replace(
             "    void*    (*Invoke)(MethRef method, void* instance, void** args, int argc);",
@@ -359,7 +344,6 @@ public class CppBindingStyleTests : IDisposable
         Assert.Contains("m_size = h->GetValueTypeSize(klass);", code);
         Assert.Contains("int32_t Size() const { return m_size; }", code);
         Assert.Contains("instance offsets are into the unboxed data", code);
-        // reference types keep FieldOffset
         Assert.Contains("m_balanceOff = h->FieldOffset(klass, \"_balance\");", Generate("Account", target));
         Assert.DoesNotContain("GetValueTypeSize", Generate("Account", target));
 
@@ -392,7 +376,7 @@ public class CppBindingStyleTests : IDisposable
         Assert.StartsWith("// Style mono: style=mono requested.", Generate("Account", mono));
 
         var serverMono = new ServerOptions { BindingStyle = "mono" };
-        Assert.Equal("hostapi", CppBindingGenerator.ChooseStyle(null, project, null, serverMono, default).Style); // detection beats the server default
+        Assert.Equal("hostapi", CppBindingGenerator.ChooseStyle(null, project, null, serverMono, default).Style);
 
         var serverHost = new ServerOptions { BindingStyle = "hostapi" };
         var fromServer = CppBindingGenerator.ChooseStyle(null, null, null, serverHost, default);
@@ -402,7 +386,7 @@ public class CppBindingStyleTests : IDisposable
         Assert.Contains("// Include the header that defines HostApi and the helpers this code calls (ReadField, WriteField, CallValue) before this one.", code);
         Assert.DoesNotContain("#include", code);
 
-        // --binding-project stands in for projectDir; explicit hostapi still gets the detected includes
+        // --binding-project stands in for projectDir.
         var serverProject = new ServerOptions { BindingProject = project };
         Assert.Contains("--binding-project has a host table: AppHost", CppBindingGenerator.ChooseStyle(null, null, null, serverProject, default).Reason);
         Assert.Contains("#include \"host/abi.h\"", Generate("Account", CppBindingGenerator.ChooseStyle("hostapi", project, null, null, default)));

@@ -7,8 +7,8 @@ using NetDecompilerMcp.Core;
 namespace NetDecompilerMcp.Services;
 
 /// <summary>
-/// The edit history of an assembly: listing, before/after diffs, and edit scripts (JSON) that re-apply a patch set —
-/// typically to a new build of a game after an update.
+/// Edit history of an assembly: listing, before/after diffs, and JSON edit scripts that re-apply a patch set,
+/// typically to a new build.
 /// </summary>
 public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService edits, DecompilerService decompiler, AssemblyComparer comparer)
 {
@@ -34,8 +34,6 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
             sb.AppendLine($"  #{i + 1}  {asm.Edits[i].Kind,-20} {asm.Edits[i].Description}");
         return sb.ToString();
     }
-
-    // ------------------------------------------------------------------ scripts
 
     public string Export(LoadedAssembly asm, string path)
     {
@@ -75,7 +73,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
         bool sameImage = script.Mvid != null && script.Mvid == original.Mvid?.ToString();
         var records = script.Edits.Select(e => new EditRecord(e.Kind, e.Args, e.Description, [])).ToList();
 
-        // another build: a target renamed since is found through the build the script was made from, when it is loaded
+        // On another build, renamed targets are located via the script's source build when it is loaded.
         var originalBuild = sameImage ? null : workspace.Assemblies.FirstOrDefault(a => a != asm && a.Module.Mvid?.ToString() == script.Mvid);
         var remapped = new List<string>();
         AssemblyComparer.Comparison? comparison = null;
@@ -95,8 +93,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
                                    $" ({(sameImage ? "same build: using recorded tokens" : originalBuild != null
                                        ? $"different build: resolving symbols by name, renamed ones through {originalBuild.Id} (the build the script was made from)"
                                        : "different build: resolving symbols by name")}):\n");
-        // A dry run applies the script for real — C# is compiled, IL is stack-checked, later edits see the earlier ones —
-        // and then rolls the assembly back, so it reports exactly what a real run would.
+        // A dry run applies every edit for real and then rolls back, so it reports exactly what a real run would.
         var before = asm.Edits.ToList();
         int ok = 0, failed = 0;
         try
@@ -140,8 +137,6 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
         return sb.ToString();
     }
 
-    // ------------------------------------------------------------------ diffs
-
     /// <summary>Unified diffs of the decompiled C# of every member an edit touched, original vs current.</summary>
     public string Diff(LoadedAssembly asm, int? number, CancellationToken ct)
     {
@@ -164,7 +159,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
             }
             foreach (var label in edit.Touched)
             {
-                if (number == null && !done.Add(label)) continue; // shown already for an earlier edit
+                if (number == null && !done.Add(label)) continue; // already shown for an earlier edit
                 sb.Append(DiffMember(asm, originalView, label, ct));
             }
         }
@@ -177,7 +172,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
         try { current = SymbolResolver.ResolveOne(workspace, asm.Id, label); }
         catch (ToolError) { return $"(could not resolve {label} in the current state; it was renamed or removed by a later edit)\n"; }
 
-        // Members that existed before the edits keep their token (edits are written with PreserveAll); added ones have rid 0.
+        // Pre-existing members keep their token (written with PreserveAll); added members have rid 0.
         var original = current.Member.MDToken.Rid != 0 ? originalView.Module.ResolveToken(current.Member.MDToken.Raw) as IMemberDef : null;
 
         string after = Decompile(asm, current.Member, ct);

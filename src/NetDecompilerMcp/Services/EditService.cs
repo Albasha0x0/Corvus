@@ -6,15 +6,12 @@ using NetDecompilerMcp.Core;
 namespace NetDecompilerMcp.Services;
 
 /// <summary>
-/// In-memory edits on the dnlib module. Nothing touches disk until <see cref="Save"/>.
-/// Every applied edit is recorded as an <see cref="EditRecord"/> with the inputs needed to apply it again, which is what
-/// undo (<see cref="Undo"/>: rebuild from the original image and replay the rest) and edit scripts are built on.
-/// Callers must hold the workspace write lock (AssemblyWorkspace.Write), or the read lock for dry runs.
+/// In-memory edits on the dnlib module; nothing is written until <see cref="Save"/>.
+/// Each edit is recorded as a replayable <see cref="EditRecord"/>; <see cref="Undo"/> and edit scripts rebuild from
+/// the original image and replay records. Callers must hold the workspace write lock, or the read lock for dry runs.
 /// </summary>
 public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembler, CSharpPatcher csharp)
 {
-    // ------------------------------------------------------------------ rename
-
     public string Rename(ResolvedSymbol symbol, string newName, bool dryRun = false)
     {
         if (string.IsNullOrWhiteSpace(newName))
@@ -59,7 +56,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
 
     public string RenameNamespace(LoadedAssembly asm, string oldNamespace, string newNamespace, bool includeSubNamespaces, bool dryRun = false)
     {
-        // Top-level types only carry a namespace.
+        // Only top-level types carry a namespace.
         var targets = asm.Module.Types
             .Where(t => t.Namespace == oldNamespace || (includeSubNamespaces && t.Namespace.String.StartsWith(oldNamespace + ".", StringComparison.Ordinal)))
             .ToList();
@@ -80,8 +77,6 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         }, description, []));
         return description;
     }
-
-    // ------------------------------------------------------------------ stub
 
     /// <summary>
     /// Replaces a method body with "return value;" (or "return;" for void).
@@ -187,8 +182,6 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
     private static string Unquote(string v) =>
         v.Length >= 2 && v[0] == '"' && v[^1] == '"' ? System.Text.RegularExpressions.Regex.Unescape(v[1..^1]) : v;
 
-    // ------------------------------------------------------------------ IL patch
-
     /// <summary>
     /// Replaces (mode=replace) or prefixes (mode=prepend) a method body with IL assembled from text.
     /// Everything is validated before the method is touched; dryRun only reports the resulting body.
@@ -206,13 +199,13 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         var oldBody = MetadataUtil.SafeBody(m);
         if (prepend && oldBody == null)
             throw new ToolError($"{symbol.Label} has no existing body to prepend to; use mode=replace.");
-        // the body as loaded from the file is not IL (encrypted / dumped before decryption) and no edit has replaced it yet
+        // The loaded body is not valid IL (e.g. encrypted) and no edit has replaced it.
         if (prepend && symbol.Assembly.BodyHealth.IsInvalid(m) && !symbol.Assembly.Edits.Any(e => e.Description.Contains(symbol.Label, StringComparison.Ordinal)))
             throw new ToolError($"The body of {symbol.Label} is not valid IL (encrypted, or dumped from memory before decryption): there is no code to " +
                                 "prepend to. Use mode=replace (or patch_method_csharp / stub_method), or load the decrypted image.");
 
         var assembled = assembler.Assemble(m, il, oldBody?.Instructions);
-        MethodUtils.SimplifyBranches(assembled.Instructions); // only our new instructions: the original body stays untouched until applied
+        MethodUtils.SimplifyBranches(assembled.Instructions); // new instructions only; the original body is untouched until applied
         var final = prepend ? assembled.Instructions.Concat(oldBody!.Instructions).ToList() : assembled.Instructions;
         var handlers = prepend ? oldBody!.ExceptionHandlers.ToList() : new List<ExceptionHandler>();
 
@@ -253,8 +246,6 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
     private static bool IsTerminator(OpCode op) =>
         op.FlowControl is FlowControl.Return or FlowControl.Throw or FlowControl.Branch;
 
-    // ------------------------------------------------------------------ C# edits
-
     /// <summary>Replaces a method body with C# statements (lambdas, async, LINQ and local functions included).</summary>
     public string PatchMethodCSharp(ResolvedSymbol symbol, string code, bool dryRun, CancellationToken ct)
     {
@@ -286,7 +277,6 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         return description + Relaxed(outcome);
     }
 
-    /// <summary>Adds new types written in C# to the assembly.</summary>
     public string AddTypesCSharp(LoadedAssembly asm, string code, bool dryRun, CancellationToken ct)
     {
         var outcome = MergeSafely(asm, dryRun, target => csharp.AddTypes(asm, code, target, ct), ct);
@@ -335,15 +325,13 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         return sep >= 0 ? label[(sep + 2)..] : label;
     }
 
-    // ------------------------------------------------------------------ replay / undo
-
-    /// <summary>Applies a recorded edit again (undo, edit scripts). <paramref name="preferTokens"/> when replaying on the same original image.</summary>
     /// <summary>
     /// Maps a recorded symbol that no longer exists by name to its counterpart in the target build (set while a script
     /// is replayed onto another build whose original is loaded); null when there is none.
     /// </summary>
     internal Func<EditRecord, string, ResolvedSymbol?>? Remap { get; set; }
 
+    /// <summary>Re-applies a recorded edit. <paramref name="preferTokens"/>: replaying on the same original image.</summary>
     public string Apply(EditRecord record, LoadedAssembly asm, bool preferTokens, CancellationToken ct) => record.Kind switch
     {
         "rename_symbol" => Rename(Recorded(asm, record, "symbol", preferTokens), Required(record, "newName")),
@@ -395,7 +383,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 asm.RestoreState(previousModule, previousEdits);
-                // numbered as list_edits showed it before (undoing an earlier edit shifts the replayed ones)
+                // Report the number list_edits showed before; undoing an earlier edit shifts later ones.
                 int number = previousEdits.IndexOf(records[i]) is >= 0 and var at ? at + 1 : i + 1;
                 var reason = ex.Message.TrimEnd().Replace("Nothing was changed.", "").TrimEnd();
                 throw new ToolError($"Edit #{number} ({records[i].Description}) could not be re-applied: {reason}\nNothing was changed.");
@@ -403,8 +391,6 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         }
         previousModule.Dispose();
     }
-
-    // ------------------------------------------------------------------ helpers
 
     private static Dictionary<string, string?> SymbolArgs(string key, ResolvedSymbol symbol, string? label = null) => new()
     {
@@ -424,7 +410,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         }
         catch (ToolError) when (Remap?.Invoke(record, key) is { } renamed)
         {
-            return renamed; // renamed or moved in this build: found through the original build's content match
+            return renamed; // renamed or moved; matched by content against the original build
         }
     }
 
@@ -451,13 +437,11 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
 
     private static string Listing(IList<Instruction> instructions)
     {
-        // a body not written yet has no offsets: number the instructions for the preview
+        // Unwritten bodies have no offsets; assign them for the preview.
         uint offset = 0;
         foreach (var i in instructions) { i.Offset = offset; offset += (uint)i.GetSize(); }
         return string.Join("\n", instructions.Select(i => "  " + i));
     }
-
-    // ------------------------------------------------------------------ save
 
     /// <summary>
     /// Writes the (edited) module. Refuses to overwrite the original file unless asked;

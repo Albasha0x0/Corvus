@@ -1,7 +1,7 @@
 # NetDecompilerMcp
 
 A headless .NET decompiler for AI agents, served over the [Model Context Protocol](https://modelcontextprotocol.io).
-It decompiles, searches, cross-references and patches .NET assemblies, including Unity Mono games and
+It decompiles, searches, cross-references and patches .NET assemblies, including Unity Mono builds and
 Il2CppDumper / Cpp2IL dummy DLLs. No GUI, no dnSpy instance, no admin rights and no network port.
 
 - **Decompiler:** the ILSpy engine (`ICSharpCode.Decompiler`), the same engine dnSpy uses.
@@ -29,9 +29,9 @@ of the next tool result, plus best-effort `resources/list_changed` and log notif
 | Containers | `unpack_container` (single-file bundles, Costura, NuGet, Xamarin / MAUI APKs, embedded images; extracts and loads the assemblies, each labelled ReadyToRun / merged) · `search_container` (types and members by name across every assembly in a container, without extracting; capped, with a truncation flag). See [Unpacking containers](#unpacking-containers) |
 | File inspection | `summarize_file` (one report: hashes, identity, strong name and Authenticode with digest check, protector markers, packing, features, typed strings, entry points; opens containers) · `survey_features` (capa-style rules over APIs, P/Invoke imports and strings, with ATT&CK techniques and evidence) · `extract_strings` (URLs, domains, IPs, paths, registry keys, mutexes, user agents, crypto keys; JSON / CSV export) · `extract_embedded` (resources, static arrays and strings decoded through base64 / hex / gzip / deflate / XOR). See [File inspection](#file-inspection) |
 | Il2Cpp | `get_il2cpp_info` (RVA, VA, file offset, slot, field offsets, tokens) · `find_method_by_address` (IDA/Ghidra address formats; exact start or containing method; dumper garbage addresses of methods without native code are ignored) · `export_il2cpp_symbols` (IDA and Ghidra scripts that name every function, a C header with struct layouts, and JSON) |
-| Native bindings | `generate_cpp_binding` (C++ binding for a type in a Mono game or app: class lookup, field/static offsets, method lookups with exact overloads, typed accessors and invoke wrappers; base-class members named in `members` (e.g. a singleton's static `Instance` on a generic base) bound through the hierarchy. Style `mono`: a self-contained header on the standard Mono embedding API. Style `hostapi`: for projects whose host passes a function table; with `projectDir`, the table, its handle types, the helpers' headers and namespace are detected and `#include` paths are computed relative to `headerPath`; value types use the table's `EmbeddedStructOffset` / `GetValueTypeSize` when it has them. Without `style`: detected from `projectDir`, else the server's `--binding-style`, else `mono`; the header's first line says which and why) |
+| Native bindings | `generate_cpp_binding` (C++ binding for a type in a Mono-hosted application: class lookup, field/static offsets, method lookups with exact overloads, typed accessors and invoke wrappers; base-class members named in `members` (e.g. a singleton's static `Instance` on a generic base) bound through the hierarchy. Style `mono`: a self-contained header on the standard Mono embedding API. Style `hostapi`: for projects whose host passes a function table; with `projectDir`, the table, its handle types, the helpers' headers and namespace are detected and `#include` paths are computed relative to `headerPath`; value types use the table's `EmbeddedStructOffset` / `GetValueTypeSize` when it has them. Without `style`: detected from `projectDir`, else the server's `--binding-style`, else `mono`; the header's first line says which and why) |
 | Patch (in memory, `dryRun` on all) | `rename_symbol` · `rename_namespace` · `stub_method` · `patch_method_csharp` (new body in C#: lambdas, async, `yield`, LINQ, private/internal members accessible) · `add_members_csharp` (new methods, fields, properties, nested types) · `add_types_csharp` (whole new classes) · `patch_method_il` (IL assembler that accepts edited `get_il` output; replace or prepend) · `save_assembly` (never overwrites without `overwrite=true`, keeps `.bak`, atomic write) |
-| Edit history | `list_edits` · `diff_edits` (before/after decompiled C# of pending edits) · `undo_edit` · `revert_edits` · `export_edits` / `apply_edits` (replayable JSON edit scripts: re-apply a patch set to a new game build; a dry run applies and compiles every edit, then rolls back) |
+| Edit history | `list_edits` · `diff_edits` (before/after decompiled C# of pending edits) · `undo_edit` · `revert_edits` · `export_edits` / `apply_edits` (replayable JSON edit scripts: re-apply a patch set to a new build; a dry run applies and compiles every edit, then rolls back) |
 
 **Resources:** `netdecomp://assemblies`, `netdecomp://assembly/{assembly}/info`, `netdecomp://assembly/{assembly}/type/{type}`
 (decompiled C#), `netdecomp://assembly/{assembly}/il/{symbol}`.
@@ -61,7 +61,7 @@ of the next tool result, plus best-effort `resources/list_changed` and log notif
 
 | Concern | How it is handled |
 |---|---|
-| Locked game files | Assemblies are read into memory; files on disk are never locked. |
+| Locked files | Assemblies are read into memory; files on disk are never locked. |
 | Concurrency | Reads share a lock; edits take it exclusively. Stress-tested with interleaved readers and writers, and with 40 parallel MCP calls. |
 | Corrupt or obfuscated bodies | The IL scanner stops at invalid opcodes instead of throwing; `decompile_type` falls back to member-by-member output with IL for the broken part. |
 | Huge output | Paged (`offset` / `maxChars`); pages come from a cache. |
@@ -72,13 +72,13 @@ of the next tool result, plus best-effort `resources/list_changed` and log notif
 | Unexpected exceptions | Returned as tool errors; the server keeps running. |
 | Invalid patches | IL is stack-validated, C# is compiled (errors point at your line), and nothing changes on failure. Patched assemblies are executed in the tests to prove the IL is valid at runtime. |
 
-Measured on a real game (36 assemblies, 40,895 types, ~300k methods):
+Measured on a real Unity application (36 assemblies, 40,895 types, ~300k methods):
 
 - Load all assemblies: 94 ms.
-- Decompile every one of 23,327 game types concurrently: 40 s, with 0 failures.
+- Decompile every one of its 23,327 application types concurrently: 40 s, with 0 failures.
 - First full string search: 2.7 s; repeat searches: 0.3 s.
 - Type cross-references across everything: 1.9 s.
-- Compare two builds of the main game assembly (11k types): about 5 s.
+- Compare two builds of the main assembly (11k types): about 5 s.
 - Export IDA/Ghidra scripts and a C header for a whole Il2Cpp dump (93k functions, 9k structs): 3.6 s; the header compiles with clang.
 
 ## Unpacking containers
@@ -178,7 +178,7 @@ Limits:
   decode is kept only when it is natural text (valid in its encoding, no control or stray characters, words of real
   length with vowels in Latin script, likely letter pairs, natural repetition in CJK) or parses as JSON / XML / config
   lines. Such items show `xor key 1337c0de (brute-forced)` (`, UTF-16 text` for UTF-16, returned as UTF-8) in their
-  chain. Measured on 30 real assemblies (libraries with codec and opcode tables, PowerShell, WPF apps, games): no false
+  chain. Measured on 30 real assemblies (libraries with codec and opcode tables, PowerShell, WPF and Unity applications): no false
   decodes, 32 seconds for all of them.
 - **Authenticode:** the digest check (was the file changed after signing?) and the signature check are exact. Whether the
   chain is trusted depends on the machine's root store; revocation is not checked (offline and deterministic).
@@ -201,8 +201,8 @@ Ns.Type::Method  Ns.Type.Method   Ns.Type::Method(int, string)      Ns.Type::.ct
 **C#:** pass only the new body.
 
 ```
-patch_method_csharp  method="Game.Player::TakeDamage(int)"
-                     code="if (amount < 0) return; _health -= amount / 2;"
+patch_method_csharp  method="App.Account::Withdraw(int)"
+                     code="if (amount <= 0) return; _balance -= amount;"
 ```
 
 The body is compiled as a static helper against the real assembly (with accessibility checks off), `this` and implicit
@@ -214,8 +214,8 @@ or an `IgnoresAccessChecksTo` attribute is added for other assemblies.
 **New members and types:**
 
 ```
-add_members_csharp  type="Game.Shop"  code="private int _bonus; public int Bonus(int x) => x + _bonus;"
-add_types_csharp    assembly="Game"   code="namespace Mods { public static class Cheats { public static void On() { } } }"
+add_members_csharp  type="App.Shop"  code="private int _bonus; public int Bonus(int x) => x + _bonus;"
+add_types_csharp    assembly="App"   code="namespace Extensions { public static class Diagnostics { public static void Trace() { } } }"
 ```
 
 **History:** every edit is recorded. `diff_edits` shows the decompiled C# before and after, `undo_edit` removes one edit
@@ -244,7 +244,7 @@ ret
 
 `export_project` writes a project meant to build, not just to read. On a survey of 30 real assemblies (NuGet libraries
 such as Newtonsoft.Json, System.Text.Json, NLog, SharpCompress, AsmResolver and BouncyCastle; PowerShell 7's
-System.Management.Automation; an obfuscated, Costura-packed WPF app; Windows Store installers; Unity game assemblies),
+System.Management.Automation; an obfuscated, Costura-packed WPF app; Windows Store installers; Unity assemblies),
 every one whose dependencies exist on disk builds with no errors, and a rebuilt BouncyCastle computes the same results
 as the original. What makes that work:
 
@@ -265,7 +265,7 @@ as the original. What makes that work:
   renamed `Main`). LINQ comes out as method calls in exports.
 - A method the engine cannot decompile at all keeps the engine's explanation and throws `NotSupportedException`.
 
-**Dependencies that are not on the machine** (a game's assembly missing from a dump) do not stop decompilation: a
+**Dependencies that are not on the machine** (an assembly missing from a partial dump) do not stop decompilation: a
 stand-in is rebuilt from how the loaded code uses it: every type it references with its kind (struct, enum,
 interface, delegate, exception, attribute), every member with its exact signature, properties and events, the virtual
 members the code overrides, and what generic constraints require. The decompiler then reads the rest against real
@@ -278,15 +278,15 @@ Also recovered: local functions the engine drops (compiled into a closure becaus
 and a constructor's work the engine shows as field initializers or a primary constructor: `decompile_member` on such
 a constructor shows it inside its type, trimmed to what runs as part of it.
 
-On 30 real assemblies, including a game's game code with three dependencies missing, every exported project builds
-with 0 errors.
+On 30 real assemblies, including an application with three dependencies missing, every exported project builds with 0
+errors.
 
 ## Build, test, publish
 
 Requires the .NET 10 SDK.
 
 ```powershell
-dotnet test                    # 368 tests: services, IL/C# patching (with runtime execution), edit history,
+dotnet test                    # services, IL/C# patching (with runtime execution), edit history,
                                # build comparison, call graph, IDA/Ghidra/C/C++ generation (compiled with clang),
                                # background indexing, file watching, every tool over stdio, real-assembly stress,
                                # container unpacking and listing (fixtures built at test time, incl. crossgen2 ReadyToRun
@@ -302,15 +302,15 @@ are unset:
 
 | Variable | What it points to | Tests |
 |---|---|---|
-| `NDM_ASSEMBLY_DIR` | A Mono game's `Managed` folder (or any folder of real .NET assemblies) | decompile / search / xrefs / C# patch of the app's own code; call-path timing |
-| `NDM_CALLPATH_TARGET` | Optional: a method in that game to search call paths to (default: picked automatically) | call-path timing |
+| `NDM_ASSEMBLY_DIR` | A folder of real .NET assemblies (e.g. a Unity `*_Data/Managed` folder) | decompile / search / xrefs / C# patch of the app's own code; call-path timing |
+| `NDM_CALLPATH_TARGET` | Optional: a method in that folder to search call paths to (default: picked automatically) | call-path timing |
 | `NDM_IL2CPP_DUMMY_DIR` | An Il2CppDumper / Cpp2IL `DummyDll` folder | address round-trips; IDA / Ghidra / C header export |
 | `NDM_COMPARE_OLD_DIR`, `NDM_COMPARE_NEW_DIR` | Two builds of the same app | build comparison |
 | `NDM_COMPARE_ASSEMBLY` | Optional: the assembly to compare (default: the largest application assembly in both) | build comparison |
 | `NDM_COMPARE_EXPECT` | Optional: known type moves to check, `Old.Name=>New.Name;Old2=>New2` | build comparison |
 | `NDM_HOSTAPI_PROJECT_DIR` | Root of a C/C++ project with a host function table | `hostapi` detection on a real project; bindings compile against its headers |
-| `NDM_EXPORT_REAL=1` | Exports real libraries from the NuGet cache, PowerShell 7 and a Downloads app (each when present) and builds them: 0 errors expected (a few minutes) | exported projects build |
-| `NDM_EXPORT_CORPUS` | A text file of assembly paths: exports and builds each, writes error counts by code next to it (a survey, no assertion) | export survey |
+| `NDM_EXPORT_REAL=1` | Exports real NuGet libraries (downloaded on restore) and builds them: 0 errors expected (a few minutes) | exported projects build |
+| `NDM_EXPORT_LIST` | A text file of assembly paths: exports and builds each, 0 errors expected; writes error counts by code next to it | exported projects build |
 
 The generated C, C++ and Python are compiled or parsed with clang (`C:\Program Files\LLVM\bin`) and python when
 they are installed.
@@ -326,14 +326,14 @@ Claude Code:
 
 ```powershell
 claude mcp add net-decompiler -s user -- "C:\path\to\publish\NetDecompilerMcp.exe"
-# per project, preloading a game:
-claude mcp add net-decompiler -s local -- "C:\path\to\publish\NetDecompilerMcp.exe" --load "D:\Game\Game_Data\Managed"
+# per project, preloading a folder:
+claude mcp add net-decompiler -s local -- "C:\path\to\publish\NetDecompilerMcp.exe" --load "D:\App\App_Data\Managed"
 ```
 
 Generic `mcpServers` JSON (Claude Desktop, Cursor, and others):
 
 ```json
-{ "mcpServers": { "net-decompiler": { "command": "C:\\path\\to\\publish\\NetDecompilerMcp.exe", "args": ["--load", "D:\\Game\\Managed"] } } }
+{ "mcpServers": { "net-decompiler": { "command": "C:\\path\\to\\publish\\NetDecompilerMcp.exe", "args": ["--load", "D:\\App\\Managed"] } } }
 ```
 
 Codex (`config.toml`):
@@ -341,7 +341,7 @@ Codex (`config.toml`):
 ```toml
 [mcp_servers.net-decompiler]
 command = 'C:\path\to\publish\NetDecompilerMcp.exe'
-args = ['--load', 'D:\Game\Managed']
+args = ['--load', 'D:\App\Managed']
 ```
 
 | Option | Meaning |

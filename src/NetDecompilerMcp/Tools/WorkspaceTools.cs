@@ -17,11 +17,11 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     public sealed record AssemblyEntry(string Id, string Name, string Version, string Path, int Types, bool Il2CppDummy, IReadOnlyList<string> UnsavedEdits,
         bool ReadyToRun, string? Merged);
 
-    /// <summary>The workspace; plus, when list_assemblies is given a path, the managed assemblies inside that file.</summary>
+    /// <summary>Workspace listing, or the container contents when list_assemblies is given a path.</summary>
     public sealed record WorkspaceState(IReadOnlyList<AssemblyEntry> Assemblies, IReadOnlyList<string> SearchDirectories, string BackgroundIndexing,
         UnpackService.ContainerListing? Container = null)
     {
-        /// <summary>Loaded assemblies matching the filter (Assemblies is one page of them).</summary>
+        /// <summary>Count of assemblies matching the filter; Assemblies holds one page.</summary>
         public int Total { get; init; }
     }
 
@@ -50,7 +50,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         return FormatLoad(workspace, path, report);
     }, cancellationToken));
 
-    /// <summary>The message for a folder load: what loaded, native files in one line, damaged ones, Unity layout hints.</summary>
+    /// <summary>Folder load summary: loaded assemblies, skipped native and damaged files, Unity layout hints.</summary>
     internal static string FormatLoad(AssemblyWorkspace workspace, string path, AssemblyWorkspace.LoadReport report)
     {
         var sb = new StringBuilder($"Loaded {Plural(report.Loaded.Count, "assembly")} from {Path.GetFullPath(path)}");
@@ -62,7 +62,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                 sb.AppendLine($"  {a.Id}  ({MetadataUtil.CountedTypes(a.Module).Count} types)");
             return 0;
         });
-        // native DLLs (runtimes, plugins) in one line; other failures (damaged assemblies) one by one
+        // Native files are summarized on one line; other failures are listed individually.
         var native = report.Skipped.Where(s => s.Error.Contains(".NET data directory", StringComparison.Ordinal)
                                                || s.Error.Contains("Invalid DOS signature", StringComparison.Ordinal)).ToList();
         if (native.Count > 0)
@@ -91,7 +91,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         var container = path == null ? null : unpacker.List(path, AnalysisLimits.Default, cancellationToken);
-        if (container != null) // a question about the file: the workspace (possibly hundreds of assemblies) is not repeated
+        if (container != null) // container listing only; the workspace is omitted
             return new WorkspaceState([], [], indexing.Status, container);
         return workspace.Read(() =>
         {
@@ -137,7 +137,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
             workspace.AddSearchDirectory(directory);
             var full = Path.GetFullPath(directory);
             var text = $"Added {full}. Search directories:\n  " + string.Join("\n  ", workspace.Read(() => workspace.SearchDirectories));
-            // references are looked up by file name in each directory itself, not in its subfolders
+            // Search directories are not recursive; suggest subfolders when the directory itself has no assemblies.
             static bool HasAssemblies(string dir) =>
                 new[] { "*.dll", "*.exe", "*.winmd" }.Any(p => { try { return Directory.EnumerateFiles(dir, p).Any(); } catch (IOException) { return false; } catch (UnauthorizedAccessException) { return false; } });
             if (Directory.Exists(full) && !HasAssemblies(full))

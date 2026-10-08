@@ -56,7 +56,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
 
     [McpServerTool(Name = "patch_method_csharp", Title = "Replace method body with C#", Destructive = false, OpenWorld = false)]
     [Description("Replace a method's body with C# statements, compiled against the assembly and its references (private/internal members are accessible, like in dnSpy's Edit Method). " +
-                 "Pass only the body (statements), e.g. 'if (amount < 0) return; _health -= amount;'. Works for methods, constructors and property/indexer/event accessors. " +
+                 "Pass only the body (statements), e.g. 'if (amount <= 0) return; _balance -= amount;'. Works for methods, constructors and property/indexer/event accessors. " +
                  "Lambdas, LINQ, local functions, async/await and yield work: the compiler-generated helpers are copied into the assembly. " +
                  "Compile errors are reported with line numbers relative to your code. Returns the decompiled result. Persisted only by save_assembly.")]
     public Task<string> PatchMethodCSharp(
@@ -94,7 +94,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
                  "Combine with patch_method_csharp to call into the new code from existing methods. Persisted only by save_assembly.")]
     public Task<string> AddTypesCSharp(
         [Description(AssemblyDescription)] string assembly,
-        [Description("C# source declaring the new types (e.g. 'namespace Mods { public static class Cheats { ... } }').")] string code,
+        [Description("C# source declaring the new types (e.g. 'namespace Extensions { public static class Helpers { ... } }').")] string code,
         [Description(DryRunDescription + " Compiles and lists what would be added.")] bool dryRun = false,
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
@@ -148,7 +148,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description("Target assembly. Omit to use the assembly named in the script.")] string? assembly = null,
         [Description("Apply and compile every edit, report, then roll back: nothing changes.")] bool dryRun = false,
         [Description("Roll back everything on the first failure (default true).")] bool stopOnError = true,
-        CancellationToken cancellationToken = default) => Write(workspace, () => // a dry run applies and rolls back: needs the write lock too
+        CancellationToken cancellationToken = default) => Write(workspace, () => // dry runs apply and roll back, so they also need the write lock
             history.Apply(path, assembly, dryRun, stopOnError, cancellationToken), cancellationToken);
 
     [McpServerTool(Name = "patch_method_il", Title = "Rewrite method body in IL", Destructive = false, OpenWorld = false)]

@@ -8,9 +8,8 @@ using NetDecompilerMcp.Services;
 namespace NetDecompilerMcp.Mcp;
 
 /// <summary>
-/// MCP resources: let a client attach decompiled code, IL or an assembly overview as context by URI.
-/// Template values are URL-decoded, so ids like "App#2" can be passed as "App%232".
-/// Nested types use '+' (Ns.Outer+Inner) because '/' separates URI segments.
+/// MCP resources exposing decompiled code, IL and assembly overviews by URI. Template values are URL-decoded
+/// (e.g. "App%232" for id "App#2"); nested types use '+' because '/' separates URI segments.
 /// </summary>
 [McpServerResourceType]
 public sealed class DecompilerResources(AssemblyWorkspace workspace, DecompilerService decompiler, AssemblyReport report)
@@ -46,7 +45,7 @@ public sealed class DecompilerResources(AssemblyWorkspace workspace, DecompilerS
     public string IL([Description("Assembly id.")] string assembly, [Description("Type or member.")] string symbol, CancellationToken cancellationToken) =>
         workspace.Read(() =>
         {
-            // every overload, as get_il gives them
+            // All overloads, matching get_il.
             return string.Join("\n", SymbolResolver.Resolve(workspace, Decode(assembly), Decode(symbol))
                 .Select(s => $"// [{s.Assembly.Id}] {s.Label}\n{decompiler.Disassemble(s.Assembly, s.Member, cancellationToken)}"));
         });

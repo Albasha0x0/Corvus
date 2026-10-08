@@ -19,15 +19,15 @@ internal static class ToolSupport
     public const string MaxCharsDescription = "Max characters in this page (default from server config, ~60000).";
     public const string DryRunDescription = "Preview the change without applying it.";
 
-    /// <summary>Runs work off the transport thread under the shared (read) lock.</summary>
+    /// <summary>Runs work off the transport thread under the shared read lock.</summary>
     public static Task<string> Read(AssemblyWorkspace ws, Func<string> work, CancellationToken ct) =>
         Task.Run(() => ws.Read(work), ct);
 
-    /// <summary>Runs work under the exclusive (write) lock — anything that mutates the workspace.</summary>
+    /// <summary>Runs work off the transport thread under the exclusive write lock.</summary>
     public static Task<string> Write(AssemblyWorkspace ws, Func<string> work, CancellationToken ct) =>
         Task.Run(() => ws.Write(work), ct);
 
-    /// <summary>Edits take the write lock; dry runs only read, so they don't invalidate caches.</summary>
+    /// <summary>Dry runs use the read lock so they do not bump the workspace generation and invalidate caches.</summary>
     public static Task<string> Edit(AssemblyWorkspace ws, bool dryRun, Func<string> work, CancellationToken ct) =>
         dryRun ? Read(ws, work, ct) : Write(ws, work, ct);
 

@@ -16,8 +16,6 @@ public sealed class SearchService
 
     public sealed record IlMatch(LoadedAssembly Assembly, MethodDef Method, uint Offset, List<string> Instructions);
 
-    // ------------------------------------------------------------------ symbols
-
     public SearchResult<ResolvedSymbol> SearchSymbols(string query, bool regex, SymbolKind kind, IReadOnlyList<LoadedAssembly> scope,
         string? namespaceFilter, int limit, CancellationToken ct)
     {
@@ -58,8 +56,6 @@ public sealed class SearchService
         : name.StartsWith(query, StringComparison.OrdinalIgnoreCase) ? 2
         : 3;
 
-    // ------------------------------------------------------------------ strings
-
     public SearchResult<StringHit> SearchStrings(string query, bool regex, IReadOnlyList<LoadedAssembly> scope, int limit, CancellationToken ct)
     {
         var matcher = CreateMatcher(query, regex);
@@ -76,16 +72,14 @@ public sealed class SearchService
         return SearchResult<StringHit>.From(hits, limit);
     }
 
-    // ------------------------------------------------------------------ constants
-
     /// <summary>
     /// A numeric constant as an IL literal (ldc.*), a const/enum field value, or a custom-attribute argument.
     /// </summary>
     public SearchResult<ConstantHit> SearchConstants(string value, IReadOnlyList<LoadedAssembly> scope, int limit, CancellationToken ct)
     {
         var target = ParseConstant(value);
-        // tables (crypto round constants, CRC tables, S-boxes, lookup tables) live in array initializer data, not in IL:
-        // each array is read as what it is (byte[], int[], double[]...), from the newarr / span creation that uses it
+        // Constant tables (CRC, S-boxes, round constants) live in array initializer data, not IL; each is decoded
+        // with the element type of the newarr / span creation that uses it.
         var dataFields = new System.Collections.Concurrent.ConcurrentBag<(LoadedAssembly Asm, FieldDef Field)>();
         var users = new System.Collections.Concurrent.ConcurrentDictionary<FieldDef, (MethodDef User, TypeSig? Element)>();
         var hits = ParallelCollect<ConstantHit>(scope, (asm, type, found) =>
@@ -262,8 +256,6 @@ public sealed class SearchService
         }
     }
 
-    // ------------------------------------------------------------------ IL patterns
-
     private sealed record PatternElement(Func<string, bool>? OpCode, Func<string, bool>? Operand, bool IsGap);
 
     /// <summary>
@@ -377,8 +369,6 @@ public sealed class SearchService
         Instruction[] targets => "(" + string.Join(", ", targets.Select(t => $"IL_{t.Offset:X4}")) + ")",
         _ => Format.Literal(i.Operand),
     };
-
-    // ------------------------------------------------------------------ helpers
 
     /// <summary>Builds a predicate: substring (case-insensitive), wildcard (* ?) or regex.</summary>
     public static Func<string, bool> CreateMatcher(string query, bool regex)

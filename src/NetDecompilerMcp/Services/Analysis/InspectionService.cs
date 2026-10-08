@@ -5,11 +5,8 @@ using NetDecompilerMcp.Core;
 namespace NetDecompilerMcp.Services.Analysis;
 
 /// <summary>
-/// Analyses of one .NET assembly, without executing it: feature rules (<see cref="Features"/>), typed values
-/// (<see cref="Values"/>), embedded content (<see cref="Embedded"/>), and a summary that adds file hashes, identity,
-/// strong name and Authenticode signature, protector markers, packing and entry points. Input is a loaded assembly
-/// (read under the workspace read lock) or a file read into memory. <see cref="Summarize"/> also opens containers
-/// (bundles, packages, archives) and summarizes up to 25 of the assemblies inside.
+/// Static analyses of a loaded assembly or a file: features, typed values, embedded content and a combined summary.
+/// <see cref="Summarize"/> also opens containers and summarizes the assemblies inside.
 /// </summary>
 public sealed class InspectionService(AssemblyWorkspace workspace)
 {
@@ -18,8 +15,6 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
     private const int MaxSummaryContents = 5;
     private const int MaxSummaryEmbeddedAssemblies = 10;
     private const int TopValues = 10;
-
-    // ------------------------------------------------------------------ result shapes
 
     public sealed record FeatureReport(string Assembly, int MethodsScanned, IReadOnlyList<Feature> Features, IReadOnlyList<string> Notes);
 
@@ -39,7 +34,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
 
     public sealed record PackingFacts(IReadOnlyList<string> EmbeddedAssemblies, IReadOnlyList<EmbeddedContent> Contents, IReadOnlyList<string> HighEntropySections)
     {
-        /// <summary>All embedded assemblies (EmbeddedAssemblies lists the first ones).</summary>
+        /// <summary>Total embedded assemblies; EmbeddedAssemblies may be truncated.</summary>
         public int EmbeddedAssemblyTotal { get; init; }
     }
 
@@ -52,11 +47,9 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
     public sealed record FileSummary(FileFacts File, string Container, IReadOnlyList<AssemblySummary> Assemblies, IReadOnlyList<string> Highlights,
         IReadOnlyList<string> Notes);
 
-    // ------------------------------------------------------------------ one assembly: loaded, or a file
-
     private sealed record Scanned(ModuleDef Module, ModuleScan Scan, byte[] Image, string Label);
 
-    /// <summary>Runs <paramref name="work"/> on one .NET assembly: a loaded one (read lock held) or a file (module disposed after).</summary>
+    /// <summary>Runs work on a loaded assembly (under the read lock) or a file (module disposed afterwards).</summary>
     private T WithAssembly<T>(string? assembly, string? path, Func<Scanned, T> work, CancellationToken ct)
     {
         if ((assembly == null) == (path == null))
@@ -77,8 +70,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
     }
 
     /// <summary>
-    /// dnlib reads metadata lazily, so corrupt tables and signature blobs surface wherever they are first touched (a null
-    /// signature, a bad row index). Anything other than a ToolError or a cancellation becomes one clear error.
+    /// dnlib reads metadata lazily, so corruption surfaces at first access; converts such exceptions into a ToolError.
     /// </summary>
     private static T Guard<T>(string label, Func<T> work)
     {
@@ -104,8 +96,6 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
         catch (Exception ex) { throw new ToolError($"{label}: unreadable .NET metadata ({ex.Message})."); }
     }
 
-    // ------------------------------------------------------------------ features
-
     public FeatureReport SurveyFeatures(string? assembly, string? path, string? category, CancellationToken ct) =>
         WithAssembly(assembly, path, s =>
         {
@@ -115,8 +105,6 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
                                           || (c.Attack?.StartsWith(category, StringComparison.OrdinalIgnoreCase) ?? false))];
             return new FeatureReport(s.Label, s.Scan.MethodsScanned, found, s.Scan.Notes);
         }, ct);
-
-    // ------------------------------------------------------------------ values
 
     public ValueReport ExtractStrings(string? assembly, string? path, IReadOnlyCollection<string>? types, string? savePath, string? format, bool overwrite,
         CancellationToken ct)
@@ -142,11 +130,9 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
         return report with { SavedTo = target };
     }
 
-    // ------------------------------------------------------------------ contents
-
     /// <summary>
-    /// Finds embedded content. With save or load, writes each item as embedded_NN.ext (runnable extensions defanged) to a
-    /// directory of its own (new, empty, or an earlier extraction of the same file) and, with load, loads the .NET ones.
+    /// Finds embedded content. With save or load, writes items as embedded_NN.ext to a dedicated directory; with load,
+    /// also loads the .NET assemblies.
     /// </summary>
     public EmbeddedReport ExtractEmbedded(string? assembly, string? path, bool save, string? outputDirectory, bool load, CancellationToken ct,
         bool xorText = false, bool includeMedia = false)
@@ -155,7 +141,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
             (s.Label, assembly != null ? workspace.Get(assembly).FilePath : Path.GetFullPath(path!), Blob.Sha256(s.Image), Embedded.Find(s.Scan, Limits, ct, xorText), s.Scan.Notes), ct);
         if (!includeMedia && contents.Any(c => Blob.IsMedia(c.Kind)))
         {
-            // UI images and icons are common and rarely interesting: counted, listed (and saved) only on request
+            // Images are common and rarely relevant; only counted unless requested.
             var media = contents.Where(c => Blob.IsMedia(c.Kind)).GroupBy(c => c.Kind).Select(g => $"{g.Count()} {g.Key}");
             notes.Add($"Images not listed: {string.Join(", ", media)} (includeMedia=true lists and saves them).");
             contents = contents.Where(c => !Blob.IsMedia(c.Kind)).ToList();
@@ -182,14 +168,12 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
     private static string Extension(EmbeddedContent p) => p.Kind switch
     {
         ".NET assembly" => ".dll",
-        "native PE" or "NativeAOT executable" => p.Detail?.EndsWith("DLL", StringComparison.Ordinal) == true ? ".dll" : ".exe", // defanged on write
+        "native PE" or "NativeAOT executable" => p.Detail?.EndsWith("DLL", StringComparison.Ordinal) == true ? ".dll" : ".exe", // .exe is defanged on write
         "zip" => ".zip",
         "gzip" => ".gz",
         "text" => ".txt",
         _ => ".bin",
     };
-
-    // ------------------------------------------------------------------ summary
 
     public FileSummary Summarize(string? assembly, string? path, CancellationToken ct)
     {
@@ -216,18 +200,16 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
         try { managed = UnpackService.Managed(full, Limits, ct); }
         catch (ToolError ex)
         {
-            // a damaged container: the file facts still stand
             return new FileSummary(facts, "unreadable container", [], [.. fileHighlights, $"The file is damaged: {ex.Message}"], [ex.Message]);
         }
         var reportNotes = new List<string>(managed.Notes);
         var summarized = new List<AssemblySummary>();
-        // The app's own code first: the host file, the assembly named like the file, other libraries; framework
-        // libraries last; satellite resource assemblies (translations) are not summarized.
+        // Order: host, main, libraries, framework; satellite assemblies are skipped.
         var ranked = managed.Assemblies.Select((a, i) => (a, i, Rank: Rank(a, full))).ToList();
         var satellites = ranked.Count(r => r.Rank == AssemblyRank.Satellite);
         var candidates = ranked.Where(r => r.Rank != AssemblyRank.Satellite).OrderBy(r => r.Rank).ThenBy(r => r.i).ToList();
-        var found = new List<(string Path, IReadOnlyList<string> Highlights)>(); // before the brief form drops them
-        var copies = new Dictionary<string, List<string>>(StringComparer.Ordinal); // identity -> paths of the same assembly built for other targets
+        var found = new List<(string Path, IReadOnlyList<string> Highlights)>(); // captured before Brief() drops them
+        var copies = new Dictionary<string, List<string>>(StringComparer.Ordinal); // identity -> other builds of the same assembly
         foreach (var (a, _, rank) in candidates)
         {
             ct.ThrowIfCancellationRequested();
@@ -236,19 +218,16 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
             {
                 using var module = LoadModule(a.Bytes, a.Path);
                 var identity = module.Assembly?.FullName ?? module.Name.String;
-                if (copies.TryGetValue(identity, out var paths)) { paths.Add(a.Path); continue; } // e.g. lib/net45 and lib/netstandard2.0 of one package
+                if (copies.TryGetValue(identity, out var paths)) { paths.Add(a.Path); continue; } // e.g. per-TFM builds in one package
                 copies[identity] = [];
                 var one = Guard(a.Path, () => SummarizeAssembly(a.Path, module, ModuleScan.Of(module, Limits, ct), a.Bytes, ct));
                 if (rank == AssemblyRank.Framework)
-                    one = one with { Highlights = one.Highlights.Where(IsProblem).ToList() }; // a known library's capabilities are not findings
-                // full detail for the first (the host / main assembly); the others in brief (summarize_file on them for more)
+                    one = one with { Highlights = one.Highlights.Where(IsProblem).ToList() }; // framework capabilities are not findings
                 found.Add((one.Path, one.Highlights));
                 summarized.Add(summarized.Count == 0 ? one : Brief(one));
             }
             catch (ToolError ex)
             {
-                // a damaged assembly (truncated, metadata overwritten): reported, with the file facts; in a container
-                // the other assemblies are still summarized
                 reportNotes.Add(ex.Message);
                 if (managed.Container.StartsWith("none", StringComparison.Ordinal))
                     fileHighlights.Add($"The .NET metadata is damaged: {ex.Message}");
@@ -275,7 +254,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
 
     private enum AssemblyRank { Host, Main, Library, Framework, Satellite }
 
-    /// <summary>A secondary assembly of a container: feature names without evidence, value counts without values, no content list.</summary>
+    /// <summary>Reduced form for secondary assemblies: no evidence, values or content list.</summary>
     private static AssemblySummary Brief(AssemblySummary a) => a with
     {
         Features = a.Features.Select(f => f with { Evidence = [] }).ToList(),
@@ -283,15 +262,16 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
         Packing = new PackingFacts(a.Packing.EmbeddedAssemblies.Take(3).ToList(), [], a.Packing.HighEntropySections) { EmbeddedAssemblyTotal = a.Packing.EmbeddedAssemblyTotal },
         Identity = a.Identity with { References = a.Identity.References.Take(5).ToList() },
         Notes = a.Notes.Take(3).ToList(),
-        Highlights = [], // listed once, in the file's highlights
+        Highlights = [], // aggregated into the file's highlights
     };
 
+    // Public key tokens of Microsoft framework assemblies.
     private static readonly HashSet<string> FrameworkTokens = new(StringComparer.OrdinalIgnoreCase)
     {
         "b77a5c561934e089", "b03f5f7f11d50a3a", "31bf3856ad364e35", "cc7b13ffcd2ddd51", "adb9793829ddae60", "7cec85d7bea7798e",
     };
 
-    /// <summary>Where an assembly of a container comes in the summary (see <see cref="Summarize"/>).</summary>
+    /// <summary>Summary ordering rank of a contained assembly.</summary>
     private static AssemblyRank Rank(UnpackService.ManagedAssembly a, string source)
     {
         if (a.Origin == UnpackService.HostOrigin) return AssemblyRank.Host;
@@ -314,7 +294,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
         return AssemblyRank.Library;
     }
 
-    /// <summary>Highlights that are problems whatever the assembly: protection, tampering, packing, hidden code.</summary>
+    /// <summary>Highlights reported even for framework assemblies: protection, tampering, packing, invalid IL.</summary>
     private static bool IsProblem(string h) =>
         h.StartsWith("Protected with", StringComparison.Ordinal) || h.Contains("does not match", StringComparison.Ordinal)
         || h.Contains("does not verify", StringComparison.Ordinal) || h.Contains("unreadable", StringComparison.Ordinal)
@@ -356,8 +336,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
         }
         var packing = new PackingFacts(embedded, listed, sections) { EmbeddedAssemblyTotal = embeddedTotal };
 
-        // the summary keeps the most specific evidence line (a string or native import before a common API) with one
-        // location; survey_features has them all
+        // Keep one evidence line, preferring strings / native imports over APIs, with one location.
         var features = Features.Detect(scan, ct)
             .Select(f => f with
             {
@@ -407,8 +386,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
     }
 
     /// <summary>
-    /// PE sections whose bytes look packed or encrypted (entropy 7.2+), not counting the managed resources: images and
-    /// compressed assets embedded as resources live in .text of every .NET image and say nothing about packed code.
+    /// PE sections with entropy 7.2+, excluding the managed resources span (compressed resources in .text are normal).
     /// </summary>
     private static List<string> HighEntropySections(ModuleDef module, PeImage pe, byte[] image)
     {
@@ -423,7 +401,6 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
         {
             if (sec.RawSize < 4096 || sec.RawPointer + (long)sec.RawSize > image.Length) continue;
             long start = sec.RawPointer, end = start + sec.RawSize;
-            // the section minus the resources span (when the span lies inside it)
             var parts = resources.End > start && resources.Start < end
                 ? new[] { (start, Math.Max(start, resources.Start)), (Math.Min(end, resources.End), end) }
                 : new[] { (start, end) };
@@ -441,9 +418,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
         return token == null || token.IsNullOrEmpty ? null : token.ToString();
     }
 
-    // ------------------------------------------------------------------ highlights
-
-    /// <summary>Categories whose ATT&amp;CK-mapped features are listed in highlights (discovery and data-handling categories are not).</summary>
+    /// <summary>Categories whose ATT&amp;CK-mapped features appear in highlights.</summary>
     private static readonly HashSet<string> NotableCategories = new(StringComparer.Ordinal)
     {
         "injection", "persistence", "collection", "credential access", "anti-analysis", "defense evasion", "privilege escalation",
@@ -459,7 +434,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
         if (signature.Certificate is { Present: true } sig) h.AddRange(SignatureHighlights(sig, "the assembly"));
         if (identity.Merged != null) h.Add(identity.Merged);
         if (packing.EmbeddedAssemblyTotal > 0) h.Add($"{packing.EmbeddedAssemblyTotal} embedded assembly(ies) (Costura or similar).");
-        // Costura's embedded assemblies and their PDBs are counted above, not listed one by one
+        // Costura assemblies and PDBs are already counted above.
         foreach (var p in packing.Contents.Where(c => !(c.Source.StartsWith("resource 'costura.", StringComparison.OrdinalIgnoreCase)
                                                          && c.Kind is ".NET assembly" or "portable pdb" or "pdb")).Take(5))
         {

@@ -1,6 +1,6 @@
 namespace Fixture.Model;
 
-// A singleton whose static accessor is declared on a generic base class (a common game-code pattern).
+// Singleton whose static accessor is declared on a generic base class.
 public abstract class Singleton<T> where T : class, new()
 {
     private static T? _instance;

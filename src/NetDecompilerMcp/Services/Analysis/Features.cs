@@ -3,23 +3,21 @@ using NetDecompilerMcp.Core;
 
 namespace NetDecompilerMcp.Services.Analysis;
 
-/// <summary>A matched rule: its name and category, the MITRE ATT&amp;CK technique id and name (null when the rule has none), and the evidence.</summary>
+/// <summary>A matched rule with its optional MITRE ATT&amp;CK technique and evidence.</summary>
 public sealed record Feature(string Name, string Category, string? Attack, string? AttackName, IReadOnlyList<Evidence> Evidence);
 
-/// <summary>One matched feature pattern: the API / import / string pattern, its number of matches, and up to 5 locations.</summary>
+/// <summary>A matched feature pattern, its match count and up to 5 locations.</summary>
 public sealed record Evidence(string Feature, int Count, IReadOnlyList<string> Locations);
 
 /// <summary>
-/// Rules over what a module's code uses (capa-style). Feature kinds: "api:Ns.Type::Name" for APIs called ('*' wildcards;
-/// with a parameter list, matched against the call's signature), "native:module!Entry" for P/Invoke imports (module
-/// compared without extension, an A / W suffix accepted), and "str:" for a regex over string literals and constants
-/// (strings up to 64 KB, 1 s timeout). A rule matches when every one of its groups has at least one matching feature.
-/// Rules carry an ATT&amp;CK technique only where the matched operation is the technique itself (process injection,
-/// Run-key persistence, keylogging); generic operations such as hashing or compression carry none.
+/// Capability rules over a module's code. Feature kinds: "api:Ns.Type::Name" (wildcards; a parameter list matches the
+/// signature), "native:module!Entry" (P/Invoke; extension ignored, A / W suffix accepted) and "str:" (regex over
+/// strings). A rule matches when every group has a matching feature. ATT&amp;CK ids are set only when the operation
+/// itself is the technique.
 /// </summary>
 public static class Features
 {
-    /// <summary>One rule: all <see cref="Groups"/> must match; inside a group, any feature.</summary>
+    /// <summary>All groups must match; within a group, any feature.</summary>
     public sealed record Rule(string Name, string Category, string? Attack, string? AttackName, string[][] Groups);
 
     private static Rule Any(string name, string category, string? attack, string? attackName, params string[] features) =>
@@ -41,7 +39,6 @@ public static class Features
 
     public static readonly IReadOnlyList<Rule> Rules =
     [
-        // ---- network
         Any("send HTTP requests", "network", "T1071.001", "Application Layer Protocol: Web Protocols",
             "api:System.Net.Http.HttpClient::*Async", "api:System.Net.Http.HttpMessageInvoker::SendAsync", "api:System.Net.WebClient::Download*",
             "api:System.Net.WebClient::Upload*", "api:System.Net.WebClient::OpenRead*", "api:System.Net.WebRequest::Create*",
@@ -64,7 +61,6 @@ public static class Features
         Any("listen for incoming connections", "network", null, null,
             "api:System.Net.Sockets.TcpListener::Start", "api:System.Net.HttpListener::Start", "api:System.Net.Sockets.Socket::Listen"),
 
-        // ---- execution
         Any("create processes", "execution", null, null, CreateProcess),
         All("run the Windows command shell", "execution", "T1059.003", "Command and Scripting Interpreter: Windows Command Shell",
             CreateProcess, [@"str:(?i)(?:^|[\\\s""])cmd(?:\.exe)?(?:$|[\s""])|\bcmd(?:\.exe)?\s+/[ck]\b"]),
@@ -82,7 +78,6 @@ public static class Features
         Any("shut down or restart the system", "impact", "T1529", "System Shutdown/Reboot",
             @"str:(?i)\bshutdown(?:\.exe)?\s+[/-][srt]\b", "native:user32!ExitWindowsEx", "native:advapi32!InitiateSystemShutdown*"),
 
-        // ---- registry and persistence
         Any("query the registry", "registry", "T1012", "Query Registry",
             "api:Microsoft.Win32.RegistryKey::GetValue*", "api:Microsoft.Win32.RegistryKey::OpenSubKey", "api:Microsoft.Win32.RegistryKey::GetSubKeyNames",
             "api:Microsoft.Win32.Registry::GetValue", "native:advapi32!RegQueryValue*", "native:advapi32!RegOpenKey*"),
@@ -97,7 +92,6 @@ public static class Features
         Any("install a Windows service", "persistence", "T1543.003", "Create or Modify System Process: Windows Service",
             "native:advapi32!CreateService*", @"str:(?i)\bsc(?:\.exe)?\s+create\b", "api:System.Configuration.Install.ManagedInstallerClass::InstallHelper"),
 
-        // ---- collection
         Any("log keystrokes", "collection", "T1056.001", "Input Capture: Keylogging",
             "native:user32!SetWindowsHookEx*", "native:user32!GetAsyncKeyState", "native:user32!GetKeyboardState"),
         All("capture the screen", "collection", "T1113", "Screen Capture",
@@ -112,7 +106,6 @@ public static class Features
         Any("decrypt data with DPAPI", "credential access", null, null,
             "api:System.Security.Cryptography.ProtectedData::Unprotect", "native:crypt32!CryptUnprotectData"),
 
-        // ---- defense evasion and anti-analysis
         Any("check for a debugger", "anti-analysis", "T1622", "Debugger Evasion",
             "api:System.Diagnostics.Debugger::get_IsAttached", "api:System.Diagnostics.Debugger::IsLogging", "native:kernel32!IsDebuggerPresent",
             "native:kernel32!CheckRemoteDebuggerPresent", "native:ntdll!NtQueryInformationProcess"),
@@ -130,7 +123,6 @@ public static class Features
         Any("adjust token privileges", "privilege escalation", "T1134", "Access Token Manipulation",
             "native:advapi32!AdjustTokenPrivileges", "native:advapi32!DuplicateToken*", "native:advapi32!ImpersonateLoggedOnUser"),
 
-        // ---- code loading and injection
         Any("load .NET assemblies from memory", "code loading", "T1620", "Reflective Code Loading",
             "api:System.Reflection.Assembly::Load(System.Byte[]*", "api:System.AppDomain::Load(System.Byte[]*",
             "api:System.Runtime.Loader.AssemblyLoadContext::LoadFromStream"),
@@ -157,7 +149,6 @@ public static class Features
             ["native:kernel32!VirtualAlloc", "native:kernel32!VirtualProtect"],
             ["native:kernel32!CreateThread", "api:System.Runtime.InteropServices.Marshal::GetDelegateForFunctionPointer*"]),
 
-        // ---- discovery
         Any("get system information", "discovery", "T1082", "System Information Discovery",
             "api:System.Environment::get_OSVersion", "api:System.Environment::get_MachineName", "api:System.Runtime.InteropServices.RuntimeInformation::get_OSDescription"),
         Any("get the user name", "discovery", "T1033", "System Owner/User Discovery",
@@ -172,7 +163,6 @@ public static class Features
         Any("check for administrator rights", "discovery", null, null,
             "api:System.Security.Principal.WindowsPrincipal::IsInRole"),
 
-        // ---- data handling
         Any("encrypt or decrypt data", "crypto", null, null,
             "api:*::CreateDecryptor", "api:*::CreateEncryptor", "api:System.Security.Cryptography.Aes::Create", "api:*::DecryptCbc", "api:*::EncryptCbc",
             "api:System.Security.Cryptography.AesGcm::Decrypt", "api:System.Security.Cryptography.RSA::Decrypt", "native:advapi32!CryptDecrypt"),
@@ -271,7 +261,7 @@ public static class Features
 
     private static readonly Dictionary<string, Regex> WildcardCache = [];
 
-    /// <summary>'*' matches anything; with <paramref name="allowCharsetSuffix"/> a trailing A / W (ANSI / wide entry point) is accepted.</summary>
+    /// <summary>'*' matches anything; <paramref name="allowCharsetSuffix"/> accepts a trailing A / W entry-point suffix.</summary>
     private static Regex Wildcard(string pattern, bool allowCharsetSuffix = false)
     {
         var key = pattern + (allowCharsetSuffix ? "|aw" : "");

@@ -17,10 +17,8 @@ public sealed record SearchResult<T>(List<T> Items, int Total)
 public static class MetadataUtil
 {
     /// <summary>
-    /// Visits every type of the given assemblies in parallel and returns what the visitor collected, in a
-    /// deterministic (assembly, type) order. Large workspaces have hundreds of thousands of method bodies, and the
-    /// first scan pays for parsing them, so whole-workspace scans must not be single-threaded.
-    /// The visitor must only read metadata; callers hold the workspace read lock.
+    /// Visits every type of the given assemblies in parallel and returns the collected results in deterministic
+    /// (assembly, type) order. The visitor must only read metadata; callers hold the workspace read lock.
     /// </summary>
     public static List<T> ParallelCollect<T>(IEnumerable<LoadedAssembly> scope, Action<LoadedAssembly, TypeDef, List<T>> visit, CancellationToken ct)
     {

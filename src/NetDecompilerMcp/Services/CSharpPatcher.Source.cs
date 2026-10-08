@@ -51,8 +51,7 @@ public sealed partial class CSharpPatcher
     private ModuleDefMD Compile(LoadedAssembly asm, SyntaxTree tree, byte[]? targetImage, CancellationToken ct)
     {
         var withUsings = CreateCompilation(asm, tree, targetImage, out var missing, withUsings: true);
-        // the decompiled context's using directives of namespaces no resolved reference provides (an unavailable WinRT
-        // contract, a missing library) are dropped: an unused import must not fail the whole patch
+        // Drop decompiled using directives for namespaces no resolved reference provides; an unused import must not fail the patch.
         var root = tree.GetRoot(ct);
         var unknown = root.DescendantNodes().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.UsingDirectiveSyntax>()
             .Where(u => u.Alias == null && u.StaticKeyword.IsKind(SyntaxKind.None) && u.Name != null && !u.HasAnnotation(UserCode)
@@ -135,7 +134,7 @@ public sealed partial class CSharpPatcher
                 : members.OfType<PropertyDeclarationSyntax>().FirstOrDefault(p => p.Identifier.Text == name);
             if (decl == null) throw new ToolError($"Property {property.Name} not found in the decompiled source.");
             if (decl is PropertyDeclarationSyntax { ExpressionBody: not null } or IndexerDeclarationSyntax { ExpressionBody: not null })
-                return decl; // "=> expr" getter-only property: the rewriter turns it into a get accessor
+                return decl; // expression-bodied property; the rewriter converts it to a get accessor
             var accessor = decl.AccessorList?.Accessors.FirstOrDefault(a => a.IsKind(keyword) || (keyword == SyntaxKind.SetAccessorDeclaration && a.IsKind(SyntaxKind.InitAccessorDeclaration)));
             if (accessor == null) throw new ToolError($"Accessor not found for {property.Name}.");
             if (accessor.Body == null && accessor.ExpressionBody == null)

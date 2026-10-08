@@ -4,10 +4,7 @@ using NetDecompilerMcp.Services;
 
 namespace NetDecompilerMcp.Tests;
 
-/// <summary>
-/// References resolve to the right framework and the right build: the requested .NET major version, .NET Framework
-/// for .NET Framework apps, assemblies embedded in a loaded Costura host, and project export without framework paths.
-/// </summary>
+/// <summary>References resolve to the right framework version, .NET Framework, or a Costura-embedded copy.</summary>
 public class FrameworkResolutionTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -26,14 +23,14 @@ public class FrameworkResolutionTests : IDisposable
     [Fact]
     public void AnOlderMajorVersion_ResolvesToThatFramework_WhenInstalled()
     {
-        // .NET 5 and later: assembly versions follow the runtime's major version (.NET Core 3.1's System.Runtime is 4.2.2.0)
+        // From .NET 5, assembly versions follow the runtime's major version.
         var installed = Frameworks.All.Value.Where(s => s.Name == "Microsoft.NETCore.App" && s.Version.Major >= 5).Select(s => s.Version.Major).Distinct().OrderBy(m => m).ToList();
         if (installed.Count < 2) return; // needs two installed .NET 5+ versions
         int older = installed[0], newest = installed[^1];
         var file = new AssemblyWorkspace(new ServerOptions()).FindAssemblyFile("System.Runtime", null, MicrosoftToken, new Version(older, 0, 0, 0));
         Assert.NotNull(file);
         Assert.Equal(older, System.Reflection.AssemblyName.GetAssemblyName(file!).Version!.Major);
-        // no version: the newest, as before
+        // Without a version: the newest.
         var any = new AssemblyWorkspace(new ServerOptions()).FindAssemblyFile("System.Runtime", null, MicrosoftToken);
         Assert.Equal(newest, System.Reflection.AssemblyName.GetAssemblyName(any!).Version!.Major);
     }
@@ -41,7 +38,7 @@ public class FrameworkResolutionTests : IDisposable
     [Fact]
     public void LoadedBuildOfAnotherMajor_ElsewhereIsOnlyALastResort()
     {
-        // distinct builds (the fixture helper derives the MVID from the name; the workspace treats equal MVIDs as one module)
+        // Fresh MVIDs: the workspace treats equal MVIDs as one module.
         static byte[] Lib(int major) => ContainerFixtures.Module("Lib", m => { m.Assembly.Version = new Version(major, 0, 0, 0); m.Mvid = Guid.NewGuid(); });
         static string? Where(AssemblyWorkspace.ReferenceTarget? t) => t?.Loaded?.FilePath ?? t?.File;
         var v2 = Folder("v2");
@@ -53,7 +50,7 @@ public class FrameworkResolutionTests : IDisposable
         ws.LoadDirectory(v1, false);
         var requester = Path.Combine(Folder("app"), "App.dll");
         Assert.Equal(Path.Combine(v1, "Lib.dll"), Where(ws.LocateReference("Lib", new Version(1, 0, 0, 0), null, requester, false)));
-        // only the other major loaded and no file anywhere: still resolved (better than nothing)
+        // Only the other major available: used as a fallback.
         using var only2 = new AssemblyWorkspace(new ServerOptions());
         only2.LoadDirectory(v2, false);
         File.Delete(Path.Combine(v1, "Lib.dll"));
@@ -64,7 +61,7 @@ public class FrameworkResolutionTests : IDisposable
     public void NetFrameworkApp_ReadsFrameworkAssembliesFromNetFramework()
     {
         if (Frameworks.NetFrameworkFile("mscorlib") is not { } netfxCorlib) return; // Windows with .NET Framework 4
-        // an app that says it targets .NET Framework, next to a loaded modern .NET runtime folder's mscorlib facade
+        // A .NET Framework app with a modern mscorlib facade also loaded.
         var app = Path.Combine(Folder("netfx-app"), "App.dll");
         File.WriteAllBytes(app, ReferenceResolutionTests.Compile("App", "[assembly: System.Runtime.Versioning.TargetFramework(\".NETFramework,Version=v4.8\")] public class A { }"));
         using var ws = new AssemblyWorkspace(new ServerOptions());
@@ -75,14 +72,14 @@ public class FrameworkResolutionTests : IDisposable
         Assert.Equal(netfxCorlib, target.File, ignoreCase: true);
         Assert.False(Frameworks.TargetsNetFramework(ws.Get("mscorlib").Module));
         Assert.True(Frameworks.IsModernNet(ws.Get("mscorlib").Module));
-        // a modern app is unaffected: the loaded facade
+        // A modern app gets the loaded facade.
         Assert.NotNull(ws.LocateReference("mscorlib", new Version(4, 0, 0, 0), EcmaToken, app, netFramework: false)!.Loaded);
     }
 
     [Fact]
     public void CosturaEmbeddedAssemblies_ResolveReferences_ForDecompilingAndPatching()
     {
-        // App references TestFixture, which ships only inside it as a Costura resource
+        // TestFixture ships only as a Costura resource inside App.
         var fixture = File.ReadAllBytes(Env.FixturePath);
         var appImage = ReferenceResolutionTests.Compile("App", """
             public class Shop
@@ -108,7 +105,7 @@ public class FrameworkResolutionTests : IDisposable
         var info = env.Workspace.Read(() => env.Report.Build(app));
         Assert.True(System.Text.RegularExpressions.Regex.IsMatch(info, @"TestFixture, Version=[^\]]*\[embedded in App\]"), info);
         Assert.Contains("typeof(Account)", env.Decompile("Shop::Who"));
-        // the type's decompiled context needs Fixture.Model: compiles against the embedded copy
+        // The patch compiles against the embedded copy.
         env.Edit(() => env.Edits.PatchMethodCSharp(env.One("Shop::Price"), "return new Fixture.Model.Account(\"p\").Balance;", false, default));
         Assert.Contains("Balance", env.Decompile("Shop::Price"));
     }
@@ -116,7 +113,7 @@ public class FrameworkResolutionTests : IDisposable
     [Fact]
     public void Patch_DropsUsingsOfNamespacesThatNoReferenceProvides()
     {
-        // App uses Gone.Thing inside a method body; Gone.dll is not shipped: the decompiled context's "using Gone;" fails
+        // Gone.dll is not shipped, so the decompiled context's "using Gone;" cannot resolve.
         var gone = ReferenceResolutionTests.Compile("Gone", "namespace Gone { public class Thing { } }");
         var path = Path.Combine(Folder("nogone"), "App.dll");
         File.WriteAllBytes(path, ReferenceResolutionTests.Compile("App", """

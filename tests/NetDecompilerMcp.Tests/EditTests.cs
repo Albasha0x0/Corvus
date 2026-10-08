@@ -26,12 +26,12 @@ public class EditTests : IDisposable
     [Fact]
     public void RenamePropertyAndEventKeepsAccessorsConsistent()
     {
-        _env.Edit(() => _env.Edits.Rename(_env.One("Account::Balance"), "Hp"));
-        _env.Edit(() => _env.Edits.Rename(_env.One("Account::Closed", SymbolKind.Event), "Killed"));
+        _env.Edit(() => _env.Edits.Rename(_env.One("Account::Balance"), "Amount"));
+        _env.Edit(() => _env.Edits.Rename(_env.One("Account::Closed", SymbolKind.Event), "Ended"));
         var account = _env.Def<TypeDef>("Account", SymbolKind.Type);
-        Assert.NotNull(account.FindMethod("get_Hp"));
-        Assert.NotNull(account.FindMethod("add_Killed"));
-        Assert.Contains("public int Hp", _env.Decompiler.DecompileType(_env.Fixture, account, default));
+        Assert.NotNull(account.FindMethod("get_Amount"));
+        Assert.NotNull(account.FindMethod("add_Ended"));
+        Assert.Contains("public int Amount", _env.Decompiler.DecompileType(_env.Fixture, account, default));
         Assert.Throws<ToolError>(() => _env.Edit(() => _env.Edits.Rename(_env.One("Account::.ctor"), "Make")));
         Assert.Throws<ToolError>(() => _env.Edit(() => _env.Edits.Rename(_env.One("Account::Tick"), " ")));
     }
@@ -81,7 +81,7 @@ public class EditTests : IDisposable
     [Fact]
     public void DryRunsChangeNothing()
     {
-        Assert.StartsWith("Dry run", _env.Edits.Rename(_env.One("Account", SymbolKind.Type), "Hero", dryRun: true));
+        Assert.StartsWith("Dry run", _env.Edits.Rename(_env.One("Account", SymbolKind.Type), "Customer", dryRun: true));
         Assert.StartsWith("Dry run", _env.Edits.StubMethod(_env.One("Secret::Validate"), "true", dryRun: true));
         Assert.StartsWith("Dry run", _env.Edits.RenameNamespace(_env.Fixture, "Fixture.Model", "X", false, dryRun: true));
         Assert.False(_env.Fixture.IsDirty);

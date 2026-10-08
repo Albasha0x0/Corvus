@@ -9,8 +9,7 @@ using NetDecompilerMcp.Core;
 namespace NetDecompilerMcp.Services;
 
 /// <summary>
-/// Rewrites engine output that does not compile back into what the compiler accepts. Runs after the engine's own
-/// transforms, on decompiled members and exported projects alike.
+/// AST transforms that rewrite decompiler output which does not compile into valid C#. Run after the engine's own transforms.
 /// </summary>
 internal static class AstCleanup
 {
@@ -46,17 +45,16 @@ internal static class AstCleanup
             decompiler.AstTransforms.Add(new Guarded(new FrameworkAmbiguousNames(frameworkTypes)));
     }
 
-    /// <summary>How many times a cleanup failed and the engine output was kept (tests check it stays 0).</summary>
+    /// <summary>Number of transforms that threw; the engine output was kept in each case.</summary>
     internal static int Failures;
 
-    /// <summary>The last cleanup failure (tests and diagnostics).</summary>
     internal static string? LastError;
 
-    /// <summary>Decisions worth reviewing (NDM_CLEANUP_LOG set): what was rewritten where, and why.</summary>
+    /// <summary>Rewrite decisions, recorded when NDM_CLEANUP_LOG is set.</summary>
     internal static readonly System.Collections.Concurrent.ConcurrentQueue<string> Log = new();
     internal static readonly bool Logging = Environment.GetEnvironmentVariable("NDM_CLEANUP_LOG") != null;
 
-    /// <summary>A cleanup that fails leaves the engine's output as it is, instead of failing the whole member.</summary>
+    /// <summary>Isolates a transform: if it throws, the engine output is kept instead of failing the member.</summary>
     private sealed class Guarded(IAstTransform inner) : IAstTransform
     {
 
@@ -73,10 +71,8 @@ internal static class AstCleanup
 }
 
 /// <summary>
-/// Span slicing (<c>x[a..]</c>) compiles to a <c>ref</c> temporary that the engine shows as one ref local reassigned
-/// before every use (<c>ref Span&lt;T&gt; reference; ... reference = ref x; reference.Slice(...)</c>). That does not
-/// compile: a ref local needs an initializer, and a stackalloc span cannot escape into it (CS8174, CS8352, CS8374,
-/// CS9096). The alias is replaced by the variable it points to wherever that is certain.
+/// Inlines ref temporaries from span slicing: <c>ref Span&lt;T&gt; r; r = ref x; r.Slice(...)</c> → <c>x.Slice(...)</c>
+/// (CS8174, CS8352, CS8374, CS9096). Only where the aliased location is certain.
 /// </summary>
 internal sealed class InlineRefTemporaries : IAstTransform
 {
@@ -89,13 +85,13 @@ internal sealed class InlineRefTemporaries : IAstTransform
                 Inline(body, declarations.Key, declarations.ToList());
     }
 
-    /// <summary>All ref locals of one name in a body (the engine reuses a name across branches) are handled together.</summary>
+    /// <summary>Handles all ref locals of one name together; the engine reuses a name across branches.</summary>
     private static void Inline(BlockStatement body, string name, List<VariableDeclarationStatement> declarations)
     {
         bool IsName(AstNode n) => n is IdentifierExpression { Identifier: var id, TypeArguments.Count: 0 } && id == name;
         bool IsRefAssignment(AstNode n) => n is AssignmentExpression { Operator: AssignmentOperatorType.Assign, Right: DirectionExpression { FieldDirection: FieldDirection.Ref } } a && IsName(a.Left);
 
-        // the points where the alias is (re)bound: the declaration's initializer and `name = ref E;` statements
+        // Bindings: the declaration's initializer and `name = ref E;` statements.
         var bindings = new List<(Statement Statement, Expression Target)>();
         foreach (var declaration in declarations)
             if (declaration.Variables.Single().Initializer is DirectionExpression { FieldDirection: FieldDirection.Ref } init)
@@ -104,7 +100,7 @@ internal sealed class InlineRefTemporaries : IAstTransform
             if (IsRefAssignment(s.Expression))
                 bindings.Add((s, ((DirectionExpression)((AssignmentExpression)s.Expression).Right).Expression));
         if (bindings.Count == 0) return;
-        // innermost first: a loop body's own bindings take its uses before an enclosing binding looks past the loop
+        // Innermost first, so a loop body's bindings claim its uses before an enclosing binding does.
         bindings = bindings.OrderByDescending(b => b.Statement.Ancestors.Count()).ToList();
 
         var inlined = new List<Statement>();
@@ -120,7 +116,7 @@ internal sealed class InlineRefTemporaries : IAstTransform
                     .Where(i => IsName(i) && !(i.Parent is AssignmentExpression a && a.Left == i && IsRefAssignment(a))).ToList();
                 if (rebinds)
                 {
-                    // rebound inside this statement (a loop body): a use here may see either binding
+                    // Rebound within this statement (e.g. a loop): a use here may see either binding.
                     if (here.Count > 0) safe = false;
                     break;
                 }
@@ -132,7 +128,7 @@ internal sealed class InlineRefTemporaries : IAstTransform
             inlined.Add(statement);
         }
 
-        // gone entirely: drop the bindings and the declaration that no longer compile
+        // Remove bindings and declarations only when every use was inlined.
         bool stillUsed = body.Descendants.OfType<IdentifierExpression>()
             .Any(i => IsName(i) && !(i.Parent is AssignmentExpression a && a.Left == i && IsRefAssignment(a)));
         if (stillUsed || inlined.Count != bindings.Count) return;
@@ -149,7 +145,7 @@ internal sealed class InlineRefTemporaries : IAstTransform
         return null;
     }
 
-    /// <summary>A local, parameter or field of this / a type: its storage location cannot change between uses.</summary>
+    /// <summary>A local, parameter, or field of <c>this</c> or a type: a location that cannot change between uses.</summary>
     private static bool IsFixedLocation(Expression e) => e switch
     {
         IdentifierExpression { TypeArguments.Count: 0 } => true,
@@ -159,9 +155,8 @@ internal sealed class InlineRefTemporaries : IAstTransform
 }
 
 /// <summary>
-/// <c>stackalloc T[n] { ... }</c> compiles to a block copy from compiler data the engine leaves as
-/// <c>Unsafe.CopyBlockUnaligned(ptr, ref &lt;PrivateImplementationDetails&gt;.X, n)</c>, a name that cannot be written in C#
-/// (CS0103). The copy is folded back into the initializer.
+/// Folds <c>Unsafe.CopyBlockUnaligned(ptr, ref &lt;PrivateImplementationDetails&gt;.X, n)</c> back into a
+/// <c>stackalloc T[n] { ... }</c> initializer (CS0103).
 /// </summary>
 internal sealed class StackAllocInitializers : IAstTransform
 {
@@ -245,8 +240,7 @@ internal sealed class StackAllocInitializers : IAstTransform
 }
 
 /// <summary>
-/// <c>(nuint)(-70)</c> and the like: a negative constant cast to an unsigned type is a compile error outside an
-/// unchecked context (CS0221), though the IL just reinterprets the bits. Wrapped in <c>unchecked(...)</c>.
+/// Wraps negative constants cast to unsigned types in <c>unchecked(...)</c>: <c>(nuint)(-70)</c> (CS0221).
 /// </summary>
 internal sealed class UncheckedNegativeCasts : IAstTransform
 {
@@ -275,8 +269,8 @@ internal sealed class UncheckedNegativeCasts : IAstTransform
 }
 
 /// <summary>
-/// Attributes only the compiler may emit (CS8335), written out by the engine at assembly or module level:
-/// <c>[assembly: NullablePublicOnly(false)]</c>, <c>[module: RefSafetyRules(11)]</c>. The compiler adds them again.
+/// Removes compiler-reserved assembly/module attributes such as <c>[module: RefSafetyRules(11)]</c> (CS8335).
+/// The compiler re-emits them.
 /// </summary>
 internal sealed class ReservedAttributes : IAstTransform
 {
@@ -302,12 +296,9 @@ internal sealed class ReservedAttributes : IAstTransform
 }
 
 /// <summary>
-/// A constructor that assigns members before calling the base constructor (what a primary constructor or a
-/// <c>required</c>-style initializer compiles to) comes out as <c>base._002Ector(type);</c> in the body, which is not
-/// C# (CS0117, CS7036). The call becomes the constructor initializer <c>: base(type)</c>, so the plain assignments
-/// before it now run after the base constructor. That is only done when the base constructor chain calls nothing
-/// overridable (checked in its IL, with the helpers it calls), so nothing can observe the difference; otherwise the
-/// compiled order is kept. A base constructor that cannot be read (a missing assembly) is assumed not to.
+/// Turns <c>base._002Ector(x);</c> in a constructor body into the initializer <c>: base(x)</c> (CS0117, CS7036).
+/// Assignments preceding the call then run after the base constructor, so this is only done when the base
+/// constructor chain calls nothing overridable (checked in IL). An unreadable base constructor is assumed safe.
 /// </summary>
 internal sealed class BaseConstructorCalls : IAstTransform
 {
@@ -315,7 +306,7 @@ internal sealed class BaseConstructorCalls : IAstTransform
     {
         foreach (var ctor in rootNode.Descendants.OfType<ConstructorDeclaration>().ToList())
         {
-            // a real initializer already there (an explicit base(...) or this(...)): the body call is something else
+            // An explicit base(...) or this(...) initializer already exists.
             if (ctor.Initializer is { } existing && (existing.Arguments.Any() || existing.ConstructorInitializerType == ConstructorInitializerType.This)
                 || ctor.Body is not { Statements.Count: > 0 })
                 continue;
@@ -327,7 +318,7 @@ internal sealed class BaseConstructorCalls : IAstTransform
             if (call == null) continue;
             var invocation = (InvocationExpression)call.Expression;
             bool viaThis = ((MemberReferenceExpression)invocation.Target).Target is ThisReferenceExpression;
-            // only plain assignments may come first: anything else could depend on running before the base call
+            // Only plain assignments may be reordered past the base call.
             var before = ctor.Body.Statements.TakeWhile(s => s != call).ToList();
             if (before.Any(s => s is not ExpressionStatement { Expression: AssignmentExpression })) continue;
 
@@ -335,8 +326,7 @@ internal sealed class BaseConstructorCalls : IAstTransform
             var safety = before.Count == 0 ? "nothing moved" : target == null ? "base constructor unknown" : VirtualCalls(target, 0, []) ?? "safe";
             if (AstCleanup.Logging)
                 AstCleanup.Log.Enqueue($"BaseConstructorCalls {(ctor.GetSymbol() as IEntity)?.DeclaringType?.FullName}: {before.Count} assignment(s) moved after {target?.DeclaringType?.FullName}..ctor: {safety}");
-            // the base constructor would see the assignments missing (it calls something overridable): keep the
-            // compiled order, which is what the code does, rather than code that builds and behaves differently
+            // An override could observe the unassigned members: keep the compiled order.
             if (safety.StartsWith("calls overridable", StringComparison.Ordinal)) continue;
 
             var initializer = new ConstructorInitializer
@@ -351,9 +341,8 @@ internal sealed class BaseConstructorCalls : IAstTransform
     }
 
     /// <summary>
-    /// The first call the constructor makes (through its own base constructors and helper methods of the object,
-    /// three levels deep) to an overridable method of the object: what would see the moved assignments not done
-    /// yet. Null when there is none.
+    /// Describes the first virtual call on the instance made by <paramref name="method"/>, following base
+    /// constructors and non-virtual helpers up to three levels deep; null if none.
     /// </summary>
     internal static string? VirtualCalls(IMethod method, int depth, HashSet<IMethod> seen)
     {
@@ -382,7 +371,7 @@ internal sealed class BaseConstructorCalls : IAstTransform
                 if (!onObject) continue;
                 if (opCode != System.Reflection.Metadata.ILOpCode.Call && callee.IsOverridable && !callee.IsConstructor)
                     return $"calls overridable {callee.FullName}";
-                // its own base constructor, or a helper of the object: look inside
+                // Base constructor or non-virtual helper: recurse.
                 if (callee.IsConstructor || !callee.IsOverridable)
                     if (VirtualCalls(callee, depth + 1, seen) is { } inner) return inner;
                 continue;
@@ -394,9 +383,8 @@ internal sealed class BaseConstructorCalls : IAstTransform
 }
 
 /// <summary>
-/// A constructor parameter used in a field initializer: the engine moved <c>index = (int)(code - 4611)</c> out of
-/// <c>MvexInfo(Code code)</c> into the field declaration, where <c>code</c> does not exist (CS0103). Moved back to
-/// the start of the only constructor that has that parameter.
+/// Moves field initializers that reference a constructor parameter back into the start of the single
+/// instance constructor (CS0103).
 /// </summary>
 internal sealed class ParameterFieldInitializers : IAstTransform
 {
@@ -406,8 +394,7 @@ internal sealed class ParameterFieldInitializers : IAstTransform
         {
             var ctors = type.Members.OfType<ConstructorDeclaration>().Where(c => !c.HasModifier(Modifiers.Static)).ToList();
             if (ctors.Count != 1 || ctors[0].Body is not { } body) continue;
-            // the initializer would now run after the base constructor: only where that cannot be observed (a struct
-            // has none; a class's base constructor chain calling nothing overridable)
+            // The assignment now runs after the base constructor; skip if an override could observe that.
             if (type.ClassType != ClassType.Struct && type.GetSymbol() is ITypeDefinition typeDef)
             {
                 var baseCtor = ctors[0].Initializer?.GetSymbol() as IMethod
@@ -437,8 +424,7 @@ internal sealed class ParameterFieldInitializers : IAstTransform
 }
 
 /// <summary>
-/// The same local name declared in a block and again in an enclosing one (<c>byte[] properties</c> inside a
-/// <c>using</c> block and after it): fine in IL, CS0136 in C#. The inner one is renamed.
+/// Renames a local that shadows a same-named local of an enclosing scope (CS0136).
 /// </summary>
 internal sealed class NestedLocalNames : IAstTransform
 {
@@ -455,7 +441,6 @@ internal sealed class NestedLocalNames : IAstTransform
                     var innerBlock = inner.Statement.Parent as BlockStatement;
                     if (innerBlock == null) continue;
                     var innerScope = Scope(innerBlock);
-                    // an enclosing scope (not this one) declares the same name: rename this one within its block
                     bool clashes = group.Any(o => o.Variable != inner.Variable && o.Statement.Parent is BlockStatement outerBlock
                                                   && Scope(outerBlock) is var outer && outer != innerScope && innerScope.Ancestors.Contains(outer));
                     if (!clashes) continue;
@@ -470,8 +455,8 @@ internal sealed class NestedLocalNames : IAstTransform
     }
 
     /// <summary>
-    /// The block a statement's names live in as printed: the body of a braceless <c>using var x = ...;</c> is a block of
-    /// its own in the tree but shares the enclosing block's scope in the source.
+    /// The effective source scope: the body of a braceless <c>using var</c> is a separate block in the AST but
+    /// shares the enclosing block's scope.
     /// </summary>
     private static BlockStatement Scope(BlockStatement block)
     {
@@ -482,10 +467,8 @@ internal sealed class NestedLocalNames : IAstTransform
 }
 
 /// <summary>
-/// <c>await using</c> / <c>foreach</c> over a struct enumerator that disposes by pattern (a DisposeAsync / Dispose
-/// method, not the interface): the engine writes <c>IAsyncDisposable d = enumerator as IAsyncDisposable; if (d != null)
-/// await d.DisposeAsync();</c>, which does not compile for a struct that does not implement it (CS0039). Written as the
-/// direct call the compiler made.
+/// Pattern-based disposal of a struct: <c>IDisposable d = e as IDisposable; if (d != null) d.Dispose();</c> →
+/// <c>e.Dispose();</c> (CS0039). Same for <c>DisposeAsync</c>.
 /// </summary>
 internal sealed class PatternDisposeCalls : IAstTransform
 {
@@ -513,8 +496,7 @@ internal sealed class PatternDisposeCalls : IAstTransform
 }
 
 /// <summary>
-/// An auto-property with a setter but no getter (the getter trimmed away, as in trimmed framework builds): not C#
-/// (CS8051). Given back a getter of the same accessibility as the property.
+/// Adds a getter to setter-only auto-properties, typically left by IL trimming (CS8051).
 /// </summary>
 internal sealed class SetterOnlyAutoProperties : IAstTransform
 {
@@ -531,8 +513,7 @@ internal sealed class SetterOnlyAutoProperties : IAstTransform
 }
 
 /// <summary>
-/// A bool used as an integer (IL makes no difference): the engine writes <c>(int?)methodSig?.ImplicitThis</c>,
-/// which C# rejects (CS0030). Written as <c>x switch { true => 1, false => 0, null => null }</c> (or <c>x ? 1 : 0</c>).
+/// Bool-to-integer casts (CS0030): <c>(int)b</c> → <c>(int)(b ? 1 : 0)</c>; nullable bools use a switch expression.
 /// </summary>
 internal sealed class BoolToIntCasts : IAstTransform
 {
@@ -568,9 +549,8 @@ internal sealed class BoolToIntCasts : IAstTransform
 }
 
 /// <summary>
-/// A type whose short name also exists in another namespace the file imports, in a framework assembly the code
-/// does not reference itself (Newtonsoft's <c>ErrorEventArgs</c> and <c>System.IO.ErrorEventArgs</c>): the engine
-/// does not see the clash, the build does (CS0104). Such names are fully qualified.
+/// Fully qualifies type names that clash with a framework type in another imported namespace (CS0104). The engine
+/// misses these because it does not see framework assemblies the code does not reference.
 /// </summary>
 internal sealed class FrameworkAmbiguousNames(IReadOnlyDictionary<string, HashSet<string>> frameworkTypes) : IAstTransform
 {
@@ -584,7 +564,7 @@ internal sealed class FrameworkAmbiguousNames(IReadOnlyDictionary<string, HashSe
             if (simple.GetSymbol() is not ITypeDefinition { DeclaringTypeDefinition: null } type) continue;
             if (simple.Identifier is not { Length: > 0 } identifier) continue;
             var key = simple.TypeArguments.Count > 0 ? $"{identifier}`{simple.TypeArguments.Count}" : identifier;
-            // the type's own namespace and the namespaces enclosing the code win over using directives: no clash then
+            // Enclosing namespaces take precedence over using directives.
             var enclosing = simple.Ancestors.OfType<NamespaceDeclaration>().Select(n => n.FullName).ToList();
             if (enclosing.Any(n => n == type.Namespace || n.StartsWith(type.Namespace + ".", StringComparison.Ordinal))) continue;
             bool clash = imported.Any(ns => ns != type.Namespace && frameworkTypes.TryGetValue(ns, out var names) && names.Contains(key));
@@ -606,10 +586,8 @@ internal sealed class FrameworkAmbiguousNames(IReadOnlyDictionary<string, HashSe
 }
 
 /// <summary>
-/// Attributes that make a source generator write code (<c>[GeneratedRegex]</c>, <c>[LibraryImport]</c>,
-/// <c>[LoggerMessage]</c>, <c>[JsonSerializable]</c>...). The generated code is already in the decompiled output, so on a
-/// rebuild the generator would demand partial declarations (SYSLIB1043) or emit everything a second time. Removed;
-/// the members keep the bodies the generator gave them.
+/// Removes source-generator trigger attributes (<c>[GeneratedRegex]</c>, <c>[LibraryImport]</c>, ...). The generated
+/// code is already decompiled; on rebuild the generator would require partial declarations (SYSLIB1043) or duplicate it.
 /// </summary>
 internal sealed class SourceGeneratorTriggers : IAstTransform
 {
@@ -643,9 +621,8 @@ internal sealed class SourceGeneratorTriggers : IAstTransform
 }
 
 /// <summary>
-/// A ref local the IL assigns only inside a loop or a branch (<c>ref Entry reference; while (...) { reference = ref
-/// entries[i]; ... }</c>) cannot be written without an initializer (CS8174). It starts as
-/// <c>ref Unsafe.NullRef&lt;T&gt;()</c> (.NET 5+), never read before the IL's own assignment.
+/// Initializes uninitialized ref locals with <c>ref Unsafe.NullRef&lt;T&gt;()</c> (CS8174; .NET 5+). The IL always
+/// assigns them before reading.
 /// </summary>
 internal sealed class UninitializedRefLocals : IAstTransform
 {
@@ -657,7 +634,6 @@ internal sealed class UninitializedRefLocals : IAstTransform
             foreach (var variable in declaration.Variables)
             {
                 if (variable.Initializer is not null) continue;
-                // the referenced type: the declared type without `ref` / `ref readonly`
                 var element = refType.Clone();
                 if (element is ComposedType composed) { composed.HasRefSpecifier = false; composed.HasReadOnlySpecifier = false; }
                 AstType target = element is ComposedType { PointerRank: 0, ArraySpecifiers.Count: 0, HasNullableSpecifier: false } bare ? bare.BaseType.Clone() : element;
@@ -671,9 +647,8 @@ internal sealed class UninitializedRefLocals : IAstTransform
 }
 
 /// <summary>
-/// <c>scoped</c> on a local leaves nothing in metadata, so the engine drops it, and a span local that later takes a
-/// stack-allocated span (<c>partial = stackBuffer.Slice(0, 3)</c>) no longer compiles (CS8352). Such locals get
-/// <c>scoped</c> back when they never leave the method (not returned, not stored outside a local).
+/// Restores <c>scoped</c> on span locals assigned stack memory (CS8352); local <c>scoped</c> is not in metadata.
+/// Only applied to locals that never escape the method.
 /// </summary>
 internal sealed class ScopedSpanLocals : IAstTransform
 {
@@ -681,8 +656,7 @@ internal sealed class ScopedSpanLocals : IAstTransform
     {
         foreach (var body in rootNode.DescendantsAndSelf.OfType<BlockStatement>().Where(b => !b.Ancestors.OfType<BlockStatement>().Any()).ToList())
         {
-            // a `scoped` local declared in an inner block lives only as long as that block, so its value can no longer
-            // go into a parameter of the method (CS8352): the declaration moves to the method's own block, as written
+            // A `scoped` local in an inner block cannot flow into a parameter (CS8352): hoist it to the method block.
             var parameters = body.Parent?.Children.OfType<ParameterDeclaration>().Select(p => p.Name).ToHashSet() ?? [];
             foreach (var declaration in body.Descendants.OfType<VariableDeclarationStatement>().Where(d =>
                          (d.Modifiers & Modifiers.Scoped) != 0 && d.Variables.Count == 1 && d.Variables.Single().Initializer is null
@@ -710,11 +684,11 @@ internal sealed class ScopedSpanLocals : IAstTransform
 
             var locals = body.Descendants.OfType<VariableDeclarationStatement>()
                 .Where(d => d.Variables.Count == 1 && (d.Modifiers & Modifiers.Scoped) == 0 && d.Type is not ComposedType { HasRefSpecifier: true } && IsSpan(d.Variables.Single()))
-                // a name declared in several scopes is several variables: left as it is
+                // Names declared more than once are distinct variables; skip them.
                 .GroupBy(d => d.Variables.Single().Name).Where(g => g.Count() == 1)
                 .ToDictionary(g => g.Key, g => g.Single());
             if (locals.Count == 0) continue;
-            // stack memory: stackalloc'd locals and scoped ones (the engine keeps `scoped` where metadata says so)
+            // Locals holding stack memory: stackalloc results and already-scoped locals.
             var stack = body.Descendants.OfType<VariableDeclarationStatement>()
                 .Where(d => (d.Modifiers & Modifiers.Scoped) != 0 || d.Variables.Any(v => v.Initializer?.DescendantsAndSelf.OfType<StackAllocExpression>().Any() == true))
                 .SelectMany(d => d.Variables.Select(v => v.Name)).ToHashSet();
@@ -744,7 +718,7 @@ internal sealed class ScopedSpanLocals : IAstTransform
         v.GetResolveResult()?.Type is { Kind: not TypeKind.Unknown } t && t.FullName is "System.Span" or "System.ReadOnlySpan"
         || v.Parent is VariableDeclarationStatement { Type: SimpleType { Identifier: "Span" or "ReadOnlySpan" } };
 
-    /// <summary>Returned, or stored anywhere but a local (field, parameter, element, out / ref argument).</summary>
+    /// <summary>True if returned, captured, passed by ref/out, or stored anywhere but a local.</summary>
     private static bool Escapes(BlockStatement body, string name)
     {
         foreach (var use in body.Descendants.OfType<IdentifierExpression>().Where(i => i.Identifier == name))
@@ -760,8 +734,7 @@ internal sealed class ScopedSpanLocals : IAstTransform
 }
 
 /// <summary>
-/// A user-defined operator call written as an operator but with the engine's named-argument marker kept on an
-/// operand (<c>RunAsVirtualAccount == second: false</c>): a syntax error (CS1003). The marker is dropped.
+/// Drops named-argument markers on operator operands: <c>a == second: false</c> → <c>a == false</c> (CS1003).
 /// </summary>
 internal sealed class OperatorNamedArguments : IAstTransform
 {
@@ -774,8 +747,7 @@ internal sealed class OperatorNamedArguments : IAstTransform
 }
 
 /// <summary>
-/// An obfuscator renamed the implicit <c>value</c> parameter of a setter / adder / remover (<c>set { field = num; }</c>):
-/// C# only knows it as <c>value</c> (CS0103). Uses of that parameter are renamed back.
+/// Renames uses of an obfuscated setter/adder/remover value parameter back to <c>value</c> (CS0103).
 /// </summary>
 internal sealed class AccessorValueParameters : IAstTransform
 {
@@ -783,16 +755,15 @@ internal sealed class AccessorValueParameters : IAstTransform
     {
         foreach (var accessor in rootNode.Descendants.OfType<Accessor>().ToList())
         {
-            // only accessors that take a value: setters, init, event add / remove (an indexer getter's parameters are its indexes)
             if (accessor.Body is not { } body || accessor.GetSymbol() is not IMethod { AccessorKind: System.Reflection.MethodSemanticsAttributes.Setter
                     or System.Reflection.MethodSemanticsAttributes.Adder or System.Reflection.MethodSemanticsAttributes.Remover } method
                 || method.Parameters.Count == 0) continue;
-            // indexer setters: the index parameters come first, the value is the last one
+            // Indexer setters take the index parameters first; value is last.
             int valueIndex = method.Parameters.Count - 1;
             foreach (var use in body.Descendants.OfType<IdentifierExpression>().ToList())
             {
                 if (use.Identifier == "value") continue;
-                // the accessor's own parameter, not a lambda's inside it (which has its own index 0)
+                // Match the accessor's own parameter, not a nested lambda's.
                 bool isValue = use.GetILVariable() is { Kind: ICSharpCode.Decompiler.IL.VariableKind.Parameter } v
                     ? v.Index == valueIndex && Equals(v.Function?.Method, method)
                     : use.GetSymbol() is IParameter p && Equals(p.Owner, method) && p.Name == method.Parameters[valueIndex].Name;
@@ -803,8 +774,8 @@ internal sealed class AccessorValueParameters : IAstTransform
 }
 
 /// <summary>
-/// Named arguments whose names an obfuscator made unspeakable (a parameter named " " comes out as <c>_0020:</c>),
-/// so the call does not bind (CS1739). A named argument already in its parameter's position becomes positional.
+/// Makes named arguments with unspeakable (obfuscated) names, e.g. <c>_0020:</c>, positional when already in
+/// position (CS1739).
 /// </summary>
 internal sealed class PositionalNamedArguments : IAstTransform
 {
@@ -823,22 +794,21 @@ internal sealed class PositionalNamedArguments : IAstTransform
             };
             if (arguments == null || call.GetSymbol() is not IParameterizedMember member) continue;
             int position = arguments.IndexOf(named);
-            // every argument before it positional, and it sits where its parameter is
+            // Valid only if all preceding arguments are positional.
             if (position < 0 || position >= member.Parameters.Count || arguments.Take(position).Any(a => a is NamedArgumentExpression)) continue;
             named.ReplaceWith(named.Expression.Clone());
         }
     }
 
-    /// <summary>An identifier as a person writes it: letters, digits, underscore, no escaped character (_0020).</summary>
+    /// <summary>Letters, digits and underscores only, with no escaped character such as <c>_0020</c>.</summary>
     private static bool IsPlainIdentifier(string? name) =>
         !string.IsNullOrEmpty(name) && (char.IsLetter(name[0]) || name[0] == '_') && name.All(c => char.IsLetterOrDigit(c) || c == '_')
         && !System.Text.RegularExpressions.Regex.IsMatch(name, "_[0-9A-F]{4}");
 }
 
 /// <summary>
-/// <c>new T()</c> or <c>new T { ... }</c> for a type parameter without the <c>new()</c> constraint (an obfuscator
-/// dropped it; the IL calls <c>Activator.CreateInstance&lt;T&gt;()</c>, which needs that constructor anyway): CS0304.
-/// The constraint is put back on the type parameter's declaration.
+/// Adds the missing <c>new()</c> constraint to a type parameter used in <c>new T()</c> (CS0304). The IL calls
+/// <c>Activator.CreateInstance&lt;T&gt;()</c>, which requires the constructor anyway.
 /// </summary>
 internal sealed class UnconstrainedNew : IAstTransform
 {
@@ -848,7 +818,6 @@ internal sealed class UnconstrainedNew : IAstTransform
         {
             if (create.Arguments.Count > 0) continue;
             if (create.GetResolveResult()?.Type is not ITypeParameter { HasDefaultConstructorConstraint: false, HasValueTypeConstraint: false } parameter) continue;
-            // the method or type that declares it, in this syntax tree
             var owner = create.Ancestors.OfType<EntityDeclaration>()
                 .FirstOrDefault(d => d is MethodDeclaration or TypeDeclaration && d.GetSymbol() is { } symbol && Equals(symbol, parameter.Owner));
             var constraints = owner switch
@@ -871,9 +840,7 @@ internal sealed class UnconstrainedNew : IAstTransform
 }
 
 /// <summary>
-/// An executable whose entry point an obfuscator renamed (<c>C7.SY::Ory()</c>): the runtime starts whatever method the
-/// header names, but C# needs a <c>Main</c> (CS5001). A <c>Main</c> calling it is added to its class, with its
-/// <c>[STAThread]</c>.
+/// Adds a <c>Main</c> that forwards to a renamed entry point (CS5001), copying <c>[STAThread]</c>/<c>[MTAThread]</c>.
 /// </summary>
 internal sealed class RenamedEntryPoint : IAstTransform
 {
@@ -911,10 +878,8 @@ internal sealed class RenamedEntryPoint : IAstTransform
 }
 
 /// <summary>
-/// An extension method called on a null-conditional chain, written as a static call
-/// (<c>Enumerable.Contains(x?.GetInvocationList(), d)</c>): the call no longer short-circuits on null and its result
-/// is not nullable, so <c>... ?? true</c> does not compile (CS0019). Written as the extension call inside the chain:
-/// <c>x?.GetInvocationList().Contains(d)</c>.
+/// Static extension calls on a null-conditional chain (CS0019): <c>Enumerable.Contains(x?.F(), d)</c> →
+/// <c>x?.F().Contains(d)</c>, restoring short-circuiting.
 /// </summary>
 internal sealed class NullConditionalExtensionCalls : IAstTransform
 {
@@ -933,7 +898,7 @@ internal sealed class NullConditionalExtensionCalls : IAstTransform
         }
     }
 
-    /// <summary>A member-access chain (a?.B().C) with a null-conditional step in it.</summary>
+    /// <summary>True for a member-access chain containing a null-conditional step (<c>a?.B().C</c>).</summary>
     private static bool HasNullConditional(Expression e)
     {
         while (true)
@@ -951,9 +916,8 @@ internal sealed class NullConditionalExtensionCalls : IAstTransform
 }
 
 /// <summary>
-/// The delegate type the compiler makes for a lambda with default parameters (<c>&lt;&gt;f__AnonymousDelegate0&lt;T1,
-/// TResult&gt;(T1 arg = true)</c>): the default belongs to the instantiation, and a generic parameter cannot have it
-/// (CS1750). Calls in IL pass every argument, so the default is dropped.
+/// Drops defaults on generic-typed parameters of compiler-generated anonymous delegates (CS1750). IL call sites
+/// pass every argument explicitly.
 /// </summary>
 internal sealed class GenericDelegateDefaults : IAstTransform
 {
@@ -971,9 +935,7 @@ internal sealed class GenericDelegateDefaults : IAstTransform
 }
 
 /// <summary>
-/// A switch expression the engine could not rebuild leaves a call to the compiler's hidden helper
-/// (<c>&lt;PrivateImplementationDetails&gt;.ThrowSwitchExpressionException(value)</c>), which C# cannot name (CS0103).
-/// Written as what it does: <c>throw new SwitchExpressionException(value)</c>.
+/// <c>&lt;PrivateImplementationDetails&gt;.ThrowSwitchExpressionException(v)</c> → <c>throw new SwitchExpressionException(v)</c> (CS0103).
 /// </summary>
 internal sealed class SwitchExpressionHelpers : IAstTransform
 {
@@ -995,16 +957,15 @@ internal sealed class SwitchExpressionHelpers : IAstTransform
 }
 
 /// <summary>
-/// A local function the engine calls but does not declare: it is compiled as a method of the closure class (because
-/// lambdas in the same method capture its variables), and the engine drops it, losing its code. Its method is
-/// decompiled on its own, the closure's fields become the captured variables again, and it is declared as a local
-/// function in the block that holds all its uses.
+/// Recovers local functions the engine references but never declares (compiled into a closure class shared with
+/// lambdas). The method is decompiled separately, closure field accesses become captured variables, and the
+/// declaration is placed in the innermost block containing all uses.
 /// </summary>
 internal sealed class MissingLocalFunctions : IAstTransform
 {
     public void Run(AstNode rootNode, TransformContext context)
     {
-        // member bodies only: a local function's own body is part of its member's (its declaration is a method node too)
+        // Member bodies only; local function bodies are covered by their containing member.
         foreach (var body in rootNode.DescendantsAndSelf.OfType<BlockStatement>()
                      .Where(b => b.Parent is EntityDeclaration or Accessor && !b.Ancestors.Any(a => a is LocalFunctionDeclarationStatement)).ToList())
         {
@@ -1026,13 +987,12 @@ internal sealed class MissingLocalFunctions : IAstTransform
         }
     }
 
-    /// <summary>The local function an identifier names: called (the call has the symbol) or as a method group.</summary>
+    /// <summary>The local function an identifier refers to, as a call target or a method group.</summary>
     private static IMethod? LocalFunction(IdentifierExpression i) =>
         (i.GetSymbol() ?? (i.Parent is InvocationExpression call && call.Target == i ? call.GetSymbol() : null)
             ?? (i.GetResolveResult() as ICSharpCode.Decompiler.Semantics.MethodGroupResolveResult)?.Methods.FirstOrDefault()) is IMethod { IsLocalFunction: true } m
             ? m : null;
 
-    /// <summary>The local function's declaration, from its compiled method.</summary>
     private static LocalFunctionDeclarationStatement? Recover(IMethod method, string name, TransformContext context)
     {
         if (method.MetadataToken.IsNil || method.MetadataToken.Kind != System.Reflection.Metadata.HandleKind.MethodDefinition) return null;
@@ -1040,14 +1000,13 @@ internal sealed class MissingLocalFunctions : IAstTransform
         var tree = decompiler.Decompile(method.MetadataToken);
         if (tree.Descendants.OfType<MethodDeclaration>().FirstOrDefault() is not { Body: { } compiledBody } compiled) return null;
 
-        // parameters that carry the closure (a struct passed by ref) are not the local function's
+        // Closure struct parameters (passed by ref) are compiler-added.
         var closureParameters = compiled.Parameters
             .Where(p => p.Type is { } pt && pt.GetResolveResult()?.Type is { } t && IsClosure(t) || p.Type is ComposedType { BaseType: { } b } && b.GetResolveResult()?.Type is { } bt && IsClosure(bt))
             .Select(p => p.Name).ToHashSet();
         var bodyCopy = (BlockStatement)compiledBody.Clone();
 
-        // closure fields: the closure's copy of the outer `this` is `this`; a field holding an outer closure is a hop
-        // to drop; any other field is the captured variable of that name. Written `this.x`, `x` or `P_1.x`.
+        // Closure fields (`this.x`, `x`, `P_1.x`): `<>4__this` → `this`, outer-closure hops are dropped, others → captured local.
         bool ClosureField(AstNode n, out IField field)
         {
             field = (n.GetSymbol() as IField)!;
@@ -1062,15 +1021,15 @@ internal sealed class MissingLocalFunctions : IAstTransform
                     || member.Target is IdentifierExpression { Identifier: var t } && closureParameters.Contains(t)
                     || member.Target.GetSymbol() is IField outer && outer.DeclaringType != null && IsClosure(outer.DeclaringType) && IsClosure(outer.Type)))
                 continue;
-            if (IsClosure(field.Type)) continue; // an outer closure: its members are rewritten below, this hop goes with them
+            if (IsClosure(field.Type)) continue; // outer-closure hop: handled below
             node.ReplaceWith(IsThisCopy(field) ? new ThisReferenceExpression() : new IdentifierExpression(Captured(field)));
         }
-        // what remains of hops to outer closures (`CS$<>8__locals1.x` became `CS$<>8__locals1` . x): x
+        // Remaining outer-closure hops: `CS$<>8__locals1.x` → `x`.
         foreach (var member in bodyCopy.Descendants.OfType<MemberReferenceExpression>().ToList())
             if (member.Parent != null && member.Target.GetSymbol() is IField hop && hop.DeclaringType != null && IsClosure(hop.DeclaringType) && IsClosure(hop.Type))
                 member.ReplaceWith(member.GetSymbol() is IField f && IsThisCopy(f) ? new ThisReferenceExpression() : new IdentifierExpression(member.MemberName));
 
-        // calls to compiled local functions (itself when recursive, `<Outer>g__Name|1_0(..., ref P_2)`): by name, without the closure
+        // `<Outer>g__Name|1_0(..., ref P_2)` → `Name(...)`, without the closure argument.
         foreach (var call in bodyCopy.Descendants.OfType<InvocationExpression>().ToList())
         {
             if (call.GetSymbol() is not IMethod callee || LocalName(callee.Name) is not { } calleeName) continue;
@@ -1080,7 +1039,7 @@ internal sealed class MissingLocalFunctions : IAstTransform
             call.ReplaceWith(new InvocationExpression(new IdentifierExpression(calleeName), arguments));
         }
 
-        // types fully qualified: the file that receives the body may not import their namespaces
+        // Fully qualify types: the target file may not import their namespaces.
         var builder = new ICSharpCode.Decompiler.CSharp.Syntax.TypeSystemAstBuilder();
         foreach (var type in bodyCopy.Descendants.OfType<AstType>().Where(t => t.Parent is not AstType).ToList())
             if (type.GetResolveResult() is ICSharpCode.Decompiler.Semantics.TypeResolveResult { Type: { Kind: not TypeKind.Unknown } resolved } && resolved.Kind != TypeKind.TypeParameter)
@@ -1102,7 +1061,7 @@ internal sealed class MissingLocalFunctions : IAstTransform
         return new LocalFunctionDeclarationStatement(function);
     }
 
-    /// <summary>The name of a compiled local function (<c>&lt;Outer&gt;g__Name|1_0</c>): Name; null for any other method.</summary>
+    /// <summary>Extracts <c>Name</c> from <c>&lt;Outer&gt;g__Name|1_0</c>; null for other methods.</summary>
     private static string? LocalName(string compiled)
     {
         int g = compiled.IndexOf(">g__", StringComparison.Ordinal);
@@ -1114,14 +1073,14 @@ internal sealed class MissingLocalFunctions : IAstTransform
     private static bool IsClosure(IType type) =>
         type.Name.Contains("DisplayClass", StringComparison.Ordinal) && type.GetDefinition()?.HasAttribute(KnownAttribute.CompilerGenerated) != false;
 
-    /// <summary>The innermost block that contains every use.</summary>
+    /// <summary>The innermost block containing every use.</summary>
     private static BlockStatement? CommonBlock(List<IdentifierExpression> uses)
     {
         var chains = uses.Select(u => u.Ancestors.OfType<BlockStatement>().Reverse().ToList()).ToList();
         BlockStatement? common = null;
         for (int depth = 0; chains.All(c => c.Count > depth) && chains.All(c => c[depth] == chains[0][depth]); depth++)
             common = chains[0][depth];
-        // not inside a lambda that only some uses are in
+        // Move out of a lambda that does not contain every use.
         while (common != null && common.Ancestors.Any(a => a is LambdaExpression or AnonymousMethodExpression)
                && uses.Any(u => !u.Ancestors.Contains(common)))
             common = common.Ancestors.OfType<BlockStatement>().FirstOrDefault();
@@ -1130,9 +1089,8 @@ internal sealed class MissingLocalFunctions : IAstTransform
 }
 
 /// <summary>
-/// A lambda parameter named <c>_</c> (<c>(CustomButton _) => { _ = item.rewardData; }</c>): the engine writes discards
-/// as <c>_ = ...</c>, which inside such a lambda assign the parameter instead (CS0029, or a silent change of meaning).
-/// The parameter is renamed when the body also discards.
+/// Renames a lambda parameter named <c>_</c> when its body contains discards: <c>_ = ...</c> would otherwise assign
+/// the parameter (CS0029 or a silent change in meaning).
 /// </summary>
 internal sealed class DiscardParameters : IAstTransform
 {
@@ -1143,7 +1101,7 @@ internal sealed class DiscardParameters : IAstTransform
             var parameters = function is LambdaExpression l ? l.Parameters : ((AnonymousMethodExpression)function).Parameters;
             if (parameters.FirstOrDefault(p => p.Name == "_") is not { } parameter) continue;
             var body = function is LambdaExpression lambda ? lambda.Body : ((AnonymousMethodExpression)function).Body;
-            // discards written in this function's own body (not in a nested lambda that has its own parameters)
+            // Discards in this function's own body, excluding nested lambdas.
             bool discards = body.DescendantsAndSelf.OfType<AssignmentExpression>().Any(a =>
                 a.Left is IdentifierExpression { Identifier: "_" } && a.Left.GetSymbol() is not IParameter
                 && a.Ancestors.TakeWhile(x => x != function).All(x => x is not (LambdaExpression or AnonymousMethodExpression)));
@@ -1151,7 +1109,6 @@ internal sealed class DiscardParameters : IAstTransform
             var taken = function.Descendants.OfType<Identifier>().Select(i => i.Name).ToHashSet();
             var fresh = Enumerable.Range(1, 100).Select(n => "_" + n).First(n => !taken.Contains(n));
             parameter.Name = fresh;
-            // reads of the parameter (not discard targets) follow it
             foreach (var use in body.DescendantsAndSelf.OfType<IdentifierExpression>().Where(i => i.Identifier == "_" && i.GetSymbol() is IParameter).ToList())
                 use.Identifier = fresh;
         }
@@ -1159,10 +1116,8 @@ internal sealed class DiscardParameters : IAstTransform
 }
 
 /// <summary>
-/// <c>ref readonly T r = ref entity.TryGet&lt;T&gt;(out ok); return ref r;</c> where <c>entity</c> is a local copy passed
-/// by <c>in</c> / <c>ref</c>: the IL returns that reference (an IL-level rewrite of the original code), C# refuses it
-/// (CS8157). Written as <c>return ref Unsafe.AsRef(in r)</c> (.NET 8+, whose parameter is scoped): the same reference,
-/// so the same behaviour as the compiled code.
+/// Returning a ref obtained through a local passed by <c>in</c>/<c>ref</c> (CS8157): <c>return ref r;</c> →
+/// <c>return ref Unsafe.AsRef(in r);</c>. Requires .NET 8+, where the parameter is scoped; the reference is unchanged.
 /// </summary>
 internal sealed class ReturnRefThroughLocalCopy : IAstTransform
 {
@@ -1185,7 +1140,7 @@ internal sealed class ReturnRefThroughLocalCopy : IAstTransform
         }
     }
 
-    /// <summary>The call gets a by-value local of this method by reference (an `in` / `ref` argument, or the receiver of a `this in` extension).</summary>
+    /// <summary>True if the call takes a by-value local by reference (an in/ref argument or a <c>this in</c> receiver).</summary>
     private static bool PassesLocalCopy(InvocationExpression call, BlockStatement body)
     {
         var locals = body.Descendants.OfType<VariableDeclarationStatement>().Where(d => d.Type is not ComposedType { HasRefSpecifier: true })

@@ -3,7 +3,7 @@ using dnlib.DotNet.Emit;
 
 namespace NetDecompilerMcp.Tests;
 
-/// <summary>Cleanups that change code only when it is provably the same: checked on the cases where it would not be.</summary>
+/// <summary>Decompiler cleanups apply only where they provably preserve behavior.</summary>
 public class JudgementTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -27,7 +27,7 @@ public class JudgementTests : IDisposable
         {
             var ctor = module.Find(name, false)!.FindInstanceConstructors().Single();
             var il = ctor.Body.Instructions;
-            // ldarg.0; call base::.ctor; <stores>; ret  ->  <stores>; ldarg.0; call base::.ctor; ret
+            // Move the stores before the base constructor call.
             int call = il.ToList().FindIndex(i => i.OpCode == OpCodes.Call && i.Operand is IMethod { Name.String: ".ctor" });
             var stores = il.Skip(call + 1).TakeWhile(i => i.OpCode != OpCodes.Ret).ToList();
             foreach (var i in stores) il.Remove(i);
@@ -46,22 +46,22 @@ public class JudgementTests : IDisposable
         Assert.Contains("a primary constructor: they run as part of this constructor, before the base constructor", view);
         Assert.Contains("class FieldSafe(int x) : Plain", view);
         Assert.Contains("private int f = x;", view);
-        Assert.DoesNotContain("public int F", view); // trimmed to what runs as part of it
+        Assert.DoesNotContain("public int F", view); // unrelated members are trimmed
     }
 
     [Fact]
     public void BaseConstructorReorder_OnlyWhenTheBaseCannotObserveIt()
     {
         using var env = new Env(StoreBeforeBase());
-        // Plain's constructor calls nothing overridable: the store can move after it
+        // Plain's constructor calls nothing overridable: the store can move after it.
         var safe = env.Decompile("SetterSafe");
         Assert.Contains(": base()", safe);
         Assert.DoesNotContain("_002Ector", safe);
-        // Base's constructor calls Init, which SetterUnsafe overrides to read P: the compiled order is kept
+        // Base's constructor calls the overridden Init, which reads P: compiled order is kept.
         var risky = env.Decompile("SetterUnsafe");
         Assert.DoesNotContain(": base()", risky);
         Assert.Matches(@"P = x;[\s\S]*base\.", risky);
-        // and field stores are shown as initializers (a primary constructor), in their order, both ways
+        // Field stores become primary-constructor initializers in either case.
         Assert.Contains("class FieldUnsafe(int x) : Base", env.Decompile("FieldUnsafe"));
     }
 }

@@ -7,18 +7,12 @@ using NetDecompilerMcp.Core;
 
 namespace NetDecompilerMcp.Services.Analysis;
 
-/// <summary>One extracted value: its type, the value, the number of occurrences, up to 5 locations, up to 5 APIs it is passed to, and an optional detail (e.g. key size).</summary>
+/// <summary>An extracted value with up to 5 locations, up to 5 consuming APIs, and an optional detail (e.g. key size).</summary>
 public sealed record ExtractedValue(string Type, string Value, int Count, IReadOnlyList<string> Locations, IReadOnlyList<string> PassedTo, string? Detail = null);
 
 /// <summary>
-/// Extracts typed values from string literals, string constants, resource text (up to 4 MB) and the text items found by
-/// <see cref="Embedded"/> (decoded base64 / hex / compressed text): URLs, domains, IPv4 / IPv6 addresses, email
-/// addresses, file paths, named pipes, registry keys, mutex names, user agents and crypto keys. Mutex names, user agents
-/// and crypto keys are recognized by the APIs a string is passed to and the APIs of the method containing it. Excluded:
-/// URLs and domains whose host is an XML / schema namespace host, IPv4-like version numbers (first octet 0, or first
-/// octet below 10 with the last two 0), and bare domains whose last label is not in a fixed TLD list (TLDs that are
-/// also file extensions are not in it). Each text is scanned up to 1 MB; values over 2,048 characters are dropped;
-/// regexes time out after 1 s.
+/// Extracts typed values (network indicators, paths, registry keys, mutexes, user agents, crypto keys) from strings,
+/// resource text and decoded embedded text. Mutexes, user agents and keys are recognized by the APIs that consume them.
 /// </summary>
 public static class Values
 {
@@ -35,7 +29,7 @@ public static class Values
     private static readonly Regex Ipv4 = R(@"(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?![\d.])");
     private static readonly Regex Ipv6Candidate = R(@"(?<![\w:.])[0-9A-Fa-f:]*:[0-9A-Fa-f:]*:[0-9A-Fa-f:.]*(?![\w:])");
     private static readonly Regex Hostname = R(@"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+([a-z]{2,24})$");
-    // a path ends at a quote, ';' or '`' too: in a command line those close the argument ("'C:\x\a.exe' -Arg ...; ...")
+    // Paths also end at a quote, ';' or '`', which terminate command-line arguments.
     private static readonly Regex WindowsPath = R(@"(?:\b[A-Za-z]:\\|%[A-Za-z_][A-Za-z0-9_]*%\\)[^\r\n""'`;*?<>|]*[^\r\n""'`;*?<>|\s.,:)]");
     private static readonly Regex UncPath = R(@"\\\\(?!\.\\pipe\\)[A-Za-z0-9._$-]+\\[^\r\n""'`;*?<>|]*[^\r\n""'`;*?<>|\s.,:)]");
     private static readonly Regex UnixPath = R(@"(?<![\w/])/(?:etc|tmp|var|usr|bin|sbin|home|dev|proc|opt|root|Library|Users|Applications|System)/[^\s""'<>|;]*[^\s""'<>|;.,)]");
@@ -43,14 +37,14 @@ public static class Values
     private static readonly Regex Registry = R(@"\b(?:HKEY_(?:LOCAL_MACHINE|CURRENT_USER|CLASSES_ROOT|USERS|CURRENT_CONFIG)|HKLM|HKCU|HKCR|HKU)(?:\\[^\r\n""]*[^\r\n""\s\\])?(?![\w])");
     private static readonly Regex RelativeRegistry = R(@"^(?:SOFTWARE|Software|SYSTEM\\CurrentControlSet|System\\CurrentControlSet)\\[^\r\n""]+$");
 
-    /// <summary>Hosts of XML / schema namespace URIs: URLs with these hosts, and these hosts as domains, are excluded.</summary>
+    /// <summary>XML / schema namespace hosts, excluded from URLs and domains.</summary>
     private static readonly HashSet<string> NamespaceHosts = new(StringComparer.OrdinalIgnoreCase)
     {
         "schemas.microsoft.com", "www.w3.org", "w3.org", "schemas.xmlsoap.org", "schemas.openxmlformats.org", "purl.org",
         "ns.adobe.com", "json-schema.org", "docs.oasis-open.org", "www.xml.org", "xml.org", "tempuri.org", "schema.org",
     };
 
-    /// <summary>Top-level domains accepted for bare domain names (TLDs that are also file extensions are left out).</summary>
+    /// <summary>TLDs accepted for bare domains; TLDs that double as file extensions are omitted.</summary>
     private static readonly HashSet<string> Tlds = new(StringComparer.Ordinal)
     {
         "com", "net", "org", "info", "biz", "io", "co", "me", "tv", "cc", "us", "uk", "de", "ru", "cn", "jp", "fr", "it", "nl", "es",
@@ -88,7 +82,7 @@ public static class Values
         }
     }
 
-    /// <summary>Values in a scanned module and in the text items of <paramref name="embedded"/> decoded from it.</summary>
+    /// <param name="embedded">Decoded embedded content; its text items are scanned too.</param>
     public static List<ExtractedValue> Find(ModuleScan scan, IReadOnlyList<EmbeddedContent> embedded, CancellationToken ct)
     {
         var b = new Builder();
@@ -141,7 +135,7 @@ public static class Values
             if (IPAddress.TryParse(host.Trim('[', ']'), out var ip)) b.Add(ip.AddressFamily == AddressFamily.InterNetworkV6 ? "ipv6" : "ipv4", ip.ToString(), where, passedTo);
             else if (IsDomain(host.ToLowerInvariant(), requireKnownTld: false)) b.Add("domain", host.ToLowerInvariant(), where, passedTo);
         }
-        // bare domains: whole whitespace-separated tokens only, all lowercase, known TLD
+        // Bare domains: whole tokens only, lowercase, known TLD.
         foreach (var token in text.Split([' ', '\t', '\r', '\n', '"', '\'', ',', ';', '(', ')', '<', '>', '[', ']', '='], StringSplitOptions.RemoveEmptyEntries))
         {
             var t = token.TrimEnd('.', ':');
@@ -151,7 +145,7 @@ public static class Values
         }
         foreach (var m in MatchesAt(Ipv4, text))
             if (IsPlausibleIpv4(m.Value) && !IsVersionContext(text, m.Index)
-                && !text.Contains("Version=" + m.Value, StringComparison.OrdinalIgnoreCase)) // the same number given as a version elsewhere in the text
+                && !text.Contains("Version=" + m.Value, StringComparison.OrdinalIgnoreCase)) // same number used as a version elsewhere
                 b.Add("ipv4", m.Value, where, passedTo);
         foreach (var candidate in Matches(Ipv6Candidate, text))
             if (candidate.Count(c => c == ':') >= 2 && IPAddress.TryParse(candidate, out var v6) && v6.AddressFamily == AddressFamily.InterNetworkV6
@@ -167,7 +161,7 @@ public static class Values
             if (text.Contains('\\') && text.Length < 512) b.Add("registry_key", text.Trim(), where, passedTo);
     }
 
-    /// <summary>Types recognized by where the string goes: mutex names, user agents, crypto keys and key-derivation passwords.</summary>
+    /// <summary>Mutex names, user agents, crypto keys and KDF passwords, recognized by consuming APIs.</summary>
     private static void FromContext(Builder b, ModuleScan.CodeString s, ModuleScan scan)
     {
         var value = s.Value;
@@ -187,7 +181,7 @@ public static class Values
             return;
         }
         var limits = AnalysisLimits.Default;
-        var decoded = Embedded.TryHex(value, limits) is { } hex ? (Bytes: hex, Encoding: "hex") // hex first: it is also valid base64
+        var decoded = Embedded.TryHex(value, limits) is { } hex ? (Bytes: hex, Encoding: "hex") // hex first: hex is also valid base64
             : Embedded.TryBase64(value, limits) is { } b64 ? (Bytes: b64, Encoding: "base64")
             : s.Consumers.Any(a => a.EndsWith(".Encoding::GetBytes", StringComparison.Ordinal)) ? (Bytes: Encoding.UTF8.GetBytes(value), Encoding: "text")
             : (Bytes: (byte[]?)null, Encoding: "");
@@ -195,7 +189,7 @@ public static class Values
             b.Add("crypto_key", value, s.Location, s.Consumers, $"{key.Length * 8}-bit key or IV ({decoded.Encoding})");
     }
 
-    /// <summary>Static byte arrays of key / IV size used in a method that does symmetric crypto.</summary>
+    /// <summary>Static byte arrays of key / IV size used in a method that calls crypto APIs.</summary>
     private static void CryptoArrays(Builder b, ModuleScan scan)
     {
         foreach (var d in scan.Data)
@@ -217,8 +211,7 @@ public static class Values
         return !requireKnownTld || Tlds.Contains(m.Groups[1].Value);
     }
 
-    /// <summary>Drops assembly-version-like values ("4.0.0.0") and "0.x.x.x"; keeps everything else, private ranges included.</summary>
-    /// <summary>"Version=4.0.3.0", "version 1.2.3.4", "v2.0.0.1": a version number written like an address.</summary>
+    /// <summary>True when preceded by "version", "ver" or "v" (e.g. "Version=4.0.3.0").</summary>
     private static bool IsVersionContext(string text, int index)
     {
         var before = text.AsSpan(Math.Max(0, index - 12), index - Math.Max(0, index - 12)).TrimEnd(" =:\t".AsSpan());
@@ -234,6 +227,7 @@ public static class Values
         foreach (Match m in matches) yield return m;
     }
 
+    /// <summary>Rejects "0.x.x.x" and version-like "N.x.0.0" with N below 10; private ranges are kept.</summary>
     private static bool IsPlausibleIpv4(string ip)
     {
         var o = ip.Split('.').Select(int.Parse).ToArray();
@@ -241,8 +235,6 @@ public static class Values
         if (o[0] < 10 && o[2] == 0 && o[3] == 0) return false;
         return true;
     }
-
-    // ------------------------------------------------------------------ export
 
     public static string ToCsv(IEnumerable<ExtractedValue> values)
     {

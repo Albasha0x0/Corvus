@@ -3,19 +3,16 @@ using NetDecompilerMcp.Core;
 
 namespace NetDecompilerMcp.Services.Analysis;
 
-/// <summary>Protector names matched by marker, heuristic findings, and the ratio of unreadable names (0..1).</summary>
+/// <summary>Protectors matched by marker, heuristic findings, and the unreadable-name ratio (0..1).</summary>
 public sealed record MarkerFacts(IReadOnlyList<string> Tools, IReadOnlyList<string> Indicators, double UnreadableNameRatio);
 
 /// <summary>
-/// Matches type names and assembly / module attribute names against the marker types of known protectors (the markers
-/// de4dot uses), and reports SuppressIldasmAttribute. Heuristics: the share of type / method / field names that are
-/// unreadable or one or two characters long (reported at 30% or more of at least 20 names), up to 3 static methods that
-/// take one or two integers, return a string and are called from 10 or more methods, and methods without an IL body
-/// that are not abstract, P/Invoke, internal-call, runtime or interface methods.
+/// Detects protector marker types (as used by de4dot) and SuppressIldasmAttribute, plus heuristics: renamed
+/// identifiers, int -> string decryptor methods, and methods missing an IL body.
 /// </summary>
 public static class Markers
 {
-    /// <summary>Marker type full names (exact, or prefix when ending in '*'; contains when starting with '*').</summary>
+    /// <summary>Marker type full names: exact, prefix when ending in '*', substring when starting with '*'.</summary>
     private static readonly (string Tool, string[] KnownMarkers)[] KnownMarkers =
     [
         ("Confuser / ConfuserEx", ["ConfusedByAttribute"]),
@@ -47,7 +44,7 @@ public static class Markers
             foreach (var ca in (module.Assembly?.CustomAttributes ?? []).Concat(module.CustomAttributes))
                 if (ca.AttributeType?.FullName is { } n) names.Add(n);
         }
-        catch (Exception) { /* unreadable attributes */ }
+        catch (Exception) { }
 
         foreach (var (tool, markers) in KnownMarkers)
             if (markers.Any(m => names.Any(n => Matches(n, m))))
@@ -55,7 +52,6 @@ public static class Markers
         if (names.Contains("System.Runtime.CompilerServices.SuppressIldasmAttribute"))
             indicators.Add("SuppressIldasmAttribute: asks ILDASM not to disassemble the assembly (common in protected code).");
 
-        // unreadable or minimal identifiers
         int total = 0, unreadable = 0;
         foreach (var t in types)
         {
@@ -71,9 +67,9 @@ public static class Markers
         if (total >= 20 && ratio >= UnreadableThreshold)
             indicators.Add($"{ratio:P0} of {total} type / method / field names are unreadable or one or two characters long (renamed).");
 
-        // string decryptor: static, returns string, takes only integers, called from many methods
+        // String decryptor: static, int parameters only, returns string, called from many methods.
         var decryptors = scan.Calls
-            .Where(c => c.Target is MethodDef { IsStatic: true, MethodSig: { } sig } md && md.Module == module // no signature: corrupt metadata
+            .Where(c => c.Target is MethodDef { IsStatic: true, MethodSig: { } sig } md && md.Module == module
                         && sig.RetType?.ElementType == ElementType.String
                         && sig.Params.Count is 1 or 2
                         && sig.Params.All(p => p?.ElementType is ElementType.I4 or ElementType.U4 or ElementType.I8))
@@ -84,7 +80,7 @@ public static class Markers
         foreach (var (method, callers) in decryptors)
             indicators.Add($"Possible string decryptor {Format.MemberLabel(method)}: an int -> string method called from {callers} methods.");
 
-        // bodies that should be there
+        // Concrete, non-native methods must have an IL body.
         int missing = types.SelectMany(t => t.Methods).Count(m => m.RVA == 0 && !m.IsAbstract && !m.IsPinvokeImpl && !m.IsInternalCall
                                                                   && !m.IsRuntime && m.DeclaringType?.IsInterface != true);
         if (missing > 0)
@@ -98,16 +94,13 @@ public static class Markers
         : marker.EndsWith('*') ? name.StartsWith(marker[..^1], StringComparison.Ordinal)
         : name == marker;
 
-    /// <summary>Not a plausible hand-written identifier: control / private-use / zero-width characters, or 1-2 characters.</summary>
     /// <summary>
-    /// Whether an int -> string method decodes something: XOR, an element of a static array or string, or a decoding
-    /// call (Encoding.GetString, Convert.FromBase64String, String.Intern of a built string). Formatting helpers
-    /// (padding, number to text) do none of these.
+    /// True when the method uses XOR, indexes static array / string data, or calls a decoding API; formatting helpers do not.
     /// </summary>
     private static bool LooksLikeDecoder(MethodDef method)
     {
         var body = MetadataUtil.SafeInstructions(method);
-        if (body.Count == 0) return true; // no readable body (encrypted / native): keep the call-count finding
+        if (body.Count == 0) return true; // unreadable body: rely on the call-count heuristic
         bool staticData = false, element = false;
         foreach (var i in body)
         {
@@ -134,6 +127,7 @@ public static class Markers
         return staticData && element;
     }
 
+    /// <summary>Not a plausible hand-written identifier: 1-2 characters, or control / private-use / format characters.</summary>
     internal static bool IsUnreadable(string name)
     {
         var bare = name.Split('`')[0];
@@ -149,14 +143,12 @@ public static class Markers
     }
 }
 
-/// <summary>A way into the assembly's code: what kind of entry point, and the method or type.</summary>
+/// <summary>An entry point kind and the method or type it refers to.</summary>
 public sealed record EntryPoint(string Kind, string Member);
 
 /// <summary>
-/// Entry points of an assembly: Main, the module initializer (&lt;Module&gt;'s static constructor, run when the assembly
-/// is loaded), [ModuleInitializer] methods, native exports (metadata export info, and the PE export table up to 200
-/// names), COM (un)registration functions, and types deriving from Installer, ServiceBase or AppDomainManager.
-/// Corrupt metadata ends the metadata part early; what was found until then is returned.
+/// Finds code that runs without an explicit call: Main, module initializers, native exports, COM registration
+/// functions and hosted base types (Installer, ServiceBase, AppDomainManager). Returns partial results on corrupt metadata.
 /// </summary>
 public static class EntryPoints
 {
@@ -191,9 +183,9 @@ public static class EntryPoints
                     if (DerivesFrom(type, baseType)) list.Add(new EntryPoint(kind, type.FullName));
             }
         }
-        catch (Exception) { /* corrupt metadata: report what was found */ }
+        catch (Exception) { }
 
-        // exports the metadata does not describe (mixed-mode or post-processed images)
+        // PE exports not described by metadata (mixed-mode or post-processed images).
         if (image != null && PeImage.TryParse(image) is { } pe)
             foreach (var name in pe.Exports(image, 200).Where(n => !list.Any(e => e.Kind.Contains($"'{n}'", StringComparison.Ordinal))))
                 list.Add(new EntryPoint($"native export '{name}'", name));

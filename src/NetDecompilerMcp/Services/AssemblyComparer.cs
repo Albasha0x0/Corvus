@@ -9,9 +9,9 @@ using static NetDecompilerMcp.Services.MetadataUtil;
 namespace NetDecompilerMcp.Services;
 
 /// <summary>
-/// Compares two builds of an assembly (e.g. before/after a game update): added, removed and renamed types and members,
-/// signature and body changes, and Il2Cpp field-offset / address changes. Renamed or moved definitions are matched by
-/// content (IL shape, string literals, field and member structure), so obfuscated or refactored names carry forward.
+/// Compares two builds of an assembly: added, removed and renamed types and members, signature and body changes,
+/// and Il2Cpp field-offset / address changes. Renamed or moved definitions are matched by content (IL shape,
+/// string literals, field and member structure).
 /// </summary>
 public sealed class AssemblyComparer(AssemblyWorkspace workspace)
 {
@@ -80,8 +80,6 @@ public sealed class AssemblyComparer(AssemblyWorkspace workspace)
             ? (null, $"its type {declaring.FullName} was not found in the new build")
             : (null, "removed in the new build (no match)");
     }
-
-    // ------------------------------------------------------------------ fingerprints
 
     private sealed record MethodPrint(MethodDef Method, string Signature, ulong Shape, ulong Full, int Size, HashSet<string> Strings);
 
@@ -191,8 +189,6 @@ public sealed class AssemblyComparer(AssemblyWorkspace workspace)
         return h;
     }
 
-    // ------------------------------------------------------------------ types
-
     private static Dictionary<TypeDef, TypeDef> MatchTypes(Info oldInfo, Info newInfo, out Dictionary<TypeDef, double> scores, CancellationToken ct)
     {
         var map = new Dictionary<TypeDef, TypeDef>();
@@ -202,7 +198,7 @@ public sealed class AssemblyComparer(AssemblyWorkspace workspace)
             if (newByName.TryGetValue(t.FullName, out var n))
                 map[t] = n;
 
-        // Renamed / moved types, scored by content. Top-level types first; nested types only under matched parents.
+        // Top-level types first; nested types are matched only under matched parents.
         foreach (bool nested in new[] { false, true })
         {
             var mappedNew = map.Values.ToHashSet();
@@ -311,8 +307,6 @@ public sealed class AssemblyComparer(AssemblyWorkspace workspace)
         return inter / (double)(a.Count + b.Count - inter);
     }
 
-    // ------------------------------------------------------------------ members
-
     private static List<MemberChange> CompareMembers(Info oldInfo, Info newInfo, TypeDef o, TypeDef n, Dictionary<IMemberDef, (IMemberDef, string)> memberMap)
     {
         var changes = new List<MemberChange>();
@@ -354,7 +348,7 @@ public sealed class AssemblyComparer(AssemblyWorkspace workspace)
                 changes.Add(new MemberChange("signature", om.Method, nm.Method, $"{om.Signature} -> {nm.Signature}"));
             else if (om.Full != nm.Full && (om.Size > 0 || nm.Size > 0))
             {
-                // a body that is not valid IL (encrypted / dumped before decryption) cannot be compared meaningfully
+                // Bodies that are not valid IL (e.g. encrypted) cannot be compared.
                 bool oldBad = !oldInfo.Assembly.IsDirty && oldInfo.Assembly.BodyHealth.IsInvalid(om.Method);
                 bool newBad = !newInfo.Assembly.IsDirty && newInfo.Assembly.BodyHealth.IsInvalid(nm.Method);
                 var detail = oldBad || newBad
@@ -399,7 +393,6 @@ public sealed class AssemblyComparer(AssemblyWorkspace workspace)
         changes.AddRange(oldFields.Select(f => new MemberChange("removed", f, null, Format.Field(f))));
         changes.AddRange(newFields.Select(f => new MemberChange("added", null, f, Format.Field(f))));
 
-        // Properties and events: by name.
         foreach (var op in o.Properties)
         {
             var np = n.Properties.FirstOrDefault(p => p.Name == op.Name);

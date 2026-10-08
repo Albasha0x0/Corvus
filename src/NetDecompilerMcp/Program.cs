@@ -20,7 +20,7 @@ catch (Exception ex)
     return 2;
 }
 
-// The host must not parse our arguments, and stdout belongs to the MCP protocol: all logging goes to stderr.
+// Arguments are not passed to the host, and stdout carries the MCP protocol, so all logging goes to stderr.
 var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = [] });
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
@@ -61,8 +61,7 @@ builder.Services
         o.ServerInstructions = ServerInstructions.Text;
     })
     .WithStdioServerTransport()
-    // Structured results: write null properties instead of omitting them. The generated output schemas list every
-    // property as required (nullable ones as "type or null"), so an omitted null fails schema validation in clients.
+    // Serialize nulls explicitly: generated output schemas mark every property required, so omitted nulls fail validation.
     .WithToolsFromAssembly(serializerOptions: new System.Text.Json.JsonSerializerOptions(McpJsonUtilities.DefaultOptions)
     {
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never,
@@ -76,16 +75,15 @@ builder.Services
         try
         {
             var result = await next(context, cancellationToken);
-            // Workspace events since the last call (files reloaded from disk...) ride along with the next result.
+            // Prepend pending workspace notices; trailing blank line because clients join content blocks without a separator.
             var notices = context.Services?.GetService<AssemblyWorkspace>()?.DrainNotices();
             if (notices is { Count: > 0 })
-                // own lines: clients join content blocks without a separator
                 result.Content.Insert(0, new TextContentBlock { Text = string.Join("\n", notices.Select(n => "[workspace] " + n)) + "\n\n" });
             return result;
         }
         catch (Exception ex) when (ex is not McpException && ex is not OperationCanceledException)
         {
-            // Unexpected failure: tell the model what happened (instead of a generic error) and keep serving.
+            // Return unexpected exceptions as a descriptive tool error instead of a generic protocol error.
             context.Services?.GetService<ILogger<AssemblyWorkspace>>()?.LogError(ex, "Tool {Tool} failed", context.Params?.Name);
             return new CallToolResult
             {
@@ -96,15 +94,14 @@ builder.Services
     }));
 
 var host = builder.Build();
-// Created before preloading so the preloaded assemblies are indexed and watched too.
+// Resolve before preloading so preloaded assemblies are indexed and watched.
 host.Services.GetRequiredService<IndexingService>();
 host.Services.GetRequiredService<FileWatchService>().Changed += _ => NotifyResourcesChanged(host.Services);
 Preload(host.Services.GetRequiredService<AssemblyWorkspace>(), host.Services.GetRequiredService<ILogger<AssemblyWorkspace>>(), options);
 await host.RunAsync();
 return 0;
 
-// Best effort: tell the client that the resource list changed. The notice text itself rides along with the next tool
-// result, which works with every client.
+// Best effort; not all clients support notifications, so notices are also attached to the next tool result.
 static void NotifyResourcesChanged(IServiceProvider services)
 {
     if (services.GetService<ModelContextProtocol.Server.McpServer>() is not { } server) return;
@@ -116,7 +113,6 @@ static void NotifyResourcesChanged(IServiceProvider services)
         }
         catch
         {
-            // the client may not support notifications
         }
     });
 }

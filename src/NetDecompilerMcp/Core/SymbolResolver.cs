@@ -23,8 +23,7 @@ public sealed record ResolvedSymbol(LoadedAssembly Assembly, IMemberDef Member)
 }
 
 /// <summary>
-/// Turns the loose symbol strings an LLM writes into exact definitions.
-/// Accepted forms:
+/// Resolves loosely written symbol strings to exact definitions. Accepted forms:
 ///   Ns.Type | Ns.Outer+Inner | Ns.Outer/Inner | Ns.Outer.Inner | Type (short name) | List`1 | List&lt;T&gt;
 ///   Ns.Type::Member | Ns.Type.Member | Ns.Type::Method(int, string) | Ns.Type::.ctor | Ns.Type::ctor
 ///   0x06001234 (metadata token; scope it with the assembly parameter when several are loaded)
@@ -32,8 +31,8 @@ public sealed record ResolvedSymbol(LoadedAssembly Assembly, IMemberDef Member)
 public static class SymbolResolver
 {
     /// <param name="referenced">
-    /// Also find types the loaded code only references (System.IDisposable, System.Diagnostics.Process), read from
-    /// the framework or dependency file: for tools that look for their users (references, overrides, derived types).
+    /// Also match types that are only referenced (not defined) by loaded code, read from their defining file.
+    /// Used by tools that search for usages, overrides or derived types.
     /// </param>
     public static IReadOnlyList<ResolvedSymbol> Resolve(AssemblyWorkspace ws, string? assembly, string symbol, SymbolKind kind = SymbolKind.Any, bool referenced = false)
     {
@@ -75,8 +74,7 @@ public static class SymbolResolver
 
         if (memberPart == null && kind != SymbolKind.Type && IsBareIdentifier(query))
         {
-            // a member name alone ("GetPredictedDurability", "Tick(float)"): the members of that name in every type in
-            // scope; exact-case matches win over case-insensitive ones
+            // Bare member name: search every type in scope; exact-case matches win over case-insensitive ones.
             foreach (var a in scope)
                 foreach (var t in a.Module.GetTypes())
                     results.AddRange(FindMembers(new ResolvedSymbol(a, t), query, signature, kind).Where(r => r.Member is not TypeDef));
@@ -88,7 +86,7 @@ public static class SymbolResolver
 
         if (memberPart == null)
         {
-            // "Ns.Type.Member" -> split at the last top-level dot, keeping ".ctor"/".cctor" intact.
+            // "Ns.Type.Member": split at the last top-level dot, keeping ".ctor"/".cctor" intact.
             if (!TrySplitMember(query, out typePart, out memberPart))
                 return Finish(results, symbol, scope, query, null);
         }
@@ -174,8 +172,8 @@ public static class SymbolResolver
     }
 
     /// <summary>
-    /// Types named like the query that the assemblies in scope reference but do not define, resolved to their
-    /// defining file (one per full name, so mscorlib's and System.Private.CoreLib's IDisposable are one).
+    /// Types referenced but not defined in scope, resolved to their defining file; deduplicated by full name across
+    /// forwarding facades.
     /// </summary>
     private static IEnumerable<ResolvedSymbol> FindReferencedTypes(AssemblyWorkspace ws, IReadOnlyList<LoadedAssembly> scope, string typeQuery)
     {
@@ -210,7 +208,7 @@ public static class SymbolResolver
         var type = (TypeDef)typeSym.Member;
         var name = memberQuery.Trim();
         int lt = name.IndexOf('<');
-        if (lt > 0) name = name[..lt]; // Method<T> -> Method
+        if (lt > 0) name = name[..lt];
         if (name is "ctor" or "#ctor" or ".ctor") name = ".ctor";
         if (name is "cctor" or "#cctor" or ".cctor") name = ".cctor";
 
@@ -252,13 +250,13 @@ public static class SymbolResolver
         var parameters = m.MethodSig?.Params ?? (IList<TypeSig>)Array.Empty<TypeSig>();
         var shortForm = NormalizeSignature(string.Join(",", parameters.Select(Format.Type)));
         var fullForm = NormalizeSignature(string.Join(",", parameters.Select(p => p.FullName)));
-        // Also accept "int a, string b" (names included).
+        // Also accept parameter names, e.g. "int a, string b".
         var named = NormalizeSignature(Format.Parameters(m));
         return wanted == shortForm || wanted == fullForm || wanted == named
                || NormalizeSignature(string.Join(",", wanted.Split(',').Select(p => p.Replace("system.", "")))) == shortForm.Replace("system.", "");
     }
 
-    /// <summary>A plain identifier ("Tick", "get_Instance"): no namespace, type separator or constructor name.</summary>
+    /// <summary>A plain identifier with no namespace, type separator or constructor name.</summary>
     private static bool IsBareIdentifier(string s) =>
         s.Length > 0 && (char.IsLetter(s[0]) || s[0] == '_') && s.All(c => char.IsLetterOrDigit(c) || c == '_');
 
@@ -300,7 +298,7 @@ public static class SymbolResolver
             char c = name[i];
             if (c == '<' && (i == 0 || name[i - 1] is '.' or '/'))
             {
-                // a compiler-generated name (<Module>, <PrivateImplementationDetails>, <>c): part of the name, not generics
+                // Compiler-generated names (<Module>, <>c) start with '<'; not generic arguments.
                 int close = name.IndexOf('>', i);
                 if (close < 0) close = name.Length - 1;
                 sb.Append(name, i, close - i + 1);

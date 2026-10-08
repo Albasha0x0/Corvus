@@ -7,10 +7,7 @@ using NetDecompilerMcp.Services.Analysis;
 
 namespace NetDecompilerMcp.Tests;
 
-/// <summary>
-/// The shapes of real apps that the second live pass ran into (a Costura-packed WPF app full of images, a single-file
-/// bundle with translations, a NuGet package with one build per target, an APK without .NET), rebuilt as small fixtures.
-/// </summary>
+/// <summary>Small fixtures reproducing real app shapes: Costura WPF apps, bundles with satellites, multi-target packages, APKs.</summary>
 public class RealWorldShapeTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -53,13 +50,11 @@ public class RealWorldShapeTests : IDisposable
         return ms.ToArray();
     }
 
-    // ------------------------------------------------------------------ text, PDBs, containers of resources, XOR
-
     [Fact]
     public void RandomBinary_IsNotText_ButUtf8AndAsciiAre()
     {
         var garbage = new byte[] { 0x4E, 0x17, 0xC3, 0xE8, 0xDE, 0x9E, 0xE9, 0x68, 0xA9, 0x47, 0xB5, 0xF2, 0xE8, 0xB5, 0xAB, 0xDA, 0x8A, 0x56, 0xBC, 0xD4, 0xF1, 0x71 };
-        Assert.False(Blob.LooksLikeText(garbage)); // high bytes that do not form UTF-8 (base64 of junk decodes to this)
+        Assert.False(Blob.LooksLikeText(garbage)); // high bytes that do not form valid UTF-8
         Assert.True(Blob.LooksLikeText(Encoding.UTF8.GetBytes("工具SkinId：不存在！ - a translated message")));
         Assert.True(Blob.LooksLikeText(Encoding.Latin1.GetBytes("A plain sentence with one café in it, mostly ASCII.")));
         Assert.Equal("portable pdb", Blob.Identify("BSJB\x01\x00\x01\x00"u8));
@@ -88,20 +83,18 @@ public class RealWorldShapeTests : IDisposable
     [Fact]
     public void XorZip_NeedsARealArchive_NotJustTheMarkers()
     {
-        // data that a 4-byte key turns into "PK\x03\x04" at the start and "PK\x05\x06" further on: not an archive
+        // Random data with zip markers under a 4-byte key is not an archive.
         var data = Random(4096, 3);
         var key = new byte[4];
         for (int i = 0; i < 4; i++) key[i] = (byte)(data[i] ^ "PK\x03\x04"u8[i]);
         for (int i = 0; i < 4; i++) data[2000 + i] = (byte)("PK\x05\x06"u8[i] ^ key[(2000 + i) % 4]);
         Assert.Null(Embedded.TryXor(data));
 
-        // a real zip under the same kind of key is still recovered
+        // A real zip under a 4-byte key is recovered.
         var zip = ContainerFixtures.Zip(("readme.txt", Encoding.ASCII.GetBytes("hello from inside")));
         var xored = zip.Select((b, i) => (byte)(b ^ new byte[] { 0x5A, 0x13, 0x77, 0xC1 }[i % 4])).ToArray();
         Assert.Equal(zip, Embedded.TryXor(xored)!.Value.Decoded);
     }
-
-    // ------------------------------------------------------------------ extracted values
 
     [Fact]
     public void Values_VersionNumbersAreNotAddresses_PathsStopAtQuotes()
@@ -114,8 +107,6 @@ public class RealWorldShapeTests : IDisposable
         Assert.Equal(["10.20.30.40"], values.Where(v => v.Type == "ipv4").Select(v => v.Value));
         Assert.Equal(["C:\\Program Files\\App\\App.exe"], values.Where(v => v.Type == "file_path").Select(v => v.Value));
     }
-
-    // ------------------------------------------------------------------ summarize_file
 
     [Fact]
     public void Summary_CosturaHostFirst_ImagesCounted_ResourcesDoNotMakeTextHighEntropy()
@@ -143,7 +134,7 @@ public class RealWorldShapeTests : IDisposable
     [Fact]
     public void Summary_MainAssemblyFirst_SatellitesSkipped_FrameworkQuiet_CopiesOnce()
     {
-        // real satellites and per-target builds differ in content (identical files are listed once by the container walker)
+        // Variants differ in content; identical files would be deduplicated by the container walker.
         static byte[] Variant(string name, string marker) => ContainerFixtures.Module(name, m => m.Types.Add(new TypeDefUser("", marker, m.CorLibTypes.Object.TypeDefOrRef)));
         var zip = Save("App.zip", ContainerFixtures.Zip(
             ("lib/Helper.dll", ContainerFixtures.Module("Helper", _ => { })),
@@ -156,7 +147,7 @@ public class RealWorldShapeTests : IDisposable
         Assert.Equal(["App", "Helper", "System.Text.Json"], s.Assemblies.Select(a => a.Identity.Name));
         Assert.Contains("2 satellite resource assembly(ies) (translations) not summarized.", s.Notes);
         Assert.Contains(s.Notes, n => n.StartsWith("App: 1 more build(s) of the same assembly not summarized (net8.0/App.dll)"));
-        Assert.DoesNotContain(s.Highlights, h => h.StartsWith("[System.Text.Json.dll]")); // a framework library's capabilities are not findings
+        Assert.DoesNotContain(s.Highlights, h => h.StartsWith("[System.Text.Json.dll]")); // framework capabilities are not findings
     }
 
     [Fact]
@@ -172,7 +163,7 @@ public class RealWorldShapeTests : IDisposable
     public void Certificates_TimestampedSignatureWithAnExpiredCertificate_IsTrusted()
     {
         if (!OperatingSystem.IsWindows()) return; // needs the Windows root store
-        // any Authenticode-signed file on this machine whose signing certificate has expired since it was timestamped
+        // Find a signed file whose certificate expired after it was timestamped.
         var candidates = new[] { Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles) + @"\dotnet\shared", Environment.SystemDirectory }
             .Where(Directory.Exists)
             .SelectMany(d => Directory.EnumerateFiles(d, "*.dll", SearchOption.AllDirectories).Take(4000));
@@ -186,8 +177,6 @@ public class RealWorldShapeTests : IDisposable
             return;
         }
     }
-
-    // ------------------------------------------------------------------ workspace and editing messages
 
     [Fact]
     public async Task AddSearchDirectory_WithoutAssemblies_PointsToTheSubfolders()
@@ -219,7 +208,7 @@ public class RealWorldShapeTests : IDisposable
     public void IlPrepend_OntoAnEncryptedBody_SaysWhy()
     {
         var bytes = File.ReadAllBytes(Env.FixturePath);
-        // overwrite one method's code with bytes that are not IL
+        // Overwrite CheckLicense's code with an unused opcode.
         using (var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(bytes)))
         {
             var md = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);

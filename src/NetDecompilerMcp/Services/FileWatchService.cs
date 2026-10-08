@@ -5,9 +5,8 @@ using NetDecompilerMcp.Core;
 namespace NetDecompilerMcp.Services;
 
 /// <summary>
-/// Watches the files of loaded assemblies. When one changes on disk (a game update, a rebuild), it is reloaded
-/// automatically — unless it has unsaved edits, in which case the client is told and nothing is discarded. Every event
-/// becomes a workspace notice (shown with the next tool result) and <see cref="Changed"/> is raised for MCP notifications.
+/// Reloads loaded assemblies when their files change on disk, unless they have unsaved edits (the client is notified
+/// instead). Each event becomes a workspace notice and raises <see cref="Changed"/> for MCP notifications.
 /// </summary>
 public sealed class FileWatchService : IDisposable
 {

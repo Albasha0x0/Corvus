@@ -1,14 +1,13 @@
 namespace NetDecompilerMcp.Services.Analysis;
 
 /// <summary>
-/// Recognizes Unity build layouts without loadable IL: IL2CPP (native GameAssembly.dll plus global-metadata.dat) and
-/// Mono builds whose assemblies are under *_Data/Managed.
+/// Recognizes Unity build layouts: IL2CPP (GameAssembly.dll plus global-metadata.dat) and Mono (*_Data/Managed).
 /// </summary>
 internal static class UnityLayout
 {
     private const uint MetadataMagic = 0xFAB11BAF;
 
-    /// <summary>A description of an IL2CPP binary or metadata file, else null.</summary>
+    /// <summary>A hint for an IL2CPP binary or metadata file, else null.</summary>
     public static string? FileHint(string path, byte[] bytes)
     {
         if (bytes.Length >= 4 && BitConverter.ToUInt32(bytes, 0) == MetadataMagic)

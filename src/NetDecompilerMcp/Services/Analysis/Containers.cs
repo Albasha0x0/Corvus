@@ -7,19 +7,16 @@ using NetDecompilerMcp.Core;
 
 namespace NetDecompilerMcp.Services.Analysis;
 
-/// <summary>One file taken out of a container. <see cref="Origin"/> says where it came from and how it was decoded.</summary>
+/// <summary>A file extracted from a container; Origin describes its location and decoding.</summary>
 public sealed record ExtractedItem(string Name, byte[] Bytes, string Origin);
 
-/// <summary>What a container held: its kind, the items (one level deep), and notes on skipped or unusual entries.</summary>
+/// <summary>Container kind, its items (one level deep), and notes on skipped or unusual entries.</summary>
 public sealed record ContainerContents(string Kind, List<ExtractedItem> Items, List<string> Notes);
 
 /// <summary>
-/// Opens one container level (callers recurse): .NET single-file bundles (PE, ELF or Mach-O apphost; compressed or
-/// not), Costura.Fody embedded assemblies, ZIP-based packages (.nupkg, Xamarin / MAUI .apk / .aab, plain .zip) including
-/// Xamarin XALZ (LZ4) assemblies and assembly stores, and, for anything else, carving of embedded .NET images and XALZ
-/// chunks.
-/// Pure byte-level code: nothing is loaded or executed, every length and offset is bounds-checked, and every
-/// decompression is bounded by <see cref="AnalysisLimits"/>.
+/// Opens one container level (callers recurse): .NET single-file bundles, Costura.Fody resources, ZIP-based packages
+/// (.nupkg, .apk / .aab, .zip) with Xamarin XALZ and assembly stores, otherwise carves embedded .NET images.
+/// All offsets are bounds-checked and decompression is bounded by <see cref="AnalysisLimits"/>.
 /// </summary>
 public static class Containers
 {
@@ -32,7 +29,7 @@ public static class Containers
 
     private static readonly Regex CosturaName = new(@"^costura(?:32|64)?\.(?<name>.+?)(?<compressed>\.compressed)?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    /// <summary>Opens <paramref name="data"/>; Kind "none" (with notes) when it is not a container this knows.</summary>
+    /// <summary>Returns Kind "none" with notes when the data is not a known container.</summary>
     public static ContainerContents Open(byte[] data, string name, AnalysisLimits limits, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -58,15 +55,13 @@ public static class Containers
             if (costura != null) return costura;
             return new ContainerContents("none", [], ["A plain .NET assembly: nothing bundled. Load it and use list_resources / get_resource for data hidden in its resources."]);
         }
-        if (pe == null && kind is "elf" or "mach-o") // Linux / macOS apphosts carry bundles the same way
+        if (pe == null && kind is "elf" or "mach-o") // Linux / macOS apphosts use the same bundle layout
         {
             var bundle = OpenBundle(data, limits, ct);
             if (bundle != null) return bundle;
         }
         return Carve(data, name, pe != null ? "native PE" : kind, limits, ct);
     }
-
-    // ------------------------------------------------------------------ single-file bundles
 
     private static ContainerContents? OpenBundle(byte[] data, AnalysisLimits limits, CancellationToken ct)
     {
@@ -83,7 +78,7 @@ public static class Containers
         int count = r.Int32();
         string bundleId = r.String();
         if (major is 0 or > 64 || count < 0 || count > limits.MaxItems) throw new ToolError($"Corrupt single-file bundle header (version {major}.{minor}, {count} files).");
-        if (major >= 2) r.Skip(8 * 4 + 8); // deps.json and runtimeconfig.json locations (they are also manifest entries), flags
+        if (major >= 2) r.Skip(8 * 4 + 8); // deps.json / runtimeconfig.json locations and flags
 
         var items = new List<ExtractedItem>();
         var notes = new List<string> { $"Single-file bundle v{major}.{minor}, id {bundleId}, {count} files." };
@@ -96,7 +91,7 @@ public static class Containers
             byte type = r.Byte();
             string path = r.String();
             long stored = compressed > 0 ? compressed : size;
-            if (offset < 0 || size < 0 || stored < 0 || offset > data.Length - stored) // not offset + stored: it can overflow
+            if (offset < 0 || size < 0 || stored < 0 || offset > data.Length - stored) // avoids overflow of offset + stored
             {
                 notes.Add($"Skipped {path}: its data lies outside the file (corrupt manifest).");
                 continue;
@@ -129,13 +124,11 @@ public static class Containers
         _ => "other",
     };
 
-    // ------------------------------------------------------------------ Costura.Fody
-
     private static ContainerContents? OpenCostura(byte[] data, AnalysisLimits limits, CancellationToken ct)
     {
         ModuleDefMD module;
         try { module = ModuleDefMD.Load(data); }
-        catch (Exception) { return null; } // malformed metadata: not our problem here
+        catch (Exception) { return null; }
         using (module)
         {
             var items = new List<ExtractedItem>();
@@ -159,9 +152,7 @@ public static class Containers
         }
     }
 
-    // ------------------------------------------------------------------ ZIP-based packages
-
-    /// <summary>An APK entry that only a .NET (Xamarin / MAUI) app has: its assemblies, assembly store or Mono runtime.</summary>
+    /// <summary>An APK entry specific to .NET (Xamarin / MAUI) apps: assemblies, assembly store or Mono runtime.</summary>
     private static bool IsAndroidDotNet(string entry) =>
         entry.StartsWith("assemblies/", StringComparison.Ordinal) || entry.Contains("libmonodroid", StringComparison.Ordinal)
         || entry.Contains("libmonosgen", StringComparison.Ordinal) || entry.Contains("libassemblies.", StringComparison.Ordinal)
@@ -174,11 +165,11 @@ public static class Containers
         try
         {
             zip = new ZipArchive(new MemoryStream(data, writable: false), ZipArchiveMode.Read);
-            entries = zip.Entries; // the central directory is read here, not in the constructor
+            entries = zip.Entries; // central directory is read here, not in the constructor
         }
         catch (InvalidDataException ex)
         {
-            // a cut-off download or a carved file has no central directory: read what the local headers still hold
+            // Truncated or carved zips lack a central directory; recover from local headers.
             var (recovered, skipped, complete) = RecoverLocalEntries(data, limits, ct);
             if (recovered.Count == 0) throw new ToolError($"{name}: corrupt zip ({ex.Message}).");
             var contents = ReadZipEntries(recovered.Select(e => (e.Name, (Func<byte[]?>)(() => e.Bytes))).ToList(), limits, ct);
@@ -243,11 +234,9 @@ public static class Containers
     }
 
     /// <summary>
-    /// Entries read from the local file headers in order, for a zip whose central directory is missing or broken.
-    /// Sizes come from the header, its zip64 extra field, or (streamed zips) the data descriptor after the data whose
-    /// compressed size matches, checked by CRC. Encrypted or unreadable entries are stepped over with a note;
-    /// reading stops where the data is cut off or no header follows. <c>Complete</c>: it ended at the central
-    /// directory or the end of the file.
+    /// Walks local file headers when the central directory is missing. Sizes come from the header, its zip64 extra
+    /// field, or the trailing data descriptor; data is CRC-checked. Complete is true when the walk reached the central
+    /// directory or end of file.
     /// </summary>
     private static (List<(string Name, byte[] Bytes)> Entries, List<string> Skipped, bool Complete) RecoverLocalEntries(byte[] data, AnalysisLimits limits, CancellationToken ct)
     {
@@ -272,12 +261,12 @@ public static class Containers
             int next;
             if ((flags & 0x08) != 0)
             {
-                // sizes (and CRC) follow the data: find the descriptor that matches
+                // Sizes and CRC follow the data in a data descriptor.
                 if (FindDescriptor(data, body, out compressed, out crc, out next) == false) break;
             }
             else
             {
-                if (compressed > data.Length - body) break; // cut off here
+                if (compressed > data.Length - body) break;
                 next = body + (int)compressed;
             }
 
@@ -302,20 +291,20 @@ public static class Containers
     }
 
     /// <summary>
-    /// The data descriptor after an entry written with sizes unknown up front: the first one (with or without its
-    /// PK\x07\x08 signature, 32- or 64-bit sizes) whose compressed size is the distance from the data's start.
+    /// Finds the first data descriptor (optional PK\x07\x08 signature, 32- or 64-bit sizes) whose compressed size equals
+    /// its distance from the data start.
     /// </summary>
     private static bool FindDescriptor(byte[] data, int body, out long compressed, out uint crc, out int next)
     {
         for (int p = body; p + 12 <= data.Length; p++)
         {
-            // with signature: PK 07 08, crc, compressed, uncompressed (4 or 8 bytes each)
+            // Signed: PK 07 08, crc, compressed, uncompressed (sizes 4 or 8 bytes).
             if (data[p] == 0x50 && data[p + 1] == 0x4B && data[p + 2] == 0x07 && data[p + 3] == 0x08 && p + 16 <= data.Length)
             {
                 if (BitConverter.ToUInt32(data, p + 8) == p - body) { crc = BitConverter.ToUInt32(data, p + 4); compressed = p - body; next = p + 16; return true; }
                 if (p + 24 <= data.Length && BitConverter.ToInt64(data, p + 8) == p - body) { crc = BitConverter.ToUInt32(data, p + 4); compressed = p - body; next = p + 24; return true; }
             }
-            // without signature: crc, compressed, uncompressed right before the next header
+            // Unsigned: crc, compressed, uncompressed, immediately before the next header.
             if (p + 16 <= data.Length && data[p + 12] == 0x50 && data[p + 13] == 0x4B && BitConverter.ToUInt32(data, p + 4) == p - body)
             {
                 crc = BitConverter.ToUInt32(data, p); compressed = p - body; next = p + 12; return true;
@@ -325,7 +314,7 @@ public static class Containers
         return false;
     }
 
-    /// <summary>The compressed size in a local header's zip64 extra field (id 1: uncompressed, then compressed size).</summary>
+    /// <summary>Compressed size from a zip64 extra field (id 1: uncompressed, then compressed size).</summary>
     private static long? Zip64CompressedSize(byte[] data, int extra, int length)
     {
         for (int p = extra; p + 4 <= extra + length && p + 4 <= data.Length;)
@@ -351,7 +340,7 @@ public static class Containers
         return c ^ 0xFFFFFFFF;
     }
 
-    /// <summary>Archive entries extracted: .dll / .exe / .winmd, assembly stores, nested packages, and .deps.json / .runtimeconfig.json / assemblies.manifest.</summary>
+    /// <summary>Entries worth extracting: assemblies, assembly stores, nested packages and .NET manifests.</summary>
     private static bool IsInteresting(string path)
     {
         var file = Path.GetFileName(path).ToLowerInvariant();
@@ -363,9 +352,7 @@ public static class Containers
     private static bool IsAssemblyStore(string path, byte[] bytes) =>
         Blob.StartsWith(bytes, "XABA"u8) || path.EndsWith(".blob", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".blob.so", StringComparison.OrdinalIgnoreCase);
 
-    // ------------------------------------------------------------------ carving fallback
-
-    /// <summary>Finds .NET images (validated PE headers) and XALZ chunks anywhere in the data; native images are counted, not extracted.</summary>
+    /// <summary>Carves .NET images and XALZ chunks from arbitrary data; native images are counted, not extracted.</summary>
     public static ContainerContents Carve(byte[] data, string name, string kind, AnalysisLimits limits, CancellationToken ct)
     {
         var items = new List<ExtractedItem>();
@@ -374,7 +361,7 @@ public static class Containers
         foreach (var c in Blob.CarvePe(data, limits.MaxItems))
         {
             ct.ThrowIfCancellationRequested();
-            if (c.Offset == 0 && c.Length == data.Length) continue; // the input itself
+            if (c.Offset == 0 && c.Length == data.Length) continue;
             if (!c.IsDotNet) { native++; continue; }
             items.Add(new ExtractedItem($"carved_0x{c.Offset:X}.dll", data.AsSpan(c.Offset, c.Length).ToArray(), $"carved .NET image at 0x{c.Offset:X}"));
         }
@@ -411,7 +398,7 @@ public static class Containers
         public uint UInt32() => BinaryPrimitives.ReadUInt32LittleEndian(Take(4));
         public long Int64() => BinaryPrimitives.ReadInt64LittleEndian(Take(8));
 
-        /// <summary>BinaryWriter string: 7-bit encoded length + UTF-8.</summary>
+        /// <summary>BinaryWriter string: 7-bit encoded length, then UTF-8.</summary>
         public string String()
         {
             int len = 0, shift = 0;

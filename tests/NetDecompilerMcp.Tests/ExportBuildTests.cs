@@ -5,10 +5,7 @@ using Microsoft.CodeAnalysis.CSharp;
 
 namespace NetDecompilerMcp.Tests;
 
-/// <summary>
-/// Exported projects build: the engine's span-slicing ref temporaries and stackalloc initializers are rewritten into
-/// compilable C#. A small source covers each pattern; real libraries from the NuGet cache cover the rest.
-/// </summary>
+/// <summary>Exported projects build: span-slicing ref temporaries and stackalloc initializers become compilable C#.</summary>
 public class ExportBuildTests
 {
     private const string Patterns = """
@@ -117,10 +114,7 @@ public class ExportBuildTests
         finally { context.Unload(); }
     }
 
-    /// <summary>
-    /// BouncyCastle (net6.0): the export builds, and the methods the cleanup rewrote (span slicing in digests, AEAD modes,
-    /// SCrypt) give the same results in the rebuilt library as in the original.
-    /// </summary>
+    /// <summary>Rewritten span code in digests, SCrypt and AEAD modes gives the original results after rebuild.</summary>
     [Fact]
     public void BouncyCastle_RebuiltFromExport_BehavesTheSame()
     {
@@ -174,7 +168,7 @@ public class ExportBuildTests
         finally { context.Unload(); }
     }
 
-    /// <summary>Real libraries export to projects that build with no errors (opt-in: NDM_EXPORT_REAL=1, a few minutes).</summary>
+    /// <summary>Real libraries export to projects that build (opt-in: NDM_EXPORT_REAL=1; slow).</summary>
     [Theory]
     [InlineData("Newtonsoft.Json", "13.0.4", "net6.0", "Newtonsoft.Json.dll")]
     [InlineData("NLog", "6.1.4", "netstandard2.1", "NLog.dll")]
@@ -192,13 +186,10 @@ public class ExportBuildTests
         using var env = new Env(path);
         int failures = NetDecompilerMcp.Services.AstCleanup.Failures;
         AssertBuilds(env, dir.File("out"));
-        Assert.True(failures == NetDecompilerMcp.Services.AstCleanup.Failures, NetDecompilerMcp.Services.AstCleanup.LastError); // no cleanup step failed on it
+        Assert.True(failures == NetDecompilerMcp.Services.AstCleanup.Failures, NetDecompilerMcp.Services.AstCleanup.LastError); // no cleanup step failed
     }
 
-    /// <summary>
-    /// Every assembly listed in the file NDM_EXPORT_LIST (one path per line) exports to a project that builds with no
-    /// errors. Errors by assembly are written to "&lt;list&gt;.report.txt", the projects to "&lt;list&gt;.out".
-    /// </summary>
+    /// <summary>Each assembly listed in NDM_EXPORT_LIST builds after export; errors go to "&lt;list&gt;.report.txt".</summary>
     [Fact]
     public void ExportList_Builds()
     {
@@ -223,7 +214,7 @@ public class ExportBuildTests
         Assert.True(failed == 0, report.ToString());
     }
 
-    /// <summary>A release build, as libraries ship: the patterns come from the optimizer.</summary>
+    /// <summary>Release build: the optimizer produces the patterns under test.</summary>
     private static byte[] CompileRelease(string name, string source)
     {
         var tpa = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)

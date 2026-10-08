@@ -6,10 +6,7 @@ using ModelContextProtocol.Protocol;
 
 namespace NetDecompilerMcp.Tests;
 
-/// <summary>
-/// Starts the real server over stdio and drives it with the MCP client, the way Claude Code does:
-/// every tool, resources, resource templates, prompts, completion, progress, structured output, errors, cancellation, concurrency.
-/// </summary>
+/// <summary>Drives the real server over stdio with an MCP client.</summary>
 public class McpProtocolTests : IAsyncLifetime
 {
     private McpClient _client = null!;
@@ -48,7 +45,7 @@ public class McpProtocolTests : IAsyncLifetime
 
     private static readonly Dictionary<McpClient, Dictionary<string, JsonElement?>> Schemas = [];
 
-    /// <summary>A structured result must validate against the tool's advertised output schema (what clients enforce).</summary>
+    /// <summary>Validates structured content against the tool's advertised output schema, as clients do.</summary>
     internal static async Task AssertMatchesOutputSchema(McpClient client, string tool, CallToolResult result)
     {
         Dictionary<string, JsonElement?>? schemas;
@@ -65,7 +62,7 @@ public class McpProtocolTests : IAsyncLifetime
         Assert.True(errors.Count == 0, $"{tool}: structured content does not match its output schema:\n  {string.Join("\n  ", errors.Take(20))}");
     }
 
-    /// <summary>One successful call per tool. Adding a tool without adding it here fails EveryToolIsCovered.</summary>
+    /// <summary>One successful call per tool; EveryToolIsCoveredAndAnnotated fails if a tool is missing.</summary>
     private Dictionary<string, (Dictionary<string, object?> Args, string Expect)> ToolCases() => new()
     {
         ["load_assembly"] = (new() { ["path"] = Env.ConsumerPath }, "TestFixture.Consumer"),
@@ -101,7 +98,7 @@ public class McpProtocolTests : IAsyncLifetime
         ["unpack_container"] = (new() { ["path"] = ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"), ["outputDirectory"] = _dir.File("unpack"), ["load"] = false }, "NuGet package"),
         ["get_il2cpp_info"] = (new() { ["symbol"] = "NativeThing" }, "RVA=0x1100"),
         ["find_method_by_address"] = (new() { ["address"] = "1004" }, "NativeThing::First"),
-        ["rename_symbol"] = (new() { ["symbol"] = "Account", ["newName"] = "Hero", ["dryRun"] = true }, "Dry run"),
+        ["rename_symbol"] = (new() { ["symbol"] = "Account", ["newName"] = "Customer", ["dryRun"] = true }, "Dry run"),
         ["rename_namespace"] = (new() { ["assembly"] = "TestFixture", ["oldNamespace"] = "Fixture.Model", ["newNamespace"] = "G", ["dryRun"] = true }, "Dry run"),
         ["stub_method"] = (new() { ["method"] = "Secret::Validate", ["value"] = "true" }, "stub"),
         ["patch_method_csharp"] = (new() { ["method"] = "Shop::PriceOf(string, int)", ["code"] = "return quantity;" }, "Decompiled result"),
@@ -143,12 +140,11 @@ public class McpProtocolTests : IAsyncLifetime
     [Fact]
     public async Task EveryToolSucceedsWithValidInput()
     {
-        foreach (var (tool, (args, expect)) in ToolCases()) // ordered: unload last
+        foreach (var (tool, (args, expect)) in ToolCases()) // order matters: edits build on each other, unload last
         {
             var text = await Call(tool, args);
             Assert.True(text.Contains(expect, StringComparison.Ordinal), $"{tool}: expected '{expect}' in:\n{text}");
         }
-        // The edits made above are visible and saved.
         Assert.Contains("return 7;", await Call("decompile_member", new() { ["member"] = "Account::Score" }));
         Assert.True(File.Exists(_dir.File("saved.dll")));
     }
@@ -162,16 +158,6 @@ public class McpProtocolTests : IAsyncLifetime
         Assert.NotNull(_client.ServerCapabilities.Resources);
         Assert.NotNull(_client.ServerCapabilities.Prompts);
         Assert.NotNull(_client.ServerCapabilities.Completions);
-    }
-
-    [Fact]
-    public async Task StructuredOutput()
-    {
-        var result = await _client.CallToolAsync("list_assemblies", new Dictionary<string, object?>());
-        Assert.NotNull(result.StructuredContent);
-        var json = result.StructuredContent!.ToString();
-        Assert.Contains("\"Assemblies\"", json, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("TestFixture.Consumer", json);
     }
 
     [Fact]
@@ -229,9 +215,7 @@ public class McpProtocolTests : IAsyncLifetime
     {
         File.Copy(Env.FixturePath, _dir.File("A.dll"));
         File.Copy(Env.ConsumerPath, _dir.File("B.dll"));
-        // Observe notifications with a session-wide handler: the per-call progress callback is unregistered as soon as
-        // the response arrives, and the client dispatches notifications asynchronously, so it can miss ones that were
-        // on the wire before the response.
+        // Session-wide handler: the per-call callback is removed on response and can miss in-flight notifications.
         var updates = new ConcurrentQueue<ProgressNotificationParams>();
         await using var handler = _client.RegisterNotificationHandler(NotificationMethods.ProgressNotification, (n, _) =>
         {

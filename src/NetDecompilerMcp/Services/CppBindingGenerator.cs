@@ -11,8 +11,7 @@ namespace NetDecompilerMcp.Services;
 /// strings are exactly what mono_class_from_name sees. Two output styles:
 /// <list type="bullet">
 /// <item>"mono" (default): the standard Mono embedding API (mono_class_from_name, mono_field_get_offset,
-/// mono_runtime_invoke, ...) through a function table filled from the runtime's exports. Self-contained; works in any
-/// tool that hosts or injects into a Mono runtime.</item>
+/// mono_runtime_invoke, ...) through a function table filled from the runtime's exports. Self-contained.</item>
 /// <item>"hostapi": for plugin frameworks whose host passes a HostApi table (FindClass / FieldOffset / GetMethod /
 /// Invoke, with shared/abi.h, mem.h and il2cpp_util.h helpers).</item>
 /// </list>
@@ -118,7 +117,7 @@ public sealed class CppBindingGenerator
                     && ((includeInherited && Wanted(p.Name)) || Named(p.Name)) && own.Add(p.Name))
                     inherited.Add(p);
             foreach (var f in b.Fields)
-                if (Named(f.Name) && !f.IsLiteral && !f.IsStatic && own.Add(f.Name)) // instance fields: offsets are looked up through the parents
+                if (Named(f.Name) && !f.IsLiteral && !f.IsStatic && own.Add(f.Name)) // offsets resolve through the parent chain
                     fields.Add(f);
             foreach (var m in b.Methods)
                 if (Named(m.Name) && !m.IsConstructor && !IsAccessor(m) && !m.IsPrivate && !own.Contains(m.Name))
@@ -138,8 +137,6 @@ public sealed class CppBindingGenerator
         var overloaded = methods.GroupBy(x => (x.Name.String, ParamCount(x))).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet();
         return new Selection(fields, [.. properties.Select(p => (p, false)), .. inherited.Select(p => (p, true))], methods, overloaded);
     }
-
-    // ------------------------------------------------------------------ style "mono": the Mono embedding API
 
     /// <summary>
     /// The function table and helpers every "mono" binding uses, guarded so several generated headers can be included
@@ -287,7 +284,7 @@ public sealed class CppBindingGenerator
         var checks = new List<string> { "klass" };
         var accessors = new StringBuilder();
 
-        // ---- fields: read and written in place, no Mono call needed
+        // Fields are accessed in place; no Mono call needed.
         bool anyStatic = s.Fields.Any(f => f.IsStatic);
         if (anyStatic)
         {
@@ -315,7 +312,7 @@ public sealed class CppBindingGenerator
             }
         }
 
-        // ---- property getters (invoked: needs a thread attached to Mono)
+        // Getters are invoked and require a thread attached to Mono.
         foreach (var (p, viaHierarchy) in s.Getters)
         {
             var getter = p.GetMethod!;
@@ -335,7 +332,7 @@ public sealed class CppBindingGenerator
                 accessors.AppendLine($"    {cpp} {name}({param}) const {{ return CallValue<{cpp}>(api, {m}, {instance}); }}");
         }
 
-        // ---- methods (overloads with the same argument count are told apart by metadata token)
+        // Overloads with equal argument counts are distinguished by metadata token.
         var wrapperSignatures = new HashSet<string>(StringComparer.Ordinal);
         foreach (var method in s.Methods)
         {
@@ -409,8 +406,6 @@ public sealed class CppBindingGenerator
         return expr;
     }
 
-    // ------------------------------------------------------------------ style "hostapi": a host-provided plugin ABI
-
     private static string RenderHostApi(LoadedAssembly asm, TypeDef type, Selection s, BindingTarget target)
     {
         var project = target.Project;
@@ -443,7 +438,6 @@ public sealed class CppBindingGenerator
             accessors.AppendLine("    int32_t Size() const { return m_size; }");
         }
 
-        // ---- fields
         bool anyStatic = s.Fields.Any(f => f.IsStatic);
         if (anyStatic) decls.AppendLine("    void* m_static = nullptr;          // static field data block");
         if (anyStatic) resolve.AppendLine("        m_static = h->GetStaticFieldData(klass);");
@@ -487,7 +481,7 @@ public sealed class CppBindingGenerator
             }
         }
 
-        // ---- property getters (invoked: needs the host's managed-call context)
+        // Getters are invoked and require the host's managed-call context.
         foreach (var (p, viaHierarchy) in s.Getters)
         {
             var getter = p.GetMethod!;
@@ -511,7 +505,7 @@ public sealed class CppBindingGenerator
             }
         }
 
-        // ---- methods (overloads with the same argument count are resolved by exact signature)
+        // Overloads with equal argument counts are resolved by exact signature.
         var wrapperSignatures = new HashSet<string>(StringComparer.Ordinal);
         foreach (var method in s.Methods)
         {
@@ -537,7 +531,6 @@ public sealed class CppBindingGenerator
             accessors.AppendLine($"    void* {wrapper}({string.Join(", ", parameters)}) const {{ {setup}return h->Invoke({m}, {(method.IsStatic ? "nullptr" : "obj")}, {argArray}, {args.Count}); }}{ReturnNote(method, "Unbox<T>(h, result)")}");
         }
 
-        // ---- includes and namespace from the detected project
         var includes = new List<string>();
         var missing = new List<string>();
         string? ns = null;
@@ -609,8 +602,6 @@ public sealed class CppBindingGenerator
         return sb.ToString();
     }
 
-    // ------------------------------------------------------------------ shared helpers
-
     private static string StructName(TypeDef type) => Identifier(Format.StripArity(type.Name)) + "Binding";
 
     /// <summary>Wrapper parameters after the API parameter, and the matching entries of the argument array.</summary>
@@ -653,11 +644,6 @@ public sealed class CppBindingGenerator
 
     private static string Join(string a, string b) => a.Length == 0 ? b : $"{a}, {b}";
 
-    /// <summary>
-    /// A member's type as seen from <paramref name="type"/>: a type parameter of the generic base class that declares the
-    /// member becomes the argument <paramref name="type"/>'s base chain passes (DataModule&lt;T&gt;.Instance on
-    /// "class ToolSystem : DataModule&lt;ToolSystem&gt;" is a ToolSystem). Other types are returned unchanged.
-    /// </summary>
     /// <summary>The property's declaration; for an inherited one also what its type parameter is here and where it is declared.</summary>
     private static string PropertyComment(TypeDef type, PropertyDef p)
     {
@@ -669,6 +655,10 @@ public sealed class CppBindingGenerator
         return Format.Property(p) + (notes.Count > 0 ? $"  [{string.Join(", ", notes)}]" : "");
     }
 
+    /// <summary>
+    /// Substitutes a generic base's type parameter with the argument supplied by <paramref name="type"/>'s base chain
+    /// (Base&lt;T&gt;.Instance on "class C : Base&lt;C&gt;" is a C). Other types are returned unchanged.
+    /// </summary>
     private static TypeSig AsSeenFrom(TypeDef type, IMemberDef member, TypeSig sig)
     {
         if (sig is not GenericVar { Number: var n } || member.DeclaringType == type) return sig;
@@ -747,7 +737,7 @@ public sealed class CppBindingGenerator
         _ => sig.ToTypeDefOrRef()?.Name.String ?? sig.TypeName,
     };
 
-    /// <summary>Accessor name for a member: "m_health" / "_health" / "health" -> "Health".</summary>
+    /// <summary>Accessor name for a member: "m_count" / "_count" / "count" -> "Count".</summary>
     private static string Pascal(string name)
     {
         var bare = name.StartsWith("m_", StringComparison.Ordinal) ? name[2..] : name.TrimStart('_');

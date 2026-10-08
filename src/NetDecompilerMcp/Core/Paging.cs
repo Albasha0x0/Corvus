@@ -1,15 +1,13 @@
 namespace NetDecompilerMcp.Core;
 
 /// <summary>
-/// Splits long tool output into pages and caches recently produced texts so that
-/// requesting page 2 of a big decompilation does not decompile again.
+/// Pages long tool output and keeps an LRU cache of produced texts so later pages are not regenerated.
 /// </summary>
 public sealed class OutputPager(ServerOptions options)
 {
     private const int CacheCapacity = 24;
     private readonly LinkedList<(string Key, string Text)> _cache = new();
 
-    /// <summary>Returns the cached text for <paramref name="key"/> or produces and caches it.</summary>
     public string GetOrCreate(string key, Func<string> produce)
     {
         lock (_cache)
@@ -33,9 +31,7 @@ public sealed class OutputPager(ServerOptions options)
         return text;
     }
 
-    /// <summary>
-    /// Pages a list of rows by index (offset/limit), with a header line and a "more" hint, then applies the character limit.
-    /// </summary>
+    /// <summary>Pages rows by offset/limit with a count header and continuation hint, then applies the character limit.</summary>
     public string PageRows(IReadOnlyList<string> rows, int offset, int limit, string noun)
     {
         limit = Math.Clamp(limit, 1, 5_000);
@@ -49,7 +45,7 @@ public sealed class OutputPager(ServerOptions options)
         return Page(sb.ToString());
     }
 
-    /// <summary>Returns the slice starting at <paramref name="offset"/>, cut at a line break when possible.</summary>
+    /// <summary>Returns the character slice starting at <paramref name="offset"/>, cut at a line break when possible.</summary>
     public string Page(string text, int offset = 0, int? maxChars = null)
     {
         int max = Math.Clamp(maxChars is > 0 ? maxChars.Value : options.MaxOutputChars, 1_000, 500_000);

@@ -40,7 +40,7 @@ public class Il2CppExportTests : IDisposable
 
     private const string Clang = @"C:\Program Files\LLVM\bin\clang.exe";
 
-    /// <summary>The real dump: the header must compile and the scripts must be valid Python.</summary>
+    /// <summary>For a real dump the header compiles and the scripts are valid Python.</summary>
     [RequiresRealDataFact(RealData.Il2CppDummyDir)]
     public void RealDumpHeaderCompilesAndScriptsParse()
     {
@@ -51,6 +51,6 @@ public class Il2CppExportTests : IDisposable
         if (File.Exists(Clang))
             Assert.Equal(0, Tools.Run(Clang, $"-fsyntax-only -x c \"{_dir.File("app.h")}\"").ExitCode);
         var python = Tools.Run("python", $"-c \"import py_compile,sys; [py_compile.compile(p, doraise=True) for p in sys.argv[1:]]\" \"{_dir.File("app_ida.py")}\" \"{_dir.File("app_ghidra.py")}\"");
-        Assert.True(python.ExitCode == 0 || python.ExitCode == -1, python.Output); // -1: no python on this machine
+        Assert.True(python.ExitCode == 0 || python.ExitCode == -1, python.Output); // -1: python not installed
     }
 }

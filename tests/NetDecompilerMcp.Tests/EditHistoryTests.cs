@@ -114,7 +114,7 @@ public class EditHistoryTests : IDisposable
     [Fact]
     public void DryRunCompilesCSharpEdits_AndShowsTheFullError()
     {
-        // #1 adds a member, #2 uses it (a dry run must see #1), #3's code does not compile on the target
+        // #2 depends on #1; #3 will not compile on the target.
         _env.Edit(() => _env.Edits.AddMembersCSharp(_env.One("Fixture.Model.Account", Core.SymbolKind.Type), "public int Bonus() => 7;", false, default));
         _env.Edit(() => _env.Edits.PatchMethodCSharp(_env.One("Account::SumPositive"), "return values.Count(v => v > 0) + Bonus();", false, default));
         _env.Edit(() => _env.Edits.PatchMethodCSharp(_env.One("Account::Score"), "return 11;", false, default));
@@ -135,7 +135,7 @@ public class EditHistoryTests : IDisposable
         Assert.False(fresh.Fixture.IsDirty);
         Assert.DoesNotContain("Bonus", fresh.Decompile("Fixture.Model.Account"));
 
-        // a dry run on an assembly that already has edits rolls back to those edits, not to the loaded file
+        // A dry run rolls back to the existing edits, not to the loaded file.
         fresh.Edit(() => fresh.Edits.StubMethod(fresh.One("Secret::Validate"), "true"));
         fresh.Edit(() => fresh.History.Apply(script, null, dryRun: true, stopOnError: false, default));
         Assert.Equal("stub_method", Assert.Single(fresh.Fixture.Edits).Kind);

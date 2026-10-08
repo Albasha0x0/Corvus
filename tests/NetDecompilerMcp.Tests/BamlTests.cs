@@ -10,7 +10,7 @@ public class BamlTests
     [Fact]
     public async Task BamlEntries_AreDecompiledToXaml()
     {
-        // a WPF theme assembly of the installed desktop runtime: its .g.resources holds BAML resource dictionaries
+        // WPF theme assembly from the desktop runtime; its .g.resources holds BAML.
         var aero2 = Frameworks.All.Value.Where(s => s.Name == "Microsoft.WindowsDesktop.App")
             .Select(s => Path.Combine(s.Dir, "PresentationFramework.Aero2.dll")).FirstOrDefault(File.Exists);
         if (aero2 == null) return; // needs the Windows desktop runtime

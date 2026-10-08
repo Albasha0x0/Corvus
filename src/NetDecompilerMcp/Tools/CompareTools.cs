@@ -120,7 +120,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
 
     private static int Count(List<TypeChange> types, string change) => types.Count(t => t.Change == change);
 
-    /// <summary>Compiler-generated: a '&lt;' in its own or an enclosing type's name (C# never allows one in source).</summary>
+    /// <summary>True if the member or an enclosing type has '&lt;' in its name, which only compiler-generated names contain.</summary>
     private static bool IsGenerated(IMemberDef? member)
     {
         for (IMemberDef? m = member; m != null; m = m.DeclaringType)

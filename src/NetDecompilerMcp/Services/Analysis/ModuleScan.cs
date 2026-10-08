@@ -5,38 +5,33 @@ using NetDecompilerMcp.Core;
 
 namespace NetDecompilerMcp.Services.Analysis;
 
-/// <summary>Where an item was found, as text: "Ns.Type::Method(int) @IL_0012", "resource 'x.bin'", ...; Api: the API it is passed to.</summary>
+/// <summary>Textual location such as "Ns.Type::Method(int) @IL_0012"; Api is the API the item is passed to.</summary>
 public sealed record Location(string Where, string? Api = null)
 {
     public override string ToString() => Api == null ? Where : $"{Where} -> {Api}";
 }
 
 /// <summary>
-/// One pass over a module's metadata and method bodies: every API called (call / callvirt / newobj / ldftn / ldvirtftn),
-/// every string literal and string constant with the next APIs called after it, P/Invoke imports, static fields with
-/// initial data and the methods that use them, and embedded resources with the entries of .resources containers.
-/// Reads metadata only; nothing is loaded or executed. Unreadable types and resources are skipped with a note.
+/// Single pass over a module collecting API calls, strings with their consuming APIs, P/Invoke imports, static field
+/// data and resources. Unreadable types and resources are skipped with a note.
 /// </summary>
 public sealed class ModuleScan
 {
-    /// <summary>
-    /// A call / newobj / ldftn of a method, by "Ns.Type::Name" (generic arguments dropped), and with its parameter types:
-    /// "Ns.Type::Name(System.Byte[])".
-    /// </summary>
+    /// <summary>A method reference: Api is "Ns.Type::Name", Signature adds parameter types.</summary>
     public sealed record ApiUse(MethodDef Caller, uint Offset, string Api, string Signature, IMethod Target);
 
-    /// <summary>A string literal (ldstr) or string constant; <see cref="Consumers"/> are the next APIs called after it.</summary>
+    /// <summary>A string literal or constant; Consumers are the next APIs called after it.</summary>
     public sealed record CodeString(string Value, Location Location, MethodDef? Method, IReadOnlyList<string> Consumers);
 
     public sealed record NativeImport(MethodDef Method, string Module, string Entry);
 
-    /// <summary>A static field with initial data (array initializers live in &lt;PrivateImplementationDetails&gt;), and where it is used.</summary>
+    /// <summary>A static field with initial data (e.g. array initializers) and the methods using it.</summary>
     public sealed record FieldData(FieldDef Field, byte[] Data, IReadOnlyList<MethodDef> UsedIn);
 
     /// <summary>An embedded resource, or one byte[] / stream / string entry of a .resources container.</summary>
     public sealed record ResourceBlob(string Name, byte[]? Bytes, string? Text);
 
-    /// <summary>How many instructions after a string to look for the APIs that consume it.</summary>
+    /// <summary>Instructions after a string searched for consuming APIs.</summary>
     private const int ConsumerWindow = 12;
 
     public ModuleDef Module { get; }
@@ -46,13 +41,12 @@ public sealed class ModuleScan
     public List<FieldData> Data { get; } = [];
     public List<ResourceBlob> Resources { get; } = [];
     public List<string> Notes { get; } = [];
-    /// <summary>The APIs each scanned method calls.</summary>
     public Dictionary<MethodDef, HashSet<string>> ApisByMethod { get; } = [];
     public int MethodsScanned { get; private set; }
 
     private ModuleScan(ModuleDef module) => Module = module;
 
-    /// <summary>Scans <paramref name="module"/>; <paramref name="instructions"/> reads a body (fast reader or dnlib).</summary>
+    /// <param name="instructions">Method body reader (fast reader or dnlib).</param>
     public static ModuleScan Run(ModuleDef module, Func<MethodDef, IList<Instruction>> instructions, AnalysisLimits limits, CancellationToken ct)
     {
         var scan = new ModuleScan(module);
@@ -123,7 +117,7 @@ public sealed class ModuleScan
         }
     }
 
-    /// <summary>The first few APIs called after instruction <paramref name="at"/>: where a string ends up.</summary>
+    /// <summary>Up to three APIs called shortly after <paramref name="at"/>.</summary>
     private static List<string> Consumers(IList<Instruction> body, int at)
     {
         var list = new List<string>();
@@ -137,12 +131,12 @@ public sealed class ModuleScan
         return list;
     }
 
-    /// <summary>"Ns.Type::Name" for a method reference, with generic arguments dropped and nested types as Outer/Inner.</summary>
+    /// <summary>"Ns.Type::Name" with generic arguments dropped and nested types as Outer/Inner.</summary>
     public static string? ApiName(IMethod method)
     {
         var type = method.DeclaringType;
         if (type == null) return null;
-        var scope = type.ScopeType ?? type; // a generic instance's definition
+        var scope = type.ScopeType ?? type; // generic instance -> its definition
         return $"{scope.FullName}::{method.Name}";
     }
 
@@ -186,13 +180,11 @@ public sealed class ModuleScan
         }
     }
 
-    // ------------------------------------------------------------------ factories
-
-    /// <summary>Scans a loaded assembly (fast body reader). Call under the workspace read lock.</summary>
+    /// <summary>Scans a loaded assembly. Call under the workspace read lock.</summary>
     public static ModuleScan Of(LoadedAssembly asm, AnalysisLimits limits, CancellationToken ct) =>
         Run(asm.Module, m => FastIlReader.Instructions(asm, m), limits, ct);
 
-    /// <summary>Scans an assembly that is only in memory (not in the workspace).</summary>
+    /// <summary>Scans a module that is not in the workspace.</summary>
     public static ModuleScan Of(ModuleDef module, AnalysisLimits limits, CancellationToken ct) =>
         Run(module, MetadataUtil.SafeInstructions, limits, ct);
 }

@@ -7,7 +7,7 @@ namespace NetDecompilerMcp.Tests;
 
 public class ComparerTests(ITestOutputHelper output)
 {
-    /// <summary>Builds a "v2" of the fixture with known renames, body changes and additions, then compares.</summary>
+    /// <summary>Compares the fixture with an edited copy of itself.</summary>
     [Fact]
     public void DetectsRenamesBodyChangesAndAdditions()
     {
@@ -47,10 +47,7 @@ public class ComparerTests(ITestOutputHelper output)
         Assert.Throws<ToolError>(() => comparer.Compare(env.Fixture, env.Fixture, default));
     }
 
-    /// <summary>
-    /// Two real builds of one app (NDM_COMPARE_OLD_DIR / NDM_COMPARE_NEW_DIR). Compares NDM_COMPARE_ASSEMBLY, or the
-    /// largest application assembly present in both; NDM_COMPARE_EXPECT lists known moves ("Old=>New;Old2=>New2").
-    /// </summary>
+    /// <summary>Compares NDM_COMPARE_ASSEMBLY (default: largest shared app assembly) between two real builds.</summary>
     [RequiresRealDataFact(RealData.CompareOldDir, RealData.CompareNewDir)]
     public void RealBuildUpdate()
     {

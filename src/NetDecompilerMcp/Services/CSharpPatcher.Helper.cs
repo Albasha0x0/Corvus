@@ -9,14 +9,12 @@ using SF = Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
 namespace NetDecompilerMcp.Services;
 
 /// <summary>
-/// Helper-method compilation: the preferred way to compile new method bodies.
+/// Helper-method compilation of new method bodies.
 ///
-/// Compiling a decompiled copy ("shadow") of a type gives it a different identity from the original: passing `this` to an
-/// API that expects the original type, or assigning an original instance to a variable of the type, does not compile.
-/// Instead, each body is bound once inside the shadow (to learn what every name means), rewritten so that implicit and
-/// explicit `this` become an explicit `@this` parameter and members/nested types of the type become fully qualified, and
-/// compiled as a static method `R M(T @this, ...params)` of a helper class against the *original* assembly — no shadow
-/// involved. Argument 0 of the helper is `this` of the original method, so the compiled IL drops straight into it.
+/// A shadow type has a different identity from the original, so code passing `this` as the original type does not compile.
+/// Each body is bound inside the shadow, rewritten so `this` becomes an explicit `@this` parameter and type members become
+/// fully qualified, then compiled as a static `R M(T @this, ...params)` against the original assembly. Argument 0 maps to
+/// `this` of the target method, so the IL transfers unchanged.
 /// </summary>
 public sealed partial class CSharpPatcher
 {
@@ -115,8 +113,7 @@ public sealed partial class CSharpPatcher
     private static string HelperMethod(IMethodSymbol symbol, string name, BlockSyntax body)
     {
         var fq = SymbolDisplayFormat.FullyQualifiedFormat;
-        // private: the helper is compiled into a separate assembly, so a target type that is internal (to the target)
-        // in its signature would be less accessible than a public method (CS0051). Helpers are only copied, never called.
+        // Private avoids CS0051 when the signature uses internal types of the target; helpers are copied, never called.
         var sb = new StringBuilder("    private static unsafe ");
         if (symbol.IsAsync) sb.Append("async ");
         sb.Append(symbol.ReturnsVoid ? "void" : symbol.ReturnType.ToDisplayString(fq)).Append(' ').Append(name);

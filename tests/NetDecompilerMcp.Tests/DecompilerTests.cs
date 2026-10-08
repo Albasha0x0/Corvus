@@ -50,8 +50,8 @@ public class DecompilerTests : IDisposable
     [Fact]
     public void DisassemblesTypesFieldsPropertiesEvents()
     {
-        foreach (var symbol in new[] { "Account", "Account::_balance", "Account::Balance", "Account::Closed" })
-            Assert.False(string.IsNullOrWhiteSpace(_env.Decompiler.Disassemble(_env.Fixture, _env.One(symbol).Member, default)));
+        foreach (var (symbol, directive) in new[] { ("Account", ".class"), ("Account::_balance", ".field"), ("Account::Balance", ".property"), ("Account::Closed", ".event") })
+            Assert.Contains(directive, _env.Decompiler.Disassemble(_env.Fixture, _env.One(symbol).Member, default));
     }
 
     [Fact]
@@ -72,14 +72,13 @@ public class DecompilerTests : IDisposable
         Assert.Contains("TargetFramework", _env.Decompiler.DecompileAssemblyAttributes(_env.Fixture, default));
 
     [Fact]
-    public void TimeoutProducesClearError()
+    public void CallerCancellation_IsNotAToolError()
     {
         using var env = new Env();
-        var options = new ServerOptions { TimeoutSeconds = 5 };
-        var decompiler = new Services.DecompilerService(env.Workspace, options);
+        var decompiler = new Services.DecompilerService(env.Workspace, new ServerOptions());
         using var cts = new CancellationTokenSource();
         cts.Cancel();
-        // Caller cancellation propagates as cancellation (not a tool error).
+        // Caller cancellation is not converted to a ToolError.
         Assert.ThrowsAny<OperationCanceledException>(() => decompiler.DecompileType(env.Fixture, env.Def<TypeDef>("Account"), cts.Token));
     }
 

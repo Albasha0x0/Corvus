@@ -29,7 +29,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
                 .OrderBy(g => g.Key, StringComparer.Ordinal)
                 .ToList();
             if (groups.Count == 0 && assembly == null && filter != null)
-                continue; // searching across assemblies: only show the ones that match
+                continue; // when filtering across all assemblies, omit those with no match
             sb.AppendLine($"[{asm.Id}] {Plural(groups.Count, "namespace")}:");
             foreach (var g in groups)
                 sb.AppendLine($"  {(g.Key.Length == 0 ? "<global>" : g.Key)}  ({g.Count()})");

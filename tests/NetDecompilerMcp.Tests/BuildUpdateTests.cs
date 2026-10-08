@@ -72,7 +72,7 @@ public class BuildUpdateTests : IDisposable
             original.History.Export(original.Fixture, script);
         }
 
-        // only the new build loaded: Add is not found, and the reason how to follow it is given
+        // Only the new build loaded: the target is unresolved.
         using (var alone = new Env(newPath))
         {
             var report = alone.Edit(() => alone.History.Apply(script, alone.Fixture.Id, dryRun: true, stopOnError: true, default));
@@ -80,7 +80,7 @@ public class BuildUpdateTests : IDisposable
             Assert.Contains("(load the build the script was made from, MVID", report);
         }
 
-        // with the original build loaded too: Add is followed to AddNumbers
+        // Both builds loaded: Add is followed to AddNumbers.
         using var env = new Env(newPath);
         env.Workspace.Load(oldPath);
         var applied = env.Edit(() => env.History.Apply(script, env.Fixture.Id, dryRun: false, stopOnError: true, default));

@@ -21,7 +21,7 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
         var sb = new StringBuilder();
         bool any = false;
         var symbols = SymbolResolver.Resolve(workspace, assembly, symbol);
-        // the same name in the game's managed DLLs and in a dummy-DLL set: only the dummy (Il2Cpp) side has addresses
+        // A symbol may match in both managed and Il2Cpp dummy assemblies; only the dummy side has addresses.
         var withMetadata = symbols.Where(s => il2cpp.GetIndex(s.Assembly).Count > 0).ToList();
         if (withMetadata.Count > 0 && withMetadata.Count < symbols.Count)
         {

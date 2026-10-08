@@ -6,7 +6,7 @@ namespace NetDecompilerMcp.Core;
 /// <summary>C#-flavoured, compact signatures for dnlib members (used in listings and search results).</summary>
 public static class Format
 {
-    /// <summary>"0x06000123", or "(new)" for members added by an edit (they get a token when the image is written).</summary>
+    /// <summary>"0x06000123", or "(new)" for members added by an edit (no token until the image is written).</summary>
     public static string Token(IMDTokenProvider p) => p.MDToken.Rid == 0 ? "(new)" : $"0x{p.MDToken.Raw:X8}";
 
     public static string Type(TypeSig? sig)
@@ -272,8 +272,8 @@ public static class Format
     }
 
     /// <summary>
-    /// An attribute argument as C#: arrays as "new[] { ... }" (null arrays as null), arguments of type object by their
-    /// boxed value, types as typeof(...), enum values by member name when it resolves (otherwise "(Enum)n").
+    /// Formats an attribute argument as C#: arrays as new[] { ... }, boxed objects by value, types as typeof(...),
+    /// enums by member name when resolvable, otherwise "(Enum)n".
     /// </summary>
     public static string AttributeArgument(CAArgument arg) => arg.Value switch
     {
@@ -313,6 +313,5 @@ public static class Format
         _ => Literal(value),
     };
 
-    /// <summary>Truncates a single line for previews.</summary>
     public static string Clip(string s, int max) => s.Length <= max ? s : s[..max] + "…";
 }

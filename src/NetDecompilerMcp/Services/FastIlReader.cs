@@ -9,13 +9,12 @@ using NetDecompilerMcp.Core;
 namespace NetDecompilerMcp.Services;
 
 /// <summary>
-/// Decodes method bodies straight from the in-memory image with System.Reflection.Metadata instead of materializing
-/// dnlib bodies, which costs ~0.1 ms per method and does not scale across threads (a large game has 300k+ methods).
-/// Operand tokens are resolved through the dnlib module (cached per token), so callers get ordinary dnlib
-/// <see cref="Instruction"/> objects with offsets, members, strings, numbers and branch targets.
+/// Decodes method bodies from the in-memory image with System.Reflection.Metadata; materializing dnlib bodies costs
+/// ~0.1 ms per method and does not scale across threads. Operand tokens resolve through the dnlib module (cached per
+/// token), yielding ordinary dnlib <see cref="Instruction"/> objects.
 ///
-/// Only used for assemblies without unsaved edits: for edited ones the dnlib module is the source of truth.
-/// Local variables and parameters are given as their index (int), not as dnlib Local/Parameter objects.
+/// Used only for assemblies without unsaved edits; otherwise the dnlib module is the source of truth.
+/// Locals and parameters are given as int indices, not dnlib Local/Parameter objects.
 /// </summary>
 public static class FastIlReader
 {
@@ -45,7 +44,7 @@ public static class FastIlReader
 
             var instructions = Decode(block.GetILReader(), pe.Metadata, Resolve);
             var locals = new List<TypeSig>();
-            // Local signatures are resolved with the method's generic context (not cached) so generic locals keep their names.
+            // Resolved with the method's generic context (uncached) so generic locals keep their names.
             if (!block.LocalSignature.IsNil
                 && MetadataUtil.Try(() => module.ResolveToken((uint)MetadataTokens.GetToken(block.LocalSignature), new GenericParamContext(method.DeclaringType, method)))
                     is StandAloneSig { LocalSig: { } localSig })
@@ -58,7 +57,7 @@ public static class FastIlReader
         }
         catch
         {
-            return null; // unreadable body header (corrupt or dumped image): treat as no body, like dnlib's garbage
+            return null; // unreadable body header (corrupt image): treat as no body
         }
     }
 
@@ -74,8 +73,8 @@ public static class FastIlReader
     {
         var list = new List<Instruction>();
         var branches = new List<(Instruction Instr, object Targets, int Next)>();
-        // Corrupt bodies (common in memory-dumped or obfuscated assemblies) end decoding at the first invalid
-        // opcode or truncated operand instead of throwing: the instructions read so far are kept.
+        // Corrupt bodies (memory-dumped or obfuscated images) stop at the first invalid opcode or truncated operand;
+        // instructions read so far are kept.
         while (reader.RemainingBytes > 0)
         {
             int offset = reader.Offset;

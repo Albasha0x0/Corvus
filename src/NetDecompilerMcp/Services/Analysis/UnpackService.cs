@@ -6,11 +6,8 @@ using NetDecompilerMcp.Services;
 namespace NetDecompilerMcp.Services.Analysis;
 
 /// <summary>
-/// Opens a container file and walks everything in it: containers inside containers are opened too (e.g. a
-/// Costura-packed app inside a single-file bundle), up to <see cref="AnalysisLimits.MaxDepth"/>.
-/// <see cref="Unpack"/> writes the files to disk and loads the .NET assemblies; <see cref="List"/> only reports the
-/// assemblies. Unpack output goes to a directory of its own (by default under the temp folder, named after the file's
-/// hash), marked so a second unpack of the same file reuses it and an unrelated directory is never written into.
+/// Recursively opens nested containers up to <see cref="AnalysisLimits.MaxDepth"/>. Output directories carry a marker
+/// file so a repeat unpack of the same file reuses them and unrelated directories are never written into.
 /// </summary>
 public sealed class UnpackService(AssemblyWorkspace workspace)
 {
@@ -18,20 +15,19 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     private const string DotNet = ".NET assembly";
     internal const string HostOrigin = "the file itself (container host)";
 
-    /// <summary>One extracted file. ReadyToRun and Merged are set for .NET assemblies only.</summary>
+    /// <summary>ReadyToRun and Merged are set for .NET assemblies only.</summary>
     public sealed record UnpackedFile(string Path, string Kind, long Size, string Sha256, string Origin, string? LoadedAs,
         bool? ReadyToRun = null,
         string? Merged = null);
 
     public sealed record UnpackReport(string Source, string Container, string OutputDirectory, List<UnpackedFile> Files, List<string> Notes);
 
-    /// <summary>A managed assembly inside a container. Path is its location inside the container (nested ones under "x_unpacked/").</summary>
+    /// <summary>Path is relative to the container; nested items are under "x_unpacked/".</summary>
     public sealed record ContainedAssembly(string Path, string? Name, string? Version, long Size, string Sha256, string Origin, bool ReadyToRun,
         string? Merged);
 
     public sealed record ContainerListing(string Source, string Container, List<ContainedAssembly> Assemblies, List<string> Notes);
 
-    /// <summary>A file found in the container, with its sanitized relative output path.</summary>
     private sealed record Found(string Relative, byte[] Bytes, string Kind, string Sha256, string Origin);
 
     private sealed record Walked(string Container, List<Found> Items, List<string> Notes);
@@ -59,17 +55,16 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             files.Add(file);
         }
 
-        // a managed host (Costura, embedded images) holds the app's own code: list it, and load it with the rest
+        // A managed host contains the app's own code; include it.
         if (Blob.Identify(data) == DotNet && walked.Container != "none")
             files.Insert(0, new UnpackedFile(source, DotNet, data.Length, sha, HostOrigin, null, AssemblyTraits.IsReadyToRun(data), Inspect(data)?.Merged));
-        // an apphost launcher: the application is the .dll next to it
+        // For an apphost launcher, the application is the adjacent .dll.
         if (AppNextToApphost(source, walked.Container, limits) is { } app)
             files.Insert(0, new UnpackedFile(app.Path, DotNet, app.Bytes.Length, Blob.Sha256(app.Bytes), ApphostAppOrigin, null,
                 AssemblyTraits.IsReadyToRun(app.Bytes), Inspect(app.Bytes)?.Merged));
         if (load) LoadAssemblies(files, notes);
         if (files.Count > MaxListed)
         {
-            // a self-contained bundle holds the whole runtime: list the app's assemblies, count the rest
             int total = files.Count;
             files = files.OrderBy(f => ListOrder(f.Origin, f.Path, f.Kind == DotNet)).Take(MaxListed).ToList();
             notes.Add($"{total} files written to {root}; {MaxListed} listed (the app's assemblies first, translations and other files last).");
@@ -77,18 +72,17 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         return new UnpackReport(source, walked.Container, root, files, notes);
     }
 
-    /// <summary>Most entries a listing returns (the rest are counted in its notes).</summary>
+    /// <summary>Maximum entries listed; the rest are counted in notes.</summary>
     internal const int MaxListed = 100;
 
-    /// <summary>List order: the host / apphost app, assemblies, satellite (translation) assemblies, other files.</summary>
+    /// <summary>Order: host / apphost app, assemblies, satellite assemblies, other files.</summary>
     private static int ListOrder(string origin, string path, bool assembly) =>
         origin == HostOrigin || origin == ApphostAppOrigin ? 0
         : !assembly ? 3
         : Path.GetFileNameWithoutExtension(path).EndsWith(".resources", StringComparison.OrdinalIgnoreCase) ? 2 : 1;
 
     /// <summary>
-    /// The managed assemblies inside a container, without writing anything. A plain assembly lists itself.
-    /// Throws <see cref="ToolError"/> when the container itself is corrupt.
+    /// Lists managed assemblies without writing anything. Throws <see cref="ToolError"/> when the container is corrupt.
     /// </summary>
     public ContainerListing List(string path, AnalysisLimits limits, CancellationToken ct)
     {
@@ -104,13 +98,12 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             assemblies.Select(a => Describe(a.Path, a.Bytes, a.Sha256, a.Origin)).ToList(), managed.Notes);
     }
 
-    /// <summary>A symbol found by <see cref="Search"/>: where it lives in the container, and what it is.</summary>
     public sealed record ContainerSymbol(string Path, string Assembly, string Name, string Kind);
 
     public sealed record ContainerSearch(string Source, string Container, int AssembliesSearched, List<ContainerSymbol> Matches, int Total,
         bool Truncated, List<string> Notes);
 
-    /// <summary>The kinds search_container accepts; null or "any" for all (events included).</summary>
+    /// <summary>Null or "any" selects all kinds, events included.</summary>
     public static SymbolKind ParseSearchKind(string? kind) => kind?.Trim().ToLowerInvariant() switch
     {
         null or "" or "any" => SymbolKind.Any,
@@ -122,10 +115,8 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     };
 
     /// <summary>
-    /// Searches the metadata of every managed assembly in a container (or a plain assembly) by name, in memory: nothing
-    /// is written or loaded. Matching is that of search_symbols (case-insensitive substring; '*' / '?' wildcards; queries
-    /// with '.' or ':' also match full names). Best matches first (exact, then prefix, then substring); at most
-    /// <paramref name="limit"/> are returned, and <see cref="ContainerSearch.Total"/> counts them all.
+    /// Searches symbol names in every contained assembly in memory, with search_symbols matching. Results are ranked
+    /// exact, prefix, substring; Total counts all matches.
     /// </summary>
     public ContainerSearch Search(string path, string query, SymbolKind kind, int limit, AnalysisLimits limits, CancellationToken ct)
     {
@@ -133,7 +124,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         bool matchFullName = query.Contains('.') || query.Contains(':');
         var managed = Managed(path, limits, ct);
         var notes = managed.Notes;
-        // one bucket per rank, each capped at the limit: the best matches survive without holding every hit
+        // One bucket per rank, each capped at the limit, to keep the best matches with bounded memory.
         var buckets = Enumerable.Range(0, 4).Select(_ => new List<ContainerSymbol>()).ToArray();
         int total = 0, searched = 0;
         foreach (var a in managed.Assemblies)
@@ -183,7 +174,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
 
     internal sealed record ManagedAssembly(string Path, byte[] Bytes, string Sha256, string Origin);
 
-    /// <summary>The managed assemblies a file holds, found by <see cref="Walk"/>; a plain assembly is its own one.</summary>
+    /// <summary>Managed assemblies in a file; a plain assembly yields itself.</summary>
     internal static (string Source, string Container, List<ManagedAssembly> Assemblies, List<string> Notes) Managed(string path, AnalysisLimits limits, CancellationToken ct)
     {
         var (source, data, sha) = ReadSource(path, limits);
@@ -193,14 +184,13 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         var container = walked.Container;
         if (container == "none" && Blob.Identify(data) == DotNet)
         {
-            // not a container: the file is the one managed assembly
             container = "none (plain .NET assembly)";
             assemblies = [new ManagedAssembly(Path.GetFileName(source), data, sha, "the file itself")];
             walked.Notes.RemoveAll(n => n.StartsWith("A plain .NET assembly", StringComparison.Ordinal));
         }
         else if (Blob.Identify(data) == DotNet)
         {
-            // a managed file that embeds others (Costura host, assembly with embedded images): its own code comes first
+            // A managed host's own code comes first.
             assemblies.Insert(0, new ManagedAssembly(Path.GetFileName(source), data, sha, HostOrigin));
         }
         else if (AppNextToApphost(source, container, limits) is { } app)
@@ -213,7 +203,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
 
     internal const string ApphostAppOrigin = "the application next to the apphost launcher";
 
-    /// <summary>For an apphost launcher without a bundle: the managed .dll of the same name next to it, if there is one.</summary>
+    /// <summary>For a non-bundled apphost, the managed .dll of the same name beside it.</summary>
     private static (string Path, byte[] Bytes)? AppNextToApphost(string source, string container, AnalysisLimits limits)
     {
         if (!container.StartsWith(".NET apphost", StringComparison.Ordinal)) return null;
@@ -234,7 +224,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             AssemblyTraits.IsReadyToRun(bytes), info?.Merged);
     }
 
-    /// <summary>Identity and merge note from the metadata; null when dnlib cannot read it.</summary>
+    /// <summary>Identity and merge note; null when the metadata is unreadable.</summary>
     private static (string Name, string? Version, string? Merged)? Inspect(byte[] bytes)
     {
         try
@@ -258,7 +248,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         return (source, data, Blob.Sha256(data));
     }
 
-    /// <summary>Opens the container and every container inside it, breadth first; duplicates (same hash) appear once.</summary>
+    /// <summary>Breadth-first walk of nested containers; duplicate content (same hash) appears once.</summary>
     private static Walked Walk(byte[] data, string sha, string name, AnalysisLimits limits, CancellationToken ct)
     {
         var notes = new List<string>();
@@ -274,7 +264,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             ct.ThrowIfCancellationRequested();
             var (item, prefix, depth) = queue.Dequeue();
             var itemSha = Blob.Sha256(item.Bytes);
-            if (!seen.Add(itemSha)) continue; // the same file in several places (e.g. per-ABI assembly stores)
+            if (!seen.Add(itemSha)) continue; // e.g. identical per-ABI assembly stores
             if (found.Count >= limits.MaxItems || (total += item.Bytes.Length) > limits.MaxTotalBytes)
             {
                 notes.Add("Stopped: the extraction limit was reached; some files were not extracted.");
@@ -282,10 +272,10 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
             }
 
             var kind = Blob.Identify(item.Bytes);
-            // joined as text, not Path.Combine: a rooted item name would otherwise drop the prefix
+            // String concatenation, not Path.Combine: a rooted item name would drop the prefix.
             var relative = Blob.SafeRelativePath(prefix + "/" + item.Name, $"item_{found.Count}");
             if (kind == DotNet && !relative.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) && !relative.EndsWith(".exe.bin", StringComparison.OrdinalIgnoreCase))
-                relative += ".dll"; // carved / renamed assemblies get an extension so they resolve and open like assemblies
+                relative += ".dll"; // so carved assemblies resolve by name
             found.Add(new Found(relative, item.Bytes, kind, itemSha, item.Origin));
 
             if (depth >= limits.MaxDepth || !MayContainMore(kind)) continue;
@@ -295,7 +285,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
                 if (inner.Kind == "none") continue;
                 notes.Add($"{item.Name}: {inner.Kind}.");
                 notes.AddRange(inner.Notes.Select(n => $"{item.Name}: {n}"));
-                var innerPrefix = prefix + "/" + item.Name + "_unpacked"; // next to the item, in its folder (sanitized when used)
+                var innerPrefix = prefix + "/" + item.Name + "_unpacked"; // sanitized when used
                 foreach (var i in inner.Items) queue.Enqueue((i, innerPrefix, depth + 1));
             }
             catch (ToolError ex)
@@ -329,7 +319,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     internal static string DefaultOutput(string source, string sha, string folder = "netdecomp-unpacked") =>
         Path.Combine(Path.GetTempPath(), folder, $"{Blob.SafeRelativePath(Path.GetFileNameWithoutExtension(source), "file")}-{sha[..12]}");
 
-    /// <summary>Creates the output directory, or reuses it if it is empty or an earlier unpack of the same file.</summary>
+    /// <summary>Creates the output directory, or reuses it if empty or marked as an earlier unpack of the same file.</summary>
     internal static string PrepareOutput(string directory, string source, string sha)
     {
         var root = Path.GetFullPath(directory);

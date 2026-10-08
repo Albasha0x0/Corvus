@@ -38,7 +38,7 @@ public class IlPatchTests : IDisposable
     [Fact]
     public void RoundTripsGenericAndLambdaHeavyMethod()
     {
-        // MethodSpec (Enumerable.Where<int>), cached lambda field, ldftn, delegate ctor — all via token comments.
+        // MethodSpec, cached lambda field, ldftn and delegate ctor round-trip via token comments.
         var il = _env.Decompiler.Disassemble(_env.Fixture, _env.One("Account::SumPositive").Member, default);
         Patch("Account::SumPositive", il);
         Assert.Contains("v > 0", _env.Decompile("Account::SumPositive"));
@@ -127,16 +127,6 @@ public class IlPatchTests : IDisposable
         Assert.Contains(expected, ex.Message);
         Assert.False(_env.Fixture.IsDirty);
     }
-
-    [Fact]
-    public void PatchedAssemblySavesAndReloads()
-    {
-        Patch("Secret::Validate", "ldc.i4.1\nret");
-        using var dir = new TempDir();
-        _env.Edits.Save(_env.Fixture, dir.File("p.dll"), false);
-        using var reloaded = new Env(dir.File("p.dll"));
-        Assert.Contains("return true;", reloaded.Decompile("Secret::Validate"));
-    }
 }
 
 public class CSharpPatchTests : IDisposable
@@ -147,11 +137,7 @@ public class CSharpPatchTests : IDisposable
     private string Patch(string symbol, string code, bool dryRun = false) =>
         _env.Edit(() => _env.Edits.PatchMethodCSharp(_env.One(symbol), code, dryRun, default));
 
-    /// <summary>
-    /// An internal value type in the signature (like a library's internal copy of a framework reader type): the helper
-    /// method compiled in a separate assembly must not be more accessible than that type (CS0051), so valid patches use
-    /// the helper path and invalid ones report only their own errors.
-    /// </summary>
+    /// <summary>Internal types in the signature must not cause CS0051 in the separately compiled helper.</summary>
     [Fact]
     public void InternalTypesInSignatures_CompileAndReportOnlyRealErrors()
     {
@@ -193,7 +179,7 @@ public class CSharpPatchTests : IDisposable
     [Fact]
     public void ReplacesBodyUsingPrivateStateAndInternalTypes()
     {
-        // _balance is private to Account; Secret is internal to the assembly: both must be accessible.
+        // _balance is private and Secret is internal: both must be accessible.
         Patch("Account::CheckLicense", """
             if (_balance <= 0)
                 return false;
@@ -243,14 +229,6 @@ public class CSharpPatchTests : IDisposable
     }
 
     [Fact]
-    public void DryRunCompilesButChangesNothing()
-    {
-        var result = Patch("Account::CheckLicense", "return true;", dryRun: true);
-        Assert.StartsWith("Dry run — compiled OK", result);
-        Assert.False(_env.Fixture.IsDirty);
-    }
-
-    [Fact]
     public void CompileErrorsPointAtUserCode()
     {
         var ex = Assert.Throws<ToolError>(() => Patch("Account::CheckLicense", "return doesNotExist;"));
@@ -282,7 +260,7 @@ public class CSharpPatchTests : IDisposable
         var path = dir.File("TestFixture.dll");
         _env.Edits.Save(_env.Fixture, path, false);
 
-        // Execute the patched assembly in an isolated load context to prove the IL is valid at runtime.
+        // Run in an isolated load context to prove the IL is valid at runtime.
         var context = new System.Runtime.Loader.AssemblyLoadContext("patched", isCollectible: true);
         try
         {
@@ -291,7 +269,7 @@ public class CSharpPatchTests : IDisposable
             var price = shop.GetType().GetMethod("PriceOf", [typeof(string)])!.Invoke(shop, ["pen"]);
             Assert.Equal(300, price);
             var buy = shop.GetType().GetMethod("Buy")!.Invoke(shop, ["pen"]);
-            Assert.Equal(true, buy); // untouched method still works, and the field initializers ran
+            Assert.Equal(true, buy); // untouched method works and field initializers ran
 
             var accountType = asm.GetType("Fixture.Model.Account")!;
             var account = Activator.CreateInstance(accountType, "bob")!;

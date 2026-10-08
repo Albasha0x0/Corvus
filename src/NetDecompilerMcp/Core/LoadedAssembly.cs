@@ -7,11 +7,9 @@ using ICSharpCode.Decompiler.Metadata;
 namespace NetDecompilerMcp.Core;
 
 /// <summary>
-/// One assembly in the workspace. Holds two views of the same image:
-/// a dnlib module (metadata browsing, analysis, editing) and an ICSharpCode PEFile
-/// (decompilation/disassembly). Both are built from an in-memory copy, so the file on
-/// disk is never locked. Metadata tokens are shared between the two views, and edits are
-/// written with PreserveAll so tokens stay stable after a rebuild of the decompiler view.
+/// A workspace assembly with two views of one in-memory image: a dnlib module (metadata, analysis, editing) and an
+/// ICSharpCode PEFile (decompilation). The file on disk is never locked. Edits are written with PreserveAll so
+/// metadata tokens stay identical across both views.
 /// </summary>
 public sealed class LoadedAssembly : IDisposable
 {
@@ -33,26 +31,26 @@ public sealed class LoadedAssembly : IDisposable
         Module = module;
     }
 
-    /// <summary>Short unique handle used in tool calls (usually the assembly simple name).</summary>
+    /// <summary>Unique handle used in tool calls; the simple name, suffixed #n on collision.</summary>
     public string Id { get; }
     public string FilePath { get; }
     public ModuleDefMD Module { get; private set; }
     public string AssemblyName => Module.Assembly?.Name ?? Path.GetFileNameWithoutExtension(FilePath);
     public string FullAssemblyName => Module.Assembly?.FullName ?? Module.Name;
 
-    /// <summary>In-memory edits not yet saved, in the order they were applied.</summary>
+    /// <summary>Unsaved in-memory edits in application order.</summary>
     public List<EditRecord> Edits { get; } = new();
     public bool IsDirty => Edits.Count > 0;
 
-    /// <summary>The bytes the assembly was loaded from (the state before any edit).</summary>
+    /// <summary>The image as loaded, before any edit.</summary>
     public byte[] OriginalBytes => _originalBytes;
 
     private Services.IlHealth.Result? _bodyHealth;
 
-    /// <summary>Which method bodies of the loaded file are not valid IL (encrypted / dumped images); computed once.</summary>
+    /// <summary>Method bodies of the original image that are not valid IL (encrypted or dumped images); computed once.</summary>
     public Services.IlHealth.Result BodyHealth => _bodyHealth ??= Services.IlHealth.Assess(_originalBytes);
 
-    /// <summary>Increments whenever the module is edited; invalidates the decompiler view.</summary>
+    /// <summary>Incremented on every module change; invalidates cached images and the decompiler view.</summary>
     public int Version { get; private set; }
 
     internal void RecordEdit(EditRecord edit)
@@ -61,15 +59,15 @@ public sealed class LoadedAssembly : IDisposable
         {
             Edits.Add(edit);
             Version++;
-            // Renames and added types change the name -> TypeDef map: rebuild dnlib's cache.
+            // Renames and added types change the name lookup; toggling rebuilds dnlib's cache.
             Module.EnableTypeDefFindCache = false;
             Module.EnableTypeDefFindCache = true;
         }
     }
 
     /// <summary>
-    /// Replaces the module with a fresh copy of the original image and clears the edit list. Returns the previous
-    /// state so a failed rebuild can be rolled back with <see cref="RestoreState"/>. Caller holds the write lock.
+    /// Reloads the original image and clears edits. Returns the previous state for <see cref="RestoreState"/>.
+    /// Caller must hold the workspace write lock.
     /// </summary>
     internal (ModuleDefMD Module, List<EditRecord> Edits) ResetToOriginal(ModuleContext context)
     {
@@ -100,8 +98,8 @@ public sealed class LoadedAssembly : IDisposable
     }
 
     /// <summary>
-    /// A read-only view of the image as loaded (before any edit), for diffs. Not part of the workspace; loaded on first use.
-    /// Tokens of members that existed originally are identical in both views.
+    /// Lazily loaded read-only view of the original image, used for diffs. Not part of the workspace; original
+    /// members have the same tokens in both views.
     /// </summary>
     internal LoadedAssembly GetOriginalView(ModuleContext context)
     {
@@ -118,7 +116,7 @@ public sealed class LoadedAssembly : IDisposable
         }
     }
 
-    /// <summary>The current image: the original file bytes, or the edited module serialized (cached per edit version).</summary>
+    /// <summary>The original bytes, or the edited module serialized and cached per <see cref="Version"/>.</summary>
     public byte[] GetImageBytes()
     {
         lock (_sync)
@@ -135,9 +133,8 @@ public sealed class LoadedAssembly : IDisposable
     }
 
     /// <summary>
-    /// The metadata token of a member in the current image. Members that existed when the assembly was loaded keep their
-    /// token; members added by edits have none in dnlib's in-memory model (rid 0) but get a row when the image is
-    /// written, so they are located there by name and signature.
+    /// Metadata token of a member in the current image. Members added by edits have rid 0 in dnlib's model, so they
+    /// are looked up by name and signature in the written image.
     /// </summary>
     public uint ImageToken(IMDTokenProvider member)
     {
@@ -173,7 +170,7 @@ public sealed class LoadedAssembly : IDisposable
         };
     }
 
-    /// <summary>The decompiler's view of <see cref="GetImageBytes"/>, rebuilt after edits.</summary>
+    /// <summary>Decompiler view of <see cref="GetImageBytes"/>, rebuilt after edits.</summary>
     public PEFile GetPEFile()
     {
         lock (_sync)
@@ -207,7 +204,7 @@ public sealed class LoadedAssembly : IDisposable
         }
         else
         {
-            // Mixed-mode image: keep native code/sections intact.
+            // Mixed-mode image: the native writer preserves native code and sections.
             var opts = new NativeModuleWriterOptions(Module, optimizeImageSize: false) { Logger = DummyLogger.NoThrowInstance };
             opts.MetadataOptions.Flags |= MetadataFlags.PreserveAll;
             Module.NativeWrite(output, opts);

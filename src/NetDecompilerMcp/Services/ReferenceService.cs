@@ -15,8 +15,6 @@ public sealed class ReferenceService(AssemblyWorkspace workspace)
 
     public sealed record Hierarchy(List<string> BaseChain, List<string> Interfaces, List<ResolvedSymbol> Derived, int DerivedTotal);
 
-    // ---------------------------------------------------------------- used by
-
     /// <param name="includeVirtualCalls">
     /// For methods: also report call sites that target a base or interface method this method overrides/implements
     /// (they dispatch here at runtime). Labelled "via Base::Method".
@@ -153,8 +151,6 @@ public sealed class ReferenceService(AssemblyWorkspace workspace)
         return result;
     }
 
-    // ---------------------------------------------------------------- uses
-
     public List<Callee> FindCallees(MethodDef method)
     {
         var body = SafeBody(method)
@@ -186,8 +182,6 @@ public sealed class ReferenceService(AssemblyWorkspace workspace)
         }
         return list;
     }
-
-    // ---------------------------------------------------------------- hierarchy / overrides
 
     public Hierarchy GetHierarchy(TypeDef type, int limit, CancellationToken ct)
     {

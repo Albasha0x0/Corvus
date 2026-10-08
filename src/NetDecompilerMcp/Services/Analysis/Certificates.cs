@@ -7,10 +7,8 @@ using System.Security.Cryptography.X509Certificates;
 namespace NetDecompilerMcp.Services.Analysis;
 
 /// <summary>
-/// An Authenticode signature: signer, issuer, thumbprint and validity of the signing certificate, the digest algorithm,
-/// whether the signed digest matches the file's digest (false when the file changed after signing), whether the
-/// signature over that digest verifies, and how the certificate chain builds on this machine. Present=false for an
-/// unsigned file; Problem is set when the signature could not be read.
+/// Authenticode signature details. DigestMatches is false when the file changed after signing; Problem is set when the
+/// signature could not be read.
 /// </summary>
 public sealed record CertificateInfo(
     bool Present,
@@ -27,8 +25,7 @@ public sealed record CertificateInfo(
     DateTime? Timestamp = null);
 
 /// <summary>
-/// Reads the Authenticode signature from a PE's security directory (one WIN_CERT_TYPE_PKCS_SIGNED_DATA entry) and checks
-/// it. Never throws on malformed input: damaged tables, PKCS#7 data and certificates are reported in Problem.
+/// Reads and verifies the Authenticode signature in a PE's security directory. Malformed input is reported in Problem.
 /// </summary>
 public static class Certificates
 {
@@ -39,7 +36,7 @@ public static class Certificates
     {
         var pe = PeImage.TryParse(file);
         if (pe == null) return new CertificateInfo(false, Problem: "not a PE file");
-        var (offset, size) = pe.Directory(file, SecurityDirectory); // a file offset, not an RVA
+        var (offset, size) = pe.Directory(file, SecurityDirectory); // file offset, not an RVA
         if (offset == 0 || size == 0) return new CertificateInfo(false);
         if (offset < 8 || (long)offset + size > file.Length || size < 8)
             return new CertificateInfo(true, Problem: "the certificate table lies outside the file (truncated or corrupt)");
@@ -52,7 +49,7 @@ public static class Certificates
         var cms = new SignedCms();
         try { cms.Decode(file.AsSpan((int)offset + 8, (int)length - 8)); }
         catch (CryptographicException ex) { return new CertificateInfo(true, Problem: $"signature unreadable: {ex.Message}"); }
-        // SignedCms parses the certificates lazily: a damaged one throws on first use, not in Decode
+        // SignedCms parses certificates lazily; damaged ones throw on first use.
         try { return Read(file, pe, offset, size, cms); }
         catch (Exception ex) when (ex is CryptographicException or AsnContentException)
         {
@@ -69,7 +66,7 @@ public static class Certificates
         var (algorithm, expected) = SignedDigest(cms.ContentInfo.Content);
         bool? matches = null;
         if (algorithm != null && expected != null && HashName(algorithm) is { } hash
-            && offset >= pe.DirectoryEntryOffset(SecurityDirectory) + 8) // a table inside the headers cannot be hashed around
+            && offset >= pe.DirectoryEntryOffset(SecurityDirectory) + 8) // a table inside the headers cannot be excluded from the hash
             matches = ImageDigest(file, pe, offset, size, hash).AsSpan().SequenceEqual(expected);
 
         bool? valid;
@@ -83,8 +80,7 @@ public static class Certificates
     }
 
     /// <summary>
-    /// The time a trusted timestamp authority vouches the file was signed: an RFC 3161 token (Microsoft's
-    /// 1.3.6.1.4.1.311.3.3.1 attribute) or a legacy countersignature's signing time. Null when not timestamped.
+    /// Timestamp from an RFC 3161 token (OID 1.3.6.1.4.1.311.3.3.1) or a legacy countersignature; null when absent.
     /// </summary>
     private static DateTime? SigningTime(SignerInfo signer)
     {
@@ -105,7 +101,7 @@ public static class Certificates
         return null;
     }
 
-    /// <summary>The digest algorithm OID and digest from SpcIndirectDataContent { data, DigestInfo { algorithm, digest } }.</summary>
+    /// <summary>Digest algorithm OID and digest from SpcIndirectDataContent { data, DigestInfo { algorithm, digest } }.</summary>
     private static (string? Algorithm, byte[]? Digest) SignedDigest(byte[] content)
     {
         try
@@ -114,7 +110,7 @@ public static class Certificates
             if (reader.PeekTag().HasSameClassAndValue(Asn1Tag.PrimitiveOctetString))
                 reader = new AsnReader(reader.ReadOctetString(), AsnEncodingRules.BER);
             var indirect = reader.ReadSequence();
-            indirect.ReadEncodedValue(); // SpcAttributeTypeAndOptionalValue (the PE image data link)
+            indirect.ReadEncodedValue(); // SpcAttributeTypeAndOptionalValue
             var digestInfo = indirect.ReadSequence();
             var algorithm = digestInfo.ReadSequence().ReadObjectIdentifier();
             return (algorithm, digestInfo.ReadOctetString());
@@ -136,8 +132,7 @@ public static class Certificates
     };
 
     /// <summary>
-    /// The Authenticode image digest: the whole file except the optional header's CheckSum, the security directory
-    /// entry, and the certificate table itself.
+    /// Authenticode image digest: the whole file except CheckSum, the security directory entry and the certificate table.
     /// </summary>
     internal static byte[] ImageDigest(byte[] file, PeImage pe, uint certOffset, uint certSize, HashAlgorithmName algorithm)
     {
@@ -153,8 +148,8 @@ public static class Certificates
     }
 
     /// <summary>
-    /// How the signer's chain builds here (revocation not checked: offline and deterministic). A timestamped signature is
-    /// checked at its signing time, as Windows does: a certificate that has expired since still validates it.
+    /// Builds the signer's chain without revocation checks. Timestamped signatures are verified at signing time, as
+    /// Windows does.
     /// </summary>
     private static string DescribeChain(X509Certificate2 cert, X509Certificate2Collection extra, DateTime? timestamp)
     {

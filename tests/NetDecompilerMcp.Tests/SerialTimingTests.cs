@@ -5,17 +5,14 @@ using NetDecompilerMcp.Services;
 
 namespace NetDecompilerMcp.Tests;
 
-/// <summary>Timing-sensitive real-game checks run alone (after the parallel tests), so CPU contention can't skew them.</summary>
+/// <summary>Timing-sensitive real-data tests run without parallelism so CPU contention cannot skew them.</summary>
 [CollectionDefinition(nameof(SerialTimingTests), DisableParallelization = true)]
 public class SerialTimingCollection;
 
 [Collection(nameof(SerialTimingTests))]
 public class SerialTimingTests
 {
-    /// <summary>
-    /// A real game's call graph is full of cycles: the path search must stay linear, not enumerate every path.
-    /// Searches paths to NDM_CALLPATH_TARGET, or to the first app method that has a path from an entry point.
-    /// </summary>
+    /// <summary>Path search stays fast on a cyclic real call graph (target: NDM_CALLPATH_TARGET or auto-picked).</summary>
     [RequiresRealDataFact(RealData.AssemblyDir)]
     public void PathSearchIsFastOnRealAssemblies()
     {
@@ -35,9 +32,9 @@ public class SerialTimingTests
         Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10), $"{sw.Elapsed}");
         Assert.All(paths, p => Assert.Equal(target, p.Last()));
         Assert.NotEmpty(paths);
-        foreach (var p in paths) // every step is a real call edge (direct or through a base/interface method)
+        foreach (var p in paths) // every step is a real call edge, direct or virtual
             for (int i = 0; i + 1 < p.Count; i++)
-                Assert.Contains(Format.MemberLabel(p[i]), // the label the tree prints (nested types as Outer/Inner)
+                Assert.Contains(Format.MemberLabel(p[i]),
                     ws.Read(() => graph.Tree(ws.Assemblies.First(), p[i + 1], true, 1, 5000, false, default)));
     }
 }

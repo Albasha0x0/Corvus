@@ -11,7 +11,7 @@ namespace NetDecompilerMcp.Tools;
 public sealed class SearchTools(AssemblyWorkspace workspace, SearchService search, OutputPager pager)
 {
     [McpServerTool(Name = "search_symbols", Title = "Search symbols by name", ReadOnly = true, OpenWorld = false)]
-    [Description("Find types and members by name across loaded assemblies. Query is a case-insensitive substring, a wildcard pattern (Get*Player?) or a regex (regex=true). " +
+    [Description("Find types and members by name across loaded assemblies. Query is a case-insensitive substring, a wildcard pattern (Get*Value?) or a regex (regex=true). " +
                  "Queries containing '.' or '::' also match full names. Exact matches are listed first.")]
     public Task<string> SearchSymbols(
         [Description("Name, substring, wildcard or regex.")] string query,

@@ -8,7 +8,7 @@ using NetDecompilerMcp.Core;
 
 namespace NetDecompilerMcp.Services;
 
-/// <summary>Compiling with Roslyn: options (accessibility checks off), references, error formatting.</summary>
+/// <summary>Roslyn compilation: options (accessibility checks off), references, error formatting.</summary>
 public sealed partial class CSharpPatcher
 {
     private static CSharpCompilationOptions CreateOptions()
@@ -19,8 +19,8 @@ public sealed partial class CSharpPatcher
             nullableContextOptions: NullableContextOptions.Disable,
             metadataImportOptions: MetadataImportOptions.All,
             checkOverflow: false);
-        // Roslyn's internal "ignore accessibility" binder flag (the same switch scripting/IDE tooling uses), so patched code
-        // can call private and internal members of the original assembly exactly like the original method could.
+        // Roslyn's internal IgnoreAccessibility binder flag (used by scripting/IDE tooling): patched code may access
+        // private and internal members of the original assembly.
         var flags = typeof(CSharpCompilationOptions).GetProperty("TopLevelBinderFlags", BindingFlags.Instance | BindingFlags.NonPublic);
         flags?.SetValue(options, Enum.ToObject(flags.PropertyType, 1u << 22));
         return options;
@@ -32,7 +32,7 @@ public sealed partial class CSharpPatcher
         missing = new List<string>();
         var references = new List<MetadataReference>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        // each module with the file it came from: its references are resolved from that folder first
+        // References of each module resolve from its own folder first.
         var queue = new Queue<(ModuleDef Module, bool Owned, string Path)>();
 
         void Enqueue(string name, byte[] image, ModuleDef module, bool owned, string path)
@@ -43,7 +43,7 @@ public sealed partial class CSharpPatcher
         }
 
         Enqueue(asm.AssemblyName, targetImage ?? asm.GetImageBytes(), asm.Module, owned: false, asm.FilePath);
-        bool netFramework = Frameworks.TargetsNetFramework(asm.Module); // the app's framework, for every reference in the closure
+        bool netFramework = Frameworks.TargetsNetFramework(asm.Module); // applies to the whole reference closure
         var targetFramework = Frameworks.TargetFrameworkOf(asm.Module);
         while (queue.Count > 0)
         {
@@ -61,7 +61,7 @@ public sealed partial class CSharpPatcher
                 if (target == null) { seen.Add(name); missing.Add(name); continue; }
                 try
                 {
-                    // an embedded (Costura) assembly resolves its own references from its host's folder
+                    // Embedded (Costura) assemblies resolve their references from the host's folder.
                     var bytes = target.Bytes ?? File.ReadAllBytes(target.File!);
                     Enqueue(name, bytes, ModuleDefMD.Load(bytes), owned: true, target.File ?? from);
                 }
@@ -104,7 +104,7 @@ public sealed partial class CSharpPatcher
             {
                 null => $"decompiled context line {line + 1}",
                 CompilationUnitSyntax => $"your code line {line + 1}",
-                BlockSyntax => $"your code line {line - start}", // the body was wrapped in a "{" line
+                BlockSyntax => $"your code line {line - start}", // body is wrapped in a "{" line
                 _ => $"line {line - start + 1} of your member {MemberName(user)}",
             };
             var text = d.Location.IsInSource ? lines[line].ToString().Trim() : "";

@@ -5,10 +5,7 @@ using Microsoft.CodeAnalysis.CSharp;
 
 namespace NetDecompilerMcp.Tests;
 
-/// <summary>
-/// An assembly whose dependency is not on the machine still decompiles fully (a stand-in rebuilt from how it uses the
-/// dependency) and exports to a project that builds; local functions the engine drops are recovered.
-/// </summary>
+/// <summary>A missing dependency is stubbed from its usage so decompilation and export still work.</summary>
 public class MissingReferenceTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -97,12 +94,12 @@ public class MissingReferenceTests : IDisposable
         Assert.Contains("Title = \"panel \" + p.Length;", code);
         Assert.Contains("OnChanged += ", code);
         Assert.Contains("protected override int Measure(int width)", code);
-        Assert.Contains("if (mode == (Mode)2)", code);  // an enum (its member names are compiled away: only the values are known)
+        Assert.Contains("if (mode == (Mode)2)", code);  // enum member names are not recoverable from usage
         Assert.Contains("OnChanged += (object s, int v) =>", code); // a delegate type: the lambda comes back
         Assert.DoesNotContain("__ldftn", code);
         Assert.Contains("catch (LibException ", code);
 
-        // the export references the stand-in and builds
+        // The export references the stub and builds.
         var out_ = _dir.File("export");
         var result = env.Decompiler.ExportProject(env.Fixture, out_, null, default);
         Assert.True(File.Exists(Path.Combine(out_, "lib", "Lib.dll")));

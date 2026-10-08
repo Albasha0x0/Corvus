@@ -38,9 +38,9 @@ public class MetadataFactsTests : IDisposable
         Assert.Contains("return 7;", env.Decompile("<Module>::Init"));
         Assert.IsAssignableFrom<TypeDef>(env.One("<Module>", SymbolKind.Type).Member);
         var info = env.Workspace.Read(() => env.Report.Build(env.Fixture));
-        Assert.Contains("Types: 1 (0 nested)", info);  // <Module> is not counted as a type (list_types does not list it)...
-        Assert.Contains("Methods: 2 ", info);          // ...but its functions are methods of the assembly
-        // generic arguments are still normalized
+        Assert.Contains("Types: 1 (0 nested)", info);  // <Module> is not counted as a type...
+        Assert.Contains("Methods: 2 ", info);          // ...but its functions are counted as methods
+        // Generic arity is still normalized.
         Assert.Equal("List`1", SymbolResolver.NormalizeTypeName("List<T>"));
         Assert.Equal("Ns.<>c", SymbolResolver.NormalizeTypeName("Ns.<>c"));
     }

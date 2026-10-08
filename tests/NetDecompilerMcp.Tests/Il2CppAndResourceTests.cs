@@ -36,15 +36,14 @@ public class Il2CppTests : IDisposable
     [Fact]
     public void AutoModeChecksAllFieldsAndRejectsBadInput()
     {
-        // 0x1000 is First's exact RVA and also 0xB00 past Second's file offset: only the exact reading is reported
+        // 0x1000 is First's RVA and also inside Second by file offset: the exact match wins.
         var exact = Assert.Single(_env.Il2Cpp.FindByAddress(0x1000, "auto", _env.Workspace.Assemblies));
         Assert.Equal(("First", "rva", "exact start"), (exact.Entry.Method.Name.String, exact.Field, exact.Relation));
-        // no exact start anywhere: the approximate readings stay
+        // No exact match: all approximate matches are kept.
         Assert.Equal(2, _env.Il2Cpp.FindByAddress(0x1050, "auto", _env.Workspace.Assemblies).Count);
-        // far past every known function: no "inside" guess
         Assert.Empty(_env.Il2Cpp.FindByAddress(0x1100 + Il2CppService.MaxFunctionSpan, "rva", _env.Workspace.Assemblies));
         Assert.Single(_env.Il2Cpp.FindByAddress(0x1100 + Il2CppService.MaxFunctionSpan - 1, "rva", _env.Workspace.Assemblies));
-        Assert.Empty(_env.Il2Cpp.FindByAddress(0x10, "rva", _env.Workspace.Assemblies)); // before every method
+        Assert.Empty(_env.Il2Cpp.FindByAddress(0x10, "rva", _env.Workspace.Assemblies)); // before the first method
         Assert.Throws<ToolError>(() => _env.Il2Cpp.FindByAddress(0x1000, "banana", _env.Workspace.Assemblies));
     }
 
@@ -70,7 +69,7 @@ public class Il2CppTests : IDisposable
     [Fact]
     public async Task Il2CppInfo_SkipsSameNamedTypesWithoutMetadata()
     {
-        // the game's managed build next to the dummy DLLs: both define Fixture.Native.NativeThing
+        // A managed assembly without Il2Cpp attributes defines the same type name.
         using var dir = new TempDir();
         var managed = dir.File("Managed.dll");
         File.WriteAllBytes(managed, ContainerFixtures.Module("Managed", m => m.Types.Add(new dnlib.DotNet.TypeDefUser("Fixture.Native", "NativeThing", m.CorLibTypes.Object.TypeDefOrRef))));
@@ -80,7 +79,7 @@ public class Il2CppTests : IDisposable
         Assert.Contains("1 match(es) in assemblies without Il2Cpp metadata skipped: Managed", text);
         Assert.Contains("RVA=0x1100", text);
         Assert.DoesNotContain("[Managed]", text);
-        // only the managed one in scope: shown as is (with the "no attributes" hint)
+        // Scoped to the managed assembly only: shown with a hint.
         Assert.Contains("No Il2Cpp attributes found", await tools.GetIl2CppInfo("Fixture.Native.NativeThing", "Managed"));
     }
 
@@ -131,7 +130,7 @@ public class ResourceTests : IDisposable
         var entries = _env.Resources.Get(_env.Fixture, Name(".resources"), null, null);
         Assert.Contains("Greeting", entries);
         Assert.Contains("Farewell", entries);
-        Assert.Equal("Welcome, adventurer!", _env.Resources.Get(_env.Fixture, Name(".resources"), "Greeting", null));
+        Assert.Equal("Welcome, user!", _env.Resources.Get(_env.Fixture, Name(".resources"), "Greeting", null));
         Assert.Contains("00000000", ResourceService.Render([0, 1, 2, 255, 0, 0, 0, 0], 64));
     }
 
@@ -142,7 +141,7 @@ public class ResourceTests : IDisposable
         _env.Resources.Get(_env.Fixture, Name("hello.txt"), null, dir.File("out/hello.txt"));
         Assert.StartsWith("Hello from", File.ReadAllText(dir.File("out/hello.txt")));
         _env.Resources.Get(_env.Fixture, Name(".resources"), "Greeting", dir.File("greeting.txt"));
-        Assert.Equal("Welcome, adventurer!", File.ReadAllText(dir.File("greeting.txt")));
+        Assert.Equal("Welcome, user!", File.ReadAllText(dir.File("greeting.txt")));
     }
 
     [Fact]

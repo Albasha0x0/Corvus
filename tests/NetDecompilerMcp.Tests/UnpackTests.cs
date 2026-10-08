@@ -10,10 +10,7 @@ using NetDecompilerMcp.Services.Analysis;
 
 namespace NetDecompilerMcp.Tests;
 
-/// <summary>
-/// Every container fixture is built at test time: hello-world single-file bundles from `dotnet publish`, NuGet packages
-/// from the local package cache, Costura hosts and assembly stores written with dnlib, and APK-style zips.
-/// </summary>
+/// <summary>Container fixtures built at test time: published bundles, cached NuGet packages, dnlib-written hosts and APKs.</summary>
 public sealed class ContainerFixtures : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -76,14 +73,12 @@ public sealed class ContainerFixtures : IDisposable
 
     public void Dispose() => _dir.Dispose();
 
-    // ------------------------------------------------------------------ builders
-
     /// <summary>A .nupkg from the global packages folder (restore guarantees the server's own dependencies are there).</summary>
     public static string NuGetPackage(string id)
     {
         var root = Environment.GetEnvironmentVariable("NUGET_PACKAGES")
                    ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
-        // the newest version: the cache can hold older ones too
+        // Newest version; the cache may hold several.
         var package = Directory.EnumerateDirectories(Path.Combine(root, id.ToLowerInvariant()))
             .OrderByDescending(d => Version.TryParse(Path.GetFileName(d).Split('-')[0], out var v) ? v : new Version())
             .SelectMany(d => Directory.EnumerateFiles(d, "*.nupkg"))
@@ -102,7 +97,7 @@ public sealed class ContainerFixtures : IDisposable
     /// <summary>A tiny .NET assembly with a Marker type; <paramref name="build"/> adds whatever else the test needs.</summary>
     public static byte[] Module(string name, Action<ModuleDefUser> build)
     {
-        // fixed MVID: the same name gives the same bytes on every run, so fuzzing failures reproduce
+        // MVID derived from the name: deterministic bytes keep fuzz failures reproducible.
         var mvid = new Guid(System.Security.Cryptography.MD5.HashData(Encoding.UTF8.GetBytes(name)));
         var module = new ModuleDefUser(name + ".dll", mvid) { Kind = ModuleKind.Dll };
         new AssemblyDefUser(name, new Version(1, 2, 3, 4)).Modules.Add(module);
@@ -159,10 +154,7 @@ public sealed class ContainerFixtures : IDisposable
 
     public sealed record BundleEntry(string Path, byte[]? Data, long Offset = 0, long Size = 0, long Compressed = 0, byte Type = 1);
 
-    /// <summary>
-    /// A real apphost bundle with extra payloads and a new v6 manifest appended, and the header-offset slot pointed at it.
-    /// Entries with <see cref="BundleEntry.Data"/> get their data appended; the others keep the offsets/sizes given (to corrupt them).
-    /// </summary>
+    /// <summary>Appends payloads and a v6 manifest to a real bundle; entries without Data keep the given (corrupt) offsets.</summary>
     public static byte[] WithManifest(byte[] bundle, IEnumerable<BundleEntry> entries, int? count = null)
     {
         var list = entries.ToList();
@@ -235,8 +227,6 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
 
     private static string Sha(string path) => Blob.Sha256(System.IO.File.ReadAllBytes(path));
 
-    // ------------------------------------------------------------------ single-file bundles
-
     [Fact]
     public void SingleFileBundle_ExtractsTheAppAndItsHostFiles()
     {
@@ -264,7 +254,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         var corelib = Entry(r, "System.Private.CoreLib.dll");
         Assert.Equal(".NET assembly", corelib.Kind);
         Assert.Contains("deflate", corelib.Origin);
-        // the whole runtime is extracted; the report lists 100 (the app first) and counts the rest
+        // The whole runtime is extracted; the report lists MaxListed, app first.
         Assert.True(Directory.EnumerateFiles(r.OutputDirectory, "*.dll", SearchOption.AllDirectories).Count() > 100);
         Assert.Equal(UnpackService.MaxListed, r.Files.Count);
         Assert.Equal("Hello.dll", Path.GetFileName(r.Files.First(f => f.Kind == ".NET assembly").Path));
@@ -284,8 +274,6 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         Assert.Contains("not empty", Assert.Throws<ToolError>(() => Unpack(other, output: output)).Message);
     }
 
-    // ------------------------------------------------------------------ NuGet
-
     [Theory]
     [InlineData("dnlib", "dnlib.dll")]
     [InlineData("K4os.Compression.LZ4", "K4os.Compression.LZ4.dll")]
@@ -299,7 +287,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         Assert.All(assemblies, f => Assert.Equal(".NET assembly", f.Kind));
         Assert.All(assemblies, f => Assert.NotNull(f.LoadedAs));
         Assert.All(assemblies, f => Assert.Contains($"{Path.DirectorySeparatorChar}lib{Path.DirectorySeparatorChar}", f.Path));
-        // the copy the test itself runs against came out of the same package
+        // The copy this test runs against came from the same package.
         var used = Path.Combine(AppContext.BaseDirectory, dll);
         Assert.Contains(assemblies, f => f.Sha256 == Sha(used));
     }
@@ -315,8 +303,6 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         Assert.Contains(r.Files, f => f.Path.Contains("k4os.nupkg_unpacked") && f.Path.EndsWith("K4os.Compression.LZ4.dll"));
     }
 
-    // ------------------------------------------------------------------ resource-embedded (Costura)
-
     [Fact]
     public void CosturaHost_ExtractsCompressedAndPlainEmbeddedAssemblies()
     {
@@ -331,7 +317,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
 
         Assert.Equal("Costura.Fody (embedded assemblies)", r.Container);
         Assert.Equal(3, r.Files.Count);
-        // the host itself first: the app's own code, loaded with the embedded assemblies (its path is the source file)
+        // The host comes first and is loaded from the source file.
         Assert.Equal((UnpackService.HostOrigin, "CosturaHost"), (r.Files[0].Origin, r.Files[0].LoadedAs));
         Assert.Equal(System.IO.Path.GetFileName(r.Source), System.IO.Path.GetFileName(r.Files[0].Path));
         var a = Entry(r, "testfixture.dll");
@@ -349,8 +335,6 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         Assert.Empty(r.Files);
         Assert.Contains(r.Notes, n => n.Contains("plain .NET assembly"));
     }
-
-    // ------------------------------------------------------------------ APK
 
     private static (byte[] Apk, byte[] StoreRaw, byte[] StoreXalz) BuildApk()
     {
@@ -398,8 +382,6 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         Assert.Equal("Xamarin XALZ", r.Container);
         Assert.Equal(Sha(Env.FixturePath), Assert.Single(r.Files).Sha256);
     }
-
-    // ------------------------------------------------------------------ robustness: corrupt headers
 
     [Fact]
     public void Bundle_HeaderOffsetOutsideTheFile()
@@ -469,7 +451,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         BinaryPrimitives.WriteUInt32LittleEndian(wrongSize.AsSpan(8), 123);
         Assert.Contains("corrupt XALZ", Assert.Throws<ToolError>(() => Unpack(Save("a.dll", wrongSize))).Message);
 
-        // a 400 MB claim from a 20-byte chunk is rejected before anything is allocated
+        // A 400 MB size claim in a 20-byte chunk is rejected before allocating.
         byte[] bomb = [.. "XALZ"u8, 0, 0, 0, 0, .. BitConverter.GetBytes(400u << 20), .. new byte[8]];
         Assert.Null(Blob.TryXalz(bomb, AnalysisLimits.Default.MaxItemBytes));
         Assert.Contains("corrupt XALZ", Assert.Throws<ToolError>(() => Unpack(Save("b.dll", bomb))).Message);
@@ -482,12 +464,12 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         int eocd = zip.AsSpan().LastIndexOf("PK\x05\x06"u8);
         var badDirectory = zip.ToArray();
         BinaryPrimitives.WriteUInt32LittleEndian(badDirectory.AsSpan(eocd + 16), uint.MaxValue - 100); // central directory offset
-        // the central directory lost: every entry is still read from its local header
+        // Without a central directory, entries are read from local headers.
         var recovered = Unpack(Save("a.nupkg", badDirectory));
         Assert.Contains(recovered.Notes, n => n.StartsWith("Damaged zip"));
         Assert.Contains(recovered.Files, f => f.Path.EndsWith("K4os.Compression.LZ4.dll"));
 
-        // a stored entry's data overwritten: the CRC check fails for that entry only
+        // Overwritten stored data fails the CRC for that entry only.
         var apk = ContainerFixtures.Zip(("a.dll", ContainerFixtures.Module("A")), ("b.dll", ContainerFixtures.Module("B")));
         int local = apk.AsSpan().IndexOf("PK\x03\x04"u8);
         int dataStart = local + 30 + BinaryPrimitives.ReadUInt16LittleEndian(apk.AsSpan(local + 26)) + BinaryPrimitives.ReadUInt16LittleEndian(apk.AsSpan(local + 28));
@@ -501,13 +483,11 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     {
         var host = ContainerFixtures.Module("Host", ("costura.broken.dll.compressed", [0xFF, 0xFF, 0xFF, 0xFF, 0x00]));
         var r = Unpack(Save("host.exe", host));
-        Assert.Equal(UnpackService.HostOrigin, Assert.Single(r.Files).Origin); // only the host: nothing could be extracted
+        Assert.Equal(UnpackService.HostOrigin, Assert.Single(r.Files).Origin); // only the host
         Assert.Contains(r.Notes, n => n.Contains("costura.broken.dll.compressed") && n.Contains("deflate"));
     }
 
-    // ------------------------------------------------------------------ robustness: truncation and fuzzing
-
-    /// <summary>Every fixture, cut short at many points and with random bytes flipped: only ToolError, nothing outside the output.</summary>
+    /// <summary>Fuzz iterations per fixture; override with NDM_FUZZ_CASES.</summary>
     private static readonly int FuzzCases = int.TryParse(Environment.GetEnvironmentVariable("NDM_FUZZ_CASES"), out var n) ? n : 40;
 
     [Fact]
@@ -540,7 +520,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
                 var mutated = bytes.ToArray();
                 for (int k = 0; k < 1 + i % 8; k++)
                 {
-                    // half the flips land in the first 4 KB, where the headers are
+                    // Half the mutations target the first 4 KB (headers).
                     int at = random.Next(2) == 0 ? random.Next(Math.Min(4096, mutated.Length)) : random.Next(mutated.Length);
                     mutated[at] = (byte)random.Next(256);
                 }
@@ -581,8 +561,6 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         Assert.True(failures.Count == 0, string.Join("\n", failures));
     }
 
-    // ------------------------------------------------------------------ robustness: path traversal
-
     private static readonly string[] HostileNames =
     [
         "../evil1.dll",
@@ -600,7 +578,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         "evil12.dll\0.txt",
     ];
 
-    /// <summary>Unpacks into sandbox/1/2/3/4/5/out so that any escape of up to five levels lands inside the sandbox and is caught.</summary>
+    /// <summary>Unpacks five levels deep in a sandbox so escapes of up to five levels are caught.</summary>
     private void AssertContained(byte[] container, string fileName, Action<UnpackService.UnpackReport>? check = null)
     {
         using var sandbox = new TempDir();
@@ -625,7 +603,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     public void ZipEntries_WithTraversalNames_StayInsideTheOutput() =>
         AssertContained(ContainerFixtures.Zip([.. HostileNames.Select((n, i) => (n, Payload(i)))]), "hostile.zip", r =>
         {
-            // archives only yield code entries: "evil12.dll\0.txt" is a .txt, the rest all come out
+            // Only code entries are extracted; "evil12.dll\0.txt" is a .txt.
             Assert.Equal(HostileNames.Length - 1, r.Files.Count);
             Assert.DoesNotContain(r.Files, f => f.Path.Contains("evil12"));
             Assert.Contains(r.Files, f => f.Path.EndsWith("evil9.exe.bin"));
@@ -650,7 +628,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         var outer = ContainerFixtures.Zip(("../../../../inner.nupkg", inner), ("/abs/inner2.zip", ContainerFixtures.Zip(("../../deep.dll", Payload(99)))));
         AssertContained(outer, "outer.zip", r =>
         {
-            // rooted names keep their nesting folder
+            // Rooted names keep their nesting folder.
             Assert.Contains(r.Files, f => f.Path.Contains("inner2.zip_unpacked") && f.Path.EndsWith("deep.dll"));
             Assert.Equal(2 + HostileNames.Length - 1 + 1, r.Files.Count);
         });

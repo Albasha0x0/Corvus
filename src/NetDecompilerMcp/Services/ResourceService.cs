@@ -72,7 +72,7 @@ public sealed class ResourceService
                 Save(savePath, bytes);
                 return $"Saved entry '{entry}' ({bytes.Length} bytes) to {Path.GetFullPath(savePath)}";
             }
-            // WPF windows and controls are compiled XAML (BAML): shown as XAML
+            // BAML (compiled WPF XAML) is shown decompiled to XAML.
             if (bytes != null && baml != null && entry.EndsWith(".baml", StringComparison.OrdinalIgnoreCase) && baml(bytes) is { } xaml)
                 return $"<!-- {entry}: XAML decompiled from BAML ({bytes.Length} bytes; savePath writes the raw BAML) -->{Environment.NewLine}{xaml}";
             return el.ResourceData is BuiltInResourceData { Data: string s }

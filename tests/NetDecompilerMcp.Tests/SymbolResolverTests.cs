@@ -82,9 +82,9 @@ public class SymbolResolverTests : IDisposable
     [Fact]
     public void NotFoundGivesSuggestions()
     {
-        var member = Assert.Throws<ToolError>(() => _env.One("Account::TakeDmg"));
+        var member = Assert.Throws<ToolError>(() => _env.One("Account::Chrge"));
         Assert.Contains("Charge", member.Message);
-        var type = Assert.Throws<ToolError>(() => _env.One("Fixture.Model.Playr"));
+        var type = Assert.Throws<ToolError>(() => _env.One("Fixture.Model.Acount"));
         Assert.Contains("not found", type.Message);
         Assert.Throws<ToolError>(() => _env.One(""));
         Assert.Throws<ToolError>(() => _env.One("Account::"));

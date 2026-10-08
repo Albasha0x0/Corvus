@@ -2,10 +2,7 @@ using NetDecompilerMcp.Tools;
 
 namespace NetDecompilerMcp.Tests;
 
-/// <summary>
-/// Tools that look for users of a symbol accept framework / dependency types and members the loaded code only
-/// references (System.IDisposable, Process.Start), matched by name across the files they come from.
-/// </summary>
+/// <summary>Usage-search tools accept framework types and members that are only referenced, not loaded.</summary>
 public class FrameworkSymbolTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -51,7 +48,7 @@ public class FrameworkSymbolTests : IDisposable
         var overrides = await refs.FindOverrides("System.IDisposable::Dispose");
         Assert.Contains("Resource::Dispose()", overrides);
         Assert.Contains("Explicit::System.IDisposable.Dispose()", overrides);
-        Assert.Contains("(reference)", overrides); // says where the base method comes from
+        Assert.Contains("(reference)", overrides); // origin of the base method
 
         var callers = await refs.FindReferences("System.Diagnostics.Process::Start(string)");
         Assert.Contains("Launcher::Open(string)", callers);
@@ -63,7 +60,7 @@ public class FrameworkSymbolTests : IDisposable
         Assert.Contains("Launcher::Run()", paths);
         Assert.Contains("Launcher::Open(string)", paths);
 
-        // loaded types still win, and unknown names still fail clearly
+        // Unknown names still fail.
         Assert.Contains("not found", (await Assert.ThrowsAsync<NetDecompilerMcp.Core.ToolError>(() => refs.FindOverrides("System.NoSuchType::Dispose"))).Message);
     }
 

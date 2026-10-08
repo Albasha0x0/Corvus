@@ -6,18 +6,14 @@ using NetDecompilerMcp.Services;
 namespace NetDecompilerMcp.Core;
 
 /// <summary>
-/// A stand-in for a referenced assembly that is not on this machine, rebuilt from how the loaded assemblies use it:
-/// every type they reference (with its kind: value types from value-type signatures, box / initobj; interfaces from
-/// interface lists; delegates by their Invoke / ctor shape; exceptions from catch clauses; attributes from attribute
-/// use; enums are value types with no members used), every member they reference with its exact signature (fields
-/// static from ldsfld / stsfld, get_X / set_X pairs as properties, add_X / remove_X as events), and the virtual methods
-/// the loaded code overrides. Bodies throw. The decompiler then reads the loaded code against real types (no "unknown
-/// result type" guesses, properties instead of accessor calls, overrides it can prove), and an exported project can
-/// reference it and build. It is never presented as the real assembly.
+/// Synthesizes a stub for a missing referenced assembly from its usage in loaded assemblies: referenced types (kind
+/// inferred from signatures, IL, interface lists, catch clauses and attribute use), referenced members with exact
+/// signatures, accessor pairs as properties/events, and overridden virtuals. Bodies throw. Gives the decompiler real
+/// types to resolve against and lets exported projects build; never presented as the real assembly.
 /// </summary>
 internal static class ReferenceStubs
 {
-    /// <summary>Assemblies a stub must never stand in for: the core library and the framework.</summary>
+    /// <summary>False for core library and framework assemblies, which are never stubbed.</summary>
     public static bool CanStub(string name) =>
         name is not ("mscorlib" or "netstandard" or "System.Runtime" or "System.Private.CoreLib")
         && Frameworks.SharedFrameworkOf(name) == null && !Frameworks.IsNetFrameworkAssembly(name)
@@ -28,7 +24,7 @@ internal static class ReferenceStubs
         public required string Name;
         public required CallingConventionSig Sig;
         public bool Field, Virtual;
-        /// <summary>Accessibility: public unless the loaded code overrides it as protected.</summary>
+        /// <summary>Public unless loaded code overrides it as protected.</summary>
         public MethodAttributes Access = MethodAttributes.Public;
     }
 
@@ -38,7 +34,7 @@ internal static class ReferenceStubs
         public StubType? Declaring;
         public int Arity;
         public bool Value, Interface, Exception, Attribute, BaseOfLoaded, MembersUsed, DefaultConstructor;
-        /// <summary>Interfaces and a base class generic constraints require of it (types of other assemblies).</summary>
+        /// <summary>Interfaces and base class required by generic constraints it is used against.</summary>
         public readonly List<ITypeDefOrRef> Implements = new();
         public ITypeDefOrRef? RequiredBase;
         public readonly Dictionary<string, Member> Members = new(StringComparer.Ordinal);
@@ -46,11 +42,11 @@ internal static class ReferenceStubs
         public string FullName => Declaring != null ? Declaring.FullName + "/" + Name : (Namespace.Length > 0 ? Namespace + "." : "") + Name;
     }
 
-    /// <summary>The stub image for <paramref name="assemblyName"/>, or null when nothing loaded references it (or it cannot be built).</summary>
+    /// <summary>Null when nothing loaded references <paramref name="assemblyName"/> or the stub cannot be built.</summary>
     public static (byte[] Image, int Types, int Members)? Build(string assemblyName, Version? version, IReadOnlyList<LoadedAssembly> loaded, CancellationToken ct = default)
     {
         var types = new Dictionary<string, StubType>(StringComparer.Ordinal);
-        var fieldStatic = new HashSet<string>(StringComparer.Ordinal); // "Type::field" accessed with ldsfld / stsfld
+        var fieldStatic = new HashSet<string>(StringComparer.Ordinal); // "Type::field" accessed via ldsfld/stsfld/ldsflda
         ModuleDef? corlibSource = null;
 
         bool IsMissing(ITypeDefOrRef? t) => t is TypeRef tr && string.Equals(tr.DefinitionAssembly?.Name, assemblyName, StringComparison.OrdinalIgnoreCase);
@@ -120,7 +116,7 @@ internal static class ReferenceStubs
             if (s.ParamsAfterSentinel != null) foreach (var p in s.ParamsAfterSentinel) Visit(p);
         }
 
-        // a missing type used as a generic argument must meet the parameter's constraints
+        // A missing type used as a generic argument must satisfy the parameter's constraints.
         void Constrain(IList<GenericParam> parameters, IList<TypeSig> arguments)
         {
             for (int i = 0; i < parameters.Count && i < arguments.Count; i++)
@@ -204,7 +200,7 @@ internal static class ReferenceStubs
                 if (Of(t.BaseType) is { } baseInfo)
                 {
                     baseInfo.BaseOfLoaded = true;
-                    // the virtual methods this type overrides exist in its missing base
+                    // Overridden virtuals must exist on the missing base.
                     if (t.BaseType is TypeRef)
                         foreach (var md in t.Methods.Where(x => x.IsVirtual && !x.IsNewSlot && !x.IsStatic))
                             if (md.MethodSig != null)
@@ -212,7 +208,7 @@ internal static class ReferenceStubs
                                 AddMember(baseInfo, md.Name, md.MethodSig, field: false);
                                 var overridden = baseInfo.Members[$"M:{md.Name}:{md.MethodSig}"];
                                 overridden.Virtual = true;
-                                // an override keeps the accessibility it overrides (protected internal is seen as protected)
+                                // Overrides keep the base accessibility; cross-assembly protected internal appears as protected.
                                 if (md.Access is MethodAttributes.Family or MethodAttributes.FamORAssem) overridden.Access = MethodAttributes.Family;
                             }
                 }
@@ -244,7 +240,7 @@ internal static class ReferenceStubs
                         for (int k = 0; k < il.Count; k++)
                         {
                             var instr = il[k];
-                            // new D(target, &method): the delegate's Invoke has the method's parameters and return
+                            // ldftn + newobj D(object, native int): Invoke takes the target method's signature.
                             if (instr.OpCode.Code == Code.Newobj && instr.Operand is MemberRef { Name.String: ".ctor", Class: ITypeDefOrRef dt } ctor
                                 && Of(dt) is { } delegateType && ctor.MethodSig is { Params.Count: 2 } cs && cs.Params[1].ElementType == ElementType.I
                                 && k > 0 && il[k - 1].OpCode.Code is Code.Ldftn or Code.Ldvirtftn && il[k - 1].Operand is IMethod { MethodSig: { } target }
@@ -269,7 +265,7 @@ internal static class ReferenceStubs
                             }
                         }
                     }
-                    catch (Exception) { /* an unreadable body adds nothing */ }
+                    catch (Exception) { }
                 }
             }
         }
@@ -285,8 +281,7 @@ internal static class ReferenceStubs
     private static byte[] Write(string assemblyName, Version? version, Dictionary<string, StubType> types, HashSet<string> fieldStatic,
         ModuleDef corlibSource, out int memberCount)
     {
-        // the core library a project compiles against: System.Runtime (.NET), netstandard, or mscorlib; never the
-        // runtime's implementation (System.Private.CoreLib), which projects do not reference
+        // Reference a compile-time core library, never System.Private.CoreLib, which projects cannot reference.
         var corlib = corlibSource.GetAssemblyRefs().FirstOrDefault(a => a.Name == "System.Runtime")
                      ?? corlibSource.GetAssemblyRefs().FirstOrDefault(a => a.Name == "netstandard")
                      ?? corlibSource.GetAssemblyRefs().FirstOrDefault(a => a.Name == "mscorlib")
@@ -304,14 +299,13 @@ internal static class ReferenceStubs
         var importer = new Importer(module, ImporterOptions.TryToUseDefs);
         ITypeDefOrRef CorLib(string ns, string name) => new TypeRefUser(module, ns, name, module.CorLibTypes.AssemblyRef);
 
-        // kinds
-        // a delegate: constructed from (object, native int), the shape only delegates have
+        // Only delegates have a .ctor(object, native int).
         bool IsDelegate(StubType t) => !t.Value && !t.Interface
                                        && t.Members.Values.Any(m => m.Name == ".ctor" && m.Sig is MethodSig { Params.Count: 2 } s
                                                                     && s.Params[0].ElementType == ElementType.Object && s.Params[1].ElementType == ElementType.I);
         bool IsEnum(StubType t) => t.Value && !t.MembersUsed && t.Arity == 0;
 
-        // the types, outer before nested
+        // Outer types before nested ones.
         foreach (var t in types.Values.OrderBy(t => Depth(t)))
         {
             ITypeDefOrRef? baseType = t.Interface ? null
@@ -362,7 +356,7 @@ internal static class ReferenceStubs
             {
                 ITypeDefOrRef imported = iface is TypeRef itr && types.TryGetValue(itr.FullName, out var local) && local.Def != null ? local.Def : importer.Import(iface);
                 def.Interfaces.Add(new InterfaceImplUser(imported));
-                // what the interface declares, so the stub implements it (non-generic interfaces of other assemblies)
+                // Add the resolvable non-generic interface's abstract methods so the stub implements it.
                 if (Services.MetadataUtil.Try(() => iface.ResolveTypeDef()) is { HasGenericParameters: false } declared)
                     foreach (var im in declared.Methods.Where(x => !x.IsStatic && x.IsAbstract && x.MethodSig != null))
                         t.Members.TryAdd($"M:{im.Name}:{im.MethodSig}", new Member { Name = im.Name, Sig = im.MethodSig, Virtual = true });
@@ -412,7 +406,7 @@ internal static class ReferenceStubs
                 memberCount++;
             }
 
-            // get_X / set_X pairs are properties, add_X / remove_X events (the decompiler then writes x.X, x.X += h)
+            // Group accessors into properties and events so the decompiler emits x.X and x.X += h.
             foreach (var group in def.Methods.Where(x => x.Name.StartsWith("get_", StringComparison.Ordinal) || x.Name.StartsWith("set_", StringComparison.Ordinal))
                          .GroupBy(x => x.Name.String[4..]).ToList())
             {
@@ -433,7 +427,7 @@ internal static class ReferenceStubs
             {
                 var add = group.FirstOrDefault(x => x.Name.StartsWith("add_", StringComparison.Ordinal));
                 var remove = group.FirstOrDefault(x => x.Name.StartsWith("remove_", StringComparison.Ordinal));
-                // code that only subscribes uses add_ alone; an event has both
+                // An event needs both accessors; synthesize the one the loaded code never calls.
                 add ??= Counterpart(def, remove!, "add_" + group.Key);
                 remove ??= Counterpart(def, add, "remove_" + group.Key);
                 if (add.MethodSig.Params[0].ToTypeDefOrRef() is not { } handler) continue;
@@ -446,7 +440,7 @@ internal static class ReferenceStubs
         return stream.ToArray();
     }
 
-    /// <summary>A method like <paramref name="like"/> under another name (an event's missing accessor).</summary>
+    /// <summary>Clones <paramref name="like"/> under another name; used for a missing event accessor.</summary>
     private static MethodDefUser Counterpart(TypeDef type, MethodDef like, string name)
     {
         var method = new MethodDefUser(name, like.MethodSig.Clone(), like.ImplAttributes, like.Attributes);

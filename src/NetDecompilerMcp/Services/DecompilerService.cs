@@ -15,7 +15,7 @@ namespace NetDecompilerMcp.Services;
 /// <summary>C# decompilation and IL disassembly via the ILSpy engine (ICSharpCode.Decompiler).</summary>
 public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions options)
 {
-    // Weak keys: entries disappear with their assembly (unloaded assemblies, original views used for diffs).
+    // Weak keys: entries are collected with their assembly.
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<LoadedAssembly, TypeSystemEntry> _typeSystems = new();
 
     private sealed record TypeSystemEntry(long Key, DecompilerTypeSystem TypeSystem);
@@ -30,8 +30,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
 
     private DecompilerTypeSystem GetTypeSystem(LoadedAssembly asm)
     {
-        // Keyed by workspace generation (other assemblies changed) and by the assembly's own edit version: several edits
-        // can happen inside one write lock (undo replays), and each must see the module as it is now.
+        // Keyed by workspace generation and the assembly's edit version; several edits can occur under one write lock.
         long key = ((long)workspace.Generation << 32) | (uint)asm.Version;
         if (_typeSystems.TryGetValue(asm, out var entry) && entry.Key == key)
             return entry.TypeSystem;
@@ -47,15 +46,14 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         return decompiler;
     }
 
-    /// <summary>Decompiles a whole type. If the engine fails on the type, falls back to member-by-member output so one bad method does not hide the rest.</summary>
+    /// <summary>Decompiles a whole type, falling back to member-by-member output if the engine fails on the type.</summary>
     public string DecompileType(LoadedAssembly asm, Dn.TypeDef type, CancellationToken ct) => InvalidBodiesNote(asm, type) + WithTimeout(token =>
     {
         var decompiler = CreateDecompiler(asm, token);
         try
         {
-            // Top-level types go through the full-type-name API, which emits the namespace declaration and usings
-            // (decompiling by handle omits the namespace). Nested types are decompiled on their own by handle.
-            // Compiler-generated types (e.g. <PrivateImplementationDetails>) come back empty from the name API, so fall back to the handle.
+            // The name API emits the namespace and usings; decompiling by handle does not. Nested and
+            // compiler-generated types (empty from the name API) use the handle.
             if (type.DeclaringType == null)
             {
                 var withNamespace = decompiler.DecompileTypeAsString(new FullTypeName(type.ReflectionFullName));
@@ -81,7 +79,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         }
     }, ct);
 
-    /// <summary>A leading comment when some of the type's method bodies are not valid IL (empty otherwise).</summary>
+    /// <summary>A warning line when some of the type's method bodies are not valid IL; empty otherwise.</summary>
     private static string InvalidBodiesNote(LoadedAssembly asm, Dn.TypeDef type)
     {
         if (asm.IsDirty || asm.BodyHealth.Invalid == 0) return "";
@@ -90,7 +88,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         return invalid == 0 ? "" : $"// Warning: {invalid} of {methods.Count} method bodies of this type are not valid IL (encrypted, or dumped from memory before decryption): their code below is meaningless.\n";
     }
 
-    /// <summary>Decompiles members (all overloads that matched). Failures fall back to IL for that member.</summary>
+    /// <summary>Decompiles each member, falling back to IL for any member that fails.</summary>
     public string DecompileMembers(LoadedAssembly asm, IEnumerable<Dn.IMemberDef> members, CancellationToken ct) => WithTimeout(token =>
     {
         var decompiler = CreateDecompiler(asm, token);
@@ -99,11 +97,9 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     }, ct);
 
     /// <summary>
-    /// A constructor whose work the engine shows elsewhere: assignments made before the base constructor become field
-    /// and property initializers, or a primary constructor (<c>class Safe(int x) : Plain { int f = x; }</c>), which the
-    /// constructor alone does not show. Such a constructor is shown inside its type, trimmed to what runs as part of
-    /// it: the type's header, the initializers of its kind (instance or static), and its constructors. Null when there
-    /// is nothing of that kind.
+    /// Shows a constructor within its type, trimmed to the header, the field/property initializers of the same kind
+    /// (instance or static) and the constructors, since the engine moves part of its body into initializers or a
+    /// primary constructor. Null when there are none.
     /// </summary>
     private static string? ConstructorInContext(LoadedAssembly asm, Dn.MethodDef ctor, CSharpDecompiler decompiler)
     {
@@ -157,7 +153,6 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         }
     }
 
-    /// <summary>Assembly-level attributes and module info as C#.</summary>
     public string DecompileAssemblyAttributes(LoadedAssembly asm, CancellationToken ct) => WithTimeout(token =>
         CreateDecompiler(asm, token).DecompileModuleAndAssemblyAttributesToString(), ct);
 
@@ -186,7 +181,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         return output.ToString();
     }
 
-    /// <summary>XAML decompiled from a BAML resource entry (a WPF window / control), or null when it cannot be.</summary>
+    /// <summary>XAML from a BAML resource, or null on failure.</summary>
     public string? DecompileBaml(LoadedAssembly asm, byte[] baml, CancellationToken ct)
     {
         try
@@ -204,15 +199,13 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     public sealed record ExportResult(string Directory, int FileCount, string? ProjectFile, IReadOnlyList<string> FailedTypes);
 
     /// <summary>
-    /// Tells the project writer which references are part of the target framework: shared-framework assemblies of a
-    /// .NET (Core) app come from its runtime pack, .NET Framework assemblies are referenced by name (GAC). Only the
-    /// app's own libraries get a HintPath.
+    /// Classifies references for the project writer: .NET shared-framework assemblies map to a runtime pack, .NET
+    /// Framework assemblies are referenced by name, and everything else gets a HintPath.
     /// </summary>
     private sealed class FrameworkClassifier(bool netFramework, int? targetMajor, IReadOnlyList<string>? netFrameworkReferences)
         : ICSharpCode.Decompiler.Metadata.AssemblyReferenceClassifier
     {
-        // implicit for the build only when the target's reference assemblies have it (System.Runtime.WindowsRuntime
-        // is installed with .NET Framework but is not one of them: it gets a path)
+        // Only assemblies present in the target's reference assemblies; e.g. System.Runtime.WindowsRuntime is in the GAC but not there.
         public override bool IsGacAssembly(ICSharpCode.Decompiler.Metadata.IAssemblyReference reference) =>
             netFramework && (reference.Name is "mscorlib" or "netstandard"
                              || (netFrameworkReferences != null
@@ -222,17 +215,16 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         public override bool IsSharedAssembly(ICSharpCode.Decompiler.Metadata.IAssemblyReference reference,
             [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? runtimePack)
         {
-            // part of the framework the project targets (not merely of the newest one installed)
+            // Checked against the targeted framework version, not the newest installed.
             runtimePack = netFramework ? null : Frameworks.SharedFrameworkOf(reference.Name, targetMajor)
                 ?? (reference.Name is "netstandard" or "mscorlib" ? "Microsoft.NETCore.App" : null);
-            // ASP.NET Core is not part of a plain project: a library using one of its assemblies (System.IO.Pipelines)
-            // references the file instead
+            // A plain SDK project lacks the ASP.NET Core framework; reference those files directly.
             if (runtimePack == "Microsoft.AspNetCore.App") runtimePack = null;
             return runtimePack != null;
         }
     }
 
-    /// <summary>Writes a C# project (one file per type, .csproj, resources) to an empty directory.</summary>
+    /// <summary>Writes a buildable C# project (one file per type, .csproj, resources) to an empty directory.</summary>
     public ExportResult ExportProject(LoadedAssembly asm, string outputDirectory, Action<int, int, string>? onProgress, CancellationToken ct)
     {
         var dir = Path.GetFullPath(outputDirectory);
@@ -240,11 +232,10 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         if (Directory.EnumerateFileSystemEntries(dir).Any())
             throw new ToolError($"Output directory is not empty: {dir}. Choose an empty or new directory.");
 
-        // Whole-project export is long-running by nature: it gets 10x the normal timeout.
+        // Project export gets 10x the normal timeout.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(options.TimeoutSeconds * 10L));
-        // a project is for building: LINQ comes out as method calls, which the engine gets right where its query
-        // syntax rebuild leaks compiler names (<>h__TransparentIdentifier0)
+        // Method-call LINQ: query syntax reconstruction can leak compiler names (<>h__TransparentIdentifier0).
         var exportSettings = CreateSettings();
         exportSettings.QueryExpressions = false;
         var exporter = new ProjectExporter(Frameworks.TargetFrameworkOf(asm.Module), exportSettings, workspace.CreateDecompilerResolver(asm), null,
@@ -270,9 +261,9 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     }
 
     /// <summary>
-    /// Assemblies packed inside the exported one (Costura) have no file to reference: they are written to the
-    /// project's lib folder, the references the engine wrote ("Host!Name.dll") point there, and the other packed
-    /// assemblies are referenced too (the compiler needs a dependency's own dependencies).
+    /// Writes embedded (e.g. Costura-packed) assemblies and stubs for unresolved references to <c>lib\</c>, points
+    /// the engine's <c>Host!Name.dll</c> hint paths there, and references the remaining packed assemblies, which
+    /// the compiler needs as transitive dependencies.
     /// </summary>
     private void IncludeEmbeddedReferences(LoadedAssembly asm, string dir)
     {
@@ -287,7 +278,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
                 .ToDictionary(g => g.Key, g => g.First().Bytes, StringComparer.OrdinalIgnoreCase);
         }
         catch (Exception) { /* not a container */ }
-        // references found nowhere: the stand-ins built from what this code uses, so the project still builds
+        // Unresolved references: use generated stubs so the project still builds.
         var stubs = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         bool netFramework = Frameworks.TargetsNetFramework(asm.Module);
         foreach (var r in asm.Module.GetAssemblyRefs())
@@ -305,7 +296,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
             text = text.Replace("</Project>", "  <!-- " + string.Join(", ", stubs.Keys.Order(StringComparer.OrdinalIgnoreCase)) +
                                               (stubs.Count == 1 ? " was" : " were") + " not found on the machine that exported this project: lib\\ holds stand-ins " +
                                               "built from what this code uses (their methods throw). Replace them with the real files to run it. -->\n</Project>");
-        // the engine's placeholder paths for embedded references
+        // Rewrite the engine's placeholder paths for embedded references.
         text = System.Text.RegularExpressions.Regex.Replace(text, @"<HintPath>[^<]*!([^<!]+\.dll)</HintPath>",
             m => $"<HintPath>lib\\{m.Groups[1].Value}</HintPath>");
         var referenced = System.Text.RegularExpressions.Regex.Matches(text, "<Reference Include=\"([^\"]+)\"")
@@ -319,10 +310,8 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     }
 
     /// <summary>
-    /// Windows Runtime API contracts referenced one by one (Windows.Foundation.FoundationContract.winmd...) do not mix
-    /// with System.Runtime.WindowsRuntime, whose await support is written against the union "Windows" metadata
-    /// (CS0012). The contracts from the Windows SDK are replaced by that one union reference, which holds every type
-    /// they do.
+    /// Replaces individual Windows SDK contract .winmd references with the union <c>Windows</c> metadata, which
+    /// System.Runtime.WindowsRuntime is compiled against (CS0012).
     /// </summary>
     private static void UseUnionWindowsMetadata(string dir)
     {
@@ -339,10 +328,8 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     }
 
     /// <summary>
-    /// What the original build settings decided and the project would otherwise lose: the class whose method the header
-    /// names as the entry point (StartupObject: a WPF app has its generated Main and often another one), and the public
-    /// key (public signing with the original key, no private key needed), so friend assemblies that grant internals
-    /// to it by key still do (CS0281) and the rebuilt assembly keeps its identity.
+    /// Preserves the original entry point class (StartupObject; WPF apps can have several Mains) and public key
+    /// (public signing), so InternalsVisibleTo grants by key still apply (CS0281) and the identity is kept.
     /// </summary>
     private static void KeepIdentity(LoadedAssembly asm, string dir)
     {
@@ -369,8 +356,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     private const string FailedBodyMarker = "// ILSpy could not decompile this";
 
     /// <summary>
-    /// A method the engine could not decompile is written as a body holding only its explanation comment, so the project
-    /// does not build (CS0161 and others). Such bodies throw, saying so; the comment stays.
+    /// Adds a <c>throw</c> to method bodies the engine left as a comment only (CS0161).
     /// </summary>
     private static void ThrowInFailedBodies(string dir)
     {
@@ -384,7 +370,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
                 if (!lines[i].TrimStart().StartsWith(FailedBodyMarker, StringComparison.Ordinal)) continue;
                 int end = i;
                 while (end + 1 < lines.Count && lines[end + 1].TrimStart().StartsWith("//", StringComparison.Ordinal)) end++;
-                // the comment fills the whole body: the line before opens it, the line after closes it
+                // Only when the comment is the entire body.
                 if (i == 0 || lines[i - 1].Trim() != "{" || end + 1 >= lines.Count || lines[end + 1].Trim() != "}") continue;
                 var indent = lines[i][..(lines[i].Length - lines[i].TrimStart().Length)];
                 lines.Insert(end + 1, indent + "throw new global::System.NotSupportedException(\"The decompiler could not decompile this method; see the comment above.\");"
@@ -395,7 +381,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         }
     }
 
-    /// <summary>Project export with the same output cleanup as single members.</summary>
+    /// <summary>Project exporter that applies <see cref="AstCleanup"/>.</summary>
     private sealed class ProjectExporter(string? targetFramework, DecompilerSettings settings, ICSharpCode.Decompiler.Metadata.IAssemblyResolver resolver,
         ICSharpCode.Decompiler.CSharp.ProjectDecompiler.IProjectFileWriter? projectWriter,
         ICSharpCode.Decompiler.Metadata.AssemblyReferenceClassifier? classifier, ICSharpCode.Decompiler.DebugInfo.IDebugInfoProvider? debugInfo)
@@ -409,7 +395,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         }
     }
 
-    /// <summary>The decompiler handle of a member in the assembly's current image (added members included).</summary>
+    /// <summary>The member's handle in the assembly's current image, including added members.</summary>
     internal static EntityHandle Handle(LoadedAssembly asm, Dn.IMDTokenProvider member) => MetadataTokens.EntityHandle((int)asm.ImageToken(member));
 
     private string WithTimeout(Func<CancellationToken, string> action, CancellationToken ct)

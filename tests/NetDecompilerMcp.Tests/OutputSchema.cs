@@ -2,11 +2,7 @@ using System.Text.Json;
 
 namespace NetDecompilerMcp.Tests;
 
-/// <summary>
-/// Checks a tool's structured result against its advertised output schema the way MCP clients do: types (including
-/// "null" and type arrays), required properties, nested objects, array items, and local $ref / $defs. Enough of JSON
-/// Schema for the schemas the SDK generates; anything else is accepted.
-/// </summary>
+/// <summary>Minimal JSON Schema validator for SDK-generated output schemas; unsupported keywords are ignored.</summary>
 public static class OutputSchema
 {
     /// <summary>The schema violations of <paramref name="value"/>, as "path: problem" lines (empty when it conforms).</summary>

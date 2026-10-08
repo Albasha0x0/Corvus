@@ -5,9 +5,8 @@ using DecompilerMetadata = ICSharpCode.Decompiler.Metadata;
 namespace NetDecompilerMcp.Core;
 
 /// <summary>
-/// The set of loaded assemblies plus reference-resolution state. All access goes through
-/// <see cref="Read{T}"/> (shared) or <see cref="Write{T}"/> (exclusive: load/unload/edit),
-/// so concurrent tool calls never observe a half-edited module.
+/// Loaded assemblies and reference-resolution state. Access goes through <see cref="Read{T}"/> (shared) or
+/// <see cref="Write{T}"/> (exclusive) so concurrent tool calls never observe a half-edited module.
 /// </summary>
 public sealed class AssemblyWorkspace : IDisposable
 {
@@ -27,18 +26,17 @@ public sealed class AssemblyWorkspace : IDisposable
             AddSearchDirectory(dir);
     }
 
-    /// <summary>Raised (outside the lock) after assemblies were loaded or reloaded.</summary>
+    /// <summary>Raised outside the lock after assemblies are loaded or reloaded.</summary>
     public event Action<IReadOnlyList<LoadedAssembly>>? AssembliesLoaded;
 
-    /// <summary>Raised (outside the lock) after an assembly was unloaded.</summary>
+    /// <summary>Raised outside the lock after an assembly is unloaded.</summary>
     public event Action<LoadedAssembly>? AssemblyUnloaded;
 
     private readonly System.Collections.Concurrent.ConcurrentQueue<string> _notices = new();
 
-    /// <summary>Queues a message for the client (e.g. "reloaded from disk"); shown with the next tool result.</summary>
+    /// <summary>Queues a client notice, prepended to the next tool result.</summary>
     public void Notify(string message) => _notices.Enqueue(message);
 
-    /// <summary>Takes all pending notices.</summary>
     public List<string> DrainNotices()
     {
         var list = new List<string>();
@@ -46,7 +44,7 @@ public sealed class AssemblyWorkspace : IDisposable
         return list;
     }
 
-    /// <summary>Bumped on any change (load, unload, edit, search path) to invalidate caches.</summary>
+    /// <summary>Incremented on every write (load, unload, edit, search path); used to invalidate caches.</summary>
     public int Generation { get; private set; }
 
     internal ModuleContext DnlibContext { get; }
@@ -71,7 +69,7 @@ public sealed class AssemblyWorkspace : IDisposable
         }
     }
 
-    /// <summary>Snapshot of loaded assemblies. Call inside Read/Write for consistency.</summary>
+    /// <summary>Snapshot of loaded assemblies; consistent only inside Read/Write.</summary>
     public IReadOnlyList<LoadedAssembly> Assemblies => _assemblies.ToArray();
 
     public IReadOnlyList<string> SearchDirectories => _searchDirectories.ToArray();
@@ -89,7 +87,7 @@ public sealed class AssemblyWorkspace : IDisposable
         });
     }
 
-    /// <summary>Loads a single assembly file. Returns the existing entry if the same path is already loaded.</summary>
+    /// <summary>Returns the existing entry if the same path is already loaded.</summary>
     public LoadedAssembly Load(string path)
     {
         int before = _assemblies.Count;
@@ -113,8 +111,7 @@ public sealed class AssemblyWorkspace : IDisposable
         try
         {
             module = ModuleDefMD.Load(bytes, DnlibContext);
-            // dnlib resolves type names constantly; without this every lookup is a linear scan.
-            // It reads the NestedClass table, so corrupt metadata fails here rather than in ModuleDefMD.Load.
+            // Avoids linear type lookups. Reads the NestedClass table, so corrupt metadata fails here.
             module.EnableTypeDefFindCache = true;
         }
         catch (Exception ex)
@@ -135,7 +132,7 @@ public sealed class AssemblyWorkspace : IDisposable
 
     public sealed record LoadReport(List<LoadedAssembly> Loaded, List<(string Path, string Error)> Skipped);
 
-    /// <summary>Loads every .dll/.exe in a directory. Non-.NET files are skipped, not fatal.</summary>
+    /// <summary>Loads every .dll/.exe in a directory; files that fail to load are reported as skipped.</summary>
     public LoadReport LoadDirectory(string directory, bool recursive, Action<int, int, string>? onProgress = null)
     {
         var full = Path.GetFullPath(directory);
@@ -189,15 +186,13 @@ public sealed class AssemblyWorkspace : IDisposable
         _assemblies.Remove(asm);
         asm.Dispose();
         var fresh = LoadCore(asm.FilePath);
-        // Keep the original position (and therefore a stable listing order).
+        // Keep the original position for a stable listing order.
         _assemblies.Remove(fresh);
         _assemblies.Insert(Math.Max(0, Math.Min(index, _assemblies.Count)), fresh);
         return fresh;
     });
 
-    /// <summary>
-    /// Finds an assembly by id, simple name, file name or full path (case-insensitive).
-    /// </summary>
+    /// <summary>Finds an assembly by id, file name, full path or simple name (case-insensitive).</summary>
     public LoadedAssembly Get(string identifier)
     {
         if (string.IsNullOrWhiteSpace(identifier))
@@ -221,7 +216,7 @@ public sealed class AssemblyWorkspace : IDisposable
         throw new ToolError($"No loaded assembly matches '{identifier}'. Loaded: {string.Join(", ", all.Select(a => a.Id))}");
     }
 
-    /// <summary>Resolves the optional assembly parameter: null/empty means "all loaded assemblies".</summary>
+    /// <summary>Resolves an optional assembly parameter; null or empty means all loaded assemblies.</summary>
     public IReadOnlyList<LoadedAssembly> Scope(string? identifier)
     {
         if (string.IsNullOrWhiteSpace(identifier))
@@ -234,11 +229,9 @@ public sealed class AssemblyWorkspace : IDisposable
     }
 
     /// <summary>
-    /// The loaded assembly a reference binds to, when several builds or runtime families are loaded side by side.
-    /// Candidates have the referenced simple name. One from another folder than the referencing assembly must also
-    /// carry the requested public key token (when one is requested): an Il2Cpp dummy "mscorlib" never stands in for
-    /// the real one. Among the rest: the requester's own folder first, then the exact version, then the exact token,
-    /// then load order. Null when nothing qualifies (the caller then resolves from files).
+    /// The loaded assembly a reference binds to. Candidates outside the requester's folder must match a requested
+    /// public key token (so an Il2Cpp dummy mscorlib never replaces the real one). Ranked by same folder, exact
+    /// version, exact token, then load order. Null when nothing qualifies.
     /// </summary>
     public LoadedAssembly? FindReference(string name, Version? version, byte[]? publicKeyToken, string? requesterPath, bool sameMajor = false,
         bool netFramework = false)
@@ -254,11 +247,11 @@ public sealed class AssemblyWorkspace : IDisposable
             var token = a.Module.Assembly?.PublicKeyToken?.Data;
             bool tokenMatches = tokenRequested && token is { Length: > 0 } && token.AsSpan().SequenceEqual(publicKeyToken);
             if (!sameDir && tokenRequested && !tokenMatches) continue;
-            // another folder's build of another major version (System.Runtime 10.0 for a 6.0 reference): only as a last resort
+            // A different major version from another folder is left to the caller's last-resort lookup.
             if (sameMajor && !sameDir && version != null && !Frameworks.IsWildcard(version)
                 && a.Module.Assembly?.Version is { } have && !Frameworks.IsWildcard(have) && have.Major != version.Major)
                 continue;
-            // a .NET Framework app is not read against a modern .NET facade of the same name (mscorlib 4.0 of .NET 10)
+            // A .NET Framework requester never binds to a modern .NET facade of the same name.
             if (sameMajor && netFramework && !sameDir && Frameworks.IsModernNet(a.Module))
                 continue;
             int score = (sameDir ? 4 : 0) + (version != null && a.Module.Assembly?.Version == version ? 2 : 0) + (tokenMatches ? 1 : 0);
@@ -279,7 +272,6 @@ public sealed class AssemblyWorkspace : IDisposable
     public LoadedAssembly? FindByModule(ModuleDef? module) =>
         module == null ? null : _assemblies.FirstOrDefault(a => ReferenceEquals(a.Module, module));
 
-    /// <summary>Creates a reference resolver for decompiling <paramref name="main"/>.</summary>
     internal DecompilerMetadata.IAssemblyResolver CreateDecompilerResolver(LoadedAssembly main) => new DecompilerResolver(this, main);
 
     private string MakeUniqueId(ModuleDefMD module, string path)
@@ -300,28 +292,28 @@ public sealed class AssemblyWorkspace : IDisposable
     }
 
     /// <summary>
-    /// Looks in the search directories, then in the installed .NET framework directories as a last resort
-    /// (resolves System.Runtime / System.Private.CoreLib for modern .NET targets).
+    /// Searches the requester's folder, the search directories, then installed framework directories. A file of
+    /// another major version is returned only when nothing else matches.
     /// </summary>
     public string? FindAssemblyFile(string simpleName, string? requesterPath = null, byte[]? publicKeyToken = null, Version? version = null,
         bool netFramework = false)
     {
-        var first = requesterPath == null ? null : SafeDirectory(requesterPath); // the referencing assembly's own folder first
+        var first = requesterPath == null ? null : SafeDirectory(requesterPath);
         var dirs = (first != null ? [first] : Array.Empty<string>()).Concat(_searchDirectories).Concat(Frameworks.DirectoriesFor(version, netFramework))
             .Distinct(StringComparer.OrdinalIgnoreCase);
-        string? otherMajor = null; // a file of another major version, used when nothing better exists
+        string? otherMajor = null;
         foreach (var dir in dirs)
             foreach (var ext in new[] { ".dll", ".exe", ".winmd" })
             {
                 var candidate = Path.Combine(dir, simpleName + ext);
                 if (!File.Exists(candidate)) continue;
                 bool sameDir = string.Equals(dir, first, StringComparison.OrdinalIgnoreCase);
-                // outside the requester's folder, a requested public key token must match (as for loaded assemblies)
+                // Outside the requester's folder a requested public key token must match.
                 if (publicKeyToken is { Length: > 0 } && !sameDir && !TokenMatches(candidate, publicKeyToken))
                     continue;
                 if (!sameDir && ((version != null && !Frameworks.IsWildcard(version) && FileVersion(candidate) is { } have
                                   && !Frameworks.IsWildcard(have) && have.Major != version.Major)
-                                 // a .NET Framework app is not read against a modern .NET runtime folder's facades
+                                 // Modern .NET runtime folders only hold facades for .NET Framework requesters.
                                  || (netFramework && File.Exists(Path.Combine(dir, "System.Private.CoreLib.dll")))))
                 {
                     otherMajor ??= candidate;
@@ -338,7 +330,7 @@ public sealed class AssemblyWorkspace : IDisposable
         catch { return null; }
     }
 
-    /// <summary>Where a reference comes from: a loaded assembly, a file, or an assembly embedded in a loaded one (Costura).</summary>
+    /// <summary>Resolved reference source: a loaded assembly, a file, an embedded (Costura) image, or a generated stub.</summary>
     public sealed record ReferenceTarget(LoadedAssembly? Loaded, string? File, byte[]? Bytes, string? EmbeddedIn, string? Stub = null)
     {
         public string Describe() => Loaded != null ? $"loaded as {Loaded.Id}"
@@ -350,8 +342,8 @@ public sealed class AssemblyWorkspace : IDisposable
     private int _stubGeneration = -1;
 
     /// <summary>
-    /// A stand-in for a reference found nowhere, built from how the loaded assemblies use it (see
-    /// <see cref="ReferenceStubs"/>); one per name until the workspace changes.
+    /// Stub for an unresolvable reference, synthesized from its usage in loaded assemblies. Cached per name until
+    /// the workspace generation changes.
     /// </summary>
     private ReferenceTarget? StubFor(string name, Version? version)
     {
@@ -361,7 +353,7 @@ public sealed class AssemblyWorkspace : IDisposable
             _stubs.Clear();
             _stubGeneration = Generation;
         }
-        // while it is being built, looking at its own types (generic constraints) finds nothing rather than itself
+        // Re-entrant resolution of the stub being built (e.g. via generic constraints) returns null.
         _building ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (_building.Contains(name)) return null;
         _building.Add(name);
@@ -377,17 +369,11 @@ public sealed class AssemblyWorkspace : IDisposable
 
     [ThreadStatic] private static HashSet<string>? _building;
 
-    /// <summary>
-    /// Resolves a reference: a loaded assembly (same folder, or the same major version elsewhere); else a file (the
-    /// requester's folder, the search directories, then the installed framework of the requested version —
-    /// <paramref name="netFramework"/> for .NET Framework apps); else an assembly embedded in a loaded one (Costura);
-    /// else any loaded assembly of that name. Null when nothing matches.
-    /// </summary>
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<ModuleDef, LoadedAssembly> _referenceViews = new();
 
     /// <summary>
-    /// A module read only to resolve references (System.Private.CoreLib, a dependency), presented as an assembly so
-    /// tools can name its types and members ("System.Private.CoreLib (reference)"). It is not part of the workspace.
+    /// Wraps a reference-only module as a <see cref="LoadedAssembly"/> so tools can name its members.
+    /// Not added to the workspace.
     /// </summary>
     internal LoadedAssembly ReferenceView(ModuleDefMD module) => _referenceViews.GetValue(module, m =>
     {
@@ -397,31 +383,33 @@ public sealed class AssemblyWorkspace : IDisposable
         return new LoadedAssembly($"{m.Assembly?.Name ?? m.Name} (reference)", string.IsNullOrEmpty(m.Location) ? m.Name : m.Location, bytes, (ModuleDefMD)m);
     });
 
+    /// <summary>
+    /// Resolves a reference in order: framework files, loaded assemblies, files on disk, Costura-embedded images,
+    /// NuGet packages, installed app packages, any loaded assembly of that name, then a generated stub.
+    /// </summary>
     public ReferenceTarget? LocateReference(string name, Version? version, byte[]? token, string? requesterPath, bool netFramework, string? requesterFramework = null)
     {
-        // a .NET Framework app reads framework assemblies from .NET Framework itself, never from a loaded modern .NET
-        // facade of the same name and version (mscorlib 4.0, System.ServiceModel 4.0 of a .NET 10 app folder)
+        // .NET Framework requesters bind framework assemblies to .NET Framework itself, not to modern .NET facades.
         if (netFramework && Frameworks.NetFrameworkFile(name) is { } netfx && (token is not { Length: > 0 } || TokenMatches(netfx, token))
             && FrameworkUnlessLocal(netfx) is { } fx)
             return fx;
-        // likewise netstandard: the .NET Standard reference assembly, not a newer runtime's facade of that name
+        // netstandard binds to the .NET Standard reference assembly, not a runtime facade.
         if (string.Equals(name, "netstandard", StringComparison.OrdinalIgnoreCase) && Frameworks.NetStandardFile(version) is { } ns
             && FrameworkUnlessLocal(ns) is { } standard)
             return standard;
-        // Windows Runtime contracts (Windows.Foundation.FoundationContract...) from the Windows SDK's metadata
+        // Windows Runtime contracts resolve from Windows SDK metadata.
         if (Frameworks.WindowsMetadataFile(name, version) is { } winmd && FindReference(name, version, token, requesterPath, sameMajor: true) == null)
             return new(null, winmd, null, null);
         if (FindReference(name, version, token, requesterPath, sameMajor: true, netFramework) is { } loaded) return new(loaded, null, null, null);
         if (FindAssemblyFile(name, requesterPath, token, version, netFramework) is { } file)
         {
-            // from a newer runtime than the requester targets (System.IO.Pipelines 10 of .NET 10 for a net8.0 library):
-            // the package built for the requester's framework fits better
+            // Prefer the NuGet package for the requester's TFM over a newer shared-framework copy.
             if (Frameworks.NetCoreMajor(requesterFramework) is { } targetMajor && Frameworks.SharedFrameworkMajor(file) is { } fileMajor
                 && fileMajor > targetMajor && Frameworks.SharedFrameworkOf(name, targetMajor) != "Microsoft.NETCore.App"
                 && Frameworks.NuGetFile(name, version, netFramework, requesterFramework) is { } fitting)
                 return new(null, fitting, null, null);
-            // a file of another major version, or a modern runtime's copy for a .NET Framework app (System.Text.Json of
-            // .NET 5 for a net48 app), loses to an assembly embedded next to the app and to the package built for it
+            // A major-version mismatch, or a modern runtime copy for a .NET Framework requester, ranks below
+            // embedded images and matching NuGet packages.
             bool exact = (version == null || Frameworks.IsWildcard(version) || FileVersion(file) is not { } v || Frameworks.IsWildcard(v) || v.Major == version.Major)
                          && !(netFramework && Frameworks.SharedFrameworkMajor(file) != null);
             if (exact) return new(null, file, null, null);
@@ -432,17 +420,16 @@ public sealed class AssemblyWorkspace : IDisposable
             return new(null, file, null, null);
         }
         if (FindEmbedded(name, token) is { } embedded) return embedded;
-        // a dependency restored by NuGet on this machine (the global packages folder)
+        // NuGet global packages folder.
         if (Frameworks.NuGetFile(name, version, netFramework, requesterFramework) is { } package && (token is not { Length: > 0 } || TokenMatches(package, token)))
             return new(null, package, null, null);
-        // a Windows Runtime component of an installed app package (Microsoft.Management.Deployment of winget)
+        // Windows Runtime component from an installed app package.
         if (Frameworks.InstalledPackageMetadata(name) is { } packaged)
             return new(null, packaged, null, null);
         if (FindReference(name, version, token, requesterPath) is { } any) return new(any, null, null, null);
-        // nowhere on this machine: a stand-in built from how the loaded code uses it
         return StubFor(name, version);
 
-        // a framework file, unless the app ships its own copy next to it (that one wins)
+        // A copy shipped in the requester's folder takes precedence over the framework file.
         ReferenceTarget? FrameworkUnlessLocal(string frameworkFile)
         {
             var requesterDir = requesterPath == null ? null : SafeDirectory(requesterPath);
@@ -457,7 +444,7 @@ public sealed class AssemblyWorkspace : IDisposable
 
     private sealed record EmbeddedIndex(int Version, Dictionary<string, byte[]> Assemblies);
 
-    /// <summary>An assembly of this name embedded (Costura) in a loaded assembly, decompressed in memory.</summary>
+    /// <summary>Finds a Costura-embedded assembly in a loaded assembly; decompressed in memory and indexed per edit version.</summary>
     private ReferenceTarget? FindEmbedded(string name, byte[]? token)
     {
         foreach (var host in _assemblies)
@@ -473,7 +460,7 @@ public sealed class AssemblyWorkspace : IDisposable
                         if (Services.Analysis.Blob.Identify(item.Bytes) == ".NET assembly")
                             map[Path.GetFileNameWithoutExtension(item.Name)] = item.Bytes;
                 }
-                catch (Exception) { /* unreadable resources: nothing embedded */ }
+                catch (Exception) { }
                 index = new EmbeddedIndex(host.Version, map);
                 _embedded.AddOrUpdate(host, index);
             }
@@ -501,10 +488,10 @@ public sealed class AssemblyWorkspace : IDisposable
     private static bool TokenMatches(string file, byte[] token)
     {
         try { return System.Reflection.AssemblyName.GetAssemblyName(file).GetPublicKeyToken() is { } t && t.AsSpan().SequenceEqual(token); }
-        catch { return false; } // not an assembly / unreadable: not a match for a token-qualified reference
+        catch { return false; }
     }
 
-    /// <summary>dnlib resolution: loaded assemblies first, then reference-only modules from the search directories.</summary>
+    /// <summary>dnlib resolver backed by <see cref="LocateReference"/>; non-loaded targets are cached as reference-only modules.</summary>
     private sealed class DnlibResolver(AssemblyWorkspace ws) : dnlib.DotNet.IAssemblyResolver
     {
         public AssemblyDef? Resolve(IAssembly assembly, ModuleDef sourceModule)
@@ -519,7 +506,7 @@ public sealed class AssemblyWorkspace : IDisposable
             if (target.Loaded != null)
                 return target.Loaded.Module.Assembly;
 
-            // reference-only modules from files or embedded images, keyed by where they came from
+            // Keyed by source: file path, or host!name for embedded images and stubs.
             var key = target.File ?? $"{target.EmbeddedIn ?? "stub"}!{name}";
             lock (ws._referenceModules)
             {
@@ -529,7 +516,7 @@ public sealed class AssemblyWorkspace : IDisposable
                     {
                         module = ModuleDefMD.Load(target.Bytes ?? File.ReadAllBytes(target.File!), ws.DnlibContext);
                         Services.MetadataUtil.MarkReferenceOnly(module);
-                        // its own references then resolve from its folder too (an embedded one: from its host's)
+                        // Location drives where this module's own references resolve; embedded images use the requester's folder.
                         module.Location = target.File ?? (requester != null ? Path.Combine(SafeDirectory(requester) ?? "", name + ".dll") : name + ".dll");
                         module.EnableTypeDefFindCache = true;
                     }
@@ -541,7 +528,7 @@ public sealed class AssemblyWorkspace : IDisposable
         }
     }
 
-    /// <summary>ICSharpCode resolution: loaded assemblies first, then the standard resolver (search dirs, GAC, runtime packs).</summary>
+    /// <summary>ICSharpCode resolver backed by <see cref="LocateReference"/>, falling back to UniversalAssemblyResolver.</summary>
     private sealed class DecompilerResolver : DecompilerMetadata.IAssemblyResolver
     {
         private readonly AssemblyWorkspace _ws;
@@ -562,7 +549,7 @@ public sealed class AssemblyWorkspace : IDisposable
                 {
                     string? tfm = null;
                     try { tfm = DecompilerMetadata.DotNetCorePathFinderExtensions.DetectTargetFrameworkId(_main.GetPEFile()); }
-                    catch { /* unknown framework is fine */ }
+                    catch { }
                     var r = new DecompilerMetadata.UniversalAssemblyResolver(_main.FilePath, false, tfm, null,
                         System.Reflection.PortableExecutable.PEStreamOptions.PrefetchEntireImage,
                         System.Reflection.Metadata.MetadataReaderOptions.None);
@@ -581,14 +568,14 @@ public sealed class AssemblyWorkspace : IDisposable
             if (target?.Loaded != null)
                 return target.Loaded.GetPEFile();
 
-            var cacheKey = SafeDirectory(_main.FilePath) + "|" + reference.FullName; // per requester folder
+            var cacheKey = SafeDirectory(_main.FilePath) + "|" + reference.FullName; // resolution depends on the requester's folder
             lock (_ws._externalDecompilerRefs)
             {
                 if (_ws._externalDecompilerRefs.TryGetValue(cacheKey, out var cached))
                     return cached;
             }
             DecompilerMetadata.MetadataFile? file = null;
-            // our folder-, version- and token-aware lookup first (the standard resolver matches by name only)
+            // The fallback resolver matches by name only, so the folder/version/token-aware target goes first.
             if (target is { File: not null } or { Bytes: not null })
             {
                 try

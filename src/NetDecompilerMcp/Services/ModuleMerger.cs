@@ -46,8 +46,6 @@ internal sealed class ModuleMerger
 
     public ModuleDef Target => _target;
 
-    // ------------------------------------------------------------------ mapping
-
     /// <summary>The target counterpart of a compiled type: declared new, or existing with the same full name.</summary>
     public TypeDef? MapType(TypeDef compiled) =>
         _types.TryGetValue(compiled, out var t) ? t : _target.Find(compiled.FullName, isReflectionName: false);
@@ -77,8 +75,6 @@ internal sealed class ModuleMerger
         if (_members.TryGetValue(compiled, out var f)) return (FieldDef)f;
         return MapType(compiled.DeclaringType)?.Fields.FirstOrDefault(x => x.Name == compiled.Name);
     }
-
-    // ------------------------------------------------------------------ declaring new definitions
 
     /// <summary>Declares a copy of a compiled type (with its nested types and members) under <paramref name="parent"/> or at top level.</summary>
     public TypeDef AddTypeTree(TypeDef compiled, TypeDef? parent, string name)
@@ -170,8 +166,6 @@ internal sealed class ModuleMerger
         for (int i = 1; ; i++)
             if (!used.Contains($"{name}$ndm{i}")) return $"{name}$ndm{i}";
     }
-
-    // ------------------------------------------------------------------ filling signatures, attributes, members
 
     /// <summary>Fills signatures, base types, interfaces, attributes, properties and events of everything declared.</summary>
     public void Fill()
@@ -281,8 +275,6 @@ internal sealed class ModuleMerger
             var v => v,
         });
 
-    // ------------------------------------------------------------------ bodies
-
     public void CopyNewBodies()
     {
         foreach (var (c, m) in _newMethods)
@@ -340,8 +332,6 @@ internal sealed class ModuleMerger
 
     private static T Imported<T>(T? imported, object original) where T : class =>
         imported ?? throw new ToolError($"Internal: could not import operand {original} into the target module.");
-
-    // ------------------------------------------------------------------ operand resolution
 
     private Importer ImporterFor(TypeDef type, MethodDef? method) =>
         new(_target, ImporterOptions.TryToUseDefs, new GenericParamContext(type, method), new Mapper(this));

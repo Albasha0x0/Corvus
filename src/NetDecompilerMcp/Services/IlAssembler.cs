@@ -353,7 +353,7 @@ public sealed class IlAssembler(AssemblyWorkspace workspace)
     /// <summary>"instance void [asm]Ns.Type::M(int32)" -> "Ns.Type::M(int32)".</summary>
     private static string SimplifyIlMemberSyntax(string text)
     {
-        var s = Regex.Replace(text, @"\[[^\]]+\]", "");           // [System.Runtime]
+        var s = Regex.Replace(text, @"\[[^\]]+\]", "");           // drop assembly scopes, e.g. [System.Runtime]
         s = Regex.Replace(s, @"\b(instance|class|valuetype)\s+", "");
         int sep = s.IndexOf("::", StringComparison.Ordinal);
         if (sep > 0)
@@ -381,7 +381,7 @@ public sealed class IlAssembler(AssemblyWorkspace workspace)
 
     private static bool NameAndParamsMatch(MemberRef mr, string wanted)
     {
-        // wanted like "system.string::concat(string,string)" vs IL-style "system.string::concat(string,string)" — compare without param list types aliases.
+        // Parameter types may be spelled as dnlib type names or as IL keywords (int32, string, ...).
         if (!mr.IsMethodRef) return Normalize($"{mr.DeclaringType?.FullName}::{mr.Name}") == wanted;
         var ilParams = string.Join(",", mr.MethodSig.Params.Select(p => p.TypeName));
         return Normalize($"{mr.DeclaringType?.FullName}::{mr.Name}({ilParams})") == wanted
