@@ -28,6 +28,36 @@ public sealed class SimplifySweepTests(ITestOutputHelper output)
         Assert.True(problems.Count == 0, "simplify sweep problems:\n" + string.Join("\n", problems));
     }
 
+    [SweepFact]
+    public void RepeatedRunsProduceIdenticalImages()
+    {
+        var entries = SweepCatalog.Entries(full: false).Where(e => e.Path != null && e.Determinism).ToList();
+        Assert.NotEmpty(entries);
+        foreach (var entry in entries)
+        {
+            var first = SimplifyHarness.Run(entry.Path!);
+            var second = SimplifyHarness.Run(entry.Path!);
+            Assert.Empty(first.Problems);
+            Assert.Empty(second.Problems);
+            var differing = DeterminismFailures(first, second);
+            Assert.True(differing.Count == 0, $"{entry.Origin} {entry.Name}: repeated runs differ in {string.Join(", ", differing.Take(10))}");
+            output.WriteLine($"{entry.Origin} {entry.Name}: {first.Image!.Length:N0} bytes, identical across runs");
+        }
+    }
+
+    /// <summary>
+    /// Methods that make two runs' images differ. Images that are byte-identical give none. A method that hit the
+    /// time limit in either run may legitimately differ (the limit is wall-clock) and is not counted, but it is the only
+    /// accepted cause: the rest of the image must still match byte for byte.
+    /// </summary>
+    internal static List<string> DeterminismFailures(SimplifyHarness.Outcome first, SimplifyHarness.Outcome second)
+    {
+        if (first.Image!.AsSpan().SequenceEqual(second.Image)) return [];
+        var differing = SimplifyHarness.DifferingMethods(first.Image!, second.Image!);
+        if (differing.Count == 0) return ["image bytes differ while every method body agrees"];
+        return differing.Where(m => !first.TimedOut(m) && !second.TimedOut(m)).ToList();
+    }
+
     private static string Table(List<(SweepCatalog.Entry Entry, SimplifyHarness.Outcome? Outcome)> rows)
     {
         var sb = new StringBuilder();
@@ -67,8 +97,9 @@ public sealed class SweepFactAttribute : FactAttribute
 /// <summary>Where the sweep assemblies come from, located on this machine.</summary>
 internal static class SweepCatalog
 {
+    /// <param name="Determinism">Also used by the determinism guard (mid-size, varied toolchains).</param>
     /// <param name="Large">Only with NDM_SWEEP=full.</param>
-    public sealed record Entry(string Origin, string Name, string? Path, bool Large = false);
+    public sealed record Entry(string Origin, string Name, string? Path, bool Determinism = false, bool Large = false);
 
     public static bool Full => string.Equals(Environment.GetEnvironmentVariable("NDM_SWEEP"), "full", StringComparison.OrdinalIgnoreCase);
 
@@ -82,7 +113,7 @@ internal static class SweepCatalog
         yield return new("netfx 4.8 reference", "System.Xml", File(refs, "System.Xml.dll"));
         var netfx = WindowsDir("Microsoft.NET", "Framework64", "v4.0.30319");
         yield return new("netfx 4.x runtime", "System.Core", File(netfx, "System.Core.dll"));
-        yield return new("netfx 4.x runtime (VB.NET)", "Microsoft.VisualBasic", File(netfx, "Microsoft.VisualBasic.dll"));
+        yield return new("netfx 4.x runtime (VB.NET)", "Microsoft.VisualBasic", File(netfx, "Microsoft.VisualBasic.dll"), Determinism: true);
         yield return new("netfx 4.x runtime (C++/CLI mixed)", "System.Data", File(netfx, "System.Data.dll"));
         yield return new("netfx 4.x runtime", "mscorlib", File(netfx, "mscorlib.dll"), Large: true);
 
@@ -96,7 +127,7 @@ internal static class SweepCatalog
         yield return new("runtime pack win-x86 ReadyToRun", "System.Linq.Expressions", RuntimePack("microsoft.netcore.app.runtime.win-x86", "System.Linq.Expressions.dll"));
 
         // F#.
-        yield return new("F# (newest SDK)", "FSharp.Core", Sdk(newest: true, "FSharp", "FSharp.Core.dll"));
+        yield return new("F# (newest SDK)", "FSharp.Core", Sdk(newest: true, "FSharp", "FSharp.Core.dll"), Determinism: true);
         yield return new("F# (oldest SDK)", "FSharp.Core", Sdk(newest: false, "FSharp", "FSharp.Core.dll"));
 
         // VB.NET (Roslyn's VB compiler is written in VB.NET).
@@ -104,10 +135,10 @@ internal static class SweepCatalog
 
         // NuGet packages from different eras, compilers and post-processors.
         yield return new("NuGet (net20 era C#)", "Newtonsoft.Json 12", NuGet("newtonsoft.json", "Newtonsoft.Json.dll", version: "12.0.2", framework: "net20"));
-        yield return new("NuGet (netstandard C#)", "Newtonsoft.Json 13", NuGet("newtonsoft.json", "Newtonsoft.Json.dll", version: "13.0.4", framework: "netstandard2.0"));
+        yield return new("NuGet (netstandard C#)", "Newtonsoft.Json 13", NuGet("newtonsoft.json", "Newtonsoft.Json.dll", version: "13.0.4", framework: "netstandard2.0"), Determinism: true);
         yield return new("NuGet", "DotNetZip", NuGet("dotnetzip.original", "Ionic.Zip.dll"));
         yield return new("NuGet (Fody weaver)", "Costura", NuGet("costura.fody", "Costura.dll"));
-        yield return new("NuGet (generated decoder tables)", "Iced", NuGet("iced", "Iced.dll"));
+        yield return new("NuGet (generated decoder tables)", "Iced", NuGet("iced", "Iced.dll"), Determinism: true);
         yield return new("NuGet", "NLog", NuGet("nlog", "NLog.dll", framework: "netstandard2.1"));
         yield return new("NuGet", "SharpCompress", NuGet("sharpcompress", "SharpCompress.dll"));
         yield return new("NuGet", "LiteDB", NuGet("litedb", "LiteDB.dll"));

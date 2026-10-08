@@ -355,13 +355,14 @@ are unset:
 simplify_methods is checked two ways, both in a collection that runs alone after the parallel tests:
 
 - **Fuzz** (`SimplifyFuzzTests`): seeded random IL methods (nested try / catch / finally / fault / filter, loops,
-  switches, flattened dispatchers, many locals, struct operations). The engine must not crash and must stay within its
-  time and memory limits. Every rewrite must verify and survive save / reload.
+  switches, flattened dispatchers, many locals, struct operations). The engine must not crash, must stay within its
+  time and memory limits, and must give the same image twice. Every rewrite must verify and survive save / reload.
   The originals and the simplified methods are JIT-compiled and run, and their results must match. A failure names
   its seed, also when the runtime crashes (`[fuzz] seed N` on stderr).
 - **Sweep** (`SimplifySweepTests`): every method of real libraries found on the machine: .NET Framework reference and
   runtime libraries (C#, VB.NET, C++/CLI mixed mode), ReadyToRun shared frameworks of several .NET versions, F#, and
-  NuGet packages. It checks for crashes and clean save / reload round trips. Absent assemblies are skipped.
+  NuGet packages. It checks for crashes and clean save / reload round trips, and repeats runs
+  for byte-identical output. Absent assemblies are skipped.
   Per-assembly statistics (methods simplified, fallback reasons, time) are printed with
   `dotnet test --filter SimplifySweepTests --logger "console;verbosity=detailed"`.
 

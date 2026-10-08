@@ -50,6 +50,7 @@ internal static class SimplifyHarness
 
         public int Methods => Changes.Count;
         public int Changed => Changes.Count(c => c.Changed);
+        public bool TimedOut(string method) => Changes.Any(c => c.Rejected?.Reason == FallbackReason.TimeLimit && Label(c.Method) == method);
 
         /// <summary>Fallback reason codes with counts: calls kept (bail-outs), rewrites skipped and methods left unchanged.</summary>
         public Dictionary<string, int> Fallbacks() => Changes
@@ -198,6 +199,20 @@ internal static class SimplifyHarness
     }
 
     private static bool Reloaded(ModuleDefMD module, uint token) => module.ResolveToken(token) is MethodDef { HasBody: true };
+
+    /// <summary>
+    /// Methods whose bodies differ between two images of the same input; an empty list means the outputs agree method
+    /// by method (byte equality of the images is checked separately).
+    /// </summary>
+    public static List<string> DifferingMethods(byte[] a, byte[] b)
+    {
+        using var ma = ModuleDefMD.Load(a);
+        using var mb = ModuleDefMD.Load(b);
+        var bodies = mb.GetTypes().SelectMany(t => t.Methods).Where(m => m.HasBody).ToDictionary(m => m.MDToken.Raw, m => Describe(m.Body));
+        return ma.GetTypes().SelectMany(t => t.Methods).Where(m => m.HasBody)
+            .Where(m => !bodies.TryGetValue(m.MDToken.Raw, out var other) || other != Describe(m.Body))
+            .Select(Label).ToList();
+    }
 
     public static string Label(MethodDef m) => $"{m.DeclaringType?.FullName}::{m.Name} [0x{m.MDToken.Raw:X8}]";
 

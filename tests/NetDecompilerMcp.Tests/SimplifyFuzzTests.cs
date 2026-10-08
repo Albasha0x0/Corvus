@@ -6,7 +6,8 @@ namespace NetDecompilerMcp.Tests;
 
 /// <summary>
 /// simplify_methods over randomly generated method bodies (<see cref="IlBodyGenerator"/>). For every seed: the engine
-/// never crashes and stays within its limits, every rewrite verifies and survives save / reload, and the simplified methods JIT-compile and return what the originals return (or throw the same exception).
+/// never crashes and stays within its limits, every rewrite verifies and survives save / reload, two runs give the same
+/// image, and the simplified methods JIT-compile and return what the originals return (or throw the same exception).
 /// Seeds 1..NDM_FUZZ_COUNT (default 40) run by default; NDM_FUZZ_SEED=n runs one seed, NDM_FUZZ_SEED=random a fresh one.
 /// A failure names its seed.
 /// </summary>
@@ -83,6 +84,10 @@ public sealed class SimplifyFuzzTests(ITestOutputHelper output) : IDisposable
         Assert.True(first.Problems.Count == 0, string.Join("\n", first.Problems.Take(5)));
         var rejectedOriginals = first.Changes.Where(c => c.Rejected?.Reason == FallbackReason.OriginalUnverifiable).ToList();
         Assert.True(rejectedOriginals.Count == 0, $"generator produced a body the engine rejects as unverifiable: {rejectedOriginals.FirstOrDefault()?.Rejected}");
+
+        var second = SimplifyHarness.Run(path);
+        var differing = SimplifySweepTests.DeterminismFailures(first, second);
+        Assert.True(differing.Count == 0, $"repeated runs differ in {string.Join(", ", differing)}");
 
         CompareExecution(image, first.Image!, methods, stats);
 
