@@ -5,6 +5,7 @@ using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Services;
+using NetDecompilerMcp.Services.Simplify;
 using static NetDecompilerMcp.Tools.ToolSupport;
 
 namespace NetDecompilerMcp.Tools;
@@ -20,12 +21,13 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
     public Task<string> DecompileType(
         [Description("Type name or token. " + SymbolDescription)] string type,
         [Description(AssemblyFilterDescription)] string? assembly = null,
+        [Description(SimplifiedDescription)] bool simplified = false,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, type, SymbolKind.Type);
-        return pager.Page(TypeSource(sym, cancellationToken), offset, maxChars);
+        return pager.Page(TypeSource(sym, simplified, cancellationToken), offset, maxChars);
     }, cancellationToken);
 
     [McpServerTool(Name = "decompile_member", Title = "Decompile member to C#", ReadOnly = true, OpenWorld = false)]
@@ -35,17 +37,20 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         [Description(SymbolDescription)] string member,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Restrict to: method, field, property, event (default any).")] string? kind = null,
+        [Description(SimplifiedDescription)] bool simplified = false,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var all = SymbolResolver.Resolve(workspace, assembly, member, SymbolResolver.ParseKind(kind));
         if (all.Count == 1 && all[0].Member is TypeDef)
-            return pager.Page(TypeSource(all[0], cancellationToken), offset, maxChars);
+            return pager.Page(TypeSource(all[0], simplified, cancellationToken), offset, maxChars);
         RequireFew(all, member);
 
-        var text = pager.GetOrCreate(CacheKey("member", all), () => string.Join("\n", all.GroupBy(a => a.Assembly).Select(g =>
-            $"// [{g.Key.Id}]\n" + decompiler.DecompileMembers(g.Key, g.Select(s => s.Member), cancellationToken))));
+        var text = pager.GetOrCreate(CacheKey(simplified ? "member-simplified" : "member", all), () => string.Join("\n", all.GroupBy(a => a.Assembly).Select(g =>
+            $"// [{g.Key.Id}]\n" + (simplified
+                ? decompiler.DecompileSimplified(g.Key, g.Select(s => s.Member).ToList(), new SimplifyOptions(), cancellationToken)
+                : decompiler.DecompileMembers(g.Key, g.Select(s => s.Member), cancellationToken)))));
         return pager.Page(text, offset, maxChars);
     }, cancellationToken);
 
@@ -90,8 +95,13 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         return summary;
     }, cancellationToken));
 
-    private string TypeSource(ResolvedSymbol sym, CancellationToken ct) =>
-        pager.GetOrCreate(CacheKey("type", [sym]), () => $"// [{sym.Assembly.Id}] {sym.Label}\n" + decompiler.DecompileType(sym.Assembly, (TypeDef)sym.Member, ct));
+    private const string SimplifiedDescription =
+        "Show the code as simplify_methods would leave it (constant strings folded, dead branches removed, forwarders inlined), without changing the assembly.";
+
+    private string TypeSource(ResolvedSymbol sym, bool simplified, CancellationToken ct) =>
+        pager.GetOrCreate(CacheKey(simplified ? "type-simplified" : "type", [sym]), () => $"// [{sym.Assembly.Id}] {sym.Label}\n" + (simplified
+            ? decompiler.DecompileSimplified(sym.Assembly, [sym.Member], new SimplifyOptions(), ct)
+            : decompiler.DecompileType(sym.Assembly, (TypeDef)sym.Member, ct)));
 
     private string CacheKey(string kind, IEnumerable<ResolvedSymbol> symbols) =>
         $"{workspace.Generation}|{kind}|{string.Join(",", symbols.Select(s => s.Assembly.Id + Format.Token(s.Member)))}";

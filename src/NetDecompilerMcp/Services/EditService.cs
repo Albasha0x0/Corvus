@@ -2,6 +2,7 @@ using System.Globalization;
 using dnlib.DotNet;
 using dnlib.DotNet.Emit;
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Services.Simplify;
 
 namespace NetDecompilerMcp.Services;
 
@@ -326,6 +327,85 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
     }
 
     /// <summary>
+    /// Runs the simplification passes over a method, the methods of a type (nested types included), or the whole
+    /// assembly (<paramref name="symbol"/> null). Dry runs only report.
+    /// </summary>
+    public string SimplifyMethods(LoadedAssembly asm, ResolvedSymbol? symbol, SimplifyOptions options, bool dryRun, CancellationToken ct)
+    {
+        var scope = symbol?.Label ?? asm.Id;
+        var methods = SimplifyScope(asm, symbol);
+        var changes = new MethodSimplifier(asm.Module, options).Run(methods, ct);
+        var changed = changes.Where(c => c.Changed).ToList();
+        var report = SimplifyReport(changes, methods.Count, dryRun);
+        var header = dryRun
+            ? $"Dry run — simplify {scope} ({options.Describe()}): {changed.Count} of {methods.Count} method(s) would change."
+            : $"Simplified {scope} ({options.Describe()}): {changed.Count} of {methods.Count} method(s) changed.";
+        if (dryRun || changed.Count == 0) return header + report;
+
+        foreach (var c in changed) c.Method.Body = c.NewBody!;
+        var args = symbol == null ? new Dictionary<string, string?>() : SymbolArgs("symbol", symbol);
+        args["passes"] = options.Describe();
+        args["maxDepth"] = options.EffectiveLimits.MaxDepth.ToString(CultureInfo.InvariantCulture);
+        args["budget"] = options.EffectiveLimits.InstructionBudget.ToString(CultureInfo.InvariantCulture);
+        var description = $"simplify {scope} ({options.Describe()}): {changed.Count} method(s)";
+        asm.RecordEdit(new EditRecord("simplify_methods", args, description, changed.Select(c => Format.MemberLabel(c.Method)).ToList()));
+        return header + report;
+    }
+
+    private static List<MethodDef> SimplifyScope(LoadedAssembly asm, ResolvedSymbol? symbol)
+    {
+        static IEnumerable<MethodDef> OfType(TypeDef t) => t.Methods.Concat(t.NestedTypes.SelectMany(OfType));
+        return (symbol?.Member switch
+        {
+            null => asm.Module.GetTypes().SelectMany(t => t.Methods),
+            TypeDef t => OfType(t),
+            MethodDef m => [m],
+            PropertyDef p => p.GetMethods.Concat(p.SetMethods).Concat(p.OtherMethods),
+            EventDef e => new[] { e.AddMethod, e.RemoveMethod, e.InvokeMethod }.OfType<MethodDef>().Concat(e.OtherMethods),
+            _ => throw new ToolError($"{symbol.Label} is a {symbol.Kind}; pass a method, a type, or omit the symbol for the whole assembly."),
+        }).Where(m => m.HasBody).ToList();
+    }
+
+    private const int MaxReportedIssues = 50;
+    private const int MaxReportedMethods = 200;
+
+    private static string SimplifyReport(List<MethodChange> changes, int total, bool dryRun)
+    {
+        var sb = new System.Text.StringBuilder();
+        var changed = changes.Where(c => c.Changed).ToList();
+        foreach (var c in changed.Take(MaxReportedMethods))
+        {
+            sb.Append($"\n{Format.MemberLabel(c.Method)}  [{c.InstructionsBefore} -> {c.InstructionsAfter} instructions]");
+            foreach (var f in c.Folded) sb.Append("\n  folded ").Append(f);
+            foreach (var i in c.Inlined) sb.Append("\n  inlined ").Append(i);
+            var flow = new List<string>();
+            if (c.ConstantBranches > 0) flow.Add($"folded {c.ConstantBranches} constant branch(es)");
+            if (c.CollapsedChains > 0) flow.Add($"collapsed {c.CollapsedChains} branch chain(s)");
+            if (c.RemovedBlocks > 0) flow.Add($"removed {c.RemovedBlocks} unreachable block(s) ({c.RemovedInstructions} instructions)");
+            if (c.RemovedHandlers > 0) flow.Add($"removed {c.RemovedHandlers} exception handler(s)");
+            if (flow.Count > 0) sb.Append("\n  ").Append(string.Join(", ", flow));
+        }
+        if (changed.Count > MaxReportedMethods)
+            sb.Append($"\n… {changed.Count - MaxReportedMethods} more changed method(s) (narrow the scope to a type or method for details)");
+
+        var bailouts = changes.SelectMany(c => c.Bailouts.Select(b => $"{Format.MemberLabel(c.Method)} {b}")).ToList();
+        AppendList(sb, "Not folded (evaluation bailed out; the call is kept):", bailouts);
+        var rejected = changes.Where(c => c.Rejected != null).Select(c => $"{Format.MemberLabel(c.Method)}: {c.Rejected}").ToList();
+        AppendList(sb, "Left unchanged:", rejected);
+        if (changed.Count == 0 && bailouts.Count == 0 && rejected.Count == 0)
+            sb.Append($"\nNothing to simplify in {total} method(s){(dryRun ? "" : "; no edit recorded")}.");
+        return sb.ToString();
+    }
+
+    private static void AppendList(System.Text.StringBuilder sb, string title, List<string> items)
+    {
+        if (items.Count == 0) return;
+        sb.Append("\n\n").Append(title);
+        foreach (var item in items.Take(MaxReportedIssues)) sb.Append("\n  ").Append(item);
+        if (items.Count > MaxReportedIssues) sb.Append($"\n  … {items.Count - MaxReportedIssues} more");
+    }
+
+    /// <summary>
     /// Maps a recorded symbol that no longer exists by name to its counterpart in the target build (set while a script
     /// is replayed onto another build whose original is loaded); null when there is none.
     /// </summary>
@@ -341,6 +421,8 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         "patch_method_csharp" => PatchMethodCSharp(Recorded(asm, record, "method", preferTokens), Required(record, "code"), false, ct),
         "add_members_csharp" => AddMembersCSharp(Recorded(asm, record, "type", preferTokens), Required(record, "code"), false, ct),
         "add_types_csharp" => AddTypesCSharp(asm, Required(record, "code"), false, ct),
+        "simplify_methods" => SimplifyMethods(asm, record.Arg("symbol") == null ? null : Recorded(asm, record, "symbol", preferTokens),
+            SimplifyOptions.Parse(record.Arg("passes"), IntArg(record, "maxDepth"), IntArg(record, "budget")), false, ct),
         _ => throw new ToolError($"Unknown edit kind '{record.Kind}'."),
     };
 
@@ -413,6 +495,9 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
             return renamed; // renamed or moved; matched by content against the original build
         }
     }
+
+    private static int? IntArg(EditRecord record, string key) =>
+        int.TryParse(record.Arg(key), NumberStyles.Integer, CultureInfo.InvariantCulture, out int v) ? v : null;
 
     private static string Required(EditRecord record, string key) =>
         record.Arg(key) ?? throw new ToolError($"Edit '{record.Kind}' is missing its '{key}' argument.");

@@ -104,6 +104,7 @@ public class McpProtocolTests : IAsyncLifetime
         ["patch_method_csharp"] = (new() { ["method"] = "Shop::PriceOf(string, int)", ["code"] = "return quantity;" }, "Decompiled result"),
         ["patch_method_il"] = (new() { ["method"] = "Account::Score", ["il"] = "ldc.i4.7\nret" }, "New body"),
         ["add_members_csharp"] = (new() { ["type"] = "Shop", ["code"] = "public int Twice(int x) { return x * 2; }" }, "Twice"),
+        ["simplify_methods"] = (new() { ["symbol"] = "Account", ["dryRun"] = true }, "Dry run — simplify Fixture.Model.Account"),
         ["add_types_csharp"] = (new() { ["assembly"] = "TestFixture", ["code"] = "namespace Mods { public static class M { public static int One() => 1; } }" }, "Mods.M"),
         ["list_edits"] = (new() { ["assembly"] = "TestFixture" }, "#5"),
         ["diff_edits"] = (new() { ["assembly"] = "TestFixture" }, "+public int Twice(int x)"),
@@ -146,6 +147,7 @@ public class McpProtocolTests : IAsyncLifetime
             Assert.True(text.Contains(expect, StringComparison.Ordinal), $"{tool}: expected '{expect}' in:\n{text}");
         }
         Assert.Contains("return 7;", await Call("decompile_member", new() { ["member"] = "Account::Score" }));
+        Assert.Contains("// Simplified view", await Call("decompile_member", new() { ["member"] = "Account::CheckLicense", ["simplified"] = true }));
         Assert.True(File.Exists(_dir.File("saved.dll")));
     }
 

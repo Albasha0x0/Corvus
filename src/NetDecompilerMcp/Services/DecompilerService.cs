@@ -181,6 +181,57 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         return output.ToString();
     }
 
+    /// <summary>
+    /// Decompiles members as simplify_methods would leave them: the passes run on a scratch copy of the current image,
+    /// so the loaded assembly does not change. Types include the methods of their nested types.
+    /// </summary>
+    public string DecompileSimplified(LoadedAssembly asm, IReadOnlyList<Dn.IMemberDef> members, Simplify.SimplifyOptions options, CancellationToken ct)
+    {
+        var image = asm.GetImageBytes();
+        var tokens = members.Select(asm.ImageToken).ToList();
+        byte[] simplified;
+        List<Simplify.MethodChange> changes;
+        using (var scratch = new LoadedAssembly(asm.Id, asm.FilePath, image, LoadScratch(image, asm.FilePath)))
+        {
+            var methods = tokens.Select(t => scratch.Module.ResolveToken(t)).SelectMany(MethodsOf).Distinct().ToList();
+            changes = new Simplify.MethodSimplifier(scratch.Module, options).Run(methods, ct);
+            foreach (var c in changes.Where(c => c.Changed)) c.Method.Body = c.NewBody!;
+            simplified = scratch.WriteToBytes();
+        }
+
+        using var view = new LoadedAssembly(asm.Id, asm.FilePath, simplified, LoadScratch(simplified, asm.FilePath));
+        var viewMembers = tokens.Select(t => view.Module.ResolveToken(t) as Dn.IMemberDef
+                                             ?? throw new ToolError($"Member 0x{t:X8} is missing from the simplified image.")).ToList();
+        var text = viewMembers is [Dn.TypeDef type] ? DecompileType(view, type, ct) : DecompileMembers(view, viewMembers, ct);
+
+        var changed = changes.Where(c => c.Changed).ToList();
+        var summary = $"// Simplified view ({options.Describe()}; the assembly is unchanged): {changed.Count} of {changes.Count} method(s) simplified";
+        int folded = changed.Sum(c => c.Folded.Count), inlined = changed.Sum(c => c.Inlined.Count), branches = changed.Sum(c => c.ConstantBranches);
+        int blocks = changed.Sum(c => c.RemovedBlocks), bailed = changes.Sum(c => c.Bailouts.Count);
+        var parts = new[] { (folded, "call(s) folded"), (inlined, "forwarder call(s) inlined"), (branches, "constant branch(es) folded"),
+                            (blocks, "unreachable block(s) removed"), (bailed, "call(s) not evaluable") }
+            .Where(p => p.Item1 > 0).Select(p => $"{p.Item1} {p.Item2}").ToList();
+        if (parts.Count > 0) summary += ": " + string.Join(", ", parts);
+        return summary + ".\n" + text;
+
+        static IEnumerable<Dn.MethodDef> MethodsOf(object? member) => member switch
+        {
+            Dn.MethodDef m => [m],
+            Dn.TypeDef t => t.Methods.Concat(t.NestedTypes.SelectMany(MethodsOf)),
+            Dn.PropertyDef p => p.GetMethods.Concat(p.SetMethods).Concat(p.OtherMethods),
+            Dn.EventDef e => new[] { e.AddMethod, e.RemoveMethod, e.InvokeMethod }.OfType<Dn.MethodDef>(),
+            _ => [],
+        };
+    }
+
+    private Dn.ModuleDefMD LoadScratch(byte[] image, string location)
+    {
+        var module = Dn.ModuleDefMD.Load(image, workspace.DnlibContext);
+        module.Location = location;
+        module.EnableTypeDefFindCache = true;
+        return module;
+    }
+
     /// <summary>XAML from a BAML resource, or null on failure.</summary>
     public string? DecompileBaml(LoadedAssembly asm, byte[] baml, CancellationToken ct)
     {

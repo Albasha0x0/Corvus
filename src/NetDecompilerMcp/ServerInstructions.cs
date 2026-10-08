@@ -25,8 +25,10 @@ internal static class ServerInstructions
            export_il2cpp_symbols (IDA/Ghidra scripts + C struct header). generate_cpp_binding emits C++ binding code for a Mono type
            (standard Mono embedding API, or a host function table detected in projectDir with the include paths computed).
         7. Patch in memory (dryRun=true previews): rename_symbol, rename_namespace, stub_method, patch_method_csharp (C# body; lambdas,
-           async, LINQ supported), add_members_csharp, add_types_csharp, patch_method_il. Review with list_edits / diff_edits, undo with
-           undo_edit / revert_edits, then save_assembly (never overwrites the original without overwrite=true; keeps a .bak).
+           async, LINQ supported), add_members_csharp, add_types_csharp, patch_method_il, simplify_methods (obfuscated code: folds
+           string-decryptor calls to literals, removes dead branches, inlines forwarders; decompile_member simplified=true previews it).
+           Review with list_edits / diff_edits, undo with undo_edit / revert_edits, then save_assembly (never overwrites the original
+           without overwrite=true; keeps a .bak).
 
         Symbols: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method', 'Ns.Type::Method(int, string)', 'Ns.Type::.ctor', short names,
         or tokens like '0x06000123'. The assembly parameter is optional unless a name is ambiguous; errors list candidates.

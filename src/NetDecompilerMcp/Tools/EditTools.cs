@@ -2,6 +2,7 @@ using System.ComponentModel;
 using ModelContextProtocol.Server;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Services;
+using NetDecompilerMcp.Services.Simplify;
 using static NetDecompilerMcp.Tools.ToolSupport;
 
 namespace NetDecompilerMcp.Tools;
@@ -165,6 +166,42 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, method, SymbolKind.Method);
         return $"[{sym.Assembly.Id}] {edits.PatchMethodIL(sym, il, mode, dryRun)}{Pending(sym.Assembly, dryRun)}";
+    }, cancellationToken);
+
+    [McpServerTool(Name = "simplify_methods", Title = "Simplify method bodies", Destructive = false, OpenWorld = false)]
+    [Description("Compiler-style cleanup of method bodies in memory, e.g. for obfuscated code. Passes (all by default): " +
+                 "fold: calls that compute a string from constant inputs (string decryptors; char, array, StringBuilder, Encoding and Base64 helpers; " +
+                 "nested helper calls of the same assembly) are run by a safe IL interpreter and replaced with the string literal. Calls outside the safe " +
+                 "subset (I/O, reflection, exceptions, instance objects, native code, mutable statics) or over the depth / instruction budget are kept and reported. " +
+                 "cfg: branches on constant conditions are folded, branch-to-branch chains collapsed, empty try/finally and dead handlers removed, unreachable code deleted. " +
+                 "inline: call sites of forwarders (methods that only pass their arguments on to another method) call the real target; " +
+                 "virtually dispatched wrappers and inaccessible targets are skipped. " +
+                 "Scope: a method, a type (nested types included), or omit symbol for the whole assembly. Each rewritten body is stack-verified or left unchanged. " +
+                 "Persisted only by save_assembly. To preview the C# without editing, use decompile_member / decompile_type with simplified=true.")]
+    public Task<string> SimplifyMethods(
+        [Description("Method or type. " + SymbolDescription + " Omit to simplify every method of the assembly.")] string? symbol = null,
+        [Description(AssemblyFilterDescription + " Required when symbol is omitted.")] string? assembly = null,
+        [Description("Comma-separated passes: fold, cfg, inline (default: all).")] string? passes = null,
+        [Description("Max call depth when evaluating, the evaluated call included (default 8).")] int? maxDepth = null,
+        [Description("Max IL instructions executed per evaluated call, nested calls included (default 100000).")] int? budget = null,
+        [Description(DryRunDescription + " Reports folded constants, removed blocks and inlined forwarders.")] bool dryRun = false,
+        CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
+    {
+        var options = SimplifyOptions.Parse(passes, maxDepth, budget);
+        ResolvedSymbol? sym = null;
+        LoadedAssembly asm;
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            if (string.IsNullOrWhiteSpace(assembly))
+                throw new ToolError("Pass a method or type, or an assembly to simplify all of its methods.");
+            asm = workspace.Get(assembly);
+        }
+        else
+        {
+            sym = SymbolResolver.ResolveOne(workspace, assembly, symbol);
+            asm = sym.Assembly;
+        }
+        return $"[{asm.Id}] {edits.SimplifyMethods(asm, sym, options, dryRun, cancellationToken)}{Pending(asm, dryRun)}";
     }, cancellationToken);
 
     [McpServerTool(Name = "save_assembly", Title = "Save patched assembly", Destructive = true, OpenWorld = false)]
