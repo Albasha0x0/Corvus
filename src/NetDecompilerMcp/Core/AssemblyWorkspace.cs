@@ -503,11 +503,29 @@ public sealed class AssemblyWorkspace : IDisposable
     /// <summary>dnlib resolver backed by <see cref="LocateReference"/>; non-loaded targets are cached as reference-only modules.</summary>
     private sealed class DnlibResolver(AssemblyWorkspace ws) : dnlib.DotNet.IAssemblyResolver
     {
+        // Resolution probes the file system; a scan over every call site asks for the same few references over and
+        // over, unresolvable ones included. Results are kept for one workspace generation (loads, unloads, searches).
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, AssemblyDef?> _cache = new();
+        private int _cacheGeneration = -1;
+
         public AssemblyDef? Resolve(IAssembly assembly, ModuleDef sourceModule)
         {
             var name = assembly.Name?.String;
             if (string.IsNullOrEmpty(name))
                 return null;
+            int generation = ws.Generation;
+            if (_cacheGeneration != generation)
+            {
+                _cache.Clear();
+                _cacheGeneration = generation;
+            }
+            var key = string.Join("|", name, assembly.Version, Convert.ToHexString(assembly.PublicKeyOrToken?.Token?.Data ?? []),
+                sourceModule?.Location is { } location ? SafeDirectory(location) : "", sourceModule == null ? "" : Frameworks.TargetFrameworkOf(sourceModule));
+            return _cache.GetOrAdd(key, _ => ResolveUncached(name, assembly, sourceModule));
+        }
+
+        private AssemblyDef? ResolveUncached(string name, IAssembly assembly, ModuleDef? sourceModule)
+        {
             var requester = sourceModule?.Location;
             var target = ws.LocateReference(name, assembly.Version, assembly.PublicKeyOrToken?.Token?.Data, requester,
                 sourceModule != null && Frameworks.TargetsNetFramework(sourceModule), sourceModule == null ? null : Frameworks.TargetFrameworkOf(sourceModule));
