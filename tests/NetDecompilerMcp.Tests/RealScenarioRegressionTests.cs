@@ -76,4 +76,35 @@ public sealed class RealScenarioRegressionTests
         var il = env.Workspace.Read(() => env.Decompiler.Disassemble(env.Fixture, (IMemberDef)env.One("Lab.P::Answer").Member, default));
         Assert.Contains("ldc.i4", il);
     }
+
+    /// <summary>
+    /// Obfuscators name members with zero-width and bidi characters (U+202E reverses the rest of the line). Tool output
+    /// shows them as \uXXXX, the way the decompiler escapes identifiers, and the resolver accepts the name as shown.
+    /// </summary>
+    [Fact]
+    public void InvisibleCharactersInNamesAreShownEscapedAndResolveAsShown()
+    {
+        using var dir = new TempDir();
+        var lab = new IlLab("Hidden");
+        var name = "‮​Run⁪";
+        lab.Method(name, lab.T.Int32, IlLab.Ldc(7), IlLab.Ret());
+        File.WriteAllBytes(dir.File("Hidden.dll"), lab.Write());
+        using var env = new Env(dir.File("Hidden.dll"));
+
+        var shown = Format.EscapeInvisible($"Lab.P::{name}");
+        Assert.Equal("Lab.P::\\u202e\\u200bRun\\u206a", shown);
+        Assert.Equal(name, ((MethodDef)env.One(shown).Member).Name.String);
+        Assert.Equal($"Lab.P::{name}", Format.UnescapeInvisible(shown));
+        Assert.Equal("a\\u0041", Format.UnescapeInvisible("a\\u0041")); // visible characters stay escaped
+    }
+
+    [Fact]
+    public async Task MissingRequiredArgumentIsAClearToolError()
+    {
+        await using var client = await McpProtocolTests.StartServerAsync("--load", Env.FixturePath);
+        var result = await client.CallToolAsync("decompile_member", new Dictionary<string, object?>());
+        var text = string.Join("\n", result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(c => c.Text));
+        Assert.True(result.IsError);
+        Assert.Equal("Missing required parameter 'member' for decompile_member.", text);
+    }
 }

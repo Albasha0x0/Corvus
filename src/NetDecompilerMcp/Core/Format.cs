@@ -258,6 +258,41 @@ public static class Format
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Characters that print as nothing or reorder the text around them: format characters (zero-width and bidi
+    /// controls such as U+202E), line and paragraph separators, and the Hangul fillers. Obfuscators build names from them.
+    /// </summary>
+    public static bool IsInvisible(char ch) =>
+        char.GetUnicodeCategory(ch) is System.Globalization.UnicodeCategory.Format or System.Globalization.UnicodeCategory.LineSeparator
+            or System.Globalization.UnicodeCategory.ParagraphSeparator
+        || ch is 'ᅟ' or 'ᅠ' or 'ㅤ' or 'ﾠ';
+
+    /// <summary>Invisible characters (see <see cref="IsInvisible"/>) as \uXXXX, the way the decompiler escapes identifiers.</summary>
+    public static string EscapeInvisible(string s)
+    {
+        int i = 0;
+        while (i < s.Length && !IsInvisible(s[i])) i++;
+        if (i == s.Length) return s;
+        var sb = new StringBuilder(s.Length + 32).Append(s, 0, i);
+        for (; i < s.Length; i++)
+        {
+            if (IsInvisible(s[i])) sb.Append("\\u").Append(((int)s[i]).ToString("x4"));
+            else sb.Append(s[i]);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>The inverse of <see cref="EscapeInvisible"/>: \uXXXX of an invisible character becomes the character.</summary>
+    public static string UnescapeInvisible(string s)
+    {
+        if (!s.Contains("\\u", StringComparison.OrdinalIgnoreCase)) return s;
+        return System.Text.RegularExpressions.Regex.Replace(s, @"\\[uU]([0-9a-fA-F]{4})", m =>
+        {
+            var ch = (char)Convert.ToInt32(m.Groups[1].Value, 16);
+            return IsInvisible(ch) ? ch.ToString() : m.Value;
+        });
+    }
+
     /// <summary>"[Name(args, Named = value)]" with the Attribute suffix dropped.</summary>
     public static string Attribute(CustomAttribute ca)
     {

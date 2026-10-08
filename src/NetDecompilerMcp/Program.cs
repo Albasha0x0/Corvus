@@ -79,11 +79,32 @@ builder.Services
         try
         {
             var result = await next(context, cancellationToken);
+            // Obfuscated names made of zero-width and bidi characters would print as nothing or scramble the line.
+            foreach (var block in result.Content.OfType<TextContentBlock>())
+                block.Text = NetDecompilerMcp.Core.Format.EscapeInvisible(block.Text);
             // Prepend pending workspace notices; trailing blank line because clients join content blocks without a separator.
             var notices = context.Services?.GetService<AssemblyWorkspace>()?.DrainNotices();
             if (notices is { Count: > 0 })
                 result.Content.Insert(0, new TextContentBlock { Text = string.Join("\n", notices.Select(n => "[workspace] " + n)) + "\n\n" });
             return result;
+        }
+        catch (NetDecompilerMcp.Core.ToolError ex)
+        {
+            // The SDK's own rendering of tool errors, with names made of invisible characters escaped as in results.
+            return new CallToolResult
+            {
+                IsError = true,
+                Content = [new TextContentBlock { Text = $"An error occurred invoking '{context.Params?.Name}': {NetDecompilerMcp.Core.Format.EscapeInvisible(ex.Message)}" }],
+            };
+        }
+        catch (ArgumentException ex) when (ex.ParamName == "arguments" && System.Text.RegularExpressions.Regex.Match(ex.Message, "required parameter '([^']+)'") is { Success: true } m)
+        {
+            // Argument binding: a required parameter is missing.
+            return new CallToolResult
+            {
+                IsError = true,
+                Content = [new TextContentBlock { Text = $"Missing required parameter '{m.Groups[1].Value}' for {context.Params?.Name}." }],
+            };
         }
         catch (Exception ex) when (ex is not McpException && ex is not OperationCanceledException)
         {

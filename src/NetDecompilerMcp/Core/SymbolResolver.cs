@@ -39,7 +39,8 @@ public static class SymbolResolver
         if (string.IsNullOrWhiteSpace(symbol))
             throw new ToolError("Symbol is empty.");
         var scope = ws.Scope(assembly);
-        var query = symbol.Trim();
+        // Names with invisible characters are shown escaped (see Format.EscapeInvisible); accept them back as shown.
+        var query = Format.UnescapeInvisible(symbol.Trim());
 
         if (TryParseToken(query, out uint token))
             return ResolveToken(scope, token, kind, query);
