@@ -425,7 +425,7 @@ public sealed class SimplifyTests : IDisposable
         var before = Il(env, "Flat.Steps::Dynamic");
         var report = Simplify(env, "Flat.Steps::Dynamic");
         Assert.Contains("0 of 1 method(s) changed", report);
-        Assert.Matches(@"Flat\.Steps::Dynamic\(int\) switch dispatcher at IL_\w{4}: the state stored at IL_\w{4} is not a constant that selects a case; " +
+        Assert.Matches(@"Flat\.Steps::Dynamic\(int\) switch dispatcher at IL_\w{4}: the state on the way into the dispatcher at IL_\w{4} is not known; " +
                        @"the dispatcher is kept \[flattened-shape\]", report);
         Assert.Equal(before, Il(env, "Flat.Steps::Dynamic"));
         Assert.Empty(env.Fixture.Edits);
@@ -448,9 +448,9 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Theory]
-    [InlineData("AddressTaken", @"the address of the state local is taken at IL_\w{4}")]
-    [InlineData("ReadElsewhere", @"the state local is read at IL_\w{4}, outside the dispatcher")]
-    [InlineData("CondEntry", @"IL_\w{4} enters the dispatcher by a conditional branch, switch or leave")]
+    [InlineData("AddressTaken", @"the address of the state local V_0 is taken at IL_\w{4}")]
+    [InlineData("Varies", @"the state is read at IL_\w{4}, where its value depends on the path taken")]
+    [InlineData("Mixed", @"the state on the way into the dispatcher at IL_\w{4} is not known")]
     public void DispatcherOutsideTheCleanFormIsKept(string method, string why)
     {
         using var env = new Env(FlowFixture());
@@ -471,7 +471,7 @@ public sealed class SimplifyTests : IDisposable
         Assert.Contains("-> \"ab\"", report);
         Assert.Contains("inlined Paths.Flow::PlainW(int) -> Paths.Flow::Plain(int)", report);
         Assert.Contains("folded 1 constant branch(es)", report);
-        Assert.Matches(@"Paths\.Flow::Mixed\(int\) switch dispatcher at IL_\w{4}: the state local is read at IL_\w{4}, outside the dispatcher; " +
+        Assert.Matches(@"Paths\.Flow::Mixed\(int\) switch dispatcher at IL_\w{4}: the state on the way into the dispatcher at IL_\w{4} is not known; " +
                        @"the dispatcher is kept \[flattened-shape\]", report);
 
         var code = Body(env, "Paths.Flow::Mixed");
@@ -490,6 +490,143 @@ public sealed class SimplifyTests : IDisposable
     {
         using var env = new Env(FlowFixture());
         Assert.Contains("Nothing to simplify", Simplify(env, "Paths.Flow::LocalSwitch"));
+    }
+
+    [Theory]
+    [InlineData("CondEntry", 3)]
+    [InlineData("ReadElsewhere", 1)] // case 0 only transitions: the state is run through it
+    public void DispatcherOutsideTheCleanFormIsUnflattenedPerState(string method, int transitions)
+    {
+        using var env = new Env(FlowFixture());
+        var report = Simplify(env, "Paths.Flow::" + method);
+        Assert.Contains($"unflattened 1 switch dispatcher(s) ({transitions} transition(s) go straight to their case)", report);
+        Assert.DoesNotContain("flattened-shape", report);
+        var code = Body(env, "Paths.Flow::" + method);
+        Assert.DoesNotContain(code, i => i.OpCode.Code == Code.Switch || i.IsLdloc() || i.IsStloc());
+        var image = env.Fixture.GetImageBytes();
+        foreach (var x in new[] { 0, 1, 5, -9 })
+            Assert.Equal(Run(env.Fixture.OriginalBytes, "Paths.Flow", method, x), Run(image, "Paths.Flow", method, x));
+    }
+
+    /// <summary>
+    /// Flattening as ConfuserEx emits it, written in C#: the dispatcher switches on <c>(num2 = num ^ K) % 5</c>, and each
+    /// case computes the next state from num2 (<c>num = num2 * A ^ B</c>), so no transition stores a constant. The
+    /// constants chain the cases: S(c) selects case c, and B(c, d) leads from case c to case d.
+    /// </summary>
+    private static string ConfusedSource()
+    {
+        const uint K = 0x9E3779B9, A = 0x2545F491;
+        static uint S(int c) => (uint)(c + 5000) ^ K;
+        static string B(int from, int to) => "0x" + (unchecked((uint)(from + 5000) * A) ^ S(to)).ToString("X8");
+        string Dispatch(string cases) => $$"""
+                    uint num = 0x{{S(2):X8}}u;
+                    while (true)
+                    {
+                        uint num2;
+                        switch ((num2 = num ^ 0x{{K:X8}}u) % 5u)
+                        {
+            {{cases}}
+                        }
+                    }
+            """;
+        return $$"""
+            namespace Confused
+            {
+                public static class C
+                {
+                    // 2 -> 0 -> 3 -> 1 -> 4: ((x + 11) * 3 + 1 ^ 0x55) - 7
+                    public static int Chain(int x)
+                    {
+            {{Dispatch($$"""
+                            case 0u: x = x * 3 + 1; num = num2 * 0x{{A:X8}}u ^ {{B(0, 3)}}u; continue;
+                            case 1u: x -= 7; num = num2 * 0x{{A:X8}}u ^ {{B(1, 4)}}u; continue;
+                            case 2u: x += 11; num = num2 * 0x{{A:X8}}u ^ {{B(2, 0)}}u; continue;
+                            case 3u: x ^= 0x55; num = num2 * 0x{{A:X8}}u ^ {{B(3, 1)}}u; continue;
+                            default: return x;
+            """)}}
+                    }
+
+                    // 2 -> 0 -> (x > 10 ? 1 : 3) -> 4: a conditional transition through a shared tail
+                    public static int Branchy(int x)
+                    {
+            {{Dispatch($$"""
+                            case 0u: x += 2; num = x > 10 ? num2 * 0x{{A:X8}}u ^ {{B(0, 1)}}u : num2 * 0x{{A:X8}}u ^ {{B(0, 3)}}u; continue;
+                            case 1u: x *= 5; num = num2 * 0x{{A:X8}}u ^ {{B(1, 4)}}u; continue;
+                            case 2u: x -= 1; num = num2 * 0x{{A:X8}}u ^ {{B(2, 0)}}u; continue;
+                            case 3u: x = -x; num = num2 * 0x{{A:X8}}u ^ {{B(3, 4)}}u; continue;
+                            default: return x;
+            """)}}
+                    }
+
+                    // 2 -> 1 -> 1 ... -> 4: case 1 loops on itself, always with the same state
+                    public static int Loop(int x)
+                    {
+            {{Dispatch($$"""
+                            case 0u: return -1;
+                            case 1u: x = x * 2 + 1; num = x < 1000 && x > -1000 ? num2 * 0x{{A:X8}}u ^ {{B(1, 1)}}u : num2 * 0x{{A:X8}}u ^ {{B(1, 4)}}u; continue;
+                            case 2u: x += 3; num = num2 * 0x{{A:X8}}u ^ {{B(2, 1)}}u; continue;
+                            case 3u: return -3;
+                            default: return x;
+            """)}}
+                    }
+
+                    // Case 0 runs with two states (num2 = 5000 and 5005) and adds num2 to x: its value depends on the path.
+                    public static int Varies(int x)
+                    {
+            {{Dispatch($$"""
+                            case 0u: x += (int)num2; num = x > 20000 ? num2 * 0x{{A:X8}}u ^ {{B(0, 4)}}u : 0x{{(uint)5005 ^ K:X8}}u; continue;
+                            case 1u: return -1;
+                            case 2u: x += 3; num = num2 * 0x{{A:X8}}u ^ {{B(2, 0)}}u; continue;
+                            case 3u: return -3;
+                            default: return x;
+            """)}}
+                    }
+                }
+            }
+            """;
+    }
+
+    private string ConfusedFixture()
+    {
+        var path = _dir.File("Confused.dll");
+        if (!File.Exists(path)) File.WriteAllBytes(path, CompileRelease("Confused", ConfusedSource()));
+        return path;
+    }
+
+    [Theory]
+    [InlineData("Chain")]
+    [InlineData("Branchy")]
+    [InlineData("Loop")]
+    public void TransitionsComputedFromThePreviousStateAreUnflattened(string method)
+    {
+        using var env = new Env(ConfusedFixture());
+        Assert.Contains("switch", env.Decompile("Confused.C::" + method));
+        var report = Simplify(env, "Confused.C::" + method, dryRun: true);
+        Assert.Contains("1 of 1 method(s) would change", report);
+        Assert.Contains("unflattened 1 switch dispatcher(s)", report);
+        Assert.DoesNotContain("flattened-shape", report);
+
+        Simplify(env, "Confused.C::" + method);
+        var code = Body(env, "Confused.C::" + method);
+        Assert.DoesNotContain(code, i => i.OpCode.Code == Code.Switch);
+        var csharp = env.Decompile("Confused.C::" + method);
+        Assert.DoesNotContain("num", csharp);
+        Assert.DoesNotContain("switch", csharp);
+
+        var image = env.Fixture.GetImageBytes();
+        foreach (var x in new[] { 0, 1, 7, 11, 12, 300, -5, 999, int.MaxValue })
+            Assert.Equal(Run(env.Fixture.OriginalBytes, "Confused.C", method, x), Run(image, "Confused.C", method, x));
+    }
+
+    [Fact]
+    public void ComputedTransitionsThatDependOnThePathKeepTheDispatcher()
+    {
+        using var env = new Env(ConfusedFixture());
+        var before = Il(env, "Confused.C::Varies");
+        var report = Simplify(env, "Confused.C::Varies");
+        Assert.Matches(@"Confused\.C::Varies\(int\) switch dispatcher at IL_\w{4}: the state on the way into the dispatcher at IL_\w{4} depends on the path taken; " +
+                       @"the dispatcher is kept \[flattened-shape\]", report);
+        Assert.Equal(before, Il(env, "Confused.C::Varies"));
     }
 
     [Fact]
@@ -1030,6 +1167,23 @@ public sealed class SimplifyTests : IDisposable
                 Ldc(1), OpCodes.Stloc.ToInstruction(state), OpCodes.Br.ToInstruction(head),
                 c1, Ret());
         }
+        // Varies: x + 3; the case shared by states 1 and 2 reads the state, which is 1 the first time and 2 the second.
+        {
+            var m = Method("Varies", i4);
+            var b = m.Body;
+            b.InitLocals = true;
+            var state = new Local(i4);
+            b.Variables.Add(state);
+            var head = OpCodes.Ldloc.ToInstruction(state);
+            Instruction c0 = Ldc(7), c1 = OpCodes.Ldloc.ToInstruction(state), done = OpCodes.Ldarg_0.ToInstruction();
+            Emit(b, Ldc(1), OpCodes.Stloc.ToInstruction(state),
+                head, OpCodes.Switch.ToInstruction(new[] { c0, c1, c1 }), Ldc(-1), Ret(),
+                c0, Ret(),
+                c1, OpCodes.Ldarg_0.ToInstruction(), OpCodes.Add.ToInstruction(), OpCodes.Starg.ToInstruction(m.Parameters[0]),
+                OpCodes.Ldloc.ToInstruction(state), Ldc(2), OpCodes.Beq.ToInstruction(done),
+                Ldc(2), OpCodes.Stloc.ToInstruction(state), OpCodes.Br.ToInstruction(head),
+                done, Ret());
+        }
         // LocalSwitch: switch (local) as a debug build emits it; no loop, so not flattened control flow.
         {
             var m = Method("LocalSwitch", i4);
@@ -1047,8 +1201,8 @@ public sealed class SimplifyTests : IDisposable
         // PlainW: a forwarder to Plain.
         var plainW = Method("PlainW", i4);
         Emit(plainW.Body, OpCodes.Ldarg_0.ToInstruction(), OpCodes.Call.ToInstruction(plain), Ret());
-        // Mixed: x + 4 through a dispatcher whose state is read in a case (not the clean form), around a constant
-        // branch, a forwarder call and a string fold: x = PlainW(x) in case 0, then x += state; "ab".Length + x in case 1.
+        // Mixed: a dispatcher whose state depends on the argument (kept), around a constant branch, a forwarder call and
+        // a string fold: x = PlainW(x); state = (x > 0) + 1 in case 0, then x += state; "ab".Length + x in cases 1 and 2.
         {
             var m = Method("Mixed", i4);
             var b = m.Body;
@@ -1060,10 +1214,11 @@ public sealed class SimplifyTests : IDisposable
             var concat = module.Import(typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]));
             var length = module.Import(typeof(string).GetProperty(nameof(string.Length))!.GetGetMethod());
             Emit(b, Ldc(0), OpCodes.Stloc.ToInstruction(state),
-                head, OpCodes.Switch.ToInstruction(new[] { c0, c1 }), Ldc(-1), Ret(),
+                head, OpCodes.Switch.ToInstruction(new[] { c0, c1, c1 }), Ldc(-1), Ret(),
                 c0, OpCodes.Brtrue.ToInstruction(work), Ldc(99), Ret(),
                 work, OpCodes.Call.ToInstruction(plainW), OpCodes.Starg.ToInstruction(m.Parameters[0]),
-                Ldc(1), OpCodes.Stloc.ToInstruction(state), OpCodes.Br.ToInstruction(head),
+                OpCodes.Ldarg_0.ToInstruction(), Ldc(0), OpCodes.Cgt.ToInstruction(), Ldc(1), OpCodes.Add.ToInstruction(),
+                OpCodes.Stloc.ToInstruction(state), OpCodes.Br.ToInstruction(head),
                 c1, OpCodes.Ldarg_0.ToInstruction(), OpCodes.Add.ToInstruction(), OpCodes.Starg.ToInstruction(m.Parameters[0]),
                 OpCodes.Ldstr.ToInstruction("a"), OpCodes.Ldstr.ToInstruction("b"),
                 OpCodes.Call.ToInstruction(concat), OpCodes.Callvirt.ToInstruction(length), OpCodes.Ldarg_0.ToInstruction(),

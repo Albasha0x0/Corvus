@@ -12,14 +12,26 @@ namespace NetDecompilerMcp.Services.Simplify;
 /// Values are the evaluator's (int, long, native int, float, double, string, null); arithmetic, comparisons and
 /// conversions use the evaluator's own semantics (<see cref="Numeric"/>), and calls with constant arguments and reads of
 /// readonly static fields are evaluated by <see cref="IlEvaluator"/>. Anything else is unknown. Locals whose address is
-/// taken, or that a finally or fault handler writes, are always unknown; a handler starts with every local the method
-/// writes unknown. Arguments are unknown.
+/// taken (other than to read them right away, <c>ldloca; ldind</c>), that a filter writes, or that a finally or fault
+/// handler writes and other code uses, are always unknown; a handler starts with the join of the states over its try.
+/// Arguments are unknown. Enum locals hold their underlying integers.
+/// </para>
+/// <para>
+/// <see cref="Dispatch"/> analyzes a flattened switch dispatcher per state: every way into it is run through it, and the
+/// case it selects is analyzed in a context of its own (the values the dispatcher leaves in its locals), so that what a
+/// case computes from the state is known per case.
 /// </para>
 /// </summary>
 internal sealed class ConstantFlow
 {
     /// <summary>A value that is not the same on every run (or not modelled).</summary>
     public static readonly object Unknown = new();
+
+    /// <summary>Contexts (dispatcher states) explored at most.</summary>
+    public const int MaxContexts = 1024;
+
+    /// <summary>Instructions analyzed at most, over all contexts.</summary>
+    public const int MaxSteps = 4_000_000;
 
     private readonly CilBody _body;
     private readonly BodyGraph _graph;
@@ -34,6 +46,15 @@ internal sealed class ConstantFlow
     /// <summary>Calls and static field reads whose value was evaluated to a constant (the code may drop them with their result).</summary>
     public HashSet<Instruction> Evaluated { get; } = new();
 
+    /// <summary>
+    /// After <see cref="Decisions"/>: the reads of locals through their address (the ldind of <c>ldloca; ldind</c>, which
+    /// obfuscators use to hide constants) that read the same value on every run.
+    /// </summary>
+    public Dictionary<Instruction, object?> AddressReads { get; } = new();
+
+    /// <summary>The address of a local, pushed by an <c>ldloca</c> that an <c>ldind</c> reads right away.</summary>
+    private sealed record LocalAddress(int Index);
+
     public ConstantFlow(CilBody body, BodyGraph graph, bool hasReturnValue, IlEvaluator evaluator)
     {
         _body = body;
@@ -43,23 +64,69 @@ internal sealed class ConstantFlow
         _evaluator = evaluator;
         var variables = body.Variables;
         _untracked = new bool[variables.Count];
-        _localTypes = variables.Select(v => v.Type?.RemovePinnedAndModifiers()).ToArray();
+        _localTypes = variables.Select(v => ValueType(v.Type)).ToArray();
         for (int i = 0; i < variables.Count; i++)
             _untracked[i] = Initial(_localTypes[i], true) == Unknown;
+        // A local a finally or fault handler writes changes on the way out of its try, which a leave's flow does not show:
+        // it is tracked only when nothing outside that handler uses it.
+        var finallyOf = new int?[variables.Count];
+        var usedOutside = new bool[variables.Count];
         for (int i = 0; i < _code.Count; i++)
         {
             var ins = _code[i];
-            if (ins.OpCode.Code is Code.Ldloca or Code.Ldloca_S && ins.GetLocal(variables) is { } taken) _untracked[taken.Index] = true;
-            if (ins.IsStloc() && ins.GetLocal(variables) is { } stored && InFinallyOrFault(i)) _untracked[stored.Index] = true;
+            if (ins.OpCode.Code is Code.Ldloca or Code.Ldloca_S && ins.GetLocal(variables) is { } taken && !ReadAtOnce(i, taken.Index))
+                _untracked[taken.Index] = true;
+            // A filter's stores are not seen by its handler, which starts from the try's states.
+            if (ins.IsStloc() && ins.GetLocal(variables) is { } filtered && _graph.Regions(i).Any(id => id % 3 == 2)) _untracked[filtered.Index] = true;
+            if (ins.IsStloc() && ins.GetLocal(variables) is { } stored && FinallyOrFault(i) is { } h)
+            {
+                if (finallyOf[stored.Index] is { } other && other != h) _untracked[stored.Index] = true;
+                finallyOf[stored.Index] = h;
+            }
         }
+        for (int i = 0; i < _code.Count; i++)
+        {
+            var ins = _code[i];
+            if (!(ins.IsLdloc() || ins.IsStloc() || ins.OpCode.Code is Code.Ldloca or Code.Ldloca_S) || ins.GetLocal(variables) is not { } local) continue;
+            if (finallyOf[local.Index] is { } h && !_graph.Regions(i).Contains(h * 3 + 1)) usedOutside[local.Index] = true;
+        }
+        for (int l = 0; l < variables.Count; l++)
+            if (finallyOf[l] != null && usedOutside[l]) _untracked[l] = true;
     }
 
-    private bool InFinallyOrFault(int index)
+    /// <summary>The type whose values a local holds: enums hold their underlying integer.</summary>
+    private static TypeSig? ValueType(TypeSig? type)
     {
+        type = type?.RemovePinnedAndModifiers();
+        if (type?.ElementType == ElementType.ValueType && type.ToTypeDefOrRef()?.ResolveTypeDef() is { IsEnum: true } e)
+            return e.GetEnumUnderlyingType()?.RemovePinnedAndModifiers();
+        return type;
+    }
+
+    /// <summary><c>ldloca</c> at <paramref name="i"/> is read right away by an <c>ldind</c> of the local's own type.</summary>
+    internal bool ReadAtOnce(int i, int local)
+    {
+        if (i + 1 >= _code.Count || _graph.Targets.Contains(_code[i + 1])) return false;
+        return (_code[i + 1].OpCode.Code, _localTypes[local]?.ElementType) switch
+        {
+            (Code.Ldind_I1, ElementType.I1) or (Code.Ldind_U1, ElementType.U1 or ElementType.Boolean) or (Code.Ldind_I2, ElementType.I2)
+                or (Code.Ldind_U2, ElementType.U2 or ElementType.Char) or (Code.Ldind_I4 or Code.Ldind_U4, ElementType.I4 or ElementType.U4)
+                or (Code.Ldind_I8, ElementType.I8 or ElementType.U8) => true,
+            _ => false,
+        };
+    }
+
+    /// <summary>Whether the analysis tracks the local's value.</summary>
+    public bool Tracks(int local) => local >= 0 && local < _untracked.Length && !_untracked[local];
+
+    /// <summary>The innermost finally or fault handler containing code[index], or null.</summary>
+    private int? FinallyOrFault(int index)
+    {
+        int? found = null;
         foreach (int id in _graph.Regions(index))
             if (id % 3 == 1 && _graph.Handlers[id / 3].HandlerType is ExceptionHandlerType.Finally or ExceptionHandlerType.Fault)
-                return true;
-        return false;
+                found = id / 3;
+        return found;
     }
 
     /// <summary>The value a local starts with: its type's default when the body zero-initializes locals.</summary>
@@ -85,33 +152,231 @@ internal sealed class ConstantFlow
         public object?[] Stack { get; } = stack;
     }
 
+    /// <summary>The analysis stopped: the dispatcher cannot be analyzed per state (the message says why).</summary>
+    private sealed class Stop(string why) : Exception(why);
+
+    /// <summary>
+    /// A switch dispatcher to analyze per state: its code (<see cref="Members"/>: the straight-line code before the
+    /// switch at <see cref="Switch"/>, and tails such as <c>stloc state; br dispatcher</c> that only lead into it), and
+    /// its locals (the state and the locals the dispatcher writes).
+    /// </summary>
+    public sealed record Dispatcher(int Switch, IReadOnlySet<int> Members, IReadOnlySet<int> Locals);
+
+    /// <summary>What <see cref="Dispatch"/> found; <see cref="Failure"/> is set when the dispatcher cannot be removed.</summary>
+    public sealed class DispatchResult
+    {
+        public string? Failure { get; set; }
+        /// <summary>Each way into the dispatcher (from: -1 for the method entry; to: the instruction entered) and the case it selects on every run.</summary>
+        public Dictionary<(int From, int To), Instruction> Edges { get; } = new();
+        /// <summary>Reads of the dispatcher's locals outside it (the ldloc, or the ldind of ldloca; ldind), and the value they read on every run.</summary>
+        public Dictionary<int, object?> Reads { get; } = new();
+        public int States { get; set; }
+    }
+
     /// <summary>
     /// Runs the analysis. Returns the reachable conditional branches and switches whose outcome is known, with the
     /// instruction they continue at (the branch target, or the next instruction when they fall through).
     /// </summary>
     public List<(Instruction Branch, Instruction Next)> Decisions(MethodMeter? meter)
     {
-        int n = _code.Count;
-        var leader = new bool[n];
-        if (n > 0) leader[0] = true;
-        for (int i = 0; i < n; i++)
+        var run = new Run(this, null, meter);
+        run.Execute();
+        foreach (var (i, value) in run.AddressReads)
+            if (value != Unknown) AddressReads[_code[i]] = value;
+        return run.Decided();
+    }
+
+    /// <summary>Analyzes the method with <paramref name="dispatcher"/> resolved per state.</summary>
+    public DispatchResult Dispatch(Dispatcher dispatcher, MethodMeter? meter)
+    {
+        var run = new Run(this, dispatcher, meter);
+        var result = new DispatchResult();
+        try
         {
-            var ins = _code[i];
-            if (_graph.Targets.Contains(ins)) leader[i] = true;
-            if (ins.OpCode.FlowControl is FlowControl.Branch or FlowControl.Cond_Branch or FlowControl.Return or FlowControl.Throw
-                    && i + 1 < n) leader[i + 1] = true;
+            run.Execute();
+        }
+        catch (Stop stop)
+        {
+            result.Failure = stop.Message;
+            return result;
+        }
+        result.States = run.Contexts;
+        foreach (var (edge, targets) in run.EdgeTargets)
+        {
+            if (targets.Count != 1)
+            {
+                result.Failure = $"the state on the way into the dispatcher at {Where(edge.From < 0 ? edge.To : edge.From)} depends on the path taken";
+                return result;
+            }
+            result.Edges[edge] = targets.First();
+        }
+        foreach (var (index, value) in run.Reads)
+        {
+            if (value == Unknown)
+            {
+                result.Failure = $"the state is read at {Where(index)}, where its value depends on the path taken";
+                return result;
+            }
+            result.Reads[index] = value;
+        }
+        return result;
+    }
+
+    private string Where(int index) => $"IL_{_code[index].Offset:X4}";
+
+    /// <summary>One run of the analysis: block states per (leader, context), worked off to a fixed point.</summary>
+    private sealed class Run(ConstantFlow flow, Dispatcher? dispatcher, MethodMeter? meter)
+    {
+        private readonly int _n = flow._code.Count;
+        private readonly Dictionary<(int, int), State> _entry = new();
+        private readonly HashSet<(int, int)> _queued = new();
+        private readonly Stack<(int, int)> _work = new();
+        private readonly Dictionary<string, int> _contexts = new() { [""] = 0 };
+        private readonly Dictionary<(Instruction, int), Instruction?> _decisions = new();
+        private bool[] _leader = [];
+        private bool[] _reached = [];
+        private long _steps;
+
+        public Dictionary<(int From, int To), HashSet<Instruction>> EdgeTargets { get; } = new();
+        public Dictionary<int, object?> Reads { get; } = new();
+        public Dictionary<int, object?> AddressReads { get; } = new();
+        public int Contexts => _contexts.Count - 1;
+
+        public List<(Instruction Branch, Instruction Next)> Decided() => _decisions
+            .GroupBy(d => d.Key.Item1)
+            .Select(g => (Branch: g.Key, Next: g.Select(d => d.Value).Distinct().ToList()))
+            .Where(g => g.Next is [{ } next])
+            .Select(g => (g.Branch, g.Next[0]!)).ToList();
+
+        public void Execute()
+        {
+            var code = flow._code;
+            _leader = new bool[_n];
+            _reached = new bool[_n];
+            if (_n > 0) _leader[0] = true;
+            for (int i = 0; i < _n; i++)
+            {
+                var ins = code[i];
+                if (flow._graph.Targets.Contains(ins)) _leader[i] = true;
+                if (ins.OpCode.FlowControl is FlowControl.Branch or FlowControl.Cond_Branch or FlowControl.Return or FlowControl.Throw
+                        && i + 1 < _n) _leader[i + 1] = true;
+            }
+
+            _handlersOf = new List<int>?[_n];
+            for (int h = 0; h < flow._graph.Handlers.Count; h++)
+            {
+                var eh = flow._graph.Handlers[h];
+                for (int i = Math.Max(flow._graph.IndexOf(eh.TryStart), 0); i < flow._graph.IndexOrEnd(eh.TryEnd); i++)
+                    (_handlersOf[i] ??= new List<int>()).Add(h);
+            }
+
+            var initial = flow._localTypes.Select((t, i) => flow._untracked[i] ? Unknown : Initial(t, flow._body.InitLocals)).ToArray();
+            Flow(-1, 0, initial, [], 0);
+            while (_work.Count > 0)
+            {
+                meter?.CheckTime();
+                var key = _work.Pop();
+                _queued.Remove(key);
+                Block(key.Item1, key.Item2);
+            }
         }
 
-        var entry = new State?[n];
-        var queued = new bool[n];
-        var work = new Stack<int>();
-        void Flow(int to, object?[] locals, List<object?> stack)
+        private List<int>?[] _handlersOf = [];
+
+        /// <summary>
+        /// An exception at code[i] (or a leave from its try, for a finally) enters the handlers of the trys containing it
+        /// with the locals as they are before code[i]: a handler starts with the join of those states over its try.
+        /// </summary>
+        private void Throwing(int i, object?[] locals, int context)
         {
-            if (to < 0 || to >= n) return;
-            var old = entry[to];
-            if (old == null)
+            foreach (int h in _handlersOf[i] ?? [])
             {
-                entry[to] = new State((object?[])locals.Clone(), stack.ToArray());
+                var eh = flow._graph.Handlers[h];
+                object?[] exception = eh.HandlerType is ExceptionHandlerType.Catch or ExceptionHandlerType.Filter ? [Unknown] : [];
+                Flow(-2, flow._graph.IndexOf(eh.HandlerStart), locals, exception.ToList(), context);
+                if (eh.FilterStart != null) Flow(-2, flow._graph.IndexOf(eh.FilterStart), locals, [Unknown], context);
+            }
+        }
+
+        private void Block(int start, int context)
+        {
+            var code = flow._code;
+            var state = _entry[(start, context)];
+            var locals = (object?[])state.Locals.Clone();
+            var stack = state.Stack.ToList();
+            bool changed = true; // the locals changed since the handlers last saw them
+            for (int i = start; i < _n; i++)
+            {
+                if (i > start && _leader[i])
+                {
+                    Flow(i - 1, i, locals, stack, context);
+                    return;
+                }
+                if (++_steps > MaxSteps) throw new Stop($"the method is too large to analyze per state ({MaxSteps:N0} instructions)");
+                _reached[i] = true;
+                var ins = code[i];
+                if (changed && _handlersOf[i] != null) Throwing(i, locals, context);
+                changed = ins.IsStloc();
+                int read = dispatcher != null ? DispatcherRead(i, stack) : -1;
+                bool viaAddress = ins.OpCode.Code is >= Code.Ldind_I1 and <= Code.Ldind_Ref && stack.Count > 0 && stack[^1] is LocalAddress;
+                var decided = flow.Step(ins, locals, stack);
+                if (read >= 0) Record(Reads, i, stack[^1]);
+                if (viaAddress) Record(AddressReads, i, stack[^1]);
+                switch (ins.OpCode.FlowControl)
+                {
+                    case FlowControl.Cond_Branch:
+                        // The last visit sees the final (most general) state of its context: it decides.
+                        _decisions[(ins, context)] = decided;
+                        if (decided != null)
+                        {
+                            Flow(i, flow._graph.IndexOf(decided), locals, stack, context);
+                        }
+                        else
+                        {
+                            foreach (var t in BodyGraph.BranchTargets(ins)) Flow(i, flow._graph.IndexOf(t), locals, stack, context);
+                            Flow(i, i + 1, locals, stack, context);
+                        }
+                        return;
+                    case FlowControl.Branch:
+                        Flow(i, flow._graph.IndexOf((Instruction)ins.Operand), locals,
+                            ins.OpCode.Code is Code.Leave or Code.Leave_S ? new List<object?>() : stack, context);
+                        return;
+                    case FlowControl.Return: case FlowControl.Throw:
+                        return;
+                }
+                if (ins.OpCode.Code == Code.Jmp) return;
+            }
+        }
+
+        /// <summary>The dispatcher local code[i] reads (an ldloc, or the ldind of ldloca; ldind) outside the dispatcher, or -1.</summary>
+        private int DispatcherRead(int i, List<object?> stack)
+        {
+            if (dispatcher!.Members.Contains(i)) return -1;
+            var ins = flow._code[i];
+            if (ins.IsLdloc() && ins.GetLocal(flow._body.Variables) is { } l && dispatcher.Locals.Contains(l.Index)) return l.Index;
+            if (ins.OpCode.Code is >= Code.Ldind_I1 and <= Code.Ldind_Ref && stack.Count > 0 && stack[^1] is LocalAddress a && dispatcher.Locals.Contains(a.Index))
+                return a.Index;
+            return -1;
+        }
+
+        private static void Record(Dictionary<int, object?> reads, int i, object? value)
+        {
+            if (!reads.TryGetValue(i, out var old)) reads[i] = value;
+            else if (old != Unknown && !Same(old, value)) reads[i] = Unknown;
+        }
+
+        private void Flow(int from, int to, object?[] locals, List<object?> stack, int context)
+        {
+            if (to < 0 || to >= _n) return;
+            if (dispatcher != null && dispatcher.Members.Contains(to))
+            {
+                Dispatch(from, to, locals, stack);
+                return;
+            }
+            var key = (to, context);
+            if (!_entry.TryGetValue(key, out var old))
+            {
+                _entry[key] = new State((object?[])locals.Clone(), stack.ToArray());
             }
             else
             {
@@ -119,97 +384,59 @@ internal sealed class ConstantFlow
                 bool changed = Join(old.Locals, locals) | Join(old.Stack, stack);
                 if (!changed) return;
             }
-            if (!queued[to])
-            {
-                queued[to] = true;
-                work.Push(to);
-            }
+            if (_queued.Add(key)) _work.Push(key);
         }
 
-        var initial = _localTypes.Select((t, i) => _untracked[i] ? Unknown : Initial(t, _body.InitLocals)).ToArray();
-        Flow(0, initial, []);
-        var handlerLocals = initial.Select((v, i) => IsWritten(i) ? Unknown : v).ToArray();
-        var pending = _graph.Handlers.Select((eh, h) => h).ToList();
-        var reached = new bool[n];
-        var decisions = new Dictionary<Instruction, Instruction?>();
-
-        while (true)
+        /// <summary>Runs the dispatcher from code[to] for one way into it, and goes on at the case it selects, in that case's context.</summary>
+        private void Dispatch(int from, int to, object?[] incoming, List<object?> incomingStack)
         {
-            while (work.Count > 0)
+            string Where(int i) => flow.Where(i);
+            if (from == -2) throw new Stop($"an exception handler starts in the dispatcher at {Where(to)}");
+            var locals = (object?[])incoming.Clone();
+            var stack = incomingStack.ToList();
+            var code = flow._code;
+            // Through the dispatcher to the case the state selects; a case that only transitions (a tail of the
+            // dispatcher) is run through as well.
+            int i = to, t;
+            for (int guard = 0; ; guard++)
             {
-                meter?.CheckTime();
-                int start = work.Pop();
-                queued[start] = false;
-                var state = entry[start]!;
-                var locals = (object?[])state.Locals.Clone();
-                var stack = state.Stack.ToList();
-                for (int i = start; i < n; i++)
+                if (guard > 64 * code.Count) throw new Stop("the dispatcher's states loop without leaving it");
+                _reached[i] = true;
+                if (i == dispatcher!.Switch)
                 {
-                    if (i > start && leader[i])
-                    {
-                        Flow(i, locals, stack);
-                        break;
-                    }
-                    reached[i] = true;
-                    var ins = _code[i];
-                    var decided = Step(ins, locals, stack);
-                    switch (ins.OpCode.FlowControl)
-                    {
-                        case FlowControl.Cond_Branch:
-                            // The last visit sees the final (most general) state: it decides.
-                            decisions[ins] = decided;
-                            if (decided != null)
-                            {
-                                Flow(_graph.IndexOf(decided), locals, stack);
-                            }
-                            else
-                            {
-                                foreach (var t in BodyGraph.BranchTargets(ins)) Flow(_graph.IndexOf(t), locals, stack);
-                                Flow(i + 1, locals, stack);
-                            }
-                            goto nextBlock;
-                        case FlowControl.Branch:
-                            Flow(_graph.IndexOf((Instruction)ins.Operand), locals, ins.OpCode.Code is Code.Leave or Code.Leave_S ? new List<object?>() : stack);
-                            goto nextBlock;
-                        case FlowControl.Return: case FlowControl.Throw:
-                            goto nextBlock;
-                    }
-                    if (ins.OpCode.Code == Code.Jmp) goto nextBlock;
+                    var target = flow.Step(code[i], locals, stack);
+                    if (target == null)
+                        throw new Stop($"the state on the way into the dispatcher at {Where(from < 0 ? to : from)} is not known");
+                    t = flow._graph.IndexOf(target);
+                    if (!dispatcher.Members.Contains(t)) break;
+                    i = t;
+                    continue;
                 }
-                nextBlock: ;
+                if (code[i].OpCode.Code is Code.Br or Code.Br_S)
+                {
+                    i = flow._graph.IndexOf((Instruction)code[i].Operand);
+                    continue;
+                }
+                flow.Step(code[i], locals, stack);
+                i++;
             }
 
-            // Handlers run when their try has reachable code; they start with the locals the method writes unknown.
-            var entered = pending.Where(h => TryReached(h, reached)).ToList();
-            if (entered.Count == 0) break;
-            foreach (int h in entered)
+            var edge = (from, to);
+            if (!EdgeTargets.TryGetValue(edge, out var targets)) EdgeTargets[edge] = targets = new HashSet<Instruction>();
+            targets.Add(code[t]);
+
+            // The case's context: what the dispatcher leaves in its locals, and the case.
+            var name = t + ":" + string.Join(",", dispatcher.Locals.Order().Select(l => Key(locals[l])));
+            if (!_contexts.TryGetValue(name, out int context))
             {
-                pending.Remove(h);
-                var eh = _graph.Handlers[h];
-                object?[] exception = eh.HandlerType is ExceptionHandlerType.Catch or ExceptionHandlerType.Filter ? [Unknown] : [];
-                Flow(_graph.IndexOf(eh.HandlerStart), handlerLocals, exception.ToList());
-                if (eh.FilterStart != null) Flow(_graph.IndexOf(eh.FilterStart), handlerLocals, [Unknown]);
+                if (_contexts.Count > MaxContexts) throw new Stop($"the dispatcher sees more than {MaxContexts} states");
+                _contexts[name] = context = _contexts.Count;
             }
+            Flow(dispatcher.Switch, t, locals, stack, context);
         }
-
-        return decisions.Where(d => d.Value != null).Select(d => (d.Key, d.Value!)).ToList();
     }
 
-    private bool TryReached(int h, bool[] reached)
-    {
-        var eh = _graph.Handlers[h];
-        int from = _graph.IndexOf(eh.TryStart), to = _graph.IndexOrEnd(eh.TryEnd);
-        for (int i = Math.Max(from, 0); i < to; i++)
-            if (reached[i]) return true;
-        return false;
-    }
 
-    private bool IsWritten(int local)
-    {
-        foreach (var ins in _code)
-            if (ins.IsStloc() && ins.GetLocal(_body.Variables)?.Index == local) return true;
-        return false;
-    }
 
     /// <summary>Joins <paramref name="incoming"/> into <paramref name="into"/>; true when <paramref name="into"/> changed.</summary>
     private static bool Join(object?[] into, IReadOnlyList<object?> incoming)
@@ -322,6 +549,19 @@ internal sealed class ConstantFlow
             {
                 var a = Pop();
                 Push(Numeric.IsNumber(a) ? Try(() => Numeric.Convert(op, a)) : Unknown);
+                return null;
+            }
+            case Code.Ldloca: case Code.Ldloca_S:
+            {
+                int i = ins.GetLocal(_body.Variables)?.Index ?? -1;
+                Push(Tracks(i) ? new LocalAddress(i) : Unknown);
+                return null;
+            }
+            case Code.Ldind_I1: case Code.Ldind_U1: case Code.Ldind_I2: case Code.Ldind_U2: case Code.Ldind_I4: case Code.Ldind_U4:
+            case Code.Ldind_I8: case Code.Ldind_I: case Code.Ldind_R4: case Code.Ldind_R8: case Code.Ldind_Ref:
+            {
+                // Only an ldloca read at once pushes an address; it reads the local's own type.
+                Push(Pop() is LocalAddress a ? locals[a.Index] : Unknown);
                 return null;
             }
             case Code.Ldsfld:

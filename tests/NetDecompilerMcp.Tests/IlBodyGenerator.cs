@@ -147,7 +147,7 @@ internal sealed class IlBodyGenerator
     private void Statement(int depth, bool inProtected, bool noExit)
     {
         bool nest = depth < _maxDepth && _budget > 20;
-        int kind = _r.Next(nest ? 22 : 8);
+        int kind = _r.Next(nest ? 23 : 8);
         switch (kind)
         {
             case 0: case 1: case 2: Assign(); break;
@@ -170,6 +170,7 @@ internal sealed class IlBodyGenerator
             case 19: DeadBlock(); break;
             case 20: OpaqueIf(depth, inProtected, noExit); break;
             case 21: LocalConstantIf(depth, inProtected, noExit); break;
+            case 22: ObfuscatedFlattened(depth, inProtected, noExit); break;
             default: Assign(); break;
         }
     }
@@ -445,6 +446,122 @@ internal sealed class IlBodyGenerator
             Op(OpCodes.Br, end);
         }
         Mark(end);
+    }
+
+    /// <summary>
+    /// Flattened control flow as obfuscators emit it, over cases 0..n-1 run in a forward order (the last one leaves):
+    /// <list type="bullet">
+    /// <item>computed (ConfuserEx): the dispatcher switches on <c>(d = state ^ K) % n</c> and each case computes the next
+    /// state from d, <c>state = d * A ^ B</c>, also through a ternary;</item>
+    /// <item>stack (.NET Reactor): cases push the next case number and branch to the switch itself; a conditional
+    /// transition pushes one number, branches to the switch on a condition, else pops it and pushes another;</item>
+    /// <item>laundered: the clean form with every constant passed through a temporary read by address
+    /// (<c>stloc t; ldloca t; ldind.i4</c>).</item>
+    /// </list>
+    /// </summary>
+    private void ObfuscatedFlattened(int depth, bool inProtected, bool noExit)
+    {
+        int n = _r.Next(2, 7);
+        int style = _r.Next(3);
+        var state = NewLocal(VT.I4, pooled: false);
+        var derived = NewLocal(VT.I4, pooled: false);
+        var temp = NewLocal(VT.I4, pooled: false);
+        var cases = Enumerable.Range(0, n).Select(_ => new Label()).ToArray();
+        Label head = new(), sw = new(), exit = new();
+        uint key = (uint)_r.Next(1, int.MaxValue), mul = (uint)_r.Next(1, int.MaxValue) | 1;
+        int m = _r.Next(1, 1000);
+        uint S(int c) => (uint)(c + n * m) ^ key; // selects case c: (S ^ key) % n == c
+        int B(int from, int to) => unchecked((int)((uint)(from + n * m) * mul ^ S(to)));
+
+        void Push(int value)
+        {
+            Ldc(value);
+            if (style != 2) return;
+            Op(OpCodes.Stloc, temp);
+            Op(OpCodes.Ldloca, temp);
+            Op(OpCodes.Ldind_I4);
+        }
+        void Computed(int from, int to)
+        {
+            Op(OpCodes.Ldloc, derived);
+            Ldc(unchecked((int)mul));
+            Op(OpCodes.Mul);
+            Ldc(B(from, to));
+            Op(OpCodes.Xor);
+        }
+
+        // Entry and dispatcher.
+        if (style == 0) Ldc(unchecked((int)S(0)));
+        else Push(0);
+        Op(OpCodes.Stloc, state);
+        if (_r.Next(2) == 0) Op(OpCodes.Br, head);
+        Mark(head);
+        Op(OpCodes.Ldloc, state);
+        if (style == 0)
+        {
+            Ldc(unchecked((int)key));
+            Op(OpCodes.Xor);
+            Op(OpCodes.Dup);
+            Op(OpCodes.Stloc, derived);
+            Ldc(n);
+            Op(OpCodes.Rem_Un);
+        }
+        Mark(sw);
+        Op(OpCodes.Switch, cases);
+        Op(OpCodes.Br, exit);
+
+        foreach (int s in Enumerable.Range(0, n).OrderBy(_ => _r.Next()))
+        {
+            Mark(cases[s]);
+            Block(depth + 1, inProtected, noExit);
+            if (s == n - 1)
+            {
+                Op(OpCodes.Br, exit);
+                continue;
+            }
+            int next = s + 1, other = Math.Min(s + 2, n - 1);
+            bool conditional = _r.Next(3) == 0;
+            switch (style)
+            {
+                case 0 when conditional:
+                {
+                    Label no = new(), store = new();
+                    Expr(VT.I4, 1);
+                    Op(OpCodes.Brfalse, no);
+                    Computed(s, next);
+                    Op(OpCodes.Br, store);
+                    Mark(no);
+                    Computed(s, other);
+                    Mark(store);
+                    Op(OpCodes.Stloc, state);
+                    Op(OpCodes.Br, head);
+                    break;
+                }
+                case 0:
+                    Computed(s, next);
+                    Op(OpCodes.Stloc, state);
+                    Op(OpCodes.Br, head);
+                    break;
+                case 1 when conditional:
+                    Ldc(next);
+                    Expr(VT.I4, 1);
+                    Op(OpCodes.Brtrue, sw);
+                    Op(OpCodes.Pop);
+                    Ldc(other);
+                    Op(OpCodes.Br, sw);
+                    break;
+                case 1:
+                    Ldc(next);
+                    Op(OpCodes.Br, sw);
+                    break;
+                default:
+                    Push(next);
+                    Op(OpCodes.Stloc, state);
+                    Op(OpCodes.Br, head);
+                    break;
+            }
+        }
+        Mark(exit);
     }
 
     /// <summary>

@@ -51,6 +51,11 @@ internal sealed class BodyGraph
     /// <summary>Branch targets and protected-region boundaries.</summary>
     public HashSet<Instruction> Targets { get; }
 
+    /// <summary>Branch targets only.</summary>
+    public HashSet<Instruction> BranchTargetSet => _branchTargets ??= Instructions.SelectMany(BranchTargets).ToHashSet();
+
+    private HashSet<Instruction>? _branchTargets;
+
     public int IndexOf(Instruction ins) => _index.TryGetValue(ins, out int i) ? i : -1;
 
     public int IndexOrEnd(Instruction? ins) => ins == null ? Instructions.Count : _index.TryGetValue(ins, out int i) ? i : Instructions.Count;
@@ -59,6 +64,13 @@ internal sealed class BodyGraph
     public int[] Regions(int index) => index < _regions.Length ? _regions[index] : [];
 
     public bool SameRegions(int a, int b) => Regions(a).AsSpan().SequenceEqual(Regions(b));
+
+    /// <summary>
+    /// Whether a leave at code[from] may go to code[to]: it may exit any of its regions, and enter only trys that start
+    /// at code[to].
+    /// </summary>
+    public bool LeavesLegally(int from, int to) =>
+        Regions(to).Where(id => !Regions(from).Contains(id)).All(id => id % 3 == 0 && Handlers[id / 3].TryStart == Instructions[to]);
 
     /// <summary>Whether the instruction lies inside the handler (or filter) of handler <paramref name="h"/>.</summary>
     public bool InHandlerOf(int index, int h) => Regions(index).Contains(h * 3 + 1) || Regions(index).Contains(h * 3 + 2);
@@ -229,7 +241,7 @@ internal sealed class BodyGraph
     }
 
     /// <summary>Plain control transfer from one instruction to another: same regions, or entering trys at their first instruction.</summary>
-    private bool EntersLegally(int from, int to)
+    public bool EntersLegally(int from, int to)
     {
         if (SameRegions(from, to)) return true;
         var source = Regions(from);
