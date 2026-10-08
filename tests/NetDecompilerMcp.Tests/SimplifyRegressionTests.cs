@@ -121,6 +121,43 @@ public sealed class SimplifyRegressionTests : IDisposable
     }
 
     /// <summary>
+    /// Real application (RebornBuddy): virtual calls were taken to reach every method of the same name, and obfuscators
+    /// give hundreds of unrelated methods the same short names, so nearly every method seemed able to run during every
+    /// type initializer and no static state could be used. A virtual call now reaches the methods of its name and
+    /// signature in the types deriving from the class it names, and in any type for an interface (an interface method
+    /// may be implemented by a method inherited from a base class that lists no interface).
+    /// </summary>
+    [Fact]
+    public void VirtualCallsReachOnlyWhatTheyCanDispatchTo()
+    {
+        const string source = """
+            public interface IRun { int Run(); }
+            public class Base { public virtual int Run() => 1; }
+            public class Derived : Base, IRun { }
+            public class Unrelated { public virtual int Run() => 3; }
+            public static class X { public static readonly int V; static X() { IRun r = new Derived(); V = r.Run(); } }
+
+            public class Base2 { public virtual int M() => 1; }
+            public class Sub2 : Base2 { public override int M() => 2; }
+            public class Unrelated2 { public virtual int M() => 3; }
+            public static class Y { public static readonly int V; static Y() { Base2 b = new Sub2(); V = b.M(); } }
+            """;
+        var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
+            .Where(p => p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)).Select(p => Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(p));
+        var compilation = Microsoft.CodeAnalysis.CSharp.CSharpCompilation.Create("Dispatch", [Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(source)], references,
+            new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(Microsoft.CodeAnalysis.OutputKind.DynamicallyLinkedLibrary));
+        using var ms = new MemoryStream();
+        Assert.True(compilation.Emit(ms).Success);
+        using var module = ModuleDefMD.Load(ms.ToArray());
+        TypeDef T(string name) => module.Find(name, false)!;
+        var facts = new ModuleFacts(module);
+
+        Assert.True(facts.RunsDuringInitialization(T("X"), T("Base").FindMethod("Run")));      // IRun.Run implemented by the inherited Base.Run
+        Assert.True(facts.RunsDuringInitialization(T("Y"), T("Sub2").FindMethod("M")));        // the override
+        Assert.False(facts.RunsDuringInitialization(T("Y"), T("Unrelated2").FindMethod("M"))); // same name and signature, unrelated type
+    }
+
+    /// <summary>
     /// Real application (RebornBuddy): a type initializer that ran inside another one whose evaluation then failed kept
     /// its "initialized" mark while the failed one's rollback erased its static state, so later reads saw default values:
     /// B.X (set to 5 by B's initializer, run from A's) read back as 0 and a branch on it folded the wrong way.

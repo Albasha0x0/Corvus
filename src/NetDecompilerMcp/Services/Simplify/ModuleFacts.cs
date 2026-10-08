@@ -10,8 +10,9 @@ namespace NetDecompilerMcp.Services.Simplify;
 /// <item>whether the array or builder held in a readonly static field can be modified by code other than its type's
 /// initialization (the evaluator only uses state that stays as the static constructor left it).</item>
 /// </list>
-/// The call graph covers the module's own code: call, callvirt (virtual calls reach every method of the same name),
-/// newobj, ldftn and the static constructors that member accesses trigger. Code in other modules and reflection are
+/// The call graph covers the module's own code: call, callvirt (a virtual call reaches the methods of the same name and
+/// signature in the types deriving from the class it names, or in any type for an interface, and the methods that
+/// explicitly override it), newobj, ldftn and the static constructors that member accesses trigger. Code in other modules and reflection are
 /// assumed not to call back into initialization or modify static arrays.
 /// </summary>
 internal sealed class ModuleFacts(ModuleDef module)
@@ -222,8 +223,7 @@ internal sealed class ModuleFacts(ModuleDef module)
             back.Add(caller);
         }
 
-        foreach (var m in methods.Where(m => m.IsVirtual))
-            Edge(VirtualSlot(m.Name), m);
+        var dispatch = new VirtualDispatch(module, methods);
         foreach (var m in methods)
         {
             var body = MetadataUtil.SafeBody(m);
@@ -245,7 +245,8 @@ internal sealed class ModuleFacts(ModuleDef module)
                             Edge(m, Cctor(def.DeclaringType));
                         }
                         if (ins.OpCode.Code is Code.Callvirt or Code.Ldvirtftn && target != null)
-                            Edge(m, VirtualSlot(target.Name));
+                            foreach (var callee in dispatch.Targets(target))
+                                Edge(m, callee);
                         break;
                     }
                     case Code.Ldsfld: case Code.Stsfld: case Code.Ldsflda:
@@ -265,7 +266,80 @@ internal sealed class ModuleFacts(ModuleDef module)
         (_callees, _callers, _fieldUses) = (callees, callers, fieldUses);
     }
 
-    private static string VirtualSlot(UTF8String name) => "virtual " + name.String;
+    /// <summary>
+    /// The module's virtual methods a callvirt can reach: by name and signature in the types that derive from or implement
+    /// the type the call names (System.Object: every type), and by explicit overrides of the method it names.
+    /// </summary>
+    private sealed class VirtualDispatch
+    {
+        private readonly Dictionary<string, List<MethodDef>> _byKey = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, List<MethodDef>> _explicit = new(StringComparer.Ordinal);
+        private readonly Dictionary<TypeDef, HashSet<string>> _ancestors = new();
+        private readonly Dictionary<string, List<MethodDef>> _cache = new(StringComparer.Ordinal);
+
+        public VirtualDispatch(ModuleDef module, IEnumerable<MethodDef> methods)
+        {
+            foreach (var m in methods.Where(m => m.IsVirtual))
+            {
+                Add(_byKey, Key(m.Name, m.MethodSig), m);
+                foreach (var o in m.Overrides)
+                    if (o.MethodDeclaration is { } declaration) Add(_explicit, declaration.FullName, m);
+            }
+        }
+
+        private static void Add(Dictionary<string, List<MethodDef>> map, string key, MethodDef m)
+        {
+            if (!map.TryGetValue(key, out var list)) map[key] = list = new List<MethodDef>();
+            list.Add(m);
+        }
+
+        private static string Key(UTF8String name, MethodSig? sig) => name.String + " " + sig?.ToString();
+
+        /// <summary>A type's name without generic arguments (Base`1, not Base`1&lt;int&gt;).</summary>
+        private static string Definition(ITypeDefOrRef? type) => type switch
+        {
+            TypeSpec { TypeSig: GenericInstSig g } => g.GenericType.TypeDefOrRef.FullName,
+            null => "",
+            _ => type.FullName,
+        };
+
+        /// <summary>The type, its base types and the interfaces they implement, as names.</summary>
+        private HashSet<string> Ancestors(TypeDef type)
+        {
+            if (_ancestors.TryGetValue(type, out var set)) return set;
+            _ancestors[type] = set = new HashSet<string>(StringComparer.Ordinal) { type.FullName }; // guards against cycles
+            void Include(ITypeDefOrRef? t)
+            {
+                if (t == null || !set.Add(Definition(t))) return;
+                if (Resolve(t) is { } td)
+                    set.UnionWith(Ancestors(td));
+            }
+            Include(type.BaseType);
+            foreach (var i in type.Interfaces) Include(i.Interface);
+            return set;
+        }
+
+        private static TypeDef? Resolve(ITypeDefOrRef t)
+        {
+            try { return (t is TypeSpec { TypeSig: GenericInstSig g } ? g.GenericType.TypeDefOrRef : t).ResolveTypeDef(); }
+            catch { return null; }
+        }
+
+        public List<MethodDef> Targets(IMethod target)
+        {
+            if (_cache.TryGetValue(target.FullName, out var cached)) return cached;
+            var declaring = Definition(target.DeclaringType);
+            // An interface method can be implemented by a method a base class declares, which lists no interface:
+            // calls through interfaces (or types that do not resolve) reach every method of the name and signature.
+            bool anyType = declaring == "System.Object" || target.DeclaringType == null || Resolve(target.DeclaringType) is not { IsInterface: false };
+            var result = (_byKey.GetValueOrDefault(Key(target.Name, target.MethodSig)) ?? [])
+                .Where(m => anyType || Ancestors(m.DeclaringType).Contains(declaring))
+                .Concat(_explicit.GetValueOrDefault(target.FullName) ?? [])
+                .Distinct().ToList();
+            _cache[target.FullName] = result;
+            return result;
+        }
+    }
 
     /// <summary>The method a reference names when it is declared by a type of this module (generic instantiations included).</summary>
     private MethodDef? Local(MemberRef mr)
