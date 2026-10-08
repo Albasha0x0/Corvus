@@ -29,7 +29,8 @@ internal static class ServerInstructions
            string-decryptor calls to literals, removes dead branches, unflattens switch dispatchers, inlines forwarders;
            decompile_member simplified=true previews it).
            Review with list_edits / diff_edits, undo with undo_edit / revert_edits, then save_assembly (never overwrites the original
-           without overwrite=true; keeps a .bak).
+           without overwrite=true; keeps a .bak; what no edit touched is written byte-for-byte, and anything that cannot be is
+           listed with a reason; strict=true refuses such a save instead).
 
         Symbols: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method', 'Ns.Type::Method(int, string)', 'Ns.Type::.ctor', short names,
         or tokens like '0x06000123'. The assembly parameter is optional unless a name is ambiguous; errors list candidates.

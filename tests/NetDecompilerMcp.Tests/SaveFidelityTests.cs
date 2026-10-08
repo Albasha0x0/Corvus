@@ -322,4 +322,20 @@ public sealed class SaveFidelityTests(ITestOutputHelper output)
         Assert.Equal("N.T::M() [0x06000001]: why [unreadable-body]", issue.ToString());
         Assert.False(new SaveIssue(SaveIssueReason.InvalidBody, 0, "m", "d").ChangesBytes);
     }
+
+    [Fact]
+    public void SavingDocIsUpToDate()
+    {
+        var root = AppContext.BaseDirectory;
+        while (!File.Exists(Path.Combine(root, "NetDecompilerMcp.slnx"))) root = Path.GetDirectoryName(root) ?? throw new InvalidOperationException("repository root not found");
+        var path = Path.Combine(root, "docs", "saving.md");
+        var expected = SaveManifest.Markdown().ReplaceLineEndings("\n");
+        if (Environment.GetEnvironmentVariable("NDM_UPDATE_DOCS") == "1")
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, expected);
+        }
+        Assert.True(File.Exists(path) && File.ReadAllText(path).ReplaceLineEndings("\n") == expected,
+            "docs/saving.md is out of date: run the tests once with NDM_UPDATE_DOCS=1");
+    }
 }

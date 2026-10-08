@@ -211,7 +211,12 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
 
     [McpServerTool(Name = "save_assembly", Title = "Save patched assembly", Destructive = true, OpenWorld = false)]
     [Description("Write an assembly with its in-memory edits to disk. Default output: '<name>.patched.dll' next to the original. " +
-                 "Replacing an existing file requires overwrite=true; when that file is the original, it is first copied to '<file>.bak'. Writes atomically.")]
+                 "Replacing an existing file requires overwrite=true; when that file is the original, it is first copied to '<file>.bak'. Writes atomically. " +
+                 "Without edits the original bytes are written; with edits, every method body and signature no edit touched keeps its original bytes, " +
+                 "and the written image is compared with the original. The result lists, one line per member with a reason code: " +
+                 "'Changed by the writer' (bytes differ from the original without an edit asking for it, e.g. a body whose header lies outside the image) " +
+                 "and 'Kept byte-for-byte although invalid in the original' (invalid IL or signatures, saved unchanged). " +
+                 "strict=true refuses the save when the first list is not empty, writing nothing. Reason codes: docs/saving.md.")]
     public Task<string> SaveAssembly(
         [Description(AssemblyDescription)] string assembly,
         [Description("Output file path. Omit for '<original>.patched.dll'.")] string? outputPath = null,

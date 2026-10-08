@@ -777,7 +777,8 @@ public sealed class MethodSimplifier
     /// <summary>
     /// An unconditional branch to the next instruction does nothing; a conditional one only consumes its operands and
     /// becomes pops. (A conditional branch whose target is also its fall-through crashes the .NET 10 JIT when that
-    /// instruction starts nested try regions, so it must not be left behind.)
+    /// instruction starts nested try regions, so it must not be left behind. The IL is valid: this is a runtime-level
+    /// issue; minimal repro in docs/known-issues.md, fixture SimplifyRegressionTests.ConditionalBranchToNextBecomesPops.)
     /// </summary>
     private static bool DropBranchesToNext(CilBody body, HashSet<Instruction> dead)
     {

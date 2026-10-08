@@ -1,0 +1,39 @@
+# save_assembly: saving contract
+
+Generated from `SaveManifest` (src/NetDecompilerMcp/Core/SaveReport.cs); a test keeps the two in sync.
+
+## What is written
+
+- **No edits:** the original file, byte for byte.
+- **With edits:** the module is written again by dnlib with all metadata rids, string, user-string and blob
+  offsets preserved. Every method body that no edit changed is written with its original bytes (header, IL and
+  exception sections), even when dnlib would encode it differently or cannot represent it at all; every
+  signature that no edit changed points at its original blob. Edited and added members are encoded by dnlib.
+- **Checked after writing:** the written image is read back and compared with the original, method by method
+  and signature by signature. Anything that no edit touched and that differs is reported; nothing differs
+  silently. The comparison covers method bodies, the signature blobs of methods, fields, properties, member
+  references, type specs, method specs and local variable signatures, and the #US and #Blob heaps; other
+  metadata (names, attributes, resources) is written by dnlib from the edited model.
+
+## The report
+
+The save result lists members in two groups, each line `member: what and why [code]`:
+
+- **Changed by the writer:** bytes differ from the original although no edit asked for it.
+- **Kept byte-for-byte although invalid in the original:** nothing changed, but the member is not valid
+  metadata or IL, so the editor and the decompiler cannot work with it as such.
+
+By default the save goes ahead and reports. With `strict=true`, a save with any member in the first group
+fails with the same list and writes nothing. A save that fails for any other reason (the writer throws, the
+file cannot be replaced) writes nothing either: the image goes to a temporary file that replaces the target
+only when complete.
+
+## Reasons
+
+| Code | Bytes changed | Meaning |
+|---|---|---|
+| `invalid-body` | no | the original method body is not valid IL (empty, an unknown opcode, an instruction or switch running past the end, a branch outside the code or into an instruction, a local or argument index out of range, exception clauses out of range or overlapping without nesting, code running past its end); it is written byte-for-byte as in the original |
+| `malformed-signature` | no | the original signature blob of a method, field, property, member reference, type spec, method spec or local variable signature does not read back as written (malformed or non-canonical); it is written byte-for-byte as in the original |
+| `unreadable-body` | yes | the original method body cannot be read from the image (its RVA lies outside the sections, or its header, code or exception sections run past the end of its section); what could be decoded is written instead, or no body |
+| `reencoded` | yes | a method body, signature or heap that no edit touched reads back differently from the original after writing (found by comparing the written image with the original) |
+| `writer-error` | yes | the writer reported an error for an edited or added member, or for no member in particular; the message says what it could not encode |
