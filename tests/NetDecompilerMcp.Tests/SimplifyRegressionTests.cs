@@ -79,4 +79,44 @@ public sealed class SimplifyRegressionTests : IDisposable
         using var runner = new LabRunner(lab.Write());
         Assert.Equal(((object?)7, (Exception?)null), runner.Call("Lab.P", "Run"));
     }
+
+    /// <summary>
+    /// Fuzz seed 468: folding a constant branch at the start of two nested try regions and dropping <c>br L</c> left
+    /// <c>blt L; L:</c>, a conditional branch whose target is its own fall-through. Valid IL, but it crashes the .NET 10
+    /// JIT (access violation) when L starts nested try regions. Such branches now become pops.
+    /// </summary>
+    [Fact]
+    public void ConditionalBranchToNextBecomesPops()
+    {
+        var lab = new IlLab("CondToNext");
+        var exception = lab.Module.CorLibTypes.GetTypeRef("System", "Exception");
+        Instruction tryStart = Ldc(1), skip = I(OpCodes.Nop), fin = I(OpCodes.Endfinally), handler = I(OpCodes.Pop), end = Ldc(0);
+        Instruction leaveOuter = I(OpCodes.Leave, end), leaveInner = I(OpCodes.Leave, leaveOuter);
+        var method = lab.Method("Run", lab.T.Int32, [lab.T.Int32],
+        [
+            I(OpCodes.Ldarg_0), Ldc(1), I(OpCodes.Blt, tryStart), I(OpCodes.Br, tryStart),
+            tryStart, I(OpCodes.Brfalse, skip), I(OpCodes.Nop), skip, leaveInner,
+            fin,
+            leaveOuter,
+            handler, I(OpCodes.Leave, end),
+            end, Ret(),
+        ], handlers:
+        [
+            new ExceptionHandler(ExceptionHandlerType.Finally) { TryStart = tryStart, TryEnd = fin, HandlerStart = fin, HandlerEnd = leaveOuter },
+            new ExceptionHandler(ExceptionHandlerType.Catch) { TryStart = tryStart, TryEnd = handler, HandlerStart = handler, HandlerEnd = end, CatchType = exception },
+        ]);
+
+        var change = new MethodSimplifier(lab.Module, new SimplifyOptions()).Simplify(method)!;
+        Assert.True(change.Changed);
+        var code = change.NewBody!.Instructions;
+        for (int i = 0; i + 1 < code.Count; i++)
+            Assert.False(code[i].OpCode.FlowControl == FlowControl.Cond_Branch && code[i].Operand == code[i + 1], $"conditional branch to the next instruction at {i}");
+
+        // Checked structurally first: if the shape came back, preparing the method would crash the test process.
+        method.Body = change.NewBody;
+        using var runner = new LabRunner(lab.Write());
+        Assert.Null(runner.Prepare("Lab.P", "Run"));
+        Assert.Equal(((object?)0, (Exception?)null), runner.Call("Lab.P", "Run", 0));
+        Assert.Equal(((object?)0, (Exception?)null), runner.Call("Lab.P", "Run", 5));
+    }
 }

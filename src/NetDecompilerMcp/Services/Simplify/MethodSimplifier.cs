@@ -774,7 +774,11 @@ public sealed class MethodSimplifier
         return true;
     }
 
-    /// <summary>An unconditional branch to the next instruction does nothing.</summary>
+    /// <summary>
+    /// An unconditional branch to the next instruction does nothing; a conditional one only consumes its operands and
+    /// becomes pops. (A conditional branch whose target is also its fall-through crashes the .NET 10 JIT when that
+    /// instruction starts nested try regions, so it must not be left behind.)
+    /// </summary>
     private static bool DropBranchesToNext(CilBody body, HashSet<Instruction> dead)
     {
         var code = body.Instructions;
@@ -782,9 +786,18 @@ public sealed class MethodSimplifier
         for (int i = 0; i + 1 < code.Count; i++)
         {
             var ins = code[i];
-            if (ins.OpCode.Code is Code.Br or Code.Br_S && ins.Operand == code[i + 1] && !dead.Contains(ins))
+            if (ins.Operand != code[i + 1] || dead.Contains(ins)) continue;
+            if (ins.OpCode.Code is Code.Br or Code.Br_S)
             {
                 MakeDead(ins, dead);
+                changed = true;
+            }
+            else if (ins.OpCode.FlowControl == FlowControl.Cond_Branch)
+            {
+                ins.CalculateStackUsage(false, out _, out int pops);
+                ins.OpCode = OpCodes.Pop;
+                ins.Operand = null;
+                for (int k = 1; k < pops; k++) code.Insert(i + 1, OpCodes.Pop.ToInstruction());
                 changed = true;
             }
         }

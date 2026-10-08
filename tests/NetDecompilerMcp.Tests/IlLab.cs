@@ -116,6 +116,21 @@ internal sealed class IlLab
             }
         }
 
+        /// <summary>JIT-compiles a static method without running it: the exception for invalid IL, or null.</summary>
+        public Exception? Prepare(string type, string method)
+        {
+            try
+            {
+                var m = _assembly.GetType(type, throwOnError: true)!.GetMethod(method, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)!;
+                System.Runtime.CompilerServices.RuntimeHelpers.PrepareMethod(m.MethodHandle);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return ex;
+            }
+        }
+
         public void Dispose() => _context.Unload();
     }
 }
