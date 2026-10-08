@@ -46,4 +46,34 @@ public sealed class RealScenarioRegressionTests
             new TypeRefUser(lib.Module, "RefApp", "ViewModel", new AssemblyRefUser("RefApp")));
         Assert.True(NetDecompilerMcp.Services.MetadataUtil.IsSameMethod(sameType, ctor));
     }
+
+    /// <summary>
+    /// A protected assembly (Babel / Goliath here) with metadata the decompiler's reader rejects: the module name's
+    /// string offset past the heap, and a custom attribute whose constructor coded index is invalid. dnlib reads both
+    /// leniently. Every decompile and get_il failed with an internal BadImageFormatException; the decompiler now works
+    /// on a normalized copy with the same tokens, and says so.
+    /// </summary>
+    [Fact]
+    public void ProtectedMetadataIsDecompiledFromANormalizedCopy()
+    {
+        using var dir = new TempDir();
+        var lab = new IlLab("Guarded");
+        lab.Method("Answer", lab.T.Int32, IlLab.Ldc(42), IlLab.Ret());
+        var image = lab.Write();
+        using (var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(image.ToArray())))
+        {
+            var md = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+            int moduleRow = pe.PEHeaders.MetadataStartOffset + System.Reflection.Metadata.Ecma335.MetadataReaderExtensions.GetTableMetadataOffset(md, System.Reflection.Metadata.Ecma335.TableIndex.Module);
+            // Module row: Generation (2 bytes), then Name: a string offset far past the #Strings heap.
+            image[moduleRow + 2] = 0xFF;
+            image[moduleRow + 3] = 0xFF;
+        }
+        File.WriteAllBytes(dir.File("Guarded.dll"), image);
+        using var env = new Env(dir.File("Guarded.dll"));
+        var text = env.Decompile("Lab.P::Answer");
+        Assert.Contains("return 42;", text);
+        Assert.Contains("normalized by dnlib", text);
+        var il = env.Workspace.Read(() => env.Decompiler.Disassemble(env.Fixture, (IMemberDef)env.One("Lab.P::Answer").Member, default));
+        Assert.Contains("ldc.i4", il);
+    }
 }

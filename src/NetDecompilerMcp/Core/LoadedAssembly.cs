@@ -209,7 +209,11 @@ public sealed class LoadedAssembly : IDisposable
         };
     }
 
-    /// <summary>Decompiler view of <see cref="GetImageBytes"/>, rebuilt after edits.</summary>
+    /// <summary>
+    /// Decompiler view of <see cref="GetImageBytes"/>, rebuilt after edits. When the decompiler's reader cannot read the
+    /// image's metadata (protectors leave out-of-range names and coded indexes that dnlib reads leniently), the view is a
+    /// copy written by dnlib instead: same tokens (PreserveAll), valid metadata. <see cref="DecompilerNote"/> says so.
+    /// </summary>
     public PEFile GetPEFile()
     {
         lock (_sync)
@@ -217,14 +221,38 @@ public sealed class LoadedAssembly : IDisposable
             if (_peFile == null || _peFileVersion != Version)
             {
                 var old = _peFile;
-                _peFile = new PEFile(FilePath, new MemoryStream(GetImageBytes(), writable: false),
-                    PEStreamOptions.PrefetchEntireImage, MetadataReaderOptions.None);
+                var image = GetImageBytes();
+                var pe = new PEFile(FilePath, new MemoryStream(image, writable: false), PEStreamOptions.PrefetchEntireImage, MetadataReaderOptions.None);
+                string? note = null;
+                if (MetadataProbe.Problem(pe.Metadata) is { } problem)
+                {
+                    try
+                    {
+                        var (copy, dropped) = MetadataNormalizer.Normalize(image);
+                        var normalized = new PEFile(FilePath, new MemoryStream(copy, writable: false), PEStreamOptions.PrefetchEntireImage, MetadataReaderOptions.None);
+                        pe.Dispose();
+                        pe = normalized;
+                        var left = MetadataProbe.Problem(pe.Metadata);
+                        note = $"// Note: the decompiler cannot read this assembly's metadata as stored ({problem}); it is decompiled from a copy normalized by dnlib, with the same tokens" +
+                               (dropped.Length > 0 ? $" ({dropped})" : "") +
+                               (left != null ? $"; still unreadable: {left}, so some members may not decompile" : "") + ".\n";
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        note = $"// Note: the decompiler cannot read this assembly's metadata as stored ({problem}), and normalizing it failed ({ex.Message}); some members will not decompile.\n";
+                    }
+                }
+                _peFile = pe;
+                DecompilerNote = note ?? "";
                 _peFileVersion = Version;
                 old?.Dispose();
             }
             return _peFile;
         }
     }
+
+    /// <summary>A comment line for decompiler output when <see cref="GetPEFile"/> is a normalized copy, else empty.</summary>
+    public string DecompilerNote { get; private set; } = "";
 
     public byte[] WriteToBytes()
     {

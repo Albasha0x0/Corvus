@@ -79,13 +79,17 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         }
     }, ct);
 
-    /// <summary>A warning line when some of the type's method bodies are not valid IL; empty otherwise.</summary>
+    /// <summary>
+    /// A note when the decompiler view is a normalized copy, and a warning when some of the type's method bodies are not
+    /// valid IL; empty otherwise.
+    /// </summary>
     private static string InvalidBodiesNote(LoadedAssembly asm, Dn.TypeDef type)
     {
-        if (asm.IsDirty || asm.BodyHealth.Invalid == 0) return "";
+        asm.GetPEFile(); // decides whether the view is normalized
+        if (asm.IsDirty || asm.BodyHealth.Invalid == 0) return asm.DecompilerNote;
         var methods = type.Methods.Where(m => m.RVA != 0).ToList();
         int invalid = methods.Count(asm.BodyHealth.IsInvalid);
-        return invalid == 0 ? "" : $"// Warning: {invalid} of {methods.Count} method bodies of this type are not valid IL (encrypted, or dumped from memory before decryption): their code below is meaningless.\n";
+        return asm.DecompilerNote + (invalid == 0 ? "" : $"// Warning: {invalid} of {methods.Count} method bodies of this type are not valid IL (encrypted, or dumped from memory before decryption): their code below is meaningless.\n");
     }
 
     /// <summary>Decompiles each member, falling back to IL for any member that fails.</summary>
@@ -93,7 +97,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     {
         var decompiler = CreateDecompiler(asm, token);
         var parts = members.Select(m => DecompileMemberSafe(asm, m, decompiler, token));
-        return string.Join("\n", parts);
+        return asm.DecompilerNote + string.Join("\n", parts);
     }, ct);
 
     /// <summary>
@@ -154,7 +158,10 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     }
 
     public string DecompileAssemblyAttributes(LoadedAssembly asm, CancellationToken ct) => WithTimeout(token =>
-        CreateDecompiler(asm, token).DecompileModuleAndAssemblyAttributesToString(), ct);
+    {
+        var decompiler = CreateDecompiler(asm, token);
+        return asm.DecompilerNote + decompiler.DecompileModuleAndAssemblyAttributesToString();
+    }, ct);
 
     /// <summary>ildasm-style IL with metadata tokens and resolved operands.</summary>
     public string Disassemble(LoadedAssembly asm, Dn.IMemberDef member, CancellationToken ct)
@@ -178,7 +185,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
             case HandleKind.EventDefinition: dis.DisassembleEvent(pe, (EventDefinitionHandle)handle); break;
             default: throw new ToolError($"Cannot disassemble {member.GetType().Name}.");
         }
-        return output.ToString();
+        return asm.DecompilerNote + output.ToString();
     }
 
     /// <summary>

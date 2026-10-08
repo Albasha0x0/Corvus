@@ -69,6 +69,9 @@ internal sealed class FaithfulWriter
         return new SaveReport(writer._issues.OrderBy(i => i.ChangesBytes ? 0 : 1).ThenBy(i => i.Token).ToList());
     }
 
+    /// <summary>The module as dnlib writes it (PreserveAll, errors collected, nothing kept from the original).</summary>
+    internal static void WritePlain(ModuleDefMD module, Stream output) => WriteModule(module, new CollectingLogger(), null, output);
+
     private static void WriteModule(ModuleDefMD module, ILogger logger, EventHandler2<ModuleWriterEventArgs>? onEvent, Stream output)
     {
         if (module.IsILOnly)
