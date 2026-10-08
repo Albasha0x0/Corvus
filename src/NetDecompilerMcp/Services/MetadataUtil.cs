@@ -101,6 +101,12 @@ public static class MetadataUtil
     /// </summary>
     public static bool IsReferenceOnly(IMemberDef member) => member.Module is { } m && ReferenceOnly.TryGetValue(m, out _);
 
+    /// <summary>
+    /// Name, signature and declaring type, ignoring the assembly a type is referenced from. dnlib compares methods
+    /// without their declaring type unless asked: every unresolved ".ctor()" would match every other.
+    /// </summary>
+    private const SigComparerOptions SameMember = SigComparerOptions.DontCompareTypeScope | SigComparerOptions.CompareMethodFieldDeclaringType;
+
     public static bool IsSameMethod(IMethod? op, MethodDef target)
     {
         if (op == null || op.Name != target.Name) return false;
@@ -108,9 +114,9 @@ public static class MetadataUtil
         var resolved = Try(() => op.ResolveMethodDef());
         if (resolved != null)
             return resolved == target || (IsReferenceOnly(target) && IsReferenceOnly(resolved)
-                                          && new SigComparer(SigComparerOptions.DontCompareTypeScope).Equals(resolved, target));
+                                          && new SigComparer(SameMember).Equals(resolved, target));
         // Defining assembly not resolvable from the referencing module: compare name + signature.
-        return new SigComparer(SigComparerOptions.DontCompareTypeScope).Equals(op is MethodSpec ms ? ms.Method : op, target);
+        return new SigComparer(SameMember).Equals(op is MethodSpec ms ? ms.Method : op, target);
     }
 
     public static bool IsSameField(IField? op, FieldDef target)
