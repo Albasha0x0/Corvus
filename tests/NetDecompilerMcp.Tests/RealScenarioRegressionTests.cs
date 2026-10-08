@@ -273,6 +273,29 @@ public sealed class RealScenarioRegressionTests
         Assert.Contains("compiled OK", result, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// apply_edits onto an obfuscated rebuild matched targets against the source build as edited: after the script's
+    /// own stub, that body no longer resembled its counterpart (now renamed), so the replay failed and rolled back.
+    /// </summary>
+    [Fact]
+    public void EditsReplayOntoAnObfuscatedRebuildAfterTheScriptEditedItsSourceBuild()
+    {
+        using var dir = new TempDir();
+        File.WriteAllBytes(dir.File("Old.dll"), ObfuscatedBuild(1, "c7x", "cwb", "c7u", ["y", "d", "i", "n", "s"]));
+        File.WriteAllBytes(dir.File("New.dll"), ObfuscatedBuild(2, "ak7", "akl", "ak4", ["i", "y", "d", "s", "n"]));
+        using var env = new Env(dir.File("Old.dll"));
+        var newBuild = env.Workspace.Load(dir.File("New.dll"));
+        env.Edit(() => env.Edits.StubMethod(SymbolResolver.ResolveOne(env.Workspace, env.Fixture.Id, "c7x::y"), "\"stubbed\""));
+        env.Edit(() => env.Edits.Rename(SymbolResolver.ResolveOne(env.Workspace, env.Fixture.Id, "c7x"), "Uploader"));
+        var script = dir.File("edits.json");
+        env.Workspace.Read(() => env.History.Export(env.Fixture, script));
+
+        var result = env.Edit(() => env.History.Apply(script, newBuild.Id, dryRun: false, stopOnError: true, default));
+        Assert.Contains("2 applied, 0 failed", result);
+        Assert.Contains("ak7::i()", result); // y() is called i() in the new build
+        Assert.Contains("\"stubbed\"", env.Workspace.Read(() => env.Decompiler.DecompileMembers(newBuild, [(IMemberDef)SymbolResolver.ResolveOne(env.Workspace, newBuild.Id, "Uploader::i").Member], default)));
+    }
+
     [Fact]
     public async Task MissingRequiredArgumentIsAClearToolError()
     {

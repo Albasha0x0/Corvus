@@ -81,9 +81,26 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
             edits.Remap = (record, key) =>
             {
                 ResolvedSymbol old;
-                try { old = SymbolResolver.ResolveOne(workspace, originalBuild.Id, record.Arg(key)!, SymbolResolver.ParseKind(record.Arg(key + "Kind"))); }
-                catch (ToolError) { return null; }
-                comparison ??= comparer.Compare(originalBuild, asm, ct);
+                // By the recorded token first: the script's own renames may have been applied to that build, so the
+                // recorded name (the name before the edit) may no longer exist there.
+                if (SymbolResolver.TryParseToken(record.Arg(key + "Token") ?? "", out uint token) && (token & 0x00FFFFFF) != 0
+                    && MetadataUtil.Try(() => originalBuild.Module.ResolveToken(token)) is IMemberDef byToken)
+                    old = new ResolvedSymbol(originalBuild, byToken);
+                else
+                {
+                    try { old = SymbolResolver.ResolveOne(workspace, originalBuild.Id, record.Arg(key)!, SymbolResolver.ParseKind(record.Arg(key + "Kind"))); }
+                    catch (ToolError) { return null; }
+                }
+                // Matched against the source build as loaded: the script's own edits (stubs, patches, renames) may have
+                // been applied to it, and a stubbed body no longer resembles its counterpart.
+                var source = originalBuild.IsDirty ? originalBuild.GetOriginalView(workspace.DnlibContext) : originalBuild;
+                comparison ??= comparer.Compare(source, asm, ct);
+                if (!ReferenceEquals(source, originalBuild))
+                {
+                    if (old.Member.MDToken.Rid == 0 || MetadataUtil.Try(() => source.Module.ResolveToken(old.Member.MDToken.Raw)) is not IMemberDef unedited)
+                        return null; // added by an edit: no counterpart in another build
+                    old = new ResolvedSymbol(source, unedited);
+                }
                 var (match, how) = comparer.FindCounterpart(comparison, old.Member);
                 if (match == null) return null;
                 remapped.Add($"{old.Label} -> {Format.MemberLabel(match)} ({how})");
