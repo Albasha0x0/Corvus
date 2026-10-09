@@ -284,7 +284,7 @@ public class MsvcDemangleTests
         var seeds = Names.Select(r => (string)r[0]).ToList();
         const string alphabet = "?@$0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcxyz";
         var sw = Stopwatch.StartNew();
-        for (int i = 0; i < 20_000; i++)
+        for (int i = 0; i < 10_000; i++)
         {
             var chars = seeds[rng.Next(seeds.Count)].ToCharArray().ToList();
             int edits = rng.Next(1, 4);

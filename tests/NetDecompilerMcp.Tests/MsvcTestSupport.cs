@@ -208,14 +208,14 @@ internal static class VisualStudio
 
 /// <summary>
 /// Test-only <see cref="INativeImage"/>: headers and sections through System.Reflection.PortableExecutable, the file
-/// held in memory. Imports, exports, .pdata and relocations are not read (RTTI recovery does not use them).
+/// held in memory, base relocations (optional) from the relocation directory. Imports, exports and .pdata are not read.
 /// </summary>
 internal sealed class MsvcTestImage : INativeImage
 {
     private readonly byte[] file;
     private readonly int headerSize;
 
-    private MsvcTestImage(string path, byte[] file, PEHeaders h)
+    private MsvcTestImage(string path, byte[] file, PEHeaders h, bool withRelocations)
     {
         Path = path;
         this.file = file;
@@ -245,16 +245,42 @@ internal sealed class MsvcTestImage : INativeImage
             if ((c & SectionCharacteristics.ContainsCode) != 0) access |= SectionAccess.Code;
             return new NativeSection(s.Name, (uint)s.VirtualAddress, (uint)s.VirtualSize, (uint)s.PointerToRawData, (uint)s.SizeOfRawData, access, (uint)c);
         }).ToList();
+        if (withRelocations)
+            RelocationRvas = ReadRelocations(pe.BaseRelocationTableDirectory);
     }
 
-    public static MsvcTestImage? TryLoad(string path)
+    /// <summary>HIGHLOW (3) and DIR64 (10) entries of the base relocation blocks.</summary>
+    private List<uint> ReadRelocations(DirectoryEntry dir)
+    {
+        var result = new List<uint>();
+        if (dir.Size == 0) return result;
+        var table = new byte[dir.Size];
+        if (Read((uint)dir.RelativeVirtualAddress, table) != table.Length) return result;
+        int p = 0;
+        while (p + 8 <= table.Length)
+        {
+            uint page = BinaryPrimitives.ReadUInt32LittleEndian(table.AsSpan(p));
+            int size = BinaryPrimitives.ReadInt32LittleEndian(table.AsSpan(p + 4));
+            if (size < 8 || p + size > table.Length) break;
+            for (int e = p + 8; e + 2 <= p + size; e += 2)
+            {
+                ushort entry = BinaryPrimitives.ReadUInt16LittleEndian(table.AsSpan(e));
+                if (entry >> 12 is 3 or 10) result.Add(page + (uint)(entry & 0xFFF));
+            }
+            p += size;
+        }
+        result.Sort();
+        return result;
+    }
+
+    public static MsvcTestImage? TryLoad(string path, bool withRelocations = true)
     {
         try
         {
             var bytes = File.ReadAllBytes(path);
             using var pe = new PEReader(new MemoryStream(bytes));
             var h = pe.PEHeaders;
-            return h.PEHeader == null ? null : new MsvcTestImage(path, bytes, h);
+            return h.PEHeader == null ? null : new MsvcTestImage(path, bytes, h, withRelocations);
         }
         catch (Exception ex) when (ex is BadImageFormatException or IOException or UnauthorizedAccessException or InvalidOperationException) { return null; }
     }
@@ -271,7 +297,7 @@ internal sealed class MsvcTestImage : INativeImage
     public IReadOnlyList<NativeImport> Imports => [];
     public IReadOnlyList<NativeExport> Exports => [];
     public IReadOnlyList<RuntimeFunction> RuntimeFunctions => [];
-    public IReadOnlyList<uint> RelocationRvas => [];
+    public IReadOnlyList<uint> RelocationRvas { get; } = [];
     public IReadOnlyList<uint> TlsCallbackRvas => [];
     public IReadOnlyList<ParseIssue> Issues => [];
 
@@ -293,11 +319,11 @@ internal sealed class MsvcTestImage : INativeImage
             }
             uint inSection = at - s.Rva;
             int chunk = (int)Math.Min((uint)(destination.Length - done), s.MappedSize - inSection);
-            for (int i = 0; i < chunk; i++)
-            {
-                long off = s.RawOffset + (long)inSection + i;
-                destination[done + i] = inSection + i < s.RawSize && off < file.Length ? file[off] : (byte)0;
-            }
+            // raw bytes, then zero fill past the raw data or the end of the file
+            long rawLeft = Math.Min((long)s.RawSize - inSection, file.Length - (s.RawOffset + (long)inSection));
+            int copy = (int)Math.Clamp(rawLeft, 0, chunk);
+            file.AsSpan((int)(s.RawOffset + inSection), copy).CopyTo(destination[done..]);
+            destination.Slice(done + copy, chunk - copy).Clear();
             done += chunk;
         }
         return done;
