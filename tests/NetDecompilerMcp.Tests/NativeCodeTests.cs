@@ -497,11 +497,11 @@ public class NativeCodeTests
     }
 
     [Fact]
-    public void Progress_ends_with_done_and_build_runs_in_the_background()
+    public async Task Progress_ends_with_done_and_build_runs_in_the_background()
     {
         var (image, _, _) = MsvcSwitch(bounded: true);
         var updates = new List<CodeIndexProgress>();
-        var index = NativeCodeIndex.BuildAsync(image, progress: p => { lock (updates) updates.Add(p); }).GetAwaiter().GetResult();
+        var index = await NativeCodeIndex.BuildAsync(image, progress: p => { lock (updates) updates.Add(p); });
         Assert.Single(index.Functions);
         Assert.Equal("done", updates[^1].Phase);
         Assert.Contains(updates, u => u.Phase == "analyzing functions");
