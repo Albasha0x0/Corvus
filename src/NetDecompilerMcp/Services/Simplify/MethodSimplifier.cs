@@ -89,6 +89,8 @@ public sealed class MethodSimplifier
     private readonly Forwarders _forwarders;
     /// <summary>Calls and static reads of the method being simplified that the evaluator computed (they only produce their value).</summary>
     private readonly HashSet<Instruction> _evaluated = new();
+    /// <summary>In a static constructor: each instruction of the working copy that stands at an instruction of the original body.</summary>
+    private readonly Dictionary<Instruction, Instruction> _origin = new();
 
     public MethodSimplifier(ModuleDef module, SimplifyOptions options)
     {
@@ -159,6 +161,9 @@ public sealed class MethodSimplifier
     {
         var body = BodyGraph.Clone(original);
         _evaluated.Clear();
+        _origin.Clear();
+        if (method.IsStaticConstructor)
+            for (int i = 0; i < body.Instructions.Count; i++) _origin[body.Instructions[i]] = original.Instructions[i];
         var dead = new HashSet<Instruction>(); // instructions turned into nops by the passes; removed at the end
         var unclean = new List<Fallback>(); // flattened dispatchers not in the clean form, as of the last round
         var readOriginally = body.Instructions
@@ -209,6 +214,13 @@ public sealed class MethodSimplifier
     }
 
     private static string At(Instruction ins) => $"IL_{ins.Offset:X4}";
+
+    /// <summary>
+    /// The instruction of the original body a slice starting at <paramref name="ins"/> stands at: the working copy's own
+    /// instructions keep their place in the program's run (rewrites in place keep what runs before them); instructions
+    /// the passes added map to none.
+    /// </summary>
+    private Instruction? Origin(Instruction ins) => _origin.GetValueOrDefault(ins);
 
     // ---- pass: forwarder inlining
 
@@ -262,7 +274,7 @@ public sealed class MethodSimplifier
             object? value;
             try
             {
-                value = _evaluator.EvaluateSlice([new Instruction(OpCodes.Ldsfld, field)]) is [var v] ? v : null;
+                value = _evaluator.EvaluateSlice([new Instruction(OpCodes.Ldsfld, field)], Origin(code[producer])) is [var v] ? v : null;
             }
             catch (EvaluationBailout ex)
             {
@@ -384,7 +396,7 @@ public sealed class MethodSimplifier
             object? value;
             try
             {
-                var stack = _evaluator.EvaluateSlice(code.Skip(start.Value).Take(j - start.Value + 1).ToList());
+                var stack = _evaluator.EvaluateSlice(code.Skip(start.Value).Take(j - start.Value + 1).ToList(), Origin(code[start.Value]));
                 if (stack.Count != 1 || stack[0] is not (string or null)) continue;
                 value = stack[0];
             }
@@ -459,7 +471,7 @@ public sealed class MethodSimplifier
             Instruction? target;
             try
             {
-                var operands = _evaluator.EvaluateSlice(code.Skip(start.Value).Take(j - start.Value).ToList());
+                var operands = _evaluator.EvaluateSlice(code.Skip(start.Value).Take(j - start.Value).ToList(), Origin(code[start.Value]));
                 if (operands.Count != pops) continue;
                 target = Decide(branch, operands);
             }

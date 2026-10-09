@@ -831,13 +831,14 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void StaticConstructorsDoNotFoldWithTheirOwnFinalState()
+    public void StaticConstructorsFoldWithTheStateAtTheCallNotTheirFinalState()
     {
         // While the static constructor runs, Prefix is still null: Join() returns "none-x", not "p-x".
         using var env = new Env(ObfFixture());
         var report = Simplify(env, "Obf.SelfInit::.cctor");
-        Assert.Contains("inside its own static constructor", report);
-        Assert.Contains(Body(env, "Obf.SelfInit::.cctor"), i => i.Operand is IMethod { Name.String: "Join" });
+        Assert.Contains("-> \"none-x\"", report);
+        Assert.DoesNotContain("p-x", report);
+        Assert.DoesNotContain(Body(env, "Obf.SelfInit::.cctor"), i => i.Operand is IMethod { Name.String: "Join" });
         Assert.Equal("none-x", Run(env.Fixture.GetImageBytes(), "Obf.SelfInit", "GetName"));
     }
 

@@ -168,29 +168,28 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
 
     /// <summary>
     /// Runs a straight-line instruction sequence (no branches, arguments or locals) on an empty stack and returns the
-    /// resulting stack, bottom first.
+    /// resulting stack, bottom first. <paramref name="at"/>: the instruction of the original body of
+    /// <see cref="CurrentMethod"/> the slice starts at, when it maps to one; inside a static constructor, the slice may
+    /// then read its own type's state as it stands there (<see cref="RunToSite"/>).
     /// </summary>
-    public List<object?> EvaluateSlice(IList<Instruction> slice)
+    public List<object?> EvaluateSlice(IList<Instruction> slice, Instruction? at = null)
     {
         long left = Meter?.InstructionsLeft ?? long.MaxValue;
         _methodBudgetBound = left < limits.InstructionBudget;
         long start = _budget = Math.Min(limits.InstructionBudget, left);
         _depth = 0;
         _allocated = _retained;
-        var frame = new Frame(null, slice, [], [], [], []);
         _scratch.Clear();
+        _site = at;
         try
         {
-            Interpret(frame, sliceMode: true);
-            if (_scratch.Count > 0)
+            try
             {
-                // A static collection was used as a cache: the same call made again, on the state this one left, must
-                // give the same result.
-                var again = new Frame(null, slice, [], [], [], []);
-                _depth = 0;
-                Interpret(again, sliceMode: true);
-                if (frame.Stack.Count != again.Stack.Count || frame.Stack.Zip(again.Stack).Any(p => !SameResult(p.First, p.Second)))
-                    throw Bail(FallbackReason.CacheDependent, "the result differs when the call is made again (it depends on what the cache holds)");
+                return RunSlice(slice);
+            }
+            catch (OwnStateNeeded)
+            {
+                return RunToSite(at!, () => RunSlice(slice));
             }
         }
         catch (Exception ex) when (ex is InsufficientExecutionStackException)
@@ -206,8 +205,206 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         {
             if (Meter != null) Meter.InstructionsLeft -= start - Math.Max(_budget, 0);
             _scratch.Clear();
+            _site = null;
+        }
+    }
+
+    private List<object?> RunSlice(IList<Instruction> slice)
+    {
+        var frame = new Frame(null, slice, [], [], [], []);
+        _depth = 0;
+        _scratch.Clear();
+        Interpret(frame, sliceMode: true);
+        if (_scratch.Count > 0)
+        {
+            // A static collection was used as a cache: the same call made again, on the state this one left, must
+            // give the same result.
+            var again = new Frame(null, slice, [], [], [], []);
+            _depth = 0;
+            Interpret(again, sliceMode: true);
+            if (frame.Stack.Count != again.Stack.Count || frame.Stack.Zip(again.Stack).Any(p => !SameResult(p.First, p.Second)))
+                throw Bail(FallbackReason.CacheDependent, "the result differs when the call is made again (it depends on what the cache holds)");
         }
         return frame.Stack;
+    }
+
+    // ---- a static constructor's own state at one of its instructions
+
+    private Instruction? _site; // see EvaluateSlice
+    private TypeDef? _ownType; // set while a slice runs on the state RunToSite computed
+    private Instruction? _stopAt;
+    private MethodDef? _stopIn;
+    private HashSet<Instruction>? _passed; // instructions of _stopIn the run to the site executed
+    /// <summary>
+    /// Per static constructor: a run toward a site that failed (not for lack of budget), and the instructions it executed
+    /// first. The run is deterministic: one toward any site it did not pass fails the same way.
+    /// </summary>
+    private readonly Dictionary<MethodDef, (HashSet<Instruction> Passed, EvaluationBailout Failure)> _failedRuns = new();
+
+    /// <summary>A slice inside a static constructor reads the state of the constructor's own type.</summary>
+    private sealed class OwnStateNeeded : Exception;
+
+    private sealed class SiteReached : Exception;
+
+    /// <summary>
+    /// Runs <paramref name="evaluate"/> on the static state as it stands when the static constructor being simplified
+    /// reaches <paramref name="site"/>. A static constructor runs once and the evaluator follows its one path, so that
+    /// state is exact when the site is reached at most once: it is on no cycle of the constructor's flow graph (exception
+    /// edges included) and in no handler. The constructor runs on what is known of the types that cannot depend on its
+    /// state (<see cref="Independent"/>); the others start over, and may see its partial state, as at run time. That
+    /// state is dropped afterwards. The slice may not write the type's statics or modify its objects: the rewrite drops
+    /// the call, and with it any such effect.
+    /// </summary>
+    private List<object?> RunToSite(Instruction site, Func<List<object?>> evaluate)
+    {
+        var cctor = CurrentMethod!;
+        var type = cctor.DeclaringType;
+        using (Meter?.Exclude())
+        {
+            if (!ReachedAtMostOnce(cctor, site))
+                throw Bail(FallbackReason.StaticInitializer, $"needs the static state of {type.FullName} inside its own static constructor, at IL_{site.Offset:X4}, which can run more than once there");
+        }
+        if (_failedRuns.TryGetValue(cctor, out var failed) && !failed.Passed.Contains(site)) throw failed.Failure;
+        var statics = new Dictionary<FieldDef, object?>(_statics);
+        var initialized = new Dictionary<TypeDef, EvaluationBailout?>(_initialized);
+        long retained = _retained;
+        // What is known of types whose initialization cannot have seen this type's state stands; the others start over.
+        HashSet<TypeDef> independent;
+        using (Meter?.Exclude())
+        {
+            var memo = new Dictionary<TypeDef, bool>();
+            independent = initialized.Keys.Where(t => Independent(t, type, cctor, memo)).ToHashSet();
+        }
+        foreach (var t in initialized.Keys) if (!independent.Contains(t)) _initialized.Remove(t);
+        foreach (var f in statics.Keys) if (!independent.Contains(f.DeclaringType)) _statics.Remove(f);
+        _initializing.Add(type);
+        try
+        {
+            _cctorDepth++;
+            _stopAt = site;
+            _stopIn = cctor;
+            _passed = new HashSet<Instruction>();
+            try
+            {
+                Execute(cctor, []);
+                throw Bail(FallbackReason.StaticInitializer, $"the static constructor of {type.FullName} returns without reaching IL_{site.Offset:X4}");
+            }
+            catch (SiteReached)
+            {
+            }
+            catch (EvaluationBailout ex)
+            {
+                var failure = Bail(ex.Reason is FallbackReason.CallDepth or FallbackReason.InstructionBudget or FallbackReason.MemoryLimit or FallbackReason.CacheDependent
+                    ? ex.Reason
+                    : FallbackReason.StaticInitializer, $"static constructor of {type.FullName} cannot be evaluated as far as the call: {ex.Message}");
+                if (!SimplifyManifest.Info(failure.Reason).Transient) _failedRuns[cctor] = (_passed, failure);
+                throw failure;
+            }
+            finally
+            {
+                _stopAt = null;
+                _stopIn = null;
+                _passed = null;
+                _cctorDepth--;
+            }
+            _retained = _allocated;
+            _ownType = type;
+            return evaluate();
+        }
+        finally
+        {
+            _ownType = null;
+            _initializing.Remove(type);
+            _statics.Clear();
+            foreach (var (k, v) in statics) _statics[k] = v;
+            _initialized.Clear();
+            foreach (var (k, v) in initialized) _initialized[k] = v;
+            _retained = retained;
+        }
+    }
+
+    /// <summary>
+    /// Whether the initialization of <paramref name="other"/> cannot depend on the state of <paramref name="type"/>: it
+    /// cannot run its static constructor, and every type whose statics it read or wrote as it ran (reflection included)
+    /// is independent too.
+    /// </summary>
+    private bool Independent(TypeDef other, TypeDef type, MethodDef cctor, Dictionary<TypeDef, bool> memo)
+    {
+        if (other == type) return false;
+        if (memo.TryGetValue(other, out bool known)) return known;
+        memo[other] = false; // a cycle back here: not independent
+        bool independent = !_facts.RunsDuringInitialization(other, cctor) &&
+                           (!_touched.TryGetValue(other, out var touched) || touched.All(t => Independent(t, type, cctor, memo)));
+        memo[other] = independent;
+        return independent;
+    }
+
+    /// <summary>Per type: the other types whose statics its initialization read or wrote.</summary>
+    private readonly Dictionary<TypeDef, HashSet<TypeDef>> _touched = new();
+
+    private void Touch(TypeDef owner)
+    {
+        foreach (var outer in _initializing)
+        {
+            if (outer == owner) continue;
+            if (!_touched.TryGetValue(outer, out var set)) _touched[outer] = set = new HashSet<TypeDef>();
+            set.Add(owner);
+        }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="site"/> is outside every handler and on no cycle of the method's flow graph, with an edge
+    /// from every instruction of a protected region to its handler and from endfinally to every leave target.
+    /// </summary>
+    private static bool ReachedAtMostOnce(MethodDef method, Instruction site)
+    {
+        var code = method.Body.Instructions;
+        var index = new Dictionary<Instruction, int>(code.Count);
+        for (int i = 0; i < code.Count; i++) index[code[i]] = i;
+        if (!index.TryGetValue(site, out int at)) return false;
+        int End(Instruction? i) => i == null ? code.Count : index.TryGetValue(i, out int k) ? k : code.Count;
+        foreach (var eh in method.Body.ExceptionHandlers)
+        {
+            if (at >= End(eh.HandlerStart) && at < End(eh.HandlerEnd)) return false;
+            if (eh.FilterStart != null && at >= End(eh.FilterStart) && at < End(eh.HandlerStart)) return false;
+        }
+        var leaveTargets = code.Where(i => i.OpCode.Code is Code.Leave or Code.Leave_S && i.Operand is Instruction).Select(i => End((Instruction)i.Operand)).ToList();
+        IEnumerable<int> Successors(int k)
+        {
+            var ins = code[k];
+            switch (ins.OpCode.FlowControl)
+            {
+                case FlowControl.Branch:
+                    if (ins.Operand is Instruction t) yield return End(t);
+                    break;
+                case FlowControl.Cond_Branch:
+                    yield return k + 1;
+                    if (ins.Operand is Instruction c) yield return End(c);
+                    else if (ins.Operand is IList<Instruction> cases) foreach (var c2 in cases) yield return End(c2);
+                    break;
+                case FlowControl.Return or FlowControl.Throw:
+                    if (ins.OpCode.Code is Code.Endfinally) foreach (var l in leaveTargets) yield return l;
+                    break;
+                default:
+                    yield return k + 1;
+                    break;
+            }
+            foreach (var eh in method.Body.ExceptionHandlers)
+            {
+                if (k < End(eh.TryStart) || k >= End(eh.TryEnd)) continue;
+                yield return End(eh.FilterStart ?? eh.HandlerStart);
+            }
+        }
+        var seen = new HashSet<int>();
+        var work = new Stack<int>(Successors(at));
+        while (work.Count > 0)
+        {
+            int k = work.Pop();
+            if (k == at) return false;
+            if (k >= code.Count || !seen.Add(k)) continue;
+            foreach (var s in Successors(k)) work.Push(s);
+        }
+        return true;
     }
 
     private sealed class Frame(MethodDef? method, IList<Instruction> code, object?[] args, Slot[] argSlots, object?[] locals, Slot[] localSlots)
@@ -308,6 +505,11 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
             {
                 if (sliceMode) return Void;
                 throw Bail(FallbackReason.InvalidCode, $"execution runs past the end of {Describe(f.Method!)}");
+            }
+            if (_stopAt != null && f.Method == _stopIn)
+            {
+                if (ReferenceEquals(code[pc], _stopAt)) throw new SiteReached();
+                _passed!.Add(code[pc]);
             }
             Tick();
             var ins = code[pc++];
@@ -770,6 +972,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         var type = fd.DeclaringType;
         if (type.HasGenericParameters) throw Bail(FallbackReason.Generic, $"static state of generic type {type.FullName}");
         bool initializing = _initializing.Contains(type);
+        if (_initializing.Count > 0) Touch(type);
         if (!initializing && !fd.IsInitOnly && !WrittenOnlyByInitialization(fd))
             throw Bail(FallbackReason.MutableStatic, $"reads mutable static field {type.FullName}::{fd.Name}");
         RequireSettledState(type);
@@ -808,6 +1011,9 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
             throw Bail(FallbackReason.OtherModule, $"writes static field {field.FullName} of another module");
         if (!_initializing.Contains(fd.DeclaringType))
             throw Bail(FallbackReason.MutableStatic, $"writes static field {fd.DeclaringType.FullName}::{fd.Name} outside its static constructor");
+        if (_initializing.Count > 0) Touch(fd.DeclaringType);
+        if (fd.DeclaringType == _ownType)
+            throw Bail(FallbackReason.MutableStatic, $"writes static field {fd.DeclaringType.FullName}::{fd.Name} of the type whose static constructor is running");
         _statics[fd] = Store(SlotOf(fd.FieldType), value);
     }
 
@@ -821,9 +1027,12 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         if (_initializing.Contains(type)) return;
         using var analysis = Meter?.Exclude();
         if (CurrentMethod != null && _facts.RunsDuringInitialization(type, CurrentMethod))
+        {
+            if (_site != null && _ownType == null && CurrentMethod.IsStaticConstructor && CurrentMethod.DeclaringType == type) throw new OwnStateNeeded();
             throw Bail(FallbackReason.StaticInitializer, CurrentMethod.IsStaticConstructor && CurrentMethod.DeclaringType == type
                 ? $"needs the static state of {type.FullName} inside its own static constructor"
                 : $"needs the static state of {type.FullName}, and {Describe(CurrentMethod)} can run during its static constructor");
+        }
         foreach (var outer in _initializing)
             if (outer.FindStaticConstructor() is { } cctor && _facts.RunsDuringInitialization(type, cctor))
                 throw Bail(FallbackReason.StaticInitializer, $"the static constructor of {outer.FullName} can run during that of {type.FullName}");

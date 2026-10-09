@@ -36,6 +36,8 @@ internal sealed class IlBodyGenerator
     private readonly int _mode;
     private readonly MethodDef _cached, _joined; // Decrypt memoized in a static Dictionary; Decrypt(0..n-1) joined through a List
     private readonly MethodDef _fromResource; // four letters read from the module's embedded resource
+    private readonly List<FieldDef> _ordered = new(); // results of calls Ordered's static constructor makes on the state it is building
+    private FieldDef _orderedWritten = null!; // what Note(c) last wrote
     private readonly IMethod _concat, _length, _upper, _toString, _invalidOpCtor;
     private readonly ITypeDefOrRef[] _catchTypes;
 
@@ -185,12 +187,94 @@ internal sealed class IlBodyGenerator
             I(OpCodes.Ret));
 
         _concat = module.Import(typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]));
+        Ordered(module, funcString);
         _length = module.Import(typeof(string).GetProperty(nameof(string.Length))!.GetGetMethod());
         _upper = module.Import(typeof(string).GetMethod(nameof(string.ToUpperInvariant), Type.EmptyTypes));
         _toString = module.Import(typeof(object).GetMethod(nameof(ToString), Type.EmptyTypes));
         _invalidOpCtor = module.Import(typeof(InvalidOperationException).GetConstructor([typeof(string)]));
         _catchTypes = new[] { typeof(Exception), typeof(ArithmeticException), typeof(DivideByZeroException), typeof(OverflowException),
             typeof(InvalidOperationException) }.Select(t => (ITypeDefOrRef)module.Import(t)).ToArray();
+    }
+
+    /// <summary>
+    /// Lab.Ordered (no beforefieldinit): its static constructor sets a table, a prefix (twice, now and then) and a delegate
+    /// field in a random order, interleaved with calls that read them: H(c) = Pre + Tbl[c &amp; 3] directly or through the
+    /// delegate, once, in a two-round loop (that may extend the prefix), or through Note(c), which also writes the type's
+    /// own W. Each result goes to a field R0.. that generated methods read. Calls through the delegate come after it is set.
+    /// </summary>
+    private void Ordered(ModuleDef module, Type funcString)
+    {
+        static Instruction I(OpCode op, object? operand = null) => operand == null ? op.ToInstruction() : new Instruction(op, operand);
+        var type = _lab.NewType("Lab", "Ordered", abstractSealed: true, beforeFieldInit: false);
+        var table = _lab.StaticField(type, "Tbl", new SZArraySig(_t.String), readOnly: true);
+        var prefix = _lab.StaticField(type, "Pre", _t.String, readOnly: true);
+        var del = _lab.StaticField(type, "Del", module.Import(funcString).ToTypeSig(), readOnly: true);
+        var written = _lab.StaticField(type, "W", _t.String, readOnly: false);
+        _orderedWritten = written;
+        var h = _lab.Method("H", _t.String, [_t.Int32],
+            [I(OpCodes.Ldsfld, prefix), I(OpCodes.Ldsfld, table), I(OpCodes.Ldarg_0), IlLab.Ldc(3), I(OpCodes.And), I(OpCodes.Ldelem_Ref), I(OpCodes.Call, _concat), I(OpCodes.Ret)], owner: type);
+        var note = _lab.Method("Note", _t.String, [_t.Int32],
+            [I(OpCodes.Ldarg_0), I(OpCodes.Call, h), I(OpCodes.Dup), I(OpCodes.Stsfld, written), I(OpCodes.Ret)], owner: type);
+        var newDelegate = module.Import(funcString.GetConstructors()[0]);
+        string Word() => new string(Enumerable.Range(0, _r.Next(1, 4)).Select(_ => (char)('a' + _r.Next(26))).ToArray());
+
+        var code = new List<Instruction>();
+        var counter = new Local(_t.Int32);
+        code.Add(IlLab.Ldc(4));
+        code.Add(I(OpCodes.Newarr, _t.String.ToTypeDefOrRef()));
+        for (int k = 0; k < 4; k++) code.AddRange([I(OpCodes.Dup), IlLab.Ldc(k), I(OpCodes.Ldstr, Word()), I(OpCodes.Stelem_Ref)]);
+        code.Add(I(OpCodes.Stsfld, table));
+        var steps = new List<int> { 0, 1 }; // 0: set Pre, 1: set Del
+        if (_r.Next(2) == 0) steps.Add(0);
+        int results = _r.Next(3, 7);
+        for (int k = 0; k < results; k++) steps.Insert(_r.Next(steps.Count + 1), 2);
+        bool delegateSet = false;
+        foreach (var step in steps)
+        {
+            switch (step)
+            {
+                case 0:
+                    code.AddRange([I(OpCodes.Ldstr, Word() + ":"), I(OpCodes.Stsfld, prefix)]);
+                    break;
+                case 1:
+                    code.AddRange([I(OpCodes.Ldnull), I(OpCodes.Ldftn, h), I(OpCodes.Newobj, newDelegate), I(OpCodes.Stsfld, del)]);
+                    delegateSet = true;
+                    break;
+                default:
+                {
+                    var result = _lab.StaticField(type, "R" + _ordered.Count, _t.String, readOnly: false);
+                    _ordered.Add(result);
+                    int c = _r.Next(0, 8);
+                    switch (_r.Next(delegateSet ? 4 : 3))
+                    {
+                        case 0: code.AddRange([IlLab.Ldc(c), I(OpCodes.Call, h), I(OpCodes.Stsfld, result)]); break;
+                        case 1: code.AddRange([IlLab.Ldc(c), I(OpCodes.Call, note), I(OpCodes.Stsfld, result)]); break;
+                        case 2:
+                        {
+                            // for (k = 0; k < 2; k++) { R = R + H(c); [Pre = Pre + "+";] }
+                            var body = I(OpCodes.Ldsfld, result);
+                            var test = I(OpCodes.Ldloc, counter);
+                            code.AddRange([IlLab.Ldc(0), I(OpCodes.Stloc, counter), I(OpCodes.Br, test),
+                                body, IlLab.Ldc(c), I(OpCodes.Call, h), I(OpCodes.Call, _concat), I(OpCodes.Stsfld, result)]);
+                            if (_r.Next(2) == 0) code.AddRange([I(OpCodes.Ldsfld, prefix), I(OpCodes.Ldstr, "+"), I(OpCodes.Call, _concat), I(OpCodes.Stsfld, prefix)]);
+                            code.AddRange([
+                                I(OpCodes.Ldloc, counter), IlLab.Ldc(1), I(OpCodes.Add), I(OpCodes.Stloc, counter),
+                                test, IlLab.Ldc(2), I(OpCodes.Blt, body)]);
+                            break;
+                        }
+                        default: code.AddRange([I(OpCodes.Ldsfld, del), IlLab.Ldc(c), I(OpCodes.Callvirt, _invokeString), I(OpCodes.Stsfld, result)]); break;
+                    }
+                    break;
+                }
+            }
+        }
+        code.Add(I(OpCodes.Ret));
+        // Reset() writes the results (it is never called): they are not constants, so the generated methods read what
+        // the rewritten constructor stored.
+        _lab.Method("Reset", _t.Void, [], [.. _ordered.SelectMany(f => new[] { I(OpCodes.Ldnull), I(OpCodes.Stsfld, f) }), I(OpCodes.Ret)], owner: type);
+        var cctor = _lab.StaticConstructor(type, code.ToArray());
+        cctor.Body.Variables.Add(counter);
+        cctor.Body.InitLocals = true;
     }
 
     /// <summary>Generates <paramref name="count"/> methods M0..; returns the image and the method names.</summary>
@@ -253,7 +337,7 @@ internal sealed class IlBodyGenerator
     private void Statement(int depth, bool inProtected, bool noExit)
     {
         bool nest = depth < _maxDepth && _budget > 20;
-        int kind = _r.Next(nest ? 26 : 8);
+        int kind = _r.Next(nest ? 27 : 8);
         switch (kind)
         {
             case 0: case 1: case 2: Assign(); break;
@@ -280,6 +364,7 @@ internal sealed class IlBodyGenerator
             case 23: DelegateCall(); break;
             case 24: InstanceFields(depth, inProtected, noExit); break;
             case 25: CacheCall(); break;
+            case 26: OrderedRead(); break;
             default: Assign(); break;
         }
     }
@@ -404,6 +489,19 @@ internal sealed class IlBodyGenerator
         }
         Block(depth + 1, inProtected, noExit);
         Mark(skip);
+    }
+
+    /// <summary>A read of one of Ordered's results, or of what Note last wrote (which runs its static constructor first), added to the result.</summary>
+    private void OrderedRead()
+    {
+        // result += field.Length: what the constructor stored shows in the method's result.
+        Op(OpCodes.Ldsfld, _r.Next(4) == 0 ? _orderedWritten : Pick(_ordered.ToArray()));
+        Op(OpCodes.Dup);
+        Op(OpCodes.Stloc, Pick(_pool[VT.Str]));
+        Op(OpCodes.Callvirt, _length);
+        Op(OpCodes.Ldloc, _result);
+        Op(OpCodes.Add);
+        Op(OpCodes.Stloc, _result);
     }
 
     /// <summary>A call of the memoizing Cached(k), Joined(n) or FromResource(k), with a constant (which folds to the string) or computed argument.</summary>
