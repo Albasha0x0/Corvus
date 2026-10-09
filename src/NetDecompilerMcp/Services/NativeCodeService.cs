@@ -17,39 +17,50 @@ public sealed class NativeCodeService
     {
         _logger = logger;
         if (options.BackgroundIndexing)
-            workspace.NativeLoaded += native => Holder(native).Start(_logger);
+            workspace.NativeLoaded += native =>
+            {
+                // Unloaded again before the event ran: nothing to build.
+                try { Holder(native).Start(_logger); }
+                catch (ToolError) when (native.Released.IsCancellationRequested) { }
+            };
     }
 
     /// <summary>The image's index, building it if needed; progress reports the build phase while the caller waits.</summary>
     public async Task<NativeCodeIndex> Index(LoadedNative native, IProgress<CodeIndexProgress>? progress, CancellationToken ct)
     {
         var holder = Holder(native);
-        holder.Listen(progress);
+        Action<CodeIndexProgress>? listener = progress != null ? progress.Report : null;
+        holder.Progress += listener;
         try { return await holder.Start(_logger).WaitAsync(ct); }
-        finally { holder.Listen(null); }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested && native.Released.IsCancellationRequested)
+        {
+            // The build was cancelled by an unload or reload, not by this caller.
+            throw native.Gone();
+        }
+        finally { holder.Progress -= listener; }
     }
 
     /// <summary>The index when it is already built, else null (does not start a build).</summary>
     public NativeCodeIndex? Ready(LoadedNative native) =>
-        Holder(native).Task is { IsCompletedSuccessfully: true } t ? t.Result : null;
+        native.Analysis.TryGetValue(typeof(IndexHolder), out var h) && ((IndexHolder)h).Task is { IsCompletedSuccessfully: true } t ? t.Result : null;
 
     private static IndexHolder Holder(LoadedNative native) => native.GetAnalysis(n => new IndexHolder(n));
 
     private sealed class IndexHolder(LoadedNative native) : IDisposable
     {
         private readonly CancellationTokenSource _cts = new();
-        private IProgress<CodeIndexProgress>? _listener;
         public Task<NativeCodeIndex>? Task { get; private set; }
 
-        public void Listen(IProgress<CodeIndexProgress>? progress) => _listener = progress;
+        /// <summary>Progress of the build, for every caller waiting on it.</summary>
+        public event Action<CodeIndexProgress>? Progress;
 
         public Task<NativeCodeIndex> Start(ILogger? logger)
         {
             lock (this)
             {
-                // A failed or cancelled build is retried on the next request.
-                if (Task is { } t && !(t.IsFaulted || t.IsCanceled)) return t;
-                return Task = NativeCodeIndex.BuildAsync(native.Image, null, p => _listener?.Report(p), _cts.Token)
+                // A failed build is retried on the next request; a cancelled one only while the image is still loaded.
+                if (Task is { } t && !(t.IsFaulted || t.IsCanceled && !_cts.IsCancellationRequested)) return t;
+                return Task = NativeCodeIndex.BuildAsync(native.Image, null, p => Progress?.Invoke(p), _cts.Token)
                     .ContinueWith(done =>
                     {
                         if (done.IsCompletedSuccessfully)

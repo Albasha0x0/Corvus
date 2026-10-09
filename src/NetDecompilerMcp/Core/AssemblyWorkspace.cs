@@ -170,7 +170,7 @@ public sealed class AssemblyWorkspace : IDisposable
     public void UnloadNative(LoadedNative native) => Write(() =>
     {
         _natives.Remove(native);
-        foreach (var analysis in native.Analysis.Values.OfType<IDisposable>()) analysis.Dispose();
+        native.Release();
         return 0;
     });
 
@@ -178,16 +178,24 @@ public sealed class AssemblyWorkspace : IDisposable
     public LoadedNative ReloadNative(LoadedNative native)
     {
         var image = Native.Pe.PeFile.Open(native.FilePath);
+        bool replaced = false;
         var fresh = Write(() =>
         {
             int index = _natives.IndexOf(native);
-            _natives.Remove(native);
-            foreach (var analysis in native.Analysis.Values.OfType<IDisposable>()) analysis.Dispose();
+            if (index < 0)
+            {
+                // Unloaded or reloaded by a concurrent call: the current entry for the file, if any, is already fresh.
+                return _natives.FirstOrDefault(n => string.Equals(n.FilePath, native.FilePath, StringComparison.OrdinalIgnoreCase))
+                       ?? throw new ToolError(ErrorCode.NotLoaded, $"{native.Id} was unloaded.", "load_assembly with its path");
+            }
+            _natives.RemoveAt(index);
+            native.Release();
             var reloaded = new LoadedNative(native.Id, native.FilePath, image);
-            _natives.Insert(Math.Max(0, Math.Min(index, _natives.Count)), reloaded);
+            _natives.Insert(index, reloaded);
+            replaced = true;
             return reloaded;
         });
-        NativeLoaded?.Invoke(fresh);
+        if (replaced) NativeLoaded?.Invoke(fresh);
         return fresh;
     }
 
@@ -750,6 +758,10 @@ public sealed class AssemblyWorkspace : IDisposable
         foreach (var a in _assemblies)
             a.Dispose();
         _assemblies.Clear();
+        // Cancels background code index builds and closes engine sessions.
+        foreach (var n in _natives)
+            n.Release();
+        _natives.Clear();
         _lock.Dispose();
     }
 }
