@@ -196,6 +196,8 @@ internal sealed partial class IlEvaluator
             return e.NewArray(Array.CreateInstance(e.ElementClrType(e.TypeOf(a[0]).Sig), length));
         });
 
+        Add("System.Array", "System.Enum", "GetValues", "System.Type", (e, a) => e.EnumValues(a[0]));
+
         // System.Math
         Add(I, "System.Math", "Min", $"{I},{I}", (_, a) => Math.Min(I4(a[0]), I4(a[1])));
         Add(I, "System.Math", "Max", $"{I},{I}", (_, a) => Math.Max(I4(a[0]), I4(a[1])));
@@ -217,6 +219,7 @@ internal sealed partial class IlEvaluator
 
         AddReflection(Add);
         AddCrypto(Add);
+        AddResourceManager(Add);
         return t;
     }
 

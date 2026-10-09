@@ -75,6 +75,8 @@ internal static class EnvironmentStandIns
         ("Environment.MachineName, Environment.UserDomainName", MachineName),
         ("Environment.UserName", UserName),
         ("Environment.NewLine", "\\r\\n"),
+        ("CultureInfo.CurrentCulture, CultureInfo.CurrentUICulture, and ResourceManager.GetString without a culture",
+            "the invariant culture: the module's own neutral resources (satellite assemblies are not read)"),
         ("File.Exists, File.ReadAllBytes, File.OpenRead, new FileStream(path, FileMode.Open[, FileAccess.Read[, FileShare]]) of the module's own path",
             "the module's image as loaded, read-only; any other path is not modelled"),
         ("Path.GetDirectoryName, GetFileName, GetFileNameWithoutExtension, GetExtension, Combine (2 to 4 parts)",
@@ -122,6 +124,7 @@ internal sealed partial class IlEvaluator
             ("System.Environment", "GetEnvironmentVariable") when count == 1 => "an environment variable",
             ("System.Environment", "get_MachineName" or "get_UserName" or "get_UserDomainName" or "get_NewLine") => "the machine's name, user or line ending",
             ("System.IO.Path", "GetTempPath") => "the temporary folder",
+            ("System.Globalization.CultureInfo", "get_CurrentUICulture" or "get_CurrentCulture") => "the current culture",
             ("System.IO.Path", "GetDirectoryName" or "GetFileName" or "GetFileNameWithoutExtension" or "GetExtension" or "Combine") => "path syntax, which differs between platforms",
             ("System.IO.File", "Exists" or "ReadAllBytes" or "OpenRead") when count == 1 => "a file",
             ("System.IO.FileStream", ".ctor") when op == Code.Newobj => "a file",
@@ -166,6 +169,7 @@ internal sealed partial class IlEvaluator
             case ("System.Environment", "get_UserName"): return EnvironmentStandIns.UserName;
             case ("System.Environment", "get_NewLine"): return "\r\n";
             case ("System.IO.Path", "GetTempPath"): return EnvironmentStandIns.UserProfile + @"\AppData\Local\Temp\";
+            case ("System.Globalization.CultureInfo", _): return CultureObject.Invariant;
             case ("System.IO.Path", _): return WindowsPath(name, args);
             case ("System.IO.File", "Exists"): return OwnFile(args[0]) ? 1 : throw NotOwnFile(args[0]);
             case ("System.IO.File", "ReadAllBytes"):

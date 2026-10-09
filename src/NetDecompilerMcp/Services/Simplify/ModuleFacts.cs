@@ -137,6 +137,58 @@ internal sealed class ModuleFacts(ModuleDef module)
         return !_writtenInstanceFields!.Contains(field);
     }
 
+    /// <summary>
+    /// Whether a static field always holds its default value: no other assembly can access it, and every method that
+    /// writes it can never run - nothing in the module calls it or takes its address, no other assembly can call it, and
+    /// it is no static constructor, virtual method or entry point (a generated Culture setter nobody calls, say).
+    /// </summary>
+    public bool AlwaysDefault(FieldDef field)
+    {
+        if (!field.IsStatic || !Hidden(field)) return false;
+        Build();
+        var writers = _fieldWrites!.GetValueOrDefault(field) ?? [];
+        return writers.All(m => !m.IsStaticConstructor && !m.IsVirtual && m != module.EntryPoint && !Callable(m) &&
+                                (_callers!.GetValueOrDefault(m)?.Count ?? 0) == 0);
+    }
+
+    /// <summary>Whether another assembly can call the method (internal methods too when the assembly grants friends).</summary>
+    private bool Callable(MethodDef m) => m.Access switch
+    {
+        MethodAttributes.Public or MethodAttributes.Family or MethodAttributes.FamORAssem => true,
+        MethodAttributes.Assembly or MethodAttributes.FamANDAssem => module.Assembly?.CustomAttributes.Any(a =>
+            a.TypeFullName == "System.Runtime.CompilerServices.InternalsVisibleToAttribute") ?? false,
+        _ => false,
+    };
+
+    /// <summary>
+    /// For a lazily created static field (<c>if (f == null) f = new ...; return f;</c>): every store to it (stsfld only,
+    /// no address taken), as (method, index of the stsfld), when no other assembly can access the field and every load of
+    /// it is in a method that also stores it; otherwise null.
+    /// </summary>
+    public List<(MethodDef Method, int Index)>? LazyStores(FieldDef field)
+    {
+        if (!field.IsStatic || !Hidden(field)) return null;
+        Build();
+        var writers = (_fieldWrites!.GetValueOrDefault(field) ?? []).Distinct().ToList();
+        if (writers.Count == 0) return null;
+        foreach (var (method, _) in _fieldUses!.GetValueOrDefault(field) ?? [])
+            if (!writers.Contains(method)) return null;
+        var stores = new List<(MethodDef, int)>();
+        foreach (var m in writers)
+        {
+            var body = MetadataUtil.SafeBody(m);
+            if (body == null) return null;
+            for (int i = 0; i < body.Instructions.Count; i++)
+            {
+                var ins = body.Instructions[i];
+                if (ins.Operand is not FieldDef f || f != field) continue;
+                if (ins.OpCode.Code == Code.Ldsflda) return null;
+                if (ins.OpCode.Code == Code.Stsfld) stores.Add((m, i));
+            }
+        }
+        return stores;
+    }
+
     /// <summary>The field a reference names when it is declared by a type of this module.</summary>
     private FieldDef? Local(IField field) => field switch
     {

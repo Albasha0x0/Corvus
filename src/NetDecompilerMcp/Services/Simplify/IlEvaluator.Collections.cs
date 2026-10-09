@@ -291,3 +291,99 @@ internal sealed partial class IlEvaluator
         }
     }
 }
+
+/// <summary>A System.Collections.SortedList with integer keys: its entries, in key order.</summary>
+internal sealed class SortedListObject : HeapObject
+{
+    public List<(BoxedValue Key, object? Value)> Entries { get; } = new();
+}
+
+internal sealed partial class IlEvaluator
+{
+    /// <summary>
+    /// System.Collections.SortedList with boxed integer keys of one type, which the default comparer orders by value:
+    /// construction, Add, the indexer, ContainsKey / Contains, Count, GetByIndex, GetKey, IndexOfKey, Remove, Clear.
+    /// String keys are not modelled (the default comparer orders them by the current culture).
+    /// </summary>
+    private object? SortedListCall(IMethod method, Code op, object?[] args, out bool handled)
+    {
+        handled = method.DeclaringType?.FullName == "System.Collections.SortedList";
+        if (!handled) return null;
+        int count = method.MethodSig?.Params.Count ?? 0;
+        if (op == Code.Newobj)
+        {
+            if (count > 1 || count == 1 && method.MethodSig!.Params[0].ElementType != ElementType.I4)
+                throw Bail(FallbackReason.UnsupportedCall, $"calls {Describe(method)}, which is not evaluable");
+            Allocate(48);
+            return new SortedListObject { Shared = _cctorDepth > 0 };
+        }
+        var list = (args[0] is Pointer p ? p.Get() : args[0]) as SortedListObject ?? throw Bail(FallbackReason.UnsupportedValue, "a sorted list the evaluation did not create");
+        int Find(object? key)
+        {
+            var k = SortedKey(key);
+            if (list.Entries.Count > 0 && list.Entries[0].Key.Type.ElementType != k.Type.ElementType)
+                throw Bail(FallbackReason.RuntimeError, "sorted list keys of different types (ArgumentException)");
+            long value = KeyValue(k);
+            int lo = 0, hi = list.Entries.Count - 1;
+            while (lo <= hi)
+            {
+                int mid = (lo + hi) / 2;
+                long at = KeyValue(list.Entries[mid].Key);
+                if (at == value) return mid;
+                if (at < value) lo = mid + 1; else hi = mid - 1;
+            }
+            return ~lo;
+        }
+        object? Change(Action change)
+        {
+            RequireMutable(list);
+            change();
+            return Void;
+        }
+        int Index(object? i) => (uint)I4(i) < (uint)list.Entries.Count ? I4(i) : throw Bail(FallbackReason.RuntimeError, "index out of range");
+        switch (method.Name.String, count)
+        {
+            case ("get_Count", 0): return list.Entries.Count;
+            case ("ContainsKey", 1) or ("Contains", 1): return Find(args[1]) >= 0 ? 1 : 0;
+            case ("IndexOfKey", 1): return Math.Max(Find(args[1]), -1);
+            case ("get_Item", 1): return Find(args[1]) is var at and >= 0 ? list.Entries[at].Value : null;
+            case ("GetByIndex", 1): return list.Entries[Index(args[1])].Value;
+            case ("GetKey", 1): return list.Entries[Index(args[1])].Key;
+            case ("Add", 2):
+                return Change(() =>
+                {
+                    int at = Find(args[1]);
+                    if (at >= 0) throw Bail(FallbackReason.RuntimeError, "an item with the same key has already been added");
+                    Allocate(24);
+                    list.Entries.Insert(~at, (SortedKey(args[1]), args[2]));
+                });
+            case ("set_Item", 2):
+                return Change(() =>
+                {
+                    int at = Find(args[1]);
+                    Allocate(24);
+                    if (at >= 0) list.Entries[at] = (list.Entries[at].Key, args[2]);
+                    else list.Entries.Insert(~at, (SortedKey(args[1]), args[2]));
+                });
+            case ("Remove", 1): return Change(() => { if (Find(args[1]) is var at and >= 0) list.Entries.RemoveAt(at); });
+            case ("Clear", 0): return Change(list.Entries.Clear);
+            default: throw Bail(FallbackReason.UnsupportedCall, $"calls {Describe(method)}, which is not evaluable");
+        }
+    }
+
+    private static BoxedValue SortedKey(object? key) => key switch
+    {
+        null => throw Bail(FallbackReason.RuntimeError, "null key (ArgumentNullException)"),
+        BoxedValue { Type.ElementType: ElementType.I1 or ElementType.U1 or ElementType.I2 or ElementType.U2 or ElementType.I4 or ElementType.U4 or ElementType.I8 or ElementType.Char } b => b,
+        string => throw Bail(FallbackReason.PlatformDependent, "sorted list string keys (the default comparer orders them by the current culture)"),
+        _ => throw Bail(FallbackReason.UnsupportedValue, "a sorted list key that is not a boxed integer"),
+    };
+
+    /// <summary>A key's value in the order the default comparer gives it.</summary>
+    private static long KeyValue(BoxedValue key) => key.Type.ElementType switch
+    {
+        ElementType.U4 => (uint)(int)key.Value!,
+        ElementType.I8 => (long)key.Value!,
+        _ => (int)key.Value!,
+    };
+}

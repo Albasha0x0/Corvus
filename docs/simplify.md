@@ -23,8 +23,8 @@ every method left unchanged is reported with one of the reasons below.
 | Indirect access | `ldind.i1` `ldind.u1` `ldind.i2` `ldind.u2` `ldind.i4` `ldind.u4` `ldind.i8` `ldind.i` `ldind.r4` `ldind.r8` `ldind.ref` `stind.i1` `stind.i2` `stind.i4` `stind.i8` `stind.i` `stind.r4` `stind.r8` `stind.ref` | through managed pointers to arguments, locals, array elements, struct fields and static fields, and through pointers into stack memory |
 | Objects and value types | `ldobj` `stobj` `initobj` `ldfld` `ldflda` `stfld` | structs defined in the same module (sequential or auto layout), enums and primitives; instances of the module's classes (see unmodeled-instance) created by the evaluated code, with their fields, constructors, and instance and virtual methods dispatched within the module; new object(); a field of a class that nothing in the module writes (and no other assembly can) reads as its default on every object, which folds conditions on it even where the object itself cannot be evaluated (the load is kept: it still throws on null) |
 | Static state | `ldsfld` `ldsflda` `stsfld` `ldtoken` | static fields of the same module that are readonly, or that only the type's initialization writes and other assemblies cannot, after evaluating the type's static constructor once; an instance with no fields held there (a lambda class's singleton) cannot change, so any code may read it; writes only inside static constructors (by stsfld or FieldInfo.SetValue); ldtoken of fields, types and methods |
-| Collections |  | Dictionary<K, V> (keys: numbers and strings) and List<T>: construction, Add, indexers, TryGetValue, ContainsKey, Remove, Count, Clear, Contains, IndexOf, Insert, RemoveAt, ToArray, and foreach over them in the order of addition (a dictionary after a removal is not enumerated); Monitor.Enter / Exit (lock) succeed at once. A static collection the code only uses through its own methods, written only by its type's initialization, counts as a cache: each evaluation starts from the state the initialization left, and the call made again on the state it leaves must give the same result (see cache-dependent) |
-| Resources and streams |  | the module's own embedded resources: Assembly.GetManifestResourceNames and GetManifestResourceStream (the executing, calling or a type's own assembly); read-only streams over them or over byte arrays (MemoryStream): Read, ReadByte, Length, Position, Seek, Close; BinaryReader (bytes, integers, floats, strings with a 7-bit length) and StreamReader (UTF-8 or an explicit encoding, byte-order marks detected as the CLR does) over them. The same resource reads the same bytes on every run; its bytes count against the simulated memory |
+| Collections |  | Dictionary<K, V> (keys: numbers and strings) and List<T>: construction, Add, indexers, TryGetValue, ContainsKey, Remove, Count, Clear, Contains, IndexOf, Insert, RemoveAt, ToArray, and foreach over them in the order of addition (a dictionary after a removal is not enumerated); Monitor.Enter / Exit (lock) succeed at once. A static collection the code only uses through its own methods, written only by its type's initialization, counts as a cache: each evaluation starts from the state the initialization left, and the call made again on the state it leaves must give the same result (see cache-dependent). System.Collections.SortedList with boxed integer keys of one type: construction, Add, the indexer, ContainsKey / Contains, Count, GetByIndex, GetKey, IndexOfKey, Remove, Clear (string keys: the default comparer orders them by the current culture). Enum.GetValues of the module's enums, sorted by unsigned value |
+| Resources and streams |  | the module's own embedded resources: Assembly.GetManifestResourceNames and GetManifestResourceStream (the executing, calling or a type's own assembly); read-only streams over them or over byte arrays (MemoryStream): Read, ReadByte, Length, Position, Seek, Close; BinaryReader (bytes, integers, floats, strings with a 7-bit length) and StreamReader (UTF-8 or an explicit encoding, byte-order marks detected as the CLR does) over them. The same resource reads the same bytes on every run; its bytes count against the simulated memory. ResourceManager over the module's own assembly: GetString reads the neutral resources (the embedded baseName.resources) for the invariant culture, or for the current UI culture under the deterministic environment; a lazily created ResourceManager in a static field (the generated Resources class) reads as an equivalent manager when every store builds one from the same base name and only its getters read it. A static field that only methods nothing can call write (no callers, not callable by other assemblies, friends included) holds its default |
 | Boxing | `box` `unbox` `unbox.any` | box gives an immutable object holding the value (box of a reference, as for a type argument that is a class, leaves it as it is); unbox.any and unbox take the value back out of a box of the same type, or of an enum and its underlying integer type; unbox.any of a reference type is castclass; Nullable<T> is not boxed |
 | Sizes | `sizeof` | sizeof of primitive and enum types; native-size types differ between platforms |
 | Type tests | `isinst` `castclass` | System.Object, System.String, System.Text.StringBuilder and System.Text.Encoding targets |
@@ -37,6 +37,7 @@ Every other instruction stops evaluation with `unsupported-instruction`.
 Framework methods evaluated directly (deterministic and culture-independent for the values they accept):
 
 - `System.Array System.Array::CreateInstance(System.Type,System.Int32)`
+- `System.Array System.Enum::GetValues(System.Type)`
 - `System.Boolean System.Reflection.MethodBase::get_IsStatic()`
 - `System.Boolean System.String::Equals(System.String)`
 - `System.Boolean System.String::Equals(System.String,System.String)`
@@ -73,6 +74,7 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 - `System.Delegate System.Delegate::CreateDelegate(System.Type,System.Reflection.MethodInfo)`
 - `System.Delegate System.Reflection.Emit.DynamicMethod::CreateDelegate(System.Type)`
 - `System.Delegate System.Reflection.MethodInfo::CreateDelegate(System.Type)`
+- `System.Globalization.CultureInfo System.Globalization.CultureInfo::get_InvariantCulture()`
 - `System.Int32 System.Array::get_Length()`
 - `System.Int32 System.Convert::ToInt32(System.Byte)`
 - `System.Int32 System.Convert::ToInt32(System.Char)`
@@ -181,6 +183,8 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 - `System.String System.Int32::ToString()`
 - `System.String System.Object::ToString()`
 - `System.String System.Reflection.MemberInfo::get_Name()`
+- `System.String System.Resources.ResourceManager::GetString(System.String)`
+- `System.String System.Resources.ResourceManager::GetString(System.String,System.Globalization.CultureInfo)`
 - `System.String System.String::Concat(System.Object,System.Object)`
 - `System.String System.String::Concat(System.Object,System.Object,System.Object)`
 - `System.String System.String::Concat(System.String,System.String)`
@@ -245,6 +249,7 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 - `System.Void System.Reflection.Emit.ILGenerator::Emit(System.Reflection.Emit.OpCode,System.String)`
 - `System.Void System.Reflection.Emit.ILGenerator::Emit(System.Reflection.Emit.OpCode,System.Type)`
 - `System.Void System.Reflection.FieldInfo::SetValue(System.Object,System.Object)`
+- `System.Void System.Resources.ResourceManager::.ctor(System.String,System.Reflection.Assembly)`
 - `System.Void System.Runtime.CompilerServices.RuntimeHelpers::InitializeArray(System.Array,System.RuntimeFieldHandle)`
 - `System.Void System.Security.Cryptography.Aes::Clear()`
 - `System.Void System.Security.Cryptography.Aes::set_BlockSize(System.Int32)`
@@ -351,6 +356,7 @@ which the report header names. The clock, random numbers and the network are nev
 | Environment.MachineName, Environment.UserDomainName | MACHINE |
 | Environment.UserName | User |
 | Environment.NewLine | \r\n |
+| CultureInfo.CurrentCulture, CultureInfo.CurrentUICulture, and ResourceManager.GetString without a culture | the invariant culture: the module's own neutral resources (satellite assemblies are not read) |
 | File.Exists, File.ReadAllBytes, File.OpenRead, new FileStream(path, FileMode.Open[, FileAccess.Read[, FileShare]]) of the module's own path | the module's image as loaded, read-only; any other path is not modelled |
 | Path.GetDirectoryName, GetFileName, GetFileNameWithoutExtension, GetExtension, Combine (2 to 4 parts) | Windows semantics ('\' and '/' separators, drive roots); paths with repeated separators, UNC paths or invalid characters are not modelled |
 

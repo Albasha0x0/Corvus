@@ -978,6 +978,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         : value is StreamObject ? type.FullName is "System.IO.Stream" or "System.IO.MemoryStream" or "System.IO.UnmanagedMemoryStream" or "System.IDisposable" or "System.Object"
         : value is CipherObject ? IsAlgorithmType(type)
         : value is TransformObject ? type.FullName is "System.Security.Cryptography.ICryptoTransform" or "System.IDisposable" or "System.Object"
+        : value is ArrayObject array && (type.FullName == "System.Array" || type is SZArraySig) ? IsArrayOf(array, type)
         : value is BinaryReaderObject ? type.FullName is "System.IO.BinaryReader" or "System.IDisposable" or "System.Object"
         : value is StreamReaderObject ? type.FullName is "System.IO.StreamReader" or "System.IO.TextReader" or "System.IDisposable" or "System.Object"
         : type.FullName switch
@@ -1008,7 +1009,13 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         bool initializing = _initializing.Contains(type);
         if (_initializing.Count > 0) Touch(type);
         if (!initializing && !fd.IsInitOnly && !WrittenOnlyByInitialization(fd))
+        {
+            // Fields that only uncallable code writes hold their default; a lazily created ResourceManager is always an
+            // equivalent manager.
+            if (AlwaysDefault(fd)) return Default(SlotOf(fd.FieldType));
+            if (LazyManager(fd) is { } manager) return manager;
             throw Bail(FallbackReason.MutableStatic, $"reads mutable static field {type.FullName}::{fd.Name}");
+        }
         RequireSettledState(type);
         EnsureInitialized(type);
         var value = _statics.TryGetValue(fd, out var v) ? v : Default(SlotOf(fd.FieldType));
@@ -1034,6 +1041,12 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         foreach (var (field, held) in _statics)
             if (ReferenceEquals(held, value) && (field.IsInitOnly || WrittenOnlyByInitialization(field))) return field;
         return null;
+    }
+
+    private bool AlwaysDefault(FieldDef field)
+    {
+        using var analysis = Meter?.Exclude();
+        return _facts.AlwaysDefault(field);
     }
 
     /// <summary>See <see cref="ModuleFacts.NeverWritten"/>.</summary>
@@ -1358,6 +1371,8 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
     private Type ElementClrType(TypeSig sig)
     {
         sig = sig.RemovePinnedAndModifiers();
+        // An enum's elements are stored as its underlying integers.
+        if (IsEnum(sig) && sig.ToTypeDefOrRef()?.ResolveTypeDef()?.GetEnumUnderlyingType() is { } underlying) sig = underlying.RemovePinnedAndModifiers();
         return sig.ElementType switch
         {
             ElementType.I1 => typeof(sbyte),
@@ -1465,6 +1480,8 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         if (fromEnvironment) return environment;
         var resource = ResourceCall(method, op, args, out bool viaResources);
         if (viaResources) return resource;
+        var sorted = SortedListCall(method, op, args, out bool viaSortedList);
+        if (viaSortedList) return sorted;
         var collection = CollectionCall(method, op, args, out bool handled);
         if (handled) return collection;
         if (method.FullName == "System.Void System.IDisposable::Dispose()" && args.Length == 1 && (args[0] is Pointer p ? p.Get() : args[0]) is EnumeratorObject)
