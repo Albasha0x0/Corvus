@@ -69,6 +69,17 @@ internal sealed class Printer(int limit, bool decodeStrings, bool ptr64 = false,
 
     public char Last => sb.Length == 0 ? '\0' : sb[^1];
 
+    private int depth;
+
+    /// <summary>Recursion guard for printing nested names and types.</summary>
+    public void Enter()
+    {
+        if (++depth > 4 * MsvcDemangler.MaxDepth)
+            throw new MangledNameException("demangled name nested too deeply", -1);
+    }
+
+    public void Leave() => depth--;
+
     /// <summary>A space between an identifier or a closing template bracket and what follows.</summary>
     public void SpaceIfNeeded()
     {
@@ -130,8 +141,10 @@ internal abstract class TypeNode : Node
 
     public override void Output(Printer p, OutFlags f = OutFlags.None)
     {
+        p.Enter();
         Pre(p, f);
         Post(p, f);
+        p.Leave();
     }
 }
 
@@ -178,10 +191,12 @@ internal sealed class PointerType : TypeNode
 
     public override void Pre(Printer p, OutFlags f)
     {
+        p.Enter();
         if (Pointee is FunctionType fn)
             fn.Pre(p, OutFlags.NoCallingConvention);
         else
             Pointee.Pre(p, f);
+        p.Leave();
         p.SpaceIfNeeded();
         if ((Quals & Quals.Unaligned) != 0)
             p.Append("__unaligned ");
@@ -216,7 +231,9 @@ internal sealed class PointerType : TypeNode
     {
         if (Pointee is ArrayType or FunctionType)
             p.Append(")");
+        p.Enter();
         Pointee.Post(p, f);
+        p.Leave();
     }
 }
 
@@ -419,8 +436,10 @@ internal sealed class BackrefIdentifier(Identifier target) : Identifier
 {
     public override void Output(Printer p, OutFlags f = OutFlags.None)
     {
+        p.Enter();
         target.Output(p, f);
         OutputTemplateArgs(p);
+        p.Leave();
     }
 }
 
@@ -430,8 +449,10 @@ internal sealed class LocalScopeIdentifier(SymbolNode function, ulong number) : 
     public override void Output(Printer p, OutFlags f = OutFlags.None)
     {
         p.Append("`");
+        p.Enter();
         if (p.NameOnly) function.OutputName(p);
         else function.Output(p);
+        p.Leave();
         p.Append("'::`").Append(number).Append("'");
     }
 }
@@ -535,11 +556,13 @@ internal sealed class QualifiedName(List<Identifier> components) : Node
 
     public override void Output(Printer p, OutFlags f = OutFlags.None)
     {
+        p.Enter();
         for (int i = 0; i < Components.Count; i++)
         {
             if (i > 0) p.Append("::");
             Components[i].Output(p, f);
         }
+        p.Leave();
     }
 }
 

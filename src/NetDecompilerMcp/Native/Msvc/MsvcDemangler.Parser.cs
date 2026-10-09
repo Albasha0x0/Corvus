@@ -22,6 +22,8 @@ internal sealed class MsvcParser(string text)
     private int pos;
     private int depth;
     private Backrefs refs = new();
+    /// <summary>Characters left for rendering back-reference keys; bounds the work on pathological input.</summary>
+    private long renderBudget = 4_000_000;
 
     public bool AtEnd => pos >= s.Length;
 
@@ -482,9 +484,8 @@ internal sealed class MsvcParser(string text)
         if (p == digits || p >= s.Length || s[p] != '@') return null;
         var name = "$" + s[(pos + 2)..p];
         pos = p + 1;
-        var id = new NamedIdentifier(name);
-        Memorize(id, name);
-        return id;
+        Memorize(new NamedIdentifier(name), name);
+        return new NamedIdentifier(name);
     }
 
     private QualifiedName ParseNameScopeChain(Identifier last)
@@ -521,7 +522,12 @@ internal sealed class MsvcParser(string text)
     private void Memorize(Identifier id, string? key = null)
     {
         if (refs.Names.Count >= MaxBackrefs) return;
-        key ??= id.Render();
+        if (key == null)
+        {
+            key = id.Render();
+            renderBudget -= key.Length;
+            if (renderBudget < 0) Fail("name too complex");
+        }
         if (refs.NameKeys.Contains(key)) return;
         refs.Names.Add(id);
         refs.NameKeys.Add(key);
@@ -530,9 +536,9 @@ internal sealed class MsvcParser(string text)
     private Identifier ParseSimpleName(bool memorize)
     {
         var name = ParseSimpleString();
-        var id = new NamedIdentifier(name);
-        if (memorize) Memorize(id, name);
-        return id;
+        // the table gets its own node: the returned one may still receive template arguments
+        if (memorize) Memorize(new NamedIdentifier(name), name);
+        return new NamedIdentifier(name);
     }
 
     private string ParseSimpleString()
@@ -731,8 +737,19 @@ internal sealed class MsvcParser(string text)
             }
             if (Consume("$M"))
             {
-                // auto non-type parameter: the deduced type, then the value
+                // auto non-type parameter: the deduced type, then the value without its '$' ("0" number / "1" symbol)
                 ParseType(QualMode.Drop);
+                if (Consume('0'))
+                {
+                    var (value, negative) = ParseNumber();
+                    return new IntegerLiteral(value, negative);
+                }
+                if (Consume('1'))
+                {
+                    var arg = new SymbolArgument();
+                    if (Peek() == '?') arg.Symbol = ParseSymbol();
+                    return arg;
+                }
                 return ParseTemplateArgument();
             }
             if (Consume("$D"))
@@ -1156,7 +1173,6 @@ internal sealed class MsvcParser(string text)
         switch (c)
         {
             case 0: sb.Append("\\0"); return;
-            case '\'': sb.Append("\\'"); return;
             case '"': sb.Append("\\\""); return;
             case '\\': sb.Append("\\\\"); return;
             case '\a': sb.Append("\\a"); return;
