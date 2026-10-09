@@ -50,6 +50,20 @@ public class NativeToolsTests
     }
 
     [WindowsFact]
+    public async Task Win32ResourcesThroughTheResourceTools()
+    {
+        var (env, tools) = Setup();
+        using var _ = env;
+        await tools.GetPeInfo(Kernel32);
+        var resources = new ResourceTools(env.Workspace, env.Resources, env.Decompiler, env.Pager);
+        var list = await resources.ListResources("kernel32.dll");
+        Assert.Contains("VERSION/#1/", list);
+        var version = await resources.GetResource("kernel32.dll", "VERSION/1");
+        Assert.Contains("OriginalFilename: kernel32", version, StringComparison.OrdinalIgnoreCase);
+        Assert.StartsWith("Error (not_found)", (await Assert.ThrowsAsync<ToolError>(() => resources.GetResource("kernel32.dll", "NOPE/1"))).Render(null));
+    }
+
+    [WindowsFact]
     public async Task ErrorsAreTyped()
     {
         var (env, tools) = Setup();

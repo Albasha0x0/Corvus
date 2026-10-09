@@ -11,11 +11,12 @@ namespace NetDecompilerMcp.Tools;
 public sealed class ResourceTools(AssemblyWorkspace workspace, ResourceService resources, DecompilerService decompiler, OutputPager pager)
 {
     [McpServerTool(Name = "list_resources", Title = "List manifest resources", ReadOnly = true, OpenWorld = false)]
-    [Description("List manifest resources: embedded files, .resources containers (with entry counts), linked resources.")]
+    [Description("List manifest resources: embedded files, .resources containers (with entry counts), linked resources. For a native image, its Win32 resources as TYPE/NAME/LANGUAGE.")]
     public Task<string> ListResources(
         [Description(AssemblyDescription)] string assembly,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
+        if (workspace.FindNative(assembly) is { } native) return pager.Page(NativeResourceService.List(native));
         var asm = workspace.Get(assembly);
         var list = resources.List(asm);
         if (list.Count == 0) return $"{asm.Id} has no resources.";
@@ -26,7 +27,8 @@ public sealed class ResourceTools(AssemblyWorkspace workspace, ResourceService r
     }, cancellationToken);
 
     [McpServerTool(Name = "get_resource", Title = "Read / extract resource", OpenWorld = false)]
-    [Description("Read a resource: text as text, binary as a hex preview, .resources containers as an entry list (pass entry to read one; WPF .baml entries come back as XAML). Pass savePath to extract the raw bytes to disk (images, asset bundles, configs).")]
+    [Description("Read a resource: text as text, binary as a hex preview, .resources containers as an entry list (pass entry to read one; WPF .baml entries come back as XAML). Pass savePath to extract the raw bytes to disk (images, asset bundles, configs). " +
+                 "For a native image, name is TYPE/NAME[/LANGUAGE] from list_resources: version info and string tables are decoded, manifests shown as text.")]
     public Task<string> GetResource(
         [Description(AssemblyDescription)] string assembly,
         [Description("Resource name as shown by list_resources.")] string name,
@@ -36,6 +38,7 @@ public sealed class ResourceTools(AssemblyWorkspace workspace, ResourceService r
         [Description(MaxCharsDescription)] int? maxChars = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
         {
+            if (workspace.FindNative(assembly) is { } native) return pager.Page(NativeResourceService.Get(native, name, savePath), offset, maxChars);
             var asm = workspace.Get(assembly);
             return pager.Page(resources.Get(asm, name, entry, savePath, baml: bytes => decompiler.DecompileBaml(asm, bytes, cancellationToken)), offset, maxChars);
         }, cancellationToken);
