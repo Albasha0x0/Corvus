@@ -17,6 +17,8 @@ public sealed class Env : IDisposable
     public SearchService Search { get; } = new();
     public ReferenceService References { get; }
     public Il2CppService Il2Cpp { get; }
+    public Il2CppStringService Il2CppStrings { get; }
+    public Il2CppNavigator Il2CppNavigator { get; }
     public ResourceService Resources { get; } = new();
     public AssemblyReport Report { get; }
     public EditService Edits { get; }
@@ -30,6 +32,8 @@ public sealed class Env : IDisposable
         Decompiler = new DecompilerService(Workspace, Options);
         References = new ReferenceService(Workspace);
         Il2Cpp = new Il2CppService(Workspace);
+        Il2CppStrings = new Il2CppStringService(Workspace, Il2Cpp);
+        Il2CppNavigator = new Il2CppNavigator(Workspace, Il2Cpp, Il2CppStrings);
         Report = new AssemblyReport(Workspace, Il2Cpp);
         Edits = new EditService(Workspace, new IlAssembler(Workspace), new CSharpPatcher(Workspace, Decompiler));
         History = new EditHistoryService(Workspace, Edits, Decompiler, new AssemblyComparer(Workspace));
@@ -49,6 +53,12 @@ public sealed class Env : IDisposable
     }
 
     public string Edit(Func<string> edit) => Workspace.Write(edit);
+
+    /// <summary>What a native address is (see <see cref="Il2CppNavigator.Locate"/>), across all loaded assemblies.</summary>
+    public List<Il2CppNavigator.AddressResult> Locate(ulong address, string kind = "auto") =>
+        Workspace.Read(() => Il2CppNavigator.Locate(address, kind, Workspace.Assemblies));
+
+    public NetDecompilerMcp.Tools.Il2CppTools Il2CppTools() => new(Workspace, Il2Cpp, new Il2CppExporter(Il2Cpp), Il2CppStrings, Il2CppNavigator, Pager);
 
     public void Dispose() => Workspace.Dispose();
 }

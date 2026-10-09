@@ -137,9 +137,7 @@ public sealed class Il2CppStringTests : IDisposable
 
     private static (SearchTools Search, Il2CppTools Il2Cpp, Il2CppStringService Strings) Tools(Env env)
     {
-        var strings = new Il2CppStringService(env.Workspace, env.Il2Cpp);
-        return (new SearchTools(env.Workspace, env.Search, env.Il2Cpp, strings, env.Pager),
-                new Il2CppTools(env.Workspace, env.Il2Cpp, new Il2CppExporter(env.Il2Cpp), strings, env.Pager), strings);
+        return (new SearchTools(env.Workspace, env.Search, env.Il2Cpp, env.Il2CppStrings, env.Pager), env.Il2CppTools(), env.Il2CppStrings);
     }
 
     [Fact]
@@ -154,7 +152,7 @@ public sealed class Il2CppStringTests : IDisposable
         var addresses = new List<ulong>();
         new ScriptJsonReader
         {
-            Method = (m, o) => methods.Add((m, o)), String = strings.Add, Metadata = metadata.Add, MetadataMethod = metadataMethods.Add, Address = addresses.Add,
+            Method = (m, o) => methods.Add((m, o)), String = strings.Add, Metadata = (m, _) => metadata.Add(m), MetadataMethod = (m, _) => metadataMethods.Add(m), Address = addresses.Add,
         }.Read(path);
 
         Assert.Equal(5, methods.Count);

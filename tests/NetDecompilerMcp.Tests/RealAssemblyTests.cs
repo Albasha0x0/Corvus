@@ -169,12 +169,13 @@ public class RealAssemblyTests(ITestOutputHelper output)
         var index = ws.Assemblies.SelectMany(il2cpp.GetIndex).Where(e => e.Rva != null).ToList();
         Assert.NotEmpty(index);
 
-        // Round-trip a sample of real RVAs: every exact start maps back to a method sharing that RVA.
+        // Round-trip a sample of real RVAs: every exact start maps back to the methods sharing that RVA.
+        var navigator = new Services.Il2CppNavigator(ws, il2cpp, new Services.Il2CppStringService(ws, il2cpp));
         var rng = new Random(42);
         foreach (var entry in Enumerable.Range(0, 300).Select(_ => index[rng.Next(index.Count)]))
         {
-            var matches = il2cpp.FindByAddress(entry.Rva!.Value, "rva", ws.Assemblies);
-            Assert.Contains(matches, m => m.Relation == "exact start" && m.Entry.Rva == entry.Rva);
+            var results = ws.Read(() => navigator.Locate(entry.Rva!.Value, "rva", ws.Assemblies));
+            Assert.Contains(results, r => r.Function is { IsExactStart: true } && r.Methods.Any(m => m.Method == entry.Method));
         }
 
         var options = new ServerOptions();

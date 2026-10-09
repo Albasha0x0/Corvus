@@ -28,23 +28,27 @@ public class Il2CppTests : IDisposable
     [InlineData(0x500UL, "offset", "Second", "exact start")]
     public void FindsMethodByAddress(ulong address, string kind, string method, string relation)
     {
-        var m = Assert.Single(_env.Il2Cpp.FindByAddress(address, kind, _env.Workspace.Assemblies));
-        Assert.Equal(method, m.Entry.Method.Name);
-        Assert.StartsWith(relation, m.Relation);
+        var r = Assert.Single(_env.Locate(address, kind));
+        Assert.Equal(method, Assert.Single(r.Methods).Method.Name);
+        Assert.StartsWith(relation, r.Function!.Relation);
     }
 
     [Fact]
-    public void AutoModeChecksAllFieldsAndRejectsBadInput()
+    public void AutoModeReadsOneKindAndRejectsBadInput()
     {
-        // 0x1000 is First's RVA and also inside Second by file offset: the exact match wins.
-        var exact = Assert.Single(_env.Il2Cpp.FindByAddress(0x1000, "auto", _env.Workspace.Assemblies));
-        Assert.Equal(("First", "rva", "exact start"), (exact.Entry.Method.Name.String, exact.Field, exact.Relation));
-        // No exact match: all approximate matches are kept.
-        Assert.Equal(2, _env.Il2Cpp.FindByAddress(0x1050, "auto", _env.Workspace.Assemblies).Count);
-        Assert.Empty(_env.Il2Cpp.FindByAddress(0x1100 + Il2CppService.MaxFunctionSpan, "rva", _env.Workspace.Assemblies));
-        Assert.Single(_env.Il2Cpp.FindByAddress(0x1100 + Il2CppService.MaxFunctionSpan - 1, "rva", _env.Workspace.Assemblies));
-        Assert.Empty(_env.Il2Cpp.FindByAddress(0x10, "rva", _env.Workspace.Assemblies)); // before the first method
-        Assert.Throws<ToolError>(() => _env.Il2Cpp.FindByAddress(0x1000, "banana", _env.Workspace.Assemblies));
+        // 0x1000 is First's RVA and also inside Second by file offset: read as an RVA.
+        var exact = Assert.Single(_env.Locate(0x1000));
+        Assert.Equal(("First", "rva", "exact start"), (exact.Methods[0].Method.Name.String, exact.Kind, exact.Function!.Relation));
+        Assert.Equal("rva", Assert.Single(_env.Locate(0x1050)).Kind);
+        // At or above the image base: a VA. Nothing at the RVA: a file offset (0x450 is RVA 0x1050).
+        var va = Assert.Single(_env.Locate(0x180001100));
+        Assert.Equal(("va", 0x1100UL), (va.Kind, va.Rva));
+        var offset = Assert.Single(_env.Locate(0x450));
+        Assert.Equal(("offset", 0x1050UL, "First"), (offset.Kind, offset.Rva, offset.Methods[0].Method.Name.String));
+        Assert.Empty(_env.Locate(0x1100 + Il2CppService.MaxFunctionSpan, "rva"));
+        Assert.Single(_env.Locate(0x1100 + Il2CppService.MaxFunctionSpan - 1, "rva"));
+        Assert.Empty(_env.Locate(0x10, "rva")); // before the first method
+        Assert.Throws<ToolError>(() => _env.Locate(0x1000, "banana"));
     }
 
     [Fact]
@@ -56,8 +60,8 @@ public class Il2CppTests : IDisposable
         Assert.Contains("not a real address", attr.ToString());
         Assert.Null(Il2CppService.CompactSummary(shared));
         Assert.DoesNotContain(_env.Il2Cpp.GetIndex(_env.Fixture), e => e.Method == shared);
-        Assert.Empty(_env.Il2Cpp.FindByAddress(0xA5399800A5350, "rva", _env.Workspace.Assemblies));
-        Assert.Empty(_env.Il2Cpp.FindByAddress(0xA5399800A5360, "auto", _env.Workspace.Assemblies));
+        Assert.Empty(_env.Locate(0xA5399800A5350, "rva"));
+        Assert.Empty(_env.Locate(0xA5399800A5360));
 
         Assert.True(Il2CppService.IsInvalidAddress(0x1_0000_0000, 0x400, 0x1_8000_0000));
         Assert.True(Il2CppService.IsInvalidAddress(0x1000, 0, 0x180001000));
@@ -74,7 +78,7 @@ public class Il2CppTests : IDisposable
         var managed = dir.File("Managed.dll");
         File.WriteAllBytes(managed, ContainerFixtures.Module("Managed", m => m.Types.Add(new dnlib.DotNet.TypeDefUser("Fixture.Native", "NativeThing", m.CorLibTypes.Object.TypeDefOrRef))));
         _env.Workspace.Load(managed);
-        var tools = new NetDecompilerMcp.Tools.Il2CppTools(_env.Workspace, _env.Il2Cpp, new Il2CppExporter(_env.Il2Cpp), new Il2CppStringService(_env.Workspace, _env.Il2Cpp), _env.Pager);
+        var tools = _env.Il2CppTools();
         var text = await tools.GetIl2CppInfo("Fixture.Native.NativeThing");
         Assert.Contains("1 match(es) in assemblies without Il2Cpp metadata skipped: Managed", text);
         Assert.Contains("RVA=0x1100", text);
@@ -87,7 +91,7 @@ public class Il2CppTests : IDisposable
     public void NonIl2CppAssemblyGivesClearError()
     {
         using var env = new Env(Env.ConsumerPath);
-        var ex = Assert.Throws<ToolError>(() => env.Il2Cpp.FindByAddress(0x1000, "rva", env.Workspace.Assemblies));
+        var ex = Assert.Throws<ToolError>(() => env.Locate(0x1000, "rva"));
         Assert.Contains("Il2CppDumper", ex.Message);
     }
 

@@ -46,23 +46,52 @@ public sealed record Il2CppDumpFiles(string Directory, string? ScriptJson, strin
 }
 
 /// <summary>
-/// Compact view of a script.json: the sorted function starts, and the ScriptMethod entries by address with the file
-/// offset of each, so names and signatures are read from the file only when asked for. Addresses that cannot be RVAs
-/// (beyond 32 bits) are dropped.
+/// Compact view of a script.json: the sorted function starts; the ScriptMethod entries by address, each with its name
+/// as two pooled parts (type and method, split at "$$") and the file offset of its object, so signatures are read from
+/// the file only when asked for; and the ScriptMetadata / ScriptMetadataMethod slots by address, findable by name.
+/// Addresses that cannot be RVAs (beyond 32 bits) are dropped.
 /// </summary>
 public sealed class Il2CppScript
 {
     private readonly uint[] _methodAddresses;
     private readonly long[] _methodOffsets;
+    private readonly int[] _methodTypes, _methodNames;
+    private readonly uint[] _metadataAddresses;
+    private readonly long[] _metadataOffsets;
+    private readonly NameHashes _metadataByName;
+    private readonly uint[] _methodInfoAddresses, _methodInfoTargets;
+    private readonly long[] _methodInfoOffsets;
+    private readonly NameHashes _methodInfoByName;
 
-    private Il2CppScript(string path, uint[] functionStarts, uint[] methodAddresses, long[] methodOffsets, int dropped, TimeSpan loadTime)
+    private Il2CppScript(string path, Builder b, TimeSpan loadTime)
     {
         Path = path;
-        FunctionStarts = functionStarts;
-        _methodAddresses = methodAddresses;
-        _methodOffsets = methodOffsets;
-        DroppedAddresses = dropped;
+        DroppedAddresses = b.Dropped;
         LoadTime = loadTime;
+
+        // ScriptMethod entries by address; entries of one address keep file order.
+        var order = SortedOrder(b.MethodAddresses);
+        _methodAddresses = Permute(b.MethodAddresses, order);
+        _methodOffsets = Permute(b.MethodOffsets, order);
+        _methodTypes = Permute(b.MethodTypes, order);
+        _methodNames = Permute(b.MethodNameIds, order);
+        TypeNames = Utf8Strings.From(b.TypeNames);
+        MethodNames = Utf8Strings.From(b.MethodNameList);
+
+        var metadataOrder = SortedOrder(b.MetadataAddresses);
+        _metadataAddresses = Permute(b.MetadataAddresses, metadataOrder);
+        _metadataOffsets = Permute(b.MetadataOffsets, metadataOrder);
+        MetadataNames = Utf8Strings.From(metadataOrder.Select(i => b.MetadataNames[i]).ToList());
+        _metadataByName = new NameHashes(Enumerable.Range(0, MetadataNames.Count).Select(i => MetadataNames[i].GetHashCode()).ToArray());
+
+        var infoOrder = SortedOrder(b.MethodInfoAddresses);
+        _methodInfoAddresses = Permute(b.MethodInfoAddresses, infoOrder);
+        _methodInfoTargets = Permute(b.MethodInfoTargets, infoOrder);
+        _methodInfoOffsets = Permute(b.MethodInfoOffsets, infoOrder);
+        _methodInfoByName = new NameHashes(Permute(b.MethodInfoHashes, infoOrder));
+
+        b.Starts.AddRange(b.MethodAddresses);
+        FunctionStarts = b.Starts.Distinct().Order().ToArray();
     }
 
     public string Path { get; }
@@ -72,40 +101,93 @@ public sealed class Il2CppScript
     public int DroppedAddresses { get; }
     public TimeSpan LoadTime { get; }
 
+    /// <summary>Distinct type parts ("Ns.Type&lt;args&gt;") and method parts of the ScriptMethod names.</summary>
+    public Utf8Strings TypeNames { get; }
+    public Utf8Strings MethodNames { get; }
+    /// <summary>ScriptMetadata names, in address order.</summary>
+    public Utf8Strings MetadataNames { get; }
+    public int MetadataCount => _metadataAddresses.Length;
+    public int MethodInfoCount => _methodInfoAddresses.Length;
+
+    /// <summary>Approximate size of the arrays kept.</summary>
+    public long RetainedBytes =>
+        FunctionStarts.Length * 4L + _methodAddresses.Length * (4L + 8 + 4 + 4)
+        + TypeNames.Size + MethodNames.Size + MetadataNames.Size + _metadataAddresses.Length * (4L + 8 + 8)
+        + _methodInfoAddresses.Length * (4L + 4 + 8 + 8);
+
+    private sealed class Builder
+    {
+        public int Dropped;
+        public readonly List<uint> Starts = [], MethodAddresses = [], MetadataAddresses = [], MethodInfoAddresses = [], MethodInfoTargets = [];
+        public readonly List<long> MethodOffsets = [], MetadataOffsets = [], MethodInfoOffsets = [];
+        public readonly List<int> MethodTypes = [], MethodNameIds = [], MethodInfoHashes = [];
+        public readonly List<string> TypeNames = [], MethodNameList = [], MetadataNames = [];
+        public readonly Dictionary<string, int> TypeIds = new(StringComparer.Ordinal), MethodIds = new(StringComparer.Ordinal);
+
+        public static int Intern(Dictionary<string, int> ids, List<string> list, string value)
+        {
+            if (!ids.TryGetValue(value, out var id)) { ids[value] = id = list.Count; list.Add(value); }
+            return id;
+        }
+    }
+
     public static Il2CppScript Load(string path, CancellationToken ct = default)
     {
         var watch = System.Diagnostics.Stopwatch.StartNew();
-        var starts = new List<uint>();
-        var addresses = new List<uint>();
-        var offsets = new List<long>();
-        int dropped = 0;
+        var b = new Builder();
+        static bool Valid(ulong a) => a != 0 && a <= uint.MaxValue;
         new ScriptJsonReader
         {
             MethodSignatures = false,
             Method = (m, offset) =>
             {
-                if (m.Address == 0 || m.Address > uint.MaxValue) { dropped++; return; }
-                addresses.Add((uint)m.Address);
-                offsets.Add(offset);
+                if (!Valid(m.Address)) { b.Dropped++; return; }
+                b.MethodAddresses.Add((uint)m.Address);
+                b.MethodOffsets.Add(offset);
+                int split = m.Name.IndexOf("$$", StringComparison.Ordinal);
+                b.MethodTypes.Add(Builder.Intern(b.TypeIds, b.TypeNames, split >= 0 ? m.Name[..split] : m.Name));
+                b.MethodNameIds.Add(Builder.Intern(b.MethodIds, b.MethodNameList, split >= 0 ? m.Name[(split + 2)..] : ""));
+            },
+            Metadata = (m, offset) =>
+            {
+                if (!Valid(m.Address)) return;
+                b.MetadataAddresses.Add((uint)m.Address);
+                b.MetadataOffsets.Add(offset);
+                b.MetadataNames.Add(m.Name);
+            },
+            MetadataMethod = (m, offset) =>
+            {
+                if (!Valid(m.Address)) return;
+                b.MethodInfoAddresses.Add((uint)m.Address);
+                b.MethodInfoTargets.Add(Valid(m.MethodAddress) ? (uint)m.MethodAddress : 0);
+                b.MethodInfoOffsets.Add(offset);
+                b.MethodInfoHashes.Add(m.Name.GetHashCode());
             },
             Address = a =>
             {
-                if (a == 0 || a > uint.MaxValue) { dropped++; return; }
-                starts.Add((uint)a);
+                if (!Valid(a)) { b.Dropped++; return; }
+                b.Starts.Add((uint)a);
             },
         }.Read(path, ct);
+        b.TypeIds.Clear();
+        b.MethodIds.Clear();
+        return new Il2CppScript(path, b, watch.Elapsed);
+    }
 
-        var methodAddresses = addresses.ToArray();
-        var methodOffsets = offsets.ToArray();
-        Array.Sort(methodAddresses, methodOffsets); // offsets ascend within an address: entries keep file order
-        for (int i = 0, j; i < methodAddresses.Length; i = j)
-        {
-            for (j = i + 1; j < methodAddresses.Length && methodAddresses[j] == methodAddresses[i]; j++) { }
-            if (j - i > 1) Array.Sort(methodOffsets, i, j - i);
-        }
-        starts.AddRange(methodAddresses);
-        var functionStarts = starts.Distinct().Order().ToArray();
-        return new Il2CppScript(path, functionStarts, methodAddresses, methodOffsets, dropped, watch.Elapsed);
+    /// <summary>Indexes ordered by key; equal keys keep their original order.</summary>
+    private static int[] SortedOrder(List<uint> keys)
+    {
+        var composite = new ulong[keys.Count];
+        for (int i = 0; i < composite.Length; i++) composite[i] = (ulong)keys[i] << 32 | (uint)i;
+        Array.Sort(composite);
+        return Array.ConvertAll(composite, k => (int)(uint)k);
+    }
+
+    private static T[] Permute<T>(List<T> values, int[] order)
+    {
+        var result = new T[order.Length];
+        for (int i = 0; i < order.Length; i++) result[i] = values[order[i]];
+        return result;
     }
 
     /// <summary>The nearest function start at or before <paramref name="rva"/>, within <paramref name="maxSpan"/> bytes.</summary>
@@ -119,14 +201,175 @@ public sealed class Il2CppScript
     /// <summary>The ScriptMethod entries whose function starts at <paramref name="address"/>, in file order.</summary>
     public List<ScriptMethod> MethodsAt(uint address)
     {
-        int i = Array.BinarySearch(_methodAddresses, address);
-        if (i < 0) return [];
-        while (i > 0 && _methodAddresses[i - 1] == address) i--;
-        var list = new List<ScriptMethod>();
-        using var file = File.OpenHandle(Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        for (; i < _methodAddresses.Length && _methodAddresses[i] == address; i++)
+        var (first, count) = MethodRange(address);
+        var list = new List<ScriptMethod>(count);
+        if (count == 0) return list;
+        using var file = OpenFile();
+        for (int i = first; i < first + count; i++)
             list.Add(ScriptJsonReader.ReadMethodAt(file, _methodOffsets[i]));
         return list;
+    }
+
+    /// <summary>The ScriptMethod entries (indexes) whose function starts at <paramref name="address"/>.</summary>
+    public (int First, int Count) MethodRange(uint address)
+    {
+        int i = Array.BinarySearch(_methodAddresses, address);
+        if (i < 0) return (0, 0);
+        int start = i, end = i + 1;
+        while (start > 0 && _methodAddresses[start - 1] == address) start--;
+        while (end < _methodAddresses.Length && _methodAddresses[end] == address) end++;
+        return (start, end - start);
+    }
+
+    public uint MethodAddress(int entry) => _methodAddresses[entry];
+    public string MethodTypeName(int entry) => TypeNames[_methodTypes[entry]];
+    public string MethodShortName(int entry) => MethodNames[_methodNames[entry]];
+    /// <summary>The ScriptMethod name: "Ns.Type&lt;args&gt;$$Method&lt;args&gt;".</summary>
+    public string MethodName(int entry) => MethodNames.Length(_methodNames[entry]) == 0
+        ? MethodTypeName(entry) : MethodTypeName(entry) + "$$" + MethodShortName(entry);
+
+    /// <summary>Reads one entry from the file, with its signature.</summary>
+    public ScriptMethod ReadMethod(int entry)
+    {
+        using var file = OpenFile();
+        return ScriptJsonReader.ReadMethodAt(file, _methodOffsets[entry]);
+    }
+
+    /// <summary>The entries whose type part satisfies <paramref name="type"/> and method part <paramref name="method"/>, by address.</summary>
+    public List<int> FindMethods(Func<string, bool> type, Func<string, bool>? method = null, CancellationToken ct = default)
+    {
+        var result = new List<int>();
+        var types = new bool[TypeNames.Count];
+        bool any = false;
+        for (int t = 0; t < types.Length; t++)
+        {
+            if ((t & 0xFFF) == 0) ct.ThrowIfCancellationRequested();
+            any |= types[t] = type(TypeNames[t]);
+        }
+        if (!any) return result;
+        var methods = new sbyte[MethodNames.Count]; // 0 unknown, 1 matches, -1 does not
+        for (int i = 0; i < _methodAddresses.Length; i++)
+        {
+            if (!types[_methodTypes[i]]) continue;
+            if (method != null)
+            {
+                ref var known = ref methods[_methodNames[i]];
+                if (known == 0) known = method(MethodNames[_methodNames[i]]) ? (sbyte)1 : (sbyte)-1;
+                if (known < 0) continue;
+            }
+            result.Add(i);
+        }
+        return result;
+    }
+
+    /// <summary>The ScriptMetadata slot covering <paramref name="rva"/> (slots are pointer-sized).</summary>
+    public int? MetadataAt(uint rva) => SlotAt(_metadataAddresses, rva);
+    public uint MetadataAddress(int entry) => _metadataAddresses[entry];
+    public string MetadataName(int entry) => MetadataNames[entry];
+
+    /// <summary>Reads one ScriptMetadata entry from the file, with its signature (the C type of the slot).</summary>
+    public ScriptMetadata ReadMetadata(int entry)
+    {
+        using var file = OpenFile();
+        return ScriptJsonReader.ReadMetadataAt(file, _metadataOffsets[entry]);
+    }
+
+    /// <summary>ScriptMetadata entries with exactly this name.</summary>
+    public List<int> MetadataNamed(string name) => _metadataByName.Find(name.GetHashCode(), e => MetadataNames.Equals(e, name));
+
+    /// <summary>The ScriptMetadataMethod slot (MethodInfo) covering <paramref name="rva"/>.</summary>
+    public int? MethodInfoAt(uint rva) => SlotAt(_methodInfoAddresses, rva);
+    public uint MethodInfoAddress(int entry) => _methodInfoAddresses[entry];
+    /// <summary>The function a MethodInfo describes; 0 when it has no code.</summary>
+    public uint MethodInfoTarget(int entry) => _methodInfoTargets[entry];
+
+    public ScriptMetadataMethod ReadMethodInfo(int entry)
+    {
+        using var file = OpenFile();
+        return ScriptJsonReader.ReadMetadataMethodAt(file, _methodInfoOffsets[entry]);
+    }
+
+    /// <summary>ScriptMetadataMethod entries with exactly this name ("Method$Ns.Type.Method()").</summary>
+    public List<int> MethodInfosNamed(string name)
+    {
+        var candidates = _methodInfoByName.Find(name.GetHashCode(), _ => true);
+        if (candidates.Count == 0) return candidates;
+        using var file = OpenFile();
+        return candidates.Where(e => ScriptJsonReader.ReadMetadataMethodAt(file, _methodInfoOffsets[e]).Name == name).ToList();
+    }
+
+    private static int? SlotAt(uint[] addresses, uint rva)
+    {
+        int i = Array.BinarySearch(addresses, rva);
+        if (i >= 0) { while (i > 0 && addresses[i - 1] == rva) i--; return i; }
+        i = ~i - 1;
+        return i >= 0 && rva - addresses[i] < 8 ? i : null;
+    }
+
+    private SafeFileHandle OpenFile() => File.OpenHandle(Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+
+    /// <summary>Name hashes sorted, with the entry of each: candidates for an exact-name lookup.</summary>
+    private sealed class NameHashes
+    {
+        private readonly int[] _hashes, _entries;
+
+        public NameHashes(int[] hashByEntry)
+        {
+            _hashes = (int[])hashByEntry.Clone();
+            _entries = Enumerable.Range(0, hashByEntry.Length).ToArray();
+            Array.Sort(_hashes, _entries);
+        }
+
+        public List<int> Find(int hash, Func<int, bool> matches)
+        {
+            var result = new List<int>();
+            int i = Array.BinarySearch(_hashes, hash);
+            if (i < 0) return result;
+            while (i > 0 && _hashes[i - 1] == hash) i--;
+            for (; i < _hashes.Length && _hashes[i] == hash; i++)
+                if (matches(_entries[i])) result.Add(_entries[i]);
+            result.Sort();
+            return result;
+        }
+    }
+}
+
+/// <summary>Strings stored as UTF-8 in one array; decoded when read.</summary>
+public sealed class Utf8Strings
+{
+    private readonly byte[] _data;
+    private readonly int[] _starts;
+
+    private Utf8Strings(byte[] data, int[] starts) { _data = data; _starts = starts; }
+
+    public static Utf8Strings From(IReadOnlyList<string> values)
+    {
+        var starts = new int[values.Count + 1];
+        long total = 0;
+        for (int i = 0; i < values.Count; i++) total += System.Text.Encoding.UTF8.GetByteCount(values[i]);
+        var data = new byte[total];
+        int at = 0;
+        for (int i = 0; i < values.Count; i++)
+        {
+            starts[i] = at;
+            at += System.Text.Encoding.UTF8.GetBytes(values[i], data.AsSpan(at));
+        }
+        starts[values.Count] = at;
+        return new Utf8Strings(data, starts);
+    }
+
+    public int Count => _starts.Length - 1;
+    public long Size => _data.Length + _starts.Length * 4L;
+    public int Length(int i) => _starts[i + 1] - _starts[i];
+    public ReadOnlySpan<byte> Bytes(int i) => _data.AsSpan(_starts[i], _starts[i + 1] - _starts[i]);
+    public string this[int i] => System.Text.Encoding.UTF8.GetString(Bytes(i));
+
+    public bool Equals(int i, string value)
+    {
+        var bytes = Bytes(i);
+        if (System.Text.Encoding.UTF8.GetMaxByteCount(value.Length) < bytes.Length || value.Length > bytes.Length) return false;
+        Span<byte> buffer = bytes.Length <= 512 ? stackalloc byte[bytes.Length] : new byte[bytes.Length];
+        return System.Text.Encoding.UTF8.TryGetBytes(value, buffer, out int written) && written == bytes.Length && buffer.SequenceEqual(bytes);
     }
 }
 
@@ -153,8 +396,10 @@ public sealed class ScriptJsonReader
     /// <summary>False to skip the Signature and TypeSignature strings of ScriptMethod entries.</summary>
     public bool MethodSignatures { get; init; } = true;
     public Action<ScriptString>? String { get; init; }
-    public Action<ScriptMetadata>? Metadata { get; init; }
-    public Action<ScriptMetadataMethod>? MetadataMethod { get; init; }
+    /// <summary>Each ScriptMetadata entry with the file offset of its object (see <see cref="ReadMetadataAt"/>).</summary>
+    public Action<ScriptMetadata, long>? Metadata { get; init; }
+    /// <summary>Each ScriptMetadataMethod entry with the file offset of its object (see <see cref="ReadMetadataMethodAt"/>).</summary>
+    public Action<ScriptMetadataMethod, long>? MetadataMethod { get; init; }
     /// <summary>Each entry of Addresses: function starts (method pointers, invokers and other generated code).</summary>
     public Action<ulong>? Address { get; init; }
 
@@ -213,8 +458,8 @@ public sealed class ScriptJsonReader
         {
             case Section.Method: Method!(new ScriptMethod(r.Address, r.Name ?? "", r.Signature, r.TypeSignature), r.Offset); break;
             case Section.String: String!(new ScriptString(r.Address, r.Value ?? "")); break;
-            case Section.Metadata: Metadata!(new ScriptMetadata(r.Address, r.Name ?? "", r.Signature)); break;
-            case Section.MetadataMethod: MetadataMethod!(new ScriptMetadataMethod(r.Address, r.Name ?? "", r.MethodAddress)); break;
+            case Section.Metadata: Metadata!(new ScriptMetadata(r.Address, r.Name ?? "", r.Signature), r.Offset); break;
+            case Section.MetadataMethod: MetadataMethod!(new ScriptMetadataMethod(r.Address, r.Name ?? "", r.MethodAddress), r.Offset); break;
         }
     }
 
@@ -245,6 +490,26 @@ public sealed class ScriptJsonReader
     /// <summary>Reads the ScriptMethod object that starts at <paramref name="offset"/> of script.json.</summary>
     public static ScriptMethod ReadMethodAt(SafeFileHandle file, long offset)
     {
+        var r = ReadRecordAt(file, offset);
+        return new ScriptMethod(r.Address, r.Name ?? "", r.Signature, r.TypeSignature);
+    }
+
+    /// <summary>Reads the ScriptMetadata object that starts at <paramref name="offset"/> of script.json.</summary>
+    public static ScriptMetadata ReadMetadataAt(SafeFileHandle file, long offset)
+    {
+        var r = ReadRecordAt(file, offset);
+        return new ScriptMetadata(r.Address, r.Name ?? "", r.Signature);
+    }
+
+    /// <summary>Reads the ScriptMetadataMethod object that starts at <paramref name="offset"/> of script.json.</summary>
+    public static ScriptMetadataMethod ReadMetadataMethodAt(SafeFileHandle file, long offset)
+    {
+        var r = ReadRecordAt(file, offset);
+        return new ScriptMetadataMethod(r.Address, r.Name ?? "", r.MethodAddress);
+    }
+
+    private static Record ReadRecordAt(SafeFileHandle file, long offset)
+    {
         var record = new Record();
         string? property = null;
         using var stream = new HandleStream(file, offset);
@@ -254,7 +519,7 @@ public sealed class ScriptJsonReader
             else if (r.TokenType is JsonTokenType.String or JsonTokenType.Number && r.CurrentDepth == 1) Assign(record, property, ref r, true);
             return !(r.TokenType == JsonTokenType.EndObject && r.CurrentDepth == 0);
         });
-        return new ScriptMethod(record.Address, record.Name ?? "", record.Signature, record.TypeSignature);
+        return record;
     }
 
     /// <summary>stringliteral.json: an array of { "value": "...", "address": "0x..." }.</summary>

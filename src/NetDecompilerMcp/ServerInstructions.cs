@@ -21,9 +21,11 @@ internal static class ServerInstructions
            (multi-level callers/callees), find_call_paths (how execution reaches a method), find_overrides, get_type_hierarchy, get_attributes.
         5. New versions: load both builds (the second gets an id like Name#2), then compare_assemblies and find_counterpart to carry
            renamed types/members and changed offsets forward; export_edits + apply_edits re-applies a patch set to the new build.
-        6. Il2Cpp dummy DLLs have empty bodies: get_il2cpp_info (RVAs, field offsets), find_method_by_address (native address -> method),
-           export_il2cpp_symbols (IDA/Ghidra scripts + C struct header). With Il2CppDumper's stringliteral.json / script.json and
-           GameAssembly.dll next to the DummyDll folder, search_strings finds the game's literals and the methods whose native code loads them. generate_cpp_binding emits C++ binding code for a Mono type
+        6. Il2Cpp dummy DLLs have empty bodies: get_il2cpp_info (RVAs, field offsets; slot=N for the method implementing a vtable slot),
+           find_method_by_address (native address -> method), export_il2cpp_symbols (IDA/Ghidra scripts + C struct header).
+           With Il2CppDumper's script.json next to the DummyDll folder, functions are bounded by the next function start, generic
+           instantiations are named both ways (get_il2cpp_info 'List`1<int>::Add'), and type metadata / MethodInfo slots resolve.
+           With stringliteral.json and GameAssembly.dll too, search_strings finds the game's literals and the methods whose native code loads them. generate_cpp_binding emits C++ binding code for a Mono type
            (standard Mono embedding API, or a host function table detected in projectDir with the include paths computed).
         7. Patch in memory (dryRun=true previews): rename_symbol, rename_namespace, stub_method, patch_method_csharp (C# body; lambdas,
            async, LINQ supported), add_members_csharp, add_types_csharp, patch_method_il, simplify_methods (transformed code: folds

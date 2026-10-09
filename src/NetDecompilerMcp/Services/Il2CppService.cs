@@ -38,8 +38,6 @@ public sealed class Il2CppService(AssemblyWorkspace workspace)
 
     public sealed record MethodAddress(LoadedAssembly Assembly, MethodDef Method, ulong? Rva, ulong? Va, ulong? Offset, ulong? Length, string? Slot);
 
-    public sealed record AddressMatch(MethodAddress Entry, string Field, ulong Start, string Relation);
-
     public static List<Il2CppMetadata> GetAttributes(IHasCustomAttribute member)
     {
         var list = new List<Il2CppMetadata>();
@@ -126,62 +124,4 @@ public sealed class Il2CppService(AssemblyWorkspace workspace)
     /// gaps are unmapped space (or the address belongs to another module / address kind), not a containing function.
     /// </summary>
     public const ulong MaxFunctionSpan = 0x40000;
-
-    /// <summary>
-    /// Finds the method at a native address. field = rva | va | offset | auto.
-    /// Exact starts win (in auto mode, an exact start under any address kind drops the approximate readings of the
-    /// others); otherwise reports the closest preceding method within <see cref="MaxFunctionSpan"/> (likely containing function).
-    /// </summary>
-    public List<AddressMatch> FindByAddress(ulong address, string field, IReadOnlyList<LoadedAssembly> scope)
-    {
-        var fields = field.ToLowerInvariant() switch
-        {
-            "rva" => new[] { "rva" },
-            "va" => ["va"],
-            "offset" or "fileoffset" => ["offset"],
-            "auto" or "any" or "" => ["rva", "va", "offset"],
-            _ => throw new ToolError($"Unknown address kind '{field}'. Use rva, va, offset or auto."),
-        };
-
-        var all = scope.SelectMany(GetIndex).ToList();
-        if (all.Count == 0)
-            throw new ToolError("No Il2Cpp address attributes found in the selected assemblies. This only works on Il2CppDumper/Cpp2IL dummy DLLs that carry [Address] attributes.");
-
-        var matches = new List<AddressMatch>();
-        foreach (var f in fields)
-        {
-            Func<MethodAddress, ulong?> get = f switch { "rva" => e => e.Rva, "va" => e => e.Va, _ => e => e.Offset };
-            var sorted = all.Where(e => get(e).HasValue).OrderBy(e => get(e)!.Value).ToList();
-            if (sorted.Count == 0) continue;
-
-            var exact = sorted.Where(e => get(e) == address).ToList();
-            if (exact.Count > 0)
-            {
-                // Several managed methods can share one native body (generic sharing, identical code folding).
-                matches.AddRange(exact.Select(e => new AddressMatch(e, f, address, "exact start")));
-                continue;
-            }
-
-            int lo = 0, hi = sorted.Count - 1, best = -1;
-            while (lo <= hi)
-            {
-                int mid = (lo + hi) / 2;
-                if (get(sorted[mid])!.Value <= address) { best = mid; lo = mid + 1; }
-                else hi = mid - 1;
-            }
-            if (best < 0) continue;
-            var entry = sorted[best];
-            ulong start = get(entry)!.Value;
-            ulong delta = address - start;
-            if (delta >= (entry.Length ?? 0) + MaxFunctionSpan) continue; // too far from any known function start
-            ulong? next = best + 1 < sorted.Count ? get(sorted[best + 1]) : null;
-            string relation = entry.Length is { } len
-                ? (delta < len ? $"inside (+0x{delta:X} of 0x{len:X} bytes)" : $"after end (+0x{delta:X}; length 0x{len:X})")
-                : next is { } n
-                    ? $"probably inside (+0x{delta:X}; next method starts at 0x{n:X})"
-                    : $"after the last known method (+0x{delta:X})";
-            matches.Add(new AddressMatch(entry, f, start, relation));
-        }
-        return matches.Any(m => m.Relation == "exact start") ? matches.Where(m => m.Relation == "exact start").ToList() : matches;
-    }
 }

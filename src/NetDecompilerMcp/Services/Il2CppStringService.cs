@@ -142,18 +142,60 @@ public sealed class Il2CppStringService
         {
             if (_methods.Generation != _workspace.Generation) _methods = (_workspace.Generation, new());
             if (_methods.Maps.TryGetValue(dump, out var map)) return map;
-            var entries = _workspace.Assemblies.Where(a => DumpOf(a) == dump).SelectMany(_il2cpp.GetIndex)
-                .Where(e => e.Rva is <= uint.MaxValue).OrderBy(e => e.Rva).ToArray(); // stable: load order within an RVA
-            var keys = entries.Select(e => (uint)e.Rva!.Value).ToArray();
-            _methods.Maps[dump] = map = new MethodStarts(keys, entries);
+            _methods.Maps[dump] = map = MethodStarts.Of(_workspace.Assemblies.Where(a => DumpOf(a) == dump).SelectMany(_il2cpp.GetIndex));
             return map;
         }
     }
 
-    /// <summary>Dummy methods sorted by RVA.</summary>
+    /// <summary>Dummy methods sorted by RVA, with what their [Address] values tell about the image.</summary>
     public sealed class MethodStarts(uint[] rvas, Il2CppService.MethodAddress[] methods)
     {
+        private uint[]? _starts;
+        private (ulong? Base, List<(ulong Low, ulong High, long Delta)> Ranges)? _layout;
+
         public int Count => rvas.Length;
+
+        public static MethodStarts Of(IEnumerable<Il2CppService.MethodAddress> index)
+        {
+            var entries = index.Where(e => e.Rva is <= uint.MaxValue).OrderBy(e => e.Rva).ToArray(); // stable: load order within an RVA
+            return new MethodStarts(entries.Select(e => (uint)e.Rva!.Value).ToArray(), entries);
+        }
+
+        /// <summary>Distinct method RVAs, ascending.</summary>
+        public uint[] Starts => _starts ??= rvas.Distinct().ToArray();
+
+        /// <summary>The image base the dumper used for VA (the most common VA - RVA), when the methods give VAs.</summary>
+        public ulong? ImageBase => Layout.Base;
+
+        /// <summary>
+        /// The RVA of a file offset, from the methods' Offset and RVA values: each section has its own RVA - offset
+        /// difference, so offsets between the first and last method of a section convert. Null outside those ranges.
+        /// </summary>
+        public ulong? OffsetToRva(ulong offset)
+        {
+            foreach (var (low, high, delta) in Layout.Ranges)
+                if (offset >= low && offset <= high) return (ulong)((long)offset + delta);
+            return null;
+        }
+
+        private (ulong? Base, List<(ulong Low, ulong High, long Delta)> Ranges) Layout => _layout ??= ComputeLayout();
+
+        private (ulong?, List<(ulong, ulong, long)>) ComputeLayout()
+        {
+            var bases = new Dictionary<ulong, int>();
+            var ranges = new Dictionary<long, (ulong Low, ulong High)>();
+            foreach (var m in methods)
+            {
+                if (m.Va is { } va && va >= m.Rva!.Value) bases[va - m.Rva.Value] = bases.GetValueOrDefault(va - m.Rva.Value) + 1;
+                if (m.Offset is { } off && off > 0)
+                {
+                    long delta = (long)m.Rva!.Value - (long)off;
+                    ranges[delta] = ranges.TryGetValue(delta, out var r) ? (Math.Min(r.Low, off), Math.Max(r.High, off)) : (off, off);
+                }
+            }
+            ulong? imageBase = bases.Count > 0 ? bases.MaxBy(kv => kv.Value).Key : null;
+            return (imageBase is 0 ? null : imageBase, ranges.Select(kv => (kv.Value.Low, kv.Value.High, kv.Key)).ToList());
+        }
 
         /// <summary>The methods starting at <paramref name="rva"/> (several when native code is shared).</summary>
         public ArraySegment<Il2CppService.MethodAddress> At(uint rva)
@@ -168,7 +210,10 @@ public sealed class Il2CppStringService
     }
 }
 
-/// <summary>The string literals of one Il2CppDumper dump and, when the game binary is present, the code that loads them.</summary>
+/// <summary>
+/// The string literals of one Il2CppDumper dump and, when the game binary is present, the code that loads them; also
+/// the dump's script.json index and binary sections, which <see cref="Il2CppNavigator"/> uses.
+/// </summary>
 public sealed class Il2CppStringIndex
 {
     public const uint NoFunction = 0;
@@ -176,6 +221,7 @@ public sealed class Il2CppStringIndex
     private readonly Lazy<(string[] Values, ulong[] Addresses, Dictionary<ulong, int> BySlot)> _literals;
     private readonly Lazy<Il2CppScript?> _script;
     private readonly Lazy<NativeReferences?> _references;
+    private readonly Lazy<(List<NativeCodeScanner.Section>, ulong)?> _binary;
 
     internal Il2CppStringIndex(Il2CppDumpFiles files)
     {
@@ -184,6 +230,12 @@ public sealed class Il2CppStringIndex
         _literals = new(LoadLiterals);
         _script = new(() => Files.ScriptJson != null ? Il2CppScript.Load(Files.ScriptJson) : null);
         _references = new(ScanReferences);
+        _binary = new(() =>
+        {
+            if (Files.GameAssembly == null) return null;
+            try { return (NativeCodeScanner.Sections(Files.GameAssembly), NativeCodeScanner.ImageBase(Files.GameAssembly)); }
+            catch (Exception ex) when (ex is ToolError or IOException or UnauthorizedAccessException) { return null; }
+        });
     }
 
     public Il2CppDumpFiles Files { get; }
@@ -199,6 +251,9 @@ public sealed class Il2CppStringIndex
 
     /// <summary>script.json function starts and names; null without script.json.</summary>
     public Il2CppScript? Script => _script.Value;
+
+    /// <summary>Sections and preferred image base of the game binary; null without it or when it is not an x64 PE image.</summary>
+    public (List<NativeCodeScanner.Section> Sections, ulong ImageBase)? Binary => _binary.Value;
 
     /// <summary>Code references from the game binary; null when it, or script.json for the function starts, is missing.</summary>
     public NativeReferences? References => _references.Value;

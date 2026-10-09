@@ -26,6 +26,14 @@ public static class NativeCodeScanner
             (uint)s.SizeOfRawData, (s.SectionCharacteristics & SectionCharacteristics.MemExecute) != 0)).ToList();
     }
 
+    /// <summary>The preferred image base from the optional header of a PE file.</summary>
+    public static ulong ImageBase(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        try { return new PEHeaders(stream).PEHeader?.ImageBase ?? 0; }
+        catch (BadImageFormatException ex) { throw new ToolError($"{Path.GetFileName(path)} is not a PE image: {ex.Message}"); }
+    }
+
     private const int ChunkSize = 1 << 20;
 
     /// <summary>

@@ -94,10 +94,10 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
             if (methods.Count > 3) sb.AppendLine($"{prefix}… {methods.Count - 3} more methods sharing this code");
             return;
         }
-        var names = dump.Script?.MethodsAt(function) ?? [];
-        if (names.Count == 0) { sb.AppendLine($"{prefix}function at RVA 0x{function:X}{count} (no method name in the dump)"); return; }
-        sb.AppendLine($"{prefix}{names[0].Name}  RVA 0x{function:X}{count} (script.json; no dummy method starts here)" +
-                      (names.Count > 1 ? $" and {names.Count - 1} more names sharing this code" : ""));
+        var (first, names) = dump.Script?.MethodRange(function) ?? (0, 0);
+        if (names == 0) { sb.AppendLine($"{prefix}function at RVA 0x{function:X}{count} (no method name in the dump)"); return; }
+        sb.AppendLine($"{prefix}{dump.Script!.MethodName(first)}  RVA 0x{function:X}{count} (script.json; no dummy method starts here)" +
+                      (names > 1 ? $" and {names - 1} more names sharing this code" : ""));
     }
 
     [McpServerTool(Name = "search_constants", Title = "Search numeric constants", ReadOnly = true, OpenWorld = false)]

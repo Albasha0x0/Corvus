@@ -67,7 +67,7 @@ of the next tool result, plus best-effort `resources/list_changed` and log notif
 | Resources | `list_resources` · `get_resource` (text, hex, `.resources` entries, WPF `.baml` entries as XAML; extract to disk) |
 | Containers | `unpack_container` (single-file bundles, Costura, NuGet, Xamarin / MAUI APKs, embedded images; extracts and loads the assemblies, each labelled ReadyToRun / merged) · `search_container` (types and members by name across every assembly in a container, without extracting; capped, with a truncation flag). See [Unpacking containers](#unpacking-containers) |
 | File inspection | `summarize_file` (one report: hashes, identity, strong name and Authenticode with digest check, toolchain markers, container wrapping, features, typed strings, entry points; opens containers) · `survey_features` (capa-style rules over APIs, P/Invoke imports and strings, with ATT&CK techniques and evidence) · `extract_strings` (URLs, domains, IPs, paths, registry keys, mutexes, user agents, crypto keys; JSON / CSV export) · `extract_embedded` (resources, static arrays and strings decoded through base64 / hex / gzip / deflate / XOR). See [File inspection](#file-inspection) |
-| Il2Cpp | `get_il2cpp_info` (RVA, VA, file offset, slot, field offsets, tokens; for a method, the string literals its native code loads) · `find_method_by_address` (IDA/Ghidra address formats; exact start or containing method; invalid addresses that dumpers write for methods without native code are ignored; string literal slots are named) · `export_il2cpp_symbols` (IDA and Ghidra scripts that name every function and apply its C prototype, a C header with struct layouts that compiles as C and C++ — generic instances laid out where the dumpers give offset 0, static fields, fixed buffers — and JSON) |
+| Il2Cpp | `get_il2cpp_info` (RVA, VA, file offset, slot, field offsets, tokens; for a method, its function bounds, the methods sharing its code, its MethodInfo slot, its generic instantiations and the string literals its native code loads; for a type, its metadata slots and, with `slot`, the method implementing a vtable slot or the whole vtable; also takes `script.json` names such as `List`1<int>::Add` or `Ns.Type_TypeInfo`) · `find_method_by_address` (IDA/Ghidra address formats; the function starting at or containing it, bounded by the next function start, with every method sharing its code, generic instantiations included, paged; string literal, type metadata and MethodInfo slots are named; an address outside every known function says so; invalid addresses that dumpers write for methods without native code are ignored) — see [Il2Cpp navigation](#il2cpp-navigation) · `export_il2cpp_symbols` (IDA and Ghidra scripts that name every function and apply its C prototype, a C header with struct layouts that compiles as C and C++ — generic instances laid out where the dumpers give offset 0, static fields, fixed buffers — and JSON) |
 | Native bindings | `generate_cpp_binding` (C++ binding for a type in a Mono or Il2Cpp application: class lookup, field/static offsets, method lookups with exact overloads, typed accessors and invoke wrappers; base-class members named in `members` (e.g. a singleton's static `Instance` on a generic base) bound through the hierarchy. Style `mono`: a self-contained header on the standard Mono embedding API. Style `il2cpp`: a self-contained header on the Il2Cpp runtime's exports (`GameAssembly.dll`), with each method's native code pointer (to hook) and a typed direct call, overloads matched by the dumper's token. Style `hostapi`: for projects whose host passes a function table; with `projectDir`, the table, its handle types, the helpers' headers and namespace are detected and `#include` paths are computed relative to `headerPath`; value types use the table's `EmbeddedStructOffset` / `GetValueTypeSize` when it has them. Without `style`: a host table in `projectDir` gives `hostapi`; a project calling Il2Cpp or Mono exports itself (`il2cpp_class_from_name`, `typedef il2cpp_*_t`, `using fn_* = ...`, `mono_class_from_name`) gives `il2cpp` or `mono`; an Il2Cpp dummy assembly gives `il2cpp`; else the server's `--binding-style`, else `mono`; the header's first line says which and why) |
 | Patch (in memory, `dryRun` on all) | `rename_symbol` · `rename_namespace` · `stub_method` · `patch_method_csharp` (new body in C#: lambdas, async, `yield`, LINQ, private/internal members accessible) · `add_members_csharp` (new methods, fields, properties, nested types) · `add_types_csharp` (whole new classes) · `patch_method_il` (IL assembler that accepts edited `get_il` output; replace or prepend) · `simplify_methods` (for transformed code, on a method, a type or the whole assembly: calls that build strings from constants, such as string decoders, run in a sandboxed IL interpreter and become literals; constant branches (also conditions computed through locals, such as provably-constant conditions), unreachable blocks, branch chains, dead stores, repeats of loads kept only for their effect and empty try/finally are cleaned up; flattened control flow (a loop over a switch on a state variable, also with states computed from the previous one as ConfuserEx does, or passed on the stack as .NET Reactor does) becomes sequential code; forwarder call sites call the real target; calls through static delegate fields (call proxies, string delegates) call the delegate's target, worked out by running the field's type initializer in the interpreter, reflection-based ones included (inside that initializer itself, on the state as it stands at the call); helpers reading the assembly's own embedded resources (streams, BinaryReader, StreamReader) are evaluated too; opt-in `deterministicEnvironment=true` pins what initialization code reads of the machine (the module's own path and file, directories, special folders, environment variables) to fixed stand-ins listed in docs/simplify.md; I/O, reflection, exceptions and over-budget calls are left alone and reported with a reason code; every result is stack-verified; the evaluated IL subset, limits and reason codes are in [docs/simplify.md](docs/simplify.md)) · `save_assembly` (never overwrites without `overwrite=true`, keeps `.bak`, atomic write; without edits writes the original bytes, with edits keeps every method body and signature no edit touched byte-for-byte, checks the written image against the original and lists anything that differs or is invalid in the original with a reason code; `strict=true` refuses such a save; contract in [docs/saving.md](docs/saving.md)) |
 | Edit history | `list_edits` · `diff_edits` (before/after decompiled C# of pending edits) · `undo_edit` · `revert_edits` · `export_edits` / `apply_edits` (replayable JSON edit scripts: re-apply a patch set to a new build; a dry run applies and compiles every edit, then rolls back) |
@@ -90,7 +90,7 @@ of the next tool result, plus best-effort `resources/list_changed` and log notif
 | Undo, diffs, edit scripts | — | undo / revert, before/after C# diffs, replayable edit scripts |
 | Call trees, build comparison | — | multi-level call trees and call paths; build-to-build diff with rename matching |
 | Saving patched DLLs | no (in-memory only) | yes: `.bak`, atomic write, stable tokens |
-| Il2Cpp dummy DLLs | not supported | addresses, field offsets, native address → method, string literals and the methods using them, IDA/Ghidra scripts and C header, C++ bindings |
+| Il2Cpp dummy DLLs | not supported | addresses, field offsets, native address ↔ method / generic instantiation / metadata slot, vtable slots, string literals and the methods using them, IDA/Ghidra scripts and C header, C++ bindings |
 | Resources | list and raw bytes | text/hex view, `.resources` entries, extraction |
 | Whole-project export | `decompile_assembly` (first 10 types) | full .csproj with progress |
 | MCP resources / prompts / completion / progress | — | yes |
@@ -122,7 +122,40 @@ Measured on a real Unity application (36 assemblies, 40,895 types, ~300k methods
 - Compare two builds of the main assembly (11k types): about 5 s.
 - Export IDA/Ghidra scripts and a C header for a whole Il2Cpp dump (93k functions, 9k structs): 3.6 s; the header compiles with clang.
 - Il2Cpp string literals of a game (41k literals, 254 MB script.json, 216 MB GameAssembly.dll): indexed and every code
-  reference found in 1.5 s on first use (25 MB kept); 98.7% of the literals are loaded by code, 97.3% by a dummy-DLL method.
+  reference found in 1.5 s on first use (42 MB kept, with the script.json index below); 98.7% of the literals are loaded by code, 97.3% by a dummy-DLL method.
+- Il2Cpp navigation index of the same dump (288k function starts, 573k script.json methods, 38k metadata and 91k
+  MethodInfo slots): 0.9-1.4 s on first use, 27 MB kept (823k methods: 1.2-1.7 s, 34 MB); then about 1 ms per address
+  lookup. On 200 sampled addresses per kind every function start, interior address, generic instantiation, literal,
+  metadata and MethodInfo slot is named correctly.
+
+## Il2Cpp navigation
+
+With only the dummy DLLs, the known function starts are the dummy methods' `[Address]` RVAs; `find_method_by_address`
+then reports the preceding method as "probably inside", because generic instantiations (a third to a half of a game's
+functions) have no dummy method and can sit in between. When the dump's `script.json` is in the DummyDll folder or its
+parent, its `Addresses` and `ScriptMethod` entries give every function start, so a function ends where the next one
+starts (or at the end of its section, when `GameAssembly.dll` is there too), and the address is named by:
+
+- the dummy-DLL methods starting there and the `script.json` names of the instantiations sharing the code (shared
+  generic bodies and identical code folding put over 30k methods on one function: a total, then `offset` / `limit`);
+- a string literal slot, a `ScriptMetadata` slot (`Ns.Type_TypeInfo` class pointer, `_var` type, `Field$` data) with
+  the dummy type it describes, or a `ScriptMetadataMethod` slot (`Method$Ns.Type.M()`) with the function it describes;
+- nothing, when the address is more than 0x40000 bytes past the last function start before it, or outside the
+  executable sections.
+
+`kind=auto` reads an address at or above the image base (the dumper's, from the `VA` values, or the binary's) as a VA,
+any other as an RVA, and as a file offset only when the RVA finds nothing; `kind` forces one reading.
+
+The other way, `get_il2cpp_info` gives a method's function bounds, how many methods share its code, its MethodInfo
+slot and, for a generic method or a method of a generic type, the `script.json` instantiations with their RVAs; a
+type's metadata slots (for a generic type, those of its instantiations); and with `slot=N` the method implementing
+vtable slot N (searching base types; `slot=all` lists the vtable). Names only `script.json` has are accepted as the
+symbol: `List`1<int>::Add`, `System.Collections.Generic.List<int>$$Add`, `List<System.Int32>.Add` (generic arguments
+also match by simple name), a type alone for all its instantiated methods, `Ns.Type_TypeInfo`,
+`Method$Ns.Type.M()`. A literal's slot comes from `search_strings`.
+
+The index keeps sorted arrays and the names as pooled UTF-8 (type and method parts separately); signatures and
+metadata names are read back from `script.json` by file offset when shown.
 
 ## Il2Cpp string literals
 
@@ -367,7 +400,7 @@ are unset:
 | `NDM_ASSEMBLY_DIR` | A folder of real .NET assemblies (e.g. a Unity `*_Data/Managed` folder) | decompile / search / xrefs / C# patch of the app's own code; call-path timing |
 | `NDM_CALLPATH_TARGET` | Optional: a method in that folder to search call paths to (default: picked automatically) | call-path timing |
 | `NDM_IL2CPP_DUMMY_DIR` | An Il2CppDumper / Cpp2IL `DummyDll` folder | address round-trips; IDA / Ghidra / C header export |
-| `NDM_IL2CPP_STRINGS_DIR` | An Il2CppDumper `DummyDll` folder with `stringliteral.json` / `script.json` (and optionally `GameAssembly.dll`) beside it | string-literal index and code references: counts, timings, retained memory |
+| `NDM_IL2CPP_STRINGS_DIR` | An Il2CppDumper `DummyDll` folder with `stringliteral.json` / `script.json` (and optionally `GameAssembly.dll`) beside it | string-literal index and code references: counts, timings, retained memory; navigation index size and time, round trips (method → RVA → method, script.json name → RVA → name, type → TypeInfo slot → type, vtable slot → method) |
 | `NDM_COMPARE_OLD_DIR`, `NDM_COMPARE_NEW_DIR` | Two builds of the same app | build comparison |
 | `NDM_COMPARE_ASSEMBLY` | Optional: the assembly to compare (default: the largest application assembly in both) | build comparison |
 | `NDM_COMPARE_EXPECT` | Optional: known type moves to check, `Old.Name=>New.Name;Old2=>New2` | build comparison |
@@ -449,7 +482,7 @@ then read against the nearest installed version.
 src/NetDecompilerMcp/
   Core/      workspace (loading, locking, reference resolution), symbol resolver, formatting, paging
   Services/  decompiler, search, references, fast IL reader, call graph, assembly comparer, Il2Cpp (+ IDA/Ghidra/C
-             export, Il2CppDumper script.json / stringliteral.json reader, string literals and native code references), C++ binding generator, resources, assembly report, edits and edit history, IL assembler,
+             export, Il2CppDumper script.json / stringliteral.json reader, string literals and native code references, metadata ↔ native navigation), C++ binding generator, resources, assembly report, edits and edit history, IL assembler,
              C# patcher (module merger, access fixer), background indexing, file watching
     Analysis/  bounds-checked PE parsing, byte-level helpers (identification, bounded decompression, carving, safe
                output paths), container formats, unpacking
