@@ -46,4 +46,17 @@ internal static class ToolSupport
     public static int ClampLimit(int limit, int max = 5_000) => Math.Clamp(limit, 1, max);
 
     public static string TruncationNote(int shown, int total) => total > shown ? $" (showing {shown}; raise limit or refine)" : "";
+
+    /// <summary>
+    /// One line counting the method bodies of the searched assemblies that are not valid IL (encrypted or corrupt): their
+    /// instructions are read only up to the first undecodable one. Empty when there are none.
+    /// </summary>
+    public static string SkippedBodiesNote(IEnumerable<LoadedAssembly> searched)
+    {
+        var affected = searched.Where(a => a.BodyHealth.Invalid > 0).ToList();
+        if (affected.Count == 0) return "";
+        var each = string.Join(", ", affected.Take(5).Select(a => $"{a.Id} {a.BodyHealth.Invalid}")) + (affected.Count > 5 ? ", …" : "");
+        int total = affected.Sum(a => a.BodyHealth.Invalid);
+        return $"Skipped: {Plural(total, "method body")} not valid IL ({each}), read only up to the first invalid instruction; matches inside may be missing.\n";
+    }
 }
