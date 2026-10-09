@@ -107,7 +107,7 @@ public sealed class MethodSimplifier
     {
         _module = module;
         _options = options;
-        _evaluator = new IlEvaluator(module, options.EffectiveLimits) { DeterministicEnvironment = options.DeterministicEnvironment };
+        _evaluator = new IlEvaluator(module, options.EffectiveLimits) { DeterministicEnvironment = options.DeterministicEnvironment, FollowsDelegateFields = true };
         _forwarders = new Forwarders(module);
     }
 

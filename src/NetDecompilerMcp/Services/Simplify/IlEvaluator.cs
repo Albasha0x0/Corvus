@@ -153,6 +153,43 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
     private const int TimeCheckInterval = 4096;
 
     private readonly ModuleFacts _facts = new(module);
+
+    /// <summary>
+    /// Lets the read-only proofs of static objects follow calls through static delegate fields into the methods their
+    /// delegates pass the arguments on to (ModuleFacts.DelegateTarget), resolved on an evaluator of its own.
+    /// </summary>
+    public bool FollowsDelegateFields
+    {
+        init => _facts.DelegateTarget = value ? ForwardTarget : null;
+    }
+
+    private IlEvaluator? _forwards;
+
+    /// <summary>
+    /// The method the delegate a static delegate field holds after its type's initialization passes its arguments on to,
+    /// with nothing else done (one call, callvirt or newobj), or null. Runs on a separate evaluator, with its own limits,
+    /// so that it never runs inside the evaluation that asks.
+    /// </summary>
+    private (IMethod Target, Code Call)? ForwardTarget(FieldDef field, int arguments)
+    {
+        var evaluator = _forwards ??= new IlEvaluator(module, limits) { DeterministicEnvironment = DeterministicEnvironment };
+        evaluator.Meter = new MethodMeter(limits);
+        try
+        {
+            if (evaluator.EvaluateSlice([new Instruction(OpCodes.Ldsfld, field)]) is not [DelegateObject { Target: null } d]) return null;
+            return MethodSimplifier.DelegateCode(d, arguments, out _, out _) is [{ Operand: IMethod target, OpCode.Code: Code.Call or Code.Callvirt or Code.Newobj } call]
+                ? (target, call.OpCode.Code)
+                : null;
+        }
+        catch (Exception ex) when (ex is EvaluationBailout or MethodTimeout)
+        {
+            return null;
+        }
+        finally
+        {
+            evaluator.Meter = null;
+        }
+    }
     private readonly Dictionary<FieldDef, object?> _statics = new();
     private readonly Dictionary<TypeDef, EvaluationBailout?> _initialized = new(); // null: initialized; otherwise why it failed
     private readonly List<TypeDef> _initializing = new();

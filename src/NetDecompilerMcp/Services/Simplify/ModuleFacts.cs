@@ -308,6 +308,16 @@ internal sealed class ModuleFacts(ModuleDef module)
                     return immutableElements || callee.Name.String is not ("get_Item" or "GetEnumerator") || ValueOnlyRead(m, body, j, false, depth, visited);
                 if (IlEvaluator.IntrinsicNames.Contains(callee.FullName))
                     return !IlEvaluator.MutatedArguments(callee.FullName).Contains(operand);
+                // A call through a static delegate field whose delegate passes its arguments on unchanged: the value is
+                // followed into the target, as if the call were the target's.
+                if (ins.OpCode.Code is Code.Call or Code.Callvirt && callee.Name == "Invoke" && callee.MethodSig is { HasThis: true } sig && operand >= 1 &&
+                    ProxyTarget(m, body, j, callee, sig) is var (target, call))
+                {
+                    int passed = operand - 1;
+                    if (IlEvaluator.IntrinsicNames.Contains(target.FullName)) return !IlEvaluator.MutatedArguments(target.FullName).Contains(passed);
+                    if (target is not MethodDef forwarded || forwarded.Module != module || (call == Code.Callvirt && forwarded.IsVirtual && !forwarded.IsFinal)) return false;
+                    return ParameterOnlyRead(forwarded, call == Code.Newobj ? passed + 1 : passed, immutableElements, depth + 1, visited);
+                }
                 if (callee is not MethodDef def || def.Module != module) return false;
                 if (ins.OpCode.Code == Code.Callvirt && def.IsVirtual && !def.IsFinal) return false;
                 return ParameterOnlyRead(def, ins.OpCode.Code == Code.Newobj ? operand + 1 : operand, immutableElements, depth + 1, visited);
@@ -315,6 +325,29 @@ internal sealed class ModuleFacts(ModuleDef module)
             default:
                 return false;
         }
+    }
+
+    /// <summary>
+    /// The method a static delegate field's delegate passes its arguments on to, unchanged and in order, and the call,
+    /// callvirt or newobj it does so with; null when that is not known. Set by the evaluator, which runs the field's
+    /// type initialization to find out (on an evaluator of its own); without it, calls through delegate fields are not
+    /// followed.
+    /// </summary>
+    public Func<FieldDef, int, (IMethod Target, Code Call)?>? DelegateTarget { get; set; }
+
+    private readonly Dictionary<FieldDef, (IMethod, Code)?> _delegateTargets = new();
+
+    /// <summary>For the Invoke at code[j]: what the delegate it calls passes its arguments on to, when a static delegate field of the module loaded it.</summary>
+    private (IMethod Target, Code Call)? ProxyTarget(MethodDef m, CilBody body, int j, IMethod invoke, MethodSig sig)
+    {
+        if (DelegateTarget == null) return null;
+        var (targets, _, _) = Shape(m, body);
+        int producer = MethodSimplifier.Producer(body.Instructions, targets, j, sig.Params.Count);
+        if (producer < 0 || body.Instructions[producer] is not { OpCode.Code: Code.Ldsfld, Operand: FieldDef { IsStatic: true } field } ||
+            field.Module != module || field.FieldType.FullName != invoke.DeclaringType.FullName)
+            return null;
+        if (!_delegateTargets.TryGetValue(field, out var known)) _delegateTargets[field] = known = DelegateTarget(field, sig.Params.Count);
+        return known;
     }
 
     private static bool IsCollection(ITypeDefOrRef? type) => type?.TryGetGenericInstSig()?.GenericType.FullName is
