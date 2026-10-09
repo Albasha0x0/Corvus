@@ -6,10 +6,13 @@ namespace NetDecompilerMcp.Tests;
 public static class OutputSchema
 {
     /// <summary>The schema violations of <paramref name="value"/>, as "path: problem" lines (empty when it conforms).</summary>
-    public static List<string> Validate(JsonElement schema, JsonElement value)
+    public static List<string> Validate(JsonElement schema, JsonElement value) => Validate(schema, schema, value);
+
+    /// <summary>Validates against <paramref name="schema"/>, a part of <paramref name="root"/> (which its references resolve in).</summary>
+    public static List<string> Validate(JsonElement root, JsonElement schema, JsonElement value)
     {
         var errors = new List<string>();
-        Check(schema, schema, value, "data", errors, 0);
+        Check(root, schema, value, "data", errors, 0);
         return errors;
     }
 
@@ -67,7 +70,7 @@ public static class OutputSchema
     };
 
     /// <summary>A local reference: "#", "#/$defs/X", "#/properties/a/items" (JSON pointer).</summary>
-    private static JsonElement? Resolve(JsonElement root, string reference)
+    internal static JsonElement? Resolve(JsonElement root, string reference)
     {
         if (!reference.StartsWith('#')) return null;
         var current = root;

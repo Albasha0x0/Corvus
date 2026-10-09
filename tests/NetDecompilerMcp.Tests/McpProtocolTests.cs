@@ -25,18 +25,25 @@ public abstract class McpProtocolTests : IAsyncLifetime
 
     private static string ServerDll => typeof(NetDecompilerMcp.Core.AssemblyWorkspace).Assembly.Location;
 
-    internal static async Task<McpClient> StartServerAsync(params string[] args)
+    internal static Task<McpClient> StartServerAsync(params string[] args) => StartServerInAsync(null, args);
+
+    /// <summary>Starts a server whose working directory (where relative paths resolve) is <paramref name="workingDirectory"/>.</summary>
+    internal static Task<McpClient> StartServerInAsync(string? workingDirectory, params string[] args) => StartServerAsync(workingDirectory, null, args);
+
+    /// <summary>As above, with a client that speaks <paramref name="protocolVersion"/> (null: the SDK's newest).</summary>
+    internal static async Task<McpClient> StartServerAsync(string? workingDirectory, string? protocolVersion, string[] args)
     {
         var transport = new StdioClientTransport(new StdioClientTransportOptions
         {
             Name = "net-decompiler",
             Command = "dotnet",
             Arguments = [ServerDll, .. args],
+            WorkingDirectory = workingDirectory,
             // The SDK waits this long for the server to exit before it closes the server's input, then ends it; the
             // server exits on end of input (ServerExitsWhenItsInputCloses), so waiting longer only delays each test.
             ShutdownTimeout = TimeSpan.FromMilliseconds(200),
         });
-        return await McpClient.CreateAsync(transport);
+        return await McpClient.CreateAsync(transport, new McpClientOptions { ProtocolVersion = protocolVersion });
     }
 
     private static string Text(CallToolResult r) => string.Join("\n", r.Content.OfType<TextContentBlock>().Select(c => c.Text));
@@ -70,7 +77,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
     }
 
     /// <summary>One successful call per tool; EveryToolIsCoveredAndAnnotated fails if a tool is missing.</summary>
-    private Dictionary<string, (Dictionary<string, object?> Args, string Expect)> ToolCases() => new()
+    internal static Dictionary<string, (Dictionary<string, object?> Args, string Expect)> ToolCases(TempDir dir) => new()
     {
         ["load_assembly"] = (new() { ["path"] = Env.ConsumerPath }, "TestFixture.Consumer"),
         ["list_assemblies"] = (new(), "TestFixture"),
@@ -87,7 +94,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["decompile_member"] = (new() { ["member"] = "Account::CheckLicense" }, "Secret.Validate(\"LICENSE-KEY-123\")"),
         ["get_il"] = (new() { ["symbol"] = "Account::CheckLicense" }, "ldstr"),
         ["decompile_assembly_attributes"] = (new() { ["assembly"] = "TestFixture" }, "TargetFramework"),
-        ["export_project"] = (new() { ["assembly"] = "TestFixture.Consumer", ["outputDirectory"] = _dir.File("export") }, "Exported"),
+        ["export_project"] = (new() { ["assembly"] = "TestFixture.Consumer", ["outputDirectory"] = dir.File("export") }, "Exported"),
         ["search_symbols"] = (new() { ["query"] = "Charg*", ["kind"] = "method" }, "Charge"),
         ["search_strings"] = (new() { ["query"] = "LICENSE" }, "CheckLicense"),
         ["search_constants"] = (new() { ["value"] = "0x3E8" }, "PremiumAccount::Score"),
@@ -102,7 +109,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["extract_strings"] = (new() { ["assembly"] = "TestFixture", ["types"] = "url,domain" }, "\"assembly\":\"TestFixture\""),
         ["extract_embedded"] = (new() { ["assembly"] = "TestFixture" }, "\"contents\""),
         ["search_container"] = (new() { ["path"] = ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"), ["query"] = "LZ4Codec", ["kind"] = "type" }, "K4os.Compression.LZ4.LZ4Codec"),
-        ["unpack_container"] = (new() { ["path"] = ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"), ["outputDirectory"] = _dir.File("unpack"), ["load"] = false }, "NuGet package"),
+        ["unpack_container"] = (new() { ["path"] = ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"), ["outputDirectory"] = dir.File("unpack"), ["load"] = false }, "NuGet package"),
         ["get_il2cpp_info"] = (new() { ["symbol"] = "NativeThing" }, "RVA=0x1100"),
         ["find_method_by_address"] = (new() { ["address"] = "1004" }, "NativeThing::First"),
         ["rename_symbol"] = (new() { ["symbol"] = "Account", ["newName"] = "Customer", ["dryRun"] = true }, "Dry run"),
@@ -115,17 +122,17 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["add_types_csharp"] = (new() { ["assembly"] = "TestFixture", ["code"] = "namespace Mods { public static class M { public static int One() => 1; } }" }, "Mods.M"),
         ["list_edits"] = (new() { ["assembly"] = "TestFixture" }, "#5"),
         ["diff_edits"] = (new() { ["assembly"] = "TestFixture" }, "+public int Twice(int x)"),
-        ["export_edits"] = (new() { ["assembly"] = "TestFixture", ["path"] = _dir.File("edits.json") }, "Exported 5 edit(s)"),
+        ["export_edits"] = (new() { ["assembly"] = "TestFixture", ["path"] = dir.File("edits.json") }, "Exported 5 edit(s)"),
         ["undo_edit"] = (new() { ["assembly"] = "TestFixture" }, "Undid #5"),
         ["revert_edits"] = (new() { ["assembly"] = "TestFixture" }, "4 edit(s) discarded"),
-        ["apply_edits"] = (new() { ["path"] = _dir.File("edits.json") }, "5 applied"),
+        ["apply_edits"] = (new() { ["path"] = dir.File("edits.json") }, "5 applied"),
         ["compare_assemblies"] = (new() { ["oldAssembly"] = "TestFixture", ["newAssembly"] = "TestFixture.Consumer" }, "Comparing TestFixture"),
         ["find_counterpart"] = (new() { ["symbol"] = "Shop", ["oldAssembly"] = "TestFixture", ["newAssembly"] = "TestFixture.Consumer" }, "not found"),
         ["get_call_tree"] = (new() { ["method"] = "Secret::Validate", ["direction"] = "callers" }, "Account::CheckLicense"),
         ["find_call_paths"] = (new() { ["to"] = "Account::Charge(int)", ["from"] = "Consumer.Branch::Bill" }, "1 path"),
-        ["export_il2cpp_symbols"] = (new() { ["outputDirectory"] = _dir.File("il2cpp"), ["assembly"] = "TestFixture" }, "Exported 2 functions"),
+        ["export_il2cpp_symbols"] = (new() { ["outputDirectory"] = dir.File("il2cpp"), ["assembly"] = "TestFixture" }, "Exported 2 functions"),
         ["generate_cpp_binding"] = (new() { ["type"] = "Account" }, "FindClass(api, \"TestFixture\", \"Fixture.Model\", \"Account\")"),
-        ["save_assembly"] = (new() { ["assembly"] = "TestFixture", ["outputPath"] = _dir.File("saved.dll") }, "Wrote"),
+        ["save_assembly"] = (new() { ["assembly"] = "TestFixture", ["outputPath"] = dir.File("saved.dll") }, "Wrote"),
         ["unload_assembly"] = (new() { ["assembly"] = "TestFixture.Consumer" }, "Unloaded"),
     };
 
@@ -136,7 +143,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         public async Task EveryToolIsCoveredAndAnnotated()
         {
             var tools = await _client.ListToolsAsync();
-            Assert.Equal(ToolCases().Keys.Order(), tools.Select(t => t.Name).Order());
+            Assert.Equal(ToolCases(_dir).Keys.Order(), tools.Select(t => t.Name).Order());
             foreach (var tool in tools)
             {
                 Assert.False(string.IsNullOrWhiteSpace(tool.Description), tool.Name);
@@ -152,7 +159,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         [Fact]
         public async Task EveryToolSucceedsWithValidInput()
         {
-            foreach (var (tool, (args, expect)) in ToolCases()) // order matters: edits build on each other, unload last
+            foreach (var (tool, (args, expect)) in ToolCases(_dir)) // order matters: edits build on each other, unload last
             {
                 var text = await Call(tool, args);
                 Assert.True(text.Contains(expect, StringComparison.Ordinal), $"{tool}: expected '{expect}' in:\n{text}");
