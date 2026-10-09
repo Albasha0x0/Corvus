@@ -157,6 +157,12 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["search_native_strings"] = (new() { ["image"] = NativeSample(dir) }, "string"),
         ["decompile_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["engine"] = "ghidra" }, "Error (invalid_argument) in decompile_native: Unknown engine"),
         ["verify_native_imports"] = (new() { ["assembly"] = "TestFixture" }, "TestFixture"),
+        ["get_r2r_code"] = R2RFramework.Linq is { } linq
+            ? (new() { ["method"] = "System.Linq.Enumerable::Any", ["assembly"] = linq, ["maxBodies"] = 1 }, "native code in System.Linq.dll")
+            : (new() { ["method"] = "Account::Score" }, "Error (unsupported) in get_r2r_code"),
+        ["find_r2r_method"] = R2RFramework.LinqEntryVa() is { } va
+            ? (new() { ["assembly"] = R2RFramework.Linq, ["address"] = va }, "+0x0 into the hot code")
+            : (new() { ["assembly"] = "TestFixture", ["address"] = "0x1000" }, "Error (unsupported) in find_r2r_method"),
         ["read_result"] = (new() { ["id"] = "r999" }, "Error (not_found) in read_result"),
         ["unload_assembly"] = (new() { ["assembly"] = "TestFixture.Consumer" }, "Unloaded"),
     };

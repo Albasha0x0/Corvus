@@ -12,7 +12,8 @@ internal static class ServerInstructions
            (notices appear as "[workspace] ..." lines at the top of a tool result).
            An app that ships wrapped in a container (single-file .exe, Costura, .nupkg, Xamarin/MAUI .apk): list_assemblies with path shows the
            assemblies inside, search_container finds types/members in them by name, and unpack_container extracts and loads them.
-           list_assemblies and unpack_container flag ReadyToRun and merged (ILMerge/ILRepack) assemblies.
+           list_assemblies and unpack_container flag ReadyToRun and merged (ILMerge/ILRepack) assemblies; get_r2r_code shows a ReadyToRun
+           method's precompiled native code (calls named as managed methods) and find_r2r_method maps a native address back to its method.
            summarize_file reports signature, markers, container wrapping, features, typed strings and entry points of a file in one call;
            survey_features, extract_strings and extract_embedded give the details. Nothing is executed.
         2. Discover: search_symbols, search_strings, search_constants, search_il, list_namespaces, list_types, get_type_info (cheap outline).

@@ -61,7 +61,8 @@ builder.Services
     .AddSingleton<UnpackService>()
     .AddSingleton<InspectionService>()
     .AddSingleton<NativeEngineService>()
-    .AddSingleton<NativeCodeService>();
+    .AddSingleton<NativeCodeService>()
+    .AddSingleton<ReadyToRunService>();
 
 builder.Services
     .AddMcpServer(o =>
