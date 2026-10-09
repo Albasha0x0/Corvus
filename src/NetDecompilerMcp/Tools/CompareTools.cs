@@ -5,6 +5,7 @@ using ModelContextProtocol.Server;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Services;
 using static NetDecompilerMcp.Tools.ToolSupport;
+using Comparison = NetDecompilerMcp.Services.AssemblyComparer.Comparison;
 using MemberChange = NetDecompilerMcp.Services.AssemblyComparer.MemberChange;
 using TypeChange = NetDecompilerMcp.Services.AssemblyComparer.TypeChange;
 
@@ -13,17 +14,21 @@ namespace NetDecompilerMcp.Tools;
 [McpServerToolType]
 public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer comparer, OutputPager pager)
 {
-    private static readonly string[] AllKinds = ["renamed", "signature", "body", "type", "offset", "address", "added", "removed"];
+    private static readonly string[] AllKinds = ["renamed", "signature", "body", "metadata", "type", "offset", "address", "added", "removed", "ambiguous"];
+
+    private static readonly string[] Confidences = ["exact", "strong", "structural"];
 
     [McpServerTool(Name = "compare_assemblies", Title = "Compare two builds", ReadOnly = true, OpenWorld = false)]
     [Description("Compare two builds of an assembly (e.g. before and after an update; load both — the second gets an id like Name#2). " +
                  "Reports renamed/moved types and members (matched by content, so transformed or refactored names carry forward), added and removed members, " +
-                 "signature changes, changed method bodies, field type changes, and Il2Cpp field-offset / address changes.")]
+                 "signature changes, changed method bodies (normalized IL hash), metadata-only changes (flags or attributes changed, IL identical), field type changes, " +
+                 "and Il2Cpp field-offset / address changes. Members are matched in tiers and only when the match is unique on both sides; " +
+                 "otherwise they are listed as ambiguous with their candidates.")]
     public Task<string> CompareAssemblies(
         [Description("The old build (id, name or path).")] string oldAssembly,
         [Description("The new build (id, name or path).")] string newAssembly,
         [Description("Only types whose old or new full name starts with this.")] string? @namespace = null,
-        [Description("Member change kinds to include, comma-separated: renamed, signature, body, type, offset, address, added, removed, or all. Default: all except address.")] string? changes = null,
+        [Description("Member change kinds to include, comma-separated: renamed, signature, body, metadata, type, offset, address, added, removed, ambiguous, or all. Default: all except address.")] string? changes = null,
         [Description("Also list the names of added and removed types (otherwise only counts).")] bool listAddedRemovedTypes = true,
         [Description("Also show compiler-generated types and members (closures, iterator / async state machines, backing fields, " +
                      "<PrivateImplementationDetails> data): they change with every recompile, so they are hidden and counted by default.")] bool includeCompilerGenerated = false,
@@ -55,15 +60,18 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
 
         var sb = new StringBuilder($"Comparing {oldAsm.Id} ({oldAsm.FilePath})\n       -> {newAsm.Id} ({newAsm.FilePath})\n");
         var memberCounts = types.SelectMany(t => t.Members).GroupBy(m => m.Change).ToDictionary(g => g.Key, g => g.Count());
-        sb.AppendLine($"Types: {Count(types, "renamed")} renamed, {Count(types, "changed")} with member changes, {Count(types, "removed")} removed, {Count(types, "added")} added " +
+        sb.AppendLine($"Types: {Count(types, "renamed")} renamed, {Count(types, "changed")} with member changes, {Count(types, "removed")} removed, {Count(types, "added")} added" +
+                      $"{(Count(types, "ambiguous") > 0 ? $", {Count(types, "ambiguous")} ambiguous" : "")} " +
                       $"({cmp.TypeMap.Count} matched of {MetadataUtil.CountedTypes(oldAsm.Module).Count} old).");
         sb.AppendLine("Members: " + string.Join(", ", AllKinds.Select(k => $"{memberCounts.GetValueOrDefault(k)} {k}")));
+        sb.AppendLine(MatchSummary(cmp, @namespace));
         if (hiddenTypes + hiddenMembers > 0)
             sb.AppendLine($"Hidden: {hiddenTypes} compiler-generated type change(s) and {hiddenMembers} member change(s) " +
                           "(closures, state machines, backing fields, array data; includeCompilerGenerated=true shows them).");
-        foreach (var (side, asm) in new[] { ("old", oldAsm), ("new", newAsm) })
-            if (asm.BodyHealth.Invalid > 0)
-                sb.AppendLine($"Warning ({side} build {asm.Id}): {asm.BodyHealth.Describe()} Those body changes are marked \"not comparable\"; name matches and signature/field-offset changes are still reliable, renames found by content less so.");
+        foreach (var (side, asm, skipped) in new[] { ("old", oldAsm, cmp.OldSkippedBodies), ("new", newAsm, cmp.NewSkippedBodies) })
+            if (skipped > 0)
+                sb.AppendLine($"Skipped: {skipped} method bodies of the {side} build ({asm.Id}) are not valid IL (encrypted?) and were not compared; " +
+                              "their body changes are marked \"not comparable\".");
 
         foreach (var t in types.Where(t => t.Change is "renamed" or "changed"))
         {
@@ -71,10 +79,17 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
             if (t.Change == "changed" && members.Count == 0) continue;
             sb.AppendLine();
             sb.AppendLine(t.Change == "renamed"
-                ? $"{t.Old!.FullName} -> {t.New!.FullName}  (renamed, match {t.Score:P0})"
+                ? $"{t.Old!.FullName} -> {t.New!.FullName}  (renamed, match {t.Score:P0}; {Tier(AssemblyComparer.TypeTier(t.Old, t.New))})"
                 : t.Old!.FullName);
             foreach (var m in members)
-                sb.AppendLine($"    {m.Change,-9} {Describe(m)}");
+                sb.AppendLine($"    {m.Change,-9} {Describe(cmp, m)}");
+        }
+        var ambiguousTypes = types.Where(t => t.Change == "ambiguous").ToList();
+        if (ambiguousTypes.Count > 0)
+        {
+            sb.AppendLine($"\nAmbiguous types ({ambiguousTypes.Count}; several new types match equally well):");
+            foreach (var t in ambiguousTypes.Take(300))
+                sb.AppendLine($"  {t.Old!.FullName} -> {string.Join(" | ", t.Candidates!.Select(c => c.FullName))}");
         }
         if (listAddedRemovedTypes)
         {
@@ -85,8 +100,10 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
     }, cancellationToken);
 
     [McpServerTool(Name = "find_counterpart", Title = "Find symbol in another build", ReadOnly = true, OpenWorld = false)]
-    [Description("Where did a type or member of the old build go in the new build? Matches by name, then by content (renamed/transformed members). " +
-                 "Shows the new name and token, how it was matched, and Il2Cpp offset/address changes — use it to update FindClass names and offsets after an update.")]
+    [Description("Where did a type or member of the old build go in the new build? Matches by name, then by content (renamed/transformed members), " +
+                 "taking a match only when it is unique on both sides. Shows the new name and token, the matching tier and its confidence (exact, strong, structural), " +
+                 "whether a method body changed (normalized IL hash), and Il2Cpp offset/address changes; ambiguous matches list their candidates. " +
+                 "Use it to update FindClass names and offsets after an update.")]
     public Task<string> FindCounterpart(
         [Description("Symbol in the old build. " + SymbolDescription)] string symbol,
         [Description("The old build (id, name or path).")] string oldAssembly,
@@ -97,20 +114,38 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         var newAsm = workspace.Get(newAssembly);
         var cmp = comparer.Compare(oldAsm, newAsm, cancellationToken);
         var sb = new StringBuilder();
+        if (cmp.OldSkippedBodies + cmp.NewSkippedBodies > 0)
+            sb.AppendLine($"Skipped: {cmp.OldSkippedBodies} old and {cmp.NewSkippedBodies} new method bodies are not valid IL and were not compared; " +
+                          "matches by content involving them are less reliable.");
         foreach (var sym in SymbolResolver.Resolve(workspace, oldAsm.Id, symbol).Take(25))
         {
-            var (match, how) = comparer.FindCounterpart(cmp, sym.Member);
+            var found = comparer.FindCounterpart(cmp, sym.Member);
             sb.AppendLine($"{sym.Kind} {sym.Label}  [{oldAsm.Id}] {Format.Token(sym.Member)}");
-            if (match == null)
+            if (found.Candidates is { } candidates)
             {
-                sb.AppendLine($"  -> not found: {how}");
+                sb.AppendLine($"  -> ambiguous: {candidates.Count} candidates share the {found.Tier} key (no tier tells them apart):");
+                foreach (var c in candidates)
+                    sb.AppendLine($"     {Format.MemberLabel(c)}  [{newAsm.Id}] {Format.Token(c)}");
                 continue;
             }
-            sb.AppendLine($"  -> {Format.MemberLabel(match)}  [{newAsm.Id}] {Format.Token(match)}  ({how})");
+            if (found.Match is not { } match)
+            {
+                sb.AppendLine($"  -> not found: {found.How}");
+                continue;
+            }
+            sb.AppendLine($"  -> {Format.MemberLabel(match)}  [{newAsm.Id}] {Format.Token(match)}  ({found.How}; {Tier((found.Tier!, found.Confidence!))})");
             if (sym.Member is FieldDef of && match is FieldDef nf && Format.Type(of.FieldType) != Format.Type(nf.FieldType))
                 sb.AppendLine($"     type: {Format.Type(of.FieldType)} -> {Format.Type(nf.FieldType)}");
-            if (sym.Member is MethodDef om && match is MethodDef nm && Format.ParameterTypes(om.MethodSig) != Format.ParameterTypes(nm.MethodSig))
-                sb.AppendLine($"     signature: ({Format.ParameterTypes(om.MethodSig)}) -> ({Format.ParameterTypes(nm.MethodSig)})");
+            if (sym.Member is MethodDef om && match is MethodDef nm)
+            {
+                if (Format.ParameterTypes(om.MethodSig) != Format.ParameterTypes(nm.MethodSig))
+                    sb.AppendLine($"     signature: ({Format.ParameterTypes(om.MethodSig)}) -> ({Format.ParameterTypes(nm.MethodSig)})");
+                var (oldHash, newHash) = (IlHash.Of(oldAsm, om), IlHash.Of(newAsm, nm));
+                sb.AppendLine(oldHash == null || newHash == null
+                    ? $"     body: {(oldHash == null && newHash == null ? "none on either side" : "not comparable (no body or not valid IL on one side)")}"
+                    : oldHash == newHash ? $"     body: unchanged (IL hash {IlHash.Short(oldHash)})"
+                    : $"     body: changed (IL hash {IlHash.Short(oldHash)} -> {IlHash.Short(newHash)})");
+            }
             var oldIl2Cpp = Il2CppService.CompactSummary(sym.Member);
             var newIl2Cpp = Il2CppService.CompactSummary(match);
             if (oldIl2Cpp != null || newIl2Cpp != null)
@@ -118,6 +153,20 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         }
         return sb.ToString();
     }, cancellationToken);
+
+    private static string Tier((string Tier, string Confidence) t) => $"tier: {t.Tier}, {t.Confidence}";
+
+    /// <summary>Matched members by confidence and tier, and the ambiguous ones, for the types in scope.</summary>
+    private static string MatchSummary(Comparison cmp, string? @namespace)
+    {
+        bool InScope(IMemberDef m) => @namespace == null || (m.DeclaringType?.FullName.StartsWith(@namespace, StringComparison.Ordinal) ?? false);
+        var matches = cmp.MemberMap.Where(m => InScope(m.Key)).Select(m => m.Value).ToList();
+        int ambiguous = cmp.Ambiguous.Keys.Count(m => m is not TypeDef && InScope(m));
+        var confidence = matches.GroupBy(m => m.Confidence).ToDictionary(g => g.Key, g => g.Count());
+        var tiers = matches.GroupBy(m => m.Tier).OrderByDescending(g => g.Count()).Select(g => $"{g.Key} {g.Count()}");
+        return $"Member matches: {string.Join(", ", Confidences.Select(c => $"{confidence.GetValueOrDefault(c)} {c}"))}, {ambiguous} ambiguous " +
+               $"(by tier: {string.Join(", ", tiers)}).";
+    }
 
     private static int Count(List<TypeChange> types, string change) => types.Count(t => t.Change == change);
 
@@ -129,7 +178,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         return false;
     }
 
-    private static string Describe(MemberChange m)
+    private static string Describe(Comparison cmp, MemberChange m)
     {
         var member = m.Old ?? m.New!;
         string Name(IMemberDef d) => d switch
@@ -138,11 +187,13 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
             _ => d.Name,
         };
         string kind = member switch { MethodDef => "method", FieldDef => "field", PropertyDef => "property", EventDef => "event", _ => "member" };
+        string TierOf(IMemberDef old) => cmp.MemberMap.TryGetValue(old, out var match) ? "; " + Tier((match.Tier, match.Confidence)) : "";
         return m.Change switch
         {
-            "renamed" => $"{kind} {Name(m.Old!)} -> {Name(m.New!)}  ({m.Detail})",
+            "renamed" => $"{kind} {Name(m.Old!)} -> {Name(m.New!)}  ({m.Detail}{TierOf(m.Old!)})",
             "added" => $"{kind} {Name(m.New!)}  {m.Detail}",
             "removed" => $"{kind} {Name(m.Old!)}  {m.Detail}",
+            "ambiguous" => $"{kind} {Name(m.Old!)}: {m.Detail}: {string.Join(" | ", m.Candidates!.Select(Name))}",
             _ => $"{kind} {Name(member)}: {m.Detail}",
         };
     }
