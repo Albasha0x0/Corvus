@@ -25,8 +25,10 @@ every method left unchanged is reported with one of the reasons below.
 | Static state | `ldsfld` `ldsflda` `stsfld` `ldtoken` | static fields of the same module that are readonly, or that only the type's initialization writes and other assemblies cannot, after evaluating the type's static constructor once; an instance with no fields held there (a lambda class's singleton) cannot change, so any code may read it; writes only inside static constructors (by stsfld or FieldInfo.SetValue); ldtoken of fields, types and methods |
 | Collections |  | Dictionary<K, V> (keys: numbers and strings) and List<T>: construction, Add, indexers, TryGetValue, ContainsKey, Remove, Count, Clear, Contains, IndexOf, Insert, RemoveAt, ToArray, and foreach over them in the order of addition (a dictionary after a removal is not enumerated); Monitor.Enter / Exit (lock) succeed at once. A static collection the code only uses through its own methods, written only by its type's initialization, counts as a cache: each evaluation starts from the state the initialization left, and the call made again on the state it leaves must give the same result (see cache-dependent) |
 | Resources and streams |  | the module's own embedded resources: Assembly.GetManifestResourceNames and GetManifestResourceStream (the executing, calling or a type's own assembly); read-only streams over them or over byte arrays (MemoryStream): Read, ReadByte, Length, Position, Seek, Close; BinaryReader (bytes, integers, floats, strings with a 7-bit length) and StreamReader (UTF-8 or an explicit encoding, byte-order marks detected as the CLR does) over them. The same resource reads the same bytes on every run; its bytes count against the simulated memory |
+| Boxing | `box` `unbox` `unbox.any` | box gives an immutable object holding the value (box of a reference, as for a type argument that is a class, leaves it as it is); unbox.any and unbox take the value back out of a box of the same type, or of an enum and its underlying integer type; unbox.any of a reference type is castclass; Nullable<T> is not boxed |
+| Sizes | `sizeof` | sizeof of primitive and enum types; native-size types differ between platforms |
 | Type tests | `isinst` `castclass` | System.Object, System.String, System.Text.StringBuilder and System.Text.Encoding targets |
-| Calls | `call` `callvirt` `newobj` `ldftn` | intrinsics (below), and static methods and struct methods with IL bodies in the same module (not generic); newobj of strings, StringBuilder and module structs; delegates of static methods (ldftn and the delegate constructor, Delegate.CreateDelegate) and of instance methods bound to an instance with no fields and of dynamic methods, invoked through Invoke |
+| Calls | `call` `callvirt` `newobj` `ldftn` | intrinsics (below), and static methods and struct methods with IL bodies in the same module; static generic methods of the module with closed type arguments (!!n in parameter, local and operand types replaced by the instantiation's); newobj of strings, StringBuilder and module structs; delegates of static methods (ldftn and the delegate constructor, Delegate.CreateDelegate) and of instance methods bound to an instance with no fields and of dynamic methods, invoked through Invoke |
 
 Every other instruction stops evaluation with `unsupported-instruction`.
 
@@ -34,6 +36,7 @@ Every other instruction stops evaluation with `unsupported-instruction`.
 
 Framework methods evaluated directly (deterministic and culture-independent for the values they accept):
 
+- `System.Array System.Array::CreateInstance(System.Type,System.Int32)`
 - `System.Boolean System.Reflection.MethodBase::get_IsStatic()`
 - `System.Boolean System.String::Equals(System.String)`
 - `System.Boolean System.String::Equals(System.String,System.String)`
@@ -104,6 +107,7 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 - `System.String System.String::Concat(System.String,System.String,System.String,System.String)`
 - `System.String System.String::Concat(System.String[])`
 - `System.String System.String::Insert(System.Int32,System.String)`
+- `System.String System.String::Intern(System.String)`
 - `System.String System.String::Join(System.String,System.String[])`
 - `System.String System.String::Remove(System.Int32)`
 - `System.String System.String::Remove(System.Int32,System.Int32)`
@@ -132,10 +136,12 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 - `System.Type System.Reflection.MethodInfo::get_ReturnType()`
 - `System.Type System.Reflection.Module::ResolveType(System.Int32)`
 - `System.Type System.Reflection.ParameterInfo::get_ParameterType()`
+- `System.Type System.Type::GetElementType()`
 - `System.Type System.Type::GetTypeFromHandle(System.RuntimeTypeHandle)`
 - `System.Void System.Array::Copy(System.Array,System.Array,System.Int32)`
 - `System.Void System.Array::Copy(System.Array,System.Int32,System.Array,System.Int32,System.Int32)`
 - `System.Void System.Array::Reverse(System.Array)`
+- `System.Void System.Buffer::BlockCopy(System.Array,System.Int32,System.Array,System.Int32,System.Int32)`
 - `System.Void System.Reflection.Emit.DynamicMethod::.ctor(System.String,System.Type,System.Type[])`
 - `System.Void System.Reflection.Emit.DynamicMethod::.ctor(System.String,System.Type,System.Type[],System.Boolean)`
 - `System.Void System.Reflection.Emit.DynamicMethod::.ctor(System.String,System.Type,System.Type[],System.Reflection.Module)`
@@ -185,10 +191,10 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 | `unsupported-call` | a call to a framework or other method that is neither an intrinsic nor IL of the same module (I/O, reflection, threading, ...) |
 | `no-body` | the callee has no IL body: P/Invoke, internal call, runtime-implemented or abstract |
 | `other-module` | the callee or a static field belongs to another module, whose code may differ at run time |
-| `generic` | a generic method or a member of a generic type |
+| `generic` | a generic method of another module or an instance generic method, a member of a generic type, or a type argument that is not a closed type |
 | `exception-handling` | the callee has exception handlers, or the code throws |
 | `instance-object` | uses an object the evaluation did not create (an instance passed in from outside, or a delegate bound to an object) or calls an instance method on such an object |
-| `unsupported-value` | a value the interpreter does not model: boxing, unmanaged pointers, typed references, structs of other modules or with explicit layout, arrays of structs, type tokens |
+| `unsupported-value` | a value the interpreter does not model: Nullable<T> boxes, unboxing as another type, unmanaged pointers, typed references, structs of other modules or with explicit layout, arrays of structs, type tokens |
 | `mutable-static` | reads a static field that is not readonly, writes a static field outside a static constructor, or modifies an object held in a static field |
 | `unmodeled-instance` | creates an instance of a class outside the modelled subset: a class with a finalizer or events, a generic class, a class whose base class belongs to another assembly (exceptions, framework classes), an interop class (COM import, explicit layout), or a hierarchy deeper than 8 levels |
 | `virtual-dispatch` | a call on a modelled instance that does not resolve to one method of the module: a framework method or the framework implementation of a virtual method (ToString, Equals, ...), an abstract method, or an interface method the class does not implement in the module |

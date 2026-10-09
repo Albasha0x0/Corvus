@@ -450,6 +450,28 @@ public sealed class SimplifyContractTests
         p.Add("castclass", t.Object, false, [I(OpCodes.Ldstr, "s"), I(OpCodes.Castclass, t.Object.ToTypeDefOrRef()), Ret()]);
         p.Add("castclass", t.String, false, [Ldc(1), I(OpCodes.Newarr, t.Int32.ToTypeDefOrRef()), I(OpCodes.Castclass, t.String.ToTypeDefOrRef()), Ret()]);
 
+        // Boxing and sizes; a generic method of the module instantiated with a value type and with a class.
+        var i4 = t.Int32.ToTypeDefOrRef();
+        p.Add("box", t.Int32, false, [Ldc(-5), I(OpCodes.Box, i4), I(OpCodes.Unbox_Any, i4), Ret()]);
+        p.Add("box", t.Int32, false, [Ldc(6), I(OpCodes.Box, i4), I(OpCodes.Unbox, i4), I(OpCodes.Ldind_I4), Ret()]);
+        p.Add("box", t.Int32, false, [Ldc(6), I(OpCodes.Box, i4), I(OpCodes.Isinst, i4), I(OpCodes.Ldnull), I(OpCodes.Cgt_Un), Ret()]);
+        p.Add("box", t.Int64, false, [Ldc(6), I(OpCodes.Box, i4), I(OpCodes.Unbox_Any, t.Int64.ToTypeDefOrRef()), Ret()]);
+        p.Add("box", t.String, false, [I(OpCodes.Ldstr, "s"), I(OpCodes.Box, t.String.ToTypeDefOrRef()), I(OpCodes.Unbox_Any, t.String.ToTypeDefOrRef()), Ret()]);
+        p.Add("sizeof", t.Int32, false, [I(OpCodes.Sizeof, t.Int64.ToTypeDefOrRef()), I(OpCodes.Sizeof, t.Char.ToTypeDefOrRef()), I(OpCodes.Add), Ret()]);
+        {
+            var roundTrip = new MethodDefUser("RoundTrip", MethodSig.CreateStaticGeneric(1, new GenericMVar(0), new GenericMVar(0)), MethodImplAttributes.IL,
+                MethodAttributes.Public | MethodAttributes.Static);
+            roundTrip.GenericParameters.Add(new GenericParamUser(0, 0, "T"));
+            lab.Type.Methods.Add(roundTrip);
+            roundTrip.Body = new CilBody();
+            var mvar = new TypeSpecUser(new GenericMVar(0));
+            foreach (var i in new[] { Ldc(1), I(OpCodes.Newarr, mvar), I(OpCodes.Dup), Ldc(0), I(OpCodes.Ldarg_0), I(OpCodes.Box, mvar), I(OpCodes.Unbox_Any, mvar),
+                                      I(OpCodes.Stelem, mvar), Ldc(0), I(OpCodes.Ldelem, mvar), Ret() })
+                roundTrip.Body.Instructions.Add(i);
+            p.Add("generic", t.Int32, false, [Ldc(7), I(OpCodes.Call, new MethodSpecUser(roundTrip, new GenericInstMethodSig(t.Int32))), Ret()]);
+            p.Add("generic", t.String, false, [I(OpCodes.Ldstr, "g"), I(OpCodes.Call, new MethodSpecUser(roundTrip, new GenericInstMethodSig(t.String))), Ret()]);
+        }
+
         // Calls: intrinsics through call, callvirt and newobj.
         var length = lab.Module.Import(typeof(string).GetMethod("get_Length"));
         var repeat = lab.Module.Import(typeof(string).GetConstructor([typeof(char), typeof(int)]));
@@ -546,7 +568,7 @@ public sealed class SimplifyContractTests
         var cases = new List<(FallbackReason Reason, MethodDef Method, EvaluationLimits? Limits)>();
         void Add(FallbackReason r, MethodDef m, EvaluationLimits? limits = null) => cases.Add((r, m, limits));
 
-        Add(FallbackReason.UnsupportedInstruction, lab.Method("Sizeof", t.Int32, I(OpCodes.Sizeof, t.Int32.ToTypeDefOrRef()), Ret()));
+        Add(FallbackReason.UnsupportedInstruction, lab.Method("Cpblk", t.Int32, I(OpCodes.Ldnull), I(OpCodes.Ldnull), Ldc(0), I(OpCodes.Cpblk), Ldc(0), Ret()));
         Add(FallbackReason.ExternalIo, lab.Method("Io", t.Int32, I(OpCodes.Ldstr, "x"), I(OpCodes.Call, lab.Module.Import(typeof(File).GetMethod("Exists"))), Ret()));
         Add(FallbackReason.UnsupportedCall, lab.Method("Console", t.Int32, I(OpCodes.Call, lab.Module.Import(typeof(Console).GetMethod("Read"))), Ret()));
         Add(FallbackReason.WritableStream, lab.Method("Writable", t.Int32, I(OpCodes.Newobj, lab.Module.Import(typeof(MemoryStream).GetConstructor(Type.EmptyTypes))), I(OpCodes.Pop), IlLab.Ldc(0), Ret()));
@@ -563,7 +585,8 @@ public sealed class SimplifyContractTests
         id.Body = new CilBody();
         id.Body.Instructions.Add(I(OpCodes.Ldarg_0));
         id.Body.Instructions.Add(Ret());
-        Add(FallbackReason.Generic, lab.Method("CallsGeneric", t.Int32, Ldc(5), I(OpCodes.Call, new MethodSpecUser(id, new GenericInstMethodSig(t.Int32))), Ret()));
+        // An instantiation of the module's own static generic method is evaluated; one of another module is not.
+        Add(FallbackReason.Generic, lab.Method("CallsGeneric", t.Object, I(OpCodes.Call, lab.Module.Import(typeof(Array).GetMethod(nameof(Array.Empty))!.MakeGenericMethod(typeof(int)))), Ret()));
         {
             // try { } filter { 1 } { }: exception filters are not modelled (try / catch / finally run as long as nothing throws).
             var end = Ldc(1);
@@ -624,7 +647,7 @@ public sealed class SimplifyContractTests
             I(OpCodes.Newobj, clsCtor), I(OpCodes.Callvirt, lab.Module.Import(typeof(object).GetMethod(nameof(ToString)))), Ret()));
         Add(FallbackReason.VirtualDispatch, lab.Method("PlainObject", t.Int32,
             I(OpCodes.Newobj, lab.Module.Import(typeof(object).GetConstructor(Type.EmptyTypes))), I(OpCodes.Callvirt, lab.Module.Import(typeof(object).GetMethod(nameof(GetHashCode)))), Ret()));
-        Add(FallbackReason.UnsupportedValue, lab.Method("Box", t.Object, Ldc(1), I(OpCodes.Box, t.Int32.ToTypeDefOrRef()), Ret()));
+        Add(FallbackReason.UnsupportedValue, lab.Method("UnboxOtherSign", t.Int32, Ldc(1), I(OpCodes.Box, t.Int32.ToTypeDefOrRef()), I(OpCodes.Unbox_Any, t.UInt32.ToTypeDefOrRef()), Ret()));
         {
             // A static dictionary that escapes (a method returns it) is not a cache.
             var holder = lab.NewType("Lab", "CacheHolder", abstractSealed: true, beforeFieldInit: false);

@@ -246,6 +246,9 @@ internal sealed partial class IlEvaluator
         add("System.RuntimeTypeHandle", T, "get_TypeHandle", "", (e, a) => e.TypeOf(a[0]));
         add(B, T, "op_Equality", $"{T},{T}", (_, a) => ReferenceEquals(a[0], a[1]) ? 1 : 0);
         add(B, T, "op_Inequality", $"{T},{T}", (_, a) => ReferenceEquals(a[0], a[1]) ? 0 : 1);
+        add(T, T, "GetElementType", "", (e, a) => e.TypeOf(a[0]).Sig.RemovePinnedAndModifiers() is { ElementType: ElementType.SZArray or ElementType.Array or ElementType.ByRef or ElementType.Ptr } array
+            ? e.TypeObjectOf(array.Next)
+            : null);
         add(Mod, T, "get_Module", "", (e, a) => e.TypeOf(a[0]).Sig.ToTypeDefOrRef()?.ResolveTypeDef()?.Module == e.Module
             ? e._moduleObject
             : throw Bail(FallbackReason.OtherModule, "the module of another assembly's type"));

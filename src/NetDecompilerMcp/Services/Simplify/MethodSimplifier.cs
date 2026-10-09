@@ -422,7 +422,7 @@ public sealed class MethodSimplifier
             catch (EvaluationBailout ex)
             {
                 // Reported for the assembly's own helpers; framework calls that cannot be evaluated are expected.
-                if (callee is MethodDef def && def.Module == _module)
+                if (Generics.Definition(callee) is MethodDef def && def.Module == _module)
                     change.Bailouts.Add(new(ex.Reason, $"{At(call)} {Describe(callee)}: {ex.Message}"));
                 continue;
             }
@@ -437,7 +437,7 @@ public sealed class MethodSimplifier
 
     private static bool ProducesString(Code op, IMethod callee) => op == Code.Newobj
         ? callee.DeclaringType?.FullName == "System.String"
-        : callee.MethodSig?.RetType.RemovePinnedAndModifiers().ElementType == ElementType.String;
+        : Generics.ReturnType(callee)?.RemovePinnedAndModifiers().ElementType == ElementType.String;
 
     /// <summary>
     /// Start of the shortest run of instructions ending before <paramref name="end"/> that pushes the

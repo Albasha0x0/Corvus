@@ -729,7 +729,7 @@ internal sealed class ConstantFlow
     /// <summary>The result of a call whose arguments are all known, evaluated by the interpreter (cached per call site and arguments).</summary>
     private object? CallValue(Instruction ins, IMethod method, object?[] args)
     {
-        if (!args.All(IsConstant) || !Modelled(method.MethodSig?.RetType)) return Unknown;
+        if (!args.All(IsConstant) || !Modelled(Generics.ReturnType(method))) return Unknown;
         var key = (ins, string.Join("\u0001", args.Select(Key)));
         if (!_calls.TryGetValue(key, out var value))
         {

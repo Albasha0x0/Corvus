@@ -58,10 +58,10 @@ public static class SimplifyManifest
         new(FallbackReason.UnsupportedCall, "unsupported-call", "a call to a framework or other method that is neither an intrinsic nor IL of the same module (I/O, reflection, threading, ...)"),
         new(FallbackReason.NoBody, "no-body", "the callee has no IL body: P/Invoke, internal call, runtime-implemented or abstract"),
         new(FallbackReason.OtherModule, "other-module", "the callee or a static field belongs to another module, whose code may differ at run time"),
-        new(FallbackReason.Generic, "generic", "a generic method or a member of a generic type"),
+        new(FallbackReason.Generic, "generic", "a generic method of another module or an instance generic method, a member of a generic type, or a type argument that is not a closed type"),
         new(FallbackReason.ExceptionHandling, "exception-handling", "the callee has exception handlers, or the code throws"),
         new(FallbackReason.InstanceObject, "instance-object", "uses an object the evaluation did not create (an instance passed in from outside, or a delegate bound to an object) or calls an instance method on such an object"),
-        new(FallbackReason.UnsupportedValue, "unsupported-value", "a value the interpreter does not model: boxing, unmanaged pointers, typed references, structs of other modules or with explicit layout, arrays of structs, type tokens"),
+        new(FallbackReason.UnsupportedValue, "unsupported-value", "a value the interpreter does not model: Nullable<T> boxes, unboxing as another type, unmanaged pointers, typed references, structs of other modules or with explicit layout, arrays of structs, type tokens"),
         new(FallbackReason.MutableStatic, "mutable-static", "reads a static field that is not readonly, writes a static field outside a static constructor, or modifies an object held in a static field"),
         new(FallbackReason.UnmodeledInstance, "unmodeled-instance", "creates an instance of a class outside the modelled subset: a class with a finalizer or events, a generic class, a class whose base class belongs to another assembly (exceptions, framework classes), an interop class (COM import, explicit layout), or a hierarchy deeper than 8 levels"),
         new(FallbackReason.VirtualDispatch, "virtual-dispatch", "a call on a modelled instance that does not resolve to one method of the module: a framework method or the framework implementation of a virtual method (ToString, Equals, ...), an abstract method, or an interface method the class does not implement in the module"),
@@ -144,9 +144,12 @@ public static class SimplifyManifest
         new("Resources and streams",
             "the module's own embedded resources: Assembly.GetManifestResourceNames and GetManifestResourceStream (the executing, calling or a type's own assembly); read-only streams over them or over byte arrays (MemoryStream): Read, ReadByte, Length, Position, Seek, Close; BinaryReader (bytes, integers, floats, strings with a 7-bit length) and StreamReader (UTF-8 or an explicit encoding, byte-order marks detected as the CLR does) over them. The same resource reads the same bytes on every run; its bytes count against the simulated memory",
             []),
+        new("Boxing", "box gives an immutable object holding the value (box of a reference, as for a type argument that is a class, leaves it as it is); unbox.any and unbox take the value back out of a box of the same type, or of an enum and its underlying integer type; unbox.any of a reference type is castclass; Nullable<T> is not boxed", [
+            Code.Box, Code.Unbox, Code.Unbox_Any]),
+        new("Sizes", "sizeof of primitive and enum types; native-size types differ between platforms", [Code.Sizeof]),
         new("Type tests", "System.Object, System.String, System.Text.StringBuilder and System.Text.Encoding targets", [Code.Isinst, Code.Castclass]),
         new("Calls",
-            "intrinsics (below), and static methods and struct methods with IL bodies in the same module (not generic); newobj of strings, StringBuilder and module structs; delegates of static methods (ldftn and the delegate constructor, Delegate.CreateDelegate) and of instance methods bound to an instance with no fields and of dynamic methods, invoked through Invoke", [
+            "intrinsics (below), and static methods and struct methods with IL bodies in the same module; static generic methods of the module with closed type arguments (!!n in parameter, local and operand types replaced by the instantiation's); newobj of strings, StringBuilder and module structs; delegates of static methods (ldftn and the delegate constructor, Delegate.CreateDelegate) and of instance methods bound to an instance with no fields and of dynamic methods, invoked through Invoke", [
             Code.Call, Code.Callvirt, Code.Newobj, Code.Ldftn]),
     ];
 

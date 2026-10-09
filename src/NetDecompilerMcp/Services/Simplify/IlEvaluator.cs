@@ -421,11 +421,13 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         public object?[] Locals { get; } = locals;
         public Slot[] LocalSlots { get; } = localSlots;
         public List<object?> Stack { get; } = new();
+        /// <summary>The type arguments of a generic method instantiation the frame runs, or null.</summary>
+        public IList<TypeSig>? GenericArgs { get; init; }
     }
 
     private static EvaluationBailout Bail(FallbackReason reason, string message) => new(reason, message);
 
-    private object? Execute(MethodDef method, object?[] args)
+    private object? Execute(MethodDef method, object?[] args, IList<TypeSig>? generic = null)
     {
         if (_depth + 1 > limits.MaxDepth)
             throw Bail(FallbackReason.CallDepth, $"call depth exceeds the limit of {limits.MaxDepth}");
@@ -433,8 +435,10 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
             throw Bail(FallbackReason.OtherModule, $"calls {Describe(method)} in another module");
         if (method.IsPinvokeImpl || method.IsInternalCall || method.IsRuntime || method.IsNative || method.IsAbstract || !method.HasBody)
             throw Bail(FallbackReason.NoBody, $"calls {Describe(method)}, which has no IL body (native or runtime code)");
-        if (method.HasGenericParameters || method.DeclaringType.HasGenericParameters)
+        if (method.DeclaringType.HasGenericParameters || method.HasGenericParameters != (generic is { Count: > 0 }))
             throw Bail(FallbackReason.Generic, $"calls generic {Describe(method)}");
+        if (generic != null && (generic.Count != method.GenericParameters.Count || generic.Any(Generics.IsOpen)))
+            throw Bail(FallbackReason.Generic, $"calls {Describe(method)} with type arguments that are not closed types");
         var body = method.Body;
         if (body.ExceptionHandlers.Any(eh => eh.HandlerType is not (ExceptionHandlerType.Catch or ExceptionHandlerType.Finally or ExceptionHandlerType.Fault)))
             throw Bail(FallbackReason.ExceptionHandling, $"{Describe(method)} uses an exception filter");
@@ -442,17 +446,17 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
             throw Bail(FallbackReason.InvalidCode, $"calls {Describe(method)} with {args.Length} argument(s)");
         RuntimeHelpers.EnsureSufficientExecutionStack();
 
-        var argSlots = method.Parameters.Select(p => SlotOf(p.Type)).ToArray();
+        var argSlots = method.Parameters.Select(p => SlotOf(Generics.Substitute(p.Type, generic))).ToArray();
         var actual = new object?[args.Length];
         for (int i = 0; i < args.Length; i++) actual[i] = argSlots[i].Kind == Kind.Opaque ? Opaque.Instance : Store(argSlots[i], args[i]);
-        var localSlots = body.Variables.Select(v => SlotOf(v.Type)).ToArray();
+        var localSlots = body.Variables.Select(v => SlotOf(Generics.Substitute(v.Type, generic))).ToArray();
         var locals = localSlots.Select(Default).ToArray();
 
         _depth++;
         try
         {
-            var result = Interpret(new Frame(method, body.Instructions, actual, argSlots, locals, localSlots), sliceMode: false);
-            return result == Void ? Void : Store(SlotOf(method.MethodSig.RetType), result);
+            var result = Interpret(new Frame(method, body.Instructions, actual, argSlots, locals, localSlots) { GenericArgs = generic }, sliceMode: false);
+            return result == Void ? Void : Store(SlotOf(Generics.Substitute(method.MethodSig.RetType, generic)), result);
         }
         finally
         {
@@ -682,7 +686,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                     var length = Numeric.Index(Pop());
                     if (length < 0) throw Bail(FallbackReason.RuntimeError, "negative array length");
                     if (length > MaxArrayLength) throw Bail(FallbackReason.MemoryLimit, $"array of {length:N0} elements is too large");
-                    var type = ElementClrType(((ITypeDefOrRef)ins.Operand).ToTypeSig());
+                    var type = ElementClrType(TypeOperand(f, ins));
                     Push(NewArray(Array.CreateInstance(type, (int)length)));
                     break;
                 }
@@ -695,7 +699,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                     var i = Numeric.Index(Pop());
                     var array = ArrayOf(Pop());
                     CheckIndex(array, i);
-                    var slot = op == Code.Ldelem ? SlotOf(((ITypeDefOrRef)ins.Operand).ToTypeSig()) : ElementSlot(op);
+                    var slot = op == Code.Ldelem ? SlotOf(TypeOperand(f, ins)) : ElementSlot(op);
                     Push(Store(slot, NaturalElement(array.Data, (int)i)));
                     break;
                 }
@@ -742,16 +746,16 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                 }
 
                 case Code.Ldobj:
-                    Push(Store(SlotOf(((ITypeDefOrRef)ins.Operand).ToTypeSig()), Known(PointerOf(Pop()).Get())));
+                    Push(Store(SlotOf(TypeOperand(f, ins)), Known(PointerOf(Pop()).Get())));
                     break;
                 case Code.Stobj:
                 {
                     var value = Pop();
-                    PointerOf(Pop()).Set(Store(SlotOf(((ITypeDefOrRef)ins.Operand).ToTypeSig()), value));
+                    PointerOf(Pop()).Set(Store(SlotOf(TypeOperand(f, ins)), value));
                     break;
                 }
                 case Code.Initobj:
-                    PointerOf(Pop()).Set(Default(SlotOf(((ITypeDefOrRef)ins.Operand).ToTypeSig())));
+                    PointerOf(Pop()).Set(Default(SlotOf(TypeOperand(f, ins))));
                     break;
                 case Code.Ldfld:
                 {
@@ -818,7 +822,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                     {
                         FieldDef fd => new FieldHandle(fd),
                         MemberRef { IsFieldRef: true } => throw Bail(FallbackReason.OtherModule, "ldtoken of a field of another module"),
-                        ITypeDefOrRef t => TypeObjectOf(t.ToTypeSig()),
+                        ITypeDefOrRef => TypeObjectOf(TypeOperand(f, ins)),
                         IMethod m => MethodObjectOf(m),
                         _ => throw Bail(FallbackReason.UnsupportedValue, "ldtoken of a member of another module"),
                     });
@@ -827,15 +831,16 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                 case Code.Isinst: case Code.Castclass:
                 {
                     var v = Pop();
-                    bool matches = v == null || IsInstance(v, (ITypeDefOrRef)ins.Operand);
-                    if (!matches && op == Code.Castclass) throw Bail(FallbackReason.RuntimeError, $"invalid cast to {((ITypeDefOrRef)ins.Operand).FullName}");
+                    var type = TypeOperand(f, ins);
+                    bool matches = v == null || IsInstance(v, type);
+                    if (!matches && op == Code.Castclass) throw Bail(FallbackReason.RuntimeError, $"invalid cast to {type.FullName}");
                     Push(matches ? v : null);
                     break;
                 }
 
                 case Code.Call: case Code.Callvirt: case Code.Newobj:
                 {
-                    var method = (IMethod)ins.Operand;
+                    var method = Instantiated(f, (IMethod)ins.Operand);
                     var sig = method.MethodSig ?? throw Bail(FallbackReason.InvalidCode, "call without a signature");
                     int count = sig.Params.Count + (sig.HasThis && op != Code.Newobj ? 1 : 0);
                     if (sig.ExplicitThis || sig.CallingConvention == CallingConvention.VarArg) throw Bail(FallbackReason.UnsupportedCall, "vararg or explicit-this call");
@@ -849,8 +854,33 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
 
                 case Code.Throw: case Code.Rethrow:
                     throw Bail(FallbackReason.ExceptionHandling, "the code throws an exception");
-                case Code.Box: case Code.Unbox: case Code.Unbox_Any:
-                    throw Bail(FallbackReason.UnsupportedValue, $"{ins.OpCode.Name}: boxed values are not modelled");
+                case Code.Box:
+                    Push(Box(TypeOperand(f, ins), Pop()));
+                    break;
+                case Code.Unbox_Any:
+                {
+                    var type = TypeOperand(f, ins);
+                    var v = Pop();
+                    if (!type.IsValueType)
+                    {
+                        // On a reference type, unbox.any is castclass.
+                        if (v != null && !IsInstance(v, type)) throw Bail(FallbackReason.RuntimeError, $"invalid cast to {type.FullName}");
+                        Push(v);
+                        break;
+                    }
+                    Push(Load(SlotOf(type), Unbox(v, type)));
+                    break;
+                }
+                case Code.Unbox:
+                {
+                    var type = TypeOperand(f, ins);
+                    var value = Unbox(Pop(), type);
+                    Push(new Pointer(() => value, _ => throw Bail(FallbackReason.UnsupportedValue, "writes into a boxed value")));
+                    break;
+                }
+                case Code.Sizeof:
+                    Push(SizeOf(TypeOperand(f, ins)));
+                    break;
 
                 default:
                     throw Bail(FallbackReason.UnsupportedInstruction, $"unsupported instruction {ins.OpCode.Name}");
@@ -940,7 +970,8 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
 
     // ---- type tests
 
-    private bool IsInstance(object value, ITypeDefOrRef type) => value is ReflectionObject r ? r.Is(type.FullName)
+    private bool IsInstance(object value, TypeSig type) => value is BoxedValue boxed ? boxed.Is(type)
+        : value is ReflectionObject r ? r.Is(type.FullName)
         : value is InstanceObject o ? IsInstanceOf(o, type.FullName)
         : value is StreamObject { ModuleType: { } derived } && Chain(derived).Any(t => t.FullName == type.FullName) ? true
         : value is StreamObject ? type.FullName is "System.IO.Stream" or "System.IO.MemoryStream" or "System.IO.UnmanagedMemoryStream" or "System.IDisposable" or "System.Object"
@@ -1433,7 +1464,15 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         if (handled) return collection;
         if (method.FullName == "System.Void System.IDisposable::Dispose()" && args.Length == 1 && (args[0] is Pointer p ? p.Get() : args[0]) is EnumeratorObject)
             return Void;
-        if (method is MethodSpec) throw Bail(FallbackReason.Generic, $"calls generic method {Describe(method)}");
+        if (method is MethodSpec spec)
+        {
+            // An instantiation of a static generic method of the module, with closed type arguments.
+            if (spec.Method is not MethodDef { IsStatic: true } generic || generic.Module != module || op == Code.Newobj)
+                throw Bail(FallbackReason.Generic, $"calls generic method {Describe(method)}");
+            TriggerTypeInitializer(generic);
+            var result = Execute(generic, args, Generics.Arguments(spec));
+            return HasReturnValue(generic) ? result : Void;
+        }
         if (Intrinsics.TryGetValue(method.FullName, out var intrinsic))
         {
             if (op == Code.Callvirt && args.Length > 0 && args[0] == null) throw Bail(FallbackReason.RuntimeError, "null reference");

@@ -1,3 +1,4 @@
+using dnlib.DotNet;
 using System.Text;
 
 namespace NetDecompilerMcp.Services.Simplify;
@@ -20,6 +21,7 @@ internal sealed partial class IlEvaluator
         "System.Void System.Array::Copy(System.Array,System.Array,System.Int32)" => [1],
         "System.Void System.Array::Copy(System.Array,System.Int32,System.Array,System.Int32,System.Int32)" => [2],
         "System.Void System.Runtime.CompilerServices.RuntimeHelpers::InitializeArray(System.Array,System.RuntimeFieldHandle)" => [0],
+        "System.Void System.Buffer::BlockCopy(System.Array,System.Int32,System.Array,System.Int32,System.Int32)" => [2],
         _ when intrinsic.Contains("System.Text.StringBuilder::Append(", StringComparison.Ordinal) ||
                intrinsic.Contains("System.Text.StringBuilder::Insert(", StringComparison.Ordinal) ||
                intrinsic.Contains("System.Text.StringBuilder::set_Length(", StringComparison.Ordinal) => [0],
@@ -60,6 +62,8 @@ internal sealed partial class IlEvaluator
         Add(B, S, "Equals", $"{S},{S}", (_, a) => NullableStr(a[0]) == NullableStr(a[1]) ? 1 : 0);
         Add(B, S, "Equals", S, (_, a) => Str(a[0]) == NullableStr(a[1]) ? 1 : 0);
         Add(B, S, "IsNullOrEmpty", S, (_, a) => string.IsNullOrEmpty(NullableStr(a[0])) ? 1 : 0);
+        // The interned instance: equal strings are the same object, which evaluated code compares by value anyway.
+        Add(S, S, "Intern", S, (_, a) => Str(a[0]));
         Add("System.Void", S, ".ctor", "System.Char[]", (_, a) => a[0] == null ? "" : new string(Chars(a[0])));
         Add("System.Void", S, ".ctor", $"System.Char[],{I},{I}", (_, a) => Try(() => new string(Chars(a[0]), I4(a[1]), I4(a[2]))));
         Add("System.Void", S, ".ctor", $"{C},{I}", (_, a) => Try(() => new string(Chr(a[0]), I4(a[1]))));
@@ -69,6 +73,7 @@ internal sealed partial class IlEvaluator
         {
             string s => s,
             BuilderObject b => b.Text.ToString(),
+            BoxedValue boxed => BoxedText(boxed),
             Pointer { } p when p.Get() is int i => NonNegative(i).ToString(System.Globalization.CultureInfo.InvariantCulture), // constrained. int32
             null => throw Bail(FallbackReason.RuntimeError, "null reference"),
             _ => throw Bail(FallbackReason.UnsupportedValue, "ToString of an object the interpreter does not model"),
@@ -169,6 +174,24 @@ internal sealed partial class IlEvaluator
             return null;
         });
 
+        // Buffer.BlockCopy copies bytes between arrays of primitives (native-size elements differ between platforms).
+        Add("System.Void", "System.Buffer", "BlockCopy", "System.Array,System.Int32,System.Array,System.Int32,System.Int32", (e, a) =>
+        {
+            var source = ArrayOf(a[0]).Data;
+            var target = e.MutableArray(a[2]).Data;
+            if (source is object?[] || target is object?[]) throw Bail(FallbackReason.RuntimeError, "Buffer.BlockCopy of an array of references (ArgumentException)");
+            if (source is nint[] || target is nint[]) throw Bail(FallbackReason.PlatformDependent, "Buffer.BlockCopy of native-size integers");
+            Try(() => Buffer.BlockCopy(source, I4(a[1]), target, I4(a[3]), I4(a[4])));
+            return null;
+        });
+        Add("System.Array", "System.Array", "CreateInstance", $"System.Type,{I}", (e, a) =>
+        {
+            int length = I4(a[1]);
+            if (length < 0) throw Bail(FallbackReason.RuntimeError, "negative array length");
+            if (length > MaxArrayLength) throw Bail(FallbackReason.MemoryLimit, $"array of {length:N0} elements is too large");
+            return e.NewArray(Array.CreateInstance(e.ElementClrType(e.TypeOf(a[0]).Sig), length));
+        });
+
         // System.Math
         Add(I, "System.Math", "Min", $"{I},{I}", (_, a) => Math.Min(I4(a[0]), I4(a[1])));
         Add(I, "System.Math", "Max", $"{I},{I}", (_, a) => Math.Max(I4(a[0]), I4(a[1])));
@@ -253,8 +276,32 @@ internal sealed partial class IlEvaluator
 
     private static string? NullableStr(object? v) => v == null ? null : Str(v);
 
-    /// <summary>String.Concat semantics: null becomes empty.</summary>
-    private static string NStr(object? v) => v == null ? "" : Str(v);
+    /// <summary>String.Concat semantics: null becomes empty; a boxed value becomes its text.</summary>
+    private static string NStr(object? v) => v switch
+    {
+        null => "",
+        BoxedValue b => BoxedText(b),
+        _ => Str(v),
+    };
+
+    /// <summary>
+    /// ToString of a boxed integer, char or bool, which is the same in every culture (a negative number's sign is the
+    /// culture's own); anything else is not modelled.
+    /// </summary>
+    private static string BoxedText(BoxedValue b)
+    {
+        var invariant = System.Globalization.CultureInfo.InvariantCulture;
+        return (b.Type.ElementType, b.Value) switch
+        {
+            (ElementType.Boolean, int i) => i != 0 ? "True" : "False",
+            (ElementType.Char, int i) => ((char)i).ToString(),
+            (ElementType.I1 or ElementType.I2 or ElementType.I4 or ElementType.U1 or ElementType.U2, int i) => NonNegative(i).ToString(invariant),
+            (ElementType.U4, int i) => ((uint)i).ToString(invariant),
+            (ElementType.I8, long l) => l >= 0 ? l.ToString(invariant) : throw Bail(FallbackReason.PlatformDependent, "formatting a negative number depends on the culture"),
+            (ElementType.U8, long l) => ((ulong)l).ToString(invariant),
+            _ => throw Bail(FallbackReason.UnsupportedValue, $"the text of a boxed {b.Type.FullName}"),
+        };
+    }
 
     private static string?[] Strings(object? v) => ArrayOf(v).Data is object?[] items
         ? items.Select(NullableStr).ToArray()
