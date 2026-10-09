@@ -6,7 +6,7 @@ namespace NetDecompilerMcp.Setup;
 /// <summary>Starts the server the way a client would and completes an MCP handshake and tools/list.</summary>
 internal static class SelfTest
 {
-    public sealed record Result(bool Ok, string Detail);
+    public sealed record Result(bool Ok, string Detail, IReadOnlyList<string>? Tools = null);
 
     public static Result Run(ServerLaunch launch, TimeSpan timeout)
     {
@@ -50,7 +50,8 @@ internal static class SelfTest
                 Send(p, new JsonObject { ["jsonrpc"] = "2.0", ["id"] = 2, ["method"] = "tools/list" });
                 var tools = Receive(p, 2, timeout - clock.Elapsed)?["result"]?["tools"]?.AsArray();
                 if (tools == null) return Fail("no reply to tools/list", stderr);
-                return new Result(true, $"version {version}, {tools.Count} tools, started in {clock.Elapsed.TotalSeconds:0.0} s");
+                var names = tools.Select(t => t?["name"]?.GetValue<string>() ?? "").Where(n => n.Length > 0).ToList();
+                return new Result(true, $"version {version}, {tools.Count} tools, started in {clock.Elapsed.TotalSeconds:0.0} s", names);
             }
             catch (IOException ex) { return Fail(ex.Message, stderr); }
             finally
@@ -87,4 +88,12 @@ internal static class SelfTest
         }
         return null;
     }
+
+    /// <summary>Tool names this build declares, to compare with what a registered server reports.</summary>
+    public static IReadOnlyList<string> DeclaredTools() =>
+        typeof(SelfTest).Assembly.GetTypes()
+            .SelectMany(t => t.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static))
+            .Select(m => m.GetCustomAttributes(typeof(ModelContextProtocol.Server.McpServerToolAttribute), false).FirstOrDefault())
+            .OfType<ModelContextProtocol.Server.McpServerToolAttribute>()
+            .Select(a => a.Name ?? "").Where(n => n.Length > 0).Order(StringComparer.Ordinal).ToList();
 }

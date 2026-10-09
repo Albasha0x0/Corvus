@@ -6,7 +6,7 @@ namespace NetDecompilerMcp.Setup;
 /// <summary>Command-line setup: install, uninstall, status, config, update, version, help.</summary>
 internal static class SetupCli
 {
-    private static readonly string[] Commands = ["install", "uninstall", "status", "config", "update", "version", "--version", "-v", "help", "--help", "-h", "/?"];
+    private static readonly string[] Commands = ["install", "uninstall", "status", "doctor", "config", "update", "version", "--version", "-v", "help", "--help", "-h", "/?"];
 
     /// <summary>Runs a setup command and returns its exit code, or null when the arguments start the server.</summary>
     public static int? TryRun(string[] args, TextWriter? output = null, SetupEnvironment? env = null, ServerLaunch? launch = null)
@@ -22,7 +22,7 @@ internal static class SetupCli
         {
             case "install": return Install(output, env, launch, names, check: !flags.Contains("--no-check"));
             case "uninstall": return Uninstall(output, env, names, keepFiles: flags.Contains("--keep-files") || names.Length > 0);
-            case "status": return Status(output, env, launch);
+            case "status" or "doctor": return Status(output, env, launch);
             case "config": return Config(output, env, launch, names);
             case "update": return Installation.Update(output);
             case "version" or "--version" or "-v": output.WriteLine(Installation.Version); return 0;
@@ -38,7 +38,7 @@ internal static class SetupCli
                                 then start it once to check it works. --no-check skips the check.
           uninstall [client...] Remove the registration from every client (or the named ones). With no names it
                                 also deletes an installed copy; --keep-files keeps it.
-          status                Show which clients have it registered, and check the server starts.
+          status | doctor       Show which clients have it registered, check the server starts and that its tools match this build.
           config [client]       Print the configuration to add by hand (for clients not listed).
           update                Install the latest release (installed copies only).
           version               Print the version.
@@ -134,7 +134,18 @@ internal static class SetupCli
         }
         var test = SelfTest.Run(launch, TimeSpan.FromSeconds(60));
         output.WriteLine(test.Ok ? $"Server check: OK ({test.Detail})" : $"Server check FAILED: {test.Detail}");
-        return test.Ok ? 0 : 1;
+        if (!test.Ok || test.Tools == null) return 1;
+        var declared = SelfTest.DeclaredTools();
+        var missing = declared.Except(test.Tools).ToList();
+        var extra = test.Tools.Except(declared).ToList();
+        if (missing.Count == 0 && extra.Count == 0)
+        {
+            output.WriteLine($"Tool catalog: matches this build ({declared.Count} tools)");
+            return 0;
+        }
+        output.WriteLine("Tool catalog differs from this build (the registered server is another version; run: NetDecompilerMcp install):"
+            + (missing.Count > 0 ? $" missing {string.Join(", ", missing)};" : "") + (extra.Count > 0 ? $" extra {string.Join(", ", extra)}" : ""));
+        return 1;
     }
 
     private static int Config(TextWriter output, SetupEnvironment env, ServerLaunch launch, string[] names)

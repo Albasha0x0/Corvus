@@ -168,7 +168,10 @@ public sealed class SetupTests : IDisposable
         var code = SetupCli.TryRun(["status"], output, _env, server);
         Assert.True(code == 0, output.ToString());
         Assert.Contains("registered with a missing program: C:/gone/NetDecompilerMcp.exe", output.ToString());
-        Assert.Matches(@"Server check: OK \(version [0-9.]+, 55 tools", output.ToString());
+        var tools = SelfTest.DeclaredTools().Count;
+        Assert.True(tools > 50, $"{tools} declared tools");
+        Assert.Matches($@"Server check: OK \(version [0-9.]+, {tools} tools", output.ToString());
+        Assert.Contains($"Tool catalog: matches this build ({tools} tools)", output.ToString());
     }
 
     [Fact]

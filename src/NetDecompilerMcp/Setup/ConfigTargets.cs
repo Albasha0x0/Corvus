@@ -29,14 +29,29 @@ internal abstract class ConfigTarget(string path)
         if (File.Exists(Path) && !File.Exists(Path + BackupSuffix)) File.Copy(Path, Path + BackupSuffix);
     }
 
-    /// <summary>Writes through a temporary file in the same folder so a crash never leaves a partial file.</summary>
-    protected void WriteAtomically(string text)
+    /// <summary>
+    /// Writes through a temporary file in the same folder so a crash never leaves a partial file, then reads the file
+    /// back; when it does not hold what was written (another program rewrote it, a sync tool interfered) the previous
+    /// content is restored and the reason is returned.
+    /// </summary>
+    protected string? WriteAtomically(string text)
     {
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path)!);
+        byte[]? previous = File.Exists(Path) ? File.ReadAllBytes(Path) : null;
         var temp = Path + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
         File.WriteAllText(temp, text, new UTF8Encoding(false));
         File.Move(temp, Path, overwrite: true);
+        string? written;
+        try { written = File.ReadAllText(Path); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { written = null; }
+        if (written == text) return null;
+        if (previous != null) File.WriteAllBytes(Path, previous);
+        else File.Delete(Path);
+        return "left unchanged: the file did not read back as written, so the previous content was restored";
     }
+
+    protected ConfigChange Write(string text, string message) =>
+        WriteAtomically(text) is { } failed ? new ConfigChange(false, failed) : new ConfigChange(true, message);
 }
 
 /// <summary>A JSON file with servers in an object at <see cref="Container"/> (e.g. "mcpServers").</summary>
@@ -102,8 +117,8 @@ internal sealed class JsonTarget(string path, string[] container, Func<ServerLau
         if (servers[name] is JsonObject existing && JsonNode.DeepEquals(existing, fresh)) return new ConfigChange(false, "already registered");
         servers[name] = fresh;
         Backup();
-        WriteAtomically(root.ToJsonString(Indented) + Environment.NewLine);
-        return new ConfigChange(true, hadComments ? $"registered (comments were not kept; original saved as {System.IO.Path.GetFileName(Path)}{BackupSuffix})" : "registered");
+        return Write(root.ToJsonString(Indented) + Environment.NewLine,
+            hadComments ? $"registered (comments were not kept; original saved as {System.IO.Path.GetFileName(Path)}{BackupSuffix})" : "registered");
     }
 
     public override ConfigChange Uninstall(string name)
@@ -113,8 +128,7 @@ internal sealed class JsonTarget(string path, string[] container, Func<ServerLau
         var servers = Servers(root, false);
         if (servers == null || !servers.Remove(name)) return new ConfigChange(false, "not registered");
         Backup();
-        WriteAtomically(root.ToJsonString(Indented) + Environment.NewLine);
-        return new ConfigChange(true, "removed");
+        return Write(root.ToJsonString(Indented) + Environment.NewLine, "removed");
     }
 }
 
@@ -189,8 +203,7 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
         if (lines.Count > 0) lines.Add("");
         lines.AddRange(block);
         Backup();
-        WriteAtomically(string.Join("\n", lines) + "\n");
-        return new ConfigChange(true, "registered");
+        return Write(string.Join("\n", lines) + "\n", "registered");
     }
 
     public override ConfigChange Uninstall(string name)
@@ -200,8 +213,7 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return new ConfigChange(false, $"left unchanged: {ex.Message}"); }
         if (Blocks(lines, name).Count == 0) return new ConfigChange(false, "not registered");
         Backup();
-        WriteAtomically(string.Join("\n", Remove(lines, name)) + "\n");
-        return new ConfigChange(true, "removed");
+        return Write(string.Join("\n", Remove(lines, name)) + "\n", "removed");
     }
 }
 
