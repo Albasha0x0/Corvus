@@ -22,6 +22,11 @@ catch (Exception ex)
     return 2;
 }
 
+// Parallel decompilation (export_project, comparisons) occupies a pool thread per core; spare threads let the transport
+// read a cancellation or the next request at once instead of after the pool grows, which takes seconds.
+ThreadPool.GetMinThreads(out var minWorkers, out var minIo);
+ThreadPool.SetMinThreads(Math.Max(minWorkers, Environment.ProcessorCount * 2 + 8), minIo);
+
 // Arguments are not passed to the host, and stdout carries the MCP protocol, so all logging goes to stderr.
 // No configuration files and no content root in the client's working directory: clients start servers from any
 // folder, and watching or reading it slows startup and lets a stray appsettings.json change the server.
