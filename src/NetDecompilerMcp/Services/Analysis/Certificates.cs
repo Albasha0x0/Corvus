@@ -157,6 +157,7 @@ public static class Certificates
         {
             using var chain = new X509Chain();
             chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+            chain.ChainPolicy.DisableCertificateDownloads = true;
             chain.ChainPolicy.ExtraStore.AddRange(extra);
             if (timestamp is { } at) chain.ChainPolicy.VerificationTime = at.ToLocalTime();
             bool trusted = chain.Build(cert);
