@@ -50,6 +50,37 @@ public class NativeToolsTests
     }
 
     [WindowsFact]
+    public async Task Kernel32FunctionsDisassemblyGraphsAndReferences()
+    {
+        using var env = new Env();
+        var code = new NetDecompilerMcp.Services.NativeCodeService(env.Workspace, env.Options);
+        var tools = new NativeCodeTools(env.Workspace, code, env.Pager);
+        var list = await tools.ListFunctions(Kernel32, filter: "BaseThreadInitThunk");
+        Assert.Contains("BaseThreadInitThunk", list);
+        Assert.Matches(@"kernel32\.dll: [\d,]+ functions", list);
+
+        var disasm = await tools.Disassemble("kernel32.dll", "BaseThreadInitThunk");
+        Assert.Contains("; BaseThreadInitThunk at 0x18", disasm);
+        Assert.Contains("call", disasm);
+
+        var cfg = await tools.GetCfg("kernel32.dll", "BaseThreadInitThunk");
+        Assert.Matches(@"BaseThreadInitThunk at 0x[0-9A-F]+: \d+ blocks", cfg);
+        Assert.Contains("Return", cfg);
+
+        var xrefs = await tools.FindXrefs("kernel32.dll", "ntdll!NtClose");
+        Assert.Contains("References to", xrefs);
+        Assert.Contains("ImportCall", xrefs);
+
+        var tree = await tools.NativeCallTree("kernel32.dll", "BaseThreadInitThunk", depth: 2);
+        Assert.StartsWith("BaseThreadInitThunk", tree);
+
+        var strings = await tools.SearchNativeStrings("kernel32.dll", ".dll", limit: 5);
+        Assert.Contains("refs", strings);
+        Assert.StartsWith("Error (not_found)", (await Assert.ThrowsAsync<ToolError>(() => tools.GetCfg("kernel32.dll", "rva:0"))).Render(null));
+        Assert.StartsWith("Error (invalid_argument)", (await Assert.ThrowsAsync<ToolError>(() => tools.NativeCallTree("kernel32.dll", "BaseThreadInitThunk", direction: "up"))).Render(null));
+    }
+
+    [WindowsFact]
     public async Task Win32ResourcesThroughTheResourceTools()
     {
         var (env, tools) = Setup();

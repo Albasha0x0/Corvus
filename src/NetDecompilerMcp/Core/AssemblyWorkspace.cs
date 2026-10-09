@@ -30,6 +30,9 @@ public sealed class AssemblyWorkspace : IDisposable
     /// <summary>Raised outside the lock after assemblies are loaded or reloaded.</summary>
     public event Action<IReadOnlyList<LoadedAssembly>>? AssembliesLoaded;
 
+    /// <summary>Raised outside the lock after a native image is loaded or reloaded.</summary>
+    public event Action<LoadedNative>? NativeLoaded;
+
     /// <summary>Raised outside the lock after an assembly is unloaded.</summary>
     public event Action<LoadedAssembly>? AssemblyUnloaded;
 
@@ -117,7 +120,10 @@ public sealed class AssemblyWorkspace : IDisposable
         {
             var image = Native.Pe.PeFile.Open(full);
             if (image.IsDotNet) throw;
-            return (null, Write(() => LoadNativeCore(full, image)));
+            int before = _natives.Count;
+            var native = Write(() => LoadNativeCore(full, image));
+            if (_natives.Count != before) NativeLoaded?.Invoke(native);
+            return (null, native);
         }
     }
 
@@ -172,15 +178,17 @@ public sealed class AssemblyWorkspace : IDisposable
     public LoadedNative ReloadNative(LoadedNative native)
     {
         var image = Native.Pe.PeFile.Open(native.FilePath);
-        return Write(() =>
+        var fresh = Write(() =>
         {
             int index = _natives.IndexOf(native);
             _natives.Remove(native);
             foreach (var analysis in native.Analysis.Values.OfType<IDisposable>()) analysis.Dispose();
-            var fresh = new LoadedNative(native.Id, native.FilePath, image);
-            _natives.Insert(Math.Max(0, Math.Min(index, _natives.Count)), fresh);
-            return fresh;
+            var reloaded = new LoadedNative(native.Id, native.FilePath, image);
+            _natives.Insert(Math.Max(0, Math.Min(index, _natives.Count)), reloaded);
+            return reloaded;
         });
+        NativeLoaded?.Invoke(fresh);
+        return fresh;
     }
 
     private LoadedAssembly LoadCore(string path)

@@ -60,7 +60,8 @@ builder.Services
     .AddSingleton<FileWatchService>()
     .AddSingleton<UnpackService>()
     .AddSingleton<InspectionService>()
-    .AddSingleton<NativeEngineService>();
+    .AddSingleton<NativeEngineService>()
+    .AddSingleton<NativeCodeService>();
 
 builder.Services
     .AddMcpServer(o =>
@@ -145,6 +146,7 @@ builder.Services
 var host = builder.Build();
 // Resolve before preloading so preloaded assemblies are indexed and watched.
 host.Services.GetRequiredService<IndexingService>();
+host.Services.GetRequiredService<NativeCodeService>();
 host.Services.GetRequiredService<FileWatchService>().Changed += _ => NotifyResourcesChanged(host.Services);
 Preload(host.Services.GetRequiredService<AssemblyWorkspace>(), host.Services.GetRequiredService<ILogger<AssemblyWorkspace>>(), options);
 await host.RunAsync();
