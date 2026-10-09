@@ -53,8 +53,8 @@ public class RealWorldShapeTests : IDisposable
     [Fact]
     public void RandomBinary_IsNotText_ButUtf8AndAsciiAre()
     {
-        var garbage = new byte[] { 0x4E, 0x17, 0xC3, 0xE8, 0xDE, 0x9E, 0xE9, 0x68, 0xA9, 0x47, 0xB5, 0xF2, 0xE8, 0xB5, 0xAB, 0xDA, 0x8A, 0x56, 0xBC, 0xD4, 0xF1, 0x71 };
-        Assert.False(Blob.LooksLikeText(garbage)); // high bytes that do not form valid UTF-8
+        var noise = new byte[] { 0x4E, 0x17, 0xC3, 0xE8, 0xDE, 0x9E, 0xE9, 0x68, 0xA9, 0x47, 0xB5, 0xF2, 0xE8, 0xB5, 0xAB, 0xDA, 0x8A, 0x56, 0xBC, 0xD4, 0xF1, 0x71 };
+        Assert.False(Blob.LooksLikeText(noise)); // high bytes that do not form valid UTF-8
         Assert.True(Blob.LooksLikeText(Encoding.UTF8.GetBytes("工具SkinId：不存在！ - a translated message")));
         Assert.True(Blob.LooksLikeText(Encoding.Latin1.GetBytes("A plain sentence with one café in it, mostly ASCII.")));
         Assert.Equal("portable pdb", Blob.Identify("BSJB\x01\x00\x01\x00"u8));
@@ -68,7 +68,7 @@ public class RealWorldShapeTests : IDisposable
         var host = Save("App.exe", ContainerFixtures.Module("App",
             ("App.g.resources", GResources()),
             ("costura.app.pdb.compressed", ContainerFixtures.Deflate(pdb)),
-            ("junk", Encoding.ASCII.GetBytes(Convert.ToBase64String(Random(48, 7))))));
+            ("noise", Encoding.ASCII.GetBytes(Convert.ToBase64String(Random(48, 7))))));
         var report = Inspection.ExtractEmbedded(null, host, false, null, false, default);
         Assert.DoesNotContain(report.Contents, c => c.Source == "resource 'App.g.resources'"); // its entries are examined instead
         Assert.Contains(report.Contents, c => c.Source == "resource 'App.g.resources:assets/blob.bin'" && c.Kind.StartsWith("high-entropy"));

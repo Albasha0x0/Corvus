@@ -295,7 +295,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
         return AssemblyRank.Library;
     }
 
-    /// <summary>Highlights reported even for framework assemblies: toolchain markers, tampering, container wrapping, invalid IL.</summary>
+    /// <summary>Highlights reported even for framework assemblies: toolchain markers, changes after signing, container wrapping, invalid IL.</summary>
     private static bool IsProblem(string h) =>
         h.StartsWith("Processed with", StringComparison.Ordinal) || h.Contains("does not match", StringComparison.Ordinal)
         || h.Contains("does not verify", StringComparison.Ordinal) || h.Contains("unreadable", StringComparison.Ordinal)

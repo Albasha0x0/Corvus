@@ -65,7 +65,7 @@ public class WorkspaceTests
         Assert.Throws<ToolError>(() => ws.LoadDirectory(@"C:\nope\missing", false));
         Assert.Throws<ToolError>(() => ws.AddSearchDirectory(@"C:\nope\missing"));
         using var dir = new TempDir();
-        File.WriteAllText(dir.File("bad.dll"), "garbage");
+        File.WriteAllText(dir.File("bad.dll"), "not an assembly");
         Assert.Contains("Not a loadable .NET assembly", Assert.Throws<ToolError>(() => ws.Load(dir.File("bad.dll"))).Message);
     }
 

@@ -88,7 +88,7 @@ public class InspectionTests : IDisposable
         }
         """);
 
-    private const string SecretText = "Quarterly notes, not for sharing.\nStaging server: https://drop.example.net/stage2\nEnd of file.\n";
+    private const string SecretText = "Quarterly notes, not for sharing.\nStaging server: https://files.example.net/build2\nEnd of file.\n";
 
     private static byte[] Gzip(byte[] data)
     {
@@ -280,7 +280,7 @@ public class InspectionTests : IDisposable
     public void Embedded_SaveWritesDefangedFiles_AndValuesComeFromDecodedText()
     {
         var path = Save("Encoded.dll", EncodedFixture());
-        var saved = Inspection.ExtractEmbedded(null, path, true, _dir.File("payloads"), false, default);
+        var saved = Inspection.ExtractEmbedded(null, path, true, _dir.File("embedded"), false, default);
         Assert.NotNull(saved.OutputDirectory);
         Assert.All(saved.Contents, p => Assert.StartsWith(saved.OutputDirectory!, p.SavedTo));
         Assert.All(saved.Contents.Where(p => p.Kind == "text"), p => Assert.Equal(SecretText, File.ReadAllText(p.SavedTo!)));
@@ -291,7 +291,7 @@ public class InspectionTests : IDisposable
         finally { Directory.Delete(byDefault.OutputDirectory!, recursive: true); }
 
         var url = Assert.Single(Inspection.ExtractStrings(null, path, ["url"], null, null, false, default).Values);
-        Assert.Equal("https://drop.example.net/stage2", url.Value);
+        Assert.Equal("https://files.example.net/build2", url.Value);
         Assert.Contains(url.Locations, l => l.Contains("(decoded: "));
     }
 
@@ -344,7 +344,7 @@ public class InspectionTests : IDisposable
     public void Embedded_XorText_RecoversStructuredConfiguration()
     {
         const string Json = "{\"c2\":[\"https://update.example-cdn.net/api/v2/beacon\",\"https://backup.example.org/gate.php\"],\"interval\":300,\"jitter\":0.2,\"campaign\":\"q3-rollout\",\"install\":{\"path\":\"%APPDATA%\\\\svc\",\"autorun\":true}}";
-        const string Urls = "https://a.example.net/x.bin\nhttps://b.example.org/payload/stage2.dat\nhttp://10.20.30.40:8080/up\n";
+        const string Urls = "https://a.example.net/x.bin\nhttps://b.example.org/files/build2.dat\nhttp://10.20.30.40:8080/up\n";
         const string Ini = "[server]\nhost=relay.example.com\nport=4433\nkey=6f1e2d3c4b5a\nretry=5\n";
         var fixture = ContainerFixtures.Module("Configs", m =>
         {
@@ -426,11 +426,11 @@ public class InspectionTests : IDisposable
         var filtered = Inspection.ExtractStrings(null, path, ["url", "domain"], null, null, false, default);
         Assert.All(filtered.Values, i => Assert.Contains(i.Type, new[] { "url", "domain" }));
 
-        var csv = Inspection.ExtractStrings(null, path, null, _dir.File("iocs.csv"), null, false, default);
+        var csv = Inspection.ExtractStrings(null, path, null, _dir.File("strings.csv"), null, false, default);
         Assert.StartsWith("type,value,count,", File.ReadAllText(csv.SavedTo!));
-        var json = Inspection.ExtractStrings(null, path, null, _dir.File("iocs.json"), null, false, default);
+        var json = Inspection.ExtractStrings(null, path, null, _dir.File("strings.json"), null, false, default);
         Assert.Equal(json.Total, JsonDocument.Parse(File.ReadAllText(json.SavedTo!)).RootElement.GetArrayLength());
-        Assert.Contains("exists", Assert.Throws<ToolError>(() => Inspection.ExtractStrings(null, path, null, _dir.File("iocs.json"), null, false, default)).Message);
+        Assert.Contains("exists", Assert.Throws<ToolError>(() => Inspection.ExtractStrings(null, path, null, _dir.File("strings.json"), null, false, default)).Message);
         Assert.Contains("Unknown value type", Assert.Throws<ToolError>(() => Inspection.ExtractStrings(null, path, ["phone"], null, null, false, default)).Message);
     }
 
@@ -455,7 +455,7 @@ public class InspectionTests : IDisposable
     }
 
     [Fact]
-    public void Certificates_InSummary_WithStrongNames_AndTamperedCopies()
+    public void Certificates_InSummary_WithStrongNames_AndModifiedCopies()
     {
         var roslyn = File.ReadAllBytes(CachedDll("Microsoft.CodeAnalysis.Common", "Microsoft.CodeAnalysis.dll"));
         var signed = Inspection.Summarize(null, Save("Microsoft.CodeAnalysis.dll", roslyn), default);
@@ -470,12 +470,12 @@ public class InspectionTests : IDisposable
         Assert.DoesNotContain(unsigned.Highlights, h => h.Contains("Authenticode"));
 
         // One changed byte: the signature verifies but the digest no longer matches.
-        var tampered = roslyn.ToArray();
-        tampered[tampered.Length / 2] ^= 0xFF;
-        var t = Certificates.Read(tampered);
+        var modified = roslyn.ToArray();
+        modified[modified.Length / 2] ^= 0xFF;
+        var t = Certificates.Read(modified);
         Assert.False(t.DigestMatches);
         Assert.True(t.SignatureValid);
-        Assert.Contains(Inspection.Summarize(null, Save("tampered.dll", tampered), default).Highlights, h => h.Contains("modified after signing"));
+        Assert.Contains(Inspection.Summarize(null, Save("modified.dll", modified), default).Highlights, h => h.Contains("modified after signing"));
 
         // Truncated inside the certificate table.
         var cut = Certificates.Read(roslyn[..(roslyn.Length - 100)]);

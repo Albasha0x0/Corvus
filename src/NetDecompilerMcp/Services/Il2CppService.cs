@@ -20,7 +20,7 @@ public sealed class Il2CppService(AssemblyWorkspace workspace)
     {
         /// <summary>
         /// An [Address] whose numbers cannot be a real location (see <see cref="IsInvalidAddress"/>): dumpers write such
-        /// garbage for some generic methods that have no native code of their own.
+        /// values for some generic methods that have no native code of their own.
         /// </summary>
         public bool InvalidAddress => Name.Contains("Address", StringComparison.Ordinal)
             && IsInvalidAddress(ParseNumber(Values.GetValueOrDefault("RVA")), ParseNumber(Values.GetValueOrDefault("Offset")), ParseNumber(Values.GetValueOrDefault("VA")));

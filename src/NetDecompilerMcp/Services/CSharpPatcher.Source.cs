@@ -20,7 +20,7 @@ public sealed partial class CSharpPatcher
         var root = CSharpSyntaxTree.ParseText(source, parseOptions, cancellationToken: ct).GetCompilationUnitRoot(ct);
         var typeNode = FindTypeDeclaration(root, type)
                        ?? throw new ToolError(IsDelegate(type)
-                           ? $"{type.FullName} is a delegate that also declares methods or fields (a code transformer trick); C# cannot declare those, so its code cannot be patched in C#: use patch_method_il instead."
+                           ? $"{type.FullName} is a delegate that also declares methods or fields (a code transformer construct); C# cannot declare those, so its code cannot be patched in C#: use patch_method_il instead."
                            : $"Could not locate {type.FullName} in its decompiled source; use patch_method_il instead.");
         return CSharpSyntaxTree.Create((CompilationUnitSyntax)new PublicTypes().Visit(transform(root, typeNode))!, parseOptions);
     }

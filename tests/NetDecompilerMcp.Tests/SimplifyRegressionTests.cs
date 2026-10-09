@@ -234,7 +234,7 @@ public sealed class SimplifyRegressionTests : IDisposable
     [Fact]
     public void ABranchTargetDnlibCouldNotPlaceIsRejectedNotACrash()
     {
-        var lab = new IlLab("Garbage");
+        var lab = new IlLab("NotIl");
         var ret = Ret();
         var method = lab.Method("Run", lab.T.Int32, [], [Ldc(0), I(OpCodes.Switch, new Instruction?[] { ret, null }), Ldc(1), ret]);
         var change = new MethodSimplifier(lab.Module, new SimplifyOptions()).Run([method], default).Single();
@@ -246,7 +246,7 @@ public sealed class SimplifyRegressionTests : IDisposable
     /// Round-trip testing: a module whose integrity check stores its method bodies in another form on disk and restores
     /// them at run time. Some bodies decoded by chance and were "simplified", and the image written back dropped the
     /// unreadable ones. With a quarter or more of the bodies unreadable, nothing is rewritten; a lone unreadable body
-    /// (junk a code transformer added) does not stop the others.
+    /// (filler a code transformer added) does not stop the others.
     /// </summary>
     [Theory]
     [InlineData(6, true)]

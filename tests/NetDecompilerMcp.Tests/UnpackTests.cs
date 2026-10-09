@@ -172,7 +172,7 @@ public sealed class ContainerFixtures : IDisposable
 
     public sealed record BundleEntry(string Path, byte[]? Data, long Offset = 0, long Size = 0, long Compressed = 0, byte Type = 1);
 
-    /// <summary>Appends payloads and a v6 manifest to a real bundle; entries without Data keep the given (corrupt) offsets.</summary>
+    /// <summary>Appends entries and a v6 manifest to a real bundle; entries without Data keep the given (corrupt) offsets.</summary>
     public static byte[] WithManifest(byte[] bundle, IEnumerable<BundleEntry> entries, int? count = null)
     {
         var list = entries.ToList();
@@ -579,21 +579,21 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         Assert.True(failures.Count == 0, string.Join("\n", failures));
     }
 
-    private static readonly string[] HostileNames =
+    private static readonly string[] EscapingNames =
     [
-        "../evil1.dll",
-        "../../../../../evil2.dll",
-        @"..\..\..\evil3.dll",
-        "/abs/evil4.dll",
-        @"\\server\share\evil5.dll",
-        "C:/Windows/evil6.dll",
-        @"C:..\evil7.dll",
-        "assemblies/../../../../evil8.dll",
-        "a/./../b/../../../evil9.exe",
-        "....//....//evil10.dll",
-        "%2e%2e/evil11.dll",
+        "../outside1.dll",
+        "../../../../../outside2.dll",
+        @"..\..\..\outside3.dll",
+        "/abs/outside4.dll",
+        @"\\server\share\outside5.dll",
+        "C:/Windows/outside6.dll",
+        @"C:..\outside7.dll",
+        "assemblies/../../../../outside8.dll",
+        "a/./../b/../../../outside9.exe",
+        "....//....//outside10.dll",
+        "%2e%2e/outside11.dll",
         "CON.dll",
-        "evil12.dll\0.txt",
+        "outside12.dll\0.txt",
     ];
 
     /// <summary>Unpacks five levels deep in a sandbox so escapes of up to five levels are caught.</summary>
@@ -611,51 +611,51 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         var everything = Directory.EnumerateFiles(sandbox.Path, "*", SearchOption.AllDirectories).Where(f => f != input).ToList();
         Assert.All(everything, f => Assert.StartsWith(prefix, f));
         Assert.DoesNotContain(everything, f => f.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)); // runnable extensions defanged
-        Assert.False(System.IO.File.Exists(@"C:\Windows\evil6.dll"));
+        Assert.False(System.IO.File.Exists(@"C:\Windows\outside6.dll"));
         check?.Invoke(r);
     }
 
-    private static byte[] Payload(int i) => Encoding.UTF8.GetBytes($"payload {i}"); // distinct content, or duplicates are skipped
+    private static byte[] Content(int i) => Encoding.UTF8.GetBytes($"content {i}"); // distinct content, or duplicates are skipped
 
     [Fact]
     public void ZipEntries_WithTraversalNames_StayInsideTheOutput() =>
-        AssertContained(ContainerFixtures.Zip([.. HostileNames.Select((n, i) => (n, Payload(i)))]), "hostile.zip", r =>
+        AssertContained(ContainerFixtures.Zip([.. EscapingNames.Select((n, i) => (n, Content(i)))]), "escaping.zip", r =>
         {
-            // Only code entries are extracted; "evil12.dll\0.txt" is a .txt.
-            Assert.Equal(HostileNames.Length - 1, r.Files.Count);
-            Assert.DoesNotContain(r.Files, f => f.Path.Contains("evil12"));
-            Assert.Contains(r.Files, f => f.Path.EndsWith("evil9.exe.bin"));
+            // Only code entries are extracted; "outside12.dll\0.txt" is a .txt.
+            Assert.Equal(EscapingNames.Length - 1, r.Files.Count);
+            Assert.DoesNotContain(r.Files, f => f.Path.Contains("outside12"));
+            Assert.Contains(r.Files, f => f.Path.EndsWith("outside9.exe.bin"));
             Assert.Contains(r.Files, f => Path.GetFileName(f.Path) == "_CON.dll");
         });
 
     [Fact]
     public void BundleEntries_WithTraversalNames_StayInsideTheOutput() =>
         AssertContained(ContainerFixtures.WithManifest(System.IO.File.ReadAllBytes(fx.Bundle),
-            HostileNames.Select((n, i) => new ContainerFixtures.BundleEntry(n, Payload(i)))), "hostile.exe",
-            r => Assert.Equal(HostileNames.Length, r.Files.Count));
+            EscapingNames.Select((n, i) => new ContainerFixtures.BundleEntry(n, Content(i)))), "escaping.exe",
+            r => Assert.Equal(EscapingNames.Length, r.Files.Count));
 
     [Fact]
     public void CosturaResources_WithTraversalNames_StayInsideTheOutput() =>
-        AssertContained(ContainerFixtures.Module("Host", [.. HostileNames.Where(n => !n.Contains('\0')).Select((n, i) => ("costura." + n, Payload(i)))]), "hostile.dll",
-            r => Assert.Equal(HostileNames.Length - 1 + 1, r.Files.Count)); // metadata strings cannot hold NUL; + the host itself
+        AssertContained(ContainerFixtures.Module("Host", [.. EscapingNames.Where(n => !n.Contains('\0')).Select((n, i) => ("costura." + n, Content(i)))]), "escaping.dll",
+            r => Assert.Equal(EscapingNames.Length - 1 + 1, r.Files.Count)); // metadata strings cannot hold NUL; + the host itself
 
     [Fact]
     public void NestedContainers_WithTraversalNames_StayInsideTheOutput()
     {
-        var inner = ContainerFixtures.Zip([.. HostileNames.Select((n, i) => (n, Payload(i)))]);
-        var outer = ContainerFixtures.Zip(("../../../../inner.nupkg", inner), ("/abs/inner2.zip", ContainerFixtures.Zip(("../../deep.dll", Payload(99)))));
+        var inner = ContainerFixtures.Zip([.. EscapingNames.Select((n, i) => (n, Content(i)))]);
+        var outer = ContainerFixtures.Zip(("../../../../inner.nupkg", inner), ("/abs/inner2.zip", ContainerFixtures.Zip(("../../deep.dll", Content(99)))));
         AssertContained(outer, "outer.zip", r =>
         {
             // Rooted names keep their nesting folder.
             Assert.Contains(r.Files, f => f.Path.Contains("inner2.zip_unpacked") && f.Path.EndsWith("deep.dll"));
-            Assert.Equal(2 + HostileNames.Length - 1 + 1, r.Files.Count);
+            Assert.Equal(2 + EscapingNames.Length - 1 + 1, r.Files.Count);
         });
     }
 
     [Fact]
     public void FileAndDirectoryWithTheSameName_IsNotedNotFatal()
     {
-        var zip = ContainerFixtures.Zip(("lib.dll", Payload(1)), ("lib.dll/inner.dll", Payload(2)));
+        var zip = ContainerFixtures.Zip(("lib.dll", Content(1)), ("lib.dll/inner.dll", Content(2)));
         AssertContained(zip, "clash.zip", r =>
         {
             Assert.Single(r.Files);

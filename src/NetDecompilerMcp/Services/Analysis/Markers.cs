@@ -50,7 +50,7 @@ public static class Markers
             if (markers.Any(m => names.Any(n => Matches(n, m))))
                 tools.Add(tool);
         if (names.Contains("System.Runtime.CompilerServices.SuppressIldasmAttribute"))
-            indicators.Add("SuppressIldasmAttribute: asks ILDASM not to disassemble the assembly (common in protected code).");
+            indicators.Add("SuppressIldasmAttribute: asks ILDASM not to disassemble the assembly (common in post-processed code).");
 
         int total = 0, unreadable = 0;
         foreach (var t in types)

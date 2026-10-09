@@ -97,7 +97,7 @@ public sealed class RealScenarioRegressionTests
     /// on a normalized copy with the same tokens, and says so.
     /// </summary>
     [Fact]
-    public void ProtectedMetadataIsDecompiledFromANormalizedCopy()
+    public void PostProcessedMetadataIsDecompiledFromANormalizedCopy()
     {
         using var dir = new TempDir();
         var lab = new IlLab("Guarded");
@@ -177,7 +177,7 @@ public sealed class RealScenarioRegressionTests
         string[] texts = ["https://api.example.test/v2/upload", "Upload failed: {0}", "settings.json corrupt", "retry-after", "X-Session-Token"];
         for (int i = 0; i < texts.Length; i++)
         {
-            // junk: ldc.i4 <random>; stloc; ldloc; pop — then the real work
+            // filler: ldc.i4 <random>; stloc; ldloc; pop — then the real work
             var local = new Local(lab.T.Int32);
             var m = lab.Method(methodNames[i], lab.T.String, [], [IlLab.Ldc(random.Next()), OpCodes.Stloc.ToInstruction(local), OpCodes.Ldloc.ToInstruction(local),
                 IlLab.Op(OpCodes.Pop), OpCodes.Ldstr.ToInstruction(texts[i]), IlLab.Ret()], owner: worker);
@@ -213,7 +213,7 @@ public sealed class RealScenarioRegressionTests
         Assert.Equal("ak7", Counterpart("c7x"));
         Assert.Equal("akl", Counterpart("cwb"));
         Assert.Equal("ak4", Counterpart("c7u"));
-        // Same body (but for the junk constant), new name: old y() returned the upload URL, which new i() returns.
+        // Same body (but for the filler constant), new name: old y() returned the upload URL, which new i() returns.
         Assert.Equal("ak7::i()", Counterpart("c7x::y"));
         Assert.Equal("ak7::y()", Counterpart("c7x::d"));
     }

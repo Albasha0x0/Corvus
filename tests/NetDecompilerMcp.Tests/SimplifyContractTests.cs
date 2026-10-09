@@ -761,7 +761,7 @@ public sealed class SimplifyContractTests
         var mutated = Holder("Mutated", out var mutatedKey);
         var mutatedDecode = Decode("Decode", mutatedKey, mutated);
         var poke = lab.Method("Poke", t.Int32, [new SZArraySig(t.Byte)], [I(OpCodes.Ldarg_0), Ldc(0), Ldc(90), I(OpCodes.Stelem_I1), Ldc(0), Ret()]);
-        lab.Method("Tamper", t.Int32, [], [I(OpCodes.Ldsfld, mutatedKey), I(OpCodes.Call, poke), Ret()]);
+        lab.Method("Modify", t.Int32, [], [I(OpCodes.Ldsfld, mutatedKey), I(OpCodes.Call, poke), Ret()]);
 
         var evaluator = new IlEvaluator(lab.Module, new EvaluationLimits());
         Assert.Equal("AB", evaluator.EvaluateSlice([I(OpCodes.Call, stableDecode)]).Single());
