@@ -282,6 +282,7 @@ public class CppBindingStyleTests : IDisposable
         return _dir.Path;
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void HostTableProject_IsDetected_WithIncludesRelativeToTheHeader()
     {

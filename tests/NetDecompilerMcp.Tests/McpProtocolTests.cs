@@ -280,6 +280,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
     /// <summary>Errors and cancellation leave the server usable.</summary>
     public sealed class Errors : McpProtocolTests
     {
+        [Trait("Speed", "Slow")]
         [Fact]
         public async Task ErrorsAreToolErrorsAndServerSurvives()
         {

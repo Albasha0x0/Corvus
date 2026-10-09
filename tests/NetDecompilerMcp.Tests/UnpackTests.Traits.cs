@@ -68,6 +68,7 @@ public partial class UnpackTests
         return AssemblyTraits.MergeNote(module);
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void ReadyToRun_DetectedOnCrossgenOutput_NotOnIlOnlyAssemblies()
     {
@@ -145,6 +146,7 @@ public partial class UnpackTests
 
     private UnpackService.ContainerListing List(string path) => Unpacker.List(path, AnalysisLimits.Default, default);
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void List_SingleFileBundle()
     {
@@ -231,6 +233,7 @@ public partial class UnpackTests
 
     private static JsonElement Structured(CallToolResult r) => JsonDocument.Parse(r.StructuredContent!.ToString()!).RootElement;
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public async Task ListAssembliesTool_ReportsReadyToRunMergedAndContainers()
     {

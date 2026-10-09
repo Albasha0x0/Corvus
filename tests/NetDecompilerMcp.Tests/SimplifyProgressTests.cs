@@ -185,6 +185,7 @@ public sealed class SimplifyProgressTests : IDisposable
         Assert.DoesNotContain("completed in the extended tier", report.Split('\n').Last(l => l.StartsWith("Totals")));
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void TheRunIsNotChargedToTheMethodsTotalBudget()
     {
@@ -196,6 +197,7 @@ public sealed class SimplifyProgressTests : IDisposable
         Assert.Contains($"Big.Text::Get() -> \"{expected[1]}\"", report);
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void TheFoldedResultRunsTheSame()
     {

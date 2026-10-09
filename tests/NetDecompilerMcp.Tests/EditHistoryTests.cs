@@ -9,6 +9,7 @@ public class EditHistoryTests : IDisposable
 
     private void Stub(string method, string value) => _env.Edit(() => _env.Edits.StubMethod(_env.One(method), value));
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void UndoLastAndMiddleEdits()
     {
@@ -28,6 +29,7 @@ public class EditHistoryTests : IDisposable
         Assert.Single(_env.Fixture.Edits);
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void UndoThatBreaksALaterEditChangesNothing()
     {
@@ -50,6 +52,7 @@ public class EditHistoryTests : IDisposable
         Assert.Contains("StartsWith", _env.Decompile("Secret::Validate"));
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void DiffShowsBeforeAndAfter()
     {

@@ -549,6 +549,7 @@ public class InspectionTests : IDisposable
     private static readonly int FuzzCases = int.TryParse(Environment.GetEnvironmentVariable("NDM_FUZZ_CASES"), out var n) ? n : 30;
 
     /// <summary>Fixtures cut short and with random bytes changed: every analysis either works or throws ToolError.</summary>
+    [Trait("Speed", "Slow")]
     [Fact]
     public void TruncatedAndFuzzedAssemblies_FailCleanly()
     {
@@ -628,6 +629,7 @@ public class InspectionTests : IDisposable
     }
 
     /// <summary>Corrupt inputs give tool errors and the server keeps serving.</summary>
+    [Trait("Speed", "Slow")]
     [Fact]
     public async Task CorruptInputs_GiveClearErrorsOverMcp()
     {

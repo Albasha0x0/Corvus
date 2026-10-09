@@ -61,6 +61,7 @@ public class BuildUpdateTests : IDisposable
         Assert.Contains("<>c", await tools.CompareAssemblies(env.Fixture.Id, newer.Id, includeCompilerGenerated: true));
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void EditScript_FollowsATargetRenamedInTheNewBuild()
     {

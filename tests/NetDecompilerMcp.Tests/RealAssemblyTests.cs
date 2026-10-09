@@ -38,6 +38,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
         Assert.Empty(failures);
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void SearchAndCrossReferencesScaleOnTheIlSpyEngine()
     {
@@ -62,6 +63,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
         Assert.True(hierarchy.DerivedTotal > 5);
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void CSharpPatchOfRealCodeRunsAfterSave()
     {

@@ -151,6 +151,7 @@ public class CSharpAdvancedTests : IDisposable
         Assert.False(_env.Fixture.IsDirty);
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void AddTypesThatUseTheAssembly()
     {

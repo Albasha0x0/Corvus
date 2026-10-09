@@ -108,6 +108,7 @@ public class InspectionEdgeTests : IDisposable
         Assert.Equal(140, Directory.EnumerateFiles(_dir.File("big-out"), "*.dll", SearchOption.AllDirectories).Count());
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public async Task ListAssemblies_FiltersAndPages()
     {

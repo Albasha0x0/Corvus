@@ -191,6 +191,7 @@ public class CSharpPatchTests : IDisposable
         Assert.True(_env.Fixture.IsDirty);
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void WorksOnMethodsWithInitializersExpressionBodiesAndOverloads()
     {
@@ -200,6 +201,7 @@ public class CSharpPatchTests : IDisposable
         Assert.Contains("_credit++", _env.Decompile("Shop::Buy"));
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void ConstructorsAccessorsAndStatics()
     {

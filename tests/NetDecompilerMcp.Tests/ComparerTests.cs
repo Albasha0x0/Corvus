@@ -8,6 +8,7 @@ namespace NetDecompilerMcp.Tests;
 public class ComparerTests(ITestOutputHelper output)
 {
     /// <summary>Compares the fixture with an edited copy of itself.</summary>
+    [Trait("Speed", "Slow")]
     [Fact]
     public void DetectsRenamesBodyChangesAndAdditions()
     {
