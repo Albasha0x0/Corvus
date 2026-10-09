@@ -90,6 +90,7 @@ public class BuildUpdateTests : IDisposable
         Assert.Contains("return a * b;", env.Decompile("Calc::AddNumbers"));
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public async Task RealLibraryUpgrade_ShowsTheApiChangesFirst()
     {

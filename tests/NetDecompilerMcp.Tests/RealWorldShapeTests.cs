@@ -191,6 +191,7 @@ public class RealWorldShapeTests : IDisposable
         Assert.Contains(Path.Combine(root, "8.0.1"), text);
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void UndoConflict_NamesTheEditByItsListNumber()
     {

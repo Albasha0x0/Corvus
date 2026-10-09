@@ -12,6 +12,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
     private static readonly string DnlibPath = typeof(ModuleDefMD).Assembly.Location;
     private static readonly string IlSpyPath = typeof(ICSharpCode.Decompiler.CSharp.CSharpDecompiler).Assembly.Location;
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void DecompilesEveryTopLevelTypeOfDnlibConcurrently()
     {
@@ -84,6 +85,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
         }
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void ExportsDnlibAsProject()
     {

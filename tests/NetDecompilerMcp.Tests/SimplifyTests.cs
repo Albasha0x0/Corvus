@@ -947,6 +947,7 @@ public sealed class SimplifyTests : IDisposable
         Assert.Equal("Hello", Body(obf, "Obf.App::Title")[0].Operand);
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void RealLibrarySimplifiesSavesAndReverifies()
     {
@@ -1248,17 +1249,7 @@ public sealed class SimplifyTests : IDisposable
     }
 
     /// <summary>Release build: the optimizer leaves the minimal IL patterns the passes look for.</summary>
-    private static byte[] CompileRelease(string name, string source)
-    {
-        var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
-            .Where(p => p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)).Select(p => MetadataReference.CreateFromFile(p));
-        var compilation = CSharpCompilation.Create(name, [CSharpSyntaxTree.ParseText(source)], references,
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release));
-        using var ms = new MemoryStream();
-        var result = compilation.Emit(ms);
-        Assert.True(result.Success, string.Join("\n", result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)));
-        return ms.ToArray();
-    }
+    private static byte[] CompileRelease(string name, string source) => Roslyn.Release(name, source);
 
     /// <summary>Runs a static method of an image in a throwaway load context (JIT compilation rejects invalid IL).</summary>
     private static object? Run(byte[] image, string type, string method, params object?[] args)

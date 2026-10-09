@@ -11,6 +11,7 @@ namespace NetDecompilerMcp.Tests;
 /// Seeds 1..NDM_FUZZ_COUNT (default 40) run by default; NDM_FUZZ_SEED=n runs one seed, NDM_FUZZ_SEED=random a fresh one.
 /// A failure names its seed.
 /// </summary>
+[Trait("Speed", "Slow")]
 [Collection(SweepCollection.Name)]
 public sealed class SimplifyFuzzTests(ITestOutputHelper output) : IDisposable
 {

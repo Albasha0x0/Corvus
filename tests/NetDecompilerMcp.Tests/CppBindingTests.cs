@@ -59,6 +59,7 @@ public class CppBindingTests : IDisposable
     }
 
     /// <summary>Mono headers compile together in one translation unit.</summary>
+    [Trait("Speed", "Slow")]
     [Fact]
     public void MonoBindingsCompile()
     {

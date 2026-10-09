@@ -78,6 +78,7 @@ public partial class UnpackTests
         Assert.False(AssemblyTraits.IsReadyToRun("not a PE file"u8));
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void UnpackContainer_ReportsReadyToRunPerAssembly()
     {

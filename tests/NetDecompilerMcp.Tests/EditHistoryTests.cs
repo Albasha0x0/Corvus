@@ -64,6 +64,7 @@ public class EditHistoryTests : IDisposable
         Assert.Contains("#1", _env.History.List(_env.Fixture));
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void ScriptsReplayOnAFreshLoadByTokenAndByName()
     {
@@ -111,6 +112,7 @@ public class EditHistoryTests : IDisposable
         Assert.Single(fresh.Fixture.Edits);
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void DryRunCompilesCSharpEdits_AndShowsTheFullError()
     {

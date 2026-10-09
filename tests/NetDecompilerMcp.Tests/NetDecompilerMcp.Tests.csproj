@@ -7,6 +7,11 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
+  <!-- dotnet test runs the quick set; NDM_ALL_TESTS=1 (environment or -p:) also runs the tests marked Speed=Slow. -->
+  <PropertyGroup Condition="'$(NDM_ALL_TESTS)' != '1'">
+    <RunSettingsFilePath>$(MSBuildThisFileDirectory)quick.runsettings</RunSettingsFilePath>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

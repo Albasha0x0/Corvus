@@ -148,6 +148,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
             Assert.True(tools.Single(t => t.Name == "save_assembly").ProtocolTool.Annotations!.DestructiveHint);
         }
 
+        [Trait("Speed", "Slow")]
         [Fact]
         public async Task EveryToolSucceedsWithValidInput()
         {
@@ -176,6 +177,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
             Assert.NotNull(_client.ServerCapabilities.Completions);
         }
 
+        [Trait("Speed", "Slow")]
         [Fact]
         public async Task ResourcesAndTemplates()
         {
@@ -250,6 +252,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
             Assert.All(updates, u => Assert.Equal(2, u.Progress.Total));
         }
 
+        [Trait("Speed", "Slow")]
         [Fact]
         public async Task FileChangeNoticesRideAlongWithTheNextResult()
         {
@@ -303,6 +306,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
     /// <summary>Long results over the wire.</summary>
     public sealed class Paging : McpProtocolTests
     {
+        [Trait("Speed", "Slow")]
         [Fact]
         public async Task PagingOverTheWire()
         {

@@ -11,6 +11,7 @@ namespace NetDecompilerMcp.Tests;
 /// bodies and signatures, or lists each one that differs. Compared independently of the writer's own check. Libraries
 /// are checked in parallel, largest first, each in its own workspace; nothing here is timed.
 /// </summary>
+[Trait("Speed", "Slow")]
 [Collection(SweepCollection.Name)]
 public sealed class SaveFidelitySweepTests(ITestOutputHelper output)
 {

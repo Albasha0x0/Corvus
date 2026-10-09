@@ -36,15 +36,8 @@ public class ReferenceResolutionTests : IDisposable
     /// <summary>C# compiled against the running framework plus <paramref name="references"/>.</summary>
     internal static byte[] Compile(string name, string source, params byte[][] references)
     {
-        var tpa = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
-            .Where(p => p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)).Select(p => MetadataReference.CreateFromFile(p));
-        var compilation = CSharpCompilation.Create(name, [CSharpSyntaxTree.ParseText(source)],
-            [.. tpa, .. references.Select(r => MetadataReference.CreateFromImage(r))],
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
-        using var ms = new MemoryStream();
-        var result = compilation.Emit(ms);
-        Assert.True(result.Success, string.Join("\n", result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)));
-        return ms.ToArray();
+        return Roslyn.Compile(name, source, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary),
+            references.Select(r => MetadataReference.CreateFromImage(r)));
     }
 
     [Fact]
@@ -73,6 +66,7 @@ public class ReferenceResolutionTests : IDisposable
             [ws.Read(() => app.Module.Types.Single(t => t.Name == "App").Methods.Single(m => m.Name == "T"))], default));
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void Il2CppDummyMscorlib_DoesNotStandInForTheRealOne()
     {

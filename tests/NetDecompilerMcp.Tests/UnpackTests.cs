@@ -262,6 +262,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         Assert.True(System.IO.File.ReadAllBytes(hello.Path).AsSpan().IndexOf(Encoding.Unicode.GetBytes("Hello from a single-file bundle")) > 0);
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void CompressedSelfContainedBundle_InflatesEveryEntry()
     {
@@ -508,6 +509,7 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
     /// <summary>Fuzz iterations per fixture; override with NDM_FUZZ_CASES.</summary>
     private static readonly int FuzzCases = int.TryParse(Environment.GetEnvironmentVariable("NDM_FUZZ_CASES"), out var n) ? n : 40;
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void TruncatedAndFuzzedInputs_FailCleanly()
     {

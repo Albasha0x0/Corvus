@@ -164,6 +164,7 @@ public partial class UnpackTests
         Assert.Contains("File not found", Assert.Throws<ToolError>(() => Search(_dir.File("missing.zip"), "x")).Message);
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public async Task SearchContainerTool_CorruptContainers_ErrorClearly_AndTheServerKeepsServing()
     {

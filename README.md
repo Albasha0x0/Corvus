@@ -327,7 +327,10 @@ errors.
 Requires the .NET 10 SDK.
 
 ```powershell
-dotnet test                    # services, IL/C# patching (with runtime execution), edit history,
+dotnet test                    # the quick set (about 20 s): every test except those marked [Trait("Speed", "Slow")]
+                               # (real-library builds, whole-server runs, sweeps, fuzz)
+$env:NDM_ALL_TESTS=1; dotnet test   # everything (about 2 min; or dotnet test -p:NDM_ALL_TESTS=1):
+                               # services, IL/C# patching (with runtime execution), edit history,
                                # build comparison, call graph, IDA/Ghidra/C/C++ generation (compiled with clang),
                                # background indexing, file watching, every tool over stdio, real-assembly stress,
                                # container unpacking and listing (fixtures built at test time, incl. crossgen2 ReadyToRun
@@ -354,7 +357,8 @@ are unset:
 | `NDM_EXPORT_REAL=1` | Exports real NuGet libraries (downloaded on restore) and builds them: 0 errors expected (a few minutes) | exported projects build |
 | `NDM_EXPORT_LIST` | A text file of assembly paths: exports and builds each, 0 errors expected; writes error counts by code next to it | exported projects build |
 
-simplify_methods is checked two ways, both in a collection that runs alone after the parallel tests:
+simplify_methods is checked two ways, both in a collection that runs alone after the parallel tests (slow: they run
+with `NDM_ALL_TESTS=1`):
 
 - **Fuzz** (`SimplifyFuzzTests`): seeded random IL methods (nested try / catch / finally / fault / filter, loops,
   switches, flattened dispatchers, many locals, struct operations). The engine must not crash, must stay within its
@@ -366,7 +370,7 @@ simplify_methods is checked two ways, both in a collection that runs alone after
   NuGet packages. It checks for crashes and clean save / reload round trips, repeats runs for byte-identical output,
   and guards performance (whole-library time per method against a 0.6 ms baseline). Absent assemblies are skipped.
   Per-assembly statistics (methods simplified, fallback reasons, time) are printed with
-  `dotnet test --filter SimplifySweepTests --logger "console;verbosity=detailed"`.
+  `dotnet test -p:NDM_ALL_TESTS=1 --filter SimplifySweepTests --logger "console;verbosity=detailed"`.
 - **Pipeline round trip** (`PipelineRoundTripTests`, opt-in): .NET Framework programs are compiled, run through an
   external post-build pipeline under each of its options and three seeds, simplified, saved and executed; the
   original, processed and simplified builds must print the same. What simplifying took back of the instructions each

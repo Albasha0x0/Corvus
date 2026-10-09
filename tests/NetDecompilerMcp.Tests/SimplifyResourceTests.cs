@@ -157,9 +157,7 @@ public sealed class SimplifyResourceTests : IDisposable
     {
         var path = _dir.File("Res.dll");
         if (File.Exists(path)) return path;
-        var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
-            .Where(p => p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)).Select(p => MetadataReference.CreateFromFile(p));
-        var compilation = CSharpCompilation.Create("Res", [CSharpSyntaxTree.ParseText(Source)], references,
+        var compilation = CSharpCompilation.Create("Res", [CSharpSyntaxTree.ParseText(Source)], Roslyn.PlatformReferences,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release));
         var table = StringTable("zero", "héllo wörld", "two");
         var lines = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes("first\r\nsecond line\nthird")).ToArray();

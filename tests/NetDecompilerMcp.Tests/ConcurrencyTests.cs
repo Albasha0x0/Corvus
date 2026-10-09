@@ -6,6 +6,7 @@ namespace NetDecompilerMcp.Tests;
 /// <summary>Readers and writers hammer one workspace at the same time; nothing may throw or observe a half-applied edit.</summary>
 public class ConcurrencyTests
 {
+    [Trait("Speed", "Slow")]
     [Fact]
     public async Task ReadersAndWritersInterleaveSafely()
     {

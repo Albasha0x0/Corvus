@@ -7,6 +7,7 @@ namespace NetDecompilerMcp.Tests;
 /// <summary>WPF's compiled XAML (BAML) in .resources entries comes back as XAML.</summary>
 public class BamlTests
 {
+    [Trait("Speed", "Slow")]
     [Fact]
     public async Task BamlEntries_AreDecompiledToXaml()
     {

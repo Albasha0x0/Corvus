@@ -90,14 +90,7 @@ public sealed class SimplifyInitializerTests : IDisposable
     {
         var path = _dir.File("Ini.dll");
         if (File.Exists(path)) return path;
-        var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
-            .Where(p => p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)).Select(p => MetadataReference.CreateFromFile(p));
-        var compilation = CSharpCompilation.Create("Ini", [CSharpSyntaxTree.ParseText(Source)], references,
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release));
-        using var ms = new MemoryStream();
-        var result = compilation.Emit(ms);
-        Assert.True(result.Success, string.Join("\n", result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)));
-        File.WriteAllBytes(path, ms.ToArray());
+        File.WriteAllBytes(path, Roslyn.Release("Ini", Source));
         return path;
     }
 

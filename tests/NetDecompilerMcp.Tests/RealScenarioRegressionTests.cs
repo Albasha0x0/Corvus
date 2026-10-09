@@ -145,6 +145,7 @@ public sealed class RealScenarioRegressionTests
     /// IL allows a public member to use an internal type; C# rejects the decompiled declaration with CS0050-CS0061, which
     /// failed every C# patch of such a type (found in Docker Desktop's installer).
     /// </summary>
+    [Trait("Speed", "Slow")]
     [Fact]
     public void CSharpPatchesCompileWhenTheDecompiledTypeHasInconsistentAccessibility()
     {
@@ -325,6 +326,7 @@ public sealed class RealScenarioRegressionTests
         Assert.Equal("static P()", Format.Method(cctor, withModifiers: false));
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public async Task MissingRequiredArgumentIsAClearToolError()
     {
@@ -345,6 +347,7 @@ public sealed class RealScenarioRegressionTests
         Assert.Contains("is a directory", error);
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void CSharpPatchesCompileForANetAppThatUsesANetStandardLibrary()
     {

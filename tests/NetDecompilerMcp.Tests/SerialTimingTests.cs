@@ -9,6 +9,7 @@ namespace NetDecompilerMcp.Tests;
 [CollectionDefinition(nameof(SerialTimingTests), DisableParallelization = true)]
 public class SerialTimingCollection;
 
+[Trait("Speed", "Slow")]
 [Collection(nameof(SerialTimingTests))]
 public class SerialTimingTests
 {

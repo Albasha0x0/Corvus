@@ -24,6 +24,7 @@ namespace NetDecompilerMcp.Tests;
 /// profiles (default: Build/Profiles next to the tool); NDM_PIPELINE_SEEDS (default 3); NDM_PIPELINE_ONLY, a substring of
 /// the option names to run; NDM_PIPELINE_REPORT, a file for the table; NDM_PIPELINE_KEEP, keep the work files.
 /// </remarks>
+[Trait("Speed", "Slow")]
 [Collection(SweepCollection.Name)]
 public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposable
 {

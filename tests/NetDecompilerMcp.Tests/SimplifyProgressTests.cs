@@ -22,13 +22,13 @@ public sealed class SimplifyProgressTests : IDisposable
 
         namespace Big
         {
-            // 200,000 elements, each written once: about 3M instructions.
+            // 40,000 elements, each written once: about 600,000 instructions.
             public static class Table
             {
                 private static readonly int Last;
                 static Table()
                 {
-                    var t = new int[200000];
+                    var t = new int[40000];
                     for (int i = 0; i < t.Length; i++) t[i] = i * 7 + (i > 0 ? t[i - 1] & 3 : 0);
                     Last = t[t.Length - 1];
                 }
@@ -42,10 +42,10 @@ public sealed class SimplifyProgressTests : IDisposable
                 static Text()
                 {
                     var sb = new StringBuilder();
-                    for (int i = 0; i < 60000; i++) sb.Append((char)('a' + i % 26));
+                    for (int i = 0; i < 25000; i++) sb.Append((char)('a' + i % 26));
                     Built = sb.ToString();
                 }
-                public static string Get() => Built.Substring(59990, 5);
+                public static string Get() => Built.Substring(24990, 5);
             }
 
             // Passes over a buffer filled before: each changes the values of locations the run already wrote.
@@ -54,12 +54,12 @@ public sealed class SimplifyProgressTests : IDisposable
                 private static readonly int Check;
                 static Passes()
                 {
-                    var b = new byte[40000];
+                    var b = new byte[8000];
                     for (int i = 0; i < b.Length; i++) b[i] = (byte)i;
                     for (int p = 1; p <= 6; p++)
                         for (int i = 0; i < b.Length; i++) b[i] = (byte)(b[i] ^ (p * 37 + i));
                     int s = 0;
-                    for (int i = 0; i < 4000; i++) s = s * 31 + b[i * 10];
+                    for (int i = 0; i < 800; i++) s = s * 31 + b[i * 10];
                     Check = s & 0x7FFFFFFF;
                 }
                 public static string Get() => Check.ToString();
@@ -95,7 +95,7 @@ public sealed class SimplifyProgressTests : IDisposable
             {
                 public static string Get()
                 {
-                    var t = new int[200000];
+                    var t = new int[40000];
                     for (int i = 0; i < t.Length; i++) t[i] = i;
                     return t[5].ToString();
                 }
@@ -119,14 +119,7 @@ public sealed class SimplifyProgressTests : IDisposable
     {
         var path = _dir.File("Big.dll");
         if (File.Exists(path)) return path;
-        var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
-            .Where(p => p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)).Select(p => MetadataReference.CreateFromFile(p));
-        var compilation = CSharpCompilation.Create("Big", [CSharpSyntaxTree.ParseText(Source)], references,
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release));
-        using var ms = new MemoryStream();
-        var result = compilation.Emit(ms);
-        Assert.True(result.Success, string.Join("\n", result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)));
-        File.WriteAllBytes(path, ms.ToArray());
+        File.WriteAllBytes(path, Roslyn.Release("Big", Source));
         return path;
     }
 
@@ -154,7 +147,6 @@ public sealed class SimplifyProgressTests : IDisposable
         var expected = Run(env.Fixture.OriginalBytes).Split('|');
 
         var report = Simplify(env);
-        File.WriteAllText(@"report.txt", report);
         Assert.Contains($"Big.Table::Get() -> \"{expected[0]}\"", report);
         Assert.Contains($"Big.Text::Get() -> \"{expected[1]}\"", report);
         Assert.Matches(@"Big\.Table: [\d,]+ instructions, completed", report);
@@ -185,9 +177,9 @@ public sealed class SimplifyProgressTests : IDisposable
     public void TheCeilingStopsARunAndTheStopIsRemembered()
     {
         using var env = new Env(Fixture());
-        var report = Simplify(env, new EvaluationLimits(InitializerInstructionCeiling: 400_000));
-        Assert.Matches(@"Big\.Table::Get\(\): static constructor of Big\.Table cannot be evaluated: the type initializer ran past the instruction budget in the extended tier for initializers that make progress, and stopped: it reached the ceiling of 400,000 instructions \[instruction-budget\]", report);
-        Assert.Matches(@"Big\.Table: [\d,]+ instructions, stopped: it reached the ceiling of 400,000 instructions", report);
+        var report = Simplify(env, new EvaluationLimits(InitializerInstructionCeiling: 300_000));
+        Assert.Matches(@"Big\.Table::Get\(\): static constructor of Big\.Table cannot be evaluated: the type initializer ran past the instruction budget in the extended tier for initializers that make progress, and stopped: it reached the ceiling of 300,000 instructions \[instruction-budget\]", report);
+        Assert.Matches(@"Big\.Table: [\d,]+ instructions, stopped: it reached the ceiling of 300,000 instructions", report);
         // Table1 and Table2 both need it: the stopped run is not repeated.
         Assert.Single(report.Split('\n'), l => l.Contains("Big.Table: "));
         Assert.DoesNotContain("completed in the extended tier", report.Split('\n').Last(l => l.StartsWith("Totals")));

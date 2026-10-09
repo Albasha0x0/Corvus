@@ -157,6 +157,7 @@ public sealed class SetupTests : IDisposable
         Assert.False(target.Install("net-decompiler", launch).Changed);
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void Status_ReportsRegistrations_AndSelfTestStartsTheRealServer()
     {

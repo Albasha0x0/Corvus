@@ -66,17 +66,12 @@ public class MissingReferenceTests : IDisposable
 
     private static byte[] Compile(string name, string source, params byte[][] references)
     {
-        var tpa = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
-            .Where(p => p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)).Select(p => MetadataReference.CreateFromFile(p));
-        var compilation = CSharpCompilation.Create(name, [CSharpSyntaxTree.ParseText(source)],
-            [.. tpa, .. references.Select(r => MetadataReference.CreateFromImage(r))],
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release));
-        using var ms = new MemoryStream();
-        var result = compilation.Emit(ms);
-        Assert.True(result.Success, string.Join("\n", result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)));
-        return ms.ToArray();
+        return Roslyn.Compile(name, source,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release),
+            references.Select(r => MetadataReference.CreateFromImage(r)));
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void MissingDependency_IsRebuiltFromUse_SoTheRestDecompilesAndBuilds()
     {

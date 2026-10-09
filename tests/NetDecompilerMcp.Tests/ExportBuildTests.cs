@@ -88,6 +88,7 @@ public class ExportBuildTests
         }
         """;
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void Patterns_Decompile_ToCode_ThatBuildsAndBehavesTheSame()
     {
@@ -115,6 +116,7 @@ public class ExportBuildTests
     }
 
     /// <summary>A class of its own: the longest export starts with the first tests, not after the others of this class.</summary>
+    [Trait("Speed", "Slow")]
     public sealed class BouncyCastle
     {
         /// <summary>Rewritten span code in digests, SCrypt and AEAD modes gives the original results after rebuild.</summary>
@@ -221,14 +223,8 @@ public class ExportBuildTests
     /// <summary>Release build: the optimizer produces the patterns under test.</summary>
     private static byte[] CompileRelease(string name, string source)
     {
-        var tpa = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
-            .Where(p => p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)).Select(p => MetadataReference.CreateFromFile(p));
-        var compilation = CSharpCompilation.Create(name, [CSharpSyntaxTree.ParseText(source)], tpa,
+        return Roslyn.Compile(name, source,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release, allowUnsafe: true));
-        using var ms = new MemoryStream();
-        var result = compilation.Emit(ms);
-        Assert.True(result.Success, string.Join("\n", result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)));
-        return ms.ToArray();
     }
 
     /// <summary>Exports and builds; returns the built assembly's path and the compile errors.</summary>

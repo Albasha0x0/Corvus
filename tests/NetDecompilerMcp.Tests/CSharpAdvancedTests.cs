@@ -68,6 +68,7 @@ public class CSharpAdvancedTests : IDisposable
         Assert.Equal(90, run.Call(run.New("Fixture.Model.Shop"), "PriceOf", "pen", 2));
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public async Task AsyncStateMachine()
     {
@@ -109,6 +110,7 @@ public class CSharpAdvancedTests : IDisposable
         Assert.Equal(14, run.Call(shop, "PriceOf", "pen"));
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void RepeatedPatchesGetFreshHelperNames()
     {
@@ -120,6 +122,7 @@ public class CSharpAdvancedTests : IDisposable
         Assert.Equal(12, run.Call(run.New("Fixture.Model.Shop"), "PriceOf", "x", 2));
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void AddMembersAndUseThemFromAPatch()
     {

@@ -186,15 +186,7 @@ public sealed class SimplifyDelegateTests : IDisposable
     {
         var path = _dir.File("Proxies.dll");
         if (File.Exists(path)) return path;
-        var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
-            .Where(p => p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)).Select(p => MetadataReference.CreateFromFile(p));
-        var compilation = CSharpCompilation.Create("Proxies", [CSharpSyntaxTree.ParseText(Source)], references,
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release));
-        using var ms = new MemoryStream();
-        var result = compilation.Emit(ms);
-        Assert.True(result.Success, string.Join("\n", result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)));
-
-        using var module = ModuleDefMD.Load(ms.ToArray());
+        using var module = ModuleDefMD.Load(Roslyn.Release("Proxies", Source));
         MethodDef Target(string type, string name) => module.Find("Proxies." + type, false)!.FindMethod(name);
         var targets = new Dictionary<string, (MethodDef Method, bool Virtual)>
         {

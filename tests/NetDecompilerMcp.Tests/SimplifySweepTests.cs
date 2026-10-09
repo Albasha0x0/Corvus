@@ -10,6 +10,7 @@ namespace NetDecompilerMcp.Tests;
 /// built by different compilers and IL weavers. Assemblies are found on this machine and skipped when absent;
 /// NDM_SWEEP=full adds the largest ones.
 /// </summary>
+[Trait("Speed", "Slow")]
 [Collection(SweepCollection.Name)]
 public sealed class SimplifySweepTests(ITestOutputHelper output)
 {

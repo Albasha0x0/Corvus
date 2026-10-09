@@ -36,14 +36,8 @@ public class InspectionTests : IDisposable
     /// <summary>Compiles C# against the running framework's assemblies.</summary>
     internal static byte[] Compile(string name, string source)
     {
-        var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
-            .Where(p => p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)).Select(p => MetadataReference.CreateFromFile(p));
-        var compilation = CSharpCompilation.Create(name, [CSharpSyntaxTree.ParseText(source)], references,
+        return Roslyn.Compile(name, source,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable));
-        using var ms = new MemoryStream();
-        var result = compilation.Emit(ms);
-        Assert.True(result.Success, string.Join("\n", result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)));
-        return ms.ToArray();
     }
 
     /// <summary>Everyday framework APIs: files, HTTP, the registry, processes.</summary>
@@ -313,6 +307,7 @@ public class InspectionTests : IDisposable
             on.Contents.Where(p => p != recovered).Select(p => (p.Source, string.Join(">", p.Encoding))).Order());
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void Embedded_XorText_RejectsReadableAndRandomData()
     {
@@ -454,6 +449,7 @@ public class InspectionTests : IDisposable
         Assert.Null(dnlib.Signer);
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void Certificates_InSummary_WithStrongNames_AndModifiedCopies()
     {
@@ -602,6 +598,7 @@ public class InspectionTests : IDisposable
     }
 
     /// <summary>Fuzzes the security directory, WIN_CERTIFICATE header and PKCS#7 blob of a signed file.</summary>
+    [Trait("Speed", "Slow")]
     [Fact]
     public void DamagedSignatures_AreReportedNotThrown()
     {

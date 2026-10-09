@@ -142,13 +142,8 @@ public sealed class SimplifyRegressionTests : IDisposable
             public class Unrelated2 { public virtual int M() => 3; }
             public static class Y { public static readonly int V; static Y() { Base2 b = new Sub2(); V = b.M(); } }
             """;
-        var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
-            .Where(p => p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)).Select(p => Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(p));
-        var compilation = Microsoft.CodeAnalysis.CSharp.CSharpCompilation.Create("Dispatch", [Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(source)], references,
-            new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(Microsoft.CodeAnalysis.OutputKind.DynamicallyLinkedLibrary));
-        using var ms = new MemoryStream();
-        Assert.True(compilation.Emit(ms).Success);
-        using var module = ModuleDefMD.Load(ms.ToArray());
+        using var module = ModuleDefMD.Load(Roslyn.Compile("Dispatch", source,
+            new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(Microsoft.CodeAnalysis.OutputKind.DynamicallyLinkedLibrary)));
         TypeDef T(string name) => module.Find(name, false)!;
         var facts = new ModuleFacts(module);
 
