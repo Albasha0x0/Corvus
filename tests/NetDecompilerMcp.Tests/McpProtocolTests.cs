@@ -148,6 +148,9 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["resolve_address"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "export First"),
         ["search_bytes"] = (new() { ["image"] = NativeSample(dir), ["pattern"] = "ExitProcess", ["text"] = true }, "1 hit"),
         ["read_bytes"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["length"] = 32 }, "32 bytes"),
+        ["list_cpp_classes"] = (new() { ["image"] = NativeSample(dir) }, "0 classes with RTTI"),
+        ["decompile_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["engine"] = "ghidra" }, "Error (invalid_argument) in decompile_native: Unknown engine"),
+        ["verify_native_imports"] = (new() { ["assembly"] = "TestFixture" }, "TestFixture"),
         ["read_result"] = (new() { ["id"] = "r999" }, "Error (not_found) in read_result"),
         ["unload_assembly"] = (new() { ["assembly"] = "TestFixture.Consumer" }, "Unloaded"),
     };

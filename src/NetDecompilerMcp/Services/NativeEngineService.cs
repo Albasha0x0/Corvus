@@ -1,0 +1,59 @@
+using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Native.Providers;
+using NetDecompilerMcp.Native.Providers.Ida;
+
+namespace NetDecompilerMcp.Services;
+
+/// <summary>
+/// The external decompiler engines (IDA through idalib today) and one engine session per loaded native image,
+/// opened on first use and closed when the image is unloaded or reloaded.
+/// </summary>
+public sealed class NativeEngineService : IDisposable
+{
+    private readonly Lazy<INativeDecompilerProvider> _ida = new(() => new IdaProvider());
+
+    public IReadOnlyList<INativeDecompilerProvider> Providers => [_ida.Value];
+
+    public INativeDecompilerProvider Provider(string? id)
+    {
+        var wanted = string.IsNullOrWhiteSpace(id) || id.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase) ? null : id.Trim();
+        if (wanted != null && !wanted.Equals("ida", StringComparison.OrdinalIgnoreCase))
+            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown engine '{id}'. Engines: ida.", "omit engine to use the available one");
+        var ida = _ida.Value;
+        var availability = ida.CheckAvailability();
+        if (!availability.IsAvailable)
+            throw new ToolError(ErrorCode.ProviderUnavailable, $"{ida.DisplayName} is not available: {availability.Reason}", availability.Remediation);
+        return ida;
+    }
+
+    /// <summary>The image's open engine session; the first call opens it (the first open of an image runs auto-analysis).</summary>
+    public Task<INativeDecompilerSession> Session(LoadedNative native, string? engine, IProgress<NativeProviderProgress>? progress, CancellationToken ct)
+    {
+        var holder = native.GetAnalysis(_ => new SessionHolder());
+        lock (holder)
+        {
+            if (holder.Opening is { } existing && !(existing.IsCompleted && (existing.IsFaulted || existing.IsCanceled || !existing.Result.IsOpen)))
+                return existing.WaitAsync(ct);
+            var provider = Provider(engine);
+            // The open is not tied to this call's cancellation: a later call reuses the same analysis.
+            holder.Opening = provider.OpenAsync(native.FilePath, native.Image.Sha256, new NativeOpenOptions { Progress = progress }, CancellationToken.None);
+            return holder.Opening.WaitAsync(ct);
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_ida.IsValueCreated) _ida.Value.Dispose();
+    }
+
+    private sealed class SessionHolder : IDisposable
+    {
+        public Task<INativeDecompilerSession>? Opening;
+
+        public void Dispose()
+        {
+            if (Opening is { IsCompletedSuccessfully: true } done) done.Result.Dispose();
+            else Opening?.ContinueWith(t => { if (t.IsCompletedSuccessfully) t.Result.Dispose(); }, TaskScheduler.Default);
+        }
+    }
+}

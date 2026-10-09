@@ -1,5 +1,6 @@
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Tools;
+using NetDecompilerMcp.Native.Providers;
 
 namespace NetDecompilerMcp.Tests;
 
@@ -64,6 +65,28 @@ public class NativeToolsTests
         var wrongKind = Assert.Throws<ToolError>(() => env.Workspace.Read(() => env.Workspace.Get("kernel32.dll")));
         Assert.Equal(ErrorCode.Unsupported, wrongKind.Code);
         Assert.Contains("get_pe_info", wrongKind.Remediation);
+    }
+
+    [Trait("Speed", "Slow")]
+    [WindowsFact]
+    public async Task DecompilesThroughIdaAndRecoversCppClasses()
+    {
+        using var env = new Env();
+        using var engines = new NetDecompilerMcp.Services.NativeEngineService();
+        if (!engines.Providers[0].CheckAvailability().IsAvailable) return; // IDA not installed here
+        var tools = new NativeAnalysisTools(env.Workspace, engines, env.Pager);
+        var imagehlp = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "imagehlp.dll");
+        var text = await tools.DecompileNative(imagehlp, "CheckSumMappedFile", addresses: true);
+        Assert.Contains("CheckSumMappedFile", text);
+        Assert.Contains("return", text);
+        Assert.Matches(@"/\* 18[0-9A-F]+ \*/", text);
+        // The second call reuses the open session.
+        var again = await tools.DecompileNative("imagehlp.dll", "CheckSumMappedFile");
+        Assert.Contains("CheckSumMappedFile", again);
+
+        var classes = await tools.ListCppClasses(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "msvcp_win.dll"), filter: "exception");
+        Assert.Contains("class std::exception", classes);
+        Assert.Contains("vftable", classes);
     }
 
     [WindowsFact]

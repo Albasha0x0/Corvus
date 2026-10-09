@@ -14,7 +14,7 @@ internal sealed class OrderedProgress(RequestContext<CallToolRequestParams> cont
 {
     public static readonly TimeSpan MinInterval = TimeSpan.FromMilliseconds(100);
 
-    private readonly ProgressToken? _token = context.Params?.ProgressToken;
+    private readonly ProgressToken? _token = context?.Params?.ProgressToken;
     private readonly object _sync = new();
     private Task _last = Task.CompletedTask;
     private float _progress = float.MinValue;

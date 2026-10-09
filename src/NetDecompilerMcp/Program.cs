@@ -59,7 +59,8 @@ builder.Services
     .AddSingleton<IndexingService>()
     .AddSingleton<FileWatchService>()
     .AddSingleton<UnpackService>()
-    .AddSingleton<InspectionService>();
+    .AddSingleton<InspectionService>()
+    .AddSingleton<NativeEngineService>();
 
 builder.Services
     .AddMcpServer(o =>

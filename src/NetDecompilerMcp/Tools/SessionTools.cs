@@ -10,7 +10,8 @@ using static NetDecompilerMcp.Tools.ToolSupport;
 namespace NetDecompilerMcp.Tools;
 
 [McpServerToolType]
-public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService indexing, ServerOptions options, ResultStore results, OutputPager pager)
+public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService indexing, ServerOptions options, ResultStore results, OutputPager pager,
+    NativeEngineService? engines = null)
 {
     public sealed record Capability(string Name, bool Available, string Detail, string? Remediation);
 
@@ -35,7 +36,14 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
                 ? new("reference pack download", false, "NDM_OFFLINE is set: assemblies targeting an uninstalled .NET version resolve fewer references", "unset NDM_OFFLINE")
                 : new("reference pack download", true, "downloads the reference pack of an uninstalled target framework on demand", null),
         ];
-        int loaded = workspace.Read(() => workspace.Assemblies.Count);
+        capabilities.Add(new("native PE analysis (headers, imports, exports, resources, C++ classes, bytes)", true, "built in", null));
+        foreach (var provider in engines?.Providers ?? [])
+        {
+            var a = provider.CheckAvailability();
+            capabilities.Add(new($"native decompilation ({provider.DisplayName})", a.IsAvailable,
+                a.IsAvailable ? string.Join(", ", a.Details.Select(d => $"{d.Key} {d.Value}")) : a.Reason ?? "unavailable", a.Remediation));
+        }
+        int loaded = workspace.Read(() => workspace.Assemblies.Count + workspace.Natives.Count);
         return new ServerStatus(typeof(ServerOptions).Assembly.GetName().Version?.ToString(3) ?? "?", digest, tools.Count, loaded, indexing.Status,
             options.MaxOutputChars, options.TimeoutSeconds, Environment.WorkingSet / (1024 * 1024), capabilities);
     }
