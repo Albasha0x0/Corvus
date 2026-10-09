@@ -34,7 +34,7 @@ public sealed class ReferenceService(AssemblyWorkspace workspace)
             EventDef ev => AccessorVisitor(new[] { (ev.AddMethod, "add"), (ev.RemoveMethod, "remove"), (ev.InvokeMethod, "raise") }
                 .Where(x => x.Item1 != null).Select(x => (x.Item1!, x.Item2)).ToList()),
             TypeDef type => (asm, t, found) => VisitTypeForTypeReferences(asm, t, type, found),
-            _ => throw new ToolError($"Cannot find references to a {target.Kind}."),
+            _ => throw new ToolError(ErrorCode.Unsupported, $"Cannot find references to a {target.Kind}."),
         };
         return SearchResult<Reference>.From(ParallelCollect(workspace.Assemblies, visit, ct), limit);
     }
@@ -162,7 +162,7 @@ public sealed class ReferenceService(AssemblyWorkspace workspace)
     public List<Callee> FindCallees(MethodDef method)
     {
         var body = SafeBody(method)
-                   ?? throw new ToolError($"{Format.MemberLabel(method)} has no IL body (abstract, extern, runtime-implemented or an Il2Cpp stub).");
+                   ?? throw new ToolError(ErrorCode.Unsupported, $"{Format.MemberLabel(method)} has no IL body (abstract, extern, runtime-implemented or an Il2Cpp stub).");
         var list = new List<Callee>();
         var owner = workspace.FindByModule(method.Module);
         var throughFields = owner == null ? [] : Simplify.DelegateCalls.Of(owner, default).Where(s => s.Caller == method).ToDictionary(s => s.Offset);
@@ -237,7 +237,7 @@ public sealed class ReferenceService(AssemblyWorkspace workspace)
     {
         var declaring = baseMethod.DeclaringType;
         if (!declaring.IsInterface && !baseMethod.IsVirtual)
-            throw new ToolError($"{Format.MemberLabel(baseMethod)} is not virtual, abstract or an interface method, so nothing can override it.");
+            throw new ToolError(ErrorCode.InvalidArgument, $"{Format.MemberLabel(baseMethod)} is not virtual, abstract or an interface method, so nothing can override it.");
 
         int count = ParamCount(baseMethod);
         var results = new List<ResolvedSymbol>();

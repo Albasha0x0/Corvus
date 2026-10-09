@@ -186,7 +186,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
             case HandleKind.FieldDefinition: dis.DisassembleField(pe, (FieldDefinitionHandle)handle); break;
             case HandleKind.PropertyDefinition: dis.DisassembleProperty(pe, (PropertyDefinitionHandle)handle); break;
             case HandleKind.EventDefinition: dis.DisassembleEvent(pe, (EventDefinitionHandle)handle); break;
-            default: throw new ToolError($"Cannot disassemble {member.GetType().Name}.");
+            default: throw new ToolError(ErrorCode.Unsupported, $"Cannot disassemble {member.GetType().Name}.");
         }
         return asm.DecompilerNote + output.ToString();
     }
@@ -294,7 +294,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         var dir = Path.GetFullPath(outputDirectory);
         Directory.CreateDirectory(dir);
         if (Directory.EnumerateFileSystemEntries(dir).Any())
-            throw new ToolError($"Output directory is not empty: {dir}. Choose an empty or new directory.");
+            throw new ToolError(ErrorCode.Conflict, $"Output directory is not empty: {dir}. Choose an empty or new directory.");
 
         // Project export gets 10x the normal timeout.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -313,7 +313,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            throw new ToolError($"Project export timed out after {options.TimeoutSeconds * 10}s. Partial output is in {dir}.");
+            throw new ToolError(ErrorCode.Timeout, $"Project export timed out after {options.TimeoutSeconds * 10}s. Partial output is in {dir}.");
         }
         IncludeEmbeddedReferences(asm, dir);
         ThrowInFailedBodies(dir);
@@ -472,7 +472,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            throw new ToolError($"Decompilation timed out after {options.TimeoutSeconds}s. Decompile a smaller unit (one method via decompile_member), use get_il, or restart the server with a larger --timeout.");
+            throw new ToolError(ErrorCode.Timeout, $"Decompilation timed out after {options.TimeoutSeconds}s. Decompile a smaller unit (one method via decompile_member), use get_il, or restart the server with a larger --timeout.");
         }
     }
 

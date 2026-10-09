@@ -51,7 +51,7 @@ public sealed class OutputPager(ServerOptions options)
         int max = Math.Clamp(maxChars is > 0 ? maxChars.Value : options.MaxOutputChars, 1_000, 500_000);
         if (offset < 0) offset = 0;
         if (offset >= text.Length && text.Length > 0)
-            throw new ToolError($"offset {offset} is past the end of the output ({text.Length} chars).");
+            throw new ToolError(ErrorCode.InvalidArgument, $"offset {offset} is past the end of the output ({text.Length} chars).");
         if (offset == 0 && text.Length <= max)
             return text;
 

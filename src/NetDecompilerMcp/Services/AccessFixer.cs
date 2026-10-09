@@ -142,7 +142,7 @@ internal static class AccessFixer
     /// <summary>Adds the attribute, defining its type if missing. Returns false if already present.</summary>
     private static bool AddIgnoresAccessChecksTo(ModuleDef module, string assemblyName)
     {
-        var assembly = module.Assembly ?? throw new ToolError("The target module has no assembly manifest.");
+        var assembly = module.Assembly ?? throw new ToolError(ErrorCode.Unsupported, "The target module has no assembly manifest.");
         var attrType = module.Find(IgnoresAccessChecksTo, isReflectionName: false) ?? DefineAttribute(module);
         var ctor = attrType.FindInstanceConstructors().First(c => c.MethodSig.Params.Count == 1);
         if (assembly.CustomAttributes.Any(ca => ca.AttributeType == attrType && ca.ConstructorArguments.FirstOrDefault().Value?.ToString() == assemblyName))

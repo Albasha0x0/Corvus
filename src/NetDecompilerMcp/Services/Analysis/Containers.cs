@@ -37,7 +37,7 @@ public static class Containers
         if (kind == "zip") return OpenZip(data, name, limits, ct);
         if (kind.StartsWith("xalz", StringComparison.Ordinal))
         {
-            var decoded = Blob.TryXalz(data, limits.MaxItemBytes) ?? throw new ToolError($"{name}: corrupt XALZ (LZ4) data.");
+            var decoded = Blob.TryXalz(data, limits.MaxItemBytes) ?? throw new ToolError(ErrorCode.MalformedInput, $"{name}: corrupt XALZ (LZ4) data.");
             return new ContainerContents("Xamarin XALZ", [new ExtractedItem(Path.GetFileName(name), decoded, "XALZ (LZ4) decompressed")], []);
         }
 
@@ -71,13 +71,13 @@ public static class Containers
         if (headerOffset == 0)
             return new ContainerContents(".NET apphost (not bundled)", [],
                 ["An apphost launcher without a bundle: the application is the .dll of the same name next to it."]);
-        if (headerOffset < 0 || headerOffset >= data.Length) throw new ToolError($"Corrupt single-file bundle: header offset 0x{headerOffset:X} is outside the file.");
+        if (headerOffset < 0 || headerOffset >= data.Length) throw new ToolError(ErrorCode.MalformedInput, $"Corrupt single-file bundle: header offset 0x{headerOffset:X} is outside the file.");
 
         var r = new SpanReader(data, (int)headerOffset);
         uint major = r.UInt32(), minor = r.UInt32();
         int count = r.Int32();
         string bundleId = r.String();
-        if (major is 0 or > 64 || count < 0 || count > limits.MaxItems) throw new ToolError($"Corrupt single-file bundle header (version {major}.{minor}, {count} files).");
+        if (major is 0 or > 64 || count < 0 || count > limits.MaxItems) throw new ToolError(ErrorCode.MalformedInput, $"Corrupt single-file bundle header (version {major}.{minor}, {count} files).");
         if (major >= 2) r.Skip(8 * 4 + 8); // deps.json / runtimeconfig.json locations and flags
 
         var items = new List<ExtractedItem>();
@@ -171,7 +171,7 @@ public static class Containers
         {
             // Truncated or carved zips lack a central directory; recover from local headers.
             var (recovered, skipped, complete) = RecoverLocalEntries(data, limits, ct);
-            if (recovered.Count == 0) throw new ToolError($"{name}: corrupt zip ({ex.Message}).");
+            if (recovered.Count == 0) throw new ToolError(ErrorCode.MalformedInput, $"{name}: corrupt zip ({ex.Message}).");
             var contents = ReadZipEntries(recovered.Select(e => (e.Name, (Func<byte[]?>)(() => e.Bytes))).ToList(), limits, ct);
             contents.Notes.Insert(0, $"Damaged zip ({ex.Message}): {recovered.Count} entr(ies) recovered from local headers"
                                      + (complete ? "." : "; the entries past the damage are lost."));
@@ -386,7 +386,7 @@ public static class Containers
 
         private ReadOnlySpan<byte> Take(int n)
         {
-            if (_pos < 0 || n < 0 || _pos > data.Length - n) throw new ToolError("Corrupt single-file bundle: the manifest is truncated.");
+            if (_pos < 0 || n < 0 || _pos > data.Length - n) throw new ToolError(ErrorCode.MalformedInput, "Corrupt single-file bundle: the manifest is truncated.");
             var s = data.AsSpan(_pos, n);
             _pos += n;
             return s;
@@ -408,9 +408,9 @@ public static class Containers
                 b = Byte();
                 len |= (b & 0x7F) << shift;
                 shift += 7;
-                if (shift > 28) throw new ToolError("Corrupt single-file bundle: bad string length.");
+                if (shift > 28) throw new ToolError(ErrorCode.MalformedInput, "Corrupt single-file bundle: bad string length.");
             } while ((b & 0x80) != 0);
-            if (len > 4096) throw new ToolError("Corrupt single-file bundle: path too long.");
+            if (len > 4096) throw new ToolError(ErrorCode.MalformedInput, "Corrupt single-file bundle: path too long.");
             return Encoding.UTF8.GetString(Take(len));
         }
     }

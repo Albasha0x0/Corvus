@@ -55,7 +55,7 @@ public sealed partial class CSharpPatcher
             var symbol = model.GetDeclaredSymbol(declaration, ct) as IMethodSymbol
                          ?? throw new ToolError($"Internal: no symbol for {declaration.Kind()}.");
             if (symbol.ReturnsByRef || symbol.ReturnsByRefReadonly)
-                throw new ToolError("ref returns are not supported by helper compilation.");
+                throw new ToolError(ErrorCode.Unsupported, "ref returns are not supported by helper compilation.");
             ns ??= symbol.ContainingType.ContainingNamespace;
             var name = $"{Sanitize(symbol.Name)}__ndm{i}";
             methods.Add((symbol, name));

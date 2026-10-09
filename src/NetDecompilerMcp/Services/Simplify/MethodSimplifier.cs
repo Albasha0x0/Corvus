@@ -22,7 +22,7 @@ public sealed record SimplifyOptions(bool Fold = true, bool ControlFlow = true, 
         if (names.Count == 0 || names.Contains("all")) return new SimplifyOptions(Limits: limits, DeterministicEnvironment: deterministicEnvironment);
         var unknown = names.Except(PassNames).ToList();
         if (unknown.Count > 0)
-            throw new ToolError($"Unknown pass '{unknown[0]}'. Passes: fold (evaluate string-producing calls), cfg (control-flow cleanup), inline (forwarder inlining and calls through delegate fields), or all.");
+            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown pass '{unknown[0]}'. Passes: fold (evaluate string-producing calls), cfg (control-flow cleanup), inline (forwarder inlining and calls through delegate fields), or all.");
         return new SimplifyOptions(names.Contains("fold"), names.Contains("cfg"), names.Contains("inline"), limits, deterministicEnvironment);
     }
 

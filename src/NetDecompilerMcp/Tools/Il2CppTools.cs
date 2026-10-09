@@ -52,7 +52,7 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
             symbols = withMetadata;
         }
         if (slot != null && !symbols.Any(s => s.Member is TypeDef))
-            throw new ToolError($"slot needs a type; '{symbol}' is not one.");
+            throw new ToolError(ErrorCode.InvalidArgument, $"slot needs a type; '{symbol}' is not one.");
         foreach (var sym in symbols.Take(25))
         {
             sb.AppendLine($"{sym.Kind} {sym.Label}  [{sym.Assembly.Id}] {Format.Token(sym.Member)}");
@@ -159,7 +159,7 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
             return;
         }
         if (Il2CppService.ParseNumber(slot) is not { } number || number > int.MaxValue)
-            throw new ToolError($"slot '{slot}' is not a number or 'all'.");
+            throw new ToolError(ErrorCode.InvalidArgument, $"slot '{slot}' is not a number or 'all'.");
         sb.AppendLine(vtable.TryGetValue((int)number, out var method)
             ? $"  slot {number}: {SlotLine(type, method)}"
             : $"  slot {number}: no method of {type.FullName} or its base types declares it" +
@@ -272,7 +272,7 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
         [Description("Max methods listed (default 20).")] int limit = DefaultListLimit,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
-        var value = Il2CppService.ParseAddress(address) ?? throw new ToolError($"'{address}' is not a valid hex address.");
+        var value = Il2CppService.ParseAddress(address) ?? throw new ToolError(ErrorCode.InvalidArgument, $"'{address}' is not a valid hex address.");
         offset = Math.Max(0, offset);
         limit = ClampLimit(limit);
         var scope = workspace.Scope(assembly);

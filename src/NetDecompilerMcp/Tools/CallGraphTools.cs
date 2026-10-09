@@ -30,7 +30,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
         {
             "callers" or "caller" or "up" or "in" => true,
             "callees" or "callee" or "down" or "out" => false,
-            _ => throw new ToolError($"Unknown direction '{direction}'. Use callers or callees."),
+            _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown direction '{direction}'. Use callers or callees."),
         };
         var text = graph.Tree(sym.Assembly, (MethodDef)sym.Member, callers, Math.Clamp(depth, 1, 8), ClampLimit(maxNodes, 20_000), includeExternal, cancellationToken);
         return pager.Page(text, offset, maxChars);

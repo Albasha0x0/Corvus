@@ -232,7 +232,7 @@ public static class Blob
         var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
         var full = Path.GetFullPath(Path.Combine(fullRoot, relative));
         if (!full.StartsWith(fullRoot, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
-            throw new ToolError($"Refusing to write outside {fullRoot}: {relative}");
+            throw new ToolError(ErrorCode.InvalidArgument, $"Refusing to write outside {fullRoot}: {relative}");
         return full;
     }
 

@@ -33,7 +33,7 @@ public sealed class AssemblyComparer(AssemblyWorkspace workspace)
     public Comparison Compare(LoadedAssembly oldAsm, LoadedAssembly newAsm, CancellationToken ct)
     {
         if (oldAsm == newAsm)
-            throw new ToolError("Pick two different assemblies (load both builds; the second gets an id like Name#2).");
+            throw new ToolError(ErrorCode.InvalidArgument, "Pick two different assemblies (load both builds; the second gets an id like Name#2).");
         long key = ((long)workspace.Generation << 32) | (uint)(oldAsm.Version * 65_537 + newAsm.Version);
         var inner = _cache.GetOrCreateValue(oldAsm);
         if (inner.TryGetValue(newAsm, out var cached) && cached.Key == key)

@@ -280,7 +280,7 @@ public sealed class Il2CppStringIndex
         }
         catch (Exception ex) when (ex is System.Text.Json.JsonException or IOException or UnauthorizedAccessException)
         {
-            throw new ToolError($"Cannot read {source}: {ex.Message}");
+            throw new ToolError(ErrorCode.IoError, $"Cannot read {source}: {ex.Message}");
         }
         list.Sort((a, b) => a.Address.CompareTo(b.Address));
         var values = list.Select(s => s.Value).ToArray();

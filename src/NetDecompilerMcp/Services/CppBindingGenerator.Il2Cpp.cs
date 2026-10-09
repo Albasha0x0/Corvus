@@ -249,7 +249,7 @@ public sealed partial class CppBindingGenerator
             bool byToken = s.Overloaded.Contains((method.Name.String, argc));
             decls.AppendLine($"    const MethodInfo* {m} = nullptr;{Pad(m)}// {Format.Method(method)}{Address(method)}");
             if (byToken && method.DeclaringType != type)
-                throw new ToolError($"{Format.MemberLabel(method)} is overloaded on the base class {method.DeclaringType.FullName}: generate a binding for that class.");
+                throw new ToolError(ErrorCode.Unsupported, $"{Format.MemberLabel(method)} is overloaded on the base class {method.DeclaringType.FullName}: generate a binding for that class.");
             resolve.AppendLine(byToken
                 ? $"        {m} = MethodByToken(api, klass, 0x{MetadataToken(method):X8});  // overloaded {method.Name}({MonoParams(method)})"
                 : method.DeclaringType != type

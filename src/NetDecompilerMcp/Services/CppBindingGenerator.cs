@@ -52,7 +52,7 @@ public sealed partial class CppBindingGenerator
     public static string NormalizeStyle(string style)
     {
         var s = style.Trim().ToLowerInvariant();
-        return Styles.Contains(s) ? s : throw new ToolError($"Unknown style '{style}': use {string.Join(" or ", Styles)}.");
+        return Styles.Contains(s) ? s : throw new ToolError(ErrorCode.InvalidArgument, $"Unknown style '{style}': use {string.Join(" or ", Styles)}.");
     }
 
     /// <summary>
@@ -159,7 +159,7 @@ public sealed partial class CppBindingGenerator
             if (unknown.Count > 0)
             {
                 var staticBaseFields = unknown.Where(n => BaseChain(type).Any(b => b.Fields.Any(f => f.Name == n && f.IsStatic && !f.IsLiteral))).ToList();
-                throw new ToolError($"{type.FullName} has no bindable member(s): {string.Join(", ", unknown)}." +
+                throw new ToolError(ErrorCode.InvalidArgument, $"{type.FullName} has no bindable member(s): {string.Join(", ", unknown)}." +
                     (staticBaseFields.Count > 0 ? $" Static fields of a base class ({string.Join(", ", staticBaseFields)}) live in that class's static data: generate a binding for the base class." : ""));
             }
         }
@@ -374,7 +374,7 @@ public sealed partial class CppBindingGenerator
             bool byToken = s.Overloaded.Contains((method.Name.String, argc));
             decls.AppendLine($"    MonoMethod* {m} = nullptr;{Pad(m)}// {Format.Method(method)}");
             if (byToken && method.DeclaringType != type)
-                throw new ToolError($"{Format.MemberLabel(method)} is overloaded on the base class {method.DeclaringType.FullName}: generate a binding for that class.");
+                throw new ToolError(ErrorCode.Unsupported, $"{Format.MemberLabel(method)} is overloaded on the base class {method.DeclaringType.FullName}: generate a binding for that class.");
             resolve.AppendLine(byToken
                 ? $"        {m} = MethodByToken(api, klass, 0x{method.MDToken.Raw:X8});  // overloaded {method.Name}({MonoParams(method)})"
                 : method.DeclaringType != type
@@ -542,7 +542,7 @@ public sealed partial class CppBindingGenerator
             decls.AppendLine($"    {hmethod} {m} = nullptr;{Pad(m)}// {Format.Method(method)}");
             bool exact = s.Overloaded.Contains((method.Name.String, argc));
             if (exact && method.DeclaringType != type)
-                throw new ToolError($"{Format.MemberLabel(method)} is overloaded on the base class {method.DeclaringType.FullName}: generate a binding for that class.");
+                throw new ToolError(ErrorCode.Unsupported, $"{Format.MemberLabel(method)} is overloaded on the base class {method.DeclaringType.FullName}: generate a binding for that class.");
             if (exact) used.Add("GetMethodExact");
             if (!exact && method.DeclaringType != type) used.Add("GetMethodInHierarchy");
             resolve.AppendLine(exact

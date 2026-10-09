@@ -225,7 +225,7 @@ public sealed class SearchService
             && ulong.TryParse(s[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var hex))
             result = hex;
         else if (!decimal.TryParse(s.TrimEnd('f', 'F', 'd', 'D', 'L', 'l', 'u', 'U'), NumberStyles.Float, CultureInfo.InvariantCulture, out result))
-            throw new ToolError($"'{value}' is not a number. Use search_strings for text.");
+            throw new ToolError(ErrorCode.InvalidArgument, $"'{value}' is not a number. Use search_strings for text.");
         return negative ? -result : result;
     }
 
@@ -309,7 +309,7 @@ public sealed class SearchService
     {
         var parts = pattern.Split([';', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (parts.Length == 0)
-            throw new ToolError("IL pattern is empty.");
+            throw new ToolError(ErrorCode.InvalidArgument, "IL pattern is empty.");
         var list = new List<PatternElement>();
         foreach (var part in parts)
         {
@@ -320,7 +320,7 @@ public sealed class SearchService
             list.Add(new PatternElement(op == "*" ? null : Glob(op), string.IsNullOrEmpty(operand) || operand == "*" ? null : Glob(operand), false));
         }
         if (list.All(p => p.IsGap))
-            throw new ToolError("IL pattern needs at least one instruction element.");
+            throw new ToolError(ErrorCode.InvalidArgument, "IL pattern needs at least one instruction element.");
         return list;
     }
 
@@ -374,14 +374,14 @@ public sealed class SearchService
     public static Func<string, bool> CreateMatcher(string query, bool regex)
     {
         if (string.IsNullOrEmpty(query))
-            throw new ToolError("Query is empty.");
+            throw new ToolError(ErrorCode.InvalidArgument, "Query is empty.");
         if (!regex && (query.Contains('*') || query.Contains('?')))
             return Glob(query);
         if (!regex)
             return s => s.Contains(query, StringComparison.OrdinalIgnoreCase);
         Regex re;
         try { re = new Regex(query, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)); }
-        catch (ArgumentException ex) { throw new ToolError($"Invalid regex: {ex.Message}"); }
+        catch (ArgumentException ex) { throw new ToolError(ErrorCode.InvalidArgument, $"Invalid regex: {ex.Message}"); }
         return s =>
         {
             try { return re.IsMatch(s); }

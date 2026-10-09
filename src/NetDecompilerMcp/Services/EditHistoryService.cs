@@ -38,7 +38,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
     public string Export(LoadedAssembly asm, string path)
     {
         if (asm.Edits.Count == 0)
-            throw new ToolError($"{asm.Id} has no edits to export.");
+            throw new ToolError(ErrorCode.NotFound, $"{asm.Id} has no edits to export.");
         var original = asm.GetOriginalView(workspace.DnlibContext).Module;
         var script = new Script(ScriptFormat, asm.AssemblyName, original.Mvid?.ToString(), DateTime.UtcNow,
             asm.Edits.Select(e => new ScriptEdit(e.Kind, e.Args.ToDictionary(kv => kv.Key, kv => kv.Value), e.Description)).ToList());
@@ -52,12 +52,12 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
     {
         var full = Path.GetFullPath(path);
         if (!File.Exists(full))
-            throw new ToolError($"File not found: {full}");
+            throw new ToolError(ErrorCode.NotFound, $"File not found: {full}");
         Script? script;
         try { script = JsonSerializer.Deserialize<Script>(File.ReadAllText(full), Json); }
-        catch (JsonException ex) { throw new ToolError($"{full} is not a valid edit script: {ex.Message}"); }
+        catch (JsonException ex) { throw new ToolError(ErrorCode.MalformedInput, $"{full} is not a valid edit script: {ex.Message}"); }
         if (script == null || script.Format != ScriptFormat || script.Edits == null)
-            throw new ToolError($"{full} is not a net-decompiler edit script (expected format '{ScriptFormat}').");
+            throw new ToolError(ErrorCode.MalformedInput, $"{full} is not a net-decompiler edit script (expected format '{ScriptFormat}').");
         return script;
     }
 
@@ -160,7 +160,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
         if (asm.Edits.Count == 0)
             return $"{asm.Id} has no edits.";
         var selected = number is { } n
-            ? (n >= 1 && n <= asm.Edits.Count ? [(n, asm.Edits[n - 1])] : throw new ToolError($"Edit #{n} does not exist; {asm.Id} has {asm.Edits.Count} edit(s)."))
+            ? (n >= 1 && n <= asm.Edits.Count ? [(n, asm.Edits[n - 1])] : throw new ToolError(ErrorCode.NotFound, $"Edit #{n} does not exist; {asm.Id} has {asm.Edits.Count} edit(s)."))
             : asm.Edits.Select((e, i) => (i + 1, e)).ToList();
 
         var originalView = asm.GetOriginalView(workspace.DnlibContext);

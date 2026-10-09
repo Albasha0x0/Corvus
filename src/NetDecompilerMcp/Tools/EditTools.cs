@@ -208,7 +208,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         if (string.IsNullOrWhiteSpace(symbol))
         {
             if (string.IsNullOrWhiteSpace(assembly))
-                throw new ToolError("Pass a method or type, or an assembly to simplify all of its methods.");
+                throw new ToolError(ErrorCode.InvalidArgument, "Pass a method or type, or an assembly to simplify all of its methods.");
             asm = workspace.Get(assembly);
         }
         else

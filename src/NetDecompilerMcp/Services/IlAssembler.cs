@@ -43,7 +43,7 @@ public sealed class IlAssembler(AssemblyWorkspace workspace)
     {
         var lines = Tokenize(source);
         if (lines.Count == 0)
-            throw new ToolError("No IL instructions found in the patch text.");
+            throw new ToolError(ErrorCode.InvalidArgument, "No IL instructions found in the patch text.");
 
         var module = method.Module;
         var importer = new Importer(module, ImporterOptions.TryToUseDefs);
@@ -113,7 +113,7 @@ public sealed class IlAssembler(AssemblyWorkspace workspace)
             if (text.StartsWith(".try", StringComparison.Ordinal) || text.StartsWith("catch", StringComparison.Ordinal)
                 || text.StartsWith("finally", StringComparison.Ordinal) || text.StartsWith("fault", StringComparison.Ordinal)
                 || text.StartsWith("filter", StringComparison.Ordinal))
-                throw new ToolError($"Line {i + 1}: exception-handling blocks are not supported in patches. Use mode=prepend to keep the original body (and its try/catch), or patch a method without handlers.");
+                throw new ToolError(ErrorCode.Unsupported, $"Line {i + 1}: exception-handling blocks are not supported in patches. Use mode=prepend to keep the original body (and its try/catch), or patch a method without handlers.");
             if (text is "{" or "}" || (text.StartsWith('.') && !text.StartsWith(".local ", StringComparison.OrdinalIgnoreCase)))
                 continue; // .maxstack, .locals init (...), braces
 

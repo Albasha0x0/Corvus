@@ -126,6 +126,8 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["export_il2cpp_symbols"] = (new() { ["outputDirectory"] = _dir.File("il2cpp"), ["assembly"] = "TestFixture" }, "Exported 2 functions"),
         ["generate_cpp_binding"] = (new() { ["type"] = "Account" }, "FindClass(api, \"TestFixture\", \"Fixture.Model\", \"Account\")"),
         ["save_assembly"] = (new() { ["assembly"] = "TestFixture", ["outputPath"] = _dir.File("saved.dll") }, "Wrote"),
+        ["server_status"] = (new(), "\"catalogDigest\""),
+        ["read_result"] = (new() { ["id"] = "r999" }, "Error (not_found) in read_result"),
         ["unload_assembly"] = (new() { ["assembly"] = "TestFixture.Consumer" }, "Unloaded"),
     };
 
@@ -154,7 +156,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         {
             foreach (var (tool, (args, expect)) in ToolCases()) // order matters: edits build on each other, unload last
             {
-                var text = await Call(tool, args);
+                var text = await Call(tool, args, expectError: expect.StartsWith("Error (", StringComparison.Ordinal));
                 Assert.True(text.Contains(expect, StringComparison.Ordinal), $"{tool}: expected '{expect}' in:\n{text}");
             }
             Assert.Contains("return 7;", await Call("decompile_member", new() { ["member"] = "Account::Score" }));

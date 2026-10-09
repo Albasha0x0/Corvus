@@ -165,7 +165,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         if (string.IsNullOrWhiteSpace(symbol))
         {
             if (string.IsNullOrWhiteSpace(assembly))
-                throw new ToolError("Pass symbol, or assembly for assembly-level attributes.");
+                throw new ToolError(ErrorCode.InvalidArgument, "Pass symbol, or assembly for assembly-level attributes.");
             var asm = workspace.Get(assembly);
             if (asm.Module.Assembly != null) Section($"Assembly {asm.FullAssemblyName}:", asm.Module.Assembly);
             Section($"Module {asm.Module.Name}:", asm.Module);

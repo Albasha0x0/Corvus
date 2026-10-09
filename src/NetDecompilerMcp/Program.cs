@@ -34,6 +34,7 @@ builder.Services
     .AddSingleton(options)
     .AddSingleton<AssemblyWorkspace>()
     .AddSingleton<OutputPager>()
+    .AddSingleton<ResultStore>()
     .AddSingleton<DecompilerService>()
     .AddSingleton<SearchService>()
     .AddSingleton<ReferenceService>()
@@ -84,6 +85,9 @@ builder.Services
             // Transformed names made of zero-width and bidi characters would print as nothing or scramble the line.
             foreach (var block in result.Content.OfType<TextContentBlock>())
                 block.Text = NetDecompilerMcp.Core.Format.EscapeInvisible(block.Text);
+            if (context.Services is { } services)
+                result = ResponseBudget.Enforce(result, context.Params?.Name, services.GetRequiredService<ServerOptions>(),
+                    services.GetRequiredService<ResultStore>(), context.Params);
             // Prepend pending workspace notices; trailing blank line because clients join content blocks without a separator.
             var notices = context.Services?.GetService<AssemblyWorkspace>()?.DrainNotices();
             if (notices is { Count: > 0 })

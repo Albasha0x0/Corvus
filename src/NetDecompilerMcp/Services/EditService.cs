@@ -16,7 +16,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
     public string Rename(ResolvedSymbol symbol, string newName, bool dryRun = false)
     {
         if (string.IsNullOrWhiteSpace(newName))
-            throw new ToolError("New name is empty.");
+            throw new ToolError(ErrorCode.InvalidArgument, "New name is empty.");
         var member = symbol.Member;
         var oldLabel = symbol.Label;
         if (dryRun)
@@ -28,7 +28,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
                 t.Name = newName;
                 break;
             case MethodDef m:
-                if (m.IsConstructor) throw new ToolError("Constructors cannot be renamed.");
+                if (m.IsConstructor) throw new ToolError(ErrorCode.Unsupported, "Constructors cannot be renamed.");
                 m.Name = newName;
                 break;
             case PropertyDef p:
@@ -46,7 +46,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
                 f.Name = newName;
                 break;
             default:
-                throw new ToolError($"Cannot rename {member.GetType().Name}.");
+                throw new ToolError(ErrorCode.Unsupported, $"Cannot rename {member.GetType().Name}.");
         }
         var description = $"rename {symbol.Kind} {oldLabel} -> {newName}";
         var args = SymbolArgs("symbol", symbol, oldLabel);
@@ -63,7 +63,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
             .ToList();
         int count = targets.Count;
         if (count == 0)
-            throw new ToolError($"No types in namespace '{oldNamespace}' in {asm.Id}.");
+            throw new ToolError(ErrorCode.NotFound, $"No types in namespace '{oldNamespace}' in {asm.Id}.");
         if (dryRun)
             return $"Dry run — would move {count} types: " + string.Join(", ", targets.Take(30).Select(t => t.FullName)) + (count > 30 ? ", …" : "");
         foreach (var t in targets)
@@ -94,7 +94,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         if (ret.ElementType == ElementType.Void)
         {
             if (!string.IsNullOrWhiteSpace(value) && value != "default")
-                throw new ToolError($"{symbol.Label} returns void; omit the value.");
+                throw new ToolError(ErrorCode.InvalidArgument, $"{symbol.Label} returns void; omit the value.");
             shown = "return;";
         }
         else
@@ -149,12 +149,12 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         if (!isValueType)
         {
             if (!isDefault && value != "null")
-                throw new ToolError($"Only null/default can be returned for reference type {Format.Type(ret)}.");
+                throw new ToolError(ErrorCode.Unsupported, $"Only null/default can be returned for reference type {Format.Type(ret)}.");
             il.Add(OpCodes.Ldnull.ToInstruction());
             return;
         }
         if (!isDefault)
-            throw new ToolError($"Only 'default' is supported for {Format.Type(ret)}.");
+            throw new ToolError(ErrorCode.Unsupported, $"Only 'default' is supported for {Format.Type(ret)}.");
         // default(T) for structs / generic parameters: initobj a local and return it.
         var local = body.Variables.Add(new Local(ret));
         il.Add(OpCodes.Ldloca.ToInstruction(local));
@@ -166,7 +166,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
     {
         "true" or "1" => true,
         "false" or "0" => false,
-        _ => throw new ToolError($"'{v}' is not a bool (use true/false)."),
+        _ => throw new ToolError(ErrorCode.InvalidArgument, $"'{v}' is not a bool (use true/false)."),
     };
 
     private static long ParseInteger(string v, bool allowChar)
@@ -177,7 +177,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
             return unchecked((long)hex);
         if (long.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var d)) return d;
         if (ulong.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var u)) return unchecked((long)u);
-        throw new ToolError($"'{v}' is not an integer.");
+        throw new ToolError(ErrorCode.InvalidArgument, $"'{v}' is not an integer.");
     }
 
     private static string Unquote(string v) =>
@@ -194,15 +194,15 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         {
             "replace" or "" => false,
             "prepend" or "prefix" or "insert" => true,
-            _ => throw new ToolError($"Unknown mode '{mode}'. Use replace or prepend."),
+            _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown mode '{mode}'. Use replace or prepend."),
         };
 
         var oldBody = MetadataUtil.SafeBody(m);
         if (prepend && oldBody == null)
-            throw new ToolError($"{symbol.Label} has no existing body to prepend to; use mode=replace.");
+            throw new ToolError(ErrorCode.InvalidArgument, $"{symbol.Label} has no existing body to prepend to; use mode=replace.");
         // The loaded body is not valid IL (e.g. encrypted) and no edit has replaced it.
         if (prepend && symbol.Assembly.BodyHealth.IsInvalid(m) && !symbol.Assembly.Edits.Any(e => e.Description.Contains(symbol.Label, StringComparison.Ordinal)))
-            throw new ToolError($"The body of {symbol.Label} is not valid IL (encrypted, or dumped from memory before decryption): there is no code to " +
+            throw new ToolError(ErrorCode.Unsupported, $"The body of {symbol.Label} is not valid IL (encrypted, or dumped from memory before decryption): there is no code to " +
                                 "prepend to. Use mode=replace (or patch_method_csharp / stub_method), or load the decrypted image.");
 
         var assembled = assembler.Assemble(m, il, oldBody?.Instructions);
@@ -211,9 +211,9 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         var handlers = prepend ? oldBody!.ExceptionHandlers.ToList() : new List<ExceptionHandler>();
 
         if (final.Count == 0 || !IsTerminator(final[^1].OpCode))
-            throw new ToolError("The patched body must end with ret, throw, rethrow or an unconditional branch.");
+            throw new ToolError(ErrorCode.InvalidArgument, "The patched body must end with ret, throw, rethrow or an unconditional branch.");
         if (!dnlib.DotNet.Writer.MaxStackCalculator.GetMaxStack(final, handlers, out uint maxStack))
-            throw new ToolError("Stack imbalance: the IL leaves the evaluation stack inconsistent (check pushes/pops before branches and ret).");
+            throw new ToolError(ErrorCode.InvalidArgument, "Stack imbalance: the IL leaves the evaluation stack inconsistent (check pushes/pops before branches and ret).");
 
         string listing;
         try
@@ -371,7 +371,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
             MethodDef m => [m],
             PropertyDef p => p.GetMethods.Concat(p.SetMethods).Concat(p.OtherMethods),
             EventDef e => new[] { e.AddMethod, e.RemoveMethod, e.InvokeMethod }.OfType<MethodDef>().Concat(e.OtherMethods),
-            _ => throw new ToolError($"{symbol.Label} is a {symbol.Kind}; pass a method, a type, or omit the symbol for the whole assembly."),
+            _ => throw new ToolError(ErrorCode.InvalidArgument, $"{symbol.Label} is a {symbol.Kind}; pass a method, a type, or omit the symbol for the whole assembly."),
         }).Where(m => m.HasBody).ToList();
     }
 
@@ -475,7 +475,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         "add_types_csharp" => AddTypesCSharp(asm, Required(record, "code"), false, ct),
         "simplify_methods" => SimplifyMethods(asm, record.Arg("symbol") == null ? null : Recorded(asm, record, "symbol", preferTokens),
             SimplifyOptions.Parse(record.Arg("passes"), IntArg(record, "maxDepth"), IntArg(record, "budget"), record.Arg("deterministicEnvironment") == "true"), false, ct),
-        _ => throw new ToolError($"Unknown edit kind '{record.Kind}'."),
+        _ => throw new ToolError(ErrorCode.MalformedInput, $"Unknown edit kind '{record.Kind}'."),
     };
 
     /// <summary>Undoes one edit (1-based number; default the last) by rebuilding from the original image and replaying the others.</summary>
@@ -483,10 +483,10 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
     {
         var records = asm.Edits.ToList();
         if (records.Count == 0)
-            throw new ToolError($"{asm.Id} has no edits to undo.");
+            throw new ToolError(ErrorCode.NotFound, $"{asm.Id} has no edits to undo.");
         int index = (number ?? records.Count) - 1;
         if (index < 0 || index >= records.Count)
-            throw new ToolError($"Edit #{index + 1} does not exist; {asm.Id} has {records.Count} edit(s) (see list_edits).");
+            throw new ToolError(ErrorCode.NotFound, $"Edit #{index + 1} does not exist; {asm.Id} has {records.Count} edit(s) (see list_edits).");
         var removed = records[index];
         records.RemoveAt(index);
         Rebuild(asm, records, ct);
@@ -520,7 +520,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
                 // Report the number list_edits showed before; undoing an earlier edit shifts later ones.
                 int number = previousEdits.IndexOf(records[i]) is >= 0 and var at ? at + 1 : i + 1;
                 var reason = ex.Message.TrimEnd().Replace("Nothing was changed.", "").TrimEnd();
-                throw new ToolError($"Edit #{number} ({records[i].Description}) could not be re-applied: {reason}\nNothing was changed.");
+                throw new ToolError(ErrorCode.Conflict, $"Edit #{number} ({records[i].Description}) could not be re-applied: {reason}\nNothing was changed.");
             }
         }
         previousModule.Dispose();
@@ -552,16 +552,16 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         int.TryParse(record.Arg(key), NumberStyles.Integer, CultureInfo.InvariantCulture, out int v) ? v : null;
 
     private static string Required(EditRecord record, string key) =>
-        record.Arg(key) ?? throw new ToolError($"Edit '{record.Kind}' is missing its '{key}' argument.");
+        record.Arg(key) ?? throw new ToolError(ErrorCode.MalformedInput, $"Edit '{record.Kind}' is missing its '{key}' argument.");
 
     private static MethodDef RequireBodyMethod(ResolvedSymbol symbol)
     {
         if (symbol.Member is not MethodDef m)
-            throw new ToolError($"{symbol.Label} is a {symbol.Kind}, not a method.");
+            throw new ToolError(ErrorCode.InvalidArgument, $"{symbol.Label} is a {symbol.Kind}, not a method.");
         if (m.IsAbstract || m.IsPinvokeImpl || m.IsRuntime || m.IsInternalCall)
-            throw new ToolError($"{symbol.Label} has no IL body (abstract/extern/runtime).");
+            throw new ToolError(ErrorCode.Unsupported, $"{symbol.Label} has no IL body (abstract/extern/runtime).");
         if (m.MethodSig is not { RetType: not null } sig || sig.Params.Any(p => p == null))
-            throw new ToolError($"{symbol.Label} has a signature that cannot be read (malformed metadata); it cannot be patched.");
+            throw new ToolError(ErrorCode.MalformedInput, $"{symbol.Label} has a signature that cannot be read (malformed metadata); it cannot be patched.");
         return m;
     }
 
@@ -596,7 +596,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
 
         bool isOriginal = string.Equals(target, asm.FilePath, StringComparison.OrdinalIgnoreCase);
         if (File.Exists(target) && !overwrite)
-            throw new ToolError($"{target} already exists. Pass overwrite=true to replace it{(isOriginal ? " (the original will be backed up to .bak)" : "")}.");
+            throw new ToolError(ErrorCode.Conflict, $"{target} already exists. Pass overwrite=true to replace it{(isOriginal ? " (the original will be backed up to .bak)" : "")}.");
 
         byte[] image;
         SaveReport report;
@@ -606,10 +606,10 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         }
         catch (Exception ex) when (ex is not (ToolError or OperationCanceledException))
         {
-            throw new ToolError($"Could not write {asm.Id}: {ex.GetType().Name}: {ex.Message.TrimEnd('.')}. Nothing was written.");
+            throw new ToolError(ErrorCode.IoError, $"Could not write {asm.Id}: {ex.GetType().Name}: {ex.Message.TrimEnd('.')}. Nothing was written.");
         }
         if (strict && report.HasChanges)
-            throw new ToolError($"Not saved (strict=true): {report.Changed.Count()} member(s) would be written differently from the original " +
+            throw new ToolError(ErrorCode.Conflict, $"Not saved (strict=true): {report.Changed.Count()} member(s) would be written differently from the original " +
                                 $"without an edit asking for it. Nothing was written; save without strict to accept the changes listed.{report.Describe()}");
 
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);

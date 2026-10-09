@@ -78,7 +78,7 @@ public sealed class AssemblyWorkspace : IDisposable
     {
         var full = Path.GetFullPath(directory);
         if (!Directory.Exists(full))
-            throw new ToolError($"Directory not found: {full}");
+            throw new ToolError(ErrorCode.NotFound, $"Directory not found: {full}");
         Write(() =>
         {
             if (!_searchDirectories.Contains(full, StringComparer.OrdinalIgnoreCase))
@@ -100,7 +100,7 @@ public sealed class AssemblyWorkspace : IDisposable
     {
         var full = Path.GetFullPath(path);
         if (!File.Exists(full))
-            throw new ToolError($"File not found: {full}");
+            throw new ToolError(ErrorCode.NotFound, $"File not found: {full}");
 
         var existing = _assemblies.FirstOrDefault(a => string.Equals(a.FilePath, full, StringComparison.OrdinalIgnoreCase));
         if (existing != null)
@@ -116,7 +116,7 @@ public sealed class AssemblyWorkspace : IDisposable
         }
         catch (Exception ex)
         {
-            throw new ToolError($"Not a loadable .NET assembly: {full} ({ex.Message})");
+            throw new ToolError(ErrorCode.Unsupported, $"Not a loadable .NET assembly: {full} ({ex.Message})");
         }
         module.Location = full;
 
@@ -137,7 +137,7 @@ public sealed class AssemblyWorkspace : IDisposable
     {
         var full = Path.GetFullPath(directory);
         if (!Directory.Exists(full))
-            throw new ToolError($"Directory not found: {full}");
+            throw new ToolError(ErrorCode.NotFound, $"Directory not found: {full}");
 
         var files = Directory.EnumerateFiles(full, "*.*", recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly)
             .Where(f => f.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
@@ -196,10 +196,10 @@ public sealed class AssemblyWorkspace : IDisposable
     public LoadedAssembly Get(string identifier)
     {
         if (string.IsNullOrWhiteSpace(identifier))
-            throw new ToolError("Assembly identifier is empty.");
+            throw new ToolError(ErrorCode.InvalidArgument, "Assembly identifier is empty.");
         var all = _assemblies;
         if (all.Count == 0)
-            throw new ToolError("No assemblies are loaded. Call load_assembly first.");
+            throw new ToolError(ErrorCode.NotLoaded, "No assemblies are loaded. Call load_assembly first.");
 
         var id = identifier.Trim();
         var matches = all.Where(a => a.Id.Equals(id, StringComparison.OrdinalIgnoreCase)).ToList();
@@ -212,8 +212,8 @@ public sealed class AssemblyWorkspace : IDisposable
         if (matches.Count == 1)
             return matches[0];
         if (matches.Count > 1)
-            throw new ToolError($"'{identifier}' matches several loaded assemblies: {string.Join(", ", matches.Select(m => $"{m.Id} ({m.FilePath})"))}. Use the id.");
-        throw new ToolError($"No loaded assembly matches '{identifier}'. Loaded: {string.Join(", ", all.Select(a => a.Id))}");
+            throw new ToolError(ErrorCode.Ambiguous, $"'{identifier}' matches several loaded assemblies: {string.Join(", ", matches.Select(m => $"{m.Id} ({m.FilePath})"))}. Use the id.");
+        throw new ToolError(ErrorCode.NotFound, $"No loaded assembly matches '{identifier}'. Loaded: {string.Join(", ", all.Select(a => a.Id))}");
     }
 
     /// <summary>Resolves an optional assembly parameter; null or empty means all loaded assemblies.</summary>
@@ -222,7 +222,7 @@ public sealed class AssemblyWorkspace : IDisposable
         if (string.IsNullOrWhiteSpace(identifier))
         {
             if (_assemblies.Count == 0)
-                throw new ToolError("No assemblies are loaded. Call load_assembly first.");
+                throw new ToolError(ErrorCode.NotLoaded, "No assemblies are loaded. Call load_assembly first.");
             return _assemblies.ToArray();
         }
         return [Get(identifier)];

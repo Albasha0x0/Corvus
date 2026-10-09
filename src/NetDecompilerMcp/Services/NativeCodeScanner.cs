@@ -19,9 +19,9 @@ public static class NativeCodeScanner
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         PEHeaders headers;
         try { headers = new PEHeaders(stream); }
-        catch (BadImageFormatException ex) { throw new ToolError($"{Path.GetFileName(path)} is not a PE image: {ex.Message}"); }
+        catch (BadImageFormatException ex) { throw new ToolError(ErrorCode.MalformedInput, $"{Path.GetFileName(path)} is not a PE image: {ex.Message}"); }
         if (headers.CoffHeader.Machine != Machine.Amd64)
-            throw new ToolError($"{Path.GetFileName(path)} is a {headers.CoffHeader.Machine} image; only x64 code is scanned.");
+            throw new ToolError(ErrorCode.Unsupported, $"{Path.GetFileName(path)} is a {headers.CoffHeader.Machine} image; only x64 code is scanned.");
         return headers.SectionHeaders.Select(s => new Section(s.Name, (uint)s.VirtualAddress, (uint)s.VirtualSize, (uint)s.PointerToRawData,
             (uint)s.SizeOfRawData, (s.SectionCharacteristics & SectionCharacteristics.MemExecute) != 0)).ToList();
     }
@@ -31,7 +31,7 @@ public static class NativeCodeScanner
     {
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         try { return new PEHeaders(stream).PEHeader?.ImageBase ?? 0; }
-        catch (BadImageFormatException ex) { throw new ToolError($"{Path.GetFileName(path)} is not a PE image: {ex.Message}"); }
+        catch (BadImageFormatException ex) { throw new ToolError(ErrorCode.MalformedInput, $"{Path.GetFileName(path)} is not a PE image: {ex.Message}"); }
     }
 
     private const int ChunkSize = 1 << 20;

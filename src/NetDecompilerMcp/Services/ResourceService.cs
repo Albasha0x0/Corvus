@@ -42,9 +42,9 @@ public sealed class ResourceService
     {
         var res = asm.Module.Resources.FirstOrDefault(r => r.Name == name)
                   ?? asm.Module.Resources.FirstOrDefault(r => string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase))
-                  ?? throw new ToolError($"Resource '{name}' not found in {asm.Id}. Available: {string.Join(", ", asm.Module.Resources.Select(r => r.Name.String))}");
+                  ?? throw new ToolError(ErrorCode.NotFound, $"Resource '{name}' not found in {asm.Id}. Available: {string.Join(", ", asm.Module.Resources.Select(r => r.Name.String))}");
         if (res is not EmbeddedResource er)
-            throw new ToolError($"Resource '{name}' is not embedded ({res.ResourceType}); it lives outside this assembly.");
+            throw new ToolError(ErrorCode.Unsupported, $"Resource '{name}' is not embedded ({res.ResourceType}); it lives outside this assembly.");
 
         byte[] data = er.CreateReader().ToArray();
         var set = name.EndsWith(".resources", StringComparison.OrdinalIgnoreCase) ? TryReadSet(asm, er) : null;
@@ -64,11 +64,11 @@ public sealed class ResourceService
         {
             var el = set.ResourceElements.FirstOrDefault(e => e.Name == entry)
                      ?? set.ResourceElements.FirstOrDefault(e => string.Equals(e.Name, entry, StringComparison.OrdinalIgnoreCase))
-                     ?? throw new ToolError($"Entry '{entry}' not found in {name}.");
+                     ?? throw new ToolError(ErrorCode.NotFound, $"Entry '{entry}' not found in {name}.");
             var bytes = EntryBytes(el.ResourceData);
             if (savePath != null)
             {
-                if (bytes == null) throw new ToolError($"Entry '{entry}' is a {DescribeType(el.ResourceData)} value; nothing binary to save. Value: {Preview(el.ResourceData, 500)}");
+                if (bytes == null) throw new ToolError(ErrorCode.InvalidArgument, $"Entry '{entry}' is a {DescribeType(el.ResourceData)} value; nothing binary to save. Value: {Preview(el.ResourceData, 500)}");
                 Save(savePath, bytes);
                 return $"Saved entry '{entry}' ({bytes.Length} bytes) to {Path.GetFullPath(savePath)}";
             }

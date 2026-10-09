@@ -117,11 +117,11 @@ public sealed class Il2CppNavigator(AssemblyWorkspace workspace, Il2CppService i
             "va" => "va",
             "offset" or "fileoffset" => "offset",
             "auto" or "any" or "" => "auto",
-            _ => throw new ToolError($"Unknown address kind '{kind}'. Use rva, va, offset or auto."),
+            _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown address kind '{kind}'. Use rva, va, offset or auto."),
         };
         var images = ImagesFor(scope);
         if (images.Count == 0)
-            throw new ToolError("No Il2Cpp address attributes found in the selected assemblies. This only works on Il2CppDumper/Cpp2IL dummy DLLs that carry [Address] attributes.");
+            throw new ToolError(ErrorCode.Unsupported, "No Il2Cpp address attributes found in the selected assemblies. This only works on Il2CppDumper/Cpp2IL dummy DLLs that carry [Address] attributes.");
 
         var results = new List<AddressResult>();
         foreach (var image in images)

@@ -109,7 +109,7 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
     private static void RequireFew(IReadOnlyList<ResolvedSymbol> all, string query)
     {
         if (all.Count > MaxMembersPerCall)
-            throw new ToolError($"'{query}' matches {all.Count} symbols; narrow it with a type name, parameter list or token. First matches:\n" +
+            throw new ToolError(ErrorCode.Ambiguous, $"'{query}' matches {all.Count} symbols; narrow it with a type name, parameter list or token. First matches:\n" +
                                 string.Join("\n", all.Take(MaxMembersPerCall).Select(a => "  " + a)));
     }
 }

@@ -22,13 +22,13 @@ public sealed class Il2CppExporter(Il2CppService il2cpp)
         var wanted = formats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(f => f.ToLowerInvariant()).ToHashSet();
         if (wanted.Contains("all")) wanted = ["ida", "ghidra", "header", "json"];
         foreach (var f in wanted.Where(f => f is not ("ida" or "ghidra" or "header" or "json")))
-            throw new ToolError($"Unknown format '{f}'. Use ida, ghidra, header, json or all.");
+            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown format '{f}'. Use ida, ghidra, header, json or all.");
 
         var layout = new Il2CppLayout();
         LayOut(layout, scope, ct);
         var methods = CollectMethods(scope, layout, ct);
         if (methods.Count == 0)
-            throw new ToolError("No Il2Cpp [Address] attributes in the selected assemblies. This needs Il2CppDumper/Cpp2IL dummy DLLs.");
+            throw new ToolError(ErrorCode.Unsupported, "No Il2Cpp [Address] attributes in the selected assemblies. This needs Il2CppDumper/Cpp2IL dummy DLLs.");
         var dir = Path.GetFullPath(outputDirectory);
         Directory.CreateDirectory(dir);
         var files = new List<string>();

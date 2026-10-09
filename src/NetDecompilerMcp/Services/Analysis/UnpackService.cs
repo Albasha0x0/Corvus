@@ -111,7 +111,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         "method" => SymbolKind.Method,
         "field" => SymbolKind.Field,
         "property" => SymbolKind.Property,
-        _ => throw new ToolError($"Unknown kind '{kind}': use type, method, field or property, or omit it for all."),
+        _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown kind '{kind}': use type, method, field or property, or omit it for all."),
     };
 
     /// <summary>
@@ -241,10 +241,10 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     private static (string Source, byte[] Data, string Sha) ReadSource(string path, AnalysisLimits limits)
     {
         var source = Path.GetFullPath(path);
-        if (Directory.Exists(source)) throw new ToolError($"{source} is a directory; pass a container file (single-file app, .nupkg, .apk, Costura host). To load a folder of assemblies, use load_assembly.");
-        if (!File.Exists(source)) throw new ToolError($"File not found: {source}");
+        if (Directory.Exists(source)) throw new ToolError(ErrorCode.InvalidArgument, $"{source} is a directory; pass a container file (single-file app, .nupkg, .apk, Costura host). To load a folder of assemblies, use load_assembly.");
+        if (!File.Exists(source)) throw new ToolError(ErrorCode.NotFound, $"File not found: {source}");
         var length = new FileInfo(source).Length;
-        if (length > Math.Min(limits.MaxTotalBytes, Array.MaxLength)) throw new ToolError($"{source} is too large to unpack ({length:N0} bytes).");
+        if (length > Math.Min(limits.MaxTotalBytes, Array.MaxLength)) throw new ToolError(ErrorCode.LimitExceeded, $"{source} is too large to unpack ({length:N0} bytes).");
         var data = File.ReadAllBytes(source);
         return (source, data, Blob.Sha256(data));
     }
@@ -328,7 +328,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         if (Directory.Exists(root) && Directory.EnumerateFileSystemEntries(root).Any())
         {
             if (!File.Exists(marker) || !File.ReadAllText(marker).StartsWith(sha, StringComparison.Ordinal))
-                throw new ToolError($"Output directory {root} is not empty and is not an earlier unpack of this file. Choose an empty or new directory.");
+                throw new ToolError(ErrorCode.Conflict, $"Output directory {root} is not empty and is not an earlier unpack of this file. Choose an empty or new directory.");
             return root;
         }
         Directory.CreateDirectory(root);

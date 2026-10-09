@@ -37,7 +37,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
             .Select(k => k.ToLowerInvariant()).ToHashSet();
         if (kinds.Remove("all")) kinds.UnionWith(AllKinds);
         foreach (var k in kinds.Where(k => !AllKinds.Contains(k)))
-            throw new ToolError($"Unknown change kind '{k}'. Use: {string.Join(", ", AllKinds)}.");
+            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown change kind '{k}'. Use: {string.Join(", ", AllKinds)}.");
 
         var cmp = comparer.Compare(oldAsm, newAsm, cancellationToken);
         bool InScope(TypeChange t) => @namespace == null

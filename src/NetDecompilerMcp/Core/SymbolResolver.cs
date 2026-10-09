@@ -37,7 +37,7 @@ public static class SymbolResolver
     public static IReadOnlyList<ResolvedSymbol> Resolve(AssemblyWorkspace ws, string? assembly, string symbol, SymbolKind kind = SymbolKind.Any, bool referenced = false)
     {
         if (string.IsNullOrWhiteSpace(symbol))
-            throw new ToolError("Symbol is empty.");
+            throw new ToolError(ErrorCode.InvalidArgument, "Symbol is empty.");
         var scope = ws.Scope(assembly);
         // Names with invisible characters are shown escaped (see Format.EscapeInvisible); accept them back as shown.
         var query = Format.UnescapeInvisible(symbol.Trim());
@@ -108,7 +108,7 @@ public static class SymbolResolver
         var all = Resolve(ws, assembly, symbol, kind, referenced);
         if (all.Count == 1)
             return all[0];
-        throw new ToolError($"'{symbol}' is ambiguous ({all.Count} matches). Pass a parameter signature like Method(int, string), " +
+        throw new ToolError(ErrorCode.Ambiguous, $"'{symbol}' is ambiguous ({all.Count} matches). Pass a parameter signature like Method(int, string), " +
                             $"the assembly parameter, or a metadata token:\n" + string.Join("\n", all.Take(30).Select(r => "  " + r)));
     }
 
@@ -142,7 +142,7 @@ public static class SymbolResolver
                 msg.Append(" Similar types: ").Append(string.Join(", ", close));
             msg.Append(" (Use search_symbols for a broader search.)");
         }
-        throw new ToolError(msg.ToString());
+        throw new ToolError(ErrorCode.NotFound, msg.ToString());
     }
 
     internal static IEnumerable<ResolvedSymbol> FindTypes(IReadOnlyList<LoadedAssembly> scope, string typeQuery)
@@ -376,9 +376,9 @@ public static class SymbolResolver
             }
         }
         if (results.Count == 0)
-            throw new ToolError($"Token {original} does not resolve to a {(kind == SymbolKind.Any ? "definition" : kind.ToString().ToLowerInvariant())} in {string.Join(", ", scope.Select(s => s.Id))}.");
+            throw new ToolError(ErrorCode.NotFound, $"Token {original} does not resolve to a {(kind == SymbolKind.Any ? "definition" : kind.ToString().ToLowerInvariant())} in {string.Join(", ", scope.Select(s => s.Id))}.");
         if (results.Count > 1)
-            throw new ToolError($"Token {original} exists in several assemblies; pass the assembly parameter: {string.Join(", ", results.Select(r => r.ToString()))}");
+            throw new ToolError(ErrorCode.Ambiguous, $"Token {original} exists in several assemblies; pass the assembly parameter: {string.Join(", ", results.Select(r => r.ToString()))}");
         return results;
     }
 
@@ -402,6 +402,6 @@ public static class SymbolResolver
         "property" or "properties" => SymbolKind.Property,
         "event" or "events" => SymbolKind.Event,
         "member" or "members" => SymbolKind.Member,
-        _ => throw new ToolError($"Unknown kind '{kind}'. Use any, type, method, field, property, event or member."),
+        _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown kind '{kind}'. Use any, type, method, field, property, event or member."),
     };
 }

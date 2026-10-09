@@ -19,7 +19,7 @@ public sealed partial class CSharpPatcher
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         var root = CSharpSyntaxTree.ParseText(source, parseOptions, cancellationToken: ct).GetCompilationUnitRoot(ct);
         var typeNode = FindTypeDeclaration(root, type)
-                       ?? throw new ToolError(IsDelegate(type)
+                       ?? throw new ToolError(ErrorCode.Unsupported, IsDelegate(type)
                            ? $"{type.FullName} is a delegate that also declares methods or fields (a code transformer construct); C# cannot declare those, so its code cannot be patched in C#: use patch_method_il instead."
                            : $"Could not locate {type.FullName} in its decompiled source; use patch_method_il instead.");
         return CSharpSyntaxTree.Create((CompilationUnitSyntax)new PublicTypes().Visit(transform(root, typeNode))!, parseOptions);
@@ -112,7 +112,7 @@ public sealed partial class CSharpPatcher
                 return ModuleDefMD.Load(retry.ToArray(), workspace.DnlibContext);
         }
         if (!emit.Success)
-            throw new ToolError(FormatErrors(emit.Diagnostics, tree, missing));
+            throw new ToolError(ErrorCode.InvalidArgument, FormatErrors(emit.Diagnostics, tree, missing));
         return ModuleDefMD.Load(pe.ToArray(), workspace.DnlibContext);
     }
 
@@ -173,7 +173,7 @@ public sealed partial class CSharpPatcher
             var ctors = members.OfType<ConstructorDeclarationSyntax>()
                 .Where(c => c.Modifiers.Any(SyntaxKind.StaticKeyword) == method.IsStatic && c.ParameterList.Parameters.Count == paramCount).ToList();
             return PickByParameters(ctors, c => c.ParameterList, method)
-                   ?? throw new ToolError(method.IsStatic
+                   ?? throw new ToolError(ErrorCode.Unsupported, method.IsStatic
                        ? "The static constructor does not appear in the decompiled source (it only initializes fields there); use patch_method_il."
                        : "The constructor does not appear in the decompiled source (compiler-generated default constructor); use patch_method_il.");
         }
@@ -186,13 +186,13 @@ public sealed partial class CSharpPatcher
             BasePropertyDeclarationSyntax? decl = property.PropertySig?.Params.Count > 0
                 ? members.OfType<IndexerDeclarationSyntax>().FirstOrDefault(i => i.ParameterList.Parameters.Count == property.PropertySig.Params.Count)
                 : members.OfType<PropertyDeclarationSyntax>().FirstOrDefault(p => SameName(p.Identifier, name));
-            if (decl == null) throw new ToolError($"Property {property.Name} not found in the decompiled source.");
+            if (decl == null) throw new ToolError(ErrorCode.NotFound, $"Property {property.Name} not found in the decompiled source.");
             if (decl is PropertyDeclarationSyntax { ExpressionBody: not null } or IndexerDeclarationSyntax { ExpressionBody: not null })
                 return decl; // expression-bodied property; the rewriter converts it to a get accessor
             var accessor = decl.AccessorList?.Accessors.FirstOrDefault(a => a.IsKind(keyword) || (keyword == SyntaxKind.SetAccessorDeclaration && a.IsKind(SyntaxKind.InitAccessorDeclaration)));
-            if (accessor == null) throw new ToolError($"Accessor not found for {property.Name}.");
+            if (accessor == null) throw new ToolError(ErrorCode.NotFound, $"Accessor not found for {property.Name}.");
             if (accessor.Body == null && accessor.ExpressionBody == null)
-                throw new ToolError(Unsupported("an auto-property accessor"));
+                throw new ToolError(ErrorCode.Unsupported, Unsupported("an auto-property accessor"));
             return accessor;
         }
 
@@ -200,13 +200,13 @@ public sealed partial class CSharpPatcher
         if (ev != null)
         {
             var decl = members.OfType<EventDeclarationSyntax>().FirstOrDefault(e => SameName(e.Identifier, LastSegment(ev.Name)))
-                       ?? throw new ToolError(Unsupported("an accessor of a field-like event"));
+                       ?? throw new ToolError(ErrorCode.Unsupported, Unsupported("an accessor of a field-like event"));
             var kind = ev.AddMethod == method ? SyntaxKind.AddAccessorDeclaration : SyntaxKind.RemoveAccessorDeclaration;
-            return decl.AccessorList?.Accessors.FirstOrDefault(a => a.IsKind(kind)) ?? throw new ToolError($"Accessor not found for event {ev.Name}.");
+            return decl.AccessorList?.Accessors.FirstOrDefault(a => a.IsKind(kind)) ?? throw new ToolError(ErrorCode.NotFound, $"Accessor not found for event {ev.Name}.");
         }
 
         if (method.Name.StartsWith("op_", StringComparison.Ordinal))
-            throw new ToolError(Unsupported("an operator"));
+            throw new ToolError(ErrorCode.Unsupported, Unsupported("an operator"));
 
         var methodName = LastSegment(method.Name);
         bool isExplicit = method.Name.String.Contains('.');
@@ -217,9 +217,9 @@ public sealed partial class CSharpPatcher
                         && m.ParameterList.Parameters.Count == paramCount)
             .ToList();
         var node = PickByParameters(candidates, m => m.ParameterList, method)
-                   ?? throw new ToolError($"Could not find {Format.MemberLabel(method)} in the decompiled source (it may be compiler-generated); use patch_method_il.");
+                   ?? throw new ToolError(ErrorCode.Unsupported, $"Could not find {Format.MemberLabel(method)} in the decompiled source (it may be compiler-generated); use patch_method_il.");
         if (node.Body == null && node.ExpressionBody == null)
-            throw new ToolError(Unsupported("declared without a body"));
+            throw new ToolError(ErrorCode.Unsupported, Unsupported("declared without a body"));
         return node;
     }
 
@@ -230,7 +230,7 @@ public sealed partial class CSharpPatcher
         return candidates.FirstOrDefault(c => parameters(c).Parameters
                    .Select(p => NormalizeTypeText((p.Modifiers.Any(SyntaxKind.RefKeyword) || p.Modifiers.Any(SyntaxKind.OutKeyword) || p.Modifiers.Any(SyntaxKind.InKeyword) ? "ref " : "") + p.Type))
                    .SequenceEqual(wanted))
-               ?? throw new ToolError($"Several overloads of {method.Name} match by parameter count and none by parameter types; use patch_method_il with the token.");
+               ?? throw new ToolError(ErrorCode.Ambiguous, $"Several overloads of {method.Name} match by parameter count and none by parameter types; use patch_method_il with the token.");
     }
 
     private static string NormalizeTypeText(string type)
@@ -277,7 +277,7 @@ public sealed partial class CSharpPatcher
     {
         var text = code.Trim();
         if (text.Length == 0)
-            throw new ToolError("The C# body is empty. For a void method that does nothing, pass 'return;'.");
+            throw new ToolError(ErrorCode.InvalidArgument, "The C# body is empty. For a void method that does nothing, pass 'return;'.");
         if (!text.StartsWith('{'))
             text = "{\n" + text + "\n}";
         var statement = SF.ParseStatement(text, options: new CSharpParseOptions(LanguageVersion.Preview));
@@ -285,7 +285,7 @@ public sealed partial class CSharpPatcher
         {
             var errors = statement.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error)
                 .Select(d => $"  line {d.Location.GetLineSpan().StartLinePosition.Line}: {d.GetMessage()}");
-            throw new ToolError("The C# body does not parse. Pass statements (the method body), not a whole method or class:\n" + string.Join("\n", errors));
+            throw new ToolError(ErrorCode.InvalidArgument, "The C# body does not parse. Pass statements (the method body), not a whole method or class:\n" + string.Join("\n", errors));
         }
         return block;
     }
@@ -294,12 +294,12 @@ public sealed partial class CSharpPatcher
     private static List<MemberDeclarationSyntax> ParseMembers(string code, string typeName)
     {
         if (string.IsNullOrWhiteSpace(code))
-            throw new ToolError("No member declarations given.");
+            throw new ToolError(ErrorCode.InvalidArgument, "No member declarations given.");
         var unit = SF.ParseCompilationUnit("class __NetDecompMembers__ {\n" + code + "\n}", options: new CSharpParseOptions(LanguageVersion.Preview));
         var errors = unit.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
         var holder = unit.Members.OfType<ClassDeclarationSyntax>().FirstOrDefault();
         if (errors.Count > 0 || holder == null || unit.Members.Count != 1)
-            throw new ToolError("The member declarations do not parse. Pass complete member declarations (e.g. 'public int Twice(int x) { return x * 2; }'):\n" +
+            throw new ToolError(ErrorCode.InvalidArgument, "The member declarations do not parse. Pass complete member declarations (e.g. 'public int Twice(int x) { return x * 2; }'):\n" +
                                 string.Join("\n", errors.Take(10).Select(d => $"  line {d.Location.GetLineSpan().StartLinePosition.Line}: {d.GetMessage()}")));
 
         var result = new List<MemberDeclarationSyntax>();
@@ -309,13 +309,13 @@ public sealed partial class CSharpPatcher
             {
                 case FieldDeclarationSyntax f when !f.Modifiers.Any(SyntaxKind.ConstKeyword) && f.Declaration.Variables.Any(v => v.Initializer != null):
                 case PropertyDeclarationSyntax { Initializer: not null }:
-                    throw new ToolError("Initializers on added fields/properties are not supported (they would have to run in existing constructors). Initialize them from a method instead.");
+                    throw new ToolError(ErrorCode.Unsupported, "Initializers on added fields/properties are not supported (they would have to run in existing constructors). Initialize them from a method instead.");
             }
             var adjusted = member is ConstructorDeclarationSyntax ctor ? ctor.WithIdentifier(SF.Identifier(typeName)) : member;
             result.Add(adjusted.WithAdditionalAnnotations(UserCode));
         }
         if (result.Count == 0)
-            throw new ToolError("No member declarations given.");
+            throw new ToolError(ErrorCode.InvalidArgument, "No member declarations given.");
         return result;
     }
 

@@ -53,7 +53,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
     private T WithAssembly<T>(string? assembly, string? path, Func<Scanned, T> work, CancellationToken ct)
     {
         if ((assembly == null) == (path == null))
-            throw new ToolError("Pass either assembly (an assembly loaded in the workspace) or path (a file).");
+            throw new ToolError(ErrorCode.InvalidArgument, "Pass either assembly (an assembly loaded in the workspace) or path (a file).");
         if (assembly != null)
             return workspace.Read(() =>
             {
@@ -64,7 +64,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
         var (full, bytes) = ReadFile(path!);
         var kind = Blob.Identify(bytes);
         if (kind != ".NET assembly")
-            throw new ToolError($"{full} is not a .NET assembly ({kind}). For a container (bundle, package, APK) use summarize_file, or unpack_container and pass one of its assemblies.");
+            throw new ToolError(ErrorCode.Unsupported, $"{full} is not a .NET assembly ({kind}). For a container (bundle, package, APK) use summarize_file, or unpack_container and pass one of its assemblies.");
         using var module = LoadModule(bytes, full);
         return Guard(Path.GetFileName(full), () => work(new Scanned(module, ModuleScan.Of(module, Limits, ct), bytes, Path.GetFileName(full))));
     }
@@ -77,24 +77,24 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
         try { return work(); }
         catch (Exception ex) when (ex is not ToolError and not OperationCanceledException)
         {
-            throw new ToolError($"{label}: unreadable .NET metadata, analysis stopped ({ex.GetType().Name}: {ex.Message}).");
+            throw new ToolError(ErrorCode.MalformedInput, $"{label}: unreadable .NET metadata, analysis stopped ({ex.GetType().Name}: {ex.Message}).");
         }
     }
 
     private static (string Full, byte[] Bytes) ReadFile(string path)
     {
         var full = Path.GetFullPath(path);
-        if (Directory.Exists(full)) throw new ToolError($"{full} is a directory; pass a file (list_assemblies with path lists the assemblies a folder or container holds).");
-        if (!File.Exists(full)) throw new ToolError($"File not found: {full}");
+        if (Directory.Exists(full)) throw new ToolError(ErrorCode.InvalidArgument, $"{full} is a directory; pass a file (list_assemblies with path lists the assemblies a folder or container holds).");
+        if (!File.Exists(full)) throw new ToolError(ErrorCode.NotFound, $"File not found: {full}");
         var length = new FileInfo(full).Length;
-        if (length > Math.Min(Limits.MaxTotalBytes, Array.MaxLength)) throw new ToolError($"{full} is too large to analyze ({length:N0} bytes).");
+        if (length > Math.Min(Limits.MaxTotalBytes, Array.MaxLength)) throw new ToolError(ErrorCode.LimitExceeded, $"{full} is too large to analyze ({length:N0} bytes).");
         return (full, File.ReadAllBytes(full));
     }
 
     private static ModuleDefMD LoadModule(byte[] bytes, string label)
     {
         try { return ModuleDefMD.Load(bytes); }
-        catch (Exception ex) { throw new ToolError($"{label}: unreadable .NET metadata ({ex.Message})."); }
+        catch (Exception ex) { throw new ToolError(ErrorCode.MalformedInput, $"{label}: unreadable .NET metadata ({ex.Message})."); }
     }
 
     public FeatureReport SurveyFeatures(string? assembly, string? path, string? category, CancellationToken ct) =>
@@ -112,9 +112,9 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
     {
         var unknown = types?.Where(t => !Values.Types.Contains(t)).ToList();
         if (unknown is { Count: > 0 })
-            throw new ToolError($"Unknown value type(s): {string.Join(", ", unknown)}. Types: {string.Join(", ", Values.Types)}.");
+            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown value type(s): {string.Join(", ", unknown)}. Types: {string.Join(", ", Values.Types)}.");
         var fmt = (format ?? (savePath != null && savePath.EndsWith(".csv", StringComparison.OrdinalIgnoreCase) ? "csv" : "json")).ToLowerInvariant();
-        if (fmt is not ("json" or "csv")) throw new ToolError($"Unknown format '{format}': use json or csv.");
+        if (fmt is not ("json" or "csv")) throw new ToolError(ErrorCode.InvalidArgument, $"Unknown format '{format}': use json or csv.");
 
         var report = WithAssembly(assembly, path, s =>
         {
@@ -125,7 +125,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
 
         if (savePath == null) return report;
         var target = Path.GetFullPath(savePath);
-        if (File.Exists(target) && !overwrite) throw new ToolError($"{target} exists: pass overwrite=true to replace it.");
+        if (File.Exists(target) && !overwrite) throw new ToolError(ErrorCode.Conflict, $"{target} exists: pass overwrite=true to replace it.");
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
         File.WriteAllText(target, fmt == "csv" ? Values.ToCsv(report.Values) : Values.ToJson(report.Values));
         return report with { SavedTo = target };
@@ -179,7 +179,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
     public FileSummary Summarize(string? assembly, string? path, CancellationToken ct)
     {
         if ((assembly == null) == (path == null))
-            throw new ToolError("Pass either assembly (an assembly loaded in the workspace) or path (a file).");
+            throw new ToolError(ErrorCode.InvalidArgument, "Pass either assembly (an assembly loaded in the workspace) or path (a file).");
         if (assembly != null)
         {
             return workspace.Read(() =>

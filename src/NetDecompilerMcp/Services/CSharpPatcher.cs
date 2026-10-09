@@ -36,9 +36,9 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
     public Outcome PatchMethod(ResolvedSymbol symbol, string code, ModuleDef target, CancellationToken ct)
     {
         if (symbol.Member is not MethodDef method)
-            throw new ToolError($"{symbol.Label} is a {symbol.Kind}, not a method.");
+            throw new ToolError(ErrorCode.InvalidArgument, $"{symbol.Label} is a {symbol.Kind}, not a method.");
         if (method.IsAbstract || method.IsPinvokeImpl || method.IsRuntime || method.IsInternalCall)
-            throw new ToolError($"{symbol.Label} has no IL body to replace (abstract/extern/runtime).");
+            throw new ToolError(ErrorCode.Unsupported, $"{symbol.Label} has no IL body to replace (abstract/extern/runtime).");
 
         var asm = symbol.Assembly;
         var body = ParseBody(code).WithAdditionalAnnotations(UserCode);
@@ -96,9 +96,9 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
     public Outcome AddMembers(ResolvedSymbol typeSymbol, string code, ModuleDef target, CancellationToken ct)
     {
         if (typeSymbol.Member is not TypeDef type)
-            throw new ToolError($"{typeSymbol.Label} is a {typeSymbol.Kind}, not a type.");
+            throw new ToolError(ErrorCode.InvalidArgument, $"{typeSymbol.Label} is a {typeSymbol.Kind}, not a type.");
         if (type.IsInterface || type.IsEnum || type.IsDelegate)
-            throw new ToolError($"Members can only be added to classes and structs ({type.FullName} is {Format.Kind(type)}).");
+            throw new ToolError(ErrorCode.Unsupported, $"Members can only be added to classes and structs ({type.FullName} is {Format.Kind(type)}).");
 
         var asm = typeSymbol.Assembly;
         var members = ParseMembers(code, Format.StripArity(type.Name));
@@ -166,19 +166,19 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
     public Outcome AddTypes(LoadedAssembly asm, string code, ModuleDef target, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(code))
-            throw new ToolError("The C# source is empty.");
+            throw new ToolError(ErrorCode.InvalidArgument, "The C# source is empty.");
         var tree = CSharpSyntaxTree.ParseText(code, new CSharpParseOptions(LanguageVersion.Preview), cancellationToken: ct);
         var root = tree.GetCompilationUnitRoot(ct).WithAdditionalAnnotations(UserCode);
         tree = CSharpSyntaxTree.Create(root, new CSharpParseOptions(LanguageVersion.Preview));
         if (!root.DescendantNodes().OfType<BaseTypeDeclarationSyntax>().Any())
-            throw new ToolError("The source declares no types. Pass whole type declarations (optionally inside a namespace).");
+            throw new ToolError(ErrorCode.InvalidArgument, "The source declares no types. Pass whole type declarations (optionally inside a namespace).");
 
         using var compiled = Compile(asm, tree, null, ct);
         var merger = new ModuleMerger(target, compiled, asm.AssemblyName);
         foreach (var t in compiled.Types.Where(t => t.FullName != "<Module>" && !t.Name.String.StartsWith('<') && !IsEmbeddedByCompiler(t)).ToList())
         {
             if (target.Find(t.FullName, isReflectionName: false) != null)
-                throw new ToolError($"{t.FullName} already exists in {asm.Id}.");
+                throw new ToolError(ErrorCode.Conflict, $"{t.FullName} already exists in {asm.Id}.");
             merger.AddTypeTree(t, null, t.Name);
         }
         DeclareGenerated(merger, compiled);
@@ -230,7 +230,7 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
     private static void ThrowIfUnmapped(ModuleMerger merger)
     {
         if (merger.Unmapped.Count > 0)
-            throw new ToolError("The compiled code references definitions that could not be mapped into the target assembly: " +
+            throw new ToolError(ErrorCode.Unsupported, "The compiled code references definitions that could not be mapped into the target assembly: " +
                                 string.Join(", ", merger.Unmapped.Distinct().Take(10)) +
                                 ". This usually means the decompiled declaration of the surrounding type does not match the original; use patch_method_il.");
     }
