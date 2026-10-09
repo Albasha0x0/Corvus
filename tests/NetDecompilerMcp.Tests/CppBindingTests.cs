@@ -54,7 +54,7 @@ public class CppBindingTests : IDisposable
     public void ErrorsAreClear()
     {
         Assert.Contains("NoSuchMember", Assert.Throws<ToolError>(() => Generate("Shop", "NoSuchMember")).Message);
-        Assert.Contains("is generic", Assert.Throws<ToolError>(() => Generate("Container")).Message);
+        Assert.Contains("template <class T>", Generate("Container")); // generic definitions bind as templates
         Assert.Contains("Unknown style 'unity'", Assert.Throws<ToolError>(() => Generate("Account", style: "unity")).Message);
     }
 

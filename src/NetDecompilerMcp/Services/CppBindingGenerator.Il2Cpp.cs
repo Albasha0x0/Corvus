@@ -180,10 +180,11 @@ public sealed partial class CppBindingGenerator
         var checks = new List<string> { "klass" };
         var accessors = new StringBuilder();
 
+        var wrapperSignatures = new HashSet<string>(StringComparer.Ordinal);
         foreach (var f in s.Fields)
         {
             var (cpp, isPointer, isStruct) = CppType(f.FieldType);
-            var accessor = SafeName(Pascal(f.Name));
+            var accessor = ReserveAccessor(wrapperSignatures, f.Name);
             if (f.IsStatic)
             {
                 // Static fields are read and written through the runtime (it runs the class initializer first).
@@ -218,7 +219,6 @@ public sealed partial class CppBindingGenerator
 
         // Getters are invoked and require a thread attached to the runtime (il2cpp_thread_attach). Their C++ signatures are
         // taken before the method wrappers': a static method of the same name and parameters is numbered.
-        var wrapperSignatures = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (p, viaHierarchy) in s.Getters)
         {
             var getter = p.GetMethod!;
@@ -235,6 +235,8 @@ public sealed partial class CppBindingGenerator
             var param = string.Join(", ", parameters);
             if (isPointer || isStruct)
                 accessors.AppendLine($"    Il2CppObject* {name}({param}) const {{ return Invoke(api, {m}, {instance}, nullptr); }}{(isStruct ? $"  // boxed {Format.Type(getter.ReturnType)}" : "")}");
+            else if (IsTypeParameter(cpp))
+                accessors.AppendLine($"    {cpp} {name}({param}) const {{ return Result<{cpp}>(api, Invoke(api, {m}, {instance}, nullptr)); }}");
             else
                 accessors.AppendLine($"    {cpp} {name}({param}) const {{ return CallValue<{cpp}>(api, {m}, {instance}); }}");
         }
@@ -282,13 +284,8 @@ public sealed partial class CppBindingGenerator
         sb.AppendLine();
         sb.AppendLine("namespace il2cppbind {");
         sb.AppendLine();
-        sb.AppendLine($"struct {StructName(type)} {{");
-        sb.AppendLine("    Il2CppClass* klass = nullptr;");
-        sb.Append(decls);
-        sb.AppendLine();
-        sb.AppendLine("    bool Resolve(const Il2CppApi& api) {");
-        sb.AppendLine($"        klass = {Il2CppFindClass(asm, type)};");
-        sb.AppendLine("        if (!klass) return false;");
+        if (type.HasGenericParameters && LayoutTemplate(type) is { } layout) sb.Append(layout).AppendLine();
+        StructHead(sb, type, "Il2CppClass*", "const Il2CppApi& api", Il2CppFindClass(asm, type), "Il2CppObject", decls);
         sb.Append(resolve);
         sb.AppendLine("        return Resolved();");
         sb.AppendLine("    }");
@@ -352,11 +349,9 @@ public sealed partial class CppBindingGenerator
             parameters.Add("void* obj");
             args.Add("obj");
         }
-        foreach (var p in method.Parameters.Where(x => x.IsNormalMethodParameter))
+        foreach (var (p, name) in method.Parameters.Where(x => x.IsNormalMethodParameter).Zip(ParameterNames(method)))
         {
             if (Native(p.Type) is not { } t) return null;
-            var name = Identifier(p.Name);
-            if (CppReserved.Contains(name)) name += "_";
             types.Add(t);
             parameters.Add($"{t} {name}");
             args.Add(name);

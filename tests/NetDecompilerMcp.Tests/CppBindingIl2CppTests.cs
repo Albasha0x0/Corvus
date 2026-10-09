@@ -22,11 +22,12 @@ public sealed class CppBindingIl2CppTests : IDisposable
         {
             public class AddressAttribute : Attribute { public string RVA; public string Offset; public string VA; }
             public class TokenAttribute : Attribute { public string Token; }
+            public class FieldOffsetAttribute : Attribute { public string Offset; }
         }
         namespace Game
         {
             using Il2CppDummyDll;
-            public struct Vec { public float x, y, z; }
+            public struct Vec { [FieldOffset(Offset = "0x0")] public float x; [FieldOffset(Offset = "0x4")] public float y; [FieldOffset(Offset = "0x8")] public float z; }
             public struct Pair<T> { public bool hasValue; public T value; }
             public class Player
             {
@@ -44,10 +45,25 @@ public sealed class CppBindingIl2CppTests : IDisposable
                 [Address(RVA = "0x1300", Offset = "0x700", VA = "0x180001300")] [Token(Token = "0x06000104")]
                 public void Move(Pair<int> to) { }
             }
+            public class Base<T> { public int count; public T first; }
+            public class Box<T> : Base<T>
+            {
+                public T value;
+                public bool flag;
+                public T[] items;
+                public Vec where;
+                public Pair<T> pending;
+                public static int Instances;
+                public T Current { get { return value; } }
+                [Address(RVA = "0x1400", Offset = "0x800", VA = "0x180001400")]
+                public T Get(int index) { return value; }
+                [Address(RVA = "0x1500", Offset = "0x900", VA = "0x180001500")]
+                public void Set(T item, bool notify) { }
+            }
         }
         """;
 
-    private string Generate(string? projectDir = null, string? style = null)
+    private string Generate(string? projectDir = null, string? style = null, string type = "Game.Player")
     {
         var path = _dir.File("Game.dll");
         if (!File.Exists(path))
@@ -56,9 +72,9 @@ public sealed class CppBindingIl2CppTests : IDisposable
         var asm = ws.Load(path);
         return ws.Read(() =>
         {
-            var type = asm.Module.Find("Game.Player", false)!;
+            var def = asm.Module.Find(type, false)!;
             var target = CppBindingGenerator.ChooseStyle(style, projectDir, null, null, default, il2cppAssembly: true);
-            return new CppBindingGenerator().Generate(asm, type, null, false, target);
+            return new CppBindingGenerator().Generate(asm, def, null, false, target);
         });
     }
 
@@ -107,7 +123,49 @@ public sealed class CppBindingIl2CppTests : IDisposable
         Assert.Contains("src/runtime_api.h", target.Reason);
     }
 
+    [Fact]
+    public void GenericDefinitionBindsAsATemplateResolvedOnAnInstantiation()
+    {
+        var code = Generate(type: "Game.Box`1");
+        Assert.Contains("template <class T>\nstruct Box_1Binding {", code.ReplaceLineEndings("\n"));
+        Assert.Contains("static Il2CppClass* Definition(const Il2CppApi& api) { return FindClass(api, \"Game\", \"Game\", \"Box`1\"); }", code);
+        Assert.Contains("bool Resolve(const Il2CppApi& api, Il2CppClass* instance) {", code);
+        Assert.Contains("T Value(const void* obj) const { return Read<T>(obj, m_valueOff); }", code);
+        Assert.Contains("T Current(const Il2CppApi& api, void* obj) const { return Result<T>(api, Invoke(api, m_getCurrent, obj, nullptr)); }", code);
+        Assert.Contains("void* a[2] = { Arg(item), &notify };", code);
+        Assert.Contains("T CallGet(void* obj, int32_t index) const { return reinterpret_cast<T (*)(void*, int32_t, const MethodInfo*)>(MethodPointer(m_get))(obj, index, m_get); }", code);
+        // The layout: the generic base's fields first, each class level pointer-aligned; a value type over T is not laid out.
+        var layout = code[code.IndexOf("struct Box_1Layout {", StringComparison.Ordinal)..];
+        Assert.Contains("alignas(8) int32_t count;", layout);
+        Assert.Contains("alignas(8) T value;", layout);
+        Assert.Contains("alignas(4) nd_bytes where[12];", layout);
+        Assert.Contains("// pending (Pair<T>) and the fields after it depend on a type argument inside a value type: not laid out.", code);
+        // Closed types keep the plain struct and lookup by name.
+        Assert.Contains("bool Resolve(const Il2CppApi& api) {", Generate());
+    }
+
     private const string ClangPlusPlus = @"C:\Program Files\LLVM\bin\clang++.exe";
+
+    /// <summary>The template compiles instantiated over a value type and a reference, in every style; the layout's offsets are Il2Cpp's.</summary>
+    [Trait("Speed", "Slow")]
+    [Fact]
+    public void GenericBindingsCompileForValueAndReferenceArguments()
+    {
+        if (!File.Exists(ClangPlusPlus)) return;
+        foreach (var (style, ns) in new[] { ("il2cpp", "il2cppbind"), ("mono", "monobind") })
+        {
+            File.WriteAllText(_dir.File($"Box_{style}.h"), Generate(style: style, type: "Game.Box`1"));
+            var checks = style == "il2cpp"
+                ? "#include <cstddef>\n" +
+                  "static_assert(offsetof(il2cppbind::Box_1Layout<int32_t>, first) == 0x14 && offsetof(il2cppbind::Box_1Layout<int32_t>, value) == 0x18, \"int\");\n" +
+                  "static_assert(offsetof(il2cppbind::Box_1Layout<void*>, first) == 0x18 && offsetof(il2cppbind::Box_1Layout<void*>, value) == 0x20, \"ref\");\n" +
+                  "static_assert(offsetof(il2cppbind::Box_1Layout<int32_t>, where) == 0x28, \"vec\");\n"
+                : "";
+            File.WriteAllText(_dir.File($"box_{style}.cpp"), $"#include \"Box_{style}.h\"\n{checks}template struct {ns}::Box_1Binding<int32_t>;\ntemplate struct {ns}::Box_1Binding<void*>;\nint main() {{ return 0; }}\n");
+            var (code, text) = Tools.Run(ClangPlusPlus, $"-std=c++17 -fsyntax-only -Wall -Wextra -Werror -Wno-invalid-offsetof \"{_dir.File($"box_{style}.cpp")}\"");
+            Assert.True(code == 0, $"{style}: {text}");
+        }
+    }
 
     /// <summary>The header compiles with -Wall -Werror, twice in one translation unit and next to a project's own Il2Cpp declarations.</summary>
     [Trait("Speed", "Slow")]

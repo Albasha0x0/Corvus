@@ -94,15 +94,31 @@ public sealed partial class CppBindingGenerator
 
     public string Generate(LoadedAssembly asm, TypeDef type, IReadOnlyCollection<string>? only, bool includeInherited, BindingTarget target)
     {
-        if (type.HasGenericParameters)
-            throw new ToolError($"{type.FullName} is generic: generate a binding for a closed subclass, or resolve the instantiation's members by hand.");
         var selection = Select(type, only, includeInherited);
-        var code = target.Style switch
+        string code;
+        _template = type.HasGenericParameters;
+        try
         {
-            "mono" => RenderMono(asm, type, selection),
-            "il2cpp" => RenderIl2Cpp(asm, type, selection),
-            _ => RenderHostApi(asm, type, selection, target),
-        };
+            code = target.Style switch
+            {
+                "mono" => RenderMono(asm, type, selection),
+                "il2cpp" => RenderIl2Cpp(asm, type, selection),
+                _ => RenderHostApi(asm, type, selection, target),
+            };
+        }
+        finally
+        {
+            _template = false;
+        }
+        // Template parameter names must not be names the code itself uses (an accessor "T1", a parameter "_").
+        // Only the binding itself: the shared helpers before it have their own template parameters.
+        var own = code.LastIndexOf("#endif // NETDECOMP_", StringComparison.Ordinal) is var end and >= 0 ? code[end..] : code;
+        var used = string.Join("\n", own.Split('\n').Select(l => l.Contains("//", StringComparison.Ordinal) ? l[..l.IndexOf("//", StringComparison.Ordinal)] : l));
+        var names = TemplateParameters(type);
+        for (int i = 0; i < names.Count; i++)
+            while (System.Text.RegularExpressions.Regex.IsMatch(used, $@"(?<![\w$]){System.Text.RegularExpressions.Regex.Escape(names[i])}(?![\w$])") || names.Take(i).Contains(names[i]))
+                names[i] += "_";
+        for (int i = names.Count - 1; i >= 0; i--) code = code.Replace(TypeParameter(i), names[i]);
         return $"// Style {target.Style}: {target.Reason}.{Environment.NewLine}" + code;
     }
 
@@ -305,6 +321,7 @@ public sealed partial class CppBindingGenerator
             resolve.AppendLine("        m_static = StaticData(api, klass);");
             checks.Add("m_static");
         }
+        var wrapperSignatures = new HashSet<string>(StringComparer.Ordinal);
         foreach (var f in s.Fields)
         {
             var off = Unique($"m_{Camel(f.Name)}{(f.IsStatic ? "StaticOff" : "Off")}");
@@ -312,7 +329,7 @@ public sealed partial class CppBindingGenerator
             decls.AppendLine($"    int32_t {off} = -1;{Pad(off)}// {(f.IsStatic ? "static " : "")}{Format.Type(f.FieldType)} {f.Name}");
             resolve.AppendLine($"        {off} = FieldOffset(api, klass, \"{f.Name}\");");
             checks.Add($"{off} >= 0");
-            var accessor = SafeName(Pascal(f.Name));
+            var accessor = ReserveAccessor(wrapperSignatures, f.Name);
             var (target, objParam, constObjParam) = f.IsStatic ? ("m_static", "", "") : ("obj", "void* obj", "const void* obj");
             if (isStruct)
                 accessors.AppendLine($"    void* {accessor}Addr({objParam}) const {{ return {target} && {off} >= 0 ? static_cast<char*>({target}) + {off} : nullptr; }}  // embedded {Format.Type(f.FieldType)}");
@@ -327,7 +344,6 @@ public sealed partial class CppBindingGenerator
 
         // Getters are invoked and require a thread attached to Mono. Their C++ signatures are taken before the method
         // wrappers': a static method of the same name and parameters is numbered.
-        var wrapperSignatures = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (p, viaHierarchy) in s.Getters)
         {
             var getter = p.GetMethod!;
@@ -344,6 +360,8 @@ public sealed partial class CppBindingGenerator
             var param = string.Join(", ", parameters);
             if (isPointer || isStruct)
                 accessors.AppendLine($"    MonoObject* {name}({param}) const {{ return Invoke(api, {m}, {instance}, nullptr); }}{(isStruct ? $"  // boxed {Format.Type(getter.ReturnType)}" : "")}");
+            else if (IsTypeParameter(cpp))
+                accessors.AppendLine($"    {cpp} {name}({param}) const {{ return Result<{cpp}>(api, Invoke(api, {m}, {instance}, nullptr)); }}");
             else
                 accessors.AppendLine($"    {cpp} {name}({param}) const {{ return CallValue<{cpp}>(api, {m}, {instance}); }}");
         }
@@ -387,13 +405,7 @@ public sealed partial class CppBindingGenerator
         sb.AppendLine();
         sb.AppendLine("namespace monobind {");
         sb.AppendLine();
-        sb.AppendLine($"struct {StructName(type)} {{");
-        sb.AppendLine("    MonoClass* klass = nullptr;");
-        sb.Append(decls);
-        sb.AppendLine();
-        sb.AppendLine("    bool Resolve(const MonoApi& api) {");
-        sb.AppendLine($"        klass = {MonoFindClass(asm, type)};");
-        sb.AppendLine("        if (!klass) return false;");
+        StructHead(sb, type, "MonoClass*", "const MonoApi& api", MonoFindClass(asm, type), "MonoObject", decls);
         sb.Append(resolve);
         sb.AppendLine("        return Resolved();");
         sb.AppendLine("    }");
@@ -456,6 +468,7 @@ public sealed partial class CppBindingGenerator
         bool anyStatic = s.Fields.Any(f => f.IsStatic);
         if (anyStatic) decls.AppendLine("    void* m_static = nullptr;          // static field data block");
         if (anyStatic) resolve.AppendLine("        m_static = h->GetStaticFieldData(klass);");
+        var wrapperSignatures = new HashSet<string>(StringComparer.Ordinal);
         foreach (var f in s.Fields)
         {
             var off = Unique($"m_{Camel(f.Name)}{(f.IsStatic ? "StaticOff" : "Off")}");
@@ -463,7 +476,7 @@ public sealed partial class CppBindingGenerator
             decls.AppendLine($"    int32_t {off} = -1;{Pad(off)}// {(f.IsStatic ? "static " : "")}{Format.Type(f.FieldType)} {f.Name}");
             resolve.AppendLine($"        {off} = h->{(f.IsStatic ? "StaticFieldOffset" : unboxedOffsets ? "EmbeddedStructOffset" : "FieldOffset")}(klass, \"{f.Name}\");");
             checks.Add($"{off} >= 0");
-            var accessor = SafeName(Pascal(f.Name));
+            var accessor = ReserveAccessor(wrapperSignatures, f.Name);
             if (f.IsStatic)
             {
                 checks.Add("m_static");
@@ -498,7 +511,6 @@ public sealed partial class CppBindingGenerator
 
         // Getters are invoked and require the host's managed-call context. Their C++ signatures are taken before the
         // method wrappers': a static method of the same name and parameters is numbered.
-        var wrapperSignatures = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (p, viaHierarchy) in s.Getters)
         {
             var getter = p.GetMethod!;
@@ -513,8 +525,8 @@ public sealed partial class CppBindingGenerator
             var instance = getter.IsStatic ? "nullptr" : "obj";
             List<string> parameters = getter.IsStatic ? [h] : [h, "void* obj"];
             var param = string.Join(", ", parameters);
-            if (isPointer)
-                accessors.AppendLine($"    void* {UniqueWrapper(wrapperSignatures, p.Name, parameters)}({param}) const {{ return h->Invoke({m}, {instance}, nullptr, 0); }}  // managed call");
+            if (isPointer || IsTypeParameter(cpp))
+                accessors.AppendLine($"    void* {UniqueWrapper(wrapperSignatures, p.Name, parameters)}({param}) const {{ return h->Invoke({m}, {instance}, nullptr, 0); }}  // managed call{(isPointer ? "" : $"; a {cpp}: the object, or the boxed value")}");
             else if (!isStruct)
             {
                 used.Add("CallValue");
@@ -585,6 +597,7 @@ public sealed partial class CppBindingGenerator
         else if (type.IsValueType)
             sb.AppendLine("// Value type: instance offsets include the object header (two pointers); subtract it for unboxed data.");
         sb.AppendLine("#pragma once");
+        if (type.HasGenericParameters) sb.AppendLine("#include <type_traits>");
         foreach (var include in includes) sb.AppendLine($"#include \"{include}\"");
         sb.AppendLine();
         if (ns != null)
@@ -592,13 +605,7 @@ public sealed partial class CppBindingGenerator
             sb.AppendLine($"namespace {ns} {{");
             sb.AppendLine();
         }
-        sb.AppendLine($"struct {StructName(type)} {{");
-        sb.AppendLine($"    {hclass} klass = nullptr;");
-        sb.Append(decls);
-        sb.AppendLine();
-        sb.AppendLine($"    bool Resolve({h}) {{");
-        sb.AppendLine($"        klass = h->FindClass(\"{asm.AssemblyName}\", \"{managedNs}\", \"{className}\");");
-        sb.AppendLine("        if (!klass) return false;");
+        StructHead(sb, type, hclass, h, $"h->FindClass(\"{asm.AssemblyName}\", \"{managedNs}\", \"{className}\")", null, decls);
         sb.Append(resolve);
         sb.AppendLine("        return Resolved();");
         sb.AppendLine("    }");
@@ -618,7 +625,19 @@ public sealed partial class CppBindingGenerator
         return sb.ToString();
     }
 
-    private static string StructName(TypeDef type) => Identifier(Format.StripArity(type.Name)) + "Binding";
+    private static string StructName(TypeDef type) => BaseName(type) + "Binding";
+
+    /// <summary>
+    /// The type's name; a generic definition's with its arity and enclosing types (Action_1, Dictionary_2_Enumerator), as
+    /// definitions that differ only by those share a name.
+    /// </summary>
+    private static string BaseName(TypeDef type)
+    {
+        if (!type.HasGenericParameters) return Identifier(Format.StripArity(type.Name));
+        var name = Identifier(type.Name);
+        for (var outer = type.DeclaringType; outer != null; outer = outer.DeclaringType) name = Identifier(outer.Name) + "_" + name;
+        return name;
+    }
 
     /// <summary>Wrapper parameters after the API parameter, and the matching entries of the argument array.</summary>
     private static (List<string> Parameters, List<string> Args) WrapperParameters(MethodDef method, string apiParameter)
@@ -626,13 +645,13 @@ public sealed partial class CppBindingGenerator
         var parameters = new List<string> { apiParameter };
         if (!method.IsStatic) parameters.Add("void* obj");
         var args = new List<string>();
-        foreach (var p in method.Parameters.Where(x => x.IsNormalMethodParameter))
+        var names = ParameterNames(method);
+        foreach (var (p, name) in method.Parameters.Where(x => x.IsNormalMethodParameter).Zip(names))
         {
             var (cpp, isPointer, isStruct) = CppType(p.Type);
-            var name = Identifier(p.Name);
-            if (CppReserved.Contains(name)) name += "_";
             if (p.Type is ByRefSig || isStruct) { parameters.Add($"void* {name}"); args.Add(name); }        // pointer to the value / ref
             else if (isPointer) { parameters.Add($"void* {name}"); args.Add(name); }                      // object reference
+            else if (IsTypeParameter(cpp)) { parameters.Add($"{cpp} {name}"); args.Add($"Arg({name})"); } // the object, or a pointer to the value
             else { parameters.Add($"{cpp} {name}"); args.Add($"&{name}"); }                              // value types by pointer
         }
         return (parameters, args);
@@ -642,10 +661,50 @@ public sealed partial class CppBindingGenerator
     private static string UniqueWrapper(HashSet<string> signatures, string methodName, List<string> parameters)
     {
         var baseName = SafeName(Pascal(methodName));
-        string Key(string n) => n + "(" + string.Join(",", parameters.Select(p => p[..p.LastIndexOf(' ')])) + ")";
+        var types = parameters.Select(p => p[..p.LastIndexOf(' ')]).ToList();
+        // A type parameter can be instantiated as any type: it collides with every type in its position.
+        bool Collides(string key)
+        {
+            if (key == AnySignature) return true;
+            var other = key.Split('\u0001');
+            return other.Length == types.Count && other.Zip(types).All(t => t.First == t.Second || IsTypeParameter(t.First) || IsTypeParameter(t.Second));
+        }
         var wrapper = baseName;
-        for (int i = 2; !signatures.Add(Key(wrapper)); i++) wrapper = baseName + i;
+        for (int i = 2; signatures.Where(s => s.StartsWith(wrapper + "(", StringComparison.Ordinal)).Any(s => Collides(s[(wrapper.Length + 1)..])); i++)
+            wrapper = baseName + i;
+        signatures.Add(wrapper + "(" + string.Join('\u0001', types));
         return wrapper;
+    }
+
+    private const string AnySignature = "\u0002";
+
+    /// <summary>
+    /// A field accessor's name (and Set + name): taken whatever the parameters, so a getter or wrapper of the same name
+    /// (a property over the field "_instance") is numbered.
+    /// </summary>
+    private static string ReserveAccessor(HashSet<string> signatures, string fieldName)
+    {
+        var baseName = SafeName(Pascal(fieldName));
+        var name = baseName;
+        for (int i = 2; signatures.Any(s => s.StartsWith(name + "(", StringComparison.Ordinal) || s.StartsWith("Set" + name + "(", StringComparison.Ordinal)); i++)
+            name = baseName + i;
+        signatures.Add(name + "(" + AnySignature);
+        signatures.Add("Set" + name + "(" + AnySignature);
+        return name;
+    }
+
+    /// <summary>The C++ names of a method's parameters: identifiers, not keywords, unique (obfuscated names repeat).</summary>
+    private static List<string> ParameterNames(MethodDef method)
+    {
+        var names = new List<string>();
+        foreach (var p in method.Parameters.Where(x => x.IsNormalMethodParameter))
+        {
+            var name = Identifier(p.Name);
+            if (CppReserved.Contains(name)) name += "_";
+            for (int i = 2; names.Contains(name); i++) name = $"{Identifier(p.Name)}{i}";
+            names.Add(name);
+        }
+        return names;
     }
 
     private static string ReturnNote(MethodDef method, string unbox)
@@ -656,7 +715,15 @@ public sealed partial class CppBindingGenerator
     }
 
     /// <summary>Accessor and wrapper names must not collide with the struct's own Resolve / Resolved.</summary>
-    private static string SafeName(string name) => name is "Resolve" or "Resolved" ? name + "_" : name;
+    private static string SafeName(string name) => HelperNames.Contains(name) ? name + "_" : name;
+
+    /// <summary>Names of the struct's own members and of the helpers its code calls, which an accessor or wrapper would hide.</summary>
+    private static readonly HashSet<string> HelperNames = new(StringComparer.Ordinal)
+    {
+        "Resolve", "Resolved", "Definition", "Arg", "Result", "Invoke", "CallValue", "Read", "Write", "ReadStatic", "WriteStatic", "ReadField",
+        "WriteField", "ReadPtr", "FindClass", "FindNested", "FieldOffset", "StaticData", "MethodByToken", "MethodInHierarchy", "MethodPointer",
+        "GetMethodExact", "GetMethodInHierarchy", "Unbox",
+    };
 
     private static string Join(string a, string b) => a.Length == 0 ? b : $"{a}, {b}";
 
@@ -713,6 +780,7 @@ public sealed partial class CppBindingGenerator
     /// <summary>C++ type of a managed field/return; IsPointer for references, IsStruct for embedded value types.</summary>
     private static (string Cpp, bool IsPointer, bool IsStruct) CppType(TypeSig sig)
     {
+        if (sig is GenericVar v && _template) return (TypeParameter((int)v.Number), false, false);
         switch (sig.ElementType)
         {
             case ElementType.Boolean: return ("bool", false, false);

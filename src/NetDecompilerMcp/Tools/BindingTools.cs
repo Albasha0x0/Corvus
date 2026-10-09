@@ -22,6 +22,7 @@ public sealed class BindingTools(AssemblyWorkspace workspace, CppBindingGenerato
                  "paths relative to headerPath; projectDir calls Il2Cpp or Mono exports itself (il2cpp_class_from_name, typedef il2cpp_*_t, " +
                  "using fn_* = ..., mono_class_from_name) -> il2cpp or mono; an Il2Cpp dummy assembly -> il2cpp; else the server's " +
                  "--binding-style, else mono. The first line of the output says which style was chosen and why. " +
+                 "A generic definition (List`1) binds as a C++ template over its type parameters, resolved with Resolve(api, instanceClass) on an instantiation's class; style=il2cpp adds a layout template of its instances. " +
                  "The assembly, namespace and class strings come from the real metadata, so they are exactly what the runtime's class lookup expects.")]
     public Task<string> GenerateCppBinding(
         [Description("Type to bind. " + SymbolDescription)] string type,

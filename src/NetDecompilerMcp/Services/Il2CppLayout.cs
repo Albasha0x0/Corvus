@@ -156,6 +156,8 @@ internal sealed class Il2CppLayout
             end = m.Offset + m.Size;
             s.Align = Math.Max(s.Align, m.Align);
         }
+        // An overlapped field (explicit layout: a ulong over two ints) still aligns the struct.
+        foreach (var m in dumped) s.Align = Math.Max(s.Align, m.Align);
         s.Size = valueType ? Math.Max(AlignUp(end, s.Align), Math.Max(args == null ? type.ClassLayout?.ClassSize ?? 0 : 0, 1)) : end;
         return s;
     }
