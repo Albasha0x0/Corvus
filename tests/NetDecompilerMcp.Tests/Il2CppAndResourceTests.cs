@@ -74,7 +74,7 @@ public class Il2CppTests : IDisposable
         var managed = dir.File("Managed.dll");
         File.WriteAllBytes(managed, ContainerFixtures.Module("Managed", m => m.Types.Add(new dnlib.DotNet.TypeDefUser("Fixture.Native", "NativeThing", m.CorLibTypes.Object.TypeDefOrRef))));
         _env.Workspace.Load(managed);
-        var tools = new NetDecompilerMcp.Tools.Il2CppTools(_env.Workspace, _env.Il2Cpp, new Il2CppExporter(_env.Il2Cpp), _env.Pager);
+        var tools = new NetDecompilerMcp.Tools.Il2CppTools(_env.Workspace, _env.Il2Cpp, new Il2CppExporter(_env.Il2Cpp), new Il2CppStringService(_env.Workspace, _env.Il2Cpp), _env.Pager);
         var text = await tools.GetIl2CppInfo("Fixture.Native.NativeThing");
         Assert.Contains("1 match(es) in assemblies without Il2Cpp metadata skipped: Managed", text);
         Assert.Contains("RVA=0x1100", text);
