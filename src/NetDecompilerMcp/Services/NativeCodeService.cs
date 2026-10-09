@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Native.Annotations;
 using NetDecompilerMcp.Native.Code;
 
 namespace NetDecompilerMcp.Services;
@@ -12,12 +13,26 @@ namespace NetDecompilerMcp.Services;
 public sealed class NativeCodeService
 {
     private readonly ILogger<NativeCodeService>? _logger;
+    private readonly AnnotationStore _store;
 
-    public NativeCodeService(AssemblyWorkspace workspace, ServerOptions options, ILogger<NativeCodeService>? logger = null)
+    public NativeCodeService(AssemblyWorkspace workspace, ServerOptions options, ILogger<NativeCodeService>? logger = null, AnnotationStore? annotations = null)
     {
         _logger = logger;
+        _store = annotations ?? new AnnotationStore();
         if (options.BackgroundIndexing)
-            workspace.NativeLoaded += native => Holder(native).Start(_logger);
+            workspace.NativeLoaded += native => Holder(native).Start(_logger, this);
+    }
+
+    /// <summary>The image's annotations (names and comments), loaded from the sidecar on first use.</summary>
+    public NativeAnnotations Annotations(LoadedNative native) =>
+        native.Annotations(n => new NativeAnnotations(_store, n.FilePath, n.OriginalSha256, n.Image.ImageBase));
+
+    /// <summary>Mirrors every saved name and comment onto a freshly built index so they show up in queries.</summary>
+    public void ApplyAnnotations(LoadedNative native, NativeCodeIndex index)
+    {
+        if (native.AnnotationsOrNull is not { } ann && (ann = Annotations(native)) is null) return;
+        foreach (var (rva, name) in ann.Names()) index.SetUserName(rva, name);
+        foreach (var (rva, comment) in ann.Comments()) index.SetUserComment(rva, comment);
     }
 
     /// <summary>The image's index, building it if needed; progress reports the build phase while the caller waits.</summary>
@@ -25,7 +40,7 @@ public sealed class NativeCodeService
     {
         var holder = Holder(native);
         holder.Listen(progress);
-        try { return await holder.Start(_logger).WaitAsync(ct); }
+        try { return await holder.Start(_logger, this).WaitAsync(ct); }
         finally { holder.Listen(null); }
     }
 
@@ -43,7 +58,7 @@ public sealed class NativeCodeService
 
         public void Listen(IProgress<CodeIndexProgress>? progress) => _listener = progress;
 
-        public Task<NativeCodeIndex> Start(ILogger? logger)
+        public Task<NativeCodeIndex> Start(ILogger? logger, NativeCodeService owner)
         {
             lock (this)
             {
@@ -53,8 +68,12 @@ public sealed class NativeCodeService
                     .ContinueWith(done =>
                     {
                         if (done.IsCompletedSuccessfully)
+                        {
+                            try { owner.ApplyAnnotations(native, done.Result); }
+                            catch (Exception ex) { logger?.LogWarning(ex, "Applying annotations to {Id} failed", native.Id); }
                             logger?.LogInformation("Indexed {Id}: {Functions} functions, {Xrefs} references in {Seconds:0.0} s", native.Id,
                                 done.Result.Stats.Functions, done.Result.Stats.Xrefs, done.Result.Stats.Elapsed.TotalSeconds);
+                        }
                         else if (done.Exception is { } ex)
                             logger?.LogWarning(ex.GetBaseException(), "Indexing {Id} failed", native.Id);
                         return done;

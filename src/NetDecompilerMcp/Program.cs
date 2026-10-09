@@ -61,7 +61,9 @@ builder.Services
     .AddSingleton<UnpackService>()
     .AddSingleton<InspectionService>()
     .AddSingleton<NativeEngineService>()
+    .AddSingleton<NetDecompilerMcp.Native.Annotations.AnnotationStore>()
     .AddSingleton<NativeCodeService>()
+    .AddSingleton<NativeEditService>()
     .AddSingleton<ReadyToRunService>();
 
 builder.Services
