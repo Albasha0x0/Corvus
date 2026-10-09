@@ -67,16 +67,23 @@ public sealed class SimplifySweepTests(ITestOutputHelper output)
     {
         var entries = SweepCatalog.Entries(full: false).Where(e => e.Path != null && e.Determinism).ToList();
         Assert.NotEmpty(entries);
-        foreach (var entry in entries)
+        // All runs in parallel, each in its own workspace: nothing here is timed, and methods take far less than the
+        // per-method limit.
+        var results = new string?[entries.Count];
+        Parallel.For(0, entries.Count, i =>
         {
-            var first = SimplifyHarness.Run(entry.Path!);
-            var second = SimplifyHarness.Run(entry.Path!);
-            Assert.Empty(first.Problems);
-            Assert.Empty(second.Problems);
-            var differing = DeterminismFailures(first, second);
-            Assert.True(differing.Count == 0, $"{entry.Origin} {entry.Name}: repeated runs differ in {string.Join(", ", differing.Take(10))}");
-            output.WriteLine($"{entry.Origin} {entry.Name}: {first.Image!.Length:N0} bytes, identical across runs");
-        }
+            var entry = entries[i];
+            SimplifyHarness.Outcome first = null!, second = null!;
+            Parallel.Invoke(() => first = SimplifyHarness.Run(entry.Path!), () => second = SimplifyHarness.Run(entry.Path!));
+            var problems = first.Problems.Concat(second.Problems).ToList();
+            var differing = problems.Count > 0 ? [] : DeterminismFailures(first, second);
+            results[i] = problems.Count > 0 ? $"{entry.Origin} {entry.Name}: {string.Join("; ", problems.Take(5))}"
+                : differing.Count > 0 ? $"{entry.Origin} {entry.Name}: repeated runs differ in {string.Join(", ", differing.Take(10))}"
+                : null;
+            if (results[i] == null) lock (output) output.WriteLine($"{entry.Origin} {entry.Name}: {first.Image!.Length:N0} bytes, identical across runs");
+        });
+        var failures = results.Where(r => r != null).ToList();
+        Assert.True(failures.Count == 0, string.Join("\n", failures));
     }
 
     /// <summary>

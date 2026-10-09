@@ -114,17 +114,21 @@ public class ExportBuildTests
         finally { context.Unload(); }
     }
 
-    /// <summary>Rewritten span code in digests, SCrypt and AEAD modes gives the original results after rebuild.</summary>
-    [Fact]
-    public void BouncyCastle_RebuiltFromExport_BehavesTheSame()
+    /// <summary>A class of its own: the longest export starts with the first tests, not after the others of this class.</summary>
+    public sealed class BouncyCastle
     {
-        var path = RealPackages.Lib("BouncyCastle.Cryptography", "2.6.2", "net6.0", "BouncyCastle.Cryptography.dll");
-        using var dir = new TempDir();
-        using var env = new Env(path);
-        var rebuilt = AssertBuilds(env, dir.File("out"));
-        var expected = CryptoResults(path);
-        Assert.Equal(expected, CryptoResults(rebuilt));
-        Assert.Equal(8, expected.Count);
+        /// <summary>Rewritten span code in digests, SCrypt and AEAD modes gives the original results after rebuild.</summary>
+        [Fact]
+        public void BouncyCastle_RebuiltFromExport_BehavesTheSame()
+        {
+            var path = RealPackages.Lib("BouncyCastle.Cryptography", "2.6.2", "net6.0", "BouncyCastle.Cryptography.dll");
+            using var dir = new TempDir();
+            using var env = new Env(path);
+            var rebuilt = AssertBuilds(env, dir.File("out"));
+            var expected = CryptoResults(path);
+            Assert.Equal(expected, CryptoResults(rebuilt));
+            Assert.Equal(8, expected.Count);
+        }
     }
 
     private static List<string> CryptoResults(string assembly)

@@ -6,8 +6,11 @@ using ModelContextProtocol.Protocol;
 
 namespace NetDecompilerMcp.Tests;
 
-/// <summary>Drives the real server over stdio with an MCP client.</summary>
-public class McpProtocolTests : IAsyncLifetime
+/// <summary>
+/// Drives the real server over stdio with an MCP client; each test starts its own server. The tests are grouped in
+/// nested classes so that the groups run in parallel (xUnit runs the tests of one class one after another).
+/// </summary>
+public abstract class McpProtocolTests : IAsyncLifetime
 {
     private McpClient _client = null!;
     private readonly TempDir _dir = new();
@@ -20,14 +23,18 @@ public class McpProtocolTests : IAsyncLifetime
         _dir.Dispose();
     }
 
+    private static string ServerDll => typeof(NetDecompilerMcp.Core.AssemblyWorkspace).Assembly.Location;
+
     internal static async Task<McpClient> StartServerAsync(params string[] args)
     {
-        var serverDll = typeof(NetDecompilerMcp.Core.AssemblyWorkspace).Assembly.Location;
         var transport = new StdioClientTransport(new StdioClientTransportOptions
         {
             Name = "net-decompiler",
             Command = "dotnet",
-            Arguments = [serverDll, .. args],
+            Arguments = [ServerDll, .. args],
+            // The SDK waits this long for the server to exit before it closes the server's input, then ends it; the
+            // server exits on end of input (ServerExitsWhenItsInputCloses), so waiting longer only delays each test.
+            ShutdownTimeout = TimeSpan.FromMilliseconds(200),
         });
         return await McpClient.CreateAsync(transport);
     }
@@ -122,186 +129,234 @@ public class McpProtocolTests : IAsyncLifetime
         ["unload_assembly"] = (new() { ["assembly"] = "TestFixture.Consumer" }, "Unloaded"),
     };
 
-    [Fact]
-    public async Task EveryToolIsCoveredAndAnnotated()
+    /// <summary>Every tool: listed, annotated and callable.</summary>
+    public sealed class Tools : McpProtocolTests
     {
-        var tools = await _client.ListToolsAsync();
-        Assert.Equal(ToolCases().Keys.Order(), tools.Select(t => t.Name).Order());
-        foreach (var tool in tools)
+        [Fact]
+        public async Task EveryToolIsCoveredAndAnnotated()
         {
-            Assert.False(string.IsNullOrWhiteSpace(tool.Description), tool.Name);
-            Assert.False(string.IsNullOrWhiteSpace(tool.ProtocolTool.Title), tool.Name);
-            Assert.NotNull(tool.ProtocolTool.Annotations);
-            Assert.False(tool.ProtocolTool.Annotations!.OpenWorldHint);
+            var tools = await _client.ListToolsAsync();
+            Assert.Equal(ToolCases().Keys.Order(), tools.Select(t => t.Name).Order());
+            foreach (var tool in tools)
+            {
+                Assert.False(string.IsNullOrWhiteSpace(tool.Description), tool.Name);
+                Assert.False(string.IsNullOrWhiteSpace(tool.ProtocolTool.Title), tool.Name);
+                Assert.NotNull(tool.ProtocolTool.Annotations);
+                Assert.False(tool.ProtocolTool.Annotations!.OpenWorldHint);
+            }
+            Assert.True(tools.Single(t => t.Name == "decompile_type").ProtocolTool.Annotations!.ReadOnlyHint);
+            Assert.True(tools.Single(t => t.Name == "save_assembly").ProtocolTool.Annotations!.DestructiveHint);
         }
-        Assert.True(tools.Single(t => t.Name == "decompile_type").ProtocolTool.Annotations!.ReadOnlyHint);
-        Assert.True(tools.Single(t => t.Name == "save_assembly").ProtocolTool.Annotations!.DestructiveHint);
-    }
 
-    [Fact]
-    public async Task EveryToolSucceedsWithValidInput()
-    {
-        foreach (var (tool, (args, expect)) in ToolCases()) // order matters: edits build on each other, unload last
+        [Fact]
+        public async Task EveryToolSucceedsWithValidInput()
         {
-            var text = await Call(tool, args);
-            Assert.True(text.Contains(expect, StringComparison.Ordinal), $"{tool}: expected '{expect}' in:\n{text}");
+            foreach (var (tool, (args, expect)) in ToolCases()) // order matters: edits build on each other, unload last
+            {
+                var text = await Call(tool, args);
+                Assert.True(text.Contains(expect, StringComparison.Ordinal), $"{tool}: expected '{expect}' in:\n{text}");
+            }
+            Assert.Contains("return 7;", await Call("decompile_member", new() { ["member"] = "Account::Score" }));
+            Assert.Contains("// Simplified view", await Call("decompile_member", new() { ["member"] = "Account::CheckLicense", ["simplified"] = true }));
+            Assert.True(File.Exists(_dir.File("saved.dll")));
         }
-        Assert.Contains("return 7;", await Call("decompile_member", new() { ["member"] = "Account::Score" }));
-        Assert.Contains("// Simplified view", await Call("decompile_member", new() { ["member"] = "Account::CheckLicense", ["simplified"] = true }));
-        Assert.True(File.Exists(_dir.File("saved.dll")));
     }
 
-    [Fact]
-    public async Task ServerAdvertisesCapabilitiesAndInstructions()
+    /// <summary>Capabilities, resources, prompts and completions.</summary>
+    public sealed class Discovery : McpProtocolTests
     {
-        Assert.Equal("net-decompiler", _client.ServerInfo.Name);
-        Assert.Contains("load_assembly", _client.ServerInstructions);
-        Assert.NotNull(_client.ServerCapabilities.Tools);
-        Assert.NotNull(_client.ServerCapabilities.Resources);
-        Assert.NotNull(_client.ServerCapabilities.Prompts);
-        Assert.NotNull(_client.ServerCapabilities.Completions);
-    }
-
-    [Fact]
-    public async Task ResourcesAndTemplates()
-    {
-        var resources = await _client.ListResourcesAsync();
-        Assert.Contains(resources, r => r.Uri == "netdecomp://assemblies");
-        var templates = await _client.ListResourceTemplatesAsync();
-        Assert.Equal(3, templates.Count);
-
-        async Task<string> Read(string uri) =>
-            string.Join("", (await _client.ReadResourceAsync(uri)).Contents.OfType<TextResourceContents>().Select(c => c.Text));
-
-        Assert.Contains("TestFixture.Consumer", await Read("netdecomp://assemblies"));
-        Assert.Contains("public class Account", await Read("netdecomp://assembly/TestFixture/type/Fixture.Model.Account"));
-        Assert.Contains("class Inventory", await Read("netdecomp://assembly/TestFixture/type/Fixture.Model.Account%2BInventory"));
-        Assert.Contains("ldstr", await Read("netdecomp://assembly/TestFixture/il/Account::CheckLicense"));
-        Assert.Contains("Sections:", await Read("netdecomp://assembly/TestFixture/info"));
-        await Assert.ThrowsAnyAsync<McpException>(() => Read("netdecomp://assembly/TestFixture/type/Nope.Missing"));
-    }
-
-    [Fact]
-    public async Task Prompts()
-    {
-        var prompts = await _client.ListPromptsAsync();
-        Assert.Equal(["analyze_assembly", "explain_type", "find_feature", "map_native_address", "plan_patch"], prompts.Select(p => p.Name).Order());
-        var result = await _client.GetPromptAsync("find_feature", new Dictionary<string, object?> { ["feature"] = "license check", ["assembly"] = "TestFixture" });
-        var text = string.Join("\n", result.Messages.Select(m => (m.Content as TextContentBlock)?.Text));
-        Assert.Contains("license check", text);
-        Assert.Contains("search_strings", text);
-    }
-
-    [Fact]
-    public async Task Completions()
-    {
-        var assemblies = await _client.CompleteAsync(new PromptReference { Name = "explain_type" }, "assembly", "TestF");
-        Assert.Contains("TestFixture", assemblies.Completion.Values);
-        Assert.Contains("TestFixture.Consumer", assemblies.Completion.Values);
-
-        var types = await _client.CompleteAsync(new ResourceTemplateReference { Uri = "netdecomp://assembly/{assembly}/type/{type}" }, "type", "Fixture.Model.Acc");
-        Assert.Contains("Fixture.Model.Account", types.Completion.Values);
-
-        var shortName = await _client.CompleteAsync(new PromptReference { Name = "explain_type" }, "type", "Sho");
-        Assert.Contains("Fixture.Model.Shop", shortName.Completion.Values);
-
-        var paths = await _client.CompleteAsync(new PromptReference { Name = "analyze_assembly" }, "path", Path.GetDirectoryName(Env.FixturePath) + Path.DirectorySeparatorChar + "TestFix");
-        Assert.Contains(paths.Completion.Values, p => p.EndsWith("TestFixture.dll"));
-
-        var none = await _client.CompleteAsync(new PromptReference { Name = "find_feature" }, "feature", "x");
-        Assert.Empty(none.Completion.Values);
-    }
-
-    [Fact]
-    public async Task ProgressNotifications()
-    {
-        File.Copy(Env.FixturePath, _dir.File("A.dll"));
-        File.Copy(Env.ConsumerPath, _dir.File("B.dll"));
-        // Session-wide handler: the per-call callback is removed on response and can miss in-flight notifications.
-        var updates = new ConcurrentQueue<ProgressNotificationParams>();
-        await using var handler = _client.RegisterNotificationHandler(NotificationMethods.ProgressNotification, (n, _) =>
+        [Fact]
+        public async Task ServerAdvertisesCapabilitiesAndInstructions()
         {
-            updates.Enqueue(n.Params.Deserialize<ProgressNotificationParams>(McpJsonUtilities.DefaultOptions)!);
-            return ValueTask.CompletedTask;
-        });
-        var result = await _client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = _dir.Path },
-            new SyncProgress(_ => { })); // gives the request a progress token
-        Assert.NotEqual(true, result.IsError);
-        for (int i = 0; i < 250 && updates.Count < 2; i++) await Task.Delay(20);
-        Assert.True(updates.Count >= 2, $"expected progress, got {updates.Count}");
-        Assert.All(updates, u => Assert.Equal(2, u.Progress.Total));
-    }
-
-    [Fact]
-    public async Task ErrorsAreToolErrorsAndServerSurvives()
-    {
-        Assert.Contains("not found", await Call("decompile_type", new() { ["type"] = "Nope.DoesNotExist" }, expectError: true));
-        Assert.Contains("File not found", await Call("load_assembly", new() { ["path"] = @"C:\definitely\missing.dll" }, expectError: true));
-        Assert.Contains("Unknown kind", await Call("decompile_member", new() { ["member"] = "Charge", ["kind"] = "banana" }, expectError: true));
-        Assert.Contains("ambiguous", await Call("find_references", new() { ["symbol"] = "Account::Charge" }, expectError: true));
-        Assert.Contains("Invalid regex", await Call("search_symbols", new() { ["query"] = "(", ["regex"] = true }, expectError: true));
-        Assert.Contains("compilation failed", await Call("patch_method_csharp", new() { ["method"] = "Shop::Buy", ["code"] = "return nope;" }, expectError: true));
-        Assert.Contains("Charge", await Call("get_type_info", new() { ["type"] = "Account" }));
-    }
-
-    [Fact]
-    public async Task FileChangeNoticesRideAlongWithTheNextResult()
-    {
-        var path = _dir.File("Watched.dll");
-        File.Copy(Env.FixturePath, path);
-        await Call("load_assembly", new() { ["path"] = path });
-        using (var build = new Env())
-        {
-            build.Edit(() => build.Edits.Rename(build.One("Shop::Describe"), "DescribeV2"));
-            build.Edits.Save(build.Fixture, _dir.File("v2.dll"), false);
+            Assert.Equal("net-decompiler", _client.ServerInfo.Name);
+            Assert.Contains("load_assembly", _client.ServerInstructions);
+            Assert.NotNull(_client.ServerCapabilities.Tools);
+            Assert.NotNull(_client.ServerCapabilities.Resources);
+            Assert.NotNull(_client.ServerCapabilities.Prompts);
+            Assert.NotNull(_client.ServerCapabilities.Completions);
         }
-        File.Copy(_dir.File("v2.dll"), path, overwrite: true);
 
-        string text = "";
-        for (int i = 0; i < 50 && !text.Contains("[workspace]"); i++)
+        [Fact]
+        public async Task ResourcesAndTemplates()
         {
-            await Task.Delay(200);
-            text = await Call("list_namespaces", new() { ["assembly"] = "TestFixture" });
+            var resources = await _client.ListResourcesAsync();
+            Assert.Contains(resources, r => r.Uri == "netdecomp://assemblies");
+            var templates = await _client.ListResourceTemplatesAsync();
+            Assert.Equal(3, templates.Count);
+
+            async Task<string> Read(string uri) =>
+                string.Join("", (await _client.ReadResourceAsync(uri)).Contents.OfType<TextResourceContents>().Select(c => c.Text));
+
+            Assert.Contains("TestFixture.Consumer", await Read("netdecomp://assemblies"));
+            Assert.Contains("public class Account", await Read("netdecomp://assembly/TestFixture/type/Fixture.Model.Account"));
+            Assert.Contains("class Inventory", await Read("netdecomp://assembly/TestFixture/type/Fixture.Model.Account%2BInventory"));
+            Assert.Contains("ldstr", await Read("netdecomp://assembly/TestFixture/il/Account::CheckLicense"));
+            Assert.Contains("Sections:", await Read("netdecomp://assembly/TestFixture/info"));
+            await Assert.ThrowsAnyAsync<McpException>(() => Read("netdecomp://assembly/TestFixture/type/Nope.Missing"));
         }
-        Assert.Contains("[workspace]", text);
-        Assert.Contains("reloaded", text);
-    }
 
-    [Fact]
-    public async Task PagingOverTheWire()
-    {
-        await using var client = await StartServerAsync("--load", Env.FixturePath, "--max-output", "2000");
-        var first = Text(await client.CallToolAsync("decompile_type", new Dictionary<string, object?> { ["type"] = "Account", ["maxChars"] = 1000 }));
-        var match = System.Text.RegularExpressions.Regex.Match(first, @"offset=(\d+)");
-        Assert.True(match.Success, $"no truncation footer in {first.Length} chars: {first[..Math.Min(400, first.Length)]}");
-        var offset = int.Parse(match.Groups[1].Value);
-        var second = Text(await client.CallToolAsync("decompile_type", new Dictionary<string, object?> { ["type"] = "Account", ["offset"] = offset, ["maxChars"] = 1000 }));
-        Assert.StartsWith($"[Continuing from offset {offset}]", second);
-    }
-
-    [Fact]
-    public async Task CancellationLeavesServerUsable()
-    {
-        using var cts = new CancellationTokenSource();
-        cts.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            _client.CallToolAsync("decompile_type", new Dictionary<string, object?> { ["type"] = "Account" }, cancellationToken: cts.Token).AsTask());
-        Assert.Contains("Charge", await Call("get_type_info", new() { ["type"] = "Account" }));
-    }
-
-    [Fact]
-    public async Task ParallelReadsAndEditsAreSafe()
-    {
-        var calls = Enumerable.Range(0, 40).Select(i => (i % 5) switch
+        [Fact]
+        public async Task Prompts()
         {
-            0 => _client.CallToolAsync("decompile_type", new Dictionary<string, object?> { ["type"] = "Account" }),
-            1 => _client.CallToolAsync("search_strings", new Dictionary<string, object?> { ["query"] = "LICENSE" }),
-            2 => _client.CallToolAsync("find_references", new Dictionary<string, object?> { ["symbol"] = "Account::_balance" }),
-            3 => _client.CallToolAsync("rename_symbol", new Dictionary<string, object?> { ["symbol"] = "Shop::Describe", ["newName"] = i % 2 == 0 ? "Describe" : "Describe" }),
-            _ => _client.CallToolAsync("stub_method", new Dictionary<string, object?> { ["method"] = "Account::Score", ["value"] = i.ToString() }),
-        }).Select(t => t.AsTask());
-        var results = await Task.WhenAll(calls);
-        Assert.All(results, r => Assert.NotEqual(true, r.IsError));
+            var prompts = await _client.ListPromptsAsync();
+            Assert.Equal(["analyze_assembly", "explain_type", "find_feature", "map_native_address", "plan_patch"], prompts.Select(p => p.Name).Order());
+            var result = await _client.GetPromptAsync("find_feature", new Dictionary<string, object?> { ["feature"] = "license check", ["assembly"] = "TestFixture" });
+            var text = string.Join("\n", result.Messages.Select(m => (m.Content as TextContentBlock)?.Text));
+            Assert.Contains("license check", text);
+            Assert.Contains("search_strings", text);
+        }
+
+        [Fact]
+        public async Task Completions()
+        {
+            var assemblies = await _client.CompleteAsync(new PromptReference { Name = "explain_type" }, "assembly", "TestF");
+            Assert.Contains("TestFixture", assemblies.Completion.Values);
+            Assert.Contains("TestFixture.Consumer", assemblies.Completion.Values);
+
+            var types = await _client.CompleteAsync(new ResourceTemplateReference { Uri = "netdecomp://assembly/{assembly}/type/{type}" }, "type", "Fixture.Model.Acc");
+            Assert.Contains("Fixture.Model.Account", types.Completion.Values);
+
+            var shortName = await _client.CompleteAsync(new PromptReference { Name = "explain_type" }, "type", "Sho");
+            Assert.Contains("Fixture.Model.Shop", shortName.Completion.Values);
+
+            var paths = await _client.CompleteAsync(new PromptReference { Name = "analyze_assembly" }, "path", Path.GetDirectoryName(Env.FixturePath) + Path.DirectorySeparatorChar + "TestFix");
+            Assert.Contains(paths.Completion.Values, p => p.EndsWith("TestFixture.dll"));
+
+            var none = await _client.CompleteAsync(new PromptReference { Name = "find_feature" }, "feature", "x");
+            Assert.Empty(none.Completion.Values);
+        }
+    }
+
+    /// <summary>Notifications sent alongside results.</summary>
+    public sealed class Notifications : McpProtocolTests
+    {
+        [Fact]
+        public async Task ProgressNotifications()
+        {
+            File.Copy(Env.FixturePath, _dir.File("A.dll"));
+            File.Copy(Env.ConsumerPath, _dir.File("B.dll"));
+            // Session-wide handler: the per-call callback is removed on response and can miss in-flight notifications.
+            var updates = new ConcurrentQueue<ProgressNotificationParams>();
+            await using var handler = _client.RegisterNotificationHandler(NotificationMethods.ProgressNotification, (n, _) =>
+            {
+                updates.Enqueue(n.Params.Deserialize<ProgressNotificationParams>(McpJsonUtilities.DefaultOptions)!);
+                return ValueTask.CompletedTask;
+            });
+            var result = await _client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = _dir.Path },
+                new SyncProgress(_ => { })); // gives the request a progress token
+            Assert.NotEqual(true, result.IsError);
+            for (int i = 0; i < 250 && updates.Count < 2; i++) await Task.Delay(20);
+            Assert.True(updates.Count >= 2, $"expected progress, got {updates.Count}");
+            Assert.All(updates, u => Assert.Equal(2, u.Progress.Total));
+        }
+
+        [Fact]
+        public async Task FileChangeNoticesRideAlongWithTheNextResult()
+        {
+            var path = _dir.File("Watched.dll");
+            File.Copy(Env.FixturePath, path);
+            await Call("load_assembly", new() { ["path"] = path });
+            using (var build = new Env())
+            {
+                build.Edit(() => build.Edits.Rename(build.One("Shop::Describe"), "DescribeV2"));
+                build.Edits.Save(build.Fixture, _dir.File("v2.dll"), false);
+            }
+            File.Copy(_dir.File("v2.dll"), path, overwrite: true);
+
+            string text = "";
+            for (int i = 0; i < 50 && !text.Contains("[workspace]"); i++)
+            {
+                await Task.Delay(200);
+                text = await Call("list_namespaces", new() { ["assembly"] = "TestFixture" });
+            }
+            Assert.Contains("[workspace]", text);
+            Assert.Contains("reloaded", text);
+        }
+    }
+
+    /// <summary>Errors and cancellation leave the server usable.</summary>
+    public sealed class Errors : McpProtocolTests
+    {
+        [Fact]
+        public async Task ErrorsAreToolErrorsAndServerSurvives()
+        {
+            Assert.Contains("not found", await Call("decompile_type", new() { ["type"] = "Nope.DoesNotExist" }, expectError: true));
+            Assert.Contains("File not found", await Call("load_assembly", new() { ["path"] = @"C:\definitely\missing.dll" }, expectError: true));
+            Assert.Contains("Unknown kind", await Call("decompile_member", new() { ["member"] = "Charge", ["kind"] = "banana" }, expectError: true));
+            Assert.Contains("ambiguous", await Call("find_references", new() { ["symbol"] = "Account::Charge" }, expectError: true));
+            Assert.Contains("Invalid regex", await Call("search_symbols", new() { ["query"] = "(", ["regex"] = true }, expectError: true));
+            Assert.Contains("compilation failed", await Call("patch_method_csharp", new() { ["method"] = "Shop::Buy", ["code"] = "return nope;" }, expectError: true));
+            Assert.Contains("Charge", await Call("get_type_info", new() { ["type"] = "Account" }));
+        }
+
+        [Fact]
+        public async Task CancellationLeavesServerUsable()
+        {
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                _client.CallToolAsync("decompile_type", new Dictionary<string, object?> { ["type"] = "Account" }, cancellationToken: cts.Token).AsTask());
+            Assert.Contains("Charge", await Call("get_type_info", new() { ["type"] = "Account" }));
+        }
+    }
+
+    /// <summary>Long results over the wire.</summary>
+    public sealed class Paging : McpProtocolTests
+    {
+        [Fact]
+        public async Task PagingOverTheWire()
+        {
+            await using var client = await StartServerAsync("--load", Env.FixturePath, "--max-output", "2000");
+            var first = Text(await client.CallToolAsync("decompile_type", new Dictionary<string, object?> { ["type"] = "Account", ["maxChars"] = 1000 }));
+            var match = System.Text.RegularExpressions.Regex.Match(first, @"offset=(\d+)");
+            Assert.True(match.Success, $"no truncation footer in {first.Length} chars: {first[..Math.Min(400, first.Length)]}");
+            var offset = int.Parse(match.Groups[1].Value);
+            var second = Text(await client.CallToolAsync("decompile_type", new Dictionary<string, object?> { ["type"] = "Account", ["offset"] = offset, ["maxChars"] = 1000 }));
+            Assert.StartsWith($"[Continuing from offset {offset}]", second);
+        }
+    }
+
+    /// <summary>Concurrent calls.</summary>
+    public sealed class Concurrency : McpProtocolTests
+    {
+        [Fact]
+        public async Task ParallelReadsAndEditsAreSafe()
+        {
+            var calls = Enumerable.Range(0, 40).Select(i => (i % 5) switch
+            {
+                0 => _client.CallToolAsync("decompile_type", new Dictionary<string, object?> { ["type"] = "Account" }),
+                1 => _client.CallToolAsync("search_strings", new Dictionary<string, object?> { ["query"] = "LICENSE" }),
+                2 => _client.CallToolAsync("find_references", new Dictionary<string, object?> { ["symbol"] = "Account::_balance" }),
+                3 => _client.CallToolAsync("rename_symbol", new Dictionary<string, object?> { ["symbol"] = "Shop::Describe", ["newName"] = i % 2 == 0 ? "Describe" : "Describe" }),
+                _ => _client.CallToolAsync("stub_method", new Dictionary<string, object?> { ["method"] = "Account::Score", ["value"] = i.ToString() }),
+            }).Select(t => t.AsTask());
+            var results = await Task.WhenAll(calls);
+            Assert.All(results, r => Assert.NotEqual(true, r.IsError));
+        }
+    }
+
+    /// <summary>The process itself.</summary>
+    public sealed class Lifetime : McpProtocolTests
+    {
+        /// <summary>A client that closes the server's input (ends the session) gets a server that exits, cleanly and promptly.</summary>
+        [Fact]
+        public void ServerExitsWhenItsInputCloses()
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("dotnet") { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            psi.ArgumentList.Add(ServerDll);
+            psi.ArgumentList.Add("--load");
+            psi.ArgumentList.Add(Env.FixturePath);
+            using var process = System.Diagnostics.Process.Start(psi)!;
+            process.OutputDataReceived += (_, _) => { };
+            process.ErrorDataReceived += (_, _) => { };
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+            process.StandardInput.Close();
+            bool exited = process.WaitForExit(30_000);
+            if (!exited) process.Kill(entireProcessTree: true);
+            Assert.True(exited, "the server kept running after its input closed");
+            Assert.Equal(0, process.ExitCode);
+        }
     }
 
     private sealed class SyncProgress(Action<ProgressNotificationValue> report) : IProgress<ProgressNotificationValue>
