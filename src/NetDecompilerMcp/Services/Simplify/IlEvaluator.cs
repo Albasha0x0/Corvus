@@ -832,12 +832,13 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                 }
 
                 case Code.Ldsfld:
-                    Push(LoadStatic((IField)ins.Operand));
+                    Push(LoadStatic((IField)ins.Operand, f.Method));
                     break;
                 case Code.Ldsflda:
                 {
                     var field = (IField)ins.Operand;
-                    Push(new Pointer(() => LoadStatic(field), v => StoreStatic(field, v)));
+                    var reader = f.Method;
+                    Push(new Pointer(() => LoadStatic(field, reader), v => StoreStatic(field, v)));
                     break;
                 }
                 case Code.Stsfld:
@@ -1020,7 +1021,8 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
 
     // ---- static state
 
-    private object? LoadStatic(IField field)
+    /// <summary>Reads a static field; <paramref name="reader"/> is the method whose code reads it (null: a dynamic method or an intrinsic).</summary>
+    private object? LoadStatic(IField field, MethodDef? reader = null)
     {
         if (field.FullName == "System.String System.String::Empty") return "";
         if (field.FullName is "System.IntPtr System.IntPtr::Zero" or "System.UIntPtr System.UIntPtr::Zero") return (nint)0;
@@ -1040,7 +1042,18 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
             // equivalent manager.
             if (AlwaysDefault(fd)) return Default(SlotOf(fd.FieldType));
             if (LazyManager(fd) is { } manager) return manager;
-            throw Bail(FallbackReason.MutableStatic, $"reads mutable static field {type.FullName}::{fd.Name}");
+            if (CrossInitializer(fd) is not { } writer)
+                throw Bail(FallbackReason.MutableStatic, $"reads mutable static field {type.FullName}::{fd.Name}");
+            // Written by another type's initialization: inside it the state is read as it stands (and its objects may still
+            // change); after it, only from that type's own methods, which run once it completed.
+            if (_initializing.Contains(writer)) initializing = true;
+            else
+            {
+                if (reader == null || reader.DeclaringType != writer)
+                    throw Bail(FallbackReason.MutableStatic, $"reads static field {type.FullName}::{fd.Name}, which the static constructor of {writer.FullName} writes, from code that is not ordered after it");
+                RequireSettledState(writer);
+                EnsureInitialized(writer);
+            }
         }
         RequireSettledState(type);
         EnsureInitialized(type);
@@ -1100,6 +1113,12 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         return _facts.WrittenOnlyByInitialization(field);
     }
 
+    private TypeDef? CrossInitializer(FieldDef field)
+    {
+        using var analysis = Meter?.Exclude();
+        return _facts.CrossInitializer(field);
+    }
+
     private bool Frozen(FieldDef field)
     {
         using var analysis = Meter?.Exclude();
@@ -1112,7 +1131,15 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         if (fd == null || fd.Module != module || !fd.IsStatic)
             throw Bail(FallbackReason.OtherModule, $"writes static field {field.FullName} of another module");
         if (!_initializing.Contains(fd.DeclaringType))
-            throw Bail(FallbackReason.MutableStatic, $"writes static field {fd.DeclaringType.FullName}::{fd.Name} outside its static constructor");
+        {
+            // Another type's static constructor may write it when every read is ordered against the write (ModuleFacts).
+            if (CrossInitializer(fd) is not { } writer || !_initializing.Contains(writer))
+                throw Bail(FallbackReason.MutableStatic, $"writes static field {fd.DeclaringType.FullName}::{fd.Name} outside its static constructor");
+            if (writer == _ownType)
+                throw Bail(FallbackReason.MutableStatic, $"writes static field {fd.DeclaringType.FullName}::{fd.Name}, which the running static constructor of {writer.FullName} initializes");
+            // The access runs the field's own type initialization first, as at run time.
+            EnsureInitialized(fd.DeclaringType);
+        }
         if (_initializing.Count > 0) Touch(fd.DeclaringType);
         if (fd.DeclaringType == _ownType)
             throw Bail(FallbackReason.MutableStatic, $"writes static field {fd.DeclaringType.FullName}::{fd.Name} of the type whose static constructor is running");

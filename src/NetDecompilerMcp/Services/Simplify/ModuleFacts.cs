@@ -94,6 +94,7 @@ internal sealed class ModuleFacts(ModuleDef module)
         if (_frozen.TryGetValue(field, out bool frozen)) return frozen;
         Build();
         var init = InitOnly(field.DeclaringType);
+        if (CrossInitializer(field) is { } writer) init = [.. init, .. InitOnly(writer)];
         bool immutableElements = field.FieldType.RemovePinnedAndModifiers() is SZArraySig { Next: var element } &&
                                  (element.IsPrimitive || element.ElementType == ElementType.String);
         var visited = new HashSet<(MethodDef, int, bool)>();
@@ -125,6 +126,43 @@ internal sealed class ModuleFacts(ModuleDef module)
         var init = InitOnly(field.DeclaringType);
         return (_fieldWrites!.GetValueOrDefault(field) ?? []).All(init.Contains);
     }
+
+    /// <summary>
+    /// The one other type whose initialization writes a static field of <paramref name="field"/>'s type B, when every
+    /// read of the field is ordered against that write; null otherwise. Holds when no other assembly can access the
+    /// field, every write is in the initialization of B or of one other type A (<see cref="InitOnly"/>, at least one in
+    /// A's), A is a non-generic type with a static constructor that runs precisely (not beforefieldinit: the first access
+    /// to any member of A runs it), A's initialization cannot run during B's (so B's completes before A's first access
+    /// to the field, which triggers it), and every read is in B's initialization (before A's write), in A's (in its own
+    /// order), or in a method declared by A that cannot run during A's initialization (after it completed).
+    /// </summary>
+    public TypeDef? CrossInitializer(FieldDef field)
+    {
+        if (_cross.TryGetValue(field, out var known)) return known;
+        _cross[field] = null;
+        if (!field.IsStatic || !Hidden(field) || field.DeclaringType.HasGenericParameters) return null;
+        Build();
+        var owner = field.DeclaringType;
+        var ownInit = InitOnly(owner);
+        // The writers outside B's initialization: all in the initialization of one type A that declares one of them.
+        var writers = (_fieldWrites!.GetValueOrDefault(field) ?? []).Where(m => !ownInit.Contains(m)).Distinct().ToList();
+        if (writers.Count == 0) return null;
+        var a = writers.Select(m => m.DeclaringType).Distinct()
+            .FirstOrDefault(t => t != owner && !t.HasGenericParameters && !t.IsBeforeFieldInit && t.FindStaticConstructor() != null && writers.All(InitOnly(t).Contains));
+        if (a == null || RunsDuringInitialization(owner, a.FindStaticConstructor()!)) return null;
+        var aInit = InitOnly(a);
+        var aReach = Reach(a);
+        foreach (var (reader, _) in _fieldUses!.GetValueOrDefault(field) ?? [])
+        {
+            if (ownInit.Contains(reader) || aInit.Contains(reader)) continue;
+            if (reader.DeclaringType == a && !aReach.Contains(reader)) continue;
+            return null;
+        }
+        _cross[field] = a;
+        return a;
+    }
+
+    private readonly Dictionary<FieldDef, TypeDef?> _cross = new();
 
     /// <summary>
     /// Whether an instance field of a class is never written: no stfld or ldflda of it in the module, and no other assembly
