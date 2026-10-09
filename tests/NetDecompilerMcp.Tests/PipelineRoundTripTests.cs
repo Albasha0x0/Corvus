@@ -85,7 +85,7 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
     [
         ("control-flow switch normal", Rule(ToolIds.ControlFlow, ("type", "switch"), ("predicate", "normal"), ("intensity", "100")), new Floors(73, 89, 83, 52)),
         ("control-flow switch expression", Rule(ToolIds.ControlFlow, ("type", "switch"), ("predicate", "expression"), ("intensity", "100")), new Floors(66, 91, 84, 45)),
-        ("control-flow switch native", Rule(ToolIds.ControlFlow, ("type", "switch"), ("predicate", "x86"), ("intensity", "100")), new Floors(3, 2, 0, 0)),
+        ("control-flow switch native", Rule(ToolIds.ControlFlow, ("type", "switch"), ("predicate", "x86"), ("intensity", "100")), new Floors(89, 89, 82, 93)),
         ("control-flow switch filler", Rule(ToolIds.ControlFlow, ("type", "switch"), ("predicate", "expression"), ("junk", "true"), ("intensity", "100")), new Floors(67, 92, 83, 42)),
         ("constants normal", Rule(ToolIds.Constants, ("mode", "normal"), ("elements", "SNPI")), new Floors(0, 0, null, 0)),
         ("constants dynamic", Rule(ToolIds.Constants, ("mode", "dynamic"), ("elements", "SNPI")), new Floors(0, 0, null, 0)),

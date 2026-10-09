@@ -491,7 +491,8 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
             throw Bail(FallbackReason.CallDepth, $"call depth exceeds the limit of {limits.MaxDepth}");
         if (method.Module != module)
             throw Bail(FallbackReason.OtherModule, $"calls {Describe(method)} in another module");
-        if (method.IsPinvokeImpl || method.IsInternalCall || method.IsRuntime || method.IsNative || method.IsAbstract || !method.HasBody)
+        if (method.IsNative) return RunNative(method, args);
+        if (method.IsPinvokeImpl || method.IsInternalCall || method.IsRuntime || method.IsAbstract || !method.HasBody)
             throw Bail(FallbackReason.NoBody, $"calls {Describe(method)}, which has no IL body (native or runtime code)");
         if (method.DeclaringType.HasGenericParameters || method.HasGenericParameters != (generic is { Count: > 0 }))
             throw Bail(FallbackReason.Generic, $"calls generic {Describe(method)}");

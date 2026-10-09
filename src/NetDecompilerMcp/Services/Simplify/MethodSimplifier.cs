@@ -1037,8 +1037,18 @@ public sealed class MethodSimplifier
         if (op is >= Code.Ldind_I1 and <= Code.Ldind_Ref) return i > 0 && code[i - 1].OpCode.Code is Code.Ldloca or Code.Ldloca_S;
         if (op is Code.Ldloca or Code.Ldloca_S) return i + 1 < code.Count && code[i + 1].OpCode.Code is >= Code.Ldind_I1 and <= Code.Ldind_Ref;
         return ins.IsLdcI4() || ins.IsLdloc() || ins.IsStloc() || ins.IsLdarg() || op is Code.Ldc_I8 or Code.Ldnull or Code.Nop or Code.Dup or Code.Pop
-               || IsArithmetic(op) && !Throws(op);
+               || IsArithmetic(op) && !Throws(op) || op == Code.Call && IsNativeRoutine(ins.Operand);
     }
+
+    /// <summary>
+    /// A call of a native method of the module with 32-bit integers in and out: where the evaluator runs it, it only
+    /// computes on its own stack frame (see <see cref="NativeRoutine"/>); where it does not, the analysis cannot decide
+    /// the way in and keeps the dispatcher.
+    /// </summary>
+    private static bool IsNativeRoutine(object? operand) =>
+        operand is MethodDef { IsNative: true, IsStatic: true, ImplMap: null } m &&
+        m.MethodSig.RetType.RemovePinnedAndModifiers().ElementType is ElementType.I4 or ElementType.U4 &&
+        m.MethodSig.Params.All(p => p.RemovePinnedAndModifiers().ElementType is ElementType.I4 or ElementType.U4);
 
     /// <summary>
     /// Plans normalizing the dispatcher code[start..s] by analyzing it per state (<see cref="ConstantFlow.Dispatch"/>):

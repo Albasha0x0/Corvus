@@ -335,6 +335,10 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 - `System.Void System.Threading.Monitor::Enter(System.Object,System.Boolean&)`
 - `System.Void System.Threading.Monitor::Exit(System.Object)`
 
+## Native routines
+
+A call to a native method of the module (native code in the image itself, not a P/Invoke import) is run as x86 machine code when the method is static, takes and returns 32-bit integers, and the image runs as a 32-bit x86 process (x86 machine, 32-bit required or preferred). The code runs on concrete values from its first byte, with the arguments where a 32-bit caller leaves them, until ret gives eax; each instruction counts against the budget, and at most 4,096 bytes of code are read. Instructions: mov, lea, add, adc, sub, sbb, and, or, xor, cmp, test, inc, dec, neg, not, imul (two and three operands), shl, shr, sar, rol, ror, cdq, push, pop, nop, jmp, jcc (all but the parity conditions) and ret, with 32-bit register, immediate and [base + index * scale + disp] operands; no operand-size or segment prefixes, no 8- or 16-bit forms, no mul / div, no calls. Memory is the routine's own stack frame (4 KB below the return address) and its arguments. Registers the caller left and stack memory not yet written are unknown: a result, branch or address that depends on them, an absolute address, an instruction outside the list, or esp not back at the return address at ret stops evaluation (`native-code`).
+
 ## Limits
 
 | Limit | Default |
@@ -381,6 +385,7 @@ which the report header names. The clock, random numbers and the network are nev
 | `unsupported-instruction` | an IL instruction that is not in the instruction table below |
 | `unsupported-call` | a call to a framework or other method that is neither an intrinsic nor IL of the same module (I/O, reflection, threading, ...) |
 | `no-body` | the callee has no IL body: P/Invoke, internal call, runtime-implemented or abstract |
+| `native-code` | the callee is a native method of the module that the evaluator does not run: not static, not 32-bit integers in and out, an image that does not run as a 32-bit x86 process, or code outside the native subset (see Native routines); the message names the instruction and its offset |
 | `other-module` | the callee or a static field belongs to another module, whose code may differ at run time |
 | `generic` | a generic method of another module or an instance generic method, a member of a generic type, or a type argument that is not a closed type |
 | `exception-handling` | the callee has exception handlers, or the code throws |

@@ -10,6 +10,7 @@ public enum FallbackReason
     UnsupportedInstruction,
     UnsupportedCall,
     NoBody,
+    NativeCode,
     OtherModule,
     Generic,
     ExceptionHandling,
@@ -57,6 +58,7 @@ public static class SimplifyManifest
         new(FallbackReason.UnsupportedInstruction, "unsupported-instruction", "an IL instruction that is not in the instruction table below"),
         new(FallbackReason.UnsupportedCall, "unsupported-call", "a call to a framework or other method that is neither an intrinsic nor IL of the same module (I/O, reflection, threading, ...)"),
         new(FallbackReason.NoBody, "no-body", "the callee has no IL body: P/Invoke, internal call, runtime-implemented or abstract"),
+        new(FallbackReason.NativeCode, "native-code", "the callee is a native method of the module that the evaluator does not run: not static, not 32-bit integers in and out, an image that does not run as a 32-bit x86 process, or code outside the native subset (see Native routines); the message names the instruction and its offset"),
         new(FallbackReason.OtherModule, "other-module", "the callee or a static field belongs to another module, whose code may differ at run time"),
         new(FallbackReason.Generic, "generic", "a generic method of another module or an instance generic method, a member of a generic type, or a type argument that is not a closed type"),
         new(FallbackReason.ExceptionHandling, "exception-handling", "the callee has exception handlers, or the code throws"),
@@ -158,6 +160,16 @@ public static class SimplifyManifest
     /// <summary>Framework methods evaluated by the interpreter, as dnlib full names.</summary>
     public static IReadOnlyList<string> Intrinsics => IlEvaluator.IntrinsicNames.Order(StringComparer.Ordinal).ToList();
 
+    /// <summary>The native methods the interpreter runs (<see cref="NativeRoutine"/>).</summary>
+    public const string NativeRoutines =
+        "A call to a native method of the module (native code in the image itself, not a P/Invoke import) is run as x86 machine code " +
+        "when the method is static, takes and returns 32-bit integers, and the image runs as a 32-bit x86 process (x86 machine, 32-bit " +
+        "required or preferred). The code runs on concrete values from its first byte, with the arguments where a 32-bit caller leaves " +
+        "them, until ret gives eax; each instruction counts against the budget, and at most 4,096 bytes of code are read. Instructions: " +
+        NativeRoutine.Subset + ". Memory is the routine's own stack frame (4 KB below the return address) and its arguments. Registers " +
+        "the caller left and stack memory not yet written are unknown: a result, branch or address that depends on them, an absolute " +
+        "address, an instruction outside the list, or esp not back at the return address at ret stops evaluation (`native-code`).";
+
     public static readonly IReadOnlyList<(string Name, string Value)> Limits =
     [
         ("maxDepth", $"{new EvaluationLimits().MaxDepth} frames, the evaluated call included (tool parameter, 1-64)"),
@@ -202,6 +214,7 @@ public static class SimplifyManifest
             sb.Append($"| {g.Name} | {string.Join(" ", g.Codes.Select(c => "`" + c.ToOpCode().Name + "`"))} | {g.Notes} |\n");
         sb.Append("\nEvery other instruction stops evaluation with `unsupported-instruction`.\n\n## Intrinsics\n\nFramework methods evaluated directly (deterministic and culture-independent for the values they accept):\n\n");
         foreach (var name in Intrinsics) sb.Append($"- `{name}`\n");
+        sb.Append("\n## Native routines\n\n").Append(NativeRoutines).Append('\n');
         sb.Append("\n## Limits\n\n| Limit | Default |\n|---|---|\n");
         foreach (var (name, value) in Limits) sb.Append($"| {name} | {value} |\n");
         sb.Append("""

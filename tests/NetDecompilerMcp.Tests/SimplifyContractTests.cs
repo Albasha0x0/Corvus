@@ -576,6 +576,11 @@ public sealed class SimplifyContractTests
             MethodAttributes.Public | MethodAttributes.Static);
         lab.Type.Methods.Add(native);
         Add(FallbackReason.NoBody, lab.Method("CallsNative", t.Int32, I(OpCodes.Call, native), Ret()));
+        // Native code of a module built in memory: no image to run it from as 32-bit x86 code.
+        var x86 = new MethodDefUser("X86", MethodSig.CreateStatic(t.Int32), MethodImplAttributes.Native | MethodImplAttributes.Unmanaged,
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PinvokeImpl);
+        lab.Type.Methods.Add(x86);
+        Add(FallbackReason.NativeCode, lab.Method("CallsX86", t.Int32, I(OpCodes.Call, x86), Ret()));
         Add(FallbackReason.OtherModule, lab.Method("Foreign", t.Int32,
             I(OpCodes.Ldsfld, lab.Module.Import(typeof(Type).GetField(nameof(Type.EmptyTypes)))), I(OpCodes.Ldlen), I(OpCodes.Conv_I4), Ret()));
         var id = new MethodDefUser("Id", MethodSig.CreateStaticGeneric(1, new GenericMVar(0), new GenericMVar(0)), MethodImplAttributes.IL,
