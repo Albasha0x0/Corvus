@@ -29,7 +29,7 @@ internal sealed class ModuleFacts(ModuleDef module)
     private readonly Dictionary<TypeDef, HashSet<MethodDef>> _reach = new();
     private readonly Dictionary<TypeDef, HashSet<MethodDef>> _initOnly = new();
     private readonly Dictionary<FieldDef, bool> _frozen = new();
-    private readonly Dictionary<MethodDef, HashSet<Instruction>> _targets = new();
+    private readonly Dictionary<MethodDef, (HashSet<Instruction>, Dictionary<Instruction, int>, Dictionary<Instruction, int>)> _shapes = new();
 
     /// <summary>Whether <paramref name="method"/> can run while the static constructor of <paramref name="type"/> runs (the constructor included).</summary>
     public bool RunsDuringInitialization(TypeDef type, MethodDef method) => Reach(type).Contains(method);
@@ -166,24 +166,8 @@ internal sealed class ModuleFacts(ModuleDef module)
     };
 
     /// <summary>Whether the reference pushed by code[k] is only read: follows it to the instruction that consumes it.</summary>
-    private bool ValueOnlyRead(MethodDef m, CilBody body, int k, bool immutableElements, int depth, HashSet<(MethodDef, int, bool)> visited)
-    {
-        var code = body.Instructions;
-        var targets = Targets(m, body);
-        bool hasReturn = m.MethodSig?.RetType.RemovePinnedAndModifiers().ElementType != ElementType.Void;
-        int position = 0; // stack slots above the value
-        for (int j = k + 1; j < code.Count && j <= k + MaxConsumerScan; j++)
-        {
-            var ins = code[j];
-            if (targets.Contains(ins)) return false; // a merge point: the stack may hold other values there
-            ins.CalculateStackUsage(hasReturn, out int pushes, out int pops);
-            if (pops < 0) return false;
-            if (pops > position) return ConsumerOnlyReads(m, body, j, pops - 1 - position, immutableElements, depth, visited);
-            position += pushes - pops;
-            if (!BodyGraph.FallsThrough(ins)) return false;
-        }
-        return false;
-    }
+    private bool ValueOnlyRead(MethodDef m, CilBody body, int k, bool immutableElements, int depth, HashSet<(MethodDef, int, bool)> visited) =>
+        Consumer(m, body, k) is var (j, operand) && ConsumerOnlyReads(m, body, j, operand, immutableElements, depth, visited);
 
     private bool ConsumerOnlyReads(MethodDef m, CilBody body, int j, int operand, bool immutableElements, int depth, HashSet<(MethodDef, int, bool)> visited)
     {
@@ -292,22 +276,35 @@ internal sealed class ModuleFacts(ModuleDef module)
         return true;
     }
 
-    /// <summary>The instruction that consumes the value code[k] pushes, and the operand it is (0: the first), or null.</summary>
+    /// <summary>
+    /// The instruction that consumes the value code[k] pushes, and the operand it is (0: the first), or null. The value is
+    /// followed through straight-line code, and through a br into code that only that br enters (control-flow
+    /// transformations split straight-line code that way); any other merge point may bring other values.
+    /// </summary>
     private (int Index, int Operand)? Consumer(MethodDef m, CilBody body, int k)
     {
         var code = body.Instructions;
-        var targets = Targets(m, body);
+        var (targets, entries, index) = Shape(m, body);
         bool hasReturn = m.MethodSig?.RetType.RemovePinnedAndModifiers().ElementType != ElementType.Void;
-        int position = 0;
-        for (int j = k + 1; j < code.Count && j <= k + MaxConsumerScan; j++)
+        int position = 0; // stack slots above the value
+        bool viaBranch = false;
+        for (int j = k + 1, steps = 0; j < code.Count && steps <= MaxConsumerScan; steps++)
         {
             var ins = code[j];
-            if (targets.Contains(ins)) return null;
+            if (targets.Contains(ins) && !(viaBranch && entries.GetValueOrDefault(ins) == 1)) return null;
+            viaBranch = false;
             ins.CalculateStackUsage(hasReturn, out int pushes, out int pops);
             if (pops < 0) return null;
             if (pops > position) return (j, pops - 1 - position);
             position += pushes - pops;
+            if (ins.OpCode.Code is Code.Br or Code.Br_S && ins.Operand is Instruction target && index.TryGetValue(target, out int t))
+            {
+                j = t;
+                viaBranch = true;
+                continue;
+            }
             if (!BodyGraph.FallsThrough(ins)) return null;
+            j++;
         }
         return null;
     }
@@ -334,11 +331,29 @@ internal sealed class ModuleFacts(ModuleDef module)
         return true;
     }
 
-    private HashSet<Instruction> Targets(MethodDef m, CilBody body)
+    /// <summary>
+    /// The method's merge points (branch targets and handler starts), how many ways each is entered (branches to it,
+    /// handlers starting there, and falling into it), and each instruction's index.
+    /// </summary>
+    private (HashSet<Instruction> Targets, Dictionary<Instruction, int> Entries, Dictionary<Instruction, int> Index) Shape(MethodDef m, CilBody body)
     {
-        if (!_targets.TryGetValue(m, out var targets))
-            _targets[m] = targets = new BodyGraph(body).Targets;
-        return targets;
+        if (_shapes.TryGetValue(m, out var shape)) return shape;
+        var code = body.Instructions;
+        var targets = new BodyGraph(body).Targets;
+        var entries = new Dictionary<Instruction, int>();
+        var index = new Dictionary<Instruction, int>(code.Count);
+        for (int i = 0; i < code.Count; i++)
+        {
+            index[code[i]] = i;
+            foreach (var t in BodyGraph.BranchTargets(code[i])) entries[t] = entries.GetValueOrDefault(t) + 1;
+            if (i + 1 < code.Count && BodyGraph.FallsThrough(code[i])) entries[code[i + 1]] = entries.GetValueOrDefault(code[i + 1]) + 1;
+        }
+        foreach (var eh in body.ExceptionHandlers)
+            foreach (var start in new[] { eh.TryStart, eh.HandlerStart, eh.FilterStart })
+                if (start != null) entries[start] = entries.GetValueOrDefault(start) + 2; // never a single way in
+        shape = (targets, entries, index);
+        _shapes[m] = shape;
+        return shape;
     }
 
     private void Build()

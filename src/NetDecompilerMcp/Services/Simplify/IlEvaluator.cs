@@ -975,6 +975,8 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         : value is InstanceObject o ? IsInstanceOf(o, type.FullName)
         : value is StreamObject { ModuleType: { } derived } && Chain(derived).Any(t => t.FullName == type.FullName) ? true
         : value is StreamObject ? type.FullName is "System.IO.Stream" or "System.IO.MemoryStream" or "System.IO.UnmanagedMemoryStream" or "System.IDisposable" or "System.Object"
+        : value is CipherObject ? IsAlgorithmType(type)
+        : value is TransformObject ? type.FullName is "System.Security.Cryptography.ICryptoTransform" or "System.IDisposable" or "System.Object"
         : value is BinaryReaderObject ? type.FullName is "System.IO.BinaryReader" or "System.IDisposable" or "System.Object"
         : value is StreamReaderObject ? type.FullName is "System.IO.StreamReader" or "System.IO.TextReader" or "System.IDisposable" or "System.Object"
         : type.FullName switch

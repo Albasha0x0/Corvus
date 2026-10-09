@@ -25,6 +25,10 @@ internal sealed partial class IlEvaluator
         _ when intrinsic.Contains("System.Text.StringBuilder::Append(", StringComparison.Ordinal) ||
                intrinsic.Contains("System.Text.StringBuilder::Insert(", StringComparison.Ordinal) ||
                intrinsic.Contains("System.Text.StringBuilder::set_Length(", StringComparison.Ordinal) => [0],
+        // Algorithm objects change through their setters; Dispose closes whatever it is called on.
+        _ when intrinsic.StartsWith("System.Void System.Security.Cryptography.", StringComparison.Ordinal) && (intrinsic.Contains("::set_", StringComparison.Ordinal) ||
+               intrinsic.Contains("::Clear(", StringComparison.Ordinal)) => [0],
+        "System.Void System.IDisposable::Dispose()" => [0],
         _ => [],
     };
 
@@ -212,6 +216,7 @@ internal sealed partial class IlEvaluator
         Add("System.Void", "System.Threading.Monitor", "Exit", "System.Object", (_, _) => null);
 
         AddReflection(Add);
+        AddCrypto(Add);
         return t;
     }
 
