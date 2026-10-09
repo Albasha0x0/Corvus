@@ -157,6 +157,8 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var (_, index) = await Open(image, context, progress, cancellationToken);
+        if (index.Support == CodeSupport.DeclaredFunctionsOnly)
+            throw new ToolError(ErrorCode.Unsupported, $"Instructions are not decoded for {index.Image.Arch} images.", "decompile_native analyzes them through IDA");
         var fn = FunctionAt(index, Address(index, address));
         var graph = index.GetGraph(fn, cancellationToken);
         string Va(uint rva) => NativeAddress.Va(index.Image, rva);

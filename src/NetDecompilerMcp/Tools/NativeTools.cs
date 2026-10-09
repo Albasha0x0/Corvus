@@ -241,6 +241,7 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager)
         [Description("Treat pattern as text (ASCII and UTF-16LE).")] bool text = false,
         [Description("Only this section (e.g. .text, .rdata).")] string? section = null,
         [Description("Max hits (default 200).")] int limit = 200,
+        [Description("Index of the first hit.")] int offset = 0,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
         var pe = native.Image;
@@ -250,28 +251,45 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager)
         if (patterns.Any(p => p.Bytes.Length == 0))
             throw new ToolError(ErrorCode.InvalidArgument, "The pattern is empty.", "pass hex bytes such as '48 8B 05 ?? ?? ?? ??' or text with text=true");
         int max = ClampLimit(limit, 10_000);
+        offset = Math.Max(0, offset);
         var hits = new List<string>();
-        int total = 0;
+        int total = 0, chars = 0;
+        // Sections are read in chunks (a section's virtual size can be far larger than its data); chunks overlap by the pattern length.
+        int longest = patterns.Max(p => p.Bytes.Length);
+        var data = new byte[(1 << 20) + longest];
         foreach (var s in pe.Sections)
         {
             if (section != null && !s.Name.Equals(section.Trim(), StringComparison.OrdinalIgnoreCase)) continue;
-            var data = new byte[Math.Min(s.MappedSize, 512u << 20)];
-            int read = pe.Read(s.Rva, data);
-            var span = data.AsSpan(0, read);
-            foreach (var (bytes, mask, label) in patterns)
-                for (int i = 0; i + bytes.Length <= span.Length; i++)
-                {
-                    if ((i & 0xFFFFF) == 0) cancellationToken.ThrowIfCancellationRequested();
-                    if (!Matches(span, i, bytes, mask)) continue;
-                    total++;
-                    if (hits.Count < max)
-                        hits.Add($"{NativeAddress.Va(pe, s.Rva + (uint)i)}  {s.Name}{(patterns.Count > 1 ? "  " + label : "")}" +
-                                 (pe.TryRvaToFileOffset(s.Rva + (uint)i, out var fo) ? $"  file 0x{fo:X}" : "  (zero fill, not in the file)"));
-                }
+            uint size = (uint)Math.Min(s.MappedSize, Math.Max(0L, (long)pe.SizeOfImage - s.Rva));
+            for (uint at = 0; at < size; at += 1 << 20)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                int read = pe.Read(s.Rva + at, data.AsSpan(0, (int)Math.Min((uint)data.Length, size - at)));
+                if (read <= 0) break;
+                var span = data.AsSpan(0, read);
+                int starts = Math.Min(read, 1 << 20);
+                foreach (var (bytes, mask, label) in patterns)
+                    for (int i = 0; i < starts && i + bytes.Length <= span.Length; i++)
+                    {
+                        if (!Matches(span, i, bytes, mask)) continue;
+                        uint rva = s.Rva + at + (uint)i;
+                        // Rows stop at the page size; the rest is reached with offset.
+                        if (total++ >= offset && hits.Count < max && chars < 50_000)
+                        {
+                            var row = $"{NativeAddress.Va(pe, rva)}  {s.Name}{(patterns.Count > 1 ? "  " + label : "")}" +
+                                      (pe.TryRvaToFileOffset(rva, out var fo) ? $"  file 0x{fo:X}" : "  (zero fill, not in the file)");
+                            hits.Add(row);
+                            chars += row.Length + 1;
+                        }
+                    }
+                if (read < Math.Min(data.Length, size - at)) break;
+            }
         }
         if (section != null && !pe.Sections.Any(s => s.Name.Equals(section.Trim(), StringComparison.OrdinalIgnoreCase)))
             throw new ToolError(ErrorCode.NotFound, $"No section '{section}'. Sections: {string.Join(", ", pe.Sections.Select(s => s.Name))}.");
-        return $"{Plural(total, "hit")}{TruncationNote(hits.Count, total)}\n" + string.Join("\n", hits);
+        var more = offset + hits.Count < total ? $"\n[More: call again with offset={offset + hits.Count}]" : "";
+        return $"{Plural(total, "hit")}{(offset > 0 || hits.Count < total ? $" (showing {(hits.Count == 0 ? 0 : offset + 1)}-{offset + hits.Count})" : "")}\n" +
+               string.Join("\n", hits) + more;
     }, cancellationToken);
 
     private static (byte[], bool[], string) Exact(byte[] bytes, string label) => (bytes, bytes.Select(_ => true).ToArray(), label);
