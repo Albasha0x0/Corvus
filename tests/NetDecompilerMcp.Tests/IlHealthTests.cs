@@ -4,6 +4,7 @@ using System.Reflection.PortableExecutable;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Services;
 using NetDecompilerMcp.Services.Analysis;
+using NetDecompilerMcp.Tools;
 
 namespace NetDecompilerMcp.Tests;
 
@@ -89,6 +90,33 @@ public class IlHealthTests : IDisposable
         Assert.DoesNotContain("not valid IL", env.Decompile("Fixture.Model.Entity::Score"));
         Assert.StartsWith("// Warning: ", env.Workspace.Read(() =>
             env.Decompiler.DecompileType(env.Fixture, env.Def<dnlib.DotNet.TypeDef>("Fixture.Model.Account", SymbolKind.Type), default)));
+    }
+
+    /// <summary>Searches, reference lookups and build comparisons say how many bodies they could not read in full.</summary>
+    [Fact]
+    public async Task SomeBodiesInvalid_SearchesAndComparisonsSayWhatWasSkipped()
+    {
+        var path = WriteCopy("skipped", Corrupt(File.ReadAllBytes(Env.FixturePath), t => t == "Account"));
+        using var env = new Env(path);
+        int invalid = env.Fixture.BodyHealth.Invalid;
+        var note = $"Skipped: {invalid} method bodies not valid IL ({env.Fixture.Id} {invalid}), read only up to the first invalid instruction";
+        var search = new SearchTools(env.Workspace, env.Search, env.Il2Cpp, env.Il2CppStrings, env.Pager);
+        Assert.Contains(note, await search.SearchStrings("license"));
+        Assert.Contains(note, await search.SearchStrings("no such text anywhere"));
+        Assert.Contains(note, await search.SearchConstants("12345678"));
+        Assert.Contains(note, await search.SearchIL("ldstr *"));
+        Assert.Contains(note, await new ReferenceTools(env.Workspace, env.References, env.Pager).FindReferences("Fixture.Model.Entity"));
+        Assert.DoesNotContain("Skipped:", await search.SearchSymbols("Account"));
+
+        using var clean = new Env();
+        var corrupt = clean.Workspace.Load(path);
+        var compare = new CompareTools(clean.Workspace, new AssemblyComparer(clean.Workspace), clean.Pager);
+        Assert.Contains($"Skipped: {invalid} method bodies of the new build ({corrupt.Id}) are not valid IL (encrypted?) and were not compared",
+            await compare.CompareAssemblies(clean.Fixture.Id, corrupt.Id));
+        Assert.Contains($"Skipped: 0 old and {invalid} new method bodies are not valid IL and were not compared",
+            await compare.FindCounterpart("Fixture.Model.Account", clean.Fixture.Id, corrupt.Id));
+        Assert.DoesNotContain("Skipped:", await new SearchTools(clean.Workspace, clean.Search, clean.Il2Cpp, clean.Il2CppStrings, clean.Pager)
+            .SearchStrings("license", assembly: clean.Fixture.Id));
     }
 
     [Fact]

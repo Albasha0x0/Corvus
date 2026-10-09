@@ -37,6 +37,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
             foreach (var i in g)
                 sb.AppendLine($"      {(i.ILOffset is { } o ? $"IL_{o:X4} " : "")}{i.Kind}{(i.Detail.Length > 0 ? " " + i.Detail : "")}");
         }
+        sb.Append(SkippedBodiesNote(workspace.Assemblies));
         return pager.Page(sb.ToString());
     }, cancellationToken);
 

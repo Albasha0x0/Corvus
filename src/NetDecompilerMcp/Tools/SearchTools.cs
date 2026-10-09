@@ -50,7 +50,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         var literals = il2cppStrings.Search(SearchService.CreateMatcher(query, regex), scope, cancellationToken);
         int total = r.Total + literals.Count;
         if (total == 0)
-            return $"No string literals match '{query}'." + (il2cppStrings.DumpsFor(scope).Count == 0 && scope.Any(a => il2cpp.GetIndex(a).Count > 0)
+            return SkippedBodiesNote(scope) + $"No string literals match '{query}'." + (il2cppStrings.DumpsFor(scope).Count == 0 && scope.Any(a => il2cpp.GetIndex(a).Count > 0)
                 ? $" Il2Cpp dummy DLLs have empty bodies: put the dump's {Il2CppDumpFiles.StringLiteralFileName} and {Il2CppDumpFiles.ScriptFileName} in the DummyDll folder or its parent to search the game's literals."
                 : "");
 
@@ -67,6 +67,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         foreach (var l in literals.Skip(Math.Max(0, offset - r.Total)).Take(offset + limit - Math.Max(offset, r.Total)))
             AppendLiteral(sb, l, inScope, Math.Max(0, usesPerLiteral));
         if (offset + shown < total) sb.AppendLine($"[More: call again with offset={offset + shown}]");
+        sb.Append(SkippedBodiesNote(scope));
         return pager.Page(sb.ToString());
     }, cancellationToken);
 
@@ -108,11 +109,13 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         [Description("Max results (default 200).")] int limit = 200,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
-        var r = search.SearchConstants(value, workspace.Scope(assembly), ClampLimit(limit), cancellationToken);
-        if (r.Total == 0) return $"Constant {value} not found.";
+        var scope = workspace.Scope(assembly);
+        var r = search.SearchConstants(value, scope, ClampLimit(limit), cancellationToken);
+        if (r.Total == 0) return SkippedBodiesNote(scope) + $"Constant {value} not found.";
         var sb = new StringBuilder($"{Plural(r.Total, "occurrence")} of {value}{TruncationNote(r.Items.Count, r.Total)}:\n");
         foreach (var h in r.Items)
             sb.AppendLine($"  {Format.MemberLabel(h.Owner)}{(h.ILOffset is { } o ? $" @IL_{o:X4}" : "")}  {h.Kind} {h.Value}  [{h.Assembly.Id}] {Format.Token(h.Owner)}");
+        sb.Append(SkippedBodiesNote(scope));
         return pager.Page(sb.ToString());
     }, cancellationToken);
 
@@ -126,8 +129,9 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         [Description("Max matches (default 100).")] int limit = 100,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
-        var r = search.SearchIL(pattern, workspace.Scope(assembly), ClampLimit(limit), cancellationToken);
-        if (r.Total == 0) return $"No methods match the IL pattern.";
+        var scope = workspace.Scope(assembly);
+        var r = search.SearchIL(pattern, scope, ClampLimit(limit), cancellationToken);
+        if (r.Total == 0) return SkippedBodiesNote(scope) + "No methods match the IL pattern.";
         var sb = new StringBuilder($"{Plural(r.Total, "match")}{TruncationNote(r.Items.Count, r.Total)}:\n");
         foreach (var m in r.Items)
         {
@@ -135,6 +139,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
             foreach (var line in m.Instructions.Take(24)) sb.AppendLine("      " + line);
             if (m.Instructions.Count > 24) sb.AppendLine($"      … {m.Instructions.Count - 24} more instructions");
         }
+        sb.Append(SkippedBodiesNote(scope));
         return pager.Page(sb.ToString());
     }, cancellationToken);
 }
