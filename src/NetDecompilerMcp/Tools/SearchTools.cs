@@ -44,7 +44,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         limit = ClampLimit(limit);
-        offset = Math.Max(0, offset);
+        offset = Math.Clamp(offset, 0, int.MaxValue - limit); // offset + limit must not overflow
         var scope = workspace.Scope(assembly);
         var r = search.SearchStrings(query, regex, scope, offset + limit, cancellationToken);
         var literals = il2cppStrings.Search(SearchService.CreateMatcher(query, regex), scope, cancellationToken);
