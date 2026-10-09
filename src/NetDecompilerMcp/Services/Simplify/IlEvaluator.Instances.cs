@@ -22,8 +22,8 @@ internal sealed partial class IlEvaluator
 
     /// <summary>
     /// The instance fields of a class the evaluator models, or why it does not (unmodeled-instance): a non-generic class of
-    /// this module whose base classes are classes of this module up to System.Object, with no finalizer, no events, no
-    /// explicit layout and no COM import.
+    /// this module whose base classes are classes of this module up to System.Object or System.Attribute (which has no
+    /// instance state of its own), with no finalizer, no events, no explicit layout and no COM import.
     /// </summary>
     private List<FieldDef> ClassModel(TypeDef type)
     {
@@ -49,7 +49,7 @@ internal sealed partial class IlEvaluator
                     return (fields, $"{t.FullName} has a finalizer");
                 fields.AddRange(t.Fields.Where(f => !f.IsStatic));
                 var baseType = t.BaseType;
-                if (baseType == null || baseType.FullName == "System.Object") break;
+                if (baseType == null || baseType.FullName is "System.Object" or "System.Attribute") break;
                 if (baseType is not TypeDef next || next.Module != type.Module)
                     return (fields, $"its base class {baseType.FullName} belongs to another assembly");
                 t = next;
@@ -78,13 +78,19 @@ internal sealed partial class IlEvaluator
 
     private static bool IsObjectConstructor(IMethod method) => method.Name == ".ctor" && method.DeclaringType?.FullName == "System.Object";
 
+    /// <summary>The constructor of a modelled class's framework root (System.Object or System.Attribute): it does nothing.</summary>
+    private static bool IsRootConstructor(IMethod method) => method.Name == ".ctor" && method.MethodSig?.Params.Count == 0 &&
+                                                             method.DeclaringType?.FullName is "System.Object" or "System.Attribute";
+
     /// <summary>An instance method called on a modelled instance: dispatched within the module's classes.</summary>
     private object? InvokeInstance(InstanceObject obj, IMethod method, Code op, object?[] args)
     {
-        if (IsObjectConstructor(method)) return Void;
+        if (IsRootConstructor(method)) return Void;
         MethodDef target;
         if (op == Code.Callvirt && IsVirtual(method))
         {
+            if (method.FullName == "System.Int32 System.Object::GetHashCode()" && Root(obj)?.FullName == "System.Attribute" && TryDispatch(obj, method) == null)
+                return AttributeHashCode(obj);
             target = Dispatch(obj, method);
         }
         else
@@ -122,6 +128,14 @@ internal sealed partial class IlEvaluator
     private MethodDef Dispatch(InstanceObject obj, IMethod method)
     {
         if (obj.Type == null) throw Bail(FallbackReason.VirtualDispatch, $"calls {Describe(method)} on a plain object (the framework implementation)");
+        return TryDispatch(obj, method)
+               ?? throw Bail(FallbackReason.VirtualDispatch, $"{Describe(method)} on an instance of {obj.Type.FullName} does not resolve to a method of the module");
+    }
+
+    /// <summary>The module method a virtual call reaches on the instance (see <see cref="Dispatch"/>), or null.</summary>
+    private static MethodDef? TryDispatch(InstanceObject obj, IMethod method)
+    {
+        if (obj.Type == null) return null;
         var declared = Resolve(method);
         string signature = method.MethodSig?.ToString() ?? "";
         foreach (var t in Chain(obj.Type))
@@ -132,7 +146,22 @@ internal sealed partial class IlEvaluator
             if (match != null) return match;
             if (t == declared?.DeclaringType) break;
         }
-        throw Bail(FallbackReason.VirtualDispatch, $"{Describe(method)} on an instance of {obj.Type.FullName} does not resolve to a method of the module");
+        return null;
+    }
+
+    /// <summary>The framework class a modelled class derives from (System.Object or System.Attribute).</summary>
+    private static ITypeDefOrRef? Root(InstanceObject obj) => obj.Type == null ? null : Chain(obj.Type).Last().BaseType;
+
+    /// <summary>
+    /// System.Attribute.GetHashCode, which a class of the module does not override: the hash of the first instance field
+    /// that is not null (and not an array), else the type's own hash. Modelled for a class whose only instance field is an
+    /// int (its hash is the value); anything else depends on the runtime.
+    /// </summary>
+    private object AttributeHashCode(InstanceObject obj)
+    {
+        if (obj.Fields.Count == 1 && obj.Fields.Single() is var (field, value) && field.FieldType.RemovePinnedAndModifiers().ElementType is ElementType.I4 && value is int hash)
+            return hash;
+        throw Bail(FallbackReason.VirtualDispatch, $"System.Attribute::GetHashCode() on an instance of {obj.Type!.FullName}, whose fields are not a single int");
     }
 
     /// <summary>The field of a modelled instance an ldfld / stfld / ldflda addresses.</summary>
@@ -149,7 +178,10 @@ internal sealed partial class IlEvaluator
         if (typeName == "System.Object") return true;
         if (obj.Type == null) return false;
         foreach (var t in Chain(obj.Type))
+        {
             if (t.FullName == typeName || t.Interfaces.Any(i => i.Interface.FullName == typeName)) return true;
+            if (t.BaseType is { } root && root is not TypeDef && root.FullName == typeName) return true; // System.Attribute
+        }
         return false;
     }
 }

@@ -47,6 +47,7 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 - `System.Boolean System.Type::op_Inequality(System.Type,System.Type)`
 - `System.Byte System.Convert::ToByte(System.Int32)`
 - `System.Byte[] System.Convert::FromBase64String(System.String)`
+- `System.Byte[] System.Reflection.Module::ResolveSignature(System.Int32)`
 - `System.Byte[] System.Security.Cryptography.Aes::get_IV()`
 - `System.Byte[] System.Security.Cryptography.Aes::get_Key()`
 - `System.Byte[] System.Security.Cryptography.AesCryptoServiceProvider::get_IV()`
@@ -98,6 +99,7 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 - `System.Int32 System.Text.StringBuilder::get_Length()`
 - `System.Int64 System.Convert::ToInt64(System.Int32)`
 - `System.ModuleHandle System.Reflection.Module::get_ModuleHandle()`
+- `System.Object[] System.Reflection.MemberInfo::GetCustomAttributes(System.Boolean)`
 - `System.Reflection.Assembly System.Reflection.Assembly::GetExecutingAssembly()`
 - `System.Reflection.Emit.ILGenerator System.Reflection.Emit.DynamicMethod::GetILGenerator()`
 - `System.Reflection.FieldInfo System.Reflection.FieldInfo::GetFieldFromHandle(System.RuntimeFieldHandle)`
@@ -111,6 +113,7 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 - `System.Reflection.MethodInfo System.Type::GetMethod(System.String,System.Reflection.BindingFlags)`
 - `System.Reflection.MethodInfo[] System.Type::GetMethods(System.Reflection.BindingFlags)`
 - `System.Reflection.Module System.Reflection.Assembly::get_ManifestModule()`
+- `System.Reflection.Module System.Reflection.MemberInfo::get_Module()`
 - `System.Reflection.Module System.Type::get_Module()`
 - `System.Reflection.Module[] System.Reflection.Assembly::GetModules()`
 - `System.Reflection.ParameterInfo[] System.Reflection.MethodBase::GetParameters()`
@@ -211,11 +214,14 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 - `System.Text.StringBuilder System.Text.StringBuilder::Append(System.String)`
 - `System.Text.StringBuilder System.Text.StringBuilder::Insert(System.Int32,System.String)`
 - `System.Type System.Reflection.FieldInfo::get_FieldType()`
+- `System.Type System.Reflection.MemberInfo::get_DeclaringType()`
 - `System.Type System.Reflection.MethodInfo::get_ReturnType()`
 - `System.Type System.Reflection.Module::ResolveType(System.Int32)`
 - `System.Type System.Reflection.ParameterInfo::get_ParameterType()`
 - `System.Type System.Type::GetElementType()`
 - `System.Type System.Type::GetTypeFromHandle(System.RuntimeTypeHandle)`
+- `System.Type[] System.Reflection.FieldInfo::GetOptionalCustomModifiers()`
+- `System.Type[] System.Reflection.FieldInfo::GetRequiredCustomModifiers()`
 - `System.Void System.Array::Copy(System.Array,System.Array,System.Int32)`
 - `System.Void System.Array::Copy(System.Array,System.Int32,System.Array,System.Int32,System.Int32)`
 - `System.Void System.Array::Reverse(System.Array)`

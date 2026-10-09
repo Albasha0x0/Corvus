@@ -199,6 +199,93 @@ internal sealed partial class IlEvaluator
         };
     }
 
+    /// <summary>The type of this module a type object stands for, or null.</summary>
+    private TypeDef? OwnType(TypeObject t)
+    {
+        var sig = t.Sig.RemovePinnedAndModifiers();
+        if (sig is not (ClassSig or ValueTypeSig)) return null;
+        var td = sig.ToTypeDefOrRef() as TypeDef ?? Resolve(sig.ToTypeDefOrRef());
+        return td?.Module == module ? td : null;
+
+        static TypeDef? Resolve(ITypeDefOrRef? r)
+        {
+            try { return r?.ResolveTypeDef(); }
+            catch { return null; }
+        }
+    }
+
+    /// <summary>
+    /// Module.ResolveSignature: the signature blob of a field, method, member reference, stand-alone signature or type
+    /// specification of this module, as stored.
+    /// </summary>
+    private byte[] SignatureBlob(int token)
+    {
+        if (module is not ModuleDefMD md) throw Bail(FallbackReason.UnsupportedValue, "signatures of a module that was not read from an image");
+        uint rid = (uint)token & 0x00FFFFFF;
+        var tables = md.TablesStream;
+        uint blob = (token >> 24) switch
+        {
+            0x04 when tables.TryReadFieldRow(rid, out var row) => row.Signature,
+            0x06 when tables.TryReadMethodRow(rid, out var row) => row.Signature,
+            0x0A when tables.TryReadMemberRefRow(rid, out var row) => row.Signature,
+            0x11 when tables.TryReadStandAloneSigRow(rid, out var row) => row.Signature,
+            0x1B when tables.TryReadTypeSpecRow(rid, out var row) => row.Signature,
+            0x2B when tables.TryReadMethodSpecRow(rid, out var row) => row.Instantiation,
+            _ => throw Bail(FallbackReason.RuntimeError, $"token 0x{token:X8} has no signature in the module (ArgumentException)"),
+        };
+        var bytes = md.BlobStream.Read(blob) ?? throw Bail(FallbackReason.InvalidCode, $"the signature of token 0x{token:X8} is outside the blob heap");
+        Allocate(bytes.Length + 24);
+        return bytes;
+    }
+
+    /// <summary>FieldInfo.GetOptionalCustomModifiers / GetRequiredCustomModifiers: one modifier at most (the runtime's order of several is not modelled).</summary>
+    private ArrayObject CustomModifiers(FieldDef field, bool optional)
+    {
+        var found = new List<object?>();
+        for (var sig = field.FieldSig?.Type; sig is ModifierSig modifier; sig = modifier.Next)
+            if (sig is CModOptSig == optional) found.Add(TypeObjectOf(modifier.Modifier.ToTypeSig()));
+        if (found.Count > 1) throw Bail(FallbackReason.UnsupportedValue, "the order of several custom modifiers");
+        return NewArray(found.ToArray());
+    }
+
+    /// <summary>
+    /// MemberInfo.GetCustomAttributes(bool) of a field of this module: a new instance of each attribute class (a class of
+    /// this module deriving from System.Attribute), made by running its constructor with the stored arguments. One
+    /// attribute at most (the runtime's order of several is not modelled), with constructor arguments of primitive types
+    /// or strings and no named arguments; fields the runtime reports pseudo-attributes for (NonSerialized, MarshalAs,
+    /// FieldOffset) are not modelled.
+    /// </summary>
+    private ArrayObject CustomAttributes(object? member)
+    {
+        if (member is not FieldObject { Field: var field }) throw Bail(FallbackReason.UnsupportedValue, "custom attributes of anything but a field");
+        if (field.IsNotSerialized || field.HasFieldMarshal || field.FieldOffset != null)
+            throw Bail(FallbackReason.UnsupportedValue, "custom attributes of a field with pseudo-attributes (NonSerialized, MarshalAs, FieldOffset)");
+        if (field.CustomAttributes.Count > 1) throw Bail(FallbackReason.UnsupportedValue, "the order of several custom attributes");
+        var instances = new List<object?>();
+        foreach (var attribute in field.CustomAttributes)
+        {
+            if (attribute.Constructor is not MethodDef ctor || ctor.Module != module)
+                throw Bail(FallbackReason.OtherModule, $"an attribute of another module ({attribute.TypeFullName})");
+            if (attribute.NamedArguments.Count > 0) throw Bail(FallbackReason.UnsupportedValue, "an attribute with named arguments");
+            var args = attribute.ConstructorArguments.Select(arg => arg.Value switch
+            {
+                bool b => b ? 1 : 0,
+                char c => (int)c,
+                sbyte or byte or short or ushort or int => (object?)Convert.ToInt32(arg.Value),
+                uint u => unchecked((int)u),
+                long l => l,
+                ulong ul => unchecked((long)ul),
+                float f => f,
+                double d => d,
+                UTF8String text => text.String,
+                null => null,
+                _ => throw Bail(FallbackReason.UnsupportedValue, $"an attribute argument of type {arg.Type.FullName}"),
+            }).ToArray();
+            instances.Add(NewInstance(ctor, args));
+        }
+        return NewArray(instances.ToArray());
+    }
+
     /// <summary>Members of a type of this module that a BindingFlags value selects, in metadata order (the order the CLR returns them in).</summary>
     private object?[] Members<T>(TypeObject type, object? flagsValue, Func<TypeDef, IEnumerable<T>> members, Func<T, bool> isStatic, Func<T, bool> isPublic, Func<T, object> wrap)
     {
@@ -273,13 +360,32 @@ internal sealed partial class IlEvaluator
         {
             FieldObject f => (int)f.Field.MDToken.Raw,
             MethodObject { Method: IMDTokenProvider m } => (int)m.MDToken.Raw,
-            TypeObject t when t.Sig.ToTypeDefOrRef() is { } r => (int)r.MDToken.Raw,
+            // The runtime gives a type's token in the module defining it: known for this module's own types only.
+            TypeObject t => e.OwnType(t) is { } td ? (int)td.MDToken.Raw : throw Bail(FallbackReason.OtherModule, $"the metadata token of {t.Sig.FullName}, defined in another module"),
             null => throw Bail(FallbackReason.RuntimeError, "null reference"),
             _ => throw Bail(FallbackReason.UnsupportedValue, "the token of an object the interpreter does not model"),
         });
+        add(Mod, Mem, "get_Module", "", (e, a) => (a[0] is Pointer p ? p.Get() : a[0]) switch
+        {
+            FieldObject => e._moduleObject,
+            MethodObject { Method: MethodDef m } when m.Module == e.Module => e._moduleObject,
+            TypeObject t when e.OwnType(t) != null => e._moduleObject,
+            null => throw Bail(FallbackReason.RuntimeError, "null reference"),
+            _ => throw Bail(FallbackReason.OtherModule, "the module of a member of another module"),
+        });
+        add(T, Mem, "get_DeclaringType", "", (e, a) => (a[0] is Pointer p ? p.Get() : a[0]) switch
+        {
+            FieldObject f => e.TypeObjectOf(f.Field.DeclaringType.ToTypeSig()),
+            MethodObject { Method: MethodDef m } => e.TypeObjectOf(m.DeclaringType.ToTypeSig()),
+            null => throw Bail(FallbackReason.RuntimeError, "null reference"),
+            _ => throw Bail(FallbackReason.UnsupportedValue, "the declaring type of an object the interpreter does not model"),
+        });
+        add("System.Object[]", Mem, "GetCustomAttributes", B, (e, a) => e.CustomAttributes(a[0] is Pointer p ? p.Get() : a[0]));
 
         // Fields
         add(T, FI, "get_FieldType", "", (e, a) => e.TypeObjectOf(Of<FieldObject>(a[0], "a FieldInfo").Field.FieldType));
+        add($"{T}[]", FI, "GetOptionalCustomModifiers", "", (e, a) => e.CustomModifiers(Of<FieldObject>(a[0], "a FieldInfo").Field, optional: true));
+        add($"{T}[]", FI, "GetRequiredCustomModifiers", "", (e, a) => e.CustomModifiers(Of<FieldObject>(a[0], "a FieldInfo").Field, optional: false));
         add(FI, FI, "GetFieldFromHandle", "System.RuntimeFieldHandle", (e, a) => a[0] switch
         {
             FieldHandle h => e.FieldObjectOf(h.Field),
@@ -316,6 +422,11 @@ internal sealed partial class IlEvaluator
             return e._moduleObject;
         });
         add(MH, Mod, "get_ModuleHandle", "", (_, a) => Of<ModuleObject>(a[0], "a Module"));
+        add("System.Byte[]", Mod, "ResolveSignature", I, (e, a) =>
+        {
+            Of<ModuleObject>(a[0], "a Module");
+            return e.NewArray(e.SignatureBlob(I4(a[1])));
+        });
         foreach (var (ret, owner, name, kind) in new[]
                  {
                      ("System.RuntimeTypeHandle", MH, "ResolveTypeHandle", "type"), ("System.RuntimeMethodHandle", MH, "ResolveMethodHandle", "method"),
