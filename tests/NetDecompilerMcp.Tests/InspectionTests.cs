@@ -343,7 +343,7 @@ public class InspectionTests : IDisposable
     [Fact]
     public void Embedded_XorText_RecoversStructuredConfiguration()
     {
-        const string Json = "{\"c2\":[\"https://update.example-cdn.net/api/v2/beacon\",\"https://backup.example.org/gate.php\"],\"interval\":300,\"jitter\":0.2,\"campaign\":\"q3-rollout\",\"install\":{\"path\":\"%APPDATA%\\\\svc\",\"autorun\":true}}";
+        const string Json = "{\"servers\":[\"https://update.example-cdn.net/api/v2/status\",\"https://backup.example.org/sync.php\"],\"interval\":300,\"jitter\":0.2,\"channel\":\"q3-rollout\",\"install\":{\"path\":\"%APPDATA%\\\\svc\",\"autorun\":true}}";
         const string Urls = "https://a.example.net/x.bin\nhttps://b.example.org/files/build2.dat\nhttp://10.20.30.40:8080/up\n";
         const string Ini = "[server]\nhost=relay.example.com\nport=4433\nkey=6f1e2d3c4b5a\nretry=5\n";
         var fixture = ContainerFixtures.Module("Configs", m =>
