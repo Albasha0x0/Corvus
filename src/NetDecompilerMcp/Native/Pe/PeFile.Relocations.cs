@@ -23,7 +23,7 @@ public enum PeRelocationType : byte
 }
 
 /// <summary>A base relocation: the patched location and how. <see cref="Parameter"/> is the extra entry of HIGHADJ.</summary>
-public sealed record PeRelocation(uint Rva, PeRelocationType Type, ushort Parameter = 0);
+public readonly record struct PeRelocation(uint Rva, PeRelocationType Type, ushort Parameter = 0);
 
 public sealed partial class PeFile
 {
@@ -31,6 +31,9 @@ public sealed partial class PeFile
     {
         public static readonly RelocationTable Empty = new([], []);
     }
+
+    /// <summary>A page holds 4096 byte offsets; a block far larger than that is damaged.</summary>
+    private const int MaxEntriesPerBlock = 0x4000;
 
     /// <summary>
     /// Relocation blocks (page RVA, block size, 16-bit entries) across the directory. A block smaller than its header
@@ -66,8 +69,13 @@ public sealed partial class PeFile
                 log.Add($"relocation block at RVA 0x{at:X} (size 0x{blockSize:X}) runs past the end of the directory; cut", RvaToOffsetOrNull(at));
                 blockEnd = end;
             }
-            int count = (int)((blockEnd - at - 8) / 2);
-            var entries = ReadBlock(at + 8, count * 2);
+            long count = (blockEnd - at - 8) / 2;
+            if (count > MaxEntriesPerBlock)
+            {
+                log.Add($"relocation block at RVA 0x{at:X} holds {count} entries for one page; the first {MaxEntriesPerBlock} are read", RvaToOffsetOrNull(at));
+                count = MaxEntriesPerBlock;
+            }
+            var entries = ReadBlock(at + 8, (int)count * 2);
             if (entries == null)
             {
                 log.Add($"relocation entries at RVA 0x{at + 8:X} are outside the mapped image", RvaToOffsetOrNull(at));

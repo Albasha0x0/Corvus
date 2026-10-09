@@ -205,30 +205,31 @@ public sealed partial class PeFile
             log.Add($"string table block id {blockId} is outside 1-4096");
             return;
         }
-        var bytes = ReadResource(r, 1 << 20);
-        if (bytes == null)
-        {
-            log.Add($"string table {blockId} at RVA 0x{r.Rva:X} is outside the mapped image");
-            return;
-        }
-        int at = 0;
+        // Read string by string: the declared size is not trusted for an allocation.
+        long at = r.Rva, end = (long)r.Rva + r.Size;
         for (uint i = 0; i < 16; i++)
         {
-            if (at + 2 > bytes.Length)
+            if (!budget.Step()) return;
+            if (at + 2 > end || !TryU16(at, out ushort length))
             {
                 log.Add($"string table {blockId} (language {r.Language}) ends after {i} of 16 strings");
                 return;
             }
-            int length = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(at));
             at += 2;
-            int available = Math.Min(length, (bytes.Length - at) / 2);
+            int available = (int)Math.Min(length, (end - at) / 2);
             if (available < length) log.Add($"string {(blockId - 1) * 16 + i} of table {blockId} runs past the resource data; cut");
             if (available > 0)
             {
                 if (strings.Count >= PeLimits.MaxStringTableEntries || !budget.Chars(available)) return;
-                strings.Add(new PeResourceString((blockId - 1) * 16 + i, r.Language, Encoding.Unicode.GetString(bytes, at, available * 2)));
+                var chars = ReadBlock(at, available * 2);
+                if (chars == null)
+                {
+                    log.Add($"string table {blockId} at RVA 0x{r.Rva:X} is outside the mapped image");
+                    return;
+                }
+                strings.Add(new PeResourceString((blockId - 1) * 16 + i, r.Language, Encoding.Unicode.GetString(chars)));
             }
-            at += available * 2;
+            at += available * 2L;
         }
     }
 

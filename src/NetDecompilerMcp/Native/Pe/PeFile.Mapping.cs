@@ -255,7 +255,7 @@ public sealed partial class PeFile
     /// <summary>Mapped bytes of [rva, rva + length), or null when any of it is unmapped.</summary>
     private byte[]? ReadBlock(long rva, int length)
     {
-        if (length < 0 || rva < 0 || rva > uint.MaxValue) return null;
+        if (length < 0 || rva < 0 || rva > uint.MaxValue || FitCount(rva, 1) < (uint)length) return null; // no allocation for what cannot be mapped
         var buffer = new byte[length];
         return Read((uint)rva, buffer) == length ? buffer : null;
     }
