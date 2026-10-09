@@ -28,6 +28,8 @@ public static class ContractSweep
         ["unpack_container"] = ["outputDirectory"],
         ["get_resource"] = ["savePath"],
         ["extract_strings"] = ["savePath"],
+        ["export_native_annotations"] = ["outputPath"],
+        ["save_native"] = ["outputPath"],
     };
 
     /// <summary>Tools that change the loaded assemblies or the workspace (in memory).</summary>
@@ -35,7 +37,7 @@ public static class ContractSweep
     [
         "load_assembly", "unload_assembly", "reload_assembly", "add_search_directory", "rename_symbol", "rename_namespace", "stub_method",
         "patch_method_csharp", "patch_method_il", "add_members_csharp", "add_types_csharp", "simplify_methods", "undo_edit", "revert_edits",
-        "apply_edits",
+        "apply_edits", "rename_native", "comment_native", "patch_bytes", "patch_asm", "undo_native_edit",
     ];
 
     /// <summary>A parameter that names a file or directory the tool writes.</summary>
