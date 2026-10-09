@@ -42,4 +42,10 @@
     <ProjectReference Include="..\TestFixture.Consumer\TestFixture.Consumer.csproj" />
   </ItemGroup>
 
+  <!-- .NET Framework programs the pipeline round trip compiles and processes: data, not part of this project. -->
+  <ItemGroup>
+    <Compile Remove="PipelineSamples\**" />
+    <None Include="PipelineSamples\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
