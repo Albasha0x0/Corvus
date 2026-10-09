@@ -112,6 +112,7 @@ public class IlHashTests : IDisposable
     }
 
     /// <summary>The same code compiled with its members in another order (every token differs): the same hashes.</summary>
+    [Trait("Speed", "Slow")]
     [Fact]
     public void RebuildWithOtherTokens_SameHashes()
     {
