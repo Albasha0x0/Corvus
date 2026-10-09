@@ -28,7 +28,7 @@ public static class WorkflowPrompts
         Find where "{feature}" is implemented{(assembly is null ? "" : $" in {assembly}")} using the net-decompiler tools.
         - Start broad: search_strings for UI/log text related to it, search_symbols for likely names (use wildcards), search_constants for known magic numbers.
         - For each candidate, get_type_info / decompile_member, then follow the flow with find_references (callers) and find_callees (callees).
-        - For virtual/interface methods, use find_overrides; for obfuscated names, rely on strings, constants and search_il patterns.
+        - For virtual/interface methods, use find_overrides; for transformed names, rely on strings, constants and search_il patterns.
         Report the call chain from entry point to the core logic, with tokens, and quote the decisive lines of decompiled code.
         """;
 

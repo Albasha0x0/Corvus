@@ -48,7 +48,7 @@ internal sealed class ConstantFlow
 
     /// <summary>
     /// After <see cref="Decisions"/>: the reads of locals through their address (the ldind of <c>ldloca; ldind</c>, which
-    /// obfuscators use to hide constants) that read the same value on every run.
+    /// code transformers use to hide constants) that read the same value on every run.
     /// </summary>
     public Dictionary<Instruction, object?> AddressReads { get; } = new();
 

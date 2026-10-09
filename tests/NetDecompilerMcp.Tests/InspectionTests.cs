@@ -186,8 +186,8 @@ public class InspectionTests : IDisposable
         }
         """);
 
-    /// <summary>Marker types and attributes that protectors inject (as de4dot knows them).</summary>
-    private static byte[] ProtectedFixture() => ContainerFixtures.Module("Protected", m =>
+    /// <summary>Marker types and attributes that toolchains inject (as de4dot knows them).</summary>
+    private static byte[] MarkedFixture() => ContainerFixtures.Module("Marked", m =>
     {
         foreach (var (ns, name) in new[]
                  {
@@ -486,7 +486,7 @@ public class InspectionTests : IDisposable
     [Fact]
     public void Markers_AreNamed_PlainAssembliesGiveNothing()
     {
-        var marked = Assert.Single(Inspection.Summarize(null, Save("Protected.dll", ProtectedFixture()), default).Assemblies).Markers;
+        var marked = Assert.Single(Inspection.Summarize(null, Save("Marked.dll", MarkedFixture()), default).Assemblies).Markers;
         Assert.Equal(["Confuser / ConfuserEx", "SmartAssembly", "Goliath.NET", "Xenocode"], marked.Tools);
         Assert.Contains(marked.Indicators, i => i.StartsWith("SuppressIldasmAttribute"));
 
@@ -560,7 +560,7 @@ public class InspectionTests : IDisposable
         {
             ["everyday"] = EverydayApis(),
             ["encoded"] = EncodedFixture(),
-            ["protected"] = ProtectedFixture(),
+            ["marked"] = MarkedFixture(),
             ["test fixture"] = File.ReadAllBytes(Env.FixturePath),
         };
         var random = new Random(4321);

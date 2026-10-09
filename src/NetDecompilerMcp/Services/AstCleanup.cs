@@ -747,7 +747,7 @@ internal sealed class OperatorNamedArguments : IAstTransform
 }
 
 /// <summary>
-/// Renames uses of an obfuscated setter/adder/remover value parameter back to <c>value</c> (CS0103).
+/// Renames uses of a transformed setter/adder/remover value parameter back to <c>value</c> (CS0103).
 /// </summary>
 internal sealed class AccessorValueParameters : IAstTransform
 {
@@ -774,7 +774,7 @@ internal sealed class AccessorValueParameters : IAstTransform
 }
 
 /// <summary>
-/// Makes named arguments with unspeakable (obfuscated) names, e.g. <c>_0020:</c>, positional when already in
+/// Makes named arguments with unspeakable (transformed) names, e.g. <c>_0020:</c>, positional when already in
 /// position (CS1739).
 /// </summary>
 internal sealed class PositionalNamedArguments : IAstTransform

@@ -32,7 +32,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
 
     public sealed record SignatureFacts(bool StrongNamed, string? PublicKeyToken, CertificateInfo Certificate);
 
-    public sealed record PackingFacts(IReadOnlyList<string> EmbeddedAssemblies, IReadOnlyList<EmbeddedContent> Contents, IReadOnlyList<string> HighEntropySections)
+    public sealed record WrappingFacts(IReadOnlyList<string> EmbeddedAssemblies, IReadOnlyList<EmbeddedContent> Contents, IReadOnlyList<string> HighEntropySections)
     {
         /// <summary>Total embedded assemblies; EmbeddedAssemblies may be truncated.</summary>
         public int EmbeddedAssemblyTotal { get; init; }
@@ -41,7 +41,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
     public sealed record ValueSummary(int Total, IReadOnlyDictionary<string, int> ByType, IReadOnlyList<ExtractedValue> Top);
 
     public sealed record AssemblySummary(string Path, string Sha256, IdentityFacts Identity, SignatureFacts Signature, MarkerFacts Markers,
-        PackingFacts Packing, IReadOnlyList<Feature> Features, ValueSummary Values, IReadOnlyList<EntryPoint> EntryPoints,
+        WrappingFacts Wrapping, IReadOnlyList<Feature> Features, ValueSummary Values, IReadOnlyList<EntryPoint> EntryPoints,
         IReadOnlyList<string> Highlights, IReadOnlyList<string> Notes);
 
     public sealed record FileSummary(FileFacts File, string Container, IReadOnlyList<AssemblySummary> Assemblies, IReadOnlyList<string> Highlights,
@@ -260,7 +260,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
     {
         Features = a.Features.Select(f => f with { Evidence = [] }).ToList(),
         Values = a.Values with { Top = [] },
-        Packing = new PackingFacts(a.Packing.EmbeddedAssemblies.Take(3).ToList(), [], a.Packing.HighEntropySections) { EmbeddedAssemblyTotal = a.Packing.EmbeddedAssemblyTotal },
+        Wrapping = new WrappingFacts(a.Wrapping.EmbeddedAssemblies.Take(3).ToList(), [], a.Wrapping.HighEntropySections) { EmbeddedAssemblyTotal = a.Wrapping.EmbeddedAssemblyTotal },
         Identity = a.Identity with { References = a.Identity.References.Take(5).ToList() },
         Notes = a.Notes.Take(3).ToList(),
         Highlights = [], // aggregated into the file's highlights
@@ -295,9 +295,9 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
         return AssemblyRank.Library;
     }
 
-    /// <summary>Highlights reported even for framework assemblies: protection, tampering, packing, invalid IL.</summary>
+    /// <summary>Highlights reported even for framework assemblies: toolchain markers, tampering, container wrapping, invalid IL.</summary>
     private static bool IsProblem(string h) =>
-        h.StartsWith("Protected with", StringComparison.Ordinal) || h.Contains("does not match", StringComparison.Ordinal)
+        h.StartsWith("Processed with", StringComparison.Ordinal) || h.Contains("does not match", StringComparison.Ordinal)
         || h.Contains("does not verify", StringComparison.Ordinal) || h.Contains("unreadable", StringComparison.Ordinal)
         || h.StartsWith("High-entropy", StringComparison.Ordinal) || h.Contains("not valid IL", StringComparison.Ordinal);
 
@@ -335,7 +335,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
             notes.Add($"{embedded.Count} embedded assemblies, {MaxSummaryEmbeddedAssemblies} listed; list_assemblies with path lists them all.");
             embedded = embedded.Take(MaxSummaryEmbeddedAssemblies).ToList();
         }
-        var packing = new PackingFacts(embedded, listed, sections) { EmbeddedAssemblyTotal = embeddedTotal };
+        var wrapping = new WrappingFacts(embedded, listed, sections) { EmbeddedAssemblyTotal = embeddedTotal };
 
         // Keep one evidence line, preferring strings / native imports over APIs, with one location.
         var features = Features.Detect(scan, ct)
@@ -350,9 +350,9 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
         var health = IlHealth.Assess(image, ct);
         if (health.Invalid > 0) notes.Add(health.Describe());
 
-        return new AssemblySummary(path, Blob.Sha256(image), identity, signature, markers, packing, features, valueSummary, entryPoints,
+        return new AssemblySummary(path, Blob.Sha256(image), identity, signature, markers, wrapping, features, valueSummary, entryPoints,
             [.. health.MostlyInvalid ? ["Method bodies are not valid IL (encrypted or dumped before decryption)"] : Array.Empty<string>(),
-             .. Highlights(identity, signature, markers, packing, features, valueSummary, entryPoints)], notes);
+             .. Highlights(identity, signature, markers, wrapping, features, valueSummary, entryPoints)], notes);
     }
 
     private static IdentityFacts Identity(ModuleDef module, byte[] image, PeImage? pe)
@@ -426,17 +426,17 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
         "impact", "code loading", "execution",
     };
 
-    private static List<string> Highlights(IdentityFacts identity, SignatureFacts signature, MarkerFacts markers, PackingFacts packing,
+    private static List<string> Highlights(IdentityFacts identity, SignatureFacts signature, MarkerFacts markers, WrappingFacts wrapping,
         IReadOnlyList<Feature> features, ValueSummary values, IReadOnlyList<EntryPoint> entryPoints)
     {
         var h = new List<string>();
-        foreach (var tool in markers.Tools) h.Add($"Protected with {tool} (marker found).");
+        foreach (var tool in markers.Tools) h.Add($"Processed with {tool} (toolchain marker found).");
         h.AddRange(markers.Indicators.Take(2));
         if (signature.Certificate is { Present: true } sig) h.AddRange(SignatureHighlights(sig, "the assembly"));
         if (identity.Merged != null) h.Add(identity.Merged);
-        if (packing.EmbeddedAssemblyTotal > 0) h.Add($"{packing.EmbeddedAssemblyTotal} embedded assembly(ies) (Costura or similar).");
+        if (wrapping.EmbeddedAssemblyTotal > 0) h.Add($"{wrapping.EmbeddedAssemblyTotal} embedded assembly(ies) (Costura or similar).");
         // Costura assemblies and PDBs are already counted above.
-        foreach (var p in packing.Contents.Where(c => !(c.Source.StartsWith("resource 'costura.", StringComparison.OrdinalIgnoreCase)
+        foreach (var p in wrapping.Contents.Where(c => !(c.Source.StartsWith("resource 'costura.", StringComparison.OrdinalIgnoreCase)
                                                          && c.Kind is ".NET assembly" or "portable pdb" or "pdb")).Take(5))
         {
             var how = p.Encoding.Count > 0 ? $", encoded as {string.Join(" > ", p.Encoding)}" : "";
@@ -444,8 +444,8 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
                 ? $"High-entropy data ({p.Size:N0} bytes, possibly encrypted) in {p.Source}."
                 : $"Embedded {p.Kind}{(p.Detail != null && p.Kind != "text" ? $" ({p.Detail})" : "")} in {p.Source}{how}.");
         }
-        if (packing.Contents.Count > 5) h.Add($"{packing.Contents.Count - 5} more embedded item(s) listed.");
-        foreach (var s in packing.HighEntropySections) h.Add($"High-entropy PE section {s}: packed or encrypted code?");
+        if (wrapping.Contents.Count > 5) h.Add($"{wrapping.Contents.Count - 5} more embedded item(s) listed.");
+        foreach (var s in wrapping.HighEntropySections) h.Add($"High-entropy PE section {s}: wrapped or encrypted code?");
         foreach (var c in features.Where(c => c.Attack != null && NotableCategories.Contains(c.Category)
                                                   || c.Attack is "T1105" or "T1102" or "T1095"))
             h.Add($"Can {c.Name} ({c.Attack} {c.AttackName}).");

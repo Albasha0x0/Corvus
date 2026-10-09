@@ -91,7 +91,7 @@ public sealed class RealScenarioRegressionTests
     }
 
     /// <summary>
-    /// A protected assembly (Babel / Goliath here) with metadata the decompiler's reader rejects: the module name's
+    /// An assembly processed by a toolchain (Babel / Goliath here) with metadata the decompiler's reader rejects: the module name's
     /// string offset past the heap, and a custom attribute whose constructor coded index is invalid. dnlib reads both
     /// leniently. Every decompile and get_il failed with an internal BadImageFormatException; the decompiler now works
     /// on a normalized copy with the same tokens, and says so.
@@ -121,7 +121,7 @@ public sealed class RealScenarioRegressionTests
     }
 
     /// <summary>
-    /// Obfuscators name members with zero-width and bidi characters (U+202E reverses the rest of the line). Tool output
+    /// Code transformers name members with zero-width and bidi characters (U+202E reverses the rest of the line). Tool output
     /// shows them as \uXXXX, the way the decompiler escapes identifiers, and the resolver accepts the name as shown.
     /// </summary>
     [Fact]
@@ -163,12 +163,12 @@ public sealed class RealScenarioRegressionTests
     }
 
     /// <summary>
-    /// Two builds of an obfuscated app (Dotfuscator in PDFelement's Office add-in): every type is renamed at each build,
-    /// member names are handed out afresh, and control-flow obfuscation plants random integer constants in every body.
+    /// Two builds of a transformed app (Dotfuscator in PDFelement's Office add-in): every type is renamed at each build,
+    /// member names are handed out afresh, and control-flow transformation plants random integer constants in every body.
     /// compare_assemblies paired none of the renamed types, so find_counterpart and apply_edits could not carry anything
     /// across. Strings, constants and bodies without their numeric constants still identify them.
     /// </summary>
-    private static byte[] ObfuscatedBuild(int seed, string classType, string constType, string enumType, string[] methodNames)
+    private static byte[] TransformedBuild(int seed, string classType, string constType, string enumType, string[] methodNames)
     {
         var random = new Random(seed);
         var lab = new IlLab("Obf");
@@ -198,11 +198,11 @@ public sealed class RealScenarioRegressionTests
     }
 
     [Fact]
-    public void RenamedTypesOfAnObfuscatedRebuildAreMatchedByContent()
+    public void RenamedTypesOfATransformedRebuildAreMatchedByContent()
     {
         using var dir = new TempDir();
-        File.WriteAllBytes(dir.File("Old.dll"), ObfuscatedBuild(1, "c7x", "cwb", "c7u", ["y", "d", "i", "n", "s"]));
-        File.WriteAllBytes(dir.File("New.dll"), ObfuscatedBuild(2, "ak7", "akl", "ak4", ["i", "y", "d", "s", "n"]));
+        File.WriteAllBytes(dir.File("Old.dll"), TransformedBuild(1, "c7x", "cwb", "c7u", ["y", "d", "i", "n", "s"]));
+        File.WriteAllBytes(dir.File("New.dll"), TransformedBuild(2, "ak7", "akl", "ak4", ["i", "y", "d", "s", "n"]));
         using var env = new Env(dir.File("Old.dll"));
         var newBuild = env.Workspace.Load(dir.File("New.dll"));
         var comparer = new NetDecompilerMcp.Services.AssemblyComparer(env.Workspace);
@@ -274,15 +274,15 @@ public sealed class RealScenarioRegressionTests
     }
 
     /// <summary>
-    /// apply_edits onto an obfuscated rebuild matched targets against the source build as edited: after the script's
+    /// apply_edits onto a transformed rebuild matched targets against the source build as edited: after the script's
     /// own stub, that body no longer resembled its counterpart (now renamed), so the replay failed and rolled back.
     /// </summary>
     [Fact]
-    public void EditsReplayOntoAnObfuscatedRebuildAfterTheScriptEditedItsSourceBuild()
+    public void EditsReplayOntoATransformedRebuildAfterTheScriptEditedItsSourceBuild()
     {
         using var dir = new TempDir();
-        File.WriteAllBytes(dir.File("Old.dll"), ObfuscatedBuild(1, "c7x", "cwb", "c7u", ["y", "d", "i", "n", "s"]));
-        File.WriteAllBytes(dir.File("New.dll"), ObfuscatedBuild(2, "ak7", "akl", "ak4", ["i", "y", "d", "s", "n"]));
+        File.WriteAllBytes(dir.File("Old.dll"), TransformedBuild(1, "c7x", "cwb", "c7u", ["y", "d", "i", "n", "s"]));
+        File.WriteAllBytes(dir.File("New.dll"), TransformedBuild(2, "ak7", "akl", "ak4", ["i", "y", "d", "s", "n"]));
         using var env = new Env(dir.File("Old.dll"));
         var newBuild = env.Workspace.Load(dir.File("New.dll"));
         env.Edit(() => env.Edits.StubMethod(SymbolResolver.ResolveOne(env.Workspace, env.Fixture.Id, "c7x::y"), "\"stubbed\""));

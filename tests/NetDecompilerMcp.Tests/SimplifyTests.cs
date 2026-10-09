@@ -397,11 +397,11 @@ public sealed class SimplifyTests : IDisposable
         using var env = new Env(FlatFixture());
         Assert.Contains("switch", env.Decompile("Flat.Steps::Run"));
         var preview = env.Workspace.Read(() => env.Decompiler.DecompileSimplified(env.Fixture, [env.One("Flat.Steps::Run").Member], new SimplifyOptions(), default));
-        Assert.Contains("1 switch dispatcher(s) unflattened", preview);
+        Assert.Contains("1 switch dispatcher(s) normalized", preview);
         Assert.DoesNotContain("switch (", preview);
 
         var report = Simplify(env, "Flat.Steps::Run", Options("cfg"));
-        Assert.Contains("unflattened 1 switch dispatcher(s) (5 transition(s) go straight to their case)", report);
+        Assert.Contains("normalized 1 switch dispatcher(s) (5 transition(s) go straight to their case)", report);
 
         var run = env.Def<MethodDef>("Flat.Steps::Run").Body;
         Assert.DoesNotContain(run.Instructions, i => i.OpCode.Code == Code.Switch);
@@ -436,11 +436,11 @@ public sealed class SimplifyTests : IDisposable
     }
 
     [Fact]
-    public void KeyedDispatcherEnteredByFallThroughIsUnflattened()
+    public void KeyedDispatcherEnteredByFallThroughIsNormalized()
     {
         using var env = new Env(FlowFixture());
         var report = Simplify(env, "Paths.Flow::Keyed");
-        Assert.Contains("unflattened 1 switch dispatcher(s) (3 transition(s) go straight to their case)", report);
+        Assert.Contains("normalized 1 switch dispatcher(s) (3 transition(s) go straight to their case)", report);
         var code = Body(env, "Paths.Flow::Keyed");
         Assert.DoesNotContain(code, i => i.OpCode.Code is Code.Switch or Code.Xor || i.IsLdloc() || i.IsStloc());
         Assert.Equal(15, Run(env.Fixture.GetImageBytes(), "Paths.Flow", "Keyed", 4));
@@ -495,11 +495,11 @@ public sealed class SimplifyTests : IDisposable
     [Theory]
     [InlineData("CondEntry", 3)]
     [InlineData("ReadElsewhere", 1)] // case 0 only transitions: the state is run through it
-    public void DispatcherOutsideTheCleanFormIsUnflattenedPerState(string method, int transitions)
+    public void DispatcherOutsideTheCleanFormIsNormalizedPerState(string method, int transitions)
     {
         using var env = new Env(FlowFixture());
         var report = Simplify(env, "Paths.Flow::" + method);
-        Assert.Contains($"unflattened 1 switch dispatcher(s) ({transitions} transition(s) go straight to their case)", report);
+        Assert.Contains($"normalized 1 switch dispatcher(s) ({transitions} transition(s) go straight to their case)", report);
         Assert.DoesNotContain("flattened-shape", report);
         var code = Body(env, "Paths.Flow::" + method);
         Assert.DoesNotContain(code, i => i.OpCode.Code == Code.Switch || i.IsLdloc() || i.IsStloc());
@@ -597,13 +597,13 @@ public sealed class SimplifyTests : IDisposable
     [InlineData("Chain")]
     [InlineData("Branchy")]
     [InlineData("Loop")]
-    public void TransitionsComputedFromThePreviousStateAreUnflattened(string method)
+    public void TransitionsComputedFromThePreviousStateAreNormalized(string method)
     {
         using var env = new Env(ConfusedFixture());
         Assert.Contains("switch", env.Decompile("Confused.C::" + method));
         var report = Simplify(env, "Confused.C::" + method, dryRun: true);
         Assert.Contains("1 of 1 method(s) would change", report);
-        Assert.Contains("unflattened 1 switch dispatcher(s)", report);
+        Assert.Contains("normalized 1 switch dispatcher(s)", report);
         Assert.DoesNotContain("flattened-shape", report);
 
         Simplify(env, "Confused.C::" + method);
@@ -634,7 +634,7 @@ public sealed class SimplifyTests : IDisposable
     {
         using var env = new Env(FlatFixture());
         var report = Simplify(env, "Flat.Steps", Options("cfg"), dryRun: true);
-        Assert.EndsWith("Totals: 1 of 2 method(s) changed; 1 dispatcher(s) unflattened (5 transition(s)), 3 unreachable block(s) removed. " +
+        Assert.EndsWith("Totals: 1 of 2 method(s) changed; 1 dispatcher(s) normalized (5 transition(s)), 3 unreachable block(s) removed. " +
                         "Fallbacks: flattened-shape 1.", report);
         Assert.DoesNotContain("Totals:", Simplify(env, "Flat.Steps::Run", Options("cfg"), dryRun: true));
     }
@@ -987,7 +987,7 @@ public sealed class SimplifyTests : IDisposable
         ("ReadElsewhere", [5]), ("CondEntry", [0]), ("CondEntry", [3]), ("LocalSwitch", [1]), ("Mixed", [5]),
     ];
 
-    /// <summary>Methods whose control flow only an IL writer (or an obfuscator) would produce.</summary>
+    /// <summary>Methods whose control flow only an IL writer (or a code transformer) would produce.</summary>
     private string FlowFixture()
     {
         var path = _dir.File("FlowFixture.dll");

@@ -374,7 +374,7 @@ public static class Containers
         if (native > 0) notes.Add($"{native} embedded native PE image(s) found (not extracted).");
         if (items.Count == 0)
             notes.Add(kind == "native PE"
-                ? "A native executable with no .NET bundle or embedded .NET images (it may be packed, compressed, or not .NET at all)."
+                ? "A native executable with no .NET bundle or embedded .NET images (it may be wrapped, compressed, or not .NET at all)."
                 : $"Not a known container ({kind}) and no embedded .NET images were found.");
         return new ContainerContents(items.Count > 0 ? $"{kind} with embedded .NET images" : "none", items, notes);
     }

@@ -56,7 +56,7 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
 
     [McpServerTool(Name = "get_il", Title = "IL disassembly", ReadOnly = true, OpenWorld = false)]
     [Description("IL disassembly (ildasm style, with /* metadata token */ comments, IL offsets and structured try/catch blocks) of a method, field, property, event, or a whole type. " +
-                 "Use it when the C# looks wrong, for obfuscated code, or as the starting point for patch_method_il.")]
+                 "Use it when the C# looks wrong, for transformed code, or as the starting point for patch_method_il.")]
     public Task<string> GetIL(
         [Description(SymbolDescription)] string symbol,
         [Description(AssemblyFilterDescription)] string? assembly = null,

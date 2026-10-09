@@ -8,7 +8,7 @@ namespace NetDecompilerMcp.Tests;
 /// structured grammar, so they are type-correct for the JIT, not only stack-balanced: typed expressions (int32, int64,
 /// float64, string, a struct), nested statements (if / else, bounded loops, switches, flattened switch dispatchers in
 /// clean and unclean forms, try / catch / finally / fault / filter, throws, early returns through leave, dead blocks,
-/// constant and opaque conditions), many locals and value-type operations (ldloca, ldfld, stfld, ldflda, stind,
+/// constant and provably-constant conditions), many locals and value-type operations (ldloca, ldfld, stfld, ldflda, stind,
 /// initobj, ldobj, stobj, box). Every method terminates (loops are bounded, dispatchers only move forward, nothing
 /// recurses) and is <c>static int Mi(int, long, string)</c>, so the original and the simplified image can be run and
 /// compared. The same seed always gives the same module.
@@ -29,13 +29,13 @@ internal sealed class IlBodyGenerator
     private readonly ICorLibTypes _t;
     private readonly TypeDef _struct;
     private readonly FieldDef _fieldA, _fieldB;
-    private readonly MethodDef _add, _addW, _twice, _opaque, _decrypt;
-    private readonly FieldDef _twiceField, _addField, _decryptField; // static readonly delegates of Twice, Add and Decrypt
+    private readonly MethodDef _add, _addW, _twice, _fortyTwo, _decode;
+    private readonly FieldDef _twiceField, _addField, _decodeField; // static readonly delegates of Twice, Add and Decode
     private readonly IMethod _invoke1, _invoke2, _invokeString;
     private readonly FieldDef _config, _configMode, _configZero, _counter, _counterN; // a startup singleton, and an object statements modify
     private readonly FieldDef _nil; // a readonly Config field nothing sets: loads through it throw
     private readonly int _mode;
-    private readonly MethodDef _cached, _joined; // Decrypt memoized in a static Dictionary; Decrypt(0..n-1) joined through a List
+    private readonly MethodDef _cached, _joined; // Decode memoized in a static Dictionary; Decode(0..n-1) joined through a List
     private readonly MethodDef _fromResource; // four letters read from the module's embedded resource
     private readonly List<FieldDef> _ordered = new(); // results of calls Ordered's static constructor makes on the state it is building
     private FieldDef _orderedWritten = null!; // what Note(c) last wrote
@@ -70,14 +70,14 @@ internal sealed class IlBodyGenerator
         _add = _lab.Method("Add", _t.Int32, [_t.Int32, _t.Int32], [I(OpCodes.Ldarg_0), I(OpCodes.Ldarg_1), I(OpCodes.Add), I(OpCodes.Ret)]);
         _addW = _lab.Method("AddW", _t.Int32, [_t.Int32, _t.Int32], [I(OpCodes.Ldarg_0), I(OpCodes.Ldarg_1), I(OpCodes.Call, _add), I(OpCodes.Ret)]);
         _twice = _lab.Method("Twice", _t.Int32, [_t.Int32], [I(OpCodes.Ldarg_0), IlLab.Ldc(2), I(OpCodes.Mul), I(OpCodes.Ret)]);
-        _opaque = _lab.Method("Opaque", _t.Int32, IlLab.Ldc(6), IlLab.Ldc(7), I(OpCodes.Mul), I(OpCodes.Ret));
+        _fortyTwo = _lab.Method("FortyTwo", _t.Int32, IlLab.Ldc(6), IlLab.Ldc(7), I(OpCodes.Mul), I(OpCodes.Ret));
 
-        // Decrypt(key): new string of 4 chars 'a' + ((key + i) & 15), built in a loop over a char array.
+        // Decode(key): new string of 4 chars 'a' + ((key + i) & 15), built in a loop over a char array.
         var charArray = new SZArraySig(_t.Char);
         var stringCtor = module.Import(typeof(string).GetConstructor([typeof(char[])]));
         var body = I(OpCodes.Ldloc_0);
         var cond = I(OpCodes.Ldloc_1);
-        _decrypt = _lab.Method("Decrypt", _t.String, [_t.Int32],
+        _decode = _lab.Method("Decode", _t.String, [_t.Int32],
         [
             IlLab.Ldc(4), I(OpCodes.Newarr, _t.Char.ToTypeDefOrRef()), I(OpCodes.Stloc_0), IlLab.Ldc(0), I(OpCodes.Stloc_1), I(OpCodes.Br, cond),
             body, I(OpCodes.Ldloc_1), IlLab.Ldc('a'), I(OpCodes.Ldarg_0), I(OpCodes.Ldloc_1), I(OpCodes.Add), IlLab.Ldc(15), I(OpCodes.And),
@@ -87,13 +87,13 @@ internal sealed class IlBodyGenerator
             I(OpCodes.Ldloc_0), I(OpCodes.Newobj, stringCtor), I(OpCodes.Ret),
         ], locals: [charArray, _t.Int32]);
 
-        // Delegate fields of Twice, Add and Decrypt, set by the type initializer.
+        // Delegate fields of Twice, Add and Decode, set by the type initializer.
         var func1 = typeof(Func<int, int>);
         var func2 = typeof(Func<int, int, int>);
         var funcString = typeof(Func<int, string>);
         _twiceField = _lab.StaticField(_lab.Type, "TwiceF", module.Import(func1).ToTypeSig(), readOnly: true);
         _addField = _lab.StaticField(_lab.Type, "AddF", module.Import(func2).ToTypeSig(), readOnly: true);
-        _decryptField = _lab.StaticField(_lab.Type, "DecryptF", module.Import(funcString).ToTypeSig(), readOnly: true);
+        _decodeField = _lab.StaticField(_lab.Type, "DecodeF", module.Import(funcString).ToTypeSig(), readOnly: true);
         _invoke1 = module.Import(func1.GetMethod("Invoke"));
         _invoke2 = module.Import(func2.GetMethod("Invoke"));
         _invokeString = module.Import(funcString.GetMethod("Invoke"));
@@ -118,7 +118,7 @@ internal sealed class IlBodyGenerator
         _config = _lab.StaticField(_lab.Type, "Cfg", new ClassSig(config), readOnly: true);
         _nil = _lab.StaticField(_lab.Type, "Nil", new ClassSig(config), readOnly: true);
 
-        // Cached(k): if (Memo.TryGetValue(k, out s)) return s; s = Decrypt(k); Memo[k] = s; return s;
+        // Cached(k): if (Memo.TryGetValue(k, out s)) return s; s = Decode(k); Memo[k] = s; return s;
         var dictionary = typeof(Dictionary<int, string>);
         var memo = new FieldDefUser("Memo", new FieldSig(module.Import(dictionary).ToTypeSig()), FieldAttributes.Private | FieldAttributes.Static | FieldAttributes.InitOnly);
         _lab.Type.Fields.Add(memo);
@@ -127,7 +127,7 @@ internal sealed class IlBodyGenerator
         [
             I(OpCodes.Ldsfld, memo), I(OpCodes.Ldarg_0), new Instruction(OpCodes.Ldloca_S, new Local(_t.String)), I(OpCodes.Callvirt, module.Import(dictionary.GetMethod("TryGetValue"))),
             I(OpCodes.Brtrue, found),
-            I(OpCodes.Ldarg_0), I(OpCodes.Call, _decrypt), I(OpCodes.Stloc_0),
+            I(OpCodes.Ldarg_0), I(OpCodes.Call, _decode), I(OpCodes.Stloc_0),
             I(OpCodes.Ldsfld, memo), I(OpCodes.Ldarg_0), I(OpCodes.Ldloc_0), I(OpCodes.Callvirt, module.Import(dictionary.GetMethod("set_Item"))),
             found, I(OpCodes.Ret),
         ], locals: [_t.String]);
@@ -157,7 +157,7 @@ internal sealed class IlBodyGenerator
             I(OpCodes.Callvirt, module.Import(typeof(System.Text.Encoding).GetMethod("GetString", [typeof(byte[])]))), I(OpCodes.Ret),
         ], locals: [module.Import(streamType).ToTypeSig(), new SZArraySig(_t.Byte), _t.Int32]);
 
-        // Joined(n): a List of Decrypt(0..(n & 3)), concatenated by index.
+        // Joined(n): a List of Decode(0..(n & 3)), concatenated by index.
         var list = typeof(List<string>);
         var loop = I(OpCodes.Ldloc_0);
         var test = I(OpCodes.Ldloc_1);
@@ -166,7 +166,7 @@ internal sealed class IlBodyGenerator
         _joined = _lab.Method("Joined", _t.String, [_t.Int32],
         [
             I(OpCodes.Newobj, module.Import(list.GetConstructor(Type.EmptyTypes))), I(OpCodes.Stloc_0), IlLab.Ldc(0), I(OpCodes.Stloc_1), I(OpCodes.Br, test),
-            loop, I(OpCodes.Ldloc_1), I(OpCodes.Call, _decrypt), I(OpCodes.Callvirt, module.Import(list.GetMethod("Add"))),
+            loop, I(OpCodes.Ldloc_1), I(OpCodes.Call, _decode), I(OpCodes.Callvirt, module.Import(list.GetMethod("Add"))),
             I(OpCodes.Ldloc_1), IlLab.Ldc(1), I(OpCodes.Add), I(OpCodes.Stloc_1),
             test, I(OpCodes.Ldarg_0), IlLab.Ldc(3), I(OpCodes.And), I(OpCodes.Ble, loop),
             I(OpCodes.Ldstr, ""), I(OpCodes.Stloc_2), IlLab.Ldc(0), I(OpCodes.Stloc_1), I(OpCodes.Br, joinTest),
@@ -185,7 +185,7 @@ internal sealed class IlBodyGenerator
             I(OpCodes.Newobj, counterCtor), I(OpCodes.Stsfld, _counter),
             I(OpCodes.Ldnull), I(OpCodes.Ldftn, _twice), I(OpCodes.Newobj, module.Import(func1.GetConstructors()[0])), I(OpCodes.Stsfld, _twiceField),
             I(OpCodes.Ldnull), I(OpCodes.Ldftn, _add), I(OpCodes.Newobj, module.Import(func2.GetConstructors()[0])), I(OpCodes.Stsfld, _addField),
-            I(OpCodes.Ldnull), I(OpCodes.Ldftn, _decrypt), I(OpCodes.Newobj, module.Import(funcString.GetConstructors()[0])), I(OpCodes.Stsfld, _decryptField),
+            I(OpCodes.Ldnull), I(OpCodes.Ldftn, _decode), I(OpCodes.Newobj, module.Import(funcString.GetConstructors()[0])), I(OpCodes.Stsfld, _decodeField),
             I(OpCodes.Ret));
 
         _concat = module.Import(typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]));
@@ -360,9 +360,9 @@ internal sealed class IlBodyGenerator
             case 17: TryFinally(depth, inProtected, noExit, fault: _r.Next(3) == 0); break;
             case 18: TryFilter(depth, inProtected, noExit); break;
             case 19: DeadBlock(); break;
-            case 20: OpaqueIf(depth, inProtected, noExit); break;
+            case 20: ProvablyConstantIf(depth, inProtected, noExit); break;
             case 21: LocalConstantIf(depth, inProtected, noExit); break;
-            case 22: ObfuscatedFlattened(depth, inProtected, noExit); break;
+            case 22: TransformedFlattened(depth, inProtected, noExit); break;
             case 23: DelegateCall(); break;
             case 24: InstanceFields(depth, inProtected, noExit); break;
             case 25: CacheCall(); break;
@@ -426,7 +426,7 @@ internal sealed class IlBodyGenerator
 
     /// <summary>
     /// A call through a static delegate field: <c>ldsfld F; arguments; callvirt Invoke</c>, the arguments any expression
-    /// (or a constant, which string folding then evaluates through Decrypt).
+    /// (or a constant, which string folding then evaluates through Decode).
     /// </summary>
     private void DelegateCall()
     {
@@ -446,7 +446,7 @@ internal sealed class IlBodyGenerator
                 Op(OpCodes.Stloc, Pick(_pool[VT.I4]));
                 break;
             default:
-                Op(OpCodes.Ldsfld, _decryptField);
+                Op(OpCodes.Ldsfld, _decodeField);
                 if (_r.Next(2) == 0) Ldc(_r.Next(100));
                 else Expr(VT.I4, 1);
                 Op(OpCodes.Callvirt, _invokeString);
@@ -587,7 +587,7 @@ internal sealed class IlBodyGenerator
                 break;
             default:
                 Op(OpCodes.Ldc_I4, _r.Next(100));
-                Op(OpCodes.Call, _decrypt);
+                Op(OpCodes.Call, _decode);
                 Op(OpCodes.Stloc, Pick(_pool[VT.Str]));
                 break;
         }
@@ -662,7 +662,7 @@ internal sealed class IlBodyGenerator
         Mark(skip);
     }
 
-    /// <summary>if (Opaque() == 42): a call the evaluator can run.</summary>
+    /// <summary>if (FortyTwo() == 42): a call the evaluator can run.</summary>
     /// <summary>
     /// A condition that is the same on every run though computed through fresh locals: <c>k = c</c>, then statements
     /// that leave k alone or an if / else whose arms both store c, then <c>m = k * a + b</c> (int32 or int64, or a xor),
@@ -738,10 +738,10 @@ internal sealed class IlBodyGenerator
         Mark(skip);
     }
 
-    private void OpaqueIf(int depth, bool inProtected, bool noExit)
+    private void ProvablyConstantIf(int depth, bool inProtected, bool noExit)
     {
         var skip = new Label();
-        Op(OpCodes.Call, _opaque);
+        Op(OpCodes.Call, _fortyTwo);
         Ldc(42);
         Op(OpCodes.Bne_Un, skip);
         Block(depth + 1, inProtected, noExit);
@@ -792,7 +792,7 @@ internal sealed class IlBodyGenerator
     }
 
     /// <summary>
-    /// Flattened control flow as obfuscators emit it, over cases 0..n-1 run in a forward order (the last one leaves):
+    /// Flattened control flow as code transformers emit it, over cases 0..n-1 run in a forward order (the last one leaves):
     /// <list type="bullet">
     /// <item>computed (ConfuserEx): the dispatcher switches on <c>(d = state ^ K) % n</c> and each case computes the next
     /// state from d, <c>state = d * A ^ B</c>, also through a ternary;</item>
@@ -802,7 +802,7 @@ internal sealed class IlBodyGenerator
     /// (<c>stloc t; ldloca t; ldind.i4</c>).</item>
     /// </list>
     /// </summary>
-    private void ObfuscatedFlattened(int depth, bool inProtected, bool noExit)
+    private void TransformedFlattened(int depth, bool inProtected, bool noExit)
     {
         int n = _r.Next(2, 7);
         int style = _r.Next(3);
@@ -1118,7 +1118,7 @@ internal sealed class IlBodyGenerator
                 Expr(VT.I4, depth - 1);
                 Op(OpCodes.Call, _r.Next(2) == 0 ? _add : _addW);
                 break;
-            case 14: Op(OpCodes.Call, _opaque); break;
+            case 14: Op(OpCodes.Call, _fortyTwo); break;
             case 15:
                 Expr(VT.Str, depth - 1);
                 Op(OpCodes.Callvirt, _length);
@@ -1187,7 +1187,7 @@ internal sealed class IlBodyGenerator
                 break;
             case 4:
                 Ldc(_r.Next(100));
-                Op(OpCodes.Call, _decrypt);
+                Op(OpCodes.Call, _decode);
                 break;
             default:
                 Expr(VT.Str, depth - 1);

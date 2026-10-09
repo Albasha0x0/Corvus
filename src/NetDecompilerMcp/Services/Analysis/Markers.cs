@@ -3,12 +3,12 @@ using NetDecompilerMcp.Core;
 
 namespace NetDecompilerMcp.Services.Analysis;
 
-/// <summary>Protectors matched by marker, heuristic findings, and the unreadable-name ratio (0..1).</summary>
+/// <summary>Toolchains matched by marker, heuristic findings, and the unreadable-name ratio (0..1).</summary>
 public sealed record MarkerFacts(IReadOnlyList<string> Tools, IReadOnlyList<string> Indicators, double UnreadableNameRatio);
 
 /// <summary>
-/// Detects protector marker types (as used by de4dot) and SuppressIldasmAttribute, plus heuristics: renamed
-/// identifiers, int -> string decryptor methods, and methods missing an IL body.
+/// Detects toolchain marker types (as used by de4dot) and SuppressIldasmAttribute, plus heuristics: renamed
+/// identifiers, int -> string decoder methods, and methods missing an IL body.
 /// </summary>
 public static class Markers
 {
@@ -27,7 +27,7 @@ public static class Markers
     ];
 
     private const double UnreadableThreshold = 0.3;
-    private const int DecryptorMinCallers = 10;
+    private const int DecoderMinCallers = 10;
 
     public static MarkerFacts Detect(ModuleScan scan)
     {
@@ -67,18 +67,18 @@ public static class Markers
         if (total >= 20 && ratio >= UnreadableThreshold)
             indicators.Add($"{ratio:P0} of {total} type / method / field names are unreadable or one or two characters long (renamed).");
 
-        // String decryptor: static, int parameters only, returns string, called from many methods.
-        var decryptors = scan.Calls
+        // String decoder: static, int parameters only, returns string, called from many methods.
+        var decoders = scan.Calls
             .Where(c => c.Target is MethodDef { IsStatic: true, MethodSig: { } sig } md && md.Module == module
                         && sig.RetType?.ElementType == ElementType.String
                         && sig.Params.Count is 1 or 2
                         && sig.Params.All(p => p?.ElementType is ElementType.I4 or ElementType.U4 or ElementType.I8))
             .GroupBy(c => (MethodDef)c.Target)
             .Select(g => (Method: g.Key, Callers: g.Select(c => c.Caller).Distinct().Count()))
-            .Where(x => x.Callers >= DecryptorMinCallers && LooksLikeDecoder(x.Method))
+            .Where(x => x.Callers >= DecoderMinCallers && LooksLikeDecoder(x.Method))
             .OrderByDescending(x => x.Callers).Take(3);
-        foreach (var (method, callers) in decryptors)
-            indicators.Add($"Possible string decryptor {Format.MemberLabel(method)}: an int -> string method called from {callers} methods.");
+        foreach (var (method, callers) in decoders)
+            indicators.Add($"Possible string decoder {Format.MemberLabel(method)}: an int -> string method called from {callers} methods.");
 
         // Concrete, non-native methods must have an IL body.
         int missing = types.SelectMany(t => t.Methods).Count(m => m.RVA == 0 && !m.IsAbstract && !m.IsPinvokeImpl && !m.IsInternalCall

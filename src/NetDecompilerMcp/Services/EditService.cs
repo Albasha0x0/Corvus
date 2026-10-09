@@ -382,7 +382,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
             var flow = new List<string>();
             if (c.ConstantBranches > 0) flow.Add($"folded {c.ConstantBranches} constant branch(es)");
             if (c.CollapsedChains > 0) flow.Add($"collapsed {c.CollapsedChains} branch chain(s)");
-            if (c.Dispatchers > 0) flow.Add($"unflattened {c.Dispatchers} switch dispatcher(s) ({c.Transitions} transition(s) go straight to their case)");
+            if (c.Dispatchers > 0) flow.Add($"normalized {c.Dispatchers} switch dispatcher(s) ({c.Transitions} transition(s) go straight to their case)");
             if (c.RemovedBlocks > 0) flow.Add($"removed {c.RemovedBlocks} unreachable block(s) ({c.RemovedInstructions} instructions)");
             if (c.RemovedHandlers > 0) flow.Add($"removed {c.RemovedHandlers} exception handler(s)");
             if (c.RemovedStores > 0) flow.Add($"removed {c.RemovedStores} dead store(s)");
@@ -422,7 +422,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         Add(changed.Sum(c => c.Inlined.Count), "forwarder call(s) inlined");
         Add(changed.Sum(c => c.Delegates.Count), "delegate call(s) resolved");
         Add(changed.Sum(c => c.ConstantBranches), "constant branch(es) folded");
-        Add(changed.Sum(c => c.Dispatchers), $"dispatcher(s) unflattened ({changed.Sum(c => c.Transitions)} transition(s))");
+        Add(changed.Sum(c => c.Dispatchers), $"dispatcher(s) normalized ({changed.Sum(c => c.Transitions)} transition(s))");
         Add(changed.Sum(c => c.RemovedBlocks), "unreachable block(s) removed");
         Add(changed.Sum(c => c.RemovedHandlers), "handler(s) removed");
         Add(changed.Sum(c => c.RemovedStores), "dead store(s) removed");

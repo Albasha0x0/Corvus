@@ -82,7 +82,7 @@ public sealed class AssemblyComparer(AssemblyWorkspace workspace)
     }
 
     /// <summary>
-    /// Shape: opcodes and literals. Skeleton: opcodes and string literals only. Control-flow obfuscators (Dotfuscator,
+    /// Shape: opcodes and literals. Skeleton: opcodes and string literals only. Control-flow code transformers (Dotfuscator,
     /// ConfuserEx) plant random integer constants that change with every build, so only the skeleton survives a rebuild.
     /// </summary>
     private sealed record MethodPrint(MethodDef Method, string Signature, ulong Shape, ulong Skeleton, ulong Full, int Size, HashSet<string> Strings);
@@ -297,10 +297,10 @@ public sealed class AssemblyComparer(AssemblyWorkspace workspace)
                         || o.BigShapes.Overlaps(n.BigShapes) || o.BigSkeletons.Overlaps(n.BigSkeletons)
                         || (nameSimilarity >= 0.8 && structural >= 0.5);
         if (!evidence) return 0;
-        // Content that only these two types share decides on its own: obfuscators rename every type at each build,
+        // Content that only these two types share decides on its own: code transformers rename every type at each build,
         // so the names carry no evidence at all.
         bool strong = (sharedRareStrings >= 3 && rareStrings >= 0.6) || (sharedShapes >= 2 && shapes >= 0.6)
-                      || (o.Type.IsEnum && sharedStrings >= 4 && strings >= 0.6); // an enum's member names, often kept by obfuscators
+                      || (o.Type.IsEnum && sharedStrings >= 4 && strings >= 0.6); // an enum's member names, often kept by code transformers
         double score = 0.3 * nameSimilarity + 0.7 * structural;
         return strong ? Math.Max(score, structural) : score;
     }
@@ -365,7 +365,7 @@ public sealed class AssemblyComparer(AssemblyWorkspace workspace)
                 newMethods.Remove(candidates[0]);
             }
         }
-        // Identical content outranks an identical name: obfuscators hand out names (a, b, c...) afresh at each build, so
+        // Identical content outranks an identical name: code transformers hand out names (a, b, c...) afresh at each build, so
         // the method called r() in the new build may be another method than the old r().
         Take((a, b) => a.Method.Name == b.Method.Name && a.Signature == b.Signature && (a.Size <= 2 || a.Shape == b.Shape), "same name");
         Take((a, b) => a.Size > 2 && a.Shape == b.Shape && a.Signature == b.Signature, "identical body (renamed)");

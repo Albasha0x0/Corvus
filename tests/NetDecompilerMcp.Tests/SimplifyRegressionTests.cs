@@ -121,7 +121,7 @@ public sealed class SimplifyRegressionTests : IDisposable
     }
 
     /// <summary>
-    /// Real application (RebornBuddy): virtual calls were taken to reach every method of the same name, and obfuscators
+    /// Real application (RebornBuddy): virtual calls were taken to reach every method of the same name, and code transformers
     /// give hundreds of unrelated methods the same short names, so nearly every method seemed able to run during every
     /// type initializer and no static state could be used. A virtual call now reaches the methods of its name and
     /// signature in the types deriving from the class it names, and in any type for an interface (an interface method

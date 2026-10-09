@@ -126,7 +126,7 @@ public class InspectionEdgeTests : IDisposable
     }
 
     [Fact]
-    public void StringDecryptor_NeedsDecoding_NotJustAnIntToStringHelper()
+    public void StringDecoder_NeedsDecoding_NotJustAnIntToStringHelper()
     {
         var calls = string.Join(" ", Enumerable.Range(0, 12).Select(i => $"public static string C{i}() => Pad({i}) + D({i});"));
         var path = Save("Strings.dll", ReferenceResolutionTests.Compile("Strings", $$"""
@@ -139,7 +139,7 @@ public class InspectionEdgeTests : IDisposable
             }
             """));
         var markers = Inspection.Summarize(null, path, default).Assemblies.Single().Markers;
-        Assert.Contains(markers.Indicators, i => i.StartsWith("Possible string decryptor S::D(int)"));
+        Assert.Contains(markers.Indicators, i => i.StartsWith("Possible string decoder S::D(int)"));
         Assert.DoesNotContain(markers.Indicators, i => i.Contains("S::Pad"));
     }
 

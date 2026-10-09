@@ -79,7 +79,7 @@ public sealed class MethodChange(MethodDef method)
 /// <item>cfg: branches on constant conditions are folded (also conditions computed through locals and blocks:
 /// <see cref="ConstantFlow"/>), stores to locals left unread removed, branch-to-branch chains collapsed, flattened switch dispatchers
 /// (in the clean form, or analyzed per state: <see cref="PlanPerState"/>)
-/// unflattened, empty try regions and handlers removed, and unreachable code deleted.</item>
+/// normalized, empty try regions and handlers removed, and unreachable code deleted.</item>
 /// </list>
 /// Every rewritten body must pass <see cref="BodyGraph.Verify"/>; otherwise the method is reported and left unchanged.
 /// </summary>
@@ -186,7 +186,7 @@ public sealed class MethodSimplifier
                 changed |= PropagateConstants(body, hasReturnValue, dead, change, meter);
                 changed |= RemoveNops(body, dead);
                 changed |= CollapseChains(body, change);
-                changed |= Unflatten(body, hasReturnValue, dead, change, unclean, meter);
+                changed |= Normalize(body, hasReturnValue, dead, change, unclean, meter);
                 changed |= SimplifyTryRegions(body, dead, hasReturnValue, change);
                 changed |= RemoveNops(body, dead);
                 changed |= RemoveUnreachable(body, dead, change);
@@ -722,8 +722,8 @@ public sealed class MethodSimplifier
 
     // ---- pass: control flow, flattened switch dispatchers
 
-    /// <summary>What unflattening one dispatcher does to the body.</summary>
-    private sealed class UnflattenPlan
+    /// <summary>What normalizing one dispatcher does to the body.</summary>
+    private sealed class NormalizePlan
     {
         /// <summary>The constants stored to the state local, and the stores.</summary>
         public List<Instruction> Dead { get; } = new();
@@ -736,12 +736,12 @@ public sealed class MethodSimplifier
 
     /// <summary>
     /// Flattened control flow: a loop whose body is a switch over a state local, each case storing the next state as a
-    /// constant and branching back to the switch. Only the clean form (<see cref="PlanUnflatten"/>) is rewritten: every
+    /// constant and branching back to the switch. Only the clean form (<see cref="PlanNormalize"/>) is rewritten: every
     /// transition goes straight to the case its state selects, the constant stores are deleted, and the dispatcher, no
     /// longer entered, is removed as unreachable code. A dispatcher in any other form is kept as it is and listed in
     /// <paramref name="unclean"/> (refilled on every call); the other passes still apply to the method.
     /// </summary>
-    private bool Unflatten(CilBody body, bool hasReturnValue, HashSet<Instruction> dead, MethodChange change, List<Fallback> unclean, MethodMeter meter)
+    private bool Normalize(CilBody body, bool hasReturnValue, HashSet<Instruction> dead, MethodChange change, List<Fallback> unclean, MethodMeter meter)
     {
         unclean.Clear();
         bool changed = false;
@@ -758,7 +758,7 @@ public sealed class MethodSimplifier
             if (depth == null) break;
             int s = graph.IndexOf(sw);
             if (s < 0 || depth[s] < 0) continue;
-            var plan = PlanUnflatten(body, graph, depth, s, out var head, out var why);
+            var plan = PlanNormalize(body, graph, depth, s, out var head, out var why);
             if (plan == null)
             {
                 // Not the clean form: the dispatcher is analyzed per state.
@@ -794,7 +794,7 @@ public sealed class MethodSimplifier
     }
 
     /// <summary>
-    /// Plans unflattening the switch at code[s]. Null with <paramref name="why"/> null: not flattened control flow, i.e. not
+    /// Plans normalizing the switch at code[s]. Null with <paramref name="why"/> null: not flattened control flow, i.e. not
     /// <c>ldloc state; ...; switch</c> where code reachable from the switch stores the state and goes back to the ldloc
     /// (a plain <c>switch (local)</c> is not a candidate). Null with <paramref name="why"/> set: flattened, but not in the
     /// clean form, which is:
@@ -809,7 +809,7 @@ public sealed class MethodSimplifier
     /// </list>
     /// Unreachable code is ignored: it is removed with the dispatcher.
     /// </summary>
-    private UnflattenPlan? PlanUnflatten(CilBody body, BodyGraph graph, int[] depth, int s, out Instruction? head, out string? why)
+    private NormalizePlan? PlanNormalize(CilBody body, BodyGraph graph, int[] depth, int s, out Instruction? head, out string? why)
     {
         head = null;
         why = null;
@@ -879,7 +879,7 @@ public sealed class MethodSimplifier
             }
         }
 
-        var plan = new UnflattenPlan();
+        var plan = new NormalizePlan();
         var transitionStores = new HashSet<Instruction>();
         for (int e = 0; e < code.Count; e++)
         {
@@ -949,7 +949,7 @@ public sealed class MethodSimplifier
         return plan.Transitions > 0 ? plan : null;
     }
 
-    /// <summary>What unflattening one dispatcher analyzed per state does to the body.</summary>
+    /// <summary>What normalizing one dispatcher analyzed per state does to the body.</summary>
     private sealed class PerStatePlan
     {
         /// <summary>Instructions deleted (the values a transition pushed for the dispatcher).</summary>
@@ -1016,7 +1016,7 @@ public sealed class MethodSimplifier
     }
 
     /// <summary>
-    /// Plans unflattening the dispatcher code[start..s] by analyzing it per state (<see cref="ConstantFlow.Dispatch"/>):
+    /// Plans normalizing the dispatcher code[start..s] by analyzing it per state (<see cref="ConstantFlow.Dispatch"/>):
     /// its locals (the state, and what the dispatcher computes from it) must be tracked; every way into the dispatcher
     /// must select the same case on every run; and every read of those locals outside the dispatcher must read the same
     /// value on every run. Each way in then goes straight to its case (values passed on the stack are dropped), the reads

@@ -221,7 +221,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         int blocks = changed.Sum(c => c.RemovedBlocks), bailed = changes.Sum(c => c.Bailouts.Count);
         int skipped = changes.Sum(c => c.Skipped.Count);
         var parts = new[] { (folded, "call(s) folded"), (inlined, "forwarder call(s) inlined"), (branches, "constant branch(es) folded"),
-                            (dispatchers, "switch dispatcher(s) unflattened"),
+                            (dispatchers, "switch dispatcher(s) normalized"),
                             (blocks, "unreachable block(s) removed"), (bailed, "call(s) not evaluable"), (skipped, "switch dispatcher(s) kept") }
             .Where(p => p.Item1 > 0).Select(p => $"{p.Item1} {p.Item2}").ToList();
         if (parts.Count > 0) summary += ": " + string.Join(", ", parts);
@@ -325,8 +325,8 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     }
 
     /// <summary>
-    /// Writes embedded (e.g. Costura-packed) assemblies and stubs for unresolved references to <c>lib\</c>, points
-    /// the engine's <c>Host!Name.dll</c> hint paths there, and references the remaining packed assemblies, which
+    /// Writes embedded (e.g. Costura-wrapped) assemblies and stubs for unresolved references to <c>lib\</c>, points
+    /// the engine's <c>Host!Name.dll</c> hint paths there, and references the remaining wrapped assemblies, which
     /// the compiler needs as transitive dependencies.
     /// </summary>
     private void IncludeEmbeddedReferences(LoadedAssembly asm, string dir)
@@ -369,7 +369,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
             .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
             .Select(n => $"    <Reference Include=\"{n}\">\n      <HintPath>lib\\{n}.dll</HintPath>\n    </Reference>").ToList();
         if (extra.Count > 0)
-            text = text.Replace("</Project>", "  <ItemGroup>\n    <!-- packed inside the original assembly (dependencies of its dependencies) -->\n" + string.Join("\n", extra) + "\n  </ItemGroup>\n</Project>");
+            text = text.Replace("</Project>", "  <ItemGroup>\n    <!-- wrapped inside the original assembly (dependencies of its dependencies) -->\n" + string.Join("\n", extra) + "\n  </ItemGroup>\n</Project>");
         File.WriteAllText(project, text);
     }
 

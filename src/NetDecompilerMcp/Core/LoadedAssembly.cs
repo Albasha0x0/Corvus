@@ -211,7 +211,7 @@ public sealed class LoadedAssembly : IDisposable
 
     /// <summary>
     /// Decompiler view of <see cref="GetImageBytes"/>, rebuilt after edits. When the decompiler's reader cannot read the
-    /// image's metadata (protectors leave out-of-range names and coded indexes that dnlib reads leniently), the view is a
+    /// image's metadata (toolchains leave out-of-range names and coded indexes that dnlib reads leniently), the view is a
     /// copy written by dnlib instead: same tokens (PreserveAll), valid metadata. <see cref="DecompilerNote"/> says so.
     /// </summary>
     public PEFile GetPEFile()

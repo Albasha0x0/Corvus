@@ -10,7 +10,7 @@ namespace NetDecompilerMcp.Tests;
 
 /// <summary>
 /// simplify_methods with class instances the evaluated code creates: singletons whose fields are set at startup and only
-/// read afterwards (as .NET Reactor's opaque predicates read a field of a &lt;Module&gt; object), instance and virtual
+/// read afterwards (as .NET Reactor's provably-constant conditions read a field of a &lt;Module&gt; object), instance and virtual
 /// calls, and instances that are modified later, which must stay. The fixture runs before and after.
 /// </summary>
 public sealed class SimplifyInstanceTests : IDisposable
@@ -96,7 +96,7 @@ public sealed class SimplifyInstanceTests : IDisposable
                     return x - 1;
                 }
 
-                public static int Opaque(int x)
+                public static int ConstantCondition(int x)
                 {
                     if (FlagsHolder.F.A != 0) return -x;
                     if (FlagsHolder.F.B == 0) x *= 2;
@@ -164,7 +164,7 @@ public sealed class SimplifyInstanceTests : IDisposable
 
     [Theory]
     [InlineData("Mode", 1)]
-    [InlineData("Opaque", 2)]
+    [InlineData("ConstantCondition", 2)]
     public void ConditionsOnFieldsOfSingletonsFold(string method, int branches)
     {
         using var env = new Env(Fixture());

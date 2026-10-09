@@ -122,9 +122,9 @@ public class RealWorldShapeTests : IDisposable
         Assert.Equal("Costura.Fody (embedded assemblies)", s.Container);
         Assert.Equal(["Host", "TestFixture"], s.Assemblies.Select(a => a.Identity.Name));
         var main = s.Assemblies[0];
-        Assert.Equal(1, main.Packing.EmbeddedAssemblyTotal); // the PDB and the metadata file are not assemblies
-        Assert.Empty(main.Packing.HighEntropySections);
-        Assert.DoesNotContain(main.Packing.Contents, c => c.Kind == "png");
+        Assert.Equal(1, main.Wrapping.EmbeddedAssemblyTotal); // the PDB and the metadata file are not assemblies
+        Assert.Empty(main.Wrapping.HighEntropySections);
+        Assert.DoesNotContain(main.Wrapping.Contents, c => c.Kind == "png");
         Assert.Contains(main.Notes, n => n.Contains("images not listed: 4 png"));
         Assert.Contains("[Host.exe] 1 embedded assembly(ies) (Costura or similar).", s.Highlights);
         Assert.Empty(s.Assemblies[1].Highlights); // brief

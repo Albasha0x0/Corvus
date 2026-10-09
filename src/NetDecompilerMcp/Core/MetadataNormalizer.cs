@@ -20,7 +20,7 @@ public static class MetadataNormalizer
             var attributes = owner.CustomAttributes;
             for (int i = attributes.Count - 1; i >= 0; i--)
             {
-                // A constructor that does not resolve (protector junk) is written as an invalid coded index.
+                // A constructor that does not resolve (toolchain junk) is written as an invalid coded index.
                 if (attributes[i]?.Constructor == null)
                 {
                     attributes.RemoveAt(i);

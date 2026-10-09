@@ -79,7 +79,7 @@ builder.Services
         try
         {
             var result = await next(context, cancellationToken);
-            // Obfuscated names made of zero-width and bidi characters would print as nothing or scramble the line.
+            // Transformed names made of zero-width and bidi characters would print as nothing or scramble the line.
             foreach (var block in result.Content.OfType<TextContentBlock>())
                 block.Text = NetDecompilerMcp.Core.Format.EscapeInvisible(block.Text);
             // Prepend pending workspace notices; trailing blank line because clients join content blocks without a separator.

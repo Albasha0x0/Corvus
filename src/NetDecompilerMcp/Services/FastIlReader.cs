@@ -73,7 +73,7 @@ public static class FastIlReader
     {
         var list = new List<Instruction>();
         var branches = new List<(Instruction Instr, object Targets, int Next)>();
-        // Corrupt bodies (memory-dumped or obfuscated images) stop at the first invalid opcode or truncated operand;
+        // Corrupt bodies (memory-dumped or transformed images) stop at the first invalid opcode or truncated operand;
         // instructions read so far are kept.
         while (reader.RemainingBytes > 0)
         {

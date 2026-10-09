@@ -14,7 +14,7 @@ namespace NetDecompilerMcp.Tools;
 public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, EditHistoryService history, DecompilerService decompiler, OutputPager pager)
 {
     [McpServerTool(Name = "rename_symbol", Title = "Rename symbol", Destructive = false, OpenWorld = false)]
-    [Description("Rename a type, method, field, property (with its accessors) or event in memory — e.g. to give obfuscated names meaning. Other assemblies that reference the old name are not updated.")]
+    [Description("Rename a type, method, field, property (with its accessors) or event in memory — e.g. to give transformed names meaning. Other assemblies that reference the old name are not updated.")]
     public Task<string> RenameSymbol(
         [Description(SymbolDescription)] string symbol,
         [Description("New name (for a type: the simple name without namespace).")] string newName,
@@ -169,14 +169,14 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken);
 
     [McpServerTool(Name = "simplify_methods", Title = "Simplify method bodies", Destructive = false, OpenWorld = false)]
-    [Description("Compiler-style cleanup of method bodies in memory, e.g. for obfuscated code. Passes (all by default): " +
-                 "fold: calls that compute a string from constant inputs (string decryptors; char, array, StringBuilder, Encoding and Base64 helpers; " +
+    [Description("Compiler-style cleanup of method bodies in memory, e.g. for transformed code. Passes (all by default): " +
+                 "fold: calls that compute a string from constant inputs (string decoders; char, array, StringBuilder, Encoding and Base64 helpers; " +
                  "nested helper calls of the same assembly) are run by a safe IL interpreter and replaced with the string literal. Calls outside the safe " +
                  "subset (I/O, reflection, exceptions, instance objects, native code, mutable statics) or over the depth / instruction budget are kept and reported. " +
                  "cfg: branches and switches on constant conditions are folded, also when the condition is computed through locals and blocks " +
                  "(constant propagation; readonly statics and calls with constant arguments are evaluated), and stores to locals left unread are removed; " +
                  "branch-to-branch chains collapsed, flattened control flow (a loop over a switch on a state " +
-                 "local, or on a value passed on the stack) unflattened so each case flows into the next: every way into the dispatcher is run through it " +
+                 "local, or on a value passed on the stack) normalized so each case flows into the next: every way into the dispatcher is run through it " +
                  "per state, so transitions that compute the next state from the previous one (ConfuserEx) or pass it on the stack (.NET Reactor) go " +
                  "straight to their case; a dispatcher whose state is not the same on every run is kept and reported (flattened-shape) while the rest of " +
                  "the method is still simplified —, reads of locals through their address that are constant become the constant, empty try/finally and dead handlers " +

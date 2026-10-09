@@ -34,7 +34,7 @@ public sealed class SimplifyDelegateTests : IDisposable
             {
                 public static int Add(int a, int b) => a + b;
                 public static int Neg(int a) => -a;
-                internal static string Decrypt(int k) => new string((char)('a' + k), 3);
+                internal static string Decode(int k) => new string((char)('a' + k), 3);
             }
 
             public class Box
@@ -124,7 +124,7 @@ public sealed class SimplifyDelegateTests : IDisposable
                     }
                 }
 
-                // SmartAssembly-style string delegates: Decrypt(k - the field's row number).
+                // SmartAssembly-style string delegates: Decode(k - the field's row number).
                 public static void InitStrings(Type type)
                 {
                     foreach (FieldInfo field in type.GetFields(BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.GetField))
@@ -135,7 +135,7 @@ public sealed class SimplifyDelegateTests : IDisposable
                         il.Emit(OpCodes.Ldarg_0);
                         il.Emit(OpCodes.Ldc_I4, field.MetadataToken & 0xFFFFFF);
                         il.Emit(OpCodes.Sub);
-                        il.Emit(OpCodes.Call, typeof(Targets).GetMethod("Decrypt", BindingFlags.Static | BindingFlags.NonPublic));
+                        il.Emit(OpCodes.Call, typeof(Targets).GetMethod("Decode", BindingFlags.Static | BindingFlags.NonPublic));
                         il.Emit(OpCodes.Ret);
                         field.SetValue(null, dynamic.CreateDelegate(typeof(StrDelegate)));
                     }
@@ -281,14 +281,14 @@ public sealed class SimplifyDelegateTests : IDisposable
     {
         using var env = new Env(Fixture());
         var report = Simplify(env, "Proxies.Strings::Use");
-        Assert.Contains("resolved Proxies.Strings::S.Invoke -> Proxies.Targets::Decrypt(int) (after ldc.i4", report);
+        Assert.Contains("resolved Proxies.Strings::S.Invoke -> Proxies.Targets::Decode(int) (after ldc.i4", report);
         var csharp = env.Decompile("Proxies.Strings::Use");
         Assert.DoesNotContain("S(", csharp);
-        Assert.Contains("Targets.Decrypt(", csharp); // S(x): x - rid, not constant
+        Assert.Contains("Targets.Decode(", csharp); // S(x): x - rid, not constant
         var image = env.Fixture.GetImageBytes();
         foreach (var x in new[] { 1, 5, 9 })
             Assert.Equal(Run(env.Fixture.OriginalBytes, "Proxies.Strings", "Use", x), Run(image, "Proxies.Strings", "Use", x));
-        // S(4) has a constant argument: Decrypt(4 - rid) is evaluated to its string.
+        // S(4) has a constant argument: Decode(4 - rid) is evaluated to its string.
         var rid = (int)env.Def<FieldDef>("Proxies.Strings::S", SymbolKind.Field).Rid;
         Assert.Contains(new string((char)('a' + 4 - rid), 3), csharp);
     }

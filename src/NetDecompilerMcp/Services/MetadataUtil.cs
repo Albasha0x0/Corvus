@@ -11,7 +11,7 @@ public sealed record SearchResult<T>(List<T> Items, int Total)
 }
 
 /// <summary>
-/// Defensive helpers over dnlib metadata. Obfuscated or Il2Cpp-generated assemblies routinely contain
+/// Defensive helpers over dnlib metadata. Transformed or Il2Cpp-generated assemblies routinely contain
 /// bodies or references that throw when touched, so everything here degrades to "nothing" instead of failing.
 /// </summary>
 public static class MetadataUtil
