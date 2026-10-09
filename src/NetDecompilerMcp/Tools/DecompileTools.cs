@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text;
 using dnlib.DotNet;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
@@ -67,9 +68,33 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         var all = SymbolResolver.Resolve(workspace, assembly, symbol);
         RequireFew(all, symbol);
         var text = pager.GetOrCreate(CacheKey("il", all), () => string.Join("\n", all.Select(s =>
-            $"// [{s.Assembly.Id}] {s.Label}\n{decompiler.Disassemble(s.Assembly, s.Member, cancellationToken)}")));
+            $"// [{s.Assembly.Id}] {s.Label}\n{HashLines(s)}{decompiler.Disassemble(s.Assembly, s.Member, cancellationToken)}")));
         return pager.Page(text, offset, maxChars);
     }, cancellationToken);
+
+    /// <summary>One "// IL hash:" line per method of the symbol (docs/il-hash.md), with the method's name unless the symbol is that method.</summary>
+    private static string HashLines(ResolvedSymbol s)
+    {
+        IEnumerable<MethodDef> methods = s.Member switch
+        {
+            MethodDef m => [m],
+            PropertyDef p => p.GetMethods.Concat(p.SetMethods).Concat(p.OtherMethods),
+            EventDef e => new[] { e.AddMethod, e.RemoveMethod, e.InvokeMethod }.Where(m => m != null).Concat(e.OtherMethods),
+            TypeDef t => t.Methods,
+            _ => [],
+        };
+        var sb = new StringBuilder();
+        foreach (var m in methods)
+        {
+            var hash = IlHash.Of(s.Assembly, m);
+            var value = hash != null ? IlHash.Short(hash)
+                : m.RVA == 0 && MetadataUtil.SafeBody(m) == null ? "none (no body)" : "none (body not valid IL)";
+            sb.Append("// IL hash: ").Append(value);
+            if (s.Member is not MethodDef) sb.Append("  ").Append(m.Name).Append('(').Append(Format.ParameterTypes(m.MethodSig)).Append(')');
+            sb.Append('\n');
+        }
+        return sb.ToString();
+    }
 
     [McpServerTool(Name = "decompile_assembly_attributes", Title = "Decompile assembly attributes", ReadOnly = true, OpenWorld = false)]
     [Description("Decompile assembly- and module-level attributes (InternalsVisibleTo, versions, TargetFramework...) to C#.")]

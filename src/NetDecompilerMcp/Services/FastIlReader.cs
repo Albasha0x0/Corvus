@@ -18,7 +18,19 @@ namespace NetDecompilerMcp.Services;
 /// </summary>
 public static class FastIlReader
 {
-    public sealed record Body(IList<Instruction> Instructions, IReadOnlyList<TypeSig> LocalTypes, IReadOnlyList<(ITypeDefOrRef CatchType, uint HandlerOffset)> Catches);
+    public sealed record Body(IList<Instruction> Instructions, IReadOnlyList<TypeSig> LocalTypes, IReadOnlyList<(ITypeDefOrRef CatchType, uint HandlerOffset)> Catches)
+    {
+        /// <summary>Exception regions in metadata order.</summary>
+        public IReadOnlyList<Region> Regions { get; init; } = [];
+
+        /// <summary>The body header's init-locals flag.</summary>
+        public bool InitLocals { get; init; }
+    }
+
+    /// <summary>An exception region. Start instructions are inclusive, end instructions exclusive (null: the end of the body
+    /// or a boundary that is not an instruction start, as in corrupt bodies).</summary>
+    public sealed record Region(ExceptionHandlerType Kind, Instruction? TryStart, Instruction? TryEnd, Instruction? HandlerStart, Instruction? HandlerEnd,
+        Instruction? FilterStart, ITypeDefOrRef? CatchType);
 
     private static readonly ConditionalWeakTable<ModuleDef, ConcurrentDictionary<uint, object?>> TokenCache = new();
 
@@ -50,10 +62,27 @@ public static class FastIlReader
                     is StandAloneSig { LocalSig: { } localSig })
                 locals.AddRange(localSig.Locals);
             var catches = new List<(ITypeDefOrRef, uint)>();
+            var regions = new List<Region>();
+            Dictionary<uint, Instruction>? byOffset = null;
             foreach (var region in block.ExceptionRegions)
-                if (!region.CatchType.IsNil && Resolve((uint)MetadataTokens.GetToken(region.CatchType)) is ITypeDefOrRef catchType)
+            {
+                var catchType = region.CatchType.IsNil ? null : Resolve((uint)MetadataTokens.GetToken(region.CatchType)) as ITypeDefOrRef;
+                if (catchType != null)
                     catches.Add((catchType, (uint)region.HandlerOffset));
-            return new Body(instructions, locals, catches);
+                byOffset ??= instructions.GroupBy(i => i.Offset).ToDictionary(g => g.Key, g => g.First());
+                Instruction? At(int offset) => byOffset.GetValueOrDefault((uint)offset);
+                var kind = region.Kind switch
+                {
+                    ExceptionRegionKind.Filter => ExceptionHandlerType.Filter,
+                    ExceptionRegionKind.Finally => ExceptionHandlerType.Finally,
+                    ExceptionRegionKind.Fault => ExceptionHandlerType.Fault,
+                    _ => ExceptionHandlerType.Catch,
+                };
+                regions.Add(new Region(kind, At(region.TryOffset), At(region.TryOffset + region.TryLength),
+                    At(region.HandlerOffset), At(region.HandlerOffset + region.HandlerLength),
+                    kind == ExceptionHandlerType.Filter ? At(region.FilterOffset) : null, catchType));
+            }
+            return new Body(instructions, locals, catches) { Regions = regions, InitLocals = block.LocalVariablesInitialized };
         }
         catch
         {
@@ -66,7 +95,12 @@ public static class FastIlReader
         var body = MetadataUtil.SafeBody(method);
         if (body == null) return null;
         return new Body(body.Instructions, body.Variables.Select(v => v.Type).ToList(),
-            body.ExceptionHandlers.Where(h => h.CatchType != null).Select(h => (h.CatchType, h.HandlerStart?.Offset ?? 0)).ToList());
+            body.ExceptionHandlers.Where(h => h.CatchType != null).Select(h => (h.CatchType, h.HandlerStart?.Offset ?? 0)).ToList())
+        {
+            Regions = body.ExceptionHandlers.Select(h => new Region(h.HandlerType, h.TryStart, h.TryEnd, h.HandlerStart, h.HandlerEnd,
+                h.FilterStart, h.CatchType)).ToList(),
+            InitLocals = body.InitLocals,
+        };
     }
 
     private static List<Instruction> Decode(BlobReader reader, MetadataReader metadata, Func<uint, object?> resolve)
