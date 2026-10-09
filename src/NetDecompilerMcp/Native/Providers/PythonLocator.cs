@@ -1,0 +1,133 @@
+using System.Text;
+
+namespace NetDecompilerMcp.Native.Providers;
+
+/// <summary>A Python interpreter that passed the checks, with its reported version and pointer size.</summary>
+public sealed record PythonInterpreter(string Executable, Version Version, int Bits, string Source);
+
+/// <summary>
+/// Finds a Python interpreter for a worker: explicit candidates first (an override, an engine's configured
+/// interpreter), then the Windows launcher (<c>py -3</c>), then PATH. Each candidate is run once in isolated mode
+/// to read its version, pointer size and real executable (the launcher and PATH shims are resolved to the
+/// interpreter itself so the worker is not started through a launcher process).
+/// </summary>
+public static class PythonLocator
+{
+    public static readonly Version MinimumVersion = new(3, 9);
+    private const string ProbeScript = "import sys,struct;print(sys.version_info[0],sys.version_info[1],struct.calcsize('P')*8);print(sys.executable)";
+
+    /// <summary>Returns the first working 64-bit interpreter, or null; <paramref name="log"/> lists every candidate and why it was rejected.</summary>
+    public static PythonInterpreter? Find(IEnumerable<(string Path, string Source)> preferred, List<string> log, TimeSpan? probeTimeout = null)
+    {
+        var timeout = probeTimeout ?? TimeSpan.FromSeconds(15);
+        var seen = new HashSet<string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        foreach (var (exe, args, source) in Candidates(preferred))
+        {
+            if (!seen.Add(exe + "|" + string.Join(" ", args))) continue;
+            if (!File.Exists(exe)) { log.Add($"{source}: {exe} does not exist"); continue; }
+            var result = Probe(exe, args, timeout, out var error);
+            if (result == null) { log.Add($"{source}: {exe}: {error}"); continue; }
+            if (result.Bits != 64) { log.Add($"{source}: {result.Executable} is {result.Bits}-bit; a 64-bit Python is required"); continue; }
+            if (result.Version < MinimumVersion) { log.Add($"{source}: {result.Executable} is Python {result.Version}; {MinimumVersion}+ is required"); continue; }
+            return result with { Source = source };
+        }
+        return null;
+    }
+
+    private static IEnumerable<(string Exe, string[] Args, string Source)> Candidates(IEnumerable<(string Path, string Source)> preferred)
+    {
+        foreach (var (path, source) in preferred)
+        {
+            if (string.IsNullOrWhiteSpace(path)) continue;
+            var p = Directory.Exists(path) ? System.IO.Path.Combine(path, OperatingSystem.IsWindows() ? "python.exe" : "python3") : path;
+            yield return (p, [], source);
+        }
+        if (OperatingSystem.IsWindows())
+        {
+            var launcher = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "py.exe");
+            var localLauncher = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Python", "Launcher", "py.exe");
+            foreach (var l in new[] { launcher, localLauncher, OnPath("py.exe") })
+                if (l != null && File.Exists(l)) { yield return (l, ["-3"], "py -3"); break; }
+        }
+        foreach (var name in OperatingSystem.IsWindows() ? new[] { "python.exe", "python3.exe" } : ["python3", "python"])
+            if (OnPath(name) is { } p) yield return (p, [], "PATH");
+    }
+
+    private static string? OnPath(string name)
+    {
+        foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(System.IO.Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            // The Microsoft Store alias opens the Store instead of running Python when none is installed.
+            if (dir.Contains(@"\Microsoft\WindowsApps", StringComparison.OrdinalIgnoreCase)) continue;
+            try
+            {
+                var p = System.IO.Path.Combine(dir.Trim('"'), name);
+                if (File.Exists(p)) return p;
+            }
+            catch (ArgumentException) { }
+        }
+        return null;
+    }
+
+    /// <summary>Runs the probe script; returns null with <paramref name="error"/> set when the interpreter does not work.</summary>
+    public static PythonInterpreter? Probe(string exe, string[] launcherArgs, TimeSpan timeout, out string error)
+    {
+        var run = RunCapture(exe, [.. launcherArgs, "-I", "-c", ProbeScript], timeout);
+        if (run.TimedOut) { error = $"did not answer within {timeout.TotalSeconds:0} s"; return null; }
+        if (run.StartError != null) { error = run.StartError; return null; }
+        var lines = run.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (run.ExitCode != 0 || lines.Length < 2)
+        {
+            error = $"exit code {run.ExitCode}: {Last(run.Stderr.Length > 0 ? run.Stderr : run.Stdout)}";
+            return null;
+        }
+        var parts = lines[0].Split(' ');
+        if (parts.Length != 3 || !int.TryParse(parts[0], out var major) || !int.TryParse(parts[1], out var minor) || !int.TryParse(parts[2], out var bits))
+        {
+            error = "unexpected probe output: " + lines[0];
+            return null;
+        }
+        error = "";
+        return new PythonInterpreter(lines[1], new Version(major, minor), bits, "");
+    }
+
+    private static string Last(string text) =>
+        text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault() ?? "(no output)";
+
+    public sealed record CaptureResult(int? ExitCode, string Stdout, string Stderr, bool TimedOut, string? StartError);
+
+    /// <summary>Runs a short-lived process in its own job, capturing output; the tree is killed on timeout.</summary>
+    public static CaptureResult RunCapture(string exe, IReadOnlyList<string> args, TimeSpan timeout, IReadOnlyDictionary<string, string?>? environment = null)
+    {
+        ChildProcess child;
+        try
+        {
+            child = ChildProcess.Start(new ChildProcessStart(exe, args) { Environment = environment ?? new Dictionary<string, string?>() });
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException)
+        {
+            return new CaptureResult(null, "", "", false, ex.Message);
+        }
+        using (child)
+        {
+            child.StandardInput.Dispose();
+            var stdout = Task.Run(() => ReadAll(child.StandardOutput));
+            var stderr = Task.Run(() => ReadAll(child.StandardError));
+            var exited = child.Exited.Wait(timeout);
+            if (!exited) child.Kill();
+            Task.WaitAll([stdout, stderr], TimeSpan.FromSeconds(2));
+            return new CaptureResult(child.ExitCode, stdout.IsCompletedSuccessfully ? stdout.Result : "",
+                stderr.IsCompletedSuccessfully ? stderr.Result : "", !exited, null);
+        }
+    }
+
+    private static string ReadAll(Stream s)
+    {
+        try
+        {
+            using var r = new StreamReader(s, new UTF8Encoding(false), false, 4096, leaveOpen: true);
+            return r.ReadToEnd();
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException) { return ""; }
+    }
+}
