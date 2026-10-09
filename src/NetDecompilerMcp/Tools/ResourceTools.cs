@@ -25,7 +25,7 @@ public sealed class ResourceTools(AssemblyWorkspace workspace, ResourceService r
         return sb.ToString();
     }, cancellationToken);
 
-    [McpServerTool(Name = "get_resource", Title = "Read / extract resource", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "get_resource", Title = "Read / extract resource", OpenWorld = false)]
     [Description("Read a resource: text as text, binary as a hex preview, .resources containers as an entry list (pass entry to read one; WPF .baml entries come back as XAML). Pass savePath to extract the raw bytes to disk (images, asset bundles, configs).")]
     public Task<string> GetResource(
         [Description(AssemblyDescription)] string assembly,

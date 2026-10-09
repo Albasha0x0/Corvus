@@ -36,6 +36,16 @@ public class Il2CppExportTests : IDisposable
         Assert.Throws<ToolError>(() => exporter.Export(_env.Workspace.Assemblies, _dir.Path, "pdf", "x", default));
         using var consumer = new Env(Env.ConsumerPath);
         Assert.Throws<ToolError>(() => new Il2CppExporter(consumer.Il2Cpp).Export(consumer.Workspace.Assemblies, _dir.Path, "all", "x", default));
+
+        // baseName is a file name: a path in it would put the files outside outputDirectory.
+        var outside = Path.Combine(_dir.Path, "out");
+        foreach (var baseName in new[] { Path.Combine("..", "escaped"), Path.Combine(_dir.Path, "rooted"), "", " " })
+        {
+            var error = Assert.Throws<ToolError>(() => _env.Workspace.Read(() => exporter.Export(_env.Workspace.Assemblies, outside, "all", baseName, default)));
+            Assert.Equal(ErrorCode.InvalidArgument, error.Code);
+        }
+        Assert.False(File.Exists(_dir.File("escaped.h")));
+        Assert.False(File.Exists(_dir.File("rooted.h")));
     }
 
     private const string Clang = @"C:\Program Files\LLVM\bin\clang.exe";

@@ -22,6 +22,11 @@ catch (Exception ex)
     return 2;
 }
 
+// Parallel decompilation (export_project, comparisons) occupies a pool thread per core; spare threads let the transport
+// read a cancellation or the next request at once instead of after the pool grows, which takes seconds.
+ThreadPool.GetMinThreads(out var minWorkers, out var minIo);
+ThreadPool.SetMinThreads(Math.Max(minWorkers, Environment.ProcessorCount * 2 + 8), minIo);
+
 // Arguments are not passed to the host, and stdout carries the MCP protocol, so all logging goes to stderr.
 // No configuration files and no content root in the client's working directory: clients start servers from any
 // folder, and watching or reading it slows startup and lets a stray appsettings.json change the server.
@@ -81,6 +86,8 @@ builder.Services
     {
         try
         {
+            if (context.MatchedPrimitive is ModelContextProtocol.Server.McpServerTool tool)
+                ArgumentCheck.Apply(tool.ProtocolTool.InputSchema, context.Params?.Arguments);
             var result = await next(context, cancellationToken);
             // Transformed names made of zero-width and bidi characters would print as nothing or scramble the line.
             foreach (var block in result.Content.OfType<TextContentBlock>())
@@ -111,6 +118,15 @@ builder.Services
                 IsError = true,
                 Content = [new TextContentBlock { Text = new NetDecompilerMcp.Core.ToolError(NetDecompilerMcp.Core.ErrorCode.InvalidArgument,
                     $"missing required parameter '{m.Groups[1].Value}'.").Render(context.Params?.Name) }],
+            };
+        }
+        catch (Exception ex) when (ArgumentCheck.FileSystemError(ex) is { } error)
+        {
+            // A path argument System.IO rejected or could not reach.
+            return new CallToolResult
+            {
+                IsError = true,
+                Content = [new TextContentBlock { Text = NetDecompilerMcp.Core.Format.EscapeInvisible(error.Render(context.Params?.Name)) }],
             };
         }
         catch (Exception ex) when (ex is not McpException && ex is not OperationCanceledException)

@@ -23,6 +23,10 @@ public sealed class Il2CppExporter(Il2CppService il2cpp)
         if (wanted.Contains("all")) wanted = ["ida", "ghidra", "header", "json"];
         foreach (var f in wanted.Where(f => f is not ("ida" or "ghidra" or "header" or "json")))
             throw new ToolError(ErrorCode.InvalidArgument, $"Unknown format '{f}'. Use ida, ghidra, header, json or all.");
+        // A rooted or relative path in baseName would put the files outside outputDirectory.
+        if (string.IsNullOrWhiteSpace(baseName) || baseName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || baseName is "." or ".." || baseName.Length > 100)
+            throw new ToolError(ErrorCode.InvalidArgument, "baseName must be a plain file name (no directories), at most 100 characters.",
+                "Pass a name like 'il2cpp' and choose the folder with outputDirectory.");
 
         var layout = new Il2CppLayout();
         LayOut(layout, scope, ct);
