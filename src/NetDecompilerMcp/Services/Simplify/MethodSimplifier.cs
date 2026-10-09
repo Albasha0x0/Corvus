@@ -172,7 +172,7 @@ public sealed class MethodSimplifier
             .Where(i => i.IsLdloc() || i.OpCode.Code is Code.Ldloca or Code.Ldloca_S).Select(i => i.GetLocal(body.Variables)).OfType<Local>().ToHashSet();
         if (_options.Forwarders)
         {
-            ResolveDelegateCalls(body, dead, change);
+            ResolveDelegateCalls(method, body, dead, change);
             RemoveNops(body, dead);
             InlineForwarders(method, body, change);
         }
@@ -258,7 +258,7 @@ public sealed class MethodSimplifier
     /// must only be written while its type initializes (readonly, or proven by <see cref="ModuleFacts"/>); anything else is
     /// reported (delegate-target) and the call is kept.
     /// </summary>
-    private void ResolveDelegateCalls(CilBody body, HashSet<Instruction> dead, MethodChange change)
+    private void ResolveDelegateCalls(MethodDef caller, CilBody body, HashSet<Instruction> dead, MethodChange change)
     {
         var code = body.Instructions;
         BodyGraph? graph = null;
@@ -294,8 +294,18 @@ public sealed class MethodSimplifier
                 change.Skipped.Add(new(FallbackReason.DelegateTarget, $"{where}: {why}"));
                 continue;
             }
-
-            MakeDead(code[producer], dead);
+            // A delegate bound to a field-less singleton loads the singleton where the delegate was loaded.
+            if (d.Target != null)
+            {
+                if (_evaluator.StaticHolding(d.Target) is not { } holder || !Forwarders.IsAccessible(holder, caller.DeclaringType) ||
+                    d.Method is not MethodDef { IsStatic: false } bound || !Forwarders.IsAccessible(bound, caller.DeclaringType))
+                {
+                    change.Skipped.Add(new(FallbackReason.DelegateTarget, $"{where}: the delegate is bound to an object that no static field accessible here holds"));
+                    continue;
+                }
+                code[producer].Operand = holder;
+            }
+            else MakeDead(code[producer], dead);
             site.OpCode = replacement[0].OpCode;
             site.Operand = replacement[0].Operand;
             for (int k = 1; k < replacement.Count; k++)
@@ -376,6 +386,12 @@ public sealed class MethodSimplifier
         {
             target = Describe(method);
             return [OpCodes.Call.ToInstruction(method)];
+        }
+        // Bound to a field-less singleton: the caller loads the singleton in the delegate's place.
+        if (d.Method is { } bound && d.Target is InstanceObject { Fields.Count: 0 } && (bound.MethodSig?.HasThis ?? false) && bound.MethodSig!.Params.Count == arguments)
+        {
+            target = Describe(bound);
+            return [OpCodes.Call.ToInstruction(bound)];
         }
         why = "the delegate is bound to an object or does not match its signature";
         return null;

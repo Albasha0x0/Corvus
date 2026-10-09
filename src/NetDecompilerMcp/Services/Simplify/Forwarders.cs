@@ -150,6 +150,19 @@ internal sealed class Forwarders(ModuleDef module)
         };
     }
 
+    /// <summary>Whether code in <paramref name="from"/> may read <paramref name="field"/> (conservative, as <see cref="IsAccessible(MethodDef, TypeDef)"/>).</summary>
+    internal static bool IsAccessible(FieldDef field, TypeDef from)
+    {
+        var declaring = field.DeclaringType;
+        if (!IsTypeAccessible(declaring, from)) return false;
+        return field.Access switch
+        {
+            FieldAttributes.Public => true,
+            FieldAttributes.Assembly or FieldAttributes.FamORAssem => SameAssembly(declaring, from) || IsWithin(from, declaring),
+            _ => IsWithin(from, declaring),
+        };
+    }
+
     private static bool IsTypeAccessible(TypeDef type, TypeDef from)
     {
         if (IsWithin(from, type)) return true;

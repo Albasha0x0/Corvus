@@ -980,9 +980,26 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         var value = _statics.TryGetValue(fd, out var v) ? v : Default(SlotOf(fd.FieldType));
         if (!initializing && value is DictionaryObject or ListObject && !Frozen(fd))
             return Load(SlotOf(fd.FieldType), Scratch(fd, (HeapObject)value));
-        if (!initializing && value is HeapObject or StructValue { HoldsObjects: true } or DynamicMethodObject or ILGeneratorObject && !Frozen(fd))
+        if (!initializing && value is HeapObject or StructValue { HoldsObjects: true } or DynamicMethodObject or ILGeneratorObject && !Fieldless(value) && !Frozen(fd))
             throw Bail(FallbackReason.MutableStatic, $"the object in static field {type.FullName}::{fd.Name} may be modified by other code");
         return Load(SlotOf(fd.FieldType), value);
+    }
+
+    /// <summary>
+    /// An instance with no fields (the singleton of a compiler-generated lambda class, <c>&lt;&gt;c.&lt;&gt;9</c>, or a
+    /// <c>new object()</c> used as a lock): nothing in it can be modified, so any code may read it.
+    /// </summary>
+    private static bool Fieldless(object? value) => value is InstanceObject { Fields.Count: 0 };
+
+    /// <summary>
+    /// A static field of the module whose initialization left <paramref name="value"/> in it, and that only that
+    /// initialization writes (readonly, or as <see cref="ModuleFacts"/> proves); null when there is none.
+    /// </summary>
+    public FieldDef? StaticHolding(object value)
+    {
+        foreach (var (field, held) in _statics)
+            if (ReferenceEquals(held, value) && (field.IsInitOnly || WrittenOnlyByInitialization(field))) return field;
+        return null;
     }
 
     /// <summary>See <see cref="ModuleFacts.NeverWritten"/>.</summary>

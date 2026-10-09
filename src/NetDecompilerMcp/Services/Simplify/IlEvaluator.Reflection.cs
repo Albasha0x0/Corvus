@@ -130,9 +130,11 @@ internal sealed partial class IlEvaluator
 
     private DelegateObject CreateDelegate(TypeSig type, IMethod method, object? target)
     {
-        if (target != null) throw Bail(FallbackReason.InstanceObject, $"creates a delegate bound to an object ({Describe(method)})");
-        if (method.MethodSig?.HasThis ?? false) throw Bail(FallbackReason.InstanceObject, $"creates a delegate of instance method {Describe(method)}");
-        return new DelegateObject(type, method, null, null);
+        // Bound to an instance with no fields (a lambda class's singleton): the instance method sees nothing that can change.
+        if (target != null && !(Fieldless(target) && (method.MethodSig?.HasThis ?? false)))
+            throw Bail(FallbackReason.InstanceObject, $"creates a delegate bound to an object ({Describe(method)})");
+        if (target == null && (method.MethodSig?.HasThis ?? false)) throw Bail(FallbackReason.InstanceObject, $"creates a delegate of instance method {Describe(method)}");
+        return new DelegateObject(type, method, target, null);
     }
 
     /// <summary>Invokes a delegate: its static method, or the IL its dynamic method recorded.</summary>
@@ -159,6 +161,8 @@ internal sealed partial class IlEvaluator
         }
         if (d.Method is { } method && d.Target == null)
             return Invoke(method, Code.Call, args);
+        if (d.Method is { } bound && d.Target is InstanceObject instance && Fieldless(instance))
+            return InvokeInstance(instance, bound, Code.Call, [instance, .. args]);
         throw Bail(FallbackReason.InstanceObject, "invokes a delegate bound to an object");
     }
 

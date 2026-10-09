@@ -588,6 +588,7 @@ public sealed class SimplifyContractTests
         }
         MethodDef NewOf(string name, TypeDef type) => lab.Method(name, t.Object, I(OpCodes.Newobj, Ctor(type)), Ret());
         var cls = lab.NewType("Lab", "Cls");
+        cls.Fields.Add(new FieldDefUser("state", new FieldSig(t.Int32), FieldAttributes.Public)); // a delegate bound to an instance with no fields is evaluated
         var clsCtor = Ctor(cls);
         var target = lab.Method("Target", t.Int32, Ldc(1), Ret());
         var instanceTarget = new MethodDefUser("Get", MethodSig.CreateInstance(t.Int32), MethodImplAttributes.IL, MethodAttributes.Public);
