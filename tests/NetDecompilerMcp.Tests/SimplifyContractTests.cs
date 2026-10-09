@@ -309,11 +309,23 @@ public sealed class SimplifyContractTests
         p.Add("readonly", t.Int32, false,
             [I(OpCodes.Ldsfld, arr), Ldc(1), I(OpCodes.Readonly), I(OpCodes.Ldelema, t.Int32.ToTypeDefOrRef()), I(OpCodes.Ldind_I4), Ret()]);
         p.Add("ldsflda", t.Int32, false, [I(OpCodes.Ldsflda, num), I(OpCodes.Ldind_I4), Ret()]);
+        p.Add("IntPtr.Zero", t.Int32, false, [I(OpCodes.Ldsfld, lab.Module.Import(typeof(IntPtr).GetField("Zero"))), I(OpCodes.Conv_I4), Ret()]);
         var toInt32 = lab.Module.Import(typeof(Convert).GetMethod(nameof(Convert.ToInt32), [typeof(string)]));
         p.Add("ToInt32", t.Int32, false, [I(OpCodes.Ldstr, "0042"), I(OpCodes.Call, toInt32), Ret()]);
         p.Add("ToInt32", t.Int32, false, [I(OpCodes.Ldnull), I(OpCodes.Call, toInt32), Ret()]);
         p.Add("ToInt32", t.Int32, false, [I(OpCodes.Ldstr, "99999999999"), I(OpCodes.Call, toInt32), Ret()]);
         p.Add("ToInt32", t.Int32, true, [I(OpCodes.Ldstr, "-5"), I(OpCodes.Call, toInt32), Ret()]);
+        IMethod Conv(string name, Type from) => lab.Module.Import(typeof(System.Convert).GetMethod(name, [from]));
+        p.Add("ToInt32", t.Int32, false, [I(OpCodes.Ldc_I8, -7L), I(OpCodes.Call, Conv("ToInt32", typeof(long))), Ret()]);
+        p.Add("ToInt32", t.Int32, false, [I(OpCodes.Ldc_I8, 1L << 40), I(OpCodes.Call, Conv("ToInt32", typeof(long))), Ret()]);
+        p.Add("ToInt32", t.Int32, false, [Ldc(-1), I(OpCodes.Call, Conv("ToInt32", typeof(uint))), Ret()]);
+        p.Add("ToInt32", t.Int32, false, [Ldc(200), I(OpCodes.Call, Conv("ToInt32", typeof(byte))), Ret()]);
+        p.Add("ToInt32", t.Int32, false, [Ldc(-3), I(OpCodes.Call, Conv("ToInt32", typeof(short))), Ret()]);
+        p.Add("ToInt32", t.Int32, false, [Ldc(0x263A), I(OpCodes.Call, Conv("ToInt32", typeof(char))), Ret()]);
+        p.Add("ToInt64", t.Int64, false, [Ldc(-9), I(OpCodes.Call, Conv("ToInt64", typeof(int))), Ret()]);
+        p.Add("ToByte", t.Int32, false, [Ldc(255), I(OpCodes.Call, Conv("ToByte", typeof(int))), Ret()]);
+        p.Add("ToByte", t.Int32, false, [Ldc(256), I(OpCodes.Call, Conv("ToByte", typeof(int))), Ret()]);
+        p.Add("ToChar", t.Int32, false, [Ldc(-1), I(OpCodes.Call, Conv("ToChar", typeof(int))), Ret()]);
         {
             // constrained. int32 callvirt Object::ToString on a local's address.
             var m = lab.Method("Constrained", t.String, [], [], [t.Int32]);
@@ -535,7 +547,9 @@ public sealed class SimplifyContractTests
         void Add(FallbackReason r, MethodDef m, EvaluationLimits? limits = null) => cases.Add((r, m, limits));
 
         Add(FallbackReason.UnsupportedInstruction, lab.Method("Sizeof", t.Int32, I(OpCodes.Sizeof, t.Int32.ToTypeDefOrRef()), Ret()));
-        Add(FallbackReason.UnsupportedCall, lab.Method("Io", t.Int32, I(OpCodes.Ldstr, "x"), I(OpCodes.Call, lab.Module.Import(typeof(File).GetMethod("Exists"))), Ret()));
+        Add(FallbackReason.ExternalIo, lab.Method("Io", t.Int32, I(OpCodes.Ldstr, "x"), I(OpCodes.Call, lab.Module.Import(typeof(File).GetMethod("Exists"))), Ret()));
+        Add(FallbackReason.UnsupportedCall, lab.Method("Console", t.Int32, I(OpCodes.Call, lab.Module.Import(typeof(Console).GetMethod("Read"))), Ret()));
+        Add(FallbackReason.WritableStream, lab.Method("Writable", t.Int32, I(OpCodes.Newobj, lab.Module.Import(typeof(MemoryStream).GetConstructor(Type.EmptyTypes))), I(OpCodes.Pop), IlLab.Ldc(0), Ret()));
         var native = new MethodDefUser("Native", MethodSig.CreateStatic(t.Int32), MethodImplAttributes.InternalCall,
             MethodAttributes.Public | MethodAttributes.Static);
         lab.Type.Methods.Add(native);

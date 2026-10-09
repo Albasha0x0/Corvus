@@ -35,6 +35,7 @@ internal sealed class IlBodyGenerator
     private readonly FieldDef _config, _configMode, _configZero, _counter, _counterN; // a startup singleton, and an object statements modify
     private readonly int _mode;
     private readonly MethodDef _cached, _joined; // Decrypt memoized in a static Dictionary; Decrypt(0..n-1) joined through a List
+    private readonly MethodDef _fromResource; // four letters read from the module's embedded resource
     private readonly IMethod _concat, _length, _upper, _toString, _invalidOpCtor;
     private readonly ITypeDefOrRef[] _catchTypes;
 
@@ -127,6 +128,30 @@ internal sealed class IlBodyGenerator
             found, I(OpCodes.Ret),
         ], locals: [_t.String]);
         _cached.Body.Instructions[2].Operand = _cached.Body.Variables[0];
+
+        // FromResource(k): four bytes of the embedded resource Fuzz.data at (k & 15), as letters 'a' + (b & 15).
+        var data = new byte[32];
+        _r.NextBytes(data);
+        module.Resources.Add(new EmbeddedResource("Fuzz.data", data));
+        var assemblyType = typeof(System.Reflection.Assembly);
+        var streamType = typeof(Stream);
+        var letters = I(OpCodes.Ldloc_1);
+        var lettersTest = I(OpCodes.Ldloc_2);
+        _fromResource = _lab.Method("FromResource", _t.String, [_t.Int32],
+        [
+            I(OpCodes.Call, module.Import(assemblyType.GetMethod("GetExecutingAssembly"))), I(OpCodes.Ldstr, "Fuzz.data"),
+            I(OpCodes.Callvirt, module.Import(assemblyType.GetMethod("GetManifestResourceStream", [typeof(string)]))), I(OpCodes.Stloc_0),
+            I(OpCodes.Ldloc_0), I(OpCodes.Ldarg_0), IlLab.Ldc(15), I(OpCodes.And), I(OpCodes.Conv_I8), I(OpCodes.Callvirt, module.Import(streamType.GetProperty("Position")!.GetSetMethod())),
+            IlLab.Ldc(4), I(OpCodes.Newarr, _t.Byte.ToTypeDefOrRef()), I(OpCodes.Stloc_1),
+            I(OpCodes.Ldloc_0), I(OpCodes.Ldloc_1), IlLab.Ldc(0), IlLab.Ldc(4), I(OpCodes.Callvirt, module.Import(streamType.GetMethod("Read", [typeof(byte[]), typeof(int), typeof(int)]))), I(OpCodes.Pop),
+            IlLab.Ldc(0), I(OpCodes.Stloc_2), I(OpCodes.Br, lettersTest),
+            letters, I(OpCodes.Ldloc_2), I(OpCodes.Ldloc_1), I(OpCodes.Ldloc_2), I(OpCodes.Ldelem_U1), IlLab.Ldc(15), I(OpCodes.And), IlLab.Ldc('a'), I(OpCodes.Add),
+            I(OpCodes.Conv_U1), I(OpCodes.Stelem_I1), I(OpCodes.Ldloc_2), IlLab.Ldc(1), I(OpCodes.Add), I(OpCodes.Stloc_2),
+            lettersTest, IlLab.Ldc(4), I(OpCodes.Blt, letters),
+            I(OpCodes.Ldloc_0), I(OpCodes.Callvirt, module.Import(typeof(IDisposable).GetMethod("Dispose"))),
+            I(OpCodes.Call, module.Import(typeof(System.Text.Encoding).GetProperty("ASCII")!.GetGetMethod())), I(OpCodes.Ldloc_1),
+            I(OpCodes.Callvirt, module.Import(typeof(System.Text.Encoding).GetMethod("GetString", [typeof(byte[])]))), I(OpCodes.Ret),
+        ], locals: [module.Import(streamType).ToTypeSig(), new SZArraySig(_t.Byte), _t.Int32]);
 
         // Joined(n): a List of Decrypt(0..(n & 3)), concatenated by index.
         var list = typeof(List<string>);
@@ -381,12 +406,12 @@ internal sealed class IlBodyGenerator
         Mark(skip);
     }
 
-    /// <summary>A call of the memoizing Cached(k) or of Joined(n), with a constant (which folds to the string) or computed argument.</summary>
+    /// <summary>A call of the memoizing Cached(k), Joined(n) or FromResource(k), with a constant (which folds to the string) or computed argument.</summary>
     private void CacheCall()
     {
         if (_r.Next(2) == 0) Ldc(_r.Next(0, 40));
         else Expr(VT.I4, 1);
-        Op(OpCodes.Call, _r.Next(3) == 0 ? _joined : _cached);
+        Op(OpCodes.Call, _r.Next(3) switch { 0 => _joined, 1 => _fromResource, _ => _cached });
         Op(OpCodes.Stloc, Pick(_pool[VT.Str]));
     }
 

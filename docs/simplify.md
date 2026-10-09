@@ -24,6 +24,7 @@ every method left unchanged is reported with one of the reasons below.
 | Objects and value types | `ldobj` `stobj` `initobj` `ldfld` `ldflda` `stfld` | structs defined in the same module (sequential or auto layout), enums and primitives; instances of the module's classes (see unmodeled-instance) created by the evaluated code, with their fields, constructors, and instance and virtual methods dispatched within the module; new object(); a field of a class that nothing in the module writes (and no other assembly can) reads as its default on every object, which folds conditions on it even where the object itself cannot be evaluated (the load is kept: it still throws on null) |
 | Static state | `ldsfld` `ldsflda` `stsfld` `ldtoken` | static fields of the same module that are readonly, or that only the type's initialization writes and other assemblies cannot, after evaluating the type's static constructor once; writes only inside static constructors (by stsfld or FieldInfo.SetValue); ldtoken of fields, types and methods |
 | Collections |  | Dictionary<K, V> (keys: numbers and strings) and List<T>: construction, Add, indexers, TryGetValue, ContainsKey, Remove, Count, Clear, Contains, IndexOf, Insert, RemoveAt, ToArray, and foreach over them in the order of addition (a dictionary after a removal is not enumerated); Monitor.Enter / Exit (lock) succeed at once. A static collection the code only uses through its own methods, written only by its type's initialization, counts as a cache: each evaluation starts from the state the initialization left, and the call made again on the state it leaves must give the same result (see cache-dependent) |
+| Resources and streams |  | the module's own embedded resources: Assembly.GetManifestResourceNames and GetManifestResourceStream (the executing, calling or a type's own assembly); read-only streams over them or over byte arrays (MemoryStream): Read, ReadByte, Length, Position, Seek, Close; BinaryReader (bytes, integers, floats, strings with a 7-bit length) and StreamReader (UTF-8 or an explicit encoding, byte-order marks detected as the CLR does) over them. The same resource reads the same bytes on every run; its bytes count against the simulated memory |
 | Type tests | `isinst` `castclass` | System.Object, System.String, System.Text.StringBuilder and System.Text.Encoding targets |
 | Calls | `call` `callvirt` `newobj` `ldftn` | intrinsics (below), and static methods and struct methods with IL bodies in the same module (not generic); newobj of strings, StringBuilder and module structs; delegates of static methods (ldftn and the delegate constructor, Delegate.CreateDelegate) and of dynamic methods, invoked through Invoke |
 
@@ -41,8 +42,10 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 - `System.Boolean System.String::op_Inequality(System.String,System.String)`
 - `System.Boolean System.Type::op_Equality(System.Type,System.Type)`
 - `System.Boolean System.Type::op_Inequality(System.Type,System.Type)`
+- `System.Byte System.Convert::ToByte(System.Int32)`
 - `System.Byte[] System.Convert::FromBase64String(System.String)`
 - `System.Byte[] System.Text.Encoding::GetBytes(System.String)`
+- `System.Char System.Convert::ToChar(System.Int32)`
 - `System.Char System.String::get_Chars(System.Int32)`
 - `System.Char System.Text.StringBuilder::get_Chars(System.Int32)`
 - `System.Char[] System.String::ToCharArray()`
@@ -50,7 +53,12 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 - `System.Delegate System.Reflection.Emit.DynamicMethod::CreateDelegate(System.Type)`
 - `System.Delegate System.Reflection.MethodInfo::CreateDelegate(System.Type)`
 - `System.Int32 System.Array::get_Length()`
+- `System.Int32 System.Convert::ToInt32(System.Byte)`
+- `System.Int32 System.Convert::ToInt32(System.Char)`
+- `System.Int32 System.Convert::ToInt32(System.Int16)`
+- `System.Int32 System.Convert::ToInt32(System.Int64)`
 - `System.Int32 System.Convert::ToInt32(System.String)`
+- `System.Int32 System.Convert::ToInt32(System.UInt32)`
 - `System.Int32 System.Math::Abs(System.Int32)`
 - `System.Int32 System.Math::Max(System.Int32,System.Int32)`
 - `System.Int32 System.Math::Min(System.Int32,System.Int32)`
@@ -58,6 +66,7 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 - `System.Int32 System.String::IndexOf(System.Char)`
 - `System.Int32 System.String::get_Length()`
 - `System.Int32 System.Text.StringBuilder::get_Length()`
+- `System.Int64 System.Convert::ToInt64(System.Int32)`
 - `System.ModuleHandle System.Reflection.Module::get_ModuleHandle()`
 - `System.Reflection.Assembly System.Reflection.Assembly::GetExecutingAssembly()`
 - `System.Reflection.Emit.ILGenerator System.Reflection.Emit.DynamicMethod::GetILGenerator()`
@@ -184,6 +193,8 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 | `unmodeled-instance` | creates an instance of a class outside the modelled subset: a class with a finalizer or events, a generic class, a class whose base class belongs to another assembly (exceptions, framework classes), an interop class (COM import, explicit layout), or a hierarchy deeper than 8 levels |
 | `virtual-dispatch` | a call on a modelled instance that does not resolve to one method of the module: a framework method or the framework implementation of a virtual method (ToString, Equals, ...), an abstract method, or an interface method the class does not implement in the module |
 | `cache-dependent` | a static Dictionary or List the code reads is not a cache whose contents cannot change the result: called again on the state the first call left, the call gives another result; or the collection is used other than through its own methods (passed on, stored, returned, its address taken), is visible to other assemblies, is written outside its type's initialization, or compares keys with a custom comparer |
+| `writable-stream` | writes to a stream (Write, WriteByte, SetLength, Flush, CopyTo) or creates an empty MemoryStream to write into; the evaluator only reads streams |
+| `external-io` | reads what differs between runs or machines: files (File, FileStream, Directory, StreamReader over a path), the network (System.Net), another assembly's resources, or the entry assembly |
 | `static-initializer` | the static constructor of a type the code needs cannot be evaluated, or the method being simplified is that static constructor |
 | `runtime-error` | the code would throw at run time: division by zero, checked overflow, index out of range, null reference, invalid cast, invalid argument |
 | `platform-dependent` | the result would differ between platforms or cultures: native int values outside the 32-bit range, out-of-range float to integer conversion, culture-sensitive formatting |

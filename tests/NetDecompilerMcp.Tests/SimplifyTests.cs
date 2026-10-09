@@ -315,7 +315,7 @@ public sealed class SimplifyTests : IDisposable
 
         var report = Simplify(env, "Obf.App::Config", Options("fold"));
         Assert.Contains("0 of 1 method(s) changed", report);
-        Assert.Contains("Obf.App::Config() IL_0000 Obf.Io::ReadConfig(): calls System.IO.File::ReadAllText(string), which is not evaluable", report);
+        Assert.Contains("Obf.App::Config() IL_0000 Obf.Io::ReadConfig(): calls System.IO.File::ReadAllText(string): files and the network differ between runs [external-io]", report);
         Assert.Contains("Nothing to simplify", Simplify(env, "Obf.Io::ReadConfig")); // a framework call is not reported
 
         Assert.Equal(read, Il(env, "Obf.Io::ReadConfig"));

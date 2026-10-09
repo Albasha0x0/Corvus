@@ -740,6 +740,10 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
 
     private bool IsInstance(object value, ITypeDefOrRef type) => value is ReflectionObject r ? r.Is(type.FullName)
         : value is InstanceObject o ? IsInstanceOf(o, type.FullName)
+        : value is StreamObject { ModuleType: { } derived } && Chain(derived).Any(t => t.FullName == type.FullName) ? true
+        : value is StreamObject ? type.FullName is "System.IO.Stream" or "System.IO.MemoryStream" or "System.IO.UnmanagedMemoryStream" or "System.IDisposable" or "System.Object"
+        : value is BinaryReaderObject ? type.FullName is "System.IO.BinaryReader" or "System.IDisposable" or "System.Object"
+        : value is StreamReaderObject ? type.FullName is "System.IO.StreamReader" or "System.IO.TextReader" or "System.IDisposable" or "System.Object"
         : type.FullName switch
     {
         "System.Object" => value is not (StructValue or Pointer or Opaque) && !Numeric.IsNumber(value)
@@ -756,6 +760,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
     private object? LoadStatic(IField field)
     {
         if (field.FullName == "System.String System.String::Empty") return "";
+        if (field.FullName is "System.IntPtr System.IntPtr::Zero" or "System.UIntPtr System.UIntPtr::Zero") return (nint)0;
         if (field.DeclaringType?.FullName == "System.Reflection.Emit.OpCodes") return OpCodeOf(field.Name);
         var fd = field as FieldDef;
         if (fd == null || fd.Module != module)
@@ -1174,8 +1179,18 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         if (op == Code.Newobj && IsObjectConstructor(method)) return NewPlainObject();
         if (op != Code.Newobj && args.Length > 0 && args[0] is InstanceObject instance && (method.MethodSig?.HasThis ?? false))
             return InvokeInstance(instance, method, op, args);
+        if (op == Code.Newobj && method is MethodDef { DeclaringType.IsValueType: false, IsInstanceConstructor: true } streamCtor && streamCtor.Module == module && IsStreamClass(streamCtor.DeclaringType))
+            return NewStream(streamCtor, args);
+        if (op != Code.Newobj && args.Length > 0 && args[0] is StreamObject { ModuleType: { } streamType } && method is MethodDef { IsStatic: false } own && own.Module == module)
+        {
+            if (!Chain(streamType).Contains(own.DeclaringType)) throw Bail(FallbackReason.InvalidCode, $"calls {Describe(own)} on an instance of another class");
+            var result = Execute(own, args);
+            return HasReturnValue(own) ? result : Void;
+        }
         if (op == Code.Newobj && method is MethodDef { DeclaringType.IsValueType: false, IsInstanceConstructor: true } classCtor && classCtor.Module == module)
             return NewInstance(classCtor, args);
+        var resource = ResourceCall(method, op, args, out bool viaResources);
+        if (viaResources) return resource;
         var collection = CollectionCall(method, op, args, out bool handled);
         if (handled) return collection;
         if (method.FullName == "System.Void System.IDisposable::Dispose()" && args.Length == 1 && (args[0] is Pointer p ? p.Get() : args[0]) is EnumeratorObject)

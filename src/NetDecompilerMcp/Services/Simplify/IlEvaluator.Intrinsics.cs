@@ -123,6 +123,21 @@ internal sealed partial class IlEvaluator
                 ? int.TryParse(digits, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int v) ? v : throw Bail(FallbackReason.RuntimeError, "the number does not fit an int32")
                 : throw Bail(FallbackReason.PlatformDependent, "parsing anything but digits depends on the culture"));
 
+        // Integer conversions: checked, as the CLR's (out of range throws OverflowException).
+        static object Checked(Func<object> f)
+        {
+            try { return f(); }
+            catch (OverflowException) { throw Bail(FallbackReason.RuntimeError, "the value does not fit (OverflowException)"); }
+        }
+        Add(I, "System.Convert", "ToInt32", "System.Int64", (_, a) => Checked(() => checked((int)(a[0] as long? ?? throw Bail(FallbackReason.InvalidCode, "expected an int64")))));
+        Add(I, "System.Convert", "ToInt32", "System.UInt32", (_, a) => Checked(() => checked((int)(uint)I4(a[0]))));
+        Add(I, "System.Convert", "ToInt32", "System.Int16", (_, a) => (int)(short)I4(a[0]));
+        Add(I, "System.Convert", "ToInt32", "System.Byte", (_, a) => (int)(byte)I4(a[0]));
+        Add(I, "System.Convert", "ToInt32", C, (_, a) => (int)(char)I4(a[0]));
+        Add("System.Int64", "System.Convert", "ToInt64", I, (_, a) => (long)I4(a[0]));
+        Add("System.Byte", "System.Convert", "ToByte", I, (_, a) => Checked(() => (int)checked((byte)I4(a[0]))));
+        Add(C, "System.Convert", "ToChar", I, (_, a) => Checked(() => (int)checked((char)I4(a[0]))));
+
         // System.Array, RuntimeHelpers
         Add(I, "System.Array", "get_Length", "", (_, a) => ArrayOf(a[0]).Data.Length);
         Add("System.Void", "System.Array", "Reverse", "System.Array", (e, a) =>
