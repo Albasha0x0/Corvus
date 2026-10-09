@@ -1060,7 +1060,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         var value = _statics.TryGetValue(fd, out var v) ? v : Default(SlotOf(fd.FieldType));
         if (!initializing && value is DictionaryObject or ListObject && !Frozen(fd))
             return Load(SlotOf(fd.FieldType), Scratch(fd, (HeapObject)value));
-        if (!initializing && value is HeapObject or StructValue { HoldsObjects: true } or DynamicMethodObject or ILGeneratorObject && !Fieldless(value) && !Frozen(fd))
+        if (!initializing && value is HeapObject or StructValue { HoldsObjects: true } or DynamicMethodObject or ILGeneratorObject or DynamicILInfoObject && !Fieldless(value) && !Frozen(fd))
             throw Bail(FallbackReason.MutableStatic, $"the object in static field {type.FullName}::{fd.Name} may be modified by other code");
         return Load(SlotOf(fd.FieldType), value);
     }

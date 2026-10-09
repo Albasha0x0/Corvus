@@ -28,7 +28,7 @@ every method left unchanged is reported with one of the reasons below.
 | Boxing | `box` `unbox` `unbox.any` | box gives an immutable object holding the value (box of a reference, as for a type argument that is a class, leaves it as it is); unbox.any and unbox take the value back out of a box of the same type, or of an enum and its underlying integer type; unbox.any of a reference type is castclass; Nullable<T> is not boxed |
 | Sizes | `sizeof` | sizeof of primitive and enum types; native-size types differ between platforms |
 | Type tests | `isinst` `castclass` | System.Object, System.String, System.Text.StringBuilder and System.Text.Encoding targets |
-| Calls | `call` `callvirt` `newobj` `ldftn` | intrinsics (below), and static methods and struct methods with IL bodies in the same module; static generic methods of the module with closed type arguments (!!n in parameter, local and operand types replaced by the instantiation's); newobj of strings, StringBuilder and module structs; delegates of static methods (ldftn and the delegate constructor, Delegate.CreateDelegate) and of instance methods bound to an instance with no fields and of dynamic methods, invoked through Invoke |
+| Calls | `call` `callvirt` `newobj` `ldftn` | intrinsics (below), and static methods and struct methods with IL bodies in the same module; static generic methods of the module with closed type arguments (!!n in parameter, local and operand types replaced by the instantiation's); newobj of strings, StringBuilder and module structs; delegates of static methods (ldftn and the delegate constructor, Delegate.CreateDelegate) and of instance methods bound to an instance with no fields and of dynamic methods, invoked through Invoke. A dynamic method's code is built with ILGenerator.Emit or given to its DynamicILInfo (SetCode, with tokens from GetTokenFor, numbered as the runtime numbers them, decoded when the delegate is created); both ways accept the same instructions: arguments, constants, strings, members and types, but no locals, labels, switch tables, floating-point constants, signatures or exception handlers |
 
 Every other instruction stops evaluation with `unsupported-instruction`.
 
@@ -85,6 +85,12 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 - `System.Int32 System.Math::Abs(System.Int32)`
 - `System.Int32 System.Math::Max(System.Int32,System.Int32)`
 - `System.Int32 System.Math::Min(System.Int32,System.Int32)`
+- `System.Int32 System.Reflection.Emit.DynamicILInfo::GetTokenFor(System.Byte[])`
+- `System.Int32 System.Reflection.Emit.DynamicILInfo::GetTokenFor(System.Reflection.Emit.DynamicMethod)`
+- `System.Int32 System.Reflection.Emit.DynamicILInfo::GetTokenFor(System.RuntimeFieldHandle)`
+- `System.Int32 System.Reflection.Emit.DynamicILInfo::GetTokenFor(System.RuntimeMethodHandle)`
+- `System.Int32 System.Reflection.Emit.DynamicILInfo::GetTokenFor(System.RuntimeTypeHandle)`
+- `System.Int32 System.Reflection.Emit.DynamicILInfo::GetTokenFor(System.String)`
 - `System.Int32 System.Reflection.MemberInfo::get_MetadataToken()`
 - `System.Int32 System.Security.Cryptography.Aes::get_BlockSize()`
 - `System.Int32 System.Security.Cryptography.AesCryptoServiceProvider::get_BlockSize()`
@@ -103,6 +109,8 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 - `System.ModuleHandle System.Reflection.Module::get_ModuleHandle()`
 - `System.Object[] System.Reflection.MemberInfo::GetCustomAttributes(System.Boolean)`
 - `System.Reflection.Assembly System.Reflection.Assembly::GetExecutingAssembly()`
+- `System.Reflection.Emit.DynamicILInfo System.Reflection.Emit.DynamicMethod::GetDynamicILInfo()`
+- `System.Reflection.Emit.DynamicMethod System.Reflection.Emit.DynamicILInfo::get_DynamicMethod()`
 - `System.Reflection.Emit.ILGenerator System.Reflection.Emit.DynamicMethod::GetILGenerator()`
 - `System.Reflection.FieldInfo System.Reflection.FieldInfo::GetFieldFromHandle(System.RuntimeFieldHandle)`
 - `System.Reflection.FieldInfo System.Reflection.Module::ResolveField(System.Int32)`
@@ -121,8 +129,10 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 - `System.Reflection.ParameterInfo[] System.Reflection.MethodBase::GetParameters()`
 - `System.RuntimeFieldHandle System.ModuleHandle::GetRuntimeFieldHandleFromMetadataToken(System.Int32)`
 - `System.RuntimeFieldHandle System.ModuleHandle::ResolveFieldHandle(System.Int32)`
+- `System.RuntimeFieldHandle System.Reflection.FieldInfo::get_FieldHandle()`
 - `System.RuntimeMethodHandle System.ModuleHandle::GetRuntimeMethodHandleFromMetadataToken(System.Int32)`
 - `System.RuntimeMethodHandle System.ModuleHandle::ResolveMethodHandle(System.Int32)`
+- `System.RuntimeMethodHandle System.Reflection.MethodBase::get_MethodHandle()`
 - `System.RuntimeTypeHandle System.ModuleHandle::GetRuntimeTypeHandleFromMetadataToken(System.Int32)`
 - `System.RuntimeTypeHandle System.ModuleHandle::ResolveTypeHandle(System.Int32)`
 - `System.RuntimeTypeHandle System.Type::get_TypeHandle()`
@@ -231,6 +241,9 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 - `System.Void System.Array::Reverse(System.Array)`
 - `System.Void System.Buffer::BlockCopy(System.Array,System.Int32,System.Array,System.Int32,System.Int32)`
 - `System.Void System.IDisposable::Dispose()`
+- `System.Void System.Reflection.Emit.DynamicILInfo::SetCode(System.Byte[],System.Int32)`
+- `System.Void System.Reflection.Emit.DynamicILInfo::SetExceptions(System.Byte[])`
+- `System.Void System.Reflection.Emit.DynamicILInfo::SetLocalSignature(System.Byte[])`
 - `System.Void System.Reflection.Emit.DynamicMethod::.ctor(System.String,System.Type,System.Type[])`
 - `System.Void System.Reflection.Emit.DynamicMethod::.ctor(System.String,System.Type,System.Type[],System.Boolean)`
 - `System.Void System.Reflection.Emit.DynamicMethod::.ctor(System.String,System.Type,System.Type[],System.Reflection.Module)`

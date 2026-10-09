@@ -72,7 +72,11 @@ internal sealed class DelegateObject(TypeSig type, IMethod? method, object? targ
     public override bool Is(string typeName) => base.Is(typeName) || typeName == Type.FullName;
 }
 
-/// <summary>A DynamicMethod being built: its signature and the IL its ILGenerator emitted so far.</summary>
+/// <summary>
+/// A DynamicMethod being built: its signature and its IL, emitted by its ILGenerator or, once a delegate is created,
+/// decoded from the code its DynamicILInfo was given. Both ways accept the same instructions and operands
+/// (<see cref="IlEvaluator.DynamicInstruction"/>).
+/// </summary>
 internal sealed class DynamicMethodObject(TypeObject? returnType, TypeObject[] parameters) : ReflectionObject
 {
     public TypeObject? ReturnType { get; } = returnType;
@@ -80,7 +84,30 @@ internal sealed class DynamicMethodObject(TypeObject? returnType, TypeObject[] p
     public List<Instruction> Code { get; } = new();
     /// <summary>Set once a delegate is created: the IL can no longer change.</summary>
     public bool Sealed { get; set; }
+    /// <summary>Whether GetILGenerator was called.</summary>
+    public bool HasGenerator { get; set; }
+    /// <summary>The DynamicILInfo, once GetDynamicILInfo was called.</summary>
+    public DynamicILInfoObject? Info { get; set; }
     protected override string[] Types => ["System.Reflection.Emit.DynamicMethod", "System.Reflection.MethodInfo", "System.Reflection.MethodBase", "System.Reflection.MemberInfo"];
+}
+
+/// <summary>
+/// A DynamicMethod's DynamicILInfo: its token scope and the code SetCode stored. Tokens are numbered as the runtime's
+/// DynamicScope numbers them: the entry's index (0 is unused, 1 holds the method's signature) with the metadata table of
+/// its kind in the high byte.
+/// </summary>
+internal sealed class DynamicILInfoObject(DynamicMethodObject method) : ReflectionObject
+{
+    public DynamicMethodObject Method { get; } = method;
+    public List<object?> Tokens { get; } = [null, Signature.Instance];
+    public byte[]? Code { get; set; }
+    protected override string[] Types => ["System.Reflection.Emit.DynamicILInfo"];
+
+    /// <summary>A signature blob in the scope (the method's own, or one GetTokenFor(byte[]) added).</summary>
+    public sealed class Signature
+    {
+        public static readonly Signature Instance = new();
+    }
 }
 
 internal sealed class ILGeneratorObject(DynamicMethodObject method) : ReflectionObject
@@ -407,6 +434,9 @@ internal sealed partial class IlEvaluator
             e.ObjectArray(e.MethodOf(a[0]).Method.MethodSig.Params.Select(p => (object?)new ParameterObject(e.TypeObjectOf(p))).ToArray()));
         add(T, "System.Reflection.ParameterInfo", "get_ParameterType", "", (_, a) => Of<ParameterObject>(a[0], "a ParameterInfo").Type);
         add(MB, MB, "GetMethodFromHandle", "System.RuntimeMethodHandle", (e, a) => e.MethodOf(a[0]));
+        // Handles are kept as the reflection objects themselves.
+        add("System.RuntimeMethodHandle", MB, "get_MethodHandle", "", (e, a) => e.MethodOf(a[0]));
+        add("System.RuntimeFieldHandle", FI, "get_FieldHandle", "", (_, a) => Of<FieldObject>(a[0], "a FieldInfo"));
 
         // The module and its handle
         // (A ModuleHandle is kept as the module itself.)
@@ -458,15 +488,68 @@ internal sealed partial class IlEvaluator
         add("System.Void", DM, ".ctor", $"{S},{T},{T}[],{T},{B}", newDynamic);
         add("System.Void", DM, ".ctor", $"{S},{T},{T}[],{Mod}", newDynamic);
         add("System.Void", DM, ".ctor", $"{S},{T},{T}[],{Mod},{B}", newDynamic);
-        add(IL, DM, "GetILGenerator", "", (_, a) => new ILGeneratorObject(Of<DynamicMethodObject>(a[0], "a DynamicMethod")));
+        add(IL, DM, "GetILGenerator", "", (_, a) =>
+        {
+            var dynamic = Of<DynamicMethodObject>(a[0], "a DynamicMethod");
+            if (dynamic.Info != null) throw Bail(FallbackReason.UnsupportedValue, "builds a dynamic method with both a DynamicILInfo and an ILGenerator");
+            dynamic.HasGenerator = true;
+            return new ILGeneratorObject(dynamic);
+        });
         Func<IlEvaluator, object?[], object?> createDynamicDelegate = (e, a) =>
         {
             var dynamic = Of<DynamicMethodObject>(a[0], "a DynamicMethod");
+            if (dynamic.Info is { } info && !dynamic.Sealed) e.DecodeDynamicCode(info);
             dynamic.Sealed = true;
             return new DelegateObject(e.TypeOf(a[1]).Sig, null, null, dynamic);
         };
         add(D, DM, "CreateDelegate", T, createDynamicDelegate);
         add(D, MI, "CreateDelegate", T, createDynamicDelegate);
+        // DynamicILInfo: GetTokenFor fills the token scope; the code SetCode stores is decoded when the delegate is created.
+        const string Info = "System.Reflection.Emit.DynamicILInfo";
+        add(Info, DM, "GetDynamicILInfo", "", (_, a) =>
+        {
+            var dynamic = Of<DynamicMethodObject>(a[0], "a DynamicMethod");
+            if (dynamic.HasGenerator) throw Bail(FallbackReason.UnsupportedValue, "builds a dynamic method with both an ILGenerator and a DynamicILInfo");
+            return dynamic.Info ??= new DynamicILInfoObject(dynamic);
+        });
+        add(DM, Info, "get_DynamicMethod", "", (_, a) => Of<DynamicILInfoObject>(a[0], "a DynamicILInfo").Method);
+        add(I, Info, "GetTokenFor", "System.RuntimeMethodHandle", (_, a) => Token(a[0], 0x06000000, Of<MethodObject>(a[1], "a method handle")));
+        add(I, Info, "GetTokenFor", DM, (_, a) => Token(a[0], 0x06000000, Of<DynamicMethodObject>(a[1], "a DynamicMethod")));
+        add(I, Info, "GetTokenFor", "System.RuntimeFieldHandle", (_, a) => Token(a[0], 0x04000000, (a[1] is Pointer p ? p.Get() : a[1]) switch
+        {
+            FieldHandle h => h.Field,
+            FieldObject f => f.Field,
+            null => throw Bail(FallbackReason.RuntimeError, "null reference"),
+            _ => throw Bail(FallbackReason.UnsupportedValue, "expected a field handle"),
+        }));
+        add(I, Info, "GetTokenFor", "System.RuntimeTypeHandle", (e, a) => Token(a[0], 0x02000000, e.TypeOf(a[1])));
+        add(I, Info, "GetTokenFor", S, (_, a) => Token(a[0], 0x70000000, Str(a[1])));
+        add(I, Info, "GetTokenFor", "System.Byte[]", (_, a) => Token(a[0], 0x11000000, DynamicILInfoObject.Signature.Instance));
+        add("System.Void", Info, "SetCode", "System.Byte[],System.Int32", (e, a) =>
+        {
+            var info = Of<DynamicILInfoObject>(a[0], "a DynamicILInfo");
+            if (info.Method.Sealed) throw Bail(FallbackReason.UnsupportedValue, "sets the code of a dynamic method after creating its delegate");
+            var code = a[1] == null ? [] : ArrayOf(a[1]).Data as byte[] ?? throw Bail(FallbackReason.InvalidCode, "expected a byte array");
+            e.Allocate(24 + code.Length);
+            info.Code = (byte[])code.Clone(); // the runtime copies the array
+            return null;
+        });
+        add("System.Void", Info, "SetLocalSignature", "System.Byte[]", (_, a) =>
+        {
+            Of<DynamicILInfoObject>(a[0], "a DynamicILInfo");
+            // LOCAL_SIG with a count of 0 is the only signature without locals.
+            if (a[1] == null || ArrayOf(a[1]).Data is not byte[] { Length: 2 } sig || sig[0] != 0x07 || sig[1] != 0)
+                throw Bail(FallbackReason.UnsupportedValue, "declares locals of a dynamic method (locals of dynamic methods are not modelled)");
+            return null;
+        });
+        add("System.Void", Info, "SetExceptions", "System.Byte[]", (_, a) =>
+        {
+            Of<DynamicILInfoObject>(a[0], "a DynamicILInfo");
+            if (a[1] != null && ArrayOf(a[1]).Data.Length > 0)
+                throw Bail(FallbackReason.UnsupportedValue, "declares exception handlers of a dynamic method (they are not modelled)");
+            return null;
+        });
+
         add("System.Void", IL, "Emit", OC, (_, a) => Emit(a, null));
         add("System.Void", IL, "Emit", $"{OC},{I}", (_, a) => Emit(a, I4(a[2])));
         add("System.Void", IL, "Emit", $"{OC},System.Byte", (_, a) => Emit(a, I4(a[2])));
@@ -480,12 +563,22 @@ internal sealed partial class IlEvaluator
         add("System.Void", IL, "Emit", $"{OC},{T}", (e, a) => Emit(a, e.TypeOf(a[2]).Sig.ToTypeDefOrRef() ?? throw Bail(FallbackReason.UnsupportedValue, "emits a type token of a constructed type")));
     }
 
-    /// <summary>ILGenerator.Emit: appends the instruction to the dynamic method (numeric operands take the opcode's own operand type).</summary>
+    /// <summary>ILGenerator.Emit: appends the instruction to the dynamic method.</summary>
     private static object? Emit(object?[] a, object? operand)
     {
         var generator = Of<ILGeneratorObject>(a[0], "an ILGenerator");
         if (generator.Method.Sealed) throw Bail(FallbackReason.UnsupportedValue, "emits into a dynamic method after creating its delegate");
-        var op = Of<OpCodeObject>(a[1], "an OpCode").Code;
+        generator.Method.Code.Add(DynamicInstruction(Of<OpCodeObject>(a[1], "an OpCode").Code, operand));
+        return null;
+    }
+
+    /// <summary>
+    /// An instruction of a dynamic method, built by ILGenerator.Emit or decoded from DynamicILInfo code: the one check of
+    /// what the evaluator models there (numeric operands take the opcode's own operand type; arguments, but no locals,
+    /// labels, switch tables, floating-point constants or signatures).
+    /// </summary>
+    internal static Instruction DynamicInstruction(OpCode op, object? operand)
+    {
         object? actual = (op.OperandType, operand) switch
         {
             (OperandType.InlineNone, null) => null,
@@ -502,7 +595,70 @@ internal sealed partial class IlEvaluator
             (OperandType.InlineVar or OperandType.ShortInlineVar, _) => throw Bail(FallbackReason.UnsupportedValue, "emits a local variable access (locals of dynamic methods are not modelled)"),
             _ => throw Bail(FallbackReason.UnsupportedValue, $"emits {op.Name} with an operand the interpreter does not model"),
         };
-        generator.Method.Code.Add(new Instruction(op, actual));
-        return null;
+        return new Instruction(op, actual);
+    }
+
+    /// <summary>DynamicILInfo.GetTokenFor: adds the entry to the scope and returns its token.</summary>
+    private static int Token(object? info, int table, object entry)
+    {
+        var scope = Of<DynamicILInfoObject>(info, "a DynamicILInfo").Tokens;
+        scope.Add(entry);
+        return (scope.Count - 1) | table;
+    }
+
+    /// <summary>
+    /// Decodes the code a DynamicILInfo was given into the dynamic method's instructions, resolving tokens in its scope.
+    /// Every instruction goes through <see cref="DynamicInstruction"/>, as ILGenerator.Emit does.
+    /// </summary>
+    private void DecodeDynamicCode(DynamicILInfoObject info)
+    {
+        var code = info.Code ?? throw Bail(FallbackReason.RuntimeError, "creates the delegate of a dynamic method whose DynamicILInfo has no code (InvalidOperationException)");
+        var instructions = info.Method.Code;
+        instructions.Clear();
+        int at = 0;
+        int Take(int size) => at + size <= code.Length ? (at += size) - size : throw Bail(FallbackReason.InvalidCode, "the code of a dynamic method ends inside an instruction");
+        int I4At(int k) => BitConverter.ToInt32(code, k);
+        object Entry(int token, int table, string kind)
+        {
+            int index = token & 0x00FFFFFF;
+            return (token & unchecked((int)0xFF000000)) == table && index > 0 && index < info.Tokens.Count && info.Tokens[index] is { } entry
+                ? entry
+                : throw Bail(FallbackReason.RuntimeError, $"the code of a dynamic method names token 0x{token:X8}, which its DynamicILInfo did not issue for a {kind}");
+        }
+        while (at < code.Length)
+        {
+            int b = code[Take(1)];
+            var op = b == 0xFE ? OpCodes.TwoByteOpCodes[code[Take(1)]] : OpCodes.OneByteOpCodes[b];
+            if (op.Code is Code.UNKNOWN1 or Code.UNKNOWN2) throw Bail(FallbackReason.InvalidCode, $"the code of a dynamic method holds the undefined opcode 0x{b:X2}");
+            object? operand = op.OperandType switch
+            {
+                OperandType.InlineNone => null,
+                OperandType.ShortInlineI => op.Code == Code.Ldc_I4_S ? (int)(sbyte)code[Take(1)] : (int)code[Take(1)],
+                OperandType.ShortInlineVar or OperandType.ShortInlineBrTarget => (int)code[Take(1)],
+                OperandType.InlineVar => (int)BitConverter.ToUInt16(code, Take(2)),
+                OperandType.InlineI8 => BitConverter.ToInt64(code, Take(8)),
+                OperandType.ShortInlineR => BitConverter.ToSingle(code, Take(4)),
+                OperandType.InlineR => BitConverter.ToDouble(code, Take(8)),
+                OperandType.InlineString => Entry(I4At(Take(4)), 0x70000000, "string") as string ?? throw Bail(FallbackReason.InvalidCode, "ldstr of a token that is not a string"),
+                OperandType.InlineMethod => Entry(I4At(Take(4)), 0x06000000, "method") is MethodObject m ? m.Method : throw Bail(FallbackReason.UnsupportedValue, "expected a MethodInfo"),
+                OperandType.InlineField => (FieldDef)Entry(I4At(Take(4)), 0x04000000, "field"),
+                OperandType.InlineType or OperandType.InlineTok => TypeOperand(I4At(Take(4))),
+                OperandType.InlineSwitch => SwitchTable(),
+                _ => I4At(Take(4)), // InlineI, InlineBrTarget, InlineSig: a number, as ILGenerator.Emit(OpCode, int) gives
+            };
+            instructions.Add(DynamicInstruction(op, operand));
+        }
+
+        object TypeOperand(int token) => (token & unchecked((int)0xFF000000)) == 0x02000000
+            ? ((TypeObject)Entry(token, 0x02000000, "type")).Sig.ToTypeDefOrRef() ?? throw Bail(FallbackReason.UnsupportedValue, "emits a type token of a constructed type")
+            : Entry(token, token & unchecked((int)0xFF000000), "member"); // a method or field token for ldtoken: not a type
+
+        object SwitchTable()
+        {
+            int n = I4At(Take(4));
+            if (n < 0 || n > (code.Length - at) / 4) throw Bail(FallbackReason.InvalidCode, "a switch table runs past the end of a dynamic method's code");
+            Take(4 * n);
+            return n;
+        }
     }
 }
