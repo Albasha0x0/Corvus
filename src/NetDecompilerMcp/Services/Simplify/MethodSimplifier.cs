@@ -1489,7 +1489,10 @@ public sealed class MethodSimplifier
 
     /// <summary>
     /// A pop of a value computed right before it without effects (what folding leaves behind, see
-    /// <see cref="RemovableRun"/>; nothing that may throw) is deleted with that computation.
+    /// <see cref="RemovableRun"/>; nothing that may throw) is deleted with that computation. So is a pop of a constant or
+    /// a load of a local or argument pushed earlier in the same straight-line code, below values the code in between
+    /// pushes and pops itself (<c>ldc.i4 N; ldsfld S; ldfld F; pop; pop</c>, around a load kept for its effect): the
+    /// code in between does not see it.
     /// </summary>
     private bool RemovePurePops(CilBody body, HashSet<Instruction> dead)
     {
@@ -1501,9 +1504,20 @@ public sealed class MethodSimplifier
             var pop = code[i];
             if (pop.OpCode.Code != Code.Pop || dead.Contains(pop)) continue;
             graph ??= new BodyGraph(body);
-            if (graph.Targets.Contains(pop) || RemovableRun(code, graph, i - 1, 1, mayThrow: false) is not { } start) continue;
-            if (Enumerable.Range(start, i - start).Any(k => dead.Contains(code[k]))) continue;
-            for (int k = start; k <= i; k++) MakeDead(code[k], dead);
+            if (graph.Targets.Contains(pop)) continue;
+            if (RemovableRun(code, graph, i - 1, 1, mayThrow: false) is { } start)
+            {
+                if (Enumerable.Range(start, i - start).Any(k => dead.Contains(code[k]))) continue;
+                for (int k = start; k <= i; k++) MakeDead(code[k], dead);
+                changed = true;
+                continue;
+            }
+            int producer = Producer(code, graph.Targets, i, 0);
+            if (producer < 0 || producer == i - 1 || dead.Contains(code[producer])) continue;
+            var pushed = code[producer];
+            if (!(pushed.IsLdcI4() || pushed.IsLdloc() || pushed.IsLdarg() || pushed.OpCode.Code is Code.Ldc_I8 or Code.Ldc_R4 or Code.Ldc_R8 or Code.Ldnull or Code.Ldstr)) continue;
+            MakeDead(pushed, dead);
+            MakeDead(pop, dead);
             changed = true;
         }
         return changed;
