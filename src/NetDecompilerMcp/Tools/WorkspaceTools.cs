@@ -17,16 +17,23 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     public sealed record AssemblyEntry(string Id, string Name, string Version, string Path, int Types, bool Il2CppDummy, IReadOnlyList<string> UnsavedEdits,
         bool ReadyToRun, string? Merged);
 
+    public sealed record NativeEntry(string Id, string Path, string Machine, string Kind, long Size, string Sha256);
+
     /// <summary>Workspace listing, or the container contents when list_assemblies is given a path.</summary>
     public sealed record WorkspaceState(IReadOnlyList<AssemblyEntry> Assemblies, IReadOnlyList<string> SearchDirectories, string BackgroundIndexing,
         UnpackService.ContainerListing? Container = null)
     {
         /// <summary>Count of assemblies matching the filter; Assemblies holds one page.</summary>
         public int Total { get; init; }
+
+        /// <summary>Loaded native images matching the filter (not paged).</summary>
+        public IReadOnlyList<NativeEntry> NativeImages { get; init; } = [];
     }
 
     [McpServerTool(Name = "load_assembly", Title = "Load assembly", Idempotent = true, OpenWorld = false)]
     [Description("Load a .NET assembly (.dll/.exe) or every assembly in a directory (e.g. an application folder, a Unity *_Data/Managed folder or an Il2CppDumper DummyDll folder). " +
+                 "A native PE file (.exe/.dll/.sys without .NET metadata) given by path loads as a native image for the native tools (get_pe_info, list_imports, list_exports, list_functions, disassemble); " +
+                 "folder loads take only .NET assemblies and list the native files they skipped. " +
                  "Files are read into memory and never locked. The directory joins the reference search path. Loading the same path twice is a no-op.")]
     public Task<string> LoadAssembly(
         [Description("Absolute path to an assembly file or a directory.")] string path,
@@ -36,7 +43,16 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     {
         if (!Directory.Exists(path))
         {
-            var asm = workspace.Load(path);
+            var (loaded, native) = workspace.LoadAny(path);
+            if (native != null)
+            {
+                var image = native.Image;
+                return $"Loaded native image {native.Id}: {image.MachineName} {(image.IsDll ? "DLL" : "executable")}, {image.SubsystemName}\n  {native.FilePath}\n  " +
+                       $"{Plural(image.Sections.Count, "section")}, {Plural(image.Imports.Count, "import")}, {Plural(image.Exports.Count, "export")}" +
+                       (image.RuntimeFunctions.Count > 0 ? $", {Plural(image.RuntimeFunctions.Count, "unwind entry")}" : "") +
+                       (image.Issues.Count > 0 ? $"\n  {Plural(image.Issues.Count, "parse issue")} (get_pe_info lists them)" : "");
+            }
+            var asm = loaded!;
             return workspace.Read(() =>
             {
                 var types = MetadataUtil.CountedTypes(asm.Module);
@@ -104,7 +120,13 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                     a.Edits.Select(e => e.Description).ToList(), AssemblyTraits.IsReadyToRun(a.OriginalBytes), AssemblyTraits.MergeNote(a.Module))).ToList(),
                 workspace.SearchDirectories,
                 indexing.Status,
-                container) { Total = matching.Count };
+                container)
+            {
+                Total = matching.Count,
+                NativeImages = workspace.Natives.Where(n => filter == null || n.Id.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                                                            || n.FilePath.Contains(filter, StringComparison.OrdinalIgnoreCase))
+                    .Select(n => new NativeEntry(n.Id, n.FilePath, n.Image.MachineName, n.Image.IsDll ? "dll" : "exe", n.Image.FileSize, n.Image.Sha256)).ToList(),
+            };
         });
     }, cancellationToken);
 
@@ -113,6 +135,11 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     public Task<string> UnloadAssembly([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
         {
+            if (workspace.Read(() => workspace.FindNative(assembly)) is { } native)
+            {
+                workspace.UnloadNative(native);
+                return $"Unloaded {native.Id}.";
+            }
             var asm = workspace.Read(() => workspace.Get(assembly));
             int edits = asm.Edits.Count;
             workspace.Unload(asm);
@@ -124,6 +151,11 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     public Task<string> ReloadAssembly([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
         {
+            if (workspace.Read(() => workspace.FindNative(assembly)) is { } native)
+            {
+                var reloaded = workspace.ReloadNative(native);
+                return $"Reloaded {reloaded.Id} from {reloaded.FilePath} (sha256 {reloaded.Image.Sha256[..16]}).";
+            }
             var asm = workspace.Read(() => workspace.Get(assembly));
             var fresh = workspace.Reload(asm);
             return $"Reloaded {fresh.Id} from {fresh.FilePath}.";

@@ -77,6 +77,14 @@ public abstract class McpProtocolTests : IAsyncLifetime
     }
 
     /// <summary>One successful call per tool; EveryToolIsCoveredAndAnnotated fails if a tool is missing.</summary>
+    /// <summary>A synthetic native DLL (imports, delay imports, exports, debug directory) written as native.dll in the temp folder.</summary>
+    internal static string NativeSample(TempDir dir)
+    {
+        var path = dir.File("native.dll");
+        if (!File.Exists(path)) File.WriteAllBytes(path, NativePeTests.KitchenSink(is64: true));
+        return path;
+    }
+
     internal static Dictionary<string, (Dictionary<string, object?> Args, string Expect)> ToolCases(TempDir dir) => new()
     {
         ["load_assembly"] = (new() { ["path"] = Env.ConsumerPath }, "TestFixture.Consumer"),
@@ -134,6 +142,12 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["generate_cpp_binding"] = (new() { ["type"] = "Account" }, "FindClass(api, \"TestFixture\", \"Fixture.Model\", \"Account\")"),
         ["save_assembly"] = (new() { ["assembly"] = "TestFixture", ["outputPath"] = dir.File("saved.dll") }, "Wrote"),
         ["server_status"] = (new(), "\"catalogDigest\""),
+        ["get_pe_info"] = (new() { ["image"] = NativeSample(dir) }, "seed.pdb"),
+        ["list_imports"] = (new() { ["image"] = NativeSample(dir) }, "KERNEL32.dll!ExitProcess"),
+        ["list_exports"] = (new() { ["image"] = NativeSample(dir) }, "First"),
+        ["resolve_address"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "export First"),
+        ["search_bytes"] = (new() { ["image"] = NativeSample(dir), ["pattern"] = "ExitProcess", ["text"] = true }, "1 hit"),
+        ["read_bytes"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["length"] = 32 }, "32 bytes"),
         ["read_result"] = (new() { ["id"] = "r999" }, "Error (not_found) in read_result"),
         ["unload_assembly"] = (new() { ["assembly"] = "TestFixture.Consumer" }, "Unloaded"),
     };

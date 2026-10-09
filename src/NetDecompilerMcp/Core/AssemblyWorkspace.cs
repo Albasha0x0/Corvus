@@ -12,6 +12,7 @@ public sealed class AssemblyWorkspace : IDisposable
 {
     private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.SupportsRecursion);
     private readonly List<LoadedAssembly> _assemblies = new();
+    private readonly List<LoadedNative> _natives = new();
     private readonly List<string> _searchDirectories = new();
     private readonly Dictionary<string, ModuleDefMD?> _referenceModules = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DecompilerMetadata.MetadataFile?> _externalDecompilerRefs = new(StringComparer.OrdinalIgnoreCase);
@@ -72,6 +73,9 @@ public sealed class AssemblyWorkspace : IDisposable
     /// <summary>Snapshot of loaded assemblies; consistent only inside Read/Write.</summary>
     public IReadOnlyList<LoadedAssembly> Assemblies => _assemblies.ToArray();
 
+    /// <summary>Snapshot of loaded native images; consistent only inside Read/Write.</summary>
+    public IReadOnlyList<LoadedNative> Natives => _natives.ToArray();
+
     public IReadOnlyList<string> SearchDirectories => _searchDirectories.ToArray();
 
     public void AddSearchDirectory(string directory)
@@ -94,6 +98,89 @@ public sealed class AssemblyWorkspace : IDisposable
         var asm = Write(() => LoadCore(path));
         if (_assemblies.Count != before) AssembliesLoaded?.Invoke([asm]);
         return asm;
+    }
+
+    /// <summary>
+    /// Loads a .NET assembly, or a native PE image when the file has no .NET metadata. Returns the existing entry when
+    /// the path is already loaded.
+    /// </summary>
+    public (LoadedAssembly? Assembly, LoadedNative? Native) LoadAny(string path)
+    {
+        var full = Path.GetFullPath(path);
+        if (Read(() => _natives.FirstOrDefault(n => string.Equals(n.FilePath, full, StringComparison.OrdinalIgnoreCase))) is { } existing)
+            return (null, existing);
+        try
+        {
+            return (Load(full), null);
+        }
+        catch (ToolError ex) when (ex.Code == ErrorCode.Unsupported)
+        {
+            var image = Native.Pe.PeFile.Open(full);
+            if (image.IsDotNet) throw;
+            return (null, Write(() => LoadNativeCore(full, image)));
+        }
+    }
+
+    private LoadedNative LoadNativeCore(string full, Native.Pe.PeFile image)
+    {
+        var existing = _natives.FirstOrDefault(n => string.Equals(n.FilePath, full, StringComparison.OrdinalIgnoreCase));
+        if (existing != null) return existing;
+        var baseId = Path.GetFileName(full);
+        var id = baseId;
+        for (int n = 2; IdTaken(id); n++) id = $"{baseId}#{n}";
+        var native = new LoadedNative(id, full, image);
+        _natives.Add(native);
+        _logger?.LogInformation("Loaded native image {Id} from {Path}", id, full);
+        return native;
+    }
+
+    private bool IdTaken(string id) =>
+        _assemblies.Any(a => a.Id.Equals(id, StringComparison.OrdinalIgnoreCase)) || _natives.Any(n => n.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The loaded native image matching an id, file name or full path; null when none matches.</summary>
+    public LoadedNative? FindNative(string identifier)
+    {
+        if (string.IsNullOrWhiteSpace(identifier)) return null;
+        var id = identifier.Trim();
+        return _natives.FirstOrDefault(n => n.Id.Equals(id, StringComparison.OrdinalIgnoreCase))
+               ?? _natives.FirstOrDefault(n => Path.GetFileName(n.FilePath).Equals(id, StringComparison.OrdinalIgnoreCase)
+                                               || n.FilePath.Equals(SafeFullPath(id), StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Finds a native image by id, file name or full path.</summary>
+    public LoadedNative GetNative(string identifier)
+    {
+        if (string.IsNullOrWhiteSpace(identifier))
+            throw new ToolError(ErrorCode.InvalidArgument, "Image identifier is empty.");
+        if (FindNative(identifier) is { } native) return native;
+        if (_assemblies.Any(a => a.Id.Equals(identifier.Trim(), StringComparison.OrdinalIgnoreCase)))
+            throw new ToolError(ErrorCode.Unsupported, $"'{identifier}' is a .NET assembly, not a native image.",
+                "use the .NET tools (decompile_member, get_il, find_references) for it");
+        if (_natives.Count == 0)
+            throw new ToolError(ErrorCode.NotLoaded, "No native images are loaded.", "load_assembly with the path of a native .exe or .dll");
+        throw new ToolError(ErrorCode.NotFound, $"No loaded native image matches '{identifier}'. Loaded: {string.Join(", ", _natives.Select(n => n.Id))}");
+    }
+
+    public void UnloadNative(LoadedNative native) => Write(() =>
+    {
+        _natives.Remove(native);
+        foreach (var analysis in native.Analysis.Values.OfType<IDisposable>()) analysis.Dispose();
+        return 0;
+    });
+
+    /// <summary>Re-reads a native image from disk, discarding its analysis state.</summary>
+    public LoadedNative ReloadNative(LoadedNative native)
+    {
+        var image = Native.Pe.PeFile.Open(native.FilePath);
+        return Write(() =>
+        {
+            int index = _natives.IndexOf(native);
+            _natives.Remove(native);
+            foreach (var analysis in native.Analysis.Values.OfType<IDisposable>()) analysis.Dispose();
+            var fresh = new LoadedNative(native.Id, native.FilePath, image);
+            _natives.Insert(Math.Max(0, Math.Min(index, _natives.Count)), fresh);
+            return fresh;
+        });
     }
 
     private LoadedAssembly LoadCore(string path)
@@ -198,10 +285,13 @@ public sealed class AssemblyWorkspace : IDisposable
         if (string.IsNullOrWhiteSpace(identifier))
             throw new ToolError(ErrorCode.InvalidArgument, "Assembly identifier is empty.");
         var all = _assemblies;
-        if (all.Count == 0)
-            throw new ToolError(ErrorCode.NotLoaded, "No assemblies are loaded. Call load_assembly first.");
-
         var id = identifier.Trim();
+        if (all.Count == 0)
+            throw FindNative(id) is { } only
+                ? new ToolError(ErrorCode.Unsupported, $"'{identifier}' is a native image ({only.Image.MachineName}), not a .NET assembly.",
+                    "use the native tools: get_pe_info, list_imports, list_exports, list_functions, disassemble")
+                : new ToolError(ErrorCode.NotLoaded, "No assemblies are loaded. Call load_assembly first.");
+
         var matches = all.Where(a => a.Id.Equals(id, StringComparison.OrdinalIgnoreCase)).ToList();
         if (matches.Count == 0)
             matches = all.Where(a => Path.GetFileName(a.FilePath).Equals(id, StringComparison.OrdinalIgnoreCase)
@@ -211,6 +301,9 @@ public sealed class AssemblyWorkspace : IDisposable
 
         if (matches.Count == 1)
             return matches[0];
+        if (matches.Count == 0 && FindNative(id) is { } native)
+            throw new ToolError(ErrorCode.Unsupported, $"'{identifier}' is a native image ({native.Image.MachineName}), not a .NET assembly.",
+                "use the native tools: get_pe_info, list_imports, list_exports, list_functions, disassemble");
         if (matches.Count > 1)
             throw new ToolError(ErrorCode.Ambiguous, $"'{identifier}' matches several loaded assemblies: {string.Join(", ", matches.Select(m => $"{m.Id} ({m.FilePath})"))}. Use the id.");
         throw new ToolError(ErrorCode.NotFound, $"No loaded assembly matches '{identifier}'. Loaded: {string.Join(", ", all.Select(a => a.Id))}");
@@ -280,7 +373,7 @@ public sealed class AssemblyWorkspace : IDisposable
         if (string.IsNullOrWhiteSpace(baseId))
             baseId = Path.GetFileNameWithoutExtension(path);
         var id = baseId;
-        for (int n = 2; _assemblies.Any(a => a.Id.Equals(id, StringComparison.OrdinalIgnoreCase)); n++)
+        for (int n = 2; IdTaken(id); n++)
             id = $"{baseId}#{n}";
         return id;
     }
