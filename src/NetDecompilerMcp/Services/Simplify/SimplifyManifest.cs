@@ -67,10 +67,10 @@ public static class SimplifyManifest
         new(FallbackReason.VirtualDispatch, "virtual-dispatch", "a call on a modelled instance that does not resolve to one method of the module: a framework method or the framework implementation of a virtual method (ToString, Equals, ...), an abstract method, or an interface method the class does not implement in the module"),
         new(FallbackReason.CacheDependent, "cache-dependent", "a static Dictionary or List the code reads is not a cache whose contents cannot change the result: called again on the state the first call left, the call gives another result; or the collection is used other than through its own methods (passed on, stored, returned, its address taken), is visible to other assemblies, is written outside its type's initialization, or compares keys with a custom comparer"),
         new(FallbackReason.WritableStream, "writable-stream", "writes to a stream (Write, WriteByte, SetLength, Flush, CopyTo) or creates an empty MemoryStream to write into; the evaluator only reads streams"),
-        new(FallbackReason.ExternalIo, "external-io", "reads what differs between runs or machines: files (File, FileStream, Directory, StreamReader over a path), the network (System.Net), another assembly's resources, or the entry assembly"),
+        new(FallbackReason.ExternalIo, "external-io", "reads what differs between runs or machines: files (File, FileStream, Directory, StreamReader over a path), the network (System.Net), another assembly's resources, the entry assembly, the module's own path, the base and current directories, special folders, environment variables, the machine and user names (the deterministicEnvironment option pins these; see below), or a key or IV an algorithm object generated"),
         new(FallbackReason.StaticInitializer, "static-initializer", "the static constructor of a type the code needs cannot be evaluated, or the code can run while it runs. Inside that static constructor itself, a call uses the state as it stands at the call when the constructor reaches the call at most once (on no loop, in no handler) and runs up to it; otherwise it is kept"),
         new(FallbackReason.RuntimeError, "runtime-error", "the code would throw at run time: division by zero, checked overflow, index out of range, null reference, invalid cast, invalid argument"),
-        new(FallbackReason.PlatformDependent, "platform-dependent", "the result would differ between platforms or cultures: native int values outside the 32-bit range, out-of-range float to integer conversion, culture-sensitive formatting"),
+        new(FallbackReason.PlatformDependent, "platform-dependent", "the result would differ between platforms or cultures: native int values outside the 32-bit range, out-of-range float to integer conversion, culture-sensitive formatting, path syntax (System.IO.Path; Windows semantics under deterministicEnvironment)"),
         new(FallbackReason.InvalidCode, "invalid-code", "the evaluated code is not valid IL: stack underflow, mismatched operand types, a branch outside the method, execution past its end"),
         new(FallbackReason.CallDepth, "call-depth", "nested calls exceed the depth limit (maxDepth)", Transient: true),
         new(FallbackReason.InstructionBudget, "instruction-budget", "the evaluation, including nested calls and static constructors, executed more instructions than the budget allows, or the method's total budget ran out", Transient: true),
@@ -193,6 +193,22 @@ public static class SimplifyManifest
         foreach (var name in Intrinsics) sb.Append($"- `{name}`\n");
         sb.Append("\n## Limits\n\n| Limit | Default |\n|---|---|\n");
         foreach (var (name, value) in Limits) sb.Append($"| {name} | {value} |\n");
+        sb.Append("""
+
+            ## Deterministic environment (opt-in)
+
+            Off unless simplify_methods is called with `deterministicEnvironment: true`. Initialization code often reads what differs
+            between machines: the module's own path (to read its own file), the application's directories, special folders,
+            environment variables. Without the option these reads stop evaluation (`external-io`, or `platform-dependent` for path
+            syntax). With it, they read the fixed stand-ins below, the way a test host pins Environment.GetFolderPath, so
+            evaluation is the same on every run and every machine; whatever folds from them holds for that stand-in environment,
+            which the report header names. The clock, random numbers and the network are never pinned.
+
+            | Read | Stand-in |
+            |---|---|
+
+            """);
+        foreach (var (member, value) in EnvironmentStandIns.Table("{module file name}")) sb.Append($"| {member} | {value} |\n");
         sb.Append("\n## Fallback reasons\n\n| Code | Meaning |\n|---|---|\n");
         foreach (var r in Reasons) sb.Append($"| `{r.Code}` | {r.Description}{(r.Transient ? " (resource limit)" : "")} |\n");
         return sb.ToString();

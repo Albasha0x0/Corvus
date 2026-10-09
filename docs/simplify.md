@@ -322,6 +322,32 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 | time | 5 s per method, all passes included |
 | arrays and strings | 1M elements / characters |
 
+## Deterministic environment (opt-in)
+
+Off unless simplify_methods is called with `deterministicEnvironment: true`. Initialization code often reads what differs
+between machines: the module's own path (to read its own file), the application's directories, special folders,
+environment variables. Without the option these reads stop evaluation (`external-io`, or `platform-dependent` for path
+syntax). With it, they read the fixed stand-ins below, the way a test host pins Environment.GetFolderPath, so
+evaluation is the same on every run and every machine; whatever folds from them holds for that stand-in environment,
+which the report header names. The clock, random numbers and the network are never pinned.
+
+| Read | Stand-in |
+|---|---|
+| Assembly.Location (of the module's own assembly), Module.FullyQualifiedName | C:\Program Files\App\{module file name} |
+| Assembly.CodeBase, Assembly.EscapedCodeBase | file:///C:/Program Files/App/{module file name} (escaped: %20 for spaces) |
+| Module.Name | {module file name} |
+| AppDomain.CurrentDomain.BaseDirectory, AppContext.BaseDirectory | C:\Program Files\App\ |
+| Environment.CurrentDirectory, Directory.GetCurrentDirectory() | C:\Program Files\App |
+| Assembly.GetEntryAssembly() | the module's own assembly when the module is an executable (it has an entry point) |
+| Environment.GetFolderPath | Desktop: C:\Users\User\Desktop; Personal (MyDocuments): C:\Users\User\Documents; Startup: C:\Users\User\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup; DesktopDirectory: C:\Users\User\Desktop; ApplicationData: C:\Users\User\AppData\Roaming; LocalApplicationData: C:\Users\User\AppData\Local; CommonApplicationData: C:\ProgramData; Windows: C:\Windows; System: C:\Windows\system32; ProgramFiles: C:\Program Files; UserProfile: C:\Users\User; ProgramFilesX86: C:\Program Files (x86) |
+| Path.GetTempPath() | C:\Users\User\AppData\Local\Temp\ |
+| Environment.GetEnvironmentVariable | APPDATA: C:\Users\User\AppData\Roaming; LOCALAPPDATA: C:\Users\User\AppData\Local; PROGRAMDATA: C:\ProgramData; USERPROFILE: C:\Users\User; TEMP: C:\Users\User\AppData\Local\Temp; TMP: C:\Users\User\AppData\Local\Temp; ProgramFiles: C:\Program Files; ProgramFiles(x86): C:\Program Files (x86); SystemRoot: C:\Windows; windir: C:\Windows; SystemDrive: C:; HOMEDRIVE: C:; HOMEPATH: \Users\User; COMPUTERNAME: MACHINE; USERNAME: User; any other variable is not modelled |
+| Environment.MachineName, Environment.UserDomainName | MACHINE |
+| Environment.UserName | User |
+| Environment.NewLine | \r\n |
+| File.Exists, File.ReadAllBytes, File.OpenRead, new FileStream(path, FileMode.Open[, FileAccess.Read[, FileShare]]) of the module's own path | the module's image as loaded, read-only; any other path is not modelled |
+| Path.GetDirectoryName, GetFileName, GetFileNameWithoutExtension, GetExtension, Combine (2 to 4 parts) | Windows semantics ('\' and '/' separators, drive roots); paths with repeated separators, UNC paths or invalid characters are not modelled |
+
 ## Fallback reasons
 
 | Code | Meaning |
@@ -339,10 +365,10 @@ Framework methods evaluated directly (deterministic and culture-independent for 
 | `virtual-dispatch` | a call on a modelled instance that does not resolve to one method of the module: a framework method or the framework implementation of a virtual method (ToString, Equals, ...), an abstract method, or an interface method the class does not implement in the module |
 | `cache-dependent` | a static Dictionary or List the code reads is not a cache whose contents cannot change the result: called again on the state the first call left, the call gives another result; or the collection is used other than through its own methods (passed on, stored, returned, its address taken), is visible to other assemblies, is written outside its type's initialization, or compares keys with a custom comparer |
 | `writable-stream` | writes to a stream (Write, WriteByte, SetLength, Flush, CopyTo) or creates an empty MemoryStream to write into; the evaluator only reads streams |
-| `external-io` | reads what differs between runs or machines: files (File, FileStream, Directory, StreamReader over a path), the network (System.Net), another assembly's resources, or the entry assembly |
+| `external-io` | reads what differs between runs or machines: files (File, FileStream, Directory, StreamReader over a path), the network (System.Net), another assembly's resources, the entry assembly, the module's own path, the base and current directories, special folders, environment variables, the machine and user names (the deterministicEnvironment option pins these; see below), or a key or IV an algorithm object generated |
 | `static-initializer` | the static constructor of a type the code needs cannot be evaluated, or the code can run while it runs. Inside that static constructor itself, a call uses the state as it stands at the call when the constructor reaches the call at most once (on no loop, in no handler) and runs up to it; otherwise it is kept |
 | `runtime-error` | the code would throw at run time: division by zero, checked overflow, index out of range, null reference, invalid cast, invalid argument |
-| `platform-dependent` | the result would differ between platforms or cultures: native int values outside the 32-bit range, out-of-range float to integer conversion, culture-sensitive formatting |
+| `platform-dependent` | the result would differ between platforms or cultures: native int values outside the 32-bit range, out-of-range float to integer conversion, culture-sensitive formatting, path syntax (System.IO.Path; Windows semantics under deterministicEnvironment) |
 | `invalid-code` | the evaluated code is not valid IL: stack underflow, mismatched operand types, a branch outside the method, execution past its end |
 | `call-depth` | nested calls exceed the depth limit (maxDepth) (resource limit) |
 | `instruction-budget` | the evaluation, including nested calls and static constructors, executed more instructions than the budget allows, or the method's total budget ran out (resource limit) |

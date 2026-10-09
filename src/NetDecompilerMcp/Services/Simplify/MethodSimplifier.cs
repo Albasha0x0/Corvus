@@ -4,26 +4,32 @@ using NetDecompilerMcp.Core;
 
 namespace NetDecompilerMcp.Services.Simplify;
 
-/// <summary>Which passes run, and the evaluator limits.</summary>
-public sealed record SimplifyOptions(bool Fold = true, bool ControlFlow = true, bool Forwarders = true, EvaluationLimits? Limits = null)
+/// <summary>
+/// Which passes run, the evaluator limits, and whether environment reads are pinned to fixed stand-ins
+/// (<see cref="EnvironmentStandIns"/>; off unless asked for).
+/// </summary>
+public sealed record SimplifyOptions(bool Fold = true, bool ControlFlow = true, bool Forwarders = true, EvaluationLimits? Limits = null, bool DeterministicEnvironment = false)
 {
     public EvaluationLimits EffectiveLimits => Limits ?? new EvaluationLimits();
 
     public static readonly IReadOnlyList<string> PassNames = ["fold", "cfg", "inline"];
 
     /// <summary>Parses a comma-separated pass list (fold, cfg, inline; "all" or empty for every pass).</summary>
-    public static SimplifyOptions Parse(string? passes, int? maxDepth, int? budget)
+    public static SimplifyOptions Parse(string? passes, int? maxDepth, int? budget, bool deterministicEnvironment = false)
     {
         var limits = new EvaluationLimits(Math.Clamp(maxDepth ?? 8, 1, 64), Math.Clamp(budget ?? 100_000, 100, 10_000_000));
         var names = (passes ?? "").Split([',', ' ', ';'], StringSplitOptions.RemoveEmptyEntries).Select(p => p.ToLowerInvariant()).ToList();
-        if (names.Count == 0 || names.Contains("all")) return new SimplifyOptions(Limits: limits);
+        if (names.Count == 0 || names.Contains("all")) return new SimplifyOptions(Limits: limits, DeterministicEnvironment: deterministicEnvironment);
         var unknown = names.Except(PassNames).ToList();
         if (unknown.Count > 0)
             throw new ToolError($"Unknown pass '{unknown[0]}'. Passes: fold (evaluate string-producing calls), cfg (control-flow cleanup), inline (forwarder inlining and calls through delegate fields), or all.");
-        return new SimplifyOptions(names.Contains("fold"), names.Contains("cfg"), names.Contains("inline"), limits);
+        return new SimplifyOptions(names.Contains("fold"), names.Contains("cfg"), names.Contains("inline"), limits, deterministicEnvironment);
     }
 
     public string Describe() => string.Join(",", PassNames.Where((_, i) => new[] { Fold, ControlFlow, Forwarders }[i]));
+
+    /// <summary>The passes, and the deterministic environment when it is on (report headers).</summary>
+    public string Label() => Describe() + (DeterministicEnvironment ? "; deterministic environment" : "");
 }
 
 /// <summary>A fallback: what was left alone, and why.</summary>
@@ -98,7 +104,7 @@ public sealed class MethodSimplifier
     {
         _module = module;
         _options = options;
-        _evaluator = new IlEvaluator(module, options.EffectiveLimits);
+        _evaluator = new IlEvaluator(module, options.EffectiveLimits) { DeterministicEnvironment = options.DeterministicEnvironment };
         _forwarders = new Forwarders(module);
     }
 

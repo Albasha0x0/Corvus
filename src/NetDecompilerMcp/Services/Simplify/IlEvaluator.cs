@@ -974,6 +974,7 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         : value is ReflectionObject r ? r.Is(type.FullName)
         : value is InstanceObject o ? IsInstanceOf(o, type.FullName)
         : value is StreamObject { ModuleType: { } derived } && Chain(derived).Any(t => t.FullName == type.FullName) ? true
+        : value is StreamObject { FromFile: true } ? type.FullName is "System.IO.Stream" or "System.IO.FileStream" or "System.IDisposable" or "System.Object"
         : value is StreamObject ? type.FullName is "System.IO.Stream" or "System.IO.MemoryStream" or "System.IO.UnmanagedMemoryStream" or "System.IDisposable" or "System.Object"
         : value is CipherObject ? IsAlgorithmType(type)
         : value is TransformObject ? type.FullName is "System.Security.Cryptography.ICryptoTransform" or "System.IDisposable" or "System.Object"
@@ -1460,6 +1461,8 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         }
         if (op == Code.Newobj && method is MethodDef { DeclaringType.IsValueType: false, IsInstanceConstructor: true } classCtor && classCtor.Module == module)
             return NewInstance(classCtor, args);
+        var environment = EnvironmentCall(method, op, args, out bool fromEnvironment);
+        if (fromEnvironment) return environment;
         var resource = ResourceCall(method, op, args, out bool viaResources);
         if (viaResources) return resource;
         var collection = CollectionCall(method, op, args, out bool handled);

@@ -32,6 +32,8 @@ internal sealed class StreamObject : HeapObject
     public int Size => Length < 0 ? Data!.Length : Length;
     public long Position { get; set; }
     public bool Disposed { get; set; }
+    /// <summary>A FileStream over the module's own file (deterministic environment), not a MemoryStream.</summary>
+    public bool FromFile { get; init; }
     /// <summary>A StreamReader read from it: the reader buffers, so where the stream stands is the runtime's own.</summary>
     public bool Buffered { get; set; }
 }

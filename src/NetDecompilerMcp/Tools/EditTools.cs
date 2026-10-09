@@ -196,9 +196,13 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description("Max call depth when evaluating, the evaluated call included (default 8).")] int? maxDepth = null,
         [Description("Max IL instructions executed per evaluated call, nested calls included (default 100000).")] int? budget = null,
         [Description(DryRunDescription + " Reports folded constants, removed blocks and inlined forwarders.")] bool dryRun = false,
+        [Description("Opt-in (default false). Pin what evaluated code reads of the machine it runs on - the module's own path, the base and current " +
+                     "directories, special folders, a fixed set of environment variables, the machine and user names - to fixed stand-ins, and read the " +
+                     "module's own file as the loaded image, so initialization code that depends on them evaluates the same on every run. Results then hold " +
+                     "for that stand-in environment; docs/simplify.md lists the values. Without it such reads are reported (external-io).")] bool deterministicEnvironment = false,
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
-        var options = SimplifyOptions.Parse(passes, maxDepth, budget);
+        var options = SimplifyOptions.Parse(passes, maxDepth, budget, deterministicEnvironment);
         ResolvedSymbol? sym = null;
         LoadedAssembly asm;
         if (string.IsNullOrWhiteSpace(symbol))

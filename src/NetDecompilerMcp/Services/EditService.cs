@@ -337,7 +337,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         if (asm.HasUnreadableBodies)
         {
             var (unreadable, total) = asm.BodyCensus;
-            return $"{(dryRun ? "Dry run — simplify" : "Simplify")} {scope} ({options.Describe()}): 0 of {methods.Count} method(s) {(dryRun ? "would change" : "changed")}.\n" +
+            return $"{(dryRun ? "Dry run — simplify" : "Simplify")} {scope} ({options.Label()}): 0 of {methods.Count} method(s) {(dryRun ? "would change" : "changed")}.\n" +
                    $"Nothing is rewritten: {unreadable} of {total} method bodies of {asm.AssemblyName} cannot be read as IL. They are stored in another form on " +
                    "disk and restored at run time (an integrity check): bodies that happen to decode are not the code that runs, and a rewritten image would not run. [unreadable-bodies]";
         }
@@ -345,8 +345,8 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         var changed = changes.Where(c => c.Changed).ToList();
         var report = SimplifyReport(changes, methods.Count, dryRun);
         var header = dryRun
-            ? $"Dry run — simplify {scope} ({options.Describe()}): {changed.Count} of {methods.Count} method(s) would change."
-            : $"Simplified {scope} ({options.Describe()}): {changed.Count} of {methods.Count} method(s) changed.";
+            ? $"Dry run — simplify {scope} ({options.Label()}): {changed.Count} of {methods.Count} method(s) would change."
+            : $"Simplified {scope} ({options.Label()}): {changed.Count} of {methods.Count} method(s) changed.";
         if (dryRun || changed.Count == 0) return header + report;
 
         foreach (var c in changed) c.Method.Body = c.NewBody!;
@@ -354,7 +354,8 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         args["passes"] = options.Describe();
         args["maxDepth"] = options.EffectiveLimits.MaxDepth.ToString(CultureInfo.InvariantCulture);
         args["budget"] = options.EffectiveLimits.InstructionBudget.ToString(CultureInfo.InvariantCulture);
-        var description = $"simplify {scope} ({options.Describe()}): {changed.Count} method(s)";
+        if (options.DeterministicEnvironment) args["deterministicEnvironment"] = "true";
+        var description = $"simplify {scope} ({options.Label()}): {changed.Count} method(s)";
         asm.RecordEdit(new EditRecord("simplify_methods", args, description, changed.Select(c => Format.MemberLabel(c.Method)).ToList()));
         return header + report;
     }
@@ -469,7 +470,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         "add_members_csharp" => AddMembersCSharp(Recorded(asm, record, "type", preferTokens), Required(record, "code"), false, ct),
         "add_types_csharp" => AddTypesCSharp(asm, Required(record, "code"), false, ct),
         "simplify_methods" => SimplifyMethods(asm, record.Arg("symbol") == null ? null : Recorded(asm, record, "symbol", preferTokens),
-            SimplifyOptions.Parse(record.Arg("passes"), IntArg(record, "maxDepth"), IntArg(record, "budget")), false, ct),
+            SimplifyOptions.Parse(record.Arg("passes"), IntArg(record, "maxDepth"), IntArg(record, "budget"), record.Arg("deterministicEnvironment") == "true"), false, ct),
         _ => throw new ToolError($"Unknown edit kind '{record.Kind}'."),
     };
 
