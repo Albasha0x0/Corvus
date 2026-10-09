@@ -92,11 +92,11 @@ builder.Services
         }
         catch (NetDecompilerMcp.Core.ToolError ex)
         {
-            // The SDK's own rendering of tool errors, with names made of invisible characters escaped as in results.
+            // Code, message and next step, with names made of invisible characters escaped as in results.
             return new CallToolResult
             {
                 IsError = true,
-                Content = [new TextContentBlock { Text = $"An error occurred invoking '{context.Params?.Name}': {NetDecompilerMcp.Core.Format.EscapeInvisible(ex.Message)}" }],
+                Content = [new TextContentBlock { Text = NetDecompilerMcp.Core.Format.EscapeInvisible(ex.Render(context.Params?.Name)) }],
             };
         }
         catch (ArgumentException ex) when (ex.ParamName == "arguments" && System.Text.RegularExpressions.Regex.Match(ex.Message, "required parameter '([^']+)'") is { Success: true } m)
@@ -105,7 +105,8 @@ builder.Services
             return new CallToolResult
             {
                 IsError = true,
-                Content = [new TextContentBlock { Text = $"Missing required parameter '{m.Groups[1].Value}' for {context.Params?.Name}." }],
+                Content = [new TextContentBlock { Text = new NetDecompilerMcp.Core.ToolError(NetDecompilerMcp.Core.ErrorCode.InvalidArgument,
+                    $"missing required parameter '{m.Groups[1].Value}'.").Render(context.Params?.Name) }],
             };
         }
         catch (Exception ex) when (ex is not McpException && ex is not OperationCanceledException)
@@ -115,7 +116,7 @@ builder.Services
             return new CallToolResult
             {
                 IsError = true,
-                Content = [new TextContentBlock { Text = $"Internal error in {context.Params?.Name}: {ex.GetType().Name}: {ex.Message}" }],
+                Content = [new TextContentBlock { Text = $"Error (internal) in {context.Params?.Name}: {ex.GetType().Name}: {ex.Message}" }],
             };
         }
     }));

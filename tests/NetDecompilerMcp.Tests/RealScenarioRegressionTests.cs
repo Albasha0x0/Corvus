@@ -334,7 +334,7 @@ public sealed class RealScenarioRegressionTests
         var result = await client.CallToolAsync("decompile_member", new Dictionary<string, object?>());
         var text = string.Join("\n", result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(c => c.Text));
         Assert.True(result.IsError);
-        Assert.Equal("Missing required parameter 'member' for decompile_member.", text);
+        Assert.Equal("Error (invalid_argument) in decompile_member: missing required parameter 'member'.", text);
     }
 
     [Fact]
