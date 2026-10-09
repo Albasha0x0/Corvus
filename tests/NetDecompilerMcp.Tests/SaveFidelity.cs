@@ -260,23 +260,28 @@ internal static class SaveFidelity
     {
         try
         {
-            var data = pe.GetSectionData(rva).GetContent();
-            if (data.Length == 0) return null;
-            if ((data[0] & 3) == 2) return data.Length > data[0] >> 2 ? data.Take(1 + (data[0] >> 2)).ToArray() : null;
-            if ((data[0] & 3) != 3 || data.Length < 12) return null;
-            int header = (data[1] >> 4) * 4;
-            long end = header + (long)BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan()[4..]);
-            if (header < 12 || end > data.Length) return null;
-            var bytes = data.Take((int)end).ToList();
-            if ((data[0] & 0x08) == 0) return [.. bytes];
+            // Read in place: copying the rest of the section for every body made large modules quadratic.
+            var data = pe.GetSectionData(rva).GetReader();
+            int length = data.Length;
+            byte At(long i) { data.Offset = (int)i; return data.ReadByte(); }
+            byte[] Range(long start, long count) { data.Offset = (int)start; return data.ReadBytes((int)count); }
+            if (length == 0) return null;
+            byte first = At(0);
+            if ((first & 3) == 2) return length > first >> 2 ? Range(0, 1 + (first >> 2)) : null;
+            if ((first & 3) != 3 || length < 12) return null;
+            int header = (At(1) >> 4) * 4;
+            long end = header + (long)BinaryPrimitives.ReadUInt32LittleEndian(Range(4, 4));
+            if (header < 12 || end > length) return null;
+            var bytes = Range(0, end).ToList();
+            if ((first & 0x08) == 0) return [.. bytes];
             long pos = (rva + end + 3 & ~3L) - rva;
             while (true)
             {
-                if (pos + 4 > data.Length) return null;
-                byte kind = data[(int)pos];
-                int size = (kind & 0x40) != 0 ? data[(int)pos + 1] | data[(int)pos + 2] << 8 | data[(int)pos + 3] << 16 : data[(int)pos + 1];
-                if (size < 4 || pos + size > data.Length) return null;
-                bytes.AddRange(data.Skip((int)pos).Take(size));
+                if (pos + 4 > length) return null;
+                byte kind = At(pos);
+                int size = (kind & 0x40) != 0 ? At(pos + 1) | At(pos + 2) << 8 | At(pos + 3) << 16 : At(pos + 1);
+                if (size < 4 || pos + size > length) return null;
+                bytes.AddRange(Range(pos, size));
                 pos += size;
                 if ((kind & 0x80) == 0) return [.. bytes];
                 pos = (rva + pos + 3 & ~3L) - rva;
