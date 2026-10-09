@@ -91,6 +91,29 @@ public static class HostApiDetector
         return null;
     }
 
+    /// <summary>
+    /// A project that calls a runtime's own exports rather than a host table: "il2cpp" when a header names Il2Cpp's
+    /// class lookup (il2cpp_class_from_name, or class_from_name as a function pointer type or variable in an il2cpp
+    /// namespace: typedef il2cpp_*_t, using fn_* = ..., inline / extern pointers), "mono" for mono_class_from_name; with
+    /// the header that does. Null when neither is found.
+    /// </summary>
+    public static (string Style, string Header)? DetectRuntime(string root, CancellationToken ct)
+    {
+        foreach (var file in Headers(root))
+        {
+            ct.ThrowIfCancellationRequested();
+            var text = StripCommentsAndStrings(File.ReadAllText(file));
+            if (Il2CppLookup.IsMatch(text) || (Il2CppNamespace.IsMatch(text) && Il2CppPointer.IsMatch(text))) return ("il2cpp", file);
+            if (MonoLookup.IsMatch(text)) return ("mono", file);
+        }
+        return null;
+    }
+
+    private static readonly Regex Il2CppLookup = new(@"\bil2cpp_class_from_name\w*",RegexOptions.CultureInvariant);
+    private static readonly Regex Il2CppNamespace = new(@"\bnamespace\s+il2cpp\b", RegexOptions.CultureInvariant);
+    private static readonly Regex Il2CppPointer = new(@"\b(?:using\s+fn_class_from_name\s*=|class_from_name\s*=\s*nullptr|extern\s+\w+\s+class_from_name\s*;)", RegexOptions.CultureInvariant);
+    private static readonly Regex MonoLookup = new(@"\bmono_class_from_name\w*",RegexOptions.CultureInvariant);
+
     private static string Handle(string returnType, string fallback)
     {
         var t = Regex.Replace(returnType, @"\b(?:virtual|static|inline|extern|const)\b", "").Trim();

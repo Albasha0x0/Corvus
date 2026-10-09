@@ -8,7 +8,7 @@ namespace NetDecompilerMcp.Core;
 ///   --timeout &lt;seconds&gt;  per-call decompilation timeout (default 180)
 ///   --no-index            do not index method bodies / build the call graph in the background
 ///   --no-watch            do not reload assemblies when their files change on disk
-///   --binding-style &lt;s&gt;  default generate_cpp_binding style when none is requested or detected: mono or hostapi
+///   --binding-style &lt;s&gt;  default generate_cpp_binding style when none is requested or detected: mono, il2cpp or hostapi
 ///   --binding-project &lt;d&gt; default project directory scanned for a host table by generate_cpp_binding
 /// The NETDECOMP_LOAD environment variable (';'-separated paths) is also honored.
 /// </summary>
@@ -47,7 +47,7 @@ public sealed class ServerOptions
                 case "--no-watch": o.WatchFiles = false; break;
                 case "--binding-style":
                     var style = Next().Trim().ToLowerInvariant();
-                    o.BindingStyle = style is "mono" or "hostapi" ? style : throw new ArgumentException($"--binding-style must be mono or hostapi, not '{style}'");
+                    o.BindingStyle = style is "mono" or "hostapi" or "il2cpp" ? style : throw new ArgumentException($"--binding-style must be mono, il2cpp or hostapi, not '{style}'");
                     break;
                 case "--binding-project": o.BindingProject = Next(); break;
                 default: throw new ArgumentException($"Unknown argument '{args[i]}'");

@@ -55,7 +55,7 @@ public class CppBindingTests : IDisposable
     {
         Assert.Contains("NoSuchMember", Assert.Throws<ToolError>(() => Generate("Shop", "NoSuchMember")).Message);
         Assert.Contains("is generic", Assert.Throws<ToolError>(() => Generate("Container")).Message);
-        Assert.Contains("Unknown style 'il2cpp'", Assert.Throws<ToolError>(() => Generate("Account", style: "il2cpp")).Message);
+        Assert.Contains("Unknown style 'unity'", Assert.Throws<ToolError>(() => Generate("Account", style: "unity")).Message);
     }
 
     /// <summary>Mono headers compile together in one translation unit.</summary>
@@ -393,7 +393,7 @@ public class CppBindingStyleTests : IDisposable
         Assert.Contains("#include \"host/abi.h\"", Generate("Account", CppBindingGenerator.ChooseStyle("hostapi", project, null, null, default)));
 
         Assert.Contains("Unknown style 'plugin'", Assert.Throws<ToolError>(() => CppBindingGenerator.ChooseStyle("plugin", null, null, null, default)).Message);
-        Assert.Contains("--binding-style must be mono or hostapi", Assert.Throws<ArgumentException>(() => ServerOptions.Parse(["--binding-style", "x"])).Message);
+        Assert.Contains("--binding-style must be mono, il2cpp or hostapi", Assert.Throws<ArgumentException>(() => ServerOptions.Parse(["--binding-style", "x"])).Message);
         Assert.Equal(("hostapi", "D:/p"), (ServerOptions.Parse(["--binding-style", "HostApi", "--binding-project", "D:/p"]) is var o ? (o.BindingStyle, o.BindingProject) : default));
     }
 }

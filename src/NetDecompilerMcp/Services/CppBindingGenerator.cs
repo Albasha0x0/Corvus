@@ -14,11 +14,13 @@ namespace NetDecompilerMcp.Services;
 /// mono_runtime_invoke, ...) through a function table filled from the runtime's exports. Self-contained.</item>
 /// <item>"hostapi": for plugin frameworks whose host passes a HostApi table (FindClass / FieldOffset / GetMethod /
 /// Invoke, with shared/abi.h, mem.h and il2cpp_util.h helpers).</item>
+/// <item>"il2cpp": the Il2Cpp runtime's exports (il2cpp_class_from_name, il2cpp_field_get_offset,
+/// il2cpp_runtime_invoke, ...), plus the native code pointer of each method and typed direct calls. Self-contained.</item>
 /// </list>
 /// </summary>
-public sealed class CppBindingGenerator
+public sealed partial class CppBindingGenerator
 {
-    public static readonly IReadOnlyList<string> Styles = ["mono", "hostapi"];
+    public static readonly IReadOnlyList<string> Styles = ["mono", "hostapi", "il2cpp"];
 
     private const string CompilerGenerated = "System.Runtime.CompilerServices.CompilerGeneratedAttribute";
 
@@ -55,11 +57,13 @@ public sealed class CppBindingGenerator
 
     /// <summary>
     /// Chooses the style: an explicit <paramref name="style"/>; else "hostapi" when the project directory
-    /// (<paramref name="projectDir"/>, or the server's --binding-project) has a host table; else the server's
-    /// --binding-style; else "mono". The project is scanned whenever a directory is known, so an explicit "hostapi"
-    /// still gets computed include paths.
+    /// (<paramref name="projectDir"/>, or the server's --binding-project) has a host table; else the runtime API the
+    /// project calls (Il2Cpp or Mono exports: <see cref="HostApiDetector.DetectRuntime"/>); else "il2cpp" for an Il2Cpp
+    /// dummy assembly (<paramref name="il2cppAssembly"/>); else the server's --binding-style; else "mono". The project is
+    /// scanned whenever a directory is known, so an explicit "hostapi" still gets computed include paths.
     /// </summary>
-    public static BindingTarget ChooseStyle(string? style, string? projectDir, string? headerPath, ServerOptions? options, CancellationToken ct)
+    public static BindingTarget ChooseStyle(string? style, string? projectDir, string? headerPath, ServerOptions? options, CancellationToken ct,
+        bool il2cppAssembly = false)
     {
         var dir = projectDir ?? options?.BindingProject;
         var dirLabel = projectDir != null ? "projectDir" : "--binding-project";
@@ -76,6 +80,10 @@ public sealed class CppBindingGenerator
             return new BindingTarget("hostapi",
                 $"{dirLabel} has a host table: {project.TableName} in {Relative(project.Root, project.TableHeader)} (members {members})", project, header);
         var why = dir != null ? $"no struct with {members} in {Path.GetFullPath(dir)}" : "no projectDir";
+        if (dir != null && HostApiDetector.DetectRuntime(dir, ct) is { } runtime)
+            return new BindingTarget(runtime.Style, $"{dirLabel} calls the {(runtime.Style == "il2cpp" ? "Il2Cpp" : "Mono")} runtime API ({Relative(Path.GetFullPath(dir), runtime.Header)}); {why}", null, header);
+        if (il2cppAssembly)
+            return new BindingTarget("il2cpp", $"Il2Cpp dummy assembly ([Address] attributes); {why}", null, header);
         if (options?.BindingStyle is { } serverDefault)
             return new BindingTarget(serverDefault, $"server default --binding-style {serverDefault}; {why}", null, header);
         return new BindingTarget("mono", $"self-contained default; {why}", null, header);
@@ -89,7 +97,12 @@ public sealed class CppBindingGenerator
         if (type.HasGenericParameters)
             throw new ToolError($"{type.FullName} is generic: generate a binding for a closed subclass, or resolve the instantiation's members by hand.");
         var selection = Select(type, only, includeInherited);
-        var code = target.Style == "mono" ? RenderMono(asm, type, selection) : RenderHostApi(asm, type, selection, target);
+        var code = target.Style switch
+        {
+            "mono" => RenderMono(asm, type, selection),
+            "il2cpp" => RenderIl2Cpp(asm, type, selection),
+            _ => RenderHostApi(asm, type, selection, target),
+        };
         return $"// Style {target.Style}: {target.Reason}.{Environment.NewLine}" + code;
     }
 
@@ -312,7 +325,9 @@ public sealed class CppBindingGenerator
             }
         }
 
-        // Getters are invoked and require a thread attached to Mono.
+        // Getters are invoked and require a thread attached to Mono. Their C++ signatures are taken before the method
+        // wrappers': a static method of the same name and parameters is numbered.
+        var wrapperSignatures = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (p, viaHierarchy) in s.Getters)
         {
             var getter = p.GetMethod!;
@@ -324,8 +339,9 @@ public sealed class CppBindingGenerator
             checks.Add(m);
             var (cpp, isPointer, isStruct) = CppType(AsSeenFrom(type, getter, getter.ReturnType));
             var instance = getter.IsStatic ? "nullptr" : "obj";
-            var param = getter.IsStatic ? "const MonoApi& api" : "const MonoApi& api, void* obj";
-            var name = SafeName(Pascal(p.Name));
+            List<string> parameters = getter.IsStatic ? ["const MonoApi& api"] : ["const MonoApi& api", "void* obj"];
+            var name = UniqueWrapper(wrapperSignatures, p.Name, parameters);
+            var param = string.Join(", ", parameters);
             if (isPointer || isStruct)
                 accessors.AppendLine($"    MonoObject* {name}({param}) const {{ return Invoke(api, {m}, {instance}, nullptr); }}{(isStruct ? $"  // boxed {Format.Type(getter.ReturnType)}" : "")}");
             else
@@ -333,7 +349,6 @@ public sealed class CppBindingGenerator
         }
 
         // Overloads with equal argument counts are distinguished by metadata token.
-        var wrapperSignatures = new HashSet<string>(StringComparer.Ordinal);
         foreach (var method in s.Methods)
         {
             var m = Unique($"m_{Camel(method.Name)}");
@@ -481,7 +496,9 @@ public sealed class CppBindingGenerator
             }
         }
 
-        // Getters are invoked and require the host's managed-call context.
+        // Getters are invoked and require the host's managed-call context. Their C++ signatures are taken before the
+        // method wrappers': a static method of the same name and parameters is numbered.
+        var wrapperSignatures = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (p, viaHierarchy) in s.Getters)
         {
             var getter = p.GetMethod!;
@@ -494,19 +511,18 @@ public sealed class CppBindingGenerator
             checks.Add(m);
             var (cpp, isPointer, isStruct) = CppType(AsSeenFrom(type, getter, getter.ReturnType));
             var instance = getter.IsStatic ? "nullptr" : "obj";
-            var param = getter.IsStatic ? h : $"{h}, void* obj";
-            var name = SafeName(Pascal(p.Name));
+            List<string> parameters = getter.IsStatic ? [h] : [h, "void* obj"];
+            var param = string.Join(", ", parameters);
             if (isPointer)
-                accessors.AppendLine($"    void* {name}({param}) const {{ return h->Invoke({m}, {instance}, nullptr, 0); }}  // managed call");
+                accessors.AppendLine($"    void* {UniqueWrapper(wrapperSignatures, p.Name, parameters)}({param}) const {{ return h->Invoke({m}, {instance}, nullptr, 0); }}  // managed call");
             else if (!isStruct)
             {
                 used.Add("CallValue");
-                accessors.AppendLine($"    {cpp} {name}({param}) const {{ return CallValue<{cpp}>(h, {m}, {instance}); }}  // managed call");
+                accessors.AppendLine($"    {cpp} {UniqueWrapper(wrapperSignatures, p.Name, parameters)}({param}) const {{ return CallValue<{cpp}>(h, {m}, {instance}); }}  // managed call");
             }
         }
 
         // Overloads with equal argument counts are resolved by exact signature.
-        var wrapperSignatures = new HashSet<string>(StringComparer.Ordinal);
         foreach (var method in s.Methods)
         {
             var m = Unique($"m_{Camel(method.Name)}");
@@ -715,15 +731,26 @@ public sealed class CppBindingGenerator
             case ElementType.U: return ("uintptr_t", false, false);
             case ElementType.Void: return ("void", false, false);
         }
-        if (sig is ValueTypeSig vt)
+        // The dumpers write type arguments as classes whatever they are: the definition tells a value type.
+        if (sig is TypeDefOrRefSig tr && Try(() => tr.TypeDefOrRef.ResolveTypeDef()) is { IsValueType: true } td)
         {
-            var td = Try(() => vt.TypeDefOrRef.ResolveTypeDef());
-            if (td?.IsEnum == true && td.GetEnumUnderlyingType() is { } underlying)
-                return CppType(underlying);
+            if (td.IsEnum && td.GetEnumUnderlyingType() is { } underlying) return CppType(underlying);
+            if (td.Namespace == "System" && Primitive(td.Name) is { } primitive) return (primitive, false, false);
             return ("void*", false, true);
         }
+        if (sig is ValueTypeSig) return ("void*", false, true);
+        if (sig is GenericInstSig gi && (gi.GenericType is ValueTypeSig || Try(() => gi.GenericType.TypeDefOrRef.ResolveTypeDef())?.IsValueType == true))
+            return ("void*", false, true);
         return ("void*", true, false); // classes, strings, arrays, interfaces, delegates, generic class instances
     }
+
+    private static string? Primitive(string name) => name switch
+    {
+        "Boolean" => "bool", "Byte" => "uint8_t", "SByte" => "int8_t", "Char" => "char16_t", "Int16" => "int16_t", "UInt16" => "uint16_t",
+        "Int32" => "int32_t", "UInt32" => "uint32_t", "Int64" => "int64_t", "UInt64" => "uint64_t", "Single" => "float", "Double" => "double",
+        "IntPtr" => "intptr_t", "UIntPtr" => "uintptr_t",
+        _ => null,
+    };
 
     /// <summary>Mono short parameter names, e.g. "String,Color" or "Int32&,Boolean" (GetMethodExact; comments).</summary>
     private static string MonoParams(MethodDef m) =>
