@@ -408,6 +408,35 @@ public sealed class NativeCodeIndex : ICodeSymbols
 
     // ---- build ----
 
+    /// <summary>The union of code ranges, merged and sorted for containment tests.</summary>
+    private sealed class CodeCover
+    {
+        private readonly uint[] _starts;
+        private readonly uint[] _ends;
+
+        public CodeCover(uint[] starts, uint[] ends)
+        {
+            var order = Enumerable.Range(0, starts.Length).OrderBy(i => starts[i]).ToArray();
+            var s = new List<uint>(order.Length);
+            var e = new List<uint>(order.Length);
+            foreach (int i in order)
+            {
+                if (e.Count > 0 && starts[i] <= e[^1]) { if (ends[i] > e[^1]) e[^1] = ends[i]; continue; }
+                s.Add(starts[i]);
+                e.Add(ends[i]);
+            }
+            _starts = s.ToArray();
+            _ends = e.ToArray();
+        }
+
+        public bool Contains(uint rva)
+        {
+            int i = Array.BinarySearch(_starts, rva);
+            if (i < 0) i = ~i - 1;
+            return i >= 0 && rva < _ends[i];
+        }
+    }
+
     /// <summary>Forwards progress at most every 100 ms, plus the final update.</summary>
     private sealed class ProgressGate(Action<CodeIndexProgress>? sink)
     {
@@ -443,16 +472,51 @@ public sealed class NativeCodeIndex : ICodeSymbols
 
             var starts = Discover();
             var results = WalkWithNoReturn(starts);
-            if (CodeFollowsNoReturnCalls(results))
+            bool demoted = DemoteLocalSubroutines(starts, results);
+            if (demoted || CodeFollowsNoReturnCalls(results))
             {
-                // again with the noreturn functions known: code after calls to them is no longer followed, so
-                // function starts found only there disappear and gaps open for the prologue scan
+                // again with the noreturn functions and local subroutines known: code after calls to noreturn
+                // functions is no longer followed, so function starts found only there disappear and gaps open for
+                // the gap scan; local subroutines are explored as part of their function
                 starts = Discover();
                 _ctx.NoReturn = new HashSet<uint>(baseNoReturn);
                 foreach (var (start, slot) in _ctx.Thunks) if (_ctx.NoReturn.Contains(slot)) _ctx.NoReturn.Add(start);
                 results = WalkWithNoReturn(starts);
             }
             return Assemble(starts, results);
+        }
+
+        /// <summary>
+        /// Functions known only as call targets that their single calling function also runs into without a branch
+        /// (x86 __finally blocks are called and fallen into): recorded as local subroutines of that function.
+        /// </summary>
+        private bool DemoteLocalSubroutines(uint[] starts, WalkResult[] results)
+        {
+            var callOnly = starts.Where(s => _sources[s] == FunctionSource.Call).ToHashSet();
+            if (callOnly.Count == 0) return false;
+            var callSites = new Dictionary<uint, List<uint>>();
+            foreach (var r in results)
+                foreach (var x in r.Xrefs)
+                    if (x.Kind == XrefKind.Call && callOnly.Contains(x.To))
+                    {
+                        if (!callSites.TryGetValue(x.To, out var list)) callSites[x.To] = list = [];
+                        list.Add(x.From);
+                    }
+            bool any = false;
+            for (int g = 0; g < results.Length; g++)
+                foreach (var f in results[g].FallsInto)
+                {
+                    if (!callOnly.Contains(f) || !callSites.TryGetValue(f, out var sites)) continue;
+                    if (sites.All(s => InRanges(results[g], s)) && _ctx.LocalSubroutines.Add(f)) any = true;
+                }
+            return any;
+        }
+
+        private static bool InRanges(WalkResult r, uint rva)
+        {
+            int i = Array.BinarySearch(r.RangeStarts, rva);
+            if (i < 0) i = ~i - 1;
+            return i >= 0 && rva < r.RangeEnds[i];
         }
 
         /// <summary>
@@ -572,6 +636,7 @@ public sealed class NativeCodeIndex : ICodeSymbols
                 f.BlockCount = r.Blocks;
                 f.InstructionCount = r.Instructions;
                 if (_ctx.NoReturn.Contains(f.Start)) { f.Flags |= FunctionFlags.NoReturn; noReturn++; }
+                if (_ctx.Funclets.Contains(f.Start)) f.Flags |= FunctionFlags.Funclet;
                 if (_ctx.Thunks.TryGetValue(f.Start, out var slot) && _ctx.ImportSlots.TryGetValue(slot, out var imp))
                 {
                     f.Flags |= FunctionFlags.Thunk;
@@ -591,8 +656,9 @@ public sealed class NativeCodeIndex : ICodeSymbols
             if (results.Any(r => (r.Flags & FunctionFlags.Truncated) != 0))
                 AddTruncation($"functions over {options.MaxInstructionsPerFunction} instructions are cut ({results.Count(r => (r.Flags & FunctionFlags.Truncated) != 0)})");
 
-            var xrefs = CollectXrefs(results, xrefCount);
-            var strings = FindStrings(xrefs, rangeStarts, rangeEnds);
+            var functionCode = new CodeCover(rangeStarts, rangeEnds);
+            var xrefs = CollectXrefs(results, xrefCount, functionCode);
+            var strings = FindStrings(xrefs, functionCode);
             int switches = 0;
             foreach (var r in results) foreach (var x in r.Xrefs) if (x.Kind == XrefKind.JumpTable) switches++;
             var stats = new CodeIndexStats(functions.Length, thunks, noReturn, instructions, blocks, xrefs.Length, strings.Length,
@@ -602,7 +668,7 @@ public sealed class NativeCodeIndex : ICodeSymbols
         }
 
         /// <summary>All walk cross-references plus relocated data pointers, sorted by (From, To, Kind), duplicates removed.</summary>
-        private CodeXref[] CollectXrefs(WalkResult[] results, long fromWalks)
+        private CodeXref[] CollectXrefs(WalkResult[] results, long fromWalks, CodeCover functionCode)
         {
             long total = fromWalks;
             var pointers = new List<CodeXref>();
@@ -610,7 +676,8 @@ public sealed class NativeCodeIndex : ICodeSymbols
             foreach (var reloc in _ctx.Relocations)
             {
                 if ((++i & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
-                if (_ctx.Code.IsCode(reloc)) continue; // x86 instruction operands and switch tables are covered by decoding
+                // inside decoded functions a relocation is an instruction operand, already a cross-reference
+                if (_ctx.Code.IsCode(reloc) && functionCode.Contains(reloc)) continue;
                 if (_ctx.TryReadPointer(reloc, out uint target)) pointers.Add(new CodeXref(reloc, target, XrefKind.Pointer));
             }
             total += pointers.Count;
@@ -655,23 +722,12 @@ public sealed class NativeCodeIndex : ICodeSymbols
         /// Strings at data addresses that code reads or takes, or that relocated pointers point at; in executable
         /// sections (data merged into code) only outside the decoded functions.
         /// </summary>
-        private StringLiteral[] FindStrings(CodeXref[] xrefs, uint[] rangeStarts, uint[] rangeEnds)
+        private StringLiteral[] FindStrings(CodeXref[] xrefs, CodeCover functionCode)
         {
             report.Report("finding strings", 0, 0);
-            var order = Enumerable.Range(0, rangeStarts.Length).ToArray();
-            var sortedStarts = (uint[])rangeStarts.Clone();
-            Array.Sort(sortedStarts, order);
-            var maxEnd = new uint[order.Length];
-            for (int k = 0; k < order.Length; k++) maxEnd[k] = Math.Max(k > 0 ? maxEnd[k - 1] : 0, rangeEnds[order[k]]);
-            bool InFunction(uint rva)
-            {
-                int i = Array.BinarySearch(sortedStarts, rva);
-                if (i < 0) i = ~i - 1;
-                return i >= 0 && rva < maxEnd[i];
-            }
             var targets = new HashSet<uint>();
             foreach (var x in xrefs)
-                if (x.Kind is XrefKind.Read or XrefKind.Address or XrefKind.Pointer && (!_ctx.Code.IsCode(x.To) || !InFunction(x.To))) targets.Add(x.To);
+                if (x.Kind is XrefKind.Read or XrefKind.Address or XrefKind.Pointer && (!_ctx.Code.IsCode(x.To) || !functionCode.Contains(x.To))) targets.Add(x.To);
             var sorted = targets.ToArray();
             Array.Sort(sorted);
             var buffer = new byte[(options.MaxStringLength + 1) * 2];

@@ -34,10 +34,22 @@ internal sealed class CodeContext
     /// <summary>All .pdata ranges sorted by begin, with their primary start.</summary>
     public (uint Begin, uint End, uint Primary)[] PdataSorted { get; private set; } = [];
 
+    /// <summary>x64: language-specific handlers named by unwind information (__C_specific_handler thunks and the like).</summary>
+    public HashSet<uint> ExceptionHandlers { get; } = [];
+    /// <summary>Functions listed in the Control Flow Guard function table.</summary>
+    public List<uint> GuardCfFunctions { get; } = [];
+
     /// <summary>Known function starts during a pass.</summary>
     public HashSet<uint> FunctionStarts { get; set; } = [];
     /// <summary>Functions (and import slots) known not to return.</summary>
     public HashSet<uint> NoReturn { get; set; } = [];
+    /// <summary>
+    /// Call targets that are part of their only caller's function (it also runs into them without a branch, as
+    /// x86 __finally blocks are): not functions.
+    /// </summary>
+    public HashSet<uint> LocalSubroutines { get; } = [];
+    /// <summary>x86 functions that run in another function's frame (see <see cref="FunctionFlags.Funclet"/>).</summary>
+    public HashSet<uint> Funclets { get; } = [];
     /// <summary>Thunk start -> import slot.</summary>
     public Dictionary<uint, uint> Thunks { get; } = [];
 
@@ -55,6 +67,7 @@ internal sealed class CodeContext
             if (imp.Name != null && NoReturnNames.IsNoReturn(imp.Name)) NoReturn.Add(imp.SlotRva);
         }
         if (image.Arch == NativeArch.X64) ReadPdata();
+        ReadGuardCfTable();
         IsKernelMode = image.Path.EndsWith(".sys", StringComparison.OrdinalIgnoreCase)
             || image.Imports.Any(i => i.Module.Equals("ntoskrnl.exe", StringComparison.OrdinalIgnoreCase) || i.Module.Equals("hal.dll", StringComparison.OrdinalIgnoreCase))
             || System.IO.Path.GetFileName(image.Path).Equals("ntoskrnl.exe", StringComparison.OrdinalIgnoreCase);
@@ -105,15 +118,59 @@ internal sealed class CodeContext
             }
             if (Read(unwind, header) < 4) return current.BeginRva;
             int flags = header[0] >> 3;
-            if ((flags & 4) == 0) return current.BeginRva;
             int codes = header[2];
             uint at = unwind + 4 + (uint)(((codes + 1) & ~1) * 2);
+            if ((flags & 4) == 0)
+            {
+                // UNW_FLAG_EHANDLER / UNW_FLAG_UHANDLER: the language-specific handler RVA follows the unwind codes
+                if ((flags & 3) != 0 && Read(at, chained[..4]) == 4)
+                {
+                    uint handler = BinaryPrimitives.ReadUInt32LittleEndian(chained);
+                    if (Code.IsCode(handler)) ExceptionHandlers.Add(handler);
+                }
+                return current.BeginRva;
+            }
             if (Read(at, chained) < 12) return current.BeginRva;
             uint parent = BinaryPrimitives.ReadUInt32LittleEndian(chained);
             if (parent == current.BeginRva) return current.BeginRva;
             current = byBegin.TryGetValue(parent, out var p) ? p : new RuntimeFunction(parent, BinaryPrimitives.ReadUInt32LittleEndian(chained[4..]), BinaryPrimitives.ReadUInt32LittleEndian(chained[8..]));
         }
         return current.BeginRva;
+    }
+
+    /// <summary>
+    /// GuardCFFunctionTable of the load configuration (read from the mapped headers; the image contract has no load
+    /// configuration yet): RVAs of every address-taken function, each entry followed by optional flag bytes.
+    /// </summary>
+    private void ReadGuardCfTable()
+    {
+        var b = new byte[8];
+        uint U32(uint rva) => Read(rva, b.AsSpan(0, 4)) == 4 ? BinaryPrimitives.ReadUInt32LittleEndian(b) : 0;
+        ulong U64(uint rva) => Read(rva, b) == 8 ? BinaryPrimitives.ReadUInt64LittleEndian(b) : 0;
+        uint nt = U32(0x3C);
+        if (nt == 0 || nt > 0x10000 || U32(nt) != 0x4550) return;
+        uint opt = nt + 24;
+        bool pe64 = (U32(opt) & 0xFFFF) == 0x20B;
+        uint dirCount = U32(opt + (pe64 ? 108u : 92u));
+        if (dirCount <= 10) return;
+        uint dir = opt + (pe64 ? 112u : 96u) + 10 * 8;
+        uint lc = U32(dir), lcSize = U32(dir + 4);
+        if (lc == 0 || lcSize == 0) return;
+        if (U32(lc) < (pe64 ? 0x94u : 0x5Cu)) return; // the structure's own Size field
+        ulong tableVa = pe64 ? U64(lc + 0x80) : U32(lc + 0x50);
+        ulong count = pe64 ? U64(lc + 0x88) : U32(lc + 0x54);
+        uint guardFlags = U32(lc + (pe64 ? 0x90u : 0x58u));
+        if ((guardFlags & 0x400) == 0 || tableVa < Image.ImageBase || count == 0) return; // IMAGE_GUARD_CF_FUNCTION_TABLE_PRESENT
+        uint table = (uint)(tableVa - Image.ImageBase);
+        uint stride = 4 + ((guardFlags >> 28) & 0xF);
+        count = Math.Min(count, (ulong)Options.MaxFunctions);
+        var raw = new byte[checked((int)Math.Min(count * stride, int.MaxValue / 2))];
+        int n = Read(table, raw) / (int)stride;
+        for (int i = 0; i < n; i++)
+        {
+            uint rva = BinaryPrimitives.ReadUInt32LittleEndian(raw.AsSpan(i * (int)stride));
+            if (Code.IsCode(rva)) GuardCfFunctions.Add(rva);
+        }
     }
 
     /// <summary>The primary .pdata function whose ranges contain <paramref name="rva"/>, or null.</summary>
@@ -137,7 +194,7 @@ internal sealed class CodeContext
     public bool IsKernelMode { get; }
 
     public X86Decoder NewDecoder(bool computeAccess) =>
-        new(Code, Relocations) { ComputeAccess = computeAccess, RejectImplausible = !IsKernelMode };
+        new(Code, Relocations) { ComputeAccess = computeAccess, RejectImplausible = !IsKernelMode, CheckRelocations = true };
 
     private readonly Lock _readLock = new();
 
@@ -201,7 +258,7 @@ internal sealed class CodeContext
             if (m.BaseAssumed && !ownRanges!.Any(r => target >= r.Begin && target < r.End)) { reason = $"entry {i} ({target:X}) is outside the function"; return null; }
             if (seen.Add(target)) targets.Add(target);
         }
-        return new SwitchTable(jumpRva, m.TableRva, (int)count, 4, m.IndexTableRva, targets);
+        return new SwitchTable(jumpRva, m.TableRva, (int)count, 4, m.IndexTableRva, (int)m.IndexTableCount, targets);
     }
 }
 

@@ -79,6 +79,30 @@ internal sealed class X86Decoder
     public bool ComputeAccess { get; set; } = true;
     /// <summary>Treat instructions user-mode compiled code never contains (<see cref="LastIsImplausible"/>) as invalid.</summary>
     public bool RejectImplausible { get; set; }
+    /// <summary>
+    /// Treat an instruction as invalid when a base relocation touches it anywhere but its displacement or immediate:
+    /// the loader patches only pointer-sized operands, so such bytes are data (pointer tables), not code.
+    /// </summary>
+    public bool CheckRelocations { get; set; }
+
+    private bool RelocationsFit(uint rva, int length)
+    {
+        if (_relocs.Length == 0) return true;
+        int size = _is64 ? 8 : 4;
+        int i = Array.BinarySearch(_relocs, rva);
+        if (i < 0) i = ~i;
+        if (i > 0 && _relocs[i - 1] + (uint)size > rva) return false; // a pointer that overlaps the first bytes
+        if (i >= _relocs.Length || _relocs[i] >= rva + (uint)length) return true;
+        var o = _decoder.GetConstantOffsets(in _last);
+        for (; i < _relocs.Length && _relocs[i] < rva + (uint)length; i++)
+        {
+            uint at = _relocs[i] - rva;
+            bool fits = (o.HasDisplacement && o.DisplacementOffset == at && o.DisplacementSize == size)
+                || (o.HasImmediate && o.ImmediateOffset == at && o.ImmediateSize == size);
+            if (!fits) return false;
+        }
+        return true;
+    }
     public bool HasRelocations => _relocs.Length > 0;
     /// <summary>The last decoded instruction.</summary>
     public ref readonly Instruction Last => ref _last;
@@ -123,7 +147,8 @@ internal sealed class X86Decoder
         insn.Rva = rva;
         insn.Length = _last.Length;
         ref readonly var i = ref _last;
-        if (i.IsInvalid || IsZeroPadding(data, pos, end, i.Length) || (RejectImplausible && LastIsImplausible()))
+        if (i.IsInvalid || IsZeroPadding(data, pos, end, i.Length) || (RejectImplausible && LastIsImplausible(strict: false))
+            || (CheckRelocations && !RelocationsFit(rva, i.Length)))
         {
             insn.Flow = FlowKind.Invalid;
             insn.Length = Math.Max(1, i.Length);
@@ -179,29 +204,66 @@ internal sealed class X86Decoder
     }
 
     /// <summary>
-    /// The last instruction is one compilers do not emit in user-mode code (port I/O, far transfers, BCD
-    /// arithmetic, segment loads, privileged state, ds/es/ss/cs overrides): decoding it means the bytes are data.
+    /// The last instruction is one compilers do not emit in user-mode code (port I/O, BCD arithmetic, segment
+    /// loads, privileged state, ds/es/ss/cs overrides; with <paramref name="strict"/> also far transfers and iret,
+    /// which system code such as WoW64 transitions and context restore does use): decoding it means the bytes are data.
     /// </summary>
-    public bool LastIsImplausible()
+    public bool LastIsImplausible(bool strict = true)
     {
         ref readonly var i = ref _last;
         // segment overrides on data accesses (not on nops, which pad with cs:, nor on branches, where 3E is notrack)
         if (i.SegmentPrefix is Register.ES or Register.CS or Register.SS or Register.DS
             && i.Mnemonic != Mnemonic.Nop && i.FlowControl == FlowControl.Next) return true;
-        for (int k = 0; k < i.OpCount; k++)
-            if (i.GetOpKind(k) is OpKind.FarBranch16 or OpKind.FarBranch32) return true;
-        if (i.MemorySize is MemorySize.SegPtr16 or MemorySize.SegPtr32 or MemorySize.SegPtr64) return true;
+        if (strict)
+        {
+            for (int k = 0; k < i.OpCount; k++)
+                if (i.GetOpKind(k) is OpKind.FarBranch16 or OpKind.FarBranch32) return true;
+            if (i.MemorySize is MemorySize.SegPtr16 or MemorySize.SegPtr32 or MemorySize.SegPtr64) return true;
+            if (i.Mnemonic is Mnemonic.Iret or Mnemonic.Iretd or Mnemonic.Iretq or Mnemonic.Retf) return true;
+        }
         // "00 00": add [eax], al
         if (i.Code == Iced.Intel.Code.Add_rm8_r8 && i.Op0Kind == OpKind.Memory && i.MemoryBase is Register.EAX or Register.RAX
             && i.MemoryIndex == Register.None && i.MemoryDisplacement64 == 0 && i.Op1Register == Register.AL) return true;
         return i.Mnemonic is Mnemonic.In or Mnemonic.Out or Mnemonic.Insb or Mnemonic.Insw or Mnemonic.Insd
             or Mnemonic.Outsb or Mnemonic.Outsw or Mnemonic.Outsd or Mnemonic.Hlt or Mnemonic.Cli or Mnemonic.Sti
-            or Mnemonic.Iret or Mnemonic.Iretd or Mnemonic.Iretq or Mnemonic.Arpl or Mnemonic.Bound or Mnemonic.Les
+            or Mnemonic.Arpl or Mnemonic.Bound or Mnemonic.Les
             or Mnemonic.Lds or Mnemonic.Lss or Mnemonic.Lfs or Mnemonic.Lgs or Mnemonic.Into or Mnemonic.Aaa
             or Mnemonic.Aas or Mnemonic.Daa or Mnemonic.Das or Mnemonic.Aam or Mnemonic.Aad or Mnemonic.Salc
-            or Mnemonic.Xlatb or Mnemonic.Retf or Mnemonic.Int1 or Mnemonic.Sldt or Mnemonic.Lldt or Mnemonic.Lgdt
+            or Mnemonic.Xlatb or Mnemonic.Int1 or Mnemonic.Sldt or Mnemonic.Lldt or Mnemonic.Lgdt
             or Mnemonic.Lidt or Mnemonic.Ltr or Mnemonic.Clts or Mnemonic.Invd or Mnemonic.Wbinvd or Mnemonic.Rdmsr
             or Mnemonic.Wrmsr or Mnemonic.Sysexit or Mnemonic.Sysret;
+    }
+
+    /// <summary>
+    /// The last instruction has a 32-bit displacement compiled code would not produce: large, not covered by a
+    /// relocation, not an RVA (x64 __ImageBase-relative tables) and not the fixed shared user data page.
+    /// </summary>
+    public bool LastHasImplausibleDisplacement(uint rva)
+    {
+        ref readonly var i = ref _last;
+        if (i.MemoryDisplSize < 4 || i.IsIPRelativeMemoryOperand) return false;
+        bool memory = false;
+        for (int k = 0; k < i.OpCount; k++) memory |= i.GetOpKind(k) == OpKind.Memory;
+        if (!memory) return false;
+        long disp = (int)(uint)i.MemoryDisplacement64;
+        if (disp is > -0x10000 and < 0x10000) return false;
+        if (disp is >= 0x7FFE0000 and < 0x7FFF0000) return false;
+        if (_is64 && disp >= 0 && disp < _sizeOfImage) return false;
+        var offsets = _decoder.GetConstantOffsets(in i);
+        return !(offsets.HasDisplacement && IsRelocated(rva + offsets.DisplacementOffset));
+    }
+
+    /// <summary>
+    /// The instruction before the last one sets the x86 SEH state [ebp-4] to -1 / -2 (leaving the guarded
+    /// block): the call that follows runs the __finally block.
+    /// </summary>
+    public bool PreviousLeavesSehScope()
+    {
+        if (_is64 || _ringCount < 2) return false;
+        ref var x = ref Back(1);
+        return x.Mnemonic == Mnemonic.Mov && x.Op0Kind == OpKind.Memory && x.MemoryBase == Register.EBP && x.MemoryIndex == Register.None
+            && (int)(uint)x.MemoryDisplacement64 == -4 && x.Op1Kind is OpKind.Immediate32 or OpKind.Immediate8to32
+            && (int)x.GetImmediate(1) is -1 or -2;
     }
 
     private static bool IsNear(OpKind kind) => kind is OpKind.NearBranch16 or OpKind.NearBranch32 or OpKind.NearBranch64;

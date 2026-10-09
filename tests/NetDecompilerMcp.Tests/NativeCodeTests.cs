@@ -281,6 +281,119 @@ public class NativeCodeTests
     }
 
     [Fact]
+    public void Jump_thunk_target_is_a_function()
+    {
+        Label main = default, stub = default, target = default;
+        var (code, rva) = Assemble(64, a =>
+        {
+            main = L(a); stub = L(a); target = L(a);
+            a.Label(ref main);
+            a.call(stub);
+            a.ret();
+            a.Label(ref stub);
+            a.jmp(target); // a function that is only a jump
+            a.int3();
+            a.Label(ref target);
+            a.xor(eax, eax);
+            a.ret();
+        });
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, code, entry: Code));
+        Assert.Equal(FunctionSource.TailJump, index.FunctionByStart(rva(target))!.Sources);
+        Assert.Equal([rva(target)], index.GetGraph(index.FunctionByStart(rva(stub))!).TailCalls);
+    }
+
+    [Fact]
+    public void X86_finally_block_called_in_its_function_stays_part_of_it()
+    {
+        Label main = default, fin = default, done = default;
+        var (code, rva) = Assemble(32, a =>
+        {
+            main = L(a); fin = L(a); done = L(a);
+            a.Label(ref main);
+            a.push(ebp);
+            a.mov(ebp, esp);
+            a.sub(esp, 0x20);
+            a.mov(__dword_ptr[ebp - 4], -2); // leave the guarded block
+            a.call(fin);                     // run the __finally block
+            a.jmp(done);
+            a.Label(ref fin);
+            a.cmp(__dword_ptr[ebp - 0x1C], 0);
+            a.ret();
+            a.Label(ref done);
+            a.mov(esp, ebp);
+            a.pop(ebp);
+            a.ret();
+        });
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X86, code, entry: Code));
+        var f = Assert.Single(index.Functions);
+        Assert.Equal(f, index.FunctionAt(rva(fin)));
+        Assert.Contains(index.GetGraph(f).Blocks, b => b.Start == rva(fin));
+        Assert.Contains(index.RefsTo(rva(fin)), x => x.Kind == XrefKind.Call);
+    }
+
+    [Fact]
+    public void X86_exception_filter_reached_through_data_is_a_funclet()
+    {
+        Label main = default, filter = default;
+        uint scopeTable = Data + 0x10;
+        var (code, rva) = Assemble(32, a =>
+        {
+            main = L(a); filter = L(a);
+            a.Label(ref main);
+            a.push(ebp);
+            a.mov(ebp, esp);
+            a.push((int)(Base32 + scopeTable)); // push offset scope table
+            a.call(__dword_ptr[(int)(Base32 + Data)]);
+            a.mov(esp, ebp);
+            a.pop(ebp);
+            a.ret();
+            a.int3();
+            a.Label(ref filter);
+            a.mov(eax, __dword_ptr[ebp - 0x14]); // the parent's frame
+            a.mov(eax, __dword_ptr[eax]);
+            a.ret();
+        });
+        var data = new byte[0x100];
+        // scope table entry: enclosing level, filter, handler
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x10), 0xFFFFFFFE);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x14), (uint)Base32 + rva(filter));
+        uint pushImm = rva(main) + 4; // 55 8b ec 68 imm32
+        var relocs = new[] { pushImm, rva(main) + 3 + 5 + 2, scopeTable + 4 };
+        var image = CodeTestImage.Synthetic(NativeArch.X86, code, data, [Import("KERNEL32.dll", "Sleep", Data)], relocations: relocs, entry: Code);
+        var index = NativeCodeIndex.Build(image);
+        var f = index.FunctionByStart(rva(filter))!;
+        Assert.Equal(FunctionSource.DataPointer, f.Sources);
+        Assert.NotEqual(0, (int)(f.Flags & FunctionFlags.Funclet));
+        Assert.Equal(0, (int)(index.FunctionByStart(rva(main))!.Flags & FunctionFlags.Funclet));
+        Assert.Contains(index.RefsTo(rva(filter)), x => x.Kind == XrefKind.Pointer && x.From == scopeTable + 4);
+    }
+
+    [Fact]
+    public void Data_that_decodes_as_code_is_not_made_a_function()
+    {
+        Label main = default;
+        uint guid = Code + 0x40;
+        var (code, rva) = Assemble(32, a =>
+        {
+            main = L(a);
+            a.Label(ref main);
+            a.push((int)(Base32 + guid)); // push offset of data in the code section
+            a.call(__dword_ptr[(int)(Base32 + Data)]);
+            a.ret();
+        });
+        var bytes = new byte[0x60];
+        code.CopyTo(bytes, 0);
+        // a GUID: decodes as "sub [ecx+ebx*2-7A2647Ah], cl; inc ebp; mov ds:[0E9A9922Bh], eax; ..."
+        byte[] g = [0x28, 0x8C, 0x59, 0x86, 0x9B, 0x5D, 0xF8, 0x45, 0xA3, 0x2B, 0x92, 0xA9, 0xE9, 0x9D, 0x96, 0x23];
+        g.CopyTo(bytes, 0x40);
+        var relocs = new[] { rva(main) + 1, rva(main) + 5 + 2 };
+        var image = CodeTestImage.Synthetic(NativeArch.X86, bytes, imports: [Import("KERNEL32.dll", "Sleep", Data)], relocations: relocs, entry: Code);
+        var index = NativeCodeIndex.Build(image);
+        Assert.Single(index.Functions);
+        Assert.Contains(index.RefsTo(guid), x => x.Kind == XrefKind.Address);
+    }
+
+    [Fact]
     public void Noreturn_propagates_from_imports_and_traps()
     {
         Label main = default, fatal = default, fastfail = default, after = default;
@@ -319,13 +432,13 @@ public class NativeCodeTests
     [Fact]
     public void Invalid_and_overlapping_bytes_are_bounded()
     {
-        // eb ff: jmp to its own second byte; ff c0: inc eax; then c3: ret
-        byte[] overlap = [0xEB, 0xFF, 0xC0, 0xC3];
+        // nop; eb ff: jmp to its own second byte; ff c0: inc eax; then c3: ret
+        byte[] overlap = [0x90, 0xEB, 0xFF, 0xC0, 0xC3];
         var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, overlap, entry: Code));
-        var f = index.FunctionByStart(Code)!;
+        var f = Assert.Single(index.Functions);
         Assert.NotEqual(0, (int)(f.Flags & FunctionFlags.OverlappingCode));
         var graph = index.GetGraph(f);
-        Assert.Contains(graph.Blocks, b => b.Start == Code + 1);
+        Assert.Contains(graph.Blocks, b => b.Start == Code + 2);
 
         // valid code running into an opcode that is invalid in 64-bit mode
         byte[] invalid = [0x31, 0xC0, 0x40, 0xD6, 0xC3];
@@ -419,6 +532,7 @@ public class NativeCodeTests
         foreach (var e in image.Exports.Where(e => e.ForwardedTo == null && image.SectionAt(e.Rva) is { IsExecutable: true }))
             Assert.NotNull(index.FunctionByStart(e.Rva));
         Assert.Contains(index.Functions, f => f.KnownName == "GetFileVersionInfoW");
+        Assert.Contains(index.Functions, f => (f.Sources & FunctionSource.GuardCf) != 0);
         Assert.True(index.Stats.Xrefs > 100);
         Assert.NotEmpty(index.Strings);
 

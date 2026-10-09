@@ -8,6 +8,8 @@ internal sealed class WalkResult
     public CodeXref[] Xrefs = [];
     /// <summary>Functions it calls or tail-calls (local starts only).</summary>
     public uint[] Callees = [];
+    /// <summary>Function starts the code runs into without a branch.</summary>
+    public uint[] FallsInto = [];
     public bool Returns;
     public FunctionFlags Flags;
     public int Instructions;
@@ -46,6 +48,7 @@ internal sealed class FunctionWalker
     private readonly List<SwitchTable> _switches = [];
     private readonly List<uint> _unresolved = [];
     private readonly List<uint> _tails = [];
+    private readonly List<uint> _fallsInto = [];
     /// <summary>Unresolved indirect jumps that a later path with a known bound may still resolve, and their runs.</summary>
     private readonly SortedSet<uint> _pending = [];
     private readonly Dictionary<uint, int> _pendingRun = [];
@@ -59,7 +62,7 @@ internal sealed class FunctionWalker
     public WalkResult Walk(NativeFunction? function, uint start, bool buildGraph, CancellationToken ct)
     {
         _visited.Clear(); _insns.Clear(); _lengths.Clear(); _runs.Clear(); _leaders.Clear(); _work.Clear(); _xrefs.Clear(); _callees.Clear();
-        _branches.Clear(); _conditionals.Clear(); _switches.Clear(); _unresolved.Clear(); _tails.Clear(); _pending.Clear(); _pendingRun.Clear();
+        _branches.Clear(); _conditionals.Clear(); _switches.Clear(); _unresolved.Clear(); _tails.Clear(); _fallsInto.Clear(); _pending.Clear(); _pendingRun.Clear();
         var result = new WalkResult();
         // chained .pdata fragments only say which jumps stay inside the function: a fragment can begin with data
         // (a switch table), so fragments are reached by flow, never decoded from their begin
@@ -104,6 +107,7 @@ internal sealed class FunctionWalker
                     run.EndKind = RunEnd.FunctionBoundary;
                     _callees.Add(a);
                     _tails.Add(a);
+                    _fallsInto.Add(a);
                     if (conditional) _branches.Remove((insn.Rva, a, EdgeKind.ConditionalFallThrough));
                     _branches.Add((insn.Rva, a, EdgeKind.TailCall));
                     break;
@@ -183,6 +187,12 @@ internal sealed class FunctionWalker
                 if (!insn.HasTarget) return false;
                 _xrefs.Add(new CodeXref(insn.Rva, insn.Target, XrefKind.Call));
                 if (insn.Target == insn.Next) return false;
+                if (_ctx.LocalSubroutines.Contains(insn.Target))
+                {
+                    // called inside its own function (x86 __finally blocks): part of this function
+                    Push(insn.Target, IndexBound.None);
+                    return false;
+                }
                 _callees.Add(insn.Target);
                 if (IsNoReturnCall(insn.Target)) { run.EndKind = RunEnd.NoReturnCall; return true; }
                 return false;
@@ -329,6 +339,7 @@ internal sealed class FunctionWalker
         foreach (var l in _leaders) if (_visited.Contains(l)) blocks++;
         result.Blocks = Math.Max(blocks, _runs.Count(r => r.InsnCount > 0));
         result.Xrefs = _xrefs.ToArray();
+        result.FallsInto = _fallsInto.ToArray();
         _callees.Remove(start);
         result.Callees = _callees.Where(c => !_ctx.ImportSlots.ContainsKey(c)).ToArray();
     }

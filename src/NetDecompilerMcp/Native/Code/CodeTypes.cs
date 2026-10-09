@@ -51,14 +51,24 @@ public enum FunctionSource : ushort
     TlsCallback = 8,
     /// <summary>Target of a direct call.</summary>
     Call = 16,
-    /// <summary>Target of a jump that leaves its function (x64: outside the caller's .pdata ranges).</summary>
+    /// <summary>
+    /// Target of a jump that is a tail call: x64 out of the caller's .pdata ranges, the only instruction of a
+    /// jump thunk, a jump to an import thunk, an x86 jump to a standard prologue.
+    /// </summary>
     TailJump = 32,
-    /// <summary>A recognized prologue in a gap between known code (x86), verified by decoding.</summary>
-    Prologue = 64,
+    /// <summary>
+    /// Code in a gap between known code that nothing references (x86: at a standard prologue; x64: after int3
+    /// padding), verified by decoding.
+    /// </summary>
+    CodeGap = 64,
     /// <summary>A relocated pointer in data (vtable, function table), verified by decoding.</summary>
     DataPointer = 128,
     /// <summary>Address taken by code (lea / push offset), verified by decoding.</summary>
     CodeAddress = 256,
+    /// <summary>Listed in the Control Flow Guard function table of the load configuration.</summary>
+    GuardCf = 512,
+    /// <summary>x64: language-specific exception handler named by unwind information.</summary>
+    ExceptionHandler = 1024,
 }
 
 [Flags]
@@ -76,6 +86,11 @@ public enum FunctionFlags : byte
     Truncated = 16,
     /// <summary>Some instructions are decoded at two overlapping offsets.</summary>
     OverlappingCode = 32,
+    /// <summary>
+    /// x86: runs in another function's frame (uses ebp before setting it): an exception filter, handler or catch
+    /// block reached only through exception metadata.
+    /// </summary>
+    Funclet = 64,
 }
 
 /// <summary>A discovered function. Extents are the union of its basic blocks (functions can be non-contiguous).</summary>
@@ -201,7 +216,7 @@ public sealed class BasicBlock
 }
 
 /// <summary>A resolved switch: the indirect jump, its table, and the distinct case targets.</summary>
-public sealed record SwitchTable(uint JumpRva, uint TableRva, int EntryCount, int EntrySize, uint? IndexTableRva, IReadOnlyList<uint> Targets);
+public sealed record SwitchTable(uint JumpRva, uint TableRva, int EntryCount, int EntrySize, uint? IndexTableRva, int IndexEntryCount, IReadOnlyList<uint> Targets);
 
 /// <summary>Basic blocks and edges of one function, blocks sorted by start.</summary>
 public sealed class FunctionGraph

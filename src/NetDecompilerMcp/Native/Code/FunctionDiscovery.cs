@@ -49,29 +49,57 @@ internal sealed class FunctionDiscovery
     {
         var image = _ctx.Image;
         foreach (var (primary, _) in _ctx.PdataRanges) Add(primary, FunctionSource.Pdata, strong: true);
-        foreach (var e in image.Exports)
-            if (e.ForwardedTo == null && _ctx.Code.IsCode(e.Rva)) Add(e.Rva, FunctionSource.Export, strong: true);
         if (image.EntryPointRva != 0 && _ctx.Code.IsCode(image.EntryPointRva)) Add(image.EntryPointRva, FunctionSource.EntryPoint, strong: true);
         foreach (var t in image.TlsCallbackRvas)
             if (_ctx.Code.IsCode(t)) Add(t, FunctionSource.TlsCallback, strong: true);
+        foreach (var t in _ctx.GuardCfFunctions) Add(t, FunctionSource.GuardCf, strong: true);
+        foreach (var t in _ctx.ExceptionHandlers) Add(t, FunctionSource.ExceptionHandler, strong: true);
+        var exports = image.Exports.Where(e => e.ForwardedTo == null && _ctx.Code.IsCode(e.Rva)).ToList();
+        foreach (var e in exports)
+            if (ExportKind(e.Name) == true) Add(e.Rva, FunctionSource.Export, strong: true);
+        Drain();
+        // exports that may be data (undecorated or ordinal-only names; data merged into the code section)
+        foreach (var e in exports)
+            if (ExportKind(e.Name) == null) TryExport(e.Rva);
         Drain();
 
-        for (int round = 0; round < 8; round++)
+        int iterations = 0;
+        bool changed = true;
+        while (changed && iterations++ < 16)
         {
             int before = _functions.Count;
             foreach (var t in DataPointerTargets(inCode: false)) TryCandidate(t, FunctionSource.DataPointer);
             Drain();
             foreach (var t in _addressCandidates.ToList()) TryCandidate(t, FunctionSource.CodeAddress);
             Drain();
-            if (image.Arch == NativeArch.X86 && _ctx.Options.ScanPrologues) ScanGaps();
+            if (_ctx.Options.ScanPrologues) ScanGaps(image.Arch == NativeArch.X86);
             if (_functions.Count != before) continue;
             // pointers stored inside code sections last: by now the functions owning switch tables there are
             // decoded, so case labels are covered
             foreach (var t in DataPointerTargets(inCode: true)) TryCandidate(t, FunctionSource.DataPointer);
             Drain();
-            if (_functions.Count == before) break;
+            changed = _functions.Count != before;
         }
         return _functions;
+    }
+
+    /// <summary>
+    /// What an export name says about its target: MSVC-decorated names ending in 'Z' (the throw specification) are
+    /// functions (true); other decorated names are data such as vftables or variables (false); undecorated and
+    /// ordinal-only names tell nothing (null).
+    /// </summary>
+    internal static bool? ExportKind(string? name)
+    {
+        if (name is not { Length: > 1 } || name[0] != '?') return null;
+        return name[^1] == 'Z';
+    }
+
+    /// <summary>An export of unknown kind: a function when it decodes as one, or when known code has an instruction there.</summary>
+    private void TryExport(uint rva)
+    {
+        long bit = _ctx.Code.BitIndex(rva);
+        if (_starts[bit]) { Add(rva, FunctionSource.Export, strong: true); return; }
+        TryCandidate(rva, FunctionSource.Export);
     }
 
     private void Add(uint rva, FunctionSource source, bool strong)
@@ -171,6 +199,12 @@ internal sealed class FunctionDiscovery
             case FlowKind.Call:
                 if (insn.HasTarget && insn.Target != insn.Next && _ctx.Code.IsCode(insn.Target))
                 {
+                    if (_ctx.LocalSubroutines.Contains(insn.Target)
+                        || (!_functions.ContainsKey(insn.Target) && (LocalFinallyCall(in insn) || UsesCallerFrame(insn.Target)) && _ctx.LocalSubroutines.Add(insn.Target)))
+                    {
+                        _work.Push((insn.Target, IndexBound.None));
+                        return true;
+                    }
                     Add(insn.Target, FunctionSource.Call, strong: true);
                     if (IsNoReturnTarget(insn.Target)) return false;
                 }
@@ -178,7 +212,12 @@ internal sealed class FunctionDiscovery
             case FlowKind.IndirectCall:
                 return !(insn.HasMem && _ctx.NoReturn.Contains(insn.MemTarget));
             case FlowKind.Jump:
-                if (insn.HasTarget && _ctx.Code.IsCode(insn.Target)) Branch(insn.Target, root, own, IndexBound.None);
+                if (!insn.HasTarget || !_ctx.Code.IsCode(insn.Target)) return false;
+                // a function that is only a jump (adjustor / ICF thunk), a jump to an import thunk, an x86 jump to a
+                // standard prologue: tail calls to functions
+                if (insn.Rva == root && insn.Target != root || ThunkSlot(insn.Target) != null || (!_dec.Is64 && StartsWithPrologue(insn.Target)))
+                    Add(insn.Target, FunctionSource.TailJump, strong: true);
+                else Branch(insn.Target, root, own, IndexBound.None);
                 return false;
             case FlowKind.ConditionalJump:
                 if (insn.HasTarget && _ctx.Code.IsCode(insn.Target))
@@ -189,8 +228,7 @@ internal sealed class FunctionDiscovery
                 return true;
             case FlowKind.IndirectJump:
                 if (insn.HasMem && _ctx.ImportSlots.ContainsKey(insn.MemTarget)) return false;
-                if (_dec.MatchSwitch(out _) is { } m && _ctx.ReadSwitch(insn.Rva, m, own, out _) is { } table)
-                    foreach (var t in table.Targets) _work.Push((t, IndexBound.None));
+                if (_dec.MatchSwitch(out _) is { } m && _ctx.ReadSwitch(insn.Rva, m, own, out _) is { } table) FollowSwitch(table);
                 else _pendingSwitches.Add(insn.Rva);
                 return false;
             case FlowKind.Next:
@@ -207,20 +245,45 @@ internal sealed class FunctionDiscovery
         {
             if (SwitchDispatch.Redecode(_peek, _ctx, a, bound, jump, own) is not { } table) continue;
             _pendingSwitches.Remove(jump);
-            foreach (var t in table.Targets) _work.Push((t, IndexBound.None));
+            FollowSwitch(table);
+        }
+    }
+
+    /// <summary>Queues the cases; the tables are data inside code, marked covered so no gap scan decodes them.</summary>
+    private void FollowSwitch(SwitchTable table)
+    {
+        MarkData(table.TableRva, (uint)(table.EntryCount * table.EntrySize));
+        if (table.IndexTableRva is { } it) MarkData(it, (uint)table.IndexEntryCount);
+        foreach (var t in table.Targets) _work.Push((t, IndexBound.None));
+    }
+
+    private void MarkData(uint rva, uint length)
+    {
+        for (uint a = rva; a < rva + length; a++)
+        {
+            long bit = _ctx.Code.BitIndex(a);
+            if (bit < 0) return;
+            _covered[bit] = true;
         }
     }
 
     private void Branch(uint target, uint root, List<(uint Begin, uint End)>? own, IndexBound bound)
     {
         if (target != root && _functions.ContainsKey(target)) return;
-        if (own != null && !InRanges(own, target) && _ctx.PdataOwner(target) == null)
+        // x64: a jump out of a .pdata function into code no .pdata entry covers is a tail call to a leaf function,
+        // unless it lands right after the function's own range (an epilogue the unwind data leaves out)
+        if (own != null && !InRanges(own, target) && _ctx.PdataOwner(target) == null && !JustAfter(own, target))
         {
-            // x64: a jump out of a .pdata function into code no .pdata entry covers is a tail call to a leaf function
             Add(target, FunctionSource.TailJump, strong: true);
             return;
         }
         _work.Push((target, bound));
+    }
+
+    private static bool JustAfter(List<(uint Begin, uint End)> ranges, uint rva)
+    {
+        foreach (var (_, e) in ranges) if (rva == e) return true;
+        return false;
     }
 
     private static bool InRanges(List<(uint Begin, uint End)> ranges, uint rva)
@@ -275,13 +338,73 @@ internal sealed class FunctionDiscovery
         if (bit < 0 || _covered[bit]) return false;
         if (_dataInCode.Contains(rva)) return false;
         if (StringDetector.Detect(_ctx.Image, rva, 64, _stringBuffer) != null) return false;
-        if (!Verify(rva)) return false;
+        if (!Verify(rva, out bool funclet)) return false;
         Add(rva, source, strong: false);
+        if (funclet) _ctx.Funclets.Add(rva);
         return true;
     }
 
-    private bool Verify(uint root)
+    /// <summary>x86: a call just after leaving an SEH scope to a block shortly after it (the __finally block).</summary>
+    private bool LocalFinallyCall(in Insn call) =>
+        call.Target > call.Rva && call.Target - call.Rva < 0x400 && _dec.PreviousLeavesSehScope();
+
+    /// <summary>
+    /// x86: the code at <paramref name="rva"/> reads or writes [ebp+x] before it sets ebp, so it runs in its
+    /// caller's frame (a __finally block called by the function that owns it), not as a function of its own.
+    /// </summary>
+    private bool UsesCallerFrame(uint rva)
     {
+        if (_dec.Is64) return false;
+        for (int n = 0; n < 8; n++)
+        {
+            if (!_peek.Decode(rva, out var insn) || insn.Flow == FlowKind.Invalid) return false;
+            ref readonly var x = ref _peek.Last;
+            if (x.Op0Kind == Iced.Intel.OpKind.Register && x.Op0Register == Iced.Intel.Register.EBP && x.Mnemonic != Iced.Intel.Mnemonic.Push) return false;
+            if (UsesEbpMemory(in x)) return true;
+            if (insn.Flow != FlowKind.Next) return false;
+            rva = insn.Next;
+        }
+        return false;
+    }
+
+    /// <summary>A decoded instruction that is not a function start.</summary>
+    private bool IsInsideFunction(uint rva)
+    {
+        long bit = _ctx.Code.BitIndex(rva);
+        return bit >= 0 && _starts[bit] && !_functions.ContainsKey(rva);
+    }
+
+    /// <summary>
+    /// Instructions legal in compiled code but rare enough that a weak candidate containing them is more likely
+    /// data: pusha / popa, one-byte xchg with eax, ret with an odd or large byte count.
+    /// </summary>
+    private static bool UnlikelyInNewFunction(in Iced.Intel.Instruction x)
+    {
+        switch (x.Mnemonic)
+        {
+            case Iced.Intel.Mnemonic.Pusha or Iced.Intel.Mnemonic.Pushad or Iced.Intel.Mnemonic.Popa or Iced.Intel.Mnemonic.Popad:
+                return true;
+            case Iced.Intel.Mnemonic.Xchg:
+                return x.Length == 1 && x.Op0Register != x.Op1Register;
+            case Iced.Intel.Mnemonic.Ret:
+                return x.Op0Kind == Iced.Intel.OpKind.Immediate16 && (x.Immediate16 % 4 != 0 || x.Immediate16 > 0x200);
+        }
+        return false;
+    }
+
+    private static bool UsesEbpMemory(in Iced.Intel.Instruction x)
+    {
+        if (x.MemoryBase != Iced.Intel.Register.EBP) return false;
+        for (int k = 0; k < x.OpCount; k++)
+            if (x.GetOpKind(k) == Iced.Intel.OpKind.Memory) return true;
+        return false;
+    }
+
+    /// <param name="funclet">x86: the code runs in another function's frame (exception filter, handler or catch block).</param>
+    private bool Verify(uint root, out bool funclet)
+    {
+        funclet = false;
+        bool frame = false;
         var seen = new HashSet<uint>();
         var work = new Stack<uint>();
         work.Push(root);
@@ -290,6 +413,8 @@ internal sealed class FunctionDiscovery
         {
             uint a = work.Pop();
             _peek.BeginRun(IndexBound.None);
+            var previous = FlowKind.Jump;
+            bool returnsAddress = false;
             while (true)
             {
                 if (!seen.Add(a)) break;
@@ -299,9 +424,28 @@ internal sealed class FunctionDiscovery
                 if (_starts[bit]) { if (!_functions.ContainsKey(a)) return false; break; }
                 if (_covered[bit]) return false;
                 if (++count > VerifyLimit) return false;
-                if (!_peek.Decode(a, out var insn) || insn.Flow is FlowKind.Invalid || _peek.LastIsImplausible()) return false;
+                if (!_peek.Decode(a, out var insn) || insn.Flow is FlowKind.Invalid || _peek.LastIsImplausible() || _peek.LastHasImplausibleDisplacement(a)
+                    || UnlikelyInNewFunction(in _peek.Last)) return false;
+                // int3 ends code only as padding after a call that does not return
+                if (insn.Flow == FlowKind.Trap && _peek.Last.Mnemonic == Iced.Intel.Mnemonic.Int3 && previous is not (FlowKind.Call or FlowKind.IndirectCall)) return false;
+                previous = insn.Flow;
+                // x86: [ebp+x] before the code sets up ebp is the frame of another function (SEH filter or handler)
+                if (!_peek.Is64 && !frame)
+                {
+                    ref readonly var x = ref _peek.Last;
+                    if (x.Op0Kind == Iced.Intel.OpKind.Register && x.Op0Register == Iced.Intel.Register.EBP && x.Mnemonic != Iced.Intel.Mnemonic.Push) frame = true;
+                    else if (UsesEbpMemory(in x)) funclet = true;
+                }
                 if (insn.HasMem && _ctx.Code.IsCode(insn.MemTarget) && insn.MemAccess != OperandAccess.Address && _starts[_ctx.Code.BitIndex(insn.MemTarget)])
                     return false; // reads or writes known instructions as data
+                // takes the address of an instruction inside another function (x86 catch blocks return their
+                // continuation address): part of that function's exception handling, not a function
+                if ((insn.HasImm && IsInsideFunction(insn.ImmTarget)) || (insn.HasMem && insn.MemAccess == OperandAccess.Address && IsInsideFunction(insn.MemTarget)))
+                    return false;
+                // "mov eax, offset x; ret" returning a code address that is no function: a catch block's continuation
+                if (returnsAddress && insn.Flow == FlowKind.Return) funclet = true;
+                returnsAddress = insn.HasImm && _peek.Last.Mnemonic == Iced.Intel.Mnemonic.Mov && _peek.Last.Op0Register == Iced.Intel.Register.EAX
+                    && _ctx.Code.IsCode(insn.ImmTarget) && !_functions.ContainsKey(insn.ImmTarget);
                 for (int k = 1; k < insn.Length; k++)
                     if (_covered[_ctx.Code.BitIndex(a + (uint)k)]) return false;
                 switch (insn.Flow)
@@ -335,24 +479,35 @@ internal sealed class FunctionDiscovery
     }
 
     /// <summary>
-    /// x86: in each gap between known code, skips alignment padding and accepts a function where a standard prologue
-    /// starts and the code verifies.
+    /// Code nothing references (dead code, functions reached only through metadata such as C++ unwind funclets):
+    /// in each gap between known code, skips alignment padding and accepts a function that verifies where
+    /// x86: a standard prologue starts (right after known code or padding, or 16-byte aligned);
+    /// x64: anything starts right after known code and its int3 padding.
     /// </summary>
-    private void ScanGaps()
+    private void ScanGaps(bool prologues)
     {
         foreach (var region in _ctx.Code.Regions)
         {
             var bytes = region.Bytes;
             int p = 0;
-            // candidates only right after known code or padding, or 16-byte aligned
-            bool boundary = true;
+            bool boundary = true;     // right after known code or padding
+            bool afterCode = false;   // right after known code and int3 padding
+            bool sawCode = false;
             while (p < bytes.Length)
             {
                 if ((p & 0xFFFF) == 0) _ct.ThrowIfCancellationRequested();
-                if (_covered[region.BitBase + p]) { p++; boundary = true; continue; }
+                if (_covered[region.BitBase + p]) { p++; boundary = true; sawCode = true; afterCode = false; continue; }
+                if (!prologues)
+                {
+                    if (bytes[p] == 0xCC) { afterCode |= sawCode; sawCode = false; p++; continue; }
+                    if (afterCode && TryCandidate(region.Rva + (uint)p, FunctionSource.CodeGap)) { Drain(); continue; }
+                    afterCode = sawCode = false;
+                    p++;
+                    continue;
+                }
                 int pad = PaddingLength(bytes, p, bytes.Length);
                 if (pad > 0) { p += pad; boundary = true; continue; }
-                if ((boundary || (p & 15) == 0) && IsPrologue(bytes, p, bytes.Length) && TryCandidate(region.Rva + (uint)p, FunctionSource.Prologue))
+                if ((boundary || (p & 15) == 0) && IsPrologue(bytes, p, bytes.Length) && TryCandidate(region.Rva + (uint)p, FunctionSource.CodeGap))
                 {
                     Drain();
                     continue;
@@ -392,11 +547,21 @@ internal sealed class FunctionDiscovery
         };
     }
 
-    /// <summary>push ebp; mov ebp, esp (either encoding), optionally after the hot-patch mov edi, edi.</summary>
-    private static bool IsPrologue(byte[] b, int p, int end)
+    private bool StartsWithPrologue(uint rva) =>
+        _ctx.Code.RegionAt(rva) is { } region && IsPrologue(region.Bytes, (int)(rva - region.Rva), region.Bytes.Length, hotPatchAlone: true);
+
+    /// <summary>
+    /// push ebp; mov ebp, esp (either encoding), optionally after the hot-patch mov edi, edi; for jump targets
+    /// (<paramref name="hotPatchAlone"/>) the hot-patch mov edi, edi alone, which only ever starts a function.
+    /// </summary>
+    private static bool IsPrologue(byte[] b, int p, int end, bool hotPatchAlone = false)
     {
         ReadOnlySpan<byte> s = b.AsSpan(p, end - p);
-        if (s.StartsWith((ReadOnlySpan<byte>)[0x8B, 0xFF])) s = s[2..];
+        if (s.StartsWith((ReadOnlySpan<byte>)[0x8B, 0xFF]))
+        {
+            if (hotPatchAlone) return true;
+            s = s[2..];
+        }
         return s.StartsWith((ReadOnlySpan<byte>)[0x55, 0x8B, 0xEC]) || s.StartsWith((ReadOnlySpan<byte>)[0x55, 0x89, 0xE5]);
     }
 }
