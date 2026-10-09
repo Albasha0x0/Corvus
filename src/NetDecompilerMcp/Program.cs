@@ -85,6 +85,8 @@ builder.Services
     {
         try
         {
+            if (context.MatchedPrimitive is ModelContextProtocol.Server.McpServerTool tool)
+                ArgumentCheck.Apply(tool.ProtocolTool.InputSchema, context.Params?.Arguments);
             var result = await next(context, cancellationToken);
             // Transformed names made of zero-width and bidi characters would print as nothing or scramble the line.
             foreach (var block in result.Content.OfType<TextContentBlock>())
@@ -112,6 +114,15 @@ builder.Services
                 IsError = true,
                 Content = [new TextContentBlock { Text = new NetDecompilerMcp.Core.ToolError(NetDecompilerMcp.Core.ErrorCode.InvalidArgument,
                     $"missing required parameter '{m.Groups[1].Value}'.").Render(context.Params?.Name) }],
+            };
+        }
+        catch (Exception ex) when (ArgumentCheck.FileSystemError(ex) is { } error)
+        {
+            // A path argument System.IO rejected or could not reach.
+            return new CallToolResult
+            {
+                IsError = true,
+                Content = [new TextContentBlock { Text = NetDecompilerMcp.Core.Format.EscapeInvisible(error.Render(context.Params?.Name)) }],
             };
         }
         catch (Exception ex) when (ex is not McpException && ex is not OperationCanceledException)
