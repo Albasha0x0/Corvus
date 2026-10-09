@@ -82,9 +82,11 @@ internal sealed class ConstantFlow
         for (int i = 0; i < variables.Count; i++)
             _untracked[i] = Initial(_localTypes[i], true) == Unknown;
         // A local a finally or fault handler writes changes on the way out of its try, which a leave's flow does not show:
-        // it is tracked only when nothing outside that handler uses it.
+        // it is tracked only when that value is never read outside the handler (nothing outside it uses the local, or it
+        // is written again before any read after every way out of the try and at every handler start).
         var finallyOf = new int?[variables.Count];
         var usedOutside = new bool[variables.Count];
+        var writers = new HashSet<int>?[variables.Count];
         for (int i = 0; i < _code.Count; i++)
         {
             var ins = _code[i];
@@ -94,7 +96,7 @@ internal sealed class ConstantFlow
             if (ins.IsStloc() && ins.GetLocal(variables) is { } filtered && _graph.Regions(i).Any(id => id % 3 == 2)) _untracked[filtered.Index] = true;
             if (ins.IsStloc() && ins.GetLocal(variables) is { } stored && FinallyOrFault(i) is { } h)
             {
-                if (finallyOf[stored.Index] is { } other && other != h) _untracked[stored.Index] = true;
+                (writers[stored.Index] ??= new HashSet<int>()).Add(h);
                 finallyOf[stored.Index] = h;
             }
         }
@@ -105,7 +107,45 @@ internal sealed class ConstantFlow
             if (finallyOf[local.Index] is { } h && !_graph.Regions(i).Contains(h * 3 + 1)) usedOutside[local.Index] = true;
         }
         for (int l = 0; l < variables.Count; l++)
-            if (finallyOf[l] != null && usedOutside[l]) _untracked[l] = true;
+        {
+            if (writers[l] is not { } handlers) continue;
+            bool single = handlers.Count == 1 && !usedOutside[l];
+            if (!single && handlers.Any(h => Escapes(h, l))) _untracked[l] = true;
+        }
+    }
+
+    /// <summary>
+    /// Whether a value the finally or fault handler h leaves in local l can be read after it: l is read before being
+    /// written again from a target of a leave out of h's try, or from the start of any handler (exception paths).
+    /// </summary>
+    private bool Escapes(int h, int l)
+    {
+        var variables = _body.Variables;
+        var eh = _graph.Handlers[h];
+        int tryStart = Math.Max(_graph.IndexOf(eh.TryStart), 0), tryEnd = _graph.IndexOrEnd(eh.TryEnd);
+        var starts = new List<int>();
+        for (int i = tryStart; i < tryEnd; i++)
+            if (_code[i].OpCode.Code is Code.Leave or Code.Leave_S && _graph.IndexOf(_code[i].Operand as Instruction) is var t && (t < tryStart || t >= tryEnd))
+                starts.Add(t);
+        foreach (var other in _graph.Handlers)
+        {
+            starts.Add(_graph.IndexOf(other.HandlerStart));
+            if (other.FilterStart != null) starts.Add(_graph.IndexOf(other.FilterStart));
+        }
+        var seen = new HashSet<int>();
+        var work = new Stack<int>(starts.Where(i => i >= 0));
+        while (work.Count > 0)
+        {
+            int i = work.Pop();
+            if (i < 0 || i >= _code.Count || !seen.Add(i)) continue;
+            var ins = _code[i];
+            bool local = (ins.IsLdloc() || ins.IsStloc() || ins.OpCode.Code is Code.Ldloca or Code.Ldloca_S) && ins.GetLocal(variables)?.Index == l;
+            if (local && !ins.IsStloc()) return true; // read (or address taken) before a write
+            if (local) continue; // written again: the handler's value is gone on this path
+            foreach (var t in BodyGraph.BranchTargets(ins)) work.Push(_graph.IndexOf(t));
+            if (BodyGraph.FallsThrough(ins) && ins.OpCode.FlowControl != FlowControl.Branch) work.Push(i + 1);
+        }
+        return false;
     }
 
     /// <summary>The type whose values a local holds: enums hold their underlying integer.</summary>
@@ -224,10 +264,14 @@ internal sealed class ConstantFlow
             }
             result.Edges[edge] = targets.First();
         }
+        // Bypassing the dispatcher skips only its own stores: a read that none of them reaches (another dispatcher over the
+        // same state, which stores it first, say) still reads what it read before, so only known values are replaced.
+        var reached = ReachedByStores(dispatcher.Members);
         foreach (var (index, value) in run.Reads)
         {
             if (value == Unknown)
             {
+                if (ReadLocal(index) is { } local && !reached.Contains((index, local))) continue;
                 result.Failure = $"the state is read at {Where(index)}, where its value depends on the path taken";
                 return result;
             }
@@ -237,6 +281,56 @@ internal sealed class ConstantFlow
     }
 
     private string Where(int index) => $"IL_{_code[index].Offset:X4}";
+
+    /// <summary>The local code[index] reads: an ldloc, or the ldind of <c>ldloca; ldind</c>.</summary>
+    private int? ReadLocal(int index)
+    {
+        var ins = _code[index];
+        if (ins.IsLdloc()) return ins.GetLocal(_body.Variables)?.Index;
+        if (index > 0 && _code[index - 1].OpCode.Code is Code.Ldloca or Code.Ldloca_S) return _code[index - 1].GetLocal(_body.Variables)?.Index;
+        return null;
+    }
+
+    /// <summary>
+    /// The reads (index, local) that a store among <paramref name="members"/> reaches: some path from the store gets
+    /// there without storing the local again. Paths follow branches, leaves, endfinally to every leave target, and an
+    /// edge from each instruction of a protected region to its handler.
+    /// </summary>
+    private HashSet<(int, int)> ReachedByStores(IReadOnlySet<int> members)
+    {
+        var variables = _body.Variables;
+        var leaveTargets = _code.Where(i => i.OpCode.Code is Code.Leave or Code.Leave_S).Select(i => _graph.IndexOf(i.Operand as Instruction)).Where(i => i >= 0).ToList();
+        var handlerOf = new List<int>[_code.Count];
+        foreach (var eh in _graph.Handlers)
+        {
+            int handler = _graph.IndexOf(eh.FilterStart ?? eh.HandlerStart);
+            for (int i = Math.Max(_graph.IndexOf(eh.TryStart), 0); i < _graph.IndexOrEnd(eh.TryEnd); i++) (handlerOf[i] ??= new List<int>()).Add(handler);
+        }
+        IEnumerable<int> Successors(int i)
+        {
+            var ins = _code[i];
+            foreach (var t in BodyGraph.BranchTargets(ins)) yield return _graph.IndexOf(t);
+            if (BodyGraph.FallsThrough(ins)) yield return i + 1;
+            if (ins.OpCode.Code == Code.Endfinally) foreach (var t in leaveTargets) yield return t;
+            foreach (var h in handlerOf[i] ?? []) yield return h;
+        }
+        var reached = new HashSet<(int, int)>();
+        foreach (int store in members.Where(i => _code[i].IsStloc()))
+        {
+            if (_code[store].GetLocal(variables)?.Index is not { } local) continue;
+            var seen = new HashSet<int>();
+            var work = new Stack<int>(Successors(store));
+            while (work.Count > 0)
+            {
+                int i = work.Pop();
+                if (i < 0 || i >= _code.Count || !seen.Add(i)) continue;
+                if (ReadLocal(i) == local) reached.Add((i, local));
+                if (_code[i].IsStloc() && _code[i].GetLocal(variables)?.Index == local) continue;
+                foreach (var next in Successors(i)) work.Push(next);
+            }
+        }
+        return reached;
+    }
 
     /// <summary>One run of the analysis: block states per (leader, context), worked off to a fixed point.</summary>
     private sealed class Run(ConstantFlow flow, Dispatcher? dispatcher, MethodMeter? meter)

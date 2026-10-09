@@ -449,7 +449,6 @@ public sealed class SimplifyTests : IDisposable
 
     [Theory]
     [InlineData("AddressTaken", @"the address of the state local V_0 is taken at IL_\w{4}")]
-    [InlineData("Varies", @"the state is read at IL_\w{4}, where its value depends on the path taken")]
     [InlineData("Mixed", @"the state on the way into the dispatcher at IL_\w{4} is not known")]
     public void DispatcherOutsideTheCleanFormIsKept(string method, string why)
     {
@@ -458,6 +457,20 @@ public sealed class SimplifyTests : IDisposable
         Assert.Contains("Not rewritten (the code is kept; the other passes still apply):", report);
         Assert.Matches($@"Paths\.Flow::{method}\(\w*\) switch dispatcher at IL_\w{{4}}: {why}; the dispatcher is kept \[flattened-shape\]", report);
         Assert.Single(Body(env, "Paths.Flow::" + method), i => i.OpCode.Code == Code.Switch);
+    }
+
+    [Fact]
+    public void PathDependentReadNoDispatcherStoreReachesIsKept()
+    {
+        // Varies: the case shared by states 1 and 2 reads the state, 1 the first time and 2 the second. The dispatcher
+        // stores nothing, so going straight to the cases leaves every store, and that read, as it was.
+        using var env = new Env(FlowFixture());
+        var report = Simplify(env, "Paths.Flow::Varies");
+        Assert.Contains("normalized 1 switch dispatcher(s)", report);
+        Assert.DoesNotContain(Body(env, "Paths.Flow::Varies"), i => i.OpCode.Code == Code.Switch);
+        var image = env.Fixture.GetImageBytes();
+        foreach (var x in new[] { 0, 4, -9 })
+            Assert.Equal(Run(env.Fixture.OriginalBytes, "Paths.Flow", "Varies", x), Run(image, "Paths.Flow", "Varies", x));
     }
 
     [Fact]
