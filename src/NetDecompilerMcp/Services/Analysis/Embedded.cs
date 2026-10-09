@@ -236,14 +236,21 @@ public static class Embedded
             foreach (int length in candidates)
             {
                 var scored = new byte[length];
+                var counts = new int[2 * 256]; // a column's bytes by value; UTF-16 keeps low and high bytes apart
+                var present = new List<int>();
                 for (int column = 0; column < length; column++)
                 {
+                    Array.Clear(counts);
+                    present.Clear();
+                    for (int i = column; i < sample.Length; i += length)
+                        if (counts[(utf16 && i % 2 == 1 ? 256 : 0) + sample[i]]++ == 0) present.Add((utf16 && i % 2 == 1 ? 256 : 0) + sample[i]);
+                    // The weights of the column's bytes XOR k, summed per distinct byte: the same integer as summing per byte.
                     int bestScore = int.MinValue;
                     for (int k = 0; k < 256; k++)
                     {
                         int score = 0;
-                        for (int i = column; i < sample.Length; i += length)
-                            score += utf16 ? Utf16Weight((byte)(sample[i] ^ k), i % 2 == 1) : Utf8Weight((byte)(sample[i] ^ k));
+                        foreach (int at in present)
+                            score += counts[at] * (utf16 ? (at >= 256 ? Utf16HighWeights : Utf16LowWeights) : Utf8Weights)[(at & 0xFF) ^ k];
                         if (score > bestScore) { bestScore = score; scored[column] = (byte)k; }
                     }
                 }
@@ -441,6 +448,10 @@ public static class Embedded
         for (int i = 0; i < data.Length; i++) result[i] = (byte)(data[i] ^ key[i % key.Length]);
         return result;
     }
+
+    private static readonly int[] Utf8Weights = [.. Enumerable.Range(0, 256).Select(b => Utf8Weight((byte)b))];
+    private static readonly int[] Utf16LowWeights = [.. Enumerable.Range(0, 256).Select(b => Utf16Weight((byte)b, high: false))];
+    private static readonly int[] Utf16HighWeights = [.. Enumerable.Range(0, 256).Select(b => Utf16Weight((byte)b, high: true))];
 
     /// <summary>Text likelihood weight of a UTF-8 byte.</summary>
     private static int Utf8Weight(byte c) => c switch
