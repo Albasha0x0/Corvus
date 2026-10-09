@@ -373,9 +373,13 @@ with `NDM_ALL_TESTS=1`):
   `dotnet test -p:NDM_ALL_TESTS=1 --filter SimplifySweepTests --logger "console;verbosity=detailed"`.
 - **Pipeline round trip** (`PipelineRoundTripTests`, opt-in): .NET Framework programs are compiled, run through an
   external post-build pipeline under each of its options and three seeds, simplified, saved and executed; the
-  original, processed and simplified builds must print the same. What simplifying took back of the instructions each
-  option added is checked against floors pinned per option and sample. Needs the .NET Framework 4.8 reference
-  assemblies; options the tool cannot process, or whose output is not checkable IL, are listed with the reason.
+  original, processed and simplified builds must print the same. The programs are `PipelineSamples/*.cs`, one per
+  feature area (generics, async and iterators, LINQ, delegates and events, inheritance, exceptions, strings, reflection,
+  structs, collections, and a mixed workload); a new file there is a new sample, a new line in `Options` a new option.
+  The options cover every option family of the tool and its packer, alone and combined, and its bundled profiles. What
+  simplifying took back of the instructions each option added is checked against floors pinned per option and sample,
+  and the report ends with an option × sample coverage table. Needs the .NET Framework 4.8 reference assemblies;
+  options the tool cannot process, or whose output is not checkable IL, are listed with the reason.
 
 | Variable | Effect |
 |---|---|
@@ -386,8 +390,9 @@ with `NDM_ALL_TESTS=1`):
 | `NDM_PIPELINE_TOOL` | The pipeline's command-line executable (enables the round trip; floors pinned with neo-ConfuserEx 1.0.0-rc1) |
 | `NDM_PIPELINE_SAMPLES` | Optional: the tool's sample folder (`BasicFlow`, `Constants`, `ExceptionFlow`, one `Program.cs` each) |
 | `NDM_PIPELINE_PROFILES` | Optional: a folder of bundled project profiles (default: `Build/Profiles` next to the tool) |
-| `NDM_PIPELINE_SEEDS`, `NDM_PIPELINE_ONLY` | Seeds 1..N (default 3); only options whose name contains this text |
-| `NDM_PIPELINE_REPORT`, `NDM_PIPELINE_KEEP` | Write the result table to this file; keep the work files |
+| `NDM_PIPELINE_SEEDS`, `NDM_PIPELINE_ONLY`, `NDM_PIPELINE_SAMPLE` | Seeds 1..N (default 3); only options / samples whose name contains this text |
+| `NDM_PIPELINE_PARALLEL` | Round trips run at once (default 1; the full matrix takes about 6 minutes at 8) |
+| `NDM_PIPELINE_REPORT`, `NDM_PIPELINE_KEEP` | Write the result table and coverage table to this file; keep the work files |
 | `NDM_PIPELINE_RECHECK=1` | Also run the skipped options, to see whether a new tool build changed them |
 
 The generated C, C++ and Python are compiled or parsed with clang (`C:\Program Files\LLVM\bin`) and python when

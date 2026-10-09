@@ -19,10 +19,12 @@ namespace NetDecompilerMcp.Tests;
 /// </summary>
 /// <remarks>
 /// The pipeline is a command-line tool that reads a crproj project (NDM_PIPELINE_TOOL: its executable; the first
-/// configuration is neo-ConfuserEx 1.0.0-rc1's Confuser.CLI.exe). Optional: NDM_PIPELINE_SAMPLES, a folder of sample
-/// projects (one Program.cs each, as the tool's UnitTest/Samples); NDM_PIPELINE_PROFILES, a folder of bundled .crproj
-/// profiles (default: Build/Profiles next to the tool); NDM_PIPELINE_SEEDS (default 3); NDM_PIPELINE_ONLY, a substring of
-/// the option names to run; NDM_PIPELINE_REPORT, a file for the table; NDM_PIPELINE_KEEP, keep the work files.
+/// configuration is neo-ConfuserEx 1.0.0-rc1's Confuser.CLI.exe). The samples are every PipelineSamples/*.cs (one
+/// program each, named after the file; a new file is a new sample) and, with NDM_PIPELINE_SAMPLES, a folder of sample
+/// projects (one Program.cs each, as the tool's UnitTest/Samples). Optional: NDM_PIPELINE_PROFILES, a folder of bundled
+/// .crproj profiles (default: Build/Profiles next to the tool); NDM_PIPELINE_SEEDS (default 3); NDM_PIPELINE_ONLY and
+/// NDM_PIPELINE_SAMPLE, substrings of the option and sample names to run; NDM_PIPELINE_PARALLEL, round trips run at once
+/// (default 1); NDM_PIPELINE_REPORT, a file for the report; NDM_PIPELINE_KEEP, keep the work files.
 /// </remarks>
 [Trait("Speed", "Slow")]
 [Collection(SweepCollection.Name)]
@@ -53,10 +55,15 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
         public const string SelfCheck = "anti tamper";
         public const string DumpCheck = "anti dump";
         public const string DisassemblerOptOut = "anti ildasm";
+        public const string Renaming = "rename";
+        public const string MetadataNoise = "invalid metadata";
+        public const string TypeScrambling = "typescramble";
+        public const string Compression = "compressor";
 
-        /// <summary>The project file's XML namespace and the element that enables one option.</summary>
+        /// <summary>The project file's XML namespace, the element that enables one option and the one that sets the packer.</summary>
         public const string ProjectNamespace = "http://confuser.codeplex.com";
         public const string OptionElement = "protection";
+        public const string PackerElement = "packer";
 
         /// <summary>Environment variable the resource-integrity option reads its signing key from.</summary>
         public const string SigningKeyVariable = "CONFUSER_INTEGRITY_KEY_PATH";
@@ -78,32 +85,51 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
     private static readonly Floors None = new(0, 0, 0, 0);
 
     /// <summary>
-    /// Pipeline options, one at a time in each mode, then combinations, with their floors (<see cref="Floors"/>). The
-    /// Constants sample's own checks fail (exit 2) after any option that encodes its constants, so it has no floor there.
+    /// One pipeline configuration: the rule's options and, for a packer, the packer element that wraps the processed
+    /// module (<see cref="Packer"/>). Floor null: only the behavior is checked.
     /// </summary>
-    public static readonly (string Name, string Rule, Floors? Floor)[] Options =
+    public sealed record Option(string Name, string Rule, Floors? Floor = null, string? Packer = null);
+
+    /// <summary>
+    /// Pipeline options, every family one at a time in each mode, then combinations, with their floors (<see cref="Floors"/>).
+    /// The Constants sample's own checks fail (exit 2) after any option that encodes its constants, so it has no floor there.
+    /// A new option is one line here.
+    /// </summary>
+    public static readonly Option[] Options =
     [
-        ("control-flow switch normal", Rule(ToolIds.ControlFlow, ("type", "switch"), ("predicate", "normal"), ("intensity", "100")), new Floors(73, 89, 83, 52)),
-        ("control-flow switch expression", Rule(ToolIds.ControlFlow, ("type", "switch"), ("predicate", "expression"), ("intensity", "100")), new Floors(66, 91, 84, 45)),
-        ("control-flow switch native", Rule(ToolIds.ControlFlow, ("type", "switch"), ("predicate", "x86"), ("intensity", "100")), new Floors(89, 89, 82, 93)),
-        ("control-flow switch filler", Rule(ToolIds.ControlFlow, ("type", "switch"), ("predicate", "expression"), ("junk", "true"), ("intensity", "100")), new Floors(67, 92, 83, 42)),
-        ("constants normal", Rule(ToolIds.Constants, ("mode", "normal"), ("elements", "SNPI")), new Floors(0, 0, null, 0)),
-        ("constants dynamic", Rule(ToolIds.Constants, ("mode", "dynamic"), ("elements", "SNPI")), new Floors(0, 0, null, 0)),
-        ("constants native", Rule(ToolIds.Constants, ("mode", "x86"), ("elements", "SNPI")), new Floors(0, 0, null, 0)),
-        ("call-indirection mild", Rule(ToolIds.CallIndirection, ("mode", "mild")), new Floors(2, 0, 0, 0)),
-        ("call-indirection strong normal", Rule(ToolIds.CallIndirection, ("mode", "strong"), ("encoding", "normal")), None),
-        ("call-indirection strong expression", Rule(ToolIds.CallIndirection, ("mode", "strong"), ("encoding", "expression")), None),
-        ("call-indirection strong native", Rule(ToolIds.CallIndirection, ("mode", "strong"), ("encoding", "x86")), None),
-        ("resources", Rule(ToolIds.Resources, ("mode", "normal")), None),
-        ("debugger-check", Rule(ToolIds.DebuggerCheck, ("mode", "safe")), new Floors(7, 0, 0, 0)),
-        ("resource-integrity signed", Rule(ToolIds.ResourceIntegrity, ("resourcePattern", @"^(?!integrity\.).*"), ("checkMode", "manual")), new Floors(7, 6, 6, 6)),
-        ("constants + control-flow", Rule(ToolIds.Constants, ("mode", "dynamic"), ("elements", "SNPI")) + Rule(ToolIds.ControlFlow, ("predicate", "expression"), ("intensity", "100")), new Floors(46, 45, null, 43)),
-        ("constants + call-indirection + control-flow", Rule(ToolIds.Constants, ("mode", "normal"), ("elements", "SNPI")) +
-                                                        Rule(ToolIds.CallIndirection, ("mode", "strong"), ("encoding", "expression")) +
-                                                        Rule(ToolIds.ControlFlow, ("predicate", "normal"), ("intensity", "100")), new Floors(39, 40, null, 39)),
-        ("all but self-check", Rule(ToolIds.Constants, ("mode", "dynamic"), ("elements", "SNPI")) + Rule(ToolIds.CallIndirection, ("mode", "strong"), ("encoding", "expression")) +
-                               Rule(ToolIds.ControlFlow, ("predicate", "expression"), ("intensity", "100")) + Rule(ToolIds.Resources, ("mode", "dynamic")) +
-                               Rule(ToolIds.DebuggerCheck, ("mode", "safe")) + Rule(ToolIds.DumpCheck) + Rule(ToolIds.DisassemblerOptOut), new Floors(41, 41, null, 40)),
+        new("control-flow switch normal", Rule(ToolIds.ControlFlow, ("type", "switch"), ("predicate", "normal"), ("intensity", "100")), new Floors(73, 89, 83, 52)),
+        new("control-flow switch expression", Rule(ToolIds.ControlFlow, ("type", "switch"), ("predicate", "expression"), ("intensity", "100")), new Floors(66, 91, 84, 45)),
+        new("control-flow switch native", Rule(ToolIds.ControlFlow, ("type", "switch"), ("predicate", "x86"), ("intensity", "100")), new Floors(89, 89, 82, 93)),
+        new("control-flow switch filler", Rule(ToolIds.ControlFlow, ("type", "switch"), ("predicate", "expression"), ("junk", "true"), ("intensity", "100")), new Floors(67, 92, 83, 42)),
+        new("constants normal", Rule(ToolIds.Constants, ("mode", "normal"), ("elements", "SNPI")), new Floors(0, 0, null, 0)),
+        new("constants dynamic", Rule(ToolIds.Constants, ("mode", "dynamic"), ("elements", "SNPI")), new Floors(0, 0, null, 0)),
+        new("constants native", Rule(ToolIds.Constants, ("mode", "x86"), ("elements", "SNPI")), new Floors(0, 0, null, 0)),
+        new("call-indirection mild", Rule(ToolIds.CallIndirection, ("mode", "mild")), new Floors(2, 0, 0, 0)),
+        new("call-indirection strong normal", Rule(ToolIds.CallIndirection, ("mode", "strong"), ("encoding", "normal")), None),
+        new("call-indirection strong expression", Rule(ToolIds.CallIndirection, ("mode", "strong"), ("encoding", "expression")), None),
+        new("call-indirection strong native", Rule(ToolIds.CallIndirection, ("mode", "strong"), ("encoding", "x86")), None),
+        new("resources", Rule(ToolIds.Resources, ("mode", "normal")), None),
+        new("resources dynamic", Rule(ToolIds.Resources, ("mode", "dynamic"))),
+        new("debugger-check", Rule(ToolIds.DebuggerCheck, ("mode", "safe")), new Floors(7, 0, 0, 0)),
+        new("debugger-check native", Rule(ToolIds.DebuggerCheck, ("mode", "win32"))),
+        new("debugger-check profiler", Rule(ToolIds.DebuggerCheck, ("mode", "antinet"))),
+        new("dump-check", Rule(ToolIds.DumpCheck)),
+        new("disassembler opt-out", Rule(ToolIds.DisassemblerOptOut)),
+        new("metadata noise", Rule(ToolIds.MetadataNoise)),
+        new("renaming letters", Rule(ToolIds.Renaming, ("mode", "letters"))),
+        new("renaming unicode", Rule(ToolIds.Renaming, ("mode", "unicode"))),
+        new("type scrambling", Rule(ToolIds.TypeScrambling)),
+        new("resource-integrity signed", Rule(ToolIds.ResourceIntegrity, ("resourcePattern", @"^(?!integrity\.).*"), ("checkMode", "manual")), new Floors(7, 6, 6, 6)),
+        new("compression", "", Packer: Packer(ToolIds.Compression)),
+        new("constants + control-flow", Rule(ToolIds.Constants, ("mode", "dynamic"), ("elements", "SNPI")) + Rule(ToolIds.ControlFlow, ("predicate", "expression"), ("intensity", "100")), new Floors(46, 45, null, 43)),
+        new("constants + call-indirection + control-flow", Rule(ToolIds.Constants, ("mode", "normal"), ("elements", "SNPI")) +
+                                                           Rule(ToolIds.CallIndirection, ("mode", "strong"), ("encoding", "expression")) +
+                                                           Rule(ToolIds.ControlFlow, ("predicate", "normal"), ("intensity", "100")), new Floors(39, 40, null, 39)),
+        new("all but self-check", Rule(ToolIds.Constants, ("mode", "dynamic"), ("elements", "SNPI")) + Rule(ToolIds.CallIndirection, ("mode", "strong"), ("encoding", "expression")) +
+                                  Rule(ToolIds.ControlFlow, ("predicate", "expression"), ("intensity", "100")) + Rule(ToolIds.Resources, ("mode", "dynamic")) +
+                                  Rule(ToolIds.DebuggerCheck, ("mode", "safe")) + Rule(ToolIds.DumpCheck) + Rule(ToolIds.DisassemblerOptOut), new Floors(41, 41, null, 40)),
+        new("renaming + control-flow + constants", Rule(ToolIds.Renaming, ("mode", "letters")) + Rule(ToolIds.ControlFlow, ("predicate", "expression"), ("intensity", "100")) +
+                                                   Rule(ToolIds.Constants, ("mode", "dynamic"), ("elements", "SNPI"))),
     ];
 
     /// <summary>
@@ -139,6 +165,11 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
         $"    <{ToolIds.OptionElement} id=\"{id}\">\n" + string.Concat(arguments.Select(a => $"      <argument name=\"{a.Name}\" value=\"{a.Value}\" />\n")) +
         $"    </{ToolIds.OptionElement}>\n";
 
+    /// <summary>The project file's packer element, with its arguments.</summary>
+    private static string Packer(string id, params (string Name, string Value)[] arguments) =>
+        $"  <{ToolIds.PackerElement} id=\"{id}\">\n" + string.Concat(arguments.Select(a => $"    <argument name=\"{a.Name}\" value=\"{a.Value}\" />\n")) +
+        $"  </{ToolIds.PackerElement}>\n";
+
     private sealed record Metrics(int Instructions, int Switches, int ModuleTypeCalls, int DelegateInvokes);
 
     private sealed record Row(string Sample, string Option, int Seed, string Outcome, Metrics Original, Metrics? Processed, Metrics? Simplified,
@@ -152,68 +183,71 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
 
     private sealed record Sample(string Name, string Source, byte[]? Resource);
 
+    /// <summary>A compiled sample with what its original build prints.</summary>
+    private sealed record Built(string Name, string Path, string Expected, Metrics Baseline);
+
     [RequiresRealDataFact(ToolVariable)]
     public void ProcessedProgramsSimplifyAndBehaveTheSame()
     {
         var tool = RealData.Path(ToolVariable);
         int seeds = int.TryParse(Environment.GetEnvironmentVariable("NDM_PIPELINE_SEEDS"), out int n) ? n : 3;
+        int parallel = int.TryParse(Environment.GetEnvironmentVariable("NDM_PIPELINE_PARALLEL"), out int p) ? Math.Max(p, 1) : 1;
         var only = Environment.GetEnvironmentVariable("NDM_PIPELINE_ONLY");
+        var onlySample = Environment.GetEnvironmentVariable("NDM_PIPELINE_SAMPLE");
         if (!Recheck) foreach (var (name, _, why) in Skipped) output.WriteLine($"skipped option {name}: {why}");
 
         bool Wanted(string name) => only == null || name.Contains(only, StringComparison.Ordinal);
         var options = Options.Where(o => Wanted(o.Name)).ToList();
-        if (Recheck) options.AddRange(Skipped.Where(k => k.Rule != null && Wanted(k.Name)).Select(k => (k.Name, k.Rule!, (Floors?)null)));
+        if (Recheck) options.AddRange(Skipped.Where(k => k.Rule != null && Wanted(k.Name)).Select(k => new Option(k.Name, k.Rule!)));
         foreach (var (name, rule) in Profiles(tool).Where(p => Wanted(p.Name) && (Recheck || Skipped.All(k => k.Name != p.Name))))
-            options.Add((name, rule, ProfileFloors.FirstOrDefault(f => f.Name == name).Floor));
+            options.Add(new Option(name, rule, ProfileFloors.FirstOrDefault(f => f.Name == name).Floor));
 
-        var rows = new List<Row>();
-        var failures = new List<string>();
-        foreach (var sample in Samples())
+        var built = new List<Built>();
+        foreach (var sample in Samples().Where(s => onlySample == null || s.Name.Contains(onlySample, StringComparison.Ordinal)))
         {
             var original = Compile(sample);
             var expected = RunProgram(original);
             Assert.True(expected.ExitCode == 0, $"{sample.Name}: the original does not run: {expected.Output}");
-            var baseline = Measure(File.ReadAllBytes(original));
-            foreach (var (name, rule, floor) in options)
-            {
-                for (int seed = 1; seed <= seeds; seed++)
-                {
-                    var row = RoundTrip(tool, sample.Name, original, expected.Output, baseline, name, rule, floor?.For(sample.Name), seed, failures);
-                    rows.Add(row);
-                    output.WriteLine(Line(row));
-                }
-            }
+            built.Add(new Built(sample.Name, original, expected.Output, Measure(File.ReadAllBytes(original))));
         }
+
+        var runs = (from b in built from o in options from seed in Enumerable.Range(1, seeds) select (Built: b, Option: o, Seed: seed)).ToList();
+        var rows = new Row[runs.Count];
+        var failures = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        SigningKey();
+        Parallel.For(0, runs.Count, new ParallelOptions { MaxDegreeOfParallelism = parallel },
+            i => rows[i] = RoundTrip(tool, runs[i].Built, runs[i].Option, runs[i].Option.Floor?.For(runs[i].Built.Name), runs[i].Seed, failures));
+        foreach (var row in rows) output.WriteLine(Line(row));
 
         // The floors: the least any seed achieved, per sample and option.
         foreach (var group in rows.Where(r => r.Floor != null && r.Outcome == "same").GroupBy(r => (r.Sample, r.Option)))
         {
             var worst = group.Where(r => r.Removed != null).Select(r => r.Removed!.Value).DefaultIfEmpty(100).Min();
             if (worst < group.First().Floor)
-                failures.Add($"{group.Key.Sample} / {group.Key.Option}: simplifying took back {worst:0.0}% of the added instructions, below the floor of {group.First().Floor}%");
+                failures.Enqueue($"{group.Key.Sample} / {group.Key.Option}: simplifying took back {worst:0.0}% of the added instructions, below the floor of {group.First().Floor}%");
         }
 
-        var report = Report(rows);
+        var report = Report(rows, built.Select(b => b.Name).ToList(), options.Select(o => o.Name).ToList());
         if (Environment.GetEnvironmentVariable("NDM_PIPELINE_REPORT") is { Length: > 0 } path) File.WriteAllText(path, report);
         output.WriteLine(report);
-        Assert.True(failures.Count == 0, string.Join("\n", failures));
+        Assert.True(failures.IsEmpty, string.Join("\n", failures));
     }
 
-    private Row RoundTrip(string tool, string sample, string original, string expected, Metrics baseline, string name, string rule, double? floor, int seed,
-        List<string> failures)
+    private Row RoundTrip(string tool, Built sample, Option option, double? floor, int seed, System.Collections.Concurrent.ConcurrentQueue<string> failures)
     {
-        var work = Path.Combine(_dir.Path, $"{sample}-{Regex.Replace(name, "[^A-Za-z0-9]+", "_")}-{seed}");
+        var (name, expected, baseline) = (option.Name, sample.Expected, sample.Baseline);
+        var work = Path.Combine(_dir.Path, $"{sample.Name}-{Regex.Replace(name, "[^A-Za-z0-9]+", "_")}-{seed}");
         var outDir = Path.Combine(work, "out");
         Directory.CreateDirectory(work);
-        var file = Path.GetFileName(original);
-        File.Copy(original, Path.Combine(work, file));
+        var file = Path.GetFileName(sample.Path);
+        File.Copy(sample.Path, Path.Combine(work, file));
         var project = Path.Combine(work, "project.crproj");
         File.WriteAllText(project,
             $"<project outputDir=\"{outDir}\" baseDir=\"{work}\" seed=\"ndm-{name}-{seed}\" xmlns=\"{ToolIds.ProjectNamespace}\">\n" +
-            $"  <rule pattern=\"true\" preset=\"none\">\n{rule}  </rule>\n" +
+            $"  <rule pattern=\"true\" preset=\"none\">\n{option.Rule}  </rule>\n" + option.Packer +
             $"  <module path=\"{file}\" />\n</project>\n");
         Row Result(string outcome, Metrics? processed = null, Metrics? simplified = null, int changed = 0, string fallbacks = "") =>
-            new(sample, name, seed, outcome, baseline, processed, simplified, changed, fallbacks, floor);
+            new(sample.Name, name, seed, outcome, baseline, processed, simplified, changed, fallbacks, floor);
 
         var psi = new ProcessStartInfo(tool, $"-n \"{project}\"") { WorkingDirectory = work };
         psi.Environment[ToolIds.SigningKeyVariable] = SigningKey(); // the resource-integrity option signs with it
@@ -234,7 +268,7 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
         var fallbacks = string.Join(" ", outcome.Fallbacks().OrderByDescending(f => f.Value).Select(f => $"{f.Key} {f.Value}"));
         if (outcome.Problems.Count > 0)
         {
-            failures.Add($"{sample} / {name} seed {seed}: {string.Join("; ", outcome.Problems.Take(3))}");
+            failures.Enqueue($"{sample.Name} / {name} seed {seed}: {string.Join("; ", outcome.Problems.Take(3))}");
             return Result("engine problem", Measure(processedBytes), null, outcome.Changed, fallbacks);
         }
         // With no method changed, save_assembly writes the original bytes.
@@ -247,7 +281,7 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
             return Result($"simplified build blocked by antivirus, not counted ({blocked})", Measure(processedBytes), Measure(image), outcome.Changed, fallbacks);
         if (simplifiedRun.Output != expected)
         {
-            failures.Add($"{sample} / {name} seed {seed}: the simplified build behaves differently:\n{Diff(expected, simplifiedRun.Output)}\n(kept in {work})");
+            failures.Enqueue($"{sample.Name} / {name} seed {seed}: the simplified build behaves differently:\n{Diff(expected, simplifiedRun.Output)}\n(kept in {work})");
             _keep = true;
             return Result("DIFFERS", Measure(processedBytes), Measure(image), outcome.Changed, fallbacks);
         }
@@ -266,11 +300,23 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
         return _key;
     }
 
-    /// <summary>The workload (PipelineSamples) and, with NDM_PIPELINE_SAMPLES, every sample folder there with a Program.cs.</summary>
+    /// <summary>Embedded resources of the own samples, as {sample}.data.txt.</summary>
+    private static readonly Dictionary<string, string> SampleResources = new()
+    {
+        ["Workload"] = "resource text: ünïcödé ✓\n",
+    };
+
+    /// <summary>
+    /// Every PipelineSamples/*.cs, in name order, and, with NDM_PIPELINE_SAMPLES, the tool's samples listed here that have
+    /// a Program.cs.
+    /// </summary>
     private static IEnumerable<Sample> Samples()
     {
-        var own = Path.Combine(AppContext.BaseDirectory, "PipelineSamples", "Workload.cs");
-        yield return new Sample("Workload", File.ReadAllText(own), Encoding.UTF8.GetBytes("resource text: ünïcödé ✓\n"));
+        foreach (var file in Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "PipelineSamples"), "*.cs").Order(StringComparer.Ordinal))
+        {
+            var name = Path.GetFileNameWithoutExtension(file);
+            yield return new Sample(name, File.ReadAllText(file), SampleResources.TryGetValue(name, out var text) ? Encoding.UTF8.GetBytes(text) : null);
+        }
         if (RealData.Get("NDM_PIPELINE_SAMPLES") is not { } dir) yield break;
         foreach (var name in new[] { "BasicFlow", "Constants", "ExceptionFlow" })
         {
@@ -371,13 +417,38 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
         return $"{r.Sample,-13} {r.Option,-44} s{r.Seed} {r.Outcome,-9} processed {M(r.Processed)} | simplified {M(r.Simplified)} | {removed} | {r.Changed,3} changed | {r.Fallbacks}";
     }
 
-    private static string Report(List<Row> rows)
+    private static string Report(IReadOnlyList<Row> rows, List<string> samples, List<string> options)
     {
         var sb = new StringBuilder();
         foreach (var g in rows.GroupBy(r => r.Sample))
             sb.AppendLine($"{g.Key}: original {g.First().Original.Instructions} instructions, {g.First().Original.Switches} switches");
         if (!Recheck) foreach (var (name, _, why) in Skipped) sb.AppendLine($"skipped option {name}: {why}");
         foreach (var r in rows) sb.AppendLine(Line(r));
+        sb.AppendLine().Append(Coverage(rows, samples, options));
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Option × sample: how many seeds' simplified builds behaved the same, and the least they took back of the added
+    /// instructions. "tool" / "proc": the tool failed or its output misbehaves on every seed (not counted); "DIFF" /
+    /// "ENGINE": some seed's simplified build behaves differently or the engine reported a problem.
+    /// </summary>
+    private static string Coverage(IReadOnlyList<Row> rows, List<string> samples, List<string> options)
+    {
+        string Cell(List<Row> runs)
+        {
+            if (runs.Count == 0) return "";
+            if (runs.Any(r => r.Outcome == "DIFFERS")) return "DIFF";
+            if (runs.Any(r => r.Outcome == "engine problem")) return "ENGINE";
+            var same = runs.Where(r => r.Outcome == "same").ToList();
+            if (same.Count == 0) return runs.All(r => r.Outcome.StartsWith("tool failed", StringComparison.Ordinal)) ? "tool" : "proc";
+            var back = same.Where(r => r.Removed != null).Select(r => r.Removed!.Value).ToList();
+            return $"{same.Count}/{runs.Count}" + (back.Count > 0 ? $" {back.Min():0}%" : "");
+        }
+        var sb = new StringBuilder("Coverage (seeds behaving the same / runs, least taken back):\n\n");
+        sb.Append("| Option | ").Append(string.Join(" | ", samples)).Append(" |\n|---|").Append(string.Concat(samples.Select(_ => "---|"))).Append('\n');
+        foreach (var option in options)
+            sb.Append($"| {option} | ").Append(string.Join(" | ", samples.Select(s => Cell(rows.Where(r => r.Option == option && r.Sample == s).ToList())))).Append(" |\n");
         return sb.ToString();
     }
 
