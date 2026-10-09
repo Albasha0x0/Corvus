@@ -992,6 +992,18 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         return _facts.NeverWritten(field);
     }
 
+    /// <summary>
+    /// Whether the static field's value cannot change while <paramref name="method"/> runs: only its type's
+    /// initialization writes it (readonly, or as <see cref="ModuleFacts"/> proves), and that initialization cannot be
+    /// running then.
+    /// </summary>
+    public bool StableStatic(FieldDef field, MethodDef method)
+    {
+        using var analysis = Meter?.Exclude();
+        return field.Module == module && field.IsStatic && (field.IsInitOnly || _facts.WrittenOnlyByInitialization(field)) &&
+               !_facts.RunsDuringInitialization(field.DeclaringType, method);
+    }
+
     private bool WrittenOnlyByInitialization(FieldDef field)
     {
         using var analysis = Meter?.Exclude();

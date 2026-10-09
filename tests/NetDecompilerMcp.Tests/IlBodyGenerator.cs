@@ -33,6 +33,7 @@ internal sealed class IlBodyGenerator
     private readonly FieldDef _twiceField, _addField, _decryptField; // static readonly delegates of Twice, Add and Decrypt
     private readonly IMethod _invoke1, _invoke2, _invokeString;
     private readonly FieldDef _config, _configMode, _configZero, _counter, _counterN; // a startup singleton, and an object statements modify
+    private readonly FieldDef _nil; // a readonly Config field nothing sets: loads through it throw
     private readonly int _mode;
     private readonly MethodDef _cached, _joined; // Decrypt memoized in a static Dictionary; Decrypt(0..n-1) joined through a List
     private readonly MethodDef _fromResource; // four letters read from the module's embedded resource
@@ -115,6 +116,7 @@ internal sealed class IlBodyGenerator
         var counterCtor = Ctor(counter);
         counterCtor.Body.Instructions.Add(I(OpCodes.Ret));
         _config = _lab.StaticField(_lab.Type, "Cfg", new ClassSig(config), readOnly: true);
+        _nil = _lab.StaticField(_lab.Type, "Nil", new ClassSig(config), readOnly: true);
 
         // Cached(k): if (Memo.TryGetValue(k, out s)) return s; s = Decrypt(k); Memo[k] = s; return s;
         var dictionary = typeof(Dictionary<int, string>);
@@ -337,7 +339,7 @@ internal sealed class IlBodyGenerator
     private void Statement(int depth, bool inProtected, bool noExit)
     {
         bool nest = depth < _maxDepth && _budget > 20;
-        int kind = _r.Next(nest ? 27 : 8);
+        int kind = _r.Next(nest ? 28 : 8);
         switch (kind)
         {
             case 0: case 1: case 2: Assign(); break;
@@ -365,6 +367,7 @@ internal sealed class IlBodyGenerator
             case 24: InstanceFields(depth, inProtected, noExit); break;
             case 25: CacheCall(); break;
             case 26: OrderedRead(); break;
+            case 27: KeptLoad(); break;
             default: Assign(); break;
         }
     }
@@ -489,6 +492,60 @@ internal sealed class IlBodyGenerator
         }
         Block(depth + 1, inProtected, noExit);
         Mark(skip);
+    }
+
+    /// <summary>
+    /// <c>_ = Cfg.Mode;</c> or <c>_ = Nil.Mode;</c> (which throws), a load kept only for its effect, and a repeat of it:
+    /// right after, after a try/catch around the first (the catch may have taken the exception), or after an if around it.
+    /// </summary>
+    private void KeptLoad()
+    {
+        var root = _r.Next(3) == 0 ? _nil : _config;
+        var field = _r.Next(2) == 0 ? _configMode : _configZero;
+        void Load()
+        {
+            Op(OpCodes.Ldsfld, root);
+            Op(OpCodes.Ldfld, field);
+            Op(OpCodes.Pop);
+        }
+        switch (_r.Next(4))
+        {
+            case 0:
+                Load();
+                break;
+            case 1:
+                Load();
+                if (_r.Next(2) == 0) Assign();
+                Load();
+                break;
+            case 2:
+            {
+                Label tryStart = new(), handler = new(), after = new();
+                Mark(tryStart);
+                Load();
+                Op(OpCodes.Leave, after);
+                Mark(handler);
+                Op(OpCodes.Pop);
+                Op(OpCodes.Ldloc, _result);
+                Ldc(1);
+                Op(OpCodes.Add);
+                Op(OpCodes.Stloc, _result);
+                Op(OpCodes.Leave, after);
+                Mark(after);
+                AddRegion(new ExceptionHandler(ExceptionHandlerType.Catch) { CatchType = _catchTypes[0] }, tryStart, handler, after, null);
+                Load();
+                break;
+            }
+            default:
+            {
+                var skip = new Label();
+                Condition(skip, 1);
+                Load();
+                Mark(skip);
+                Load();
+                break;
+            }
+        }
     }
 
     /// <summary>A read of one of Ordered's results, or of what Note last wrote (which runs its static constructor first), added to the result.</summary>

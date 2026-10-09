@@ -386,6 +386,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
             if (c.RemovedBlocks > 0) flow.Add($"removed {c.RemovedBlocks} unreachable block(s) ({c.RemovedInstructions} instructions)");
             if (c.RemovedHandlers > 0) flow.Add($"removed {c.RemovedHandlers} exception handler(s)");
             if (c.RemovedStores > 0) flow.Add($"removed {c.RemovedStores} dead store(s)");
+            if (c.RemovedLoads > 0) flow.Add($"removed {c.RemovedLoads} repeated load(s) kept only for their effect");
             if (c.ConstantReads > 0) flow.Add($"replaced {c.ConstantReads} read(s) of locals through their address by constants");
             if (flow.Count > 0) sb.Append("\n  ").Append(string.Join(", ", flow));
         }
@@ -425,6 +426,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         Add(changed.Sum(c => c.RemovedBlocks), "unreachable block(s) removed");
         Add(changed.Sum(c => c.RemovedHandlers), "handler(s) removed");
         Add(changed.Sum(c => c.RemovedStores), "dead store(s) removed");
+        Add(changed.Sum(c => c.RemovedLoads), "repeated load(s) removed");
         Add(changed.Sum(c => c.ConstantReads), "constant read(s) through an address replaced");
         var fallbacks = changes
             .SelectMany(c => c.Bailouts.Concat(c.Skipped).Select(f => f.Reason).Concat(c.Rejected is { } r ? [r.Reason] : Array.Empty<FallbackReason>()))

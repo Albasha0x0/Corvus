@@ -51,6 +51,8 @@ public sealed class MethodChange(MethodDef method)
     public int RemovedHandlers { get; set; }
     /// <summary>Stores to locals that the other passes left unread.</summary>
     public int RemovedStores { get; set; }
+    /// <summary>Loads kept only for their effect (<c>_ = S.F;</c>) that repeat one that always ran before them, removed.</summary>
+    public int RemovedLoads { get; set; }
     /// <summary>Reads of locals through their address (<c>ldloca; ldind</c>) that read a constant, replaced by it.</summary>
     public int ConstantReads { get; set; }
     /// <summary>Switch dispatchers of flattened control flow removed: each transition goes straight to its case.</summary>
@@ -65,7 +67,7 @@ public sealed class MethodChange(MethodDef method)
     public bool Changed => NewBody != null;
 
     public bool HasEffects => Folded.Count + Inlined.Count + Delegates.Count + ConstantBranches + CollapsedChains + RemovedBlocks + RemovedHandlers + Transitions + RemovedStores
-                              + ConstantReads > 0;
+                              + ConstantReads + RemovedLoads > 0;
 }
 
 /// <summary>
@@ -191,6 +193,7 @@ public sealed class MethodSimplifier
                 changed |= RemoveDeadStores(body, readOriginally, dead, change);
                 changed |= DropBranchesToNext(body, dead);
                 changed |= RemovePurePops(body, dead);
+                changed |= RemoveRepeatedLoads(method, body, dead, change);
                 changed |= RemoveNops(body, dead);
                 if (!changed) break;
             }
@@ -1482,6 +1485,123 @@ public sealed class MethodSimplifier
             changed = true;
         }
         return changed;
+    }
+
+    /// <summary>
+    /// A load kept only for what it may do (<c>ldsfld S; ldfld F; pop</c>: run S's type initializer, throw on a null
+    /// receiver) does nothing when the same load has run before it: its pop dominates this one (every path from the entry,
+    /// exception edges included, passes it) and the receivers cannot have changed in between. The root is an argument
+    /// never stored to nor taken the address of (not a struct's 'this'), or a static field that only its type's
+    /// initialization writes, read outside that initialization (or with no field after it: then only the initializer
+    /// matters, and it has run); the fields between root and the last one are readonly, outside constructors.
+    /// </summary>
+    private bool RemoveRepeatedLoads(MethodDef method, CilBody body, HashSet<Instruction> dead, MethodChange change)
+    {
+        var code = body.Instructions;
+        BodyGraph? graph = null;
+        var loads = new List<(int Start, int Pop, string Key)>();
+        for (int i = 1; i < code.Count; i++)
+        {
+            if (code[i].OpCode.Code != Code.Pop || dead.Contains(code[i])) continue;
+            int k = i - 1;
+            while (k >= 0 && code[k].OpCode.Code == Code.Ldfld) k--;
+            if (k < 0 || dead.Contains(code[k])) continue;
+            var root = code[k];
+            graph ??= new BodyGraph(body);
+            if (Enumerable.Range(k + 1, i - k).Any(j => graph.Targets.Contains(code[j]))) continue;
+            if (!StableRoot(method, body, root, hasFields: i - k > 1)) continue;
+            bool stable = true;
+            for (int j = k + 1; j < i - 1 && stable; j++)
+                stable = MetadataUtil.AsField(code[j].Operand) is { } f && f.ResolveFieldDef() is { IsInitOnly: true } fd &&
+                         !(method.IsConstructor && method.DeclaringType == fd.DeclaringType);
+            if (!stable) continue;
+            var key = string.Join(" ", code.Skip(k).Take(i - k).Select(x => x.OpCode.Code == Code.Ldfld || x.OpCode.Code == Code.Ldsfld
+                ? $"{x.OpCode.Code} {MetadataUtil.AsField(x.Operand)?.FullName}"
+                : $"arg {x.GetParameterIndex()}"));
+            loads.Add((k, i, key));
+        }
+        bool changed = false;
+        foreach (var group in loads.GroupBy(l => l.Key).Where(g => g.Count() > 1))
+        {
+            var members = group.ToList();
+            var kept = new List<(int Start, int Pop, string Key)>();
+            foreach (var load in members)
+            {
+                if (kept.Any(earlier => Dominates(body, code[earlier.Pop], code[load.Start])))
+                {
+                    for (int j = load.Start; j <= load.Pop; j++) MakeDead(code[j], dead);
+                    change.RemovedLoads++;
+                    changed = true;
+                }
+                else
+                {
+                    kept.Add(load);
+                }
+            }
+        }
+        return changed;
+    }
+
+    private bool StableRoot(MethodDef method, CilBody body, Instruction root, bool hasFields)
+    {
+        if (root.OpCode.Code == Code.Ldsfld)
+        {
+            if (root.Operand is not FieldDef field) return !hasFields && MetadataUtil.AsField(root.Operand) != null;
+            return !hasFields || _evaluator.StableStatic(field, method);
+        }
+        if (!root.IsLdarg() || !hasFields) return false;
+        int index = root.GetParameterIndex();
+        if (index < 0 || index >= method.Parameters.Count) return false;
+        var parameter = method.Parameters[index];
+        if (parameter.IsHiddenThisParameter ? method.DeclaringType.IsValueType : parameter.Type.RemovePinnedAndModifiers().IsByRef) return false;
+        return !body.Instructions.Any(ins => (ins.IsStarg() || ins.OpCode.Code is Code.Ldarga or Code.Ldarga_S) && ins.GetParameterIndex() == index);
+    }
+
+    /// <summary>
+    /// Whether every path from the entry to <paramref name="to"/> passes <paramref name="from"/>: with it taken out,
+    /// <paramref name="to"/> is unreachable. Edges: fall-through, branches, from each instruction of a protected region
+    /// to its handler (or filter), from endfinally to every leave target.
+    /// </summary>
+    private static bool Dominates(CilBody body, Instruction from, Instruction to)
+    {
+        var code = body.Instructions;
+        var index = new Dictionary<Instruction, int>(code.Count);
+        for (int i = 0; i < code.Count; i++) index[code[i]] = i;
+        int At(Instruction? i) => i == null ? code.Count : index.TryGetValue(i, out int k) ? k : code.Count;
+        int blocked = At(from), target = At(to);
+        if (blocked == target) return false;
+        var leaveTargets = code.Where(i => i.OpCode.Code is Code.Leave or Code.Leave_S && i.Operand is Instruction).Select(i => At((Instruction)i.Operand)).ToList();
+        var seen = new bool[code.Count];
+        var work = new Stack<int>();
+        work.Push(0);
+        while (work.Count > 0)
+        {
+            int k = work.Pop();
+            if (k >= code.Count || k == blocked || seen[k]) continue;
+            if (k == target) return false;
+            seen[k] = true;
+            var ins = code[k];
+            switch (ins.OpCode.FlowControl)
+            {
+                case FlowControl.Branch:
+                    if (ins.Operand is Instruction t) work.Push(At(t));
+                    break;
+                case FlowControl.Cond_Branch:
+                    work.Push(k + 1);
+                    if (ins.Operand is Instruction c) work.Push(At(c));
+                    else if (ins.Operand is IList<Instruction> cases) foreach (var c2 in cases) work.Push(At(c2));
+                    break;
+                case FlowControl.Return or FlowControl.Throw:
+                    if (ins.OpCode.Code is Code.Endfinally) foreach (var l in leaveTargets) work.Push(l);
+                    break;
+                default:
+                    work.Push(k + 1);
+                    break;
+            }
+            foreach (var eh in body.ExceptionHandlers)
+                if (k >= At(eh.TryStart) && k < At(eh.TryEnd)) work.Push(At(eh.FilterStart ?? eh.HandlerStart));
+        }
+        return true;
     }
 
     private static void MakeDead(Instruction ins, HashSet<Instruction> dead)
