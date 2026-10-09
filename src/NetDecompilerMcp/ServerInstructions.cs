@@ -3,7 +3,7 @@ namespace NetDecompilerMcp;
 internal static class ServerInstructions
 {
     public const string Text = """
-        Headless .NET decompiler (ILSpy engine + dnlib + Roslyn). No GUI, no dnSpy needed.
+        Headless .NET decompiler (ILSpy engine + dnlib + Roslyn) and native PE analyzer. No GUI, no dnSpy needed.
 
         Workflow:
         1. load_assembly with a file or a whole folder (e.g. an application folder, a Unity *_Data/Managed folder, or an Il2CppDumper DummyDll folder).
@@ -35,6 +35,19 @@ internal static class ServerInstructions
            Review with list_edits / diff_edits, undo with undo_edit / revert_edits, then save_assembly (never overwrites the original
            without overwrite=true; keeps a .bak; what no edit touched is written byte-for-byte, and anything that cannot be is
            listed with a reason; strict=true refuses such a save instead).
+
+        8. Native PE files (.exe/.dll/.sys without .NET metadata; x86 and x64): load_assembly with the file path (or pass the path as image
+           to any native tool). get_pe_info (headers, mitigations, PDB, version, rich header, signature, anything malformed), list_imports,
+           list_exports (MSVC names demangled), list_resources / get_resource (Win32 resources), list_functions, disassemble, get_cfg,
+           find_xrefs (incl. every call site of an import: 'kernel32!CreateFileW'), native_call_tree, search_native_strings, search_bytes
+           (?? wildcards), read_bytes, resolve_address, list_cpp_classes (RTTI classes, bases, vftables), decompile_native (C pseudocode
+           through IDA when installed; server_status says whether it is). Addresses: hex VA or RVA, rva:/va:/off: prefixes, export names,
+           module!import, sub_<rva>. The code index is built in the background after loading. verify_native_imports checks a .NET
+           assembly's [DllImport]s against the real DLL exports.
+
+        Errors start with "Error (<code>)" (not_found, ambiguous, invalid_argument, unsupported, not_loaded, limit_exceeded, timeout,
+        provider_unavailable, ...) and usually a "Next:" line with the call that can succeed. A result too large to send comes back as
+        limit_exceeded with an id: read_result pages through it. server_status reports version, limits and available engines.
 
         Symbols: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method', 'Ns.Type::Method(int, string)', 'Ns.Type::.ctor', short names,
         or tokens like '0x06000123'. The assembly parameter is optional unless a name is ambiguous; errors list candidates.
