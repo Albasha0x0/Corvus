@@ -15,7 +15,7 @@ namespace NetDecompilerMcp.Tests;
 /// saved by the product's writer; the original, processed and simplified builds are executed and must give the same exit
 /// code and output. A processed build that already misbehaves is the tool's fault and is reported, not counted.
 /// Then, over the whole module, what simplifying took back of what the pipeline added (instructions), checked against a
-/// floor pinned per option, so a regression fails the test.
+/// floor pinned per option and sample, so a regression fails the test.
 /// </summary>
 /// <remarks>
 /// The pipeline is a command-line tool that reads a crproj project (NDM_PIPELINE_TOOL: its executable; the first
@@ -62,48 +62,73 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
     }
 
     /// <summary>
-    /// Pipeline options, one at a time in each mode, then combinations; with the floor of what simplifying must take back
-    /// of the instructions the option added (percent; null: not checked, e.g. the option adds none).
+    /// What simplifying must take back of the instructions an option added, per sample (percent; null: not checked, e.g.
+    /// the processed build misbehaves). Pinned from a clean full run (3 seeds, neo-ConfuserEx 1.0.0-rc1) at the least any
+    /// seed achieved, rounded down, less one point; 0 still fails when simplifying adds instructions.
     /// </summary>
-    public static readonly (string Name, string Rule, double? Floor)[] Options =
+    public sealed record Floors(double? Workload = null, double? BasicFlow = null, double? Constants = null, double? ExceptionFlow = null)
+    {
+        public double? For(string sample) => sample switch
+        {
+            "Workload" => Workload, "BasicFlow" => BasicFlow, "Constants" => Constants, "ExceptionFlow" => ExceptionFlow, _ => null,
+        };
+    }
+
+    private static readonly Floors None = new(0, 0, 0, 0);
+
+    /// <summary>
+    /// Pipeline options, one at a time in each mode, then combinations, with their floors (<see cref="Floors"/>). The
+    /// Constants sample's own checks fail (exit 2) after any option that encodes its constants, so it has no floor there.
+    /// </summary>
+    public static readonly (string Name, string Rule, Floors? Floor)[] Options =
     [
-        ("control-flow switch normal", Rule(ToolIds.ControlFlow, ("type", "switch"), ("predicate", "normal"), ("intensity", "100")), 70),
-        ("control-flow switch expression", Rule(ToolIds.ControlFlow, ("type", "switch"), ("predicate", "expression"), ("intensity", "100")), 70),
-        ("control-flow switch native", Rule(ToolIds.ControlFlow, ("type", "switch"), ("predicate", "x86"), ("intensity", "100")), 0),
-        ("control-flow switch filler", Rule(ToolIds.ControlFlow, ("type", "switch"), ("predicate", "expression"), ("junk", "true"), ("intensity", "100")), 70),
-        ("constants normal", Rule(ToolIds.Constants, ("mode", "normal"), ("elements", "SNPI")), 0),
-        ("constants dynamic", Rule(ToolIds.Constants, ("mode", "dynamic"), ("elements", "SNPI")), 0),
-        ("constants native", Rule(ToolIds.Constants, ("mode", "x86"), ("elements", "SNPI")), 0),
-        ("call-indirection mild", Rule(ToolIds.CallIndirection, ("mode", "mild")), 0),
-        ("call-indirection strong normal", Rule(ToolIds.CallIndirection, ("mode", "strong"), ("encoding", "normal")), 0),
-        ("call-indirection strong expression", Rule(ToolIds.CallIndirection, ("mode", "strong"), ("encoding", "expression")), 0),
-        ("call-indirection strong native", Rule(ToolIds.CallIndirection, ("mode", "strong"), ("encoding", "x86")), 0),
-        ("resources", Rule(ToolIds.Resources, ("mode", "normal")), null),
-        ("debugger-check", Rule(ToolIds.DebuggerCheck, ("mode", "safe")), null),
-        ("resource-integrity signed", Rule(ToolIds.ResourceIntegrity, ("resourcePattern", @"^(?!integrity\.).*"), ("checkMode", "manual")), null),
-        ("self-check", Rule(ToolIds.SelfCheck, ("mode", "normal")), null),
-        ("constants + control-flow", Rule(ToolIds.Constants, ("mode", "dynamic"), ("elements", "SNPI")) + Rule(ToolIds.ControlFlow, ("predicate", "expression"), ("intensity", "100")), 40),
+        ("control-flow switch normal", Rule(ToolIds.ControlFlow, ("type", "switch"), ("predicate", "normal"), ("intensity", "100")), new Floors(73, 89, 83, 52)),
+        ("control-flow switch expression", Rule(ToolIds.ControlFlow, ("type", "switch"), ("predicate", "expression"), ("intensity", "100")), new Floors(66, 91, 84, 45)),
+        ("control-flow switch native", Rule(ToolIds.ControlFlow, ("type", "switch"), ("predicate", "x86"), ("intensity", "100")), new Floors(3, 2, 0, 0)),
+        ("control-flow switch filler", Rule(ToolIds.ControlFlow, ("type", "switch"), ("predicate", "expression"), ("junk", "true"), ("intensity", "100")), new Floors(67, 92, 83, 42)),
+        ("constants normal", Rule(ToolIds.Constants, ("mode", "normal"), ("elements", "SNPI")), new Floors(0, 0, null, 0)),
+        ("constants dynamic", Rule(ToolIds.Constants, ("mode", "dynamic"), ("elements", "SNPI")), new Floors(0, 0, null, 0)),
+        ("constants native", Rule(ToolIds.Constants, ("mode", "x86"), ("elements", "SNPI")), new Floors(0, 0, null, 0)),
+        ("call-indirection mild", Rule(ToolIds.CallIndirection, ("mode", "mild")), new Floors(2, 0, 0, 0)),
+        ("call-indirection strong normal", Rule(ToolIds.CallIndirection, ("mode", "strong"), ("encoding", "normal")), None),
+        ("call-indirection strong expression", Rule(ToolIds.CallIndirection, ("mode", "strong"), ("encoding", "expression")), None),
+        ("call-indirection strong native", Rule(ToolIds.CallIndirection, ("mode", "strong"), ("encoding", "x86")), None),
+        ("resources", Rule(ToolIds.Resources, ("mode", "normal")), None),
+        ("debugger-check", Rule(ToolIds.DebuggerCheck, ("mode", "safe")), new Floors(7, 0, 0, 0)),
+        ("resource-integrity signed", Rule(ToolIds.ResourceIntegrity, ("resourcePattern", @"^(?!integrity\.).*"), ("checkMode", "manual")), new Floors(7, 6, 6, 6)),
+        ("constants + control-flow", Rule(ToolIds.Constants, ("mode", "dynamic"), ("elements", "SNPI")) + Rule(ToolIds.ControlFlow, ("predicate", "expression"), ("intensity", "100")), new Floors(46, 45, null, 43)),
         ("constants + call-indirection + control-flow", Rule(ToolIds.Constants, ("mode", "normal"), ("elements", "SNPI")) +
                                                         Rule(ToolIds.CallIndirection, ("mode", "strong"), ("encoding", "expression")) +
-                                                        Rule(ToolIds.ControlFlow, ("predicate", "normal"), ("intensity", "100")), 40),
+                                                        Rule(ToolIds.ControlFlow, ("predicate", "normal"), ("intensity", "100")), new Floors(39, 40, null, 39)),
         ("all but self-check", Rule(ToolIds.Constants, ("mode", "dynamic"), ("elements", "SNPI")) + Rule(ToolIds.CallIndirection, ("mode", "strong"), ("encoding", "expression")) +
                                Rule(ToolIds.ControlFlow, ("predicate", "expression"), ("intensity", "100")) + Rule(ToolIds.Resources, ("mode", "dynamic")) +
-                               Rule(ToolIds.DebuggerCheck, ("mode", "safe")) + Rule(ToolIds.DumpCheck) + Rule(ToolIds.DisassemblerOptOut), 35),
+                               Rule(ToolIds.DebuggerCheck, ("mode", "safe")) + Rule(ToolIds.DumpCheck) + Rule(ToolIds.DisassemblerOptOut), new Floors(41, 41, null, 40)),
     ];
 
     /// <summary>
-    /// Options not run: the tool itself fails on them, or its output misbehaves before any simplification (seen with
-    /// neo-ConfuserEx 1.0.0-rc1). NDM_PIPELINE_RECHECK=1 runs them as any other option, to see whether a new tool build
-    /// fixed them. A profile's rule comes from its file (null here).
+    /// Options not run (seen with neo-ConfuserEx 1.0.0-rc1): the tool itself fails on them, its output misbehaves before
+    /// any simplification, or its output is not IL that can be checked. NDM_PIPELINE_RECHECK=1 runs them as any other
+    /// option, to see whether a new tool build changed that. A profile's rule comes from its file (null here).
     /// </summary>
-    public static readonly (string Name, string? Rule, string Why)[] KnownBroken =
+    public static readonly (string Name, string? Rule, string Why)[] Skipped =
     [
+        ("self-check", Rule(ToolIds.SelfCheck, ("mode", "normal")),
+            "the processed build stores its method bodies in another form on disk and restores them at run time, so the bodies " +
+            "on disk are not IL: nothing is simplified, and in a small module how many happen to decode depends on the tool's " +
+            "own random key, not the seed (Constants: 1 of 5 bodies unreadable, 2 decoded to IL that does not verify, and the " +
+            "unreadable one cannot be written back)"),
         ("control-flow jump", Rule(ToolIds.ControlFlow, ("type", "jump"), ("intensity", "100")),
             "the processed build crashes with an unhandled CLR exception (exit 0xE0434352) on every seed"),
         ("constants dynamic cfg", Rule(ToolIds.Constants, ("mode", "dynamic"), ("elements", "SNPI"), ("cfg", "true")),
             "the tool itself fails: dnlib's writer throws 'Error calculating max stack value' while saving"),
         ("profile strong", null, "uses constants with cfg=true: the tool fails ('Failed to calcuate maxstack')"),
         ("profile critical", null, "uses constants with cfg=true: the tool fails ('Failed to calcuate maxstack')"),
+    ];
+
+    /// <summary>Floors of the tool's bundled profiles that are run (see <see cref="Profiles"/>).</summary>
+    public static readonly (string Name, Floors Floor)[] ProfileFloors =
+    [
+        ("profile balanced", new Floors(35, 31, 31, 30)),
     ];
 
     private static bool Recheck => Environment.GetEnvironmentVariable("NDM_PIPELINE_RECHECK") == "1";
@@ -132,13 +157,13 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
         var tool = RealData.Path(ToolVariable);
         int seeds = int.TryParse(Environment.GetEnvironmentVariable("NDM_PIPELINE_SEEDS"), out int n) ? n : 3;
         var only = Environment.GetEnvironmentVariable("NDM_PIPELINE_ONLY");
-        if (!Recheck) foreach (var (name, _, why) in KnownBroken) output.WriteLine($"skipped option {name}: {why}");
+        if (!Recheck) foreach (var (name, _, why) in Skipped) output.WriteLine($"skipped option {name}: {why}");
 
         bool Wanted(string name) => only == null || name.Contains(only, StringComparison.Ordinal);
         var options = Options.Where(o => Wanted(o.Name)).ToList();
-        if (Recheck) options.AddRange(KnownBroken.Where(k => k.Rule != null && Wanted(k.Name)).Select(k => (k.Name, k.Rule!, (double?)null)));
-        foreach (var (name, rule) in Profiles(tool).Where(p => Wanted(p.Name) && (Recheck || KnownBroken.All(k => k.Name != p.Name))))
-            options.Add((name, rule, null));
+        if (Recheck) options.AddRange(Skipped.Where(k => k.Rule != null && Wanted(k.Name)).Select(k => (k.Name, k.Rule!, (Floors?)null)));
+        foreach (var (name, rule) in Profiles(tool).Where(p => Wanted(p.Name) && (Recheck || Skipped.All(k => k.Name != p.Name))))
+            options.Add((name, rule, ProfileFloors.FirstOrDefault(f => f.Name == name).Floor));
 
         var rows = new List<Row>();
         var failures = new List<string>();
@@ -152,7 +177,7 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
             {
                 for (int seed = 1; seed <= seeds; seed++)
                 {
-                    var row = RoundTrip(tool, sample.Name, original, expected.Output, baseline, name, rule, floor, seed, failures);
+                    var row = RoundTrip(tool, sample.Name, original, expected.Output, baseline, name, rule, floor?.For(sample.Name), seed, failures);
                     rows.Add(row);
                     output.WriteLine(Line(row));
                 }
@@ -350,7 +375,7 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
         var sb = new StringBuilder();
         foreach (var g in rows.GroupBy(r => r.Sample))
             sb.AppendLine($"{g.Key}: original {g.First().Original.Instructions} instructions, {g.First().Original.Switches} switches");
-        if (!Recheck) foreach (var (name, _, why) in KnownBroken) sb.AppendLine($"skipped option {name}: {why}");
+        if (!Recheck) foreach (var (name, _, why) in Skipped) sb.AppendLine($"skipped option {name}: {why}");
         foreach (var r in rows) sb.AppendLine(Line(r));
         return sb.ToString();
     }

@@ -367,6 +367,11 @@ simplify_methods is checked two ways, both in a collection that runs alone after
   and guards performance (whole-library time per method against a 0.6 ms baseline). Absent assemblies are skipped.
   Per-assembly statistics (methods simplified, fallback reasons, time) are printed with
   `dotnet test --filter SimplifySweepTests --logger "console;verbosity=detailed"`.
+- **Pipeline round trip** (`PipelineRoundTripTests`, opt-in): .NET Framework programs are compiled, run through an
+  external post-build pipeline under each of its options and three seeds, simplified, saved and executed; the
+  original, processed and simplified builds must print the same. What simplifying took back of the instructions each
+  option added is checked against floors pinned per option and sample. Needs the .NET Framework 4.8 reference
+  assemblies; options the tool cannot process, or whose output is not checkable IL, are listed with the reason.
 
 | Variable | Effect |
 |---|---|
@@ -374,6 +379,12 @@ simplify_methods is checked two ways, both in a collection that runs alone after
 | `NDM_FUZZ_SEED` | Run one seed (`random` for a fresh one) |
 | `NDM_SWEEP=full` | Add the largest libraries to the sweep (System.Private.CoreLib, mscorlib, Roslyn VB, BouncyCastle, Math.NET) |
 | `NDM_PERF_FACTOR` | Allowed multiple of the per-method baseline (default 5) |
+| `NDM_PIPELINE_TOOL` | The pipeline's command-line executable (enables the round trip; floors pinned with neo-ConfuserEx 1.0.0-rc1) |
+| `NDM_PIPELINE_SAMPLES` | Optional: the tool's sample folder (`BasicFlow`, `Constants`, `ExceptionFlow`, one `Program.cs` each) |
+| `NDM_PIPELINE_PROFILES` | Optional: a folder of bundled project profiles (default: `Build/Profiles` next to the tool) |
+| `NDM_PIPELINE_SEEDS`, `NDM_PIPELINE_ONLY` | Seeds 1..N (default 3); only options whose name contains this text |
+| `NDM_PIPELINE_REPORT`, `NDM_PIPELINE_KEEP` | Write the result table to this file; keep the work files |
+| `NDM_PIPELINE_RECHECK=1` | Also run the skipped options, to see whether a new tool build changed them |
 
 The generated C, C++ and Python are compiled or parsed with clang (`C:\Program Files\LLVM\bin`) and python when
 they are installed.
