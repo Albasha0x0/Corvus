@@ -280,8 +280,10 @@ internal sealed partial class IlEvaluator
                 if (target.Data is not byte[] buffer) throw Bail(FallbackReason.InvalidCode, "Stream.Read into an array that is not byte[]");
                 int offset = I4(args[2]), length = I4(args[3]);
                 if (offset < 0 || length < 0 || offset + length > buffer.Length) throw Bail(FallbackReason.RuntimeError, "Stream.Read outside the buffer");
+                var before = Before(target, offset, length);
                 var bytes = Take(s, length);
                 bytes.CopyTo(buffer.AsSpan(offset));
+                Committed(target, offset, before);
                 return bytes.Length;
             }
             case ("Dispose", 0): case ("Close", 0):

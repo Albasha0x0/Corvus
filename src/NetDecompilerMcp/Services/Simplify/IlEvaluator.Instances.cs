@@ -11,6 +11,8 @@ internal sealed class InstanceObject(TypeDef? type, Dictionary<FieldDef, object?
 {
     public TypeDef? Type { get; } = type;
     public Dictionary<FieldDef, object?> Fields { get; } = fields;
+    /// <summary>Per field, the extended tier's window that last counted a change to it (see IlEvaluator.Progress.cs), or null.</summary>
+    public Dictionary<FieldDef, int>? Stamps { get; set; }
 }
 
 internal sealed partial class IlEvaluator

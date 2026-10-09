@@ -100,7 +100,9 @@ internal sealed partial class IlEvaluator
         {
             var b = e.MutableBuilder(a[0]);
             e.Allocate(2L * NStr(a[2]).Length);
+            int before = b.Text.Length;
             Try(() => b.Text.Insert(I4(a[1]), NStr(a[2])));
+            e.Resized(b, before, b.Text.Length);
             return e.CheckLength(b);
         });
         Add(S, SB, "ToString", "", (_, a) => Builder(a[0]).Text.ToString());
@@ -157,13 +159,17 @@ internal sealed partial class IlEvaluator
         Add("System.Void", "System.Array", "Copy", "System.Array,System.Array,System.Int32", (e, a) =>
         {
             var target = e.MutableArray(a[1]);
+            var before = e.Before(target, 0, I4(a[2]));
             Try(() => Array.Copy(ArrayOf(a[0]).Data, target.Data, I4(a[2])));
+            e.Committed(target, 0, before);
             return null;
         });
         Add("System.Void", "System.Array", "Copy", "System.Array,System.Int32,System.Array,System.Int32,System.Int32", (e, a) =>
         {
             var target = e.MutableArray(a[2]);
+            var before = e.Before(target, I4(a[3]), I4(a[4]));
             Try(() => Array.Copy(ArrayOf(a[0]).Data, I4(a[1]), target.Data, I4(a[3]), I4(a[4])));
+            e.Committed(target, I4(a[3]), before);
             return null;
         });
         Add("System.Void", "System.Runtime.CompilerServices.RuntimeHelpers", "InitializeArray", "System.Array,System.RuntimeFieldHandle", (e, a) =>
@@ -174,7 +180,9 @@ internal sealed partial class IlEvaluator
             if (target.Data is object?[]) throw Bail(FallbackReason.InvalidCode, "InitializeArray of a reference array");
             int size = Buffer.ByteLength(target.Data);
             if (data.Length < size) throw Bail(FallbackReason.InvalidCode, "InitializeArray data is shorter than the array");
+            var before = e.Before(target, 0, target.Data.Length);
             Buffer.BlockCopy(data, 0, target.Data, 0, size);
+            e.Committed(target, 0, before);
             return null;
         });
 
@@ -182,10 +190,14 @@ internal sealed partial class IlEvaluator
         Add("System.Void", "System.Buffer", "BlockCopy", "System.Array,System.Int32,System.Array,System.Int32,System.Int32", (e, a) =>
         {
             var source = ArrayOf(a[0]).Data;
-            var target = e.MutableArray(a[2]).Data;
+            var targetArray = e.MutableArray(a[2]);
+            var target = targetArray.Data;
             if (source is object?[] || target is object?[]) throw Bail(FallbackReason.RuntimeError, "Buffer.BlockCopy of an array of references (ArgumentException)");
             if (source is nint[] || target is nint[]) throw Bail(FallbackReason.PlatformDependent, "Buffer.BlockCopy of native-size integers");
+            int width = Math.Max(Buffer.ByteLength(target) / Math.Max(target.Length, 1), 1);
+            var before = e.Before(targetArray, I4(a[3]) / width, (I4(a[4]) + width - 1) / width + 1);
             Try(() => Buffer.BlockCopy(source, I4(a[1]), target, I4(a[3]), I4(a[4])));
+            e.Committed(targetArray, I4(a[3]) / width, before);
             return null;
         });
         Add("System.Array", "System.Array", "CreateInstance", $"System.Type,{I}", (e, a) =>
@@ -235,6 +247,7 @@ internal sealed partial class IlEvaluator
         var b = MutableBuilder(builder);
         Allocate(2L * text.Length);
         b.Text.Append(text);
+        Resized(b, b.Text.Length - text.Length, b.Text.Length);
         return CheckLength(b);
     }
 

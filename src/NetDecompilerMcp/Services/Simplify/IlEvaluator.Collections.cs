@@ -211,7 +211,9 @@ internal sealed partial class IlEvaluator
     private object? Mutate(HeapObject collection, Action change)
     {
         RequireMutable(collection);
+        int before = Size(collection);
         change();
+        Resized(collection, before, Size(collection));
         switch (collection)
         {
             case DictionaryObject d: d.Version++; break;
@@ -219,6 +221,13 @@ internal sealed partial class IlEvaluator
         }
         return Void;
     }
+
+    private static int Size(HeapObject collection) => collection switch
+    {
+        DictionaryObject d => d.Entries.Count,
+        ListObject l => l.Items.Count,
+        _ => 0,
+    };
 
     private object? Put(DictionaryObject d, object? key, object? value, bool replace) => Mutate(d, () =>
     {
@@ -337,7 +346,9 @@ internal sealed partial class IlEvaluator
         object? Change(Action change)
         {
             RequireMutable(list);
+            int before = list.Entries.Count;
             change();
+            Resized(list, before, list.Entries.Count);
             return Void;
         }
         int Index(object? i) => (uint)I4(i) < (uint)list.Entries.Count ? I4(i) : throw Bail(FallbackReason.RuntimeError, "index out of range");

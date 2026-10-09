@@ -100,6 +100,9 @@ public sealed class MethodSimplifier
     /// <summary>In a static constructor: each instruction of the working copy that stands at an instruction of the original body.</summary>
     private readonly Dictionary<Instruction, Instruction> _origin = new();
 
+    /// <summary>Type initializer runs that used the extended tier (see IlEvaluator.Progress.cs).</summary>
+    public IReadOnlyList<ExtendedInitializer> ExtendedInitializers => _evaluator.ExtendedInitializers;
+
     public MethodSimplifier(ModuleDef module, SimplifyOptions options)
     {
         _module = module;

@@ -341,9 +341,10 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
                    $"Nothing is rewritten: {unreadable} of {total} method bodies of {asm.AssemblyName} cannot be read as IL. They are stored in another form on " +
                    "disk and restored at run time (an integrity check): bodies that happen to decode are not the code that runs, and a rewritten image would not run. [unreadable-bodies]";
         }
-        var changes = new MethodSimplifier(asm.Module, options).Run(methods, ct);
+        var simplifier = new MethodSimplifier(asm.Module, options);
+        var changes = simplifier.Run(methods, ct);
         var changed = changes.Where(c => c.Changed).ToList();
-        var report = SimplifyReport(changes, methods.Count, dryRun);
+        var report = SimplifyReport(changes, methods.Count, dryRun, simplifier.ExtendedInitializers);
         var header = dryRun
             ? $"Dry run — simplify {scope} ({options.Label()}): {changed.Count} of {methods.Count} method(s) would change."
             : $"Simplified {scope} ({options.Label()}): {changed.Count} of {methods.Count} method(s) changed.";
@@ -377,7 +378,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
     private const int MaxReportedIssues = 50;
     private const int MaxReportedMethods = 200;
 
-    private static string SimplifyReport(List<MethodChange> changes, int total, bool dryRun)
+    private static string SimplifyReport(List<MethodChange> changes, int total, bool dryRun, IReadOnlyList<ExtendedInitializer> extended)
     {
         var sb = new System.Text.StringBuilder();
         var changed = changes.Where(c => c.Changed).ToList();
@@ -407,10 +408,12 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         AppendList(sb, "Not rewritten (the code is kept; the other passes still apply):", skipped);
         var rejected = changes.Where(c => c.Rejected != null).Select(c => $"{Format.MemberLabel(c.Method)}: {c.Rejected}").ToList();
         AppendList(sb, "Left unchanged:", rejected);
+        AppendList(sb, "Extended tier (type initializers that ran past the instruction budget while committing new state; accounted apart):",
+            extended.Select(e => $"{e.Type}: {e.Instructions:N0} instructions, " + (e.Completed ? "completed" : $"stopped: {e.Stop}")).ToList());
         if (changed.Count == 0 && bailouts.Count == 0 && skipped.Count == 0 && rejected.Count == 0)
             sb.Append($"\nNothing to simplify in {total} method(s){(dryRun ? "" : "; no edit recorded")}.");
         else if (total > 1)
-            sb.Append("\n\n").Append(SimplifyTotals(changes));
+            sb.Append("\n\n").Append(SimplifyTotals(changes, extended));
         return sb.ToString();
     }
 
@@ -418,7 +421,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
     /// One line summing up a multi-method run, whatever the lists above left out: the effects of the methods that changed,
     /// and every fallback by reason code.
     /// </summary>
-    internal static string SimplifyTotals(List<MethodChange> changes)
+    internal static string SimplifyTotals(List<MethodChange> changes, IReadOnlyList<ExtendedInitializer>? extended = null)
     {
         var changed = changes.Where(c => c.Changed).ToList();
         var effects = new List<string>();
@@ -436,6 +439,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
         Add(changed.Sum(c => c.RemovedStores), "dead store(s) removed");
         Add(changed.Sum(c => c.RemovedLoads), "repeated load(s) removed");
         Add(changed.Sum(c => c.ConstantReads), "constant read(s) through an address replaced");
+        Add(extended?.Count(e => e.Completed) ?? 0, "type initializer(s) completed in the extended tier");
         var fallbacks = changes
             .SelectMany(c => c.Bailouts.Concat(c.Skipped).Select(f => f.Reason).Concat(c.Rejected is { } r ? [r.Reason] : Array.Empty<FallbackReason>()))
             .GroupBy(SimplifyManifest.CodeOf).OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal)

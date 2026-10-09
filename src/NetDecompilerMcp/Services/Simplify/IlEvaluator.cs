@@ -18,16 +18,21 @@ internal sealed class EvaluationBailout(FallbackReason reason, string message) :
 /// <summary>
 /// Limits of the evaluator: call depth (frames, the evaluated call itself included), instructions per evaluation (nested
 /// calls and the static constructors they trigger included), instructions across all evaluations of one method,
-/// simulated allocations per evaluation, and the time one method may take across all passes.
+/// simulated allocations per evaluation, and the time one method may take across all passes. A type initializer that
+/// keeps committing new state may run past the budget up to the initializer ceiling and time limit, accounted apart
+/// (the extended tier, see IlEvaluator.Progress.cs).
 /// </summary>
 public sealed record EvaluationLimits(
     int MaxDepth = 8,
     int InstructionBudget = 100_000,
     long MethodInstructionBudget = 5_000_000,
     long MemoryLimit = 16 * 1024 * 1024,
-    int MethodTimeLimitMs = 5_000)
+    int MethodTimeLimitMs = 5_000,
+    long InitializerInstructionCeiling = 50_000_000,
+    int InitializerTimeLimitMs = 30_000)
 {
     public TimeSpan MethodTimeLimit => TimeSpan.FromMilliseconds(MethodTimeLimitMs);
+    public TimeSpan InitializerTimeLimit => TimeSpan.FromMilliseconds(InitializerTimeLimitMs);
 }
 
 /// <summary>Resources of simplifying one method, shared by its passes and every evaluation they run.</summary>
@@ -47,6 +52,9 @@ internal sealed class MethodMeter(EvaluationLimits limits)
     }
 
     private long _excluded;
+
+    /// <summary>Time already spent (timestamp ticks) that was not the method's own work.</summary>
+    public void Exclude(long ticks) => _excluded += ticks;
 
     private sealed class Resume(Action done) : IDisposable
     {
@@ -76,6 +84,8 @@ internal abstract class HeapObject
 internal sealed class ArrayObject(Array data) : HeapObject
 {
     public Array Data { get; } = data;
+    /// <summary>Per element, the extended tier's window that last counted a change to it (see IlEvaluator.Progress.cs), or null.</summary>
+    public int[]? Stamps { get; set; }
 }
 
 internal sealed class BuilderObject : HeapObject
@@ -280,21 +290,30 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         _initializing.Add(type);
         try
         {
+            bool outermost = _cctorDepth == 0, reached = false;
+            if (outermost) BeginInitializerRun();
             _cctorDepth++;
             _stopAt = site;
             _stopIn = cctor;
             _passed = new HashSet<Instruction>();
+            EvaluationBailout? failure = null;
             try
             {
-                Execute(cctor, []);
-                throw Bail(FallbackReason.StaticInitializer, $"the static constructor of {type.FullName} returns without reaching IL_{site.Offset:X4}");
+                try
+                {
+                    Execute(cctor, []);
+                    throw Bail(FallbackReason.StaticInitializer, $"the static constructor of {type.FullName} returns without reaching IL_{site.Offset:X4}");
+                }
+                catch (SiteReached)
+                {
+                }
+                if (outermost) PassObservation();
+                reached = true;
             }
-            catch (SiteReached)
+            catch (EvaluationBailout bailout)
             {
-            }
-            catch (EvaluationBailout ex)
-            {
-                var failure = Bail(ex.Reason is FallbackReason.CallDepth or FallbackReason.InstructionBudget or FallbackReason.MemoryLimit or FallbackReason.CacheDependent
+                var ex = outermost ? InitializerFailure(bailout) : bailout;
+                failure = Bail(ex.Reason is FallbackReason.CallDepth or FallbackReason.InstructionBudget or FallbackReason.MemoryLimit or FallbackReason.CacheDependent
                     ? ex.Reason
                     : FallbackReason.StaticInitializer, $"static constructor of {type.FullName} cannot be evaluated as far as the call: {ex.Message}");
                 if (!SimplifyManifest.Info(failure.Reason).Transient) _failedRuns[cctor] = (_passed, failure);
@@ -302,10 +321,12 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
             }
             finally
             {
+                var passed = _passed!;
                 _stopAt = null;
                 _stopIn = null;
                 _passed = null;
                 _cctorDepth--;
+                if (outermost && EndInitializerRun(type, reached) && failure != null) _failedRuns[cctor] = (passed, failure);
             }
             _retained = _allocated;
             _ownType = type;
@@ -475,16 +496,13 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
 
     private void Tick()
     {
-        if (--_budget < 0)
-        {
-            throw _methodBudgetBound
-                ? Bail(FallbackReason.InstructionBudget, $"the method's total instruction budget of {limits.MethodInstructionBudget:N0} is exhausted")
-                : Bail(FallbackReason.InstructionBudget, $"instruction budget of {limits.InstructionBudget:N0} exhausted");
-        }
+        if (--_budget < 0 && !ExtendBudget())
+            throw _tierStop != null ? TierExhausted() : BudgetExhausted();
         if (++_sinceTimeCheck >= TimeCheckInterval)
         {
             _sinceTimeCheck = 0;
-            Meter?.CheckTime();
+            if (InTier) CheckTierTime();
+            else Meter?.CheckTime();
         }
     }
 
@@ -712,7 +730,9 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                     Push(new Pointer(() => NaturalElement(array.Data, i), v =>
                     {
                         RequireMutable(array);
+                        var old = Tracking ? NaturalElement(array.Data, i) : null;
                         SetElement(array.Data, i, v);
+                        Committed(array, i, old);
                     }));
                     break;
                 }
@@ -724,7 +744,9 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                     var array = ArrayOf(Pop());
                     RequireMutable(array);
                     CheckIndex(array, i);
+                    var old = Tracking ? NaturalElement(array.Data, (int)i) : null;
                     SetElement(array.Data, (int)i, value);
+                    Committed(array, (int)i, old);
                     break;
                 }
 
@@ -780,7 +802,9 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                         Push(new Pointer(() => obj.Fields[field], v =>
                         {
                             RequireMutable(obj);
+                            var old = obj.Fields.GetValueOrDefault(field);
                             obj.Fields[field] = Store(fieldSlot, v);
+                            Committed(obj, field, old);
                         }));
                         break;
                     }
@@ -797,7 +821,9 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
                     {
                         var field = InstanceField(obj, ins.Operand);
                         RequireMutable(obj);
+                        var old = obj.Fields.GetValueOrDefault(field);
                         obj.Fields[field] = Store(SlotOf(field.FieldType), value);
+                        Committed(obj, field, old);
                         break;
                     }
                     var (s, k, slot) = FieldOf(target, ins.Operand, viaPointerOnly: true);
@@ -1090,7 +1116,9 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         if (_initializing.Count > 0) Touch(fd.DeclaringType);
         if (fd.DeclaringType == _ownType)
             throw Bail(FallbackReason.MutableStatic, $"writes static field {fd.DeclaringType.FullName}::{fd.Name} of the type whose static constructor is running");
+        var old = _statics.GetValueOrDefault(fd);
         _statics[fd] = Store(SlotOf(fd.FieldType), value);
+        Committed(fd, old);
     }
 
     /// <summary>
@@ -1127,9 +1155,9 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
     /// </summary>
     private void EnsureInitialized(TypeDef type)
     {
-        if (_initialized.TryGetValue(type, out var failure))
+        if (_initialized.TryGetValue(type, out var known))
         {
-            if (failure != null) throw failure;
+            if (known != null) throw known;
             return;
         }
         if (_initializing.Contains(type)) return; // recursive initialization sees the partially initialized type, as at run time
@@ -1144,23 +1172,28 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         var initializedBefore = new HashSet<TypeDef>(_initialized.Keys);
         long allocatedBefore = _allocated;
         _initializing.Add(type);
+        bool outermost = _cctorDepth == 0;
+        if (outermost) BeginInitializerRun();
         _cctorDepth++;
         bool completed = false;
+        EvaluationBailout? failure = null;
         try
         {
             Execute(cctor, []);
+            if (outermost) PassObservation();
             _initialized[type] = null;
             _retained += _allocated - allocatedBefore;
             completed = true;
         }
-        catch (EvaluationBailout ex)
+        catch (EvaluationBailout bailout)
         {
-            var reason = Bail(ex.Reason is FallbackReason.CallDepth or FallbackReason.InstructionBudget or FallbackReason.MemoryLimit or FallbackReason.CacheDependent
+            var ex = outermost ? InitializerFailure(bailout) : bailout;
+            failure = Bail(ex.Reason is FallbackReason.CallDepth or FallbackReason.InstructionBudget or FallbackReason.MemoryLimit or FallbackReason.CacheDependent
                     ? ex.Reason
                     : FallbackReason.StaticInitializer,
                 $"static constructor of {type.FullName} cannot be evaluated: {ex.Message}");
-            if (!SimplifyManifest.Info(ex.Reason).Transient) _initialized[type] = reason;
-            throw reason;
+            if (!SimplifyManifest.Info(ex.Reason).Transient) _initialized[type] = failure;
+            throw failure;
         }
         finally
         {
@@ -1174,6 +1207,8 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
             }
             _cctorDepth--;
             _initializing.Remove(type);
+            // A run the extended tier stopped would stop the same way again.
+            if (outermost && EndInitializerRun(type, completed) && failure != null) _initialized[type] = failure;
         }
     }
 
