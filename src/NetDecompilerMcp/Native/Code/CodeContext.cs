@@ -61,6 +61,7 @@ internal sealed class CodeContext
         var relocs = image.RelocationRvas.ToArray();
         if (!IsSorted(relocs)) Array.Sort(relocs);
         Relocations = relocs;
+        CodeRelocations = relocs.Where(code.IsCode).ToArray();
         foreach (var imp in image.Imports)
         {
             ImportSlots.TryAdd(imp.SlotRva, imp);
@@ -193,8 +194,14 @@ internal sealed class CodeContext
     /// <summary>A kernel-mode image (driver, kernel, HAL): privileged instructions are expected there.</summary>
     public bool IsKernelMode { get; }
 
+    /// <summary>Relocations inside executable code (instruction operands, x86 tables): all a code decoder needs to look up.</summary>
+    public uint[] CodeRelocations { get; }
+
     public X86Decoder NewDecoder(bool computeAccess) =>
-        new(Code, Relocations) { ComputeAccess = computeAccess, RejectImplausible = !IsKernelMode, CheckRelocations = true };
+        new(Code, CodeRelocations)
+        {
+            ComputeAccess = computeAccess, RejectImplausible = !IsKernelMode, CheckRelocations = true, ImageHasRelocations = Relocations.Length > 0,
+        };
 
     private readonly Lock _readLock = new();
 

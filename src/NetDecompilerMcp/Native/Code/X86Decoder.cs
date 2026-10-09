@@ -103,7 +103,9 @@ internal sealed class X86Decoder
         }
         return true;
     }
-    public bool HasRelocations => _relocs.Length > 0;
+    /// <summary>The image has base relocations (the decoder may hold only those inside code).</summary>
+    public bool HasRelocations => _relocs.Length > 0 || ImageHasRelocations;
+    public bool ImageHasRelocations { get; set; }
     /// <summary>The last decoded instruction.</summary>
     public ref readonly Instruction Last => ref _last;
 

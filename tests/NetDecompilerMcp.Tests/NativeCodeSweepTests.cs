@@ -36,12 +36,34 @@ public class NativeCodeSweepTests(ITestOutputHelper output)
         Sweep(dir, NativeArch.X86);
     }
 
+    /// <summary>One large image (NDM_NATIVE_LARGE_IMAGE, e.g. a game executable or a browser DLL): time, memory, completeness.</summary>
+    [RequiresRealDataFact("NDM_NATIVE_LARGE_IMAGE")]
+    public void Large_image()
+    {
+        var path = RealData.Path("NDM_NATIVE_LARGE_IMAGE");
+        var image = CodeTestImage.Load(path);
+        long before = GC.GetTotalMemory(true);
+        var phases = new List<string>();
+        var sw = Stopwatch.StartNew();
+        var index = NativeCodeIndex.Build(image, progress: p => { if (phases.Count == 0 || phases[^1] != p.Phase) phases.Add($"{p.Phase} @{sw.Elapsed.TotalSeconds:F1}s"); });
+        sw.Stop();
+        long retained = GC.GetTotalMemory(true) - before;
+        output.WriteLine($"{path}: {new FileInfo(path).Length / 1048576} MB, {sw.Elapsed.TotalSeconds:F1} s, index {retained / 1048576} MB");
+        output.WriteLine(string.Join(" | ", phases));
+        output.WriteLine(index.Stats.ToString());
+        foreach (var t in index.Truncations) output.WriteLine("truncated: " + t);
+        if (image.Arch == NativeArch.X64) Assert.Empty(PdataStartsMissing(image, index).Missing);
+        Assert.True(sw.Elapsed < TimeSpan.FromMinutes(5), $"took {sw.Elapsed}");
+        GC.KeepAlive(index);
+    }
+
     private void Sweep(string directory, NativeArch arch)
     {
         if (!OperatingSystem.IsWindows()) return;
         int files = 0, skipped = 0;
         long functions = 0, instructions = 0, xrefs = 0, pdata = 0, pdataMissing = 0, unresolved = 0, switches = 0, invalid = 0;
         var failures = new List<string>();
+        var mostInvalid = new List<(string Name, int Invalid, int Functions)>();
         var slowest = (Name: "", Time: TimeSpan.Zero, Size: 0L);
         var total = Stopwatch.StartNew();
         foreach (var path in Sample(directory))
@@ -68,6 +90,7 @@ public class NativeCodeSweepTests(ITestOutputHelper output)
             unresolved += index.Stats.UnresolvedJumps;
             switches += index.Stats.ResolvedSwitches;
             invalid += index.Stats.FunctionsWithInvalidCode;
+            mostInvalid.Add((Path.GetFileName(path), index.Stats.FunctionsWithInvalidCode, index.Stats.Functions));
             var missing = PdataStartsMissing(image, index);
             pdata += missing.Total;
             pdataMissing += missing.Missing.Count;
@@ -78,6 +101,7 @@ public class NativeCodeSweepTests(ITestOutputHelper output)
         output.WriteLine($"functions {functions}, instructions {instructions}, xrefs {xrefs}, switches {switches}, unresolved indirect jumps (functions) {unresolved}, functions with invalid code {invalid}");
         if (arch == NativeArch.X64) output.WriteLine($".pdata primary starts {pdata}, missing {pdataMissing}");
         output.WriteLine($"slowest: {slowest.Name} ({slowest.Size / 1024} KB) {slowest.Time.TotalSeconds:F2} s");
+        output.WriteLine("most functions with invalid code: " + string.Join(", ", mostInvalid.OrderByDescending(m => m.Invalid).Take(6).Select(m => $"{m.Name} {m.Invalid}/{m.Functions}")));
         foreach (var f in failures.Take(50)) output.WriteLine("FAIL " + f);
         Assert.Empty(failures);
     }

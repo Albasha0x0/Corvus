@@ -26,6 +26,7 @@ internal sealed class FunctionDiscovery
     /// <summary>Starts of tables in code read as [index*4 + table]: their entries are case labels, not functions.</summary>
     private readonly HashSet<uint> _codeTables = [];
     private readonly SortedSet<uint> _pendingSwitches = [];
+    private readonly HashSet<uint> _rejected = [];
     private readonly Dictionary<uint, uint?> _thunkCache = [];
     private readonly CancellationToken _ct;
     private readonly Action<long>? _progress;
@@ -336,9 +337,13 @@ internal sealed class FunctionDiscovery
         if (_functions.ContainsKey(rva)) { _functions[rva] |= source; return false; }
         long bit = _ctx.Code.BitIndex(rva);
         if (bit < 0 || _covered[bit]) return false;
-        if (_dataInCode.Contains(rva)) return false;
-        if (StringDetector.Detect(_ctx.Image, rva, 64, _stringBuffer) != null) return false;
-        if (!Verify(rva, out bool funclet)) return false;
+        // more known code only adds reasons to reject, so a rejection is final
+        if (_rejected.Contains(rva)) return false;
+        if (_dataInCode.Contains(rva) || StringDetector.Detect(_ctx.Image, rva, 64, _stringBuffer) != null || !Verify(rva, out bool funclet))
+        {
+            _rejected.Add(rva);
+            return false;
+        }
         Add(rva, source, strong: false);
         if (funclet) _ctx.Funclets.Add(rva);
         return true;

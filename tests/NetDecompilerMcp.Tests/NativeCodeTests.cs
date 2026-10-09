@@ -497,6 +497,17 @@ public class NativeCodeTests
     }
 
     [Fact]
+    public void Progress_ends_with_done_and_build_runs_in_the_background()
+    {
+        var (image, _, _) = MsvcSwitch(bounded: true);
+        var updates = new List<CodeIndexProgress>();
+        var index = NativeCodeIndex.BuildAsync(image, progress: p => { lock (updates) updates.Add(p); }).GetAwaiter().GetResult();
+        Assert.Single(index.Functions);
+        Assert.Equal("done", updates[^1].Phase);
+        Assert.Contains(updates, u => u.Phase == "analyzing functions");
+    }
+
+    [Fact]
     public void Arm64_reports_declared_functions_only()
     {
         var code = new byte[0x40];
