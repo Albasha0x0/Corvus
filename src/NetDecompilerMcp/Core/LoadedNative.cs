@@ -43,6 +43,9 @@ public sealed class LoadedNative
     }
     private NativePatchSet? _patches;
 
+    /// <summary>Whether unsaved byte patches exist (does not create the patch set).</summary>
+    public bool HasPatches { get { lock (_gate) return _patches?.IsDirty == true; } }
+
     /// <summary>The user's names and comments for this image; survives analysis invalidation. Created via the service.</summary>
     public NativeAnnotations Annotations(Func<LoadedNative, NativeAnnotations> create)
     {

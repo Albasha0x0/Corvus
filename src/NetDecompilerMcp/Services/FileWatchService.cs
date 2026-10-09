@@ -33,6 +33,7 @@ public sealed class FileWatchService : IDisposable
         };
         foreach (var asm in workspace.Read(() => workspace.Assemblies))
             Watch(Path.GetDirectoryName(asm.FilePath)!);
+        workspace.NativeLoaded += native => Watch(Path.GetDirectoryName(native.FilePath)!);
     }
 
     private void Watch(string directory)
@@ -56,7 +57,7 @@ public sealed class FileWatchService : IDisposable
     /// <summary>Coalesces the burst of events a single file write produces.</summary>
     private void Schedule(string path)
     {
-        if (_workspace.Read(() => _workspace.FindByPath(Path.GetFullPath(path))) == null) return;
+        if (_workspace.Read(() => _workspace.FindByPath(Path.GetFullPath(path)) == null && _workspace.FindNative(Path.GetFullPath(path)) == null)) return;
         _pending.AddOrUpdate(path,
             p => new Timer(_ => Process(p), null, Debounce, Timeout.InfiniteTimeSpan),
             (_, existing) => { existing.Change(Debounce, Timeout.InfiniteTimeSpan); return existing; });
@@ -67,6 +68,11 @@ public sealed class FileWatchService : IDisposable
         if (_pending.TryRemove(path, out var timer)) timer.Dispose();
         try
         {
+            if (_workspace.Read(() => _workspace.FindNative(Path.GetFullPath(path))) is { } native)
+            {
+                ProcessNative(native, path);
+                return;
+            }
             var asm = _workspace.Read(() => _workspace.FindByPath(Path.GetFullPath(path)));
             if (asm == null) return;
             if (!File.Exists(path))
@@ -97,6 +103,33 @@ public sealed class FileWatchService : IDisposable
         {
             Report($"{path} changed on disk but reloading failed ({ex.Message}); the previous version stays loaded.");
         }
+    }
+
+    /// <summary>Native images: reload on a content change unless unsaved patches exist (then only a notice).</summary>
+    private void ProcessNative(LoadedNative native, string path)
+    {
+        if (!File.Exists(path))
+        {
+            Report($"{native.Id}: {path} was deleted or moved on disk; the loaded copy stays in memory.");
+            return;
+        }
+        byte[]? bytes = ReadWithRetry(path);
+        if (bytes == null)
+        {
+            Report($"{native.Id}: {path} changed on disk but could not be read (still being written?); the previous version stays loaded.");
+            return;
+        }
+        var sha = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
+        if (sha == native.OriginalSha256 || sha == native.Image.Sha256)
+            return; // touched, rewritten with identical content, or our own save_native of the patched image
+        if (native.HasPatches)
+        {
+            Report($"{native.Id}: {path} changed on disk, but the loaded copy has unsaved patches, so it was NOT reloaded. " +
+                   "save_native them elsewhere first, then reload_assembly to move to the new version.");
+            return;
+        }
+        var fresh = _workspace.ReloadNative(native);
+        Report($"{fresh.Id} was reloaded: {path} changed on disk (names and comments are kept per file content, so the new version starts without them).");
     }
 
     private static byte[]? ReadWithRetry(string path)
