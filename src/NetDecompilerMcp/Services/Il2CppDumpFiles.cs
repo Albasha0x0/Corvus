@@ -235,6 +235,16 @@ public sealed class Il2CppScript
         return ScriptJsonReader.ReadMethodAt(file, _methodOffsets[entry]);
     }
 
+    /// <summary>Reads entries with their signatures through one open file handle.</summary>
+    public MethodReader OpenMethods() => new(this);
+
+    public sealed class MethodReader(Il2CppScript script) : IDisposable
+    {
+        private readonly SafeFileHandle _file = script.OpenFile();
+        public ScriptMethod Read(int entry) => ScriptJsonReader.ReadMethodAt(_file, script._methodOffsets[entry]);
+        public void Dispose() => _file.Dispose();
+    }
+
     /// <summary>The entries whose type part satisfies <paramref name="type"/> and method part <paramref name="method"/>, by address.</summary>
     public List<int> FindMethods(Func<string, bool> type, Func<string, bool>? method = null, CancellationToken ct = default)
     {

@@ -24,7 +24,8 @@ internal static class ServerInstructions
         6. Il2Cpp dummy DLLs have empty bodies: get_il2cpp_info (RVAs, field offsets; slot=N for the method implementing a vtable slot),
            find_method_by_address (native address -> method), export_il2cpp_symbols (IDA/Ghidra scripts + C struct header).
            With Il2CppDumper's script.json next to the DummyDll folder, functions are bounded by the next function start, generic
-           instantiations are named both ways (get_il2cpp_info 'List`1<int>::Add'), and type metadata / MethodInfo slots resolve.
+           instantiations are named both ways (get_il2cpp_info 'List`1<int>::Add'; overloads told apart by the C signature, or
+           reported as ambiguous), and type metadata / MethodInfo slots resolve.
            With stringliteral.json and GameAssembly.dll too, search_strings finds the game's literals and the methods whose native code loads them. generate_cpp_binding emits C++ binding code for a Mono type
            (standard Mono embedding API, or a host function table detected in projectDir with the include paths computed).
         7. Patch in memory (dryRun=true previews): rename_symbol, rename_namespace, stub_method, patch_method_csharp (C# body; lambdas,

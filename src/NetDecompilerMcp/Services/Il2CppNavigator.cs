@@ -237,14 +237,47 @@ public sealed class Il2CppNavigator(AssemblyWorkspace workspace, Il2CppService i
         return own.Count > 0 ? own : found;
     }
 
-    /// <summary>script.json entries instantiating a generic method, or a method of a generic type (overloads are not told apart).</summary>
-    public static List<int> Instantiations(Il2CppScript script, MethodDef method, CancellationToken ct = default)
+    /// <summary>
+    /// The script.json entries instantiating a generic method or a method of a generic type: each with its match among
+    /// the methods sharing its script.json name (<see cref="Il2CppOverloads"/>); entries resolved to another overload are
+    /// left out, ambiguous ones kept. <c>Unmatched</c> counts the entries of the name no overload's signature fits.
+    /// </summary>
+    public sealed record InstantiationList(List<(int Entry, Il2CppOverloads.Match Match)> Entries, int Overloads, int Unmatched);
+
+    public InstantiationList Instantiations(Image image, MethodDef method, CancellationToken ct = default)
     {
-        if (!method.HasGenericParameters && !IsInGenericType(method.DeclaringType)) return [];
+        if (image.Script is not { } script || !method.HasGenericParameters && !IsInGenericType(method.DeclaringType)) return new([], 1, 0);
         var typeKey = Il2CppNames.TypeKey(method.DeclaringType);
         var name = method.Name.String;
-        return script.FindMethods(t => Il2CppNames.StripArgs(t) == typeKey, m => Il2CppNames.StripArgs(m) == name, ct);
+        var entries = script.FindMethods(t => Il2CppNames.StripArgs(t) == typeKey, m => Il2CppNames.StripArgs(m) == name, ct);
+        var overloads = MethodsNamed(image, typeKey, name);
+        if (!overloads.Contains(method)) overloads.Add(method);
+        var list = new List<(int, Il2CppOverloads.Match)>();
+        int unmatched = 0;
+        using var reader = overloads.Count > 1 ? script.OpenMethods() : null;
+        foreach (var e in entries)
+        {
+            ct.ThrowIfCancellationRequested();
+            var match = Il2CppOverloads.Resolve(overloads, script.MethodTypeName(e), script.MethodShortName(e), () => reader!.Read(e));
+            if (match.Includes(method)) list.Add((e, match));
+            else if (match.Outcome == Il2CppOverloads.Outcome.Unmatched) unmatched++;
+        }
+        return new InstantiationList(list, overloads.Count, unmatched);
     }
+
+    /// <summary>The dummy method a script.json entry instantiates (or is), among the methods sharing its name.</summary>
+    public Il2CppOverloads.Match DefinitionOf(Image image, int entry)
+    {
+        var script = image.Script!;
+        var type = script.MethodTypeName(entry);
+        var name = script.MethodShortName(entry);
+        return Il2CppOverloads.Resolve(MethodsNamed(image, Il2CppNames.StripArgs(type), Il2CppNames.StripArgs(name)), type, name, () => script.ReadMethod(entry));
+    }
+
+    /// <summary>The image's methods named <paramref name="name"/> in the types whose script.json name is <paramref name="typeKey"/> (any arity).</summary>
+    public List<MethodDef> MethodsNamed(Image image, string typeKey, string name) =>
+        TypesByKey(image).GetValueOrDefault(typeKey.GetHashCode())?.Select(t => (TypeDef)t.Member).Where(t => Il2CppNames.TypeKey(t) == typeKey)
+            .SelectMany(t => t.Methods.Where(m => m.Name == name)).ToList() ?? [];
 
     private static bool IsInGenericType(TypeDef? t)
     {
@@ -385,6 +418,23 @@ public static partial class Il2CppNames
                 return i > 0 && name[i - 1] != '.' ? name[..i] : name;
         }
         return name;
+    }
+
+    /// <summary>The trailing generic argument list of a name, split at its top-level commas: "Dictionary&lt;int, List&lt;int&gt;&gt;" → [int, List&lt;int&gt;].</summary>
+    public static List<string> GenericArguments(string name)
+    {
+        var stripped = StripArgs(name);
+        if (stripped.Length == name.Length) return [];
+        var list = new List<string>();
+        int depth = 0, start = stripped.Length + 1;
+        for (int i = start; i < name.Length - 1; i++)
+        {
+            if (name[i] == '<') depth++;
+            else if (name[i] == '>') depth--;
+            else if (name[i] == ',' && depth == 0) { list.Add(name[start..i].Trim()); start = i + 1; }
+        }
+        list.Add(name[start..^1].Trim());
+        return list;
     }
 
     /// <summary>The type a ScriptMetadata name describes: "Ns.Type_TypeInfo" / "Ns.Type_var" → "Ns.Type"; null for other entries.</summary>

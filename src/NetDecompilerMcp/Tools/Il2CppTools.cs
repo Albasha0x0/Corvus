@@ -16,7 +16,7 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
 
     [McpServerTool(Name = "get_il2cpp_info", Title = "Il2Cpp addresses and offsets", ReadOnly = true, OpenWorld = false)]
     [Description("For Il2CppDumper/Cpp2IL dummy DLLs: native addresses (RVA, VA, file offset, vtable slot) of a method or of every method in a type, plus field offsets and metadata tokens. Use them to jump to the function in IDA/Ghidra. " +
-                 "With the dump's script.json next to the DummyDll folder, also: a method's function bounds, the methods sharing its code, its MethodInfo slot and its generic instantiations; " +
+                 "With the dump's script.json next to the DummyDll folder, also: a method's function bounds, the methods sharing its code, its MethodInfo slot and its generic instantiations (same-named overloads told apart by the C signature, or reported as ambiguous); " +
                  "a type's metadata slots (Ns.Type_TypeInfo class pointer, _var); and the native code of names that only script.json has, such as generic instantiations " +
                  "('List`1<int>::Add', 'System.Collections.Generic.List<int>$$Add'), metadata names ('Ns.Type_TypeInfo', 'Method$Ns.Type.M()'). " +
                  "For a method, also the string literals its native code loads, when stringliteral.json and GameAssembly.dll are there too (search_strings finds a literal's slot).")]
@@ -99,12 +99,38 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
         foreach (var info in Il2CppNavigator.MethodInfos(script, method, rva).Take(5))
             sb.AppendLine($"  MethodInfo slot: RVA 0x{script.MethodInfoAddress(info):X}" +
                           (script.MethodInfoTarget(info) is var target and > 0 ? $" (describes the function at RVA 0x{target:X})" : " (no code of its own)"));
-        var instances = Il2CppNavigator.Instantiations(script, method, ct);
-        if (instances.Count == 0) return;
-        sb.AppendLine($"  generic instantiations in script.json: {instances.Count}{Showing(offset, limit, instances.Count)} (overloads of the name are not told apart)");
-        foreach (var e in instances.Skip(offset).Take(limit))
-            sb.AppendLine($"    {script.MethodName(e)}  RVA 0x{script.MethodAddress(e):X}");
-        AppendMore(sb, offset, limit, instances.Count, "    ");
+        var instances = navigator.Instantiations(image, method, ct);
+        var entries = instances.Entries;
+        if (entries.Count == 0 && instances.Unmatched == 0) return;
+        int ambiguous = entries.Count(x => x.Match.Outcome == Il2CppOverloads.Outcome.Ambiguous);
+        sb.AppendLine($"  generic instantiations in script.json: {entries.Count}{Showing(offset, limit, entries.Count)}" +
+                      (instances.Overloads > 1 ? $"; {instances.Overloads} methods share the name, told apart by generic arity and C signature" +
+                                                 (ambiguous > 0 ? $" ({ambiguous} ambiguous)" : "") : ""));
+        foreach (var (e, match) in entries.Skip(offset).Take(limit))
+            sb.AppendLine($"    {script.MethodName(e)}  RVA 0x{script.MethodAddress(e):X}" +
+                          (match.Outcome == Il2CppOverloads.Outcome.Ambiguous
+                              ? $"  (ambiguous, {match.Basis} as {string.Join("; ", match.Methods.Where(m => m != method).Select(MethodLine))})" : ""));
+        AppendMore(sb, offset, limit, entries.Count, "    ");
+        if (instances.Unmatched > 0)
+            sb.AppendLine($"  ({instances.Unmatched} more script.json {(instances.Unmatched == 1 ? "entry" : "entries")} of the name fit no overload's parameter count)");
+    }
+
+    private string MethodLine(MethodDef m) =>
+        $"{Format.MemberLabel(m)}  [{workspace.Assemblies.FirstOrDefault(a => a.Module == m.Module)?.Id}] {Format.Token(m)}";
+
+    /// <summary>The dummy method a script.json entry instantiates, or why none is picked. Null when no method has its name.</summary>
+    private string? DefinitionLine(Il2CppNavigator.Image image, int entry)
+    {
+        var match = navigator.DefinitionOf(image, entry);
+        if (match.Methods.Count == 0) return null;
+        return match.Outcome switch
+        {
+            Il2CppOverloads.Outcome.Resolved => $"definition: {MethodLine(match.Methods[0])}" +
+                                                (match.Named > 1 ? $" (one of {match.Named} methods named like it, by {match.Basis})" : ""),
+            Il2CppOverloads.Outcome.Ambiguous => $"definition: ambiguous between {match.Methods.Count} of the {match.Named} methods named like it ({match.Basis}): " +
+                                                 string.Join("; ", match.Methods.Select(MethodLine)),
+            _ => $"definition: none of the {match.Named} methods named like it has its parameter count: " + string.Join("; ", match.Methods.Take(5).Select(MethodLine)),
+        };
     }
 
     private static void AppendTypeMetadata(StringBuilder sb, Il2CppScript script, TypeDef type, int offset, int limit)
@@ -174,7 +200,6 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
         if (rows.Count == 0) return sb.Length > 0 ? sb.ToString() : null;
 
         sb.AppendLine($"script.json: {Plural(rows.Count, "method")} named '{query}'{Showing(offset, limit, rows.Count)}:");
-        var definitions = new Dictionary<string, string?>(StringComparer.Ordinal);
         foreach (var (image, e) in rows.Skip(offset).Take(limit))
         {
             var script = image.Script!;
@@ -185,29 +210,15 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
             if (f?.End is { } end) line.Append($" (0x{end - address:X} bytes)");
             var (methods, scriptMethods) = Il2CppNavigator.MethodsSharing(image, address);
             if (methods.Count + scriptMethods.Count > 1) line.Append($"; code shared by {methods.Count + scriptMethods.Count} methods");
-            if (script.MethodInfosNamed("Method$" + name.Replace("$$", ".") + "()") is [var info, ..])
+            // Overloads share a MethodInfo name; the slot describing this function is the one.
+            var infos = script.MethodInfosNamed("Method$" + name.Replace("$$", ".") + "()");
+            if (infos.FirstOrDefault(i => script.MethodInfoTarget(i) == address, infos.FirstOrDefault(-1)) is var info and >= 0)
                 line.Append($"; MethodInfo slot RVA 0x{script.MethodInfoAddress(info):X}");
             sb.AppendLine(line.ToString());
-            var key = Il2CppNames.StripArgs(script.MethodTypeName(e)) + "::" + Il2CppNames.StripArgs(script.MethodShortName(e));
-            if (!definitions.TryGetValue(key, out var definition))
-                definitions[key] = definition = Definition(image, key);
-            if (definition != null) sb.AppendLine($"      definition: {definition}");
+            if (DefinitionLine(image, e) is { } definition) sb.AppendLine("      " + definition);
         }
         AppendMore(sb, offset, limit, rows.Count, "");
         return sb.ToString();
-    }
-
-    /// <summary>The dummy-DLL method a script.json name instantiates ("Ns.Type::Method"), when it resolves to one.</summary>
-    private string? Definition(Il2CppNavigator.Image image, string key)
-    {
-        try
-        {
-            var found = SymbolResolver.Resolve(workspace, null, key, SymbolKind.Method).Where(s => image.Assemblies.Contains(s.Assembly)).ToList();
-            if (found.Count == 0) return null;
-            var first = found[0];
-            return $"{first.Label}  [{first.Assembly.Id}] {Format.Token(first.Member)}" + (found.Count > 1 ? $" (and {found.Count - 1} more overloads)" : "");
-        }
-        catch (ToolError) { return null; }
     }
 
     private static string Showing(int offset, int limit, int total) =>
@@ -251,7 +262,7 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
     [McpServerTool(Name = "find_method_by_address", Title = "Native address to method", ReadOnly = true, OpenWorld = false)]
     [Description("Map a native address from IDA/Ghidra/a crash log back to what is there: the method(s) whose function starts at or contains it, or the string literal, " +
                  "type metadata (Ns.Type_TypeInfo) or MethodInfo slot at it. With the dump's script.json next to the DummyDll folder, functions end where the next one starts " +
-                 "and generic instantiations (which have no dummy-DLL method) are named; without it, only dummy-DLL methods are known and a containing method is a guess. " +
+                 "and generic instantiations (which have no dummy-DLL method) are named, with the dummy method each instantiates; without it, only dummy-DLL methods are known and a containing method is a guess. " +
                  "Code shared by many methods (shared generics, identical code folding) is listed with a total and paged.")]
     public Task<string> FindMethodByAddress(
         [Description("Address in hex as IDA/Ghidra show it: '0x1A2B3C', '1A2B3C', '1A2B3Ch' or '00000001`8001A2B3'. Prefix 'd:' for decimal.")] string address,
@@ -292,7 +303,10 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
                 sb.AppendLine($"  [{k}] {f.Relation}: {Format.MemberLabel(m.Method)}  (start 0x{start:X})  [{m.Assembly.Id}] {Format.Token(m.Method)}");
             var script = r.Image.Script;
             foreach (var e in r.ScriptMethods.Skip(Math.Max(0, offset - r.Methods.Count)).Take(Math.Max(0, offset + limit - Math.Max(offset, r.Methods.Count))))
+            {
                 sb.AppendLine($"  [{k}] {f.Relation}: {script!.MethodName(e)}  (start 0x{start:X})  script.json (no dummy-DLL method)");
+                if (DefinitionLine(r.Image, e) is { } definition) sb.AppendLine("      " + definition);
+            }
             AppendMore(sb, offset, limit, r.Total, "  ");
         }
         return pager.Page(sb.ToString());
