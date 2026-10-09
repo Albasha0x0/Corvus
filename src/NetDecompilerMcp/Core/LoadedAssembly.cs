@@ -165,6 +165,45 @@ public sealed class LoadedAssembly : IDisposable
         get { lock (_sync) return _rawOriginal ??= new RawImage(_originalBytes); }
     }
 
+    private (int Unreadable, int Total)? _bodyCensus;
+
+    /// <summary>
+    /// IL method bodies of the original image that cannot be read (invalid header, or longer than their section), and
+    /// all IL bodies. A compiler never writes an unreadable body: many of them mean the bodies are stored in another form
+    /// on disk and restored at run time (an integrity check that rewrites the module's own code).
+    /// </summary>
+    internal (int Unreadable, int Total) BodyCensus
+    {
+        get
+        {
+            lock (_sync)
+            {
+                if (_bodyCensus is { } known) return known;
+                int unreadable = 0, total = 0;
+                try
+                {
+                    var raw = RawOriginal;
+                    for (int rid = 1; rid <= raw.MethodCount; rid++)
+                    {
+                        var row = raw.Method(rid);
+                        if (row.Rva == 0 || !row.IsIL) continue;
+                        total++;
+                        if (raw.ReadBody(row.Rva, out _) == null) unreadable++;
+                    }
+                }
+                catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+                {
+                    // Metadata the reader rejects: no census (the loaders report it).
+                }
+                _bodyCensus = (unreadable, total);
+                return (unreadable, total);
+            }
+        }
+    }
+
+    /// <summary>Whether the method bodies are not the code that runs: at least two, and a quarter of all IL bodies, cannot be read.</summary>
+    internal bool HasUnreadableBodies => BodyCensus is var (unreadable, total) && unreadable >= 2 && unreadable * 4 >= total;
+
     /// <summary>A separate, never edited load of the original image: tells what edits changed.</summary>
     private ModuleDefMD Pristine()
     {

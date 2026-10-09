@@ -334,6 +334,13 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
     {
         var scope = symbol?.Label ?? asm.Id;
         var methods = SimplifyScope(asm, symbol);
+        if (asm.HasUnreadableBodies)
+        {
+            var (unreadable, total) = asm.BodyCensus;
+            return $"{(dryRun ? "Dry run — simplify" : "Simplify")} {scope} ({options.Describe()}): 0 of {methods.Count} method(s) {(dryRun ? "would change" : "changed")}.\n" +
+                   $"Nothing is rewritten: {unreadable} of {total} method bodies of {asm.AssemblyName} cannot be read as IL. They are stored in another form on " +
+                   "disk and restored at run time (an integrity check): bodies that happen to decode are not the code that runs, and a rewritten image would not run. [unreadable-bodies]";
+        }
         var changes = new MethodSimplifier(asm.Module, options).Run(methods, ct);
         var changed = changes.Where(c => c.Changed).ToList();
         var report = SimplifyReport(changes, methods.Count, dryRun);

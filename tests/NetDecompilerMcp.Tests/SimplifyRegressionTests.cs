@@ -241,4 +241,55 @@ public sealed class SimplifyRegressionTests : IDisposable
         Assert.Equal(FallbackReason.OriginalUnverifiable, change.Rejected?.Reason);
         Assert.Contains("branch target outside the body", change.Rejected!.Detail);
     }
+
+    /// <summary>
+    /// Round-trip testing: a module whose integrity check stores its method bodies in another form on disk and restores
+    /// them at run time. Some bodies decoded by chance and were "simplified", and the image written back dropped the
+    /// unreadable ones. With a quarter or more of the bodies unreadable, nothing is rewritten; a lone unreadable body
+    /// (junk a code transformer added) does not stop the others.
+    /// </summary>
+    [Theory]
+    [InlineData(6, true)]
+    [InlineData(1, false)]
+    public void UnreadableBodiesAreNotRewritten(int corrupted, bool refused)
+    {
+        var lab = new IlLab("Unreadable");
+        for (int k = 0; k < 8; k++)
+        {
+            var zero = Ldc(0);
+            lab.Method("M" + k, lab.T.Int32, Ldc(1), I(OpCodes.Brfalse, zero), Ldc(k), Ret(), zero, Ret());
+        }
+        var image = lab.Write();
+        using (var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(image)))
+        {
+            var md = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+            int done = 0;
+            foreach (var handle in md.MethodDefinitions)
+            {
+                var def = md.GetMethodDefinition(handle);
+                if (!md.GetString(def.Name).StartsWith('M') || done == corrupted) continue;
+                pe.PEHeaders.TryGetDirectoryOffset(new System.Reflection.PortableExecutable.DirectoryEntry(def.RelativeVirtualAddress, 0), out int offset);
+                image[offset] = 0x00; // neither a tiny (..10) nor a fat (..11) header
+                done++;
+            }
+            Assert.Equal(corrupted, done);
+        }
+        var path = _dir.File($"Unreadable{corrupted}.dll");
+        File.WriteAllBytes(path, image);
+        using var env = new Env(path);
+        var asm = env.One("Lab.P::M7").Assembly;
+        var report = env.Edit(() => env.Edits.SimplifyMethods(asm, null, SimplifyOptions.Parse(null, null, null), false, default));
+        Assert.DoesNotContain("[unexpected]", report);
+        if (refused)
+        {
+            Assert.Contains("Nothing is rewritten: 6 of 8 method bodies", report);
+            Assert.Contains("[unreadable-bodies]", report);
+            Assert.Empty(env.Fixture.Edits);
+        }
+        else
+        {
+            Assert.DoesNotContain("unreadable-bodies", report);
+            Assert.Contains("7 of 8 method(s) changed", report);
+        }
+    }
 }

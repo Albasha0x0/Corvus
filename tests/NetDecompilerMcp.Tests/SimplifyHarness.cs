@@ -66,6 +66,7 @@ internal static class SimplifyHarness
     private static Outcome Run(LoadedAssembly asm, SimplifyOptions options, long start, CancellationToken ct)
     {
         var methods = asm.Module.GetTypes().SelectMany(t => t.Methods).Where(m => m.HasBody).ToList();
+        if (asm.HasUnreadableBodies) methods.Clear(); // as simplify_methods: nothing is rewritten
         var simplifier = new MethodSimplifier(asm.Module, options);
         var changes = new List<MethodChange>(methods.Count);
         var problems = new List<string>();
