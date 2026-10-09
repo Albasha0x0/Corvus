@@ -225,4 +225,20 @@ public sealed class SimplifyRegressionTests : IDisposable
         using var module = ModuleDefMD.Load(lab.Write());
         Assert.Empty(module.Find("Lab.P", false)!.FindMethod("Run").Body.ExceptionHandlers);
     }
+
+    /// <summary>
+    /// Round-trip testing (a module whose integrity check restores its method bodies at run time): bytes decoded as IL gave
+    /// a switch a target outside the body, which dnlib leaves null;
+    /// the verifier looked the null up and the simplifier crashed (unexpected) instead of rejecting the body.
+    /// </summary>
+    [Fact]
+    public void ABranchTargetDnlibCouldNotPlaceIsRejectedNotACrash()
+    {
+        var lab = new IlLab("Garbage");
+        var ret = Ret();
+        var method = lab.Method("Run", lab.T.Int32, [], [Ldc(0), I(OpCodes.Switch, new Instruction?[] { ret, null }), Ldc(1), ret]);
+        var change = new MethodSimplifier(lab.Module, new SimplifyOptions()).Run([method], default).Single();
+        Assert.Equal(FallbackReason.OriginalUnverifiable, change.Rejected?.Reason);
+        Assert.Contains("branch target outside the body", change.Rejected!.Detail);
+    }
 }

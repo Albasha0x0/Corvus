@@ -56,7 +56,8 @@ internal sealed class BodyGraph
 
     private HashSet<Instruction>? _branchTargets;
 
-    public int IndexOf(Instruction ins) => _index.TryGetValue(ins, out int i) ? i : -1;
+    /// <summary>Position of the instruction in the body; -1 when it is not one of its instructions (or null: a target dnlib could not place).</summary>
+    public int IndexOf(Instruction? ins) => ins != null && _index.TryGetValue(ins, out int i) ? i : -1;
 
     public int IndexOrEnd(Instruction? ins) => ins == null ? Instructions.Count : _index.TryGetValue(ins, out int i) ? i : Instructions.Count;
 
@@ -163,8 +164,12 @@ internal sealed class BodyGraph
         string? error = null;
         string Where(int i) => $"IL_{Instructions[i].Offset:X4}";
         foreach (var ins in Instructions)
+        {
+            if (ins.OpCode.FlowControl is FlowControl.Branch or FlowControl.Cond_Branch && ins.OpCode.Code != Code.Jmp && ins.Operand is not (Instruction or IList<Instruction>))
+            { error = $"branch without a target ({ins.OpCode.Name} at IL_{ins.Offset:X4})"; return (null, error); }
             foreach (var t in BranchTargets(ins))
-                if (IndexOf(t) < 0) { error = $"branch target outside the body ({ins})"; return (null, error); }
+                if (IndexOf(t) < 0) { error = $"branch target outside the body ({ins.OpCode.Name} at IL_{ins.Offset:X4})"; return (null, error); }
+        }
         foreach (var eh in Handlers)
         {
             if (eh.TryStart == null || eh.HandlerStart == null || IndexOf(eh.TryStart) < 0 || IndexOf(eh.HandlerStart) < 0 ||
