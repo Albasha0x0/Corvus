@@ -11,10 +11,11 @@ namespace NetDecompilerMcp.Core;
 ///   --binding-style &lt;s&gt;  default generate_cpp_binding style when none is requested or detected: mono, il2cpp or hostapi
 ///   --binding-project &lt;d&gt; default project directory scanned for a host table by generate_cpp_binding
 ///   --ida-prewarm         start IDA's analysis of each native image in the background right after it loads (one at a time)
+///   --engine &lt;e&gt;         where native functions, xrefs and CFGs come from by default: auto (IDA's analysis when it is complete, else ours), ours or ida
 ///   --index-cache &lt;dir|off&gt;  directory of saved native code indexes (default &lt;LocalAppData&gt;/NetDecompilerMcp/code-index), or off
 ///   --index-cache-mb &lt;n&gt;  size limit of the code index cache in MB (default 8192)
 ///   --index-cache-days &lt;n&gt; entries unused for this many days are deleted (default 30)
-/// The NETDECOMP_LOAD environment variable (';'-separated paths) is also honored; NDM_IDA_PREWARM=1 turns on --ida-prewarm;
+/// The NETDECOMP_LOAD environment variable (';'-separated paths) is also honored; NDM_IDA_PREWARM=1 turns on --ida-prewarm; NDM_ENGINE sets --engine;
 /// NDM_CODE_INDEX_CACHE, NDM_CODE_INDEX_CACHE_MB and NDM_CODE_INDEX_CACHE_DAYS set the code index cache defaults.
 /// </summary>
 public sealed class ServerOptions
@@ -44,6 +45,11 @@ public sealed class ServerOptions
 
     public const string IdaPrewarmVariable = "NDM_IDA_PREWARM";
 
+    /// <summary>Default engine of the native code tools when a call names none (see <see cref="EngineMode"/>).</summary>
+    public EngineMode Engine { get; set; } = EngineMode.Auto;
+
+    public const string EngineVariable = "NDM_ENGINE";
+
     /// <summary>
     /// Saved native code indexes, so reopening an image loads its index instead of building it again; null = off
     /// (the default for options not parsed from a command line, so embedded and test servers write nothing).
@@ -56,6 +62,7 @@ public sealed class ServerOptions
         string? cacheRoot = null;
         long? cacheMb = null;
         int? cacheDays = null;
+        string? engine = Environment.GetEnvironmentVariable(EngineVariable) is { Length: > 0 } fromEnv ? fromEnv : null;
         for (int i = 0; i < args.Length; i++)
         {
             string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"Missing value after {args[i]}");
@@ -73,6 +80,7 @@ public sealed class ServerOptions
                     break;
                 case "--binding-project": o.BindingProject = Next(); break;
                 case "--ida-prewarm": o.IdaPrewarm = true; break;
+                case "--engine": engine = Next(); break;
                 case "--index-cache": cacheRoot = Next(); break;
                 case "--index-cache-mb": cacheMb = long.TryParse(Next(), out var mb) && mb > 0 ? mb : throw new ArgumentException("--index-cache-mb must be a positive number"); break;
                 case "--index-cache-days": cacheDays = int.TryParse(Next(), out var days) && days > 0 ? days : throw new ArgumentException("--index-cache-days must be a positive number"); break;
@@ -91,9 +99,37 @@ public sealed class ServerOptions
             if (o.CodeIndexCache != null || cacheRoot != null || cacheMb != null || cacheDays != null) o.CodeIndexCache = c;
         }
         if (Environment.GetEnvironmentVariable(IdaPrewarmVariable)?.Trim() is "1" or "true" or "on") o.IdaPrewarm = true;
+        if (engine != null)
+            o.Engine = EngineModes.TryParse(engine) ?? throw new ArgumentException($"--engine (or {EngineVariable}) must be auto, ours or ida, not '{engine.Trim()}'");
         var env = Environment.GetEnvironmentVariable("NETDECOMP_LOAD");
         if (!string.IsNullOrWhiteSpace(env))
             o.Preload.AddRange(env.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
         return o;
     }
+}
+
+/// <summary>
+/// Where the native code tools take functions, cross-references and control-flow graphs from: Auto (IDA's analysis
+/// when one of the image is complete in this session, else the built-in index; never starts IDA), Ours (the built-in
+/// index only; IDA is never asked) or Ida (IDA's analysis, started and waited for when needed).
+/// </summary>
+public enum EngineMode { Auto, Ours, Ida }
+
+public static class EngineModes
+{
+    /// <summary>auto, ours or ida (case-insensitive; "built-in" and "builtin" mean ours); null for anything else.</summary>
+    public static EngineMode? TryParse(string? text) => text?.Trim().ToLowerInvariant() switch
+    {
+        "auto" => EngineMode.Auto,
+        "ours" or "built-in" or "builtin" => EngineMode.Ours,
+        "ida" => EngineMode.Ida,
+        _ => null,
+    };
+
+    /// <summary>The mode a call asks for, or <paramref name="fallback"/> when it names none; an unknown name is an invalid_argument error.</summary>
+    public static EngineMode Resolve(string? text, EngineMode fallback) =>
+        string.IsNullOrWhiteSpace(text) ? fallback
+        : TryParse(text) ?? throw new ToolError(ErrorCode.InvalidArgument, $"Unknown engine '{text.Trim()}'.", "use auto, ours or ida");
+
+    public static string Name(EngineMode mode) => mode switch { EngineMode.Ours => "ours", EngineMode.Ida => "ida", _ => "auto" };
 }

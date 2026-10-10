@@ -432,7 +432,8 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         await rig.Analysis.DecompileNative(native.Id, $"rva:0x{native.Image.EntryPointRva:X}");
         var imported = await rig.Engines.LibraryNames(native)!;
         var opened = clock.Elapsed;
-        var after = await rig.Tools.ListFunctions(native.Id, limit: 5000);
+        // the built-in listing with the ida name layer (auto would now answer from IDA: its analysis is complete)
+        var after = await rig.Tools.ListFunctions(native.Id, limit: 5000, engine: "ours");
         var rows = after.Split('\n').Where(l => l.StartsWith("  0x", StringComparison.Ordinal)).ToList();
         var library = rows.Where(r => r.Contains("library") && r.Contains(", ida;")).ToList();
         output.WriteLine($"{Path.GetFileName(path)} ({new FileInfo(path).Length:N0} bytes): {rows.Count} functions, {imported} library names from IDA, " +
@@ -447,6 +448,6 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         var index = await rig.Code.Index(native, null, default);
         var first = index.Functions.First(f => EngineLibraryNames.IsLibrary(index, f.Start));
         new NativeEditService(rig.Workspace, rig.Code).Rename(native, index, first.Start, "MyLibraryFunction", false);
-        Assert.Contains("MyLibraryFunction  [library", await rig.Tools.ListFunctions(native.Id, filter: "MyLibraryFunction"));
+        Assert.Contains("MyLibraryFunction  [library", await rig.Tools.ListFunctions(native.Id, filter: "MyLibraryFunction", engine: "ours"));
     }
 }

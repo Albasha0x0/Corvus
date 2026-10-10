@@ -165,7 +165,9 @@ public sealed record FunctionEntry(
 public sealed record FunctionList(string Image,
     [property: Description("Functions in the image (before the filter).")] int Functions,
     IReadOnlyList<FunctionEntry> Items, int Offset, int Total, bool Truncated,
-    [property: Description("What the index does not cover.")] string? Coverage);
+    [property: Description("What the index does not cover.")] string? Coverage,
+    [property: Description(EngineDoc.Engine)] string Engine,
+    [property: Description(EngineDoc.Note)] string? EngineNote);
 
 public sealed record XrefEntry(
     [property: Description("Another loaded image the reference is in (imports of an export), else null.")] string? Image,
@@ -175,7 +177,16 @@ public sealed record XrefEntry(
     [property: Description("Recovered call arguments, the import it goes through, or the whole row when it has no address.")] string? Detail);
 
 public sealed record XrefList(string Image, string Target, IReadOnlyList<XrefEntry> Items, int Offset, int Total, bool Truncated,
-    [property: Description("An import slot: the export it is bound to.")] string? BoundTo);
+    [property: Description("An import slot: the export it is bound to.")] string? BoundTo,
+    [property: Description(EngineDoc.Engine)] string Engine,
+    [property: Description(EngineDoc.Note)] string? EngineNote);
+
+/// <summary>Descriptions of the engine fields of native code results.</summary>
+internal static class EngineDoc
+{
+    public const string Engine = "Which analysis produced the result: ours (the built-in index) or ida (IDA's analysis through idalib).";
+    public const string Note = "Why that engine answered (the engine parameter or server default, and for auto whether IDA's analysis of the image was complete).";
+}
 
 public sealed record NativeStringEntry(string Address, [property: Description("ascii, utf16 or il2cpp (a string literal slot).")] string Encoding,
     [property: Description("Text (clipped at 400 characters).")] string Text, int References, string? FirstFunction);
