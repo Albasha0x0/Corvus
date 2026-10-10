@@ -36,7 +36,9 @@ internal sealed class PeBuilder
     public byte[] Overlay { get; set; } = [];
 
     public const int PeOffset = 0x80;
-    public int OptionalOffset => PeOffset + 24;
+    /// <summary>e_lfanew.</summary>
+    public int HeaderOffset { get; set; } = PeOffset;
+    public int OptionalOffset => HeaderOffset + 24;
     public int SectionTableOffset => OptionalOffset + (Is64 ? 240 : 224);
 
     /// <summary>RVA the next added section gets.</summary>
@@ -82,9 +84,9 @@ internal sealed class PeBuilder
 
         f[0] = (byte)'M';
         f[1] = (byte)'Z';
-        BinaryPrimitives.WriteInt32LittleEndian(f[0x3C..], PeOffset);
-        Encoding.ASCII.GetBytes("PE\0\0").CopyTo(f[PeOffset..]);
-        int coff = PeOffset + 4;
+        BinaryPrimitives.WriteInt32LittleEndian(f[0x3C..], HeaderOffset);
+        Encoding.ASCII.GetBytes("PE\0\0").CopyTo(f[HeaderOffset..]);
+        int coff = HeaderOffset + 4;
         BinaryPrimitives.WriteUInt16LittleEndian(f[coff..], Machine);
         BinaryPrimitives.WriteUInt16LittleEndian(f[(coff + 2)..], (ushort)Sections.Count);
         BinaryPrimitives.WriteUInt16LittleEndian(f[(coff + 16)..], (ushort)(Is64 ? 240 : 224));

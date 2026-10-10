@@ -246,6 +246,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
                 var file = Facts(asm.FilePath, asm.OriginalBytes);
                 var one = Guard(asm.Id, () => SummarizeAssembly(Path.GetFileName(asm.FilePath), asm.Module, ModuleScan.Of(asm, Limits, ct), asm.OriginalBytes, ct));
                 var notes = asm.IsDirty ? new List<string> { "The assembly has unsaved edits: the code scanned is the edited module; hashes and signature are the file's." } : [];
+                notes.AddRange(MappingNotes(asm.OriginalBytes));
                 return new FileSummary(file, "none (loaded assembly)", [one], one.Highlights, notes);
             });
         }
@@ -262,6 +263,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             return new FileSummary(facts, "unreadable container", [], [.. fileHighlights, $"The file is damaged: {ex.Message}"], [ex.Message]);
         }
         var reportNotes = new List<string>(managed.Notes);
+        reportNotes.AddRange(MappingNotes(bytes));
         var summarized = new List<AssemblySummary>();
         // Order: host, main, libraries, framework; satellite assemblies are skipped.
         var ranked = managed.Assemblies.Select((a, i) => (a, i, Rank: Rank(a, full))).ToList();
@@ -310,6 +312,11 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             highlights.AddRange(found.Count == 1 ? list : list.Select(h => $"[{assemblyPath}] {h}"));
         return new FileSummary(facts, managed.Container, summarized, highlights.Distinct().ToList(), reportNotes);
     }
+
+    private static IEnumerable<string> MappingNotes(byte[] bytes) =>
+        PeImage.TryParse(bytes) is { Overlaps.Count: > 0 } pe
+            ? [$"PE section mappings overlap ({string.Join("; ", pe.Overlaps)}); RVAs mapped differently by both are ambiguous and not read."]
+            : [];
 
     private enum AssemblyRank { Host, Main, Library, Framework, Satellite }
 
