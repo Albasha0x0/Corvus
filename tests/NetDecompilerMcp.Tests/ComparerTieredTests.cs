@@ -85,6 +85,46 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("tier: full name, exact", await tools.FindCounterpart("Calc", env.Fixture.Id, newer.Id));
     }
 
+    [Fact]
+    public async Task CompareAndCounterpart_EveryChangeOfAMember_AndEventsAddedRemoved()
+    {
+        const string before = """
+            public class Multi
+            {
+                public int Both(int x) { return x * 7 + 1; }
+                public event System.Action Gone;
+                public event System.Action Kept;
+            }
+            """;
+        const string after = """
+            public class Multi
+            {
+                internal int Both(long x) { return (int)x * 7 + 2; }
+                public event System.Action Kept;
+                public event System.Action Fresh;
+            }
+            """;
+        using var env = new Env(Write("m1", before));
+        var newer = env.Workspace.Load(Write("m2", after));
+        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager);
+
+        var text = await tools.CompareAssemblies(env.Fixture.Id, newer.Id);
+        output.WriteLine(text);
+        Assert.Contains("signature method Both(int): int(int) -> int(long)  +body: ", text);
+        Assert.Contains("  +metadata: flags -Public +Assembly", text);
+        Assert.Contains("removed   event Gone", text);
+        Assert.Contains("added     event Fresh", text);
+        Assert.DoesNotContain("event Kept", text);
+        Assert.Matches(@"Members \(each change of a member counted\): \d+ renamed, 1 signature, 1 body, 1 metadata", text);
+        // Filtering by a secondary change still lists the member with all of its changes.
+        Assert.Contains("signature method Both(int)", await tools.CompareAssemblies(env.Fixture.Id, newer.Id, changes: "metadata"));
+
+        var both = await tools.FindCounterpart("Multi::Both", env.Fixture.Id, newer.Id);
+        Assert.Contains("changes: signature, body, metadata", both);
+        Assert.Contains("metadata: flags -Public +Assembly", both);
+        Assert.Contains("changes: none", await tools.FindCounterpart("Multi::Kept", env.Fixture.Id, newer.Id));
+    }
+
     /// <summary>
     /// Newtonsoft.Json 12.0.2 -> 13.0.1 -> 13.0.4: matches per tier and the ambiguous members. Against the comparer before
     /// tiers, no match was lost; five array-data fields of &lt;PrivateImplementationDetails&gt; that it had paired by position

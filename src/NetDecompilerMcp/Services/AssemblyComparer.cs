@@ -21,8 +21,18 @@ namespace NetDecompilerMcp.Services;
 /// </summary>
 public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
 {
+    /// <summary>One way a matched member changed. Kind: renamed, signature, type, body, metadata, address or offset.</summary>
+    public sealed record ChangeDimension(string Kind, string Detail);
+
     /// <summary>Candidates: for "ambiguous", the new members that tie.</summary>
-    public sealed record MemberChange(string Change, IMemberDef? Old, IMemberDef? New, string Detail, IReadOnlyList<IMemberDef>? Candidates = null);
+    public sealed record MemberChange(string Change, IMemberDef? Old, IMemberDef? New, string Detail, IReadOnlyList<IMemberDef>? Candidates = null)
+    {
+        /// <summary>Every change of a matched pair, the first being Change and Detail; a single entry otherwise.</summary>
+        public IReadOnlyList<ChangeDimension> Dimensions { get; init; } = [new(Change, Detail)];
+
+        public static MemberChange Of(IMemberDef old, IMemberDef @new, List<ChangeDimension> dimensions) =>
+            new(dimensions[0].Kind, old, @new, dimensions[0].Detail) { Dimensions = dimensions };
+    }
 
     public sealed record TypeChange(string Change, TypeDef? Old, TypeDef? New, double Score, List<MemberChange> Members, IReadOnlyList<IMemberDef>? Candidates = null);
 
@@ -525,26 +535,27 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
         foreach (var (om, nm, how, tier, confidence) in matched)
         {
             memberMap[om.Method] = new Match(nm.Method, how, tier, confidence);
+            var dimensions = new List<ChangeDimension>();
             if (om.Method.Name != nm.Method.Name)
-                changes.Add(new MemberChange("renamed", om.Method, nm.Method, how));
-            else if (om.Signature != nm.Signature)
-                changes.Add(new MemberChange("signature", om.Method, nm.Method, $"{om.Signature} -> {nm.Signature}"));
-            else if (Body(om) != Body(nm))
+                dimensions.Add(new("renamed", how));
+            if (om.Signature != nm.Signature)
+                dimensions.Add(new("signature", $"{om.Signature} -> {nm.Signature}"));
+            if (Body(om) != Body(nm))
             {
                 // Bodies that are not valid IL (e.g. encrypted) cannot be compared.
                 bool oldBad = !oldInfo.Assembly.IsDirty && oldInfo.Assembly.BodyHealth.IsInvalid(om.Method);
                 bool newBad = !newInfo.Assembly.IsDirty && newInfo.Assembly.BodyHealth.IsInvalid(nm.Method);
-                var detail = oldBad || newBad
+                dimensions.Add(new("body", oldBad || newBad
                     ? $"{(oldBad ? "old" : "")}{(oldBad && newBad ? " and " : "")}{(newBad ? "new" : "")} body not valid IL (encrypted?); not comparable"
-                    : $"{om.Size} -> {nm.Size} instructions";
-                changes.Add(new MemberChange("body", om.Method, nm.Method, detail));
+                    : $"{om.Size} -> {nm.Size} instructions"));
             }
-            else if (MetadataDifference(om.Method, nm.Method) is { } metadata)
-                changes.Add(new MemberChange("metadata", om.Method, nm.Method, metadata));
+            if (MetadataDifference(om.Method, nm.Method) is { } metadata)
+                dimensions.Add(new("metadata", metadata));
             var oldAddress = Il2CppService.CompactSummary(om.Method);
             var newAddress = Il2CppService.CompactSummary(nm.Method);
             if (oldAddress != null && newAddress != null && oldAddress != newAddress)
-                changes.Add(new MemberChange("address", om.Method, nm.Method, $"{oldAddress} -> {newAddress}"));
+                dimensions.Add(new("address", $"{oldAddress} -> {newAddress}"));
+            if (dimensions.Count > 0) changes.Add(MemberChange.Of(om.Method, nm.Method, dimensions));
         }
         // Old methods left over after a tie: ambiguous, with the tied new methods that are still unpaired.
         var tiedNew = new HashSet<MethodPrint>();
@@ -582,13 +593,17 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
         foreach (var (of, nf, how, tier, confidence) in MatchInTiers(oldFields, newFields, fieldTiers, fieldTies))
         {
             memberMap[of] = new Match(nf, how, tier, confidence);
+            var dimensions = new List<ChangeDimension>();
             if (of.Name != nf.Name)
-                changes.Add(new MemberChange("renamed", of, nf, how.Replace(" (renamed)", "")));
-            else if (Format.Type(of.FieldType) != Format.Type(nf.FieldType))
-                changes.Add(new MemberChange("type", of, nf, $"{Format.Type(of.FieldType)} -> {Format.Type(nf.FieldType)}"));
-            else if (MetadataDifference(of, nf) is { } metadata)
-                changes.Add(new MemberChange("metadata", of, nf, metadata));
-            CompareOffsets(of, nf, changes);
+                dimensions.Add(new("renamed", how.Replace(" (renamed)", "")));
+            if (Format.Type(of.FieldType) != Format.Type(nf.FieldType))
+                dimensions.Add(new("type", $"{Format.Type(of.FieldType)} -> {Format.Type(nf.FieldType)}"));
+            if (MetadataDifference(of, nf) is { } metadata)
+                dimensions.Add(new("metadata", metadata));
+            var (oldOffset, newOffset) = (Il2CppService.CompactSummary(of), Il2CppService.CompactSummary(nf));
+            if (oldOffset != null && newOffset != null && oldOffset != newOffset)
+                dimensions.Add(new("offset", $"{oldOffset} -> {newOffset}"));
+            if (dimensions.Count > 0) changes.Add(MemberChange.Of(of, nf, dimensions));
         }
         var tiedFields = new HashSet<FieldDef>();
         foreach (var of in oldFields.ToList())
@@ -613,8 +628,13 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
         foreach (var np in n.Properties.Where(p => !o.Properties.Any(x => x.Name == p.Name)))
             changes.Add(new MemberChange("added", null, np, Format.Property(np)));
         foreach (var oe in o.Events)
-            if (n.Events.FirstOrDefault(e => e.Name == oe.Name) is { } ne)
-                memberMap[oe] = new Match(ne, "same name", sameType ? "full name" : "type match + name", NameConfidence());
+        {
+            var ne = n.Events.FirstOrDefault(e => e.Name == oe.Name);
+            if (ne != null) memberMap[oe] = new Match(ne, "same name", sameType ? "full name" : "type match + name", NameConfidence());
+            else changes.Add(new MemberChange("removed", oe, null, Format.Event(oe)));
+        }
+        foreach (var ne in n.Events.Where(e => !o.Events.Any(x => x.Name == e.Name)))
+            changes.Add(new MemberChange("added", null, ne, Format.Event(ne)));
         return changes;
     }
 
@@ -743,13 +763,5 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
         double size = 1.0 - Math.Min(1.0, Math.Abs(a.Size - b.Size) / (double)Math.Max(1, Math.Max(a.Size, b.Size)));
         double strings = a.Strings.Count + b.Strings.Count == 0 ? size : Jaccard(a.Strings, b.Strings);
         return 0.45 * sig + 0.3 * size + 0.25 * strings;
-    }
-
-    private static void CompareOffsets(FieldDef of, FieldDef nf, List<MemberChange> changes)
-    {
-        var a = Il2CppService.CompactSummary(of);
-        var b = Il2CppService.CompactSummary(nf);
-        if (a != null && b != null && a != b)
-            changes.Add(new MemberChange("offset", of, nf, $"{a} -> {b}"));
     }
 }

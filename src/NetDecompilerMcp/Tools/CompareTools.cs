@@ -21,14 +21,15 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
     [McpServerTool(Name = "compare_assemblies", Title = "Compare two builds")]
     [Description("Compare two builds of an assembly (e.g. before and after an update; load both — the second gets an id like Name#2). " +
                  "Reports renamed/moved types and members (matched by content, so transformed or refactored names carry forward), added and removed members, " +
-                 "signature changes, changed method bodies (normalized IL hash), metadata-only changes (flags or attributes changed, IL identical), field type changes, " +
-                 "and Il2Cpp field-offset / address changes. Members are matched in tiers and only when the match is unique on both sides; " +
+                 "and for each matched member every way it changed: renamed, signature, body (normalized IL hash), metadata (flags, implementation flags, attributes), " +
+                 "field type, and Il2Cpp field offset / address. Members are matched in tiers and only when the match is unique on both sides; " +
                  "otherwise they are listed as ambiguous with their candidates.")]
     public Task<string> CompareAssemblies(
         [Description("The old build (id, name or path).")] string oldAssembly,
         [Description("The new build (id, name or path).")] string newAssembly,
         [Description("Only types whose old or new full name starts with this.")] string? @namespace = null,
-        [Description("Member change kinds to include, comma-separated: renamed, signature, body, metadata, type, offset, address, added, removed, ambiguous, or all. Default: all except address.")] string? changes = null,
+        [Description("Member change kinds to include, comma-separated: renamed, signature, body, metadata, type, offset, address, added, removed, ambiguous, or all; " +
+                     "a member is listed when any of its changes is included. Default: all except address.")] string? changes = null,
         [Description("Also list the names of added and removed types (otherwise only counts).")] bool listAddedRemovedTypes = true,
         [Description("Also show compiler-generated types and members (closures, iterator / async state machines, backing fields, " +
                      "<PrivateImplementationDetails> data): they change with every recompile, so they are hidden and counted by default.")] bool includeCompilerGenerated = false,
@@ -59,11 +60,11 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         }
 
         var sb = new StringBuilder($"Comparing {oldAsm.Id} ({oldAsm.FilePath})\n       -> {newAsm.Id} ({newAsm.FilePath})\n");
-        var memberCounts = types.SelectMany(t => t.Members).GroupBy(m => m.Change).ToDictionary(g => g.Key, g => g.Count());
+        var memberCounts = types.SelectMany(t => t.Members).SelectMany(m => m.Dimensions).GroupBy(d => d.Kind).ToDictionary(g => g.Key, g => g.Count());
         sb.AppendLine($"Types: {Count(types, "renamed")} renamed, {Count(types, "changed")} with member changes, {Count(types, "removed")} removed, {Count(types, "added")} added" +
                       $"{(Count(types, "ambiguous") > 0 ? $", {Count(types, "ambiguous")} ambiguous" : "")} " +
                       $"({cmp.TypeMap.Count} matched of {MetadataUtil.CountedTypes(oldAsm.Module).Count} old).");
-        sb.AppendLine("Members: " + string.Join(", ", AllKinds.Select(k => $"{memberCounts.GetValueOrDefault(k)} {k}")));
+        sb.AppendLine("Members (each change of a member counted): " + string.Join(", ", AllKinds.Select(k => $"{memberCounts.GetValueOrDefault(k)} {k}")));
         sb.AppendLine(MatchSummary(cmp, @namespace));
         if (hiddenTypes + hiddenMembers > 0)
             sb.AppendLine($"Hidden: {hiddenTypes} compiler-generated type change(s) and {hiddenMembers} member change(s) " +
@@ -75,7 +76,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
 
         foreach (var t in types.Where(t => t.Change is "renamed" or "changed"))
         {
-            var members = t.Members.Where(m => kinds.Contains(m.Change)).ToList();
+            var members = t.Members.Where(m => m.Dimensions.Any(d => kinds.Contains(d.Kind))).ToList();
             if (t.Change == "changed" && members.Count == 0) continue;
             sb.AppendLine();
             sb.AppendLine(t.Change == "renamed"
@@ -134,6 +135,13 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
                 continue;
             }
             sb.AppendLine($"  -> {Format.MemberLabel(match)}  [{newAsm.Id}] {Format.Token(match)}  ({found.How}; {Tier((found.Tier!, found.Confidence!))})");
+            if (sym.Member is not TypeDef)
+            {
+                var change = cmp.Types.SelectMany(t => t.Members).FirstOrDefault(c => c.Old == sym.Member && c.New == match);
+                sb.AppendLine($"     changes: {(change == null ? "none" : string.Join(", ", change.Dimensions.Select(d => d.Kind)))}");
+                if (change?.Dimensions.FirstOrDefault(d => d.Kind == "metadata") is { } metadata)
+                    sb.AppendLine($"     metadata: {metadata.Detail}");
+            }
             if (sym.Member is FieldDef of && match is FieldDef nf && Format.Type(of.FieldType) != Format.Type(nf.FieldType))
                 sb.AppendLine($"     type: {Format.Type(of.FieldType)} -> {Format.Type(nf.FieldType)}");
             if (sym.Member is MethodDef om && match is MethodDef nm)
@@ -188,14 +196,15 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         };
         string kind = member switch { MethodDef => "method", FieldDef => "field", PropertyDef => "property", EventDef => "event", _ => "member" };
         string TierOf(IMemberDef old) => cmp.MemberMap.TryGetValue(old, out var match) ? "; " + Tier((match.Tier, match.Confidence)) : "";
-        return m.Change switch
+        string more = string.Concat(m.Dimensions.Skip(1).Select(d => $"  +{d.Kind}: {d.Detail}"));
+        return (m.Change switch
         {
             "renamed" => $"{kind} {Name(m.Old!)} -> {Name(m.New!)}  ({m.Detail}{TierOf(m.Old!)})",
             "added" => $"{kind} {Name(m.New!)}  {m.Detail}",
             "removed" => $"{kind} {Name(m.Old!)}  {m.Detail}",
             "ambiguous" => $"{kind} {Name(m.Old!)}: {m.Detail}: {string.Join(" | ", m.Candidates!.Select(Name))}",
             _ => $"{kind} {Name(member)}: {m.Detail}",
-        };
+        }) + more;
     }
 
     private static void Section(StringBuilder sb, string title, IEnumerable<string> names)
