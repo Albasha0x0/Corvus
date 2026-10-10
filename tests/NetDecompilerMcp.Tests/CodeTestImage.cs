@@ -9,7 +9,8 @@ namespace NetDecompilerMcp.Tests;
 /// <summary>
 /// Test-only <see cref="INativeImage"/>: a PE file read with System.Reflection.PortableExecutable headers plus a
 /// minimal directory parser (exports, imports, delay imports, relocations, TLS callbacks, .pdata), or a synthetic
-/// image built from code and data bytes. Stands in for the real PE parser in the code analysis tests.
+/// image built from code and data bytes. The code analysis tests use it for synthetic images; real files go through PeFile
+/// (NativeAdapterConsistencyTests checks that both give the same index).
 /// </summary>
 public sealed class CodeTestImage : INativeImage
 {

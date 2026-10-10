@@ -41,7 +41,7 @@ public class NativeCodeSweepTests(ITestOutputHelper output)
     public void Large_image()
     {
         var path = RealData.Path("NDM_NATIVE_LARGE_IMAGE");
-        var image = CodeTestImage.Load(path);
+        var image = NetDecompilerMcp.Native.Pe.PeFile.Open(path);
         long before = GC.GetTotalMemory(true);
         var phases = new List<string>();
         var sw = Stopwatch.StartNew();
@@ -68,9 +68,9 @@ public class NativeCodeSweepTests(ITestOutputHelper output)
         var total = Stopwatch.StartNew();
         foreach (var path in Sample(directory))
         {
-            CodeTestImage image;
-            try { image = CodeTestImage.Load(path); }
-            catch (Exception ex) when (ex is BadImageFormatException or IOException or UnauthorizedAccessException or InvalidOperationException) { skipped++; continue; }
+            NetDecompilerMcp.Native.Pe.PeFile image;
+            try { image = NetDecompilerMcp.Native.Pe.PeFile.Open(path); }
+            catch (NetDecompilerMcp.Core.ToolError) { skipped++; continue; }
             if (image.Arch != arch) { skipped++; continue; }
             files++;
             using var cts = new CancellationTokenSource(PerFileLimit);
