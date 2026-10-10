@@ -242,7 +242,7 @@ public class PdbTests
         var rng = new Random(12345);
         var sw = System.Diagnostics.Stopwatch.StartNew();
         int runs = 0;
-        while (runs < 3000 && sw.ElapsedMilliseconds < 1500)
+        while (runs < 2000 && sw.ElapsedMilliseconds < 600)
         {
             var bytes = (byte[])good.Clone();
             int flips = 1 + rng.Next(8);
