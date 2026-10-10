@@ -15,7 +15,7 @@ namespace NetDecompilerMcp.Tools;
 [McpServerToolType]
 public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer comparer, OutputPager pager)
 {
-    private static readonly string[] AllKinds = ["renamed", "moved", "signature", "body", "metadata", "type", "offset", "address", "added", "removed", "ambiguous"];
+    private static readonly string[] AllKinds = ["renamed", "moved", "signature", "body", "metadata", "type", "offset", "address", "added", "removed", "ambiguous", "unknown"];
 
     private static readonly string[] Confidences = ["exact", "strong", "structural"];
 
@@ -67,7 +67,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         [Description("The old build (id, name or path).")] string oldAssembly,
         [Description("The new build (id, name or path).")] string newAssembly,
         [Description("Only types whose old or new full name starts with this.")] string? @namespace = null,
-        [Description("Member change kinds to include, comma-separated: renamed, moved (to another type), signature, body, metadata, type, offset, address, added, removed, ambiguous, or all; " +
+        [Description("Member change kinds to include, comma-separated: renamed, moved (to another type), signature, body, metadata, type, offset, address, added, removed, ambiguous, unknown (no counterpart, but the evidence to pair it is missing), or all; " +
                      "a member is listed when any of its changes is included. Default: all except address.")] string? changes = null,
         [Description("Also list the names of added and removed types (otherwise only counts).")] bool listAddedRemovedTypes = true,
         [Description("Also show compiler-generated types and members (closures, iterator / async state machines, backing fields, " +
@@ -114,7 +114,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         foreach (var (side, asm, skipped) in new[] { ("old", oldAsm, cmp.OldSkippedBodies), ("new", newAsm, cmp.NewSkippedBodies) })
             if (skipped > 0)
                 sb.AppendLine($"Skipped: {skipped} method bodies of the {side} build ({asm.Id}) are not valid IL (encrypted?) and were not compared; " +
-                              "their body changes are marked \"not comparable\".");
+                              "their body changes are marked \"not comparable\", and members they leave without a counterpart \"unknown\".");
 
         string? mapFile = null;
         int mapEntries = 0;

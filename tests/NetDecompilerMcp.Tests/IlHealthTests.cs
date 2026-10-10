@@ -143,6 +143,49 @@ public class IlHealthTests : IDisposable
         Assert.Contains("Method bodies are not valid IL (encrypted or dumped before decryption)", one.Highlights);
     }
 
+    /// <summary>
+    /// A method renamed in a build whose bodies of that type are not valid IL cannot be paired by content: both sides are
+    /// "unknown", with the reason, not removed and added. Members whose counterpart evidence is intact keep their status.
+    /// </summary>
+    [Fact]
+    public async Task MembersWithoutCounterpart_AreUnknownWhenEvidenceIsMissing()
+    {
+        const string before = """
+            public class Box { public int Foo(int x) { return x * 13 + 5; } public int Same() { return 4; } }
+            public class Plain { public string Gone(string s) { return s + "gone"; } }
+            """;
+        const string after = """
+            public class Box { public int Bar(int x) { return x * 13 + 5; } public int Same() { return 4; } }
+            public class Plain { public int Fresh(int a, int b) { return a - b; } }
+            """;
+        string Build(string folder, string source, bool corrupt)
+        {
+            var image = Roslyn.Release("Unknowns", source);
+            return WriteCopy(folder, corrupt ? Corrupt(image, t => t == "Box") : image);
+        }
+        using var env = new Env(Build("u1", before, false));
+        var newer = env.Workspace.Load(Build("u2", after, true));
+        var cmp = env.Workspace.Read(() => new AssemblyComparer(env.Workspace).Compare(env.Fixture, newer, default));
+        var box = cmp.Types.Single(t => t.Old?.Name == "Box").Members;
+        var foo = Assert.Single(box, m => m.Old?.Name == "Foo");
+        Assert.Equal("unknown", foo.Change);
+        Assert.EndsWith("no counterpart in the new build, not shown as removed: Box::Bar(int) in the new build has a body that is not valid IL and may be this member", foo.Detail);
+        var bar = Assert.Single(box, m => m.New?.Name == "Bar");
+        Assert.Equal("unknown", bar.Change);
+        Assert.EndsWith("no counterpart in the old build, not shown as added: its body that is not valid IL", bar.Detail);
+        var map = env.Workspace.Read(() => AssemblyComparer.TokenMap(cmp));
+        Assert.Equal(("unknown", "removed"), (map.Single(e => e.Old == "Box::Foo(int)").Status, map.Single(e => e.Old == "Plain::Gone(string)").Status));
+        var plain = cmp.Types.Single(t => t.Old?.Name == "Plain").Members;
+        Assert.Contains(plain, m => m.Change == "removed" && m.Old!.Name == "Gone");
+        Assert.Contains(plain, m => m.Change == "added" && m.New!.Name == "Fresh");
+
+        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager);
+        var text = await tools.CompareAssemblies(env.Fixture.Id, newer.Id);
+        Assert.Contains("unknown   method Foo(int): ", text);
+        Assert.Contains("1 added, 1 removed, 0 ambiguous, 2 unknown", text);
+        Assert.Contains("not found: removed in the new build (no match)", await tools.FindCounterpart("Plain::Gone", env.Fixture.Id, newer.Id));
+    }
+
     [Fact]
     public void Validator_EdgeCases()
     {

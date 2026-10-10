@@ -94,6 +94,7 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
         var candidateNew = ambiguous.Where(a => a.Key is TypeDef).SelectMany(a => a.Value.Candidates).ToHashSet();
         var addedTypes = newInfo.Types.Keys.Where(t => !mappedNew.Contains(t) && !candidateNew.Contains(t)).ToList();
         MatchMoves(oldInfo, newInfo, typeMap, members, addedTypes, memberMap, ambiguous);
+        MarkUnknown(oldInfo.Assembly, newInfo.Assembly, typeMap, members);
 
         var changes = new List<TypeChange>();
         foreach (var (o, n) in typeMap)
@@ -622,6 +623,47 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
             foreach (var c in candidates) Unlist((MethodDef)c);
         }
     }
+
+    /// <summary>
+    /// A method or field without a counterpart is "unknown" instead of removed or added when the evidence to pair it is
+    /// missing: its own body is not valid IL or its signature is unreadable, most bodies of the other build are not valid
+    /// IL, or the counterpart type has an unpaired member of the same kind with such a body or signature (it may be this
+    /// member). The detail says which.
+    /// </summary>
+    private static void MarkUnknown(LoadedAssembly oldAsm, LoadedAssembly newAsm, IReadOnlyDictionary<TypeDef, TypeDef> typeMap,
+        Dictionary<TypeDef, List<MemberChange>> members)
+    {
+        foreach (var o in typeMap.Keys)
+        {
+            var list = members[o];
+            var removed = list.Where(c => c.Change == "removed").Select(c => c.Old!).ToList();
+            var added = list.Where(c => c.Change == "added").Select(c => c.New!).ToList();
+            for (int i = 0; i < list.Count; i++)
+            {
+                var c = list[i];
+                if (c.Change is not ("removed" or "added") || (c.Old ?? c.New) is not (MethodDef or FieldDef)) continue;
+                bool isOld = c.Change == "removed";
+                var member = (c.Old ?? c.New)!;
+                var (own, other, otherSide) = isOld ? (oldAsm, newAsm, "new") : (newAsm, oldAsm, "old");
+                var suspect = (isOld ? added : removed).FirstOrDefault(x => x.GetType() == member.GetType() && Incomplete(other, x) != null);
+                var reason = Incomplete(own, member) is { } self ? $"its {self}"
+                    : member is MethodDef && other.BodyHealth.MostlyInvalid ? $"most method bodies of the {otherSide} build are not valid IL"
+                    : suspect != null ? $"{Format.MemberLabel(suspect)} in the {otherSide} build has a {Incomplete(other, suspect)} and may be this member"
+                    : null;
+                if (reason != null)
+                    list[i] = new MemberChange("unknown", c.Old, c.New, $"{c.Detail}; no counterpart in the {otherSide} build, not shown as {c.Change}: {reason}");
+            }
+        }
+    }
+
+    /// <summary>Why a member could not take part in content matching, or null.</summary>
+    private static string? Incomplete(LoadedAssembly asm, IMemberDef m) => m switch
+    {
+        MethodDef md when !asm.IsDirty && asm.BodyHealth.IsInvalid(md) => "body that is not valid IL",
+        MethodDef md when md.MethodSig is not { RetType: not null } sig || sig.Params.Any(p => p == null) => "signature that cannot be read",
+        FieldDef f when f.FieldSig?.Type == null => "signature that cannot be read",
+        _ => null,
+    };
 
     private static List<MemberChange> CompareMembers(Info oldInfo, Info newInfo, IReadOnlyDictionary<TypeDef, TypeDef> typeMap, TypeDef o, TypeDef n,
         Dictionary<IMemberDef, Match> memberMap, Dictionary<IMemberDef, Ambiguity> ambiguous)
