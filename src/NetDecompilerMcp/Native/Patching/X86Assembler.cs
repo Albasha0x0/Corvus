@@ -349,6 +349,21 @@ public static class X86Assembler
             candidates.Add((instr, len, rmRank, code));
         }
 
+        // Instructions with only implicit operands (monitorx, mwaitx, ...) print those registers as operands: accept
+        // the operand-less form when it formats exactly as written.
+        if (candidates.Count == 0 && operands.All(o => o.Class == OpClass.Reg))
+            foreach (var code in CodesFor(mnemonic))
+            {
+                var oc = code.ToOpCode();
+                if (!oc.IsInstruction || oc.OpCount != 0 || (bitness == 64 ? !oc.Mode64 : !oc.Mode32)) continue;
+                var instr = Instruction.Create(code);
+                var output = new StringOutput();
+                new MasmFormatter().Format(instr, output);
+                var written = mnemText + " " + string.Join(", ", operands.Select(o => o.Reg.ToString().ToLowerInvariant()));
+                if (string.Equals(Normalize(output.ToStringAndReset()), Normalize(written), StringComparison.OrdinalIgnoreCase))
+                    return instr;
+            }
+
         if (candidates.Count == 0)
         {
             if (!anyMnemonic) throw Error(line, $"'{mnemText}' is not an encodable instruction.");
@@ -361,6 +376,12 @@ public static class X86Assembler
         if (memOperand is { SizeBytes: null } && memSizes.Count > 1)
             throw Error(line, "operand size is ambiguous: add a size specifier such as 'byte ptr', 'word ptr', 'dword ptr' or 'qword ptr'.");
 
+        // A 16-bit operand-size form (66 prefix) is shorter for immediates, but pushes, pops or truncates a different
+        // width: use it only when an operand asks for 16 bits (a 16-bit register or 'word ptr').
+        bool wantsWord = operands.Any(o => o.Class == OpClass.Reg && o.Reg.IsGPR16() || o.Class == OpClass.Mem && o.SizeBytes == 2);
+        if (!wantsWord && candidates.Any(c => c.Code.ToOpCode().OperandSize != 16))
+            candidates.RemoveAll(c => c.Code.ToOpCode().OperandSize == 16);
+
         // Prefer the shortest encoding; then the MSVC-style operand placement; then the lower Code value.
         candidates.Sort((a, b) =>
             a.Length != b.Length ? a.Length - b.Length :
@@ -368,6 +389,9 @@ public static class X86Assembler
             ((int)a.Code).CompareTo((int)b.Code));
         return candidates[0].Instr;
     }
+
+    /// <summary>Collapses whitespace so formatter output and written text compare by tokens.</summary>
+    private static string Normalize(string text) => string.Join(" ", text.Replace(",", ", ").Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
     private static bool TryBuild(int bitness, ulong startVa, IcedCode code, OpCodeInfo oc, Operand[] operands, out Instruction instr)
     {

@@ -117,6 +117,15 @@ public class NativeEditTests(ITestOutputHelper output)
     [InlineData(NativeArch.X64, "vmovaps zmm0, zmm1", "62F17C4828C1")]
     [InlineData(NativeArch.X64, "db 0F 1F 40 00", "0F1F4000")]
     [InlineData(NativeArch.X86, "push ebp", "55")]
+    // Immediates keep the mode's operand size: a shorter 66-prefixed pushw would push 2 bytes or truncate the value.
+    [InlineData(NativeArch.X86, "push 3ECh", "68EC030000")]
+    [InlineData(NativeArch.X86, "push 80000001h", "6801000080")]
+    [InlineData(NativeArch.X64, "push 0C4h", "68C4000000")]
+    [InlineData(NativeArch.X86, "push 1", "6A01")]
+    [InlineData(NativeArch.X86, "push word ptr [eax]", "66FF30")]
+    [InlineData(NativeArch.X86, "push ax", "6650")]
+    [InlineData(NativeArch.X64, "monitorx rax, rcx, rdx", "0F01FA")]
+    [InlineData(NativeArch.X64, "mwaitx rax, rcx, rbx", "0F01FB")]
     [InlineData(NativeArch.X86, "mov ebp, esp", "8BEC")]
     [InlineData(NativeArch.X86, "mov eax, dword ptr [ebp+8]", "8B4508")]
     [InlineData(NativeArch.X86, "mov eax, dword ptr [esi+edi*2+4]", null)]
@@ -236,7 +245,8 @@ public class NativeEditTests(ITestOutputHelper output)
         _output.WriteLine("sample gaps:");
         foreach (var s in sampleFailures) _output.WriteLine("  " + s);
 
-        Assert.True((double)equiv / total > 0.95, $"round-trip equivalence {100.0 * equiv / total:F1}% is below 95%");
+        // Every printed instruction must assemble back to an equivalent one: a non-equivalent result is a wrong patch.
+        Assert.True(equiv == total, $"{total - equiv} of {total} instructions did not round-trip:\n" + string.Join("\n", sampleFailures));
     }
 
     [Fact]
