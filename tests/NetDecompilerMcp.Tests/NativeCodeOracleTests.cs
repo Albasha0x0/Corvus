@@ -144,6 +144,8 @@ public class NativeCodeOracleTests(ITestOutputHelper output)
         {
             // floors below the measured values: a regression check, not a target
             Assert.True(t.Both + t.InIda >= 0.97 * t.Ours, $"{arch} function precision {Ratio(t.Both + t.InIda, t.Ours)}");
+            // exception funclets and handlers attached to their functions (IDA keeps x64 C++ funclets as functions, as we do)
+            Assert.True(t.Both >= (arch == NativeArch.X64 ? 0.99 : 0.93) * t.Ours, $"{arch} strict function precision {Ratio(t.Both, t.Ours)}");
             Assert.True(t.Both >= (arch == NativeArch.X64 ? 0.99 : 0.95) * t.Ida, $"{arch} function recall {Ratio(t.Both, t.Ida)}");
             Assert.True(t.BothCalls >= 0.98 * t.OurCalls, $"{arch} call precision {Ratio(t.BothCalls, t.OurCalls)}");
             Assert.True(t.BothCalls >= (arch == NativeArch.X64 ? 0.99 : 0.95) * t.IdaCalls, $"{arch} call recall {Ratio(t.BothCalls, t.IdaCalls)}");

@@ -43,7 +43,7 @@ public sealed class CallTreeNode
 /// relocated data pointers, string references) and per-function control-flow graphs on demand. Immutable after
 /// <see cref="Build"/>; queries are thread-safe.
 /// </summary>
-public sealed class NativeCodeIndex : ICodeSymbols
+public sealed partial class NativeCodeIndex : ICodeSymbols
 {
     private readonly CodeContext? _ctx;
     private readonly NativeFunction[] _functions;
@@ -314,12 +314,12 @@ public sealed class NativeCodeIndex : ICodeSymbols
         return node;
     }
 
-    /// <summary>Basic blocks and edges of <paramref name="f"/> (decoded again on each call).</summary>
+    /// <summary>Basic blocks and edges of <paramref name="f"/> and its chunks (decoded again on each call).</summary>
     public FunctionGraph GetGraph(NativeFunction f, CancellationToken ct = default)
     {
         if (_ctx == null) throw new NotSupportedException(SupportNote);
         var walker = new FunctionWalker(_ctx);
-        return walker.Walk(f, f.Start, buildGraph: true, ct).Graph!;
+        return walker.Walk(f, f.Start, buildGraph: true, ct, ChunkRoots(f)).Graph!;
     }
 
     /// <summary>Facts of the instruction at <paramref name="rva"/> (any mapped address), or null.</summary>
@@ -350,7 +350,7 @@ public sealed class NativeCodeIndex : ICodeSymbols
     {
         var graph = GetGraph(f, ct);
         var labels = new Dictionary<uint, string>();
-        foreach (var b in graph.Blocks) labels[b.Start] = b.Start == f.Start ? f.Name : $"loc_{b.Start:X}";
+        foreach (var b in graph.Blocks) labels[b.Start] = b.Start == f.Start ? f.Name : ChunkLabel(f, b.Start) ?? $"loc_{b.Start:X}";
         var dis = CreateDisassembler();
         var result = new List<(string?, DisasmLine?)>();
         int count = 0;
@@ -488,7 +488,7 @@ public sealed class NativeCodeIndex : ICodeSymbols
         public void Done() => sink?.Invoke(new CodeIndexProgress("done", 1, 1));
     }
 
-    private sealed class Builder(INativeImage image, CodeIndexOptions options, ProgressGate report, CancellationToken ct)
+    private sealed partial class Builder(INativeImage image, CodeIndexOptions options, ProgressGate report, CancellationToken ct)
     {
         private readonly Stopwatch _sw = Stopwatch.StartNew();
         private readonly List<string> _truncations = [];
@@ -515,7 +515,10 @@ public sealed class NativeCodeIndex : ICodeSymbols
                 foreach (var (start, slot) in _ctx.Thunks) if (_ctx.NoReturn.Contains(slot)) _ctx.NoReturn.Add(start);
                 results = WalkWithNoReturn(starts);
             }
-            return Assemble(starts, results);
+            var chunks = AttachExceptionChunks(ref starts, ref results);
+            var index = Assemble(starts, results);
+            index.Apply(chunks);
+            return index;
         }
 
         /// <summary>
