@@ -43,7 +43,17 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         "Base relocations under the patch (the loader adds the load delta to each under ASLR / rebasing): auto (default) keeps an entry " +
         "where the new bytes still hold an address, neutralizes the rest (type ABSOLUTE) and adds entries for new absolute addresses by " +
         "reusing an ABSOLUTE slot of the page's relocation block; keep leaves every entry as it is; neutralize neutralizes every entry " +
-        "under the patch. The report lists kept / neutralized / added entries; undo restores them.";
+        "under the patch. The report lists kept / neutralized / added entries; undo restores them. Ignored when extend=true.";
+
+    private const string ExtendDescription =
+        "When the new code is larger than a single in-place patch allows (or always, to keep the original site intact), place a relocation " +
+        "stub in slack space: the site becomes a 5-byte jump to a file-backed code cave holding the new code, and control returns to the " +
+        "instruction after the site. Refused with a reason code (branch_target_in_site, displaced_absolute_reloc, unwind_data, no_space, " +
+        "no_space_at_site, arm64_unsupported) when unsafe. The stub is one undoable edit, exported and saved with the patch.";
+
+    private const string StubModeDescription =
+        "With extend=true, how the stub runs the new code relative to the site's displaced instructions: replace (default; the new code " +
+        "runs instead of them), before (new code then the displaced originals), after (the displaced originals then the new code).";
 
     [McpServerTool(Name = "rename_native", Title = "Name a native address")]
     [Description("Give a name to a native address (a function start, or any address): the name shows up in list_functions, disassemble (labels and " +
@@ -109,12 +119,19 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description("Override the safety checks (mid-instruction, past function end, header bytes, a new address with no free relocation slot).")] bool force = false,
         [Description("Preview only; do not record the patch.")] bool dryRun = false,
         [Description(RelocationsDescription)] string? relocations = null,
+        [Description(ExtendDescription)] bool extend = false,
+        [Description(StubModeDescription)] string? stubMode = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var (native, index) = await Open(image, progress, cancellationToken);
         var rva = Address(index, address);
         var bytes = ParseHex(hex);
+        if (extend)
+        {
+            var extended = edits.PrepareExtendedPatch(index, rva, bytes, null, PatchExtension.ParseMode(stubMode), $"patch_bytes {bytes.Length} bytes (stub)", null);
+            return edits.ApplyPatch(native, index, extended, dryRun);
+        }
         var mode = NativeEditService.ParseRelocationMode(relocations);
         var prepared = edits.PreparePatch(index, rva, bytes, force, $"patch_bytes {bytes.Length} bytes", mode);
         return edits.ApplyPatch(native, index, prepared, dryRun);
@@ -133,18 +150,28 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description("Override the safety checks (mid-instruction, past function end, header bytes, a new address with no free relocation slot).")] bool force = false,
         [Description("Preview only; do not record the patch.")] bool dryRun = false,
         [Description(RelocationsDescription)] string? relocations = null,
+        [Description(ExtendDescription)] bool extend = false,
+        [Description(StubModeDescription)] string? stubMode = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var (native, index) = await Open(image, progress, cancellationToken);
         var rva = Address(index, address);
-        var mode = NativeEditService.ParseRelocationMode(relocations);
         ulong startVa = index.Image.ImageBase + rva;
-        var result = X86Assembler.Assemble(index.Image.Arch, startVa, assembly, name =>
+        Func<string, ulong?> resolve = name =>
         {
             try { return index.Image.ImageBase + Address(index, name); }
             catch (ToolError) { return null; }
-        });
+        };
+        if (extend)
+        {
+            // Assemble the new code at the eventual stub address inside the extension; here only validate it decodes.
+            var newBytes = X86Assembler.Assemble(index.Image.Arch, startVa, assembly, resolve).Bytes;
+            var extended = edits.PrepareExtendedPatch(index, rva, newBytes, assembly, PatchExtension.ParseMode(stubMode), "patch_asm (stub)", resolve);
+            return edits.ApplyPatch(native, index, extended, dryRun);
+        }
+        var mode = NativeEditService.ParseRelocationMode(relocations);
+        var result = X86Assembler.Assemble(index.Image.Arch, startVa, assembly, resolve);
         var prepared = edits.PreparePatch(index, rva, result.Bytes, force, "patch_asm", mode, result.Constants, assembly);
         return edits.ApplyPatch(native, index, prepared, dryRun);
     });
