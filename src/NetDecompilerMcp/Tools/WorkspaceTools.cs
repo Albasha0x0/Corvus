@@ -238,7 +238,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         }, cancellationToken);
 
     [McpServerTool(Name = "get_assembly_info", Title = "Assembly overview", UseStructuredContent = true, OutputSchemaType = typeof(AssemblyReport.Summary))]
-    [Description("Assembly overview: identity (MVID, file SHA-256), target framework, entry point, counts, references (and whether each resolves), PE headers and sections, metadata streams, assembly attributes, Il2Cpp detection, unsaved edits.")]
+    [Description("Assembly overview: identity (MVID, file SHA-256), target framework, entry point, counts, references (and whether each resolves), PE headers and sections, metadata streams, table row counts and heap sizes, assembly attributes, Il2Cpp detection, unsaved edits.")]
     public Task<string> GetAssemblyInfo([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Read(workspace, () =>
         {

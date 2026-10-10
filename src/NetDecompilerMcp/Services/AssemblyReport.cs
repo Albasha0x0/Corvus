@@ -33,7 +33,15 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         [property: System.ComponentModel.Description("Method bodies that are not valid IL.")] int InvalidBodies,
         IReadOnlyList<string> UnsavedEdits,
         IReadOnlyList<ReferenceStatus> References,
-        [property: System.ComponentModel.Description("Assembly attributes (first 40).")] IReadOnlyList<string> Attributes);
+        [property: System.ComponentModel.Description("Assembly attributes (first 40).")] IReadOnlyList<string> Attributes,
+        [property: System.ComponentModel.Description("Row counts of the non-empty metadata tables, in table order.")] IReadOnlyList<TableRows> Tables,
+        IReadOnlyList<HeapSize> Heaps);
+
+    /// <summary>Rows of a metadata table.</summary>
+    public sealed record TableRows(string Table, uint Rows);
+
+    /// <summary>A metadata heap's size and the width of the table columns that index it (none for #US: only tokens reach it).</summary>
+    public sealed record HeapSize(string Heap, uint Bytes, int? IndexBytes);
 
     /// <summary>Call under the workspace read lock.</summary>
     public string Build(LoadedAssembly asm) => Build(asm, out _);
@@ -74,6 +82,9 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         if (asm.IsDirty)
             sb.AppendLine($"Unsaved edits: {string.Join("; ", asm.Edits)}");
         AppendPeInfo(sb, m);
+        var (tables, heaps) = Inventory(m);
+        sb.AppendLine("Metadata tables (rows): " + string.Join(", ", tables.Select(t => $"{t.Table} {t.Rows}")));
+        sb.AppendLine("Metadata heaps: " + string.Join(", ", heaps.Select(h => $"{h.Heap} {h.Bytes} bytes{(h.IndexBytes is { } w ? $" ({w}-byte indexes)" : "")}")));
         AppendMetadataIssues(sb, asm);
 
         sb.AppendLine("References:");
@@ -107,8 +118,24 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
             types.Count, types.Count(t => t.DeclaringType != null), MetadataUtil.NamespaceCount(types),
             m.GetTypes().Sum(t => t.Methods.Count), m.GetTypes().Sum(t => t.Fields.Count), m.Resources.Count,
             MetadataUtil.IsReferenceAssembly(m), addressed, health.Invalid, asm.Edits.Select(e => e.ToString()).ToList(), references,
-            attrs.Take(40).Select(Format.Attribute).ToList());
+            attrs.Take(40).Select(Format.Attribute).ToList(), tables, heaps);
         return sb.ToString();
+    }
+
+    /// <summary>Non-empty tables of the tables stream in use, and the heaps with their index widths.</summary>
+    private static (List<TableRows> Tables, List<HeapSize> Heaps) Inventory(ModuleDefMD m)
+    {
+        var md = m.Metadata;
+        var t = md.TablesStream;
+        var tables = t.MDTables.Where(x => x.Rows > 0).Select(x => new TableRows(x.Name, x.Rows)).ToList();
+        List<HeapSize> heaps =
+        [
+            new("#Strings", md.StringsStream?.StreamLength ?? 0, t.HasBigStrings ? 4 : 2),
+            new("#US", md.USStream?.StreamLength ?? 0, null),
+            new("#Blob", md.BlobStream?.StreamLength ?? 0, t.HasBigBlob ? 4 : 2),
+            new("#GUID", md.GuidStream?.StreamLength ?? 0, t.HasBigGUID ? 4 : 2),
+        ];
+        return (tables, heaps);
     }
 
     private static void AppendPeInfo(StringBuilder sb, ModuleDefMD m)
