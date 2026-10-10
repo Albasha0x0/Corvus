@@ -1,8 +1,9 @@
 # NetDecompilerMcp
 
-A headless .NET decompiler for AI agents, served over the [Model Context Protocol](https://modelcontextprotocol.io).
+A headless .NET decompiler and native PE analyzer for AI agents, served over the [Model Context Protocol](https://modelcontextprotocol.io).
 It decompiles, searches, cross-references and patches .NET assemblies, including Unity Mono builds and
-Il2CppDumper / Cpp2IL dummy DLLs. No GUI, no dnSpy instance, no admin rights and no network port.
+Il2CppDumper / Cpp2IL dummy DLLs, and analyzes, diffs and patches native Windows PE files (x86 / x64), with IDA as the
+optional decompiler for native code. No GUI, no dnSpy instance, no admin rights and no network port.
 
 - **Decompiler:** the ILSpy engine (`ICSharpCode.Decompiler`), the same engine dnSpy uses.
 - **Metadata and patching:** [dnlib](https://github.com/0xd4d/dnlib), plus a fast `System.Reflection.Metadata` IL scanner.
@@ -50,9 +51,9 @@ From source instead: `./publish.ps1`, then `publish/NetDecompilerMcp install`.
 
 ## What it covers
 
-**MCP features:** 55 tools (every one with a title and read-only / destructive / closed-world annotations),
-resources and resource templates, 5 prompts, argument completion, progress notifications, structured output
-(`list_assemblies`, `unpack_container`, `search_container`, `summarize_file`, `survey_features`, `extract_strings`, `extract_embedded`), cancellation, server instructions, and workspace notices (files reloaded from disk) at the top
+**MCP features:** 92 tools (every one with a title and read-only / destructive / closed-world annotations),
+resources and resource templates, 9 prompts, argument completion, progress notifications, structured output
+(`list_assemblies`, `unpack_container`, `search_container`, `summarize_file`, `survey_features`, `extract_strings`, `extract_embedded`, `server_status` and the newer native tools), typed errors (`Error (<code>) in <tool>: ...` with a `Next:` step), a response-size guard (`read_result` pages through anything larger), cancellation, server instructions, and workspace notices (files reloaded from disk) at the top
 of the next tool result, plus best-effort `resources/list_changed` and log notifications.
 
 | Area | Tools |
@@ -75,15 +76,35 @@ of the next tool result, plus best-effort `resources/list_changed` and log notif
 **Resources:** `netdecomp://assemblies`, `netdecomp://assembly/{assembly}/info`, `netdecomp://assembly/{assembly}/type/{type}`
 (decompiled C#), `netdecomp://assembly/{assembly}/il/{symbol}`.
 
-**Prompts:** `analyze_assembly`, `find_feature`, `explain_type`, `plan_patch`, `map_native_address`.
+**Prompts:** `analyze_assembly`, `find_feature`, `explain_type`, `plan_patch`, `map_native_address`, `analyze_native`,
+`trace_native_feature`, `find_api_usage`, `patch_native`.
 
 **Completion:** assembly ids, type names (full or short), and file paths for prompt and resource-template arguments.
+
+### Native PE images
+
+Native `.exe` / `.dll` / `.sys` files (x86 and x64; ARM64 images are read but their code is not decoded) load with
+`load_assembly` by path, or are loaded by any native tool given a path. Everything below is our own analysis
+(PE parser, Iced disassembler, function discovery, MSVC RTTI / exception data / name demangling, PDB reader);
+only `decompile_native` needs an external engine (IDA through idalib). Reliability runs and their numbers:
+[docs/native-maturity.md](docs/native-maturity.md); editing contract: [docs/native-editing.md](docs/native-editing.md).
+
+| Area | Tools |
+|---|---|
+| Overview | `get_pe_info` (machine, subsystem, image base, entry, mitigations (ASLR, DEP, CFG, SafeSEH, GS, CET...), sections with entropy, PDB path and match, version resource, manifest, rich header, checksum, overlay, Authenticode, late-bound imports, anything malformed) · `list_imports` (per DLL with IAT slots and API set targets; `bind=true` binds each import to its export, 'at VA [image]' when the provider is loaded, its path when not, or why it does not resolve; `includeDynamic=true` adds late-bound GetProcAddress imports with module, call site and confidence, marked [dynamic]) · `list_exports` (ordinals, forwarders, MSVC names demangled) · `list_resources` / `get_resource` (Win32 resources: version info and string tables decoded, manifests as text) · `resolve_address` (RVA / VA / file offset, section, symbol and its source, containing function, bound import target, Il2Cpp method) |
+| Code | `list_functions` (name from user / PDB / Il2Cpp / export / discovery, size, flags, how found, reference count, funclets and exception chunks) · `disassemble` (MASM, block labels, named calls and data, string comments, call arguments) · `get_cfg` (blocks, edges, switch tables, unresolved jumps, tail calls) · `get_exception_info` (try blocks, catch types, unwind maps, SEH scopes, funclet parents) · `find_xrefs` (calls incl. through import slots, thunks and late-bound pointers, jumps, reads / writes, address-taken, switch tables, data pointers; for an export also the importing call sites in other loaded images; `module!name` for every call site of an API) · `native_call_tree` (callers / callees across loaded images: imports continue into the provider's function; managed P/Invoke and C++/CLI seams shown) · `get_call_arguments` (per call site the recovered argument values: decoded flags and constants, strings, names, results of earlier calls, each with its derivation) · `search_native_strings` · `search_bytes` (hex with `??` wildcards or text) · `read_bytes` (hex dump as mapped) |
+| Symbols and classes | `load_pdb` (matching PDB next to the file, from the CodeView path, symbol path or caches; `download=true` from a symbol server, opt-in) · `search_pdb_symbols` · `list_cpp_classes` (MSVC RTTI: classes, bases with offsets, vftables and slots) · `apply_il2cpp_names` (C# method names, string literals and metadata slots from Il2Cpp dumps onto GameAssembly.dll; also pushed into IDA) |
+| Decompile | `decompile_native` (Hex-Rays pseudocode through IDA's idalib worker: job-contained, analysis cached per file hash, our names pushed in; lines annotated with addresses) |
+| Edit (in memory, `dryRun` on patches) | `rename_native` · `comment_native` (kept per file hash across restarts; user names win over PDB / Il2Cpp names) · `export_native_annotations` (IDA / Ghidra scripts, JSON) · `patch_bytes` · `patch_asm` (full x86 / x64 MASM as `disassemble` prints it, RIP-relative and branch targets fixed up for the address, NOP padding, refuses to split instructions unless forced) · `list_native_edits` · `undo_native_edit` · `save_native` (patched copy, checksum recomputed, signature reported or stripped, `.bak`, byte-compared after writing) |
+| New builds | `compare_native_images` (function matches between two builds in tiers: name / identical bytes, structure, signature, call graph, fuzzy; unique-only, ambiguous ones listed with candidates) · `map_address_between_builds` · `migrate_native_names` (your names and comments into the new build, with `dryRun` and reason codes) · `make_code_pattern` (a rebuild-stable IDA-style pattern, addresses as `??`) · `search_code_pattern` (across loaded native images) |
+| .NET and native together | `verify_native_imports` ([DllImport]s against the real DLL exports: search order, API sets, A/W, stdcall `@N`, ordinals, forwarders) · `get_r2r_code` / `find_r2r_method` (ReadyToRun precompiled code of a method, with managed call names, and the method at a native address) · the .NET call tools take native exports as symbols (`kernel32.dll!CreateFileW`) and follow P/Invokes into native code; mixed-mode C++/CLI assemblies also load as a native image · `survey_features` covers native images (imports, late-bound imports, call arguments, strings, sections, RTTI) |
+| Session | `server_status` (version, tool catalog digest, limits, which engines are available and how to fix a missing one) · `read_result` (pages through a result too large to send; the `limit_exceeded` error names it) |
 
 ### Compared with [tuna1999/dnspy-mcp](https://github.com/tuna1999/dnspy-mcp)
 
 | | dnspy-mcp | NetDecompilerMcp |
 |---|---|---|
-| Runs without dnSpy / GUI | headless mode only (36 tools) | always (55 tools) |
+| Runs without dnSpy / GUI | headless mode only (36 tools) | always (92 tools) |
 | Cross-references | methods and fields (`get_xrefs_to`) | methods (incl. virtual/interface dispatch), fields (read/write/address), properties, events, types in every position, overrides, hierarchy with derived types |
 | Search | types, methods, strings, `grep` | symbols (wildcard/regex, all member kinds), strings, numeric constants, IL instruction patterns |
 | Method patching | C# statements (`update_method_body`) | C# bodies with lambdas/async/LINQ (Roslyn, private access, ctor initializers preserved), new members and types, IL assembler (accepts edited `get_il` output, prepend hooks), constant stubs |
