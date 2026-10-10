@@ -67,7 +67,13 @@ internal static class ServerInstructions
            the page has no free slot the error is no_relocation_slot (write it RIP-relative, or force=true for a preferred-base-only patch).
            New builds: load both (the second gets an id like game.dll#2); compare_native_images matches functions (unique-only, ambiguous
            ones listed), map_address_between_builds carries an address over, migrate_native_names (dryRun first) copies your names;
-           make_code_pattern / search_code_pattern give byte patterns that survive rebuilds.
+           make_code_pattern / search_code_pattern give byte patterns that survive rebuilds. export_native_patches writes your patches
+           as an IDAPython script, IDA .dif, IPS or JSON; migrate_native_patches (dryRun first) carries them to a new build, reapplying
+           each only where the new build's original bytes still match and refusing the rest with a reason.
+        9. Crash dumps (user-mode .dmp): open_minidump (exception, faulting module+function and instruction, modules and whether the
+           binaries exist locally, threads), dump_stack (x64 unwind data, x86 frame pointers; scanned frames marked heuristic),
+           read_dump_memory. Load the crashed binaries first so frames get your names, PDB and Il2Cpp names; pass imageDirectories
+           when they are not at their recorded paths. Managed frames are only identified (use SOS for them).
 
         Errors start with "Error (<code>)" (not_found, ambiguous, invalid_argument, unsupported, not_loaded, limit_exceeded, timeout,
         provider_unavailable, ...) and usually a "Next:" line with the call that can succeed. A result too large to send comes back as
