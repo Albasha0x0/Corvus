@@ -53,11 +53,23 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
 
     Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>The functions, with the number of code references to each start when <paramref name="withReferences"/> is set.</summary>
+    Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(bool withReferences, CancellationToken cancellationToken = default) =>
+        ListFunctionsAsync(cancellationToken);
+
     /// <summary>Pseudocode of the function containing <paramref name="rva"/>.</summary>
     Task<DecompiledFunction> DecompileAsync(uint rva, CancellationToken cancellationToken = default);
 
     /// <summary>Instructions of the function containing <paramref name="rva"/>, in address order including chunks.</summary>
     Task<FunctionDisassembly> DisassembleAsync(uint rva, CancellationToken cancellationToken = default);
+
+    /// <summary>Up to <paramref name="count"/> items (instructions, or data the engine did not decode) from <paramref name="rva"/> in address order.</summary>
+    Task<FunctionDisassembly> DisassembleRangeAsync(uint rva, int count, CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not disassemble address ranges.");
+
+    /// <summary>Basic blocks of the function containing <paramref name="rva"/>, as the engine splits them.</summary>
+    Task<NativeBlockGraph> GetBlocksAsync(uint rva, CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not report basic blocks.");
 
     /// <summary>References to <paramref name="rva"/> (ordinary flow excluded).</summary>
     Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default);
@@ -134,7 +146,8 @@ public enum NativeFunctionFlags
 }
 
 /// <summary>A function as the engine sees it; <see cref="EndRva"/> is exclusive and covers the main chunk only.</summary>
-public sealed record NativeFunctionInfo(uint StartRva, uint EndRva, string Name, NativeFunctionFlags Flags);
+/// <summary><see cref="References"/>: code references to the start, when asked for.</summary>
+public sealed record NativeFunctionInfo(uint StartRva, uint EndRva, string Name, NativeFunctionFlags Flags, int? References = null);
 
 /// <summary>Pseudocode line (0-based) and the lowest instruction RVA it was generated from.</summary>
 public sealed record PseudocodeLineAddress(int Line, uint Rva);
@@ -142,6 +155,16 @@ public sealed record PseudocodeLineAddress(int Line, uint Rva);
 public sealed record DecompiledFunction(uint StartRva, string Name, string Text, IReadOnlyList<PseudocodeLineAddress> LineAddresses);
 
 public sealed record DisassembledInstruction(uint Rva, byte[] Bytes, string Text, string? Comment);
+
+/// <summary>
+/// A basic block as the engine splits it: [<see cref="StartRva"/>, <see cref="EndRva"/>), its instruction count, how it
+/// ends (engine kind: normal, indjump, ret, cndret, noret, enoret, error), its successors in the function, and whether
+/// its last instruction is a switch the engine resolved.
+/// </summary>
+public sealed record NativeBlockInfo(uint StartRva, uint EndRva, int Instructions, string Kind, IReadOnlyList<uint> Successors, bool Switch);
+
+/// <summary>The blocks of one function and the targets its jumps reach outside it (tail calls).</summary>
+public sealed record NativeBlockGraph(uint StartRva, string Name, IReadOnlyList<NativeBlockInfo> Blocks, IReadOnlyList<uint> TailCalls);
 
 public sealed record FunctionDisassembly(uint StartRva, uint EndRva, string Name, IReadOnlyList<DisassembledInstruction> Instructions, bool Truncated);
 

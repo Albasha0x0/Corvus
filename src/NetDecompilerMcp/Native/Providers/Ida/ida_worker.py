@@ -165,7 +165,9 @@ def op_rebase(args):
 
 
 def op_functions(args):
+    # [start, end, name, flags (1 thunk, 2 library)] plus, with refs, the number of code references to the start
     m = need_open()
+    refs = bool(args.get("refs"))
     out = []
     for ea in m.idautils.Functions():
         f = m.ida_funcs.get_func(ea)
@@ -173,7 +175,10 @@ def op_functions(args):
         if start is None or end is None:
             continue
         flags = (1 if f.flags & m.ida_funcs.FUNC_THUNK else 0) | (2 if f.flags & m.ida_funcs.FUNC_LIB else 0)
-        out.append([start, end, m.ida_funcs.get_func_name(f.start_ea) or "", flags])
+        row = [start, end, m.ida_funcs.get_func_name(f.start_ea) or "", flags]
+        if refs:
+            row.append(sum(1 for _ in m.idautils.CodeRefsTo(f.start_ea, 0)))
+        out.append(row)
     return out
 
 
@@ -237,6 +242,59 @@ def op_disasm(args):
         insns.append([rva_of(head), raw.hex(), text, cmt])
     return {"start": rva_of(f.start_ea), "end": rva_of(f.end_ea), "name": m.ida_funcs.get_func_name(f.start_ea) or "",
             "insns": insns, "truncated": len(insns) >= limit}
+
+
+def op_disasm_range(args):
+    # count items from rva in address order, whether or not a function contains them
+    m = need_open()
+    ea = ea_of(args)
+    count = max(1, min(int(args.get("count") or 100), 200000))
+    badaddr = m.idautils.ida_idaapi.BADADDR
+    max_ea = m.ida_ida.inf_get_max_ea()
+    insns = []
+    while len(insns) < count and ea != badaddr and ea < max_ea and m.ida_bytes.is_loaded(ea):
+        end = m.ida_bytes.get_item_end(ea)
+        size = end - ea if end > ea else 1
+        raw = m.ida_bytes.get_bytes(ea, size) or b""
+        text = m.ida_lines.generate_disasm_line(ea, m.ida_lines.GENDSM_REMOVE_TAGS) or ""
+        cmt = m.ida_bytes.get_cmt(ea, False) or m.ida_bytes.get_cmt(ea, True)
+        if rva_of(ea) is None:
+            break
+        insns.append([rva_of(ea), raw.hex(), text, cmt])
+        ea += size
+    return {"insns": insns, "truncated": len(insns) >= count}
+
+
+def op_blocks(args):
+    # basic blocks of the function containing rva: [start, end, instructions, kind, successors, switch]
+    m = need_open()
+    import ida_gdl, ida_nalt
+    f = func_at(m, ea_of(args))
+    kinds = {}
+    for k in ("normal", "indjump", "ret", "cndret", "noret", "enoret", "extern", "error"):
+        kinds[getattr(ida_gdl, "fcb_" + k)] = k
+    fc = ida_gdl.FlowChart(f, flags=ida_gdl.FC_NOEXT)
+    blocks = []
+    tails = set()
+    for b in fc:
+        if rva_of(b.start_ea) is None or rva_of(b.end_ea) is None:
+            continue
+        heads = [h for h in m.idautils.Heads(b.start_ea, b.end_ea) if m.ida_bytes.is_code(m.ida_bytes.get_flags(h))]
+        last = heads[-1] if heads else b.start_ea
+        succs = []
+        for s in b.succs():
+            if rva_of(s.start_ea) is not None:
+                succs.append(rva_of(s.start_ea))
+        # flow leaving the function (tail calls): code references from the last instruction to other functions
+        for x in m.idautils.XrefsFrom(last, 0):
+            if x.iscode and x.type in (m.ida_xref.fl_JF, m.ida_xref.fl_JN):
+                g = m.ida_funcs.get_func(x.to)
+                if (g is None or g.start_ea != f.start_ea) and rva_of(x.to) is not None:
+                    tails.add(rva_of(x.to))
+        switch = ida_nalt.get_switch_info(last) is not None
+        blocks.append([rva_of(b.start_ea), rva_of(b.end_ea), len(heads), kinds.get(b.type, "normal"), succs, switch])
+    return {"start": rva_of(f.start_ea), "name": m.ida_funcs.get_func_name(f.start_ea) or "", "blocks": blocks,
+            "tail_calls": sorted(tails)}
 
 
 def xref_kind(m, x):
@@ -393,7 +451,7 @@ def op_sleep(args):
 
 
 OPS = {"hello": op_hello, "open": op_open, "rebase": op_rebase, "functions": op_functions, "decompile": op_decompile,
-       "disasm": op_disasm, "xrefs_to": op_xrefs_to, "xrefs_from": op_xrefs_from, "set_name": op_set_name,
+       "disasm": op_disasm, "disasm_range": op_disasm_range, "blocks": op_blocks, "xrefs_to": op_xrefs_to, "xrefs_from": op_xrefs_from, "set_name": op_set_name,
        "set_comment": op_set_comment, "apply_names": op_apply_names, "get_stamp": op_get_stamp, "save": op_save,
        "close": op_close, "sleep": op_sleep}
 

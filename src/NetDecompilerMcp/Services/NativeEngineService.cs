@@ -10,9 +10,22 @@ namespace NetDecompilerMcp.Services;
 /// </summary>
 public sealed class NativeEngineService : IDisposable
 {
-    private readonly Lazy<INativeDecompilerProvider> _ida = new(() => new IdaProvider());
+    private readonly Lazy<INativeDecompilerProvider> _ida;
+
+    /// <param name="idaOptions">IDA provider settings (install, Python, cache root); null: the defaults.</param>
+    public NativeEngineService(IdaProviderOptions? idaOptions = null)
+    {
+        _ida = new(() => new IdaProvider(idaOptions));
+    }
 
     public IReadOnlyList<INativeDecompilerProvider> Providers => [_ida.Value];
+
+    /// <summary>Whether an engine is installed and usable (static checks, cached).</summary>
+    public bool IsAvailable => _ida.Value.CheckAvailability().IsAvailable;
+
+    /// <summary>Why no engine is usable and how to fix it, or null when one is.</summary>
+    public (string Reason, string? Remediation)? Unavailability =>
+        _ida.Value.CheckAvailability() is { IsAvailable: false } a ? (a.Reason ?? "IDA is not available", a.Remediation) : null;
 
     public INativeDecompilerProvider Provider(string? id)
     {
