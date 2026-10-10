@@ -46,6 +46,7 @@ builder.Services
     .AddSingleton<Il2CppService>()
     .AddSingleton<Il2CppStringService>()
     .AddSingleton<Il2CppNavigator>()
+    .AddSingleton<Il2CppRawLoader>()
     .AddSingleton<ResourceService>()
     .AddSingleton<AssemblyReport>()
     .AddSingleton<IlAssembler>()

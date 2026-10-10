@@ -12,7 +12,7 @@ namespace NetDecompilerMcp.Tools;
 
 /// <summary>Il2Cpp metadata names on a native game binary (GameAssembly.dll).</summary>
 [McpServerToolType]
-public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeService code, Il2CppNativeNames names)
+public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeService code, Il2CppNativeNames names, Il2CppRawLoader? il2cppRaw = null)
 {
     [McpServerTool(Name = "apply_il2cpp_names", Title = "Name a native Il2Cpp binary from its metadata")]
     [Description("Names the functions and data of a native Il2Cpp game binary (GameAssembly.dll) from the loaded Il2CppDumper / Cpp2IL dummy assemblies " +
@@ -45,9 +45,28 @@ public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeSer
             var removed = workspace.Read(() => Il2CppNativeNames.Clear(native, index));
             return removed is { } n ? $"{native.Id}: removed {Plural(n, "il2cpp name")}." : $"{native.Id}: no il2cpp names were applied.";
         }
-        var report = await Task.Run(() => workspace.Read(() => names.Apply(native, index, workspace.Scope(assembly), cancellationToken)), cancellationToken);
-        return Render(native.Id, report);
+        string read = "";
+        var report = await Task.Run(() =>
+        {
+            try { return workspace.Read(() => names.Apply(native, index, workspace.Scope(assembly), cancellationToken)); }
+            catch (ToolError e) when (e.Code == ErrorCode.NotLoaded && assembly == null && Il2CppGame(native.FilePath) is { } game)
+            {
+                // No dummy assemblies loaded: read the game's metadata with the built-in reader first.
+                var loaded = (il2cppRaw ?? new Il2CppRawLoader(workspace)).Load(game, loadBinary: false,
+                    m => progress.Report(new ProgressNotificationValue { Progress = 0, Message = $"Il2Cpp: {m}" }), cancellationToken);
+                read = Il2CppRawLoader.Describe(loaded) + Environment.NewLine + Environment.NewLine;
+                return workspace.Read(() => names.Apply(native, index, workspace.Scope(null), cancellationToken));
+            }
+        }, cancellationToken);
+        return read + Render(native.Id, report);
     });
+
+    /// <summary>The game files around a GameAssembly.dll, when its metadata is found; null otherwise.</summary>
+    private static Il2CppGameFiles? Il2CppGame(string binary)
+    {
+        try { return Il2CppGameFiles.Find(binary) is { } g && string.Equals(Path.GetFullPath(g.Binary), Path.GetFullPath(binary), StringComparison.OrdinalIgnoreCase) ? g : null; }
+        catch (ToolError) { return null; }
+    }
 
     internal static string Render(string id, Il2CppNativeNames.Report r)
     {

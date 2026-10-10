@@ -13,17 +13,24 @@ public static class NativeCodeScanner
         public bool Contains(ulong rva) => rva >= Rva && rva < Rva + (ulong)Math.Max(VirtualSize, RawSize);
     }
 
-    /// <summary>Sections of an x64 PE file; ToolError when the file is not one.</summary>
+    /// <summary>
+    /// Sections of an x64 PE file; ToolError when the file is not one. A memory image of the loaded module (a process
+    /// dump, see <see cref="MappedPeLayout"/>) has each section's data at its RVA.
+    /// </summary>
     public static List<Section> Sections(string path)
     {
+        bool mapped;
+        try { mapped = MappedPeLayout.ReadFile(path)?.Mapped == true; }
+        catch (Exception ex) when (ex is IOException or ArgumentException) { mapped = false; }
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         PEHeaders headers;
         try { headers = new PEHeaders(stream); }
         catch (BadImageFormatException ex) { throw new ToolError(ErrorCode.MalformedInput, $"{Path.GetFileName(path)} is not a PE image: {ex.Message}"); }
         if (headers.CoffHeader.Machine != Machine.Amd64)
             throw new ToolError(ErrorCode.Unsupported, $"{Path.GetFileName(path)} is a {headers.CoffHeader.Machine} image; only x64 code is scanned.");
-        return headers.SectionHeaders.Select(s => new Section(s.Name, (uint)s.VirtualAddress, (uint)s.VirtualSize, (uint)s.PointerToRawData,
-            (uint)s.SizeOfRawData, (s.SectionCharacteristics & SectionCharacteristics.MemExecute) != 0)).ToList();
+        return headers.SectionHeaders.Select(s => new Section(s.Name, (uint)s.VirtualAddress, (uint)s.VirtualSize,
+            mapped ? (uint)s.VirtualAddress : (uint)s.PointerToRawData, mapped ? (uint)s.VirtualSize : (uint)s.SizeOfRawData,
+            (s.SectionCharacteristics & SectionCharacteristics.MemExecute) != 0)).ToList();
     }
 
     /// <summary>The preferred image base from the optional header of a PE file.</summary>

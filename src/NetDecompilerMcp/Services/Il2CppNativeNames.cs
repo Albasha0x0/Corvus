@@ -99,7 +99,7 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
         // string literal slots
         uint[] literalSlots = [];
         string[] literalTexts = [];
-        if (image.Dump is { } dump && (dump.Files.StringLiteralJson != null || dump.Files.ScriptJson != null))
+        if (image.Dump is { } dump && dump.Files.HasLiterals)
         {
             try
             {
@@ -141,19 +141,16 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
             {
                 try
                 {
-                    new ScriptJsonReader
+                    script.ForEachMethodInfo(m =>
                     {
-                        MetadataMethod = (m, _) =>
-                        {
-                            if (m.Address is 0 or > uint.MaxValue || !Mapped((uint)m.Address)) return;
-                            uint rva = (uint)m.Address;
-                            if (names.ContainsKey(rva)) return;
-                            var name = m.Name.EndsWith("()", StringComparison.Ordinal) ? m.Name[..^2] : m.Name;
-                            names[rva] = Unique(Identifier(name), rva);
-                            comments[rva] = m.MethodAddress is > 0 and <= uint.MaxValue ? $"{m.Name}: code at rva 0x{m.MethodAddress:X}" : $"{m.Name}: no code of its own";
-                            methodInfos++;
-                        },
-                    }.Read(script.Path, ct);
+                        if (m.Address is 0 or > uint.MaxValue || !Mapped((uint)m.Address)) return;
+                        uint rva = (uint)m.Address;
+                        if (names.ContainsKey(rva)) return;
+                        var name = m.Name.EndsWith("()", StringComparison.Ordinal) ? m.Name[..^2] : m.Name;
+                        names[rva] = Unique(Identifier(name), rva);
+                        comments[rva] = m.MethodAddress is > 0 and <= uint.MaxValue ? $"{m.Name}: code at rva 0x{m.MethodAddress:X}" : $"{m.Name}: no code of its own";
+                        methodInfos++;
+                    }, ct);
                 }
                 catch (Exception ex) when (ex is System.Text.Json.JsonException or IOException or UnauthorizedAccessException)
                 {
@@ -191,7 +188,7 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
         if (withMetadata.Count == 0)
             throw new ToolError(ErrorCode.NotLoaded, "No Il2Cpp dummy assembly (Il2CppDumper / Cpp2IL DummyDll with [Address] attributes) is loaded" +
                                                      (scope.Count > 0 ? " in the selected assemblies." : "."),
-                "load_assembly the DummyDll folder (script.json and stringliteral.json beside it add generic instantiations, metadata slots and strings)");
+                "load_assembly the game folder or its global-metadata.dat (built-in reader; apply_il2cpp_names does it when the metadata is beside the image), or a DummyDll folder (script.json and stringliteral.json beside it add generic instantiations, metadata slots and strings)");
         var images = navigator.ImagesFor(withMetadata);
         var image = images.FirstOrDefault(i => i.Dump?.Files.GameAssembly is { } g
                                                && string.Equals(Path.GetFullPath(g), native.FilePath, StringComparison.OrdinalIgnoreCase))
