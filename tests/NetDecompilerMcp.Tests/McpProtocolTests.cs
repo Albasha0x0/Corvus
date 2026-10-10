@@ -210,6 +210,9 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["migrate_native_names"] = (new() { ["oldImage"] = NativeSample(dir), ["newImage"] = NativeSampleV2(dir), ["dryRun"] = true }, "\"dryRun\":true"),
         ["make_code_pattern"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "\"anchor\""),
         ["search_code_pattern"] = (new() { ["pattern"] = "C3", ["images"] = NativeSample(dir) }, "\"hits\""),
+        ["open_minidump"] = (new() { ["path"] = SyntheticCrash.Write(dir) }, "EXCEPTION_ACCESS_VIOLATION"),
+        ["dump_stack"] = (new() { ["dump"] = SyntheticCrash.Write(dir) }, "\"function\":\"Outer\""),
+        ["read_dump_memory"] = (new() { ["dump"] = SyntheticCrash.Write(dir), ["address"] = "synth+0x1000" }, "53 48 83 EC"),
         ["read_result"] = (new() { ["id"] = "r999" }, "Error (not_found) in read_result"),
         ["unload_assembly"] = (new() { ["assembly"] = "TestFixture.Consumer" }, "Unloaded"),
     };
