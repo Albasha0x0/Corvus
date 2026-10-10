@@ -64,7 +64,10 @@ builder.Services
     .AddSingleton<NetDecompilerMcp.Native.Annotations.AnnotationStore>()
     .AddSingleton<NativeCodeService>()
     .AddSingleton<NativeEditService>()
-    .AddSingleton<ReadyToRunService>();
+    .AddSingleton<Il2CppNativeNames>()
+    .AddSingleton<NativeNamePush>()
+    .AddSingleton<ReadyToRunService>()
+    .AddSingleton<PdbService>();
 
 builder.Services
     .AddMcpServer(o =>
@@ -150,6 +153,7 @@ var host = builder.Build();
 // Resolve before preloading so preloaded assemblies are indexed and watched.
 host.Services.GetRequiredService<IndexingService>();
 host.Services.GetRequiredService<NativeCodeService>();
+host.Services.GetRequiredService<PdbService>(); // reads matching local PDBs during index builds
 host.Services.GetRequiredService<FileWatchService>().Changed += _ => NotifyResourcesChanged(host.Services);
 Preload(host.Services.GetRequiredService<AssemblyWorkspace>(), host.Services.GetRequiredService<ILogger<AssemblyWorkspace>>(), options);
 await host.RunAsync();

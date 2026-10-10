@@ -36,7 +36,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
             if (n < index.Image.SizeOfImage && index.FunctionByStart((uint)n) != null) return (uint)n;
             if (n >= index.Image.ImageBase && n - index.Image.ImageBase < index.Image.SizeOfImage) return (uint)(n - index.Image.ImageBase);
         }
-        return index.Functions.FirstOrDefault(f => f.KnownName == name)?.Start;
+        return index.AddressOfName(name);
     });
 
     [McpServerTool(Name = "rename_native", Title = "Name a native address", OpenWorld = false)]

@@ -132,7 +132,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         options ??= new CodeIndexOptions();
         var report = new ProgressGate(progress);
         var (support, note) = InstructionSets.For(image.Arch);
-        if (support != CodeSupport.Full) return DeclaredOnly(image, note, report);
+        if (support != CodeSupport.Full) return DeclaredOnly(image, note, report, options.SymbolStarts);
         return new Builder(image, options, report, ct).Run();
     }
 
@@ -140,7 +140,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         Task.Run(() => Build(image, options, progress, ct), ct);
 
     /// <summary>Instruction sets without a decoder: functions the image declares, no code analysis.</summary>
-    private static NativeCodeIndex DeclaredOnly(INativeImage image, string? note, ProgressGate report)
+    private static NativeCodeIndex DeclaredOnly(INativeImage image, string? note, ProgressGate report, IReadOnlyCollection<uint>? symbolStarts)
     {
         var sw = Stopwatch.StartNew();
         var sources = new Dictionary<uint, FunctionSource>();
@@ -149,6 +149,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         foreach (var e in image.Exports) if (e.ForwardedTo == null) Add(e.Rva, FunctionSource.Export);
         if (image.EntryPointRva != 0) Add(image.EntryPointRva, FunctionSource.EntryPoint);
         foreach (var t in image.TlsCallbackRvas) Add(t, FunctionSource.TlsCallback);
+        foreach (var t in symbolStarts ?? []) Add(t, FunctionSource.Symbol);
         var ends = image.RuntimeFunctions.GroupBy(r => r.BeginRva).ToDictionary(g => g.Key, g => g.Max(r => r.EndRva));
         var functions = sources.OrderBy(kv => kv.Key).Select((kv, i) => new NativeFunction
         {
@@ -385,40 +386,51 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
 
     public string ReadString(StringLiteral s, int maxChars = 1024) => StringDetector.Read(Image, s, maxChars);
 
-    // User annotations (rename_native / comment_native), mirrored from the image's NativeAnnotations; names here win
-    // over discovered names, and KnownName of the matching function is updated so list_functions and labels show them.
-    private readonly Dictionary<uint, string> _userNames = new();
-    private readonly Dictionary<uint, string> _userComments = new();
+    // Names and comments by source (user annotations mirrored from NativeAnnotations, imported pdb / il2cpp layers);
+    // the highest source wins over discovered names, and KnownName of the matching function is updated so
+    // list_functions and labels show it.
+    private readonly SourcedNames _sourced = new();
     private readonly Dictionary<uint, string?> _builtinNames = new();
 
-    /// <summary>Applies a user name at a function start (null clears it, restoring the discovered name).</summary>
-    public void SetUserName(uint rva, string? name)
+    /// <summary>The names and comments set on this index by source.</summary>
+    public SourcedNames Sourced => _sourced;
+
+    /// <summary>Applies a user name (null clears it, restoring the imported or discovered name).</summary>
+    public void SetUserName(uint rva, string? name) => SetSourceName(rva, name, NativeNameSource.User);
+
+    public void SetUserComment(uint rva, string? text) => _sourced.SetComment(rva, text, NativeNameSource.User);
+
+    /// <summary>Sets (null clears) one source's name at <paramref name="rva"/>.</summary>
+    public void SetSourceName(uint rva, string? name, NativeNameSource source)
     {
-        lock (_userNames)
+        lock (_builtinNames) ApplyKnownName(rva, _sourced.SetName(rva, name, source));
+    }
+
+    /// <summary>Replaces every name and comment of an imported source (null clears the source).</summary>
+    public void ReplaceSource(NativeNameSource source, IReadOnlyDictionary<uint, string>? names, IReadOnlyDictionary<uint, string>? comments)
+    {
+        lock (_builtinNames)
         {
-            if (name == null) _userNames.Remove(rva);
-            else _userNames[rva] = name;
-            if (_byStart.TryGetValue(rva, out var f))
-            {
-                if (!_builtinNames.ContainsKey(rva)) _builtinNames[rva] = f.KnownName;
-                f.KnownName = name ?? _builtinNames[rva];
-            }
+            foreach (var (rva, name) in _sourced.ReplaceNames(source, names)) ApplyKnownName(rva, name);
+            _sourced.ReplaceComments(source, comments);
         }
     }
 
-    public void SetUserComment(uint rva, string? text)
+    private void ApplyKnownName(uint rva, string? name)
     {
-        lock (_userComments)
-        {
-            if (string.IsNullOrEmpty(text)) _userComments.Remove(rva);
-            else _userComments[rva] = text;
-        }
+        if (!_byStart.TryGetValue(rva, out var f)) return;
+        if (!_builtinNames.ContainsKey(rva)) _builtinNames[rva] = f.KnownName;
+        f.KnownName = name ?? _builtinNames[rva];
     }
+
+    /// <summary>The address of a name set by any source (user, pdb, il2cpp), or of a function's known name.</summary>
+    public uint? AddressOfName(string name) =>
+        _sourced.AddressOf(name) ?? _functions.FirstOrDefault(f => f.KnownName == name)?.Start;
 
     /// <summary>Import "module!name" (or "module!#ordinal"), function name, or export name at <paramref name="rva"/>.</summary>
     public string? NameAt(uint rva)
     {
-        lock (_userNames) if (_userNames.TryGetValue(rva, out var user)) return user;
+        if (_sourced.NameAt(rva) is { } named) return named.Name;
         if (_imports.TryGetValue(rva, out var imp)) return ImportName(imp);
         if (_byStart.TryGetValue(rva, out var f)) return f.Name;
         return _exportNames.GetValueOrDefault(rva);
@@ -426,7 +438,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
 
     public string? CommentFor(uint rva)
     {
-        lock (_userComments) if (_userComments.TryGetValue(rva, out var user)) return user;
+        if (_sourced.CommentAt(rva) is { } comment) return comment.Text;
         if (StringAt(rva) is not { } s) return null;
         const int max = 120;
         return (s.Encoding == StringEncoding.Utf16 ? "L" : "") + StringDetector.Quote(ReadString(s, max), s.Length > max);

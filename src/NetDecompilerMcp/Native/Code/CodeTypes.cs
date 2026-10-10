@@ -69,6 +69,8 @@ public enum FunctionSource : ushort
     GuardCf = 512,
     /// <summary>x64: language-specific exception handler named by unwind information.</summary>
     ExceptionHandler = 1024,
+    /// <summary>A function a loaded PDB names (<see cref="CodeIndexOptions.SymbolStarts"/>).</summary>
+    Symbol = 2048,
 }
 
 [Flags]

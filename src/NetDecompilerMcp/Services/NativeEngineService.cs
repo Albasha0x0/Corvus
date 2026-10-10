@@ -36,7 +36,7 @@ public sealed class NativeEngineService : IDisposable
                 return existing.WaitAsync(ct);
             var provider = Provider(engine);
             // The open is not tied to this call's cancellation: a later call reuses the same analysis.
-            holder.Opening = provider.OpenAsync(native.FilePath, native.Image.Sha256, new NativeOpenOptions { Progress = progress }, CancellationToken.None);
+            holder.Opening = provider.OpenAsync(native.FilePath, native.Image.Sha256, new NativeOpenOptions { Progress = progress, PdbPath = PdbService.PathForEngines(native) }, CancellationToken.None);
             return holder.Opening.WaitAsync(ct);
         }
     }

@@ -44,7 +44,9 @@ internal static class ServerInstructions
            (?? wildcards), read_bytes, resolve_address, list_cpp_classes (RTTI classes, bases, vftables), get_exception_info (MSVC try / catch
            types, SEH scopes, funclets and their parent function), decompile_native (C pseudocode
            through IDA when installed; server_status says whether it is). Addresses: hex VA or RVA, rva:/va:/off: prefixes, export names,
-           module!import, sub_<rva>. The code index is built in the background after loading. verify_native_imports checks a .NET
+           module!import, sub_<rva>. The code index is built in the background after loading; a matching local PDB is read then and
+           names functions and data (load_pdb loads one by path, or downloads it with download=true; search_pdb_symbols lists its symbols
+           with signatures). verify_native_imports checks a .NET
            assembly's [DllImport]s against the real DLL exports.
 
         Errors start with "Error (<code>)" (not_found, ambiguous, invalid_argument, unsupported, not_loaded, limit_exceeded, timeout,

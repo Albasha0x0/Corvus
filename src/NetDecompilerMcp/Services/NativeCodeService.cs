@@ -30,6 +30,7 @@ public sealed class NativeCodeService
     /// <summary>Mirrors every saved name and comment onto a freshly built index so they show up in queries.</summary>
     public void ApplyAnnotations(LoadedNative native, NativeCodeIndex index)
     {
+        NativeNameLayers.OfOrNull(native)?.ReplayInto(index);
         if (native.AnnotationsOrNull is not { } ann && (ann = Annotations(native)) is null) return;
         foreach (var (rva, name) in ann.Names()) index.SetUserName(rva, name);
         foreach (var (rva, comment) in ann.Comments()) index.SetUserComment(rva, comment);
@@ -56,6 +57,38 @@ public sealed class NativeCodeService
 
     private static IndexHolder Holder(LoadedNative native) => native.GetAnalysis(n => new IndexHolder(n));
 
+    // ---- debug symbols (PdbService) ----
+
+    /// <summary>Function starts from debug symbols for a build of <paramref name="native"/>, asked on the build thread; null when none.</summary>
+    public Func<LoadedNative, CancellationToken, IReadOnlyCollection<uint>?>? SymbolStarts { get; set; }
+
+    private CodeIndexOptions? BuildOptions(LoadedNative native, CancellationToken ct)
+    {
+        try { return SymbolStarts?.Invoke(native, ct) is { Count: > 0 } starts ? new CodeIndexOptions { SymbolStarts = starts } : null; }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger?.LogWarning(ex, "Reading debug symbols of {Id} failed", native.Id);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Builds the index again in the background (new symbol starts); the current index keeps answering until the new
+    /// one is ready and replaces it. Dropped when the image changed meanwhile.
+    /// </summary>
+    public Task Rebuild(LoadedNative native)
+    {
+        var image = native.Image;
+        var next = new IndexHolder(native);
+        return next.Start(_logger, this).ContinueWith(done =>
+        {
+            if (done.IsCompletedSuccessfully && ReferenceEquals(done.Result.Image, native.Image) && ReferenceEquals(image, native.Image)
+                && native.Analysis.TryGetValue(typeof(IndexHolder), out var old) && native.Analysis.TryUpdate(typeof(IndexHolder), next, old))
+                return;
+            next.Dispose();
+        }, TaskScheduler.Default);
+    }
+
     private sealed class IndexHolder(LoadedNative native) : IDisposable
     {
         private readonly CancellationTokenSource _cts = new();
@@ -70,7 +103,8 @@ public sealed class NativeCodeService
             {
                 // A failed or cancelled build is retried on the next request.
                 if (Task is { } t && !(t.IsFaulted || t.IsCanceled)) return t;
-                return Task = NativeCodeIndex.BuildAsync(native.Image, null, p => _listener?.Report(p), _cts.Token)
+                var ct = _cts.Token;
+                return Task = System.Threading.Tasks.Task.Run(() => NativeCodeIndex.Build(native.Image, owner.BuildOptions(native, ct), p => _listener?.Report(p), ct), ct)
                     .ContinueWith(done =>
                     {
                         if (done.IsCompletedSuccessfully)
