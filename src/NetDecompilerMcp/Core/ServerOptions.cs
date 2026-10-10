@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+
 namespace NetDecompilerMcp.Core;
 
 /// <summary>
@@ -15,8 +17,9 @@ namespace NetDecompilerMcp.Core;
 ///   --index-cache &lt;dir|off&gt;  directory of saved native code indexes (default &lt;LocalAppData&gt;/NetDecompilerMcp/code-index), or off
 ///   --index-cache-mb &lt;n&gt;  size limit of the code index cache in MB (default 8192)
 ///   --index-cache-days &lt;n&gt; entries unused for this many days are deleted (default 30)
+///   --log-level &lt;l&gt;     stderr log level: trace, debug (adds one line per tool call), information (default), warning, error or none
 /// The NETDECOMP_LOAD environment variable (';'-separated paths) is also honored; NDM_IDA_PREWARM=1 turns on --ida-prewarm; NDM_ENGINE sets --engine;
-/// NDM_CODE_INDEX_CACHE, NDM_CODE_INDEX_CACHE_MB and NDM_CODE_INDEX_CACHE_DAYS set the code index cache defaults.
+/// NDM_CODE_INDEX_CACHE, NDM_CODE_INDEX_CACHE_MB and NDM_CODE_INDEX_CACHE_DAYS set the code index cache defaults; NDM_LOG_LEVEL sets --log-level.
 /// </summary>
 public sealed class ServerOptions
 {
@@ -50,6 +53,11 @@ public sealed class ServerOptions
 
     public const string EngineVariable = "NDM_ENGINE";
 
+    /// <summary>Minimum level of the stderr log; Debug adds a line per tool call (tool, outcome, milliseconds).</summary>
+    public LogLevel LogLevel { get; set; } = LogLevel.Information;
+
+    public const string LogLevelVariable = "NDM_LOG_LEVEL";
+
     /// <summary>
     /// Saved native code indexes, so reopening an image loads its index instead of building it again; null = off
     /// (the default for options not parsed from a command line, so embedded and test servers write nothing).
@@ -63,6 +71,7 @@ public sealed class ServerOptions
         long? cacheMb = null;
         int? cacheDays = null;
         string? engine = Environment.GetEnvironmentVariable(EngineVariable) is { Length: > 0 } fromEnv ? fromEnv : null;
+        string? logLevel = Environment.GetEnvironmentVariable(LogLevelVariable) is { Length: > 0 } levelFromEnv ? levelFromEnv : null;
         for (int i = 0; i < args.Length; i++)
         {
             string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"Missing value after {args[i]}");
@@ -83,6 +92,7 @@ public sealed class ServerOptions
                 case "--engine": engine = Next(); break;
                 case "--index-cache": cacheRoot = Next(); break;
                 case "--index-cache-mb": cacheMb = long.TryParse(Next(), out var mb) && mb > 0 ? mb : throw new ArgumentException("--index-cache-mb must be a positive number"); break;
+                case "--log-level": logLevel = Next(); break;
                 case "--index-cache-days": cacheDays = int.TryParse(Next(), out var days) && days > 0 ? days : throw new ArgumentException("--index-cache-days must be a positive number"); break;
                 default: throw new ArgumentException($"Unknown argument '{args[i]}'");
             }
@@ -98,6 +108,8 @@ public sealed class ServerOptions
             // an explicit option turns the cache on even when the environment turned it off
             if (o.CodeIndexCache != null || cacheRoot != null || cacheMb != null || cacheDays != null) o.CodeIndexCache = c;
         }
+        if (logLevel != null)
+            o.LogLevel = ParseLogLevel(logLevel) ?? throw new ArgumentException($"--log-level (or {LogLevelVariable}) must be trace, debug, information, warning, error or none, not '{logLevel.Trim()}'");
         if (Environment.GetEnvironmentVariable(IdaPrewarmVariable)?.Trim() is "1" or "true" or "on") o.IdaPrewarm = true;
         if (engine != null)
             o.Engine = EngineModes.TryParse(engine) ?? throw new ArgumentException($"--engine (or {EngineVariable}) must be auto, ours or ida, not '{engine.Trim()}'");
@@ -106,6 +118,17 @@ public sealed class ServerOptions
             o.Preload.AddRange(env.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
         return o;
     }
+
+    private static LogLevel? ParseLogLevel(string text) => text.Trim().ToLowerInvariant() switch
+    {
+        "trace" => LogLevel.Trace,
+        "debug" => LogLevel.Debug,
+        "information" or "info" => LogLevel.Information,
+        "warning" or "warn" => LogLevel.Warning,
+        "error" => LogLevel.Error,
+        "none" or "off" => LogLevel.None,
+        _ => null,
+    };
 }
 
 /// <summary>

@@ -524,6 +524,7 @@ Options go after the command in a client's configuration (`args`), e.g. to prelo
 | `--index-cache-mb <n>`, `--index-cache-days <n>` | Bounds of that cache (default 8192 MB and 30 days unused; least recently used entries go first; `NDM_CODE_INDEX_CACHE_MB` / `_DAYS`). |
 | `--binding-style <mono\|hostapi>` | `generate_cpp_binding` style when a call gives none and no host table is detected (default `mono`). |
 | `--binding-project <dir>` | Project directory `generate_cpp_binding` scans for a host table when a call gives no `projectDir`. |
+| `--log-level <level>` | Stderr log level: `trace`, `debug`, `information` (default), `warning`, `error` or `none` (`NDM_LOG_LEVEL`). `debug` adds one line per tool call: the tool, its outcome (`ok` or the error code) and milliseconds, never the arguments. |
 
 Logs go to stderr; stdout is reserved for the protocol.
 
