@@ -22,12 +22,12 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
 
     private sealed record Rig(AssemblyWorkspace Workspace, NativeCodeService Code, NativeCodeTools Tools, NativeAnalysisTools Analysis, NativeEngineService Engines);
 
-    private Rig Setup(IdaProviderOptions? ida = null)
+    private Rig Setup(IdaProviderOptions? ida = null, bool prewarm = false)
     {
-        var options = new ServerOptions { TimeoutSeconds = 120, BackgroundIndexing = false };
+        var options = new ServerOptions { TimeoutSeconds = 120, BackgroundIndexing = false, IdaPrewarm = prewarm };
         var workspace = new AssemblyWorkspace(options);
         var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(_dir.File("annotations")));
-        var engines = new NativeEngineService(ida ?? new IdaProviderOptions { CacheRoot = _dir.File("cache") }, code);
+        var engines = new NativeEngineService(ida ?? new IdaProviderOptions { CacheRoot = _dir.File("cache") }, code, workspace, options);
         _owned.Add(engines);
         var pager = new OutputPager(options);
         var names = new NativeNamePush(code);
@@ -212,6 +212,56 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
                          $"vs {fromScratch.TotalSeconds:0.0} s re-analyzing the patched copy; after undo {undoTime.TotalSeconds:0.00} s");
 
         static string Body(string text) => string.Join('\n', text.Split('\n').Where(l => !l.StartsWith("//", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void Prewarm_is_off_by_default_and_turned_on_by_option()
+    {
+        Assert.False(new ServerOptions().IdaPrewarm);
+        Assert.True(ServerOptions.Parse(["--ida-prewarm"]).IdaPrewarm);
+        using var engines = new NativeEngineService();
+        Assert.False(engines.Prewarming.Enabled);
+    }
+
+    /// <summary>
+    /// With prewarming on, loading native images queues their IDA analysis (one at a time, visible in the status); the
+    /// first decompile_native then finds the session open; unloading a queued or running image cancels its work.
+    /// </summary>
+    [Trait("Speed", "Slow")]
+    [IdaFact]
+    public async Task Prewarm_analyzes_loaded_images_one_at_a_time_and_unload_cancels()
+    {
+        string Sys(string name) => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), name);
+        var rig = Setup(prewarm: true);
+        var clock = Stopwatch.StartNew();
+        var first = rig.Workspace.LoadAny(Sys("imagehlp.dll")).Native!;
+        var second = rig.Workspace.LoadAny(Sys("version.dll")).Native!;
+        var big = rig.Workspace.LoadAny(Sys("dbghelp.dll")).Native!;
+        var seen = new List<string>();
+        while (rig.Engines.Prewarming is { Done: < 2 } p && clock.Elapsed < TimeSpan.FromMinutes(5))
+        {
+            seen.Add($"{p.Running ?? "-"}/{p.Queued}");
+            Assert.True(p.Queued + (p.Running != null ? 1 : 0) + p.Done <= 3);
+            await Task.Delay(100);
+        }
+        var warmed = clock.Elapsed;
+        Assert.Contains(seen, s => s.StartsWith(first.Id, StringComparison.Ordinal) && s.EndsWith("/2", StringComparison.Ordinal)); // one runs, two wait
+        // dbghelp runs now: unloading it cancels its analysis
+        while (rig.Engines.Prewarming.Running != big.Id && clock.Elapsed < TimeSpan.FromMinutes(5)) await Task.Delay(50);
+        var cancel = Stopwatch.StartNew();
+        rig.Workspace.UnloadNative(big);
+        while (rig.Engines.Prewarming is { Cancelled: 0 } && cancel.Elapsed < TimeSpan.FromSeconds(30)) await Task.Delay(50);
+        var status = rig.Engines.Prewarming;
+        output.WriteLine($"prewarmed 2 images in {warmed.TotalSeconds:0.0} s; dbghelp cancelled {cancel.ElapsedMilliseconds} ms after unload; {status}");
+        Assert.Equal(1, status.Cancelled);
+        Assert.Equal(2, status.Done);
+        Assert.Null(status.Running);
+
+        clock.Restart();
+        var text = await rig.Analysis.DecompileNative(first.Id, "CheckSumMappedFile");
+        output.WriteLine($"first decompile_native after prewarm: {clock.ElapsedMilliseconds} ms");
+        Assert.Contains("CheckSumMappedFile", text);
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(20));
     }
 
     private const string StaticSource = """

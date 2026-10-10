@@ -20,10 +20,85 @@ public sealed class NativeEngineService : IDisposable
 
     /// <param name="idaOptions">IDA provider settings (install, Python, cache root); null: the defaults.</param>
     /// <param name="code">Receives the library names an open session recognized (the ida name layer).</param>
-    public NativeEngineService(IdaProviderOptions? idaOptions = null, NativeCodeService? code = null)
+    /// <param name="workspace">With <paramref name="options"/>.IdaPrewarm: native images it loads are analyzed in the background.</param>
+    public NativeEngineService(IdaProviderOptions? idaOptions = null, NativeCodeService? code = null, AssemblyWorkspace? workspace = null,
+        ServerOptions? options = null)
     {
         _ida = new(() => new IdaProvider(idaOptions));
         _code = code;
+        _prewarmEnabled = options?.IdaPrewarm == true;
+        if (_prewarmEnabled && workspace != null) workspace.NativeLoaded += native => _ = PrewarmCore(native);
+    }
+
+    // ---- background analysis on load (ServerOptions.IdaPrewarm) ----
+
+    private readonly bool _prewarmEnabled;
+    private readonly SemaphoreSlim _prewarmGate = new(1, 1);
+    private readonly object _prewarmLock = new();
+    private int _prewarmQueued, _prewarmDone, _prewarmFailed, _prewarmCancelled;
+    private (string Id, DateTime Since)? _prewarmRunning;
+    private string? _prewarmLastError;
+
+    /// <summary>State of the background analysis: what runs, how many wait, and how the finished ones ended.</summary>
+    public sealed record PrewarmStatus(bool Enabled, int Queued, string? Running, double RunningSeconds, int Done, int Failed, int Cancelled, string? LastError);
+
+    public PrewarmStatus Prewarming
+    {
+        get
+        {
+            lock (_prewarmLock)
+                return new PrewarmStatus(_prewarmEnabled, _prewarmQueued, _prewarmRunning?.Id,
+                    _prewarmRunning is { } r ? Math.Round((DateTime.UtcNow - r.Since).TotalSeconds, 1) : 0, _prewarmDone, _prewarmFailed, _prewarmCancelled, _prewarmLastError);
+        }
+    }
+
+    /// <summary>
+    /// Queues the image's IDA analysis: one image at a time, in load order; waiting and running work ends when the
+    /// image is unloaded or reloaded. Images IDA is unavailable for are skipped.
+    /// </summary>
+    public Task Prewarm(LoadedNative native) => PrewarmCore(native);
+
+    private async Task PrewarmCore(LoadedNative native)
+    {
+        if (!IsAvailable || native.Released.IsCancellationRequested) return;
+        lock (_prewarmLock) _prewarmQueued++;
+        bool entered = false;
+        try
+        {
+            await _prewarmGate.WaitAsync(native.Released).ConfigureAwait(false);
+            entered = true;
+            lock (_prewarmLock)
+            {
+                _prewarmQueued--;
+                _prewarmRunning = (native.Id, DateTime.UtcNow);
+            }
+            await Session(native, null, null, native.Released).ConfigureAwait(false);
+            lock (_prewarmLock) _prewarmDone++;
+        }
+        catch (Exception ex) when (ex is OperationCanceledException || native.Released.IsCancellationRequested)
+        {
+            lock (_prewarmLock)
+            {
+                if (!entered) _prewarmQueued--;
+                _prewarmCancelled++;
+            }
+        }
+        catch (Exception ex)
+        {
+            lock (_prewarmLock)
+            {
+                _prewarmFailed++;
+                _prewarmLastError = $"{native.Id}: {(ex is ToolError t ? t.Message : ex.GetType().Name + ": " + ex.Message)}";
+            }
+        }
+        finally
+        {
+            if (entered)
+            {
+                lock (_prewarmLock) _prewarmRunning = null;
+                _prewarmGate.Release();
+            }
+        }
     }
 
     /// <summary>Apply patches into the open database (default); false analyzes every patched state from scratch (for measurements).</summary>
