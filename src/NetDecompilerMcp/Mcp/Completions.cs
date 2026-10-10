@@ -3,7 +3,7 @@ using NetDecompilerMcp.Core;
 
 namespace NetDecompilerMcp.Mcp;
 
-/// <summary>Argument completion for prompts and resource templates: assembly ids, type names and file-system paths.</summary>
+/// <summary>Argument completion for prompts and resource templates: assembly and native image ids, type names and file-system paths.</summary>
 public static class Completions
 {
     private const int MaxValues = 100;
@@ -20,6 +20,9 @@ public static class Completions
             "assembly" => workspace.Read(() => workspace.Assemblies.Select(a => a.Id)
                 .Where(id => id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList()),
             "type" or "symbol" => workspace.Read(() => TypeNames(workspace, assemblyContext, prefix)),
+            // An image is a loaded native image id or the path of one.
+            "image" => [.. workspace.Read(() => workspace.Natives.Select(n => n.Id)
+                .Where(id => id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList()), .. Paths(prefix, drivesWhenEmpty: false)],
             "path" or "dummyDllFolder" => Paths(prefix),
             _ => [],
         };
@@ -52,18 +55,18 @@ public static class Completions
             .ToList();
     }
 
-    private static List<string> Paths(string prefix)
+    private static List<string> Paths(string prefix, bool drivesWhenEmpty = true)
     {
         try
         {
             if (string.IsNullOrEmpty(prefix))
-                return DriveInfo.GetDrives().Where(d => d.IsReady).Select(d => d.RootDirectory.FullName).ToList();
+                return drivesWhenEmpty ? DriveInfo.GetDrives().Where(d => d.IsReady).Select(d => d.RootDirectory.FullName).ToList() : [];
             var dir = prefix.EndsWith('\\') || prefix.EndsWith('/') ? prefix : Path.GetDirectoryName(prefix);
             if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return [];
             var start = Path.GetFileName(prefix);
             return Directory.EnumerateFileSystemEntries(dir)
                 .Where(p => Path.GetFileName(p).StartsWith(start, StringComparison.OrdinalIgnoreCase))
-                .Where(p => Directory.Exists(p) || p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || p.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                .Where(p => Directory.Exists(p) || Path.GetExtension(p).ToLowerInvariant() is ".dll" or ".exe" or ".sys")
                 .Take(MaxValues + 1)
                 .ToList();
         }
