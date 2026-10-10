@@ -124,6 +124,10 @@ public class NativeEditTests(ITestOutputHelper output)
     [InlineData(NativeArch.X86, "push 1", "6A01")]
     [InlineData(NativeArch.X86, "push word ptr [eax]", "66FF30")]
     [InlineData(NativeArch.X86, "push ax", "6650")]
+    [InlineData(NativeArch.X64, "int 3", "CC")]
+    [InlineData(NativeArch.X86, "int 3", "CC")]
+    [InlineData(NativeArch.X64, "int 29h", "CD29")]
+    [InlineData(NativeArch.X64, "xchg ax, ax", "6690")]
     [InlineData(NativeArch.X64, "monitorx rax, rcx, rdx", "0F01FA")]
     [InlineData(NativeArch.X64, "mwaitx rax, rcx, rbx", "0F01FB")]
     [InlineData(NativeArch.X86, "mov ebp, esp", "8BEC")]
@@ -188,6 +192,7 @@ public class NativeEditTests(ITestOutputHelper output)
         long total = 0, exact = 0, equiv = 0, failed = 0;
         var perClass = new SortedDictionary<string, (long Total, long Exact, long Equiv)>();
         var sampleFailures = new List<string>();
+        var failClasses = new SortedDictionary<string, int>();
 
         void Sweep(string path, NativeArch arch, int maxFunctions)
         {
@@ -220,11 +225,19 @@ public class NativeEditTests(ITestOutputHelper output)
                     else if (asm.AsSpan().SequenceEqual(orig)) { exact++; pc.Exact++; equiv++; pc.Equiv++; }
                     else
                     {
-                        // Equivalent when the assembled bytes disassemble to the same text at the same address.
+                        // Equivalent when the assembled bytes disassemble to the same text at the same address and decode
+                        // to the same operation: mnemonic, operand and address size, operands, immediates and prefixes.
                         var synth = new ByteImage(image, line.Rva, asm);
                         var back = new NativeDisassembler(synth, null, []).DecodeOne(line.Rva);
-                        if (back != null && back.Text == line.Text) { equiv++; pc.Equiv++; }
-                        else if (sampleFailures.Count < 40) sampleFailures.Add($"[{line.Bytes} -> {Convert.ToHexString(asm)}] {line.Text}  =>  {back?.Text}");
+                        int bitness = arch == NativeArch.X64 ? 64 : 32;
+                        if (back != null && back.Text == line.Text && SameOperation(bitness, line.Address, orig, asm)) { equiv++; pc.Equiv++; }
+                        else
+                        {
+                            failClasses[cls] = failClasses.GetValueOrDefault(cls) + 1;
+                            // Up to 3 samples per mnemonic, 40 in all.
+                            if (sampleFailures.Count < 40 && sampleFailures.Count(s => s.Contains("] " + cls)) < 3)
+                                sampleFailures.Add($"[{line.Bytes} -> {Convert.ToHexString(asm)}] {line.Text}  =>  {back?.Text}");
+                        }
                     }
                     perClass[cls] = pc;
                 }
@@ -242,11 +255,86 @@ public class NativeEditTests(ITestOutputHelper output)
                           $"equivalent: {equiv} ({100.0 * equiv / total:F1}%), not assembled: {failed}");
         foreach (var (cls, c) in perClass.OrderByDescending(kv => kv.Value.Total).Take(40))
             _output.WriteLine($"  {cls,-10} n={c.Total,-6} exact={100.0 * c.Exact / c.Total,5:F1}%  equiv={100.0 * c.Equiv / c.Total,5:F1}%");
+        _output.WriteLine("not equivalent, by mnemonic: " + string.Join(", ", failClasses.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Key} {kv.Value}")));
         _output.WriteLine("sample gaps:");
         foreach (var s in sampleFailures) _output.WriteLine("  " + s);
 
         // Every printed instruction must assemble back to an equivalent one: a non-equivalent result is a wrong patch.
         Assert.True(equiv == total, $"{total - equiv} of {total} instructions did not round-trip:\n" + string.Join("\n", sampleFailures));
+    }
+
+    /// <summary>
+    /// Two encodings do the same thing: same mnemonic, operand size (a 66-prefixed push is not a push), address size,
+    /// prefixes, memory size and operands (registers, memory base / index / scale / displacement / segment, immediate values).
+    /// The opcode form may differ (8B vs 89 for reg,reg; imm8 vs imm32 for the same value).
+    /// </summary>
+    internal static bool SameOperation(int bitness, ulong ip, byte[] a, byte[] b)
+    {
+        static Iced.Intel.Instruction Decode(int bitness, ulong ip, byte[] bytes)
+        {
+            var decoder = Iced.Intel.Decoder.Create(bitness, new Iced.Intel.ByteArrayCodeReader(bytes), ip);
+            decoder.Decode(out var instr);
+            return instr;
+        }
+        var x = Decode(bitness, ip, a);
+        var y = Decode(bitness, ip, b);
+        if (x.IsInvalid || y.IsInvalid || x.Length != a.Length || y.Length != b.Length) return false;
+        var ox = Iced.Intel.EncoderCodeExtensions.ToOpCode(x.Code);
+        var oy = Iced.Intel.EncoderCodeExtensions.ToOpCode(y.Code);
+        if (x.Mnemonic != y.Mnemonic || x.OpCount != y.OpCount || ox.OperandSize != oy.OperandSize || ox.AddressSize != oy.AddressSize
+            || x.HasLockPrefix != y.HasLockPrefix || x.HasRepPrefix != y.HasRepPrefix || x.HasRepnePrefix != y.HasRepnePrefix
+            || x.SegmentPrefix != y.SegmentPrefix)
+            return false;
+        // The decoder reports a memory size for r/m forms even when the operand is a register.
+        bool hasMemory = Enumerable.Range(0, x.OpCount).Any(i => x.GetOpKind(i) == Iced.Intel.OpKind.Memory);
+        if (hasMemory && x.MemorySize != y.MemorySize) return false;
+        // Immediates compare at the operation's width: 0FFFFh as imm16 equals a sign-extended imm8 -1.
+        ulong mask = ox.OperandSize switch { 16 => 0xFFFF, 32 => 0xFFFF_FFFF, _ => ulong.MaxValue };
+        for (int i = 0; i < x.OpCount; i++)
+        {
+            var kx = x.GetOpKind(i);
+            var ky = y.GetOpKind(i);
+            switch (kx)
+            {
+                case Iced.Intel.OpKind.Register:
+                    if (ky != kx || x.GetOpRegister(i) != y.GetOpRegister(i)) return false;
+                    break;
+                case Iced.Intel.OpKind.Memory:
+                    if (ky != kx || x.MemoryBase != y.MemoryBase || x.MemoryIndex != y.MemoryIndex || x.MemoryIndexScale != y.MemoryIndexScale
+                        || x.MemorySegment != y.MemorySegment
+                        || (x.IsIPRelativeMemoryOperand ? x.IPRelativeMemoryAddress : x.MemoryDisplacement64)
+                           != (y.IsIPRelativeMemoryOperand ? y.IPRelativeMemoryAddress : y.MemoryDisplacement64))
+                        return false;
+                    break;
+                case Iced.Intel.OpKind.NearBranch16 or Iced.Intel.OpKind.NearBranch32 or Iced.Intel.OpKind.NearBranch64:
+                    if (ky is not (Iced.Intel.OpKind.NearBranch16 or Iced.Intel.OpKind.NearBranch32 or Iced.Intel.OpKind.NearBranch64)
+                        || x.NearBranchTarget != y.NearBranchTarget) return false;
+                    break;
+                default:
+                    if (IsImmediate(kx))
+                    {
+                        if (!IsImmediate(ky) || (x.GetImmediate(i) & mask) != (y.GetImmediate(i) & mask)) return false;
+                    }
+                    else if (kx != ky) return false;
+                    break;
+            }
+        }
+        return true;
+
+        static bool IsImmediate(Iced.Intel.OpKind k) => k is Iced.Intel.OpKind.Immediate8 or Iced.Intel.OpKind.Immediate8_2nd or Iced.Intel.OpKind.Immediate16
+            or Iced.Intel.OpKind.Immediate32 or Iced.Intel.OpKind.Immediate64 or Iced.Intel.OpKind.Immediate8to16 or Iced.Intel.OpKind.Immediate8to32
+            or Iced.Intel.OpKind.Immediate8to64 or Iced.Intel.OpKind.Immediate32to64;
+    }
+
+    [Fact]
+    public void SameOperationTellsOperandSizeApart()
+    {
+        // push 3ECh (68 imm32) vs pushw 3ECh (66 68 imm16): same text without the suffix, different operation.
+        Assert.False(SameOperation(32, 0x1000, Convert.FromHexString("68EC030000"), Convert.FromHexString("6668EC03")));
+        // mov eax, ecx as 8B C1 and as 89 C8: the same operation.
+        Assert.True(SameOperation(32, 0x1000, Convert.FromHexString("8BC1"), Convert.FromHexString("89C8")));
+        // push 1 as imm8 and as imm32: the same operation.
+        Assert.True(SameOperation(32, 0x1000, Convert.FromHexString("6A01"), Convert.FromHexString("6801000000")));
     }
 
     [Fact]

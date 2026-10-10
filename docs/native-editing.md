@@ -58,14 +58,22 @@ Services/NativeEditService.cs).
     whose operand kinds match, preferring the shortest encoding (and, on a tie, the MSVC-style placement, e.g. `8B`
     over `89`), and rejecting obsolete aliases that do not decode back to themselves. The whole block is laid out with
     `BlockEncoder` at the patch address, so near-branch sizes (short vs near), relative displacements and RIP-relative
-    references are correct. A `db <hex>` escape emits raw bytes.
+    references are correct. A `db <hex>` escape emits raw bytes. A 16-bit operand-size form (66 prefix) is chosen only
+    when an operand asks for 16 bits (a 16-bit register or `word ptr`): the shorter `pushw imm16` would push 2 bytes, or
+    truncate the value, where `push imm` means the mode's width. `int 3` assembles to the breakpoint `CC`, `xchg ax, ax`
+    to `66 90`, and instructions whose operands are implicit (`monitorx`, `mwaitx`) accept them as printed.
   - **Errors** are typed `ToolError(InvalidArgument)` naming the offending line, never an internal exception — e.g.
     "operand size is ambiguous: add a size specifier such as 'dword ptr'" or "unknown mnemonic".
   - **Round trip.** A property test assembles every instruction our disassembler prints for a set of System32 (x64)
-    and SysWOW64 (x86) functions and compares the bytes: ~99.8% reproduce an equivalent instruction (same text),
-    ~92% byte-for-byte identical; the remainder are non-canonical encodings (multi-byte `nop`, `int3` shown as
-    `int 3`, the reg,reg store vs load form) or a few implicit-operand oddities (`monitorx`/`mwaitx`) a human would
-    rewrite with `db`.
+    and SysWOW64 (x86) functions: all 131,831 assemble to an equivalent instruction (same text, and decoding to the same
+    mnemonic, operand and address size, operands, immediates at the operation's width, and prefixes), and the test
+    requires all of them; 97.5% are byte-for-byte identical. The rest differ only in encoding: the reg,reg store vs load
+    form (`89` vs `8B`), an imm32 where an imm8 fits, multi-byte `nop`, or an absolute `[disp32]` that is reachable and
+    becomes RIP-relative.
+  - **Not supported:** AVX-512 decorators (`{k1}`, `{z}`, `{1toN}`, rounding / SAE), VSIB gather / scatter operands,
+    far pointers (`jmp far`, `call far`), address-size overrides, and the explicit-operand string forms
+    (`movs byte ptr [rdi], byte ptr [rsi]`; the sized forms such as `rep movsb` work). `notrack` is dropped. Use
+    `patch_bytes` or `db` for these.
 - `dryRun` shows the before/after disassembly without recording the patch. `list_native_edits` / `undo_native_edit`
   manage the recorded patches.
 

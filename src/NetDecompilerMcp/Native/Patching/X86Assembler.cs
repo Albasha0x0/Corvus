@@ -310,6 +310,13 @@ public static class X86Assembler
 
     private static Instruction Select(int bitness, ulong startVa, int line, string mnemText, Mnemonic mnemonic, Operand[] operands)
     {
+        // Forms the disassembler prints like another instruction: 'int 3' is the one-byte breakpoint CC (CD 03 differs for
+        // debuggers and in length), 'xchg ax, ax' is the two-byte 66 90.
+        if (mnemonic == Mnemonic.Int && operands is [{ Class: OpClass.Imm, Applied: 3 }])
+            return Instruction.Create(IcedCode.Int3);
+        if (mnemonic == Mnemonic.Xchg && operands is [{ Class: OpClass.Reg, Reg: Register.AX }, { Class: OpClass.Reg, Reg: Register.AX }])
+            return Instruction.Create(IcedCode.Nopw);
+
         var candidates = new List<(Instruction Instr, int Length, int RmRank, IcedCode Code)>();
         var memSizes = new HashSet<int>();
         bool anyMnemonic = false, anyArity = false;
