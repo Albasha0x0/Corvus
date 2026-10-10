@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 namespace NetDecompilerMcp.Tests;
 
 /// <summary>The README's tool tables, tool counts, prompt list and prompt count match the registered catalog.</summary>
+[Collection(InProcessCatalogCollection.Name)]
 public partial class ReadmeSyncTests
 {
     [Fact]

@@ -6,6 +6,7 @@ using NetDecompilerMcp.Mcp;
 namespace NetDecompilerMcp.Tests;
 
 /// <summary>Closed value sets: advertised as "enum" and enforced before the tool runs.</summary>
+[Collection(InProcessCatalogCollection.Name)]
 public class ParameterDomainTests
 {
     private static readonly Dictionary<string, JsonObject> Schemas =

@@ -4,6 +4,7 @@ using NetDecompilerMcp.Mcp;
 namespace NetDecompilerMcp.Tests;
 
 /// <summary>Tool families: every tool in exactly one, option parsing, and a server lists only what it was started with.</summary>
+[Collection(InProcessCatalogCollection.Name)]
 public class ToolsetTests
 {
     [Fact]
