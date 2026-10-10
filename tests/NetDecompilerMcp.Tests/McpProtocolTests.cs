@@ -252,11 +252,24 @@ public abstract class McpProtocolTests : IAsyncLifetime
         public async Task Prompts()
         {
             var prompts = await _client.ListPromptsAsync();
-            Assert.Equal(["analyze_assembly", "explain_type", "find_feature", "map_native_address", "plan_patch"], prompts.Select(p => p.Name).Order());
+            Assert.Equal(["analyze_assembly", "analyze_native", "explain_type", "find_api_usage", "find_feature", "map_native_address", "patch_native", "plan_patch", "trace_native_feature"],
+                prompts.Select(p => p.Name).Order());
             var result = await _client.GetPromptAsync("find_feature", new Dictionary<string, object?> { ["feature"] = "license check", ["assembly"] = "TestFixture" });
             var text = string.Join("\n", result.Messages.Select(m => (m.Content as TextContentBlock)?.Text));
             Assert.Contains("license check", text);
             Assert.Contains("search_strings", text);
+
+            // Every tool a prompt names exists, so prompts cannot drift from the catalog.
+            var tools = (await _client.ListToolsAsync()).Select(t => t.Name).ToHashSet();
+            string[] verbs = ["get_", "list_", "find_", "search_", "decompile_", "disassemble", "load_", "rename_", "comment_", "patch_", "save_", "native_", "read_", "resolve_", "undo_", "export_", "apply_", "unpack_", "stub_", "add_", "diff_", "simplify_"];
+            foreach (var prompt in prompts)
+            {
+                var args = prompt.ProtocolPrompt.Arguments?.ToDictionary(a => a.Name, a => (object?)"x") ?? [];
+                var body = string.Join("\n", (await _client.GetPromptAsync(prompt.Name, args)).Messages.Select(m => (m.Content as TextContentBlock)?.Text));
+                foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(body, @"\b[a-z]+(?:_[a-z0-9]+)+\b|\bdisassemble\b"))
+                    if (verbs.Any(v => m.Value.StartsWith(v, StringComparison.Ordinal)) && m.Value != "patch_native" && m.Value != "trace_native_feature")
+                        Assert.True(tools.Contains(m.Value), $"prompt {prompt.Name} names unknown tool {m.Value}");
+            }
         }
 
         [Fact]
