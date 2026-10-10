@@ -41,7 +41,7 @@ internal static class SetupCli
             case "config": return Config(output, env, launch, parsed.Clients);
             case "update": return Installation.Update(output);
             case "version" or "--version" or "-v": output.WriteLine(Installation.Version); return 0;
-            default: output.WriteLine(Help); return 0;
+            default: output.WriteLine(HelpText(env)); return 0;
         }
     }
 
@@ -69,11 +69,21 @@ internal static class SetupCli
           version               Print the version.
 
         Exit codes: 0 success (a dry run always), 1 a check or a registration failed, 2 usage error.
-
-        Clients: claude-code, claude-desktop, cursor, windsurf, vscode, vscode-insiders, vscodium, cline, roo-code,
-                 kilo-code, visual-studio, codex, gemini-cli, qwen-code, copilot-cli, opencode, crush, zed, lm-studio,
-                 amazon-q, kiro, antigravity
         """;
+
+    /// <summary>The help text with the client ids of this system's catalog.</summary>
+    private static string HelpText(SetupEnvironment env)
+    {
+        var lines = new List<string>();
+        var line = "Clients: ";
+        foreach (var id in ClientCatalog.All(env).Select(c => c.Id))
+        {
+            if (line.Length + id.Length > 110) { lines.Add(line.TrimEnd()); line = "         "; }
+            line += id + ", ";
+        }
+        lines.Add(line.TrimEnd(' ', ','));
+        return Help + Environment.NewLine + Environment.NewLine + string.Join(Environment.NewLine, lines);
+    }
 
     /// <summary>The named clients, or null after reporting an unknown name.</summary>
     private static List<McpClient>? Named(TextWriter output, IReadOnlyList<McpClient> all, IEnumerable<string> names)

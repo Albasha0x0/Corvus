@@ -24,6 +24,7 @@ internal static class ClientCatalog
     private static JsonObject Cline(ServerLaunch l) => new() { ["command"] = l.Command, ["args"] = Strings(l.Args), ["disabled"] = false, ["autoApprove"] = new JsonArray() };
     private static JsonObject Roo(ServerLaunch l) => new() { ["command"] = l.Command, ["args"] = Strings(l.Args), ["disabled"] = false, ["alwaysAllow"] = new JsonArray() };
     private static JsonObject Copilot(ServerLaunch l) => new() { ["type"] = "local", ["command"] = l.Command, ["args"] = Strings(l.Args), ["env"] = new JsonObject(), ["tools"] = Strings(["*"]) };
+    private static JsonObject CommandCode(ServerLaunch l) => new() { ["transport"] = "stdio", ["enabled"] = true, ["command"] = l.Command, ["args"] = Strings(l.Args) };
     private static JsonObject OpenCode(ServerLaunch l) => new() { ["type"] = "local", ["command"] = Strings([l.Command, .. l.Args]), ["enabled"] = true };
 
     private static readonly string[] Servers = ["mcpServers"];
@@ -33,8 +34,8 @@ internal static class ClientCatalog
         var list = new List<McpClient>();
         bool Dir(string path) => env.DirectoryExists(path);
         void Add(string id, string name, string[] aliases, ConfigTarget target, bool present) => list.Add(new McpClient(id, name, aliases, target, present));
-        JsonTarget Json(string path, Func<ServerLaunch, JsonObject> entry, params string[] container) =>
-            new(path, container.Length == 0 ? Servers : container, entry);
+        JsonTarget Json(string path, Func<ServerLaunch, JsonObject> entry, string? container = null, Func<JsonObject, string, bool?>? listed = null) =>
+            new(path, container == null ? Servers : [container], entry, listed);
 
         // CLAUDE_CONFIG_DIR holds both .claude.json and what is otherwise ~/.claude.
         var claudeDir = env.Set("CLAUDE_CONFIG_DIR");
@@ -111,7 +112,43 @@ internal static class ClientCatalog
         var antigravity = Dir(shared) ? shared : env.InHome(".gemini", "antigravity");
         Add("antigravity", "Antigravity", [], Json(Path.Combine(antigravity, "mcp_config.json"), Plain), Dir(shared) || Dir(env.InHome(".gemini", "antigravity")));
 
+        var devin = env.Os == HostOs.Windows ? Path.Combine(env.AppData, "devin") : Path.Combine(env.XdgConfig, "devin");
+        Add("devin", "Devin", [], Json(Path.Combine(devin, "mcp_config.json"), Plain), Dir(devin));
+        Add("command-code", "Command Code", ["commandcode"], Json(env.InHome(".commandcode", "mcp.json"), CommandCode), Dir(env.InHome(".commandcode")));
+        var grok = env.Set("GROK_HOME") ?? env.InHome(".grok");
+        Add("grok-build", "Grok Build", ["grok"], new CodexTomlTarget(Path.Combine(grok, "config.toml")), Dir(grok) || env.HasTool("grok"));
+
+        var (ompRoot, ompAgent, ompError) = OmpAgentDir(env);
+        Add("omp", "OMP", [], ompError != null
+                ? new InvalidTarget(Path.Combine(ompRoot, "mcp.json"), ompError)
+                : Json(Path.Combine(ompAgent, "mcp.json"), Stdio, listed: (root, name) =>
+                    JsonTarget.Lists(root, "disabledServers", name) ? true : JsonTarget.Lists(root, "enabledServers", name) ? false : null),
+            Dir(ompRoot) || env.HasTool("omp"));
+
+        var pi = env.Set("PI_CODING_AGENT_DIR") is { } piDir ? env.ExpandPath(piDir) : env.InHome(".pi", "agent");
+        Add("pi", "Pi", [], Json(Path.Combine(pi, "mcp.json"), Stdio), Dir(pi) || Dir(env.InHome(".pi")));
+
         return list;
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex OmpProfile = new("^[a-z0-9][a-z0-9._-]{0,63}$");
+    private static readonly System.Text.RegularExpressions.Regex ReservedDevice = new("^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(\\..*)?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    /// <summary>
+    /// OMP's root (PI_CONFIG_DIR joined to the home folder, default .omp) and agent folder: profiles/&lt;p&gt;/agent for
+    /// OMP_PROFILE (or PI_PROFILE), else PI_CODING_AGENT_DIR, else agent; an invalid profile name is an error.
+    /// </summary>
+    private static (string Root, string Agent, string? Error) OmpAgentDir(SetupEnvironment env)
+    {
+        var root = Path.Join(env.Home, env.Set("PI_CONFIG_DIR") ?? ".omp");
+        var profile = (env.Variable("OMP_PROFILE") ?? env.Variable("PI_PROFILE"))?.Trim();
+        if (profile is { Length: > 0 } && profile != "default")
+        {
+            if (!OmpProfile.IsMatch(profile) || profile.EndsWith('.') || ReservedDevice.IsMatch(profile))
+                return (root, root, $"invalid OMP profile \"{profile}\": names match ^[a-z0-9][a-z0-9._-]{{0,63}}$, do not end with \".\" and are not device names; fix OMP_PROFILE or PI_PROFILE");
+            return (root, Path.Combine(root, "profiles", profile, "agent"), null);
+        }
+        return (root, env.Set("PI_CODING_AGENT_DIR") is { } dir ? Path.GetFullPath(dir) : Path.Combine(root, "agent"), null);
     }
 
     /// <summary>

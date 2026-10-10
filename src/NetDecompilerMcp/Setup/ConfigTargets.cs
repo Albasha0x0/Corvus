@@ -93,8 +93,11 @@ internal abstract class ConfigTarget(string path)
         WriteAtomically(text, bom) is { } failed ? new ConfigChange(false, failed) : new ConfigChange(true, message);
 }
 
-/// <summary>A JSON file with servers in an object at <see cref="Container"/> (e.g. "mcpServers").</summary>
-internal sealed class JsonTarget(string path, string[] container, Func<ServerLaunch, JsonObject> entry) : ConfigTarget(path)
+/// <summary>
+/// A JSON file with servers in an object at <see cref="Container"/> (e.g. "mcpServers"). <paramref name="listed"/>
+/// reads root-level lists that override an entry's own switch: true off, false forced on, null no say.
+/// </summary>
+internal sealed class JsonTarget(string path, string[] container, Func<ServerLaunch, JsonObject> entry, Func<JsonObject, string, bool?>? listed = null) : ConfigTarget(path)
 {
     public IReadOnlyList<string> Container { get; } = container;
     public Func<ServerLaunch, JsonObject> Entry { get; } = entry;
@@ -182,7 +185,17 @@ internal sealed class JsonTarget(string path, string[] container, Func<ServerLau
         return root == null ? null : Servers(root, false)?[name] as JsonObject;
     }
 
-    public override RegisteredEntry? Current(string name) => Existing(name) is { } entry ? Parse(entry) : null;
+    public override RegisteredEntry? Current(string name)
+    {
+        var (root, _, _, _, _) = Load();
+        if (root == null || Servers(root, false)?[name] is not JsonObject entry) return null;
+        var parsed = Parse(entry);
+        return listed?.Invoke(root, name) is { } off ? parsed with { Disabled = off } : parsed;
+    }
+
+    /// <summary>Whether a root-level string array names the server.</summary>
+    public static bool Lists(JsonObject root, string key, string name) =>
+        root[key] is JsonArray list && list.Any(i => i is JsonValue v && v.TryGetValue<string>(out var s) && s == name);
 
     /// <summary>Command and arguments from "command" (a string, or an array holding both) and "args"; env from "env" or "environment".</summary>
     public static RegisteredEntry Parse(JsonObject entry)
@@ -274,7 +287,7 @@ internal sealed class JsonTarget(string path, string[] container, Func<ServerLau
     }
 }
 
-/// <summary>Codex's config.toml: one [mcp_servers.NAME] table, edited as text so the rest of the file is untouched.</summary>
+/// <summary>Codex's and Grok Build's config.toml: one [mcp_servers.NAME] table, edited as text so the rest of the file is untouched.</summary>
 internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
 {
     [GeneratedRegex(@"^\s*\[\s*mcp_servers\s*\.\s*(?:""(?<n>[^""]+)""|'(?<n>[^']+)'|(?<n>[A-Za-z0-9_-]+))(?<sub>\s*\.[^\]]*)?\s*\]\s*(#.*)?$")]
@@ -393,8 +406,16 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
                         if (KeyValue().Match(item) is { Success: true } kv) env[kv.Groups["k"].Value.Trim('"')] = Unescape(kv.Groups["v"].Value);
             }
         }
+        // A root disabled_mcp_servers list (Grok Build) turns the server off whatever its table says.
+        for (int i = 0; i < lines.Count && !AnyHeader().IsMatch(lines[i]); i++)
+            if (DisabledList().Match(lines[i]) is { Success: true } list
+                && TomlString().Matches(list.Groups["items"].Value).Any(s => (s.Value[0] == '\'' ? s.Groups["v"].Value : Unescape(s.Groups["v"].Value)) == name))
+                disabled = true;
         return new RegisteredEntry(command, args, env, disabled);
     }
+
+    [GeneratedRegex(@"^\s*disabled_mcp_servers\s*=\s*\[(?<items>[^\]]*)\]")]
+    private static partial Regex DisabledList();
 
     /// <summary>The file text with the server registered, or null when it already is.</summary>
     private static string? Installed(List<string> lines, string name, ServerLaunch launch)
@@ -520,4 +541,14 @@ internal sealed class ClaudeCliTarget(string cli, JsonTarget file) : ConfigTarge
     }
 
     private static string Quote(string s) => s.Length > 0 && s.IndexOfAny([' ', '&', '(', ')', '^', '"']) < 0 ? s : "\"" + s.Replace("\"", "\"\"") + "\"";
+}
+
+/// <summary>A client whose file location cannot be worked out (an invalid override): every change is refused with the reason.</summary>
+internal sealed class InvalidTarget(string path, string reason) : ConfigTarget(path)
+{
+    public override string? Registered(string name) => null;
+    public override RegisteredEntry? Current(string name) => null;
+    public override TargetPreview Preview(string name, ServerLaunch launch) => new(SetupAction.Blocked, reason, null, null, false, null);
+    public override ConfigChange Install(string name, ServerLaunch launch) => new(false, $"left unchanged: {reason}");
+    public override ConfigChange Uninstall(string name) => new(false, "not registered");
 }

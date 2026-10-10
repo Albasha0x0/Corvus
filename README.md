@@ -43,9 +43,11 @@ Then restart your MCP client. What the installer does:
 
 Supported clients: Claude Code, Claude Desktop, Cursor, Windsurf, VS Code, VS Code Insiders, VSCodium, Cline, Roo Code,
 Kilo Code, Visual Studio, Codex, Gemini CLI, Qwen Code, GitHub Copilot CLI, OpenCode, Crush, Zed, LM Studio,
-Amazon Q, Kiro and Antigravity. Any other client: add the output of `NetDecompilerMcp config`. Client folders moved
-with `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_CLI_HOME`, `QWEN_HOME`, `COPILOT_HOME`, `OPENCODE_CONFIG`,
-`OPENCODE_CONFIG_DIR` or `XDG_CONFIG_HOME` are followed.
+Amazon Q, Kiro, Antigravity, Devin, Command Code, Grok Build, OMP and Pi. Any other client: add the output of
+`NetDecompilerMcp config`. Client folders moved with `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_CLI_HOME`,
+`QWEN_HOME`, `COPILOT_HOME`, `OPENCODE_CONFIG`, `OPENCODE_CONFIG_DIR`, `GROK_HOME`, `PI_CONFIG_DIR`, `OMP_PROFILE`,
+`PI_CODING_AGENT_DIR` or `XDG_CONFIG_HOME` are followed. An entry the client has turned off (`disabled`,
+`enabled: false`, a disable list) is reported and kept off.
 
 | Command | What it does |
 |---|---|
