@@ -293,7 +293,8 @@ public sealed class NativeAotMetadata
         return "(" + string.Join(", ", Handles(sig, "parameters").Select(p => FormatType(p, 1, true))) + ")";
     }
 
-    private static string Keyword(string name) => name switch
+    /// <summary>The C# keyword of a built-in type name, as nested names (arguments, elements, parameters) use it.</summary>
+    internal static string Keyword(string name) => name switch
     {
         "System.Void" => "void",
         "System.Boolean" => "bool",

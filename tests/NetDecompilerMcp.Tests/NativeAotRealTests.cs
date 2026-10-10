@@ -103,4 +103,22 @@ public class NativeAotRealTests
         Assert.InRange(names.TypeNames.Count, 2000, 5000);
         Assert.Contains("System.String", names.TypeNames.Values);
     }
+
+    [Theory]
+    [MemberData(nameof(Samples))]
+    public void MethodTables_FoundAndNamed(string sample)
+    {
+        var (_, aot) = Open(sample);
+        var types = aot.Types;
+        Assert.Equal(NativeAotStage.Complete, types.Stage.Status);
+        Assert.InRange(types.ByRva.Count, 15_000, 30_000);
+        int named = types.ByRva.Values.Count(t => t.NameOrigin != "generated");
+        Assert.True(named > 0.99 * types.ByRva.Count, $"{named} of {types.ByRva.Count} named");
+        Assert.All(aot.Names.TypeNames.Keys, mt => Assert.True(types.ByRva.ContainsKey(mt)));
+        var names = types.ByRva.Values.Select(t => t.Name).ToHashSet();
+        Assert.Contains("string[]", names);
+        Assert.Contains("System.Collections.Generic.List<string>", names);
+        var str = types.ByRva.Values.Single(t => t.Name == "System.String");
+        Assert.Equal((NativeAotElementType.Class, (ushort)2), (str.ElementType, str.ComponentSize));
+    }
 }

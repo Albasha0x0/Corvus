@@ -30,6 +30,7 @@ public sealed class NativeAotImage
         metadata = new(ReadMetadata);
         hydrated = new(() => HydratedImage.Create(image, Header));
         names = new(() => NativeAotNameMaps.Read(this));
+        types = new(() => NativeAotTypes.Read(this));
     }
 
     /// <summary>Largest blob read into memory.</summary>
@@ -37,6 +38,7 @@ public sealed class NativeAotImage
     private readonly Lazy<(NativeAotMetadata? Metadata, NativeAotStage Stage)> metadata;
     private readonly Lazy<HydratedImage> hydrated;
     private readonly Lazy<NativeAotNameMaps> names;
+    private readonly Lazy<NativeAotTypes> types;
 
     public INativeImage Image { get; }
     /// <summary>The module analyzed (the first header found); <see cref="Headers"/> lists every module of a multi-module image.</summary>
@@ -71,6 +73,9 @@ public sealed class NativeAotImage
 
     /// <summary>Method and type names from the stack-trace, type and invoke maps.</summary>
     public NativeAotNameMaps Names => names.Value;
+
+    /// <summary>The MethodTables found and their names (see the "method tables" stage).</summary>
+    public NativeAotTypes Types => types.Value;
 
     /// <summary>The bytes of a module section, or null when it is empty, too large or not fully mapped.</summary>
     public byte[]? ReadSection(NativeAotSection? section)
@@ -113,12 +118,15 @@ public sealed class NativeAotImage
         stages.Add(metadata.Value.Stage);
         stages.Add(Hydrated.Stage);
         stages.AddRange(Names.Stages);
+        stages.Add(Types.Stage);
         var sections = Header.Sections.Select(s => new NativeAotSectionInfo(s.Id, s.Name, s.StartRva, s.Length)).ToList();
         var counts = new Dictionary<string, int>
         {
             ["namedMethods"] = Names.Methods.Count,
             ["namedCodeAddresses"] = Names.MethodAt.Count,
             ["typeMapMethodTables"] = Names.TypeNames.Count,
+            ["methodTables"] = Types.ByRva.Count,
+            ["namedMethodTables"] = Types.ByRva.Values.Count(t => t.NameOrigin != "generated"),
         };
         return new NativeAotSummary(Runtime, ReadyToRunVersion, DebugHeaderMajor, Header.IsDehydrated, Header.Rva, Headers.Count, sections, stages, counts);
     }

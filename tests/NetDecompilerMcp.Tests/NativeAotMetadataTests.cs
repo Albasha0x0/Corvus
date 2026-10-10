@@ -10,6 +10,8 @@ public class NativeAotMetadataTests
         MdHandle BoxOfInt, MdHandle DogArray, MdHandle GetRef, MdHandle GetInst, MdHandle Qualified, MdHandle Signature, MdHandle Pointer)
     {
         public W Writer { get; init; } = null!;
+        public MdHandle Box { get; init; }
+        public MdHandle Object { get; init; }
     }
 
     /// <summary>
@@ -34,7 +36,9 @@ public class NativeAotMetadataTests
                 nestedTypes, methods, null, null, null, null, null, null);
 
         var corlib = w.Record(MdRecord.ScopeReference, 0u, w.String("System.Runtime"), 8u, 0u, 0u, 0u, null, 0u);
-        var int32 = w.Record(MdRecord.TypeReference, w.Record(MdRecord.NamespaceReference, corlib, w.String("System")), w.String("Int32"));
+        var system = w.Record(MdRecord.NamespaceReference, corlib, w.String("System"));
+        var int32 = w.Record(MdRecord.TypeReference, system, w.String("Int32"));
+        var objectRef = w.Record(MdRecord.TypeReference, system, w.String("Object"));
         var pointer = w.Record(MdRecord.TypeSpecification, w.Record(MdRecord.PointerSignature, int32));
 
         var inner = Type("Inner", true, [], []);
@@ -61,7 +65,12 @@ public class NativeAotMetadataTests
         var scope = w.Record(MdRecord.ScopeDefinition, 0u, w.String("app"), 0u, 1u, 0u, 0u, 0u, null, 0u, root.Offset, 0u, 0u, null, 0u, null, null);
         scopeParent.Value = scope.Offset;
         w.AddScope(scope);
-        return new Sample(w.ToArray(), w.Format, dog, inner, speak, int32, boxOfInt, dogArray, getRef, getInst, qualified, speakSig, pointer) { Writer = w };
+        return new Sample(w.ToArray(), w.Format, dog, inner, speak, int32, boxOfInt, dogArray, getRef, getInst, qualified, speakSig, pointer)
+        {
+            Writer = w,
+            Box = box,
+            Object = objectRef,
+        };
     }
 
     public static readonly TheoryData<ushort> Majors = new() { 8, 9, 10, 16, 31 };
