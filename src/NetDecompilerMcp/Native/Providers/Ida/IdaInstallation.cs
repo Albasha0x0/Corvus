@@ -14,6 +14,34 @@ public sealed record IdaInstallation(string Directory, string LibraryPath, strin
     public static string LibraryFileName =>
         OperatingSystem.IsWindows() ? "idalib.dll" : OperatingSystem.IsMacOS() ? "libidalib.dylib" : "libidalib.so";
 
+    /// <summary>The IDA kernel idalib loads; its bytes decide the database format and the analysis.</summary>
+    public static string KernelFileName =>
+        OperatingSystem.IsWindows() ? "ida.dll" : OperatingSystem.IsMacOS() ? "libida.dylib" : "libida.so";
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Digests = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Identity of this IDA build for cache keys: the idalib file version and a SHA-256 prefix over idalib and the kernel,
+    /// e.g. "9.3.26.0213-1a2b3c4d5e6f". Computed once per install directory.
+    /// </summary>
+    public string EngineDigest() => Digests.GetOrAdd(Directory, _ =>
+    {
+        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        foreach (var file in new[] { LibraryPath, Path.Combine(Directory, KernelFileName) })
+        {
+            try
+            {
+                using var s = File.OpenRead(file);
+                var buffer = new byte[1 << 16];
+                for (int n; (n = s.Read(buffer)) > 0;) hash.AppendData(buffer, 0, n);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { hash.AppendData(System.Text.Encoding.UTF8.GetBytes(file)); }
+        }
+        var version = System.Diagnostics.FileVersionInfo.GetVersionInfo(LibraryPath).FileVersion is { Length: > 0 } v
+            ? new string(v.Where(c => char.IsAsciiLetterOrDigit(c) || c == '.').ToArray()) + "-" : "";
+        return version + Convert.ToHexStringLower(hash.GetHashAndReset())[..12];
+    });
+
     /// <summary>Per-user IDA directories, in IDA's search order: IDAUSR entries, then the default.</summary>
     public static IReadOnlyList<string> UserDirectories()
     {

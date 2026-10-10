@@ -82,8 +82,12 @@ public sealed class NativeEngineService : IDisposable
             if (seen.CheckedAt != 0 && now - seen.CheckedAt < SavedCheckInterval) return seen.Exists;
             try
             {
-                var root = _savedRoot ??= _cacheRoot ?? AnalysisCache.DefaultRoot;
-                seen.Exists = File.Exists(Path.Combine(root, IdaProvider.ProviderId, native.OriginalSha256, "ida-default.i64"));
+                if (_ida.Value is IdaProvider ida) seen.Exists = ida.SavedDatabasePath(native.OriginalSha256) is { } path && File.Exists(path);
+                else
+                {
+                    var dir = Path.Combine(_savedRoot ??= _cacheRoot ?? AnalysisCache.DefaultRoot, IdaProvider.ProviderId, native.OriginalSha256);
+                    seen.Exists = Directory.Exists(dir) && Directory.EnumerateFiles(dir, "ida-default*.i64").Any();
+                }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { seen.Exists = false; }
             seen.CheckedAt = now;

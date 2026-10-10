@@ -134,10 +134,26 @@ def op_open(args):
     if ftype != m.ida_ida.f_PE:
         raise WorkerError("unsupported", "IDA loaded the file with a loader other than its PE loader (file type %d, processor %s)"
                           % (ftype, m.ida_ida.inf_get_procname()))
+    sha = args.get("sha256") or ""
+    if reuse and sha:
+        node = stamp_node(False)
+        made_from = node.hashstr_buf(INPUT_STAMP) if node is not None else None
+        if isinstance(made_from, bytes):
+            made_from = made_from.decode("ascii", "replace")
+        if made_from != sha:
+            m.idapro.close_database(False)
+            _state["open"] = False
+            raise WorkerError("malformed_input", "the saved database %s was made from other input (%s, expected %s)"
+                              % (idb, made_from or "no input stamp", sha))
     if not reuse:
+        if sha:
+            stamp_node(True).hashset_buf(INPUT_STAMP, sha)
         # IDA writes the packed .i64 only on save; persist the analysis now so a crash does not discard it.
         m.ida_loader.save_database(m.ida_loader.get_path(m.ida_loader.PATH_TYPE_IDB), 0)
     return info(m, reuse, time.time() - start)
+
+
+INPUT_STAMP = "input"  # SHA-256 of the input the database was made from
 
 
 def info(m, reused, seconds):

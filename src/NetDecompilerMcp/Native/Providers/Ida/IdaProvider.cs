@@ -122,6 +122,13 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
 
     internal void Forget(IdaSession session) => _sessions.TryRemove(session, out _);
 
+    /// <summary>The database file of a symbol profile (default, nopdb): keyed by the IDA build, so another IDA never reuses it.</summary>
+    internal static string DatabaseFileName(IdaInstallation ida, string profile) => $"ida-{profile}-{ida.EngineDigest()}.i64";
+
+    /// <summary>Where this IDA build keeps the saved analysis of <paramref name="sha256"/>, or null when IDA is not available.</summary>
+    public string? SavedDatabasePath(string sha256, string profile = "default") =>
+        Static().Ida is { } ida ? Path.Combine(Cache.Root, ProviderId, sha256.ToLowerInvariant(), DatabaseFileName(ida, profile)) : null;
+
     /// <summary>
     /// The symbol path for a worker: the directory of the PDB the server located first (IDA analyzes a copy of the image,
     /// so it cannot look next to the original), then the configured path (_NT_SYMBOL_PATH, else pdb.cfg, else IDA's

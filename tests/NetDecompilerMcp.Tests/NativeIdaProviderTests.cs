@@ -359,6 +359,29 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         Assert.NotEmpty(await rebuilt.ListFunctionsAsync());
     }
 
+    [IdaFact]
+    public async Task Database_is_keyed_by_the_IDA_build_and_rebuilt_when_made_from_other_input()
+    {
+        var provider = Isolated();
+        string dbA;
+        await using (var a = (IdaSession)await provider.OpenAsync(System64, null, Offline))
+        {
+            dbA = a.DatabasePath;
+            Assert.Matches(@"^ida-nopdb-\d+(\.\d+)+-[0-9a-f]{12}\.i64$", Path.GetFileName(dbA));
+            Assert.Equal(dbA, provider.SavedDatabasePath(a.Sha256, "nopdb"));
+        }
+        await using (var a = await provider.OpenAsync(System64, null, Offline)) Assert.True(a.ReusedDatabase);
+
+        var other = Path.Combine(Environment.SystemDirectory, "version.dll");
+        string dbB;
+        await using (var b = (IdaSession)await provider.OpenAsync(other, null, Offline)) dbB = b.DatabasePath;
+        File.Copy(dbA, dbB, overwrite: true); // a database of other input under this input's key
+        await using var again = await provider.OpenAsync(other, null, Offline);
+        Assert.False(again.ReusedDatabase);
+        var export = ExportRva(other, "GetFileVersionInfoSizeW");
+        Assert.Contains(await again.ListFunctionsAsync(), f => f.StartRva == export);
+    }
+
     /// <summary>RVA of a named export, read from the export directory.</summary>
     internal static uint ExportRva(string path, string name)
     {

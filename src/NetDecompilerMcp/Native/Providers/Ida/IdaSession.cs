@@ -58,7 +58,7 @@ internal sealed class IdaSession : INativeDecompilerSession
         _entry = await Task.Run(() => _provider.Cache.Acquire(ProviderId, imagePath, sha256), cancellationToken).ConfigureAwait(false);
         (Arch, _headerImageBase) = ReadHeader(_entry.InputCopy, imagePath);
         var profile = _options.Symbols == SymbolMode.Off ? "nopdb" : "default";
-        _databasePath = Path.Combine(_entry.Directory, $"ida-{profile}.i64");
+        _databasePath = Path.Combine(_entry.Directory, IdaProvider.DatabaseFileName(_ida, profile));
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -111,7 +111,7 @@ internal sealed class IdaSession : INativeDecompilerSession
         }
         catch (ToolError e) when (reuse && e.Code is ErrorCode.ProviderUnavailable or ErrorCode.Failed or ErrorCode.MalformedInput)
         {
-            // A damaged .i64 (killed during save, older IDA format) is rebuilt from the input copy.
+            // A damaged .i64 (killed during save, older IDA format) or one stamped with other input is rebuilt from the input copy.
             KillWorker("reopen");
             DeleteDatabase();
             if (!firstOpen) _unsaved.Clear();
@@ -159,8 +159,8 @@ internal sealed class IdaSession : INativeDecompilerSession
         if (_options.Symbols == SymbolMode.Off) idaArgs.Add("-Opdb:off");
         var remaining = _options.OpenTimeout - clock.Elapsed;
         if (remaining <= TimeSpan.Zero) remaining = TimeSpan.FromSeconds(1);
-        var info = await worker.RequestAsync("open", IdaProvider.Args(("input", _entry!.InputCopy), ("idb", _databasePath), ("ida_args", idaArgs)),
-            remaining, cancellationToken).ConfigureAwait(false);
+        var info = await worker.RequestAsync("open", IdaProvider.Args(("input", _entry!.InputCopy), ("idb", _databasePath), ("ida_args", idaArgs),
+            ("sha256", _entry.Sha256)), remaining, cancellationToken).ConfigureAwait(false);
 
         var loadedBase = info.GetProperty("imagebase").GetUInt64();
         if (loadedBase != _headerImageBase)
