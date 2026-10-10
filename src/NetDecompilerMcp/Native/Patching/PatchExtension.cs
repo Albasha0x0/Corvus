@@ -158,13 +158,15 @@ public static class PatchExtension
             var stubOriginal = new byte[stubBytes.Length];
             image.Read(cave, stubOriginal);
             string placementText = $"cave in section '{image.SectionAt(cave)?.Name ?? "?"}'";
-            var stub = new NativeStub(cave, stubFileOffset, stubOriginal, stubBytes, returnRva, mode.ToString().ToLowerInvariant(), placementText);
+            var stub = new NativeStub(cave, stubFileOffset, stubOriginal, stubBytes, returnRva, mode.ToString().ToLowerInvariant(), placementText)
+                { NewCode = (byte[])newBytes.Clone(), NewAssembly = newAssembly };
             var (siteReplacement, pad) = SiteJump(image, siteRva, cave, covered);
             var patch = new NativePatch(siteRva, siteFileOffset, SiteOriginal(image, siteRva, covered), siteReplacement, description) { Stub = stub };
             return new Result(patch, DisasmStub(image, cave, stubBytes), placementText, pad);
         }
 
-        return GrowSection(index, siteRva, siteFileOffset, returnRva, covered, program, resolve, mode, description);
+        var grown = GrowSection(index, siteRva, siteFileOffset, returnRva, covered, program, resolve, mode, description);
+        return grown with { Patch = grown.Patch with { Stub = grown.Patch.Stub! with { NewCode = (byte[])newBytes.Clone(), NewAssembly = newAssembly } } };
     }
 
     /// <summary>The site's replacement bytes: a near jump to <paramref name="targetRva"/>, the rest int3-padded. Returns the pad count.</summary>

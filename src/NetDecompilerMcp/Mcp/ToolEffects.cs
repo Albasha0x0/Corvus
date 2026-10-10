@@ -149,6 +149,7 @@ public static class ToolEffects
         ["save_native"] = Changes(destructive: true, idempotent: true, longRunning: true), // overwrite=true replaces a file (the original's .bak is made once)
         ["export_native_patches"] = Changes(destructive: true, idempotent: true), // replaces the file at outputPath
         ["migrate_native_patches"] = Changes(destructive: true, idempotent: false, longRunning: true), // patches the new build; matches through both code indexes
+        ["update_to_new_build"] = Changes(destructive: true, idempotent: true, longRunning: true), // dryRun=false patches the new build and replaces its imported layers; a re-run reports already_present
 
         // Crash dumps (an open dump gets an id, as loading an image does)
         ["open_minidump"] = Reads(),

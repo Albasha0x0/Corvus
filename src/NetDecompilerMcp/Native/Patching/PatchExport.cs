@@ -360,6 +360,8 @@ public static class PatchExport
                     w.WriteString("returnRva", $"0x{stub.ReturnRva:X}");
                     w.WriteString("original", Convert.ToHexString(stub.Original));
                     w.WriteString("replacement", Convert.ToHexString(stub.Replacement));
+                    if (stub.NewCode != null) w.WriteString("newCode", Convert.ToHexString(stub.NewCode)); else w.WriteNull("newCode");
+                    if (stub.NewAssembly != null) w.WriteString("newAssembly", stub.NewAssembly); else w.WriteNull("newAssembly");
                     w.WriteEndObject();
                 }
                 else w.WriteNull("stub");

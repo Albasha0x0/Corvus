@@ -69,4 +69,10 @@ public sealed record NativeStub(
 {
     public int Length => Replacement.Length;
     public uint EndRva => Rva + (uint)Replacement.Length;
+
+    /// <summary>The new code the stub runs, as given (raw bytes, or assembled at the site for patch_asm); a migration re-creates the stub from it.</summary>
+    public byte[]? NewCode { get; init; }
+
+    /// <summary>The patch_asm text of the new code (null for raw bytes); re-assembled at the stub address when the stub is re-created.</summary>
+    public string? NewAssembly { get; init; }
 }

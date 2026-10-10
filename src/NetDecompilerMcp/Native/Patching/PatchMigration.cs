@@ -9,6 +9,15 @@ namespace NetDecompilerMcp.Native.Patching;
 public sealed record MigratablePatch(uint Rva, byte[] Original, byte[] Replacement, string Description, string? Assembly, bool IsStub = false)
 {
     public bool FromAsm => Assembly != null;
+
+    /// <summary>A stub patch's new code (null when unknown, e.g. a patch set exported before it was recorded).</summary>
+    public byte[]? StubCode { get; init; }
+    /// <summary>A stub patch's patch_asm text of the new code (null for raw bytes).</summary>
+    public string? StubAssembly { get; init; }
+    /// <summary>A stub patch's mode: replace, before or after.</summary>
+    public string? StubMode { get; init; }
+    /// <summary>A stub patch that placed its stub in a new section (the file grew).</summary>
+    public bool Grown { get; init; }
 }
 
 /// <summary>One patch's migration outcome: where it mapped, whether it would be reapplied, and why not.</summary>
@@ -54,27 +63,43 @@ public static class PatchMigration
                 var replacement = Convert.FromHexString(p.GetProperty("replacement").GetString()!);
                 var description = p.TryGetProperty("description", out var d) ? d.GetString() ?? "" : "";
                 string? assembly = p.TryGetProperty("origin", out var o) && o.GetString() == "asm" && p.TryGetProperty("assembly", out var a) ? a.GetString() : null;
-                bool isStub = p.TryGetProperty("origin", out var o2) && o2.GetString() == "stub"
-                    || p.TryGetProperty("stub", out var st) && st.ValueKind == JsonValueKind.Object;
-                patches.Add(new MigratablePatch(rva, original, replacement, description, assembly, isStub));
+                bool hasStub = p.TryGetProperty("stub", out var st) && st.ValueKind == JsonValueKind.Object;
+                bool isStub = p.TryGetProperty("origin", out var o2) && o2.GetString() == "stub" || hasStub;
+                string? Text(string name) => hasStub && st.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+                patches.Add(new MigratablePatch(rva, original, replacement, description, assembly, isStub)
+                {
+                    StubCode = Text("newCode") is { } code ? Convert.FromHexString(code) : null,
+                    StubAssembly = Text("newAssembly"),
+                    StubMode = Text("mode"),
+                    Grown = Text("placement")?.StartsWith("new section", StringComparison.Ordinal) ?? false,
+                });
             }
         }
         return patches;
     }
 
     public static MigratablePatch From(NativePatch patch) =>
-        new(patch.Rva, patch.Original, patch.Replacement, patch.Description, patch.Assembly, patch.Stub != null);
+        new(patch.Rva, patch.Original, patch.Replacement, patch.Description, patch.Assembly, patch.Stub != null)
+        {
+            StubCode = patch.Stub?.NewCode,
+            StubAssembly = patch.Stub?.NewAssembly,
+            StubMode = patch.Stub?.Mode,
+            Grown = patch.Growth != null,
+        };
 
     /// <summary>
     /// Plans every patch's migration from the old build to the new build. <paramref name="prepare"/> runs the normal
     /// patch path (PreparePatch) at the new address with the given replacement bytes and origin assembly text; it throws
     /// <see cref="ToolError"/> when the patch cannot be prepared (e.g. no relocation slot, mid-instruction).
+    /// <paramref name="prepareStub"/> re-creates a stub-extended patch at its mapped site (the extend path, cave or new
+    /// section) and returns the new site bytes; without it such patches are refused with extended_patch.
     /// </summary>
     public static List<PatchMigrationStep> Plan(
         MatchResult match,
         IReadOnlyList<MigratablePatch> patches,
         Action<uint, byte[], string?> prepare,
-        CancellationToken ct)
+        CancellationToken ct,
+        Func<uint, MigratablePatch, byte[]>? prepareStub = null)
     {
         var mapper = new AddressMapper(match);
         var newIndex = match.New.Index;
@@ -86,6 +111,11 @@ public static class PatchMigration
         foreach (var patch in patches)
         {
             ct.ThrowIfCancellationRequested();
+            if (patch.IsStub && prepareStub != null)
+            {
+                steps.Add(PlanStub(mapper, newIndex, oldDecoder, newDecoder, patch, prepareStub, ct));
+                continue;
+            }
             if (patch.IsStub)
             {
                 // A stub patch is a jump to a code cave plus the cave's stub bytes; neither maps byte-for-byte to the new
@@ -153,6 +183,37 @@ public static class PatchMigration
                 $"{mapped.Reason}: {mapped.Detail}", replacement));
         }
         return steps;
+    }
+
+    /// <summary>
+    /// A stub-extended patch: its site is mapped, the displaced original instructions there are verified (address bytes
+    /// masked), and the extension is re-created at the new site by <paramref name="prepareStub"/>; its failure codes
+    /// (no_space, no_header_space, branch_target_in_site, ...) become the refusal reason.
+    /// </summary>
+    private static PatchMigrationStep PlanStub(AddressMapper mapper, NativeCodeIndex newIndex, MaskedDecoder? oldDecoder, MaskedDecoder? newDecoder,
+        MigratablePatch patch, Func<uint, MigratablePatch, byte[]> prepareStub, CancellationToken ct)
+    {
+        if (patch.StubCode == null)
+            return Refuse(patch, null, 0, null, "stub_code_unknown", "the patch set does not record the stub's new code (exported before it was saved); re-apply it with extend=true");
+        var mapped = mapper.Map(patch.Rva, ct);
+        int? tier = mapped.Pair?.Tier;
+        if (mapped.NewRva is not { } newRva) return Refuse(patch, null, mapped.Confidence, tier, mapped.Reason, mapped.Detail);
+        var found = new byte[patch.Original.Length];
+        int read = newIndex.Image.Read(newRva, found);
+        if (read < found.Length)
+            return Refuse(patch, newRva, mapped.Confidence, tier, "not_mapped", $"only {read} of {found.Length} bytes are mapped at the new address");
+        var (matches, mask) = MaskedEqual(oldDecoder, patch.Rva, patch.Original, newDecoder, newRva, found);
+        if (!matches)
+            return Refuse(patch, newRva, mapped.Confidence, tier, "displaced_bytes_differ",
+                $"the instructions the stub displaces were {Hex(patch.Original, mask)}, the new site has {Hex(found, mask)}" + (mask != null ? " (?? = address bytes ignored)" : ""));
+        byte[] site;
+        try { site = prepareStub(newRva, patch); }
+        catch (ToolError ex)
+        {
+            var code = System.Text.RegularExpressions.Regex.Match(ex.Message, "^([a-z0-9_]+): ") is { Success: true } m ? m.Groups[1].Value : ReasonFor(ex);
+            return Refuse(patch, newRva, mapped.Confidence, tier, code, ex.Message);
+        }
+        return new PatchMigrationStep(patch, newRva, mapped.Confidence, tier, true, "apply", "mapped", $"{mapped.Reason}: {mapped.Detail}; stub re-created", site);
     }
 
     private static uint NativeCodeIndexAddress(NativeCodeIndex index, string name)
