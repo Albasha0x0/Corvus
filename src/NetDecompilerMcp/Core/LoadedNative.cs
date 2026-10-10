@@ -21,6 +21,12 @@ public sealed class LoadedNative
     public string Id { get; }
     public string FilePath { get; }
 
+    /// <summary>
+    /// For the native view of a mixed-mode (C++/CLI) assembly: the assembly, loaded from the same file, whose lifetime
+    /// this view follows (unloaded and reloaded with it). Null for plain native images.
+    /// </summary>
+    public LoadedAssembly? ManagedView { get; internal init; }
+
     /// <summary>The current image: the file as loaded, or, once bytes have been patched in memory, the patched image.</summary>
     public PeFile Image { get; private set; }
 

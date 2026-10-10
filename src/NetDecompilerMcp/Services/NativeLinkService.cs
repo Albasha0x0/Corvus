@@ -363,6 +363,7 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
             else if (seen.Add((null, import.SlotRva)))
                 result.Add(new TreeNode(node.Image, null, b.Status == NotLoaded ? $"{name} -> {Describe(b)}" : $"{name}  ({Describe(b)})"));
         }
+        AddManagedCallees(result, node, index);
         return result;
     }
 
@@ -386,6 +387,7 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
                 if (caller != null && seen.Add((importer, caller.Start)))
                     result.Add(new TreeNode(importer, caller, $"{FunctionLabel(importer, caller, home)}  (calls {NativeCodeIndex.ImportName(import)})"));
         }
+        AddManagedCallers(result, node, ct);
         return result;
     }
 

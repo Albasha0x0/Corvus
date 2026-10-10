@@ -248,6 +248,7 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
         var slot = pe.Imports.FirstOrDefault(i => i.SlotRva == rva);
         if (slot != null) sb.AppendLine($"  IAT slot of {slot.Module}!{slot.Name ?? "#" + slot.Ordinal}");
         if (slot != null && link != null) sb.AppendLine($"  bound to {NativeLinkService.Describe(link.BindImport(native, slot))}");
+        if (link != null) foreach (var line in link.DescribeManaged(native, rva)) sb.AppendLine("  " + line);
         if (link != null && link.ImportersOf(native, rva, cancellationToken) is { Count: > 0 } importers)
             sb.AppendLine($"  imported by {string.Join(", ", importers.GroupBy(i => i.Importer.Id).Select(g => $"{g.Key} ({string.Join(", ", g.Select(i => NativeCodeIndex.ImportName(i.Import)).Distinct())})"))}; find_xrefs lists the call sites");
         var export = pe.Exports.Where(e => e.ForwardedTo == null && e.Rva <= rva).MaxBy(e => e.Rva);

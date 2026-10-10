@@ -49,7 +49,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         {
             var (loaded, native) = workspace.LoadAny(path);
             var providers = loadProviders && link != null ? Providers(loaded, native) : "";
-            if (native != null)
+            if (native != null && loaded == null)
             {
                 var image = native.Image;
                 return $"Loaded native image {native.Id}: {image.MachineName} {(image.IsDll ? "DLL" : "executable")}, {image.SubsystemName}\n  {native.FilePath}\n  " +
@@ -65,7 +65,8 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                 var types = MetadataUtil.CountedTypes(asm.Module);
                 return $"Loaded {asm.Id}: {asm.FullAssemblyName}\n  {asm.FilePath}\n  {types.Count} types, " +
                        $"{MetadataUtil.NamespaceCount(types)} namespaces" +
-                       (il2cpp.GetIndex(asm).Count > 0 ? "\n  Il2Cpp dummy DLL: method bodies are stubs; use get_il2cpp_info / find_method_by_address." : "") + providers;
+                       (il2cpp.GetIndex(asm).Count > 0 ? "\n  Il2Cpp dummy DLL: method bodies are stubs; use get_il2cpp_info / find_method_by_address." : "") +
+                       (native != null ? $"\n  mixed-mode (C++/CLI): its native code is also loaded as native image {native.Id} for the native tools" : "") + providers;
             });
         }
 
@@ -146,7 +147,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                 Total = matching.Count,
                 NativeImages = workspace.Natives.Where(n => filter == null || n.Id.Contains(filter, StringComparison.OrdinalIgnoreCase)
                                                             || n.FilePath.Contains(filter, StringComparison.OrdinalIgnoreCase))
-                    .Select(n => new NativeEntry(n.Id, n.FilePath, n.Image.MachineName, n.Image.IsDll ? "dll" : "exe", n.Image.FileSize, n.Image.Sha256)).ToList(),
+                    .Select(n => new NativeEntry(n.Id, n.FilePath, n.Image.MachineName, (n.Image.IsDll ? "dll" : "exe") + (n.ManagedView != null ? $" (native view of mixed-mode assembly {n.ManagedView.Id})" : ""), n.Image.FileSize, n.Image.Sha256)).ToList(),
             };
         });
     }, cancellationToken);
@@ -156,7 +157,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     public Task<string> UnloadAssembly([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
         {
-            if (workspace.Read(() => workspace.FindNative(assembly)) is { } native)
+            if (workspace.Read(() => workspace.FindNative(assembly)) is { ManagedView: null } native)
             {
                 workspace.UnloadNative(native);
                 return $"Unloaded {native.Id}.";
@@ -172,7 +173,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     public Task<string> ReloadAssembly([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
         {
-            if (workspace.Read(() => workspace.FindNative(assembly)) is { } native)
+            if (workspace.Read(() => workspace.FindNative(assembly)) is { ManagedView: null } native)
             {
                 var reloaded = workspace.ReloadNative(native);
                 return $"Reloaded {reloaded.Id} from {reloaded.FilePath} (sha256 {reloaded.Image.Sha256[..16]}).";

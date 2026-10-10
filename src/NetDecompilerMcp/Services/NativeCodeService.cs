@@ -64,12 +64,17 @@ public sealed class NativeCodeService
 
     private CodeIndexOptions? BuildOptions(LoadedNative native, CancellationToken ct)
     {
-        try { return SymbolStarts?.Invoke(native, ct) is { Count: > 0 } starts ? new CodeIndexOptions { SymbolStarts = starts } : null; }
+        IReadOnlyCollection<uint>? starts;
+        try { starts = SymbolStarts?.Invoke(native, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger?.LogWarning(ex, "Reading debug symbols of {Id} failed", native.Id);
-            return null;
+            starts = null;
         }
+        // The native bodies of a mixed-mode assembly's methods are function starts.
+        if (native.ManagedView is { } asm)
+            starts = [.. starts ?? [], .. Native.Linking.MixedModeMap.Build(asm.Module, ct).Bodies.Values.Distinct()];
+        return starts is { Count: > 0 } ? new CodeIndexOptions { SymbolStarts = starts } : null;
     }
 
     /// <summary>
