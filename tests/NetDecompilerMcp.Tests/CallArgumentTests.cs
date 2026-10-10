@@ -1,0 +1,303 @@
+using System.Diagnostics;
+using System.Text;
+using Iced.Intel;
+using NetDecompilerMcp.Native;
+using NetDecompilerMcp.Native.Calls;
+using NetDecompilerMcp.Native.Code;
+using NetDecompilerMcp.Native.Pe;
+using Xunit.Abstractions;
+using static Iced.Intel.AssemblerRegisters;
+
+namespace NetDecompilerMcp.Tests;
+
+/// <summary>Call-site arguments: synthetic x86 / x64 code, MSVC-compiled samples and a System32 recovery runner.</summary>
+public class CallArgumentTests(ITestOutputHelper output)
+{
+    private const uint Code = CodeTestImage.SyntheticCodeRva;
+    private const uint Data = CodeTestImage.SyntheticDataRva;
+    private const ulong Base64 = 0x140000000UL;
+    private const ulong Base32 = 0x10000000UL;
+
+    private static byte[] Assemble(int bitness, Action<Assembler> build)
+    {
+        var a = new Assembler(bitness);
+        build(a);
+        var stream = new MemoryStream();
+        a.Assemble(new StreamCodeWriter(stream), (bitness == 64 ? Base64 : Base32) + Code);
+        return stream.ToArray();
+    }
+
+    private static Instruction Rip(Iced.Intel.Code code, Register reg, uint rva) =>
+        Instruction.Create(code, reg, new MemoryOperand(Register.RIP, (long)(Base64 + rva), 8));
+
+    private static NativeImport Import(string name, uint slot) => new("KERNEL32.dll", name, null, 0, slot, false);
+
+    [Fact]
+    public void X64_arguments_are_recovered_from_registers_stack_slots_and_merges()
+    {
+        var code = Assemble(64, a =>
+        {
+            var l1 = a.CreateLabel();
+            var l2 = a.CreateLabel();
+            a.sub(rsp, 0x38);
+            a.xor(r9d, r9d);
+            a.AddInstruction(Rip(Iced.Intel.Code.Lea_r64_m, Register.RCX, Data + 0x100));
+            a.mov(edx, 0x80000000);
+            a.lea(r8d, __[r9 + 1]);
+            a.mov(__dword_ptr[rsp + 0x20], 3);
+            a.mov(__dword_ptr[rsp + 0x28], 0x80);
+            a.and(__qword_ptr[rsp + 0x30], 0);
+            a.AddInstruction(Instruction.Create(Iced.Intel.Code.Call_rm64, new MemoryOperand(Register.RIP, (long)(Base64 + Data), 8)));
+            // different values on two paths: unknown
+            a.mov(ecx, 1000);
+            a.test(eax, eax);
+            a.jz(l1);
+            a.mov(ecx, 2000);
+            a.Label(ref l1);
+            a.AddInstruction(Instruction.Create(Iced.Intel.Code.Call_rm64, new MemoryOperand(Register.RIP, (long)(Base64 + Data + 8), 8)));
+            // the same value on both paths
+            a.mov(ecx, 5);
+            a.test(eax, eax);
+            a.jz(l2);
+            a.nop();
+            a.Label(ref l2);
+            a.AddInstruction(Instruction.Create(Iced.Intel.Code.Call_rm64, new MemoryOperand(Register.RIP, (long)(Base64 + Data + 8), 8)));
+            a.add(rsp, 0x38);
+            a.ret();
+        });
+        var data = new byte[0x200];
+        Encoding.Unicode.GetBytes("config.ini\0").CopyTo(data, 0x100);
+        var image = CodeTestImage.Synthetic(NativeArch.X64, code, data, [Import("CreateFileW", Data), Import("Sleep", Data + 8)], entry: Code);
+        var index = NativeCodeIndex.Build(image);
+        var calls = CallAnalysis.For(index).CallsIn(index.FunctionByStart(Code)!);
+
+        Assert.Equal(3, calls.Count);
+        Assert.Equal("CreateFileW(L\"config.ini\", GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)", calls[0].Display);
+        Assert.Equal(CalleeKind.Import, calls[0].Kind);
+        var args = calls[0].Arguments;
+        Assert.Equal(ArgKind.String, args[0].Kind);
+        Assert.Equal("rcx", args[0].Location);
+        Assert.Equal("[rsp+20h]", args[4].Location);
+        Assert.Equal(3UL, args[4].Value);
+        Assert.Contains("lea r8d", args[2].Derivation);
+        Assert.Contains("xor r9d", args[2].Derivation);
+
+        Assert.Equal(ArgKind.Unknown, calls[1].Arguments[0].Kind);
+        Assert.Contains("differs between paths", calls[1].Arguments[0].Derivation);
+        Assert.Equal("Sleep(5)", calls[2].Display);
+    }
+
+    [Fact]
+    public void X86_pushes_cross_calls_by_their_stack_effect()
+    {
+        var code = Assemble(32, a =>
+        {
+            var helper = a.CreateLabel();
+            a.push(0);
+            a.push(0x80);
+            a.push(3);
+            a.push(0);
+            a.push(1);
+            a.push(0x80000000);
+            a.call(helper);                          // cdecl, no arguments: ret 0
+            a.push(eax);
+            a.call(__dword_ptr[(int)(Base32 + Data)]); // CreateFileA
+            a.push(7);
+            a.push((int)(Base32 + Data + 0x120));
+            a.push((int)(Base32 + Data + 0x100));
+            a.call(__dword_ptr[(int)(Base32 + Data + 4)]); // printf
+            a.add(esp, 12);
+            a.mov(esi, __dword_ptr[(int)(Base32 + Data + 8)]);
+            a.push(250);
+            a.call(esi);                             // Sleep through a register
+            a.ret();
+            a.Label(ref helper);
+            a.xor(eax, eax);
+            a.ret();
+        });
+        var data = new byte[0x200];
+        Encoding.ASCII.GetBytes("%s=%d\0").CopyTo(data, 0x100);
+        Encoding.ASCII.GetBytes("key\0").CopyTo(data, 0x120);
+        var image = CodeTestImage.Synthetic(NativeArch.X86, code, data,
+            [Import("CreateFileA", Data), new NativeImport("msvcrt.dll", "printf", null, 0, Data + 4, false), Import("Sleep", Data + 8)], entry: Code);
+        var index = NativeCodeIndex.Build(image);
+        var analysis = CallAnalysis.For(index);
+        var calls = analysis.CallsIn(index.FunctionByStart(Code)!);
+
+        var create = calls.Single(c => c.Callee.EndsWith("CreateFileA"));
+        Assert.StartsWith("CreateFileA(<result of sub_", create.Display);
+        Assert.EndsWith(", GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)", create.Display);
+        Assert.Equal("printf(\"%s=%d\", \"key\", 7)", calls.Single(c => c.Callee.EndsWith("printf")).Display);
+        var sleep = calls.Single(c => c.Callee.EndsWith("Sleep"));
+        Assert.Equal("Sleep(250)", sleep.Display);
+        Assert.Contains(analysis.CallsTo(image.Imports[2]), c => c.Rva == sleep.Rva);
+    }
+
+    [Fact]
+    public void Flags_and_enumerations_decode_by_mask()
+    {
+        var mb = ApiSignatures.Find("user32!MessageBoxW")!.Params[3].Enum!;
+        Assert.Equal("MB_YESNO|MB_ICONERROR", mb.Describe(0x14));
+        Assert.Equal("MB_OK", mb.Describe(0));
+        var access = ApiSignatures.Enums["Access"];
+        Assert.Equal("GENERIC_READ|GENERIC_WRITE", access.Describe(0xC0000000));
+        Assert.Equal("FILE_GENERIC_READ|FILE_WRITE_DATA", access.Describe(0x12008B));
+        Assert.Equal("HKEY_LOCAL_MACHINE", ApiSignatures.Enums["HKEY"].Describe(0xFFFFFFFF80000002));
+        Assert.True(ApiSignatures.Enums["PageProtect"].Has(0x140, "PAGE_EXECUTE_READWRITE"));
+        Assert.NotNull(ApiSignatures.Find("_CreateFileW@28"));
+        Assert.Equal([ApiParamType.WideString, ApiParamType.Int, ApiParamType.Int, ApiParamType.Int64, ApiParamType.Pointer],
+            ApiSignatures.FormatArguments("%s %*d %llx %p %%", wide: true));
+    }
+
+    // ---- MSVC samples (Slow) ----
+
+    private const string SampleSource = """
+        #include <windows.h>
+        #include <stdio.h>
+        #pragma comment(lib, "user32.lib")
+        #pragma comment(lib, "advapi32.lib")
+
+        __declspec(noinline) HANDLE OpenConfig(void)
+        {
+            return CreateFileW(L"config.ini", GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+        }
+
+        __declspec(noinline) void* Exec(SIZE_T n)
+        {
+            void* p = VirtualAlloc(NULL, n, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+            DWORD old;
+            VirtualProtect(p, n, PAGE_EXECUTE_READWRITE, &old);
+            return p;
+        }
+
+        __declspec(noinline) LONG Reg(HKEY* key)
+        {
+            return RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"Software\\Sample", 0, KEY_READ | KEY_WOW64_64KEY, key);
+        }
+
+        __declspec(noinline) int Ask(int code)
+        {
+            printf("code %d: %s\n", code, "sample");
+            return MessageBoxA(NULL, "Continue?", "Sample", MB_YESNO | MB_ICONQUESTION);
+        }
+
+        __declspec(noinline) BOOL Spawn(wchar_t* cmd, STARTUPINFOW* si, PROCESS_INFORMATION* pi)
+        {
+            return CreateProcessW(NULL, cmd, NULL, NULL, FALSE, CREATE_SUSPENDED | CREATE_NO_WINDOW, NULL, NULL, si, pi);
+        }
+
+        int main(void)
+        {
+            HKEY key;
+            STARTUPINFOW si = { sizeof si };
+            PROCESS_INFORMATION pi;
+            wchar_t cmd[] = L"notepad.exe";
+            HANDLE h = OpenConfig();
+            Exec(4096);
+            Reg(&key);
+            Spawn(cmd, &si, &pi);
+            return Ask((int)(INT_PTR)h);
+        }
+        """;
+
+    /// <summary>Builds the sample with cl / link for <paramref name="arch"/>; null when the build tools are absent.</summary>
+    internal static string? BuildSample(TempDir dir, string arch, string source, string name = "sample")
+    {
+        var vcvars = VisualStudio.VcVarsAll();
+        if (vcvars == null) return null;
+        File.WriteAllText(dir.File(name + ".c"), source);
+        var psi = new ProcessStartInfo("cmd.exe")
+        {
+            WorkingDirectory = dir.Path,
+            Arguments = $"/s /c \"\"{vcvars}\" {arch} >nul && cl /nologo /O2 /GS- /MD {name}.c /link /OUT:{name}.exe\"",
+        };
+        var (code, log) = Tools.Run(psi, 300_000);
+        Assert.True(code == 0 && File.Exists(dir.File(name + ".exe")), log);
+        return dir.File(name + ".exe");
+    }
+
+    [Theory]
+    [Trait("Speed", "Slow")]
+    [InlineData("x64")]
+    [InlineData("x86")]
+    public void Compiled_sample_arguments_match_the_source(string arch)
+    {
+        using var dir = new TempDir();
+        var path = BuildSample(dir, arch, SampleSource);
+        if (path == null) return;
+        var pe = PeFile.Open(path);
+        var index = NativeCodeIndex.Build(pe);
+        var analysis = CallAnalysis.For(index);
+        CallSiteInfo One(string api)
+        {
+            var imp = pe.Imports.First(i => i.Name == api);
+            var sites = analysis.CallsTo(imp);
+            foreach (var s in sites) output.WriteLine($"{arch} {s.Display}: {string.Join(" | ", s.Arguments.Select(a => a.Derivation))}");
+            return Assert.Single(sites);
+        }
+        Assert.Equal("CreateFileW(L\"config.ini\", GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)", One("CreateFileW").Display);
+        Assert.Matches(@"^VirtualAlloc\(NULL, [^,]+, MEM_COMMIT\|MEM_RESERVE, PAGE_READWRITE\)$", One("VirtualAlloc").Display);
+        Assert.Matches(@"^VirtualProtect\(<result of VirtualAlloc>, [^,]+, PAGE_EXECUTE_READWRITE, &local\)$", One("VirtualProtect").Display);
+        Assert.Matches(@"^RegOpenKeyExW\(HKEY_LOCAL_MACHINE, L""Software\\\\Sample"", REG_OPTION_NON_VOLATILE, KEY_READ\|KEY_WOW64_64KEY, [^,]+\)$", One("RegOpenKeyExW").Display);
+        Assert.Equal("MessageBoxA(NULL, \"Continue?\", \"Sample\", MB_YESNO|MB_ICONQUESTION)", One("MessageBoxA").Display);
+        Assert.Matches(@"^CreateProcessW\(NULL, [^,]+, NULL, NULL, FALSE, CREATE_SUSPENDED\|CREATE_NO_WINDOW, NULL, NULL, [^,]+, [^,]+\)$", One("CreateProcessW").Display);
+        // printf is an inline function of the UCRT headers, compiled into the image: its call gets guessed arguments
+        var printf = index.Functions.SelectMany(f => analysis.CallsIn(f))
+            .Single(s => s.Guessed && s.Arguments.Any(a => a.Text == "\"code %d: %s\\n\""));
+        output.WriteLine($"{arch} {printf.Display}");
+        Assert.Contains(printf.Arguments, a => a.Text == "\"sample\"");
+    }
+
+    // ---- System32 runner (Slow) ----
+
+    /// <summary>APIs whose calls usually pass at least one constant: the recovery rate counts call sites where one is recovered.</summary>
+    private static readonly string[] RunnerApis =
+    [
+        "CreateFileW", "CreateFileA", "VirtualAlloc", "VirtualProtect", "VirtualFree", "RegOpenKeyExW", "RegCreateKeyExW", "RegQueryValueExW",
+        "RegGetValueW", "LoadLibraryExW", "LoadLibraryW", "GetModuleHandleW", "GetProcAddress", "HeapAlloc", "WaitForSingleObject",
+        "CreateEventW", "InitializeCriticalSectionAndSpinCount", "MessageBoxW", "OpenProcess", "CreateMutexW", "LocalAlloc", "FormatMessageW",
+    ];
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void System32_argument_recovery_rates()
+    {
+        var files = new[] { "kernel32.dll", "advapi32.dll", "shell32.dll", "user32.dll", "combase.dll", "ole32.dll", "wininet.dll", "msi.dll", "explorer.exe", "notepad.exe", "cmd.exe", "taskmgr.exe" };
+        foreach (var dir in MsvcCorpus.SystemDirectories())
+        {
+            int sites = 0, withConstant = 0, args = 0, recovered = 0, guessedSites = 0;
+            var sw = Stopwatch.StartNew();
+            foreach (var name in files)
+            {
+                var path = Path.Combine(dir, name);
+                if (!File.Exists(path)) continue;
+                var pe = PeFile.Open(path);
+                if (pe.Arch is not (NativeArch.X64 or NativeArch.X86)) continue;
+                var index = NativeCodeIndex.Build(pe);
+                var analysis = CallAnalysis.For(index);
+                int fileSites = 0, fileConst = 0;
+                foreach (var imp in pe.Imports.Where(i => i.Name != null && RunnerApis.Contains(i.Name)))
+                    foreach (var s in analysis.CallsTo(imp))
+                    {
+                        sites++; fileSites++;
+                        args += s.Arguments.Count;
+                        int known = s.Arguments.Count(a => a.Kind != ArgKind.Unknown);
+                        recovered += known;
+                        if (s.Arguments.Any(a => a.Kind is ArgKind.Immediate or ArgKind.String)) { withConstant++; fileConst++; }
+                        else if (Environment.GetEnvironmentVariable("NDM_DEBUG_ARGS") == "1" && fileSites - fileConst < 3)
+                            output.WriteLine($"    {s.Display} @{s.Rva:X}: {string.Join(" | ", s.Arguments.Select(a => a.Derivation))}");
+                    }
+                // every call of the image: no exception, guessed arguments for unknown callees
+                foreach (var f in index.Functions.Take(3000))
+                    foreach (var s in analysis.CallsIn(f))
+                        if (s.Guessed) guessedSites++;
+                output.WriteLine($"  {name}: {fileConst}/{fileSites} API call sites with a constant argument");
+            }
+            output.WriteLine($"{dir}: {withConstant}/{sites} API call sites with a recovered constant ({Pct(withConstant, sites)}), " +
+                             $"{recovered}/{args} arguments recovered ({Pct(recovered, args)}), {guessedSites} calls without a signature, {sw.Elapsed.TotalSeconds:0.0} s");
+            if (sites > 50) Assert.True(withConstant * 100 / sites >= 60, $"recovery rate {Pct(withConstant, sites)}");
+        }
+    }
+
+    private static string Pct(int a, int b) => b == 0 ? "n/a" : $"{100.0 * a / b:0.0}%";
+}

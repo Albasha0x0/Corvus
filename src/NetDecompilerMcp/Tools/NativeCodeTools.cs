@@ -107,7 +107,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
     [McpServerTool(Name = "disassemble", Title = "Disassemble native code", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("MASM-syntax disassembly of the native function containing an address (with block labels), or of maxInstructions from the address " +
                  "when it is in no function or function=false. Calls and data references are named (module!import, exports, sub_<rva>, loc_<rva>) " +
-                 "and string references shown as comments. " + IndexNote)]
+                 "and string references shown as comments; calls are commented with their recovered arguments (CreateFileW(L\"a.ini\", GENERIC_READ, ...), see get_call_arguments). " + IndexNote)]
     public Task<string> Disassemble(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -132,10 +132,11 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
                 sb.AppendLine($"; {fn.Name} at {NativeAddress.Va(index.Image, fn.Start)}, {fn.Size} bytes, {Plural(fn.BlockCount, "block")}{Flags(fn)}");
                 if (index.Sourced.CommentAt(fn.Start) is { } fc)
                     foreach (var c in fc.Text.Split('\n')) sb.AppendLine($"; {c}");
+                var calls = NativeCallTools.CallComments(index, fn, cancellationToken);
                 foreach (var (label, line) in index.DisassembleFunction(fn, max, out bool truncated, cancellationToken))
                 {
                     if (label != null) sb.AppendLine(label.EndsWith(':') ? label : label + ":");
-                    if (line != null) sb.AppendLine(Line(line));
+                    if (line != null) sb.AppendLine(Line(line, calls));
                     if (truncated && label == null && line == null) break;
                 }
             }
@@ -149,7 +150,12 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         return Coverage(index) + pager.Page(text, offset, maxChars);
     });
 
-    private static string Line(DisasmLine l) => $"  {l.Address:X}  {l.Bytes,-24} {l.Text}{(l.Comment != null ? "  ; " + l.Comment : "")}";
+    private static string Line(DisasmLine l, IReadOnlyDictionary<uint, string>? calls = null)
+    {
+        var comment = l.Comment;
+        if (calls != null && calls.TryGetValue(l.Rva, out var call)) comment = comment != null ? call + "; " + comment : call;
+        return $"  {l.Address:X}  {l.Bytes,-24} {l.Text}{(comment != null ? "  ; " + comment : "")}";
+    }
 
     [McpServerTool(Name = "get_cfg", Title = "Native control-flow graph", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("Basic blocks of the native function containing an address: each block's range, instruction count, how it ends (return, jump, " +
@@ -181,7 +187,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
     [McpServerTool(Name = "find_xrefs", Title = "Native cross-references", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("Everything in a native image that references an address: calls (direct and through import slots and thunks), jumps, data reads " +
                  "and writes, address-taken uses, switch tables and relocated data pointers, each with the function it is in. For an import " +
-                 "(module!name) lists the call sites of that API. " + IndexNote)]
+                 "(module!name) lists the call sites of that API (x86 calls through a register loaded from the slot included); call rows show the recovered arguments. " + IndexNote)]
     public Task<string> FindXrefs(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -197,9 +203,10 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         var rows = new List<string>();
         var import = index.Image.Imports.FirstOrDefault(i => i.SlotRva == rva);
         if (import != null)
-            rows.AddRange(index.Callers(import).Select(c => $"{Va(c.From)}  {c.Kind,-10} {Where(c.From)}"));
+            rows.AddRange(NativeCallTools.ImportRows(index, import, Where, cancellationToken));
         else
-            rows.AddRange(index.RefsTo(rva).Select(x => $"{Va(x.From)}  {x.Kind,-10} {Where(x.From)}"));
+            rows.AddRange(NativeCallTools.WithArguments(index, index.RefsTo(rva).Select(x => (x.From, x.Kind.ToString(), x.Kind is XrefKind.Call or XrefKind.TailCall)),
+                Where, cancellationToken));
         var target = index.NameAt(rva) ?? (index.StringAt(rva) is { } s ? index.CommentFor(rva) : null);
         return $"References to {Va(rva)}{(target != null ? $" ({target})" : "")}:\n" + Coverage(index) + pager.PageRows(rows, offset, limit, "reference");
     });

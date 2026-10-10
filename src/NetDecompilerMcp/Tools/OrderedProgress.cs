@@ -45,7 +45,7 @@ internal sealed class OrderedProgress(RequestContext<CallToolRequestParams> cont
         _last = _last.ContinueWith(_ => context.Server.NotifyProgressAsync(token, value), TaskScheduler.Default).Unwrap();
 
     /// <summary>Runs <paramref name="work"/> and returns its result after all progress notifications are sent.</summary>
-    public static async Task<string> Run(RequestContext<CallToolRequestParams> context, Func<IProgress<ProgressNotificationValue>, Task<string>> work)
+    public static async Task<T> Run<T>(RequestContext<CallToolRequestParams> context, Func<IProgress<ProgressNotificationValue>, Task<T>> work)
     {
         var progress = new OrderedProgress(context);
         try

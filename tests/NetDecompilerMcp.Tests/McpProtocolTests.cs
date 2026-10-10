@@ -42,8 +42,9 @@ public abstract class McpProtocolTests : IAsyncLifetime
             Command = "dotnet",
             Arguments = [ServerDll, .. args],
             WorkingDirectory = workingDirectory,
-            // Keep the annotation sidecars out of the real per-user folder during tests.
-            EnvironmentVariables = new Dictionary<string, string?> { ["NDM_ANNOTATIONS_DIR"] = AnnotationsDir },
+            // Keep the annotation sidecars out of the real per-user folder during tests, one folder per server: servers
+            // running in parallel load the same sample images (same hash), and one renaming a function must not leak into another.
+            EnvironmentVariables = new Dictionary<string, string?> { ["NDM_ANNOTATIONS_DIR"] = Path.Combine(AnnotationsDir, Guid.NewGuid().ToString("N")) },
             // The SDK waits this long for the server to exit before it closes the server's input, then ends it; the
             // server exits on end of input (ServerExitsWhenItsInputCloses), so waiting longer only delays each test.
             ShutdownTimeout = TimeSpan.FromMilliseconds(200),
@@ -171,6 +172,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["disassemble"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "First"),
         ["get_cfg"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "block"),
         ["find_xrefs"] = (new() { ["image"] = NativeSample(dir), ["address"] = "KERNEL32!ExitProcess" }, "References to"),
+        ["get_call_arguments"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "\"scope\""),
         ["native_call_tree"] = (new() { ["image"] = NativeSample(dir), ["function"] = "First" }, "First"),
         ["search_native_strings"] = (new() { ["image"] = NativeSample(dir) }, "string"),
         ["decompile_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["engine"] = "ghidra" }, "Error (invalid_argument) in decompile_native: Unknown engine"),
