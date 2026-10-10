@@ -6,68 +6,29 @@ using NetDecompilerMcp.Core;
 
 namespace NetDecompilerMcp.Native.Providers.Ida;
 
-/// <summary>
-/// One image open in an idalib worker. Requests are serialized by <see cref="_gate"/>. When the worker dies (crash,
-/// timeout, cancellation) the next request starts a new worker on the saved .i64 and re-applies the names and
-/// comments set since the last save; more than <see cref="IdaProviderOptions.MaxRestarts"/> consecutive failures
-/// close the session.
-/// </summary>
-internal sealed class IdaSession : INativeDecompilerSession
+/// <summary>One image open in an idalib worker; requests run one at a time (see <see cref="WorkerSessionBase"/>).</summary>
+internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, PythonInterpreter python, NativeOpenOptions options)
+    : WorkerSessionBase(options), INativeDecompilerSession
 {
     private static readonly string[] UnpackedExtensions = [".id0", ".id1", ".id2", ".nam", ".til"];
 
-    private readonly IdaProvider _provider;
-    private readonly IdaInstallation _ida;
-    private readonly PythonInterpreter _python;
-    private readonly NativeOpenOptions _options;
-    private readonly SemaphoreSlim _gate = new(1, 1);
-    private readonly List<(string Op, JsonObject Args)> _unsaved = [];
-    private CacheEntry? _entry;
     private string _databasePath = "";
     private ulong _headerImageBase;
-    private WorkerConnection? _worker;
-    private int _failures;
-    private bool _closed;
 
-    public IdaSession(IdaProvider provider, IdaInstallation ida, PythonInterpreter python, NativeOpenOptions options)
-    {
-        _provider = provider;
-        _ida = ida;
-        _python = python;
-        _options = options;
-    }
-
-    public string ProviderId => IdaProvider.ProviderId;
-    public string ImagePath { get; private set; } = "";
-    public string Sha256 => _entry?.Sha256 ?? "";
-    public NativeArch Arch { get; private set; }
-    public ulong ImageBase { get; private set; }
-    public bool ReusedDatabase { get; private set; }
-    public TimeSpan OpenTime { get; private set; }
-    public bool DecompilerAvailable { get; private set; }
-    public bool IsOpen => !_closed;
-    /// <summary>Process id of the current worker, or null when none is running.</summary>
-    internal int? WorkerProcessId => _worker is { IsAlive: true } w ? w.ProcessId : null;
-    internal WorkerConnection? Worker => _worker;
+    public override string ProviderId => IdaProvider.ProviderId;
+    protected override string EngineName => "IDA";
+    protected override TimeSpan ShutdownGrace => provider.Options.ShutdownGrace;
+    protected override int MaxRestarts => provider.Options.MaxRestarts;
+    protected override int JournalSaveThreshold => provider.Options.JournalSaveThreshold;
     internal string DatabasePath => _databasePath;
-    /// <summary>Requests a restart would replay (journaled since the last save).</summary>
-    internal int UnsavedCount => _unsaved.Count;
 
-    public async Task OpenAsync(string imagePath, string? sha256, CancellationToken cancellationToken)
+    protected override CacheEntry AcquireEntry(string imagePath, string? sha256) => provider.Cache.Acquire(ProviderId, imagePath, sha256);
+
+    protected override void PrepareOpen()
     {
-        var clock = Stopwatch.StartNew();
-        ImagePath = imagePath;
-        _entry = await Task.Run(() => _provider.Cache.Acquire(ProviderId, imagePath, sha256), cancellationToken).ConfigureAwait(false);
-        (Arch, _headerImageBase) = ReadHeader(_entry.InputCopy, imagePath);
-        var profile = _options.Symbols == SymbolMode.Off ? "nopdb" : "default";
-        _databasePath = Path.Combine(_entry.Directory, IdaProvider.DatabaseFileName(_ida, profile));
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await StartAsync(firstOpen: true, cancellationToken).ConfigureAwait(false);
-        }
-        finally { _gate.Release(); }
-        OpenTime = clock.Elapsed;
+        (Arch, _headerImageBase) = ReadHeader(Entry!.InputCopy, ImagePath);
+        var profile = Options.Symbols == SymbolMode.Off ? "nopdb" : "default";
+        _databasePath = Path.Combine(Entry.Directory, IdaProvider.DatabaseFileName(ida, profile));
     }
 
     /// <summary>Machine and image base from the PE header; rejects what IDA would load as something else.</summary>
@@ -102,72 +63,34 @@ internal sealed class IdaSession : INativeDecompilerSession
         }
     }
 
-    /// <summary>Starts a worker and opens the database (reused when saved), falling back to a fresh analysis once when the saved database fails.</summary>
-    private async Task StartAsync(bool firstOpen, CancellationToken cancellationToken)
-    {
-        DiscardUnpacked();
-        var reuse = File.Exists(_databasePath);
-        try
-        {
-            await StartWorkerAndOpenAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (ToolError e) when (reuse && e.Code is ErrorCode.ProviderUnavailable or ErrorCode.Failed or ErrorCode.MalformedInput)
-        {
-            // A damaged .i64 (killed during save, older IDA format) or one stamped with other input is rebuilt from the input copy.
-            KillWorker("reopen");
-            DeleteDatabase();
-            if (!firstOpen) _unsaved.Clear();
-            await StartWorkerAndOpenAsync(cancellationToken).ConfigureAwait(false);
-        }
-        if (!firstOpen)
-        {
-            foreach (var (op, args) in _unsaved)
-            {
-                try { await _worker!.RequestAsync(op, (JsonObject)args.DeepClone(), _options.RequestTimeout, cancellationToken).ConfigureAwait(false); }
-                catch (ToolError e) when (e.Code is not (ErrorCode.Timeout or ErrorCode.ProviderUnavailable)) { /* rejected now: skip */ }
-            }
-        }
-    }
+    protected override bool DatabaseExists => File.Exists(_databasePath);
 
-    private async Task StartWorkerAndOpenAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await StartWorkerAndOpenCoreAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch
-        {
-            KillWorker("open failed");
-            throw;
-        }
-    }
-
-    private async Task StartWorkerAndOpenCoreAsync(CancellationToken cancellationToken)
+    protected override async Task StartWorkerAndOpenCoreAsync(CancellationToken cancellationToken)
     {
         var clock = Stopwatch.StartNew();
-        _options.Progress?.Report(new NativeProviderProgress("start", clock.Elapsed));
-        var worker = _provider.StartWorker(_ida, _python, _options.Symbols == SymbolMode.Off ? null : _options.PdbPath);
-        _worker = worker;
+        Options.Progress?.Report(new NativeProviderProgress("start", clock.Elapsed));
+        var worker = provider.StartWorker(ida, python, Options.Symbols == SymbolMode.Off ? null : Options.PdbPath);
+        SetWorker(worker);
         worker.EventReceived += e =>
         {
-            if (e.Name == "progress") _options.Progress?.Report(new NativeProviderProgress(ReusedDatabase ? "load" : "analysis", clock.Elapsed));
+            if (e.Name == "progress") Options.Progress?.Report(new NativeProviderProgress(ReusedDatabase ? "load" : "analysis", clock.Elapsed));
         };
-        await worker.WaitReadyAsync(_provider.Options.StartTimeout, cancellationToken).ConfigureAwait(false);
+        await worker.WaitReadyAsync(provider.Options.StartTimeout, cancellationToken).ConfigureAwait(false);
 
         var reuse = File.Exists(_databasePath);
         ReusedDatabase = reuse;
-        _options.Progress?.Report(new NativeProviderProgress(reuse ? "load" : "analysis", clock.Elapsed));
+        Options.Progress?.Report(new NativeProviderProgress(reuse ? "load" : "analysis", clock.Elapsed));
         var idaArgs = new JsonArray();
-        if (_options.Symbols == SymbolMode.Off) idaArgs.Add("-Opdb:off");
-        var remaining = _options.OpenTimeout - clock.Elapsed;
+        if (Options.Symbols == SymbolMode.Off) idaArgs.Add("-Opdb:off");
+        var remaining = Options.OpenTimeout - clock.Elapsed;
         if (remaining <= TimeSpan.Zero) remaining = TimeSpan.FromSeconds(1);
-        var info = await worker.RequestAsync("open", IdaProvider.Args(("input", _entry!.InputCopy), ("idb", _databasePath), ("ida_args", idaArgs),
-            ("sha256", _entry.Sha256)), remaining, cancellationToken).ConfigureAwait(false);
+        var info = await worker.RequestAsync("open", IdaProvider.Args(("input", Entry!.InputCopy), ("idb", _databasePath), ("ida_args", idaArgs),
+            ("sha256", Entry.Sha256)), remaining, cancellationToken).ConfigureAwait(false);
 
         var loadedBase = info.GetProperty("imagebase").GetUInt64();
         if (loadedBase != _headerImageBase)
         {
-            var rebased = await worker.RequestAsync("rebase", IdaProvider.Args(("imagebase", _headerImageBase)), _options.RequestTimeout, cancellationToken).ConfigureAwait(false);
+            var rebased = await worker.RequestAsync("rebase", IdaProvider.Args(("imagebase", _headerImageBase)), Options.RequestTimeout, cancellationToken).ConfigureAwait(false);
             loadedBase = rebased.GetProperty("imagebase").GetUInt64();
             if (loadedBase != _headerImageBase)
                 throw new ToolError(ErrorCode.Failed, $"IDA loaded {ImagePath} at 0x{loadedBase:X} and could not rebase it to the header image base 0x{_headerImageBase:X}.");
@@ -176,23 +99,23 @@ internal sealed class IdaSession : INativeDecompilerSession
         DecompilerAvailable = info.GetProperty("decompiler").GetBoolean();
         if (info.TryGetProperty("idb", out var idb) && idb.GetString() is { Length: > 0 } actual && !PathsEqual(actual, _databasePath))
             _databasePath = actual;
-        _options.Progress?.Report(new NativeProviderProgress("ready", clock.Elapsed));
+        Options.Progress?.Report(new NativeProviderProgress("ready", clock.Elapsed));
     }
 
     private static bool PathsEqual(string a, string b) =>
         string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
     /// <summary>Unpacked database components left by a worker that was killed; the packed .i64 holds the last save.</summary>
-    private void DiscardUnpacked()
+    protected override void DiscardLeftovers()
     {
         var stem = Path.Combine(Path.GetDirectoryName(_databasePath)!, Path.GetFileNameWithoutExtension(_databasePath));
         foreach (var ext in UnpackedExtensions) TryDelete(stem + ext);
         if (File.Exists(_databasePath) && new FileInfo(_databasePath).Length == 0) TryDelete(_databasePath);
     }
 
-    private void DeleteDatabase()
+    protected override void DeleteDatabase()
     {
-        DiscardUnpacked();
+        DiscardLeftovers();
         TryDelete(_databasePath);
     }
 
@@ -202,72 +125,9 @@ internal sealed class IdaSession : INativeDecompilerSession
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
-    private void KillWorker(string reason)
-    {
-        var w = _worker;
-        _worker = null;
-        if (w == null) return;
-        w.Kill(reason);
-        w.Dispose();
-    }
+    protected override JsonObject CloseArgs(bool save) => IdaProvider.Args(("save", save));
 
-    /// <summary>Runs one request, restarting the worker first when it is gone.</summary>
-    internal async Task<JsonElement> CallAsync(string op, JsonObject args, CancellationToken cancellationToken, bool journal = false, bool saves = false,
-        TimeSpan? timeout = null)
-    {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (_closed) throw new ToolError(ErrorCode.NotLoaded, $"The IDA session for {ImagePath} is closed.", "Open the image again.");
-            if (_worker is not { IsAlive: true })
-            {
-                KillWorker("restart");
-                try
-                {
-                    await StartAsync(firstOpen: false, cancellationToken).ConfigureAwait(false);
-                }
-                catch (ToolError)
-                {
-                    Failed();
-                    throw;
-                }
-            }
-            try
-            {
-                var result = await _worker!.RequestAsync(op, (JsonObject)args.DeepClone(), timeout ?? _options.RequestTimeout, cancellationToken).ConfigureAwait(false);
-                _failures = 0;
-                if (journal) _unsaved.Add((op, args));
-                if (saves) _unsaved.Clear();
-                else if (_unsaved.Count >= _provider.Options.JournalSaveThreshold)
-                {
-                    await _worker.RequestAsync("save", new JsonObject(), _options.RequestTimeout, cancellationToken).ConfigureAwait(false);
-                    _unsaved.Clear();
-                }
-                return result;
-            }
-            catch (ToolError e) when (e.Code is ErrorCode.ProviderUnavailable or ErrorCode.Timeout)
-            {
-                KillWorker(e.Code == ErrorCode.Timeout ? "timeout" : "failure");
-                Failed();
-                throw;
-            }
-            catch (OperationCanceledException)
-            {
-                KillWorker("cancelled");
-                throw;
-            }
-        }
-        finally { _gate.Release(); }
-    }
-
-    private void Failed()
-    {
-        if (++_failures <= _provider.Options.MaxRestarts) return;
-        _closed = true;
-        KillWorker("restart budget exhausted");
-        _entry?.Dispose();
-        _provider.Forget(this);
-    }
+    protected override void Forget() => provider.Forget(this);
 
     public Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(CancellationToken cancellationToken = default) =>
         ListFunctionsAsync(false, cancellationToken);
@@ -331,7 +191,7 @@ internal sealed class IdaSession : INativeDecompilerSession
         CancellationToken cancellationToken = default)
     {
         // the budget stays under the request timeout so a slow decompilation ends the batch instead of the worker
-        double budget = Math.Clamp(seconds, 1, Math.Max(1, _options.RequestTimeout.TotalSeconds * 0.6));
+        double budget = Math.Clamp(seconds, 1, Math.Max(1, Options.RequestTimeout.TotalSeconds * 0.6));
         var args = IdaProvider.Args(("functions", new JsonArray(functions.Select(f => (JsonNode)f).ToArray())),
             ("sites", new JsonArray(sites.Select(s => (JsonNode)s).ToArray())), ("seconds", budget));
         var r = await CallAsync("virtual_targets", args, cancellationToken).ConfigureAwait(false);
@@ -477,7 +337,7 @@ internal sealed class IdaSession : INativeDecompilerSession
         CancellationToken cancellationToken = default)
     {
         // the budget stays under the request timeout so slow decompilation ends the scan instead of the worker
-        double budget = Math.Clamp(seconds, 1, Math.Max(1, _options.RequestTimeout.TotalSeconds * 0.6));
+        double budget = Math.Clamp(seconds, 1, Math.Max(1, Options.RequestTimeout.TotalSeconds * 0.6));
         var args = IdaProvider.Args(("types", new JsonArray(types.Select(t => (JsonNode)t).ToArray())), ("member", member), ("offset", offset),
             ("functions", new JsonArray(functions.Select(f => (JsonNode)f).ToArray())), ("seconds", budget));
         var r = await CallAsync("field_xrefs", args, cancellationToken).ConfigureAwait(false);
@@ -522,7 +382,7 @@ internal sealed class IdaSession : INativeDecompilerSession
         ArgumentNullException.ThrowIfNull(pdbPath);
         // A large PDB takes IDA a while: the open's limit, not a single request's.
         var r = await CallAsync("load_pdb", IdaProvider.Args(("path", pdbPath), ("stamp_key", stampKey), ("stamp", stamp), ("trust_analysis", trustAnalysisLoad)),
-            cancellationToken, saves: true, timeout: _options.OpenTimeout).ConfigureAwait(false);
+            cancellationToken, saves: true, timeout: Options.OpenTimeout).ConfigureAwait(false);
         return new PdbLoadResult(r.GetProperty("loaded").GetBoolean(), r.GetProperty("from_analysis").GetBoolean(), r.GetProperty("plugin").GetBoolean(),
             r.GetProperty("types_before").GetInt32(), r.GetProperty("types_after").GetInt32(), TimeSpan.FromSeconds(r.GetProperty("seconds").GetDouble()));
     }
@@ -533,55 +393,4 @@ internal sealed class IdaSession : INativeDecompilerSession
         return r.GetProperty("stamp").ValueKind == JsonValueKind.String ? r.GetProperty("stamp").GetString() : null;
     }
 
-    public Task SaveAsync(CancellationToken cancellationToken = default) =>
-        CallAsync("save", new JsonObject(), cancellationToken, saves: true);
-
-    public async Task CloseAsync(bool save = true, CancellationToken cancellationToken = default)
-    {
-        if (!await _gate.WaitAsync(_provider.Options.ShutdownGrace, cancellationToken).ConfigureAwait(false))
-            KillWorker("close while busy"); // the running request fails; its release is still awaited below
-        else
-        {
-            try { await CloseCoreAsync(save).ConfigureAwait(false); }
-            finally { _gate.Release(); }
-            return;
-        }
-        await _gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-        try { await CloseCoreAsync(save).ConfigureAwait(false); }
-        finally { _gate.Release(); }
-    }
-
-    private async Task CloseCoreAsync(bool save)
-    {
-        if (_closed && _worker == null) return;
-        _closed = true;
-        var w = _worker;
-        _worker = null;
-        if (w != null)
-        {
-            try { await w.ShutdownAsync("close", IdaProvider.Args(("save", save)), _provider.Options.ShutdownGrace).ConfigureAwait(false); }
-            finally { w.Dispose(); }
-        }
-        _entry?.Dispose();
-        _provider.Forget(this);
-    }
-
-    public async ValueTask DisposeAsync() => await CloseAsync(save: true).ConfigureAwait(false);
-
-    public void Dispose()
-    {
-        try
-        {
-            var close = Task.Run(() => CloseAsync(save: true));
-            if (!close.Wait(_provider.Options.ShutdownGrace * 2 + TimeSpan.FromSeconds(5)))
-                KillWorker("dispose timeout");
-        }
-        catch (AggregateException) { KillWorker("dispose failed"); }
-        finally
-        {
-            _closed = true;
-            _entry?.Dispose();
-            _provider.Forget(this);
-        }
-    }
 }
