@@ -84,6 +84,9 @@ jobs:
         os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    # No terminal on the runner: new clients are registered only with consent.
+    env:
+      NDM_YES: "1"
     steps:
       - uses: actions/checkout@v7
 

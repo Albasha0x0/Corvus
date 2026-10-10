@@ -8,9 +8,10 @@ internal static class SelfTest
 {
     /// <summary><see cref="ToolList"/> and <see cref="PromptList"/>: the server's tools/list and prompts/list entries.</summary>
     public sealed record Result(bool Ok, string Detail, IReadOnlyList<string>? Tools = null, IReadOnlyList<JsonNode>? ToolList = null,
-        IReadOnlyList<JsonNode>? PromptList = null);
+        IReadOnlyList<JsonNode>? PromptList = null, string? Version = null, double Seconds = 0);
 
-    public static Result Run(ServerLaunch launch, TimeSpan timeout)
+    /// <summary>Starts <paramref name="launch"/> with <paramref name="env"/> added to this process's environment, as a client would.</summary>
+    public static Result Run(ServerLaunch launch, TimeSpan timeout, IReadOnlyDictionary<string, string>? env = null)
     {
         var psi = new ProcessStartInfo(launch.Command)
         {
@@ -21,6 +22,7 @@ internal static class SelfTest
             CreateNoWindow = true,
         };
         foreach (var a in launch.Args) psi.ArgumentList.Add(a);
+        foreach (var (key, value) in env ?? new Dictionary<string, string>()) psi.Environment[key] = value;
         var clock = Stopwatch.StartNew();
         Process p;
         try { p = Process.Start(psi)!; }
@@ -57,7 +59,7 @@ internal static class SelfTest
                 Send(p, new JsonObject { ["jsonrpc"] = "2.0", ["id"] = 3, ["method"] = "prompts/list" });
                 var prompts = Receive(p, 3, timeout - clock.Elapsed)?["result"]?["prompts"]?.AsArray();
                 return new Result(true, $"version {version}, {tools.Count} tools, started in {clock.Elapsed.TotalSeconds:0.0} s", names,
-                    [.. tools.OfType<JsonNode>()], [.. prompts?.OfType<JsonNode>() ?? []]);
+                    [.. tools.OfType<JsonNode>()], [.. prompts?.OfType<JsonNode>() ?? []], version, clock.Elapsed.TotalSeconds);
             }
             catch (IOException ex) { return Fail(ex.Message, stderr); }
             finally

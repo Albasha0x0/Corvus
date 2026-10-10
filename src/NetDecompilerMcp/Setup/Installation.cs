@@ -153,7 +153,8 @@ internal static class Installation
 
         output.WriteLine($"Updated {Version} -> {latest}.");
         var exe = Path.Combine(root, "current", ExeName);
-        using var p = Process.Start(new ProcessStartInfo(exe, "install") { UseShellExecute = false })!;
+        // Refresh only: an update never registers with clients detected since the install.
+        using var p = Process.Start(new ProcessStartInfo(exe, "install --refresh-only") { UseShellExecute = false })!;
         p.WaitForExit();
         return p.ExitCode;
     }

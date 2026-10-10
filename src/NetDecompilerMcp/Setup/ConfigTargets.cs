@@ -11,6 +11,21 @@ internal sealed record ServerLaunch(string Command, IReadOnlyList<string> Args);
 /// <summary>The outcome of changing one configuration file.</summary>
 internal sealed record ConfigChange(bool Changed, string Message);
 
+/// <summary>A registered server entry as the client reads it; <see cref="Disabled"/> when the client will not start it.</summary>
+internal sealed record RegisteredEntry(string Command, IReadOnlyList<string> Args, IReadOnlyDictionary<string, string> Env, bool Disabled);
+
+/// <summary>Plan actions; the strings appear in --json output.</summary>
+internal static class SetupAction
+{
+    public const string Add = "add", Refresh = "refresh", Unchanged = "unchanged", Skip = "skip", Blocked = "blocked", Remove = "remove";
+}
+
+/// <summary>
+/// What installing would do to one file, computed without writing: <see cref="SetupAction"/> Add, Refresh, Unchanged or
+/// Blocked (with <see cref="Reason"/>), the entry before and after, whether comments survive and the backup path.
+/// </summary>
+internal sealed record TargetPreview(string Action, string? Reason, JsonNode? Before, JsonNode? After, bool PreservesComments, string? BackupPath);
+
 /// <summary>A configuration file that lists MCP servers.</summary>
 internal abstract class ConfigTarget(string path)
 {
@@ -18,10 +33,24 @@ internal abstract class ConfigTarget(string path)
 
     /// <summary>The launch command registered under the name, or null when absent or unreadable.</summary>
     public abstract string? Registered(string name);
+    /// <summary>The entry registered under the name, or null when absent or unreadable.</summary>
+    public abstract RegisteredEntry? Current(string name);
+    public abstract TargetPreview Preview(string name, ServerLaunch launch);
     public abstract ConfigChange Install(string name, ServerLaunch launch);
     public abstract ConfigChange Uninstall(string name);
 
     protected const string BackupSuffix = ".netdecompiler.bak";
+
+    /// <summary>Where the first pre-install copy is (or would be) kept; null for a file that does not exist yet.</summary>
+    protected string? BackupPath() => File.Exists(Path) ? Path + BackupSuffix : null;
+
+    public static JsonObject ToJson(RegisteredEntry entry) => new()
+    {
+        ["command"] = entry.Command,
+        ["args"] = new JsonArray([.. entry.Args.Select(a => (JsonNode)JsonValue.Create(a)!)]),
+        ["env"] = new JsonObject(entry.Env.Select(e => KeyValuePair.Create(e.Key, (JsonNode?)JsonValue.Create(e.Value)))),
+        ["disabled"] = entry.Disabled,
+    };
 
     /// <summary>
     /// The user's arguments, with ours in front unless already there. Another launch's program argument (the
@@ -123,6 +152,32 @@ internal sealed class JsonTarget(string path, string[] container, Func<ServerLau
     {
         var (root, _, _) = Load();
         return root == null ? null : Servers(root, false)?[name] as JsonObject;
+    }
+
+    public override RegisteredEntry? Current(string name) => Existing(name) is { } entry ? Parse(entry) : null;
+
+    /// <summary>Command and arguments from "command" (a string, or an array holding both) and "args"; env from "env" or "environment".</summary>
+    public static RegisteredEntry Parse(JsonObject entry)
+    {
+        static string Text(JsonNode? n) => n is JsonValue v && v.TryGetValue<string>(out var s) ? s : n?.ToJsonString() ?? "";
+        var command = entry["command"] is JsonArray a ? a.Select(Text).ToList() : [Text(entry["command"])];
+        IEnumerable<string> args = entry["args"] is JsonArray list ? list.Select(Text) : [];
+        var env = (entry["env"] ?? entry["environment"]) is JsonObject e
+            ? e.ToDictionary(p => p.Key, p => Text(p.Value), StringComparer.Ordinal)
+            : new Dictionary<string, string>(StringComparer.Ordinal);
+        bool disabled = entry["disabled"] is JsonValue d && d.TryGetValue<bool>(out var off) && off
+                        || entry["enabled"] is JsonValue en && en.TryGetValue<bool>(out var on) && !on;
+        return new RegisteredEntry(command.FirstOrDefault() ?? "", [.. command.Skip(1), .. args], env, disabled);
+    }
+
+    public override TargetPreview Preview(string name, ServerLaunch launch)
+    {
+        var (root, hadComments, error) = Load();
+        if (root == null) return new TargetPreview(SetupAction.Blocked, error, null, null, false, null);
+        var existing = Servers(root, false)?[name] as JsonObject;
+        var next = Merge(existing, launch);
+        var action = existing == null ? SetupAction.Add : JsonNode.DeepEquals(existing, next) ? SetupAction.Unchanged : SetupAction.Refresh;
+        return new TargetPreview(action, null, existing?.DeepClone(), next, !hadComments, BackupPath());
     }
 
     /// <summary>
@@ -239,6 +294,73 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
         List<string> lines;
         try { lines = Lines(); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return new ConfigChange(false, $"left unchanged: {ex.Message}"); }
+        if (Installed(lines, name, launch) is not { } text) return new ConfigChange(false, "already registered");
+        Backup();
+        return Write(text, "registered");
+    }
+
+    public override TargetPreview Preview(string name, ServerLaunch launch)
+    {
+        List<string> lines;
+        try { lines = Lines(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return new TargetPreview(SetupAction.Blocked, ex.Message, null, null, false, null); }
+        var before = Parse(lines, name);
+        var text = Installed([.. lines], name, launch);
+        var after = text == null ? before : Parse([.. text.Split('\n')], name);
+        var action = before == null ? SetupAction.Add : text == null ? SetupAction.Unchanged : SetupAction.Refresh;
+        return new TargetPreview(action, null, before is null ? null : ToJson(before), after is null ? null : ToJson(after), true, BackupPath());
+    }
+
+    public override RegisteredEntry? Current(string name)
+    {
+        try { return Parse(Lines(), name); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    [GeneratedRegex(@"^\s*(?<k>[A-Za-z0-9_-]+|""[^""]*"")\s*=\s*(?:""(?<v>(?:[^""\\]|\\.)*)""|'(?<v>[^']*)'|(?<v>[^#\s]+))")]
+    private static partial Regex KeyValue();
+
+    [GeneratedRegex(@"^\s*env\s*=\s*\{(?<items>[^}]*)\}")]
+    private static partial Regex InlineEnv();
+
+    [GeneratedRegex(@"^\s*enabled\s*=\s*false\b")]
+    private static partial Regex EnabledFalse();
+
+    /// <summary>The server's table and its env sub-table (or inline env), or null when it has no table.</summary>
+    private static RegisteredEntry? Parse(List<string> lines, string name)
+    {
+        var blocks = Blocks(lines, name);
+        if (blocks.Count == 0) return null;
+        string command = "";
+        List<string> args = [];
+        var env = new Dictionary<string, string>(StringComparer.Ordinal);
+        bool disabled = false;
+        foreach (var (start, end) in blocks)
+        {
+            var sub = ServerHeader().Match(lines[start]).Groups["sub"];
+            bool envTable = sub.Success && sub.Value.Trim().TrimStart('.').Trim() == "env";
+            for (int i = start + 1; i < end; i++)
+            {
+                if (envTable)
+                {
+                    if (KeyValue().Match(lines[i]) is { Success: true } kv) env[kv.Groups["k"].Value.Trim('"')] = Unescape(kv.Groups["v"].Value);
+                    continue;
+                }
+                if (sub.Success) continue;
+                if (CommandLine().IsMatch(lines[i])) command = CommandValue(lines[i]);
+                else if (ParseArgs(lines[i]) is { } a) args = a;
+                else if (EnabledFalse().IsMatch(lines[i])) disabled = true;
+                else if (InlineEnv().Match(lines[i]) is { Success: true } inline)
+                    foreach (var item in inline.Groups["items"].Value.Split(','))
+                        if (KeyValue().Match(item) is { Success: true } kv) env[kv.Groups["k"].Value.Trim('"')] = Unescape(kv.Groups["v"].Value);
+            }
+        }
+        return new RegisteredEntry(command, args, env, disabled);
+    }
+
+    /// <summary>The file text with the server registered, or null when it already is.</summary>
+    private static string? Installed(List<string> lines, string name, ServerLaunch launch)
+    {
         var command = $"command = {Quote(launch.Command)}";
         string ArgsLine(IEnumerable<string> args) => $"args = [{string.Join(", ", args.Select(Quote))}]";
         var mains = Blocks(lines, name).Where(b => !ServerHeader().Match(lines[b.Start]).Groups["sub"].Success).ToList();
@@ -247,8 +369,7 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
             while (lines.Count > 0 && lines[^1].Trim().Length == 0) lines.RemoveAt(lines.Count - 1);
             if (lines.Count > 0) lines.Add("");
             lines.AddRange([$"[mcp_servers.{name}]", command, ArgsLine(launch.Args)]);
-            Backup();
-            return Write(string.Join("\n", lines) + "\n", "registered");
+            return string.Join("\n", lines) + "\n";
         }
 
         // An existing table keeps its other keys, its env sub-table and the user's arguments; only the command is replaced.
@@ -267,10 +388,9 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
         if (commandAt < 0) missing.Add(command);
         if (argsAt < 0) missing.Add(ArgsLine(launch.Args));
         updated.InsertRange(start + 1, missing);
-        if (updated.SequenceEqual(lines)) return new ConfigChange(false, "already registered");
-        Backup();
+        if (updated.SequenceEqual(lines)) return null;
         var text = string.Join("\n", updated);
-        return Write(text.EndsWith('\n') ? text : text + "\n", "registered");
+        return text.EndsWith('\n') ? text : text + "\n";
     }
 
     [GeneratedRegex(@"^\s*args\s*=")]
@@ -314,11 +434,12 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
 internal sealed class ClaudeCliTarget(string cli, JsonTarget file) : ConfigTarget(file.Path)
 {
     public override string? Registered(string name) => file.Registered(name);
+    public override RegisteredEntry? Current(string name) => file.Current(name);
+    public override TargetPreview Preview(string name, ServerLaunch launch) => file.Preview(name, launch);
 
     public override ConfigChange Install(string name, ServerLaunch launch)
     {
-        if (Registered(name) is { } registered && registered.Equals(launch.Command, StringComparison.OrdinalIgnoreCase))
-            return new ConfigChange(false, "already registered");
+        if (Preview(name, launch).Action == SetupAction.Unchanged) return new ConfigChange(false, "already registered");
         // Taken before the CLI removes the entry: the user's arguments, env and other keys go into the new one.
         var existing = file.Existing(name);
         var entry = file.Merge(existing, launch);

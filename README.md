@@ -34,9 +34,11 @@ Then restart your MCP client. What the installer does:
    The download is checked against the release's `SHA256SUMS` (as is every `update`); a missing manifest or a
    mismatch stops the install. A local archive given in `NDM_ARCHIVE` is checked only when `NDM_SHA256SUMS` names a manifest.
 2. Starts the server once and checks it answers (MCP handshake and tool list).
-3. Registers it as `net-decompiler` with every installed client it finds, keeping their other settings (each changed
+3. Registers it as `net-decompiler` with the installed clients it finds, keeping their other settings (each changed
    file is backed up once as `<file>.netdecompiler.bak`; a file it cannot parse is left untouched and reported). An
    existing `net-decompiler` entry keeps your arguments (e.g. `--load`), env and other keys; only its command is updated.
+   Clients without an entry are listed first, with each file it would change, and registered after one keypress
+   (Enter = yes). Without a terminal they are registered only with `--yes` (or `NDM_YES=1`) or `--all-detected`.
 
 Supported clients: Claude Code, Claude Desktop, Cursor, Windsurf, VS Code, VS Code Insiders, VSCodium, Cline, Roo Code,
 Kilo Code, Visual Studio, Codex, Gemini CLI, Qwen Code, GitHub Copilot CLI, OpenCode, Crush, Zed, LM Studio,
@@ -45,10 +47,10 @@ Amazon Q, Kiro and Antigravity. Any other client: add the output of `NetDecompil
 | Command | What it does |
 |---|---|
 | `NetDecompilerMcp status` | Which clients have it registered (and with which copy), plus a live server check. |
-| `NetDecompilerMcp install [client...]` | Register again, e.g. after installing a new client; names register clients not detected. |
-| `NetDecompilerMcp update` | Install the latest release; client settings point at a stable path and need no change. |
+| `NetDecompilerMcp install [client...]` | Register again, e.g. after installing a new client; names (or `--client a,b`) register clients not detected. `--dry-run` prints the plan and writes nothing, `--json` prints the plan and result as JSON, `--yes` / `--all-detected` add new clients without asking, `--strict` writes nothing when a client's file cannot be read. |
+| `NetDecompilerMcp update` | Install the latest release and refresh existing registrations (it never adds clients); client settings point at a stable path and need no change. |
 | `NetDecompilerMcp config [client]` | Print the configuration for a client, or the generic `mcpServers` JSON. |
-| `NetDecompilerMcp uninstall` | Remove it from every client and delete the program files (`--keep-files` keeps them). Your annotations, caches and symbols are kept; `--purge-data` deletes them too. |
+| `NetDecompilerMcp uninstall` | Remove it from every client and delete the program files (`--keep-files` keeps them). Your annotations, caches and symbols are kept; `--purge-data` deletes them too; `--dry-run` lists what it would remove. |
 
 From source instead: `./publish.ps1`, then `publish/NetDecompilerMcp install`.
 

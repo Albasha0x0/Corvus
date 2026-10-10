@@ -51,7 +51,7 @@ public sealed class SetupTests : IDisposable
         Directory.CreateDirectory(zed);
         File.WriteAllText(Path.Combine(zed, "settings.json"), "// Zed settings\n{\n  \"ui_font_size\": 16, // trailing comment\n}\n");
 
-        var (code, output) = Run("install", "--no-check");
+        var (code, output) = Run("install", "--no-check", "--yes");
         Assert.True(code == 0, output);
 
         var cursor = ReadJson(Home(".cursor", "mcp.json"));
@@ -87,7 +87,7 @@ public sealed class SetupTests : IDisposable
         Directory.CreateDirectory(Home(".codex"));
         File.WriteAllText(Home(".codex", "config.toml"), "[mcp_servers.other]\ncommand = \"y\"\n");
 
-        Assert.Equal(0, Run("install", "--no-check").Code);
+        Assert.Equal(0, Run("install", "--no-check", "--yes").Code);
         var cursorAfterFirst = File.ReadAllText(Home(".cursor", "mcp.json"));
         var tomlAfterFirst = File.ReadAllText(Home(".codex", "config.toml"));
         var (code, output) = Run("install", "--no-check");

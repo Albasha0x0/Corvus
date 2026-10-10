@@ -8,6 +8,16 @@ internal static class SetupCli
 {
     private static readonly string[] Commands = ["install", "uninstall", "status", "doctor", "config", "update", "version", "--version", "-v", "help", "--help", "-h", "/?"];
 
+    /// <summary>Flags each command accepts; anything else is a usage error, so a mistyped --dry-run never writes.</summary>
+    private static readonly Dictionary<string, string[]> Accepted = new()
+    {
+        ["install"] = ["--no-check", "--check", "--dry-run", "--json", "--yes", "-y", "--all-detected", "--strict", "--client", "--refresh-only"],
+        ["uninstall"] = ["--keep-files", "--purge-data", "--dry-run", "--json", "--client"],
+        ["status"] = [],
+        ["config"] = ["--client"],
+        ["update"] = [],
+    };
+
     /// <summary>Runs a setup command and returns its exit code, or null when the arguments start the server.</summary>
     public static int? TryRun(string[] args, TextWriter? output = null, SetupEnvironment? env = null, ServerLaunch? launch = null)
     {
@@ -15,15 +25,20 @@ internal static class SetupCli
         output ??= Console.Out;
         env ??= SetupEnvironment.Current();
         launch ??= Installation.Launch();
-        var rest = args.Skip(1).ToArray();
-        var flags = rest.Where(a => a.StartsWith('-')).Select(a => a.ToLowerInvariant()).ToHashSet();
-        var names = rest.Where(a => !a.StartsWith('-')).ToArray();
-        switch (args[0].ToLowerInvariant())
+        var command = args[0].ToLowerInvariant() is "doctor" ? "status" : args[0].ToLowerInvariant();
+        SetupArgs parsed;
+        try { parsed = SetupArgs.Parse(args.Skip(1), Accepted.GetValueOrDefault(command, [])); }
+        catch (ArgumentException ex)
         {
-            case "install": return Install(output, env, launch, names, check: !flags.Contains("--no-check"));
-            case "uninstall": return Uninstall(output, env, names, keepFiles: flags.Contains("--keep-files") || names.Length > 0, purgeData: flags.Contains("--purge-data"));
-            case "status" or "doctor": return Status(output, env, launch);
-            case "config": return Config(output, env, launch, names);
+            output.WriteLine($"{ex.Message} Run: NetDecompilerMcp help");
+            return 2;
+        }
+        switch (command)
+        {
+            case "install": return Install(output, env, launch, parsed);
+            case "uninstall": return Uninstall(output, env, parsed);
+            case "status": return Status(output, env, launch);
+            case "config": return Config(output, env, launch, parsed.Clients);
             case "update": return Installation.Update(output);
             case "version" or "--version" or "-v": output.WriteLine(Installation.Version); return 0;
             default: output.WriteLine(Help); return 0;
@@ -34,25 +49,35 @@ internal static class SetupCli
         NetDecompilerMcp: .NET decompiler MCP server. Without a command it serves MCP over stdio.
 
         Commands:
-          install [client...]   Register the server with every installed MCP client (or only the named ones),
-                                then start it once to check it works. --no-check skips the check.
+          install [client...]   Register the server with MCP clients, then start it once to check it works.
+                                Existing registrations are refreshed. Detected clients without one are listed in a
+                                plan and added after one confirmation (Enter = yes); without a terminal they are
+                                added only with --yes (or NDM_YES=1) or --all-detected.
+                                --client X      only these clients (repeatable or comma-separated), detected or not
+                                --dry-run       print the plan and write nothing (--check also runs the server check)
+                                --json          print the plan and result as JSON (needs --yes to add new clients)
+                                --strict        write nothing when any client's file cannot be read
+                                --no-check      skip the server check
           uninstall [client...] Remove the registration from every client (or the named ones). With no names it
                                 also deletes an installed copy's program files; --keep-files keeps them. Your data
                                 (annotations, caches, symbols) is kept; --purge-data deletes it as well.
+                                --dry-run and --json as for install.
           status | doctor       Show which clients have it registered, check the server starts and that its tool catalog (digest) matches this build.
           config [client]       Print the configuration to add by hand (for clients not listed).
-          update                Install the latest release (installed copies only).
+          update                Install the latest release (installed copies only) and refresh existing registrations;
+                                it never adds clients.
           version               Print the version.
+
+        Exit codes: 0 success (a dry run always), 1 a check or a registration failed, 2 usage error.
 
         Clients: claude-code, claude-desktop, cursor, windsurf, vscode, vscode-insiders, vscodium, cline, roo-code,
                  kilo-code, visual-studio, codex, gemini-cli, qwen-code, copilot-cli, opencode, crush, zed, lm-studio,
                  amazon-q, kiro, antigravity
         """;
 
-    private static IReadOnlyList<McpClient>? Select(TextWriter output, SetupEnvironment env, string[] names, bool presentOnly)
+    /// <summary>The named clients, or null after reporting an unknown name.</summary>
+    private static List<McpClient>? Named(TextWriter output, IReadOnlyList<McpClient> all, IEnumerable<string> names)
     {
-        var all = ClientCatalog.All(env);
-        if (names.Length == 0) return presentOnly ? all.Where(c => c.Present).ToList() : all;
         var chosen = new List<McpClient>();
         foreach (var name in names)
         {
@@ -67,60 +92,148 @@ internal static class SetupCli
         return chosen;
     }
 
-    private static string Short(SetupEnvironment env, string path) =>
-        path.StartsWith(env.Home, StringComparison.OrdinalIgnoreCase) ? "~" + path[env.Home.Length..] : path;
+    private static LaunchReport Describe(ServerLaunch launch) => new(launch.Command, launch.Args);
 
-    private static int Install(TextWriter output, SetupEnvironment env, ServerLaunch launch, string[] names, bool check)
+    private static int Install(TextWriter output, SetupEnvironment env, ServerLaunch launch, SetupArgs a)
     {
-        var clients = Select(output, env, names, presentOnly: true);
-        if (clients == null) return 2;
-        output.WriteLine($"NetDecompilerMcp {Installation.Version}: {string.Join(" ", [launch.Command, .. launch.Args])}");
+        bool json = a.Has("--json"), dryRun = a.Has("--dry-run"), refreshOnly = a.Has("--refresh-only");
+        bool yes = a.Has("--yes") || a.Has("-y") || env.Variable("NDM_YES") is "1" or "true";
+        bool check = dryRun ? a.Has("--check") : !a.Has("--no-check");
+        var text = json ? TextWriter.Null : output;
+        var all = ClientCatalog.All(env);
+        if (Named(output, all, a.Clients) is not { } named) return 2;
+        var report = new SetupReport { Command = refreshOnly ? "update" : "install", Launch = Describe(launch), DryRun = dryRun };
+        int Finish(int code)
+        {
+            if (json) output.WriteLine(report.ToJson());
+            return code;
+        }
+
+        text.WriteLine($"NetDecompilerMcp {Installation.Version}: {string.Join(" ", [launch.Command, .. launch.Args])}");
         if (check)
         {
-            var test = SelfTest.Run(launch, TimeSpan.FromSeconds(60));
-            output.WriteLine(test.Ok ? $"Server check: OK ({test.Detail})" : $"Server check FAILED: {test.Detail}");
-            if (!test.Ok) return 1;
+            report.Server = ServerReport.From(SelfTest.Run(launch, TimeSpan.FromSeconds(60)));
+            text.WriteLine(report.Server.Ok ? $"Server check: OK ({report.Server.Detail})" : $"Server check FAILED: {report.Server.Detail}");
+            if (!report.Server.Ok)
+            {
+                report.Healthy = false;
+                return Finish(1);
+            }
         }
-        if (clients.Count == 0)
+
+        // Named clients replace detection: only they are touched.
+        var candidates = named.Count > 0 ? named : all;
+        report.Clients.AddRange(SetupPlan.Build(candidates, launch, named, refreshOnly));
+        var rows = SetupPlan.Shown(report.Clients).ToList();
+        if (rows.Count == 0)
         {
-            output.WriteLine("No supported MCP client found. Install one, then run: NetDecompilerMcp install");
-            output.WriteLine("For any other client, add the output of: NetDecompilerMcp config");
-            return 0;
+            text.WriteLine("No supported MCP client found. Install one, then run: NetDecompilerMcp install");
+            text.WriteLine("For any other client, add the output of: NetDecompilerMcp config");
+            return Finish(0);
         }
+        var pending = rows.Where(r => r.NeedsConsent).ToList();
+        if (pending.Count > 0 && (yes || a.Has("--all-detected"))) SetupPlan.Decide(pending, add: true);
+        bool blocked = rows.Any(r => r.Action == SetupAction.Blocked);
+
+        if (dryRun || (a.Has("--strict") && blocked))
+        {
+            SetupPlan.Write(text, env, rows);
+            if (dryRun)
+            {
+                if (pending.Any(r => r.NeedsConsent)) text.WriteLine("New clients are added after confirmation, or with --yes / --all-detected.");
+                text.WriteLine("Dry run: nothing was written.");
+                return Finish(0);
+            }
+            text.WriteLine("Nothing was written (--strict): fix or remove the blocked files, or run without --strict.");
+            report.Healthy = false;
+            return Finish(1);
+        }
+
+        if (pending.Any(r => r.NeedsConsent))
+        {
+            if (env.Interactive && !json)
+            {
+                SetupPlan.Write(text, env, rows);
+                SetupPlan.Decide(pending, env.Confirm($"Register with {(pending.Count == 1 ? "this new client" : $"these {pending.Count} new clients")}?"));
+            }
+            else
+            {
+                SetupPlan.Decide(pending, add: false);
+                report.Notes.Add($"Not registered with detected clients {string.Join(", ", pending.Select(p => p.Id))}; to add them run: NetDecompilerMcp install --all-detected");
+            }
+        }
+
         int failed = 0, changed = 0;
-        foreach (var client in clients)
+        foreach (var row in rows)
         {
-            ConfigChange result;
-            try { result = client.Target.Install(ClientCatalog.ServerName, launch); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { result = new ConfigChange(false, $"left unchanged: {ex.Message}"); }
-            bool ok = result.Changed || result.Message == "already registered";
-            if (!ok) failed++;
-            if (result.Changed) changed++;
-            output.WriteLine($"  {(ok ? "ok " : "!! ")} {client.Name,-20} {result.Message,-20} {Short(env, client.Target.Path)}");
+            if (row.Action is SetupAction.Add or SetupAction.Refresh)
+            {
+                ConfigChange result;
+                try { result = row.Client!.Target.Install(ClientCatalog.ServerName, launch); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { result = new ConfigChange(false, $"left unchanged: {ex.Message}"); }
+                if (result.Changed) changed++;
+                else if (result.Message != "already registered") { failed++; row.Action = SetupAction.Blocked; }
+                row.Message = result.Message;
+                if (row.Disabled) row.Message += "; disabled: kept disabled";
+            }
+            else if (row.Action == SetupAction.Blocked) failed++;
+            var mark = row.Action == SetupAction.Blocked ? "!! " : row.Action == SetupAction.Skip ? "-- " : "ok ";
+            text.WriteLine($"  {mark} {row.Name,-20} {row.Message,-20} {SetupPlan.Short(env, row.ConfigPath)}");
         }
-        if (changed > 0) output.WriteLine("Restart the clients above (or reload their MCP servers) to load it.");
-        return failed == 0 ? 0 : 1;
+        foreach (var note in report.Notes) text.WriteLine(note);
+        if (changed > 0) text.WriteLine("Restart the clients above (or reload their MCP servers) to load it.");
+        report.Applied = changed > 0;
+        report.Healthy = failed == 0;
+        return Finish(failed == 0 ? 0 : 1);
     }
 
-    private static int Uninstall(TextWriter output, SetupEnvironment env, string[] names, bool keepFiles, bool purgeData)
+    private static int Uninstall(TextWriter output, SetupEnvironment env, SetupArgs a)
     {
+        bool json = a.Has("--json"), dryRun = a.Has("--dry-run"), purgeData = a.Has("--purge-data");
+        bool keepFiles = a.Has("--keep-files") || a.Clients.Count > 0;
         if (purgeData && keepFiles)
         {
             output.WriteLine("--purge-data deletes the program files too; it cannot be combined with --keep-files or client names.");
             return 2;
         }
-        var clients = Select(output, env, names, presentOnly: false);
-        if (clients == null) return 2;
-        foreach (var client in clients)
+        var all = ClientCatalog.All(env);
+        if (Named(output, all, a.Clients) is not { } named) return 2;
+        var text = json ? TextWriter.Null : output;
+        var report = new SetupReport { Command = "uninstall", Launch = Describe(Installation.Launch()), DryRun = dryRun };
+        foreach (var client in named.Count > 0 ? named : all)
         {
-            if (client.Target.Registered(ClientCatalog.ServerName) == null) continue;
+            if (client.Target.Current(ClientCatalog.ServerName) is not { } current) continue;
+            var row = new ClientReport
+            {
+                Id = client.Id, Name = client.Name, Detected = client.Present, ConfigPath = client.Target.Path, Registered = current,
+                Action = SetupAction.Remove, Client = client,
+            };
+            report.Clients.Add(row);
+            if (dryRun)
+            {
+                text.WriteLine($"  remove    {client.Name,-20} {SetupPlan.Short(env, client.Target.Path)}");
+                continue;
+            }
             var result = client.Target.Uninstall(ClientCatalog.ServerName);
-            output.WriteLine($"  {client.Name,-20} {result.Message,-20} {Short(env, client.Target.Path)}");
+            row.Message = result.Message;
+            report.Applied |= result.Changed;
+            text.WriteLine($"  {client.Name,-20} {result.Message,-20} {SetupPlan.Short(env, client.Target.Path)}");
         }
-        if (keepFiles) return 0;
+
         var dataRoot = Installation.DataRoot(env);
-        if (Installation.Root() is { } root) Installation.RemoveFiles(root, dataRoot ?? root, purgeData, output);
-        else if (purgeData && dataRoot != null) Installation.PurgeData(dataRoot, output);
+        Installation.Removal? removal = null;
+        if (!keepFiles && Installation.Root() is { } root) removal = Installation.PlanRemoval(root, dataRoot ?? root, purgeData);
+        else if (purgeData && dataRoot != null) removal = new Installation.Removal([(dataRoot, false)], null, dataRoot, []);
+        if (removal != null) report.Removal = new RemovalReport([.. removal.Delete.Select(d => d.Path)], removal.DataRoot, removal.Kept);
+        if (dryRun)
+        {
+            foreach (var path in report.Removal?.Delete ?? []) text.WriteLine($"  delete    {path}");
+            if (report.Removal is { Kept.Count: > 0 } kept) text.WriteLine($"  keep      {kept.DataRoot} ({string.Join(", ", kept.Kept)})");
+            text.WriteLine("Dry run: nothing was changed.");
+        }
+        else if (!keepFiles && Installation.Root() is { } installed) Installation.RemoveFiles(installed, dataRoot ?? installed, purgeData, text);
+        else if (purgeData && dataRoot != null) Installation.PurgeData(dataRoot, text);
+        if (json) output.WriteLine(report.ToJson());
         return 0;
     }
 
@@ -141,47 +254,24 @@ internal static class SetupCli
             };
             output.WriteLine($"  {client.Name,-20} {state}");
         }
-        var test = SelfTest.Run(launch, TimeSpan.FromSeconds(60));
-        output.WriteLine(test.Ok ? $"Server check: OK ({test.Detail})" : $"Server check FAILED: {test.Detail}");
-        if (!test.Ok || test.ToolList == null) return 1;
-        // The catalog digest server_status reports, of the registered server (from its tools/list and prompts/list) and of this build.
-        var (tools, prompts) = NetDecompilerMcp.Mcp.Catalog.OfThisBuild();
-        var expected = NetDecompilerMcp.Mcp.Catalog.Digest(tools, prompts);
-        var installed = NetDecompilerMcp.Mcp.Catalog.Digest(test.ToolList, test.PromptList ?? []);
-        if (expected == installed)
-        {
-            output.WriteLine($"Tool catalog: matches this build ({tools.Count} tools); digest {expected}");
-            return 0;
-        }
-        var differences = new List<string>();
-        void Compare(string kind, SortedDictionary<string, string> build, SortedDictionary<string, string> server)
-        {
-            var missing = build.Keys.Except(server.Keys).ToList();
-            var extra = server.Keys.Except(build.Keys).ToList();
-            var changed = build.Keys.Intersect(server.Keys).Where(k => build[k] != server[k]).ToList();
-            if (missing.Count > 0) differences.Add($"missing {kind} {string.Join(", ", missing)}");
-            if (extra.Count > 0) differences.Add($"extra {kind} {string.Join(", ", extra)}");
-            if (changed.Count > 0) differences.Add($"changed {kind} {string.Join(", ", changed.Take(20))}{(changed.Count > 20 ? $" and {changed.Count - 20} more" : "")}");
-        }
-        Compare("tools", NetDecompilerMcp.Mcp.Catalog.ToolHashes(tools), NetDecompilerMcp.Mcp.Catalog.ToolHashes(test.ToolList));
-        Compare("prompts", NetDecompilerMcp.Mcp.Catalog.PromptHashes(prompts), NetDecompilerMcp.Mcp.Catalog.PromptHashes(test.PromptList ?? []));
-        output.WriteLine($"Tool catalog differs from this build (the registered server is another version; run: NetDecompilerMcp install): " +
-                         $"digest {installed}, this build {expected}; {string.Join("; ", differences)}");
-        return 1;
+        var server = ServerReport.From(SelfTest.Run(launch, TimeSpan.FromSeconds(60)));
+        output.WriteLine(server.Ok ? $"Server check: OK ({server.Detail})" : $"Server check FAILED: {server.Detail}");
+        if (!server.Ok) return 1;
+        output.WriteLine(server.CatalogLine());
+        return server.MatchesThisBuild == true ? 0 : 1;
     }
 
-    private static int Config(TextWriter output, SetupEnvironment env, ServerLaunch launch, string[] names)
+    private static int Config(TextWriter output, SetupEnvironment env, ServerLaunch launch, IReadOnlyList<string> names)
     {
         var options = new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
-        if (names.Length == 0)
+        if (names.Count == 0)
         {
             var args = new JsonArray([.. launch.Args.Select(a => (JsonNode)JsonValue.Create(a)!)]);
             var json = new JsonObject { ["mcpServers"] = new JsonObject { [ClientCatalog.ServerName] = new JsonObject { ["command"] = launch.Command, ["args"] = args } } };
             output.WriteLine(json.ToJsonString(options));
             return 0;
         }
-        var clients = Select(output, env, names, presentOnly: false);
-        if (clients == null) return 2;
+        if (Named(output, ClientCatalog.All(env), names) is not { } clients) return 2;
         foreach (var client in clients)
         {
             output.WriteLine($"{client.Name}: {client.Target.Path}");
@@ -201,5 +291,49 @@ internal static class SetupCli
             }
         }
         return 0;
+    }
+}
+
+/// <summary>Parsed setup arguments: flags, option values (--name value or --name=value) and positional client names.</summary>
+internal sealed class SetupArgs
+{
+    private static readonly string[] ValueOptions = ["--client", "--engine", "--target", "--version"];
+    private readonly HashSet<string> _flags = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, List<string>> _values = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Positional names and --client values (comma-separated lists split).</summary>
+    public List<string> Clients { get; } = [];
+
+    public bool Has(string flag) => _flags.Contains(flag);
+    public IReadOnlyList<string> Values(string option) => _values.TryGetValue(option, out var v) ? v : [];
+    public string? Value(string option) => Values(option) is { Count: > 0 } v ? v[^1] : null;
+
+    public static SetupArgs Parse(IEnumerable<string> args, IReadOnlyCollection<string> accepted)
+    {
+        var parsed = new SetupArgs();
+        var list = args.ToList();
+        for (int i = 0; i < list.Count; i++)
+        {
+            var arg = list[i];
+            if (!arg.StartsWith('-'))
+            {
+                parsed.Clients.Add(arg);
+                continue;
+            }
+            var (name, inline) = arg.IndexOf('=') is > 0 and var eq ? (arg[..eq], arg[(eq + 1)..]) : (arg, null);
+            if (!accepted.Contains(name, StringComparer.OrdinalIgnoreCase)) throw new ArgumentException($"Unknown option {name}.");
+            if (!ValueOptions.Contains(name, StringComparer.OrdinalIgnoreCase))
+            {
+                if (inline != null) throw new ArgumentException($"{name} takes no value.");
+                parsed._flags.Add(name);
+                continue;
+            }
+            var value = inline ?? (i + 1 < list.Count ? list[++i] : throw new ArgumentException($"{name} needs a value."));
+            if (!parsed._values.TryGetValue(name, out var values)) parsed._values[name] = values = [];
+            values.Add(value);
+            if (name.Equals("--client", StringComparison.OrdinalIgnoreCase))
+                parsed.Clients.AddRange(value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        }
+        return parsed;
     }
 }

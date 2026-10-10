@@ -20,6 +20,10 @@ internal sealed class SetupEnvironment
     public Func<string, string?> FindTool { get; init; } = _ => null;
     public bool HasTool(string tool) => FindTool(tool) != null;
     public Func<string, bool> DirectoryExists { get; init; } = Directory.Exists;
+    /// <summary>Input and output are terminals, so install may ask before registering new clients.</summary>
+    public bool Interactive { get; init; }
+    /// <summary>Asks a yes/no question whose default is yes.</summary>
+    public Func<string, bool> Confirm { get; init; } = _ => false;
 
     public static SetupEnvironment Current()
     {
@@ -34,7 +38,27 @@ internal sealed class SetupEnvironment
             LocalAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             XdgConfig = string.IsNullOrEmpty(xdg) ? Path.Combine(home, ".config") : xdg,
             FindTool = OnPath,
+            Interactive = !Console.IsInputRedirected && !Console.IsOutputRedirected,
+            Confirm = AskConsole,
         };
+    }
+
+    /// <summary>One keypress: Enter or y is yes, anything else is no.</summary>
+    private static bool AskConsole(string question)
+    {
+        Console.Write(question + " [Y/n] ");
+        try
+        {
+            var key = Console.ReadKey(intercept: true);
+            bool yes = key.Key == ConsoleKey.Enter || key.KeyChar is 'y' or 'Y';
+            Console.WriteLine(yes ? "y" : "n");
+            return yes;
+        }
+        catch (InvalidOperationException)
+        {
+            var line = Console.ReadLine()?.Trim();
+            return line is "" or "y" or "Y" or "yes";
+        }
     }
 
     /// <summary>Per-application settings folder: %APPDATA%\name, ~/Library/Application Support/name, ~/.config/name.</summary>
