@@ -68,6 +68,9 @@ internal static class ServerInstructions
            at VA [image]'); the .NET call tools take native exports as symbols ('kernel32.dll!CreateFileW', 'native:<image>!<name|#ord|addr>').
            Mixed-mode C++/CLI assemblies load as .NET plus a native view (id = file name). ReadyToRun: get_r2r_code, find_r2r_method.
            Il2Cpp games: load the dummy DLLs and GameAssembly.dll, then apply_il2cpp_names (C# names in every native tool and in IDA).
+           Names from load_pdb and apply_il2cpp_names are saved with the image's annotations (per file SHA-256) and reapplied
+           automatically when the same file loads again, even after a restart or with the PDB moved: no need to import again.
+           list_native_edits shows which layers were restored and from what; clear=true on either tool removes them and the saved copy.
            Edits: rename_native / comment_native (kept per file hash), patch_bytes / patch_asm (dryRun first), list_native_edits,
            undo_native_edit, save_native to a new file; export_native_annotations writes IDA / Ghidra scripts. Patches stay correct
            under ASLR: relocation entries the new bytes no longer use are neutralized and new absolute addresses get an entry; when
