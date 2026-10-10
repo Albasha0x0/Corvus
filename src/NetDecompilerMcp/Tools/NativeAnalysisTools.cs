@@ -22,7 +22,10 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
     [Description("C pseudocode of the native function containing an address, through IDA (idalib; Hex-Rays). The first call on an image runs IDA's " +
                  "auto-analysis (seconds for a small DLL, minutes for a large game executable; progress is reported) and keeps the database per file " +
                  "hash, so later calls and later sessions are fast. Lines are annotated with the address they come from. Names and comments in effect " +
-                 "(rename_native / comment_native, apply_il2cpp_names, PDB names) are pushed into the database first, once per change, and saved with it.")]
+                 "(rename_native / comment_native, apply_il2cpp_names, PDB names) are pushed into the database first, once per change, and saved with it. " +
+                 "When the image has a PDB (found next to it or in the symbol cache, or loaded with load_pdb), its structs, enums, typedefs and " +
+                 "prototypes are loaded into the database through IDA's PDB loader (the server's own PDB type reader when that loader is not " +
+                 "available), once per PDB; the first line says which type source applies.")]
     public Task<string> DecompileNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -39,7 +42,9 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         if (!session.DecompilerAvailable)
             throw new ToolError(ErrorCode.Unsupported, $"The {session.ProviderId} decompiler is not available for {session.Arch} code here.",
                 "disassemble the function instead, or install/license the decompiler for this architecture");
-        var pushed = names != null ? NativeNamePush.Describe(await names.EnsureAsync(native, session, cancellationToken)) : null;
+        var pushed = NativePdbTypes.Describe(NativePdbTypes.Report(session));
+        if (names != null && NativeNamePush.Describe(await names.EnsureAsync(native, session, cancellationToken)) is { } named)
+            pushed = (pushed != null ? pushed + "\n// " : "") + named;
         if (types != null && NativeTypePush.Describe(await types.EnsureAsync(native, session, cancellationToken)) is { } typed)
             pushed = (pushed != null ? pushed + "\n// " : "") + typed;
         if (types != null) await types.EnsureMethodAsync(native, session, code?.Ready(native)?.FunctionAt(rva)?.Start ?? rva, cancellationToken);
@@ -47,7 +52,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
             pushed = (pushed != null ? pushed + "\n// " : "") + (engines.ServesPatchedCopy(native)
                 ? $"patched image: analyzed as a patched copy (the database could not take {Plural(native.Patches.Patches.Count, "patch")})"
                 : $"patched image: {Plural(native.Patches.Patches.Count, "patch")} applied in the database");
-        var key = $"decompile|{native.Image.Sha256}|{rva:X}|{addresses}|{NativeNamePush.CurrentStamp(session)}|{NativeTypePush.CurrentStamp(session)}";
+        var key = $"decompile|{native.Image.Sha256}|{rva:X}|{addresses}|{NativeNamePush.CurrentStamp(session)}|{NativeTypePush.CurrentStamp(session)}|{NativePdbTypes.CurrentStamp(session)}";
         var text = pager.GetOrCreate(key, () =>
         {
             var function = session.DecompileAsync(rva, cancellationToken).GetAwaiter().GetResult();

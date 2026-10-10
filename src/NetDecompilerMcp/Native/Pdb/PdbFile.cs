@@ -22,12 +22,18 @@ public enum PdbSymbolKind
     LocalData,
 }
 
-/// <summary>One symbol with an address. <see cref="Rva"/> is null when the segment:offset does not map into the image.</summary>
-public sealed record PdbSymbol(PdbSymbolKind Kind, string Name, ushort Segment, uint Offset, uint? Rva, uint Size, int Module)
+/// <summary>
+/// One symbol with an address. <see cref="Rva"/> is null when the segment:offset does not map into the image.
+/// <see cref="TypeIndex"/>: the type record of a procedure or data symbol (TPI; IPI for the _ID procedure kinds), 0 for others.
+/// </summary>
+public sealed record PdbSymbol(PdbSymbolKind Kind, string Name, ushort Segment, uint Offset, uint? Rva, uint Size, int Module, uint TypeIndex = 0)
 {
     public bool IsFunction => Kind is PdbSymbolKind.GlobalProc or PdbSymbolKind.LocalProc or PdbSymbolKind.PublicFunction or PdbSymbolKind.Thunk;
     public bool IsPublic => Kind is PdbSymbolKind.PublicFunction or PdbSymbolKind.PublicData;
 }
+
+/// <summary>An S_UDT record of the global symbols: a type name (typedef or tag) and its type record.</summary>
+public sealed record PdbTypedef(string Name, uint TypeIndex);
 
 /// <summary>A compiland of the DBI module list.</summary>
 public sealed record PdbModule(int Index, string Name, string ObjectFile, int SymbolStream, uint SymbolBytes);
@@ -38,7 +44,7 @@ public sealed record PdbSection(string Name, uint VirtualAddress, uint VirtualSi
 /// <summary>
 /// A native PDB (MSF 7.0): identity (PDB info stream GUID and age, DBI age), module list, section headers, OMAP, and
 /// the symbols with addresses (publics, global and local data, and functions from the module streams). Type records
-/// (TPI) are not read: signatures come from the decorated public names. Only the superblock check throws; every
+/// (TPI) are read on demand by <see cref="PdbTypes"/>. Only the superblock check throws; every
 /// later problem is recorded in <see cref="Issues"/> and the readable part is kept.
 /// </summary>
 public sealed class PdbFile
@@ -64,11 +70,16 @@ public sealed class PdbFile
     public bool HasOmap { get; private set; }
     /// <summary>Sorted by RVA (unmapped symbols last).</summary>
     public IReadOnlyList<PdbSymbol> Symbols { get; private set; } = [];
+    /// <summary>Type names of the global symbols (S_UDT), in stream order.</summary>
+    public IReadOnlyList<PdbTypedef> Typedefs => _typedefs;
     /// <summary>Everything a limit cut short.</summary>
     public IReadOnlyList<string> Truncations => _truncations;
     public IReadOnlyList<ParseIssue> Issues { get; private set; } = [];
 
     private readonly List<string> _truncations = [];
+    private readonly List<PdbTypedef> _typedefs = [];
+    /// <summary>Most S_UDT records kept.</summary>
+    public const int MaxTypedefs = 1_000_000;
     private readonly IssueLog _log = new("pdb");
     private (uint From, uint To)[] _omap = [];
     private IReadOnlyList<PdbSection> _addressSections = [];
@@ -376,17 +387,24 @@ public sealed class PdbFile
         {
             case 0x110E: // S_PUB32: flags, offset, segment, name
                 if (d.Length < 10) return Short(kind);
-                return Make(((Le32(d, 0) & 2) != 0) ? PdbSymbolKind.PublicFunction : PdbSymbolKind.PublicData, d, 4, 8, 10, 0, module);
+                return Make(((Le32(d, 0) & 2) != 0) ? PdbSymbolKind.PublicFunction : PdbSymbolKind.PublicData, d, 4, 8, 10, 0, module, -1);
             case 0x110D or 0x110C: // S_GDATA32 / S_LDATA32: type, offset, segment, name
                 if (d.Length < 10) return Short(kind);
-                return Make(kind == 0x110D ? PdbSymbolKind.GlobalData : PdbSymbolKind.LocalData, d, 4, 8, 10, 0, module);
+                return Make(kind == 0x110D ? PdbSymbolKind.GlobalData : PdbSymbolKind.LocalData, d, 4, 8, 10, 0, module, 0);
             case 0x1110 or 0x1147 or 0x110F or 0x1146 or 0x1155 or 0x1156:
                 // S_GPROC32(_ID) / S_LPROC32(_ID) / S_LPROC32_DPC(_ID): parent, end, next, length, dbg start/end, type, offset, segment, flags, name
                 if (d.Length < 35) return Short(kind);
-                return Make(kind is 0x1110 or 0x1147 ? PdbSymbolKind.GlobalProc : PdbSymbolKind.LocalProc, d, 28, 32, 35, Le32(d, 12), module);
+                return Make(kind is 0x1110 or 0x1147 ? PdbSymbolKind.GlobalProc : PdbSymbolKind.LocalProc, d, 28, 32, 35, Le32(d, 12), module, 24);
             case 0x1102: // S_THUNK32: parent, end, next, offset, segment, length, ordinal, name
                 if (d.Length < 21) return Short(kind);
-                return Make(PdbSymbolKind.Thunk, d, 12, 16, 21, Le16(d, 18), module);
+                return Make(PdbSymbolKind.Thunk, d, 12, 16, 21, Le16(d, 18), module, -1);
+            case 0x1108 when module < 0: // S_UDT of the global symbols: type, name
+                if (d.Length < 5) return Short(kind);
+                if (_typedefs.Count >= MaxTypedefs) { AddTruncation($"type names (S_UDT) beyond {MaxTypedefs}"); return null; }
+                var udt = d[4..];
+                int end = udt.IndexOf((byte)0);
+                if (end > 0 && end <= PdbLimits.MaxNameLength) _typedefs.Add(new PdbTypedef(Encoding.UTF8.GetString(udt[..end]), Le32(d, 0)));
+                return null;
             default:
                 return null;
         }
@@ -398,7 +416,7 @@ public sealed class PdbFile
         return null;
     }
 
-    private PdbSymbol? Make(PdbSymbolKind kind, ReadOnlySpan<byte> d, int offsetAt, int segmentAt, int nameAt, uint size, int module)
+    private PdbSymbol? Make(PdbSymbolKind kind, ReadOnlySpan<byte> d, int offsetAt, int segmentAt, int nameAt, uint size, int module, int typeAt)
     {
         var rest = d[nameAt..];
         int len = rest.IndexOf((byte)0);
@@ -408,7 +426,7 @@ public sealed class PdbFile
         string name = Encoding.UTF8.GetString(rest[..len]);
         uint offset = Le32(d, offsetAt);
         ushort segment = Le16(d, segmentAt);
-        return new PdbSymbol(kind, name, segment, offset, ToRva(segment, offset), size, module);
+        return new PdbSymbol(kind, name, segment, offset, ToRva(segment, offset), size, module, typeAt >= 0 ? Le32(d, typeAt) : 0);
     }
 
     private void AddTruncation(string text)

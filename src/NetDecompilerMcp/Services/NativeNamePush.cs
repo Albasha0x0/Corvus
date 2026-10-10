@@ -38,15 +38,16 @@ public sealed class NativeNamePush(NativeCodeService code)
     }
 
     /// <summary>
-    /// The names and comments in effect from every source above discovered names, by RVA. PDB names are left out:
-    /// the engine loads the same PDB itself and keeps its decorated, typed names, which lower layers do not override;
-    /// so are the engine's own library names (the ida layer).
+    /// The names and comments in effect from every source above discovered names, by RVA. PDB names are left out
+    /// (unless <paramref name="withPdb"/>: the engine's PDB loader was not used): the engine loads the same PDB itself
+    /// and keeps its decorated, typed names, which lower layers do not override; so are the engine's own library names
+    /// (the ida layer).
     /// </summary>
-    public static Dictionary<uint, Entry> Effective(NativeAnnotations? user, IReadOnlyList<NativeNameLayers.Layer> layers, INativeImage image)
+    public static Dictionary<uint, Entry> Effective(NativeAnnotations? user, IReadOnlyList<NativeNameLayers.Layer> layers, INativeImage image, bool withPdb = false)
     {
         var result = new Dictionary<uint, Entry>();
-        var pdb = layers.FirstOrDefault(l => l.Source == NativeNameSource.Pdb)?.Names;
-        foreach (var layer in layers.Where(l => l.Source is not (NativeNameSource.Pdb or NativeNameSource.Ida)).OrderBy(l => l.Source))
+        var pdb = withPdb ? null : layers.FirstOrDefault(l => l.Source == NativeNameSource.Pdb)?.Names;
+        foreach (var layer in layers.Where(l => l.Source != NativeNameSource.Ida && (withPdb || l.Source != NativeNameSource.Pdb)).OrderBy(l => l.Source))
         {
             foreach (var (rva, name) in layer.Names)
                 if (pdb == null || !pdb.ContainsKey(rva))
@@ -89,12 +90,14 @@ public sealed class NativeNamePush(NativeCodeService code)
         {
             var user = code.Annotations(native);
             var layers = NativeNameLayers.OfOrNull(native)?.Layers ?? [];
+            // PDB names go in when the engine did not load the PDB with its own loader
+            bool withPdb = NativePdbTypes.Current(session) is { Route: NativePdbTypes.RouteOwn };
             // Layers are immutable and replaced as a whole, so they compare by reference; user annotations by content.
-            object[] inputs = [.. layers, .. user.Names().Select(n => (object)n), "|", .. user.Comments().Select(c => (object)c)];
+            object[] inputs = [withPdb, .. layers, .. user.Names().Select(n => (object)n), "|", .. user.Comments().Select(c => (object)c)];
             if (state.Inputs != null && inputs.SequenceEqual(state.Inputs)) return null;
 
             var clock = System.Diagnostics.Stopwatch.StartNew();
-            var effective = Effective(user, layers, native.Image);
+            var effective = Effective(user, layers, native.Image, withPdb);
             var stamp = StampOf(effective);
             var items = new List<NativeNameItem>();
             int removed = 0;
@@ -147,6 +150,9 @@ public sealed class NativeNamePush(NativeCodeService code)
         }
         finally { state.Gate.Release(); }
     }
+
+    /// <summary>Drops what is known of the session's names (its database's names were replaced): the next push sends the whole set.</summary>
+    public static void Forget(INativeDecompilerSession session) => States.Remove(session);
 
     /// <summary>The stamp of the set last pushed to <paramref name="session"/>, or "" before any push.</summary>
     public static string CurrentStamp(INativeDecompilerSession session) => States.TryGetValue(session, out var s) ? s.Stamp : "";

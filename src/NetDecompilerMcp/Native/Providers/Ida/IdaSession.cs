@@ -210,7 +210,8 @@ internal sealed class IdaSession : INativeDecompilerSession
     }
 
     /// <summary>Runs one request, restarting the worker first when it is gone.</summary>
-    internal async Task<JsonElement> CallAsync(string op, JsonObject args, CancellationToken cancellationToken, bool journal = false, bool saves = false)
+    internal async Task<JsonElement> CallAsync(string op, JsonObject args, CancellationToken cancellationToken, bool journal = false, bool saves = false,
+        TimeSpan? timeout = null)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -231,7 +232,7 @@ internal sealed class IdaSession : INativeDecompilerSession
             }
             try
             {
-                var result = await _worker!.RequestAsync(op, (JsonObject)args.DeepClone(), _options.RequestTimeout, cancellationToken).ConfigureAwait(false);
+                var result = await _worker!.RequestAsync(op, (JsonObject)args.DeepClone(), timeout ?? _options.RequestTimeout, cancellationToken).ConfigureAwait(false);
                 _failures = 0;
                 if (journal) _unsaved.Add((op, args));
                 if (saves) _unsaved.Clear();
@@ -413,6 +414,16 @@ internal sealed class IdaSession : INativeDecompilerSession
             r.GetProperty("structs").GetInt32(), r.GetProperty("vftables_typed").GetInt32(), r.GetProperty("methods_typed").GetInt32(),
             TimeSpan.FromSeconds(r.GetProperty("seconds").GetDouble()), r.GetProperty("failures").EnumerateArray().Select(f => f.GetString() ?? "").ToList(),
             r.TryGetProperty("method_skips", out var skips) ? skips.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetInt32()) : new Dictionary<string, int>());
+    }
+
+    public async Task<PdbLoadResult> LoadPdbAsync(string pdbPath, string stampKey, string stamp, bool trustAnalysisLoad, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(pdbPath);
+        // A large PDB takes IDA a while: the open's limit, not a single request's.
+        var r = await CallAsync("load_pdb", IdaProvider.Args(("path", pdbPath), ("stamp_key", stampKey), ("stamp", stamp), ("trust_analysis", trustAnalysisLoad)),
+            cancellationToken, saves: true, timeout: _options.OpenTimeout).ConfigureAwait(false);
+        return new PdbLoadResult(r.GetProperty("loaded").GetBoolean(), r.GetProperty("from_analysis").GetBoolean(), r.GetProperty("plugin").GetBoolean(),
+            r.GetProperty("types_before").GetInt32(), r.GetProperty("types_after").GetInt32(), TimeSpan.FromSeconds(r.GetProperty("seconds").GetDouble()));
     }
 
     public async Task<string?> GetStampAsync(string key, CancellationToken cancellationToken = default)
