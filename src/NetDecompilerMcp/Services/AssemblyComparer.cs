@@ -131,6 +131,56 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
             : new Counterpart(null, "removed in the new build (no match)");
     }
 
+    /// <summary>
+    /// One old type or member and where it went. Status: matched; removed; ambiguous (Candidates lists the tied new
+    /// tokens); unknown (no counterpart, but the other build's bodies or signatures could not be read); type_unmatched
+    /// (its type has no counterpart). BodyHashEqual: methods with a normalized IL hash on both sides.
+    /// </summary>
+    public sealed record TokenMapEntry(string Kind, string Old, string OldToken, string? New, string? NewToken, string Status,
+        string? Tier, string? Confidence, bool? BodyHashEqual, IReadOnlyList<string>? Candidates);
+
+    /// <summary>Every type and member of the old build (except &lt;Module&gt;), in token order.</summary>
+    public static List<TokenMapEntry> TokenMap(Comparison cmp)
+    {
+        var changes = cmp.Types.SelectMany(t => t.Members).Where(m => m.Old != null).GroupBy(m => m.Old!).ToDictionary(g => g.Key, g => g.First());
+        var entries = new List<TokenMapEntry>();
+        foreach (var type in cmp.Old.Module.GetTypes().Where(t => t.FullName != "<Module>"))
+        {
+            Add(type);
+            foreach (var m in type.Methods.Cast<IMemberDef>().Concat(type.Fields).Concat(type.Properties).Concat(type.Events)) Add(m);
+        }
+        return [.. entries.OrderBy(e => e.OldToken, StringComparer.Ordinal)];
+
+        void Add(IMemberDef old)
+        {
+            string kind = old switch { TypeDef => "type", MethodDef => "method", FieldDef => "field", PropertyDef => "property", _ => "event" };
+            if (cmp.Ambiguous.TryGetValue(old, out var a))
+            {
+                entries.Add(new(kind, Format.MemberLabel(old), Format.Token(old), null, null, "ambiguous", a.Tier, null, null,
+                    a.Candidates.Select(Format.Token).ToList()));
+                return;
+            }
+            IMemberDef? match = null;
+            string? tier = null, confidence = null;
+            if (old is TypeDef t && cmp.TypeMap.TryGetValue(t, out var nt))
+            {
+                match = nt;
+                (tier, confidence) = TypeTier(t, nt);
+            }
+            else if (cmp.MemberMap.TryGetValue(old, out var m))
+                (match, tier, confidence) = (m.New, m.Tier, m.Confidence);
+            if (match == null)
+            {
+                var status = old is not TypeDef && old.DeclaringType is { } d && !cmp.TypeMap.ContainsKey(d) ? "type_unmatched"
+                    : changes.TryGetValue(old, out var c) && c.Change == "unknown" ? "unknown" : "removed";
+                entries.Add(new(kind, Format.MemberLabel(old), Format.Token(old), null, null, status, null, null, null, null));
+                return;
+            }
+            bool? same = old is MethodDef om && match is MethodDef nm && IlHash.Of(cmp.Old, om) is { } oh && IlHash.Of(cmp.New, nm) is { } nh ? oh == nh : null;
+            entries.Add(new(kind, Format.MemberLabel(old), Format.Token(old), Format.MemberLabel(match), Format.Token(match), "matched", tier, confidence, same, null));
+        }
+    }
+
     /// <summary>Tier and confidence of a type pairing.</summary>
     public static (string Tier, string Confidence) TypeTier(TypeDef o, TypeDef n) =>
         o.FullName == n.FullName ? ("full name", "exact")

@@ -82,7 +82,7 @@ public static class ToolEffects
         ["unity_overview"] = Reads(openWorld: true), // headers and listings only; detectItEasy=true launches diec
 
         // Builds
-        ["compare_assemblies"] = Reads(longRunning: true),
+        ["compare_assemblies"] = Changes(destructive: true, idempotent: true, longRunning: true), // tokenMapPath; overwrite=true replaces a file
         ["find_counterpart"] = Reads(longRunning: true),
 
         // .NET edits (in memory until save_assembly)

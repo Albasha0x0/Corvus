@@ -86,6 +86,47 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
+    public async Task Compare_StructuredResult_AndTokenMapExport()
+    {
+        using var env = new Env(Write("v1", V1));
+        var newer = env.Workspace.Load(Write("v2", V2));
+        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager);
+        var mapPath = _dir.File("map.json");
+
+        var collector = NetDecompilerMcp.Mcp.StructuredOutput.Begin();
+        var text = await tools.CompareAssemblies(env.Fixture.Id, newer.Id, tokenMapPath: mapPath);
+        var result = Assert.IsType<CompareTools.AssemblyComparison>(collector.Value);
+        Assert.Equal((env.Fixture.OriginalSha256, newer.OriginalSha256), (result.Old.Sha256, result.New.Sha256));
+        Assert.Equal(env.Fixture.Module.Mvid.ToString(), result.Old.Mvid);
+        Assert.Equal(1, result.MemberChanges.Single(k => k.Kind == "renamed").Count);
+        Assert.Equal(1, result.AmbiguousMembers);
+        var moved = result.Items.Single(i => i.Old == "Calc::Moved(int)");
+        Assert.Equal(("method", "renamed", "Calc::MovedRenamed(int)", "IL hash", "strong"), (moved.Kind, moved.Change, moved.New, moved.Tier, moved.Confidence));
+        Assert.Equal(2, result.Items.Single(i => i.Change == "ambiguous").Candidates!.Count);
+        Assert.Equal(result.Items.Count, result.Total);
+        Assert.Contains($"Token map: {result.TokenMapEntries} old types and members written to {mapPath}.", text);
+
+        using var json = System.Text.Json.JsonDocument.Parse(File.ReadAllText(mapPath));
+        var root = json.RootElement;
+        Assert.Equal("ndm-token-map", root.GetProperty("format").GetString());
+        Assert.Equal(env.Fixture.OriginalSha256, root.GetProperty("old").GetProperty("sha256").GetString());
+        var entries = root.GetProperty("entries").EnumerateArray().ToDictionary(e => e.GetProperty("old").GetString()!);
+        Assert.Equal(result.TokenMapEntries, entries.Count);
+        var movedEntry = entries["Calc::Moved(int)"];
+        Assert.Equal("matched", movedEntry.GetProperty("status").GetString());
+        Assert.Equal(Format.Token(newer.Module.Find("Calc", false).FindMethod("MovedRenamed")), movedEntry.GetProperty("newToken").GetString());
+        Assert.True(movedEntry.GetProperty("bodyHashEqual").GetBoolean());
+        Assert.False(entries["Calc::Edit(int)"].GetProperty("bodyHashEqual").GetBoolean());
+        Assert.Equal("ambiguous", entries["Calc::Scale(int)"].GetProperty("status").GetString());
+        Assert.Equal(2, entries["Calc::Scale(int)"].GetProperty("candidates").GetArrayLength());
+        Assert.Equal(("matched", "full name"), (entries["Calc"].GetProperty("status").GetString(), entries["Calc"].GetProperty("tier").GetString()));
+
+        // An existing file is replaced only when asked.
+        Assert.Equal(ErrorCode.Conflict, (await Assert.ThrowsAsync<ToolError>(() => tools.CompareAssemblies(env.Fixture.Id, newer.Id, tokenMapPath: mapPath))).Code);
+        Assert.Contains("Token map:", await tools.CompareAssemblies(env.Fixture.Id, newer.Id, tokenMapPath: mapPath, overwrite: true));
+    }
+
+    [Fact]
     public async Task CompareAndCounterpart_EveryChangeOfAMember_AndEventsAddedRemoved()
     {
         const string before = """
