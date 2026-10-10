@@ -149,6 +149,19 @@ public sealed class NativeEngineService : IDisposable
     /// </summary>
     public async Task<INativeDecompilerSession> Session(LoadedNative native, string? engine, IProgress<NativeProviderProgress>? progress, CancellationToken ct)
     {
+        var session = await SessionCore(native, engine, progress, ct).ConfigureAwait(false);
+        // the image's PDB types, once per PDB and database (see NativePdbTypes)
+        var holder = Holder(native);
+        var patched = holder.Patched is { IsCompletedSuccessfully: true } p && ReferenceEquals(p.Result, session);
+        await PdbTypes.EnsureAsync(native, session, patched ? holder.PatchedPdb : holder.OpenedPdb, ct).ConfigureAwait(false);
+        return session;
+    }
+
+    /// <summary>Brings the PDB's types into the engine database (also used by the tools to report the type source).</summary>
+    public NativePdbTypes PdbTypes { get; } = new();
+
+    private async Task<INativeDecompilerSession> SessionCore(LoadedNative native, string? engine, IProgress<NativeProviderProgress>? progress, CancellationToken ct)
+    {
         var holder = Holder(native);
         var session = await Base(native, holder, engine, progress, ct).ConfigureAwait(false);
         await holder.Sync.WaitAsync(ct).ConfigureAwait(false);
@@ -174,7 +187,8 @@ public sealed class NativeEngineService : IDisposable
             {
                 holder.DisposePatched();
                 holder.PatchedState = key;
-                holder.Patched = OpenPatched(native, engine, progress);
+                holder.PatchedPdb = PdbService.PathForEngines(native);
+                holder.Patched = OpenPatched(native, engine, progress, holder.PatchedPdb);
             }
             return await Wait(native, holder.Patched, ct).ConfigureAwait(false);
         }
@@ -195,9 +209,10 @@ public sealed class NativeEngineService : IDisposable
                 return Wait(native, existing, ct);
             var provider = Provider(engine);
             holder.SyncedKey = null;
+            holder.OpenedPdb = PdbService.PathForEngines(native);
             // The open is not tied to this call's cancellation (a later call reuses the same analysis) but ends when the image is unloaded or reloaded.
             holder.Opening = provider.OpenAsync(native.FilePath, native.OriginalSha256,
-                new NativeOpenOptions { Progress = progress, PdbPath = PdbService.PathForEngines(native) }, native.Released);
+                new NativeOpenOptions { Progress = progress, PdbPath = holder.OpenedPdb }, native.Released);
             // Once open, the library functions the engine recognized become the image's ida name layer.
             holder.LibraryNames = holder.Opening.ContinueWith(async opened =>
             {
@@ -210,7 +225,7 @@ public sealed class NativeEngineService : IDisposable
     }
 
     /// <summary>Opens a session on the patched bytes (written to a private file; the engine keeps its own copy per hash).</summary>
-    private Task<INativeDecompilerSession> OpenPatched(LoadedNative native, string? engine, IProgress<NativeProviderProgress>? progress)
+    private Task<INativeDecompilerSession> OpenPatched(LoadedNative native, string? engine, IProgress<NativeProviderProgress>? progress, string? pdbPath)
     {
         var provider = Provider(engine);
         return Task.Run(async () =>
@@ -223,7 +238,7 @@ public sealed class NativeEngineService : IDisposable
             await File.WriteAllBytesAsync(path, bytes, native.Released).ConfigureAwait(false);
             try
             {
-                return await provider.OpenAsync(path, sha, new NativeOpenOptions { Progress = progress, PdbPath = PdbService.PathForEngines(native) },
+                return await provider.OpenAsync(path, sha, new NativeOpenOptions { Progress = progress, PdbPath = pdbPath },
                     native.Released).ConfigureAwait(false);
             }
             finally
@@ -269,6 +284,8 @@ public sealed class NativeEngineService : IDisposable
         /// <summary>A session on the patched bytes, for a patch set the database could not take, and that set's key.</summary>
         public Task<INativeDecompilerSession>? Patched;
         public string? PatchedState;
+        /// <summary>The PDB paths the sessions were opened with (the engine searched there first during analysis).</summary>
+        public string? OpenedPdb, PatchedPdb;
 
         public void DisposePatched()
         {

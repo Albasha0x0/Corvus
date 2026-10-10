@@ -45,7 +45,8 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs, Outpu
                  "download=true (off by default) fetches it from a symbol server (server, else those in _NT_SYMBOL_PATH, else Microsoft's) into a per-user cache. " +
                  "Names show up as source 'pdb' in list_functions, disassemble and cross-references; user names (rename_native) are kept. Functions the PDB " +
                  "names that discovery missed become function starts (the index rebuilds in the background). A matching local PDB is also read " +
-                 "automatically when the index is first built. The names of a load_pdb are saved with the image's annotations (PDB path, GUID and age, " +
+                 "automatically when the index is first built. The next decompile_native loads the PDB's types (structs, enums, prototypes) into " +
+                 "the IDA database. The names of a load_pdb are saved with the image's annotations (PDB path, GUID and age, " +
                  "names, function starts) and reapplied automatically when the same file is loaded again, even when the PDB has moved; clear=true " +
                  "removes the PDB names and the saved copy.")]
     public Task<string> LoadPdb(

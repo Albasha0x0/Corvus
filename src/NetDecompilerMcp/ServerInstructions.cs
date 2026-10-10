@@ -80,7 +80,9 @@ internal static class ServerInstructions
            IDA: ARM64 / ARM images get list_functions, disassemble, get_cfg, find_xrefs and native_call_tree through IDA when it is
            installed (marked "(via IDA)"). Name priority: user > pdb > il2cpp > ida (library functions IDA recognized, flagged
            `library`) > discovered. decompile_native applies patches and undo inside the IDA database (no re-analysis) and pushes
-           Il2Cpp prototypes and MSVC RTTI class types (pseudocode shows Class *this, this->__vftable->...). --ida-prewarm or
+           Il2Cpp prototypes and MSVC RTTI class types (pseudocode shows Class *this, this->__vftable->...). With a PDB (beside the
+           image or via load_pdb) it first loads the PDB's structs, enums, typedefs and prototypes into the database, once per PDB,
+           through IDA's PDB loader or else the server's own PDB type reader; the first output line names the type source. --ida-prewarm or
            NDM_IDA_PREWARM=1 analyzes images in IDA in the background as they load (server_status shows the progress).
         9. Crash dumps (user-mode .dmp): open_minidump (exception, faulting module+function and instruction, modules and whether the
            binaries exist locally, threads), dump_stack (x64 unwind data, x86 frame pointers; scanned frames marked heuristic),
