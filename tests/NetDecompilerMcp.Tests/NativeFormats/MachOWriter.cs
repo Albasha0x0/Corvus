@@ -454,7 +454,8 @@ internal sealed class MachOWriter
                 if (chainStarts.Count == 1) pageStarts.Add(chainStarts[0]);
                 else
                 {
-                    pageStarts.Add((ushort)(0x8000 | overflow.Count));
+                    // DYLD_CHAINED_PTR_START_MULTI indexes page_start past page_count, where the chain starts are listed.
+                    pageStarts.Add((ushort)(0x8000 | (pageCount + overflow.Count)));
                     for (int c = 0; c < chainStarts.Count; c++) overflow.Add((ushort)(chainStarts[c] | (c + 1 == chainStarts.Count ? 0x8000 : 0)));
                 }
             }

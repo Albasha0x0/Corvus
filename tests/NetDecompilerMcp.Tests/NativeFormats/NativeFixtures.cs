@@ -56,6 +56,10 @@ public static class LlvmOracle
         public const string LinkBothHashes = "-Wl,--hash-style=both";
         public const string LinkBuildId = "-Wl,--build-id";
         public const string Target = "--target=";
+        public const string LinkChainedFixups = "-Wl,-fixup_chains";
+        public const string LinkNoChainedFixups = "-Wl,-no_fixup_chains";
+        /// <summary>Mach-O without an SDK: undefined symbols are looked up at load time.</summary>
+        public const string LinkMachODynamicLookup = "-Wl,-undefined,dynamic_lookup -Wl,-platform_version,macos,11.0,11.0";
     }
 
     /// <summary>Compiles <paramref name="source"/> (C) with clang into <paramref name="output"/>; null on success, else clang's output.</summary>

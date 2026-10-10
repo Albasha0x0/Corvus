@@ -288,7 +288,7 @@ public sealed class ElfFileTests(ITestOutputHelper output)
         Assert.Equal(starts.Order(), elf.DeclaredFunctions.Where(f => f.Source == DeclaredSource.Unwind).Select(f => f.Rva));
     }
 
-    private const string OracleSource = """
+    internal const string OracleSource = """
         extern void *malloc(unsigned long);
         extern int puts(const char *);
         extern int shared_counter;
