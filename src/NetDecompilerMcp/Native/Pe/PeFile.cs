@@ -2,7 +2,6 @@ using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 using NetDecompilerMcp.Core;
-using NetDecompilerMcp.Services.Analysis;
 
 namespace NetDecompilerMcp.Native.Pe;
 

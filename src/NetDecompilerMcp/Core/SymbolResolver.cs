@@ -198,8 +198,8 @@ public static class SymbolResolver
             var hits = new List<ResolvedSymbol>();
             foreach (var group in refs.Where(level).GroupBy(t => t.FullName))
             {
-                var def = group.Select(t => Services.MetadataUtil.Try(() => t.ResolveTypeDef())).FirstOrDefault(d => d != null);
-                if (def?.Module is ModuleDefMD module && Services.MetadataUtil.IsReferenceOnly(def))
+                var def = group.Select(t => MetadataUtil.Try(() => t.ResolveTypeDef())).FirstOrDefault(d => d != null);
+                if (def?.Module is ModuleDefMD module && MetadataUtil.IsReferenceOnly(def))
                     hits.Add(new ResolvedSymbol(ws.ReferenceView(module), def));
             }
             if (hits.Count > 0) return hits;

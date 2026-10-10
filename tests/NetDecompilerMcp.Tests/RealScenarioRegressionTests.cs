@@ -84,10 +84,10 @@ public sealed class RealScenarioRegressionTests
 
         // The workspace stubs unknown assemblies, but not framework names (System.ComponentModel.TypeConverter in the
         // app above): those references stay unresolved and are compared by name. Outside a workspace nothing resolves.
-        Assert.False(NetDecompilerMcp.Services.MetadataUtil.IsSameMethod(container, ctor));
+        Assert.False(NetDecompilerMcp.Core.MetadataUtil.IsSameMethod(container, ctor));
         var sameType = new MemberRefUser(lib.Module, ".ctor", MethodSig.CreateInstance(lib.T.Void),
             new TypeRefUser(lib.Module, "RefApp", "ViewModel", new AssemblyRefUser("RefApp")));
-        Assert.True(NetDecompilerMcp.Services.MetadataUtil.IsSameMethod(sameType, ctor));
+        Assert.True(NetDecompilerMcp.Core.MetadataUtil.IsSameMethod(sameType, ctor));
     }
 
     /// <summary>

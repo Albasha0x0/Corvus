@@ -341,8 +341,8 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         var embedded = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            embedded = Services.Analysis.Containers.Open(asm.OriginalBytes, asm.FilePath, Services.Analysis.AnalysisLimits.Default, default).Items
-                .Where(i => Services.Analysis.Blob.Identify(i.Bytes) == ".NET assembly" && i.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            embedded = Containers.Open(asm.OriginalBytes, asm.FilePath, AnalysisLimits.Default, default).Items
+                .Where(i => Core.Blob.Identify(i.Bytes) == ".NET assembly" && i.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
                 .GroupBy(i => Path.GetFileNameWithoutExtension(i.Name), StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.First().Bytes, StringComparer.OrdinalIgnoreCase);
         }

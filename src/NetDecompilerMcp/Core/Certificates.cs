@@ -4,7 +4,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.Pkcs;
 using System.Security.Cryptography.X509Certificates;
 
-namespace NetDecompilerMcp.Services.Analysis;
+namespace NetDecompilerMcp.Core;
 
 /// <summary>
 /// Authenticode signature details. DigestMatches is false when the file changed after signing; Problem is set when the

@@ -1,7 +1,6 @@
 using dnlib.DotNet;
 using dnlib.DotNet.Emit;
 using dnlib.DotNet.Writer;
-using NetDecompilerMcp.Services;
 
 namespace NetDecompilerMcp.Core;
 
@@ -129,7 +128,7 @@ internal static class ReferenceStubs
                 foreach (var c in gp.GenericParamConstraints)
                 {
                     if (c.Constraint is not { } constraint || constraint.FullName == "System.ValueType") continue;
-                    var resolved = Services.MetadataUtil.Try(() => constraint.ResolveTypeDef());
+                    var resolved = MetadataUtil.Try(() => constraint.ResolveTypeDef());
                     if (resolved?.IsInterface == true || IsMissing(constraint) && types.TryGetValue(constraint.FullName, out var mi) && mi.Interface)
                     {
                         if (!info.Implements.Any(x => x.FullName == constraint.FullName)) info.Implements.Add(constraint);
@@ -173,12 +172,12 @@ internal static class ReferenceStubs
                 if (m.ResolveMethodSpec(rid) is { GenericInstMethodSig: { } inst } spec)
                 {
                     foreach (var a in inst.GenericArguments) Visit(a);
-                    if (Services.MetadataUtil.Try(() => spec.Method.ResolveMethodDef()) is { } generic)
+                    if (MetadataUtil.Try(() => spec.Method.ResolveMethodDef()) is { } generic)
                         Constrain(generic.GenericParameters, inst.GenericArguments);
                 }
             for (uint rid = 1; rid <= m.TablesStream.TypeSpecTable.Rows; rid++)
                 if (m.ResolveTypeSpec(rid)?.TypeSig is GenericInstSig { GenericType.TypeDefOrRef: { } open } gi
-                    && Services.MetadataUtil.Try(() => open.ResolveTypeDef()) is { } genericType)
+                    && MetadataUtil.Try(() => open.ResolveTypeDef()) is { } genericType)
                     Constrain(genericType.GenericParameters, gi.GenericArguments);
             for (uint rid = 1; rid <= m.TablesStream.MemberRefTable.Rows; rid++)
             {
@@ -359,7 +358,7 @@ internal static class ReferenceStubs
                 ITypeDefOrRef imported = iface is TypeRef itr && types.TryGetValue(itr.FullName, out var local) && local.Def != null ? local.Def : importer.Import(iface);
                 def.Interfaces.Add(new InterfaceImplUser(imported));
                 // Add the resolvable non-generic interface's abstract methods so the stub implements it.
-                if (Services.MetadataUtil.Try(() => iface.ResolveTypeDef()) is { HasGenericParameters: false } declared)
+                if (MetadataUtil.Try(() => iface.ResolveTypeDef()) is { HasGenericParameters: false } declared)
                     foreach (var im in declared.Methods.Where(x => !x.IsStatic && x.IsAbstract && x.MethodSig != null))
                         t.Members.TryAdd($"M:{im.Name}:{im.MethodSig}", new Member { Name = im.Name, Sig = im.MethodSig, Virtual = true });
             }

@@ -1,5 +1,6 @@
 using dnlib.DotNet;
 using dnlib.DotNet.Emit;
+using NetDecompilerMcp.Core;
 
 namespace NetDecompilerMcp.Services.Simplify;
 

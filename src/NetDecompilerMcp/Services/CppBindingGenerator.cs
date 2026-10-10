@@ -1,7 +1,7 @@
 using System.Text;
 using dnlib.DotNet;
 using NetDecompilerMcp.Core;
-using static NetDecompilerMcp.Services.MetadataUtil;
+using static NetDecompilerMcp.Core.MetadataUtil;
 
 namespace NetDecompilerMcp.Services;
 

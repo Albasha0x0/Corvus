@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using ModelContextProtocol.Server;
+using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Services.Analysis;
 using static NetDecompilerMcp.Tools.ToolSupport;
 

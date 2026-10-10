@@ -4,9 +4,8 @@ using System.Reflection.Metadata.Ecma335;
 using System.Runtime.CompilerServices;
 using dnlib.DotNet;
 using dnlib.DotNet.Emit;
-using NetDecompilerMcp.Core;
 
-namespace NetDecompilerMcp.Services;
+namespace NetDecompilerMcp.Core;
 
 /// <summary>
 /// Decodes method bodies from the in-memory image with System.Reflection.Metadata; materializing dnlib bodies costs

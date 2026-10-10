@@ -638,9 +638,9 @@ public sealed class AssemblyWorkspace : IDisposable
                 var map = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
                 try
                 {
-                    var contents = Services.Analysis.Containers.Open(host.OriginalBytes, host.FilePath, Services.Analysis.AnalysisLimits.Default, default);
+                    var contents = Containers.Open(host.OriginalBytes, host.FilePath, AnalysisLimits.Default, default);
                     foreach (var item in contents.Items)
-                        if (Services.Analysis.Blob.Identify(item.Bytes) == ".NET assembly")
+                        if (Blob.Identify(item.Bytes) == ".NET assembly")
                             map[Path.GetFileNameWithoutExtension(item.Name)] = item.Bytes;
                 }
                 catch (Exception) { }
@@ -716,7 +716,7 @@ public sealed class AssemblyWorkspace : IDisposable
                     try
                     {
                         module = ModuleDefMD.Load(target.Bytes ?? File.ReadAllBytes(target.File!), ws.DnlibContext);
-                        Services.MetadataUtil.MarkReferenceOnly(module);
+                        MetadataUtil.MarkReferenceOnly(module);
                         // Location drives where this module's own references resolve; embedded images use the requester's folder.
                         module.Location = target.File ?? (requester != null ? Path.Combine(SafeDirectory(requester) ?? "", name + ".dll") : name + ".dll");
                         module.EnableTypeDefFindCache = true;

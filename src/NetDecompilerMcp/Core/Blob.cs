@@ -1,9 +1,8 @@
 using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Security.Cryptography;
-using NetDecompilerMcp.Core;
 
-namespace NetDecompilerMcp.Services.Analysis;
+namespace NetDecompilerMcp.Core;
 
 /// <summary>Size limits for everything decoded, decompressed or extracted (they bound decompression bombs).</summary>
 public sealed record AnalysisLimits

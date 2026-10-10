@@ -1,4 +1,5 @@
-using NetDecompilerMcp.Services.Analysis;
+using NetDecompilerMcp.Core;
+
 
 namespace NetDecompilerMcp.Native.Pe;
 

@@ -61,7 +61,7 @@ public static class NameMigration
             string value = item.Value;
             if (item.Source != NativeNameSource.User)
             {
-                value = Services.Il2CppNativeNames.Identifier(item.Value);
+                value = NativeName.Identifier(item.Value);
                 if (value.Length > NativeName.MaxLength) value = value[..NativeName.MaxLength];
             }
             try { value = NativeName.Validate(value); }

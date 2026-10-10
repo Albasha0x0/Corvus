@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
 
-namespace NetDecompilerMcp.Services.Analysis;
+namespace NetDecompilerMcp.Core;
 
 /// <summary>Minimal, bounds-checked PE header parser. Never throws on malformed input.</summary>
 public sealed class PeImage

@@ -112,16 +112,16 @@ public sealed class Il2CppNativeNamesTests : IDisposable
     [Fact]
     public void IdentifiersAreValidNames()
     {
-        Assert.Equal("Fixture_Native_NativeThing__First", Il2CppNativeNames.Identifier("Fixture.Native.NativeThing$$First"));
-        Assert.Equal("System_Collections_Generic_Dictionary_string_int__Add", Il2CppNativeNames.Identifier("System.Collections.Generic.Dictionary<string, int>$$Add"));
-        Assert.Equal("List_int", Il2CppNativeNames.Identifier("List<int>"));
-        Assert.Equal("_c__DisplayClass1_0___Run_b__0", Il2CppNativeNames.Identifier("<>c__DisplayClass1_0$$<Run>b__0"));
-        Assert.Equal("Method_Ns_Type_M", Il2CppNativeNames.Identifier("Method$Ns.Type.M"));
-        Assert.Equal("_1abc", Il2CppNativeNames.Identifier("1abc"));
-        Assert.Equal("Au4E2DB", Il2CppNativeNames.Identifier("A中B"));
+        Assert.Equal("Fixture_Native_NativeThing__First", NativeName.Identifier("Fixture.Native.NativeThing$$First"));
+        Assert.Equal("System_Collections_Generic_Dictionary_string_int__Add", NativeName.Identifier("System.Collections.Generic.Dictionary<string, int>$$Add"));
+        Assert.Equal("List_int", NativeName.Identifier("List<int>"));
+        Assert.Equal("_c__DisplayClass1_0___Run_b__0", NativeName.Identifier("<>c__DisplayClass1_0$$<Run>b__0"));
+        Assert.Equal("Method_Ns_Type_M", NativeName.Identifier("Method$Ns.Type.M"));
+        Assert.Equal("_1abc", NativeName.Identifier("1abc"));
+        Assert.Equal("Au4E2DB", NativeName.Identifier("A中B"));
         // C identifiers: IDA's x86/x64 name characters are letters, digits and '_' (it rewrites '$')
         foreach (var name in new[] { "Fixture.Native.NativeThing$$First", "<>c$$<M>b__0_0", "x.y<z>[]", "\u0001", "a$b@c" })
-            Assert.Matches("^[A-Za-z_][A-Za-z0-9_]*$", Il2CppNativeNames.Identifier(name));
+            Assert.Matches("^[A-Za-z_][A-Za-z0-9_]*$", NativeName.Identifier(name));
     }
 
     [Fact]

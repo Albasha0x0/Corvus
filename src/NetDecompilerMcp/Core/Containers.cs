@@ -3,9 +3,8 @@ using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
 using dnlib.DotNet;
-using NetDecompilerMcp.Core;
 
-namespace NetDecompilerMcp.Services.Analysis;
+namespace NetDecompilerMcp.Core;
 
 /// <summary>A file extracted from a container; Origin describes its location and decoding.</summary>
 public sealed record ExtractedItem(string Name, byte[] Bytes, string Origin);

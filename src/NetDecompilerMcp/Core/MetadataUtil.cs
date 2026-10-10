@@ -1,8 +1,7 @@
 using dnlib.DotNet;
 using dnlib.DotNet.Emit;
-using NetDecompilerMcp.Core;
 
-namespace NetDecompilerMcp.Services;
+namespace NetDecompilerMcp.Core;
 
 /// <summary>A page of results plus the total number found.</summary>
 public sealed record SearchResult<T>(List<T> Items, int Total)

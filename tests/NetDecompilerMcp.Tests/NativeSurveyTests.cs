@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using Iced.Intel;
+using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native;
 using NetDecompilerMcp.Native.Code;
 using NetDecompilerMcp.Services.Analysis;

@@ -1,6 +1,6 @@
 using dnlib.DotNet;
 using dnlib.DotNet.Emit;
-using NetDecompilerMcp.Services;
+using NetDecompilerMcp.Core;
 
 namespace NetDecompilerMcp.Tests;
 

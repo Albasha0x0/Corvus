@@ -316,7 +316,7 @@ public static class Format
         null when arg.Type is SZArraySig => "null",
         CAArgument boxed => AttributeArgument(boxed),
         TypeSig type => $"typeof({Type(type)})",
-        _ when arg.Type is ValueTypeSig vt && Services.MetadataUtil.Try(() => vt.TypeDefOrRef.ResolveTypeDef()) is { IsEnum: true } e => EnumValue(e, arg.Value),
+        _ when arg.Type is ValueTypeSig vt && MetadataUtil.Try(() => vt.TypeDefOrRef.ResolveTypeDef()) is { IsEnum: true } e => EnumValue(e, arg.Value),
         _ => Literal(arg.Value),
     };
 

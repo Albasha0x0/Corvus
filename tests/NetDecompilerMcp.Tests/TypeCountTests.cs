@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Services;
 using NetDecompilerMcp.Tools;
 

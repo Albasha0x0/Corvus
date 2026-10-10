@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native;
+using NetDecompilerMcp.Native.Annotations;
 using NetDecompilerMcp.Native.Code;
 
 namespace NetDecompilerMcp.Services;
@@ -27,7 +28,6 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
 {
     /// <summary>Most other methods listed in a shared function's comment.</summary>
     public const int SharedListed = 8;
-    private const int MaxNameLength = 200;
     private const int MaxCommentText = 200;
 
     private static readonly ConditionalWeakTable<LoadedNative, Applied> AppliedTable = new();
@@ -79,7 +79,7 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
             var labels = methods.Select(m => (Key: Il2CppNames.MethodKey(m.Method), Readable: Format.MemberLabel(m.Method)))
                 .Concat(scriptMethods.Select(e => (Key: script!.MethodName(e), Readable: script.MethodName(e).Replace("$$", "::"))))
                 .ToList();
-            names[start] = Unique(Identifier(labels[0].Key), start);
+            names[start] = Unique(NativeName.Identifier(labels[0].Key), start);
             var comment = new StringBuilder(labels[0].Readable);
             if (total > 1)
             {
@@ -131,7 +131,7 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
                 if (!Mapped(rva)) { outside++; continue; }
                 if (names.ContainsKey(rva)) continue;
                 var name = script.MetadataName(e);
-                names[rva] = Unique(Identifier(name), rva);
+                names[rva] = Unique(NativeName.Identifier(name), rva);
                 comments[rva] = name;
                 metadata++;
             }
@@ -145,7 +145,7 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
                         uint rva = (uint)m.Address;
                         if (names.ContainsKey(rva)) return;
                         var name = m.Name.EndsWith("()", StringComparison.Ordinal) ? m.Name[..^2] : m.Name;
-                        names[rva] = Unique(Identifier(name), rva);
+                        names[rva] = Unique(NativeName.Identifier(name), rva);
                         comments[rva] = m.MethodAddress is > 0 and <= uint.MaxValue ? $"{m.Name}: code at rva 0x{m.MethodAddress:X}" : $"{m.Name}: no code of its own";
                         methodInfos++;
                     }, ct);
@@ -233,43 +233,6 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
                 $"None of the {image.Starts.Length} function addresses of the dump ({string.Join(", ", image.Assemblies.Select(a => a.Id))}) is in an executable section of {native.Id}: " +
                 "the dump was not made from this binary.", "load the game's GameAssembly.dll, or the dummy assemblies dumped from this binary");
         return image;
-    }
-
-    /// <summary>The identifier for an Il2Cpp name (see the class summary).</summary>
-    public static string Identifier(string text)
-    {
-        var sb = new StringBuilder(Math.Min(text.Length, MaxNameLength) + 4);
-        bool replaced = false;
-        for (int i = 0; i < text.Length; i++)
-        {
-            char c = text[i];
-            if (sb.Length >= MaxNameLength) break;
-            if (c == '$' && i + 1 < text.Length && text[i + 1] == '$')
-            {
-                if (replaced) sb.Length--; // "List<int>$$Add" -> "List_int__Add"
-                sb.Append("__");
-                replaced = false;
-                i++;
-            }
-            else if (c is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9') or '_')
-            {
-                sb.Append(c);
-                replaced = false;
-            }
-            else if (c > 0x7F && char.IsLetterOrDigit(c))
-            {
-                sb.Append($"u{(int)c:X4}");
-                replaced = false;
-            }
-            else if (!replaced)
-            {
-                sb.Append('_');
-                replaced = true;
-            }
-        }
-        if (replaced && sb.Length > 1) sb.Length--; // a trailing replacement ("List<int>" -> "List_int")
-        if (sb.Length == 0 || char.IsDigit(sb[0])) sb.Insert(0, '_');
-        return sb.ToString();
     }
 
     private static string Quote(string text)

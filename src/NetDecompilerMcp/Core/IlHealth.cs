@@ -4,7 +4,7 @@ using System.Reflection.PortableExecutable;
 using dnlib.DotNet.Emit;
 using OperandType = dnlib.DotNet.Emit.OperandType;
 
-namespace NetDecompilerMcp.Services;
+namespace NetDecompilerMcp.Core;
 
 /// <summary>
 /// Whether method bodies hold valid IL. A body is invalid when it contains an unknown opcode, an operand runs past the

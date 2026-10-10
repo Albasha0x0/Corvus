@@ -4,7 +4,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using NetDecompilerMcp.Core;
-using static NetDecompilerMcp.Services.MetadataUtil;
+using static NetDecompilerMcp.Core.MetadataUtil;
 using SF = Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
 
 namespace NetDecompilerMcp.Services;

@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Text;
 using System.Text.RegularExpressions;
 using dnlib.DotNet;
+using NetDecompilerMcp.Core;
 
 namespace NetDecompilerMcp.Services.Analysis;
 

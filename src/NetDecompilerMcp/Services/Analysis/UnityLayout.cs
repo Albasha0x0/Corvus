@@ -1,3 +1,5 @@
+using NetDecompilerMcp.Core;
+
 namespace NetDecompilerMcp.Services.Analysis;
 
 /// <summary>

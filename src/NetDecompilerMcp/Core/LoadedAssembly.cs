@@ -53,10 +53,10 @@ public sealed class LoadedAssembly : IDisposable
     /// <summary>SHA-256 (lowercase hex) of the image as loaded; computed once.</summary>
     public string OriginalSha256 => _originalSha256 ??= Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(_originalBytes));
 
-    private Services.IlHealth.Result? _bodyHealth;
+    private IlHealth.Result? _bodyHealth;
 
     /// <summary>Method bodies of the original image that are not valid IL (encrypted or dumped images); computed once.</summary>
-    public Services.IlHealth.Result BodyHealth => _bodyHealth ??= Services.IlHealth.Assess(_originalBytes);
+    public IlHealth.Result BodyHealth => _bodyHealth ??= IlHealth.Assess(_originalBytes);
 
     /// <summary>Incremented on every module change; invalidates cached images and the decompiler view.</summary>
     public int Version { get; private set; }
