@@ -4,6 +4,8 @@
 # Unsolicited lines: {"event": "progress", "op": ..., "elapsed": seconds}.
 # Anything IDA or Python prints goes to stderr: fd 1 is redirected there before idalib loads.
 # Addresses on the wire are RVAs relative to the database image base.
+# The user type, local, stack frame, member reference, declaration and Python ops adapt code from mrexodia/ida-pro-mcp
+# (MIT, Copyright (c) 2025 Duncan Ogilvie); see THIRD-PARTY-NOTICES.md.
 import json
 import os
 import sys
@@ -489,6 +491,7 @@ def op_apply_types(args):
     #   "bases": [[name, offset]]}], "methods": [[rva, class name]]}: a <name>_vftable struct per vftable (slot function
     #   pointers typed from the target's type when it has one), a <name> struct (vftable pointers at their subobject
     #   offsets, base subobjects there), the vftables typed, and the methods' first argument set to <name>*.
+    # Addresses the user typed (apply_user_types) keep their type.
     m = need_open()
     import ida_typeinf as ti
     import idc
@@ -499,6 +502,8 @@ def op_apply_types(args):
     if decls:
         result["decl_errors"] = idc.parse_decls(decls, idc.PT_SILENT)
     for rva, decl in args.get("prototypes") or []:
+        if user_typed(rva):
+            continue
         ea = _state["base"] + rva
         if m.ida_funcs.get_func(ea) is None:
             m.ida_funcs.add_func(ea, m.idautils.ida_idaapi.BADADDR)
@@ -634,7 +639,7 @@ def apply_classes(m, ti, til, model, result):
                 result["structs"] += 1
                 vt = named(vname)
                 vmembers[offset] = vt
-                if vt is not None and ti.apply_tinfo(base + vrva, vt, ti.TINFO_DEFINITE):
+                if vt is not None and not user_typed(vrva) and ti.apply_tinfo(base + vrva, vt, ti.TINFO_DEFINITE):
                     result["vftables_typed"] += 1
         members = []
         taken = set()
@@ -721,6 +726,98 @@ def op_virtual_targets(args):
     return {"rows": rows, "decompiled": decompiled, "failed": failed, "skipped": skipped, "decompiler": True}
 
 
+USER_NODE = "$ netdecompilermcp user types"  # altval(rva) = 1: a type set by the user, kept by apply_types
+
+
+def user_node(create):
+    import ida_netnode
+    n = ida_netnode.netnode(USER_NODE, 0, create)
+    return n if n != ida_netnode.BADNODE else None
+
+
+def user_typed(rva):
+    n = user_node(False)
+    return n is not None and n.altval(rva) == 1
+
+
+def parse_type(ti, text, function):
+    # A C type ("int[4]", "struct Foo *") or a declaration ("int __fastcall f(Foo *this, int n)"); None when it does not parse.
+    text = text.strip().rstrip(";").strip()
+    if not function:
+        t = ti.tinfo_t()
+        if t.get_named_type(None, text):
+            return t
+    # an abstract type gets a declarator name where C wants it: "int[4]" -> "int x[4]", "int (*)(int)" -> "int (*x)(int)"
+    named = text.replace("(*)", "(*__ndm_x)", 1) if "(*)" in text else \
+        text[:text.index("[")] + " __ndm_x" + text[text.index("["):] if "[" in text else text + " __ndm_x"
+    for candidate in (text + ";", named + ";"):
+        for flags in (ti.PT_SIL, ti.PT_SIL | ti.PT_TYP):
+            t = ti.tinfo_t()
+            try:
+                if ti.parse_decl(t, None, candidate, flags) is not None and not t.empty():
+                    return t
+            except BaseException:
+                pass
+    return None
+
+
+def type_text(ti, tif, name):
+    return ti.print_tinfo("", 0, 0, ti.PRTYPE_1LINE, tif, name or "", "") or str(tif)
+
+
+def apply_user_type(m, ti, rva, decl):
+    # [kind, rva, target, applied, error, resolved, stack, text]
+    ea = _state["base"] + rva
+    if not m.ida_bytes.is_loaded(ea):
+        return ["type", rva, decl, False, "rva 0x%X is not in the image" % rva, None, None, None]
+    node = user_node(True)
+    f = m.ida_funcs.get_func(ea)
+    function = f is not None and f.start_ea == ea
+    if f is not None and not function and m.ida_bytes.is_code(m.ida_bytes.get_flags(ea)):
+        return ["type", rva, decl, False, "rva 0x%X is inside the function at rva 0x%X: pass the function's start" % (rva, rva_of(f.start_ea) or 0),
+                None, None, None]
+    name = m.ida_name.get_name(ea) or ""
+    if not decl:
+        m.ida_nalt.del_tinfo(ea)
+        node.altdel(rva)
+        if function and hexrays_ready(m):
+            m.ida_hexrays.mark_cfunc_dirty(ea, False)
+        return ["type", rva, "", True, None, None, None, None]
+    tif = parse_type(ti, decl, function)
+    if tif is None:
+        return ["type", rva, decl, False, "the type does not parse (types it names must be declared first)", None, None, None]
+    if function and not tif.is_func():
+        return ["type", rva, decl, False, "rva 0x%X starts a function: give a prototype such as 'int __fastcall f(int a)'" % rva, None, None, None]
+    if not ti.apply_tinfo(ea, tif, ti.TINFO_DEFINITE):
+        return ["type", rva, decl, False, "IDA did not apply the type at rva 0x%X" % rva, None, None, None]
+    node.altset(rva, 1)
+    if function and hexrays_ready(m):
+        m.ida_hexrays.mark_cfunc_dirty(ea, False)
+    got = ti.tinfo_t()
+    m.ida_nalt.get_tinfo(got, ea)
+    return ["type", rva, decl, True, None, None, None, type_text(ti, got, name if function else "")]
+
+
+def op_apply_user_types(args):
+    # decls: [C declarations]; types: [[rva, C type or prototype; "" clears]]; stack: [[function, offset, name, type]];
+    # locals: [[function, local, stack offset or null, name, type]]. Items report [kind, rva, target, applied, error, resolved, stack, text].
+    m = need_open()
+    import ida_typeinf as ti
+    start = time.time()
+    result = {"decl_errors": 0, "decl_messages": [], "items": []}
+    for rva, decl in args.get("types") or []:
+        result["items"].append(apply_user_type(m, ti, rva, decl or ""))
+    changed(m)
+    key = args.get("stamp_key")
+    if key:
+        stamp_node(True).hashset_buf(key, args.get("stamp") or "")
+    if args.get("save"):
+        if not m.ida_loader.save_database(m.ida_loader.get_path(m.ida_loader.PATH_TYPE_IDB), 0):
+            raise WorkerError("io_error", "save_database failed")
+    result["seconds"] = round(time.time() - start, 3)
+    return result
+
+
 STAMP_NODE = "$ netdecompilermcp stamps"
 
 
@@ -803,6 +900,7 @@ def op_load_pdb(args):
     if result["loaded"]:
         stamps = stamp_node(True)
         stamps.hashdel("names")
+        stamps.hashdel("user_types")  # the PDB's prototypes may replace the user's: push them again
         key = args.get("stamp_key")
         if key:
             stamps.hashset_buf(key, args.get("stamp") or "")
@@ -846,7 +944,7 @@ OPS = {"hello": op_hello, "open": op_open, "rebase": op_rebase, "functions": op_
        "disasm": op_disasm, "disasm_range": op_disasm_range, "blocks": op_blocks, "xrefs_to": op_xrefs_to, "xrefs_from": op_xrefs_from, "set_name": op_set_name,
        "set_comment": op_set_comment, "apply_names": op_apply_names, "get_stamp": op_get_stamp, "save": op_save,
        "sync_patches": op_sync_patches, "apply_types": op_apply_types, "load_pdb": op_load_pdb, "virtual_targets": op_virtual_targets,
-       "close": op_close, "sleep": op_sleep}
+       "apply_user_types": op_apply_user_types, "close": op_close, "sleep": op_sleep}
 
 
 def watch_parent(parent):

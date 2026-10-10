@@ -17,7 +17,30 @@ public sealed class AnnotationDocument
     [JsonPropertyName("names")] public Dictionary<string, string> Names { get; set; } = new();
     [JsonPropertyName("comments")] public Dictionary<string, string> Comments { get; set; } = new();
 
-    public bool IsEmpty => Names.Count == 0 && Comments.Count == 0;
+    // The user's engine types (UserTypeLayer); absent when there are none.
+    [JsonPropertyName("declarations"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<string>? Declarations { get; set; }
+    [JsonPropertyName("types"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public Dictionary<string, string>? Types { get; set; }
+    [JsonPropertyName("locals"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public Dictionary<string, List<LocalEntry>>? Locals { get; set; }
+    [JsonPropertyName("stackVars"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public Dictionary<string, List<StackVarEntry>>? StackVars { get; set; }
+
+    public sealed class LocalEntry
+    {
+        [JsonPropertyName("local")] public string Local { get; set; } = "";
+        [JsonPropertyName("stack")] public int? Stack { get; set; }
+        [JsonPropertyName("name")] public string? Name { get; set; }
+        [JsonPropertyName("type")] public string? Type { get; set; }
+    }
+
+    public sealed class StackVarEntry
+    {
+        [JsonPropertyName("offset")] public int Offset { get; set; }
+        [JsonPropertyName("name")] public string? Name { get; set; }
+        [JsonPropertyName("type")] public string? Type { get; set; }
+    }
+
+    public bool HasUserTypes => Declarations is { Count: > 0 } || Types is { Count: > 0 } || Locals is { Count: > 0 } || StackVars is { Count: > 0 };
+
+    public bool IsEmpty => Names.Count == 0 && Comments.Count == 0 && !HasUserTypes;
 }
 
 /// <summary>
@@ -32,8 +55,8 @@ public sealed class AnnotationStore
 {
     public const string RootVariable = "NDM_ANNOTATIONS_DIR";
 
-    /// <summary>The sidecar format this build writes; a newer one is left untouched.</summary>
-    public const int FormatVersion = 1;
+    /// <summary>The newest sidecar format this build reads; a newer one is left untouched.</summary>
+    public const int FormatVersion = 2;
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
@@ -108,7 +131,8 @@ public sealed class AnnotationStore
     public string? Save(AnnotationDocument document)
     {
         var file = FileFor(document.Sha256);
-        document.FormatVersion = FormatVersion;
+        // version 2 adds user types; without them the file stays version 1, which older builds still read and write
+        document.FormatVersion = document.HasUserTypes ? FormatVersion : 1;
         var bytes = JsonSerializer.SerializeToUtf8Bytes(document, Json);
         lock (WriteGates.GetOrAdd(file, _ => new object()))
             for (int attempt = 0; ; attempt++)

@@ -94,7 +94,8 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     });
 
     [McpServerTool(Name = "export_native_annotations", Title = "Export native annotations")]
-    [Description("Write the image's names and comments as an IDAPython script (format=ida), a Ghidra script (format=ghidra) or JSON (format=json). " +
+    [Description("Write the image's names and comments as an IDAPython script (format=ida), a Ghidra script (format=ghidra) or JSON (format=json); " +
+                 "the IDA script and JSON also carry the user's engine types (declarations, prototypes and global types, stack variables, locals). " +
                  "Scripts apply by RVA rebased to the database's own image base at run time.")]
     public Task<string> ExportNativeAnnotations(
         [Description(NativeTools.ImageDescription)] string image,
@@ -109,7 +110,8 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         var ann = edits.Annotations(native);
         var text = AnnotationExport.Render(ann, fmt);
         var target = SafeFile.WriteAllText(outputPath, text, overwrite);
-        return $"Exported {ann.NameCount} name(s) and {ann.CommentCount} comment(s) to {target} ({fmt} format).";
+        return $"Exported {ann.NameCount} name(s), {ann.CommentCount} comment(s) and {ann.UserTypes.Count} user type(s) to {target} ({fmt} format)" +
+               (fmt == AnnotationExport.Format.Ghidra && ann.UserTypes.Count > 0 ? "; user types are not in Ghidra scripts." : ".");
     });
 
     [McpServerTool(Name = "patch_bytes", Title = "Patch native bytes")]

@@ -1,4 +1,5 @@
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Native.Providers;
 
 namespace NetDecompilerMcp.Native.Annotations;
 
@@ -45,10 +46,46 @@ public sealed class NativeAnnotations
         {
             foreach (var (k, v) in doc.Names) if (Rva(k) is { } r) _names[r] = v;
             foreach (var (k, v) in doc.Comments) if (Rva(k) is { } r) _comments[r] = v;
+            _userTypes = UserTypesOf(doc);
+        }
+    }
+
+    private static UserTypeLayer UserTypesOf(AnnotationDocument doc)
+    {
+        if (!doc.HasUserTypes) return UserTypeLayer.Empty;
+        var types = new Dictionary<uint, string>();
+        foreach (var (k, v) in doc.Types ?? []) if (Rva(k) is { } r && !string.IsNullOrWhiteSpace(v)) types[r] = v;
+        var locals = new Dictionary<uint, IReadOnlyList<NativeLocalEdit>>();
+        foreach (var (k, list) in doc.Locals ?? [])
+            if (Rva(k) is { } f && list is { Count: > 0 })
+                locals[f] = list.Where(e => e.Local.Length > 0).Select(e => new NativeLocalEdit(f, e.Local, e.Stack, e.Name, e.Type)).ToList();
+        var stack = new Dictionary<uint, IReadOnlyList<NativeStackVarEdit>>();
+        foreach (var (k, list) in doc.StackVars ?? [])
+            if (Rva(k) is { } f && list is { Count: > 0 }) stack[f] = list.Select(e => new NativeStackVarEdit(f, e.Offset, e.Name, e.Type)).ToList();
+        return new UserTypeLayer(doc.Declarations?.Where(d => !string.IsNullOrWhiteSpace(d)).ToList() ?? [], types, locals, stack);
+    }
+
+    private UserTypeLayer _userTypes = UserTypeLayer.Empty;
+
+    /// <summary>The user's engine types (prototypes, global types, locals, stack members, declarations).</summary>
+    public UserTypeLayer UserTypes { get { lock (_gate) return _userTypes; } }
+
+    /// <summary>Replaces the user types with <paramref name="change"/>'s result and persists; returns the new layer.</summary>
+    public UserTypeLayer ChangeUserTypes(Func<UserTypeLayer, UserTypeLayer> change)
+    {
+        lock (_gate)
+        {
+            var next = change(_userTypes);
+            if (ReferenceEquals(next, _userTypes)) return next;
+            _userTypes = next;
+            Persist();
+            return next;
         }
     }
 
     private static uint? Rva(string hex) => uint.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out var v) ? v : null;
+
+    private static string Hex(uint rva) => rva.ToString("x", System.Globalization.CultureInfo.InvariantCulture);
 
     public int NameCount { get { lock (_gate) return _names.Count; } }
     public int CommentCount { get { lock (_gate) return _comments.Count; } }
@@ -120,6 +157,13 @@ public sealed class NativeAnnotations
         var doc = new AnnotationDocument { Path = FilePath, Sha256 = Sha256, ImageBase = ImageBase };
         foreach (var (r, n) in _names) doc.Names[r.ToString("x")] = n;
         foreach (var (r, c) in _comments) doc.Comments[r.ToString("x")] = c;
+        var u = _userTypes;
+        if (u.Declarations.Count > 0) doc.Declarations = [.. u.Declarations];
+        if (u.Types.Count > 0) doc.Types = u.Types.ToDictionary(t => Hex(t.Key), t => t.Value);
+        if (u.Locals.Count > 0)
+            doc.Locals = u.Locals.ToDictionary(l => Hex(l.Key), l => l.Value.Select(e => new AnnotationDocument.LocalEntry { Local = e.Local, Stack = e.Stack, Name = e.Name, Type = e.Type }).ToList());
+        if (u.StackVars.Count > 0)
+            doc.StackVars = u.StackVars.ToDictionary(s => Hex(s.Key), s => s.Value.Select(e => new AnnotationDocument.StackVarEntry { Offset = e.Offset, Name = e.Name, Type = e.Type }).ToList());
         var problem = _store.Save(doc);
         // One notice per distinct problem, not one per change.
         if (problem != null && problem != _lastSaveProblem) _notify?.Invoke($"Annotations of {FilePath} could not be saved: {problem}");

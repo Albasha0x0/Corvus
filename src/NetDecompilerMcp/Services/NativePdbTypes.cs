@@ -138,6 +138,7 @@ public sealed class NativePdbTypes
             if (loaded.Loaded)
             {
                 NativeNamePush.Forget(session);
+                NativeUserTypePush.Forget(session);
                 return new PdbTypeSource(path, identity, RouteIda, false, loaded.FromAnalysis, Math.Max(0, loaded.TypesAfter - loaded.TypesBefore), null, null, null, null,
                     clock.Elapsed);
             }

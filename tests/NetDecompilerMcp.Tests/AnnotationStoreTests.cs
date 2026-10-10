@@ -78,8 +78,61 @@ public class AnnotationStoreTests : IDisposable
         Assert.Equal("note", ann.CommentAt(0x1000));
         ann.SetComment(0x1000, "changed");
         var doc = Parse(Sidecar);
-        Assert.Equal(AnnotationStore.FormatVersion, doc.GetProperty("formatVersion").GetInt32());
+        Assert.Equal(1, doc.GetProperty("formatVersion").GetInt32());
         Assert.Equal("Legacy", doc.GetProperty("names").GetProperty("1000").GetString());
+    }
+
+    [Fact]
+    public void UserTypes_RoundTrip_AsVersion2_AndWithoutThemTheFileStaysVersion1()
+    {
+        var ann = Open();
+        ann.ChangeUserTypes(l => l.WithDeclarations("struct S { int a; };").WithType(0x1000, "int __fastcall f(S *s)")
+            .WithLocal(new(0x1000, "v3", null, "count", null)).WithLocal(new(0x1000, "count", 0x28, null, "unsigned int"))
+            .WithStackVar(new(0x1000, 0x20, "buffer", "char[16]")));
+        Assert.Equal(2, Parse(Sidecar).GetProperty("formatVersion").GetInt32());
+
+        var again = Open().UserTypes;
+        Assert.Equal(["struct S { int a; };"], again.Declarations);
+        Assert.Equal("int __fastcall f(S *s)", again.Types[0x1000]);
+        // the second edit names the variable by its new name: one edit, identity kept
+        Assert.Equal(new NetDecompilerMcp.Native.Providers.NativeLocalEdit(0x1000, "v3", 0x28, "count", "unsigned int"), Assert.Single(again.Locals[0x1000]));
+        Assert.Equal(new NetDecompilerMcp.Native.Providers.NativeStackVarEdit(0x1000, 0x20, "buffer", "char[16]"), Assert.Single(again.StackVars[0x1000]));
+        Assert.Equal(ann.UserTypes.Stamp, again.Stamp);
+
+        ann.ChangeUserTypes(_ => UserTypeLayer.Empty);
+        ann.SetName(0x1000, "kept");
+        Assert.Equal(1, Parse(Sidecar).GetProperty("formatVersion").GetInt32());
+        Assert.False(Parse(Sidecar).TryGetProperty("locals", out _));
+    }
+
+    [Fact]
+    public void Export_CarriesUserTypes_InTheIdaScriptAndJson()
+    {
+        var ann = Open();
+        ann.SetName(0x1000, "Parse");
+        ann.ChangeUserTypes(l => l.WithDeclarations("struct S { int a; };").WithType(0x1000, "int __fastcall Parse(S *s)")
+            .WithLocal(new(0x1000, "v3", 0x28, "count", null)).WithStackVar(new(0x1000, 0x20, null, "char[16]")));
+        var ida = AnnotationExport.Render(ann, AnnotationExport.Format.Ida);
+        Assert.Contains("ndm_declare(\"struct S { int a; };\")", ida);
+        Assert.Contains("ndm_type(0x1000, \"int __fastcall Parse(S *s)\")", ida);
+        Assert.Contains("ndm_stack(0x1000, 32, None, \"char[16]\")", ida);
+        Assert.Contains("ndm_local(0x1000, \"v3\", 40, \"count\", None)", ida);
+        Assert.Contains("1 name(s), 0 comment(s) and 4 user type(s)", ida);
+        var python = NetDecompilerMcp.Native.Providers.PythonLocator.Find([], []);
+        if (python != null)
+        {
+            var script = _dir.File("apply.py");
+            File.WriteAllText(script, ida);
+            var check = NetDecompilerMcp.Native.Providers.PythonLocator.RunCapture(python.Executable,
+                ["-I", "-c", "import sys; compile(open(sys.argv[1]).read(), sys.argv[1], 'exec')", script], TimeSpan.FromSeconds(30));
+            Assert.True(check.ExitCode == 0, check.Stderr);
+        }
+
+        var json = JsonDocument.Parse(AnnotationExport.Render(ann, AnnotationExport.Format.Json)).RootElement;
+        Assert.Equal("struct S { int a; };", json.GetProperty("declarations")[0].GetString());
+        Assert.Equal("count", json.GetProperty("locals")[0].GetProperty("name").GetString());
+        Assert.Equal(32, json.GetProperty("stackVars")[0].GetProperty("offset").GetInt32());
+        Assert.Contains("IDA and JSON exports only", AnnotationExport.Render(ann, AnnotationExport.Format.Ghidra));
     }
 
     [Fact]

@@ -68,6 +68,7 @@ builder.Services
     .AddSingleton<Il2CppNativeNames>()
     .AddSingleton<NativeNamePush>()
     .AddSingleton<NativeTypePush>()
+    .AddSingleton<NativeUserTypePush>()
     .AddSingleton<ReadyToRunService>()
     .AddSingleton<PdbService>()
     .AddSingleton<MinidumpService>()

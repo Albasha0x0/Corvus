@@ -144,6 +144,9 @@ public static class ToolEffects
         ["rename_native"] = Changes(destructive: true, idempotent: true, longRunning: true),
         ["comment_native"] = Changes(destructive: true, idempotent: true, longRunning: true),
         ["export_native_annotations"] = Changes(destructive: true, idempotent: true, longRunning: true), // overwrite=true replaces the file at outputPath
+
+        // User types in the decompiler engine (saved to the sidecar; runs IDA)
+        ["set_native_type"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true),
         ["patch_bytes"] = Changes(destructive: true, idempotent: false, longRunning: true),
         ["patch_asm"] = Changes(destructive: true, idempotent: false, longRunning: true),
         ["list_native_edits"] = Reads(longRunning: true),

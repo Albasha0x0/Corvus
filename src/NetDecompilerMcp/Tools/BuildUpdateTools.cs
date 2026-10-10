@@ -45,7 +45,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
 
     public sealed record UpdateItem(
         string Category,
-        [property: Description("name, comment, layer, patch, pattern, method.")] string Kind,
+        [property: Description("name, comment, layer, patch, pattern, method; user types: declarations, type, local, stack_var.")] string Kind,
         string? OldAddress,
         string? NewAddress,
         [property: Description("The name, comment, patch description, new pattern or method identity.")] string Value,
@@ -86,7 +86,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
 
     [McpServerTool(Name = "update_to_new_build", Title = "Update work to a new build", UseStructuredContent = true)]
     [Description("Carry everything done on an old build of a native image (x86 / x64) to its new build in one call, through one function match " +
-                 "(compare_native_images): user names and comments (migrate_native_names rules), imported names (the PDB layer is re-imported only " +
+                 "(compare_native_images): user names, comments and engine types (migrate_native_names rules), imported names (the PDB layer is re-imported only " +
                  "from the new build's own matching PDB, else not_applicable pdb_mismatch; the Il2Cpp layer is re-applied from the new build's own " +
                  "metadata, else the old names are mapped through the function match and saved as a layer marked carried by match), byte patches " +
                  "(migrate_native_patches rules; stub extensions and grown-file patches are re-created at the mapped site through the extend path after " +
@@ -186,8 +186,14 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
                     }
                     return 0;
                 });
-            categories[Names] = (sources.Count == 0 ? "not_applicable" : Status(),
-                sources.Count == 0 ? $"{oldNative.Id} has no user names or comments" : $"{sources.Count} user name(s) and comment(s) of {oldNative.Id}", null);
+            var typeSteps = await Task.Run(() => UserTypeMigration.Plan(mapper, oldAnn.UserTypes, newAnn.UserTypes, new MigrationOptions(), ct), ct);
+            foreach (var s in typeSteps)
+                items.Add(new Item(Names, s.Kind, s.OldRva, s.NewRva, s.Value, s.Set ? Carry(true) : s.Reason.StartsWith("same_", StringComparison.Ordinal) ? "already_present"
+                    : s.Reason == "ambiguous" ? "ambiguous" : "refused", s.Reason, s.Confidence, s.Tier, s.Detail));
+            if (!dryRun && typeSteps.Any(s => s.Set)) newAnn.ChangeUserTypes(l => UserTypeMigration.Apply(l, typeSteps));
+            categories[Names] = (sources.Count + typeSteps.Count == 0 ? "not_applicable" : Status(),
+                sources.Count + typeSteps.Count == 0 ? $"{oldNative.Id} has no user names, comments or types"
+                    : $"{sources.Count} user name(s) and comment(s) and {typeSteps.Count} user type(s) of {oldNative.Id}", null);
         }
 
         Phase(3, "imported names");

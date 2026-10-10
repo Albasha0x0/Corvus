@@ -16,7 +16,7 @@ namespace NetDecompilerMcp.Tools;
 /// <summary>Native analysis built on the PE model: decompilation through an engine, C++ classes, P/Invoke checks.</summary>
 [McpServerToolType]
 public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngineService engines, OutputPager pager, NativeNamePush? names = null,
-    NativeCodeService? code = null, NativeTypePush? types = null)
+    NativeCodeService? code = null, NativeTypePush? types = null, NativeUserTypePush? userTypes = null)
 {
     [McpServerTool(Name = "decompile_native", Title = "Decompile native function")]
     [Description("C pseudocode of the native function containing an address, through IDA (idalib; Hex-Rays). The first call on an image runs IDA's " +
@@ -25,7 +25,8 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
                  "(rename_native / comment_native, apply_il2cpp_names, PDB names) are pushed into the database first, once per change, and saved with it. " +
                  "When the image has a PDB (found next to it or in the symbol cache, or loaded with load_pdb), its structs, enums, typedefs and " +
                  "prototypes are loaded into the database through IDA's PDB loader (the server's own PDB type reader when that loader is not " +
-                 "available), once per PDB; the first line says which type source applies.")]
+                 "available), once per PDB; the first line says which type source applies. The user's types (set_native_type) are applied last " +
+                 "and win over recovered ones.")]
     public Task<string> DecompileNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -48,11 +49,13 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         if (types != null && NativeTypePush.Describe(await types.EnsureAsync(native, session, cancellationToken)) is { } typed)
             pushed = (pushed != null ? pushed + "\n// " : "") + typed;
         if (types != null) await types.EnsureMethodAsync(native, session, code?.Ready(native)?.FunctionAt(rva)?.Start ?? rva, cancellationToken);
+        if (userTypes != null && NativeUserTypePush.Describe(await userTypes.EnsureAsync(native, session, cancellationToken)) is { } user)
+            pushed = (pushed != null ? pushed + "\n// " : "") + user;
         if (native.HasPatches)
             pushed = (pushed != null ? pushed + "\n// " : "") + (engines.ServesPatchedCopy(native)
                 ? $"patched image: analyzed as a patched copy (the database could not take {Plural(native.Patches.Patches.Count, "patch")})"
                 : $"patched image: {Plural(native.Patches.Patches.Count, "patch")} applied in the database");
-        var key = $"decompile|{native.Image.Sha256}|{rva:X}|{addresses}|{NativeNamePush.CurrentStamp(session)}|{NativeTypePush.CurrentStamp(session)}|{NativePdbTypes.CurrentStamp(session)}";
+        var key = $"decompile|{native.Image.Sha256}|{rva:X}|{addresses}|{NativeNamePush.CurrentStamp(session)}|{NativeTypePush.CurrentStamp(session)}|{NativePdbTypes.CurrentStamp(session)}|{NativeUserTypePush.CurrentStamp(session)}";
         var text = pager.GetOrCreate(key, () =>
         {
             var function = session.DecompileAsync(rva, cancellationToken).GetAwaiter().GetResult();
@@ -68,7 +71,10 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         return (pushed != null ? $"// {pushed}\n" : "") + pager.Page(text, offset, maxChars);
     });
 
-    private (LoadedNative Native, uint Rva) Resolve(string image, string address)
+    private (LoadedNative Native, uint Rva) Resolve(string image, string address) => Resolve(workspace, code, image, address);
+
+    /// <summary>The native image (loaded by path when needed) and an address in it; names resolve through the code index when it is ready.</summary>
+    internal static (LoadedNative Native, uint Rva) Resolve(AssemblyWorkspace workspace, NativeCodeService? code, string image, string address)
     {
         var id = workspace.Read(() => workspace.FindNative(image)?.Id);
         if (id == null && !string.IsNullOrWhiteSpace(image) && Path.IsPathFullyQualified(image.Trim()) && File.Exists(image.Trim()))

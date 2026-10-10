@@ -66,12 +66,13 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         [property: Description("Candidate or nearby new addresses when not mapped.")] IReadOnlyList<string> Candidates);
 
     public sealed record MigrationEntry(
-        [property: Description("name or comment.")] string Kind,
+        [property: Description("name, comment, or a user type: declarations, type, local, stack_var.")] string Kind,
         [property: Description("Layer it came from in the old build: user, pdb or il2cpp.")] string Source,
-        string OldAddress, string? NewAddress, string Value,
+        [property: Description("Null for declarations.")] string? OldAddress, string? NewAddress, string Value,
         [property: Description("set (or would_set in a dry run) or skipped.")] string Action,
         [property: Description("For set: how the address was mapped. For skipped: same_name, same_comment, user_name_exists, user_comment_exists, " +
-                               "name_in_use, new_has_own_name, duplicate_target, invalid_name, below_min_tier, below_min_score, or the mapping's reason.")]
+                               "name_in_use, new_has_own_name, duplicate_target, invalid_name, below_min_tier, below_min_score, same_declarations, same_type, " +
+                               "user_type_exists, not_a_function_start, same_local, user_local_exists, same_stack_var, user_stack_var_exists, or the mapping's reason.")]
         string Reason,
         int? Tier, double Confidence, string Detail);
 
@@ -198,9 +199,10 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     [McpServerTool(Name = "migrate_native_names", Title = "Carry names to a new build", UseStructuredContent = true)]
     [Description("Copy names and comments from the old build to the new build's user annotations through the function matches of compare_native_images " +
                  "and map_address_between_builds: function names to the matched function, names and comments inside functions to the aligned instruction, " +
-                 "data names to the same string or the data the matched instructions reference. Sources: the old build's user annotations (default), and " +
-                 "optionally its pdb and il2cpp names (made identifiers). Never replaces a user name or comment of the new build; every skipped item has a " +
-                 "reason code. dryRun shows exactly what would change.")]
+                 "data names to the same string or the data the matched instructions reference. Sources: the old build's user annotations (default; with " +
+                 "its engine types: declarations as they are, prototypes and global types by mapped address, locals and stack variables by matched function), " +
+                 "and optionally its pdb and il2cpp names (made identifiers). Never replaces a user name, comment or type of the new build; every skipped " +
+                 "item has a reason code. dryRun shows exactly what would change.")]
     public async Task<MigrationReport> MigrateNativeNames(
         [Description(OldDescription)] string oldImage,
         [Description(NewDescription)] string newImage,
@@ -240,8 +242,12 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             notes.Add($"{oldNative.Id} has no {string.Join(" / ", layers.Select(l => l.Id()))} names or comments to carry over");
 
         var newAnn = code.Annotations(newNative);
-        var steps = await Task.Run(() => NameMigration.Plan(new AddressMapper(match), items, match.New.Index, newAnn,
-            new MigrationOptions { MinTier = minTier, MinScore = minScore }, cancellationToken), cancellationToken);
+        var options = new MigrationOptions { MinTier = minTier, MinScore = minScore };
+        var steps = await Task.Run(() => NameMigration.Plan(new AddressMapper(match), items, match.New.Index, newAnn, options, cancellationToken), cancellationToken);
+        var typeSteps = layers.Contains(NativeNameSource.User)
+            ? await Task.Run(() => UserTypeMigration.Plan(new AddressMapper(match), code.Annotations(oldNative).UserTypes, newAnn.UserTypes, options, cancellationToken), cancellationToken)
+            : [];
+        if (!dryRun && typeSteps.Any(s => s.Set)) newAnn.ChangeUserTypes(l => UserTypeMigration.Apply(l, typeSteps));
 
         var setNames = steps.Where(s => s.Set && s.Item.Kind == "name").Select(s => (s.NewRva!.Value, s.Value)).ToList();
         var setComments = steps.Where(s => s.Set && s.Item.Kind == "comment").Select(s => (s.NewRva!.Value, s.Value)).ToList();
@@ -261,13 +267,17 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         var n = match.New.Index;
         offset = Math.Max(0, offset);
         limit = ClampLimit(limit, 5000);
-        var entries = steps.OrderBy(s => s.Item.OldRva).ThenBy(s => s.Item.Kind).Skip(offset).Take(limit).Select(s => new MigrationEntry(
-            s.Item.Kind, s.Item.Source.Id(), Va(o, s.Item.OldRva), s.NewRva is { } at ? Va(n, at) : null, s.Value,
-            s.Set ? dryRun ? "would_set" : "set" : "skipped", s.Reason, s.Tier, s.Confidence, s.Detail)).ToList();
-        var skippedBy = steps.Where(s => !s.Set).GroupBy(s => s.Reason).Select(g => new ReasonCount(g.Key, g.Count())).OrderByDescending(r => r.Count).ToList();
-        int set = steps.Count(s => s.Set);
-        return new MigrationReport(oldNative.Id, newNative.Id, dryRun, steps.Count, set, steps.Count - set, skippedBy, offset, steps.Count,
-            offset + limit < steps.Count, entries, notes);
+        string Action(bool isSet) => isSet ? dryRun ? "would_set" : "set" : "skipped";
+        var all = steps.OrderBy(s => s.Item.OldRva).ThenBy(s => s.Item.Kind).Select(s => (s.Set, s.Reason, Entry: new MigrationEntry(
+                s.Item.Kind, s.Item.Source.Id(), Va(o, s.Item.OldRva), s.NewRva is { } at ? Va(n, at) : null, s.Value, Action(s.Set), s.Reason, s.Tier, s.Confidence, s.Detail)))
+            .Concat(typeSteps.Select(s => (s.Set, s.Reason, Entry: new MigrationEntry(s.Kind, NativeNameSource.User.Id(), s.OldRva is { } from ? Va(o, from) : null,
+                s.NewRva is { } to ? Va(n, to) : null, s.Value, Action(s.Set), s.Reason, s.Tier, s.Confidence, s.Detail))))
+            .ToList();
+        var entries = all.Skip(offset).Take(limit).Select(e => e.Entry).ToList();
+        var skippedBy = all.Where(s => !s.Set).GroupBy(s => s.Reason).Select(g => new ReasonCount(g.Key, g.Count())).OrderByDescending(r => r.Count).ToList();
+        int set = all.Count(s => s.Set);
+        return new MigrationReport(oldNative.Id, newNative.Id, dryRun, all.Count, set, all.Count - set, skippedBy, offset, all.Count,
+            offset + limit < all.Count, entries, notes);
     }
 
     [McpServerTool(Name = "make_code_pattern", Title = "Make a code pattern", UseStructuredContent = true)]

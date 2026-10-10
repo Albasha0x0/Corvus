@@ -257,6 +257,45 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task User_types_carry_by_function_match_and_never_replace_the_new_builds()
+    {
+        using var h = new Harness();
+        var (oldN, _) = await h.Load(Image(false, 0), "old.dll", OldStarts);
+        var (newN, _) = await h.Load(Image(true, Shift), "new.dll", NewStarts(Shift));
+        h.Code.Annotations(oldN).ChangeUserTypes(l => l.WithDeclarations("struct Cfg { int a; };")
+            .WithType(F1, "int __fastcall ReadGlobal(void)").WithType(F5, "void Removed(void)").WithType(F2, "int f2(void)")
+            .WithLocal(new(F2, "v1", null, "count", "int")).WithStackVar(new(F3, 0x20, "buffer", "char[16]")));
+        h.Code.Annotations(newN).ChangeUserTypes(l => l.WithType(F2 + Shift, "int mine(void)"));
+        var tools = new NativeDiffTools(h.Env.Workspace, h.Code);
+
+        var dry = await tools.MigrateNativeNames(oldN.Id, newN.Id, dryRun: true, limit: 500);
+        NativeDiffTools.MigrationEntry Entry(string kind, string? old) => Assert.Single(dry.Entries, e => e.Kind == kind && e.OldAddress == old);
+        Assert.Equal(("would_set", "copied"), (Entry("declarations", null).Action, Entry("declarations", null).Reason));
+        Assert.Equal(("would_set", Va(F1 + Shift)), (Entry("type", Va(F1)).Action, Entry("type", Va(F1)).NewAddress));
+        Assert.Equal(("skipped", "function_not_matched"), (Entry("type", Va(F5)).Action, Entry("type", Va(F5)).Reason));
+        Assert.Equal(("skipped", "user_type_exists"), (Entry("type", Va(F2)).Action, Entry("type", Va(F2)).Reason));
+        Assert.Equal(("would_set", Va(F2 + Shift)), (Entry("local", Va(F2)).Action, Entry("local", Va(F2)).NewAddress));
+        Assert.Equal(("would_set", Va(F3 + Shift)), (Entry("stack_var", Va(F3)).Action, Entry("stack_var", Va(F3)).NewAddress));
+        Assert.Equal("int mine(void)", Assert.Single(h.Code.Annotations(newN).UserTypes.Types).Value);
+
+        var preview = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, include: "names", limit: 500);
+        Assert.Equal("would_carry", One(preview, "names", i => i.Kind == "local").Outcome);
+        Assert.Equal("refused", One(preview, "names", i => i.Kind == "type" && i.OldAddress == Va(F2)).Outcome);
+
+        await tools.MigrateNativeNames(oldN.Id, newN.Id, dryRun: false);
+        var carried = h.Code.Annotations(newN).UserTypes;
+        Assert.Equal(["struct Cfg { int a; };"], carried.Declarations);
+        Assert.Equal("int __fastcall ReadGlobal(void)", carried.Types[F1 + Shift]);
+        Assert.Equal("int mine(void)", carried.Types[F2 + Shift]);
+        Assert.Equal(new NetDecompilerMcp.Native.Providers.NativeLocalEdit(F2 + Shift, "v1", null, "count", "int"), Assert.Single(carried.Locals[F2 + Shift]));
+        Assert.Equal(new NetDecompilerMcp.Native.Providers.NativeStackVarEdit(F3 + Shift, 0x20, "buffer", "char[16]"), Assert.Single(carried.StackVars[F3 + Shift]));
+
+        var again = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, include: "names", dryRun: false, limit: 500);
+        Assert.Equal("already_present", One(again, "names", i => i.Kind == "local").Outcome);
+        Assert.Equal("already_present", One(again, "names", i => i.Kind == "declarations").Outcome);
+    }
+
+    [Fact]
     public void Il2Cpp_build_map_statuses()
     {
         var old = new List<Il2CppBuildMap.Method> { new("a|A", 0x10), new("a|B", 0x20), new("a|C", 0x30), new("a|D", 0x40), new("a|E", 0x50), new("a|E", 0x58) };

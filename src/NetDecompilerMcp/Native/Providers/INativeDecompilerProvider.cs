@@ -106,6 +106,15 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     Task<PdbLoadResult> LoadPdbAsync(string pdbPath, string stampKey, string stamp, bool trustAnalysisLoad, CancellationToken cancellationToken = default) =>
         Task.FromResult(new PdbLoadResult(false, false, false, 0, 0, TimeSpan.Zero));
 
+    /// <summary>
+    /// Applies the user's types (see <see cref="NativeUserTypeBatch"/>); each item reports whether it took. User types are kept
+    /// when <see cref="ApplyTypesAsync"/> pushes recovered types later. Stamp and save as in <see cref="ApplyNamesAsync"/>; an
+    /// empty batch only records the stamp.
+    /// </summary>
+    Task<UserTypeResult> ApplyUserTypesAsync(NativeUserTypeBatch batch, string? stampKey = null, string? stamp = null, bool save = false,
+        CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not take user types.");
+
     /// <summary>References to <paramref name="rva"/> (ordinary flow excluded).</summary>
     Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default);
 
@@ -283,6 +292,35 @@ public sealed record NativeCallTarget(uint Site, string Kind, uint? Target, stri
 /// <summary>Result of <see cref="INativeDecompilerSession.GetCallTargetsAsync"/>: functions decompiled, failed (with the reason) and not reached in time.</summary>
 public sealed record NativeCallTargets(IReadOnlyList<NativeCallTarget> Targets, int Decompiled, IReadOnlyList<(uint Function, string Reason)> Failed, int Skipped,
     bool DecompilerAvailable);
+
+/// <summary>
+/// A decompiler local of the function at <see cref="Function"/>, found by its stack offset when it has one, else by
+/// <see cref="Local"/> (its name when first edited), else by <see cref="Name"/>; gets <see cref="Name"/> and/or <see cref="Type"/>.
+/// </summary>
+public sealed record NativeLocalEdit(uint Function, string Local, int? Stack, string? Name, string? Type);
+
+/// <summary>The stack frame member at <see cref="Offset"/> (bytes from the frame's lowest address) gets <see cref="Name"/> and/or <see cref="Type"/>; created when none is there.</summary>
+public sealed record NativeStackVarEdit(uint Function, int Offset, string? Name, string? Type);
+
+/// <summary>
+/// User types, applied in this order: C declarations; types of functions (prototypes) and globals by RVA, an empty one
+/// clearing it; stack frame members; decompiler locals.
+/// </summary>
+public sealed record NativeUserTypeBatch(IReadOnlyList<string> Declarations, IReadOnlyList<NativePrototype> Types, IReadOnlyList<NativeStackVarEdit> StackVars,
+    IReadOnlyList<NativeLocalEdit> Locals)
+{
+    public static readonly NativeUserTypeBatch Empty = new([], [], [], []);
+}
+
+/// <summary>
+/// One item of a user type batch: <see cref="Kind"/> type, stack or local, at <see cref="Rva"/> (the address or function);
+/// <see cref="Target"/> as asked; for a local the name it had before (<see cref="Resolved"/>) and its stack offset;
+/// <see cref="Text"/>: the type or name now in effect.
+/// </summary>
+public sealed record NativeUserTypeOutcome(string Kind, uint Rva, string Target, bool Applied, string? Error, string? Resolved, int? Stack, string? Text);
+
+/// <summary>Result of <see cref="INativeDecompilerSession.ApplyUserTypesAsync"/>: declaration errors with the engine's messages, and each item's outcome.</summary>
+public sealed record UserTypeResult(int DeclarationErrors, IReadOnlyList<string> DeclarationMessages, IReadOnlyList<NativeUserTypeOutcome> Items, TimeSpan Elapsed);
 
 /// <summary>A reference; <see cref="FromFunctionRva"/> is the start of the function containing the source, when any.</summary>
 public sealed record NativeXref(uint FromRva, uint ToRva, NativeXrefKind Kind, uint? FromFunctionRva);
