@@ -33,7 +33,8 @@ Then restart your MCP client. What the installer does:
    folder (`%LOCALAPPDATA%\NetDecompilerMcp`, `~/.local/share/net-decompiler-mcp`) and puts `NetDecompilerMcp` on PATH.
 2. Starts the server once and checks it answers (MCP handshake and tool list).
 3. Registers it as `net-decompiler` with every installed client it finds, keeping their other settings (each changed
-   file is backed up once as `<file>.netdecompiler.bak`; a file it cannot parse is left untouched and reported).
+   file is backed up once as `<file>.netdecompiler.bak`; a file it cannot parse is left untouched and reported). An
+   existing `net-decompiler` entry keeps your arguments (e.g. `--load`), env and other keys; only its command is updated.
 
 Supported clients: Claude Code, Claude Desktop, Cursor, Windsurf, VS Code, VS Code Insiders, VSCodium, Cline, Roo Code,
 Kilo Code, Visual Studio, Codex, Gemini CLI, Qwen Code, GitHub Copilot CLI, OpenCode, Crush, Zed, LM Studio,

@@ -23,6 +23,16 @@ internal abstract class ConfigTarget(string path)
 
     protected const string BackupSuffix = ".netdecompiler.bak";
 
+    /// <summary>
+    /// The user's arguments, with ours in front unless already there. Another launch's program argument (the
+    /// NetDecompilerMcp.dll of a dotnet launch) is dropped so switching launchers does not carry it over.
+    /// </summary>
+    public static List<string> MergeArgs(IEnumerable<string> user, IReadOnlyList<string> ours)
+    {
+        var kept = user.Where(a => ours.Contains(a) || !System.IO.Path.GetFileName(a).Equals("NetDecompilerMcp.dll", StringComparison.OrdinalIgnoreCase)).ToList();
+        return kept.Take(ours.Count).SequenceEqual(ours) ? kept : [.. ours, .. kept];
+    }
+
     /// <summary>Keeps the first pre-install copy of a file next to it.</summary>
     protected void Backup()
     {
@@ -108,14 +118,53 @@ internal sealed class JsonTarget(string path, string[] container, Func<ServerLau
         };
     }
 
-    public override ConfigChange Install(string name, ServerLaunch launch)
+    /// <summary>The entry registered under the name, or null.</summary>
+    public JsonObject? Existing(string name)
+    {
+        var (root, _, _) = Load();
+        return root == null ? null : Servers(root, false)?[name] as JsonObject;
+    }
+
+    /// <summary>
+    /// Our entry for a new registration; for an existing one, the user's entry with our command, user arguments kept
+    /// (see <see cref="ConfigTarget.MergeArgs"/>) and our other keys added only where absent.
+    /// </summary>
+    public JsonObject Merge(JsonObject? existing, ServerLaunch launch)
+    {
+        var fresh = Entry(launch);
+        if (existing == null) return fresh;
+        var merged = (JsonObject)existing.DeepClone();
+        static List<string>? Strings(JsonNode? node, int skip) =>
+            node is JsonArray a && a.All(i => i is JsonValue v && v.TryGetValue<string>(out _)) ? [.. a.Skip(skip).Select(i => i!.GetValue<string>())] : null;
+        static JsonArray ToArray(IEnumerable<string> items) => new([.. items.Select(i => (JsonNode)JsonValue.Create(i)!)]);
+        if (fresh["command"] is JsonArray)
+        {
+            // Command and arguments in one array (OpenCode).
+            var user = Strings(existing["command"], 1);
+            merged["command"] = user == null ? fresh["command"]!.DeepClone() : ToArray([launch.Command, .. MergeArgs(user, launch.Args)]);
+        }
+        else
+        {
+            merged["command"] = launch.Command;
+            if (existing["args"] != null && Strings(existing["args"], 0) is { } user) merged["args"] = ToArray(MergeArgs(user, launch.Args));
+        }
+        foreach (var (key, value) in fresh)
+            if (!merged.ContainsKey(key)) merged[key] = value?.DeepClone();
+        return merged;
+    }
+
+    public override ConfigChange Install(string name, ServerLaunch launch) => Put(name, existing => Merge(existing, launch));
+
+    /// <summary>Writes the entry made from the current one (null when absent) under the name.</summary>
+    public ConfigChange Put(string name, Func<JsonObject?, JsonObject> entry)
     {
         var (root, hadComments, error) = Load();
         if (root == null) return new ConfigChange(false, $"left unchanged: {error}");
         var servers = Servers(root, true)!;
-        var fresh = Entry(launch);
-        if (servers[name] is JsonObject existing && JsonNode.DeepEquals(existing, fresh)) return new ConfigChange(false, "already registered");
-        servers[name] = fresh;
+        var existing = servers[name] as JsonObject;
+        var next = entry(existing);
+        if (existing != null && JsonNode.DeepEquals(existing, next)) return new ConfigChange(false, "already registered");
+        servers[name] = next;
         Backup();
         return Write(root.ToJsonString(Indented) + Environment.NewLine,
             hadComments ? $"registered (comments were not kept; original saved as {System.IO.Path.GetFileName(Path)}{BackupSuffix})" : "registered");
@@ -190,20 +239,61 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
         List<string> lines;
         try { lines = Lines(); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return new ConfigChange(false, $"left unchanged: {ex.Message}"); }
-        var block = new List<string>
+        var command = $"command = {Quote(launch.Command)}";
+        string ArgsLine(IEnumerable<string> args) => $"args = [{string.Join(", ", args.Select(Quote))}]";
+        var mains = Blocks(lines, name).Where(b => !ServerHeader().Match(lines[b.Start]).Groups["sub"].Success).ToList();
+        if (mains.Count == 0)
         {
-            $"[mcp_servers.{name}]",
-            $"command = {Quote(launch.Command)}",
-            $"args = [{string.Join(", ", launch.Args.Select(Quote))}]",
-        };
-        var current = Blocks(lines, name);
-        if (current.Count == 1 && lines.Skip(current[0].Start).Take(current[0].End - current[0].Start).Where(l => l.Trim().Length > 0).SequenceEqual(block))
-            return new ConfigChange(false, "already registered");
-        lines = Remove(lines, name);
-        if (lines.Count > 0) lines.Add("");
-        lines.AddRange(block);
+            while (lines.Count > 0 && lines[^1].Trim().Length == 0) lines.RemoveAt(lines.Count - 1);
+            if (lines.Count > 0) lines.Add("");
+            lines.AddRange([$"[mcp_servers.{name}]", command, ArgsLine(launch.Args)]);
+            Backup();
+            return Write(string.Join("\n", lines) + "\n", "registered");
+        }
+
+        // An existing table keeps its other keys, its env sub-table and the user's arguments; only the command is replaced.
+        var (start, end) = mains[0];
+        var updated = new List<string>(lines);
+        int commandAt = -1, argsAt = -1;
+        for (int i = start + 1; i < end; i++)
+        {
+            if (commandAt < 0 && CommandLine().IsMatch(lines[i])) commandAt = i;
+            else if (argsAt < 0 && ArgsKey().IsMatch(lines[i])) argsAt = i;
+        }
+        if (argsAt >= 0 && ParseArgs(lines[argsAt]) is { } user && MergeArgs(user, launch.Args) is var merged && !merged.SequenceEqual(user))
+            updated[argsAt] = ArgsLine(merged);
+        if (commandAt >= 0 && CommandValue(lines[commandAt]) != launch.Command) updated[commandAt] = command;
+        var missing = new List<string>();
+        if (commandAt < 0) missing.Add(command);
+        if (argsAt < 0) missing.Add(ArgsLine(launch.Args));
+        updated.InsertRange(start + 1, missing);
+        if (updated.SequenceEqual(lines)) return new ConfigChange(false, "already registered");
         Backup();
-        return Write(string.Join("\n", lines) + "\n", "registered");
+        var text = string.Join("\n", updated);
+        return Write(text.EndsWith('\n') ? text : text + "\n", "registered");
+    }
+
+    [GeneratedRegex(@"^\s*args\s*=")]
+    private static partial Regex ArgsKey();
+
+    [GeneratedRegex(@"^\s*args\s*=\s*\[\s*(?<items>(?:(?:""(?:[^""\\]|\\.)*""|'[^']*')\s*,?\s*)*)\]\s*(#.*)?$")]
+    private static partial Regex ArgsArray();
+
+    [GeneratedRegex(@"""(?<v>(?:[^""\\]|\\.)*)""|'(?<v>[^']*)'")]
+    private static partial Regex TomlString();
+
+    /// <summary>A one-line array of strings, or null for anything else (left untouched).</summary>
+    private static List<string>? ParseArgs(string line) =>
+        ArgsArray().Match(line) is { Success: true } m
+            ? [.. TomlString().Matches(m.Groups["items"].Value).Select(s => s.Value[0] == '\'' ? s.Groups["v"].Value : Unescape(s.Groups["v"].Value))]
+            : null;
+
+    private static string Unescape(string s) => s.Replace("\\\\", "\\").Replace("\\\"", "\"");
+
+    private static string CommandValue(string line)
+    {
+        var m = CommandLine().Match(line);
+        return m.Value.TrimEnd().EndsWith('\'') ? m.Groups["v"].Value : Unescape(m.Groups["v"].Value);
     }
 
     public override ConfigChange Uninstall(string name)
@@ -218,7 +308,7 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
 }
 
 /// <summary>
-/// Claude Code through its own CLI (`claude mcp add/remove --scope user`), which coordinates with a running Claude Code
+/// Claude Code through its own CLI (`claude mcp add/add-json/remove --scope user`), which coordinates with a running Claude Code
 /// that rewrites ~/.claude.json; falls back to editing the file when the CLI fails.
 /// </summary>
 internal sealed class ClaudeCliTarget(string cli, JsonTarget file) : ConfigTarget(file.Path)
@@ -227,13 +317,18 @@ internal sealed class ClaudeCliTarget(string cli, JsonTarget file) : ConfigTarge
 
     public override ConfigChange Install(string name, ServerLaunch launch)
     {
-        if (Registered(name) is { } existing && existing.Equals(launch.Command, StringComparison.OrdinalIgnoreCase))
+        if (Registered(name) is { } registered && registered.Equals(launch.Command, StringComparison.OrdinalIgnoreCase))
             return new ConfigChange(false, "already registered");
+        // Taken before the CLI removes the entry: the user's arguments, env and other keys go into the new one.
+        var existing = file.Existing(name);
+        var entry = file.Merge(existing, launch);
         Run(["mcp", "remove", "--scope", "user", name]);
-        if (Run(["mcp", "add", "--scope", "user", name, "--", launch.Command, .. launch.Args])
-            && Registered(name) is { } now && now.Equals(launch.Command, StringComparison.OrdinalIgnoreCase))
+        string[] add = existing == null
+            ? ["mcp", "add", "--scope", "user", name, "--", launch.Command, .. launch.Args]
+            : ["mcp", "add-json", "--scope", "user", name, entry.ToJsonString()];
+        if (Run(add) && Registered(name) is { } now && now.Equals(launch.Command, StringComparison.OrdinalIgnoreCase))
             return new ConfigChange(true, "registered");
-        return file.Install(name, launch);
+        return file.Put(name, _ => entry);
     }
 
     public override ConfigChange Uninstall(string name)

@@ -190,6 +190,112 @@ public sealed class SetupTests : IDisposable
         Assert.Equal(Launch.Command, client.Target.Registered("net-decompiler"));
         Assert.Equal("already registered", client.Target.Install("net-decompiler", Launch).Message);
         Assert.Equal("removed", client.Target.Uninstall("net-decompiler").Message);
+
+        File.WriteAllText(Home(".claude.json"), """{ "mcpServers": { "net-decompiler": { "command": "C:/old/x.exe", "args": ["--load", "x"], "env": { "A": "1" } } } }""");
+        Assert.Equal("registered", client.Target.Install("net-decompiler", Launch).Message);
+        var entry = ReadJson(Home(".claude.json"))["mcpServers"]!["net-decompiler"]!;
+        Assert.Equal(Launch.Command, entry["command"]!.GetValue<string>());
+        Assert.Equal("x", entry["args"]![1]!.GetValue<string>());
+        Assert.Equal("1", entry["env"]!["A"]!.GetValue<string>());
+    }
+
+    private static readonly ServerLaunch DotnetLaunch = new("dotnet", [Path.Combine(Path.GetTempPath(), "build", "NetDecompilerMcp.dll")]);
+
+    [Fact]
+    public void Install_KeepsTheUsersArgumentsEnvAndKeys_OnJsonEntries()
+    {
+        Directory.CreateDirectory(Home(".cursor"));
+        File.WriteAllText(Home(".cursor", "mcp.json"), """
+            { "mcpServers": { "net-decompiler": { "command": "C:/old/NetDecompilerMcp.exe", "args": ["--load", "x"],
+              "env": { "NDM_IDA_DIR": "C:/ida" }, "timeout": 30 } } }
+            """);
+        JsonNode Entry() => ReadJson(Home(".cursor", "mcp.json"))["mcpServers"]!["net-decompiler"]!;
+        void AssertKept(params string[] args)
+        {
+            var e = Entry();
+            Assert.Equal(args, e["args"]!.AsArray().Select(a => a!.GetValue<string>()));
+            Assert.Equal("C:/ida", e["env"]!["NDM_IDA_DIR"]!.GetValue<string>());
+            Assert.Equal(30, e["timeout"]!.GetValue<int>());
+        }
+
+        Assert.Equal(0, Run("install", "--no-check").Code);
+        Assert.Equal(Launch.Command, Entry()["command"]!.GetValue<string>());
+        AssertKept("--load", "x");
+        var (code, output) = Run("install", "--no-check");
+        Assert.Equal(0, code);
+        Assert.Contains("already registered", output);
+
+        // A launcher switch, as after an update or a run from source: our own arguments follow the launcher.
+        Assert.Equal(0, SetupCli.TryRun(["install", "--no-check"], new StringWriter(), _env, DotnetLaunch));
+        Assert.Equal("dotnet", Entry()["command"]!.GetValue<string>());
+        AssertKept(DotnetLaunch.Args[0], "--load", "x");
+        Assert.Equal(0, Run("install", "--no-check").Code);
+        AssertKept("--load", "x");
+
+        // Our keys are added only where absent.
+        var target = new JsonTarget(Home("cline.json"), ["mcpServers"], l => new JsonObject { ["command"] = l.Command, ["args"] = new JsonArray(), ["disabled"] = false });
+        File.WriteAllText(target.Path, """{ "mcpServers": { "net-decompiler": { "command": "a", "disabled": true } } }""");
+        Assert.True(target.Install("net-decompiler", Launch).Changed);
+        var cline = ReadJson(target.Path)["mcpServers"]!["net-decompiler"]!;
+        Assert.True(cline["disabled"]!.GetValue<bool>());
+        Assert.Empty(cline["args"]!.AsArray());
+    }
+
+    [Fact]
+    public void Install_KeepsTheUsersArguments_InCommandArrays()
+    {
+        Directory.CreateDirectory(Home(".config", "opencode"));
+        File.WriteAllText(Home(".config", "opencode", "opencode.json"), """
+            { "mcp": { "net-decompiler": { "type": "local", "command": ["C:/old/NetDecompilerMcp.exe", "--load", "x"], "enabled": false,
+              "environment": { "A": "1" } } } }
+            """);
+        Assert.Equal(0, Run("install", "--no-check", "opencode").Code);
+        Assert.Equal(0, Run("install", "--no-check", "opencode").Code);
+        var entry = ReadJson(Home(".config", "opencode", "opencode.json"))["mcp"]!["net-decompiler"]!;
+        Assert.Equal([Launch.Command, "--load", "x"], entry["command"]!.AsArray().Select(a => a!.GetValue<string>()));
+        Assert.False(entry["enabled"]!.GetValue<bool>());
+        Assert.Equal("1", entry["environment"]!["A"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void Install_KeepsTheUsersArgumentsEnvAndKeys_InTheCodexTable()
+    {
+        Directory.CreateDirectory(Home(".codex"));
+        var before = """
+            model = "o4"
+
+            [mcp_servers.net-decompiler]
+            command = 'C:\old\NetDecompilerMcp.exe'
+            args = ["--load", "x"]  # my build
+            startup_timeout_sec = 30
+
+            [mcp_servers.net-decompiler.env]
+            NDM_IDA_DIR = "C:/ida"
+
+            [profiles.fast]
+            model = "mini"
+
+            """.Replace("\r\n", "\n");
+        File.WriteAllText(Home(".codex", "config.toml"), before);
+        Assert.Equal(0, Run("install", "--no-check", "codex").Code);
+        var expected = before.Replace(@"command = 'C:\old\NetDecompilerMcp.exe'", "command = " + System.Text.Json.JsonSerializer.Serialize(Launch.Command));
+        Assert.Equal(expected, File.ReadAllText(Home(".codex", "config.toml")));
+        var (_, output) = Run("install", "--no-check", "codex");
+        Assert.Contains("already registered", output);
+        Assert.Equal(expected, File.ReadAllText(Home(".codex", "config.toml")));
+
+        Assert.Equal(0, SetupCli.TryRun(["install", "--no-check", "codex"], new StringWriter(), _env, DotnetLaunch));
+        var toml = File.ReadAllText(Home(".codex", "config.toml"));
+        Assert.Contains("command = \"dotnet\"\nargs = [" + System.Text.Json.JsonSerializer.Serialize(DotnetLaunch.Args[0]) + ", \"--load\", \"x\"]\nstartup_timeout_sec = 30", toml);
+        Assert.Contains("[mcp_servers.net-decompiler.env]\nNDM_IDA_DIR = \"C:/ida\"", toml);
+        Assert.Equal(0, Run("install", "--no-check", "codex").Code);
+        Assert.Contains("args = [\"--load\", \"x\"]\nstartup_timeout_sec = 30", File.ReadAllText(Home(".codex", "config.toml")));
+
+        // A table without command or args gets both.
+        File.WriteAllText(Home(".codex", "config.toml"), "[mcp_servers.net-decompiler]\nstartup_timeout_sec = 30\n");
+        Assert.Equal(0, Run("install", "--no-check", "codex").Code);
+        Assert.Equal("[mcp_servers.net-decompiler]\ncommand = " + System.Text.Json.JsonSerializer.Serialize(Launch.Command) + "\nargs = []\nstartup_timeout_sec = 30\n",
+            File.ReadAllText(Home(".codex", "config.toml")));
     }
 
     /// <summary>A fake install root with two versions, a "current" link and data folders.</summary>
