@@ -15,6 +15,8 @@ internal enum VKind : byte
     Result,
     /// <summary>The address of a local of the current frame.</summary>
     StackAddr,
+    /// <summary>A local whose address is taken (written by calls it is passed to): <see cref="Val.Num"/> is the offset, <see cref="Val.Site"/> 0 for [rsp+n], 1 for [rbp+n].</summary>
+    TakenLocal,
     /// <summary>Internal: the path loops back to a location already being resolved.</summary>
     Cycle,
 }
@@ -137,7 +139,7 @@ internal sealed class ValueResolver
                     }
                     if (_is64)
                     {
-                        if (_code.StackAddressTaken(loc.Slot)) return Val.Unknown($"local may be changed by the call at {Va(d.Rva)}");
+                        if (_code.StackAddressTaken(loc.Slot)) return new Val(VKind.TakenLocal, (ulong)(long)loc.Slot, 0, 0, $"local may be changed by the call at {Va(d.Rva)}");
                         continue;
                     }
                     // x86: the callee may remove its stack arguments (stdcall)
@@ -293,7 +295,7 @@ internal sealed class ValueResolver
         {
             int disp = (int)(long)x.MemoryDisplacement64;
             if (b == _sp) return Walk(Loc.Stack(disp), block, index);
-            if (_code.FrameAddressTaken(disp)) return Val.Unknown($"local [rbp{disp:+0;-0}] has its address taken");
+            if (_code.FrameAddressTaken(disp)) return new Val(VKind.TakenLocal, (ulong)(long)disp, 0, 1, $"local [rbp{disp:+0;-0}] has its address taken");
             return Walk(Loc.Frame(disp), block, index);
         }
         return Val.Unknown($"load from {MemText(in x)}");
@@ -404,7 +406,7 @@ internal sealed class ValueResolver
                 var baseReg = x.MemoryBase.GetFullRegister();
                 long disp = (long)x.MemoryDisplacement64;
                 if (!_is64) disp = (int)(uint)disp;
-                if ((baseReg == _sp || (baseReg == Register.RBP && _code.HasFramePointer)) && x.MemoryIndex == Register.None) return new Val(VKind.StackAddr, (ulong)disp, 0, 0, "");
+                if ((baseReg == _sp || (baseReg == Register.RBP && _code.HasFramePointer)) && x.MemoryIndex == Register.None) return new Val(VKind.StackAddr, (ulong)disp, 0, baseReg == _sp ? 0u : 1u, "");
                 if (x.MemoryIndex != Register.None || baseReg == Register.None || baseReg == Register.RIP)
                 {
                     if (baseReg == Register.None && x.MemoryIndex == Register.None) return new Val(VKind.Const, (ulong)disp & Mask(bytes), 0, 0, "");

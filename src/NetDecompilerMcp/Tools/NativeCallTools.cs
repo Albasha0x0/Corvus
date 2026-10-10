@@ -206,6 +206,96 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         return rows;
     }
 
+    // ---- late-bound imports ----
+
+    private static string Where(NativeCodeIndex index, uint rva) =>
+        index.FunctionAt(rva) is { } f ? $"{f.Name}+0x{rva - f.Start:X}" : NativeAddress.Va(index.Image, rva);
+
+    /// <summary>The get_pe_info section: late-bound imports and modules loaded by name at run time.</summary>
+    internal static string DynamicSection(NativeCodeIndex? index, CancellationToken ct)
+    {
+        if (index == null) return "Dynamic imports: not computed yet (the code index is still building; list_imports includeDynamic=true waits for it)\n";
+        if (index.Support != CodeSupport.Full) return "";
+        var set = CallAnalysis.For(index).DynamicImports(ct);
+        if (set.GetProcAddressSites == 0 && set.Modules.Count == 0) return "Dynamic imports: none (no GetProcAddress / LoadLibrary / GetModuleHandle calls with constant names)\n";
+        var sb = new System.Text.StringBuilder();
+        int moduleCount = set.Imports.Select(i => i.Module?.ToLowerInvariant()).Distinct().Count(m => m != null);
+        sb.AppendLine($"Dynamic imports (GetProcAddress): {set.Imports.Count} resolved from {moduleCount} modules, {set.UnresolvedSites} of {set.GetProcAddressSites} " +
+                      "calls with a name not recovered (list_imports includeDynamic=true)");
+        foreach (var d in set.Imports.Take(40))
+            sb.AppendLine($"  {d.FullName}  [{d.Confidence}] at {Where(index, d.CallSite)}" +
+                          (d.PointerGlobal is { } g ? $", pointer {NativeAddress.Va(index.Image, g)} ({d.PointerCalls.Count} calls)" : "") + $"; {d.How}");
+        if (set.Imports.Count > 40) sb.AppendLine($"  ... {set.Imports.Count - 40} more");
+        if (set.Modules.Count > 0)
+            sb.AppendLine("Modules loaded or looked up by name: " + string.Join(", ", set.Modules.Select(m => m.Module).Distinct(StringComparer.OrdinalIgnoreCase).Take(40)));
+        foreach (var n in set.Notes.Take(10)) sb.AppendLine("  note: " + n);
+        return sb.ToString();
+    }
+
+    /// <summary>list_imports rows for late-bound imports, marked [dynamic].</summary>
+    internal static List<string> DynamicImportRows(NativeCodeIndex index, string? module, string? filter, CancellationToken ct)
+    {
+        var rows = new List<string>();
+        if (index.Support != CodeSupport.Full) return rows;
+        var set = CallAnalysis.For(index).DynamicImports(ct);
+        foreach (var d in set.Imports)
+        {
+            if (module != null && (d.Module == null || !Path.GetFileNameWithoutExtension(d.Module).Equals(Path.GetFileNameWithoutExtension(module.Trim()), StringComparison.OrdinalIgnoreCase))) continue;
+            if (filter != null && !d.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)) continue;
+            rows.Add($"{NativeAddress.Va(index.Image, d.PointerGlobal ?? d.CallSite)}  {d.Module ?? "?"}!{d.Name}  [dynamic: GetProcAddress at {Where(index, d.CallSite)}" +
+                     (d.PointerGlobal != null ? $", pointer with {d.PointerCalls.Count} calls" : "") + $"; {d.Confidence}; {d.How}]");
+        }
+        return rows;
+    }
+
+    /// <summary>"late-bound pointer to kernel32!X" for a pointer global a GetProcAddress result is stored to, else null.</summary>
+    internal static string? PointerName(NativeCodeIndex index, uint rva, CancellationToken ct) =>
+        index.Support == CodeSupport.Full && CallAnalysis.For(index).DynamicImports(ct).ByGlobal.GetValueOrDefault(rva) is { } d
+            ? $"late-bound pointer to {d.FullName}" : null;
+
+    /// <summary>find_xrefs rows for a late-bound import named by <paramref name="address"/> ("module!name" or "name"); null when none matches.</summary>
+    internal static List<string>? DynamicXrefRows(NativeCodeIndex index, string address, CancellationToken ct)
+    {
+        if (index.Support != CodeSupport.Full || string.IsNullOrWhiteSpace(address) || NativeAddress.Number(address.Trim()) != null) return null;
+        var analysis = CallAnalysis.For(index);
+        var matches = analysis.DynamicImports(ct).Find(address);
+        if (matches.Count == 0) return null;
+        var rows = new List<string>();
+        foreach (var d in matches)
+        {
+            rows.Add($"{NativeAddress.Va(index.Image, d.CallSite)}  {"Resolve",-10} {Where(index, d.CallSite)}  GetProcAddress -> {d.FullName} [{d.Confidence}]");
+            foreach (var call in d.PointerCalls)
+                rows.Add($"{NativeAddress.Va(index.Image, call)}  {"DynCall",-10} {Where(index, call)}" +
+                         (analysis.CallAt(call, ct) is { } s ? "  " + s.Display : ""));
+        }
+        return rows;
+    }
+
+    /// <summary>Adds the late-bound imports each function of a callee tree calls through pointer globals; returns the added leaves.</summary>
+    internal static HashSet<CallTreeNode> AddDynamicCallees(NativeCodeIndex index, CallTreeNode root, CancellationToken ct)
+    {
+        var added = new HashSet<CallTreeNode>();
+        if (index.Support != CodeSupport.Full) return added;
+        var set = CallAnalysis.For(index).DynamicImports(ct);
+        if (set.CallsByFunction.Count == 0) return added;
+        var stack = new Stack<CallTreeNode>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            var node = stack.Pop();
+            foreach (var child in node.Children) stack.Push(child);
+            if (node.Function == null || node.Repeated || (node.Truncated && node.Children.Count == 0)) continue;
+            if (!set.CallsByFunction.TryGetValue(node.Function.Start, out var calls)) continue;
+            foreach (var (site, d) in calls.DistinctBy(c => c.Import.FullName))
+            {
+                var leaf = new CallTreeNode { Function = null, Import = new NativeImport(d.Module ?? "?", d.Name, null, 0, d.PointerGlobal ?? 0, false), Address = site };
+                node.Children.Add(leaf);
+                added.Add(leaf);
+            }
+        }
+        return added;
+    }
+
     /// <summary>Call comments for a function's disassembly: call RVA -> "CreateFileW(...)"; empty when the analysis fails.</summary>
     internal static IReadOnlyDictionary<uint, string> CallComments(NativeCodeIndex index, NativeFunction fn, CancellationToken ct)
     {

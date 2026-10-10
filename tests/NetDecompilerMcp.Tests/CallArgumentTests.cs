@@ -134,6 +134,77 @@ public class CallArgumentTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void Late_bound_imports_resolve_names_modules_and_pointer_calls()
+    {
+        const uint LoadLibraryW = Data, GetProcAddress = Data + 8, GetModuleHandleW = Data + 16;
+        const uint Handle = Data + 0x200, Fls = Data + 0x208, Ord = Data + 0x210;
+        Instruction Mem(Iced.Intel.Code code, uint rva) => Instruction.Create(code, new MemoryOperand(Register.RIP, (long)(Base64 + rva), 8));
+        Instruction Store(uint rva, Register reg) => Instruction.Create(Iced.Intel.Code.Mov_rm64_r64, new MemoryOperand(Register.RIP, (long)(Base64 + rva), 8), reg);
+        Label user = default;
+        var code = Assemble(64, a =>
+        {
+            var have = a.CreateLabel();
+            user = a.CreateLabel();
+            a.sub(rsp, 0x28);
+            a.AddInstruction(Rip(Iced.Intel.Code.Mov_r64_rm64, Register.RAX, Handle)); // cached handle, or load it
+            a.test(rax, rax);
+            a.jnz(have);
+            a.AddInstruction(Rip(Iced.Intel.Code.Lea_r64_m, Register.RCX, Data + 0x100));
+            a.AddInstruction(Mem(Iced.Intel.Code.Call_rm64, LoadLibraryW));
+            a.AddInstruction(Store(Handle, Register.RAX));
+            a.Label(ref have);
+            a.mov(rcx, rax);
+            a.AddInstruction(Rip(Iced.Intel.Code.Lea_r64_m, Register.RDX, Data + 0x140));
+            a.AddInstruction(Mem(Iced.Intel.Code.Call_rm64, GetProcAddress));
+            a.AddInstruction(Store(Fls, Register.RAX));
+            a.call(user);
+            a.add(rsp, 0x28);
+            a.ret();
+            // user: GetProcAddress(GetModuleHandleW(L"user32.dll"), 5), then calls through both pointers
+            a.Label(ref user);
+            a.sub(rsp, 0x28);
+            a.AddInstruction(Rip(Iced.Intel.Code.Lea_r64_m, Register.RCX, Data + 0x160));
+            a.AddInstruction(Mem(Iced.Intel.Code.Call_rm64, GetModuleHandleW));
+            a.mov(rcx, rax);
+            a.mov(edx, 5);
+            a.AddInstruction(Mem(Iced.Intel.Code.Call_rm64, GetProcAddress));
+            a.AddInstruction(Store(Ord, Register.RAX));
+            a.xor(ecx, ecx);
+            a.AddInstruction(Mem(Iced.Intel.Code.Call_rm64, Fls));
+            a.AddInstruction(Rip(Iced.Intel.Code.Mov_r64_rm64, Register.RAX, Fls));
+            a.call(rax);
+            a.AddInstruction(Mem(Iced.Intel.Code.Call_rm64, Ord));
+            a.add(rsp, 0x28);
+            a.ret();
+        });
+        var data = new byte[0x300];
+        Encoding.Unicode.GetBytes("kernel32.dll\0").CopyTo(data, 0x100);
+        Encoding.ASCII.GetBytes("FlsAlloc\0").CopyTo(data, 0x140);
+        Encoding.Unicode.GetBytes("user32.dll\0").CopyTo(data, 0x160);
+        var image = CodeTestImage.Synthetic(NativeArch.X64, code, data,
+            [Import("LoadLibraryW", LoadLibraryW), Import("GetProcAddress", GetProcAddress), Import("GetModuleHandleW", GetModuleHandleW)], entry: Code);
+        var index = NativeCodeIndex.Build(image);
+        var analysis = CallAnalysis.For(index);
+        var set = analysis.DynamicImports();
+
+        Assert.Equal(2, set.GetProcAddressSites);
+        var fls = Assert.Single(set.Find("kernel32!FlsAlloc"));
+        Assert.Equal("kernel32.dll", fls.Module);
+        Assert.Equal("medium", fls.Confidence); // the handle may come from the global written once
+        Assert.Equal(Fls, fls.PointerGlobal);
+        Assert.Equal(2, fls.PointerCalls.Count);
+        var ord = Assert.Single(set.Find("user32!#5"));
+        Assert.Equal("high", ord.Confidence);
+        Assert.Contains(set.Modules, m => m.Module == "kernel32.dll" && m.Api == "LoadLibraryW");
+        Assert.Contains(set.Modules, m => m.Module == "user32.dll" && m.Api == "GetModuleHandleW");
+
+        var userFn = index.FunctionAt(fls.PointerCalls[0])!;
+        var calls = analysis.CallsIn(userFn).Where(c => c.Kind == CalleeKind.Dynamic).ToList();
+        Assert.Equal(["kernel32!FlsAlloc", "kernel32!FlsAlloc", "user32!#5"], calls.Select(c => c.Callee));
+        Assert.Contains(set.CallsByFunction[userFn.Start], c => c.Import == fls);
+    }
+
+    [Fact]
     public void Flags_and_enumerations_decode_by_mask()
     {
         var mb = ApiSignatures.Find("user32!MessageBoxW")!.Params[3].Enum!;
@@ -296,6 +367,102 @@ public class CallArgumentTests(ITestOutputHelper output)
             output.WriteLine($"{dir}: {withConstant}/{sites} API call sites with a recovered constant ({Pct(withConstant, sites)}), " +
                              $"{recovered}/{args} arguments recovered ({Pct(recovered, args)}), {guessedSites} calls without a signature, {sw.Elapsed.TotalSeconds:0.0} s");
             if (sites > 50) Assert.True(withConstant * 100 / sites >= 60, $"recovery rate {Pct(withConstant, sites)}");
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void System32_dynamic_imports()
+    {
+        var files = new[] { "kernel32.dll", "kernelbase.dll", "advapi32.dll", "shell32.dll", "user32.dll", "combase.dll", "ole32.dll", "wininet.dll",
+            "urlmon.dll", "dbghelp.dll", "msi.dll", "explorer.exe", "notepad.exe", "cmd.exe", "taskmgr.exe" };
+        foreach (var dir in MsvcCorpus.SystemDirectories())
+        {
+            int sites = 0, resolved = 0, withModule = 0, high = 0, pointers = 0, pointerCalls = 0, modules = 0;
+            var sw = Stopwatch.StartNew();
+            foreach (var name in files)
+            {
+                var path = Path.Combine(dir, name);
+                if (!File.Exists(path)) continue;
+                var pe = PeFile.Open(path);
+                if (pe.Arch is not (NativeArch.X64 or NativeArch.X86)) continue;
+                var index = NativeCodeIndex.Build(pe);
+                var t = Stopwatch.StartNew();
+                var set = CallAnalysis.For(index).DynamicImports();
+                sites += set.GetProcAddressSites;
+                resolved += set.Imports.Count;
+                withModule += set.Imports.Count(i => i.Module != null);
+                high += set.Imports.Count(i => i.Confidence == "high");
+                pointers += set.ByGlobal.Count;
+                pointerCalls += set.ByGlobal.Values.Sum(i => i.PointerCalls.Count);
+                modules += set.Modules.Count;
+                output.WriteLine($"  {name}: {set.Imports.Count}/{set.GetProcAddressSites} GetProcAddress calls resolved ({set.Imports.Count(i => i.Module != null)} with module), " +
+                                 $"{set.ByGlobal.Count} pointer globals, {set.ByGlobal.Values.Sum(i => i.PointerCalls.Count)} calls through them, " +
+                                 $"{set.Modules.Count} modules by name, {t.ElapsedMilliseconds} ms; e.g. {string.Join(", ", set.Imports.Take(3).Select(i => i.FullName))}");
+                if (Environment.GetEnvironmentVariable("NDM_DEBUG_ARGS") == "1")
+                {
+                    var analysis = CallAnalysis.For(index);
+                    foreach (var d in set.Imports.Where(i => i.Module == null).Take(4))
+                        output.WriteLine($"    no module: {d.Name} @{d.CallSite:X}: {analysis.CallAt(d.CallSite)?.Arguments[0].Derivation}");
+                    foreach (var d in set.ByGlobal.Values.Where(i => i.PointerCalls.Count == 0).Take(2))
+                    {
+                        output.WriteLine($"    no calls: {d.FullName} [{d.PointerGlobal:X}]: {string.Join(", ", index.RefsTo(d.PointerGlobal!.Value).Select(x => $"{x.Kind}@{x.From:X}"))}");
+                        var read = index.RefsTo(d.PointerGlobal!.Value).FirstOrDefault(x => x.Kind == XrefKind.Read);
+                        if (read.From != 0)
+                            foreach (var l in index.Disassemble(read.From, 10))
+                            {
+                                output.WriteLine($"        {l.Rva:X} {l.Text}");
+                                if (l.Facts.Flow is FlowKind.Call && l.Facts.BranchTarget is { } bt)
+                                    foreach (var l2 in index.Disassemble(bt, 3)) output.WriteLine($"          > {l2.Rva:X} {l2.Bytes} {l2.Text}");
+                            }
+                    }
+                }
+                foreach (var d in set.Imports)
+                {
+                    Assert.False(string.IsNullOrEmpty(d.Name));
+                    Assert.Contains(d.Confidence, new[] { "high", "medium", "low" });
+                }
+            }
+            output.WriteLine($"{dir}: {resolved}/{sites} GetProcAddress calls with a constant name ({Pct(resolved, sites)}), {withModule} with the module traced " +
+                             $"({high} high confidence), {pointers} pointer globals with {pointerCalls} calls through them, {modules} LoadLibrary/GetModuleHandle " +
+                             $"calls with a constant name; {sw.Elapsed.TotalSeconds:0.0} s");
+        }
+    }
+
+    /// <summary>The tool surface on kernel32: disassembly comments, find_xrefs, get_call_arguments, get_pe_info, list_imports, call tree.</summary>
+    [WindowsFact]
+    [Trait("Speed", "Slow")]
+    public async Task Tools_show_arguments_and_late_bound_imports()
+    {
+        var kernel32 = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "kernel32.dll");
+        using var env = new Env();
+        var service = new NetDecompilerMcp.Services.NativeCodeService(env.Workspace, env.Options);
+        var codeTools = new NetDecompilerMcp.Tools.NativeCodeTools(env.Workspace, service, env.Pager);
+        var peTools = new NetDecompilerMcp.Tools.NativeTools(env.Workspace, env.Pager, service);
+        var callTools = new NetDecompilerMcp.Tools.NativeCallTools(env.Workspace, service);
+
+        var report = await callTools.GetCallArguments(kernel32, callee: "CreateFileW", limit: 5);
+        Assert.True(report.Total > 0);
+        var site = report.Calls.First(c => c.Arguments.Count == 7);
+        Assert.StartsWith("CreateFileW(", site.Display);
+        Assert.Contains("CreateFileW(", await codeTools.Disassemble(kernel32, site.Address));
+        Assert.Contains("CreateFileW(", await codeTools.FindXrefs(kernel32, site.Callee));
+
+        var native = env.Workspace.Read(() => env.Workspace.GetNative("kernel32.dll"));
+        var index = await service.Index(native, null, default);
+        var set = CallAnalysis.For(index).DynamicImports();
+        Assert.Contains("Dynamic imports (GetProcAddress):", await peTools.GetPeInfo(kernel32));
+        Assert.Contains("[dynamic: GetProcAddress at", await peTools.ListImports(kernel32, filter: set.Imports[0].Name, includeDynamic: true));
+        var called = set.Imports.FirstOrDefault(i => i.PointerCalls.Count > 0);
+        if (called != null)
+        {
+            var xrefs = await codeTools.FindXrefs(kernel32, called.FullName);
+            output.WriteLine(xrefs);
+            Assert.Contains("DynCall", xrefs);
+            var caller = index.FunctionAt(called.PointerCalls[0])!;
+            var tree = await codeTools.NativeCallTree(kernel32, $"0x{index.Image.ImageBase + caller.Start:X}", depth: 1);
+            output.WriteLine(tree);
+            Assert.Contains($"{called.FullName}  [dynamic]", tree);
         }
     }
 

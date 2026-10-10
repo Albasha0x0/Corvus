@@ -187,7 +187,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
     [McpServerTool(Name = "find_xrefs", Title = "Native cross-references", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("Everything in a native image that references an address: calls (direct and through import slots and thunks), jumps, data reads " +
                  "and writes, address-taken uses, switch tables and relocated data pointers, each with the function it is in. For an import " +
-                 "(module!name) lists the call sites of that API (x86 calls through a register loaded from the slot included); call rows show the recovered arguments. " + IndexNote)]
+                 "(module!name) lists the call sites of that API (x86 calls through a register loaded from the slot included); call rows show the recovered arguments. A late-bound import (module!name resolved by GetProcAddress) lists where it is resolved and the calls through its pointer. " + IndexNote)]
     public Task<string> FindXrefs(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -197,7 +197,14 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var (_, index) = await Open(image, context, progress, cancellationToken);
-        var rva = Address(index, address);
+        // a late-bound import (GetProcAddress) by name: its resolution and the calls through its pointer
+        var dynamicRows = NativeCallTools.DynamicXrefRows(index, address, cancellationToken);
+        uint rva;
+        try { rva = Address(index, address); }
+        catch (ToolError) when (dynamicRows != null)
+        {
+            return $"References to {address.Trim()} (late-bound import):\n" + Coverage(index) + pager.PageRows(dynamicRows, offset, limit, "reference");
+        }
         string Va(uint r) => NativeAddress.Va(index.Image, r);
         string Where(uint from) => index.FunctionAt(from) is { } f ? $"{f.Name}+0x{from - f.Start:X}" : "(no function)";
         var rows = new List<string>();
@@ -207,13 +214,14 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         else
             rows.AddRange(NativeCallTools.WithArguments(index, index.RefsTo(rva).Select(x => (x.From, x.Kind.ToString(), x.Kind is XrefKind.Call or XrefKind.TailCall)),
                 Where, cancellationToken));
-        var target = index.NameAt(rva) ?? (index.StringAt(rva) is { } s ? index.CommentFor(rva) : null);
+        if (dynamicRows != null) rows.AddRange(dynamicRows);
+        var target = index.NameAt(rva) ?? NativeCallTools.PointerName(index, rva, cancellationToken) ?? (index.StringAt(rva) is { } s ? index.CommentFor(rva) : null);
         return $"References to {Va(rva)}{(target != null ? $" ({target})" : "")}:\n" + Coverage(index) + pager.PageRows(rows, offset, limit, "reference");
     });
 
     [McpServerTool(Name = "native_call_tree", Title = "Native call tree", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("Callers or callees of a native function, several levels deep (calls through thunks and import slots included; imports are leaves). " +
-                 "Repeated subtrees and recursion are marked instead of expanded. " + IndexNote)]
+                 "Callees include late-bound imports called through a GetProcAddress pointer stored once ([dynamic]). Repeated subtrees and recursion are marked instead of expanded. " + IndexNote)]
     public Task<string> NativeCallTree(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string function,
@@ -232,11 +240,13 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         var (_, index) = await Open(image, context, progress, cancellationToken);
         var fn = FunctionAt(index, Address(index, function));
         var root = index.CallTree(fn, Math.Clamp(depth, 1, 8), callers, ClampLimit(maxNodes, 20_000));
+        var dynamic = callers ? new HashSet<CallTreeNode>() : NativeCallTools.AddDynamicCallees(index, root, cancellationToken);
         var sb = new StringBuilder();
         void Walk(CallTreeNode node, int level)
         {
             var name = node.Function?.Name ?? (node.Import != null ? NativeCodeIndex.ImportName(node.Import) : NativeAddress.Va(index.Image, node.Address));
             sb.Append(new string(' ', level * 2)).Append(name)
+              .Append(dynamic.Contains(node) ? "  [dynamic]" : "")
               .Append(node.Function != null ? $"  {NativeAddress.Va(index.Image, node.Function.Start)}" : "")
               .Append(node.Repeated ? "  (repeated)" : "").Append(node.Truncated ? "  (more not shown)" : "").AppendLine();
             foreach (var child in node.Children) Walk(child, level + 1);

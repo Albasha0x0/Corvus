@@ -41,10 +41,12 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
         [Description(MaxCharsDescription)] int? maxChars = null,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
-        return pager.Page(pager.GetOrCreate($"peinfo|{native.Id}|{native.Image.Sha256}|{PdbTools.Status(native)}",() => PeInfo(native)), offset, maxChars);
+        var index = code?.Ready(native);
+        return pager.Page(pager.GetOrCreate($"peinfo|{native.Id}|{native.Image.Sha256}|{PdbTools.Status(native)}|{index != null}",
+            () => PeInfo(native, code == null ? "" : NativeCallTools.DynamicSection(index, cancellationToken))), offset, maxChars);
     }, cancellationToken);
 
-    private static string PeInfo(LoadedNative native)
+    private static string PeInfo(LoadedNative native, string dynamicImports = "")
     {
         var pe = native.Image;
         var sb = new StringBuilder();
@@ -79,6 +81,7 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
         sb.AppendLine($"Imports: {Plural(pe.ImportModules.Count, "module")}, {Plural(pe.ImportModules.Sum(i => i.Functions.Count), "function")}" +
                       (pe.DelayImportModules.Count > 0 ? $"; delay-loaded: {Plural(pe.DelayImportModules.Count, "module")}, {Plural(pe.DelayImportModules.Sum(i => i.Functions.Count), "function")}" : "") +
                       (pe.BoundImports.Count > 0 ? $"; {Plural(pe.BoundImports.Count, "bound module")}" : "") + " (list_imports)");
+        sb.Append(dynamicImports);
         sb.AppendLine($"Exports: {Plural(pe.Exports.Count, "entry")}" +
                       (pe.ExportDirectory is { } ed ? $" (name {ed.DllName ?? "none"}, {Plural(pe.Exports.Count(e => e.ForwardedTo != null), "forwarder")})" : "") + " (list_exports)");
         if (pe.RuntimeFunctions.Count > 0) sb.AppendLine($"Exception directory: {Plural(pe.RuntimeFunctions.Count, "function range")}");
@@ -149,14 +152,30 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
 
     [McpServerTool(Name = "list_imports", Title = "List native imports", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("Functions a native image imports, per DLL (delay-loaded marked), with the IAT slot address code calls through. " +
-                 "API set names (api-ms-win-*) are shown with the DLL they resolve to on this system.")]
-    public Task<string> ListImports(
+                 "API set names (api-ms-win-*) are shown with the DLL they resolve to on this system. includeDynamic adds late-bound imports " +
+                 "(GetProcAddress with a constant name or ordinal, the module traced from LoadLibrary / GetModuleHandle), marked [dynamic].")]
+    public async Task<string> ListImports(
         [Description(ImageDescription)] string image,
         [Description("Only this DLL (name with or without .dll).")] string? module = null,
         [Description("Only functions whose name contains this text (case-insensitive).")] string? filter = null,
         [Description("Index of the first row.")] int offset = 0,
         [Description("Max rows (default 500).")] int limit = 500,
-        CancellationToken cancellationToken = default) => OnImage(image, native =>
+        [Description("Also list late-bound imports (waits for the code index).")] bool includeDynamic = false,
+        CancellationToken cancellationToken = default)
+    {
+        List<string>? dynamicRows = null;
+        if (includeDynamic && code != null)
+        {
+            await OnImage(image, _ => "", cancellationToken); // loads a path
+            var native = workspace.Read(() => workspace.FindNative(image.Trim()) ?? workspace.GetNative(image));
+            var index = await code.Index(native, null, cancellationToken);
+            dynamicRows = await Task.Run(() => NativeCallTools.DynamicImportRows(index, module, filter, cancellationToken), cancellationToken);
+        }
+        return await ListImports(image, module, filter, offset, limit, dynamicRows, cancellationToken);
+    }
+
+    private Task<string> ListImports(string image, string? module, string? filter, int offset, int limit, List<string>? dynamicRows,
+        CancellationToken cancellationToken) => OnImage(image, native =>
     {
         var pe = native.Image;
         var apiSets = ApiSets.Value;
@@ -172,6 +191,7 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
                 rows.Add($"{NativeAddress.Va(pe, f.SlotRva)}  {mod.Name}{(host != null ? $" ({host})" : "")}!{name}{(f.IsDelayLoad ? "  [delay]" : "")}");
             }
         }
+        if (dynamicRows != null) rows.AddRange(dynamicRows);
         return pager.PageRows(rows, offset, limit, "import");
     }, cancellationToken);
 

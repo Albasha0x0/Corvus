@@ -41,7 +41,11 @@ public enum CalleeKind : byte
 
 /// <param name="Location">rcx, xmm1, [sp+20h]: where the argument is passed.</param>
 /// <param name="Derivation">The instructions it came from, use first ("mov edx, 3 @0x180001234"), or why it is unknown.</param>
-public sealed record CallArgument(int Index, string? Name, string? Type, string Location, ArgKind Kind, ulong? Value, uint? Rva, string Text, string Derivation);
+public sealed record CallArgument(int Index, string? Name, string? Type, string Location, ArgKind Kind, ulong? Value, uint? Rva, string Text, string Derivation)
+{
+    /// <summary>The resolved value before formatting.</summary>
+    internal Val Raw { get; init; }
+}
 
 /// <param name="Guessed">No signature is known: the arguments are the registers / stack slots set just before the call.</param>
 public sealed record CallSiteInfo(uint Rva, NativeFunction Caller, string Callee, CalleeKind Kind, NativeImport? Import, uint? Target,
@@ -135,6 +139,7 @@ public sealed partial class CallAnalysis
     /// <summary>Every call in <paramref name="f"/> (guard-check calls left out), in address order.</summary>
     public IReadOnlyList<CallSiteInfo> CallsIn(NativeFunction f, CancellationToken ct = default)
     {
+        EnsureDynamic(ct);
         bool cache = DynamicReady;
         if (cache && _sites.TryGetValue(f.Start, out var hit)) return hit;
         var code = Code(f, ct);
@@ -163,6 +168,7 @@ public sealed partial class CallAnalysis
     {
         var f = Index.FunctionAt(rva);
         if (f == null) return null;
+        EnsureDynamic(ct);
         if (DynamicReady && _sites.TryGetValue(f.Start, out var hit)) return hit.FirstOrDefault(s => s.Rva == rva);
         var code = Code(f, ct);
         var (b, i) = code.Position(rva);
@@ -210,6 +216,29 @@ public sealed partial class CallAnalysis
         _code[f.Start] = c;
         return c;
     }
+
+    private readonly ConcurrentDictionary<uint, bool> _dispatchThunks = new();
+
+    /// <summary>
+    /// x64 CFG: a local function that is only "jmp rax" (__guard_dispatch_icall_nop, called directly once the dispatch
+    /// pointer is bound at link time): a call or jump to it is a call through rax.
+    /// </summary>
+    internal bool IsDispatchThunk(uint target) => Is64 && _dispatchThunks.GetOrAdd(target, rva =>
+    {
+        Span<byte> b = stackalloc byte[6];
+        for (int hop = 0; hop < 4; hop++)
+        {
+            int n = Image.Read(rva, b);
+            if (n >= 2 && b[0] == 0xFF && b[1] == 0xE0 || n >= 3 && b[0] == 0x48 && b[1] == 0xFF && b[2] == 0xE0) return true;
+            // jmp [__guard_dispatch_icall_fptr]
+            if (n >= 6 && b[0] == 0xFF && b[1] == 0x25) return _dispatchSlots.Contains((uint)(rva + 6 + BinaryPrimitives.ReadInt32LittleEndian(b[2..])));
+            // jmp rel32 / rel8 to the thunk (incremental linking, folded stubs)
+            if (n >= 5 && b[0] == 0xE9) rva = (uint)(rva + 5 + BinaryPrimitives.ReadInt32LittleEndian(b[1..]));
+            else if (n >= 2 && b[0] == 0xEB) rva = (uint)(rva + 2 + (sbyte)b[1]);
+            else return false;
+        }
+        return false;
+    });
 
     internal bool IsTransparentCall(in Decoded d) => d.HasMem && d.I.Op0Kind == OpKind.Memory && _checkSlots.Contains(d.MemRva);
 
@@ -293,6 +322,7 @@ public sealed partial class CallAnalysis
         if (x.Op0Kind is OpKind.NearBranch16 or OpKind.NearBranch32 or OpKind.NearBranch64)
         {
             if (!FunctionCode.TryRva(Image, Is64, x.NearBranchTarget, out uint t)) return new Callee($"0x{x.NearBranchTarget:X}", CalleeKind.Indirect, null, null, null, "outside the image");
+            if (IsDispatchThunk(t)) return FromValue(resolver.ValueBefore(Loc.Of(Register.RAX), block, index), "through the CFG dispatch");
             return Direct(t);
         }
         if (x.Op0Kind == OpKind.Memory)
@@ -499,7 +529,7 @@ public sealed partial class CallAnalysis
     {
         var v = resolver.ValueBefore(loc.Loc, block, index);
         var (kind, value, rva, text) = Format(v, p, resolver.Code);
-        return new CallArgument(k, p?.Name, p?.TypeName, loc.Label, kind, value, rva, text, v.Why);
+        return new CallArgument(k, p?.Name, p?.TypeName, loc.Label, kind, value, rva, text, v.Why) { Raw = v };
     }
 
     // ---- formatting ----
