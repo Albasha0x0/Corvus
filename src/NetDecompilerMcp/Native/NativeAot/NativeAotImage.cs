@@ -27,7 +27,12 @@ public sealed class NativeAotImage
         Headers = headers;
         Header = headers[0];
         DebugHeaderMajor = debugHeaderMajor;
+        metadata = new(ReadMetadata);
     }
+
+    /// <summary>Largest blob read into memory.</summary>
+    private const int MaxBlobBytes = 256 << 20;
+    private readonly Lazy<(NativeAotMetadata? Metadata, NativeAotStage Stage)> metadata;
 
     public INativeImage Image { get; }
     /// <summary>The module analyzed (the first header found); <see cref="Headers"/> lists every module of a multi-module image.</summary>
@@ -54,6 +59,36 @@ public sealed class NativeAotImage
         }
     }
 
+    /// <summary>The EmbeddedMetadata reader, or null when the blob is absent or unreadable (see the "metadata" stage).</summary>
+    public NativeAotMetadata? Metadata => metadata.Value.Metadata;
+
+    /// <summary>The bytes of a module section, or null when it is empty, too large or not fully mapped.</summary>
+    public byte[]? ReadSection(NativeAotSection? section)
+    {
+        if (section is not { HasEnd: true, Length: > 0 and <= MaxBlobBytes }) return null;
+        var bytes = new byte[section.Length];
+        return Image.Read(section.StartRva, bytes) == bytes.Length ? bytes : null;
+    }
+
+    private (NativeAotMetadata?, NativeAotStage) ReadMetadata()
+    {
+        const string name = "metadata";
+        var blob = Header.Blob(BlobId.EmbeddedMetadata);
+        if (blob == null) return (null, new(name, NativeAotStage.Absent, "no EmbeddedMetadata blob"));
+        if (ReadSection(blob) is not { } bytes) return (null, new(name, NativeAotStage.Partial, $"the {blob.Length}-byte EmbeddedMetadata blob is not mapped or too large"));
+        try
+        {
+            var md = new NativeAotMetadata(bytes, Format);
+            int types = md.TypeDefinitions().Count;
+            return (md, new(name, Format.Exact ? NativeAotStage.Complete : NativeAotStage.Partial,
+                $"{md.ScopeDefinitions.Count} scope(s), {types} type definitions, {bytes.Length} bytes ({Format.Metadata} dialect)"));
+        }
+        catch (NativeAotFormatException ex)
+        {
+            return (null, new(name, NativeAotStage.Partial, ex.Message));
+        }
+    }
+
     public string ReadyToRunVersion => $"{Header.MajorVersion}.{Header.MinorVersion}";
 
     public NativeAotSummary Summary()
@@ -65,6 +100,7 @@ public sealed class NativeAotImage
                 (Format.Exact ? $"ReadyToRun {ReadyToRunVersion}" : $"ReadyToRun {ReadyToRunVersion} is not a known release; best effort with the {Format.Runtime} layout")
                 + (Header.Relocated ? "" : "; no base relocations confirm the header")),
         };
+        stages.Add(metadata.Value.Stage);
         var sections = Header.Sections.Select(s => new NativeAotSectionInfo(s.Id, s.Name, s.StartRva, s.Length)).ToList();
         return new NativeAotSummary(Runtime, ReadyToRunVersion, DebugHeaderMajor, Header.IsDehydrated, Header.Rva, Headers.Count, sections, stages);
     }

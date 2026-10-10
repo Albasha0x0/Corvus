@@ -17,31 +17,34 @@ public class NativeAotRealTests
         public string Path => RealPackages.File($"runtime.{Rid}.Microsoft.DotNet.ILCompiler", Version, "tools", "ilc.exe");
     }
 
-    public static readonly TheoryData<Sample> Samples = new()
-    {
-        new Sample("win-x64", "8.0.30", "9.1", ".NET 8", 3, true),
-        new Sample("win-x64", "9.0.19", "10.1", ".NET 9", 4, true),
-        new Sample("win-x64", "10.0.11", "16.0", ".NET 10", 5, false),
-        new Sample("win-arm64", "10.0.11", "16.0", ".NET 10", 5, false),
-    };
+    private static readonly Sample[] All =
+    [
+        new("win-x64", "8.0.30", "9.1", ".NET 8", 3, true),
+        new("win-x64", "9.0.19", "10.1", ".NET 9", 4, true),
+        new("win-x64", "10.0.11", "16.0", ".NET 10", 5, false),
+        new("win-arm64", "10.0.11", "16.0", ".NET 10", 5, false),
+    ];
+
+    public static readonly TheoryData<string> Samples = new(All.Select(s => s.ToString()));
 
     private static readonly Dictionary<string, NativeAotImage> Opened = [];
 
-    private static NativeAotImage Open(Sample s)
+    private static (Sample, NativeAotImage) Open(string name)
     {
+        var s = All.Single(x => x.ToString() == name);
         lock (Opened)
         {
-            if (!Opened.TryGetValue(s.Path, out var aot))
-                Opened[s.Path] = aot = NativeAotImage.Open(PeFile.Open(s.Path)) ?? throw new InvalidOperationException($"{s}: no NativeAOT header");
-            return aot;
+            if (!Opened.TryGetValue(name, out var aot))
+                Opened[name] = aot = NativeAotImage.Open(PeFile.Open(s.Path)) ?? throw new InvalidOperationException($"{s}: no NativeAOT header");
+            return (s, aot);
         }
     }
 
     [Theory]
     [MemberData(nameof(Samples))]
-    public void Header_VersionAndSections(Sample s)
+    public void Header_VersionAndSections(string sample)
     {
-        var aot = Open(s);
+        var (s, aot) = Open(sample);
         Assert.Single(aot.Headers);
         Assert.True(aot.Header.Relocated);
         Assert.Equal(s.ReadyToRun, aot.ReadyToRunVersion);
@@ -53,5 +56,20 @@ public class NativeAotRealTests
 
         var bytes = File.ReadAllBytes(s.Path);
         Assert.Equal("NativeAOT executable", Blob.Identify(bytes));
+    }
+
+    [Theory]
+    [MemberData(nameof(Samples))]
+    public void Metadata_AllTypeDefinitionsNamed(string sample)
+    {
+        var (_, aot) = Open(sample);
+        var md = Assert.IsType<NativeAotMetadata>(aot.Metadata);
+        var types = md.TypeDefinitions();
+        Assert.InRange(types.Count, 3000, 5000);
+        var names = types.Select(t => md.FormatType(new MdHandle(MdRecord.TypeDefinition, t))).ToHashSet();
+        Assert.DoesNotContain(names, n => n.Contains('?'));
+        Assert.Contains("ILCompiler.Program", names);
+        Assert.Contains("System.String", names);
+        Assert.Contains("System.Collections.Generic.List`1+Enumerator", names);
     }
 }

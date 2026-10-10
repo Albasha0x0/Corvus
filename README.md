@@ -581,4 +581,4 @@ Security tab; the security boundary is described in [SECURITY.md](SECURITY.md).
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE); notices for derived third-party material are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
