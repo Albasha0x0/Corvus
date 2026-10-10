@@ -72,4 +72,19 @@ public class NativeAotRealTests
         Assert.Contains("System.String", names);
         Assert.Contains("System.Collections.Generic.List`1+Enumerator", names);
     }
+
+    [Theory]
+    [MemberData(nameof(Samples))]
+    public void Rehydration_ExpandsDehydratedImages(string sample)
+    {
+        var (s, aot) = Open(sample);
+        var h = aot.Hydrated;
+        Assert.Equal(s.Dehydrated ? NativeAotStage.Complete : NativeAotStage.Absent, h.Stage.Status);
+        if (s.Dehydrated)
+        {
+            Assert.InRange(h.HydratedLength, 2_000_000, 4_000_000);
+            Assert.NotNull(h.Sha256);
+        }
+        Assert.InRange(h.PointerSlots.Count, 100_000, 400_000);
+    }
 }

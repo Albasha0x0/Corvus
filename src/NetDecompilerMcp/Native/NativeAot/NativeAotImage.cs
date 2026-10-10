@@ -28,11 +28,13 @@ public sealed class NativeAotImage
         Header = headers[0];
         DebugHeaderMajor = debugHeaderMajor;
         metadata = new(ReadMetadata);
+        hydrated = new(() => HydratedImage.Create(image, Header));
     }
 
     /// <summary>Largest blob read into memory.</summary>
     private const int MaxBlobBytes = 256 << 20;
     private readonly Lazy<(NativeAotMetadata? Metadata, NativeAotStage Stage)> metadata;
+    private readonly Lazy<HydratedImage> hydrated;
 
     public INativeImage Image { get; }
     /// <summary>The module analyzed (the first header found); <see cref="Headers"/> lists every module of a multi-module image.</summary>
@@ -61,6 +63,9 @@ public sealed class NativeAotImage
 
     /// <summary>The EmbeddedMetadata reader, or null when the blob is absent or unreadable (see the "metadata" stage).</summary>
     public NativeAotMetadata? Metadata => metadata.Value.Metadata;
+
+    /// <summary>The image with dehydrated data expanded and its pointer slots (see the "rehydration" stage).</summary>
+    public HydratedImage Hydrated => hydrated.Value;
 
     /// <summary>The bytes of a module section, or null when it is empty, too large or not fully mapped.</summary>
     public byte[]? ReadSection(NativeAotSection? section)
@@ -101,6 +106,7 @@ public sealed class NativeAotImage
                 + (Header.Relocated ? "" : "; no base relocations confirm the header")),
         };
         stages.Add(metadata.Value.Stage);
+        stages.Add(Hydrated.Stage);
         var sections = Header.Sections.Select(s => new NativeAotSectionInfo(s.Id, s.Name, s.StartRva, s.Length)).ToList();
         return new NativeAotSummary(Runtime, ReadyToRunVersion, DebugHeaderMajor, Header.IsDehydrated, Header.Rva, Headers.Count, sections, stages);
     }

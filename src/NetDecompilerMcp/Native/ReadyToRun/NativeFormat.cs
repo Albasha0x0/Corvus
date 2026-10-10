@@ -6,14 +6,21 @@ namespace NetDecompilerMcp.Native.ReadyToRun;
 /// <summary>Malformed ReadyToRun data; the service reports it as a typed error.</summary>
 public sealed class R2RFormatException(string message) : Exception(message);
 
-/// <summary>Bounds-checked little-endian reads of the mapped image by RVA; reads outside the image throw <see cref="R2RFormatException"/>.</summary>
-public sealed class ImageView(INativeImage image)
+/// <summary>
+/// Bounds-checked little-endian reads of the mapped image by RVA; reads outside the image throw <see cref="R2RFormatException"/>.
+/// <paramref name="reader"/> replaces <see cref="INativeImage.Read"/> for views over derived bytes (rehydrated NativeAOT data).
+/// </summary>
+public sealed class ImageView(INativeImage image, ImageView.Reader? reader = null)
 {
+    public delegate int Reader(uint rva, Span<byte> destination);
+
+    private readonly Reader read = reader ?? image.Read;
+
     public INativeImage Image => image;
 
     private void Fill(uint rva, Span<byte> buffer)
     {
-        if (image.Read(rva, buffer) != buffer.Length)
+        if (read(rva, buffer) != buffer.Length)
             throw new R2RFormatException($"read of {buffer.Length} bytes at RVA 0x{rva:X} is outside the mapped image");
     }
 
@@ -49,7 +56,7 @@ public sealed class ImageView(INativeImage image)
     public string Utf8(uint rva, int max)
     {
         var b = new byte[max];
-        int n = image.Read(rva, b);
+        int n = read(rva, b);
         int end = Array.IndexOf(b, (byte)0, 0, n);
         return Encoding.UTF8.GetString(b, 0, end < 0 ? n : end);
     }
