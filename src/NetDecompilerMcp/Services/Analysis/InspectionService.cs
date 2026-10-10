@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using dnlib.DotNet;
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Native.Code;
 
 namespace NetDecompilerMcp.Services.Analysis;
 
@@ -8,7 +9,7 @@ namespace NetDecompilerMcp.Services.Analysis;
 /// Static analyses of a loaded assembly or a file: features, typed values, embedded content and a combined summary.
 /// <see cref="Summarize"/> also opens containers and summarizes the assemblies inside.
 /// </summary>
-public sealed class InspectionService(AssemblyWorkspace workspace)
+public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeService? code = null)
 {
     private static AnalysisLimits Limits => AnalysisLimits.Default;
     private const int MaxSummarizedAssemblies = 8;
@@ -97,15 +98,75 @@ public sealed class InspectionService(AssemblyWorkspace workspace)
         catch (Exception ex) { throw new ToolError(ErrorCode.MalformedInput, $"{label}: unreadable .NET metadata ({ex.Message})."); }
     }
 
-    public FeatureReport SurveyFeatures(string? assembly, string? path, string? category, CancellationToken ct) =>
-        WithAssembly(assembly, path, s =>
+    public FeatureReport SurveyFeatures(string? assembly, string? path, string? category, CancellationToken ct)
+    {
+        if (NativeSurvey(assembly, path, ct) is { } native) return Filter(native, category);
+        return WithAssembly(assembly, path, s => Filter(new FeatureReport(s.Label, s.Scan.MethodsScanned, Features.Detect(s.Scan, ct), s.Scan.Notes), category), ct);
+    }
+
+    private static FeatureReport Filter(FeatureReport report, string? category) =>
+        category == null ? report : report with
         {
-            var found = Features.Detect(s.Scan, ct);
-            if (category != null)
-                found = [.. found.Where(c => c.Category.Equals(category, StringComparison.OrdinalIgnoreCase)
-                                          || (c.Attack?.StartsWith(category, StringComparison.OrdinalIgnoreCase) ?? false))];
-            return new FeatureReport(s.Label, s.Scan.MethodsScanned, found, s.Scan.Notes);
-        }, ct);
+            Features = [.. report.Features.Where(c => c.Category.Equals(category, StringComparison.OrdinalIgnoreCase)
+                                                     || (c.Attack?.StartsWith(category, StringComparison.OrdinalIgnoreCase) ?? false))],
+        };
+
+    /// <summary>
+    /// The survey of a native image: a loaded one (assembly names it and no managed assembly matches) through its code index,
+    /// or a native PE file (path) indexed for this call without loading it; null when the input is not native.
+    /// </summary>
+    private FeatureReport? NativeSurvey(string? assembly, string? path, CancellationToken ct)
+    {
+        if ((assembly == null) == (path == null)) return null;
+        NativeCodeIndex index;
+        string label;
+        if (assembly != null)
+        {
+            if (code == null) return null;
+            var native = workspace.Read(() =>
+            {
+                if (workspace.FindNative(assembly) is not { } n) return null;
+                try { workspace.Get(assembly); return null; } // a managed assembly of that name wins
+                catch (ToolError) { return n; }
+            });
+            if (native == null) return null;
+            index = code.Index(native, null, ct).GetAwaiter().GetResult();
+            label = native.Id;
+        }
+        else
+        {
+            var full = Path.GetFullPath(path!);
+            if (!File.Exists(full)) return null;
+            var head = new byte[Math.Min(4096, new FileInfo(full).Length)];
+            using (var f = File.OpenRead(full)) f.ReadExactly(head);
+            if (head.Length < 2 || head[0] != 'M' || head[1] != 'Z') return null;
+            var (_, bytes) = ReadFile(path!);
+            if (Blob.Identify(bytes) is not ("native PE" or "NativeAOT executable")) return null;
+            if (code != null && workspace.Read(() => workspace.FindNative(full)) is { } loaded)
+            {
+                index = code.Index(loaded, null, ct).GetAwaiter().GetResult();
+                label = loaded.Id;
+            }
+            else
+            {
+                Native.Pe.PeFile pe;
+                try { pe = Native.Pe.PeFile.Open(full); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+                {
+                    throw new ToolError(ErrorCode.MalformedInput, $"{full}: not a readable PE image ({ex.Message}).");
+                }
+                index = NativeCodeIndex.Build(pe, ct: ct);
+                label = Path.GetFileName(full);
+            }
+        }
+        var scan = new NativeFeatureScan(index, ct);
+        var found = Features.Detect(scan, ct);
+        var notes = new List<string> { "native image: rules over static and late-bound imports, call arguments, strings, sections and RTTI class names" };
+        if (index.Support != CodeSupport.Full) notes.Add(index.SupportNote ?? "instructions are not decoded: imports, strings and sections only");
+        notes.AddRange(index.Truncations);
+        notes.AddRange(scan.Notes);
+        return new FeatureReport(label, index.Functions.Count, found, notes);
+    }
 
     public ValueReport ExtractStrings(string? assembly, string? path, IReadOnlyCollection<string>? types, string? savePath, string? format, bool overwrite,
         CancellationToken ct)

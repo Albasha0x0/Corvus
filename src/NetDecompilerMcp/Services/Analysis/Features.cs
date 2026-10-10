@@ -10,10 +10,13 @@ public sealed record Feature(string Name, string Category, string? Attack, strin
 public sealed record Evidence(string Feature, int Count, IReadOnlyList<string> Locations);
 
 /// <summary>
-/// Capability rules over a module's code. Feature kinds: "api:Ns.Type::Name" (wildcards; a parameter list matches the
-/// signature), "native:module!Entry" (P/Invoke; extension ignored, A / W suffix accepted) and "str:" (regex over
-/// strings). A rule matches when every group has a matching feature. ATT&amp;CK ids are set only when the operation
-/// itself is the technique.
+/// Capability rules over a module's code, shared by managed assemblies and native images. Feature kinds:
+/// "api:Ns.Type::Name" (managed calls; wildcards; a parameter list matches the signature), "native:module!Entry"
+/// (P/Invoke, or a native image's static and late-bound imports; extension ignored, A / W suffix accepted), "str:"
+/// (regex over strings), and for native images "arg:module!Api#i=ENTRY" (a call whose argument i is a constant with that
+/// flag or enumeration value), "section:entropy>x" / "section:name=regex" / "section:wx" and "rtti:regex" (MSVC RTTI class
+/// names). A rule matches when every group has a matching feature. ATT&amp;CK ids are set only when the operation itself
+/// is the technique.
 /// </summary>
 public static class Features
 {
@@ -43,15 +46,16 @@ public static class Features
             "api:System.Net.Http.HttpClient::*Async", "api:System.Net.Http.HttpMessageInvoker::SendAsync", "api:System.Net.WebClient::Download*",
             "api:System.Net.WebClient::Upload*", "api:System.Net.WebClient::OpenRead*", "api:System.Net.WebRequest::Create*",
             "api:System.Net.WebRequest::GetResponse*", "api:System.Net.HttpWebRequest::GetResponse*", "native:wininet!InternetOpenUrl*",
-            "native:wininet!HttpSendRequest*", "native:winhttp!WinHttpSendRequest"),
+            "native:wininet!HttpSendRequest*", "native:winhttp!WinHttpSendRequest", @"rtti:^(?:web::http::|cpr::|httplib::)"),
         Any("download files", "network", "T1105", "Ingress Tool Transfer",
             "api:System.Net.WebClient::DownloadFile*", "api:System.Net.WebClient::DownloadData*", "api:System.Net.Http.HttpClient::GetByteArrayAsync",
             "api:System.Net.Http.HttpClient::GetStreamAsync", "native:urlmon!URLDownloadToFile*"),
         Any("use raw TCP / UDP sockets", "network", "T1095", "Non-Application Layer Protocol",
             "api:System.Net.Sockets.Socket::Connect*", "api:System.Net.Sockets.TcpClient::Connect*", "api:System.Net.Sockets.TcpClient::.ctor(System.String,System.Int32)",
-            "api:System.Net.Sockets.UdpClient::Send*", "native:ws2_32!connect", "native:ws2_32!WSAConnect"),
+            "api:System.Net.Sockets.UdpClient::Send*", "native:ws2_32!connect", "native:ws2_32!WSAConnect", "native:ws2_32!sendto",
+            @"rtti:^boost::asio::ip::(?:tcp|udp)\b"),
         Any("use WebSockets", "network", "T1071.001", "Application Layer Protocol: Web Protocols",
-            "api:System.Net.WebSockets.ClientWebSocket::ConnectAsync"),
+            "api:System.Net.WebSockets.ClientWebSocket::ConnectAsync", "native:winhttp!WinHttpWebSocketCompleteUpgrade", "rtti:^websocketpp::"),
         Any("send email", "network", "T1071.003", "Application Layer Protocol: Mail Protocols",
             "api:System.Net.Mail.SmtpClient::Send*"),
         Any("communicate through a web service (Telegram, Discord, Pastebin...)", "network", "T1102", "Web Service",
@@ -94,6 +98,8 @@ public static class Features
 
         Any("log keystrokes", "collection", "T1056.001", "Input Capture: Keylogging",
             "native:user32!SetWindowsHookEx*", "native:user32!GetAsyncKeyState", "native:user32!GetKeyboardState"),
+        Any("install a keyboard hook", "collection", "T1056.001", "Input Capture: Keylogging",
+            "arg:user32!SetWindowsHookEx*#0=WH_KEYBOARD_LL", "arg:user32!SetWindowsHookEx*#0=WH_KEYBOARD"),
         All("capture the screen", "collection", "T1113", "Screen Capture",
             ["api:System.Drawing.Graphics::CopyFromScreen", "native:gdi32!BitBlt"],
             ["api:System.Drawing.Graphics::CopyFromScreen", "native:user32!GetDesktopWindow", "native:user32!GetWindowDC", "native:user32!GetDC"]),
@@ -108,7 +114,16 @@ public static class Features
 
         Any("check for a debugger", "anti-analysis", "T1622", "Debugger Evasion",
             "api:System.Diagnostics.Debugger::get_IsAttached", "api:System.Diagnostics.Debugger::IsLogging", "native:kernel32!IsDebuggerPresent",
-            "native:kernel32!CheckRemoteDebuggerPresent", "native:ntdll!NtQueryInformationProcess"),
+            "native:kernel32!CheckRemoteDebuggerPresent", "native:ntdll!NtQueryInformationProcess",
+            "arg:ntdll!NtQueryInformationProcess#1=ProcessDebugPort", "arg:ntdll!NtQueryInformationProcess#1=ProcessDebugObjectHandle",
+            "arg:ntdll!NtQueryInformationProcess#1=ProcessDebugFlags"),
+        Any("hide threads from a debugger", "anti-analysis", "T1622", "Debugger Evasion",
+            "arg:ntdll!NtSetInformationThread#1=ThreadHideFromDebugger"),
+        Any("contain packed or encrypted sections", "anti-analysis", "T1027.002", "Obfuscated Files or Information: Software Packing",
+            "section:entropy>7.2"),
+        Any("be packed with a known packer", "anti-analysis", "T1027.002", "Obfuscated Files or Information: Software Packing",
+            @"section:name=^(?:UPX\d|\.aspack|\.adata|\.petite|\.nsp\d|\.MPRESS\d|\.themida|\.vmp\d|\.enigma\d|\.yP|PEC2\w*|\.packed|\.boom)$"),
+        Any("have a writable and executable section", "defense evasion", null, null, "section:wx"),
         Any("detect virtual machines and sandboxes", "anti-analysis", "T1497.001", "Virtualization/Sandbox Evasion: System Checks",
             @"str:(?i)\b(?:vbox\w*|virtualbox|vmware|qemu|parallels)\b|\bsbiedll\.dll\b|\bwine_get_unix_file_name\b"),
         Any("disable or bypass Windows Defender", "defense evasion", "T1562.001", "Impair Defenses: Disable or Modify Tools",
@@ -135,7 +150,7 @@ public static class Features
         Any("generate IL at run time", "code loading", null, null,
             "api:System.Reflection.Emit.ILGenerator::Emit*", "api:System.Reflection.Emit.DynamicMethod::.ctor"),
         Any("resolve native functions at run time", "code loading", "T1106", "Native API",
-            "native:kernel32!GetProcAddress", "native:kernel32!LoadLibrary*", "api:System.Runtime.InteropServices.NativeLibrary::GetExport",
+            "native:kernel32!GetProcAddress", "native:kernel32!LoadLibrary*", "native:ntdll!LdrGetProcedureAddress*", "api:System.Runtime.InteropServices.NativeLibrary::GetExport",
             "api:System.Runtime.InteropServices.Marshal::GetDelegateForFunctionPointer*"),
         All("inject code into another process", "injection", "T1055", "Process Injection",
             ["native:kernel32!VirtualAllocEx", "native:ntdll!NtAllocateVirtualMemory"],
@@ -148,41 +163,67 @@ public static class Features
         All("run shellcode in its own process", "injection", null, null,
             ["native:kernel32!VirtualAlloc", "native:kernel32!VirtualProtect"],
             ["native:kernel32!CreateThread", "api:System.Runtime.InteropServices.Marshal::GetDelegateForFunctionPointer*"]),
+        Any("allocate or make memory writable and executable", "code loading", null, null,
+            "arg:kernel32!VirtualAlloc#3=PAGE_EXECUTE_READWRITE", "arg:kernel32!VirtualAllocEx#4=PAGE_EXECUTE_READWRITE",
+            "arg:kernel32!VirtualProtect#2=PAGE_EXECUTE_READWRITE", "arg:kernel32!VirtualProtectEx#3=PAGE_EXECUTE_READWRITE",
+            "arg:ntdll!NtAllocateVirtualMemory#5=PAGE_EXECUTE_READWRITE", "arg:ntdll!NtProtectVirtualMemory#3=PAGE_EXECUTE_READWRITE",
+            "arg:kernel32!VirtualAlloc#3=PAGE_EXECUTE_WRITECOPY", "arg:kernel32!VirtualProtect#2=PAGE_EXECUTE_WRITECOPY"),
+        Any("create a suspended process", "injection", null, null,
+            "arg:kernel32!CreateProcess*#5=CREATE_SUSPENDED", "arg:advapi32!CreateProcessAsUser*#6=CREATE_SUSPENDED"),
 
         Any("get system information", "discovery", "T1082", "System Information Discovery",
-            "api:System.Environment::get_OSVersion", "api:System.Environment::get_MachineName", "api:System.Runtime.InteropServices.RuntimeInformation::get_OSDescription"),
+            "api:System.Environment::get_OSVersion", "api:System.Environment::get_MachineName", "api:System.Runtime.InteropServices.RuntimeInformation::get_OSDescription",
+            "native:kernel32!GetSystemInfo", "native:kernel32!GetNativeSystemInfo", "native:kernel32!GetVersionEx*", "native:kernel32!GetComputerName*"),
         Any("get the user name", "discovery", "T1033", "System Owner/User Discovery",
-            "api:System.Environment::get_UserName", "api:System.Security.Principal.WindowsIdentity::GetCurrent"),
+            "api:System.Environment::get_UserName", "api:System.Security.Principal.WindowsIdentity::GetCurrent", "native:advapi32!GetUserName*"),
         Any("enumerate processes", "discovery", "T1057", "Process Discovery",
-            "api:System.Diagnostics.Process::GetProcesses*", "native:kernel32!CreateToolhelp32Snapshot", "native:kernel32!Process32First*"),
+            "api:System.Diagnostics.Process::GetProcesses*", "native:kernel32!CreateToolhelp32Snapshot", "native:kernel32!Process32First*", "native:psapi!EnumProcesses", "native:kernel32!K32EnumProcesses"),
         Any("enumerate network configuration", "discovery", "T1016", "System Network Configuration Discovery",
-            "api:System.Net.NetworkInformation.NetworkInterface::GetAllNetworkInterfaces", "api:System.Net.NetworkInformation.IPGlobalProperties::*"),
+            "api:System.Net.NetworkInformation.NetworkInterface::GetAllNetworkInterfaces", "api:System.Net.NetworkInformation.IPGlobalProperties::*",
+            "native:iphlpapi!GetAdaptersInfo", "native:iphlpapi!GetAdaptersAddresses"),
         Any("enumerate files and directories", "discovery", "T1083", "File and Directory Discovery",
             "api:System.IO.Directory::GetFiles", "api:System.IO.Directory::EnumerateFiles", "api:System.IO.Directory::GetDirectories",
-            "api:System.IO.Directory::EnumerateDirectories", "api:System.IO.DirectoryInfo::GetFiles", "api:System.IO.DriveInfo::GetDrives"),
+            "api:System.IO.Directory::EnumerateDirectories", "api:System.IO.DirectoryInfo::GetFiles", "api:System.IO.DriveInfo::GetDrives", "native:kernel32!FindFirstFile*"),
         Any("check for administrator rights", "discovery", null, null,
-            "api:System.Security.Principal.WindowsPrincipal::IsInRole"),
+            "api:System.Security.Principal.WindowsPrincipal::IsInRole", "native:shell32!IsUserAnAdmin", "native:advapi32!CheckTokenMembership"),
 
         Any("encrypt or decrypt data", "crypto", null, null,
             "api:*::CreateDecryptor", "api:*::CreateEncryptor", "api:System.Security.Cryptography.Aes::Create", "api:*::DecryptCbc", "api:*::EncryptCbc",
-            "api:System.Security.Cryptography.AesGcm::Decrypt", "api:System.Security.Cryptography.RSA::Decrypt", "native:advapi32!CryptDecrypt"),
+            "api:System.Security.Cryptography.AesGcm::Decrypt", "api:System.Security.Cryptography.RSA::Decrypt", "native:advapi32!CryptDecrypt",
+            "native:advapi32!CryptEncrypt", "native:bcrypt!BCryptEncrypt", "native:bcrypt!BCryptDecrypt", "rtti:^CryptoPP::"),
         Any("hash data", "crypto", null, null,
             "api:System.Security.Cryptography.HashAlgorithm::ComputeHash", "api:System.Security.Cryptography.SHA256::HashData", "api:System.Security.Cryptography.MD5::HashData",
-            "api:System.Security.Cryptography.SHA1::HashData"),
-        Any("decode base64", "encoding", null, null, "api:System.Convert::FromBase64String"),
+            "api:System.Security.Cryptography.SHA1::HashData",
+            "native:advapi32!CryptCreateHash", "native:bcrypt!BCryptCreateHash", "native:bcrypt!BCryptHash"),
+        Any("decode base64", "encoding", null, null, "api:System.Convert::FromBase64String", "native:crypt32!CryptStringToBinary*"),
         Any("compress or decompress data", "data", null, null,
             "api:System.IO.Compression.GZipStream::.ctor", "api:System.IO.Compression.DeflateStream::.ctor", "api:System.IO.Compression.ZipArchive::.ctor",
-            "api:System.IO.Compression.ZipFile::*"),
+            "api:System.IO.Compression.ZipFile::*",
+            "native:ntdll!RtlDecompressBuffer*", "native:cabinet!Decompress", "native:cabinet!Compress", @"rtti:^boost::iostreams::(?:zlib|gzip)"),
         Any("create a mutex", "synchronization", null, null,
             "api:System.Threading.Mutex::.ctor", "api:System.Threading.Mutex::OpenExisting", "api:System.Threading.Mutex::TryOpenExisting", "native:kernel32!CreateMutex*"),
     ];
 
     private const int MaxLocations = 5;
 
-    public static List<Feature> Detect(ModuleScan scan, CancellationToken ct)
+    /// <summary>Feature kinds; managed modules evaluate api / native / str, native images native / str / arg / section / rtti.</summary>
+    private static readonly HashSet<string> Kinds = ["api", "native", "str", "arg", "section", "rtti"];
+
+    public static List<Feature> Detect(ModuleScan scan, CancellationToken ct) => Detect(feature => Evaluate(scan, feature), ct);
+
+    /// <summary>Rules over a native image (<see cref="NativeFeatureScan"/>).</summary>
+    internal static List<Feature> Detect(NativeFeatureScan scan, CancellationToken ct) => Detect(scan.Evaluate, ct);
+
+    private static List<Feature> Detect(Func<string, Evidence?> evaluate, CancellationToken ct)
     {
         var cache = new Dictionary<string, Evidence?>(StringComparer.Ordinal);
-        Evidence? Match(string feature) => cache.TryGetValue(feature, out var e) ? e : cache[feature] = Evaluate(scan, feature);
+        Evidence? Match(string feature)
+        {
+            if (cache.TryGetValue(feature, out var e)) return e;
+            int colon = feature.IndexOf(':');
+            if (colon < 0 || !Kinds.Contains(feature[..colon])) throw new InvalidOperationException($"Unknown feature kind in rule: {feature}");
+            return cache[feature] = evaluate(feature);
+        }
 
         var found = new List<Feature>();
         foreach (var rule in Rules)
@@ -246,7 +287,8 @@ public static class Features
                 break;
             }
             default:
-                throw new InvalidOperationException($"Unknown feature kind in rule: {feature}");
+                // arg / section / rtti: native images only
+                return null;
         }
         return count == 0 ? null : new Evidence(feature, count, locations);
     }

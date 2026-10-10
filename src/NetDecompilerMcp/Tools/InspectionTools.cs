@@ -30,10 +30,12 @@ public sealed class InspectionTools(InspectionService inspection)
                  "literals, in categories: network, execution, registry, persistence, collection (keylogging, screen, clipboard, browser " +
                  "credentials), anti-debug / anti-VM, defense evasion, reflective loading and run-time compilation, process injection, " +
                  "discovery, crypto. Each matched feature has its MITRE ATT&CK technique where the operation is the technique itself, and " +
-                 "its evidence (pattern, count, up to 5 locations).")]
+                 "its evidence (pattern, count, up to 5 locations). Native images (a loaded one, or a native PE path) get the same rules over " +
+                 "static and late-bound (GetProcAddress) imports, call arguments (VirtualProtect with PAGE_EXECUTE_READWRITE, CreateProcess " +
+                 "with CREATE_SUSPENDED...), strings, sections (entropy, packer names, writable code) and RTTI class names, with addresses and functions as locations.")]
     public Task<InspectionService.FeatureReport> SurveyFeatures(
-        [Description(AssemblyParam)] string? assembly = null,
-        [Description(PathParam)] string? path = null,
+        [Description(AssemblyParam + " A loaded native image works too.")] string? assembly = null,
+        [Description("A .NET assembly or native PE file to analyze without loading it. Pass this or assembly.")] string? path = null,
         [Description("Only this category (network, execution, registry, persistence, collection, credential access, anti-analysis, defense evasion, " +
                      "privilege escalation, code loading, injection, discovery, crypto, impact...) or ATT&CK technique prefix (T1055).")] string? category = null,
         CancellationToken cancellationToken = default) =>

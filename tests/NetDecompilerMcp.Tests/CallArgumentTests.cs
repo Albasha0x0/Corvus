@@ -405,17 +405,7 @@ public class CallArgumentTests(ITestOutputHelper output)
                     foreach (var d in set.Imports.Where(i => i.Module == null).Take(4))
                         output.WriteLine($"    no module: {d.Name} @{d.CallSite:X}: {analysis.CallAt(d.CallSite)?.Arguments[0].Derivation}");
                     foreach (var d in set.ByGlobal.Values.Where(i => i.PointerCalls.Count == 0).Take(2))
-                    {
                         output.WriteLine($"    no calls: {d.FullName} [{d.PointerGlobal:X}]: {string.Join(", ", index.RefsTo(d.PointerGlobal!.Value).Select(x => $"{x.Kind}@{x.From:X}"))}");
-                        var read = index.RefsTo(d.PointerGlobal!.Value).FirstOrDefault(x => x.Kind == XrefKind.Read);
-                        if (read.From != 0)
-                            foreach (var l in index.Disassemble(read.From, 10))
-                            {
-                                output.WriteLine($"        {l.Rva:X} {l.Text}");
-                                if (l.Facts.Flow is FlowKind.Call && l.Facts.BranchTarget is { } bt)
-                                    foreach (var l2 in index.Disassemble(bt, 3)) output.WriteLine($"          > {l2.Rva:X} {l2.Bytes} {l2.Text}");
-                            }
-                    }
                 }
                 foreach (var d in set.Imports)
                 {
