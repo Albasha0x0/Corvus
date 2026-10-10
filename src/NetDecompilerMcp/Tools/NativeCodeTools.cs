@@ -31,8 +31,14 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
                     "use the .NET tools for it");
             return workspace.Read(() => workspace.GetNative(id ?? image));
         }, ct);
+        // Progress is the seconds waited: phase counts restart at zero, and progress that goes backwards is not sent.
+        var waited = System.Diagnostics.Stopwatch.StartNew();
         var index = await code.Index(native, new Progress<CodeIndexProgress>(p =>
-            progress.Report(new ProgressNotificationValue { Progress = p.Done, Total = p.Total > 0 ? p.Total : null, Message = $"indexing {native.Id}: {p.Phase}" })), ct);
+            progress.Report(new ProgressNotificationValue
+            {
+                Progress = (float)waited.Elapsed.TotalSeconds,
+                Message = $"indexing {native.Id}: {p.Phase}" + (p.Total > 0 ? $" {p.Done:N0}/{p.Total:N0}" : p.Done > 0 ? $" ({p.Done:N0} instructions)" : ""),
+            })), ct);
         if (index.Support == CodeSupport.DeclaredFunctionsOnly && index.SupportNote != null)
             workspace.Notify($"{native.Id}: {index.SupportNote}");
         return (native, index);

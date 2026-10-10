@@ -131,11 +131,26 @@ internal sealed class FunctionDiscovery
     private bool IsNoReturnTarget(uint target) =>
         _ctx.NoReturn.Contains(target) || (ThunkSlot(target) is { } slot && _ctx.NoReturn.Contains(slot));
 
+    private long _reportedAt = Environment.TickCount64;
+
+    /// <summary>
+    /// Checks cancellation and reports progress at least every half second: verifying candidates and scanning gaps
+    /// decode without adding instructions, which on a large image runs for tens of seconds.
+    /// </summary>
+    private void Heartbeat()
+    {
+        _ct.ThrowIfCancellationRequested();
+        long now = Environment.TickCount64;
+        if (now - _reportedAt < 500) return;
+        _reportedAt = now;
+        _progress?.Invoke(_decoded);
+    }
+
     private void Drain()
     {
         while (_roots.Count > 0)
         {
-            _ct.ThrowIfCancellationRequested();
+            Heartbeat();
             Explore(_roots.Dequeue());
         }
     }
@@ -304,7 +319,7 @@ internal sealed class FunctionDiscovery
         int i = 0;
         foreach (var reloc in _ctx.Relocations)
         {
-            if ((++i & 0xFFFF) == 0) _ct.ThrowIfCancellationRequested();
+            if ((++i & 0xFFFF) == 0) Heartbeat();
             long bit = _ctx.Code.BitIndex(reloc);
             if ((bit >= 0) != inCode) continue;
             if (bit >= 0 && (_covered[bit] || tableEntries!.Contains(reloc))) continue;
@@ -339,12 +354,19 @@ internal sealed class FunctionDiscovery
         if (bit < 0 || _covered[bit]) return false;
         // more known code only adds reasons to reject, so a rejection is final
         if (_rejected.Contains(rva)) return false;
+        Heartbeat();
         if (_dataInCode.Contains(rva) || StringDetector.Detect(_ctx.Image, rva, 64, _stringBuffer) != null || !Verify(rva, out bool funclet))
         {
             _rejected.Add(rva);
             return false;
         }
         Add(rva, source, strong: false);
+        // At the function limit nothing is added; reporting success would make the gap scan retry the same byte forever.
+        if (!_functions.ContainsKey(rva))
+        {
+            _rejected.Add(rva);
+            return false;
+        }
         if (funclet) _ctx.Funclets.Add(rva);
         return true;
     }
@@ -500,7 +522,7 @@ internal sealed class FunctionDiscovery
             bool sawCode = false;
             while (p < bytes.Length)
             {
-                if ((p & 0xFFFF) == 0) _ct.ThrowIfCancellationRequested();
+                if ((p & 0xFFFF) == 0) Heartbeat();
                 if (_covered[region.BitBase + p]) { p++; boundary = true; sawCode = true; afterCode = false; continue; }
                 if (!prologues)
                 {
