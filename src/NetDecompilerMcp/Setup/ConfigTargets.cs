@@ -73,12 +73,12 @@ internal abstract class ConfigTarget(string path)
     /// back; when it does not hold what was written (another program rewrote it, a sync tool interfered) the previous
     /// content is restored and the reason is returned.
     /// </summary>
-    protected string? WriteAtomically(string text)
+    protected string? WriteAtomically(string text, bool bom = false)
     {
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path)!);
         byte[]? previous = File.Exists(Path) ? File.ReadAllBytes(Path) : null;
         var temp = Path + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
-        File.WriteAllText(temp, text, new UTF8Encoding(false));
+        File.WriteAllText(temp, text, new UTF8Encoding(bom));
         File.Move(temp, Path, overwrite: true);
         string? written;
         try { written = File.ReadAllText(Path); }
@@ -89,8 +89,8 @@ internal abstract class ConfigTarget(string path)
         return "left unchanged: the file did not read back as written, so the previous content was restored";
     }
 
-    protected ConfigChange Write(string text, string message) =>
-        WriteAtomically(text) is { } failed ? new ConfigChange(false, failed) : new ConfigChange(true, message);
+    protected ConfigChange Write(string text, string message, bool bom = false) =>
+        WriteAtomically(text, bom) is { } failed ? new ConfigChange(false, failed) : new ConfigChange(true, message);
 }
 
 /// <summary>A JSON file with servers in an object at <see cref="Container"/> (e.g. "mcpServers").</summary>
@@ -102,23 +102,51 @@ internal sealed class JsonTarget(string path, string[] container, Func<ServerLau
     private static readonly JsonDocumentOptions Lenient = new() { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
-    /// <summary>The parsed file (empty when missing), whether it had comments, or an error.</summary>
-    private (JsonObject? Root, bool HadComments, string? Error) Load()
+    /// <summary>The parsed file (empty when missing), whether it had comments (or trailing commas), its text and BOM, or an error.</summary>
+    private (JsonObject? Root, bool HadComments, string? Error, string Text, bool Bom) Load()
     {
-        if (!File.Exists(Path)) return (new JsonObject(), false, null);
+        if (!File.Exists(Path)) return (new JsonObject(), false, null, "", false);
         string text;
-        try { text = File.ReadAllText(Path); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return (null, false, ex.Message); }
-        if (string.IsNullOrWhiteSpace(text)) return (new JsonObject(), false, null);
+        bool bom;
         try
         {
-            if (JsonNode.Parse(text, documentOptions: Lenient) is not JsonObject root) return (null, false, "the file is not a JSON object");
-            bool strict;
-            try { JsonDocument.Parse(text).Dispose(); strict = true; }
-            catch (JsonException) { strict = false; }
-            return (root, !strict, null);
+            var bytes = File.ReadAllBytes(Path);
+            bom = bytes.AsSpan().StartsWith((ReadOnlySpan<byte>)[0xEF, 0xBB, 0xBF]);
+            text = File.ReadAllText(Path);
         }
-        catch (JsonException ex) { return (null, false, $"invalid JSON ({ex.Message})"); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return (null, false, ex.Message, "", false); }
+        if (string.IsNullOrWhiteSpace(text)) return (new JsonObject(), false, null, text, bom);
+        try
+        {
+            if (JsonNode.Parse(text, documentOptions: Lenient) is not JsonObject root) return (null, false, "the file is not a JSON object", text, bom);
+            return (root, !IsStrict(text), null, text, bom);
+        }
+        catch (JsonException ex) { return (null, false, $"invalid JSON ({ex.Message})", text, bom); }
+    }
+
+    private static bool IsStrict(string text)
+    {
+        try { JsonDocument.Parse(text).Dispose(); return true; }
+        catch (JsonException) { return false; }
+    }
+
+    /// <summary>
+    /// The new file text: edited in place when <see cref="JsoncEditor"/> can and the result parses to exactly
+    /// <paramref name="expected"/> (and stays strict JSON when it was), else <paramref name="expected"/> reserialized.
+    /// </summary>
+    private (string Text, bool InPlace) Render(string text, bool hadComments, string name, JsonObject? entry, JsonObject expected)
+    {
+        if (text.Trim().Length > 0 && JsoncEditor.Edit(text, Container, name, entry) is { } edited)
+        {
+            try
+            {
+                if (JsonNode.Parse(edited, documentOptions: Lenient) is JsonObject parsed && JsonNode.DeepEquals(parsed, expected)
+                    && (hadComments || IsStrict(edited)))
+                    return (edited, true);
+            }
+            catch (JsonException) { }
+        }
+        return (expected.ToJsonString(Indented) + Environment.NewLine, false);
     }
 
     private JsonObject? Servers(JsonObject root, bool create)
@@ -137,7 +165,7 @@ internal sealed class JsonTarget(string path, string[] container, Func<ServerLau
 
     public override string? Registered(string name)
     {
-        var (root, _, _) = Load();
+        var (root, _, _, _, _) = Load();
         if (root == null || Servers(root, false)?[name] is not JsonObject server) return null;
         return server["command"] switch
         {
@@ -150,7 +178,7 @@ internal sealed class JsonTarget(string path, string[] container, Func<ServerLau
     /// <summary>The entry registered under the name, or null.</summary>
     public JsonObject? Existing(string name)
     {
-        var (root, _, _) = Load();
+        var (root, _, _, _, _) = Load();
         return root == null ? null : Servers(root, false)?[name] as JsonObject;
     }
 
@@ -172,12 +200,20 @@ internal sealed class JsonTarget(string path, string[] container, Func<ServerLau
 
     public override TargetPreview Preview(string name, ServerLaunch launch)
     {
-        var (root, hadComments, error) = Load();
+        var (root, hadComments, error, text, _) = Load();
         if (root == null) return new TargetPreview(SetupAction.Blocked, error, null, null, false, null);
-        var existing = Servers(root, false)?[name] as JsonObject;
+        var servers = Servers(root, true)!;
+        var existing = servers[name] as JsonObject;
+        var before = existing?.DeepClone();
         var next = Merge(existing, launch);
         var action = existing == null ? SetupAction.Add : JsonNode.DeepEquals(existing, next) ? SetupAction.Unchanged : SetupAction.Refresh;
-        return new TargetPreview(action, null, existing?.DeepClone(), next, !hadComments, BackupPath());
+        bool preserved = !hadComments || action == SetupAction.Unchanged;
+        if (hadComments && action != SetupAction.Unchanged)
+        {
+            servers[name] = next.DeepClone();
+            preserved = Render(text, hadComments, name, next, root).InPlace;
+        }
+        return new TargetPreview(action, null, before, next, preserved, BackupPath());
     }
 
     /// <summary>
@@ -213,26 +249,28 @@ internal sealed class JsonTarget(string path, string[] container, Func<ServerLau
     /// <summary>Writes the entry made from the current one (null when absent) under the name.</summary>
     public ConfigChange Put(string name, Func<JsonObject?, JsonObject> entry)
     {
-        var (root, hadComments, error) = Load();
+        var (root, hadComments, error, text, bom) = Load();
         if (root == null) return new ConfigChange(false, $"left unchanged: {error}");
         var servers = Servers(root, true)!;
         var existing = servers[name] as JsonObject;
         var next = entry(existing);
         if (existing != null && JsonNode.DeepEquals(existing, next)) return new ConfigChange(false, "already registered");
-        servers[name] = next;
+        servers[name] = next.DeepClone();
+        var (updated, inPlace) = Render(text, hadComments, name, next, root);
         Backup();
-        return Write(root.ToJsonString(Indented) + Environment.NewLine,
-            hadComments ? $"registered (comments were not kept; original saved as {System.IO.Path.GetFileName(Path)}{BackupSuffix})" : "registered");
+        return Write(updated, hadComments && !inPlace
+            ? $"registered (comments were not kept; original saved as {System.IO.Path.GetFileName(Path)}{BackupSuffix})"
+            : "registered", bom);
     }
 
     public override ConfigChange Uninstall(string name)
     {
-        var (root, _, error) = Load();
+        var (root, hadComments, error, text, bom) = Load();
         if (root == null) return new ConfigChange(false, $"left unchanged: {error}");
         var servers = Servers(root, false);
         if (servers == null || !servers.Remove(name)) return new ConfigChange(false, "not registered");
         Backup();
-        return Write(root.ToJsonString(Indented) + Environment.NewLine, "removed");
+        return Write(Render(text, hadComments, name, null, root).Text, "removed", bom);
     }
 }
 

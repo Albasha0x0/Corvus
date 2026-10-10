@@ -37,7 +37,8 @@ public sealed class SetupTests : IDisposable
         return (code!.Value, output.ToString());
     }
 
-    private static JsonNode ReadJson(string path) => JsonNode.Parse(File.ReadAllText(path))!;
+    private static JsonNode ReadJson(string path) =>
+        JsonNode.Parse(File.ReadAllText(path), documentOptions: new System.Text.Json.JsonDocumentOptions { CommentHandling = System.Text.Json.JsonCommentHandling.Skip, AllowTrailingCommas = true })!;
 
     [Fact]
     public void Install_RegistersWithDetectedClients_AndKeepsTheirOtherSettings()
@@ -71,7 +72,8 @@ public sealed class SetupTests : IDisposable
         var zedSettings = ReadJson(Path.Combine(zed, "settings.json"));
         Assert.Equal(16, zedSettings["ui_font_size"]!.GetValue<int>());
         Assert.Equal(Launch.Command, zedSettings["context_servers"]!["net-decompiler"]!["command"]!.GetValue<string>());
-        Assert.Contains("comments were not kept", output);
+        Assert.DoesNotContain("comments were not kept", output);
+        Assert.StartsWith("// Zed settings\n{\n  \"ui_font_size\": 16, // trailing comment\n", File.ReadAllText(Path.Combine(zed, "settings.json")));
         Assert.True(File.Exists(Path.Combine(zed, "settings.json.netdecompiler.bak")));
 
         // Clients that are not installed get no files.

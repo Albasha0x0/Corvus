@@ -37,6 +37,7 @@ Then restart your MCP client. What the installer does:
 3. Registers it as `net-decompiler` with the installed clients it finds, keeping their other settings (each changed
    file is backed up once as `<file>.netdecompiler.bak`; a file it cannot parse is left untouched and reported). An
    existing `net-decompiler` entry keeps your arguments (e.g. `--load`), env and other keys; only its command is updated.
+   Only the entry's text changes, so comments and formatting elsewhere in the file are kept.
    Clients without an entry are listed first, with each file it would change, and registered after one keypress
    (Enter = yes). Without a terminal they are registered only with `--yes` (or `NDM_YES=1`) or `--all-detected`.
 
