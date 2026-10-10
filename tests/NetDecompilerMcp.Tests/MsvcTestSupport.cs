@@ -209,6 +209,7 @@ internal static class VisualStudio
 /// <summary>
 /// Test-only <see cref="INativeImage"/>: headers and sections through System.Reflection.PortableExecutable, the file
 /// held in memory, base relocations (optional) from the relocation directory. Imports, exports and .pdata are not read.
+/// The RTTI tests use it to read an image without its relocations; real files otherwise go through PeFile.
 /// </summary>
 internal sealed class MsvcTestImage : INativeImage
 {

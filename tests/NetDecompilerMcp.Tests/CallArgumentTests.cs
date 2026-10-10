@@ -453,6 +453,9 @@ public class CallArgumentTests(ITestOutputHelper output)
             var tree = await codeTools.NativeCallTree(kernel32, $"0x{index.Image.ImageBase + caller.Start:X}", depth: 1);
             output.WriteLine(tree);
             Assert.Contains($"{called.FullName}  [dynamic]", tree);
+            // the cross-image tree (the server's configuration)
+            var linked = new NetDecompilerMcp.Tools.NativeCodeTools(env.Workspace, service, env.Pager, new NetDecompilerMcp.Services.NativeLinkService(env.Workspace, service));
+            Assert.Contains($"{called.FullName}  [dynamic]", await linked.NativeCallTree(kernel32, $"0x{index.Image.ImageBase + caller.Start:X}", depth: 1));
         }
     }
 

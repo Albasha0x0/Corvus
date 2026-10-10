@@ -11,7 +11,7 @@ public sealed class ReferenceService(AssemblyWorkspace workspace)
     /// <summary>One usage site. Where = the member containing the usage.</summary>
     public sealed record Reference(LoadedAssembly Assembly, IMemberDef Where, uint? ILOffset, string Kind, string Detail);
 
-    public sealed record Callee(uint ILOffset, string OpCode, string Kind, string Target, LoadedAssembly? TargetAssembly);
+    public sealed record Callee(uint ILOffset, string OpCode, string Kind, string Target, LoadedAssembly? TargetAssembly, MethodDef? Method = null);
 
     public sealed record Hierarchy(List<string> BaseChain, List<string> Interfaces, List<ResolvedSymbol> Derived, int DerivedTotal);
 
@@ -172,13 +172,13 @@ public sealed class ReferenceService(AssemblyWorkspace workspace)
             {
                 var target = Try(() => site.Target.ResolveMethodDef());
                 list.Add(new Callee(instr.Offset, $"{instr.OpCode.Name} via {Format.MemberLabel(site.Field)}", "method", Format.MemberLabel(site.Target),
-                    workspace.FindByModule(target?.Module)));
+                    workspace.FindByModule(target?.Module), target));
                 continue;
             }
             if (AsMethod(instr.Operand) is { } m)
             {
                 var md = Try(() => m.ResolveMethodDef());
-                list.Add(new Callee(instr.Offset, instr.OpCode.Name, m.Name == ".ctor" ? "constructor" : "method", Format.MemberLabel(m), workspace.FindByModule(md?.Module)));
+                list.Add(new Callee(instr.Offset, instr.OpCode.Name, m.Name == ".ctor" ? "constructor" : "method", Format.MemberLabel(m), workspace.FindByModule(md?.Module), md));
                 continue;
             }
             if (AsField(instr.Operand) is { } f)

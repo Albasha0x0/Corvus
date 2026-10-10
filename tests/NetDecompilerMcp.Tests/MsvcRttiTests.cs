@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using NetDecompilerMcp.Native;
 using NetDecompilerMcp.Native.Msvc;
+using NetDecompilerMcp.Native.Pe;
 using Xunit.Abstractions;
 
 namespace NetDecompilerMcp.Tests;
@@ -18,6 +19,13 @@ public class MsvcRttiTests(ITestOutputHelper output)
         return path != null && File.Exists(path) ? path : null;
     }
 
+    /// <summary>The image through the real PE parser; null when the file is not a PE image or cannot be read.</summary>
+    private static PeFile? TryOpen(string path)
+    {
+        try { return PeFile.Open(path); }
+        catch (NetDecompilerMcp.Core.ToolError) { return null; }
+    }
+
     [Theory]
     [InlineData(Environment.SpecialFolder.System)]
     [InlineData(Environment.SpecialFolder.SystemX86)]
@@ -25,7 +33,7 @@ public class MsvcRttiTests(ITestOutputHelper output)
     {
         var path = SystemCppRuntime(folder);
         if (path == null) return; // no Visual C++ runtime installed
-        var image = MsvcTestImage.TryLoad(path)!;
+        var image = PeFile.Open(path);
         var result = MsvcRtti.Analyze(image);
         Assert.True(result.Stats.UsedRelocations);
         Assert.True(result.Classes.Count > 20, $"{result.Classes.Count} classes");
@@ -55,7 +63,7 @@ public class MsvcRttiTests(ITestOutputHelper output)
     public void ImageWithoutRttiYieldsNothing()
     {
         // a .NET assembly is a PE image without MSVC RTTI
-        var image = MsvcTestImage.TryLoad(typeof(MsvcRtti).Assembly.Location)!;
+        var image = PeFile.Open(typeof(MsvcRtti).Assembly.Location);
         var result = MsvcRtti.Analyze(image);
         Assert.Empty(result.Classes);
         Assert.Equal(0, result.Stats.Locators);
@@ -111,7 +119,7 @@ public class MsvcRttiTests(ITestOutputHelper output)
         var gate = new object();
         Parallel.ForEach(files, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(2, Environment.ProcessorCount / 2) }, file =>
         {
-            var image = MsvcTestImage.TryLoad(file);
+            var image = TryOpen(file);
             if (image == null || image.Arch == NativeArch.Unknown) return;
             var t = Stopwatch.StartNew();
             MsvcRttiResult result, plain;
@@ -250,7 +258,7 @@ public class MsvcRttiTests(ITestOutputHelper output)
         var (code, log) = Tools.Run(psi, 300_000);
         Assert.True(code == 0 && File.Exists(dir.File("sample.dll")), log);
 
-        var image = MsvcTestImage.TryLoad(dir.File("sample.dll"))!;
+        var image = PeFile.Open(dir.File("sample.dll"));
         Assert.Equal(arch == "x64" ? NativeArch.X64 : NativeArch.X86, image.Arch);
         var map = ReadMap(dir.File("sample.map"), image.ImageBase);
         var byRva = map.GroupBy(m => m.Value).ToDictionary(g => g.Key, g => g.Select(m => m.Key).ToList());

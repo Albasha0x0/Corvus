@@ -88,6 +88,21 @@ public sealed class NativeAnnotations
         }
     }
 
+    /// <summary>Records validated names and comments in one change, persisted once (migrate_native_names).</summary>
+    public void SetMany(IEnumerable<(uint Rva, string Name)> names, IEnumerable<(uint Rva, string Text)> comments)
+    {
+        lock (_gate)
+        {
+            foreach (var (rva, name) in names) _names[rva] = NativeName.Validate(name);
+            foreach (var (rva, text) in comments)
+            {
+                var t = text.Trim();
+                if (t.Length > 0) _comments[rva] = t.Length > 4000 ? t[..4000] : t;
+            }
+            Persist();
+        }
+    }
+
     private void Persist()
     {
         var doc = new AnnotationDocument { Path = FilePath, Sha256 = Sha256, ImageBase = ImageBase };

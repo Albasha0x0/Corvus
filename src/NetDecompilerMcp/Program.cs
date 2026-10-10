@@ -63,6 +63,7 @@ builder.Services
     .AddSingleton<NativeEngineService>()
     .AddSingleton<NetDecompilerMcp.Native.Annotations.AnnotationStore>()
     .AddSingleton<NativeCodeService>()
+    .AddSingleton<NativeLinkService>()
     .AddSingleton<NativeEditService>()
     .AddSingleton<Il2CppNativeNames>()
     .AddSingleton<NativeNamePush>()

@@ -42,9 +42,12 @@ public abstract class McpProtocolTests : IAsyncLifetime
             Command = "dotnet",
             Arguments = [ServerDll, .. args],
             WorkingDirectory = workingDirectory,
-            // Keep the annotation sidecars out of the real per-user folder during tests, one folder per server: servers
-            // running in parallel load the same sample images (same hash), and one renaming a function must not leak into another.
-            EnvironmentVariables = new Dictionary<string, string?> { ["NDM_ANNOTATIONS_DIR"] = Path.Combine(AnnotationsDir, Guid.NewGuid().ToString("N")) },
+            // Keep the annotation sidecars out of the real per-user folder during tests; a server with its own working
+            // directory (the contract sweep) also gets its own sidecars, so its renames never reach a server running beside it.
+            EnvironmentVariables = new Dictionary<string, string?>
+            {
+                ["NDM_ANNOTATIONS_DIR"] = workingDirectory != null ? Path.Combine(workingDirectory, ".ndm-annotations") : AnnotationsDir,
+            },
             // The SDK waits this long for the server to exit before it closes the server's input, then ends it; the
             // server exits on end of input (ServerExitsWhenItsInputCloses), so waiting longer only delays each test.
             ShutdownTimeout = TimeSpan.FromMilliseconds(200),
@@ -88,6 +91,14 @@ public abstract class McpProtocolTests : IAsyncLifetime
     {
         var path = dir.File("native.dll");
         if (!File.Exists(path)) File.WriteAllBytes(path, NativePeTests.KitchenSink(is64: true));
+        return path;
+    }
+
+    /// <summary>A second build of <see cref="NativeSample"/>: the same image with one byte appended (another file hash).</summary>
+    internal static string NativeSampleV2(TempDir dir)
+    {
+        var path = dir.File("native-v2.dll");
+        if (!File.Exists(path)) File.WriteAllBytes(path, [.. NativePeTests.KitchenSink(is64: true), 0]);
         return path;
     }
 
@@ -161,7 +172,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["save_assembly"] = (new() { ["assembly"] = "TestFixture", ["outputPath"] = dir.File("saved.dll") }, "Wrote"),
         ["server_status"] = (new(), "\"catalogDigest\""),
         ["get_pe_info"] = (new() { ["image"] = NativeSample(dir) }, "seed.pdb"),
-        ["list_imports"] = (new() { ["image"] = NativeSample(dir) }, "KERNEL32.dll!ExitProcess"),
+        ["list_imports"] = (new() { ["image"] = NativeSample(dir), ["bind"] = true }, "KERNEL32.dll!ExitProcess"),
         ["list_exports"] = (new() { ["image"] = NativeSample(dir) }, "First"),
         ["resolve_address"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "export First"),
         ["search_bytes"] = (new() { ["image"] = NativeSample(dir), ["pattern"] = "ExitProcess", ["text"] = true }, "1 hit"),
@@ -194,6 +205,11 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["find_r2r_method"] = R2RFramework.LinqEntryVa() is { } va
             ? (new() { ["assembly"] = R2RFramework.Linq, ["address"] = va }, "+0x0 into the hot code")
             : (new() { ["assembly"] = "TestFixture", ["address"] = "0x1000" }, "Error (unsupported) in find_r2r_method"),
+        ["compare_native_images"] = (new() { ["oldImage"] = NativeSample(dir), ["newImage"] = NativeSampleV2(dir) }, "\"basis\":\"name\""),
+        ["map_address_between_builds"] = (new() { ["oldImage"] = NativeSample(dir), ["newImage"] = NativeSampleV2(dir), ["address"] = "First" }, "\"reason\":\"function_start\""),
+        ["migrate_native_names"] = (new() { ["oldImage"] = NativeSample(dir), ["newImage"] = NativeSampleV2(dir), ["dryRun"] = true }, "\"dryRun\":true"),
+        ["make_code_pattern"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "\"anchor\""),
+        ["search_code_pattern"] = (new() { ["pattern"] = "C3", ["images"] = NativeSample(dir) }, "\"hits\""),
         ["read_result"] = (new() { ["id"] = "r999" }, "Error (not_found) in read_result"),
         ["unload_assembly"] = (new() { ["assembly"] = "TestFixture.Consumer" }, "Unloaded"),
     };

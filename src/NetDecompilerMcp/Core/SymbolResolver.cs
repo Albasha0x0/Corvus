@@ -22,6 +22,12 @@ public sealed record ResolvedSymbol(LoadedAssembly Assembly, IMemberDef Member)
     public override string ToString() => $"[{Assembly.Id}] {Kind} {Label} ({Format.Token(Member)})";
 }
 
+/// <summary>A native export named in a symbol string (see <see cref="SymbolResolver.ParseNative"/>).</summary>
+public sealed record NativeSymbol(string Image, string Export)
+{
+    public override string ToString() => $"{Image}!{Export}";
+}
+
 /// <summary>
 /// Resolves loosely written symbol strings to exact definitions. Accepted forms:
 ///   Ns.Type | Ns.Outer+Inner | Ns.Outer/Inner | Ns.Outer.Inner | Type (short name) | List`1 | List&lt;T&gt;
@@ -392,6 +398,34 @@ public static class SymbolResolver
         SymbolKind.Member => r.Member is not TypeDef,
         _ => true,
     };
+
+    /// <summary>File extensions that mark "module!export" as a native symbol without the native: prefix.</summary>
+    private static readonly string[] NativeExtensions = [".dll", ".exe", ".sys", ".drv", ".ocx", ".cpl"];
+
+    /// <summary>
+    /// A native export written as 'native:&lt;image&gt;!&lt;export&gt;' (image: a loaded image id, file name or path, or a DLL
+    /// name; export: a name, '#ordinal', or with a loaded image an address or function name) or as
+    /// '&lt;module&gt;.dll!&lt;export&gt;' (also .exe/.sys/.drv/.ocx/.cpl). Null for .NET symbols: their '!' only appears in
+    /// generic parameters after '(' or '&lt;' ('Method(!!0)').
+    /// </summary>
+    public static NativeSymbol? ParseNative(string? symbol)
+    {
+        if (string.IsNullOrWhiteSpace(symbol)) return null;
+        var s = symbol.Trim();
+        bool prefixed = s.StartsWith("native:", StringComparison.OrdinalIgnoreCase);
+        if (prefixed) s = s[7..].Trim();
+        int bang = s.IndexOf('!');
+        if (bang <= 0 || bang == s.Length - 1)
+            return prefixed ? throw new ToolError(ErrorCode.InvalidArgument, $"'{symbol}' is not image!export.", "write native:kernel32.dll!CreateFileW") : null;
+        var image = s[..bang].Trim();
+        var export = s[(bang + 1)..].Trim();
+        if (!prefixed && !(NativeExtensions.Any(e => image.EndsWith(e, StringComparison.OrdinalIgnoreCase))
+                           && (Path.IsPathFullyQualified(image) || image.IndexOfAny(['(', '<', ',', ' ', ':']) < 0)))
+            return null;
+        if (image.Length == 0 || export.Length == 0)
+            throw new ToolError(ErrorCode.InvalidArgument, $"'{symbol}' is not image!export.", "write native:kernel32.dll!CreateFileW");
+        return new NativeSymbol(image, export);
+    }
 
     public static SymbolKind ParseKind(string? kind) => (kind ?? "any").Trim().ToLowerInvariant() switch
     {

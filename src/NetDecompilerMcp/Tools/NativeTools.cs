@@ -12,7 +12,7 @@ namespace NetDecompilerMcp.Tools;
 
 /// <summary>Native PE images: headers, imports, exports, addresses and bytes.</summary>
 [McpServerToolType]
-public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, NativeCodeService? code = null)
+public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, NativeCodeService? code = null, NativeLinkService? link = null)
 {
     public const string ImageDescription = "Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded.";
 
@@ -152,48 +152,71 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
 
     [McpServerTool(Name = "list_imports", Title = "List native imports", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("Functions a native image imports, per DLL (delay-loaded marked), with the IAT slot address code calls through. " +
-                 "API set names (api-ms-win-*) are shown with the DLL they resolve to on this system. includeDynamic adds late-bound imports " +
-                 "(GetProcAddress with a constant name or ordinal, the module traced from LoadLibrary / GetModuleHandle), marked [dynamic].")]
+                 "API set names (api-ms-win-*) are shown with the DLL they resolve to on this system. With bind=true each import is bound like the " +
+                 "loader does (DLL search order, API sets, forwarders, jump thunks in loaded providers) to its export: 'at VA [image]' when the provider " +
+                 "is loaded (disassemble / native_call_tree work on it), its path when not (load_assembly with that path, or with this image and " +
+                 "loadProviders=true), or the reason it does not resolve (dll_not_found, api_set_unmapped, missing_export, missing_ordinal, forwarder_broken). " +
+                 "includeDynamic adds late-bound imports (GetProcAddress with a constant name or ordinal, the module traced from LoadLibrary / " +
+                 "GetModuleHandle), marked [dynamic].")]
     public async Task<string> ListImports(
         [Description(ImageDescription)] string image,
         [Description("Only this DLL (name with or without .dll).")] string? module = null,
         [Description("Only functions whose name contains this text (case-insensitive).")] string? filter = null,
+        [Description("Bind each import to the export it reaches and summarize: bound / provider not loaded / unresolved by reason.")] bool bind = false,
         [Description("Index of the first row.")] int offset = 0,
         [Description("Max rows (default 500).")] int limit = 500,
         [Description("Also list late-bound imports (waits for the code index).")] bool includeDynamic = false,
         CancellationToken cancellationToken = default)
     {
+        if (bind && link != null) await link.WarmUp(null, cancellationToken);
         List<string>? dynamicRows = null;
         if (includeDynamic && code != null)
         {
             await OnImage(image, _ => "", cancellationToken); // loads a path
-            var native = workspace.Read(() => workspace.FindNative(image.Trim()) ?? workspace.GetNative(image));
-            var index = await code.Index(native, null, cancellationToken);
+            var loaded = workspace.Read(() => workspace.FindNative(image.Trim()) ?? workspace.GetNative(image));
+            var index = await code.Index(loaded, null, cancellationToken);
             dynamicRows = await Task.Run(() => NativeCallTools.DynamicImportRows(index, module, filter, cancellationToken), cancellationToken);
         }
-        return await ListImports(image, module, filter, offset, limit, dynamicRows, cancellationToken);
-    }
-
-    private Task<string> ListImports(string image, string? module, string? filter, int offset, int limit, List<string>? dynamicRows,
-        CancellationToken cancellationToken) => OnImage(image, native =>
-    {
-        var pe = native.Image;
-        var apiSets = ApiSets.Value;
-        var rows = new List<string>();
-        foreach (var mod in pe.ImportModules.Concat(pe.DelayImportModules))
+        return await OnImage(image, native =>
         {
-            if (module != null && !string.Equals(Path.GetFileNameWithoutExtension(mod.Name), Path.GetFileNameWithoutExtension(module.Trim()), StringComparison.OrdinalIgnoreCase)) continue;
-            var host = ApiSetSchema.IsApiSetName(mod.Name) ? apiSets?.Resolve(mod.Name, native.FilePath) : null;
-            foreach (var f in mod.Functions)
+            var pe = native.Image;
+            var apiSets = ApiSets.Value;
+            var rows = new List<string>();
+            var bindings = new List<NativeLinkService.Binding>();
+            var bySlot = bind && link != null
+                ? pe.Imports.Zip(link.BindAll(native, cancellationToken)).GroupBy(p => p.First.SlotRva).ToDictionary(g => g.Key, g => g.First().Second)
+                : null;
+            foreach (var mod in pe.ImportModules.Concat(pe.DelayImportModules))
             {
-                var name = f.Name ?? $"#{f.Ordinal}";
-                if (filter != null && !name.Contains(filter, StringComparison.OrdinalIgnoreCase)) continue;
-                rows.Add($"{NativeAddress.Va(pe, f.SlotRva)}  {mod.Name}{(host != null ? $" ({host})" : "")}!{name}{(f.IsDelayLoad ? "  [delay]" : "")}");
+                if (module != null && !string.Equals(Path.GetFileNameWithoutExtension(mod.Name), Path.GetFileNameWithoutExtension(module.Trim()), StringComparison.OrdinalIgnoreCase)) continue;
+                var host = ApiSetSchema.IsApiSetName(mod.Name) ? apiSets?.Resolve(mod.Name, native.FilePath) : null;
+                foreach (var f in mod.Functions)
+                {
+                    var name = f.Name ?? $"#{f.Ordinal}";
+                    if (filter != null && !name.Contains(filter, StringComparison.OrdinalIgnoreCase)) continue;
+                    var row = $"{NativeAddress.Va(pe, f.SlotRva)}  {mod.Name}{(host != null ? $" ({host})" : "")}!{name}{(f.IsDelayLoad ? "  [delay]" : "")}";
+                    if (bySlot != null && bySlot.TryGetValue(f.SlotRva, out var b))
+                    {
+                        b = link!.FollowThunks(b);
+                        bindings.Add(b);
+                        row += "  -> " + NativeLinkService.Describe(b);
+                    }
+                    rows.Add(row);
+                }
             }
-        }
-        if (dynamicRows != null) rows.AddRange(dynamicRows);
-        return pager.PageRows(rows, offset, limit, "import");
-    }, cancellationToken);
+            if (dynamicRows != null) rows.AddRange(dynamicRows);
+            var head = "";
+            if (bySlot != null)
+            {
+                var (bound, notLoaded, unresolved) = link!.Summary(bindings);
+                int files = bindings.Where(b => b.Status == NativeLinkService.NotLoaded).Select(b => b.FinalFile).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+                head = $"Bindings: {bound} bound to loaded images, {notLoaded} in {Plural(files, "image")} not loaded, {unresolved.Values.Sum()} unresolved" +
+                       (unresolved.Count > 0 ? $" ({string.Join(", ", unresolved.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Key} {kv.Value}"))})" : "") + "\n";
+            }
+            else if (bind) head = "Bindings: not available in this configuration\n";
+            return head + pager.PageRows(rows, offset, limit, "import");
+        }, cancellationToken);
+    }
 
     [McpServerTool(Name = "list_exports", Title = "List native exports", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("Functions and data a native image exports: ordinal, address (VA), name (with the demangled C++ form for MSVC names), and forwarders.")]
@@ -220,7 +243,8 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
 
     [McpServerTool(Name = "resolve_address", Title = "Resolve native address", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("What an address in a native image is: RVA, VA and file offset, the section and its permissions, the nearest export or import at or before it, " +
-                 "and, once the code index is built, its name and the name's source (user, pdb, il2cpp); after apply_il2cpp_names the managed method or metadata slot.")]
+                 "and, once the code index is built, its name and the name's source (user, pdb, il2cpp); after apply_il2cpp_names the managed method or metadata slot. " +
+                 "For an IAT slot, the export it is bound to (in a loaded image: its address and image); for an export, the loaded images importing it.")]
     public Task<string> ResolveAddress(
         [Description(ImageDescription)] string image,
         [Description(AddressDescription)] string address,
@@ -238,6 +262,10 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
             : rva < pe.Optional.SizeOfHeaders ? "  in the PE headers" : "  in no section");
         var slot = pe.Imports.FirstOrDefault(i => i.SlotRva == rva);
         if (slot != null) sb.AppendLine($"  IAT slot of {slot.Module}!{slot.Name ?? "#" + slot.Ordinal}");
+        if (slot != null && link != null) sb.AppendLine($"  bound to {NativeLinkService.Describe(link.BindImport(native, slot))}");
+        if (link != null) foreach (var line in link.DescribeManaged(native, rva)) sb.AppendLine("  " + line);
+        if (link != null && link.ImportersOf(native, rva, cancellationToken) is { Count: > 0 } importers)
+            sb.AppendLine($"  imported by {string.Join(", ", importers.GroupBy(i => i.Importer.Id).Select(g => $"{g.Key} ({string.Join(", ", g.Select(i => NativeCodeIndex.ImportName(i.Import)).Distinct())})"))}; find_xrefs lists the call sites");
         var export = pe.Exports.Where(e => e.ForwardedTo == null && e.Rva <= rva).MaxBy(e => e.Rva);
         if (export != null) sb.AppendLine(export.Rva == rva ? $"  export {export.Name ?? "#" + export.Ordinal}" : $"  nearest export before it: {export.Name ?? "#" + export.Ordinal} + 0x{rva - export.Rva:X}");
         var function = FindRuntimeFunction(pe, rva);
@@ -268,6 +296,7 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
         [Description("Treat pattern as text (ASCII and UTF-16LE).")] bool text = false,
         [Description("Only this section (e.g. .text, .rdata).")] string? section = null,
         [Description("Max hits (default 200).")] int limit = 200,
+        [Description("Index of the first hit.")] int offset = 0,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
         var pe = native.Image;
@@ -277,28 +306,65 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
         if (patterns.Any(p => p.Bytes.Length == 0))
             throw new ToolError(ErrorCode.InvalidArgument, "The pattern is empty.", "pass hex bytes such as '48 8B 05 ?? ?? ?? ??' or text with text=true");
         int max = ClampLimit(limit, 10_000);
+        offset = Math.Max(0, offset);
         var hits = new List<string>();
-        int total = 0;
+        long total = 0;
+        int chars = 0;
+        void Hit(NativeSection s, uint rva, string label)
+        {
+            // Rows stop at the page size; the rest is reached with offset.
+            if (total++ < offset || hits.Count >= max || chars >= 50_000) return;
+            var row = $"{NativeAddress.Va(pe, rva)}  {s.Name}{(patterns.Count > 1 ? "  " + label : "")}" +
+                      (pe.TryRvaToFileOffset(rva, out var fo) ? $"  file 0x{fo:X}" : "  (zero fill, not in the file)");
+            hits.Add(row);
+            chars += row.Length + 1;
+        }
+        // The file-backed part of each section is read in 1 MB chunks overlapping by the pattern length; matches in the
+        // zero fill after it (which can be gigabytes) are counted, not scanned.
+        int longest = patterns.Max(p => p.Bytes.Length);
+        var data = new byte[(1 << 20) + longest];
         foreach (var s in pe.Sections)
         {
             if (section != null && !s.Name.Equals(section.Trim(), StringComparison.OrdinalIgnoreCase)) continue;
-            var data = new byte[Math.Min(s.MappedSize, 512u << 20)];
-            int read = pe.Read(s.Rva, data);
-            var span = data.AsSpan(0, read);
-            foreach (var (bytes, mask, label) in patterns)
-                for (int i = 0; i + bytes.Length <= span.Length; i++)
+            uint size = (uint)Math.Min(s.MappedSize, Math.Max(0L, (long)pe.SizeOfImage - s.Rva));
+            uint backed = (uint)pe.FileBackedLength(s.Rva, size);
+            for (uint at = 0; at < backed; at += 1 << 20)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                int read = pe.Read(s.Rva + at, data.AsSpan(0, (int)Math.Min((uint)data.Length, size - at)));
+                if (read <= 0) break;
+                var span = data.AsSpan(0, read);
+                int starts = (int)Math.Min(Math.Min(read, 1 << 20), backed - at);
+                foreach (var (bytes, mask, label) in patterns)
                 {
-                    if ((i & 0xFFFFF) == 0) cancellationToken.ThrowIfCancellationRequested();
-                    if (!Matches(span, i, bytes, mask)) continue;
-                    total++;
-                    if (hits.Count < max)
-                        hits.Add($"{NativeAddress.Va(pe, s.Rva + (uint)i)}  {s.Name}{(patterns.Count > 1 ? "  " + label : "")}" +
-                                 (pe.TryRvaToFileOffset(s.Rva + (uint)i, out var fo) ? $"  file 0x{fo:X}" : "  (zero fill, not in the file)"));
+                    // Candidates are found with a vectorized search for the fixed bytes the pattern starts with.
+                    int fixedPrefix = Array.IndexOf(mask, false) is var w and >= 0 ? w : mask.Length;
+                    var prefix = bytes.AsSpan(0, fixedPrefix);
+                    for (int i = 0; i < starts && i + bytes.Length <= span.Length; i++)
+                    {
+                        int k = span[i..Math.Min(span.Length, starts + prefix.Length - 1)].IndexOf(prefix);
+                        if (k < 0) break;
+                        i += k;
+                        if (i < starts && i + bytes.Length <= span.Length && Matches(span, i, bytes, mask)) Hit(s, s.Rva + at + (uint)i, label);
+                    }
                 }
+            }
+            foreach (var (bytes, mask, label) in patterns)
+            {
+                if (bytes.Where((b, i) => mask[i] && b != 0).Any() || (long)size - backed < bytes.Length) continue;
+                long zeroStarts = (long)size - backed - bytes.Length + 1;
+                long skip = Math.Clamp(offset - total, 0, zeroStarts);
+                total += skip;
+                long i = skip;
+                for (; i < zeroStarts && hits.Count < max && chars < 50_000; i++) Hit(s, s.Rva + backed + (uint)i, label);
+                total += zeroStarts - i;
+            }
         }
         if (section != null && !pe.Sections.Any(s => s.Name.Equals(section.Trim(), StringComparison.OrdinalIgnoreCase)))
             throw new ToolError(ErrorCode.NotFound, $"No section '{section}'. Sections: {string.Join(", ", pe.Sections.Select(s => s.Name))}.");
-        return $"{Plural(total, "hit")}{TruncationNote(hits.Count, total)}\n" + string.Join("\n", hits);
+        var more = offset + hits.Count < total ? $"\n[More: call again with offset={offset + hits.Count}]" : "";
+        return $"{total} hit{(total == 1 ? "" : "s")}{(offset > 0 || hits.Count < total ? $" (showing {(hits.Count == 0 ? 0 : offset + 1)}-{offset + hits.Count})" : "")}\n" +
+               string.Join("\n", hits) + more;
     }, cancellationToken);
 
     private static (byte[], bool[], string) Exact(byte[] bytes, string label) => (bytes, bytes.Select(_ => true).ToArray(), label);
@@ -337,6 +403,8 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
         [Description(ImageDescription)] string image,
         [Description(AddressDescription)] string address,
         [Description("Bytes to dump (default 256, max 65536).")] int length = 256,
+        [Description(OffsetDescription)] int offset = 0,
+        [Description(MaxCharsDescription)] int? maxChars = null,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
         var pe = native.Image;
@@ -353,7 +421,7 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
             for (int i = 0; i < n; i++) sb.Append(buffer[row + i] is >= 0x20 and < 0x7F ? (char)buffer[row + i] : '.');
             sb.AppendLine();
         }
-        return pager.Page(sb.ToString());
+        return pager.Page(sb.ToString(), offset, maxChars);
     }, cancellationToken);
 
     private static readonly Lazy<ApiSetSchema?> ApiSets = new(() => ApiSetSchema.FromSystem(PeFile.Open));

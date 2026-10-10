@@ -100,6 +100,7 @@ public sealed class AssemblyWorkspace : IDisposable
         int before = _assemblies.Count;
         var asm = Write(() => LoadCore(path));
         if (_assemblies.Count != before) AssembliesLoaded?.Invoke([asm]);
+        RaiseNativeViews();
         return asm;
     }
 
@@ -111,10 +112,12 @@ public sealed class AssemblyWorkspace : IDisposable
     {
         var full = Path.GetFullPath(path);
         if (Read(() => _natives.FirstOrDefault(n => string.Equals(n.FilePath, full, StringComparison.OrdinalIgnoreCase))) is { } existing)
-            return (null, existing);
+            return (existing.ManagedView, existing);
         try
         {
-            return (Load(full), null);
+            // A mixed-mode (C++/CLI) assembly also gets its native view.
+            var asm = Load(full);
+            return (asm, Read(() => NativeViewOf(asm)));
         }
         catch (ToolError ex) when (ex.Code == ErrorCode.Unsupported)
         {
@@ -140,6 +143,50 @@ public sealed class AssemblyWorkspace : IDisposable
         return native;
     }
 
+    /// <summary>The native view of a mixed-mode assembly (see <see cref="LoadedNative.ManagedView"/>), or null.</summary>
+    public LoadedNative? NativeViewOf(LoadedAssembly asm) => _natives.FirstOrDefault(n => n.ManagedView == asm);
+
+    private readonly List<LoadedNative> _newViews = new();
+
+    /// <summary>
+    /// A mixed-mode (C++/CLI) assembly is also a native image: its native code gets a view in the native list, id
+    /// the file name (the assembly's own id is its assembly name), unloaded and reloaded with the assembly.
+    /// </summary>
+    private void AttachNativeView(LoadedAssembly asm, byte[] bytes)
+    {
+        if (asm.Module.IsILOnly) return;
+        Native.Pe.PeFile image;
+        try { image = Native.Pe.PeFile.FromBytes(bytes, asm.FilePath); }
+        catch (ToolError) { return; }
+        var baseId = Path.GetFileName(asm.FilePath);
+        var id = baseId;
+        for (int n = 2; IdTaken(id); n++) id = $"{baseId}#{n}";
+        var view = new LoadedNative(id, asm.FilePath, image) { ManagedView = asm };
+        _natives.Add(view);
+        lock (_newViews) _newViews.Add(view);
+    }
+
+    private void RemoveNativeViews(LoadedAssembly asm)
+    {
+        foreach (var view in _natives.Where(n => n.ManagedView == asm).ToList())
+        {
+            _natives.Remove(view);
+            view.Release();
+        }
+    }
+
+    /// <summary>Raises <see cref="NativeLoaded"/> for native views attached since the last call (outside the lock).</summary>
+    private void RaiseNativeViews()
+    {
+        List<LoadedNative> views;
+        lock (_newViews)
+        {
+            views = [.. _newViews];
+            _newViews.Clear();
+        }
+        foreach (var view in views) NativeLoaded?.Invoke(view);
+    }
+
     private bool IdTaken(string id) =>
         _assemblies.Any(a => a.Id.Equals(id, StringComparison.OrdinalIgnoreCase)) || _natives.Any(n => n.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
 
@@ -150,7 +197,9 @@ public sealed class AssemblyWorkspace : IDisposable
         var id = identifier.Trim();
         return _natives.FirstOrDefault(n => n.Id.Equals(id, StringComparison.OrdinalIgnoreCase))
                ?? _natives.FirstOrDefault(n => Path.GetFileName(n.FilePath).Equals(id, StringComparison.OrdinalIgnoreCase)
-                                               || n.FilePath.Equals(SafeFullPath(id), StringComparison.OrdinalIgnoreCase));
+                                               || n.FilePath.Equals(SafeFullPath(id), StringComparison.OrdinalIgnoreCase))
+               // A mixed-mode assembly's id names its native view too.
+               ?? _natives.FirstOrDefault(n => n.ManagedView?.Id.Equals(id, StringComparison.OrdinalIgnoreCase) == true);
     }
 
     /// <summary>Finds a native image by id, file name or full path.</summary>
@@ -170,7 +219,7 @@ public sealed class AssemblyWorkspace : IDisposable
     public void UnloadNative(LoadedNative native) => Write(() =>
     {
         if (!_natives.Remove(native)) throw Gone(native.Id);
-        foreach (var analysis in native.Analysis.Values.OfType<IDisposable>()) analysis.Dispose();
+        native.Release();
         return 0;
     });
 
@@ -185,10 +234,10 @@ public sealed class AssemblyWorkspace : IDisposable
         {
             int index = _natives.IndexOf(native);
             if (index < 0) throw Gone(native.Id);
-            _natives.Remove(native);
-            foreach (var analysis in native.Analysis.Values.OfType<IDisposable>()) analysis.Dispose();
-            var reloaded = new LoadedNative(native.Id, native.FilePath, image);
-            _natives.Insert(Math.Max(0, Math.Min(index, _natives.Count)), reloaded);
+            _natives.RemoveAt(index);
+            native.Release();
+            var reloaded = new LoadedNative(native.Id, native.FilePath, image) { ManagedView = native.ManagedView };
+            _natives.Insert(index, reloaded);
             return reloaded;
         });
         NativeLoaded?.Invoke(fresh);
@@ -221,6 +270,7 @@ public sealed class AssemblyWorkspace : IDisposable
 
         var asm = new LoadedAssembly(MakeUniqueId(module, full), full, bytes, module);
         _assemblies.Add(asm);
+        AttachNativeView(asm, bytes);
 
         var dir = Path.GetDirectoryName(full)!;
         if (!_searchDirectories.Contains(dir, StringComparer.OrdinalIgnoreCase))
@@ -256,6 +306,7 @@ public sealed class AssemblyWorkspace : IDisposable
             return report;
         });
         if (result.Loaded.Count > 0) AssembliesLoaded?.Invoke(result.Loaded);
+        RaiseNativeViews();
         return result;
     }
 
@@ -265,6 +316,7 @@ public sealed class AssemblyWorkspace : IDisposable
         {
             // A concurrent unload or reload already replaced it.
             if (!_assemblies.Remove(asm)) throw Gone(asm.Id);
+            RemoveNativeViews(asm);
             asm.Dispose();
             return 0;
         });
@@ -277,6 +329,7 @@ public sealed class AssemblyWorkspace : IDisposable
         var fresh = ReloadCore(asm);
         AssemblyUnloaded?.Invoke(asm);
         AssembliesLoaded?.Invoke([fresh]);
+        RaiseNativeViews();
         return fresh;
     }
 
@@ -285,6 +338,7 @@ public sealed class AssemblyWorkspace : IDisposable
         int index = _assemblies.IndexOf(asm);
         if (index < 0) throw Gone(asm.Id);
         _assemblies.Remove(asm);
+        RemoveNativeViews(asm);
         asm.Dispose();
         var fresh = LoadCore(asm.FilePath);
         // Keep the original position for a stable listing order.
@@ -756,6 +810,10 @@ public sealed class AssemblyWorkspace : IDisposable
         foreach (var a in _assemblies)
             a.Dispose();
         _assemblies.Clear();
+        // Cancels background code index builds and closes engine sessions.
+        foreach (var n in _natives)
+            n.Release();
+        _natives.Clear();
         _lock.Dispose();
     }
 }

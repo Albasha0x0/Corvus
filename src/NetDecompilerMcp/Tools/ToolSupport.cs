@@ -10,6 +10,11 @@ internal static class ToolSupport
         "Type or member. Forms: 'Ns.Type', 'Ns.Outer+Inner', short 'Type', 'Ns.Type::Method', 'Ns.Type.Method', " +
         "'Ns.Type::Method(int, string)' for one overload, 'Ns.Type::.ctor', or a metadata token like '0x06000123'.";
 
+    public const string SymbolOrNativeDescription = SymbolDescription +
+        " Or a native export: 'kernel32.dll!CreateFileW' (module with .dll/.exe/.sys extension), or 'native:<image>!<export>' where image is a loaded " +
+        "image id, file name or path, or a DLL name found by the loader's search order, and export is a name, '#ordinal', or for a loaded image an " +
+        "address or function name ('native:KERNELBASE.dll!0x180034560'). Matches the P/Invoke declarations bound to that code and their callers.";
+
     public const string AssemblyFilterDescription =
         "Assembly id, name, file name or path (see list_assemblies). Optional: omit to use all loaded assemblies.";
 
