@@ -18,10 +18,14 @@ namespace NetDecompilerMcp.Mcp;
 /// </summary>
 public static partial class Catalog
 {
-    /// <summary>Nulls serialized explicitly: generated output schemas mark every property required, so omitted nulls fail validation.</summary>
+    /// <summary>
+    /// Serializes tool results (record text and structured content). Nulls serialized explicitly: generated output schemas
+    /// mark every property required, so omitted nulls fail validation. Relaxed escaping keeps generic names (List`1, &lt;Module&gt;) readable.
+    /// </summary>
     public static readonly JsonSerializerOptions ToolSerializerOptions = new(McpJsonUtilities.DefaultOptions)
     {
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
     private static readonly string[] ToolFields = ["name", "title", "description", "inputSchema", "outputSchema", "annotations", "_meta"];

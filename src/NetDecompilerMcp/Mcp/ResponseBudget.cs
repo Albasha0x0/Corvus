@@ -42,7 +42,7 @@ internal static class ResponseBudget
 
         var text = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(b => b.Text));
         if (text.Length == 0 && result.StructuredContent is { } s)
-            text = JsonSerializer.Serialize(s, new JsonSerializerOptions { WriteIndented = true });
+            text = JsonSerializer.Serialize(s, new JsonSerializerOptions(Catalog.ToolSerializerOptions) { WriteIndented = true });
         var id = store.Add(tool ?? "?", text);
         var error = new ToolError(ErrorCode.LimitExceeded,
             $"the result is {size:N0} characters, over the {budget:N0}-character response limit. It is kept as {id}.",

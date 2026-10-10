@@ -338,6 +338,16 @@ public abstract class McpProtocolTests : IAsyncLifetime
             Assert.Contains("unknown parameter 'max_chars'. Did you mean 'maxChars'?", snake);
         }
 
+        [Fact]
+        public async Task RecordTextIsNotEscaped()
+        {
+            // Record-only tools: the text block is the record's JSON, written with the tool serializer options.
+            var text = await Call("summarize_file", new() { ["assembly"] = "TestFixture" });
+            Assert.Contains("Singleton`1", text);
+            foreach (var escape in new[] { "\\u0060", "\\u003C", "\\u003E", "\\u0026", "\\u0027" })
+                Assert.DoesNotContain(escape, text, StringComparison.OrdinalIgnoreCase);
+        }
+
         [Trait("Speed", "Slow")]
         [Fact]
         public async Task EveryToolSucceedsWithValidInput()
