@@ -126,10 +126,27 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
     private static string ExternalKey(MethodDef m) =>
         $"{m.DeclaringType?.FullName}::{m.Name}({Format.ParameterTypes(m.MethodSig)}){m.GenericParameters.Count}";
 
-    public string Tree(LoadedAssembly asm, MethodDef root, bool callers, int depth, int maxNodes, bool includeExternal, CancellationToken ct)
+    /// <param name="native">
+    /// Optional lines written under each expanded method (and the root): given the method, the levels left and the
+    /// indent level; used for native code a method binds to (callees) or native code calling it (callers).
+    /// </param>
+    public string Tree(LoadedAssembly asm, MethodDef root, bool callers, int depth, int maxNodes, bool includeExternal, CancellationToken ct,
+        Func<MethodDef, int, int, string>? native = null)
+    {
+        var sb = new StringBuilder($"{(callers ? "Callers" : "Callees")} of {Format.MemberLabel(root)}  [{asm.Id}]  (depth {depth})\n");
+        int length = sb.Length;
+        bool truncated = WriteTree(sb, asm, root, callers, depth, maxNodes, includeExternal, 0, native, ct);
+        if (sb.Length == length)
+            sb.AppendLine(callers ? "  (no callers in the loaded assemblies — load the assemblies that might call it)" : "  (calls nothing in the loaded assemblies; includeExternal=true shows framework calls)");
+        if (truncated) sb.AppendLine($"[Stopped after {maxNodes} nodes (the levels above the last one shown are complete): raise maxNodes or lower depth.]");
+        return sb.ToString();
+    }
+
+    /// <summary>The tree below <paramref name="root"/> (not the root line), indented by <paramref name="baseIndent"/> levels; true when maxNodes cut it.</summary>
+    public bool WriteTree(StringBuilder sb, LoadedAssembly asm, MethodDef root, bool callers, int depth, int maxNodes, bool includeExternal, int baseIndent,
+        Func<MethodDef, int, int, string>? native, CancellationToken ct)
     {
         var g = GetGraph(ct);
-        var sb = new StringBuilder($"{(callers ? "Callers" : "Callees")} of {Format.MemberLabel(root)}  [{asm.Id}]  (depth {depth})\n");
 
         // Breadth-first so maxNodes truncates only the deepest level; each method is expanded once, at its shallowest occurrence.
         var children = new Dictionary<MethodDef, List<(MethodDef Child, string? Note, int Count)>>();
@@ -186,19 +203,17 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
                 if (!expandHere)
                     tags.Add(IsAncestor(child, m) ? "recursive" : $"expanded under {(home.Parent == root ? "the root" : Format.MemberLabel(home.Parent))}");
                 var owner = workspace.FindByModule(child.Module)?.Id;
-                sb.AppendLine($"{new string(' ', l * 2)}{Format.MemberLabel(child)}{(owner != null && owner != asm.Id ? $"  [{owner}]" : "")}{(tags.Count > 0 ? $"  ({string.Join(", ", tags)})" : "")}");
+                sb.AppendLine($"{new string(' ', (l + baseIndent) * 2)}{Format.MemberLabel(child)}{(owner != null && owner != asm.Id ? $"  [{owner}]" : "")}{(tags.Count > 0 ? $"  ({string.Join(", ", tags)})" : "")}");
                 if (expandHere) Print(child, l + 1);
             }
             if (!callers && includeExternal && children.ContainsKey(m) && g.External.TryGetValue(m, out var ext))
                 foreach (var e in ext)
-                    sb.AppendLine($"{new string(' ', l * 2)}{e}  (external)");
+                    sb.AppendLine($"{new string(' ', (l + baseIndent) * 2)}{e}  (external)");
+            if (native != null && depth - l + 1 > 0) sb.Append(native(m, depth - l + 1, l + baseIndent));
         }
 
         Print(root, 1);
-        if (nodes == 0)
-            sb.AppendLine(callers ? "  (no callers in the loaded assemblies — load the assemblies that might call it)" : "  (calls nothing in the loaded assemblies; includeExternal=true shows framework calls)");
-        if (truncated) sb.AppendLine($"[Stopped after {maxNodes} nodes (the levels above the last one shown are complete): raise maxNodes or lower depth.]");
-        return sb.ToString();
+        return truncated;
     }
 
     /// <summary>A call path step; <c>Via</c> is the base/interface method called when reached by virtual dispatch.</summary>

@@ -76,7 +76,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     /// <summary>Loads the provider DLLs of a loaded file's imports (native) or P/Invoke declarations (.NET), one level.</summary>
     private string Providers(LoadedAssembly? assembly, LoadedNative? native)
     {
-        var bindings = workspace.Read(() => native != null ? link!.BindAll(native).ToList() : new List<NativeLinkService.Binding>());
+        var bindings = workspace.Read(() => native != null ? link!.BindAll(native).ToList() : assembly != null ? link!.PInvokeBindings(assembly).ToList() : []);
         var (loaded, skipped) = link!.LoadProviders(bindings, NativeLinkService.MaxProvidersPerCall);
         var sb = new StringBuilder($"\n  providers: loaded {(loaded.Count > 0 ? string.Join(", ", loaded) : "none")}");
         int already = bindings.Where(b => b.Status == NativeLinkService.Bound).Select(b => b.Target!.Id).Distinct().Count();

@@ -57,6 +57,7 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
         _byPath = new Dictionary<string, LoadedNative>(StringComparer.OrdinalIgnoreCase);
         foreach (var n in natives) _byPath.TryAdd(n.FilePath, n);
         _imports.Clear();
+        _pinvokes.Clear();
         _importers = null;
         var byPath = _byPath;
         return _linker = new NativeLinker(
@@ -103,16 +104,24 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
     /// <summary>The image's code index when it is built (does not wait).</summary>
     public NativeCodeIndex? Index(LoadedNative native) => code.Ready(native);
 
-    /// <summary>Waits for the code indexes of <paramref name="natives"/> (all loaded images when null); failures are skipped.</summary>
+    /// <summary>Longest wait of <see cref="WarmUp"/>; images still indexing after it are reported as such in results.</summary>
+    public static readonly TimeSpan MaxWarmUp = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Waits (at most <see cref="MaxWarmUp"/>) for the code indexes of <paramref name="natives"/> (all loaded images
+    /// when null), so thunks and provider functions resolve; failures are skipped.
+    /// </summary>
     public async Task WarmUp(IEnumerable<LoadedNative>? natives, CancellationToken ct)
     {
-        var list = (natives ?? workspace.Natives).Distinct().ToList();
+        var list = (natives ?? workspace.Natives).Distinct().Where(n => code.Ready(n) == null).ToList();
         if (list.Count == 0) return;
-        await Task.WhenAll(list.Select(async n =>
+        var all = Task.WhenAll(list.Select(async n =>
         {
             try { await code.Index(n, null, ct); }
             catch (ToolError) { }
         }));
+        await Task.WhenAny(all, Task.Delay(MaxWarmUp, ct));
+        ct.ThrowIfCancellationRequested();
     }
 
     // ---- imports ----

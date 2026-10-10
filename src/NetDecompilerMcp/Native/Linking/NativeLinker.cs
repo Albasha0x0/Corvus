@@ -118,7 +118,7 @@ public sealed class NativeLinker
         {
             searched.Add(requesterDir);
             var candidate = Path.Combine(requesterDir, name);
-            if (File.Exists(candidate)) return (candidate, searched);
+            if (File.Exists(candidate)) return (Canonical(candidate), searched);
         }
         if (_loadedByName?.Invoke(name, x86) is { } loaded)
         {
@@ -137,9 +137,20 @@ public sealed class NativeLinker
             if (string.Equals(dir, requesterDir, StringComparison.OrdinalIgnoreCase)) continue;
             searched.Add(dir);
             var candidate = Path.Combine(dir, name);
-            if (File.Exists(candidate)) return (candidate, searched);
+            if (File.Exists(candidate)) return (Canonical(candidate), searched);
         }
         return (null, searched);
+    }
+
+    /// <summary>The path with the file name spelled as on disk (import names are often upper-cased: NTDLL.dll).</summary>
+    private static string Canonical(string path)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(path);
+            return dir != null ? Directory.EnumerateFiles(dir, Path.GetFileName(path)).FirstOrDefault() ?? path : path;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { return path; }
     }
 
     private static bool HasImageExtension(string name) =>

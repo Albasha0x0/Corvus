@@ -155,11 +155,22 @@ public sealed class NativeLinkTests : IDisposable
     public async Task ImportsBindAcrossLoadedImages()
     {
         var (app, prov, deep) = LinkedImages.Trio(_dir);
-        foreach (var f in new[] { app, prov, deep }) _ws.LoadAny(f);
+        _ws.LoadAny(app);
         var native = new NativeTools(_ws, _pager, _code, _link);
         var calls = new NativeCodeTools(_ws, _code, _pager, _link);
 
+        // Providers that are not loaded are named with their path, and load on demand (capped).
         var imports = await native.ListImports("app.dll", bind: true);
+        Has(imports, "Bindings: 0 bound to loaded images, 4 in 2 images not loaded, 2 unresolved");
+        Has(imports, $"provlib.dll!Work in {prov} (not loaded)");
+        Has(imports, $"provlib.dll!Fwd -> deeplib.dll!Other in {deep} (not loaded)");
+        var (loaded, skipped) = _link.LoadProviders(_ws.Read(() => _link.BindAll(_ws.GetNative("app.dll"))), 1);
+        Assert.Equal(["provlib.dll"], loaded);
+        Assert.Equal([deep], skipped);
+        Has(await native.ListImports("app.dll", bind: true), "Bindings: 3 bound to loaded images, 1 in 1 image not loaded");
+        _ws.LoadAny(deep);
+
+        imports = await native.ListImports("app.dll", bind: true);
         Has(imports, "Bindings: 4 bound to loaded images, 0 in 0 images not loaded, 2 unresolved (");
         Has(imports, "provlib.dll!Work -> deeplib.dll!Deep at 0x180001000 [deeplib.dll]");   // jump thunk followed
         Has(imports, "provlib.dll!Fwd -> deeplib.dll!Other at 0x180001010 [deeplib.dll]");   // forwarder
@@ -185,21 +196,84 @@ public sealed class NativeLinkTests : IDisposable
         Assert.Contains(";   provlib!Work -> provlib.dll!Work -> deeplib.dll!Deep at 0x180001000 [deeplib.dll]", await calls.Disassemble("app.dll", "Main"));
     }
 
-    [Fact]
-    public async Task ProvidersThatAreNotLoadedAreNamedAndLoadOnDemand()
+    private const string PInvokeSource = """
+        using System.Runtime.InteropServices;
+        public static class Interop
+        {
+            [DllImport("provlib.dll")] public static extern void Plain();
+            [DllImport("provlib.dll", EntryPoint = "Work")] public static extern void Thunked();
+            [DllImport("provlib.dll")] public static extern void NotThere();
+        }
+        public static class App
+        {
+            public static void Run() { Interop.Plain(); Helper(); }
+            public static void Helper() => Interop.Thunked();
+            public static void Main() => Run();
+        }
+        """;
+
+    private (Env Env, ReferenceTools Refs, CallGraphTools Graph) ManagedSetup()
     {
         var (app, prov, deep) = LinkedImages.Trio(_dir);
-        _ws.LoadAny(app);
-        var native = new NativeTools(_ws, _pager, _code, _link);
-        var imports = await native.ListImports("app.dll", bind: true);
-        Has(imports, "Bindings: 0 bound to loaded images, 4 in 2 images not loaded, 2 unresolved");
-        Has(imports, $"provlib.dll!Work in {prov} (not loaded)");
-        Has(imports, $"provlib.dll!Fwd -> deeplib.dll!Other in {deep} (not loaded)");
+        var path = _dir.File("Managed.dll");
+        File.WriteAllBytes(path, Roslyn.Compile("Managed", PInvokeSource,
+            new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(Microsoft.CodeAnalysis.OutputKind.DynamicallyLinkedLibrary)));
+        var env = new Env(path);
+        foreach (var f in new[] { app, prov, deep }) env.Workspace.LoadAny(f);
+        var code = new NativeCodeService(env.Workspace, new ServerOptions { BackgroundIndexing = false }, null, new AnnotationStore(_dir.File("ann2")));
+        var link = new NativeLinkService(env.Workspace, code);
+        return (env, new ReferenceTools(env.Workspace, env.References, env.Pager, link),
+            new CallGraphTools(env.Workspace, new CallGraphService(env.Workspace), env.Pager, link));
+    }
 
-        var (loaded, skipped) = _link.LoadProviders(_ws.Read(() => _link.BindAll(_ws.GetNative("app.dll"))), 1);
-        Assert.Equal(["provlib.dll"], loaded);
-        Assert.Equal([deep], skipped);
-        Assert.Contains("Bindings: 3 bound to loaded images, 1 in 1 image not loaded", await native.ListImports("app.dll", bind: true));
+    [Fact]
+    public async Task ManagedCallsContinueIntoNativeCode()
+    {
+        var (env, refs, graph) = ManagedSetup();
+        using var _ = env;
+        Has(await refs.FindCallees("App::Run"), "-> native: provlib.dll!Plain at 0x180001010 [provlib.dll]");
+        var own = await refs.FindCallees("Interop::Thunked");
+        Has(own, "is a P/Invoke with no IL body");
+        Has(own, "native: provlib.dll!Work -> deeplib.dll!Deep at 0x180001000 [deeplib.dll]");
+        Has(await refs.FindCallees("Interop::NotThere"), "native: provlib.dll: unresolved (missing_export)");
+
+        var tree = await graph.GetCallTree("App::Main", "callees", depth: 4);
+        Has(tree, "    Interop::Plain()");
+        Has(tree, "      native: provlib.dll!Plain at 0x180001010 [provlib.dll]");
+        Has(tree, "        deeplib!Deep -> deeplib.dll!Deep at 0x180001000 [deeplib.dll]");
+
+        // Native exports list their managed callers.
+        var plain = await refs.FindReferences("provlib.dll!Plain");
+        Has(plain, "References to native provlib.dll!Plain: provlib.dll!Plain at 0x180001010 [provlib.dll]");
+        Has(plain, "  Interop::Plain()  [Managed]");
+        Has(plain, "      App::Run()  [Managed]");
+        Has(plain, "[app.dll] 0x180001006  ImportCall Main+0x6  via provlib!Plain");
+
+        // Through the jump thunk provlib!Work, the P/Invoke reaches deeplib!Deep.
+        Has(await refs.FindReferences("native:deeplib.dll!Deep"), "  Interop::Thunked()  [Managed]");
+
+        var callers = await graph.GetCallTree("provlib.dll!Plain", "callers", depth: 3);
+        Has(callers, "  Main  0x180001000  [app.dll]  (calls provlib!Plain)");
+        Has(callers, "  Interop::Plain()  [Managed]  (P/Invoke: provlib.dll!Plain");
+        Has(callers, "    App::Run()");
+        Has(callers, "      App::Main()");
+
+        var paths = await graph.FindCallPaths("native:provlib!Plain");
+        Has(paths, "1 path to native provlib!Plain");
+        Has(paths, "      -> native: provlib.dll!Plain at 0x180001010 [provlib.dll]");
+        await Assert.ThrowsAsync<ToolError>(() => refs.FindReferences("native:provlib.dll!NoSuchExport"));
+    }
+
+    [Fact]
+    public void NativeSymbolSyntax()
+    {
+        Assert.Equal(new NativeSymbol("kernel32.dll", "CreateFileW"), SymbolResolver.ParseNative("kernel32.dll!CreateFileW"));
+        Assert.Equal(new NativeSymbol("KERNELBASE", "0x180001000"), SymbolResolver.ParseNative(" native:KERNELBASE!0x180001000 "));
+        Assert.Equal(new NativeSymbol(@"C:\x\a.dll", "#5"), SymbolResolver.ParseNative(@"C:\x\a.dll!#5"));
+        Assert.Null(SymbolResolver.ParseNative("Ns.Type::Method(!!0)"));
+        Assert.Null(SymbolResolver.ParseNative("List<T>!x"));
+        Assert.Null(SymbolResolver.ParseNative("Ns.Type::Method"));
+        Assert.Throws<ToolError>(() => SymbolResolver.ParseNative("native:kernel32.dll"));
     }
 
     [Fact]
