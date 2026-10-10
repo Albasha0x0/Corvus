@@ -10,7 +10,7 @@ using NetDecompilerMcp.Native.Providers;
 namespace NetDecompilerMcp.Services;
 
 /// <summary>
-/// Pushes the names and comments in effect for an image (user annotations over imported pdb / il2cpp layers) into its
+/// Pushes the names and comments in effect for an image (user annotations over the il2cpp layer; PDB names are the engine's own) into its
 /// engine session before engine output is shown, so decompile_native uses the same names as the built-in tools.
 /// Batched (<see cref="BatchSize"/> per request); the last batch records a stamp (SHA-256 of the pushed set) in the
 /// database and saves it, so a later session on the same database skips the push when nothing changed. Within a
@@ -37,14 +37,19 @@ public sealed class NativeNamePush(NativeCodeService code)
         public object[]? Inputs;
     }
 
-    /// <summary>The names and comments in effect from every source above discovered names, by RVA.</summary>
+    /// <summary>
+    /// The names and comments in effect from every source above discovered names, by RVA. PDB names are left out:
+    /// the engine loads the same PDB itself and keeps its decorated, typed names, which lower layers do not override.
+    /// </summary>
     public static Dictionary<uint, Entry> Effective(NativeAnnotations? user, IReadOnlyList<NativeNameLayers.Layer> layers, INativeImage image)
     {
         var result = new Dictionary<uint, Entry>();
-        foreach (var layer in layers.OrderBy(l => l.Source))
+        var pdb = layers.FirstOrDefault(l => l.Source == NativeNameSource.Pdb)?.Names;
+        foreach (var layer in layers.Where(l => l.Source != NativeNameSource.Pdb).OrderBy(l => l.Source))
         {
             foreach (var (rva, name) in layer.Names)
-                result[rva] = result.GetValueOrDefault(rva) with { Name = name, Function = image.SectionAt(rva) is { IsExecutable: true } };
+                if (pdb == null || !pdb.ContainsKey(rva))
+                    result[rva] = result.GetValueOrDefault(rva) with { Name = name, Function = image.SectionAt(rva) is { IsExecutable: true } };
             foreach (var (rva, comment) in layer.Comments)
                 result[rva] = result.GetValueOrDefault(rva) with { Comment = comment };
         }

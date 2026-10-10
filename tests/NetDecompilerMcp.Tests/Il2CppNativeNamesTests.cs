@@ -233,6 +233,20 @@ public sealed class Il2CppNativeNamesTests : IDisposable
         Assert.Empty(reopened.Items);
     }
 
+    [Fact]
+    public async Task PushLeavesPdbAddressesToTheEngine()
+    {
+        var (native, _) = await Open();
+        var layers = new[]
+        {
+            new NativeNameLayers.Layer(NativeNameSource.Il2Cpp, new Dictionary<uint, string> { [0x1000] = "A", [0x1100] = "B" }, new Dictionary<uint, string>(), "t"),
+            new NativeNameLayers.Layer(NativeNameSource.Pdb, new Dictionary<uint, string> { [0x1000] = "Bar::Foo", [0x1200] = "Baz" }, new Dictionary<uint, string>(), "t"),
+        };
+        var effective = NativeNamePush.Effective(null, layers, native.Image);
+        Assert.Equal([0x1100u], effective.Keys);
+        Assert.Equal("B", effective[0x1100].Name);
+    }
+
     /// <summary>An engine session that records the names pushed into it.</summary>
     private sealed class RecordingSession : INativeDecompilerSession
     {
