@@ -17,8 +17,9 @@ public sealed class InspectionTools(InspectionService inspection)
                  "decoded embedded content, high-entropy sections), features with ATT&CK techniques, a summary of extracted values, and " +
                  "entry points (Main, module initializer, native exports, installer / service / AppDomainManager / COM hooks). Containers " +
                  "(single-file bundles, packages, APKs, zips, Costura hosts) are opened: the app's own assembly in full, up to 7 more in brief " +
-                 "(framework libraries last, translations skipped); an apphost launcher's .dll next to it is summarized as the app. highlights lists " +
-                 "the notable findings.")]
+                 "(framework libraries last, translations skipped); an apphost launcher's .dll next to it is summarized as the app. For a NativeAOT " +
+                 "executable, nativeAot gives the runtime version, module sections, recovery stages and counts of named methods, MethodTables and " +
+                 "frozen strings. highlights lists the notable findings.")]
     public Task<InspectionService.FileSummary> SummarizeFile(
         [Description("Any file: assembly, single-file bundle, .nupkg, .apk, zip, native executable. Pass this or assembly.")] string? path = null,
         [Description(AssemblyParam)] string? assembly = null,
