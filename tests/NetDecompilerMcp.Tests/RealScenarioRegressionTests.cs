@@ -291,7 +291,7 @@ public sealed class RealScenarioRegressionTests
         var script = dir.File("edits.json");
         env.Workspace.Read(() => env.History.Export(env.Fixture, script));
 
-        var result = env.Edit(() => env.History.Apply(script, newBuild.Id, dryRun: false, stopOnError: true, default));
+        var result = env.Edit(() => env.History.Apply(script, newBuild.Id, dryRun: false, stopOnError: true, default, NetDecompilerMcp.Services.EditHistoryService.TargetBuild.Other));
         Assert.Contains("2 applied, 0 failed", result);
         Assert.Contains("ak7::i()", result); // y() is called i() in the new build
         Assert.Contains("\"stubbed\"", env.Workspace.Read(() => env.Decompiler.DecompileMembers(newBuild, [(IMemberDef)SymbolResolver.ResolveOne(env.Workspace, newBuild.Id, "Uploader::i").Member], default)));

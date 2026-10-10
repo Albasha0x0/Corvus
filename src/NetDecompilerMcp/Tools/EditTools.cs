@@ -133,7 +133,8 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
             pager.Page(history.Diff(workspace.Get(assembly), number, cancellationToken), offset, maxChars), cancellationToken);
 
     [McpServerTool(Name = "export_edits", Title = "Export edits as a script", OpenWorld = false)]
-    [Description("Save the edits of an assembly as a JSON edit script. apply_edits can replay it later — e.g. on the next build after an update, where symbols are re-resolved by name.")]
+    [Description("Save the edits of an assembly as a JSON edit script, bound to the build they were made on (file SHA-256, MVID, assembly identity). " +
+                 "apply_edits replays it on that build, or deliberately on another one (targetBuild=other, e.g. the next build after an update), where symbols are re-resolved by name.")]
     public Task<string> ExportEdits(
         [Description(AssemblyDescription)] string assembly,
         [Description("Output .json path.")] string path,
@@ -141,7 +142,10 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
             history.Export(workspace.Get(assembly), path), cancellationToken);
 
     [McpServerTool(Name = "apply_edits", Title = "Apply an edit script", Destructive = false, OpenWorld = false)]
-    [Description("Replay a JSON edit script (from export_edits) onto an assembly. On the same build, recorded tokens are used; on a different build, symbols are re-resolved by name and each edit reports ok/FAILED. " +
+    [Description("Replay a JSON edit script (from export_edits) onto an assembly. The script is bound to the build it was made from (SHA-256, MVID, identity): " +
+                 "by default (targetBuild=same) another build is refused with a conflict error naming both; targetBuild=other carries the edits across deliberately: " +
+                 "symbols are re-resolved by name (renamed targets followed when the source build is loaded too) and the report lists what was remapped. " +
+                 "Scripts without the binding are applied with a warning. On the same build, recorded tokens are used; each edit reports ok/FAILED. " +
                  "dryRun applies every edit for real (C# compiled, IL stack-checked) and then rolls back, so it reports exactly what would fail, with the full compiler errors. " +
                  "With stopOnError (default) a failure rolls the assembly back to its state before the script.")]
     public Task<string> ApplyEdits(
@@ -149,8 +153,9 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description("Target assembly. Omit to use the assembly named in the script.")] string? assembly = null,
         [Description("Apply and compile every edit, report, then roll back: nothing changes.")] bool dryRun = false,
         [Description("Roll back everything on the first failure (default true).")] bool stopOnError = true,
+        [Description("same (default): only the build the script was made from; other: carry the edits to a different build, re-resolving symbols by name.")] string targetBuild = "same",
         CancellationToken cancellationToken = default) => Write(workspace, () => // dry runs apply and roll back, so they also need the write lock
-            history.Apply(path, assembly, dryRun, stopOnError, cancellationToken), cancellationToken);
+            history.Apply(path, assembly, dryRun, stopOnError, cancellationToken, EditHistoryService.ParseTargetBuild(targetBuild)), cancellationToken);
 
     [McpServerTool(Name = "patch_method_il", Title = "Rewrite method body in IL", Destructive = false, OpenWorld = false)]
     [Description("Rewrite a method body from IL text, in memory. Easiest: get_il the method, edit the instruction lines, pass them back (header lines are ignored; the /* token */ comments resolve operands exactly). " +

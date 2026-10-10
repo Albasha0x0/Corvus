@@ -23,7 +23,28 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
 
     public sealed record ScriptEdit(string Kind, Dictionary<string, string?> Args, string Description);
 
-    public sealed record Script(string Format, string Assembly, string? Mvid, DateTime Created, List<ScriptEdit> Edits);
+    /// <summary>
+    /// An edit script. Sha256 (of the file the edits were made on) and Identity (its assembly full name) bind it to a
+    /// build; scripts written before they were recorded have neither and are accepted with a warning.
+    /// </summary>
+    public sealed record Script(string Format, string Assembly, string? Mvid, string? Sha256, string? Identity, DateTime Created, List<ScriptEdit> Edits);
+
+    /// <summary>How apply_edits treats a script made for another build.</summary>
+    public enum TargetBuild
+    {
+        /// <summary>Only the build the script was made from (same SHA-256); anything else is refused.</summary>
+        Same,
+        /// <summary>Any build: symbols are re-resolved by name, renamed targets followed through the source build when it is loaded.</summary>
+        Other,
+    }
+
+    public static TargetBuild ParseTargetBuild(string? value) => (value ?? "same").Trim().ToLowerInvariant() switch
+    {
+        "same" or "" => TargetBuild.Same,
+        "other" => TargetBuild.Other,
+        _ => throw new ToolError(ErrorCode.InvalidArgument, $"targetBuild must be 'same' or 'other', not '{value}'.",
+            "same: only the build the script was made from; other: carry the edits to another build"),
+    };
 
     public string List(LoadedAssembly asm)
     {
@@ -40,12 +61,14 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
         if (asm.Edits.Count == 0)
             throw new ToolError(ErrorCode.NotFound, $"{asm.Id} has no edits to export.");
         var original = asm.GetOriginalView(workspace.DnlibContext).Module;
-        var script = new Script(ScriptFormat, asm.AssemblyName, original.Mvid?.ToString(), DateTime.UtcNow,
-            asm.Edits.Select(e => new ScriptEdit(e.Kind, e.Args.ToDictionary(kv => kv.Key, kv => kv.Value), e.Description)).ToList());
+        var script = new Script(ScriptFormat, asm.AssemblyName, original.Mvid?.ToString(), asm.OriginalSha256, original.Assembly?.FullName ?? original.Name,
+            DateTime.UtcNow, asm.Edits.Select(e => new ScriptEdit(e.Kind, e.Args.ToDictionary(kv => kv.Key, kv => kv.Value), e.Description)).ToList());
         var full = Path.GetFullPath(path);
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         File.WriteAllText(full, JsonSerializer.Serialize(script, Json));
-        return $"Exported {script.Edits.Count} edit(s) of {asm.Id} to {full}.";
+        return $"Exported {script.Edits.Count} edit(s) of {asm.Id} to {full}.\n" +
+               $"Bound to the build: sha256 {script.Sha256}, MVID {script.Mvid ?? "(none)"}, {script.Identity}. " +
+               "apply_edits refuses other builds unless targetBuild=other.";
     }
 
     public static Script ReadScript(string path)
@@ -64,13 +87,33 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
     /// <summary>
     /// Applies a script's edits in order. On the same original image (matching MVID) recorded tokens are used; on another
     /// build, symbols are resolved by name. With stopOnError, a failure rolls the assembly back to its state before the script.
+    /// A script bound to a build (SHA-256) is refused on any other file unless <paramref name="target"/> is Other.
     /// </summary>
-    public string Apply(string path, string? assembly, bool dryRun, bool stopOnError, CancellationToken ct)
+    public string Apply(string path, string? assembly, bool dryRun, bool stopOnError, CancellationToken ct, TargetBuild target = TargetBuild.Same)
     {
         var script = ReadScript(path);
         var asm = workspace.Get(assembly ?? script.Assembly);
         var original = asm.GetOriginalView(workspace.DnlibContext).Module;
         bool sameImage = script.Mvid != null && script.Mvid == original.Mvid?.ToString();
+        string actualMvid = original.Mvid?.ToString() ?? "(none)", actualIdentity = original.Assembly?.FullName ?? original.Name;
+        string buildCheck;
+        if (script.Sha256 == null)
+            buildCheck = "WARNING: the script predates build binding (no sha256/identity recorded), so it is not checked against this build" +
+                         (script.Mvid == null ? "" : sameImage ? " (its MVID matches)" : $" (its MVID {script.Mvid} differs from this build's {actualMvid})") +
+                         "; export it again to bind it.";
+        else if (string.Equals(script.Sha256, asm.OriginalSha256, StringComparison.OrdinalIgnoreCase))
+            buildCheck = $"same build (sha256 {Short(asm.OriginalSha256)} matches)";
+        else
+        {
+            string mismatch = $"the script was made for sha256 {script.Sha256}, MVID {script.Mvid ?? "(none)"}, {script.Identity}; " +
+                              $"{asm.Id} is sha256 {asm.OriginalSha256}, MVID {actualMvid}, {actualIdentity}" +
+                              (sameImage ? " (same MVID: the file was changed after compiling, e.g. saved with edits or re-signed)" : "");
+            if (target == TargetBuild.Same)
+                throw new ToolError(ErrorCode.Conflict, $"The edit script {Path.GetFileName(path)} belongs to another build: {mismatch}.",
+                    "load the build the script was made from (matching sha256), or pass targetBuild=other to carry the edits to this build deliberately " +
+                    "(symbols re-resolved by name; load the source build too so renamed targets are followed); try it with dryRun=true first");
+            buildCheck = $"different build, carried over (targetBuild=other): {mismatch}";
+        }
         var records = script.Edits.Select(e => new EditRecord(e.Kind, e.Args, e.Description, [])).ToList();
 
         // On another build, renamed targets are located via the script's source build when it is loaded.
@@ -109,7 +152,9 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
         var sb = new StringBuilder($"{(dryRun ? "Dry run of" : "Applying")} {records.Count} edit(s) from {Path.GetFileName(path)} to {asm.Id}" +
                                    $" ({(sameImage ? "same build: using recorded tokens" : originalBuild != null
                                        ? $"different build: resolving symbols by name, renamed ones through {originalBuild.Id} (the build the script was made from)"
-                                       : "different build: resolving symbols by name")}):\n");
+                                       : "different build: resolving symbols by name")}):\n" +
+                                   $"Build check: {buildCheck}\n");
+        var allRemapped = new List<string>();
         // A dry run applies every edit for real and then rolls back, so it reports exactly what a real run would.
         var before = asm.Edits.ToList();
         int ok = 0, failed = 0;
@@ -124,6 +169,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
                     edits.Apply(records[i], asm, sameImage, ct);
                     sb.AppendLine($"  #{i + 1} ok      {records[i].Description}");
                     foreach (var r in remapped) sb.AppendLine($"      target renamed in this build: {r}");
+                    allRemapped.AddRange(remapped);
                     ok++;
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
@@ -151,8 +197,13 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
         sb.AppendLine(dryRun
             ? $"{ok} would apply, {failed} would fail (dry run: every edit was applied and compiled, then rolled back; nothing changed)."
             : $"{ok} applied, {failed} failed.");
+        if (!sameImage)
+            sb.AppendLine($"Cross-build: {ok} edit(s) resolved by name, {allRemapped.Count} target(s) followed to a renamed counterpart" +
+                          (originalBuild == null ? " (the source build is not loaded, so renamed targets could not be followed)." : "."));
         return sb.ToString();
     }
+
+    private static string Short(string sha256) => sha256.Length > 16 ? sha256[..16] + "…" : sha256;
 
     /// <summary>Unified diffs of the decompiled C# of every member an edit touched, original vs current.</summary>
     public string Diff(LoadedAssembly asm, int? number, CancellationToken ct)
