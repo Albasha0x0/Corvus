@@ -43,6 +43,14 @@ public sealed class NativeAotTypes
 
     public IReadOnlyDictionary<uint, NativeAotMethodTable> ByRva { get; private set; } = new Dictionary<uint, NativeAotMethodTable>();
     public NativeAotStage Stage { get; private set; } = new("method tables", NativeAotStage.Absent);
+    private Reader? reader;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<uint, NativeAotMethodTable?> others = new();
+
+    /// <summary>The MethodTable at <paramref name="rva"/>: a found one, else one read on demand (not crawled), null when invalid.</summary>
+    public NativeAotMethodTable? At(uint rva) =>
+        ByRva.TryGetValue(rva, out var mt) ? mt
+        : reader == null ? null
+        : others.GetOrAdd(rva, r => reader.TryRead(r, out var read) ? read with { Name = $"MT_{r:X}" } : null);
 
     public static NativeAotTypes Read(NativeAotImage aot, CancellationToken ct = default)
     {
@@ -52,7 +60,7 @@ public sealed class NativeAotTypes
             types.Stage = new("method tables", NativeAotStage.Unsupported, "32-bit images are not read yet");
             return types;
         }
-        var reader = new Reader(aot);
+        var reader = types.reader = new Reader(aot);
         var found = reader.Crawl(ct);
         var named = new Namer(aot, found).NameAll();
         types.ByRva = named;

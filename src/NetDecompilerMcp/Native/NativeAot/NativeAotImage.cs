@@ -31,6 +31,7 @@ public sealed class NativeAotImage
         hydrated = new(() => HydratedImage.Create(image, Header));
         names = new(() => NativeAotNameMaps.Read(this));
         types = new(() => NativeAotTypes.Read(this));
+        frozen = new(() => NativeAotFrozen.Read(this));
     }
 
     /// <summary>Largest blob read into memory.</summary>
@@ -39,6 +40,7 @@ public sealed class NativeAotImage
     private readonly Lazy<HydratedImage> hydrated;
     private readonly Lazy<NativeAotNameMaps> names;
     private readonly Lazy<NativeAotTypes> types;
+    private readonly Lazy<NativeAotFrozen> frozen;
 
     public INativeImage Image { get; }
     /// <summary>The module analyzed (the first header found); <see cref="Headers"/> lists every module of a multi-module image.</summary>
@@ -76,6 +78,9 @@ public sealed class NativeAotImage
 
     /// <summary>The MethodTables found and their names (see the "method tables" stage).</summary>
     public NativeAotTypes Types => types.Value;
+
+    /// <summary>The objects of the frozen object region, strings with their text.</summary>
+    public NativeAotFrozen Frozen => frozen.Value;
 
     /// <summary>The bytes of a module section, or null when it is empty, too large or not fully mapped.</summary>
     public byte[]? ReadSection(NativeAotSection? section)
@@ -119,6 +124,7 @@ public sealed class NativeAotImage
         stages.Add(Hydrated.Stage);
         stages.AddRange(Names.Stages);
         stages.Add(Types.Stage);
+        stages.Add(Frozen.Stage);
         var sections = Header.Sections.Select(s => new NativeAotSectionInfo(s.Id, s.Name, s.StartRva, s.Length)).ToList();
         var counts = new Dictionary<string, int>
         {
@@ -127,6 +133,8 @@ public sealed class NativeAotImage
             ["typeMapMethodTables"] = Names.TypeNames.Count,
             ["methodTables"] = Types.ByRva.Count,
             ["namedMethodTables"] = Types.ByRva.Values.Count(t => t.NameOrigin != "generated"),
+            ["frozenObjects"] = Frozen.Objects.Count,
+            ["frozenStrings"] = Frozen.StringCount,
         };
         return new NativeAotSummary(Runtime, ReadyToRunVersion, DebugHeaderMajor, Header.IsDehydrated, Header.Rva, Headers.Count, sections, stages, counts);
     }

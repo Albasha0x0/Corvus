@@ -121,4 +121,17 @@ public class NativeAotRealTests
         var str = types.ByRva.Values.Single(t => t.Name == "System.String");
         Assert.Equal((NativeAotElementType.Class, (ushort)2), (str.ElementType, str.ComponentSize));
     }
+
+    [Theory]
+    [MemberData(nameof(Samples))]
+    public void FrozenRegion_WalkedToTheEnd(string sample)
+    {
+        var (_, aot) = Open(sample);
+        var frozen = aot.Frozen;
+        Assert.Equal(NativeAotStage.Complete, frozen.Stage.Status);
+        Assert.InRange(frozen.Objects.Count, 6000, 12000);
+        Assert.InRange(frozen.StringCount, 4000, 8000);
+        Assert.DoesNotContain(frozen.Objects, o => o.TypeName.StartsWith("MT_", StringComparison.Ordinal) && o.Text != null);
+        Assert.Contains(frozen.Objects, o => o.Text == "System.Private.CoreLib");
+    }
 }

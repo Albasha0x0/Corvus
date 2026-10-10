@@ -12,6 +12,7 @@ public class NativeAotMetadataTests
         public W Writer { get; init; } = null!;
         public MdHandle Box { get; init; }
         public MdHandle Object { get; init; }
+        public MdHandle String { get; init; }
     }
 
     /// <summary>
@@ -39,6 +40,7 @@ public class NativeAotMetadataTests
         var system = w.Record(MdRecord.NamespaceReference, corlib, w.String("System"));
         var int32 = w.Record(MdRecord.TypeReference, system, w.String("Int32"));
         var objectRef = w.Record(MdRecord.TypeReference, system, w.String("Object"));
+        var stringRef = w.Record(MdRecord.TypeReference, system, w.String("String"));
         var pointer = w.Record(MdRecord.TypeSpecification, w.Record(MdRecord.PointerSignature, int32));
 
         var inner = Type("Inner", true, [], []);
@@ -70,6 +72,7 @@ public class NativeAotMetadataTests
             Writer = w,
             Box = box,
             Object = objectRef,
+            String = stringRef,
         };
     }
 

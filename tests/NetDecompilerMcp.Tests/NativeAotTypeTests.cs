@@ -50,7 +50,11 @@ public class NativeAotTypeTests
         return at;
     }
 
-    private sealed record World(NativeAotImage Aot, uint Object, uint Speaker, uint Dog, uint DogArray, uint BoxDefinition, uint BoxOfDog, uint Frozen, uint LookAlike);
+    private sealed record World(NativeAotImage Aot, uint Object, uint Speaker, uint Dog, uint DogArray, uint BoxDefinition, uint BoxOfDog, uint Frozen, uint LookAlike)
+    {
+        public uint Text { get; init; }
+        public uint String { get; init; }
+    }
 
     private static World Build(ushort major)
     {
@@ -68,13 +72,21 @@ public class NativeAotTypeTests
         // .NET 9+: a generic definition's BaseSize is its arity; .NET 8: its component size.
         uint boxDef = Mt(b, layout, E.Class, KindGenericDefinition, 1, 0, [], [], componentSize: (ushort)(layout == MethodTableLayout.Net8 ? 1 : 0));
         uint boxOfDog = Mt(b, layout, E.Class, KindCanonical, 0x20, obj, [ToStringCode, EqualsCode, HashCode], [], genericDefinition: boxDef, genericArgument: dog);
-        // A frozen object (header, MethodTable pointer) and a statics base whose +8 points at Dog: neither is a MethodTable.
+        uint str = Mt(b, layout, E.Class, KindCanonical, 0x16, obj, [ToStringCode, EqualsCode, HashCode], [], componentSize: 2);
+        // Frozen region: padding, a Dog (header, MethodTable pointer, fields) and the string "hi". Their +8 points at a
+        // MethodTable, like a statics base after it does: none of them is a MethodTable.
         b.Data.Align(8);
+        uint region = b.Data.Zero(16);
         uint frozen = b.Data.Zero(8);
         b.Pointer(b.Data, dog);
-        b.Data.U64(0);
-        uint frozenEnd = b.Data.Here;
-        b.Row(SectionId.FrozenObjectRegion, frozen, frozenEnd);
+        b.Data.Zero(16);
+        uint text = b.Data.Zero(8);
+        b.Pointer(b.Data, str);
+        b.Data.U32(2);
+        b.Data.U16('h');
+        b.Data.U16('i');
+        b.Data.Zero(12);
+        b.Row(SectionId.FrozenObjectRegion, region, b.Data.Here);
         uint lookAlike = b.Data.U32(layout == MethodTableLayout.Net7 ? 0x4000_0000u : (uint)E.Int32 << 26);
         b.Data.U32(0x40);
         b.Pointer(b.Data, dog);
@@ -83,8 +95,9 @@ public class NativeAotTypeTests
         // Names: the type map names Object and the Box`1 definition; the stack-trace map names Dog::Speak (vtable owner).
         b.Rdata.Align(4);
         uint fixups = b.Rdata.Here;
-        b.Blob(BlobId.CommonFixupsTable, RelativeTable(fixups, obj, boxDef));
-        b.Blob(BlobId.TypeMap, Hashtable([.. Unsigned(0), .. Unsigned(m.Writer.Token(m.Object))], [.. Unsigned(1), .. Unsigned(m.Writer.Token(m.Box))]));
+        b.Blob(BlobId.CommonFixupsTable, RelativeTable(fixups, obj, boxDef, str));
+        b.Blob(BlobId.TypeMap, Hashtable([.. Unsigned(0), .. Unsigned(m.Writer.Token(m.Object))], [.. Unsigned(1), .. Unsigned(m.Writer.Token(m.Box))],
+            [.. Unsigned(2), .. Unsigned(m.Writer.Token(m.String))]));
         b.Rdata.Align(4);
         uint st = b.Rdata.Here;
         var map = new byte[m.Format.StackTrace == StackTraceFormat.Pairs ? 8 : 4 + 1 + 4 + 2 + 4];
@@ -107,7 +120,7 @@ public class NativeAotTypeTests
         }
         Assert.Equal(st, b.Blob(BlobId.StackTraceMethodRvaToTokenMapping, map));
         var aot = NativeAotImage.Open(b.Image())!;
-        return new World(aot, obj, speaker, dog, dogArray, boxDef, boxOfDog, frozen, lookAlike);
+        return new World(aot, obj, speaker, dog, dogArray, boxDef, boxOfDog, frozen, lookAlike) { Text = text, String = str };
     }
 
     [Theory]
@@ -130,11 +143,11 @@ public class NativeAotTypeTests
         Assert.Equal(w.Object, types[w.Dog].RelatedType);
         Assert.Equal([SpeakCode, EqualsCode, HashCode], types[w.Dog].Vtable);
         Assert.Equal((ushort)8, types[w.DogArray].ComponentSize);
-        Assert.False(types.ContainsKey(w.Frozen));
-        Assert.False(types.ContainsKey(w.LookAlike));
-        Assert.Equal(6, types.Count);
+        Assert.False(types.ContainsKey(w.Frozen) || types.ContainsKey(w.Text) || types.ContainsKey(w.LookAlike));
+        Assert.Equal(7, types.Count);
         var summary = w.Aot.Summary();
-        Assert.Equal((6, 5), (summary.Counts["methodTables"], summary.Counts["namedMethodTables"]));
+        Assert.Equal((7, 6), (summary.Counts["methodTables"], summary.Counts["namedMethodTables"]));
+        Assert.Equal((2, 1), (summary.Counts["frozenObjects"], summary.Counts["frozenStrings"]));
     }
 
     [Fact]
@@ -149,5 +162,32 @@ public class NativeAotTypeTests
         Assert.Equal("Sample.Zoo.Dog[]", types[w.DogArray].Name);
         Assert.Equal("generated", types[w.BoxOfDog].NameOrigin);
         Assert.False(types.ContainsKey(w.LookAlike));
+    }
+
+    [Theory]
+    [InlineData((ushort)8)]
+    [InlineData((ushort)9)]
+    [InlineData((ushort)16)]
+    public void FrozenRegion_ObjectsAndStrings(ushort major)
+    {
+        var w = Build(major);
+        var frozen = w.Aot.Frozen;
+        Assert.Equal(NativeAotStage.Complete, frozen.Stage.Status);
+        Assert.Equal(2, frozen.Objects.Count);
+        Assert.Equal((w.Frozen + 8, "Sample.Zoo.Dog", 0x20u, (string?)null), (frozen.Objects[0].Rva, frozen.Objects[0].TypeName, frozen.Objects[0].Size, frozen.Objects[0].Text));
+        Assert.Equal((w.Text + 8, w.String, "hi", 0x20u), (frozen.Objects[1].Rva, frozen.Objects[1].MethodTable, frozen.Objects[1].Text, frozen.Objects[1].Size));
+    }
+
+    [Fact]
+    public void FrozenRegion_StopsAtAnUnknownObject()
+    {
+        var b = new B();
+        b.Data.Zero(8);
+        b.Pointer(b.Data, B.TextRva); // not a MethodTable
+        b.Data.Zero(16);
+        b.Row(SectionId.FrozenObjectRegion, B.DataRva, b.Data.Here);
+        var frozen = NativeAotImage.Open(b.Image())!.Frozen;
+        Assert.Equal(NativeAotStage.Partial, frozen.Stage.Status);
+        Assert.Contains("no MethodTable for the object", frozen.Stage.Detail);
     }
 }
