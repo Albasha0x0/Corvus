@@ -10,9 +10,13 @@ namespace NetDecompilerMcp.Native.Providers;
 /// Request <c>{"id":n,"op":"...","args":{...}}</c>; response <c>{"id":n,"ok":true,"result":...}</c> or
 /// <c>{"id":n,"ok":false,"error":{"code":"...","message":"..."}}</c>; events <c>{"event":"...",...}</c> carry no id.
 /// Lines that are not JSON objects are noise (an engine printing to stdout) and are kept with stderr.
+/// A worker that runs requests concurrently answers in any order and takes <see cref="CancelOp"/> with
+/// <c>{"id":n}</c>, after which request n ends early with an error.
 /// </summary>
 public static class WorkerProtocol
 {
+    public const string CancelOp = "cancel";
+
     public static string EncodeRequest(long id, string op, JsonObject? args)
     {
         var o = new JsonObject { ["id"] = id, ["op"] = op, ["args"] = args ?? new JsonObject() };
