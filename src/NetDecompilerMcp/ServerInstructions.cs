@@ -41,7 +41,8 @@ internal static class ServerInstructions
            to any native tool). get_pe_info (headers, mitigations, PDB, version, rich header, signature, anything malformed), list_imports,
            list_exports (MSVC names demangled), list_resources / get_resource (Win32 resources), list_functions, disassemble, get_cfg,
            find_xrefs (incl. every call site of an import: 'kernel32!CreateFileW'), native_call_tree, search_native_strings, search_bytes
-           (?? wildcards), read_bytes, resolve_address, list_cpp_classes (RTTI classes, bases, vftables), decompile_native (C pseudocode
+           (?? wildcards), read_bytes, resolve_address, list_cpp_classes (RTTI classes, bases, vftables), get_exception_info (MSVC try / catch
+           types, SEH scopes, funclets and their parent function), decompile_native (C pseudocode
            through IDA when installed; server_status says whether it is). Addresses: hex VA or RVA, rva:/va:/off: prefixes, export names,
            module!import, sub_<rva>. The code index is built in the background after loading. verify_native_imports checks a .NET
            assembly's [DllImport]s against the real DLL exports.

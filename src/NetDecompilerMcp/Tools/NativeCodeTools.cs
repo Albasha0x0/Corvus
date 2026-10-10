@@ -38,7 +38,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         return (native, index);
     }
 
-    private static uint Address(NativeCodeIndex index, string text) => NativeAddress.Parse(index.Image, text, name =>
+    internal static uint Address(NativeCodeIndex index, string text) => NativeAddress.Parse(index.Image, text, name =>
     {
         if (name.StartsWith("sub_", StringComparison.OrdinalIgnoreCase) && NativeAddress.Number(name[4..]) is { } n)
         {
@@ -61,6 +61,8 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         if (f.Flags.HasFlag(FunctionFlags.InvalidCode)) flags.Add("invalid code");
         if (f.Flags.HasFlag(FunctionFlags.Truncated)) flags.Add("truncated");
         if (f.Flags.HasFlag(FunctionFlags.Funclet)) flags.Add("funclet");
+        if (f.Parent != null) flags.Add($"funclet of {f.Parent.Name}");
+        if (f.Chunks.Count > 0) flags.Add(Plural(f.Chunks.Count, "exception chunk"));
         return flags.Count > 0 ? $"  [{string.Join(", ", flags)}]" : "";
     }
 
@@ -75,7 +77,8 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
 
     [McpServerTool(Name = "list_functions", Title = "List native functions", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("Functions of a native image (x86 / x64): address, size, name (export name, module!import for thunks, or sub_<rva>), flags " +
-                 "(thunk, noreturn, unresolved jumps, invalid code, funclet), how it was found and how many call sites reach it. " + IndexNote)]
+                 "(thunk, noreturn, unresolved jumps, invalid code, funclet, funclet of its parent, exception chunks: catch blocks, unwind funclets, filters " +
+                 "and handlers attached to their function), how it was found and how many call sites reach it. get_exception_info shows the details. " + IndexNote)]
     public Task<string> ListFunctions(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Only functions whose name contains this text (case-insensitive).")] string? filter = null,

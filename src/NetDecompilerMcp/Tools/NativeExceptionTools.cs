@@ -1,0 +1,165 @@
+using System.ComponentModel;
+using System.Text;
+using ModelContextProtocol;
+using ModelContextProtocol.Protocol;
+using ModelContextProtocol.Server;
+using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Native;
+using NetDecompilerMcp.Native.Code;
+using NetDecompilerMcp.Native.Msvc;
+using NetDecompilerMcp.Services;
+using static NetDecompilerMcp.Tools.ToolSupport;
+
+namespace NetDecompilerMcp.Tools;
+
+/// <summary>MSVC exception handling metadata of native functions (x86 / x64).</summary>
+[McpServerToolType]
+public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCodeService code, OutputPager pager)
+{
+    private const int MaxIpStates = 64;
+
+    [McpServerTool(Name = "get_exception_info", Title = "Native exception handling", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [Description("MSVC exception handling of the native function containing an address: the handler (__C_specific_handler, __CxxFrameHandler3/4, " +
+                 "__GSHandlerCheck variants; x86 _except_handler3/4 frames and __ehhandler$ stubs), try blocks with their catch clauses and caught types, " +
+                 "the unwind map, SEH scopes (filters, __except and __finally blocks), the IP-to-state map, and the code it reaches: catch blocks, unwind " +
+                 "funclets, filters and handlers attached to the function as chunks, x64 C++ funclets with their parent, chained fragments. " +
+                 "Without an address: counts for the image and the metadata that failed its checks. The first call waits for the code index.")]
+    public Task<string> GetExceptionInfo(
+        [Description(NativeTools.ImageDescription)] string image,
+        [Description(NativeTools.AddressDescription + " Omit for a summary of the image.")] string? address = null,
+        [Description(OffsetDescription)] int offset = 0,
+        [Description(MaxCharsDescription)] int? maxChars = null,
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
+    {
+        var (native, index) = await Open(image, progress, cancellationToken);
+        var eh = index.ExceptionInfo;
+        if (string.IsNullOrWhiteSpace(address)) return pager.Page(Summary(native.Id, index, eh), offset, maxChars);
+
+        uint rva = NativeCodeTools.Address(index, address);
+        var fn = index.FunctionAt(rva) ?? throw new ToolError(ErrorCode.NotFound, $"No function contains {NativeAddress.Va(index.Image, rva)}.",
+            "list_functions shows the functions");
+        var sb = new StringBuilder();
+        string Name(uint r) => index.NameAt(r) is { } n ? $"{n} ({NativeAddress.Va(index.Image, r)})" : NativeAddress.Va(index.Image, r);
+        sb.AppendLine($"{fn.Name} at {NativeAddress.Va(index.Image, fn.Start)}");
+        foreach (var c in fn.Chunks)
+            if (c.Start == rva) sb.AppendLine($"{NativeAddress.Va(index.Image, rva)} is the {Describe(c.Kind)} chunk of {fn.Name}");
+        if (fn.Parent != null) sb.AppendLine($"C++ funclet of {Name(fn.Parent.Start)}");
+        if (fn.Chunks.Count > 0)
+            sb.AppendLine("Chunks: " + string.Join(", ", fn.Chunks.Select(c => $"{Describe(c.Kind)} {NativeAddress.Va(index.Image, c.Start)}")));
+        var fragments = eh.Fragments.Where(kv => kv.Value == fn.Start).Select(kv => kv.Key).Order().ToList();
+        if (fragments.Count > 0) sb.AppendLine("Chained fragments (.pdata): " + string.Join(", ", fragments.Select(f => NativeAddress.Va(index.Image, f))));
+        if (eh.Fragments.TryGetValue(fn.Start, out uint primary)) sb.AppendLine($"Fragment of {Name(primary)}");
+
+        var frames = new List<MsvcEhFrame>();
+        if (eh.FrameOf(fn.Start) is { } own) frames.Add(own);
+        if (fn.Parent != null && eh.FrameOf(fn.Parent.Start) is { } parentFrame) frames.Add(parentFrame);
+        if (frames.Count == 0) sb.AppendLine("No exception handling metadata.");
+        foreach (var frame in frames) AppendFrame(sb, index, frame, Name);
+        return pager.Page(sb.ToString(), offset, maxChars);
+    });
+
+    private async Task<(LoadedNative Native, NativeCodeIndex Index)> Open(string image, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    {
+        var native = await Task.Run(() =>
+        {
+            var id = workspace.Read(() => workspace.FindNative(image)?.Id);
+            if (id == null && !string.IsNullOrWhiteSpace(image) && Path.IsPathFullyQualified(image.Trim()) && File.Exists(image.Trim()))
+                id = workspace.LoadAny(image.Trim()).Native?.Id ?? throw new ToolError(ErrorCode.Unsupported, $"{image} is a .NET assembly, not a native image.",
+                    "use the .NET tools for it");
+            return workspace.Read(() => workspace.GetNative(id ?? image));
+        }, ct);
+        var index = await code.Index(native, new Progress<CodeIndexProgress>(p =>
+            progress.Report(new ProgressNotificationValue { Progress = p.Done, Total = p.Total > 0 ? p.Total : null, Message = $"indexing {native.Id}: {p.Phase}" })), ct);
+        if (index.Image.Arch is not (NativeArch.X86 or NativeArch.X64))
+            throw new ToolError(ErrorCode.Unsupported, $"Exception metadata is decoded for x86 and x64 images; {native.Id} is {index.Image.Arch}.");
+        return (native, index);
+    }
+
+    private static string Summary(string id, NativeCodeIndex index, MsvcEhResult eh)
+    {
+        var s = eh.Stats;
+        var sb = new StringBuilder($"{id}: {Plural(s.Frames, "frame")} with exception metadata " +
+            $"(C++ FuncInfo {s.Cxx3}, C++ FuncInfo4 {s.Cxx4}, __C_specific_handler {s.CSpecific}, SEH4 {s.Seh4}, SEH3 {s.Seh3}, GS only {s.GsOnly}, unknown {s.Unknown}); " +
+            $"{Plural(s.Children, "handler or funclet")}, {Plural(s.Fragments, "chained fragment")}\n");
+        var chunks = index.Functions.SelectMany(f => f.Chunks).GroupBy(c => c.Kind).OrderBy(g => g.Key).ToList();
+        if (chunks.Count > 0)
+            sb.AppendLine("Attached to their functions: " + string.Join(", ", chunks.Select(g => $"{g.Count()} {Describe(g.Key)}")));
+        int funclets = index.Functions.Count(f => f.Parent != null);
+        if (funclets > 0) sb.AppendLine($"C++ funclets kept as functions with a parent: {funclets}");
+        if (eh.RejectCount > 0)
+        {
+            sb.AppendLine($"Rejected ({eh.RejectCount}):");
+            foreach (var r in eh.Rejects.Take(100)) sb.AppendLine($"  {NativeAddress.Va(index.Image, r.Rva)}  {r.Structure}: {r.Reason}");
+            if (eh.RejectCount > 100) sb.AppendLine($"  ... {eh.RejectCount - 100} more");
+        }
+        sb.AppendLine("Pass an address for one function's handlers.");
+        return sb.ToString();
+    }
+
+    private static void AppendFrame(StringBuilder sb, NativeCodeIndex index, MsvcEhFrame f, Func<uint, string> name)
+    {
+        string Va(uint r) => NativeAddress.Va(index.Image, r);
+        sb.AppendLine();
+        sb.Append($"Frame of {name(f.FunctionRva)}: {Scheme(f.Scheme)}");
+        if (f.HandlerRva != 0) sb.Append($", handler {f.HandlerName ?? index.NameAt(f.HandlerRva) ?? Va(f.HandlerRva)}");
+        sb.Append($", data {Va(f.DataRva)}");
+        if (f.GsCookieOffset is { } gs) sb.Append($", GS cookie at frame offset {gs}");
+        if (f.IsCatchFunclet) sb.Append(" (catch funclet)");
+        sb.AppendLine();
+        foreach (var (t, i) in f.TryBlocks.Select((t, i) => (t, i)))
+        {
+            sb.AppendLine($"  try {i}: states {t.TryLow}-{t.TryHigh}, catch states to {t.CatchHigh}");
+            foreach (var c in t.Catches)
+                sb.AppendLine($"    catch ({c.TypeName ?? (c.TypeDescriptorRva == null ? "..." : c.DecoratedTypeName ?? Va(c.TypeDescriptorRva.Value))}) -> {Va(c.HandlerRva)}" +
+                              (c.Continuations.Count > 0 ? ", continues at " + string.Join(", ", c.Continuations.Select(Va)) : ""));
+        }
+        foreach (var u in f.Unwind)
+        {
+            string action = u.Kind switch
+            {
+                MsvcEhUnwindKind.Funclet => $"funclet {name(u.ActionRva!.Value)}",
+                MsvcEhUnwindKind.DestructorWithObject => $"destructor {name(u.ActionRva!.Value)} on frame object +0x{u.ObjectOffset:X}",
+                MsvcEhUnwindKind.DestructorWithPointer => $"destructor {name(u.ActionRva!.Value)} on the object frame slot +0x{u.ObjectOffset:X} points to",
+                _ => "nothing",
+            };
+            sb.AppendLine($"  unwind state {u.State} -> {u.ToState}: {action}");
+        }
+        foreach (var s in f.Scopes)
+        {
+            string where = s.BeginRva is { } b ? $"{Va(b)}-{Va(s.EndRva!.Value)}" : $"level {s.Index} (encloses {s.EnclosingLevel})";
+            if (s.IsFinally) sb.AppendLine($"  __try {where}: __finally {Va(s.HandlerRva)}");
+            else
+            {
+                string filter = s.FilterRva is { } fr ? Va(fr) : $"constant {s.FilterConstant}";
+                sb.AppendLine($"  __try {where}: filter {filter}, __except block {Va(s.HandlerRva)}");
+            }
+        }
+        if (f.IpToState.Count > 0)
+            sb.AppendLine($"  IP-to-state ({f.IpToState.Count}): " + string.Join(", ", f.IpToState.Take(MaxIpStates).Select(x => $"{Va(x.Rva)}={x.State}")) +
+                          (f.IpToState.Count > MaxIpStates ? ", ..." : ""));
+    }
+
+    private static string Scheme(MsvcEhScheme s) => s switch
+    {
+        MsvcEhScheme.CSpecific => "SEH scope table (__C_specific_handler)",
+        MsvcEhScheme.Cxx3 => "C++ FuncInfo (__CxxFrameHandler3)",
+        MsvcEhScheme.Cxx4 => "C++ FuncInfo4 (__CxxFrameHandler4)",
+        MsvcEhScheme.GsOnly => "stack cookie check only (__GSHandlerCheck)",
+        MsvcEhScheme.Seh3 => "SEH3 scope table (_except_handler3)",
+        MsvcEhScheme.Seh4 => "SEH4 scope table (_except_handler4)",
+        _ => "unknown handler data",
+    };
+
+    private static string Describe(MsvcEhChildKind k) => k switch
+    {
+        MsvcEhChildKind.Catch => "catch block",
+        MsvcEhChildKind.Unwind => "unwind funclet",
+        MsvcEhChildKind.Filter => "filter",
+        MsvcEhChildKind.ExceptBlock => "__except block",
+        MsvcEhChildKind.Finally => "__finally block",
+        MsvcEhChildKind.Continuation => "catch continuation",
+        MsvcEhChildKind.HandlerStub => "__ehhandler$ stub",
+        _ => "fragment",
+    };
+}
