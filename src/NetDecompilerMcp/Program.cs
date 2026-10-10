@@ -71,7 +71,8 @@ builder.Services
     .AddSingleton<ReadyToRunService>()
     .AddSingleton<PdbService>()
     .AddSingleton<MinidumpService>()
-    .AddSingleton<LiveProcessService>();
+    .AddSingleton<LiveProcessService>()
+    .AddSingleton<ResourceSubscriptions>();
 
 builder.Services
     .AddMcpServer(o =>
@@ -89,6 +90,16 @@ builder.Services
     .WithCatalog()
     .WithCompleteHandler((context, _) =>
         ValueTask.FromResult(Completions.Complete(context.Services!.GetRequiredService<AssemblyWorkspace>(), context.Params!)))
+    .WithSubscribeToResourcesHandler((context, _) =>
+    {
+        context.Services!.GetRequiredService<ResourceSubscriptions>().Subscribe(context.Params!.Uri);
+        return ValueTask.FromResult(new EmptyResult());
+    })
+    .WithUnsubscribeFromResourcesHandler((context, _) =>
+    {
+        context.Services!.GetRequiredService<ResourceSubscriptions>().Unsubscribe(context.Params!.Uri);
+        return ValueTask.FromResult(new EmptyResult());
+    })
     .WithRequestFilters(filters => filters.AddCallToolFilter(CallFilter.Wrap));
 
 var host = builder.Build();
@@ -97,26 +108,11 @@ host.Services.GetRequiredService<IndexingService>();
 host.Services.GetRequiredService<NativeCodeService>();
 host.Services.GetRequiredService<PdbService>(); // reads matching local PDBs during index builds
 host.Services.GetRequiredService<NativeEngineService>(); // with --ida-prewarm, analyzes preloaded native images in the background
-host.Services.GetRequiredService<FileWatchService>().Changed += _ => NotifyResourcesChanged(host.Services);
+var subscriptions = host.Services.GetRequiredService<ResourceSubscriptions>();
+host.Services.GetRequiredService<FileWatchService>().Changed += _ => subscriptions.Check();
 Preload(host.Services.GetRequiredService<AssemblyWorkspace>(), host.Services.GetRequiredService<ILogger<AssemblyWorkspace>>(), options);
 await host.RunAsync();
 return 0;
-
-// Best effort; not all clients support notifications, so notices are also attached to the next tool result.
-static void NotifyResourcesChanged(IServiceProvider services)
-{
-    if (services.GetService<ModelContextProtocol.Server.McpServer>() is not { } server) return;
-    _ = Task.Run(async () =>
-    {
-        try
-        {
-            await server.SendNotificationAsync(NotificationMethods.ResourceListChangedNotification);
-        }
-        catch
-        {
-        }
-    });
-}
 
 static void Preload(AssemblyWorkspace workspace, ILogger log, ServerOptions options)
 {

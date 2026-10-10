@@ -479,6 +479,38 @@ public abstract class McpProtocolTests : IAsyncLifetime
             Assert.All(updates, u => Assert.Equal(2, u.Progress.Total));
         }
 
+        [Fact]
+        public async Task SubscribedResourcesGetUpdatesAndTheListNeverChanges()
+        {
+            // resources/subscribe is the 2025 protocols' form; newer ones use subscriptions/listen, which the SDK handles.
+            await using var client = await StartServerAsync(null, "2025-06-18", ["--load", Env.FixturePath]);
+            Assert.True(client.ServerCapabilities.Resources?.Subscribe);
+            var updated = new ConcurrentQueue<string>();
+            var listChanged = 0;
+            await using var list = client.RegisterNotificationHandler(NotificationMethods.ResourceListChangedNotification, (_, _) =>
+            {
+                Interlocked.Increment(ref listChanged);
+                return ValueTask.CompletedTask;
+            });
+            await using var handler = client.RegisterNotificationHandler(NotificationMethods.ResourceUpdatedNotification, (n, _) =>
+            {
+                updated.Enqueue(n.Params.Deserialize<ResourceUpdatedNotificationParams>(McpJsonUtilities.DefaultOptions)!.Uri);
+                return ValueTask.CompletedTask;
+            });
+            await client.SubscribeToResourceAsync("netdecomp://assemblies");
+
+            await client.CallToolAsync("get_type_info", new Dictionary<string, object?> { ["type"] = "Account" }); // reads change nothing
+            await client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = NativeSample(_dir) });
+            for (int i = 0; i < 100 && updated.IsEmpty; i++) await Task.Delay(20);
+            Assert.Equal(["netdecomp://assemblies"], updated);
+
+            await client.UnsubscribeFromResourceAsync("netdecomp://assemblies");
+            await client.CallToolAsync("unload_assembly", new Dictionary<string, object?> { ["assembly"] = "native.dll" });
+            await Task.Delay(300);
+            Assert.Single(updated);
+            Assert.Equal(0, listChanged);
+        }
+
         [Trait("Speed", "Slow")]
         [Fact]
         public async Task FileChangeNoticesRideAlongWithTheNextResult()

@@ -11,7 +11,7 @@ namespace NetDecompilerMcp.Mcp;
 
 /// <summary>
 /// The tools/call pipeline around every tool: argument checks, structured content, errors as results, the response
-/// budget (errors included) and workspace notices.
+/// budget (errors included), workspace notices and resource update notifications.
 /// </summary>
 internal static partial class CallFilter
 {
@@ -25,6 +25,7 @@ internal static partial class CallFilter
     {
         var tool = request?.Name;
         var result = await Execute(request, inputSchema, services, next, cancellationToken);
+        services?.GetService<ResourceSubscriptions>()?.Check();
         if (services?.GetService<ServerOptions>() is { } options && services.GetService<ResultStore>() is { } store)
             result = ResponseBudget.Enforce(result, tool, options, store, request);
         // Pending workspace notices; trailing blank line because clients join content blocks without a separator.
