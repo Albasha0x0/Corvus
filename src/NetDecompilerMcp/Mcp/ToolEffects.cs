@@ -77,6 +77,7 @@ public static class ToolEffects
         ["extract_embedded"] = Changes(destructive: false, idempotent: true), // writes unique names, never over a different file
         ["search_container"] = Reads(),
         ["unpack_container"] = Changes(destructive: false, idempotent: true, longRunning: true), // extracts into an empty directory (or its own earlier unpack) and loads
+        ["unity_overview"] = Reads(openWorld: true), // headers and listings only; detectItEasy=true launches diec
 
         // Builds
         ["compare_assemblies"] = Reads(longRunning: true),

@@ -189,6 +189,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["survey_features"] = (new() { ["assembly"] = "TestFixture" }, "\"methodsScanned\""),
         ["extract_strings"] = (new() { ["assembly"] = "TestFixture", ["types"] = "url,domain" }, "\"assembly\":\"TestFixture\""),
         ["extract_embedded"] = (new() { ["assembly"] = "TestFixture" }, "\"contents\""),
+        ["unity_overview"] = (new() { ["path"] = UnityOverviewTests.MonoSample(dir) }, "\"kind\":\"mono\""),
         ["search_container"] = (new() { ["path"] = ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"), ["query"] = "LZ4Codec", ["kind"] = "type" }, "K4os.Compression.LZ4.LZ4Codec"),
         ["unpack_container"] = (new() { ["path"] = ContainerFixtures.NuGetPackage("K4os.Compression.LZ4"), ["outputDirectory"] = dir.File("unpack"), ["load"] = false }, "NuGet package"),
         ["get_il2cpp_info"] = (new() { ["symbol"] = "NativeThing" }, "RVA=0x1100"),
