@@ -30,7 +30,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         return workspace.Read(() => work(workspace.GetNative(id ?? image)));
     }, ct);
     public const string AddressDescription =
-        "Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name.";
+        "Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them).";
 
     [McpServerTool(Name = "get_pe_info", Title = "PE overview", UseStructuredContent = true, OutputSchemaType = typeof(PeSummary))]
     [Description("Overview of a native PE image: machine, kind, subsystem, image base, entry point, timestamps, linker, sections (with flags and entropy), " +
@@ -295,7 +295,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     {
         var pe = native.Image;
         var index = code?.Ready(native);
-        var rva = NativeAddress.Parse(pe, address, index != null ? index.AddressOfName : null);
+        var rva = NativeAddress.Parse(pe, address, index != null ? index.AddressesOfName : null);
         var sb = new StringBuilder($"{address.Trim()}: {NativeAddress.Describe(pe, rva)}\n");
         var named = index?.Sourced.NameAt(rva);
         if (named is { } n) sb.AppendLine($"  name {n.Name} ({n.Source.Id()})");

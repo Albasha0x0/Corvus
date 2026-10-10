@@ -65,10 +65,10 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     {
         if (name.StartsWith("sub_", StringComparison.OrdinalIgnoreCase) && NativeAddress.Number(name[4..]) is { } n)
         {
-            if (n < index.Image.SizeOfImage && index.FunctionByStart((uint)n) != null) return (uint)n;
-            if (n >= index.Image.ImageBase && n - index.Image.ImageBase < index.Image.SizeOfImage) return (uint)(n - index.Image.ImageBase);
+            if (n < index.Image.SizeOfImage && index.FunctionByStart((uint)n) != null) return [new((uint)n, "function")];
+            if (n >= index.Image.ImageBase && n - index.Image.ImageBase < index.Image.SizeOfImage) return [new((uint)(n - index.Image.ImageBase), "function")];
         }
-        return index.AddressOfName(name);
+        return index.AddressesOfName(name);
     });
 
     private static NativeFunction FunctionAt(NativeCodeIndex index, uint rva) =>

@@ -52,6 +52,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     private readonly CodeContext? _ctx;
     private readonly NativeFunction[] _functions;
     private readonly Dictionary<uint, NativeFunction> _byStart;
+    private readonly Dictionary<string, uint[]> _discoveredByName;
     // per function code ranges, grouped by function (NativeFunction.FirstRange / RangeCount)
     private readonly uint[] _rangeStarts;
     private readonly uint[] _rangeEnds;
@@ -90,6 +91,9 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         _ctx = ctx;
         _functions = functions;
         _byStart = functions.ToDictionary(f => f.Start);
+        // Known names here are the discovered ones; sources later override them per address only.
+        _discoveredByName = functions.Where(f => f.KnownName != null).GroupBy(f => f.KnownName!, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Select(f => f.Start).ToArray(), StringComparer.Ordinal);
         _rangeStarts = rangeStarts;
         _rangeEnds = rangeEnds;
         _xrefs = xrefs;
@@ -451,9 +455,25 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         f.KnownName = name ?? _builtinNames[rva];
     }
 
-    /// <summary>The address of a name set by any source (user, pdb, il2cpp), or of a function's known name.</summary>
-    public uint? AddressOfName(string name) =>
-        _sourced.AddressOf(name) ?? _functions.FirstOrDefault(f => f.KnownName == name)?.Start;
+    /// <summary>
+    /// Every address <paramref name="name"/> is in effect at: names set by a source (user, pdb, il2cpp, ida), and the
+    /// discovered names (exports, import thunks) of functions no source renamed.
+    /// </summary>
+    public IReadOnlyList<AddressCandidate> AddressesOfName(string name)
+    {
+        var found = _sourced.AddressesOf(name).Select(c => new AddressCandidate(c.Rva, c.Source.Id())).ToList();
+        foreach (var rva in _discoveredByName.GetValueOrDefault(name) ?? [])
+            if (_sourced.NameAt(rva) == null) found.Add(new(rva, _byStart[rva].ThunkImport != null ? "thunk" : "export"));
+        return found;
+    }
+
+    /// <summary>The one address of <paramref name="name"/> (see <see cref="AddressesOfName"/>): null when none, an ambiguous error when several.</summary>
+    public uint? AddressOfName(string name) => AddressesOfName(name) switch
+    {
+        [] => null,
+        [var one] => one.Rva,
+        var several => throw NativeAddress.Ambiguous(Image, name, several),
+    };
 
     /// <summary>Import "module!name" (or "module!#ordinal"), function name, or export name at <paramref name="rva"/>.</summary>
     public string? NameAt(uint rva)

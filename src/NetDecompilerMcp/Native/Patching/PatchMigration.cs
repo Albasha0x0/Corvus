@@ -217,7 +217,7 @@ public static class PatchMigration
             if (n < index.Image.SizeOfImage && index.FunctionByStart((uint)n) != null) return (uint)n;
             if (n >= index.Image.ImageBase && n - index.Image.ImageBase < index.Image.SizeOfImage) return (uint)(n - index.Image.ImageBase);
         }
-        return index.AddressOfName(name) ?? NativeAddress.Parse(index.Image, name, _ => null);
+        return NativeAddress.Parse(index.Image, name, index.AddressesOfName);
     }
 
     private static MaskedDecoder? TryDecoder(NativeCodeIndex index)

@@ -37,4 +37,48 @@ public class NativeAddressTests
         Assert.Equal(Second, NativeAddress.Parse(image, "0x1010"));
         Assert.Equal(Second, NativeAddress.Parse(image, "#4112"));
     }
+
+    [Fact]
+    public void NameOnSeveralAddressesIsAmbiguousAndListsThem()
+    {
+        var image = Image();
+        var index = NativeCodeIndex.Build(image);
+        index.SetSourceName(Third, "Twin", NativeNameSource.User);
+        index.SetSourceName(Fourth, "Twin", NativeNameSource.Pdb);
+
+        var error = Assert.Throws<ToolError>(() => NativeCodeTools.Address(index, "Twin"));
+        Assert.Equal(ErrorCode.Ambiguous, error.Code);
+        Assert.Contains("0x140001020 (user)", error.Message);
+        Assert.Contains("0x140001030 (pdb)", error.Message);
+        Assert.Equal(ErrorCode.Ambiguous, Assert.Throws<ToolError>(() => index.AddressOfName("Twin")).Code);
+        Assert.Equal([(Third, NativeNameSource.User), (Fourth, NativeNameSource.Pdb)], index.Sourced.AddressesOf("Twin"));
+
+        // A source name that collides with an export elsewhere is ambiguous too.
+        index.SetSourceName(Fourth, "Bach", NativeNameSource.Pdb);
+        var collision = Assert.Throws<ToolError>(() => NativeCodeTools.Address(index, "Bach"));
+        Assert.Contains("0x140001010 (export)", collision.Message);
+        Assert.Contains("0x140001030 (pdb)", collision.Message);
+
+        // Unique names and numbers still resolve.
+        Assert.Equal(Third, NativeCodeTools.Address(index, "Twin"));
+        Assert.Equal(First, NativeCodeTools.Address(index, "First"));
+        Assert.Equal(Fourth, NativeCodeTools.Address(index, "0x1030"));
+        index.SetSourceName(Fourth, null, NativeNameSource.Pdb);
+        Assert.Equal(Second, NativeCodeTools.Address(index, "Bach"));
+        Assert.Equal(Fourth, index.AddressOfName("Fourth"));
+    }
+
+    [Fact]
+    public void ReplacedLayersKeepTheNameMapExact()
+    {
+        var names = new SourcedNames();
+        names.ReplaceNames(NativeNameSource.Pdb, new Dictionary<uint, string> { [1] = "a", [2] = "a", [3] = "a", [4] = "b" });
+        Assert.Equal([1u, 2, 3], names.AddressesOf("a").Select(c => c.Rva));
+        names.SetName(2, "c", NativeNameSource.User);
+        Assert.Equal([1u, 3], names.AddressesOf("a").Select(c => c.Rva));
+        names.ReplaceNames(NativeNameSource.Pdb, new Dictionary<uint, string> { [3] = "a" });
+        Assert.Equal([3u], names.AddressesOf("a").Select(c => c.Rva));
+        Assert.Empty(names.AddressesOf("b"));
+        Assert.Equal([(2u, NativeNameSource.User)], names.AddressesOf("c"));
+    }
 }

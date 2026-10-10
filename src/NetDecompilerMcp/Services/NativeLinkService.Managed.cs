@@ -123,7 +123,7 @@ public sealed partial class NativeLinkService
 
     private uint? Address(LoadedNative native, string text)
     {
-        try { return NativeAddress.Parse(native.Image, text, code.Ready(native) is { } index ? index.AddressOfName : null); }
+        try { return NativeAddress.Parse(native.Image, text, code.Ready(native) is { } index ? index.AddressesOfName : null); }
         catch (ToolError) { return null; }
     }
 

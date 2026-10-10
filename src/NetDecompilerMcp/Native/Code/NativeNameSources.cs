@@ -42,7 +42,9 @@ public sealed class SourcedNames
     private readonly object _gate = new();
     private readonly Dictionary<uint, string>[] _names = Enumerable.Range(0, Sources).Select(_ => new Dictionary<uint, string>()).ToArray();
     private readonly Dictionary<uint, string>[] _comments = Enumerable.Range(0, Sources).Select(_ => new Dictionary<uint, string>()).ToArray();
+    // Name in effect -> address; most names are unique, so only repeated ones get a set.
     private readonly Dictionary<string, uint> _addressOf = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, HashSet<uint>> _addressesOf = new(StringComparer.Ordinal);
     private int _version;
 
     /// <summary>Incremented by every change; output cached under it goes stale with the names.</summary>
@@ -124,10 +126,15 @@ public sealed class SourcedNames
         }
     }
 
-    /// <summary>The address where <paramref name="name"/> is the name in effect (the lowest one when several).</summary>
-    public uint? AddressOf(string name)
+    /// <summary>Every address where <paramref name="name"/> is the name in effect, ascending, with the source that set it there.</summary>
+    public IReadOnlyList<(uint Rva, NativeNameSource Source)> AddressesOf(string name)
     {
-        lock (_gate) return _addressOf.TryGetValue(name, out var rva) ? rva : null;
+        lock (_gate)
+        {
+            if (_addressOf.TryGetValue(name, out var rva)) return [(rva, NameCore(rva)!.Value.Source)];
+            if (!_addressesOf.TryGetValue(name, out var set)) return [];
+            return set.Order().Select(r => (r, NameCore(r)!.Value.Source)).ToList();
+        }
     }
 
     public int Count(NativeNameSource source)
@@ -146,9 +153,31 @@ public sealed class SourcedNames
     {
         var now = NameCore(rva)?.Name;
         if (before == now) return now;
-        if (before != null && _addressOf.TryGetValue(before, out var at) && at == rva) _addressOf.Remove(before);
-        if (now != null && (!_addressOf.TryGetValue(now, out var other) || rva < other)) _addressOf[now] = rva;
+        if (before != null) Unmap(before, rva);
+        if (now != null) Map(now, rva);
         return now;
+    }
+
+    private void Map(string name, uint rva)
+    {
+        if (_addressesOf.TryGetValue(name, out var set)) set.Add(rva);
+        else if (!_addressOf.TryGetValue(name, out var at)) _addressOf[name] = rva;
+        else if (at != rva)
+        {
+            _addressOf.Remove(name);
+            _addressesOf[name] = [at, rva];
+        }
+    }
+
+    private void Unmap(string name, uint rva)
+    {
+        if (_addressesOf.TryGetValue(name, out var set))
+        {
+            if (!set.Remove(rva) || set.Count > 1) return;
+            _addressesOf.Remove(name);
+            _addressOf[name] = set.First();
+        }
+        else if (_addressOf.TryGetValue(name, out var at) && at == rva) _addressOf.Remove(name);
     }
 }
 

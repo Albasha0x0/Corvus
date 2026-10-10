@@ -76,7 +76,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         return workspace.Read(() =>
         {
             var native = workspace.GetNative(id ?? image);
-            return (native, NativeAddress.Parse(native.Image, address, code?.Ready(native) is { } index ? index.AddressOfName : null));
+            return (native, NativeAddress.Parse(native.Image, address, code?.Ready(native) is { } index ? index.AddressesOfName : null));
         });
     }
 
