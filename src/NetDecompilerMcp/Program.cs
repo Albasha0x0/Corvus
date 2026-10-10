@@ -1,7 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using NetDecompilerMcp;
 using NetDecompilerMcp.Core;
@@ -90,53 +89,7 @@ builder.Services
     .WithCatalog()
     .WithCompleteHandler((context, _) =>
         ValueTask.FromResult(Completions.Complete(context.Services!.GetRequiredService<AssemblyWorkspace>(), context.Params!)))
-    .WithRequestFilters(filters => filters.AddCallToolFilter(next => async (context, cancellationToken) =>
-    {
-        try
-        {
-            if (context.MatchedPrimitive is ModelContextProtocol.Server.McpServerTool tool)
-                ArgumentCheck.Apply(tool.ProtocolTool.InputSchema, context.Params?.Arguments);
-            var structured = StructuredOutput.Begin();
-            var result = await next(context, cancellationToken);
-            // A tool that keeps its readable text hands its record over separately; bounded to the page size.
-            if (structured.Value is { } value && context.Services is { } provider)
-                result.StructuredContent = StructuredOutput.Serialize(value,
-                    ResponseBudget.Budget(provider.GetRequiredService<ServerOptions>(), context.Params) - ResponseBudget.Slack);
-            // Transformed names made of zero-width and bidi characters would print as nothing or scramble the line.
-            foreach (var block in result.Content.OfType<TextContentBlock>())
-                block.Text = NetDecompilerMcp.Core.Format.EscapeInvisible(block.Text);
-            if (context.Services is { } services)
-                result = ResponseBudget.Enforce(result, context.Params?.Name, services.GetRequiredService<ServerOptions>(),
-                    services.GetRequiredService<ResultStore>(), context.Params);
-            // Prepend pending workspace notices; trailing blank line because clients join content blocks without a separator.
-            var notices = context.Services?.GetService<AssemblyWorkspace>()?.DrainNotices();
-            if (notices is { Count: > 0 })
-                result.Content.Insert(0, new TextContentBlock { Text = string.Join("\n", notices.Select(n => "[workspace] " + n)) + "\n\n" });
-            return result;
-        }
-        catch (NetDecompilerMcp.Core.ToolError ex)
-        {
-            // Code, message and next step (names made of invisible characters escaped as in results), then the same as JSON.
-            return ErrorResult.From(ex, context.Params?.Name);
-        }
-        catch (ArgumentException ex) when (ex.ParamName == "arguments" && System.Text.RegularExpressions.Regex.Match(ex.Message, "required parameter '([^']+)'") is { Success: true } m)
-        {
-            // Argument binding: a required parameter is missing.
-            return ErrorResult.From(new NetDecompilerMcp.Core.ToolError(NetDecompilerMcp.Core.ErrorCode.InvalidArgument,
-                $"missing required parameter '{m.Groups[1].Value}'.") { Details = new { parameter = m.Groups[1].Value } }, context.Params?.Name);
-        }
-        catch (Exception ex) when (ArgumentCheck.FileSystemError(ex) is { } error)
-        {
-            // A path argument System.IO rejected or could not reach.
-            return ErrorResult.From(error, context.Params?.Name);
-        }
-        catch (Exception ex) when (ex is not McpException && ex is not OperationCanceledException)
-        {
-            // Return unexpected exceptions as a descriptive tool error instead of a generic protocol error.
-            context.Services?.GetService<ILogger<AssemblyWorkspace>>()?.LogError(ex, "Tool {Tool} failed", context.Params?.Name);
-            return ErrorResult.Internal(ex, context.Params?.Name);
-        }
-    }));
+    .WithRequestFilters(filters => filters.AddCallToolFilter(CallFilter.Wrap));
 
 var host = builder.Build();
 // Resolve before preloading so preloaded assemblies are indexed and watched.

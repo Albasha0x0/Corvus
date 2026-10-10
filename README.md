@@ -135,7 +135,7 @@ only `decompile_native` needs an external engine (IDA through idalib). Reliabili
 | Corrupt or transformed bodies | The IL scanner stops at invalid opcodes instead of throwing; `decompile_type` falls back to member-by-member output with IL for the broken part. |
 | Post-processed metadata | Out-of-range names and coded indexes that some third-party toolchains leave behind are read leniently by dnlib but not by the decompiler; such assemblies are decompiled from a copy normalized by dnlib, with the same tokens, and the output says so. |
 | Invisible names | Names made of zero-width and bidi characters (U+202E reverses the rest of a line) are shown as `\uXXXX`, as the decompiler does; symbols are accepted back in that form. |
-| Huge output | Paged (`offset` / `maxChars`); pages come from a cache. |
+| Huge output | Paged (`offset` / `maxChars`); pages come from a cache. A result or error over the response limit is kept, and `read_result` pages through it. |
 | Files changing on disk | Watched: clean assemblies reload automatically; ones with unsaved edits are left alone and the agent is told. |
 | Slow first queries | Method bodies are indexed and the call graph is built in the background after loading, in small chunks that never block edits. |
 | Runaway work | Per-call timeout (default 180 s) and MCP cancellation. |

@@ -20,10 +20,16 @@ internal static class ErrorResult
         Create(Format.EscapeInvisible(error.Render(tool)), error.ToJson());
 
     /// <summary>An exception the tool did not classify: code "internal", not retryable.</summary>
-    public static CallToolResult Internal(Exception ex, string? tool)
+    public static CallToolResult Internal(Exception ex, string? tool) =>
+        Of("internal", false, $"{ex.GetType().Name}: {ex.Message}", null, null, tool);
+
+    /// <summary>An error result for any code (also "internal"), rendered as <see cref="ToolError.Render"/> does.</summary>
+    public static CallToolResult Of(string code, bool retryable, string message, string? next, object? details, string? tool)
     {
-        var message = $"{ex.GetType().Name}: {ex.Message}";
-        return Create($"Error (internal) in {tool}: {message}", ToolError.ErrorJson("internal", false, Format.EscapeInvisible(message), null));
+        message = Format.EscapeInvisible(message);
+        next = next is { Length: > 0 } ? Format.EscapeInvisible(next) : null;
+        var text = $"Error ({code}{(retryable ? ", retryable" : "")}){(tool != null ? " in " + tool : "")}: {message}" + (next != null ? "\nNext: " + next : "");
+        return Create(text, ToolError.ErrorJson(code, retryable, message, next, null, details));
     }
 
     private static CallToolResult Create(string text, string json) => new()
