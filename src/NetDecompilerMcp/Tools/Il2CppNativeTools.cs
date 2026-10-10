@@ -17,8 +17,8 @@ public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeSer
     [McpServerTool(Name = "apply_il2cpp_names", Title = "Name a native Il2Cpp binary from its metadata", OpenWorld = false)]
     [Description("Names the functions and data of a native Il2Cpp game binary (GameAssembly.dll) from the loaded Il2CppDumper / Cpp2IL dummy assemblies " +
                  "([Address] RVAs) and the dump's script.json (every function start, generic instantiations, Ns_Type_TypeInfo metadata and MethodInfo slots) " +
-                 "and stringliteral.json (StringLiteral_<n> slots commented with the text). Functions are named Ns_Type$$Method (the Il2CppDumper name made a " +
-                 "valid identifier: '.', '<', '>', ',' and spaces become '_'; a name used twice gets _<RVA>), commented with the C# form Ns.Type::Method(args) " +
+                 "and stringliteral.json (StringLiteral_<n> slots commented with the text). Functions are named Ns_Type__Method (the Il2CppDumper name " +
+                 "Ns.Type$$Method as a C identifier, as IDA accepts it: '$$' becomes '__', '.', '<', '>', ',' and spaces '_'; a name used twice gets _<RVA>), commented with the C# form Ns.Type::Method(args) " +
                  "and the other methods sharing the code. The names show in list_functions, disassemble, find_xrefs, native_call_tree, search_native_strings, " +
                  "resolve_address and as addresses, and decompile_native pushes them into the IDA database. They rank below user names (rename_native) and " +
                  "PDB names; applying again replaces them, clear=true removes them. Not saved: apply again after a reload. Reports counts of functions named, " +

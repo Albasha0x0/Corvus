@@ -53,18 +53,25 @@ public sealed class Il2CppNativeNamesTests : IDisposable
 
     public Il2CppNativeNamesTests()
     {
-        var dump = Path.Combine(_dir.Path, "dump");
+        (var dll, _binary) = CreateDump(_dir);
+        _env = new Env(dll);
+        _code = new NativeCodeService(_env.Workspace, _env.Options, null, new AnnotationStore(_dir.File("ann")));
+        _names = new Il2CppNativeNames(_env.Il2Cpp, _env.Il2CppNavigator, _code);
+    }
+
+    /// <summary>Writes dump/DummyDll/TestFixture.dll, dump/script.json, dump/stringliteral.json and dump/GameAssembly.dll.</summary>
+    internal static (string DummyDll, string GameAssembly) CreateDump(TempDir dir)
+    {
+        var dump = Path.Combine(dir.Path, "dump");
         var dummies = Path.Combine(dump, "DummyDll");
         Directory.CreateDirectory(dummies);
         var dll = Path.Combine(dummies, Path.GetFileName(Env.FixturePath));
         File.Copy(Env.FixturePath, dll);
         File.WriteAllText(Path.Combine(dump, "script.json"), ScriptJson);
         File.WriteAllText(Path.Combine(dump, "stringliteral.json"), StringLiterals);
-        _binary = Path.Combine(dump, "GameAssembly.dll");
-        File.WriteAllBytes(_binary, GameAssembly());
-        _env = new Env(dll);
-        _code = new NativeCodeService(_env.Workspace, _env.Options, null, new AnnotationStore(_dir.File("ann")));
-        _names = new Il2CppNativeNames(_env.Il2Cpp, _env.Il2CppNavigator, _code);
+        var binary = Path.Combine(dump, "GameAssembly.dll");
+        File.WriteAllBytes(binary, GameAssembly());
+        return (dll, binary);
     }
 
     public void Dispose()
@@ -105,14 +112,16 @@ public sealed class Il2CppNativeNamesTests : IDisposable
     [Fact]
     public void IdentifiersAreValidNames()
     {
-        Assert.Equal("Fixture_Native_NativeThing$$First", Il2CppNativeNames.Identifier("Fixture.Native.NativeThing$$First"));
-        Assert.Equal("System_Collections_Generic_Dictionary_string_int_$$Add", Il2CppNativeNames.Identifier("System.Collections.Generic.Dictionary<string, int>$$Add"));
+        Assert.Equal("Fixture_Native_NativeThing__First", Il2CppNativeNames.Identifier("Fixture.Native.NativeThing$$First"));
+        Assert.Equal("System_Collections_Generic_Dictionary_string_int__Add", Il2CppNativeNames.Identifier("System.Collections.Generic.Dictionary<string, int>$$Add"));
         Assert.Equal("List_int", Il2CppNativeNames.Identifier("List<int>"));
-        Assert.Equal("_c__DisplayClass1_0$$_Run_b__0", Il2CppNativeNames.Identifier("<>c__DisplayClass1_0$$<Run>b__0"));
+        Assert.Equal("_c__DisplayClass1_0___Run_b__0", Il2CppNativeNames.Identifier("<>c__DisplayClass1_0$$<Run>b__0"));
+        Assert.Equal("Method_Ns_Type_M", Il2CppNativeNames.Identifier("Method$Ns.Type.M"));
         Assert.Equal("_1abc", Il2CppNativeNames.Identifier("1abc"));
         Assert.Equal("Au4E2DB", Il2CppNativeNames.Identifier("A中B"));
-        foreach (var name in new[] { "Fixture.Native.NativeThing$$First", "<>c$$<M>b__0_0", "x.y<z>[]", "\u0001" })
-            NativeName.Validate(Il2CppNativeNames.Identifier(name));
+        // C identifiers: IDA's x86/x64 name characters are letters, digits and '_' (it rewrites '$')
+        foreach (var name in new[] { "Fixture.Native.NativeThing$$First", "<>c$$<M>b__0_0", "x.y<z>[]", "\u0001", "a$b@c" })
+            Assert.Matches("^[A-Za-z_][A-Za-z0-9_]*$", Il2CppNativeNames.Identifier(name));
     }
 
     [Fact]
@@ -123,10 +132,10 @@ public sealed class Il2CppNativeNamesTests : IDisposable
         Assert.Equal((4, 2, 2, 2), (report.Functions, report.SharedFunctions, report.SharedExtraMethods, report.UnnamedStarts));
         Assert.Equal((2, 2, 3, 0), (report.Strings, report.MetadataSlots, report.MethodInfoSlots, report.Suffixed));
 
-        Assert.Equal("Fixture_Native_NativeThing$$First", index.NameAt(0x1000));
-        Assert.Equal("Fixture_Native_NativeThing$$Shared_int", index.NameAt(0x1200));
+        Assert.Equal("Fixture_Native_NativeThing__First", index.NameAt(0x1000));
+        Assert.Equal("Fixture_Native_NativeThing__Shared_int", index.NameAt(0x1200));
         Assert.Equal("Fixture_Native_NativeThing_TypeInfo", index.NameAt(0x5000));
-        Assert.Equal("Method$Fixture_Native_NativeThing_Second", index.NameAt(0x5020));
+        Assert.Equal("Method_Fixture_Native_NativeThing_Second", index.NameAt(0x5020));
         Assert.Equal("StringLiteral_1", index.NameAt(0x5048));
         Assert.Equal("Fixture.Native.NativeThing::First()", index.CommentFor(0x1000));
         Assert.StartsWith("Fixture.Native.NativeThing::Second()\nshared code, also: Fixture.Native.NativeThing::Shared<object>", index.CommentFor(0x1100));
@@ -135,20 +144,20 @@ public sealed class Il2CppNativeNamesTests : IDisposable
 
         var tools = new NativeCodeTools(_env.Workspace, _code, _env.Pager);
         var list = await tools.ListFunctions(native.Id);
-        Assert.Contains("Fixture_Native_NativeThing$$First", list);
-        var disasm = await tools.Disassemble(native.Id, "Fixture_Native_NativeThing$$First");
+        Assert.Contains("Fixture_Native_NativeThing__First", list);
+        var disasm = await tools.Disassemble(native.Id, "Fixture_Native_NativeThing__First");
         Assert.Contains("; Fixture.Native.NativeThing::First()", disasm);
         Assert.Contains("StringLiteral_0", disasm);
         Assert.Contains("; \"hello il2cpp\"", disasm);
-        Assert.Contains("call   Fixture_Native_NativeThing$$Second", disasm);
-        Assert.Contains("Fixture_Native_NativeThing$$First:\n", disasm.Replace("\r", ""));
-        Assert.Contains("Fixture_Native_NativeThing$$Shared_int+0x0", await tools.FindXrefs(native.Id, "StringLiteral_1"));
+        Assert.Contains("call   Fixture_Native_NativeThing__Second", disasm);
+        Assert.Contains("Fixture_Native_NativeThing__First:\n", disasm.Replace("\r", ""));
+        Assert.Contains("Fixture_Native_NativeThing__Shared_int+0x0", await tools.FindXrefs(native.Id, "StringLiteral_1"));
         var strings = await tools.SearchNativeStrings(native.Id, "il2cpp");
-        Assert.Contains("il2cpp \"hello il2cpp\"  slot StringLiteral_0, 1 refs, first in Fixture_Native_NativeThing$$First", strings);
-        Assert.Contains("Fixture_Native_NativeThing$$Second", await tools.NativeCallTree(native.Id, "0x1000"));
+        Assert.Contains("il2cpp \"hello il2cpp\"  slot StringLiteral_0, 1 refs, first in Fixture_Native_NativeThing__First", strings);
+        Assert.Contains("Fixture_Native_NativeThing__Second", await tools.NativeCallTree(native.Id, "0x1000"));
 
         var resolved = await new NativeTools(_env.Workspace, _env.Pager, _code).ResolveAddress(native.Id, "0x180001204");
-        Assert.Contains("in il2cpp function Fixture_Native_NativeThing$$Shared_int (rva 0x1200", resolved);
+        Assert.Contains("in il2cpp function Fixture_Native_NativeThing__Shared_int (rva 0x1200", resolved);
         Assert.Contains("find_method_by_address 0x1200", resolved);
 
         // user > il2cpp, and clearing the user name falls back to the il2cpp name
@@ -158,7 +167,7 @@ public sealed class Il2CppNativeNamesTests : IDisposable
         Assert.Equal(1, _names.Apply(native, index, _env.Workspace.Assemblies, default).UserNamesKept);
         Assert.Equal("MyFirst", index.NameAt(0x1000));
         edits.ClearName(native, index, 0x1000);
-        Assert.Equal("Fixture_Native_NativeThing$$First", index.NameAt(0x1000));
+        Assert.Equal("Fixture_Native_NativeThing__First", index.NameAt(0x1000));
 
         // the layer survives a rebuilt index (patching) and is removed as a group
         native.ReplaceImage(native.Image);
@@ -201,7 +210,7 @@ public sealed class Il2CppNativeNamesTests : IDisposable
         var first = await push.EnsureAsync(native, session, default);
         Assert.Equal(11, first!.Sent);
         Assert.Equal(11, session.Items.Count);
-        Assert.Contains(session.Items, i => i is { Rva: 0x1000, Name: "Fixture_Native_NativeThing$$First", MakeFunction: true });
+        Assert.Contains(session.Items, i => i is { Rva: 0x1000, Name: "Fixture_Native_NativeThing__First", MakeFunction: true });
         Assert.Contains(session.Items, i => i is { Rva: 0x5040, Name: "StringLiteral_0", Comment: "\"hello il2cpp\"", MakeFunction: false });
         Assert.Equal(first.Stamp, session.Stamp);
         Assert.Null(await push.EnsureAsync(native, session, default)); // nothing changed

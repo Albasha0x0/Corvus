@@ -13,13 +13,14 @@ namespace NetDecompilerMcp.Services;
 /// slot; with stringliteral.json (or script.json's strings), the string literal slots. The names form the image's
 /// <see cref="NativeNameSource.Il2Cpp"/> layer, below user and PDB names, replaced or cleared as a whole.
 /// <para>
-/// Naming scheme (valid identifiers for IDA and for <see cref="Native.Annotations.NativeName"/>): functions
-/// "Ns_Type$$Method", the Il2CppDumper name "Ns.Type$$Method" with every character other than letters, digits,
-/// '_', '$' and '@' replaced by '_' (runs collapsed, trailing ones dropped; non-ASCII letters as uXXXX); a name
-/// already used at another address gets "_&lt;RVA hex&gt;". Comments keep the readable form: "Ns.Type::Method(int, string)"
-/// for dummy methods, the script.json name for instantiations, and the other methods sharing the code. Data:
-/// StringLiteral_&lt;n&gt; (n in slot address order) commented with the text, the ScriptMetadata names
-/// ("Ns_Type_TypeInfo", "Ns_Type_var") and MethodInfo slots ("Method$Ns_Type_Method").
+/// Naming scheme: C identifiers (letters, digits, '_'), the name characters IDA accepts for x86/x64, so the names
+/// in IDA equal ours. Functions "Ns_Type__Method": the Il2CppDumper name "Ns.Type$$Method" with "$$" as "__" and
+/// every other character outside the set replaced by '_' (runs collapsed, a trailing one dropped; non-ASCII letters
+/// as uXXXX; a leading digit gets '_'); a name already used at another address gets "_&lt;RVA hex&gt;". Comments keep
+/// the readable form: "Ns.Type::Method(int, string)" for dummy methods, "Ns.Type&lt;args&gt;::Method" for
+/// instantiations, and the other methods sharing the code. Data: StringLiteral_&lt;n&gt; (n in slot address order)
+/// commented with the text, ScriptMetadata slots ("Ns_Type_TypeInfo", "Ns_Type_var") and MethodInfo slots
+/// ("Method_Ns_Type_Method"), commented with the script.json name.
 /// </para>
 /// </summary>
 public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navigator, NativeCodeService code)
@@ -211,10 +212,18 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
     {
         var sb = new StringBuilder(Math.Min(text.Length, MaxNameLength) + 4);
         bool replaced = false;
-        foreach (var c in text)
+        for (int i = 0; i < text.Length; i++)
         {
+            char c = text[i];
             if (sb.Length >= MaxNameLength) break;
-            if (c is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9') or '_' or '$' or '@')
+            if (c == '$' && i + 1 < text.Length && text[i + 1] == '$')
+            {
+                if (replaced) sb.Length--; // "List<int>$$Add" -> "List_int__Add"
+                sb.Append("__");
+                replaced = false;
+                i++;
+            }
+            else if (c is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9') or '_')
             {
                 sb.Append(c);
                 replaced = false;
@@ -231,7 +240,7 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
             }
         }
         if (replaced && sb.Length > 1) sb.Length--; // a trailing replacement ("List<int>" -> "List_int")
-        if (sb.Length == 0 || char.IsDigit(sb[0]) || sb[0] == '$' || sb[0] == '@') sb.Insert(0, '_');
+        if (sb.Length == 0 || char.IsDigit(sb[0])) sb.Insert(0, '_');
         return sb.ToString();
     }
 
