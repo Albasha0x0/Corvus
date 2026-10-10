@@ -164,7 +164,7 @@ public sealed partial class MinidumpService
             d.Issues.Select(i => $"{i.Area}: {i.Message}").ToList(), notes);
     }
 
-    private static ModuleSummary ModuleRow(DumpModule m, IReadOnlyList<string> directories, NativeArch arch)
+    internal static ModuleSummary ModuleRow(DumpModule m, IReadOnlyList<string> directories, NativeArch arch)
     {
         var local = DumpImages.Find(m, directories, arch);
         string state = local.Matches ? "matches" : local.Exists ? "mismatch" : "missing";
@@ -301,6 +301,19 @@ public sealed partial class MinidumpService
 
         var walker = new StackWalker(d, m => s.Code(m).Image);
         var walk = await Task.Run(() => walker.Walk(ctx, t.StackStart, t.StackStart + t.StackSize, maxFrames, ct), ct);
+        var frames = await Frames(s, walk, offset, limit, ct);
+        var notes = new List<string>(walk.Notes);
+        if (d.Arch == NativeArch.X64 && d.Modules.Any(m => m.FileName.Equals("wow64cpu.dll", StringComparison.OrdinalIgnoreCase)))
+            notes.Add("WoW64 process: this is the 64-bit side of the thread; its 32-bit frames are not walked.");
+        notes.AddRange(ModuleNotes(s));
+        return new StackReport(s.Id, t.Id, t.Name, contextKind, ArchName(d.Arch, d.SystemInfo?.ProcessorArchitecture ?? 0xFFFF), ctx.Format(),
+            walk.Frames.Count, offset, offset + frames.Count < walk.Frames.Count, frames, walk.Stop, walk.Frames.Count(f => f.Heuristic), notes);
+    }
+
+    /// <summary>Frames <paramref name="offset"/>.. of a walk, each named through <see cref="Locate"/>.</summary>
+    internal async Task<List<StackFrame>> Frames(Session s, WalkResult walk, int offset, int limit, CancellationToken ct)
+    {
+        var d = s.Memory;
         var frames = new List<StackFrame>();
         foreach (var (f, i) in walk.Frames.Select((f, i) => (f, i)).Skip(offset).Take(limit))
         {
@@ -309,17 +322,18 @@ public sealed partial class MinidumpService
             frames.Add(new StackFrame(i, Hex(d, f.Ip), Hex(d, f.Sp), where.Module?.FileName, where.Rva is { } r ? $"0x{r:X}" : null, where.Symbol, where.Function,
                 where.Source, where.FunctionAddress is { } fa ? Hex(d, fa) : null, where.Kind, f.Method, f.Heuristic, note.Length > 0 ? note : null));
         }
-        var notes = new List<string>(walk.Notes);
-        if (d.Arch == NativeArch.X64 && d.Modules.Any(m => m.FileName.Equals("wow64cpu.dll", StringComparison.OrdinalIgnoreCase)))
-            notes.Add("WoW64 process: this is the 64-bit side of the thread; its 32-bit frames are not walked.");
+        return frames;
+    }
+
+    /// <summary>Where each module's image and names came from, for the modules a session resolved.</summary>
+    internal static IEnumerable<string> ModuleNotes(Session s)
+    {
         foreach (var (m, c) in s.Loaded.OrderBy(x => x.Module.Base))
         {
             string names = c.Names is { } n ? n.PdbPath != null ? $"names from {n.PdbPath}" : "names from exports (no matching local PDB)" : "no names";
             if (c.NamesError != null) names += $" ({c.NamesError})";
-            notes.Add($"{m.FileName}: image {c.Source}{(c.LocalPath != null && c.Source == "disk" ? $" ({c.LocalPath})" : "")}; {names}" + (c.Source == "disk" ? "" : $"; {c.Detail}"));
+            yield return $"{m.FileName}: image {c.Source}{(c.LocalPath != null && c.Source == "disk" ? $" ({c.LocalPath})" : "")}; {names}" + (c.Source == "disk" ? "" : $"; {c.Detail}");
         }
-        return new StackReport(s.Id, t.Id, t.Name, contextKind, ArchName(d.Arch, d.SystemInfo?.ProcessorArchitecture ?? 0xFFFF), ctx.Format(),
-            walk.Frames.Count, offset, offset + frames.Count < walk.Frames.Count, frames, walk.Stop, walk.Frames.Count(f => f.Heuristic), notes);
     }
 
     private static DumpThread PickThread(MinidumpFile d, string? thread)
@@ -400,9 +414,9 @@ public sealed partial class MinidumpService
 
     // ---- formatting ----
 
-    private static string Hex(MinidumpFile d, ulong v) => d.Is64Bit ? $"0x{v:X}" : $"0x{v & 0xFFFFFFFF:X}";
+    internal static string Hex(IProcessMemory d, ulong v) => d.Is64Bit ? $"0x{v:X}" : $"0x{v & 0xFFFFFFFF:X}";
 
-    private static string ArchName(NativeArch arch, ushort raw) => arch switch
+    internal static string ArchName(NativeArch arch, ushort raw) => arch switch
     {
         NativeArch.X64 => "x64",
         NativeArch.X86 => "x86",
@@ -423,7 +437,7 @@ public sealed partial class MinidumpService
         _ => $"0x{rid:X}",
     };
 
-    private static string ProtectName(uint protect)
+    internal static string ProtectName(uint protect)
     {
         string basic = (protect & 0xFF) switch
         {

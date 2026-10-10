@@ -77,7 +77,8 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     public bool AbsoluteRefsUnconfirmed { get; }
 
     private NativeCodeIndex(INativeImage image, CodeSupport support, string? note, CodeContext? ctx, NativeFunction[] functions,
-        uint[] rangeStarts, uint[] rangeEnds, CodeXref[] xrefs, StringLiteral[] strings, List<string> truncations, CodeIndexStats stats)
+        uint[] rangeStarts, uint[] rangeEnds, CodeXref[] xrefs, StringLiteral[] strings, List<string> truncations, CodeIndexStats stats,
+        int[]? byTo = null)
     {
         Image = image;
         Support = support;
@@ -116,6 +117,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         _ownerEnds = oe.ToArray();
         _ownerFunctions = of.ToArray();
 
+        if (byTo != null) { _byTo = byTo; return; }
         _byTo = new int[xrefs.Length];
         var keys = new ulong[xrefs.Length];
         for (int i = 0; i < xrefs.Length; i++)

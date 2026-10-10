@@ -152,6 +152,7 @@ public static class ToolEffects
         ["open_minidump"] = Reads(),
         ["dump_stack"] = Reads(),
         ["read_dump_memory"] = Reads(),
+        ["inspect_process"] = Reads(), // query and read handles to a running process only (docs/live-inspection.md); idempotent for the target
     };
 
     /// <summary>MCP's defaults for a tool the table does not list: may change, destroy and reach anything.</summary>

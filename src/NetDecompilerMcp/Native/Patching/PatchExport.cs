@@ -110,6 +110,8 @@ public static class PatchExport
         foreach (var p in s.Patches)
         {
             entries.Add(($"#{number} {p.Description}", p.Rva, p.Original, p.Replacement));
+            if (p.Stub is { } stub)
+                entries.Add(($"#{number} relocation stub", stub.Rva, stub.Original, stub.Replacement));
             foreach (var e in p.RelocationEdits)
                 entries.Add(($"#{number} relocation entry", e.SlotRva, U16(e.Original), U16(e.Replacement)));
             number++;
@@ -265,8 +267,21 @@ public static class PatchExport
                 w.WriteString("original", Convert.ToHexString(p.Original));
                 w.WriteString("replacement", Convert.ToHexString(p.Replacement));
                 w.WriteString("description", p.Description);
-                w.WriteString("origin", p.Assembly != null ? "asm" : "bytes");
+                w.WriteString("origin", p.Stub != null ? "stub" : p.Assembly != null ? "asm" : "bytes");
                 if (p.Assembly != null) w.WriteString("assembly", p.Assembly); else w.WriteNull("assembly");
+                if (p.Stub is { } stub)
+                {
+                    w.WriteStartObject("stub");
+                    w.WriteString("mode", stub.Mode);
+                    w.WriteString("placement", stub.Placement);
+                    w.WriteString("rva", $"0x{stub.Rva:X}");
+                    w.WriteString("fileOffset", $"0x{stub.FileOffset:X}");
+                    w.WriteString("returnRva", $"0x{stub.ReturnRva:X}");
+                    w.WriteString("original", Convert.ToHexString(stub.Original));
+                    w.WriteString("replacement", Convert.ToHexString(stub.Replacement));
+                    w.WriteEndObject();
+                }
+                else w.WriteNull("stub");
                 w.WriteStartArray("relocationEdits");
                 foreach (var e in p.RelocationEdits)
                 {

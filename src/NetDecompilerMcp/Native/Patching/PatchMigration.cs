@@ -6,7 +6,7 @@ using NetDecompilerMcp.Native.Diff;
 namespace NetDecompilerMcp.Native.Patching;
 
 /// <summary>A patch to migrate: where it was in the old build, its pre-patch and replacement bytes, and its origin.</summary>
-public sealed record MigratablePatch(uint Rva, byte[] Original, byte[] Replacement, string Description, string? Assembly)
+public sealed record MigratablePatch(uint Rva, byte[] Original, byte[] Replacement, string Description, string? Assembly, bool IsStub = false)
 {
     public bool FromAsm => Assembly != null;
 }
@@ -54,14 +54,16 @@ public static class PatchMigration
                 var replacement = Convert.FromHexString(p.GetProperty("replacement").GetString()!);
                 var description = p.TryGetProperty("description", out var d) ? d.GetString() ?? "" : "";
                 string? assembly = p.TryGetProperty("origin", out var o) && o.GetString() == "asm" && p.TryGetProperty("assembly", out var a) ? a.GetString() : null;
-                patches.Add(new MigratablePatch(rva, original, replacement, description, assembly));
+                bool isStub = p.TryGetProperty("origin", out var o2) && o2.GetString() == "stub"
+                    || p.TryGetProperty("stub", out var st) && st.ValueKind == JsonValueKind.Object;
+                patches.Add(new MigratablePatch(rva, original, replacement, description, assembly, isStub));
             }
         }
         return patches;
     }
 
     public static MigratablePatch From(NativePatch patch) =>
-        new(patch.Rva, patch.Original, patch.Replacement, patch.Description, patch.Assembly);
+        new(patch.Rva, patch.Original, patch.Replacement, patch.Description, patch.Assembly, patch.Stub != null);
 
     /// <summary>
     /// Plans every patch's migration from the old build to the new build. <paramref name="prepare"/> runs the normal
@@ -84,6 +86,13 @@ public static class PatchMigration
         foreach (var patch in patches)
         {
             ct.ThrowIfCancellationRequested();
+            if (patch.IsStub)
+            {
+                // A stub patch is a jump to a code cave plus the cave's stub bytes; neither maps byte-for-byte to the new
+                // build, so it is re-created there rather than migrated. Refuse cleanly with its own reason code.
+                steps.Add(Refuse(patch, null, 0, null, "extended_patch", "a patch-site extension (relocation stub) must be re-applied on the new build with patch_asm/patch_bytes extend=true"));
+                continue;
+            }
             var mapped = mapper.Map(patch.Rva, ct);
             int? tier = mapped.Pair?.Tier;
             if (mapped.NewRva is not { } newRva)

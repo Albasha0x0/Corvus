@@ -65,6 +65,9 @@ internal static class ServerInstructions
            undo_native_edit, save_native to a new file; export_native_annotations writes IDA / Ghidra scripts. Patches stay correct
            under ASLR: relocation entries the new bytes no longer use are neutralized and new absolute addresses get an entry; when
            the page has no free slot the error is no_relocation_slot (write it RIP-relative, or force=true for a preferred-base-only patch).
+           A patch larger than its site: patch_asm / patch_bytes extend=true put a relocation stub in a code cave (the site jumps to
+           it; it runs the new code, plus the displaced instructions with stubMode=before|after, and returns after the site); unsafe
+           sites are refused with a reason code (branch_target_in_site, unwind_data, no_space, ...). dryRun shows the stub first.
            New builds: load both (the second gets an id like game.dll#2); compare_native_images matches functions (unique-only, ambiguous
            ones listed), map_address_between_builds carries an address over, migrate_native_names (dryRun first) copies your names;
            make_code_pattern / search_code_pattern give byte patterns that survive rebuilds. export_native_patches writes your patches
@@ -79,12 +82,18 @@ internal static class ServerInstructions
            binaries exist locally, threads), dump_stack (x64 unwind data, x86 frame pointers; scanned frames marked heuristic),
            read_dump_memory. Load the crashed binaries first so frames get your names, PDB and Il2Cpp names; pass imageDirectories
            when they are not at their recorded paths. Managed frames are only identified (use SOS for them).
+           inspect_process does the same for a running local process (Windows), read-only: modules, regions, threads and stacks.
+           It opens only query and read handles, writes and suspends nothing, and closes every handle before returning. Pick the
+           target by pid or name (a shared name is refused with the candidate pids); running threads' registers are a snapshot.
+           Native code indexes are saved on disk by file SHA-256: reopening the same bytes loads the index in seconds
+           (server_status shows the cache; --index-cache off disables it).
 
         Errors start with "Error (<code>)" (not_found, ambiguous, invalid_argument, unsupported, not_loaded, limit_exceeded, timeout,
         provider_unavailable, ...) and usually a "Next:" line with the call that can succeed. A result too large to send comes back as
         limit_exceeded with an id: read_result pages through it. server_status reports version, limits and available engines.
         After the text, errors repeat as JSON ("error (json): {code, retryable, message, next, partial, details}"); partial holds what
-        was found before a time limit or cancellation. List, search and info tools also return structured content (items, offset,
+        was found before a time limit or cancellation. An argument name the tool does not declare is invalid_argument with the
+        closest declared names (details.suggestions); it is never ignored. List, search and info tools also return structured content (items, offset,
         total, truncated) beside the readable text; to page on, pass offset = offset + the items received. Tools marked
         [Long-running ...] can take more than 10 s (server_status lists them). Pass expectedCatalogDigest to server_status to detect
         a stale server; `NetDecompilerMcp doctor` compares the installed server with this build.

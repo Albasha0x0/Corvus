@@ -88,6 +88,59 @@ public sealed class DumpContext
         return c;
     }
 
+    /// <summary>
+    /// A CONTEXT record (x64 CONTEXT, x86 CONTEXT / WOW64_CONTEXT, ARM64 frame registers) as stored by MiniDumpWriteDump
+    /// and returned by GetThreadContext; null when the bytes are too short or the architecture has no layout here.
+    /// </summary>
+    public static DumpContext? Parse(NativeArch arch, ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length < 8) return null;
+        var c = new DumpContext(arch);
+        switch (arch)
+        {
+            case NativeArch.X64:
+                c.Complete = bytes.Length >= 0x2A0;
+                c.ContextFlags = U32(bytes, 0x30);
+                c.SegCs = U16(bytes, 0x38);
+                c.Flags = U32(bytes, 0x44);
+                for (int i = 0; i < 16; i++) c.Gpr[i] = U64(bytes, 0x78 + 8 * i);
+                c.Ip = U64(bytes, 0xF8);
+                if (bytes.Length >= 0x1A0 + 256) bytes.Slice(0x1A0, 256).CopyTo(c.Xmm);
+                break;
+            case NativeArch.X86:
+                c.Complete = bytes.Length >= 0xCC;
+                c.ContextFlags = U32(bytes, 0);
+                c.Gpr[7] = U32(bytes, 0x9C);
+                c.Gpr[6] = U32(bytes, 0xA0);
+                c.Gpr[3] = U32(bytes, 0xA4);
+                c.Gpr[2] = U32(bytes, 0xA8);
+                c.Gpr[1] = U32(bytes, 0xAC);
+                c.Gpr[0] = U32(bytes, 0xB0);
+                c.Gpr[5] = U32(bytes, 0xB4);
+                c.Ip = U32(bytes, 0xB8);
+                c.SegCs = (ushort)U32(bytes, 0xBC);
+                c.Flags = U32(bytes, 0xC0);
+                c.Gpr[4] = U32(bytes, 0xC4);
+                break;
+            case NativeArch.Arm64:
+                // ContextFlags, Cpsr, X0-X28, Fp, Lr, Sp, Pc: only the frame registers are kept
+                c.Complete = bytes.Length >= 0x110;
+                c.ContextFlags = U32(bytes, 0);
+                c.Flags = U32(bytes, 4);
+                c.Gpr[5] = U64(bytes, 0xF0);
+                c.Gpr[4] = U64(bytes, 0x100);
+                c.Ip = U64(bytes, 0x108);
+                break;
+            default:
+                return null;
+        }
+        return c;
+    }
+
+    private static ushort U16(ReadOnlySpan<byte> b, int at) => at >= 0 && at + 2 <= b.Length ? System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(b[at..]) : (ushort)0;
+    private static uint U32(ReadOnlySpan<byte> b, int at) => at >= 0 && at + 4 <= b.Length ? System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(b[at..]) : 0;
+    private static ulong U64(ReadOnlySpan<byte> b, int at) => at >= 0 && at + 8 <= b.Length ? System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(b[at..]) : 0;
+
     public static readonly string[] X64Names = ["rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"];
     public static readonly string[] X86Names = ["eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi"];
 

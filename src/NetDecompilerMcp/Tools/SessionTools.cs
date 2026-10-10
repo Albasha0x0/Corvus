@@ -11,7 +11,7 @@ namespace NetDecompilerMcp.Tools;
 
 [McpServerToolType]
 public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService indexing, ServerOptions options, ResultStore results, OutputPager pager,
-    NativeEngineService? engines = null)
+    NativeEngineService? engines = null, NativeCodeService? code = null)
 {
     public sealed record Capability(string Name, bool Available, string Detail, string? Remediation);
 
@@ -68,6 +68,14 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
                     (p.LastError != null ? $"; last error: {p.LastError}" : ""), null)
                 : new("IDA background analysis on load", false, "off: the first decompile_native on an image waits for IDA's auto-analysis",
                     $"start the server with --ida-prewarm (or {ServerOptions.IdaPrewarmVariable}=1)"));
+        if (code != null)
+            capabilities.Add(code.IndexCache?.Status() is { } c
+                ? new("saved native code indexes", true,
+                    $"on: {c.Root}, {c.Entries} entries, {c.Bytes / (1024.0 * 1024):0.#} of {c.MaxBytes >> 20} MB, unused entries kept {c.MaxAge.TotalDays:0} days; " +
+                    $"this session {c.Hits} loaded, {c.Misses} not found, {c.Rejected} unusable (rebuilt), {c.Writes} saved, {c.Evicted} evicted" +
+                    (c.LastError != null ? $"; last problem: {c.LastError}" : ""), null)
+                : new("saved native code indexes", false, "off: every image's code index is built when it is opened",
+                    "start the server without --index-cache off (and without NDM_CODE_INDEX_CACHE=off)"));
         int loaded = workspace.Read(() => workspace.Assemblies.Count + workspace.Natives.Count);
         return new ServerStatus(typeof(ServerOptions).Assembly.GetName().Version?.ToString(3) ?? "?", digest, expected ? difference == null : null, difference,
             toolCount, loaded, indexing.Status, options.MaxOutputChars, options.TimeoutSeconds, Environment.WorkingSet / (1024 * 1024), capabilities,

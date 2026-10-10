@@ -19,6 +19,7 @@ public sealed class NativeCodeService
     {
         _logger = logger;
         _store = annotations ?? new AnnotationStore();
+        IndexCache = options.CodeIndexCache is { } cache ? new CodeIndexCache(cache) : null;
         if (options.BackgroundIndexing)
             workspace.NativeLoaded += native =>
             {
@@ -26,6 +27,26 @@ public sealed class NativeCodeService
                 try { Holder(native).Start(_logger, this); }
                 catch (ToolError) when (native.Released.IsCancellationRequested) { }
             };
+    }
+
+    /// <summary>Saved indexes (null when the cache is off): an image whose bytes and build options were indexed before loads instead of building.</summary>
+    public CodeIndexCache? IndexCache { get; }
+
+    /// <summary>The saved index of <paramref name="image"/> when the cache has one, else a fresh build (then saved).</summary>
+    private NativeCodeIndex LoadOrBuild(Native.INativeImage image, CodeIndexOptions? options, Action<CodeIndexProgress>? progress, CancellationToken ct)
+    {
+        if (IndexCache is { } cache)
+        {
+            progress?.Invoke(new CodeIndexProgress("loading saved index", 0, 0));
+            if (cache.TryLoad(image, options, ct) is { } loaded)
+            {
+                progress?.Invoke(new CodeIndexProgress("done", 1, 1));
+                return loaded;
+            }
+        }
+        var index = NativeCodeIndex.Build(image, options, progress, ct);
+        if (IndexCache is { } c && !ct.IsCancellationRequested) c.Save(index, options);
+        return index;
     }
 
     /// <summary>The image's annotations (names and comments), loaded from the sidecar on first use.</summary>
@@ -66,7 +87,7 @@ public sealed class NativeCodeService
     public NativeCodeIndex IndexOfOriginal(LoadedNative native, CancellationToken ct)
     {
         var original = Native.Pe.PeFile.FromBytes(native.Patches.OriginalBytes(), native.FilePath);
-        return NativeCodeIndex.Build(original, BuildOptions(native, ct), null, ct);
+        return LoadOrBuild(original, BuildOptions(native, ct), null, ct);
     }
 
     /// <summary>The index when it is already built, else null (does not start a build).</summary>
@@ -127,15 +148,19 @@ public sealed class NativeCodeService
                 // A failed build is retried on the next request; a cancelled one only while the image is still loaded.
                 if (Task is { } t && !(t.IsFaulted || t.IsCanceled && !_cts.IsCancellationRequested)) return t;
                 var ct = _cts.Token;
-                return Task = System.Threading.Tasks.Task.Run(() => NativeCodeIndex.Build(native.Image, owner.BuildOptions(native, ct), p => Progress?.Invoke(p), ct), ct)
+                return Task = System.Threading.Tasks.Task.Run(() => owner.LoadOrBuild(native.Image, owner.BuildOptions(native, ct), p => Progress?.Invoke(p), ct), ct)
                     .ContinueWith(done =>
                     {
                         if (done.IsCompletedSuccessfully)
                         {
                             try { owner.ApplyAnnotations(native, done.Result); }
                             catch (Exception ex) { logger?.LogWarning(ex, "Applying annotations to {Id} failed", native.Id); }
-                            logger?.LogInformation("Indexed {Id}: {Functions} functions, {Xrefs} references in {Seconds:0.0} s", native.Id,
-                                done.Result.Stats.Functions, done.Result.Stats.Xrefs, done.Result.Stats.Elapsed.TotalSeconds);
+                            if (done.Result.LoadedFromCache)
+                                logger?.LogInformation("Loaded the saved index of {Id}: {Functions} functions, {Xrefs} references in {Seconds:0.0} s", native.Id,
+                                    done.Result.Stats.Functions, done.Result.Stats.Xrefs, done.Result.CacheLoadTime.TotalSeconds);
+                            else
+                                logger?.LogInformation("Indexed {Id}: {Functions} functions, {Xrefs} references in {Seconds:0.0} s", native.Id,
+                                    done.Result.Stats.Functions, done.Result.Stats.Xrefs, done.Result.Stats.Elapsed.TotalSeconds);
                         }
                         else if (done.Exception is { } ex)
                             logger?.LogWarning(ex.GetBaseException(), "Indexing {Id} failed", native.Id);
