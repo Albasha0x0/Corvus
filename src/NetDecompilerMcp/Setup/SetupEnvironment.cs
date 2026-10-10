@@ -11,7 +11,7 @@ internal sealed class SetupEnvironment
     public required string Home { get; init; }
     /// <summary>Windows: %APPDATA%. Unused elsewhere.</summary>
     public string AppData { get; init; } = "";
-    /// <summary>Windows: %LOCALAPPDATA%. Unused elsewhere.</summary>
+    /// <summary>The local application data folder (%LOCALAPPDATA% on Windows); holds the per-user data root.</summary>
     public string LocalAppData { get; init; } = "";
     /// <summary>Linux: $XDG_CONFIG_HOME or ~/.config.</summary>
     public string XdgConfig { get; init; } = "";

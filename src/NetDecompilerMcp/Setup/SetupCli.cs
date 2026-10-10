@@ -21,7 +21,7 @@ internal static class SetupCli
         switch (args[0].ToLowerInvariant())
         {
             case "install": return Install(output, env, launch, names, check: !flags.Contains("--no-check"));
-            case "uninstall": return Uninstall(output, env, names, keepFiles: flags.Contains("--keep-files") || names.Length > 0);
+            case "uninstall": return Uninstall(output, env, names, keepFiles: flags.Contains("--keep-files") || names.Length > 0, purgeData: flags.Contains("--purge-data"));
             case "status" or "doctor": return Status(output, env, launch);
             case "config": return Config(output, env, launch, names);
             case "update": return Installation.Update(output);
@@ -37,7 +37,8 @@ internal static class SetupCli
           install [client...]   Register the server with every installed MCP client (or only the named ones),
                                 then start it once to check it works. --no-check skips the check.
           uninstall [client...] Remove the registration from every client (or the named ones). With no names it
-                                also deletes an installed copy; --keep-files keeps it.
+                                also deletes an installed copy's program files; --keep-files keeps them. Your data
+                                (annotations, caches, symbols) is kept; --purge-data deletes it as well.
           status | doctor       Show which clients have it registered, check the server starts and that its tool catalog (digest) matches this build.
           config [client]       Print the configuration to add by hand (for clients not listed).
           update                Install the latest release (installed copies only).
@@ -101,8 +102,13 @@ internal static class SetupCli
         return failed == 0 ? 0 : 1;
     }
 
-    private static int Uninstall(TextWriter output, SetupEnvironment env, string[] names, bool keepFiles)
+    private static int Uninstall(TextWriter output, SetupEnvironment env, string[] names, bool keepFiles, bool purgeData)
     {
+        if (purgeData && keepFiles)
+        {
+            output.WriteLine("--purge-data deletes the program files too; it cannot be combined with --keep-files or client names.");
+            return 2;
+        }
         var clients = Select(output, env, names, presentOnly: false);
         if (clients == null) return 2;
         foreach (var client in clients)
@@ -111,7 +117,10 @@ internal static class SetupCli
             var result = client.Target.Uninstall(ClientCatalog.ServerName);
             output.WriteLine($"  {client.Name,-20} {result.Message,-20} {Short(env, client.Target.Path)}");
         }
-        if (!keepFiles && Installation.Root() is { } root) Installation.RemoveFiles(root, output);
+        if (keepFiles) return 0;
+        var dataRoot = Installation.DataRoot(env);
+        if (Installation.Root() is { } root) Installation.RemoveFiles(root, dataRoot ?? root, purgeData, output);
+        else if (purgeData && dataRoot != null) Installation.PurgeData(dataRoot, output);
         return 0;
     }
 

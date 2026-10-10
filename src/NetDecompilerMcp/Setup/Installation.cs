@@ -151,11 +151,72 @@ internal static class Installation
         }
     }
 
-    /// <summary>Removes the install folder and its PATH entry. On Windows the running files are deleted after exit.</summary>
-    public static void RemoveFiles(string root, TextWriter output)
+    /// <summary>Default location of per-user data: annotations, analysis and code-index caches, symbols, Il2Cpp caches, reference packs.</summary>
+    public static string? DataRoot(SetupEnvironment env) =>
+        Path.IsPathFullyQualified(env.LocalAppData) ? Path.Combine(env.LocalAppData, "NetDecompilerMcp") : null;
+
+    /// <summary>What uninstall deletes, in order (links are removed without following them), and the data entries it keeps.</summary>
+    internal sealed record Removal(IReadOnlyList<(string Path, bool Link)> Delete, string? RootIfEmpty, string DataRoot, IReadOnlyList<string> Kept);
+
+    /// <summary>The program files (current, versions/), or with <paramref name="purgeData"/> the install root and the data root.</summary>
+    public static Removal PlanRemoval(string root, string dataRoot, bool purgeData)
     {
+        var delete = new List<(string, bool)> { (Path.Combine(root, "current"), true) };
+        if (purgeData)
+        {
+            delete.Add((root, false));
+            if (!SamePath(root, dataRoot)) delete.Add((dataRoot, false));
+            return new Removal(delete, null, dataRoot, []);
+        }
+        delete.Add((Path.Combine(root, "versions"), false));
+        bool shared = SamePath(root, dataRoot);
+        List<string> kept = Directory.Exists(dataRoot)
+            ? [.. Directory.EnumerateFileSystemEntries(dataRoot).Select(Path.GetFileName).OfType<string>()
+                .Where(n => !(shared && n is "versions" or "current")).Order(StringComparer.Ordinal)]
+            : [];
+        return new Removal(delete, root, dataRoot, kept);
+    }
+
+    private static bool SamePath(string a, string b) =>
+        Path.TrimEndingDirectorySeparator(Path.GetFullPath(a)).Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(b)),
+            OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Deletes the planned paths now; files in use stay behind.</summary>
+    public static void Apply(Removal plan)
+    {
+        foreach (var (path, _) in plan.Delete)
+        {
+            try
+            {
+                var dir = new DirectoryInfo(path);
+                if (dir.LinkTarget != null) { if (OperatingSystem.IsWindows()) dir.Delete(); else File.Delete(path); }
+                else if (dir.Exists) dir.Delete(recursive: true);
+                else if (File.Exists(path)) File.Delete(path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+        if (plan.RootIfEmpty is { } root && Directory.Exists(root) && !Directory.EnumerateFileSystemEntries(root).Any())
+            Directory.Delete(root);
+    }
+
+    /// <summary>A cmd.exe command line that applies the plan once this process has exited and released its files.</summary>
+    public static string DeferredWindowsCommand(Removal plan)
+    {
+        var steps = new List<string> { "ping -n 3 127.0.0.1 >nul" };
+        steps.AddRange(plan.Delete.Select(d => d.Link ? $"rmdir \"{d.Path}\" 2>nul" : $"rmdir /s /q \"{d.Path}\" 2>nul"));
+        if (plan.RootIfEmpty is { } root) steps.Add($"rmdir \"{root}\" 2>nul");
+        return string.Join(" & ", steps);
+    }
+
+    /// <summary>
+    /// Removes the program (versions/, current, its PATH entry or ~/.local/bin link) and keeps user data unless
+    /// <paramref name="purgeData"/>. On Windows the running files are deleted after exit.
+    /// </summary>
+    public static void RemoveFiles(string root, string dataRoot, bool purgeData, TextWriter output)
+    {
+        var plan = PlanRemoval(root, dataRoot, purgeData);
         // Report first: this program's own files are deleted below, and later output may need to load one of them.
-        output.WriteLine($"Removed {root}.");
+        Report(plan, root, output);
         output.Flush();
         var current = Path.Combine(root, "current");
         if (OperatingSystem.IsWindows())
@@ -163,8 +224,7 @@ internal static class Installation
             var path = Environment.GetEnvironmentVariable("Path", EnvironmentVariableTarget.User) ?? "";
             var kept = path.Split(';', StringSplitOptions.RemoveEmptyEntries).Where(p => !p.TrimEnd('\\').Equals(current, StringComparison.OrdinalIgnoreCase));
             Environment.SetEnvironmentVariable("Path", string.Join(';', kept), EnvironmentVariableTarget.User);
-            Process.Start(new ProcessStartInfo("cmd.exe", $"/c ping -n 3 127.0.0.1 >nul & rmdir /s /q \"{root}\"")
-                { UseShellExecute = false, CreateNoWindow = true });
+            Process.Start(new ProcessStartInfo("cmd.exe", "/c " + DeferredWindowsCommand(plan)) { UseShellExecute = false, CreateNoWindow = true });
         }
         else
         {
@@ -174,7 +234,26 @@ internal static class Installation
                 if (new FileInfo(link).LinkTarget is { } t && t.StartsWith(root, StringComparison.Ordinal)) File.Delete(link);
             }
             catch (IOException) { }
-            Directory.Delete(root, recursive: true);
+            Apply(plan);
         }
+    }
+
+    /// <summary>Deletes the data root when this copy was not installed by the install scripts.</summary>
+    public static void PurgeData(string dataRoot, TextWriter output)
+    {
+        Apply(new Removal([(dataRoot, false)], null, dataRoot, []));
+        output.WriteLine($"Removed {dataRoot}.");
+    }
+
+    public static void Report(Removal plan, string root, TextWriter output)
+    {
+        if (plan.RootIfEmpty == null)
+        {
+            output.WriteLine($"Removed {string.Join(" and ", plan.Delete.Where(d => !d.Link).Select(d => d.Path))}.");
+            return;
+        }
+        output.WriteLine($"Removed the program files from {root}.");
+        if (plan.Kept.Count > 0)
+            output.WriteLine($"Kept your data in {plan.DataRoot} ({string.Join(", ", plan.Kept)}); delete that folder to remove it, or uninstall with --purge-data.");
     }
 }

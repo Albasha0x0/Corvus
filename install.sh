@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installs NetDecompilerMcp for the current user and registers it with every installed MCP client.
 #   curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh
-# Uninstall:
+# Uninstall (keeps your data; add --purge-data to delete it too):
 #   curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh -s -- --uninstall
 # Environment: NDM_REPO (owner/name), NDM_HOME (install folder), NDM_ARCHIVE (local release archive),
 # GITHUB_TOKEN (private repositories).
@@ -15,7 +15,8 @@ EXE="$ROOT/current/NetDecompilerMcp"
 fail() { echo "error: $*" >&2; exit 1; }
 
 if [ "${1:-}" = "--uninstall" ]; then
-    if [ -x "$EXE" ]; then "$EXE" uninstall; else echo "NetDecompilerMcp is not installed."; fi
+    shift
+    if [ -x "$EXE" ]; then "$EXE" uninstall "$@"; else echo "NetDecompilerMcp is not installed."; fi
     exit 0
 fi
 

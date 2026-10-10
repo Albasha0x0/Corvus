@@ -192,6 +192,84 @@ public sealed class SetupTests : IDisposable
         Assert.Equal("removed", client.Target.Uninstall("net-decompiler").Message);
     }
 
+    /// <summary>A fake install root with two versions, a "current" link and data folders.</summary>
+    private string FakeInstall(string root, string dataRoot)
+    {
+        foreach (var v in new[] { "1.0.0", "1.1.0" })
+        {
+            Directory.CreateDirectory(Path.Combine(root, "versions", v));
+            File.WriteAllText(Path.Combine(root, "versions", v, "NetDecompilerMcp.dll"), "x");
+        }
+        Installation.PointCurrent(root, Path.Combine(root, "versions", "1.1.0"));
+        foreach (var data in new[] { "annotations", "analysis", "code-index" }) Directory.CreateDirectory(Path.Combine(dataRoot, data));
+        File.WriteAllText(Path.Combine(dataRoot, "annotations", "a.json"), "{}");
+        return root;
+    }
+
+    [Fact]
+    public void Uninstall_RemovesProgramFiles_AndKeepsDataInASharedRoot()
+    {
+        var root = FakeInstall(Home("Local", "NetDecompilerMcp"), Home("Local", "NetDecompilerMcp"));
+        var plan = Installation.PlanRemoval(root, root, purgeData: false);
+        Assert.Equal(["analysis", "annotations", "code-index"], plan.Kept);
+        var output = new StringWriter();
+        Installation.Report(plan, root, output);
+        Assert.Contains("Kept your data in", output.ToString());
+        Assert.Contains("--purge-data", output.ToString());
+        Installation.Apply(plan);
+        Assert.False(Directory.Exists(Path.Combine(root, "versions")));
+        Assert.False(Directory.Exists(Path.Combine(root, "current")) || File.Exists(Path.Combine(root, "current")));
+        Assert.True(File.Exists(Path.Combine(root, "annotations", "a.json")));
+        Assert.True(Directory.Exists(Path.Combine(root, "code-index")));
+
+        Installation.Apply(Installation.PlanRemoval(root, root, purgeData: true));
+        Assert.False(Directory.Exists(root));
+    }
+
+    [Fact]
+    public void Uninstall_RemovesAnEmptiedInstallRoot_AndPurgeRemovesASeparateDataRoot()
+    {
+        var root = FakeInstall(Home("share", "net-decompiler-mcp"), Home("share", "NetDecompilerMcp"));
+        var dataRoot = Home("share", "NetDecompilerMcp");
+        Installation.Apply(Installation.PlanRemoval(root, dataRoot, purgeData: false));
+        Assert.False(Directory.Exists(root));
+        Assert.True(File.Exists(Path.Combine(dataRoot, "annotations", "a.json")));
+
+        FakeInstall(root, dataRoot);
+        var purge = Installation.PlanRemoval(root, dataRoot, purgeData: true);
+        Assert.Empty(purge.Kept);
+        Installation.Apply(purge);
+        Assert.False(Directory.Exists(root));
+        Assert.False(Directory.Exists(dataRoot));
+    }
+
+    [Fact]
+    public void Uninstall_DeferredWindowsCommand_RemovesTheJunctionWithoutFollowingIt()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var root = @"C:\Users\u\AppData\Local\NetDecompilerMcp";
+        var command = Installation.DeferredWindowsCommand(Installation.PlanRemoval(root, root, purgeData: false));
+        Assert.Equal($"ping -n 3 127.0.0.1 >nul & rmdir \"{root}\\current\" 2>nul & rmdir /s /q \"{root}\\versions\" 2>nul & rmdir \"{root}\" 2>nul", command);
+        command = Installation.DeferredWindowsCommand(Installation.PlanRemoval(root, root, purgeData: true));
+        Assert.EndsWith($"rmdir \"{root}\\current\" 2>nul & rmdir /s /q \"{root}\" 2>nul", command);
+    }
+
+    [Fact]
+    public void Uninstall_PurgeData_DeletesTheDataRoot_AndRejectsKeepFiles()
+    {
+        var dataRoot = Path.Combine(_env.LocalAppData, "NetDecompilerMcp");
+        Directory.CreateDirectory(Path.Combine(dataRoot, "analysis"));
+        var (code, output) = Run("uninstall", "--purge-data", "--keep-files");
+        Assert.Equal(2, code);
+        Assert.True(Directory.Exists(dataRoot), output);
+        (code, output) = Run("uninstall");
+        Assert.Equal(0, code);
+        Assert.True(Directory.Exists(dataRoot), output);
+        (code, output) = Run("uninstall", "--purge-data");
+        Assert.Equal(0, code);
+        Assert.False(Directory.Exists(dataRoot), output);
+    }
+
     [Fact]
     public void ServerArguments_AreNotTreatedAsCommands()
     {

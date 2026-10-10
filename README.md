@@ -45,7 +45,7 @@ Amazon Q, Kiro and Antigravity. Any other client: add the output of `NetDecompil
 | `NetDecompilerMcp install [client...]` | Register again, e.g. after installing a new client; names register clients not detected. |
 | `NetDecompilerMcp update` | Install the latest release; client settings point at a stable path and need no change. |
 | `NetDecompilerMcp config [client]` | Print the configuration for a client, or the generic `mcpServers` JSON. |
-| `NetDecompilerMcp uninstall` | Remove it from every client and delete the installed files (`--keep-files` keeps them). |
+| `NetDecompilerMcp uninstall` | Remove it from every client and delete the program files (`--keep-files` keeps them). Your annotations, caches and symbols are kept; `--purge-data` deletes them too. |
 
 From source instead: `./publish.ps1`, then `publish/NetDecompilerMcp install`.
 

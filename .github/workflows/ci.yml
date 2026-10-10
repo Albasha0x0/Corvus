@@ -113,10 +113,18 @@ jobs:
           & $exe status
           if ($LASTEXITCODE -ne 0) { throw 'status failed' }
           Get-Content install.ps1 -Raw | Invoke-Expression
+          $root = "$env:LOCALAPPDATA\NetDecompilerMcp"
+          New-Item -ItemType Directory -Force "$root\annotations" | Out-Null
+          Set-Content "$root\annotations\marker.json" '{}'
           & ([scriptblock]::Create((Get-Content install.ps1 -Raw))) -Uninstall
           Start-Sleep -Seconds 5
           if ((Get-Content "$HOME\.cursor\mcp.json" -Raw) -match 'net-decompiler') { throw 'still registered' }
-          if (Test-Path "$env:LOCALAPPDATA\NetDecompilerMcp") { throw 'files left behind' }
+          if ((Test-Path "$root\versions") -or (Test-Path "$root\current")) { throw 'program files left behind' }
+          if (-not (Test-Path "$root\annotations\marker.json")) { throw 'user data was deleted' }
+          Get-Content install.ps1 -Raw | Invoke-Expression
+          & ([scriptblock]::Create((Get-Content install.ps1 -Raw))) -Uninstall -PurgeData
+          Start-Sleep -Seconds 5
+          if (Test-Path $root) { throw 'files left behind after -PurgeData' }
 
       - name: Install, check, uninstall (sh)
         if: runner.os != 'Windows'
@@ -128,7 +136,15 @@ jobs:
           grep -q "$HOME/.local/share/net-decompiler-mcp/current/NetDecompilerMcp" ~/.cursor/mcp.json
           ~/.local/bin/NetDecompilerMcp status
           NDM_ARCHIVE="$PWD/package.tar.gz" sh < install.sh
+          # The data root is .NET's local application data folder.
+          if [ "$RUNNER_OS" = macOS ]; then data="$HOME/Library/Application Support/NetDecompilerMcp"; else data="$HOME/.local/share/NetDecompilerMcp"; fi
+          mkdir -p "$data/annotations" && echo '{}' > "$data/annotations/marker.json"
           sh -s -- --uninstall < install.sh
           ! grep -q net-decompiler ~/.cursor/mcp.json
           test ! -e ~/.local/share/net-decompiler-mcp
           test ! -e ~/.local/bin/NetDecompilerMcp
+          test -f "$data/annotations/marker.json"
+          NDM_ARCHIVE="$PWD/package.tar.gz" sh < install.sh
+          sh -s -- --uninstall --purge-data < install.sh
+          test ! -e ~/.local/share/net-decompiler-mcp
+          test ! -e "$data"

@@ -1,9 +1,9 @@
 # Installs NetDecompilerMcp for the current user and registers it with every installed MCP client.
 #   irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1 | iex
-# Uninstall:
+# Uninstall (keeps your data; add -PurgeData to delete it too):
 #   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1))) -Uninstall
 # Environment: NDM_REPO (owner/name), NDM_ARCHIVE (local release archive), GITHUB_TOKEN (private repositories).
-param([switch]$Uninstall)
+param([switch]$Uninstall, [switch]$PurgeData)
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -15,7 +15,7 @@ $current = Join-Path $root 'current'
 $exe = Join-Path $current 'NetDecompilerMcp.exe'
 
 if ($Uninstall) {
-    if (Test-Path $exe) { & $exe uninstall } else { Write-Host 'NetDecompilerMcp is not installed.' }
+    if (Test-Path $exe) { if ($PurgeData) { & $exe uninstall --purge-data } else { & $exe uninstall } } else { Write-Host 'NetDecompilerMcp is not installed.' }
     return
 }
 
