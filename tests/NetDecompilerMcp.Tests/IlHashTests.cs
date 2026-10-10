@@ -186,6 +186,15 @@ public class IlHashTests : IDisposable
         Assert.Contains($"// IL hash: {VectorHash[..16]}  raw IL SHA-256: {expected[..16]}\n",
             await new DecompileTools(env.Workspace, env.Decompiler, env.Pager).GetIL("Lab.P::Parse"));
 
+        // decompile_member provenance=true: both hashes in full, with the build's identity.
+        var decompile = new DecompileTools(env.Workspace, env.Decompiler, env.Pager);
+        var pinned = await decompile.DecompileMember("Lab.P::Parse", provenance: true);
+        Assert.Contains($"// Provenance: SHA-256 {env.Fixture.OriginalSha256}, MVID {env.Fixture.Module.Mvid}\n", pinned);
+        Assert.Contains($"//   Lab.P::Parse(string)  token {Format.Token(parse)}\n//     IL hash {VectorHash}  raw IL SHA-256 {expected}\n", pinned);
+        Assert.Contains("int.Parse", pinned);
+        Assert.DoesNotContain("Provenance", await decompile.DecompileMember("Lab.P::Parse"));
+        Assert.StartsWith("// Provenance: SHA-256 ", await decompile.DecompileMember("Lab.P", provenance: true));
+
         using var other = new Env(Vector(longForms: true, padding: 3));
         var moved = other.Def<MethodDef>("Lab.P::Parse");
         using var otherReader = IlHash.RawReader(other.Fixture);

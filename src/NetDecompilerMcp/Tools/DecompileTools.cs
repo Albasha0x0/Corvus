@@ -39,21 +39,46 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Restrict to: method, field, property, event (default any).")] string? kind = null,
         [Description(SimplifiedDescription)] bool simplified = false,
+        [Description("Start with comment lines that pin the output to its build: file SHA-256 and MVID, each member's token, and for methods " +
+                     "the normalized IL hash and the raw IL SHA-256 (docs/il-hash.md).")] bool provenance = false,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var all = SymbolResolver.Resolve(workspace, assembly, member, SymbolResolver.ParseKind(kind));
         if (all.Count == 1 && all[0].Member is TypeDef)
-            return pager.Page(TypeSource(all[0], simplified, cancellationToken), offset, maxChars);
+            return pager.Page((provenance ? Provenance(all[0].Assembly, [all[0].Member]) : "") + TypeSource(all[0], simplified, cancellationToken), offset, maxChars);
         RequireFew(all, member);
 
-        var text = pager.GetOrCreate(CacheKey(simplified ? "member-simplified" : "member", all), () => string.Join("\n", all.GroupBy(a => a.Assembly).Select(g =>
-            $"// [{g.Key.Id}]\n" + (simplified
-                ? decompiler.DecompileSimplified(g.Key, g.Select(s => s.Member).ToList(), new SimplifyOptions(), cancellationToken)
-                : decompiler.DecompileMembers(g.Key, g.Select(s => s.Member), cancellationToken)))));
+        var text = pager.GetOrCreate(CacheKey((simplified ? "member-simplified" : "member") + (provenance ? "-provenance" : ""), all), () =>
+            string.Join("\n", all.GroupBy(a => a.Assembly).Select(g =>
+                $"// [{g.Key.Id}]\n" + (provenance ? Provenance(g.Key, g.Select(s => s.Member)) : "") + (simplified
+                    ? decompiler.DecompileSimplified(g.Key, g.Select(s => s.Member).ToList(), new SimplifyOptions(), cancellationToken)
+                    : decompiler.DecompileMembers(g.Key, g.Select(s => s.Member), cancellationToken)))));
         return pager.Page(text, offset, maxChars);
     }, cancellationToken);
+
+    /// <summary>Comment lines tying decompiled output to its build; hashes in full (docs/il-hash.md).</summary>
+    private static string Provenance(LoadedAssembly asm, IEnumerable<IMemberDef> members)
+    {
+        var sb = new StringBuilder($"// Provenance: {asm.BuildIdentity}{(asm.IsDirty ? " (file as loaded; unsaved edits not included)" : "")}\n");
+        using var raw = IlHash.RawReader(asm);
+        foreach (var m in members)
+        {
+            sb.Append("//   ").Append(Format.MemberLabel(m)).Append("  token ").Append(Format.Token(m)).Append('\n');
+            IEnumerable<MethodDef> methods = m switch
+            {
+                MethodDef md => [md],
+                PropertyDef p => p.GetMethods.Concat(p.SetMethods).Concat(p.OtherMethods),
+                EventDef e => new[] { e.AddMethod, e.RemoveMethod, e.InvokeMethod }.Where(x => x != null).Concat(e.OtherMethods),
+                _ => [],
+            };
+            foreach (var method in methods)
+                sb.Append("//     ").Append(m is MethodDef ? "" : $"{method.Name} {Format.Token(method)}: ").Append("IL hash ").Append(IlHash.Of(asm, method) ?? "none")
+                  .Append("  raw IL SHA-256 ").Append(IlHash.RawSha256(raw, method) ?? "none").Append('\n');
+        }
+        return sb.ToString();
+    }
 
     [McpServerTool(Name = "get_il", Title = "IL disassembly")]
     [Description("IL disassembly (ildasm style, with /* metadata token */ comments, IL offsets and structured try/catch blocks) of a method, field, property, event, or a whole type. " +
