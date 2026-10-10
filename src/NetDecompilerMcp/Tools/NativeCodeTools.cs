@@ -17,7 +17,7 @@ namespace NetDecompilerMcp.Tools;
 public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeService code, OutputPager pager)
 {
     private const string IndexNote = "The first call on an image waits for its code index (built in the background after loading; seconds for a typical DLL, " +
-                                     "under a minute for a 300 MB executable; progress is reported).";
+                                     "one to two minutes for a 300 MB browser DLL; progress is reported).";
 
     /// <summary>Loads the image if given by path, waits for its index, and resolves the address (names include functions).</summary>
     private async Task<(LoadedNative Native, NativeCodeIndex Index)> Open(string image, RequestContext<CallToolRequestParams>? context,
