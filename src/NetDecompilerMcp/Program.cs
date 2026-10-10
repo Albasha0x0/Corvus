@@ -68,7 +68,8 @@ builder.Services
     .AddSingleton<Il2CppNativeNames>()
     .AddSingleton<NativeNamePush>()
     .AddSingleton<ReadyToRunService>()
-    .AddSingleton<PdbService>();
+    .AddSingleton<PdbService>()
+    .AddSingleton<MinidumpService>();
 
 builder.Services
     .AddMcpServer(o =>
