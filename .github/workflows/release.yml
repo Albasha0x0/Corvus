@@ -83,7 +83,12 @@ jobs:
         with:
           pattern: package-*
           merge-multiple: true
+      # The installers and `update` refuse a build whose SHA-256 is not listed here.
+      - name: Checksums
+        run: sha256sum NetDecompilerMcp-* > SHA256SUMS && cat SHA256SUMS
       - uses: softprops/action-gh-release@v3
         with:
-          files: NetDecompilerMcp-*
+          files: |
+            NetDecompilerMcp-*
+            SHA256SUMS
           generate_release_notes: true

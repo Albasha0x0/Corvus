@@ -31,6 +31,8 @@ Then restart your MCP client. What the installer does:
 
 1. Downloads the latest release for your system (Windows, Linux glibc / musl, macOS; x64 and arm64) into a per-user
    folder (`%LOCALAPPDATA%\NetDecompilerMcp`, `~/.local/share/net-decompiler-mcp`) and puts `NetDecompilerMcp` on PATH.
+   The download is checked against the release's `SHA256SUMS` (as is every `update`); a missing manifest or a
+   mismatch stops the install. A local archive given in `NDM_ARCHIVE` is checked only when `NDM_SHA256SUMS` names a manifest.
 2. Starts the server once and checks it answers (MCP handshake and tool list).
 3. Registers it as `net-decompiler` with every installed client it finds, keeping their other settings (each changed
    file is backed up once as `<file>.netdecompiler.bak`; a file it cannot parse is left untouched and reported). An

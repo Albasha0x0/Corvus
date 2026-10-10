@@ -96,8 +96,12 @@ jobs:
         run: |
           rid=$(dotnet --info | grep -m1 'RID:' | awk '{print $2}')
           dotnet publish src/NetDecompilerMcp/NetDecompilerMcp.csproj -c Release -r "$rid" --self-contained true -p:Version=9.9.9 -o out
-          if [ "$RUNNER_OS" = Windows ]; then pwsh -c 'Compress-Archive -Path out/* -DestinationPath package.zip'
-          else tar -czf package.tar.gz -C out .; fi
+          if [ "$RUNNER_OS" = Windows ]; then pwsh -c 'Compress-Archive -Path out/* -DestinationPath package.zip'; package=package.zip; asset="NetDecompilerMcp-$rid.zip"
+          else tar -czf package.tar.gz -C out .; package=package.tar.gz; asset="NetDecompilerMcp-$rid.tar.gz"; fi
+          # Manifests under the release asset name: the real one and one that must be rejected.
+          hash=$( (sha256sum "$package" 2>/dev/null || shasum -a 256 "$package") | awk '{ print $1 }')
+          echo "$hash  $asset" > SHA256SUMS
+          echo "$(printf '%064d' 0)  $asset" > SHA256SUMS.bad
 
       - name: Install, check, uninstall (Windows PowerShell 5.1)
         if: runner.os == 'Windows'
@@ -106,7 +110,13 @@ jobs:
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force "$HOME\.cursor" | Out-Null
           $env:NDM_ARCHIVE = (Resolve-Path package.zip).Path
+          $env:NDM_SHA256SUMS = (Resolve-Path SHA256SUMS.bad).Path
+          $rejected = $false
+          try { Get-Content install.ps1 -Raw | Invoke-Expression } catch { $rejected = $_.Exception.Message -match 'Checksum mismatch' }
+          if (-not $rejected) { throw 'a checksum mismatch was not rejected' }
+          $env:NDM_SHA256SUMS = (Resolve-Path SHA256SUMS).Path
           Get-Content install.ps1 -Raw | Invoke-Expression
+          Remove-Item Env:NDM_SHA256SUMS
           $exe = "$env:LOCALAPPDATA\NetDecompilerMcp\current\NetDecompilerMcp.exe"
           $entry = (Get-Content "$HOME\.cursor\mcp.json" -Raw | ConvertFrom-Json).mcpServers.'net-decompiler'
           if ($entry.command -ne $exe) { throw "Cursor entry: $($entry.command)" }
@@ -132,7 +142,9 @@ jobs:
         run: |
           set -eux
           mkdir -p ~/.cursor
-          NDM_ARCHIVE="$PWD/package.tar.gz" sh < install.sh
+          if NDM_ARCHIVE="$PWD/package.tar.gz" NDM_SHA256SUMS="$PWD/SHA256SUMS.bad" sh < install.sh 2> err.txt; then exit 1; fi
+          grep -q 'checksum mismatch' err.txt
+          NDM_ARCHIVE="$PWD/package.tar.gz" NDM_SHA256SUMS="$PWD/SHA256SUMS" sh < install.sh
           grep -q "$HOME/.local/share/net-decompiler-mcp/current/NetDecompilerMcp" ~/.cursor/mcp.json
           ~/.local/bin/NetDecompilerMcp status
           NDM_ARCHIVE="$PWD/package.tar.gz" sh < install.sh

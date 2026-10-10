@@ -42,6 +42,28 @@ internal static class Installation
     private static string Rid => RuntimeInformation.RuntimeIdentifier;
     private static string AssetName => $"NetDecompilerMcp-{Rid}" + (OperatingSystem.IsWindows() ? ".zip" : ".tar.gz");
 
+    /// <summary>The release asset listing every other asset's SHA-256, in sha256sum format.</summary>
+    public const string ChecksumManifest = "SHA256SUMS";
+
+    /// <summary>Null when <paramref name="manifest"/> lists <paramref name="assetName"/> with the SHA-256 of <paramref name="data"/>; else why not.</summary>
+    public static string? VerifyChecksum(string manifest, string assetName, ReadOnlySpan<byte> data)
+    {
+        string? expected = null;
+        foreach (var raw in manifest.Split('\n'))
+        {
+            // "<hex>  name" (text mode) or "<hex> *name" (binary mode).
+            var line = raw.TrimEnd('\r');
+            if (line.Length < 66 || line[64] != ' ' || line[65] is not (' ' or '*') || line[66..] != assetName) continue;
+            expected = line[..64];
+            break;
+        }
+        if (expected == null) return $"{ChecksumManifest} lists no {assetName}; refusing to install an unverified build.";
+        var actual = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(data));
+        return actual.Equals(expected, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : $"Checksum mismatch for {assetName} (expected {expected.ToLowerInvariant()}, got {actual}); the download is corrupt or was altered. Nothing was installed.";
+    }
+
     /// <summary>Downloads the latest release into versions/, switches "current" to it and removes unused versions.</summary>
     public static int Update(TextWriter output)
     {
@@ -71,26 +93,43 @@ internal static class Installation
             output.WriteLine($"Up to date ({Version}).");
             return 0;
         }
-        var asset = release["assets"]?.AsArray().FirstOrDefault(a => a?["name"]?.GetValue<string>() == AssetName);
+        JsonNode? Asset(string name) => release["assets"]?.AsArray().FirstOrDefault(a => a?["name"]?.GetValue<string>() == name);
+        var asset = Asset(AssetName);
         if (asset == null)
         {
             output.WriteLine($"Release {tag} has no build for {Rid} ({AssetName}).");
             return 1;
         }
+        if (Asset(ChecksumManifest) is not { } sumsAsset)
+        {
+            output.WriteLine($"Release {tag} has no {ChecksumManifest} manifest; refusing to install an unverified build.");
+            return 1;
+        }
 
         output.WriteLine($"Downloading {tag} ({AssetName})...");
-        byte[] archive;
-        try
+        byte[] Download(JsonNode item)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, asset["url"]!.GetValue<string>());
+            using var request = new HttpRequestMessage(HttpMethod.Get, item["url"]!.GetValue<string>());
             request.Headers.Accept.ParseAdd("application/octet-stream");
             using var response = http.Send(request);
             response.EnsureSuccessStatusCode();
-            archive = response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult();
+            return response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult();
+        }
+        byte[] archive;
+        string manifest;
+        try
+        {
+            archive = Download(asset);
+            manifest = System.Text.Encoding.UTF8.GetString(Download(sumsAsset));
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             output.WriteLine($"Download failed: {ex.Message}");
+            return 1;
+        }
+        if (VerifyChecksum(manifest, AssetName, archive) is { } mismatch)
+        {
+            output.WriteLine(mismatch);
             return 1;
         }
 

@@ -377,6 +377,20 @@ public sealed class SetupTests : IDisposable
     }
 
     [Fact]
+    public void ReleaseChecksum_MatchesMismatchesAndMissingEntries()
+    {
+        var data = "release archive"u8.ToArray();
+        var hash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(data));
+        var manifest = $"{new string('0', 64)}  NetDecompilerMcp-linux-x64.tar.gz\r\n{hash}  NetDecompilerMcp-win-x64.zip\n{hash.ToUpperInvariant()} *NetDecompilerMcp-osx-arm64.tar.gz\n";
+        Assert.Null(Installation.VerifyChecksum(manifest, "NetDecompilerMcp-win-x64.zip", data));
+        Assert.Null(Installation.VerifyChecksum(manifest, "NetDecompilerMcp-osx-arm64.tar.gz", data));
+        Assert.Contains("Checksum mismatch for NetDecompilerMcp-linux-x64.tar.gz", Installation.VerifyChecksum(manifest, "NetDecompilerMcp-linux-x64.tar.gz", data));
+        Assert.Contains("lists no NetDecompilerMcp-win-arm64.zip", Installation.VerifyChecksum(manifest, "NetDecompilerMcp-win-arm64.zip", data));
+        Assert.Contains("lists no NetDecompilerMcp-win-x64.zip", Installation.VerifyChecksum("", "NetDecompilerMcp-win-x64.zip", data));
+        Assert.NotNull(Installation.VerifyChecksum(manifest, "NetDecompilerMcp-win-x64.zip", "altered"u8));
+    }
+
+    [Fact]
     public void ServerArguments_AreNotTreatedAsCommands()
     {
         Assert.Null(SetupCli.TryRun(["--load", "x.dll"], new StringWriter(), _env, Launch));

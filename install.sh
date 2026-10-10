@@ -4,7 +4,9 @@
 # Uninstall (keeps your data; add --purge-data to delete it too):
 #   curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh -s -- --uninstall
 # Environment: NDM_REPO (owner/name), NDM_HOME (install folder), NDM_ARCHIVE (local release archive),
+# NDM_SHA256SUMS (manifest to verify NDM_ARCHIVE against; without it a local archive is trusted as is),
 # GITHUB_TOKEN (private repositories).
+# Downloads are verified against the release's SHA256SUMS; a missing manifest or a mismatch stops the install.
 set -eu
 
 REPO="${NDM_REPO:-Albasha0x0/Corvus}"
@@ -38,20 +40,41 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 archive="$tmp/$asset"
 
+sums="$tmp/SHA256SUMS"
+unverified="refusing to install an unverified build"
+
 if [ -n "${NDM_ARCHIVE:-}" ]; then
     cp "$NDM_ARCHIVE" "$archive"
+    if [ -n "${NDM_SHA256SUMS:-}" ]; then cp "$NDM_SHA256SUMS" "$sums"; else sums=""; fi
 elif [ -n "${GITHUB_TOKEN:-}" ]; then
     auth="Authorization: Bearer $GITHUB_TOKEN"
-    url=$(curl -fsSL -H "$auth" "https://api.github.com/repos/$REPO/releases/latest" | tr -d '\r\n' | tr '{' '\n' \
-        | grep "\"name\": *\"$asset\"" | sed -n 's/.*"url": *"\([^"]*\/releases\/assets\/[0-9]*\)".*/\1/p' | head -n 1)
+    curl -fsSL -H "$auth" "https://api.github.com/repos/$REPO/releases/latest" | tr -d '\r\n' | tr '{' '\n' > "$tmp/release"
+    asset_url() {
+        grep "\"name\": *\"$1\"" "$tmp/release" | sed -n 's/.*"url": *"\([^"]*\/releases\/assets\/[0-9]*\)".*/\1/p' | head -n 1
+    }
+    url=$(asset_url "$asset")
     [ -n "$url" ] || fail "the latest release of $REPO has no $asset"
+    sums_url=$(asset_url SHA256SUMS)
+    [ -n "$sums_url" ] || fail "the latest release of $REPO has no SHA256SUMS manifest; $unverified"
     curl -fsSL -H "$auth" -H "Accept: application/octet-stream" "$url" -o "$archive"
+    curl -fsSL -H "$auth" -H "Accept: application/octet-stream" "$sums_url" -o "$sums"
 else
     echo "Downloading $asset..."
-    url="https://github.com/$REPO/releases/latest/download/$asset"
-    if command -v curl >/dev/null 2>&1; then curl -fsSL "$url" -o "$archive"
-    elif command -v wget >/dev/null 2>&1; then wget -q "$url" -O "$archive"
+    if command -v curl >/dev/null 2>&1; then fetch() { curl -fsSL "$1" -o "$2"; }
+    elif command -v wget >/dev/null 2>&1; then fetch() { wget -q "$1" -O "$2"; }
     else fail "curl or wget is required"; fi
+    fetch "https://github.com/$REPO/releases/latest/download/$asset" "$archive"
+    fetch "https://github.com/$REPO/releases/latest/download/SHA256SUMS" "$sums" \
+        || fail "the latest release of $REPO has no SHA256SUMS manifest; $unverified"
+fi
+
+if [ -n "$sums" ]; then
+    expected=$(tr -d '\r' < "$sums" | awk -v a="$asset" '$2 == a || $2 == "*" a { print tolower($1); exit }')
+    [ -n "$expected" ] || fail "SHA256SUMS lists no $asset; $unverified"
+    if command -v sha256sum >/dev/null 2>&1; then actual=$(sha256sum "$archive" | awk '{ print $1 }')
+    elif command -v shasum >/dev/null 2>&1; then actual=$(shasum -a 256 "$archive" | awk '{ print $1 }')
+    else fail "sha256sum or shasum is required to verify the download"; fi
+    [ "$expected" = "$actual" ] || fail "checksum mismatch for $asset (expected $expected, got $actual); the download is corrupt or was altered"
 fi
 
 mkdir -p "$ROOT/versions"
