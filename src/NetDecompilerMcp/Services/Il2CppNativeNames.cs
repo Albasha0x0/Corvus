@@ -99,7 +99,7 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
         // string literal slots
         uint[] literalSlots = [];
         string[] literalTexts = [];
-        if (image.Dump is { } dump && (dump.Files.StringLiteralJson != null || dump.Files.ScriptJson != null))
+        if (image.Dump is { } dump && dump.Files.HasLiterals)
         {
             try
             {
@@ -141,19 +141,16 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
             {
                 try
                 {
-                    new ScriptJsonReader
+                    script.ForEachMethodInfo(m =>
                     {
-                        MetadataMethod = (m, _) =>
-                        {
-                            if (m.Address is 0 or > uint.MaxValue || !Mapped((uint)m.Address)) return;
-                            uint rva = (uint)m.Address;
-                            if (names.ContainsKey(rva)) return;
-                            var name = m.Name.EndsWith("()", StringComparison.Ordinal) ? m.Name[..^2] : m.Name;
-                            names[rva] = Unique(Identifier(name), rva);
-                            comments[rva] = m.MethodAddress is > 0 and <= uint.MaxValue ? $"{m.Name}: code at rva 0x{m.MethodAddress:X}" : $"{m.Name}: no code of its own";
-                            methodInfos++;
-                        },
-                    }.Read(script.Path, ct);
+                        if (m.Address is 0 or > uint.MaxValue || !Mapped((uint)m.Address)) return;
+                        uint rva = (uint)m.Address;
+                        if (names.ContainsKey(rva)) return;
+                        var name = m.Name.EndsWith("()", StringComparison.Ordinal) ? m.Name[..^2] : m.Name;
+                        names[rva] = Unique(Identifier(name), rva);
+                        comments[rva] = m.MethodAddress is > 0 and <= uint.MaxValue ? $"{m.Name}: code at rva 0x{m.MethodAddress:X}" : $"{m.Name}: no code of its own";
+                        methodInfos++;
+                    }, ct);
                 }
                 catch (Exception ex) when (ex is System.Text.Json.JsonException or IOException or UnauthorizedAccessException)
                 {
@@ -163,17 +160,50 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
         }
 
         var assemblies = string.Join(", ", image.Assemblies.Select(a => a.Id));
-        NativeNameLayers.Of(native).Set(new NativeNameLayers.Layer(NativeNameSource.Il2Cpp, names, comments, $"Il2Cpp metadata ({assemblies})"), index);
+        var (sourcePath, identity) = Provenance(image);
+        NativeNameLayers.Of(native).Set(new NativeNameLayers.Layer(NativeNameSource.Il2Cpp, names, comments, $"Il2Cpp metadata ({assemblies})",
+            new ImportInfo(sourcePath, identity, DateTime.UtcNow)), index);
         AppliedTable.AddOrUpdate(native, new Applied(image, assemblies, literalSlots, literalTexts));
+        if (code.SaveImported(native, NativeNameSource.Il2Cpp) is { } problem) notes.Add($"names not saved for the next load: {problem}");
         return new Report(assemblies, image.Dump?.Files.Directory, script != null, functions, notDiscovered, shared, sharedExtra, unnamed, outside,
             suffixed, userKept, literalSlots.Length, metadata, methodInfos, watch.Elapsed, notes);
     }
 
-    /// <summary>Removes the il2cpp layer; returns how many names it had, or null when none was applied.</summary>
-    public static int? Clear(LoadedNative native, NativeCodeIndex? index)
+    /// <summary>
+    /// The file the names were read from (global-metadata.dat for the built-in reader, else script.json, stringliteral.json
+    /// or the first dummy assembly) and its SHA-256, saved with the names.
+    /// </summary>
+    private static (string? Path, string? Sha256) Provenance(Il2CppNavigator.Image image)
+    {
+        string? path = null;
+        if (image.Dump?.Files is { } files)
+        {
+            if (files.Model != null)
+            {
+                try { path = Il2CppRawLoader.Model(files.Model).MetadataPath; }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or EndOfStreamException or ToolError) { }
+                path ??= files.Model;
+            }
+            path ??= files.ScriptJson ?? files.StringLiteralJson;
+        }
+        path ??= image.Assemblies.FirstOrDefault()?.FilePath;
+        if (path == null) return (null, null);
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1 << 20);
+            return (path, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(stream)));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return (path, null); }
+    }
+
+    /// <summary>Removes the il2cpp layer and its saved copy; returns how many names it had, or null when none was applied.</summary>
+    public int? Clear(LoadedNative native, NativeCodeIndex? index)
     {
         AppliedTable.Remove(native);
-        return NativeNameLayers.OfOrNull(native)?.Remove(NativeNameSource.Il2Cpp, index)?.Names.Count;
+        code.RestoreImported(native);
+        var removed = NativeNameLayers.OfOrNull(native)?.Remove(NativeNameSource.Il2Cpp, index)?.Names.Count;
+        bool deleted = code.ForgetImported(native, NativeNameSource.Il2Cpp);
+        return removed ?? (deleted ? 0 : null);
     }
 
     /// <summary>The il2cpp data applied to an image, or null.</summary>
@@ -191,7 +221,7 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
         if (withMetadata.Count == 0)
             throw new ToolError(ErrorCode.NotLoaded, "No Il2Cpp dummy assembly (Il2CppDumper / Cpp2IL DummyDll with [Address] attributes) is loaded" +
                                                      (scope.Count > 0 ? " in the selected assemblies." : "."),
-                "load_assembly the DummyDll folder (script.json and stringliteral.json beside it add generic instantiations, metadata slots and strings)");
+                "load_assembly the game folder or its global-metadata.dat (built-in reader; apply_il2cpp_names does it when the metadata is beside the image), or a DummyDll folder (script.json and stringliteral.json beside it add generic instantiations, metadata slots and strings)");
         var images = navigator.ImagesFor(withMetadata);
         var image = images.FirstOrDefault(i => i.Dump?.Files.GameAssembly is { } g
                                                && string.Equals(Path.GetFullPath(g), native.FilePath, StringComparison.OrdinalIgnoreCase))
@@ -269,7 +299,15 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
     public static List<string> Describe(LoadedNative native, NativeCodeIndex? index, uint rva)
     {
         var lines = new List<string>();
-        if (Of(native) is not { } applied || NativeNameLayers.OfOrNull(native)?.Get(NativeNameSource.Il2Cpp) is not { } layer) return lines;
+        if (NativeNameLayers.OfOrNull(native)?.Get(NativeNameSource.Il2Cpp) is not { } layer) return lines;
+        if (Of(native) is not { } applied)
+        {
+            // restored from the saved names: no dump loaded to navigate with
+            if (layer.Names.TryGetValue(rva, out var saved))
+                lines.Add($"il2cpp name {saved}" + (layer.Comments.TryGetValue(rva, out var c) ? $": {c.Replace("\n", "; ")}" : "") +
+                          " (saved names; apply_il2cpp_names again for the managed side)");
+            return lines;
+        }
         if (layer.Names.TryGetValue(rva, out var name))
         {
             lines.Add($"il2cpp name {name}" + (layer.Comments.TryGetValue(rva, out var c) ? $": {c.Replace("\n", "; ")}" : ""));

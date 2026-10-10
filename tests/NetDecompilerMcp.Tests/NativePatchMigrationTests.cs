@@ -143,8 +143,7 @@ public class NativePatchMigrationTests(ITestOutputHelper output)
         h.Edits.ApplyPatch(oldN, oldIdx, h.Edits.PreparePatch(oldIdx, 0x1040, [0xB8, 0x02, 0, 0, 0], false, "patch_bytes 5 bytes"), dryRun: false);
         var dry = await h.Tools.MigrateNativePatches(oldN.Id, newN.Id, dryRun: true);
         var entry = Assert.Single(dry.Entries);
-        Assert.Equal("refused", entry.Status);
-        Assert.Equal("original_bytes_differ", entry.Reason);
+        Assert.True(entry is { Status: "refused", Reason: "original_bytes_differ" }, $"{entry.Status} {entry.Reason}: {entry.Detail}");
         Assert.Contains("B8010000", entry.Detail.Replace(" ", ""));  // expected (old) bytes in the evidence
         Assert.Equal(0, dry.WouldApply);
         Assert.Contains(dry.RefusedBy, r => r is { Reason: "original_bytes_differ", Count: 1 });

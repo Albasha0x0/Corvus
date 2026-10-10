@@ -29,6 +29,9 @@ public static class Features
     private static Rule All(string name, string category, string? attack, string? attackName, params string[][] groups) =>
         new(name, category, attack, attackName, groups);
 
+    /// <summary>Section names left by known packers and protectors (UPX, ASPack, MPRESS, Themida, VMProtect, Enigma...).</summary>
+    public const string PackerSectionNames = @"^(?:UPX\d|\.aspack|\.adata|\.petite|\.nsp\d|\.MPRESS\d|\.themida|\.vmp\d|\.enigma\d|\.yP|PEC2\w*|\.packed|\.boom)$";
+
     private static readonly string[] CreateProcess =
     [
         "api:System.Diagnostics.Process::Start", "native:kernel32!CreateProcess*", "native:shell32!ShellExecute*", "native:kernel32!WinExec",
@@ -122,7 +125,7 @@ public static class Features
         Any("contain packed or encrypted sections", "anti-analysis", "T1027.002", "Obfuscated Files or Information: Software Packing",
             "section:entropy>7.2"),
         Any("be packed with a known packer", "anti-analysis", "T1027.002", "Obfuscated Files or Information: Software Packing",
-            @"section:name=^(?:UPX\d|\.aspack|\.adata|\.petite|\.nsp\d|\.MPRESS\d|\.themida|\.vmp\d|\.enigma\d|\.yP|PEC2\w*|\.packed|\.boom)$"),
+            "section:name=" + PackerSectionNames),
         Any("have a writable and executable section", "defense evasion", null, null, "section:wx"),
         Any("detect virtual machines and sandboxes", "anti-analysis", "T1497.001", "Virtualization/Sandbox Evasion: System Checks",
             @"str:(?i)\b(?:vbox\w*|virtualbox|vmware|qemu|parallels)\b|\bsbiedll\.dll\b|\bwine_get_unix_file_name\b"),

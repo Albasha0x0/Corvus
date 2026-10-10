@@ -103,7 +103,27 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         return (fileOffset, covered, covered, note);
     }
 
-    public sealed record PatchResult(NativePatch Patch, string BeforeDisasm, string AfterDisasm, string Note);
+    public sealed record PatchResult(NativePatch Patch, string BeforeDisasm, string AfterDisasm, string Note, string StubPreview = "");
+
+    /// <summary>
+    /// Prepares a patch-site extension: the site becomes a jump to a stub in slack space that runs the new code (and,
+    /// unless the mode is replace, the displaced original instructions) and returns after the site. See
+    /// <see cref="PatchExtension"/> for the safety rules and reason codes.
+    /// </summary>
+    public PatchResult PrepareExtendedPatch(NativeCodeIndex index, uint rva, byte[] newBytes, string? assembly,
+        StubMode mode, string description, Func<string, ulong?>? resolve)
+    {
+        var ext = PatchExtension.Build(index, rva, newBytes, assembly, mode, description, resolve);
+        var image = index.Image;
+        var before = Disasm(index, rva, ext.Patch.Length);
+        var after = DisasmBytes(image, rva, ext.Patch.Replacement);
+        var stub = ext.Patch.Stub!;
+        var preview = new StringBuilder();
+        preview.AppendLine($"Stub ({stub.Mode}) at {NativeAddress.Va(image, stub.Rva)} ({ext.Placement}), returns to {NativeAddress.Va(image, stub.ReturnRva)}:");
+        preview.Append(ext.StubDisasm);
+        if (ext.SitePad > 0) preview.AppendLine($"  site: {ext.SitePad} int3 pad byte(s) after the jump");
+        return new PatchResult(ext.Patch, before, after, "extended with a relocation stub", preview.ToString());
+    }
 
     /// <summary>Parses the relocations option of patch_bytes / patch_asm (auto, keep, neutralize; default auto).</summary>
     public static RelocationMode ParseRelocationMode(string? text) => (text ?? "").Trim().ToLowerInvariant() switch
@@ -161,6 +181,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         sb.AppendLine("After:");
         sb.Append(prepared.AfterDisasm);
         AppendRelocations(sb, image, prepared.Patch.Relocations, "  ");
+        if (prepared.StubPreview.Length > 0) sb.Append(prepared.StubPreview);
         if (dryRun) return sb.ToString();
 
         workspace.Write(() =>
@@ -179,15 +200,42 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
     public string List(LoadedNative native)
     {
         var patches = native.Patches.Patches;
-        if (patches.Count == 0) return $"{native.Id}: no native edits.";
+        var names = new StringBuilder();
+        AppendNames(names, native);
+        if (patches.Count == 0) return names.Length == 0 ? $"{native.Id}: no native edits." : $"{native.Id}: no native edits.\n{names}";
         var sb = new StringBuilder($"{native.Id}: {patches.Count} native edit(s)\n");
         int i = 1;
         foreach (var p in patches)
         {
             sb.AppendLine($"  #{i++}  {NativeAddress.Va(native.Image, p.Rva)}  {p.Length} bytes  {Hex(p.Original)} -> {Hex(p.Replacement)}  {p.Description}");
+            if (p.Stub is { } s)
+                sb.AppendLine($"        stub ({s.Mode}) at {NativeAddress.Va(native.Image, s.Rva)}  {s.Length} bytes  returns to {NativeAddress.Va(native.Image, s.ReturnRva)}  ({s.Placement})");
             AppendRelocations(sb, native.Image, p.Relocations, "      ");
         }
-        return sb.ToString();
+        return sb.Append(names).ToString();
+    }
+
+    /// <summary>The user's name and comment counts and every imported name layer: source, counts, origin, saved or restored, and when.</summary>
+    private void AppendNames(StringBuilder sb, LoadedNative native)
+    {
+        code.RestoreImported(native);
+        var ann = native.AnnotationsOrNull ?? code.Annotations(native);
+        var layers = NativeNameLayers.OfOrNull(native)?.Layers ?? [];
+        if (ann.NameCount == 0 && ann.CommentCount == 0 && layers.Count == 0) return;
+        sb.AppendLine("Names (priority user > pdb > il2cpp > ida > discovered):");
+        if (ann.NameCount > 0 || ann.CommentCount > 0)
+            sb.AppendLine($"  user: {ann.NameCount} name(s), {ann.CommentCount} comment(s), saved per file hash in {code.AnnotationRoot}");
+        foreach (var l in layers)
+        {
+            var state = l.Info switch
+            {
+                { Restored: true } info => $"restored on load (imported {info.ImportedUtc:yyyy-MM-dd HH:mm} UTC)",
+                { } info => $"imported {info.ImportedUtc:yyyy-MM-dd HH:mm} UTC, saved for the next load",
+                null => l.Source == NativeNameSource.Pdb ? "found automatically, not saved (read again on load)" : "this session only",
+            };
+            var source = l.Info is { SourcePath: { } path } i2 ? $"; source {path}{(i2.SourceIdentity is { } id ? $" ({(l.Source == NativeNameSource.Pdb ? "GUID age " : "sha256 ")}{id})" : "")}" : "";
+            sb.AppendLine($"  {l.Source.Id()}: {l.Names.Count} name(s), {l.Comments.Count} comment(s) from {l.Origin}; {state}{source}");
+        }
     }
 
     /// <summary>The relocation side of a patch: one line per kept / neutralized / added / unrelocated entry, then notes.</summary>
@@ -313,6 +361,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
             long checksumField = reparsed.OptionalHeaderOffset + 64;
             var patched = native.Patches.Patches;
             var ranges = patched.Select(p => (Start: p.FileOffset, Length: (long)p.Length))
+                .Concat(patched.Where(p => p.Stub != null).Select(p => (Start: p.Stub!.FileOffset, Length: (long)p.Stub!.Length)))
                 .Concat(patched.SelectMany(p => p.RelocationEdits).Select(e => (Start: e.FileOffset, Length: 2L))).ToList();
             int mismatches = 0;
             for (int i = 0; i < Math.Min(originalBytes.Length, written.Length); i++)

@@ -11,14 +11,15 @@ internal static class UnityLayout
     public static string? FileHint(string path, byte[] bytes)
     {
         if (bytes.Length >= 4 && BitConverter.ToUInt32(bytes, 0) == MetadataMagic)
-            return "Unity IL2CPP metadata (global-metadata.dat): type and method definitions of an IL2CPP build. Run Il2CppDumper or Cpp2IL on it " +
-                   "with the build's GameAssembly.dll to produce dummy DLLs, then load_assembly that folder (get_il2cpp_info, find_method_by_address).";
+            return "Unity IL2CPP metadata (global-metadata.dat): type and method definitions of an IL2CPP build. load_assembly this file (with the build's " +
+                   "GameAssembly.dll beside it or in the game folder) reads it with the built-in reader: dummy assemblies with addresses and field offsets, " +
+                   "string literals (get_il2cpp_info, find_method_by_address, search_strings).";
         if (PeImage.TryParse(bytes) is { } pe && pe.Exports(bytes, 4000).Any(e => e.StartsWith("il2cpp_", StringComparison.Ordinal)))
         {
             var metadata = FindMetadata(Path.GetDirectoryName(Path.GetFullPath(path))!);
             return "Unity IL2CPP native code (exports il2cpp_*): the C# was compiled to native code, there is no IL here. " +
                    (metadata != null ? $"With its metadata ({metadata}), " : "With its global-metadata.dat (in <Product>_Data/il2cpp_data/Metadata), ") +
-                   "Il2CppDumper or Cpp2IL produce dummy DLLs: load_assembly that folder for names, addresses and field offsets.";
+                   "load_assembly the metadata or the game folder for names, addresses and field offsets (built-in reader; no external dumper).";
         }
         return null;
     }
@@ -41,7 +42,7 @@ internal static class UnityLayout
                 var metadata = FindMetadata(dir);
                 hints.Add("Unity IL2CPP build: the C# code is compiled into GameAssembly.dll (native, no IL)" +
                           (metadata != null ? $", metadata in {metadata}" : "") +
-                          ". Run Il2CppDumper or Cpp2IL on GameAssembly.dll + global-metadata.dat and load the DummyDll folder they write.");
+                          ". load_assembly the game folder (or its global-metadata.dat) with GameAssembly.dll and the metadata both present reads them with the built-in reader.");
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }

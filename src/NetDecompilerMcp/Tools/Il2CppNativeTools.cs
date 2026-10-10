@@ -12,7 +12,7 @@ namespace NetDecompilerMcp.Tools;
 
 /// <summary>Il2Cpp metadata names on a native game binary (GameAssembly.dll).</summary>
 [McpServerToolType]
-public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeService code, Il2CppNativeNames names)
+public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeService code, Il2CppNativeNames names, Il2CppRawLoader? il2cppRaw = null)
 {
     [McpServerTool(Name = "apply_il2cpp_names", Title = "Name a native Il2Cpp binary from its metadata")]
     [Description("Names the functions and data of a native Il2Cpp game binary (GameAssembly.dll) from the loaded Il2CppDumper / Cpp2IL dummy assemblies " +
@@ -21,12 +21,13 @@ public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeSer
                  "Ns.Type$$Method as a C identifier, as IDA accepts it: '$$' becomes '__', '.', '<', '>', ',' and spaces '_'; a name used twice gets _<RVA>), commented with the C# form Ns.Type::Method(args) " +
                  "and the other methods sharing the code. The names show in list_functions, disassemble, find_xrefs, native_call_tree, search_native_strings, " +
                  "resolve_address and as addresses, and decompile_native pushes them into the IDA database. They rank below user names (rename_native) and " +
-                 "PDB names; applying again replaces them, clear=true removes them. Not saved: apply again after a reload. Reports counts of functions named, " +
+                 "PDB names; applying again replaces them, clear=true removes them. Saved with the image's annotations (per file hash) and reapplied " +
+                 "automatically when the same file is loaded again (list_native_edits shows the restored layers); clear=true also deletes the saved copy. Reports counts of functions named, " +
                  "shared code, strings, slots, collisions and misses. Explicit, not automatic: run it once both the binary and the dummy assemblies are loaded.")]
     public Task<string> ApplyIl2CppNames(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Dummy assemblies to use (id, name, file name or path); omit to use every loaded one with Il2Cpp metadata.")] string? assembly = null,
-        [Description("Remove the il2cpp names instead of applying them.")] bool clear = false,
+        [Description("Remove the il2cpp names (and their saved copy) instead of applying them.")] bool clear = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -42,12 +43,31 @@ public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeSer
             progress.Report(new ProgressNotificationValue { Progress = p.Done, Total = p.Total > 0 ? p.Total : null, Message = $"indexing {native.Id}: {p.Phase}" })), cancellationToken);
         if (clear)
         {
-            var removed = workspace.Read(() => Il2CppNativeNames.Clear(native, index));
-            return removed is { } n ? $"{native.Id}: removed {Plural(n, "il2cpp name")}." : $"{native.Id}: no il2cpp names were applied.";
+            var removed = workspace.Read(() => names.Clear(native, index));
+            return removed is { } n ? $"{native.Id}: removed {Plural(n, "il2cpp name")} and the saved copy." : $"{native.Id}: no il2cpp names were applied.";
         }
-        var report = await Task.Run(() => workspace.Read(() => names.Apply(native, index, workspace.Scope(assembly), cancellationToken)), cancellationToken);
-        return Render(native.Id, report);
+        string read = "";
+        var report = await Task.Run(() =>
+        {
+            try { return workspace.Read(() => names.Apply(native, index, workspace.Scope(assembly), cancellationToken)); }
+            catch (ToolError e) when (e.Code == ErrorCode.NotLoaded && assembly == null && Il2CppGame(native.FilePath) is { } game)
+            {
+                // No dummy assemblies loaded: read the game's metadata with the built-in reader first.
+                var loaded = (il2cppRaw ?? new Il2CppRawLoader(workspace)).Load(game, loadBinary: false,
+                    m => progress.Report(new ProgressNotificationValue { Progress = 0, Message = $"Il2Cpp: {m}" }), cancellationToken);
+                read = Il2CppRawLoader.Describe(loaded) + Environment.NewLine + Environment.NewLine;
+                return workspace.Read(() => names.Apply(native, index, workspace.Scope(null), cancellationToken));
+            }
+        }, cancellationToken);
+        return read + Render(native.Id, report);
     });
+
+    /// <summary>The game files around a GameAssembly.dll, when its metadata is found; null otherwise.</summary>
+    private static Il2CppGameFiles? Il2CppGame(string binary)
+    {
+        try { return Il2CppGameFiles.Find(binary) is { } g && string.Equals(Path.GetFullPath(g.Binary), Path.GetFullPath(binary), StringComparison.OrdinalIgnoreCase) ? g : null; }
+        catch (ToolError) { return null; }
+    }
 
     internal static string Render(string id, Il2CppNativeNames.Report r)
     {
@@ -61,6 +81,8 @@ public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeSer
         sb.AppendLine($"  conflicts: {r.UserNamesKept} user name(s) kept over il2cpp names; {r.Suffixed} repeated name(s) suffixed with the RVA");
         sb.AppendLine($"  misses: {r.UnnamedStarts} function start(s) without a method, {r.OutsideImage} address(es) outside the image's sections");
         foreach (var note in r.Notes) sb.AppendLine($"  note: {note}");
+        if (!r.Notes.Any(n => n.StartsWith("names not saved", StringComparison.Ordinal)))
+            sb.AppendLine("Saved with the image's annotations: reapplied automatically when this file is loaded again (clear=true removes them).");
         sb.AppendLine("Priority: user > pdb > il2cpp > discovered. find_method_by_address goes from an address back to the managed method.");
         return sb.ToString();
     }

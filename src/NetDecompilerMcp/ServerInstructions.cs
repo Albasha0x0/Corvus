@@ -10,12 +10,19 @@ internal static class ServerInstructions
            Load related assemblies too: cross-references and inherited members only see what is loaded or resolvable.
            Method bodies are indexed in the background after loading; files that change on disk are reloaded automatically
            (notices appear as "[workspace] ..." lines at the top of a tool result).
+           Il2Cpp games need no external dumper: load_assembly the game folder or its global-metadata.dat (GameAssembly.dll beside
+           it; a memory dump of it works too). The built-in reader (metadata v24-31) makes dummy assemblies plus the script and
+           literal data, cached per user, and the Il2Cpp tools work as with an Il2CppDumper DummyDll folder. Unreadable metadata is
+           an error with a reason; items it could not read are listed by reason in the load report.
            An app that ships wrapped in a container (single-file .exe, Costura, .nupkg, Xamarin/MAUI .apk): list_assemblies with path shows the
            assemblies inside, search_container finds types/members in them by name, and unpack_container extracts and loads them.
            list_assemblies and unpack_container flag ReadyToRun and merged (ILMerge/ILRepack) assemblies; get_r2r_code shows a ReadyToRun
            method's precompiled native code (calls named as managed methods) and find_r2r_method maps a native address back to its method.
            summarize_file reports signature, markers, container wrapping, features, typed strings and entry points of a file in one call;
            survey_features, extract_strings and extract_embedded give the details. Nothing is executed.
+           For a Unity game start with unity_overview (folder or exe): engine version, Mono or Il2Cpp, whether the Il2Cpp
+           metadata is readable or encrypted, anti-cheat / obfuscator / packer markers and the next calls with their arguments;
+           nextSteps dump_from_memory means the metadata or Assembly-CSharp.dll is encrypted on disk.
         2. Discover: search_symbols, search_strings, search_constants, search_il, list_namespaces, list_types, get_type_info (cheap outline).
         3. Read code: decompile_member (one method) is faster and smaller than decompile_type; get_il for raw IL.
         4. Navigate: find_references (who uses X, incl. calls through base/interface methods), find_callees, get_call_tree
@@ -61,10 +68,16 @@ internal static class ServerInstructions
            at VA [image]'); the .NET call tools take native exports as symbols ('kernel32.dll!CreateFileW', 'native:<image>!<name|#ord|addr>').
            Mixed-mode C++/CLI assemblies load as .NET plus a native view (id = file name). ReadyToRun: get_r2r_code, find_r2r_method.
            Il2Cpp games: load the dummy DLLs and GameAssembly.dll, then apply_il2cpp_names (C# names in every native tool and in IDA).
+           Names from load_pdb and apply_il2cpp_names are saved with the image's annotations (per file SHA-256) and reapplied
+           automatically when the same file loads again, even after a restart or with the PDB moved: no need to import again.
+           list_native_edits shows which layers were restored and from what; clear=true on either tool removes them and the saved copy.
            Edits: rename_native / comment_native (kept per file hash), patch_bytes / patch_asm (dryRun first), list_native_edits,
            undo_native_edit, save_native to a new file; export_native_annotations writes IDA / Ghidra scripts. Patches stay correct
            under ASLR: relocation entries the new bytes no longer use are neutralized and new absolute addresses get an entry; when
            the page has no free slot the error is no_relocation_slot (write it RIP-relative, or force=true for a preferred-base-only patch).
+           A patch larger than its site: patch_asm / patch_bytes extend=true put a relocation stub in a code cave (the site jumps to
+           it; it runs the new code, plus the displaced instructions with stubMode=before|after, and returns after the site); unsafe
+           sites are refused with a reason code (branch_target_in_site, unwind_data, no_space, ...). dryRun shows the stub first.
            New builds: load both (the second gets an id like game.dll#2); compare_native_images matches functions (unique-only, ambiguous
            ones listed), map_address_between_builds carries an address over, migrate_native_names (dryRun first) copies your names;
            make_code_pattern / search_code_pattern give byte patterns that survive rebuilds. export_native_patches writes your patches
@@ -73,7 +86,9 @@ internal static class ServerInstructions
            IDA: ARM64 / ARM images get list_functions, disassemble, get_cfg, find_xrefs and native_call_tree through IDA when it is
            installed (marked "(via IDA)"). Name priority: user > pdb > il2cpp > ida (library functions IDA recognized, flagged
            `library`) > discovered. decompile_native applies patches and undo inside the IDA database (no re-analysis) and pushes
-           Il2Cpp prototypes and MSVC RTTI class types (pseudocode shows Class *this, this->__vftable->...). --ida-prewarm or
+           Il2Cpp prototypes and MSVC RTTI class types (pseudocode shows Class *this, this->__vftable->...). With a PDB (beside the
+           image or via load_pdb) it first loads the PDB's structs, enums, typedefs and prototypes into the database, once per PDB,
+           through IDA's PDB loader or else the server's own PDB type reader; the first output line names the type source. --ida-prewarm or
            NDM_IDA_PREWARM=1 analyzes images in IDA in the background as they load (server_status shows the progress).
         9. Crash dumps (user-mode .dmp): open_minidump (exception, faulting module+function and instruction, modules and whether the
            binaries exist locally, threads), dump_stack (x64 unwind data, x86 frame pointers; scanned frames marked heuristic),

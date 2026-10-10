@@ -87,7 +87,7 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
         [property: Description("asm (re-assembled at the new address) or bytes (applied verbatim).")] string Origin,
         string Description,
         [property: Description("applied, would_apply (dryRun) or refused.")] string Status,
-        [property: Description("Why refused: function_not_matched, ambiguous, changed_region, original_bytes_differ, assemble_failed, relocation_slot_unavailable, mid_instruction, past_function_end, conflicts_with_existing_patch, not_mapped, cannot_prepare; 'mapped' when applied.")] string Reason,
+        [property: Description("Why refused: function_not_matched, ambiguous, changed_region, original_bytes_differ, assemble_failed, relocation_slot_unavailable, mid_instruction, past_function_end, conflicts_with_existing_patch, not_mapped, extended_patch, cannot_prepare; 'mapped' when applied.")] string Reason,
         string Detail,
         [property: Description("Mapping confidence 0-1.")] double Confidence,
         [property: Description("The function-match tier that carried the address (1 best .. 5 fuzzy), or null.")] int? Tier,

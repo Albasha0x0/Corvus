@@ -40,7 +40,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
 
     [McpServerTool(Name = "search_strings", Title = "Search string literals", UseStructuredContent = true, OutputSchemaType = typeof(StringList))]
     [Description("Find string literals (ldstr in method bodies, and string constants) by substring, wildcard or regex, with the method and IL offset using each. Locates code from UI text, log messages, URLs, keys. " +
-                 "For Il2CppDumper dummy DLLs (empty bodies) it searches the dump's stringliteral.json instead: each literal with its slot RVA and, when GameAssembly.dll is next to the dump, " +
+                 "For Il2Cpp dummy DLLs (empty bodies) it searches the game's string literals instead (the dump's stringliteral.json, or the metadata read by the built-in reader): each literal with its slot RVA and, when GameAssembly.dll is next to the dump, " +
                  "the native functions that load it, named by their dummy-DLL method (or script.json name for generic instantiations).")]
     public Task<string> SearchStrings(
         [Description("Substring, wildcard or regex.")] string query,

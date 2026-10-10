@@ -24,7 +24,12 @@ public static class Markers
         ("Goliath.NET", ["*ObfuscatedByGoliath"]),
         ("Xenocode", ["Xenocode.Client.Attributes.AssemblyAttributes.ProcessedByXenocode", "Xenocode.User.Attributes.AssemblyAttributes.ProcessedByXenoCode"]),
         ("Spices.Net", ["NineRays.Obfuscator.Evaluation", "NineRays.Obfuscator.SoftwareWatermarkAttribute"]),
+        ("Beebyte Obfuscator", ["Beebyte.Obfuscator.*"]),
     ];
+
+    /// <summary>The toolchains whose marker types or attributes are among <paramref name="fullNames"/>.</summary>
+    public static List<string> ToolsFromNames(IReadOnlyCollection<string> fullNames) =>
+        [.. KnownMarkers.Where(k => k.KnownMarkers.Any(m => fullNames.Any(n => Matches(n, m)))).Select(k => k.Tool)];
 
     private const double UnreadableThreshold = 0.3;
     private const int DecoderMinCallers = 10;
@@ -46,9 +51,7 @@ public static class Markers
         }
         catch (Exception) { }
 
-        foreach (var (tool, markers) in KnownMarkers)
-            if (markers.Any(m => names.Any(n => Matches(n, m))))
-                tools.Add(tool);
+        tools.AddRange(ToolsFromNames(names));
         if (names.Contains("System.Runtime.CompilerServices.SuppressIldasmAttribute"))
             indicators.Add("SuppressIldasmAttribute: asks ILDASM not to disassemble the assembly (common in post-processed code).");
 

@@ -89,6 +89,7 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not take types.");
 
     /// <summary>
+<<<<<<< HEAD
     /// What the engine knows about the call instructions at <paramref name="sites"/>: its code references from them, and how its
     /// decompiler shows them in <paramref name="functions"/> (through a member of a vftable struct type, a function, or an
     /// untyped pointer), within <paramref name="seconds"/>.
@@ -96,6 +97,15 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     Task<NativeCallTargets> GetCallTargetsAsync(IReadOnlyList<uint> functions, IReadOnlyList<uint> sites, double seconds,
         CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not report call targets.");
+=======
+    /// Loads <paramref name="pdbPath"/> with the engine's own PDB loader (types, prototypes, names). With
+    /// <paramref name="trustAnalysisLoad"/>, a PDB the engine loaded itself during auto-analysis counts as this one and is
+    /// not loaded again. On success the stamp is recorded under <paramref name="stampKey"/>, the names stamp is dropped
+    /// (pushed names are replaced by the PDB's, so they are pushed again) and the database is saved.
+    /// </summary>
+    Task<PdbLoadResult> LoadPdbAsync(string pdbPath, string stampKey, string stamp, bool trustAnalysisLoad, CancellationToken cancellationToken = default) =>
+        Task.FromResult(new PdbLoadResult(false, false, false, 0, 0, TimeSpan.Zero));
+>>>>>>> main
 
     /// <summary>References to <paramref name="rva"/> (ordinary flow excluded).</summary>
     Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default);
@@ -214,6 +224,13 @@ public sealed record NativeTypeBatch(string? Declarations, IReadOnlyList<NativeP
 /// <summary><see cref="MethodSkips"/>: methods not typed, by reason (no_class_type, not_own_function, typed, no_type, no_arguments, rejected).</summary>
 public sealed record TypeBatchResult(int DeclarationErrors, int Typed, int TypeFailures, int Structs, int VftablesTyped, int MethodsTyped, TimeSpan Elapsed,
     IReadOnlyList<string> Failures, IReadOnlyDictionary<string, int> MethodSkips);
+
+/// <summary>
+/// What <see cref="INativeDecompilerSession.LoadPdbAsync"/> did: whether the PDB is in the database, whether that was
+/// the engine's own load during auto-analysis, whether the engine's PDB loader ran at all (false: not available), and
+/// the engine's type count before and after.
+/// </summary>
+public sealed record PdbLoadResult(bool Loaded, bool FromAnalysis, bool LoaderAvailable, int TypesBefore, int TypesAfter, TimeSpan Elapsed);
 
 /// <summary>Bytes wanted at an RVA (a patch's replacement).</summary>
 public sealed record NativeByteRange(uint Rva, byte[] Bytes);

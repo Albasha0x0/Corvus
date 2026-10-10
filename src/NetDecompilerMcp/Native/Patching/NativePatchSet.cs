@@ -24,12 +24,20 @@ public sealed class NativePatchSet
     /// <summary>The unmodified file bytes (a fresh copy).</summary>
     public byte[] OriginalBytes() => (byte[])_original.Clone();
 
-    /// <summary>The patch whose replaced range overlaps [rva, rva+length), or null.</summary>
+    /// <summary>Every byte range a patch writes: its site region and, for an extension, its stub region.</summary>
+    private static IEnumerable<(uint Rva, uint End)> Regions(NativePatch p)
+    {
+        yield return (p.Rva, p.EndRva);
+        if (p.Stub is { } s) yield return (s.Rva, s.EndRva);
+    }
+
+    /// <summary>The patch whose written ranges (site or stub) overlap [rva, rva+length), or null.</summary>
     public NativePatch? Overlapping(uint rva, int length)
     {
         uint end = rva + (uint)length;
         foreach (var p in _patches)
-            if (rva < p.EndRva && p.Rva < end) return p;
+            foreach (var (s, e) in Regions(p))
+                if (rva < e && s < end) return p;
         return null;
     }
 
@@ -42,9 +50,11 @@ public sealed class NativePatchSet
     {
         foreach (var p in _patches)
         {
-            if (candidate.Rva < p.EndRva && p.Rva < candidate.EndRva) return p;
-            if (p.RelocationEdits.Any(e => e.SlotRva + 2 > candidate.Rva && e.SlotRva < candidate.EndRva)) return p;
-            if (candidate.RelocationEdits.Any(e => e.SlotRva + 2 > p.Rva && e.SlotRva < p.EndRva)) return p;
+            foreach (var (cs, ce) in Regions(candidate))
+                foreach (var (ps, pe) in Regions(p))
+                    if (cs < pe && ps < ce) return p;
+            if (p.RelocationEdits.Any(e => Regions(candidate).Any(r => e.SlotRva + 2 > r.Rva && e.SlotRva < r.End))) return p;
+            if (candidate.RelocationEdits.Any(e => Regions(p).Any(r => e.SlotRva + 2 > r.Rva && e.SlotRva < r.End))) return p;
         }
         return null;
     }
@@ -84,6 +94,7 @@ public sealed class NativePatchSet
         foreach (var p in _patches)
         {
             p.Replacement.CopyTo(bytes.AsSpan((int)p.FileOffset));
+            if (p.Stub is { } s) s.Replacement.CopyTo(bytes.AsSpan((int)s.FileOffset));
             foreach (var e in p.RelocationEdits)
                 BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan((int)e.FileOffset), e.Replacement);
         }

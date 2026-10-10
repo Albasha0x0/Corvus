@@ -174,10 +174,10 @@ public sealed class Il2CppNativeNamesTests : IDisposable
         var rebuilt = await _code.Index(native, null, default);
         Assert.NotSame(index, rebuilt);
         Assert.Equal("StringLiteral_0", rebuilt.NameAt(0x5040));
-        Assert.Equal(11, Il2CppNativeNames.Clear(native, rebuilt));
+        Assert.Equal(11, _names.Clear(native, rebuilt));
         Assert.Null(rebuilt.NameAt(0x5040));
         Assert.Equal("sub_1000", rebuilt.NameAt(0x1000));
-        Assert.Null(Il2CppNativeNames.Clear(native, rebuilt));
+        Assert.Null(_names.Clear(native, rebuilt));
     }
 
     [Fact]
@@ -222,7 +222,7 @@ public sealed class Il2CppNativeNamesTests : IDisposable
         Assert.Equal(new NativeNameItem(0x1100, "MySecond", null, false), Assert.Single(session.Items));
 
         session.Items.Clear();
-        Il2CppNativeNames.Clear(native, index);
+        _names.Clear(native, index);
         var third = await push.EnsureAsync(native, session, default);
         Assert.Equal((11, 10), (third!.Sent, third.Removed)); // the user name stays
         Assert.Contains(session.Items, i => i is { Rva: 0x5040, Name: "", Comment: "" });

@@ -92,7 +92,8 @@ public class Il2CppTests : IDisposable
     {
         using var env = new Env(Env.ConsumerPath);
         var ex = Assert.Throws<ToolError>(() => env.Locate(0x1000, "rva"));
-        Assert.Contains("Il2CppDumper", ex.Message);
+        Assert.Contains("dummy DLLs", ex.Message);
+        Assert.Contains("global-metadata.dat", ex.Remediation);
     }
 
     [Theory]

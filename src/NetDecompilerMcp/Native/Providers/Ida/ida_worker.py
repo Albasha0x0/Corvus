@@ -758,6 +758,50 @@ def op_apply_names(args):
             "seconds": round(time.time() - start, 3), "failures": failures}
 
 
+PDB_NODE = "$ pdb"
+PDB_CC_USER_WITH_DATA = 3  # pdb plugin: load the file named in the node ("File > Load file > PDB file")
+
+
+def op_load_pdb(args):
+    # IDA's PDB plugin on an explicit file: its types, prototypes and names go into the database.
+    # trust_analysis: when IDA's own PDB load during auto-analysis succeeded, record the stamp without loading again.
+    # On success the stamp is recorded under stamp_key, the names stamp is dropped (the PDB's names replace pushed ones,
+    # so they are pushed again) and the database is saved.
+    m = need_open()
+    import ida_netnode
+    import ida_typeinf as ti
+    start = time.time()
+    path = args.get("path")
+    if not isinstance(path, str) or not os.path.isfile(path):
+        raise WorkerError("not_found", "no PDB file at %r" % path)
+    til = ti.get_idati()
+    before = ti.get_ordinal_limit(til)
+    node = ida_netnode.netnode(PDB_NODE, 0, True)
+    analysis = node.altval(0) == 1
+    result = {"loaded": False, "from_analysis": False, "plugin": True, "types_before": before}
+    if args.get("trust_analysis") and analysis:
+        result["loaded"] = result["from_analysis"] = True
+    else:
+        node.altset(0, _state["base"])
+        node.supset(0, path)
+        ran = m.ida_loader.load_and_run_plugin("pdb", PDB_CC_USER_WITH_DATA)
+        result["plugin"] = bool(ran)
+        result["loaded"] = bool(ran) and node.altval(0) == 1
+        m.ida_auto.auto_wait()
+    result["types_after"] = ti.get_ordinal_limit(til)
+    if result["loaded"]:
+        stamps = stamp_node(True)
+        stamps.hashdel("names")
+        key = args.get("stamp_key")
+        if key:
+            stamps.hashset_buf(key, args.get("stamp") or "")
+        changed(m)
+        if not m.ida_loader.save_database(m.ida_loader.get_path(m.ida_loader.PATH_TYPE_IDB), 0):
+            raise WorkerError("io_error", "save_database failed")
+    result["seconds"] = round(time.time() - start, 3)
+    return result
+
+
 def op_get_stamp(args):
     need_open()
     n = stamp_node(False)
@@ -790,7 +834,8 @@ def op_sleep(args):
 OPS = {"hello": op_hello, "open": op_open, "rebase": op_rebase, "functions": op_functions, "decompile": op_decompile,
        "disasm": op_disasm, "disasm_range": op_disasm_range, "blocks": op_blocks, "xrefs_to": op_xrefs_to, "xrefs_from": op_xrefs_from, "set_name": op_set_name,
        "set_comment": op_set_comment, "apply_names": op_apply_names, "get_stamp": op_get_stamp, "save": op_save,
-       "sync_patches": op_sync_patches, "apply_types": op_apply_types, "virtual_targets": op_virtual_targets, "close": op_close, "sleep": op_sleep}
+       "sync_patches": op_sync_patches, "apply_types": op_apply_types, "load_pdb": op_load_pdb, "virtual_targets": op_virtual_targets,
+       "close": op_close, "sleep": op_sleep}
 
 
 def main():

@@ -14,7 +14,7 @@ namespace NetDecompilerMcp.Tools;
 
 [McpServerToolType]
 public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il2cpp, AssemblyReport report, IndexingService indexing, UnpackService unpacker,
-    NativeLinkService? link = null)
+    NativeLinkService? link = null, Il2CppRawLoader? il2cppRaw = null)
 {
     public sealed record AssemblyEntry(string Id, string Name, string Version, string Path, int Types, bool Il2CppDummy, IReadOnlyList<string> UnsavedEdits,
         bool ReadyToRun, string? Merged);
@@ -36,6 +36,9 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     [Description("Load a .NET assembly (.dll/.exe) or every assembly in a directory (e.g. an application folder, a Unity *_Data/Managed folder or an Il2CppDumper DummyDll folder). " +
                  "A native PE file (.exe/.dll/.sys without .NET metadata) given by path loads as a native image for the native tools (get_pe_info, list_imports, list_exports, list_functions, disassemble); " +
                  "folder loads take only .NET assemblies and list the native files they skipped. " +
+                 "An Il2Cpp game (its folder, or its global-metadata.dat with GameAssembly.dll beside it or in the game folder; also a memory dump of GameAssembly.dll) is read by the built-in metadata reader (versions 24-31, no external dumper): " +
+                 "dummy assemblies with method addresses, field offsets and tokens, plus string literals, generic instantiations and metadata slots for the Il2Cpp tools, cached per user (NDM_IL2CPP_CACHE); " +
+                 "GameAssembly.dll is loaded as a native image too. Unreadable metadata is an error with a reason (encrypted_or_obfuscated, unsupported_version, binary_mismatch_or_protected); unreadable items are listed by reason. " +
                  "Files are read into memory and never locked. The directory joins the reference search path. Loading the same path twice is a no-op. " +
                  "loadProviders=true also loads the DLLs a file's imports bind to (one level, never their own dependencies; at most " +
                  "16 per call), so native_call_tree, find_xrefs and the .NET call tools continue into them.")]
@@ -46,6 +49,13 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         RequestContext<CallToolRequestParams> context = null!, // bound by the SDK
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
     {
+        if (RawIl2CppGame(path) is { } game)
+        {
+            int step = 0;
+            var result = (il2cppRaw ?? new Il2CppRawLoader(workspace)).Load(game, loadBinary: true,
+                m => progress?.Report(new ProgressNotificationValue { Progress = ++step, Message = $"Il2Cpp: {m}" }), cancellationToken);
+            return Il2CppRawLoader.Describe(result);
+        }
         if (!Directory.Exists(path))
         {
             var (loaded, native) = workspace.LoadAny(path);
@@ -56,7 +66,12 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                 return $"Loaded native image {native.Id}: {image.MachineName} {(image.IsDll ? "DLL" : "executable")}, {image.SubsystemName}\n  {native.FilePath}\n  " +
                        $"{Plural(image.Sections.Count, "section")}, {Plural(image.Imports.Count, "import")}, {Plural(image.Exports.Count, "export")}" +
                        (image.RuntimeFunctions.Count > 0 ? $", {Plural(image.RuntimeFunctions.Count, "unwind entry")}" : "") +
-                       (image.Issues.Count > 0 ? $"\n  {Plural(image.Issues.Count, "parse issue")} (get_pe_info lists them)" : "") + providers;
+                       (image.Issues.Count > 0 ? $"\n  {Plural(image.Issues.Count, "parse issue")} (get_pe_info lists them)" : "") + providers +
+                       (Path.GetFileName(native.FilePath).Equals(Il2CppGameFiles.BinaryFileName, StringComparison.OrdinalIgnoreCase)
+                        && Il2CppGameFiles.MetadataIn(Path.GetDirectoryName(native.FilePath)!) is { } metadata
+                           ? $"\n  Il2Cpp game: its metadata is {metadata}; load_assembly that file (or the game folder) reads it with the built-in reader " +
+                             "(dummy assemblies, addresses, field offsets, string literals), or apply_il2cpp_names on this image does it"
+                           : "");
             }
             return workspace.Read(() =>
             {
@@ -74,6 +89,22 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         var report = workspace.LoadDirectory(path, recursive, (done, total, file) => Report(progress, done, total, $"Loading {Path.GetFileName(file)}"));
         return FormatLoad(workspace, path, report);
     }, cancellationToken));
+
+    /// <summary>
+    /// The Il2Cpp game a load_assembly path names: a global-metadata.dat, or a folder holding GameAssembly.dll and its
+    /// metadata (game folder, or both files side by side). A GameAssembly.dll alone loads as a native image.
+    /// </summary>
+    private static Il2CppGameFiles? RawIl2CppGame(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        string full;
+        try { full = Path.GetFullPath(path); }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { return null; }
+        if (File.Exists(full)) return Il2CppGameFiles.IsMetadataFile(full) ? Il2CppGameFiles.Find(full) : null;
+        if (!Directory.Exists(full)) return null;
+        try { return Il2CppGameFiles.Find(full); }
+        catch (ToolError e) when (e.Code == ErrorCode.NotFound) { return null; } // half a game: an ordinary folder load, with the layout hints
+    }
 
     /// <summary>Loads the provider DLLs of a loaded file's imports (native) or P/Invoke declarations (.NET), one level.</summary>
     private string Providers(LoadedAssembly? assembly, LoadedNative? native)

@@ -228,7 +228,8 @@ public sealed class Il2CppStringIndex
         Files = files;
         Stamp = files.Stamp;
         _literals = new(LoadLiterals);
-        _script = new(() => Files.ScriptJson != null ? Il2CppScript.Load(Files.ScriptJson) : null);
+        _script = new(() => Files.ScriptJson != null ? Il2CppScript.Load(Files.ScriptJson)
+            : Files.Model != null ? Il2CppScript.FromModel(Il2CppRawLoader.Model(Files.Model), Files.Model) : null);
         _references = new(ScanReferences);
         _binary = new(() =>
         {
@@ -272,11 +273,18 @@ public sealed class Il2CppStringIndex
     {
         var watch = System.Diagnostics.Stopwatch.StartNew();
         var list = new List<ScriptString>();
-        var source = Files.StringLiteralJson ?? Files.ScriptJson!;
+        var source = Files.StringLiteralJson ?? Files.ScriptJson ?? Files.Model!;
         try
         {
             if (Files.StringLiteralJson != null) list = ScriptJsonReader.ReadStringLiterals(source);
-            else new ScriptJsonReader { String = list.Add }.Read(source);
+            else if (Files.ScriptJson != null) new ScriptJsonReader { String = list.Add }.Read(source);
+            else
+            {
+                // Literals without a slot cannot be tied to code; the model lists them as unreadable items.
+                var model = Il2CppRawLoader.Model(source);
+                for (int i = 0; i < model.LiteralValues.Length; i++)
+                    if (model.LiteralSlots[i] != 0) list.Add(new ScriptString(model.LiteralSlots[i], model.LiteralValues[i]));
+            }
         }
         catch (Exception ex) when (ex is System.Text.Json.JsonException or IOException or UnauthorizedAccessException)
         {
@@ -297,7 +305,7 @@ public sealed class Il2CppStringIndex
         var watch = System.Diagnostics.Stopwatch.StartNew();
         Il2CppScript? script;
         try { script = Script; }
-        catch (Exception ex) when (ex is System.Text.Json.JsonException or IOException or UnauthorizedAccessException) { ReferenceProblem = $"cannot read {Files.ScriptJson}: {ex.Message}"; return null; }
+        catch (Exception ex) when (ex is System.Text.Json.JsonException or IOException or UnauthorizedAccessException) { ReferenceProblem = $"cannot read {Files.ScriptSource}: {ex.Message}"; return null; }
         if (script == null) { ReferenceProblem = $"no {Il2CppDumpFiles.ScriptFileName} (function starts) next to the dump"; return null; }
         var addresses = Addresses;
         var bySlot = _literals.Value.BySlot;
@@ -368,7 +376,7 @@ public sealed class Il2CppStringIndex
     /// <summary>One line on where the literals and their references come from.</summary>
     public string Describe()
     {
-        var source = Files.StringLiteralJson ?? Files.ScriptJson;
+        var source = Files.StringLiteralJson ?? Files.ScriptJson ?? (Files.Model != null ? $"the game's metadata (built-in reader, {Files.Model})" : null);
         var text = $"{Values.Length} literals from {source}";
         if (References is { } r)
             text += $"; code references from {Files.GameAssembly}: {r.Sites.Length} loads of {r.ReferencedLiterals} literals in {r.Functions} functions";

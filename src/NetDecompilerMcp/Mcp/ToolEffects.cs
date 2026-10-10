@@ -77,6 +77,7 @@ public static class ToolEffects
         ["extract_embedded"] = Changes(destructive: false, idempotent: true), // writes unique names, never over a different file
         ["search_container"] = Reads(),
         ["unpack_container"] = Changes(destructive: false, idempotent: true, longRunning: true), // extracts into an empty directory (or its own earlier unpack) and loads
+        ["unity_overview"] = Reads(openWorld: true), // headers and listings only; detectItEasy=true launches diec
 
         // Builds
         ["compare_assemblies"] = Reads(longRunning: true),
@@ -125,7 +126,7 @@ public static class ToolEffects
         ["list_cpp_classes"] = Reads(),
         ["decompile_native"] = Reads(longRunning: true, openWorld: true), // runs IDA (idalib) in a worker process; its database is a private cache
         ["verify_native_imports"] = Reads(),
-        ["load_pdb"] = Changes(destructive: false, idempotent: true, longRunning: true, openWorld: true), // download=true fetches from a symbol server
+        ["load_pdb"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true), // download=true fetches from a symbol server; clear=true deletes the saved PDB names
         ["search_pdb_symbols"] = Reads(),
         ["get_r2r_code"] = Reads(),
         ["find_r2r_method"] = Reads(),

@@ -27,11 +27,11 @@ public sealed class Il2CppNavigator(AssemblyWorkspace workspace, Il2CppService i
             Dump = dump;
             Assemblies = assemblies;
             Methods = methods;
-            if (dump?.Files.ScriptJson == null) return;
+            if (dump?.Files.HasScript != true) return;
             try { Script = dump.Script; }
             catch (Exception ex) when (ex is System.Text.Json.JsonException or IOException or UnauthorizedAccessException)
             {
-                Problem = $"cannot read {dump.Files.ScriptJson}: {ex.Message}";
+                Problem = $"cannot read {dump.Files.ScriptSource}: {ex.Message}";
             }
         }
 
@@ -121,7 +121,7 @@ public sealed class Il2CppNavigator(AssemblyWorkspace workspace, Il2CppService i
         };
         var images = ImagesFor(scope);
         if (images.Count == 0)
-            throw new ToolError(ErrorCode.Unsupported, "No Il2Cpp address attributes found in the selected assemblies. This only works on Il2CppDumper/Cpp2IL dummy DLLs that carry [Address] attributes.");
+            throw new ToolError(ErrorCode.Unsupported, "No Il2Cpp address attributes found in the selected assemblies. This works on Il2Cpp dummy DLLs that carry [Address] attributes.", "load_assembly the game folder or its global-metadata.dat (built-in reader), or an Il2CppDumper / Cpp2IL DummyDll folder");
 
         var results = new List<AddressResult>();
         foreach (var image in images)
@@ -153,7 +153,7 @@ public sealed class Il2CppNavigator(AssemblyWorkspace workspace, Il2CppService i
     private static DataSlot? Slot(Image image, uint rva)
     {
         if (image.Dump is not { } dump) return null;
-        if (dump.Files.StringLiteralJson != null || dump.Files.ScriptJson != null)
+        if (dump.Files.HasLiterals)
         {
             try { if (dump.LiteralAt(rva) is { } literal) return new DataSlot(SlotKind.Literal, rva, literal); }
             catch (ToolError) { } // unreadable literal file: still answer for code
@@ -258,7 +258,7 @@ public sealed class Il2CppNavigator(AssemblyWorkspace workspace, Il2CppService i
         foreach (var e in entries)
         {
             ct.ThrowIfCancellationRequested();
-            var match = Il2CppOverloads.Resolve(overloads, script.MethodTypeName(e), script.MethodShortName(e), () => reader!.Read(e));
+            var match = Exact(script, e, overloads) ?? Il2CppOverloads.Resolve(overloads, script.MethodTypeName(e), script.MethodShortName(e), () => reader!.Read(e));
             if (match.Includes(method)) list.Add((e, match));
             else if (match.Outcome == Il2CppOverloads.Outcome.Unmatched) unmatched++;
         }
@@ -271,8 +271,26 @@ public sealed class Il2CppNavigator(AssemblyWorkspace workspace, Il2CppService i
         var script = image.Script!;
         var type = script.MethodTypeName(entry);
         var name = script.MethodShortName(entry);
-        return Il2CppOverloads.Resolve(MethodsNamed(image, Il2CppNames.StripArgs(type), Il2CppNames.StripArgs(name)), type, name, () => script.ReadMethod(entry));
+        var candidates = MethodsNamed(image, Il2CppNames.StripArgs(type), Il2CppNames.StripArgs(name));
+        return Exact(script, entry, candidates) ?? Il2CppOverloads.Resolve(candidates, type, name, () => script.ReadMethod(entry));
     }
+
+    /// <summary>
+    /// The candidate a script built from the metadata names as the entry's definition (image and [Token]); null when
+    /// the script has no definitions (script.json) or no single candidate carries that token.
+    /// </summary>
+    private static Il2CppOverloads.Match? Exact(Il2CppScript script, int entry, IReadOnlyList<MethodDef> candidates)
+    {
+        if (candidates.Count == 0 || script.Definition(entry) is not var (image, token)) return null;
+        var assembly = Path.GetFileNameWithoutExtension(image);
+        var found = candidates.Where(m => TokenOf(m) == token && string.Equals(m.Module?.Assembly?.Name, assembly, StringComparison.OrdinalIgnoreCase)).ToList();
+        return found.Count == 1 ? new Il2CppOverloads.Match(Il2CppOverloads.Outcome.Resolved, found, "the metadata definition", candidates.Count) : null;
+    }
+
+    /// <summary>The original metadata token of a dummy member ([Token(Token = "0x...")]).</summary>
+    public static uint? TokenOf(IHasCustomAttribute member) =>
+        Il2CppService.GetAttributes(member).FirstOrDefault(a => a.Name == "TokenAttribute")?.Values.GetValueOrDefault("Token") is { } s
+        && Il2CppService.ParseNumber(s) is { } n && n <= uint.MaxValue ? (uint)n : null;
 
     /// <summary>The image's methods named <paramref name="name"/> in the types whose script.json name is <paramref name="typeKey"/> (any arity).</summary>
     public List<MethodDef> MethodsNamed(Image image, string typeKey, string name) =>
