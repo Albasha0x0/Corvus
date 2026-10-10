@@ -259,6 +259,8 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["open_minidump"] = (new() { ["path"] = SyntheticCrash.Write(dir) }, "EXCEPTION_ACCESS_VIOLATION"),
         ["dump_stack"] = (new() { ["dump"] = SyntheticCrash.Write(dir) }, "\"function\":\"Outer\""),
         ["read_dump_memory"] = (new() { ["dump"] = SyntheticCrash.Write(dir), ["address"] = "synth+0x1000" }, "53 48 83 EC"),
+        // the test process itself (the server is a child process): read-only, every handle closed
+        ["inspect_process"] = (new() { ["process"] = Environment.ProcessId.ToString(), ["sections"] = "modules,threads", ["modulesLimit"] = 5, ["threadsLimit"] = 1 }, "\"detached\":true"),
         ["read_result"] = (new() { ["id"] = "r999" }, "Error (not_found) in read_result"),
         ["unload_assembly"] = (new() { ["assembly"] = "TestFixture.Consumer" }, "Unloaded"),
     };

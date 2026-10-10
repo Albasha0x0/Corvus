@@ -49,12 +49,12 @@ public sealed class StackWalker
     private const int MaxScanSlotsPerWalk = 0x10000;
     private int _scanBudget;
 
-    private readonly MinidumpFile _dump;
+    private readonly IProcessMemory _dump;
     private readonly Func<DumpModule, PeFile?> _image;
     private readonly int _ptr;
 
     /// <param name="image">The module's image (or null when there is none); called once per module, cache it.</param>
-    public StackWalker(MinidumpFile dump, Func<DumpModule, PeFile?> image)
+    public StackWalker(IProcessMemory dump, Func<DumpModule, PeFile?> image)
     {
         _dump = dump;
         _image = image;

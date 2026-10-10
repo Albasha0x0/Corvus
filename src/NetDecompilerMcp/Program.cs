@@ -70,7 +70,8 @@ builder.Services
     .AddSingleton<NativeTypePush>()
     .AddSingleton<ReadyToRunService>()
     .AddSingleton<PdbService>()
-    .AddSingleton<MinidumpService>();
+    .AddSingleton<MinidumpService>()
+    .AddSingleton<LiveProcessService>();
 
 builder.Services
     .AddMcpServer(o =>

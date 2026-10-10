@@ -123,11 +123,11 @@ public static class DumpImages
     }
 
     /// <summary>
-    /// The module's image rebuilt from captured memory (full-memory dumps, or dumps with module headers and code):
+    /// The module's image rebuilt from process memory (full-memory dumps, dumps with module headers and code, a live process):
     /// the mapped layout with each section header pointing at its own virtual address, so it reads as a file. Missing
     /// pages read as zero. Null when the headers are not captured. <paramref name="captured"/> counts the bytes present.
     /// </summary>
-    public static PeFile? FromMemory(MinidumpFile dump, DumpModule module, out ulong captured)
+    public static PeFile? FromMemory(IProcessMemory dump, DumpModule module, out ulong captured)
     {
         captured = 0;
         var head = new byte[0x1000];
@@ -135,12 +135,7 @@ public static class DumpImages
         if (!TryHeader(head, out _, out uint size, out _)) return null;
         // the module list's size is what was mapped; only the captured part is allocated
         size = Math.Min(module.Size != 0 ? module.Size : size, MaxMemoryImage);
-        ulong extent = 0;
-        foreach (var r in dump.MemoryRanges)
-        {
-            if (r.Start >= module.Base + size) break;
-            if (r.End > module.Base) extent = Math.Max(extent, Math.Min(r.End, module.Base + size) - module.Base);
-        }
+        ulong extent = dump.ReadableExtent(module.Base, size);
         size = (uint)Math.Min(size, (extent + 0xFFF) & ~0xFFFUL);
         if (size < 0x200) return null;
         var image = new byte[size];
@@ -171,7 +166,7 @@ public static class DumpImages
             BinaryPrimitives.WriteUInt32LittleEndian(h[20..], mapped == 0 ? 0 : va);
         }
         PatchDebugDirectory(image, coff + 20);
-        try { return PeFile.FromBytes(image, $"{module.FileName} (dump memory)"); }
+        try { return PeFile.FromBytes(image, $"{module.FileName} ({(dump is MinidumpFile ? "dump" : "process")} memory)"); }
         catch (ToolError) { return null; }
     }
 }
