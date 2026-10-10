@@ -1,11 +1,17 @@
 #!/bin/sh
-# Installs NetDecompilerMcp for the current user and registers it with every installed MCP client.
+# Installs NetDecompilerMcp for the current user and registers it with the MCP clients it finds: existing
+# registrations are refreshed, new clients are listed and registered after one confirmation (Enter = yes).
 #   curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh
+# With options:
+#   curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh -s -- --yes
 # Uninstall (keeps your data; add --purge-data to delete it too):
 #   curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh -s -- --uninstall
-# Environment: NDM_REPO (owner/name), NDM_HOME (install folder), NDM_ARCHIVE (local release archive),
-# NDM_SHA256SUMS (manifest to verify NDM_ARCHIVE against; without it a local archive is trusted as is),
-# GITHUB_TOKEN (private repositories).
+# Options: --version X installs that release (pinning or rolling back), --dry-run shows what would be installed and
+# registered and changes nothing, --yes registers new clients without asking, --client a,b registers only those.
+# The confirmation is read from the terminal (/dev/tty) even when the script itself arrives on stdin.
+# Environment: NDM_VERSION (as --version), NDM_YES=1 (as --yes), NDM_REPO (owner/name), NDM_HOME (install folder),
+# NDM_ARCHIVE (local release archive), NDM_SHA256SUMS (manifest to verify NDM_ARCHIVE against; without it a local
+# archive is trusted as is), GITHUB_TOKEN (private repositories).
 # Downloads are verified against the release's SHA256SUMS; a missing manifest or a mismatch stops the install.
 set -eu
 
@@ -21,6 +27,25 @@ if [ "${1:-}" = "--uninstall" ]; then
     if [ -x "$EXE" ]; then "$EXE" uninstall "$@"; else echo "NetDecompilerMcp is not installed."; fi
     exit 0
 fi
+
+version="${NDM_VERSION:-}"
+dry_run=""
+# Options passed on to the program's install command.
+setup_args=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --version) [ $# -ge 2 ] || fail "--version needs a value"; version="$2"; shift ;;
+        --version=*) version="${1#--version=}" ;;
+        --dry-run) dry_run=1; setup_args="$setup_args --dry-run" ;;
+        --yes|-y) setup_args="$setup_args --yes" ;;
+        --client) [ $# -ge 2 ] || fail "--client needs a value"; setup_args="$setup_args --client $2"; shift ;;
+        --client=*) setup_args="$setup_args --client ${1#--client=}" ;;
+        *) fail "unknown option $1 (options: --version X, --dry-run, --yes, --client a,b, --uninstall)" ;;
+    esac
+    shift
+done
+version="${version#v}"
+case "$setup_args" in *[!A-Za-z0-9_\ ,.-]*) fail "client names may use letters, digits, '-', '_', '.' and ','" ;; esac
 
 case "$(uname -s)" in
     Linux)
@@ -42,30 +67,35 @@ archive="$tmp/$asset"
 
 sums="$tmp/SHA256SUMS"
 unverified="refusing to install an unverified build"
+if [ -n "$version" ]; then release="v$version"; else release="the latest release"; fi
 
 if [ -n "${NDM_ARCHIVE:-}" ]; then
     cp "$NDM_ARCHIVE" "$archive"
-    if [ -n "${NDM_SHA256SUMS:-}" ]; then cp "$NDM_SHA256SUMS" "$sums"; else sums=""; fi
+    release="$NDM_ARCHIVE"
+    if [ -n "${NDM_SHA256SUMS:-}" ]; then cp "$NDM_SHA256SUMS" "$sums"; source="$NDM_SHA256SUMS"; else sums=""; source="none (local archive)"; fi
 elif [ -n "${GITHUB_TOKEN:-}" ]; then
     auth="Authorization: Bearer $GITHUB_TOKEN"
-    curl -fsSL -H "$auth" "https://api.github.com/repos/$REPO/releases/latest" | tr -d '\r\n' | tr '{' '\n' > "$tmp/release"
+    if [ -n "$version" ]; then api="https://api.github.com/repos/$REPO/releases/tags/v$version"; else api="https://api.github.com/repos/$REPO/releases/latest"; fi
+    curl -fsSL -H "$auth" "$api" | tr -d '\r\n' | tr '{' '\n' > "$tmp/release"
     asset_url() {
         grep "\"name\": *\"$1\"" "$tmp/release" | sed -n 's/.*"url": *"\([^"]*\/releases\/assets\/[0-9]*\)".*/\1/p' | head -n 1
     }
     url=$(asset_url "$asset")
-    [ -n "$url" ] || fail "the latest release of $REPO has no $asset"
+    [ -n "$url" ] || fail "$release of $REPO has no $asset"
     sums_url=$(asset_url SHA256SUMS)
-    [ -n "$sums_url" ] || fail "the latest release of $REPO has no SHA256SUMS manifest; $unverified"
+    [ -n "$sums_url" ] || fail "$release of $REPO has no SHA256SUMS manifest; $unverified"
     curl -fsSL -H "$auth" -H "Accept: application/octet-stream" "$url" -o "$archive"
     curl -fsSL -H "$auth" -H "Accept: application/octet-stream" "$sums_url" -o "$sums"
+    source="SHA256SUMS of $release"
 else
-    echo "Downloading $asset..."
+    if [ -n "$version" ]; then base="https://github.com/$REPO/releases/download/v$version"; else base="https://github.com/$REPO/releases/latest/download"; fi
+    echo "Downloading $asset ($release)..."
     if command -v curl >/dev/null 2>&1; then fetch() { curl -fsSL "$1" -o "$2"; }
     elif command -v wget >/dev/null 2>&1; then fetch() { wget -q "$1" -O "$2"; }
     else fail "curl or wget is required"; fi
-    fetch "https://github.com/$REPO/releases/latest/download/$asset" "$archive"
-    fetch "https://github.com/$REPO/releases/latest/download/SHA256SUMS" "$sums" \
-        || fail "the latest release of $REPO has no SHA256SUMS manifest; $unverified"
+    fetch "$base/$asset" "$archive"
+    fetch "$base/SHA256SUMS" "$sums" || fail "$release of $REPO has no SHA256SUMS manifest; $unverified"
+    source="$base/SHA256SUMS"
 fi
 
 if [ -n "$sums" ]; then
@@ -77,19 +107,50 @@ if [ -n "$sums" ]; then
     [ "$expected" = "$actual" ] || fail "checksum mismatch for $asset (expected $expected, got $actual); the download is corrupt or was altered"
 fi
 
+# Runs the program's install with the terminal as input when there is one: piped into sh, stdin is this script.
+register() {
+    if [ ! -t 0 ] && (: < /dev/tty) 2>/dev/null; then
+        # shellcheck disable=SC2086
+        "$@" $setup_args < /dev/tty
+    else
+        # shellcheck disable=SC2086
+        "$@" $setup_args
+    fi
+}
+
+check_runs() {
+    if ! version_found=$("$1" version); then
+        if [ "$os" = linux-musl ]; then fail "the build needs the C++ runtime: apk add libstdc++ libgcc, then run this again"; fi
+        fail "the downloaded build does not run on this machine"
+    fi
+}
+
+if [ -n "$dry_run" ]; then
+    # A staged copy outside the install root plans the registration for the program that would be installed.
+    mkdir -p "$tmp/staged"
+    tar -xzf "$archive" -C "$tmp/staged"
+    chmod +x "$tmp/staged/NetDecompilerMcp"
+    check_runs "$tmp/staged/NetDecompilerMcp"
+    echo "Release: $release ($asset, NetDecompilerMcp $version_found)"
+    echo "Checksum: $source"
+    echo "Would install to: $ROOT/versions/$version_found, linked as $ROOT/current, with $BIN/NetDecompilerMcp pointing at it"
+    register "$tmp/staged/NetDecompilerMcp" install --command "$EXE"
+    exit 0
+fi
+
 mkdir -p "$ROOT/versions"
 staging="$ROOT/versions/.new-$$"
 rm -rf "$staging"
 mkdir -p "$staging"
 tar -xzf "$archive" -C "$staging"
 chmod +x "$staging/NetDecompilerMcp"
-if ! version=$("$staging/NetDecompilerMcp" version); then
+if ! version_found=$("$staging/NetDecompilerMcp" version); then
     rm -rf "$staging"
     if [ "$os" = linux-musl ]; then fail "the build needs the C++ runtime: apk add libstdc++ libgcc, then run this again"; fi
     fail "the downloaded build does not run on this machine"
 fi
 
-target="$ROOT/versions/$version"
+target="$ROOT/versions/$version_found"
 rm -rf "$target"
 mv "$staging" "$target"
 ln -sfn "$target" "$ROOT/current"
@@ -100,8 +161,8 @@ done
 mkdir -p "$BIN"
 ln -sf "$EXE" "$BIN/NetDecompilerMcp"
 
-echo "Installed NetDecompilerMcp $version to $target"
-"$EXE" install
+echo "Installed NetDecompilerMcp $version_found to $target"
+register "$EXE" install
 echo
 echo "Done. Commands: NetDecompilerMcp status | update | uninstall"
 case ":$PATH:" in

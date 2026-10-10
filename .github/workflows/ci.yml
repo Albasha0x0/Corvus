@@ -84,9 +84,6 @@ jobs:
         os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
-    # No terminal on the runner: new clients are registered only with consent.
-    env:
-      NDM_YES: "1"
     steps:
       - uses: actions/checkout@v7
 
@@ -118,7 +115,15 @@ jobs:
           try { Get-Content install.ps1 -Raw | Invoke-Expression } catch { $rejected = $_.Exception.Message -match 'Checksum mismatch' }
           if (-not $rejected) { throw 'a checksum mismatch was not rejected' }
           $env:NDM_SHA256SUMS = (Resolve-Path SHA256SUMS).Path
-          Get-Content install.ps1 -Raw | Invoke-Expression
+          $install = [scriptblock]::Create((Get-Content install.ps1 -Raw))
+          # A dry run plans and changes nothing.
+          $plan = & $install -DryRun -Yes *>&1 | Out-String
+          if ($plan -notmatch 'Dry run: nothing was written') { throw "no plan: $plan" }
+          if ((Test-Path "$env:LOCALAPPDATA\NetDecompilerMcp\current") -or (Test-Path "$HOME\.cursor\mcp.json")) { throw 'the dry run changed something' }
+          # No terminal and no -Yes: new clients are listed, not registered.
+          & $install
+          if (Test-Path "$HOME\.cursor\mcp.json") { throw 'registered without consent' }
+          & $install -Yes -Client cursor
           Remove-Item Env:NDM_SHA256SUMS
           $exe = "$env:LOCALAPPDATA\NetDecompilerMcp\current\NetDecompilerMcp.exe"
           $entry = (Get-Content "$HOME\.cursor\mcp.json" -Raw | ConvertFrom-Json).mcpServers.'net-decompiler'
@@ -147,7 +152,15 @@ jobs:
           mkdir -p ~/.cursor
           if NDM_ARCHIVE="$PWD/package.tar.gz" NDM_SHA256SUMS="$PWD/SHA256SUMS.bad" sh < install.sh 2> err.txt; then exit 1; fi
           grep -q 'checksum mismatch' err.txt
+          # A dry run plans and changes nothing.
+          NDM_ARCHIVE="$PWD/package.tar.gz" NDM_SHA256SUMS="$PWD/SHA256SUMS" sh -s -- --dry-run --yes < install.sh > plan.txt
+          grep -q 'Dry run: nothing was written' plan.txt
+          test ! -e ~/.local/share/net-decompiler-mcp
+          test ! -e ~/.cursor/mcp.json
+          # No terminal and no --yes: new clients are listed, not registered.
           NDM_ARCHIVE="$PWD/package.tar.gz" NDM_SHA256SUMS="$PWD/SHA256SUMS" sh < install.sh
+          test ! -e ~/.cursor/mcp.json
+          NDM_ARCHIVE="$PWD/package.tar.gz" NDM_SHA256SUMS="$PWD/SHA256SUMS" sh -s -- --yes --client cursor < install.sh
           grep -q "$HOME/.local/share/net-decompiler-mcp/current/NetDecompilerMcp" ~/.cursor/mcp.json
           ~/.local/bin/NetDecompilerMcp status
           NDM_ARCHIVE="$PWD/package.tar.gz" sh < install.sh

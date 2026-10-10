@@ -219,6 +219,36 @@ public sealed class SetupPlanTests : IDisposable
     }
 
     [Fact]
+    public void InstallCommand_PlansForTheProgramTheScriptsPutInPlace()
+    {
+        ExistingAndNew();
+        var final = _home.Path("root", "current", OperatingSystem.IsWindows() ? "NetDecompilerMcp.exe" : "NetDecompilerMcp");
+        var (code, output) = _home.Run("install", "--dry-run", "--json", "--yes", "--command", final);
+        Assert.Equal(0, code);
+        var report = JsonNode.Parse(output)!;
+        Assert.Equal(final, report["launch"]!["command"]!.GetValue<string>());
+        var codex = report["clients"]!.AsArray().Single(c => c!["id"]!.GetValue<string>() == "codex")!;
+        Assert.Equal("add", codex["action"]!.GetValue<string>());
+        Assert.False(codex["needsConsent"]!.GetValue<bool>());
+        Assert.Equal(final, codex["after"]!["command"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void Update_TakesAVersionOrDryRun_AndNoClientNames()
+    {
+        Assert.Equal("https://api.github.com/repos/o/r/releases/latest", Installation.ReleaseApi("o/r", null));
+        Assert.Equal("https://api.github.com/repos/o/r/releases/tags/v1.2.0", Installation.ReleaseApi("o/r", "1.2.0"));
+        Assert.Equal("https://api.github.com/repos/o/r/releases/tags/v1.2.0", Installation.ReleaseApi("o/r", "v1.2.0"));
+        Assert.Equal(2, _home.Run("update", "cursor").Code);
+        Assert.Equal(2, _home.Run("update", "--version").Code);
+        Assert.Equal(2, _home.Run("update", "--yes").Code);
+        // The test host is not an installed copy: nothing is downloaded.
+        var (code, output) = _home.Run("update", "--version", "1.2.0", "--dry-run");
+        Assert.Equal(1, code);
+        Assert.Contains("cannot update itself", output);
+    }
+
+    [Fact]
     public void UninstallDryRun_ListsRemovals_AndChangesNothing()
     {
         ExistingAndNew();

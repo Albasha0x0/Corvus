@@ -11,11 +11,11 @@ internal static class SetupCli
     /// <summary>Flags each command accepts; anything else is a usage error, so a mistyped --dry-run never writes.</summary>
     private static readonly Dictionary<string, string[]> Accepted = new()
     {
-        ["install"] = ["--no-check", "--check", "--dry-run", "--json", "--yes", "-y", "--all-detected", "--strict", "--client", "--refresh-only"],
+        ["install"] = ["--no-check", "--check", "--dry-run", "--json", "--yes", "-y", "--all-detected", "--strict", "--client", "--refresh-only", "--command"],
         ["uninstall"] = ["--keep-files", "--purge-data", "--dry-run", "--json", "--client"],
         ["status"] = ["--json", "--client", "--engine", "--target", "--deep"],
         ["config"] = ["--client"],
-        ["update"] = [],
+        ["update"] = ["--version", "--dry-run"],
     };
 
     /// <summary>Runs a setup command and returns its exit code, or null when the arguments start the server.</summary>
@@ -39,7 +39,10 @@ internal static class SetupCli
             case "uninstall": return Uninstall(output, env, parsed);
             case "status": return Status(output, env, launch, parsed);
             case "config": return Config(output, env, launch, parsed.Clients);
-            case "update": return Installation.Update(output);
+            case "update" when parsed.Clients.Count > 0:
+                output.WriteLine("update takes no client names; it refreshes every existing registration.");
+                return 2;
+            case "update": return Installation.Update(output, parsed.Value("--version"), parsed.Has("--dry-run"));
             case "version" or "--version" or "-v": output.WriteLine(Installation.Version); return 0;
             default: output.WriteLine(HelpText(env)); return 0;
         }
@@ -58,6 +61,7 @@ internal static class SetupCli
                                 --json          print the plan and result as JSON (needs --yes to add new clients)
                                 --strict        write nothing when any client's file cannot be read
                                 --no-check      skip the server check
+                                --command PATH  register this program instead of the running one
           uninstall [client...] Remove the registration from every client (or the named ones). With no names it
                                 also deletes an installed copy's program files; --keep-files keeps them. Your data
                                 (annotations, caches, symbols) is kept; --purge-data deletes it as well.
@@ -71,6 +75,8 @@ internal static class SetupCli
           config [client]       Print the configuration to add by hand (for clients not listed).
           update                Install the latest release (installed copies only) and refresh existing registrations;
                                 it never adds clients.
+                                --version X     install release X instead, also an older one (rollback)
+                                --dry-run       show the release, asset and checksum manifest it would use
           version               Print the version.
 
         Exit codes: 0 success (a dry run always), 1 a check or a registration failed, 2 usage error.
@@ -114,6 +120,8 @@ internal static class SetupCli
         bool json = a.Has("--json"), dryRun = a.Has("--dry-run"), refreshOnly = a.Has("--refresh-only");
         bool yes = a.Has("--yes") || a.Has("-y") || env.Variable("NDM_YES") is "1" or "true";
         bool check = dryRun ? a.Has("--check") : !a.Has("--no-check");
+        // The install scripts plan with a staged copy, for the program they are about to put in place.
+        if (a.Value("--command") is { } command) launch = new ServerLaunch(Path.GetFullPath(command), []);
         var text = json ? TextWriter.Null : output;
         var all = ClientCatalog.All(env);
         if (Named(output, all, a.Clients) is not { } named) return 2;
@@ -361,7 +369,7 @@ internal static class SetupCli
 /// <summary>Parsed setup arguments: flags, option values (--name value or --name=value) and positional client names.</summary>
 internal sealed class SetupArgs
 {
-    private static readonly string[] ValueOptions = ["--client", "--engine", "--target", "--version"];
+    private static readonly string[] ValueOptions = ["--client", "--engine", "--target", "--version", "--command"];
     private readonly HashSet<string> _flags = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<string>> _values = new(StringComparer.OrdinalIgnoreCase);
 

@@ -64,8 +64,16 @@ internal static class Installation
             : $"Checksum mismatch for {assetName} (expected {expected.ToLowerInvariant()}, got {actual}); the download is corrupt or was altered. Nothing was installed.";
     }
 
-    /// <summary>Downloads the latest release into versions/, switches "current" to it and removes unused versions.</summary>
-    public static int Update(TextWriter output)
+    /// <summary>The GitHub API address of the latest release, or of the release tagged v<paramref name="version"/>.</summary>
+    public static string ReleaseApi(string repo, string? version) =>
+        version is { Length: > 0 } v ? $"https://api.github.com/repos/{repo}/releases/tags/v{v.TrimStart('v')}" : $"https://api.github.com/repos/{repo}/releases/latest";
+
+    /// <summary>
+    /// Downloads the latest release (or <paramref name="version"/>, which may be older: a rollback) into versions/,
+    /// switches "current" to it, removes unused versions and refreshes existing registrations. With
+    /// <paramref name="dryRun"/> it only reports the release, asset and checksum manifest it would use.
+    /// </summary>
+    public static int Update(TextWriter output, string? version = null, bool dryRun = false)
     {
         if (Root() is not { } root)
         {
@@ -80,15 +88,16 @@ internal static class Installation
         if (!string.IsNullOrEmpty(token)) http.DefaultRequestHeaders.Authorization = new("Bearer", token);
 
         JsonNode release;
-        try { release = JsonNode.Parse(http.GetStringAsync($"https://api.github.com/repos/{repo}/releases/latest").GetAwaiter().GetResult())!; }
+        try { release = JsonNode.Parse(http.GetStringAsync(ReleaseApi(repo, version)).GetAwaiter().GetResult())!; }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
-            output.WriteLine($"Could not read the latest release of {repo}: {ex.Message}");
+            output.WriteLine($"Could not read {(version == null ? "the latest release" : $"release v{version.TrimStart('v')}")} of {repo}: {ex.Message}");
             return 1;
         }
         var tag = release["tag_name"]?.GetValue<string>() ?? "";
         var latest = tag.TrimStart('v');
-        if (System.Version.TryParse(latest, out var lv) && System.Version.TryParse(Version, out var cv) && lv <= cv)
+        bool same = System.Version.TryParse(latest, out var lv) && System.Version.TryParse(Version, out var cv) && (version == null ? lv <= cv : lv == cv);
+        if (same)
         {
             output.WriteLine($"Up to date ({Version}).");
             return 0;
@@ -104,6 +113,13 @@ internal static class Installation
         {
             output.WriteLine($"Release {tag} has no {ChecksumManifest} manifest; refusing to install an unverified build.");
             return 1;
+        }
+        if (dryRun)
+        {
+            output.WriteLine($"Would install {tag} ({AssetName}, verified against the release's {ChecksumManifest}) into {Path.Combine(root, "versions", latest)},");
+            output.WriteLine($"point {Path.Combine(root, "current")} at it and refresh existing registrations (no clients are added).");
+            output.WriteLine("Dry run: nothing was changed.");
+            return 0;
         }
 
         output.WriteLine($"Downloading {tag} ({AssetName})...");
