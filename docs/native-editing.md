@@ -128,6 +128,36 @@ vswhere): `GetValue` rewritten to read another global (`added 0x1001, neutralize
 offset str` made a number; after the rebase both decode to the intended operation. The test process is x64, so the
 x86 DLL is not loaded with LoadLibraryEx; the in-memory rebase is the check.
 
+## Patch export (export_native_patches)
+
+Tool in Tools/NativePatchTools.cs, renderer `PatchExport` (Native/Patching). The exported bytes are save_native's
+bytes (`NativeEditService.OutputBytes`, without stripping the signature): every patch, its relocation-table entry
+rewrites (2-byte edits in `.reloc`) and the recomputed PE checksum when the original had one.
+
+- `ida`: an IDAPython script. A `PATCHES` list of (label, RVA, original hex, replacement hex): one entry per patch, per
+  relocation entry rewrite and for the checksum. Each is applied at `idaapi.get_imagebase() + rva` with
+  `ida_bytes.patch_bytes` only when the database holds the original bytes (entries already applied count as such; others
+  are reported with the expected and found bytes; bytes not loaded in the database are skipped: IDA loads neither the PE
+  header nor `.reloc` by default). Then `ida_auto.plan_range` + `auto_wait`, and a summary line.
+- `dif`: IDA's format, as IDA writes it (checked against `gen_file(OFILE_DIF)` of a patched idalib database): `This
+  difference file was created by IDA`, a blank line, the file name, then `%016X: %02X %02X` (file offset, original,
+  patched) per changed byte, LF line ends.
+- `ips`: `PATCH`, records of 3-byte big-endian file offset + 2-byte size + data, `EOF`. Runs of changed bytes separated
+  by up to 4 unchanged bytes are merged into one record; records are at most 0xFFFE bytes. A record that would start
+  at 0x454F46 (whose offset bytes read `EOF`) starts one byte earlier. Offsets past 16 MB are refused with a pointer to
+  `ips32` (`IPS32`, 4-byte offsets, `EEOF`; 0x45454F46 moved the same way).
+- `json`: kind `netdecompilermcp.native_patches`, the image (path, SHA-256 of the original, arch, preferred base, file
+  size, SHA-256 of the patched output), every patch (RVA, file offset, original / replacement hex, description, origin
+  `asm` / `bytes`, the assembly text, relocation edits and changes) and the checksum change. migrate_native_patches
+  reads it.
+
+Tests (NativePatchExportTests): independent appliers for .dif, IPS / IPS32 and the JSON reproduce save_native's file
+byte for byte (an x86 image with relocation edits and a stored checksum; a copy of System32 `version.dll`), the IPS
+end-marker offset and the 16 MB limit; under idalib (Slow, when IDA is present) the script applies to a fresh
+database of the original (2 applied, the checksum entry not loaded, 0 differing; a second run applies nothing), every
+patched database byte equals the saved file's byte, and IDA's own .dif of that database is our .dif minus the header
+bytes it does not load.
+
 ## save_native
 
 - Writes the patched bytes. Everything not inside a patched range is byte-for-byte identical to the original.

@@ -24,7 +24,7 @@ public class NativeRelocationPatchTests(ITestOutputHelper output)
     // x86 DLL: .text @0x1000 = push offset g0 ; mov eax,[g1] ; nops ; ret (at 0x103F)
     //          .data @0x2000 = g0, g1, a pointer to .text at +8
     //          .reloc @0x3000: page 0x1000 {HIGHLOW 0x001, HIGHLOW 0x006, ABS, ABS}, page 0x2000 {HIGHLOW 0x008, ABS}
-    private static byte[] X86Image()
+    internal static byte[] X86Image()
     {
         var b = new PeBuilder { Is64 = false, Machine = 0x14C, ImageBase = Base32, Characteristics = 0x2102, DllCharacteristics = 0x0140 };
         var code = new byte[0x40];

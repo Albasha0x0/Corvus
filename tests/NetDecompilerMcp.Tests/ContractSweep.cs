@@ -30,6 +30,7 @@ public static class ContractSweep
         ["extract_strings"] = ["savePath"],
         ["export_native_annotations"] = ["outputPath"],
         ["save_native"] = ["outputPath"],
+        ["export_native_patches"] = ["outputPath"],
     };
 
     /// <summary>Tools that can reach the network when an argument asks for it (load_pdb download=true); annotated open-world.</summary>
