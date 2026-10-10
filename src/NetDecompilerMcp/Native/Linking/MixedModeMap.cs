@@ -29,11 +29,19 @@ public sealed class MixedModeMap
 
     public IReadOnlyList<uint> SlotsOf(MethodDef method) => _slotsOf.TryGetValue(method, out var list) ? list : [];
 
-    /// <summary>The map of a module; empty for IL-only modules. Never throws on malformed metadata.</summary>
+    /// <summary>
+    /// Whether a module carries native code of its own (C++/CLI). The IL-only flag alone does not tell: ReadyToRun images
+    /// clear it too (IL library flag, managed native header), and their precompiled code belongs to the R2R tools.
+    /// </summary>
+    public static bool IsMixedMode(ModuleDef module) =>
+        !module.IsILOnly && (module.Cor20HeaderFlags & dnlib.DotNet.MD.ComImageFlags.ILLibrary) == 0
+        && !(module is ModuleDefMD md && md.Metadata.ImageCor20Header.ManagedNativeHeader.VirtualAddress != 0);
+
+    /// <summary>The map of a module; empty unless it is mixed-mode. Never throws on malformed metadata.</summary>
     public static MixedModeMap Build(ModuleDef module, CancellationToken ct = default)
     {
         var map = new MixedModeMap();
-        if (module.IsILOnly) return map;
+        if (!IsMixedMode(module)) return map;
         try
         {
             foreach (var type in module.GetTypes())
