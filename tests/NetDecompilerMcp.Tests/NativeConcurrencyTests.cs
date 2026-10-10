@@ -120,4 +120,23 @@ public class NativeConcurrencyTests(ITestOutputHelper output)
         Assert.Empty(ws.Read(() => ws.Natives));
         Assert.All(remaining, n => Assert.Empty(n.Analysis));
     }
+
+    /// <summary>Unloading an image ends its IDA auto-analysis: the waiting decompile_native gets a conflict at once.</summary>
+    [WindowsFact]
+    public async Task UnloadEndsAnIdaAnalysisInProgress()
+    {
+        using var harness = new NativeToolHarness(backgroundIndexing: false);
+        if (!harness.Engines.Providers[0].CheckAvailability().IsAvailable) return; // IDA not installed here
+        var file = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "SysWOW64", "edgehtml.dll");
+        if (!File.Exists(file)) file = Path.Combine(Environment.SystemDirectory, "windows.storage.dll");
+        var native = harness.Workspace.LoadAny(file).Native!;
+        var call = harness.Analysis.DecompileNative(native.Id, $"0x{native.Image.ImageBase + native.Image.EntryPointRva:X}");
+        await Task.WhenAny(call, Task.Delay(TimeSpan.FromSeconds(5)));
+        if (call.IsCompleted) { output.WriteLine("analysis was already saved: nothing to cancel"); return; }
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        harness.Workspace.UnloadNative(native);
+        var e = await Assert.ThrowsAsync<ToolError>(() => call.WaitAsync(TimeSpan.FromSeconds(30)));
+        Assert.Equal(ErrorCode.Conflict, e.Code);
+        output.WriteLine($"decompile_native ended {sw.ElapsedMilliseconds} ms after the unload");
+    }
 }

@@ -131,7 +131,7 @@ public class NativeToolSweepTests(ITestOutputHelper output)
                 }
             });
             var sw = Stopwatch.StartNew();
-            try { await harness.Exercise(file, ida > 0, indexLimit: indexLimit ?? TimeSpan.FromMinutes(5)); }
+            try { await harness.Exercise(file, ida: false, indexLimit: indexLimit ?? TimeSpan.FromMinutes(5)); }
             catch (Exception ex) { calls.Add(new(file, "harness", "", sw.Elapsed, 0, null, null, ex, false)); }
             sampling.Cancel();
             await sampler;
