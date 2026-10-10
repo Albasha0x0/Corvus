@@ -79,6 +79,11 @@ internal static class ServerInstructions
            binaries exist locally, threads), dump_stack (x64 unwind data, x86 frame pointers; scanned frames marked heuristic),
            read_dump_memory. Load the crashed binaries first so frames get your names, PDB and Il2Cpp names; pass imageDirectories
            when they are not at their recorded paths. Managed frames are only identified (use SOS for them).
+           inspect_process does the same for a running local process (Windows), read-only: modules, regions, threads and stacks.
+           It opens only query and read handles, writes and suspends nothing, and closes every handle before returning. Pick the
+           target by pid or name (a shared name is refused with the candidate pids); running threads' registers are a snapshot.
+           Native code indexes are saved on disk by file SHA-256: reopening the same bytes loads the index in seconds
+           (server_status shows the cache; --index-cache off disables it).
 
         Errors start with "Error (<code>)" (not_found, ambiguous, invalid_argument, unsupported, not_loaded, limit_exceeded, timeout,
         provider_unavailable, ...) and usually a "Next:" line with the call that can succeed. A result too large to send comes back as
