@@ -272,7 +272,7 @@ public class CallArgumentTests(ITestOutputHelper output)
         """;
 
     /// <summary>Builds the sample with cl / link for <paramref name="arch"/>; null when the build tools are absent.</summary>
-    internal static string? BuildSample(TempDir dir, string arch, string source, string name = "sample")
+    internal static string? BuildSample(TempDir dir, string arch, string source, string name = "sample", string runtime = "/MD")
     {
         var vcvars = VisualStudio.VcVarsAll();
         if (vcvars == null) return null;
@@ -280,7 +280,7 @@ public class CallArgumentTests(ITestOutputHelper output)
         var psi = new ProcessStartInfo("cmd.exe")
         {
             WorkingDirectory = dir.Path,
-            Arguments = $"/s /c \"\"{vcvars}\" {arch} >nul && cl /nologo /O2 /GS- /MD {name}.c /link /OUT:{name}.exe\"",
+            Arguments = $"/s /c \"\"{vcvars}\" {arch} >nul && cl /nologo /O2 /GS- {runtime} {name}.c /link /OUT:{name}.exe\"",
         };
         var (code, log) = Tools.Run(psi, 300_000);
         Assert.True(code == 0 && File.Exists(dir.File(name + ".exe")), log);

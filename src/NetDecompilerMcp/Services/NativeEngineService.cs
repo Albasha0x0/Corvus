@@ -11,11 +11,14 @@ namespace NetDecompilerMcp.Services;
 public sealed class NativeEngineService : IDisposable
 {
     private readonly Lazy<INativeDecompilerProvider> _ida;
+    private readonly NativeCodeService? _code;
 
     /// <param name="idaOptions">IDA provider settings (install, Python, cache root); null: the defaults.</param>
-    public NativeEngineService(IdaProviderOptions? idaOptions = null)
+    /// <param name="code">Receives the library names an open session recognized (the ida name layer).</param>
+    public NativeEngineService(IdaProviderOptions? idaOptions = null, NativeCodeService? code = null)
     {
         _ida = new(() => new IdaProvider(idaOptions));
+        _code = code;
     }
 
     public IReadOnlyList<INativeDecompilerProvider> Providers => [_ida.Value];
@@ -51,6 +54,13 @@ public sealed class NativeEngineService : IDisposable
             // The open is not tied to this call's cancellation (a later call reuses the same analysis) but ends when the image is unloaded or reloaded.
             holder.Opening = provider.OpenAsync(native.FilePath, native.Image.Sha256,
                 new NativeOpenOptions { Progress = progress, PdbPath = PdbService.PathForEngines(native) }, native.Released);
+            // Once open, the library functions the engine recognized become the image's ida name layer.
+            holder.LibraryNames = holder.Opening.ContinueWith(async opened =>
+            {
+                if (!opened.IsCompletedSuccessfully) return -1;
+                try { return await EngineLibraryNames.ImportAsync(native, opened.Result, _code, native.Released); }
+                catch (Exception ex) when (ex is ToolError or OperationCanceledException) { return -1; }
+            }, TaskScheduler.Default).Unwrap();
             return Wait(holder.Opening);
         }
 
@@ -61,6 +71,13 @@ public sealed class NativeEngineService : IDisposable
         }
     }
 
+    /// <summary>
+    /// The import of the open session's library names (the number imported, -1 when it failed), or null when no
+    /// session was opened for the image; does not open one.
+    /// </summary>
+    public Task<int>? LibraryNames(LoadedNative native) =>
+        native.Analysis.TryGetValue(typeof(SessionHolder), out var h) ? ((SessionHolder)h).LibraryNames : null;
+
     public void Dispose()
     {
         if (_ida.IsValueCreated) _ida.Value.Dispose();
@@ -69,6 +86,7 @@ public sealed class NativeEngineService : IDisposable
     private sealed class SessionHolder : IDisposable
     {
         public Task<INativeDecompilerSession>? Opening;
+        public Task<int>? LibraryNames;
 
         public void Dispose()
         {

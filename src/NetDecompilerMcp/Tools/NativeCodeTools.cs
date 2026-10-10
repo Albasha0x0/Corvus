@@ -62,9 +62,10 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         index.FunctionAt(rva) ?? throw new ToolError(ErrorCode.NotFound, $"No function contains {NativeAddress.Va(index.Image, rva)}.",
             "list_functions shows the functions; disassemble shows raw instructions at any address");
 
-    private static string Flags(NativeFunction f)
+    private static string Flags(NativeFunction f, NativeCodeIndex? index = null)
     {
         var flags = new List<string>();
+        if (index != null && EngineLibraryNames.IsLibrary(index, f.Start)) flags.Add("library");
         if (f.Flags.HasFlag(FunctionFlags.Thunk)) flags.Add("thunk");
         if (f.Flags.HasFlag(FunctionFlags.NoReturn)) flags.Add("noreturn");
         if (f.Flags.HasFlag(FunctionFlags.UnresolvedJumps)) flags.Add("unresolved jumps");
@@ -102,6 +103,8 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         var (native, index) = await Open(image, context, progress, cancellationToken);
         if (_engine?.Serves(index) == true)
             return await _engine.ListFunctions(native, index, filter, sort, offset, limit, progress, cancellationToken);
+        // library names of an IDA session already open (none is started for this)
+        if (engines?.LibraryNames(native) is { IsCompleted: false } importing) await importing.WaitAsync(cancellationToken);
         IEnumerable<NativeFunction> list = index.Functions.Where(f => filter == null || f.Name.Contains(filter, StringComparison.OrdinalIgnoreCase));
         list = (sort?.Trim().ToLowerInvariant()) switch
         {
@@ -110,9 +113,12 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
             "callers" => list.OrderByDescending(f => index.CountRefsTo(f.Start)),
             _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown sort '{sort}'.", "use address, size or callers"),
         };
-        var rows = list.Select(f => $"{NativeAddress.Va(index.Image, f.Start)}  {f.Size,7}  {f.Name}{Flags(f)}  ({f.Sources}; {index.CountRefsTo(f.Start)} refs)").ToList();
+        var rows = list.Select(f => $"{NativeAddress.Va(index.Image, f.Start)}  {f.Size,7}  {f.Name}{Flags(f, index)}  " +
+                                    $"({f.Sources}{(EngineLibraryNames.IsLibrary(index, f.Start) ? ", ida" : "")}; {index.CountRefsTo(f.Start)} refs)").ToList();
         var s = index.Stats;
-        return $"{native.Id}: {Plural(s.Functions, "function")} ({s.Thunks} thunks, {s.NoReturnFunctions} noreturn), {s.Instructions:N0} instructions, " +
+        int library = index.Sourced.Count(NativeNameSource.Ida);
+        return $"{native.Id}: {Plural(s.Functions, "function")} ({s.Thunks} thunks, {s.NoReturnFunctions} noreturn" +
+               (library > 0 ? $", {library} library functions named by IDA" : "") + $"), {s.Instructions:N0} instructions, " +
                $"{s.Xrefs:N0} references, {Plural(s.Strings, "string")}\n" + Coverage(index) + pager.PageRows(rows, offset, limit, "function");
     });
 

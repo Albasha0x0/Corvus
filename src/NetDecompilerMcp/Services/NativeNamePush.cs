@@ -39,13 +39,14 @@ public sealed class NativeNamePush(NativeCodeService code)
 
     /// <summary>
     /// The names and comments in effect from every source above discovered names, by RVA. PDB names are left out:
-    /// the engine loads the same PDB itself and keeps its decorated, typed names, which lower layers do not override.
+    /// the engine loads the same PDB itself and keeps its decorated, typed names, which lower layers do not override;
+    /// so are the engine's own library names (the ida layer).
     /// </summary>
     public static Dictionary<uint, Entry> Effective(NativeAnnotations? user, IReadOnlyList<NativeNameLayers.Layer> layers, INativeImage image)
     {
         var result = new Dictionary<uint, Entry>();
         var pdb = layers.FirstOrDefault(l => l.Source == NativeNameSource.Pdb)?.Names;
-        foreach (var layer in layers.Where(l => l.Source != NativeNameSource.Pdb).OrderBy(l => l.Source))
+        foreach (var layer in layers.Where(l => l.Source is not (NativeNameSource.Pdb or NativeNameSource.Ida)).OrderBy(l => l.Source))
         {
             foreach (var (rva, name) in layer.Names)
                 if (pdb == null || !pdb.ContainsKey(rva))

@@ -20,14 +20,18 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         _dir.Dispose();
     }
 
-    private (AssemblyWorkspace Workspace, NativeCodeTools Tools, NativeEngineService Engines) Setup(IdaProviderOptions? ida = null)
+    private sealed record Rig(AssemblyWorkspace Workspace, NativeCodeService Code, NativeCodeTools Tools, NativeAnalysisTools Analysis, NativeEngineService Engines);
+
+    private Rig Setup(IdaProviderOptions? ida = null)
     {
         var options = new ServerOptions { TimeoutSeconds = 120, BackgroundIndexing = false };
         var workspace = new AssemblyWorkspace(options);
-        var engines = new NativeEngineService(ida ?? new IdaProviderOptions { CacheRoot = _dir.File("cache") });
+        var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(_dir.File("annotations")));
+        var engines = new NativeEngineService(ida ?? new IdaProviderOptions { CacheRoot = _dir.File("cache") }, code);
         _owned.Add(engines);
-        var code = new NativeCodeService(workspace, options);
-        return (workspace, new NativeCodeTools(workspace, code, new OutputPager(options), null, engines, new NativeNamePush(code)), engines);
+        var pager = new OutputPager(options);
+        var names = new NativeNamePush(code);
+        return new Rig(workspace, code, new NativeCodeTools(workspace, code, pager, null, engines, names), new NativeAnalysisTools(workspace, engines, pager, names, code), engines);
     }
 
     /// <summary>An ARM64 PE with code but no unwind data: the built-in analysis only lists the entry point.</summary>
@@ -43,7 +47,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
     [WindowsFact]
     public async Task Undecoded_architecture_without_IDA_is_unsupported_with_remediation()
     {
-        var (_, tools, _) = Setup(new IdaProviderOptions { InstallDirectory = _dir.File("no-ida-here"), CacheRoot = _dir.File("cache") });
+        var tools = Setup(new IdaProviderOptions { InstallDirectory = _dir.File("no-ida-here"), CacheRoot = _dir.File("cache") }).Tools;
         var path = SyntheticArm64();
         foreach (var call in new Func<Task<string>>[] { () => tools.Disassemble(path, "rva:0x1000"), () => tools.GetCfg(path, "rva:0x1000") })
         {
@@ -102,7 +106,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         var path = FindArm64Image();
         if (path == null) { output.WriteLine("no ARM64 image found on this machine"); return; }
         output.WriteLine(path);
-        var (workspace, tools, _) = Setup();
+        var (workspace, _, tools, _, _) = Setup();
         var clock = Stopwatch.StartNew();
         var list = await tools.ListFunctions(path, limit: 5000);
         output.WriteLine($"list_functions {clock.Elapsed.TotalSeconds:0.0} s (includes IDA analysis)\n{string.Join('\n', list.Split('\n').Take(12))}");
@@ -142,5 +146,64 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         Assert.Matches(@"(?m)^\s*0x[0-9A-F]+  Call ", xrefs);
         var callers = await tools.NativeCallTree(id, called!, direction: "callers", depth: 1);
         Assert.True(callers.Split('\n').Length > 2, callers);
+    }
+
+    private const string StaticSource = """
+        #include <stdio.h>
+        #include <stdlib.h>
+        #include <string.h>
+        static int cmp(const void* a, const void* b) { return *(const int*)a - *(const int*)b; }
+        int main(int argc, char** argv)
+        {
+            int v[64];
+            char buf[128];
+            for (int i = 0; i < 64; i++) v[i] = rand();
+            qsort(v, 64, sizeof(int), cmp);
+            snprintf(buf, sizeof buf, "%s %d", argv[0], v[0]);
+            char* copy = _strdup(buf);
+            printf("%s %zu\n", copy, strlen(copy));
+            free(copy);
+            FILE* f = fopen("x.txt", "r");
+            if (f) fclose(f);
+            return (int)strtol(argv[argc - 1], NULL, 10);
+        }
+        """;
+
+    /// <summary>
+    /// A statically linked (/MT) MSVC build: the CRT functions IDA recognizes become the ida name layer once a session is
+    /// open (list_functions alone does not start IDA for x64), flagged library; user names still win.
+    /// </summary>
+    [Trait("Speed", "Slow")]
+    [IdaFact]
+    public async Task Library_functions_IDA_recognizes_name_a_static_MSVC_build()
+    {
+        var path = CallArgumentTests.BuildSample(_dir, "x64", StaticSource, "static", "/MT");
+        if (path == null) { output.WriteLine("no MSVC build tools"); return; }
+        var rig = Setup();
+        var before = await rig.Tools.ListFunctions(path, limit: 5000);
+        var native = rig.Workspace.Read(() => rig.Workspace.Natives[0]);
+        Assert.Null(rig.Engines.LibraryNames(native));
+        Assert.DoesNotContain("[library", before);
+
+        var clock = Stopwatch.StartNew();
+        await rig.Analysis.DecompileNative(native.Id, $"rva:0x{native.Image.EntryPointRva:X}");
+        var imported = await rig.Engines.LibraryNames(native)!;
+        var opened = clock.Elapsed;
+        var after = await rig.Tools.ListFunctions(native.Id, limit: 5000);
+        var rows = after.Split('\n').Where(l => l.StartsWith("  0x", StringComparison.Ordinal)).ToList();
+        var library = rows.Where(r => r.Contains("library") && r.Contains(", ida;")).ToList();
+        output.WriteLine($"{Path.GetFileName(path)} ({new FileInfo(path).Length:N0} bytes): {rows.Count} functions, {imported} library names from IDA, " +
+                         $"{library.Count} of the listed functions named by them ({100.0 * library.Count / rows.Count:0.0}%); IDA open + import {opened.TotalSeconds:0.0} s");
+        output.WriteLine(string.Join('\n', library.Take(15)));
+        Assert.True(imported >= 50, $"{imported} library names");
+        Assert.True(library.Count >= 50);
+        Assert.Contains(library, r => r.Contains("qsort") || r.Contains("strtol") || r.Contains("_strdup") || r.Contains("memset"));
+        Assert.DoesNotContain(rows, r => r.Contains("unknown_libname_"));
+
+        // A user name wins over the library name.
+        var index = await rig.Code.Index(native, null, default);
+        var first = index.Functions.First(f => EngineLibraryNames.IsLibrary(index, f.Start));
+        new NativeEditService(rig.Workspace, rig.Code).Rename(native, index, first.Start, "MyLibraryFunction", false);
+        Assert.Contains("MyLibraryFunction  [library", await rig.Tools.ListFunctions(native.Id, filter: "MyLibraryFunction"));
     }
 }
