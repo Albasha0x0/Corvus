@@ -41,6 +41,12 @@ public sealed class NativeCodeService
         var holder = Holder(native);
         holder.Listen(progress);
         try { return await holder.Start(_logger, this).WaitAsync(ct); }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // The build was cancelled because the image was unloaded, reloaded or patched by another call.
+            throw new ToolError(ErrorCode.Conflict, $"{native.Id} was unloaded, reloaded or patched while its code index was being built.",
+                "repeat the call");
+        }
         finally { holder.Listen(null); }
     }
 

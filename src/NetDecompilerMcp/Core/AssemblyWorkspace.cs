@@ -169,10 +169,13 @@ public sealed class AssemblyWorkspace : IDisposable
 
     public void UnloadNative(LoadedNative native) => Write(() =>
     {
-        _natives.Remove(native);
+        if (!_natives.Remove(native)) throw Gone(native.Id);
         foreach (var analysis in native.Analysis.Values.OfType<IDisposable>()) analysis.Dispose();
         return 0;
     });
+
+    private static ToolError Gone(string id) =>
+        new(ErrorCode.Conflict, $"{id} was unloaded or reloaded by another call in the meantime.", "list_assemblies shows what is loaded now; repeat the call");
 
     /// <summary>Re-reads a native image from disk, discarding its analysis state.</summary>
     public LoadedNative ReloadNative(LoadedNative native)
@@ -181,6 +184,7 @@ public sealed class AssemblyWorkspace : IDisposable
         var fresh = Write(() =>
         {
             int index = _natives.IndexOf(native);
+            if (index < 0) throw Gone(native.Id);
             _natives.Remove(native);
             foreach (var analysis in native.Analysis.Values.OfType<IDisposable>()) analysis.Dispose();
             var reloaded = new LoadedNative(native.Id, native.FilePath, image);
@@ -259,7 +263,8 @@ public sealed class AssemblyWorkspace : IDisposable
     {
         Write(() =>
         {
-            _assemblies.Remove(asm);
+            // A concurrent unload or reload already replaced it.
+            if (!_assemblies.Remove(asm)) throw Gone(asm.Id);
             asm.Dispose();
             return 0;
         });
@@ -278,6 +283,7 @@ public sealed class AssemblyWorkspace : IDisposable
     private LoadedAssembly ReloadCore(LoadedAssembly asm) => Write(() =>
     {
         int index = _assemblies.IndexOf(asm);
+        if (index < 0) throw Gone(asm.Id);
         _assemblies.Remove(asm);
         asm.Dispose();
         var fresh = LoadCore(asm.FilePath);
