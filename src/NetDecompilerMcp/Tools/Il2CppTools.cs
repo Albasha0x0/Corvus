@@ -252,9 +252,10 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
         [Description("Formats, comma-separated: ida, ghidra, header, json, or all (default).")] string formats = "all",
         [Description("Base name for the generated files (default il2cpp).")] string baseName = "il2cpp",
         [Description(AssemblyFilterDescription)] string? assembly = null,
+        [Description("Replace files of the same names if they exist.")] bool overwrite = false,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
-        var result = exporter.Export(workspace.Scope(assembly), outputDirectory, formats, baseName, cancellationToken);
+        var result = exporter.Export(workspace.Scope(assembly), outputDirectory, formats, baseName, cancellationToken, overwrite);
         return $"Exported {result.Methods} functions and {result.Structs} struct layouts:\n  " + string.Join("\n  ", result.Files) +
                "\nIDA: File > Script file... on the _ida.py. Ghidra: run the _ghidra.py from the Script Manager; import the .h with File > Parse C Source.";
     }, cancellationToken);

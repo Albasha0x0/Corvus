@@ -44,20 +44,21 @@ public sealed class ResourceTools(AssemblyWorkspace workspace, ResourceService r
         [Description("Resource name as shown by list_resources.")] string name,
         [Description("Entry name inside a .resources container.")] string? entry = null,
         [Description("Write the raw bytes of the resource (or entry) to this file path.")] string? savePath = null,
+        [Description("Replace savePath if it exists.")] bool overwrite = false,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
         {
-            if (workspace.FindNative(assembly) is { ManagedView: null } native) return pager.Page(NativeResourceService.Get(native, name, savePath), offset, maxChars);
+            if (workspace.FindNative(assembly) is { ManagedView: null } native) return pager.Page(NativeResourceService.Get(native, name, savePath, overwrite: overwrite), offset, maxChars);
             var asm = workspace.Get(assembly);
             try
             {
-                return pager.Page(resources.Get(asm, name, entry, savePath, baml: bytes => decompiler.DecompileBaml(asm, bytes, cancellationToken)), offset, maxChars);
+                return pager.Page(resources.Get(asm, name, entry, savePath, baml: bytes => decompiler.DecompileBaml(asm, bytes, cancellationToken), overwrite: overwrite), offset, maxChars);
             }
             catch (ToolError ex) when (ex.Code == ErrorCode.NotFound && name.Contains('/') && workspace.NativeViewOf(asm) is { } view)
             {
                 // Mixed-mode: TYPE/NAME[/LANGUAGE] that is not a managed resource names a Win32 resource of the native view.
-                return pager.Page(NativeResourceService.Get(view, name, savePath), offset, maxChars);
+                return pager.Page(NativeResourceService.Get(view, name, savePath, overwrite: overwrite), offset, maxChars);
             }
         }, cancellationToken);
 }

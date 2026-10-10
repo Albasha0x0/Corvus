@@ -218,38 +218,30 @@ public static class Blob
         if (parts.Count == 0) parts.Add(fallback);
         var file = parts[^1];
         if (RunnableExtensions.Contains(Path.GetExtension(file))) parts[^1] = file + ".bin";
-        if (IsReservedDeviceName(Path.GetFileNameWithoutExtension(parts[^1]))) parts[^1] = "_" + parts[^1];
+        for (int i = 0; i < parts.Count; i++)
+            if (SafeFile.IsReservedName(parts[i])) parts[i] = "_" + parts[i];
         if (parts.Count > 8) parts = [.. parts.Take(7), parts[^1]];
         return Path.Combine([.. parts]);
     }
 
-    private static bool IsReservedDeviceName(string name) =>
-        name.ToUpperInvariant() is "CON" or "PRN" or "AUX" or "NUL" or "COM1" or "COM2" or "COM3" or "COM4" or "LPT1" or "LPT2" or "LPT3";
-
-    /// <summary>Full path of <paramref name="relative"/> under <paramref name="root"/>; throws if it would escape it.</summary>
-    public static string UnderRoot(string root, string relative)
-    {
-        var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
-        var full = Path.GetFullPath(Path.Combine(fullRoot, relative));
-        if (!full.StartsWith(fullRoot, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
-            throw new ToolError(ErrorCode.InvalidArgument, $"Refusing to write outside {fullRoot}: {relative}");
-        return full;
-    }
+    /// <summary>Full path of <paramref name="relative"/> under <paramref name="root"/>; throws if it would escape it, lexically or through a link.</summary>
+    public static string UnderRoot(string root, string relative) => SafeFile.UnderRoot(root, relative);
 
     /// <summary>Writes to a unique path under root; never overwrites a different file.</summary>
     public static string WriteUnique(string root, string relative, ReadOnlySpan<byte> bytes)
     {
         var path = UnderRoot(root, relative);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var dir = Path.GetDirectoryName(path)!;
         var stem = Path.GetFileNameWithoutExtension(path);
         var ext = Path.GetExtension(path);
-        for (int i = 2; File.Exists(path); i++)
+        for (int i = 2; ; i++)
         {
-            if (new FileInfo(path).Length == bytes.Length && File.ReadAllBytes(path).AsSpan().SequenceEqual(bytes)) return path;
+            try { return SafeFile.WriteUnderRoot(root, Path.GetRelativePath(root, path), bytes, overwrite: false); }
+            catch (ToolError ex) when (ex.Code == ErrorCode.Conflict)
+            {
+                if (File.Exists(path) && new FileInfo(path).Length == bytes.Length && File.ReadAllBytes(path).AsSpan().SequenceEqual(bytes)) return path;
+            }
             path = Path.Combine(dir, $"{stem}_{i}{ext}");
         }
-        File.WriteAllBytes(path, bytes.ToArray());
-        return path;
     }
 }

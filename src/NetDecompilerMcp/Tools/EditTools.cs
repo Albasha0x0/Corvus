@@ -138,8 +138,9 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     public Task<string> ExportEdits(
         [Description(AssemblyDescription)] string assembly,
         [Description("Output .json path.")] string path,
+        [Description("Replace path if it exists.")] bool overwrite = false,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
-            history.Export(workspace.Get(assembly), path), cancellationToken);
+            history.Export(workspace.Get(assembly), path, overwrite), cancellationToken);
 
     [McpServerTool(Name = "apply_edits", Title = "Apply an edit script")]
     [Description("Replay a JSON edit script (from export_edits) onto an assembly. The script is bound to the build it was made from (SHA-256, MVID, identity): " +

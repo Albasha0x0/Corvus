@@ -47,6 +47,7 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Output file path.")] string outputPath,
         [Description("ida, dif, ips, ips32 or json (default json).")] string? format = null,
+        [Description("Replace outputPath if it exists.")] bool overwrite = false,
         CancellationToken cancellationToken = default)
     {
         var fmt = PatchExport.ParseFormat(format);
@@ -70,15 +71,7 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
             return rendered;
         }), cancellationToken);
 
-        var target = Path.GetFullPath(outputPath);
-        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-        var temp = target + ".tmp-" + Environment.ProcessId;
-        try
-        {
-            await File.WriteAllBytesAsync(temp, result.Content, cancellationToken);
-            File.Move(temp, target, overwrite: true);
-        }
-        finally { if (File.Exists(temp)) File.Delete(temp); }
+        var target = SafeFile.WriteAllBytes(outputPath, result.Content, overwrite);
         return new PatchExportReport(native.Id, target, PatchExport.Name(fmt), result.Patches, result.RelocationEdits, result.ChangedBytes, result.Records,
             result.ChecksumUpdated, result.Content.Length, native.OriginalSha256, result.Notes);
     }

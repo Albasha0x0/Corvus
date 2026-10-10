@@ -291,7 +291,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     /// <summary>Writes a buildable C# project (one file per type, .csproj, resources) to an empty directory.</summary>
     public ExportResult ExportProject(LoadedAssembly asm, string outputDirectory, Action<int, int, string>? onProgress, CancellationToken ct)
     {
-        var dir = Path.GetFullPath(outputDirectory);
+        var dir = SafeFile.FullPath(outputDirectory);
         Directory.CreateDirectory(dir);
         if (Directory.EnumerateFileSystemEntries(dir).Any())
             throw new ToolError(ErrorCode.Conflict, $"Output directory is not empty: {dir}. Choose an empty or new directory.");

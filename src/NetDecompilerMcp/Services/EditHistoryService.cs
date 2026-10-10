@@ -56,16 +56,14 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
         return sb.ToString();
     }
 
-    public string Export(LoadedAssembly asm, string path)
+    public string Export(LoadedAssembly asm, string path, bool overwrite = false)
     {
         if (asm.Edits.Count == 0)
             throw new ToolError(ErrorCode.NotFound, $"{asm.Id} has no edits to export.");
         var original = asm.GetOriginalView(workspace.DnlibContext).Module;
         var script = new Script(ScriptFormat, asm.AssemblyName, original.Mvid?.ToString(), asm.OriginalSha256, original.Assembly?.FullName ?? original.Name,
             DateTime.UtcNow, asm.Edits.Select(e => new ScriptEdit(e.Kind, e.Args.ToDictionary(kv => kv.Key, kv => kv.Value), e.Description)).ToList());
-        var full = Path.GetFullPath(path);
-        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
-        File.WriteAllText(full, JsonSerializer.Serialize(script, Json));
+        var full = SafeFile.WriteAllText(path, JsonSerializer.Serialize(script, Json), overwrite);
         return $"Exported {script.Edits.Count} edit(s) of {asm.Id} to {full}.\n" +
                $"Bound to the build: sha256 {script.Sha256}, MVID {script.Mvid ?? "(none)"}, {script.Identity}. " +
                "apply_edits refuses other builds unless targetBuild=other.";

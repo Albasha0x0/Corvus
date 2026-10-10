@@ -23,7 +23,7 @@ public static class NativeResourceService
     /// Reads one resource: version info and string tables decoded, manifests and other text as text, binary as a hex
     /// preview; <paramref name="savePath"/> writes the raw bytes. The language may be omitted when only one matches.
     /// </summary>
-    public static string Get(LoadedNative native, string name, string? savePath, int previewBytes = 4096)
+    public static string Get(LoadedNative native, string name, string? savePath, int previewBytes = 4096, bool overwrite = false)
     {
         var pe = native.Image;
         // "VERSION/#1/1033", "VERSION/1" and "RT_VERSION/1" all name the same resource.
@@ -39,9 +39,7 @@ public static class NativeResourceService
         var bytes = pe.ReadResource(r) ?? throw new ToolError(ErrorCode.MalformedInput, $"The data of {Key(r)} is outside the mapped image.");
         if (savePath != null)
         {
-            var full = Path.GetFullPath(savePath);
-            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
-            File.WriteAllBytes(full, bytes);
+            var full = SafeFile.WriteAllBytes(savePath, bytes, overwrite);
             return $"Saved {Key(r)} ({bytes.Length:N0} bytes) to {full}";
         }
         var head = $"{Key(r)}: {bytes.Length:N0} bytes\n";

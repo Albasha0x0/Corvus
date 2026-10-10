@@ -38,7 +38,8 @@ public sealed class ResourceService
     /// Returns a text rendering of a resource (or one entry of a .resources container) and,
     /// when <paramref name="savePath"/> is set, writes the raw bytes there.
     /// </summary>
-    public string Get(LoadedAssembly asm, string name, string? entry, string? savePath, int previewBytes = 4096, Func<byte[], string?>? baml = null)
+    public string Get(LoadedAssembly asm, string name, string? entry, string? savePath, int previewBytes = 4096, Func<byte[], string?>? baml = null,
+        bool overwrite = false)
     {
         var res = asm.Module.Resources.FirstOrDefault(r => r.Name == name)
                   ?? asm.Module.Resources.FirstOrDefault(r => string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase))
@@ -51,9 +52,9 @@ public sealed class ResourceService
 
         if (set != null && entry == null)
         {
-            if (savePath != null) Save(savePath, data);
+            if (savePath != null) savePath = SafeFile.WriteAllBytes(savePath, data, overwrite);
             var sb = new StringBuilder($"{er.Name}: .resources container with {set.ResourceElements.Count()} entries");
-            if (savePath != null) sb.Append($" (raw container saved to {Path.GetFullPath(savePath)})");
+            if (savePath != null) sb.Append($" (raw container saved to {savePath})");
             sb.AppendLine().AppendLine("Pass entry=<name> to read or save one entry.").AppendLine();
             foreach (var el in set.ResourceElements.OrderBy(e => e.Name, StringComparer.Ordinal))
                 sb.AppendLine($"  {el.Name}  [{DescribeType(el.ResourceData)}]  {Preview(el.ResourceData)}");
@@ -69,8 +70,7 @@ public sealed class ResourceService
             if (savePath != null)
             {
                 if (bytes == null) throw new ToolError(ErrorCode.InvalidArgument, $"Entry '{entry}' is a {DescribeType(el.ResourceData)} value; nothing binary to save. Value: {Preview(el.ResourceData, 500)}");
-                Save(savePath, bytes);
-                return $"Saved entry '{entry}' ({bytes.Length} bytes) to {Path.GetFullPath(savePath)}";
+                return $"Saved entry '{entry}' ({bytes.Length} bytes) to {SafeFile.WriteAllBytes(savePath, bytes, overwrite)}";
             }
             // BAML (compiled WPF XAML) is shown decompiled to XAML.
             if (bytes != null && baml != null && entry.EndsWith(".baml", StringComparison.OrdinalIgnoreCase) && baml(bytes) is { } xaml)
@@ -82,8 +82,7 @@ public sealed class ResourceService
 
         if (savePath != null)
         {
-            Save(savePath, data);
-            return $"Saved {er.Name} ({data.Length} bytes) to {Path.GetFullPath(savePath)}";
+            return $"Saved {er.Name} ({data.Length} bytes) to {SafeFile.WriteAllBytes(savePath, data, overwrite)}";
         }
         return $"{er.Name} ({data.Length} bytes)\n" + Render(data, previewBytes);
     }
@@ -153,12 +152,5 @@ public sealed class ResourceService
         {
             return null;
         }
-    }
-
-    private static void Save(string path, byte[] bytes)
-    {
-        var full = Path.GetFullPath(path);
-        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
-        File.WriteAllBytes(full, bytes);
     }
 }

@@ -323,16 +323,15 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     /// <summary>Creates the output directory, or reuses it if empty or marked as an earlier unpack of the same file.</summary>
     internal static string PrepareOutput(string directory, string source, string sha)
     {
-        var root = Path.GetFullPath(directory);
+        var root = SafeFile.FullPath(directory);
         var marker = Path.Combine(root, Marker);
+        bool Ours() => File.Exists(marker) && File.ReadAllText(marker).StartsWith(sha, StringComparison.Ordinal);
         if (Directory.Exists(root) && Directory.EnumerateFileSystemEntries(root).Any())
-        {
-            if (!File.Exists(marker) || !File.ReadAllText(marker).StartsWith(sha, StringComparison.Ordinal))
-                throw new ToolError(ErrorCode.Conflict, $"Output directory {root} is not empty and is not an earlier unpack of this file. Choose an empty or new directory.");
-            return root;
-        }
+            return Ours() ? root : throw new ToolError(ErrorCode.Conflict,
+                $"Output directory {root} is not empty and is not an earlier unpack of this file. Choose an empty or new directory.");
         Directory.CreateDirectory(root);
-        File.WriteAllText(marker, $"{sha}\n{source}\n");
+        try { SafeFile.WriteUnderRoot(root, Marker, System.Text.Encoding.UTF8.GetBytes($"{sha}\n{source}\n"), overwrite: false); }
+        catch (ToolError ex) when (ex.Code == ErrorCode.Conflict && Ours()) { } // a concurrent unpack of the same file
         return root;
     }
 }

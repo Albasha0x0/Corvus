@@ -475,7 +475,7 @@ with `NDM_ALL_TESTS=1`):
   original, processed and simplified builds must print the same. The programs are `PipelineSamples/*.cs`, one per
   feature area (generics, async and iterators, LINQ, delegates and events, inheritance, exceptions, strings, reflection,
   structs, collections, and a mixed workload); a new file there is a new sample, a new line in `Options` a new option.
-  The options cover every option family of the tool and its packer, alone and combined, and its bundled profiles. What
+  The options cover every option family of the tool in all of its modes, alone and combined, and its bundled profiles. What
   simplifying took back of the instructions each option added is checked against floors pinned per option and sample,
   and the report ends with an option × sample coverage table. Needs the .NET Framework 4.8 reference assemblies;
   options the tool cannot process, or whose output is not checkable IL, are listed with the reason.

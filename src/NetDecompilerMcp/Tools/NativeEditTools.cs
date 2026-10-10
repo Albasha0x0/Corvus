@@ -100,6 +100,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Output file path.")] string outputPath,
         [Description("ida, ghidra or json (default json).")] string? format = null,
+        [Description("Replace outputPath if it exists.")] bool overwrite = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -107,9 +108,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         var fmt = AnnotationExport.ParseFormat(format);
         var ann = edits.Annotations(native);
         var text = AnnotationExport.Render(ann, fmt);
-        var target = Path.GetFullPath(outputPath);
-        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-        await File.WriteAllTextAsync(target, text, cancellationToken);
+        var target = SafeFile.WriteAllText(outputPath, text, overwrite);
         return $"Exported {ann.NameCount} name(s) and {ann.CommentCount} comment(s) to {target} ({fmt} format).";
     });
 

@@ -67,7 +67,7 @@ public static class ToolEffects
         ["get_call_tree"] = Reads(),
         ["find_call_paths"] = Reads(),
         ["list_resources"] = Reads(),
-        ["get_resource"] = Changes(destructive: true, idempotent: true), // savePath replaces an existing file
+        ["get_resource"] = Changes(destructive: true, idempotent: true), // savePath; overwrite=true replaces a file
         ["export_project"] = Changes(destructive: false, idempotent: true, longRunning: true), // refuses a non-empty directory
 
         // Files and containers (nothing executed)
@@ -96,14 +96,14 @@ public static class ToolEffects
         ["diff_edits"] = Reads(),
         ["undo_edit"] = Changes(destructive: true, idempotent: false),
         ["revert_edits"] = Changes(destructive: true, idempotent: true),
-        ["export_edits"] = Changes(destructive: true, idempotent: true), // replaces the file at path
+        ["export_edits"] = Changes(destructive: true, idempotent: true), // overwrite=true replaces the file at path
         ["apply_edits"] = Changes(destructive: true, idempotent: false),
         ["save_assembly"] = Changes(destructive: true, idempotent: true), // overwrite=true replaces a file (the original's .bak is made once)
 
         // Il2Cpp
         ["get_il2cpp_info"] = Reads(),
         ["find_method_by_address"] = Reads(),
-        ["export_il2cpp_symbols"] = Changes(destructive: true, idempotent: true, longRunning: true), // replaces the files it writes
+        ["export_il2cpp_symbols"] = Changes(destructive: true, idempotent: true, longRunning: true), // overwrite=true replaces the files it writes
         ["generate_cpp_binding"] = Reads(),
         ["apply_il2cpp_names"] = Changes(destructive: true, idempotent: true, longRunning: true), // replaces the image's il2cpp names
 
@@ -141,13 +141,13 @@ public static class ToolEffects
         // Native annotations and edits (names and comments are saved to a per-user sidecar file)
         ["rename_native"] = Changes(destructive: true, idempotent: true, longRunning: true),
         ["comment_native"] = Changes(destructive: true, idempotent: true, longRunning: true),
-        ["export_native_annotations"] = Changes(destructive: true, idempotent: true, longRunning: true), // replaces the file at outputPath
+        ["export_native_annotations"] = Changes(destructive: true, idempotent: true, longRunning: true), // overwrite=true replaces the file at outputPath
         ["patch_bytes"] = Changes(destructive: true, idempotent: false, longRunning: true),
         ["patch_asm"] = Changes(destructive: true, idempotent: false, longRunning: true),
         ["list_native_edits"] = Reads(longRunning: true),
         ["undo_native_edit"] = Changes(destructive: true, idempotent: false, longRunning: true),
         ["save_native"] = Changes(destructive: true, idempotent: true, longRunning: true), // overwrite=true replaces a file (the original's .bak is made once)
-        ["export_native_patches"] = Changes(destructive: true, idempotent: true), // replaces the file at outputPath
+        ["export_native_patches"] = Changes(destructive: true, idempotent: true), // overwrite=true replaces the file at outputPath
         ["migrate_native_patches"] = Changes(destructive: true, idempotent: false, longRunning: true), // patches the new build; matches through both code indexes
         ["update_to_new_build"] = Changes(destructive: true, idempotent: true, longRunning: true), // dryRun=false patches the new build and replaces its imported layers; a re-run reports already_present
 

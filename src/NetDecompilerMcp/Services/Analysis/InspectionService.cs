@@ -185,10 +185,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         }, ct);
 
         if (savePath == null) return report;
-        var target = Path.GetFullPath(savePath);
-        if (File.Exists(target) && !overwrite) throw new ToolError(ErrorCode.Conflict, $"{target} exists: pass overwrite=true to replace it.");
-        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-        File.WriteAllText(target, fmt == "csv" ? Values.ToCsv(report.Values) : Values.ToJson(report.Values));
+        var target = SafeFile.WriteAllText(savePath, fmt == "csv" ? Values.ToCsv(report.Values) : Values.ToJson(report.Values), overwrite);
         return report with { SavedTo = target };
     }
 

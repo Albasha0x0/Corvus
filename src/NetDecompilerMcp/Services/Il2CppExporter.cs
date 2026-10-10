@@ -17,7 +17,7 @@ public sealed class Il2CppExporter(Il2CppService il2cpp)
 
     private sealed record MethodEntry(ulong Rva, string Name, string Signature, string Prototype);
 
-    public ExportResult Export(IReadOnlyList<LoadedAssembly> scope, string outputDirectory, string formats, string baseName, CancellationToken ct)
+    public ExportResult Export(IReadOnlyList<LoadedAssembly> scope, string outputDirectory, string formats, string baseName, CancellationToken ct, bool overwrite = false)
     {
         var wanted = formats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(f => f.ToLowerInvariant()).ToHashSet();
         if (wanted.Contains("all")) wanted = ["ida", "ghidra", "header", "json"];
@@ -33,34 +33,32 @@ public sealed class Il2CppExporter(Il2CppService il2cpp)
         var methods = CollectMethods(scope, layout, ct);
         if (methods.Count == 0)
             throw new ToolError(ErrorCode.Unsupported, "No Il2Cpp [Address] attributes in the selected assemblies. This needs Il2CppDumper/Cpp2IL dummy DLLs.");
-        var dir = Path.GetFullPath(outputDirectory);
+        var dir = SafeFile.FullPath(outputDirectory);
         Directory.CreateDirectory(dir);
+        string Write(string name, string content) => SafeFile.WriteUnderRoot(dir, name, System.Text.Encoding.UTF8.GetBytes(content), overwrite);
+        var planned = new[] { (".h", wanted.Overlaps(["header", "ida", "ghidra"])), ("_ida.py", wanted.Contains("ida")),
+            ("_ghidra.py", wanted.Contains("ghidra")), ("_script.json", wanted.Contains("json")) };
+        // Refused before writing anything, so a conflict leaves no partial set.
+        if (!overwrite && planned.Where(p => p.Item2).Select(p => Path.Combine(dir, baseName + p.Item1)).FirstOrDefault(Path.Exists) is { } existing)
+            throw new ToolError(ErrorCode.Conflict, $"{existing} exists: pass overwrite=true to replace it.");
         var files = new List<string>();
 
         string? headerPath = null;
         if (wanted.Contains("header") || wanted.Contains("ida") || wanted.Contains("ghidra"))
         {
-            headerPath = Path.Combine(dir, baseName + ".h");
-            File.WriteAllText(headerPath, Header(layout));
+            headerPath = Write(baseName + ".h", Header(layout));
             files.Add(headerPath);
         }
         if (wanted.Contains("ida"))
-            files.Add(Write(dir, baseName + "_ida.py", IdaScript(methods, Path.GetFileName(headerPath!))));
+            files.Add(Write(baseName + "_ida.py", IdaScript(methods, Path.GetFileName(headerPath!))));
         if (wanted.Contains("ghidra"))
-            files.Add(Write(dir, baseName + "_ghidra.py", GhidraScript(methods)));
+            files.Add(Write(baseName + "_ghidra.py", GhidraScript(methods)));
         if (wanted.Contains("json"))
-            files.Add(Write(dir, baseName + "_script.json", JsonSerializer.Serialize(new
+            files.Add(Write(baseName + "_script.json", JsonSerializer.Serialize(new
             {
                 ScriptMethod = methods.Select(m => new { Address = m.Rva, m.Name, Signature = m.Prototype, ManagedSignature = m.Signature }),
             }, new JsonSerializerOptions { WriteIndented = true })));
         return new ExportResult(files, methods.Count, layout.Structs.Count);
-    }
-
-    private static string Write(string dir, string name, string content)
-    {
-        var path = Path.Combine(dir, name);
-        File.WriteAllText(path, content);
-        return path;
     }
 
     private List<MethodEntry> CollectMethods(IReadOnlyList<LoadedAssembly> scope, Il2CppLayout layout, CancellationToken ct)
