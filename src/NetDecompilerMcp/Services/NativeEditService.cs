@@ -200,7 +200,9 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
     public string List(LoadedNative native)
     {
         var patches = native.Patches.Patches;
-        if (patches.Count == 0) return $"{native.Id}: no native edits.";
+        var names = new StringBuilder();
+        AppendNames(names, native);
+        if (patches.Count == 0) return names.Length == 0 ? $"{native.Id}: no native edits." : $"{native.Id}: no native edits.\n{names}";
         var sb = new StringBuilder($"{native.Id}: {patches.Count} native edit(s)\n");
         int i = 1;
         foreach (var p in patches)
@@ -210,7 +212,30 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
                 sb.AppendLine($"        stub ({s.Mode}) at {NativeAddress.Va(native.Image, s.Rva)}  {s.Length} bytes  returns to {NativeAddress.Va(native.Image, s.ReturnRva)}  ({s.Placement})");
             AppendRelocations(sb, native.Image, p.Relocations, "      ");
         }
-        return sb.ToString();
+        return sb.Append(names).ToString();
+    }
+
+    /// <summary>The user's name and comment counts and every imported name layer: source, counts, origin, saved or restored, and when.</summary>
+    private void AppendNames(StringBuilder sb, LoadedNative native)
+    {
+        code.RestoreImported(native);
+        var ann = native.AnnotationsOrNull ?? code.Annotations(native);
+        var layers = NativeNameLayers.OfOrNull(native)?.Layers ?? [];
+        if (ann.NameCount == 0 && ann.CommentCount == 0 && layers.Count == 0) return;
+        sb.AppendLine("Names (priority user > pdb > il2cpp > ida > discovered):");
+        if (ann.NameCount > 0 || ann.CommentCount > 0)
+            sb.AppendLine($"  user: {ann.NameCount} name(s), {ann.CommentCount} comment(s), saved per file hash in {code.AnnotationRoot}");
+        foreach (var l in layers)
+        {
+            var state = l.Info switch
+            {
+                { Restored: true } info => $"restored on load (imported {info.ImportedUtc:yyyy-MM-dd HH:mm} UTC)",
+                { } info => $"imported {info.ImportedUtc:yyyy-MM-dd HH:mm} UTC, saved for the next load",
+                null => l.Source == NativeNameSource.Pdb ? "found automatically, not saved (read again on load)" : "this session only",
+            };
+            var source = l.Info is { SourcePath: { } path } i2 ? $"; source {path}{(i2.SourceIdentity is { } id ? $" ({(l.Source == NativeNameSource.Pdb ? "GUID age " : "sha256 ")}{id})" : "")}" : "";
+            sb.AppendLine($"  {l.Source.Id()}: {l.Names.Count} name(s), {l.Comments.Count} comment(s) from {l.Origin}; {state}{source}");
+        }
     }
 
     /// <summary>The relocation side of a patch: one line per kept / neutralized / added / unrelocated entry, then notes.</summary>

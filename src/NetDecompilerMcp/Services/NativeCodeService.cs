@@ -53,9 +53,66 @@ public sealed class NativeCodeService
     public NativeAnnotations Annotations(LoadedNative native) =>
         native.Annotations(n => new NativeAnnotations(_store, n.FilePath, n.OriginalSha256, n.Image.ImageBase));
 
+    // ---- saved imported name layers ----
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<LoadedNative, object> RestoreDone = new();
+    private static readonly NativeNameSource[] SavedSources = [NativeNameSource.Pdb, NativeNameSource.Il2Cpp];
+    private int _layersRestored, _namesRestored, _layersSaved;
+    private string? _lastSaveProblem;
+
+    /// <summary>Where annotations and saved imported layers live.</summary>
+    public string AnnotationRoot => _store.Root;
+
+    /// <summary>Layers restored, names in them, and layers saved this session; the last save problem.</summary>
+    public (int LayersRestored, int NamesRestored, int LayersSaved, string? LastProblem) ImportStats =>
+        (Volatile.Read(ref _layersRestored), Volatile.Read(ref _namesRestored), Volatile.Read(ref _layersSaved), Volatile.Read(ref _lastSaveProblem));
+
+    /// <summary>
+    /// Once per loaded image: reads the saved imported layers (PDB, Il2Cpp names) back into <see cref="NativeNameLayers"/>,
+    /// except a source already imported in this session. Runs before the first index build so restored PDB function starts
+    /// take part in discovery; tools that report layers call it too. Cheap after the first call.
+    /// </summary>
+    public void RestoreImported(LoadedNative native, CancellationToken ct = default)
+    {
+        if (!RestoreDone.TryAdd(native, new object())) return;
+        var layers = NativeNameLayers.Of(native);
+        foreach (var source in SavedSources)
+        {
+            if (layers.Get(source) != null) continue;
+            if (_store.LoadLayer(native.OriginalSha256, source, ct) is not { } saved) continue;
+            layers.Set(saved, Ready(native));
+            Interlocked.Increment(ref _layersRestored);
+            Interlocked.Add(ref _namesRestored, saved.Names.Count);
+            _logger?.LogInformation("Restored {Count} saved {Source} names of {Id} ({Origin})", saved.Names.Count, source.Id(), native.Id, saved.Origin);
+        }
+    }
+
+    /// <summary>Saves the image's current layer of <paramref name="source"/> when it carries <see cref="ImportInfo"/>; returns the problem, or null.</summary>
+    public string? SaveImported(LoadedNative native, NativeNameSource source)
+    {
+        RestoreDone.TryAdd(native, new object()); // imported now: an older saved copy is not restored over it
+        if (NativeNameLayers.OfOrNull(native)?.Get(source) is not { Info: not null } layer) return null;
+        var problem = _store.SaveLayer(native.OriginalSha256, native.FilePath, layer);
+        if (problem == null) Interlocked.Increment(ref _layersSaved);
+        else
+        {
+            Volatile.Write(ref _lastSaveProblem, problem);
+            _logger?.LogWarning("Saving the {Source} names of {Id} failed: {Problem}", source.Id(), native.Id, problem);
+        }
+        return problem;
+    }
+
+    /// <summary>Deletes the saved layer of <paramref name="source"/>; true when there was one.</summary>
+    public bool ForgetImported(LoadedNative native, NativeNameSource source)
+    {
+        RestoreDone.TryAdd(native, new object());
+        return _store.DeleteLayer(native.OriginalSha256, source);
+    }
+
     /// <summary>Mirrors every saved name and comment onto a freshly built index so they show up in queries.</summary>
     public void ApplyAnnotations(LoadedNative native, NativeCodeIndex index)
     {
+        RestoreImported(native);
         NativeNameLayers.OfOrNull(native)?.ReplayInto(index);
         if (native.AnnotationsOrNull is not { } ann && (ann = Annotations(native)) is null) return;
         foreach (var (rva, name) in ann.Names()) index.SetUserName(rva, name);
@@ -104,12 +161,16 @@ public sealed class NativeCodeService
     private CodeIndexOptions? BuildOptions(LoadedNative native, CancellationToken ct)
     {
         IReadOnlyCollection<uint>? starts;
+        try { RestoreImported(native, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { _logger?.LogWarning(ex, "Restoring the saved names of {Id} failed", native.Id); }
         try { starts = SymbolStarts?.Invoke(native, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger?.LogWarning(ex, "Reading debug symbols of {Id} failed", native.Id);
             starts = null;
         }
+        // A saved PDB layer whose PDB is gone still contributes its function starts.
+        if (starts == null && NativeNameLayers.OfOrNull(native)?.Get(NativeNameSource.Pdb)?.Info?.FunctionStarts is { Count: > 0 } saved) starts = saved;
         // The native bodies of a mixed-mode assembly's methods are function starts.
         if (native.ManagedView is { } asm)
             starts = [.. starts ?? [], .. Native.Linking.MixedModeMap.Build(asm.Module, ct).Bodies.Values.Distinct()];

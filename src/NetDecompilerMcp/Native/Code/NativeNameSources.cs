@@ -153,9 +153,17 @@ public sealed class SourcedNames
 }
 
 /// <summary>
+/// Where a saved layer came from: the source file (PDB, global-metadata.dat, script.json or dummy assembly), its identity
+/// when imported (PDB "GUID age", else the file's SHA-256), when, the function starts it contributes to the code index
+/// (PDB), and whether this layer was read back from disk at load rather than imported in this session.
+/// </summary>
+public sealed record ImportInfo(string? SourcePath, string? SourceIdentity, DateTime ImportedUtc, IReadOnlyList<uint>? FunctionStarts = null, bool Restored = false);
+
+/// <summary>
 /// The imported (non-user) names and comments of a loaded image, one layer per source, each replaced or removed as a
 /// whole. Kept per <see cref="LoadedNative"/> so they survive in-memory patching (which rebuilds the code index) and
-/// replayed onto every newly built index; a reload starts without them.
+/// replayed onto every newly built index. Layers with <see cref="ImportInfo"/> (load_pdb, apply_il2cpp_names) are also
+/// saved beside the image's annotations and restored when the image is loaded again.
 /// </summary>
 public sealed class NativeNameLayers
 {
@@ -164,7 +172,9 @@ public sealed class NativeNameLayers
     private readonly Dictionary<NativeNameSource, Layer> _layers = new();
 
     /// <summary>One source's names and comments by RVA, with where they came from (for reports).</summary>
-    public sealed record Layer(NativeNameSource Source, IReadOnlyDictionary<uint, string> Names, IReadOnlyDictionary<uint, string> Comments, string Origin);
+    /// <param name="Info">Provenance of an import that is saved with the image's annotations; null for layers not saved.</param>
+    public sealed record Layer(NativeNameSource Source, IReadOnlyDictionary<uint, string> Names, IReadOnlyDictionary<uint, string> Comments, string Origin,
+        ImportInfo? Info = null);
 
     public static NativeNameLayers Of(LoadedNative native) => Table.GetValue(native, _ => new NativeNameLayers());
 

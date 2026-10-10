@@ -76,6 +76,13 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
                     (c.LastError != null ? $"; last problem: {c.LastError}" : ""), null)
                 : new("saved native code indexes", false, "off: every image's code index is built when it is opened",
                     "start the server without --index-cache off (and without NDM_CODE_INDEX_CACHE=off)"));
+        if (code != null)
+        {
+            var s = code.ImportStats;
+            capabilities.Add(new("saved imported names (load_pdb, apply_il2cpp_names)", true,
+                $"on: {code.AnnotationRoot}; this session {s.LayersRestored} layer(s) restored on load ({s.NamesRestored} names), {s.LayersSaved} saved" +
+                (s.LastProblem != null ? $"; last problem: {s.LastProblem}" : ""), null));
+        }
         int loaded = workspace.Read(() => workspace.Assemblies.Count + workspace.Natives.Count);
         return new ServerStatus(typeof(ServerOptions).Assembly.GetName().Version?.ToString(3) ?? "?", digest, expected ? difference == null : null, difference,
             toolCount, loaded, indexing.Status, options.MaxOutputChars, options.TimeoutSeconds, Environment.WorkingSet / (1024 * 1024), capabilities,
