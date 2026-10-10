@@ -51,9 +51,9 @@ From source instead: `./publish.ps1`, then `publish/NetDecompilerMcp install`.
 
 ## What it covers
 
-**MCP features:** 97 tools (every one with a title and read-only / destructive / closed-world annotations),
+**MCP features:** 97 tools (every one with a title; read-only / destructive / idempotent / open-world annotations and a long-running marker all come from one audited table, `src/NetDecompilerMcp/Mcp/ToolEffects.cs`, checked by the tests against what each tool does),
 resources and resource templates, 9 prompts, argument completion, progress notifications, structured output
-(`list_assemblies`, `unpack_container`, `search_container`, `summarize_file`, `survey_features`, `extract_strings`, `extract_embedded`, `server_status` and the newer native tools), typed errors (`Error (<code>) in <tool>: ...` with a `Next:` step), a response-size guard (`read_result` pages through anything larger), cancellation, server instructions, and workspace notices (files reloaded from disk) at the top
+(the list, search and info tools agents chain: items / offset / total / truncated beside the readable text; also `list_assemblies`, `unpack_container`, `search_container`, `summarize_file`, `survey_features`, `extract_strings`, `extract_embedded`, `server_status` and the native tools), typed errors (`Error (<code>) in <tool>: ...` with a `Next:` step, followed by the same error as JSON: code, retryable, message, next, partial results found before a time limit or cancellation, details), a stale-server check (`server_status expectedCatalogDigest=...`; the digest covers tools, schemas, annotations and prompts; `NetDecompilerMcp doctor` compares the installed server with the build), a response-size guard (`read_result` pages through anything larger), cancellation, server instructions, and workspace notices (files reloaded from disk) at the top
 of the next tool result, plus best-effort `resources/list_changed` and log notifications.
 
 | Area | Tools |
