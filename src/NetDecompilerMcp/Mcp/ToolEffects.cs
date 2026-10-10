@@ -150,6 +150,8 @@ public static class ToolEffects
         ["set_native_local"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true),
         ["set_native_stack_var"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true),
         ["get_native_frame"] = Reads(longRunning: true, openWorld: true),
+        ["declare_native_types"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true), // replaces a type of the same name
+        ["list_native_types"] = Reads(longRunning: true, openWorld: true),
         ["patch_bytes"] = Changes(destructive: true, idempotent: false, longRunning: true),
         ["patch_asm"] = Changes(destructive: true, idempotent: false, longRunning: true),
         ["list_native_edits"] = Reads(longRunning: true),

@@ -162,6 +162,43 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
     }
 
     [IdaFact]
+    public async Task Declared_types_list_win_over_recovered_types_and_reach_a_new_database()
+    {
+        var rig = Setup("cache-d");
+        var declared = await rig.Types.DeclareNativeTypes(Image, "struct NdmPacket { int length; char data[16]; };\nenum NdmKind { NdmA = 1, NdmB = 2 };");
+        output.WriteLine(declared);
+        Assert.Contains("NdmPacket", declared);
+        Assert.Contains("NdmKind", declared);
+        var bad = await Assert.ThrowsAsync<ToolError>(() => rig.Types.DeclareNativeTypes(Image, "struct NdmBad { unknown_t x; };"));
+        output.WriteLine(bad.Message);
+        Assert.Equal(ErrorCode.InvalidArgument, bad.Code);
+        Assert.Contains("unknown_t", bad.Message);
+        Assert.Single(rig.Code.Annotations(rig.Native).UserTypes.Declarations);
+
+        var list = await rig.Types.ListNativeTypes(Image, filter: "ndm");
+        output.WriteLine(list);
+        Assert.Contains("struct NdmPacket  20 bytes  2 members", list);
+        Assert.Contains("enum NdmKind", list);
+        Assert.DoesNotContain("NdmBad", await rig.Types.ListNativeTypes(Image, filter: "ndm", kind: "struct"));
+        var detail = await rig.Types.ListNativeTypes(Image, name: "NdmPacket");
+        output.WriteLine(detail);
+        Assert.Contains("+0x4  data  char[16]  16", detail);
+        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.ListNativeTypes(Image, name: "NoSuchNdmType"))).Code);
+
+        // the declared type is usable, and a recovered type of the same name does not replace it
+        var data = rig.Native.Image.Sections.First(s => !s.IsExecutable && s.Name == ".data");
+        Assert.Contains("NdmPacket", await rig.Types.SetNativeType(Image, $"rva:0x{data.Rva:X}", "NdmPacket"));
+        var session = await rig.Session();
+        await session.ApplyTypesAsync(new NativeTypeBatch("struct NdmPacket { char replaced; };", [], [], [], 8));
+        Assert.Contains(session.GetTypeAsync("NdmPacket").Result.Members, m => m.Name == "length");
+
+        foreach (var d in _owned) d.Dispose();
+        _owned.Clear();
+        var fresh = Setup("cache-e");
+        Assert.Contains("+0x4  data  char[16]  16", await fresh.Types.ListNativeTypes(Image, name: "NdmPacket"));
+    }
+
+    [IdaFact]
     public async Task Recovered_types_never_replace_user_types()
     {
         var rig = Setup("cache-c");

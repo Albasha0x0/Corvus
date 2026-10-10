@@ -119,6 +119,14 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     Task<NativeFrame> GetFrameAsync(uint rva, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not report stack frames.");
 
+    /// <summary>Named types whose name contains <paramref name="filter"/> (case-insensitive), of <paramref name="kind"/> when given, paged.</summary>
+    Task<NativeTypeList> ListTypesAsync(string? filter, string? kind, int offset, int limit, CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not list types.");
+
+    /// <summary>One named type (NotFound when there is none).</summary>
+    Task<NativeTypeDetail> GetTypeAsync(string name, CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not list types.");
+
     /// <summary>References to <paramref name="rva"/> (ordinary flow excluded).</summary>
     Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default);
 
@@ -323,8 +331,24 @@ public sealed record NativeUserTypeBatch(IReadOnlyList<string> Declarations, IRe
 /// </summary>
 public sealed record NativeUserTypeOutcome(string Kind, uint Rva, string Target, bool Applied, string? Error, string? Resolved, int? Stack, string? Text);
 
-/// <summary>Result of <see cref="INativeDecompilerSession.ApplyUserTypesAsync"/>: declaration errors with the engine's messages, and each item's outcome.</summary>
-public sealed record UserTypeResult(int DeclarationErrors, IReadOnlyList<string> DeclarationMessages, IReadOnlyList<NativeUserTypeOutcome> Items, TimeSpan Elapsed);
+/// <summary>
+/// Result of <see cref="INativeDecompilerSession.ApplyUserTypesAsync"/>: declaration errors with the engine's messages, the
+/// type names the declarations made, and each item's outcome.
+/// </summary>
+public sealed record UserTypeResult(int DeclarationErrors, IReadOnlyList<string> DeclarationMessages, IReadOnlyList<string> DeclaredTypes,
+    IReadOnlyList<NativeUserTypeOutcome> Items, TimeSpan Elapsed);
+
+/// <summary>A named type of the engine: kind struct, union, enum, typedef, func or other; size -1 when unknown; members of a struct, union or enum.</summary>
+public sealed record NativeTypeEntry(string Name, string Kind, long Size, int Members);
+
+/// <summary>Named types matching a query, one page of them.</summary>
+public sealed record NativeTypeList(int Total, IReadOnlyList<NativeTypeEntry> Types);
+
+/// <summary>A struct or union member at <see cref="Offset"/> bytes.</summary>
+public sealed record NativeTypeMember(long Offset, string Name, string Type, long Size);
+
+/// <summary>One named type: its C declaration as the engine prints it, and its members (structs and unions).</summary>
+public sealed record NativeTypeDetail(string Name, string Kind, long Size, string Declaration, IReadOnlyList<NativeTypeMember> Members);
 
 /// <summary>A stack frame member at <see cref="Offset"/> bytes from the frame's lowest address; <see cref="Kind"/> local, arg or special (return address, saved registers).</summary>
 public sealed record NativeFrameMember(int Offset, string Name, string Type, int Size, string Kind);

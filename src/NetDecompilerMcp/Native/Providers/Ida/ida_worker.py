@@ -516,6 +516,8 @@ def op_apply_types(args):
     model = args.get("classes")
     if model:
         apply_classes(m, ti, til, model, result)
+    if decls or model:
+        reapply_user_decls()
     changed(m)
     key = args.get("stamp_key")
     if key:
@@ -726,7 +728,7 @@ def op_virtual_targets(args):
     return {"rows": rows, "decompiled": decompiled, "failed": failed, "skipped": skipped, "decompiler": True}
 
 
-USER_NODE = "$ netdecompilermcp user types"  # altval(rva) = 1: a type set by the user, kept by apply_types
+USER_NODE = "$ netdecompilermcp user types"  # altval(rva) = 1: a type set by the user; blob 'D': the user's declarations
 
 
 def user_node(create):
@@ -967,13 +969,128 @@ def apply_stack(m, ti, rva, offset, name, typ):
     return ["stack", rva, target, True, None, old, offset, "%s %s" % (got[0].type, got[0].name) if got else None]
 
 
+def parse_decls_reporting(text):
+    # (errors, error messages, declared type names). On Windows the kernel's parse_decls runs through ctypes with a printer
+    # that collects IDA's messages; elsewhere idc.parse_decls, with names found in the text.
+    import idc
+    import ida_typeinf as ti
+    if os.name == "nt":
+        try:
+            import ctypes
+            kernel = ctypes.CDLL("ida")
+            kernel.parse_decls.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_int]
+            kernel.parse_decls.restype = ctypes.c_int
+            lines = []
+
+            @ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_char_p, ctypes.c_char_p)
+            def printer(fmt, arg):
+                lines.append((fmt or b"").replace(b"%s", arg or b"").decode("utf-8", "replace"))
+                return 0
+
+            errors = kernel.parse_decls(None, text.encode("utf-8"), printer, ti.PT_SIL | ti.PT_EMPTY | ti.PT_TYP)
+            names = []
+            for line in lines:
+                for prefix in ("// struct tag: '", "// typedef: "):
+                    if line.startswith(prefix):
+                        names.append(line[len(prefix):].split("'")[0].split(" =")[0].strip())
+            return errors, [l.strip() for l in lines if not l.startswith("//")], names
+        except (OSError, AttributeError):
+            pass
+    import re
+    errors = idc.parse_decls(text, idc.PT_SILENT | idc.PT_REPLACE)
+    names = re.findall(r"\b(?:struct|union|enum|class)\s+([A-Za-z_]\w*)\s*[{:]", text)
+    names += re.findall(r"\btypedef\b[^;{]*?\b([A-Za-z_]\w*)\s*(?:\[[^;]*\])?\s*;", text)
+    return errors, [], names
+
+
+def type_kind(ti, t):
+    if t.is_enum():
+        return "enum"
+    if t.is_typedef():
+        return "typedef"
+    if t.is_func():
+        return "func"
+    if t.is_udt():
+        return "union" if t.is_union() else "struct"
+    return "other"
+
+
+def op_types(args):
+    # named local types: rows [name, kind, size, members]; filter is a case-insensitive substring
+    need_open()
+    import ida_typeinf as ti
+    til = ti.get_idati()
+    wanted = (args.get("filter") or "").lower()
+    kind = args.get("kind") or None
+    offset, limit = max(0, int(args.get("offset") or 0)), max(1, int(args.get("limit") or 200))
+    rows, total = [], 0
+    for ordinal in range(1, ti.get_ordinal_limit(til)):
+        t = ti.tinfo_t()
+        if not t.get_numbered_type(til, ordinal):
+            continue
+        name = t.get_type_name()
+        if not name or (wanted and wanted not in name.lower()):
+            continue
+        k = type_kind(ti, t)
+        if kind and k != kind:
+            continue
+        total += 1
+        if offset < total <= offset + limit:
+            rows.append([name, k, t.get_size() if t.get_size() != ti.BADSIZE else -1, t.get_udt_nmembers() if t.is_udt() else (t.get_enum_nmembers() if t.is_enum() else 0)])
+    return {"total": total, "rows": rows}
+
+
+def op_type(args):
+    # one named type: its C declaration and, for a struct or union, members [offset, name, type, size]
+    need_open()
+    import ida_typeinf as ti
+    name = args.get("name") or ""
+    t = ti.tinfo_t()
+    if not name or not t.get_named_type(ti.get_idati(), name):
+        raise WorkerError("not_found", "no type named %s" % name)
+    members = []
+    if t.is_udt():
+        udt = ti.udt_type_data_t()
+        t.get_udt_details(udt)
+        for u in udt:
+            if not u.is_gap():
+                members.append([u.offset // 8, u.name, str(u.type), u.size // 8])
+    decl = ti.print_tinfo("", 0, 0, ti.PRTYPE_MULTI | ti.PRTYPE_TYPE | ti.PRTYPE_DEF | ti.PRTYPE_SEMI, t, name, "") or str(t)
+    size = t.get_size()
+    return {"name": name, "kind": type_kind(ti, t), "size": size if size != ti.BADSIZE else -1, "decl": decl, "members": members}
+
+
+def reapply_user_decls():
+    # the user's declarations (blob 'D' of USER_NODE) win over recovered types of the same name
+    n = user_node(False)
+    blob = n.getblob(0, "D") if n is not None else None
+    if blob:
+        import idc
+        idc.parse_decls(blob.decode("utf-8", "replace"), idc.PT_SILENT | idc.PT_REPLACE)
+
+
 def op_apply_user_types(args):
     # decls: [C declarations]; types: [[rva, C type or prototype; "" clears]]; stack: [[function, offset, name, type]];
     # locals: [[function, local, stack offset or null, name, type]]. Items report [kind, rva, target, applied, error, resolved, stack, text].
     m = need_open()
     import ida_typeinf as ti
     start = time.time()
-    result = {"decl_errors": 0, "decl_messages": [], "items": []}
+    result = {"decl_errors": 0, "decl_messages": [], "declared": [], "items": []}
+    decls = [d.strip() for d in args.get("decls") or [] if d and d.strip()]
+    if decls:
+        node = user_node(True)
+        kept = node.getblob(0, "D")
+        kept = kept.decode("utf-8", "replace") if kept else ""
+        for d in decls:
+            errors, messages, names = parse_decls_reporting(d)
+            result["decl_errors"] += errors
+            result["decl_messages"] += messages[:50 - len(result["decl_messages"])]
+            for n in names:
+                if n not in result["declared"]:
+                    result["declared"].append(n)
+            if errors == 0 and d not in kept:
+                kept += d + "\n"
+        node.setblob(kept.encode("utf-8"), 0, "D")
     for rva, decl in args.get("types") or []:
         result["items"].append(apply_user_type(m, ti, rva, decl or ""))
     for rva, offset, name, typ in args.get("stack") or []:
@@ -1117,7 +1234,7 @@ OPS = {"hello": op_hello, "open": op_open, "rebase": op_rebase, "functions": op_
        "disasm": op_disasm, "disasm_range": op_disasm_range, "blocks": op_blocks, "xrefs_to": op_xrefs_to, "xrefs_from": op_xrefs_from, "set_name": op_set_name,
        "set_comment": op_set_comment, "apply_names": op_apply_names, "get_stamp": op_get_stamp, "save": op_save,
        "sync_patches": op_sync_patches, "apply_types": op_apply_types, "load_pdb": op_load_pdb, "virtual_targets": op_virtual_targets,
-       "apply_user_types": op_apply_user_types, "frame": op_frame, "close": op_close, "sleep": op_sleep}
+       "apply_user_types": op_apply_user_types, "frame": op_frame, "types": op_types, "type": op_type, "close": op_close, "sleep": op_sleep}
 
 
 def watch_parent(parent):

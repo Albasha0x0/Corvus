@@ -11,8 +11,9 @@ using NetDecompilerMcp.Services;
 namespace NetDecompilerMcp.Tools;
 
 /// <summary>
-/// The user's types in the decompiler engine: prototypes and global types. Every edit is kept in the image's annotation
-/// sidecar (re-applied to a new database, exported, carried to new builds).
+/// The user's types in the decompiler engine (declarations, prototypes and global types, locals, stack variables) and a
+/// view of the engine's types and frames. Every edit is kept in the image's annotation sidecar (re-applied to a new
+/// database, exported, carried to new builds).
 /// </summary>
 [McpServerToolType]
 public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineService engines, NativeUserTypePush userTypes, NativeCodeService? code = null,
@@ -107,7 +108,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     [McpServerTool(Name = "set_native_type", Title = "Set a native prototype or global type")]
     [Description("Set the type of a native function (its prototype, e.g. 'int __fastcall Parse(Packet *p, int len)') or of a global (e.g. " +
                  "'Config', 'char[64]', 'Handler *[8]') in the decompiler engine (IDA). Named types must exist there (the PDB, RTTI and Il2Cpp types " +
-                 "decompile_native pushes). User types win over recovered ones. An empty type clears it." + KeptNote)]
+                 "decompile_native pushes, or declare_native_types). User types win over recovered ones. An empty type clears it." + KeptNote)]
     public Task<string> SetNativeType(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("A function start or a global: " + NativeTools.AddressDescription)] string address,
@@ -152,6 +153,71 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         return $"Local {done.Resolved} of the function at {Va(native, done.Rva)}{(done.Stack is { } k ? $" (stack 0x{k:X})" : "")} is now: {done.Text}";
     });
 
+    [McpServerTool(Name = "declare_native_types", Title = "Declare C types in the engine")]
+    [Description("Declare C types (structs, unions, enums, typedefs, function pointer types) in the decompiler engine (IDA) from C declarations, " +
+                 "e.g. 'struct Packet { int length; char data[256]; };'. A type of the same name is replaced, and user declarations win over the " +
+                 "recovered PDB, RTTI and Il2Cpp types of that name. Declarations with errors are reported with the engine's messages and not saved. " +
+                 "Use the types with set_native_type, set_native_local and set_native_stack_var." + KeptNote)]
+    public Task<string> DeclareNativeTypes(
+        [Description(NativeTools.ImageDescription)] string image,
+        [Description("C declarations, several allowed; types they name must exist or be declared in the same text.")] string declarations,
+        [Description(EngineDescription)] string? engine = null,
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
+    {
+        var text = (declarations ?? "").Trim();
+        if (text.Length == 0) throw new ToolError(ErrorCode.InvalidArgument, "No declarations given.", "pass C declarations such as 'struct S { int a; };'");
+        var (native, _, session) = await Open(image, "rva:0", engine, progress, cancellationToken);
+        var result = await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch([text], [], [], []),
+            (r, layer) => r.DeclarationErrors == 0 ? layer.WithDeclarations(text) : null, cancellationToken);
+        if (result.DeclarationErrors > 0)
+            throw new ToolError(ErrorCode.InvalidArgument, $"{result.DeclarationErrors} error(s) in the declarations" +
+                (result.DeclarationMessages.Count > 0 ? ": " + string.Join("; ", result.DeclarationMessages) : "."), "fix the declarations and declare them again");
+        return result.DeclaredTypes.Count == 0 ? "Declared (the engine reported no type names)."
+            : $"Declared {result.DeclaredTypes.Count} type(s): {string.Join(", ", result.DeclaredTypes.Distinct())}";
+    });
+
+    [McpServerTool(Name = "list_native_types", Title = "Browse the engine's types")]
+    [Description("The named types of the decompiler engine's database (IDA local types: from the PDB, RTTI classes, Il2Cpp, IDA's type " +
+                 "libraries and declare_native_types), filtered by name and kind, with size and member count; name= shows one type as a C " +
+                 "declaration with its members' offsets.")]
+    public Task<string> ListNativeTypes(
+        [Description(NativeTools.ImageDescription)] string image,
+        [Description("Only types whose name contains this text (case-insensitive).")] string? filter = null,
+        [Description("Only this kind: struct, union, enum, typedef or func.")] string? kind = null,
+        [Description("Show this one type in full instead of a list.")] string? name = null,
+        [Description("Index of the first row.")] int offset = 0,
+        [Description("Max rows (default 200, max 5000).")] int limit = 200,
+        [Description(EngineDescription)] string? engine = null,
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
+    {
+        var k = string.IsNullOrWhiteSpace(kind) ? null : kind.Trim().ToLowerInvariant();
+        if (k is not (null or "struct" or "union" or "enum" or "typedef" or "func"))
+            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown kind '{kind}'.", "use struct, union, enum, typedef or func");
+        var (_, _, session) = await Open(image, "rva:0", engine, progress, cancellationToken);
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            var t = await session.GetTypeAsync(name.Trim(), cancellationToken);
+            var sb = new System.Text.StringBuilder($"{t.Kind} {t.Name}" + (t.Size >= 0 ? $", {t.Size} bytes" : "") + "\n" + t.Declaration.TrimEnd() + "\n");
+            if (t.Members.Count > 0)
+            {
+                sb.AppendLine("Members (offset  name  type  size):");
+                foreach (var m in t.Members) sb.AppendLine($"  +0x{m.Offset:X}  {m.Name}  {m.Type}  {m.Size}");
+            }
+            return sb.ToString();
+        }
+        offset = Math.Max(0, offset);
+        limit = Math.Clamp(limit, 1, 5000);
+        var list = await session.ListTypesAsync(string.IsNullOrWhiteSpace(filter) ? null : filter.Trim(), k, offset, limit, cancellationToken);
+        var text = new System.Text.StringBuilder($"{list.Total} type(s)" + (filter != null ? $" matching '{filter.Trim()}'" : "") + (k != null ? $" of kind {k}" : "") +
+                                                 (list.Types.Count < list.Total ? $"; rows {offset + 1}-{offset + list.Types.Count}" : "") + "\n");
+        foreach (var t in list.Types)
+            text.AppendLine($"  {t.Kind} {t.Name}" + (t.Size >= 0 ? $"  {t.Size} bytes" : "") + (t.Members > 0 ? $"  {t.Members} members" : ""));
+        if (offset + list.Types.Count < list.Total) text.AppendLine($"More: offset={offset + list.Types.Count}");
+        return text.ToString();
+    });
+
     /// <summary>A local named as "stack:0x28" (by stack offset) or by its name.</summary>
     internal static (string Local, int? Stack) LocalTarget(string text)
     {
@@ -176,7 +242,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         var item = result.Items.Count == 1 ? result.Items[0] : throw new ToolError(ErrorCode.Failed, "The engine did not report the edit.");
         if (!item.Applied)
             throw new ToolError(ErrorCode.InvalidArgument, item.Error ?? "The engine did not apply the edit.",
-                "check the spelling; types it names must exist in the engine");
+                "check the spelling; list_native_types shows the engine's types and declare_native_types adds missing ones");
         return item;
     }
 }

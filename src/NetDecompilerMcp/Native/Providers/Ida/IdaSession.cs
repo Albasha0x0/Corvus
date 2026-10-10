@@ -456,7 +456,22 @@ internal sealed class IdaSession : INativeDecompilerSession
         var items = r.GetProperty("items").EnumerateArray().Select(i => new NativeUserTypeOutcome(i[0].GetString() ?? "", i[1].GetUInt32(), i[2].GetString() ?? "",
             i[3].GetBoolean(), Text(i[4]), Text(i[5]), i[6].ValueKind == JsonValueKind.Number ? i[6].GetInt32() : null, Text(i[7]))).ToList();
         return new UserTypeResult(r.GetProperty("decl_errors").GetInt32(), r.GetProperty("decl_messages").EnumerateArray().Select(m => m.GetString() ?? "").ToList(),
-            items, TimeSpan.FromSeconds(r.GetProperty("seconds").GetDouble()));
+            r.GetProperty("declared").EnumerateArray().Select(m => m.GetString() ?? "").ToList(), items, TimeSpan.FromSeconds(r.GetProperty("seconds").GetDouble()));
+    }
+
+    public async Task<NativeTypeList> ListTypesAsync(string? filter, string? kind, int offset, int limit, CancellationToken cancellationToken = default)
+    {
+        var r = await CallAsync("types", IdaProvider.Args(("filter", filter), ("kind", kind), ("offset", offset), ("limit", limit)), cancellationToken).ConfigureAwait(false);
+        return new NativeTypeList(r.GetProperty("total").GetInt32(), r.GetProperty("rows").EnumerateArray()
+            .Select(x => new NativeTypeEntry(x[0].GetString() ?? "", x[1].GetString() ?? "", x[2].GetInt64(), x[3].GetInt32())).ToList());
+    }
+
+    public async Task<NativeTypeDetail> GetTypeAsync(string name, CancellationToken cancellationToken = default)
+    {
+        var r = await CallAsync("type", IdaProvider.Args(("name", name)), cancellationToken).ConfigureAwait(false);
+        return new NativeTypeDetail(r.GetProperty("name").GetString() ?? name, r.GetProperty("kind").GetString() ?? "", r.GetProperty("size").GetInt64(),
+            r.GetProperty("decl").GetString() ?? "", r.GetProperty("members").EnumerateArray()
+                .Select(x => new NativeTypeMember(x[0].GetInt64(), x[1].GetString() ?? "", x[2].GetString() ?? "", x[3].GetInt64())).ToList());
     }
 
     private static string? Text(JsonElement e) => e.ValueKind == JsonValueKind.String ? e.GetString() : null;
