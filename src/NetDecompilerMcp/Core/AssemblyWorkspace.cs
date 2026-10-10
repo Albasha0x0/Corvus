@@ -161,8 +161,8 @@ public sealed class AssemblyWorkspace : IDisposable
         }
         catch (ToolError ex) when (ex.Code == ErrorCode.Unsupported)
         {
-            var image = Native.Pe.PeFile.Open(full);
-            if (image.IsDotNet) throw;
+            var image = Native.NativeImageLoader.Open(full);
+            if (image is Native.Pe.PeFile { IsDotNet: true }) throw;
             int before = _natives.Count;
             var native = Write(() => LoadNativeCore(full, image));
             if (_natives.Count != before) NativeLoaded?.Invoke(native);
@@ -170,7 +170,7 @@ public sealed class AssemblyWorkspace : IDisposable
         }
     }
 
-    private LoadedNative LoadNativeCore(string full, Native.Pe.PeFile image)
+    private LoadedNative LoadNativeCore(string full, Native.INativeImage image)
     {
         var existing = _natives.FirstOrDefault(n => InputFiles.SamePath(n.FilePath, full));
         if (existing != null) return existing;
@@ -269,7 +269,7 @@ public sealed class AssemblyWorkspace : IDisposable
     /// <summary>Re-reads a native image from disk, discarding its analysis state.</summary>
     public LoadedNative ReloadNative(LoadedNative native)
     {
-        var image = Native.Pe.PeFile.Open(native.FilePath);
+        var image = Native.NativeImageLoader.Open(native.FilePath);
         var fresh = Write(() =>
         {
             int index = _natives.IndexOf(native);

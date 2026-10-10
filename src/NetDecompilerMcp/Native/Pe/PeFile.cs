@@ -77,6 +77,7 @@ public sealed partial class PeFile : INativeImage
         InitAreas();
     }
 
+    public ImageFormat Format => ImageFormat.Pe;
     public string Path { get; }
     public string Sha256 { get; }
     /// <summary>Length of the file snapshot.</summary>
@@ -107,6 +108,18 @@ public sealed partial class PeFile : INativeImage
     public IReadOnlyList<string> DllCharacteristicNames => PeNames.DllCharacteristics(Optional.DllCharacteristics);
 
     public IReadOnlyList<NativeSection> Sections => sections;
+
+    /// <summary>Import and delay-import module names, first occurrence order.</summary>
+    public IReadOnlyList<string> Dependencies =>
+        [.. ImportModules.Concat(DelayImportModules).Select(m => m.Name).Distinct(StringComparer.OrdinalIgnoreCase)];
+
+    /// <summary>CodeView GUID and age (RSDS), or timestamp and age (NB10), as a symbol store key in lowercase.</summary>
+    public string? BuildId => CodeView switch
+    {
+        { Format: "RSDS" } cv => cv.Guid.ToString("N") + cv.Age.ToString("x"),
+        { } cv => cv.Timestamp.ToString("x8") + cv.Age.ToString("x"),
+        null => null,
+    };
     /// <summary>Loader view of each section, in section table order.</summary>
     public IReadOnlyList<PeSectionLayout> SectionLayouts => layouts;
 

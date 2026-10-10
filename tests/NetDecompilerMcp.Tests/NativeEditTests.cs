@@ -446,7 +446,7 @@ public class NativeEditTests(ITestOutputHelper output)
         Assert.Contains("Undid", undo);
         Assert.Contains("no native edits", h.Edits.List(native));
         // After undo the original bytes are back.
-        Assert.Equal(0xB8, native.Image.FileBytes.Span[(int)Offset(native, entry)]);
+        Assert.Equal(0xB8, native.Pe!.FileBytes.Span[(int)Offset(native, entry)]);
     }
 
     [Fact]

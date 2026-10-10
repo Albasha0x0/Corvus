@@ -22,6 +22,12 @@ internal sealed class ByteImage(INativeImage inner, uint windowRva, byte[] windo
     public IReadOnlyList<uint> RelocationRvas => inner.RelocationRvas;
     public IReadOnlyList<uint> TlsCallbackRvas => inner.TlsCallbackRvas;
     public IReadOnlyList<ParseIssue> Issues => inner.Issues;
+    public ImageFormat Format => inner.Format;
+    public IReadOnlyList<ImageSymbol> Symbols => inner.Symbols;
+    public IReadOnlyList<DeclaredFunction> DeclaredFunctions => inner.DeclaredFunctions;
+    public IReadOnlyList<string> Dependencies => inner.Dependencies;
+    public string? BuildId => inner.BuildId;
+    public IReadOnlyList<EncryptedRange> EncryptedRanges => inner.EncryptedRanges;
 
     public int Read(uint rva, Span<byte> destination)
     {

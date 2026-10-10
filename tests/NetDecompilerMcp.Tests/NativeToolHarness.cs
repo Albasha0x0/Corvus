@@ -115,7 +115,7 @@ internal sealed class NativeToolHarness : IDisposable
     private async Task Body(string path, LoadedNative native, bool ida, TimeSpan? indexLimit)
     {
         var id = native.Id;
-        var pe = native.Image;
+        var pe = native.Pe!;
         string Va(uint rva) => $"0x{pe.ImageBase + rva:X}";
 
         await Run(path, "get_pe_info", "", ct => Native.GetPeInfo(id, cancellationToken: ct), mustSucceed: true);

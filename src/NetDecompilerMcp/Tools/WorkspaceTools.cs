@@ -63,7 +63,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
             if (native != null && loaded == null)
             {
                 var image = native.Image;
-                return $"Loaded native image {native.Id}: {image.MachineName} {(image.IsDll ? "DLL" : "executable")}, {image.SubsystemName}\n  {native.FilePath}\n  " +
+                return $"Loaded native image {native.Id}: {image.MachineName} {(image.IsDll ? "DLL" : "executable")}{(image is Native.Pe.PeFile pe ? ", " + pe.SubsystemName : "")}\n  {native.FilePath}\n  " +
                        $"{Plural(image.Sections.Count, "section")}, {Plural(image.Imports.Count, "import")}, {Plural(image.Exports.Count, "export")}" +
                        (image.RuntimeFunctions.Count > 0 ? $", {Plural(image.RuntimeFunctions.Count, "unwind entry")}" : "") +
                        (image.Issues.Count > 0 ? $"\n  {Plural(image.Issues.Count, "parse issue")} (get_pe_info lists them)" : "") + providers +

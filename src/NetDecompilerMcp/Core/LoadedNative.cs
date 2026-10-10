@@ -1,16 +1,17 @@
+using NetDecompilerMcp.Native;
 using NetDecompilerMcp.Native.Annotations;
 using NetDecompilerMcp.Native.Patching;
 using NetDecompilerMcp.Native.Pe;
 
 namespace NetDecompilerMcp.Core;
 
-/// <summary>A native PE image in the workspace (no .NET metadata, or loaded for its native code).</summary>
+/// <summary>A native image in the workspace (no .NET metadata, or loaded for its native code).</summary>
 public sealed class LoadedNative
 {
     private readonly object _gate = new();
     private readonly CancellationTokenSource _released = new();
 
-    internal LoadedNative(string id, string filePath, PeFile image)
+    internal LoadedNative(string id, string filePath, INativeImage image)
     {
         Id = id;
         FilePath = filePath;
@@ -29,7 +30,19 @@ public sealed class LoadedNative
     public LoadedAssembly? ManagedView { get; internal init; }
 
     /// <summary>The current image: the file as loaded, or, once bytes have been patched in memory, the patched image.</summary>
-    public PeFile Image { get; private set; }
+    public INativeImage Image { get; private set; }
+
+    /// <summary>The current image when it is a PE file, else null.</summary>
+    public PeFile? Pe => Image as PeFile;
+
+    /// <summary>The current image as a PE file, for tools that read PE-only structures; other formats fail with reason pe_only.</summary>
+    public PeFile RequirePe(string what) => Image as PeFile ?? throw PeOnly(Image, what);
+
+    /// <summary>The error for a PE-only operation on an ELF or Mach-O image.</summary>
+    public static ToolError PeOnly(INativeImage image, string what) =>
+        new(ErrorCode.Unsupported, $"{what} needs a PE image; {Path.GetFileName(image.Path)} is {(image.Format == ImageFormat.Elf ? "an ELF" : "a Mach-O")} image.",
+            "use the format-neutral native tools (list_imports, list_exports, list_functions, disassemble) for this image")
+        { Details = new { reason = "pe_only", format = image.Format.ToString() } };
 
     /// <summary>SHA-256 of the file as first loaded; the key for annotations, stable across in-memory patches.</summary>
     public string OriginalSha256 { get; }
@@ -78,7 +91,7 @@ public sealed class LoadedNative
     {
         get
         {
-            lock (_gate) return _patches ??= new NativePatchSet(Image.FileBytes.Span);
+            lock (_gate) return _patches ??= new NativePatchSet(RequirePe("byte patching").FileBytes.Span);
         }
     }
     private NativePatchSet? _patches;
@@ -100,7 +113,7 @@ public sealed class LoadedNative
     /// Replaces the current image with <paramref name="image"/> (built from patched bytes) and discards cached analysis
     /// so the code index and engine sessions rebuild against the patched bytes. Patches and annotations are kept.
     /// </summary>
-    internal void ReplaceImage(PeFile image)
+    internal void ReplaceImage(INativeImage image)
     {
         lock (_gate)
         {

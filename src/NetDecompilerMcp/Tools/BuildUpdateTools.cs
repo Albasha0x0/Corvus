@@ -311,7 +311,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
             return;
         }
         PdbLocation location;
-        try { location = await Task.Run(() => PdbLocator.Locate(newNative.Image), ct); }
+        try { location = await Task.Run(() => PdbLocator.Locate(newNative.RequirePe("carrying a PDB")), ct); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ToolError) { location = new PdbLocation(null, [new PdbProbe("-", ex.Message)], []); }
         if (location.Path is { } path)
         {
@@ -333,7 +333,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
             categories[Pdb] = (Status(dryRun), $"old: {oldWhat}", null);
             return;
         }
-        var cv = newNative.Image.CodeView;
+        var cv = newNative.Pe?.CodeView;
         var detail = $"no PDB matching {newNative.Id} (" + (cv is { Format: "RSDS" } ? $"wants {cv.Guid:D} age {cv.Age}" : "no RSDS debug record") +
                      $"); looked in: {string.Join("; ", location.Probes.Take(4).Select(p => $"{p.Location}: {p.Outcome}"))}";
         if (oldLayer != null || oldState != null)

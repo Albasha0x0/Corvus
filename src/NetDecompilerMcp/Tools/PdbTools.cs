@@ -32,7 +32,7 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs, Outpu
         if (PdbService.StateOf(native) is { } s)
             return $"PDB loaded: {s.Path} ({(s.Verified ? "GUID and age match" : "not verified")}{(s.Automatic ? ", found automatically" : "")}), " +
                    $"{Plural(s.Names.Count, "name")} (search_pdb_symbols)";
-        if (native.Image.CodeView is not { Format: "RSDS" }) return null;
+        if (native.Pe?.CodeView is not { Format: "RSDS" }) return null;
         if (PdbService.AutoSearchOf(native) is { } search)
             return $"PDB not found locally ({Plural(search.Probes.Count, "place")} searched); load_pdb with a path, or download=true";
         return "PDB not loaded (load_pdb)";
@@ -74,7 +74,7 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs, Outpu
         var r = await pdbs.Load(native, path, download, server, force, timeout, maxBytes, cancellationToken);
         if (r.State is not { } s)
         {
-            var why = native.Image.CodeView is { Format: "RSDS" } cv
+            var why = native.Pe?.CodeView is { Format: "RSDS" } cv
                 ? $"No PDB matching {native.Id} (GUID {cv.Guid:D}, age {cv.Age}, {cv.PdbPath}) was found."
                 : $"{native.Id} has no PDB 7.0 CodeView record, so no PDB can be matched to it.";
             var sb = new StringBuilder(why);
@@ -87,7 +87,7 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs, Outpu
         var text = new StringBuilder();
         text.AppendLine($"{native.Id}: {s.Path}");
         text.AppendLine($"  GUID {p.Guid:D}, age {p.DbiAge} (info stream age {p.InfoAge}): " +
-                        (native.Image.CodeView is { Format: "RSDS" } c ? (p.Matches(c) ? "matches the image" : $"DOES NOT match the image (GUID {c.Guid:D}, age {c.Age}); used because force=true") : "the image has no RSDS record to check against") +
+                        (native.Pe?.CodeView is { Format: "RSDS" } c ? (p.Matches(c) ? "matches the image" : $"DOES NOT match the image (GUID {c.Guid:D}, age {c.Age}); used because force=true") : "the image has no RSDS record to check against") +
                         (s.Downloaded ? "; downloaded" : ""));
         int procs = p.Symbols.Count(x => x.Kind is PdbSymbolKind.GlobalProc or PdbSymbolKind.LocalProc);
         int pubs = p.Symbols.Count(x => x.IsPublic);

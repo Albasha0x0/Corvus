@@ -68,8 +68,8 @@ public sealed class PdbService
     public static string? PathForEngines(LoadedNative native)
     {
         if (StateOf(native) is { } s) return s.Path;
-        if (native.Image.CodeView is not { Format: "RSDS" }) return null;
-        try { return PdbLocator.Locate(native.Image).Path; }
+        if (native.Pe is not { CodeView.Format: "RSDS" } pe) return null;
+        try { return PdbLocator.Locate(pe).Path; }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ToolError) { return null; }
     }
 
@@ -81,11 +81,12 @@ public sealed class PdbService
         lock (slot.Gate)
         {
             if (slot.State != null) return slot.State.FunctionStarts;
-            if (slot.AutoTried || (saved == null && native.Image.CodeView is not { Format: "RSDS" })) return null;
+            if (slot.AutoTried || (saved == null && native.Pe?.CodeView is not { Format: "RSDS" })) return null;
             slot.AutoTried = true;
         }
         if (saved != null) return Reopen(native, slot, saved, ct);
-        var location = PdbLocator.Locate(native.Image);
+        if (native.Pe is not { } pe) return null;
+        var location = PdbLocator.Locate(pe);
         if (location.Path == null)
         {
             lock (slot.Gate) slot.AutoSearch = location;
@@ -115,7 +116,7 @@ public sealed class PdbService
         {
             var state = Read(native, path, [new PdbProbe(path, "saved by an earlier load_pdb")], verified: false, downloaded: false, automatic: false, ct);
             if (Identity(state.Pdb) != saved.SourceIdentity) return null;
-            state = state with { Verified = native.Image.CodeView is { Format: "RSDS" } cv && state.Pdb.Matches(cv) };
+            state = state with { Verified = native.Pe?.CodeView is { Format: "RSDS" } cv && state.Pdb.Matches(cv) };
             lock (slot.Gate)
             {
                 if (slot.State != null) return slot.State.FunctionStarts;
@@ -155,8 +156,9 @@ public sealed class PdbService
     public async Task<LoadResult> Load(LoadedNative native, string? path, bool download, string? server, bool force, TimeSpan downloadTimeout,
         long maxDownloadBytes, CancellationToken ct)
     {
-        var cv = native.Image.CodeView;
-        var location = await Task.Run(() => PdbLocator.Locate(native.Image, path), ct);
+        var pe = native.RequirePe("load_pdb");
+        var cv = pe.CodeView;
+        var location = await Task.Run(() => PdbLocator.Locate(pe, path), ct);
         string? found = location.Path;
         bool verified = found != null && cv is { Format: "RSDS" };
         bool downloaded = false;

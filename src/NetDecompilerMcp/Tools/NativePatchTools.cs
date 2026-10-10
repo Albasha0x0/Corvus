@@ -58,7 +58,7 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
             var notes = new List<string>();
             var output = NativeEditService.OutputBytes(native, stripSignature: false, notes);
             var original = native.Patches.OriginalBytes();
-            var pe = native.Image;
+            var pe = native.RequirePe("export_native_patches");
             var appended = native.Patches.Patches.Where(p => p.Growth != null).Select(p =>
             {
                 var g = p.Growth!;

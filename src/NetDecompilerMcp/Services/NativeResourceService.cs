@@ -11,7 +11,7 @@ public static class NativeResourceService
 
     public static string List(LoadedNative native)
     {
-        var pe = native.Image;
+        if (native.Pe is not { } pe) return $"{native.Id} has no Win32 resources ({native.Image.Format} image).";
         if (pe.Resources.Count == 0) return $"{native.Id} has no Win32 resources.";
         var sb = new StringBuilder($"{native.Id}: {pe.Resources.Count} Win32 resource(s) (TYPE/NAME/LANGUAGE)\n");
         foreach (var r in pe.Resources)
@@ -25,7 +25,7 @@ public static class NativeResourceService
     /// </summary>
     public static string Get(LoadedNative native, string name, string? savePath, int previewBytes = 4096, bool overwrite = false)
     {
-        var pe = native.Image;
+        var pe = native.RequirePe("get_resource");
         // "VERSION/#1/1033", "VERSION/1" and "RT_VERSION/1" all name the same resource.
         static string Plain(string k) => k.Replace("#", "").ToUpperInvariant() is var u && u.StartsWith("RT_") ? u[3..] : k.Replace("#", "").ToUpperInvariant();
         var key = Plain(name.Trim());

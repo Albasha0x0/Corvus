@@ -150,6 +150,7 @@ public static class R2RDisassembly
         public IReadOnlyList<uint> RelocationRvas => inner.RelocationRvas;
         public IReadOnlyList<uint> TlsCallbackRvas => inner.TlsCallbackRvas;
         public IReadOnlyList<ParseIssue> Issues => inner.Issues;
+        public ImageFormat Format => inner.Format;
         public int Read(uint rva, Span<byte> destination) => inner.Read(rva, destination);
         public bool TryRvaToFileOffset(uint rva, out long fileOffset) => inner.TryRvaToFileOffset(rva, out fileOffset);
         public bool TryFileOffsetToRva(long fileOffset, out uint rva) => inner.TryFileOffsetToRva(fileOffset, out rva);

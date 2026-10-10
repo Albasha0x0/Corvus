@@ -109,8 +109,8 @@ public class NativeRelocationPatchTests(ITestOutputHelper output)
         Assert.Contains("neutralized", h.Edits.List(native));
 
         // Rebased by +0x01000000 the new operand points at the moved g1, and nothing else in the patch moved.
-        var rebased = Rebase(native.Image, native.Patches.PatchedBytes(), Base32 + 0x01000000);
-        var mov = DecodeAt(native.Image, rebased, 0x1001, Base32 + 0x01000000);
+        var rebased = Rebase(native.Pe!, native.Patches.PatchedBytes(), Base32 + 0x01000000);
+        var mov = DecodeAt(native.Pe!, rebased, 0x1001, Base32 + 0x01000000);
         Assert.Equal(Mnemonic.Mov, mov.Mnemonic);
         Assert.Equal(0x11002004u, mov.MemoryDisplacement32);
         Assert.Equal(0x90, rebased[(int)Offset(native.Image, 0x1006)]);
@@ -267,7 +267,7 @@ public class NativeRelocationPatchTests(ITestOutputHelper output)
         if (dll == null) return;
         using var h = new Harness(File.ReadAllBytes(dll));
         var (native, index) = await h.Open();
-        var pe = native.Image;
+        var pe = native.Pe!;
         Assert.True(PatchRelocations.IsRelocatable(pe));
         uint getValue = pe.Exports.Single(e => e.Name == "GetValue").Rva;
         uint getText = pe.Exports.Single(e => e.Name == "GetText").Rva;

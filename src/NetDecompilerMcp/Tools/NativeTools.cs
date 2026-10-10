@@ -49,7 +49,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
 
     private static string PeInfo(LoadedNative native, string dynamicImports = "")
     {
-        var pe = native.Image;
+        var pe = native.RequirePe("get_pe_info");
         var sb = new StringBuilder();
         sb.AppendLine($"{native.Id}: {pe.MachineName} {(pe.IsDll ? "DLL" : "executable")} ({(pe.Is64Bit ? "PE32+" : "PE32")}), {pe.SubsystemName}");
         sb.AppendLine($"  {native.FilePath}");
@@ -144,7 +144,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     /// <summary>get_pe_info's facts as fields.</summary>
     private static PeSummary Summary(LoadedNative native)
     {
-        var pe = native.Image;
+        var pe = native.RequirePe("get_pe_info");
         var (on, off) = Mitigations(pe);
         var cv = pe.CodeView;
         var ck = pe.Checksum;
@@ -202,7 +202,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         }
         return await OnImage(image, native =>
         {
-            var pe = native.Image;
+            var pe = native.RequirePe("list_imports");
             var apiSets = ApiSets.Value;
             var rows = new List<string>();
             var bindings = new List<NativeLinkService.Binding>();
@@ -303,7 +303,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         var section = pe.SectionAt(rva);
         sb.AppendLine(section != null
             ? $"  section {section.Name} ({Access(section.Access)}), +0x{rva - section.Rva:X} into it"
-            : rva < pe.Optional.SizeOfHeaders ? "  in the PE headers" : "  in no section");
+            : pe is PeFile { Optional.SizeOfHeaders: var headers } && rva < headers ? "  in the PE headers" : "  in no section");
         var slot = pe.Imports.FirstOrDefault(i => i.SlotRva == rva);
         if (slot != null) sb.AppendLine($"  IAT slot of {slot.Module}!{slot.Name ?? "#" + slot.Ordinal}");
         var boundTo = slot != null && link != null ? NativeLinkService.Describe(link.BindImport(native, slot)) : null;
@@ -323,7 +323,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
             text.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList()));
     }, cancellationToken);
 
-    private static RuntimeFunction? FindRuntimeFunction(PeFile pe, uint rva)
+    private static RuntimeFunction? FindRuntimeFunction(INativeImage pe, uint rva)
     {
         var list = pe.RuntimeFunctions;
         int lo = 0, hi = list.Count - 1;

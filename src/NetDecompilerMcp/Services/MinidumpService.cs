@@ -217,7 +217,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         if (workspace == null || code == null) return null;
         var native = workspace.Read(() => workspace.Natives.FirstOrDefault(n =>
             Path.GetFileName(n.FilePath).Equals(module.FileName, StringComparison.OrdinalIgnoreCase)
-            && n.Image.Coff.TimeDateStamp == module.TimeDateStamp && n.Image.SizeOfImage == module.Size));
+            && n.Pe?.Coff.TimeDateStamp == module.TimeDateStamp && n.Image.SizeOfImage == module.Size));
         if (native == null) return null;
         try { return await code.Index(native, null, ct).WaitAsync(IndexWait, ct); }
         catch (TimeoutException) { return null; }

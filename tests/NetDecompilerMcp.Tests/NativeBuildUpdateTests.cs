@@ -49,7 +49,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         public async Task<(LoadedNative, NativeCodeIndex)> LoadReal(string path)
         {
             var n = Env.Workspace.LoadAny(path).Native!;
-            var pe = n.Image;
+            var pe = n.Pe!;
             if (NetDecompilerMcp.Native.Pdb.PdbLocator.Locate(pe).Path is { } pdbPath)
             {
                 var pdb = NetDecompilerMcp.Native.Pdb.PdbFile.Open(pdbPath, pe.Sections, default);

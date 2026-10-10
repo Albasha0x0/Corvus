@@ -1,6 +1,6 @@
 namespace NetDecompilerMcp.Native;
 
-/// <summary>Instruction set of a native image.</summary>
+/// <summary>Instruction set of a native image. Architectures after <see cref="Arm64"/> are reported, never decoded by the code index.</summary>
 public enum NativeArch
 {
     Unknown,
@@ -8,6 +8,18 @@ public enum NativeArch
     X64,
     Arm,
     Arm64,
+    Mips,
+    PowerPc,
+    RiscV,
+    Other,
+}
+
+/// <summary>Container format of a native image.</summary>
+public enum ImageFormat
+{
+    Pe,
+    Elf,
+    MachO,
 }
 
 [Flags]
@@ -47,6 +59,45 @@ public sealed record RuntimeFunction(uint BeginRva, uint EndRva, uint UnwindInfo
 /// <summary>Something the parser could not read or that looks wrong; results are still returned for the rest.</summary>
 public sealed record ParseIssue(string Area, string Message, long? FileOffset = null);
 
+public enum ImageSymbolKind
+{
+    Other,
+    Function,
+    Object,
+}
+
+public enum ImageSymbolBinding
+{
+    Global,
+    Weak,
+    Local,
+}
+
+/// <summary>
+/// A defined symbol of the image's own symbol tables (ELF .dynsym/.symtab, Mach-O nlist). <see cref="Version"/> is the
+/// ELF symbol version. PE images list none: PDB symbols are separate.
+/// </summary>
+public sealed record ImageSymbol(string Name, uint Rva, ulong Size, ImageSymbolKind Kind, ImageSymbolBinding Binding, string? Section, string? Version = null);
+
+/// <summary>Where a declared function start comes from.</summary>
+public enum DeclaredSource
+{
+    /// <summary>Unwind tables: ELF .eh_frame / .eh_frame_hdr, ARM .ARM.exidx, Mach-O compact unwind and __eh_frame.</summary>
+    Unwind,
+    /// <summary>Mach-O LC_FUNCTION_STARTS.</summary>
+    FunctionStarts,
+    /// <summary>A function symbol.</summary>
+    Symbol,
+    /// <summary>An initializer or finalizer array entry (.init_array, __mod_init_func, __init_offsets).</summary>
+    Initializer,
+}
+
+/// <summary>A function start the image declares outside its code; <see cref="Size"/> when the source gives one.</summary>
+public readonly record struct DeclaredFunction(uint Rva, uint? Size, DeclaredSource Source);
+
+/// <summary>A range whose file bytes are encrypted (Mach-O LC_ENCRYPTION_INFO with a nonzero cryptid).</summary>
+public sealed record EncryptedRange(uint Rva, uint Size, uint CryptId);
+
 /// <summary>
 /// A native executable image as loaded from disk: headers, mapped sections and the directories code analysis needs.
 /// Implementations snapshot the file into memory, never throw on malformed content after construction, and
@@ -54,11 +105,16 @@ public sealed record ParseIssue(string Area, string Message, long? FileOffset = 
 /// </summary>
 public interface INativeImage
 {
+    ImageFormat Format => ImageFormat.Pe;
     string Path { get; }
     /// <summary>Lowercase hex SHA-256 of the file bytes the image was built from.</summary>
     string Sha256 { get; }
     NativeArch Arch { get; }
     bool Is64Bit { get; }
+    /// <summary>The machine type as the format names it (PE IMAGE_FILE_MACHINE_*, ELF e_machine, Mach-O CPU type).</summary>
+    string MachineName => Arch.ToString();
+    /// <summary>Length of the file the image was read from.</summary>
+    long FileSize => 0;
     bool IsDll { get; }
     ulong ImageBase { get; }
     /// <summary>Entry point RVA, 0 when there is none (resource-only DLLs).</summary>
@@ -73,11 +129,21 @@ public interface INativeImage
     IReadOnlyList<uint> RelocationRvas { get; }
     IReadOnlyList<uint> TlsCallbackRvas { get; }
     IReadOnlyList<ParseIssue> Issues { get; }
+    /// <summary>Defined symbols of the image's symbol tables, sorted by RVA.</summary>
+    IReadOnlyList<ImageSymbol> Symbols => [];
+    /// <summary>Function starts from unwind tables, function-start lists and initializer arrays, sorted by RVA.</summary>
+    IReadOnlyList<DeclaredFunction> DeclaredFunctions => [];
+    /// <summary>Libraries the image links against (PE import modules, ELF DT_NEEDED, Mach-O dylib load commands), in load order.</summary>
+    IReadOnlyList<string> Dependencies => [];
+    /// <summary>Build identity for symbol lookup: PE CodeView GUID and age, GNU build-id, Mach-O LC_UUID; lowercase hex.</summary>
+    string? BuildId => null;
+    IReadOnlyList<EncryptedRange> EncryptedRanges => [];
 
     /// <summary>
     /// Copies mapped bytes starting at <paramref name="rva"/> into <paramref name="destination"/> as the loader would
     /// map them (headers, section raw data, zero fill past raw data). Returns the number of bytes copied, which is
-    /// less than requested only at the end of the image or at an unmapped gap.
+    /// less than requested only at the end of the image or at an unmapped gap. Pointers the loader fixes up hold
+    /// their targets at <see cref="ImageBase"/> (ELF and Mach-O rebases applied); bound import slots read as 0.
     /// </summary>
     int Read(uint rva, Span<byte> destination);
 

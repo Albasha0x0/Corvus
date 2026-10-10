@@ -142,7 +142,7 @@ public class NativeStubTests(ITestOutputHelper output)
     {
         using var h = new Harness();
         var (native, index, _, entry, ret) = await h.Load(arch);
-        var original = native.Image.FileBytes.ToArray();
+        var original = native.Pe!.FileBytes.ToArray();
 
         // placement=section forces a new section even though the image has a cave.
         var newBytes = X86Assembler.Assemble(arch, native.Image.ImageBase + entry, "mov eax, 2").Bytes;
@@ -241,7 +241,7 @@ public class NativeStubTests(ITestOutputHelper output)
     {
         using var h = new Harness();
         var (native, index, _, entry, _) = await h.Load(NativeArch.X64);
-        var original = native.Image.FileBytes.ToArray();
+        var original = native.Pe!.FileBytes.ToArray();
 
         var newBytes = X86Assembler.Assemble(NativeArch.X64, native.Image.ImageBase + entry, "mov eax, 2").Bytes;
         var prepared = h.Edits.PrepareExtendedPatch(index, entry, newBytes, "mov eax, 2", StubMode.Before, "s", null);

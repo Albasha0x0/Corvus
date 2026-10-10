@@ -82,7 +82,7 @@ public sealed class NativePdbTypes
                 var id = PdbFile.ReadIdentity(path);
                 (guid, age) = (id.Guid, id.DbiAge != 0 ? id.DbiAge : id.InfoAge);
             }
-            bool matches = native.Image.CodeView is { Format: "RSDS" } cv && cv.Guid == guid && cv.Age == age;
+            bool matches = native.Pe?.CodeView is { Format: "RSDS" } cv && cv.Guid == guid && cv.Age == age;
             return (path, $"{guid:N}-{age}-{new FileInfo(path).Length}", matches, read);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ToolError or InvalidDataException) { return null; }
