@@ -869,6 +869,104 @@ def apply_local(m, ti, rva, local, stack, name, typ):
     return ["local", rva, local, True, None, resolved, stk, "%s %s" % (now.type(), now.name)]
 
 
+class FrameMember:
+    # a copy: udm_t proxies die with their udt_type_data_t
+    def __init__(self, index, u):
+        import ida_typeinf as ti
+        self.index, self.name, self.offset, self.size, self.type = index, u.name, u.offset // 8, u.size // 8, ti.tinfo_t(u.type)
+
+
+def frame_members(m, f):
+    # (frame tinfo, [FrameMember]) without gaps; frame offsets count from the frame's lowest address
+    import ida_frame
+    import ida_typeinf as ti
+    frame = ti.tinfo_t()
+    if not ida_frame.get_func_frame(frame, f):
+        return None, []
+    udt = ti.udt_type_data_t()
+    frame.get_udt_details(udt)
+    return frame, [FrameMember(i, u) for i, u in enumerate(udt) if not u.is_gap()]
+
+
+def frame_kind(f, frame, i, offset):
+    import ida_frame
+    if ida_frame.is_special_frame_member(frame.get_udm_tid(i)):
+        return "special"
+    return "arg" if ida_frame.is_funcarg_off(f, offset) else "local"
+
+
+def op_frame(args):
+    # members: [offset, name, type, size, kind (local, arg, special)];
+    # locals: [name, type, location, stack offset or null, argument, user name, user type]
+    m = need_open()
+    import ida_frame
+    f = func_at(m, ea_of(args))
+    frame, members = frame_members(m, f)
+    out = {"start": rva_of(f.start_ea), "name": m.ida_funcs.get_func_name(f.start_ea) or "", "frame_size": f.frsize, "saved_regs": f.frregs,
+           "retaddr": ida_frame.frame_off_retaddr(f) if frame is not None else 0, "members": [], "locals": [], "decompile_error": None}
+    for u in members:
+        out["members"].append([u.offset, u.name, str(u.type), u.size, frame_kind(f, frame, u.index, u.offset)])
+    cf, why = decompile_function(m, f.start_ea)
+    if cf is None:
+        out["decompile_error"] = why
+    else:
+        hr = m.ida_hexrays
+        for v in cf.get_lvars():
+            if v.is_stk_var():
+                where = "stack"
+            elif v.is_reg_var():
+                where = hr.get_mreg_name(v.get_reg1(), v.width) or "register"
+            else:
+                where = ""
+            out["locals"].append([v.name, str(v.type()), where, v.get_stkoff() if v.is_stk_var() else None, bool(v.is_arg_var),
+                                  bool(v.has_user_name), bool(v.has_user_type)])
+    return out
+
+
+def apply_stack(m, ti, rva, offset, name, typ):
+    # IDA 9 frames: rename in place; a new type replaces the member (delete, then define_stkvar at the frame-base offset)
+    import ida_frame
+    f = m.ida_funcs.get_func(_state["base"] + rva)
+    target = "+0x%X" % offset
+    if f is None:
+        return ["stack", rva, target, False, "no function contains rva 0x%X" % rva, None, offset, None]
+    rva = rva_of(f.start_ea)
+    frame, members = frame_members(m, f)
+    if frame is None:
+        return ["stack", rva, target, False, "the function has no stack frame", None, offset, None]
+    u = next((x for x in members if x.offset == offset), None)
+    if u is not None and frame_kind(f, frame, u.index, offset) == "special":
+        return ["stack", rva, target, False, "+0x%X is %s (return address or saved registers)" % (offset, u.name), u.name, offset, None]
+    if name and any(x.name == name and x.offset != offset for x in members):
+        return ["stack", rva, target, False, "the frame already has a member named %s" % name, u.name if u else None, offset, None]
+    old = u.name if u is not None else None
+    retaddr = ida_frame.frame_off_retaddr(f)
+    if typ:
+        tif = parse_type(ti, typ, False)
+        if tif is None:
+            return ["stack", rva, target, False, "the type does not parse (types it names must be declared first)", old, offset, None]
+    elif u is not None:
+        tif = u.type
+    else:
+        return ["stack", rva, target, False, "no stack member at +0x%X: give a type to create one" % offset, None, offset, None]
+    if u is not None and not typ:
+        ok = frame.rename_udm(u.index, name) == ti.TERR_OK
+    else:
+        default = ("var_%X" % (retaddr - offset)) if offset < retaddr else ("arg_%X" % (offset - ida_frame.frame_off_args(f)))
+        if u is not None:
+            ida_frame.delete_frame_members(f, offset, offset + max(1, u.size))
+        ok = ida_frame.define_stkvar(f, name or old or default, offset - retaddr, tif)
+        if not ok and u is not None:
+            ida_frame.define_stkvar(f, old, offset - retaddr, u.type)
+    if not ok:
+        return ["stack", rva, target, False, "IDA did not change the stack member at +0x%X" % offset, old, offset, None]
+    if hexrays_ready(m):
+        m.ida_hexrays.mark_cfunc_dirty(f.start_ea, False)
+    _, now = frame_members(m, f)
+    got = [x for x in now if x.offset == offset]
+    return ["stack", rva, target, True, None, old, offset, "%s %s" % (got[0].type, got[0].name) if got else None]
+
+
 def op_apply_user_types(args):
     # decls: [C declarations]; types: [[rva, C type or prototype; "" clears]]; stack: [[function, offset, name, type]];
     # locals: [[function, local, stack offset or null, name, type]]. Items report [kind, rva, target, applied, error, resolved, stack, text].
@@ -878,6 +976,8 @@ def op_apply_user_types(args):
     result = {"decl_errors": 0, "decl_messages": [], "items": []}
     for rva, decl in args.get("types") or []:
         result["items"].append(apply_user_type(m, ti, rva, decl or ""))
+    for rva, offset, name, typ in args.get("stack") or []:
+        result["items"].append(apply_stack(m, ti, rva, offset, name, typ))
     for rva, local, stack, name, typ in args.get("locals") or []:
         result["items"].append(apply_local(m, ti, rva, local, stack, name, typ))
     changed(m)
@@ -1017,7 +1117,7 @@ OPS = {"hello": op_hello, "open": op_open, "rebase": op_rebase, "functions": op_
        "disasm": op_disasm, "disasm_range": op_disasm_range, "blocks": op_blocks, "xrefs_to": op_xrefs_to, "xrefs_from": op_xrefs_from, "set_name": op_set_name,
        "set_comment": op_set_comment, "apply_names": op_apply_names, "get_stamp": op_get_stamp, "save": op_save,
        "sync_patches": op_sync_patches, "apply_types": op_apply_types, "load_pdb": op_load_pdb, "virtual_targets": op_virtual_targets,
-       "apply_user_types": op_apply_user_types, "close": op_close, "sleep": op_sleep}
+       "apply_user_types": op_apply_user_types, "frame": op_frame, "close": op_close, "sleep": op_sleep}
 
 
 def watch_parent(parent):

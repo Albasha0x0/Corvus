@@ -148,6 +148,8 @@ public static class ToolEffects
         // User types in the decompiler engine (saved to the sidecar; runs IDA)
         ["set_native_type"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true),
         ["set_native_local"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true),
+        ["set_native_stack_var"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true),
+        ["get_native_frame"] = Reads(longRunning: true, openWorld: true),
         ["patch_bytes"] = Changes(destructive: true, idempotent: false, longRunning: true),
         ["patch_asm"] = Changes(destructive: true, idempotent: false, longRunning: true),
         ["list_native_edits"] = Reads(longRunning: true),

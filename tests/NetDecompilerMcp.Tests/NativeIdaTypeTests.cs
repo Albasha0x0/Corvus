@@ -127,6 +127,41 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
     }
 
     [IdaFact]
+    public async Task Stack_frame_lists_members_and_locals_and_stack_edits_persist()
+    {
+        var rig = Setup("cache-s");
+        var view = await rig.Types.GetNativeFrame(Image, Function);
+        output.WriteLine(view);
+        Assert.Contains("__return_address", view);
+        Assert.Contains("special", view);
+        var session = await rig.Session();
+        var frame = await session.GetFrameAsync(rig.Native.Image.Exports.First(e => e.Name == Function).Rva);
+        var member = frame.Members.First(m => m.Kind == "local" && m.Size >= 4);
+        Assert.Contains(frame.Members, m => m.Kind == "special" && m.Offset == frame.ReturnAddressOffset);
+
+        output.WriteLine(await rig.Types.SetNativeStackVar(Image, Function, member.Name, newName: "ndm_slot", type: "int"));
+        output.WriteLine(await rig.Types.SetNativeStackVar(Image, Function, $"0x{member.Offset:X}", newName: "ndm_slot2"));
+        var after = await session.GetFrameAsync(frame.StartRva);
+        Assert.Equal(("ndm_slot2", "int", 4), after.Members.Single(m => m.Offset == member.Offset) is var x ? (x.Name, x.Type, x.Size) : default);
+        var edit = Assert.Single(Assert.Single(rig.Code.Annotations(rig.Native).UserTypes.StackVars).Value);
+        Assert.Equal((member.Offset, "ndm_slot2", "int"), (edit.Offset, edit.Name, edit.Type));
+        var special = await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeStackVar(Image, Function, "__return_address", newName: "ret"));
+        Assert.Equal(ErrorCode.InvalidArgument, special.Code);
+
+        // a decompiler local addressed by its stack offset
+        if (frame.Locals.FirstOrDefault(l => l.Stack != null) is { } stackLocal)
+        {
+            await rig.Types.SetNativeLocal(Image, Function, $"stack:0x{stackLocal.Stack:X}", newName: "ndm_onstack");
+            Assert.Contains("ndm_onstack", await rig.Analysis.DecompileNative(Image, Function));
+        }
+
+        foreach (var d in _owned) d.Dispose();
+        _owned.Clear();
+        var fresh = Setup("cache-t");
+        Assert.Contains("ndm_slot2  int  4", await fresh.Types.GetNativeFrame(Image, Function));
+    }
+
+    [IdaFact]
     public async Task Recovered_types_never_replace_user_types()
     {
         var rig = Setup("cache-c");

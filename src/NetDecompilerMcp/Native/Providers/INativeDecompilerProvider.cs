@@ -115,6 +115,10 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
         CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not take user types.");
 
+    /// <summary>The stack frame and decompiler locals of the function containing <paramref name="rva"/>.</summary>
+    Task<NativeFrame> GetFrameAsync(uint rva, CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not report stack frames.");
+
     /// <summary>References to <paramref name="rva"/> (ordinary flow excluded).</summary>
     Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default);
 
@@ -321,6 +325,19 @@ public sealed record NativeUserTypeOutcome(string Kind, uint Rva, string Target,
 
 /// <summary>Result of <see cref="INativeDecompilerSession.ApplyUserTypesAsync"/>: declaration errors with the engine's messages, and each item's outcome.</summary>
 public sealed record UserTypeResult(int DeclarationErrors, IReadOnlyList<string> DeclarationMessages, IReadOnlyList<NativeUserTypeOutcome> Items, TimeSpan Elapsed);
+
+/// <summary>A stack frame member at <see cref="Offset"/> bytes from the frame's lowest address; <see cref="Kind"/> local, arg or special (return address, saved registers).</summary>
+public sealed record NativeFrameMember(int Offset, string Name, string Type, int Size, string Kind);
+
+/// <summary>A decompiler local: where it lives (a register, "stack" with its <see cref="Stack"/> offset), and whether the user named or typed it.</summary>
+public sealed record NativeLocal(string Name, string Type, string Location, int? Stack, bool IsArgument, bool UserName, bool UserType);
+
+/// <summary>
+/// A function's stack frame (local and saved-register sizes, the return address's frame offset, members) and its decompiler
+/// locals; <see cref="DecompilerError"/> says why there are no locals.
+/// </summary>
+public sealed record NativeFrame(uint StartRva, string Name, int LocalSize, int SavedRegisters, int ReturnAddressOffset, IReadOnlyList<NativeFrameMember> Members,
+    IReadOnlyList<NativeLocal> Locals, string? DecompilerError);
 
 /// <summary>A reference; <see cref="FromFunctionRva"/> is the start of the function containing the source, when any.</summary>
 public sealed record NativeXref(uint FromRva, uint ToRva, NativeXrefKind Kind, uint? FromFunctionRva);

@@ -461,6 +461,18 @@ internal sealed class IdaSession : INativeDecompilerSession
 
     private static string? Text(JsonElement e) => e.ValueKind == JsonValueKind.String ? e.GetString() : null;
 
+    public async Task<NativeFrame> GetFrameAsync(uint rva, CancellationToken cancellationToken = default)
+    {
+        var r = await CallAsync("frame", IdaProvider.Args(("rva", rva)), cancellationToken).ConfigureAwait(false);
+        var members = r.GetProperty("members").EnumerateArray()
+            .Select(x => new NativeFrameMember(x[0].GetInt32(), x[1].GetString() ?? "", x[2].GetString() ?? "", x[3].GetInt32(), x[4].GetString() ?? "local")).ToList();
+        var locals = r.GetProperty("locals").EnumerateArray()
+            .Select(x => new NativeLocal(x[0].GetString() ?? "", x[1].GetString() ?? "", x[2].GetString() ?? "", x[3].ValueKind == JsonValueKind.Number ? x[3].GetInt32() : null,
+                x[4].GetBoolean(), x[5].GetBoolean(), x[6].GetBoolean())).ToList();
+        return new NativeFrame(r.GetProperty("start").GetUInt32(), r.GetProperty("name").GetString() ?? "", r.GetProperty("frame_size").GetInt32(),
+            r.GetProperty("saved_regs").GetInt32(), r.GetProperty("retaddr").GetInt32(), members, locals, Text(r.GetProperty("decompile_error")));
+    }
+
     public async Task<PdbLoadResult> LoadPdbAsync(string pdbPath, string stampKey, string stamp, bool trustAnalysisLoad, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(pdbPath);
