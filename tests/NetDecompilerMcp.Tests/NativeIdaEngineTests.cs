@@ -148,6 +148,72 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         Assert.True(callers.Split('\n').Length > 2, callers);
     }
 
+    /// <summary>
+    /// Patches go into the open database (no new auto-analysis) and undo reverts them; compared with analyzing the
+    /// patched bytes from scratch (the fallback when the database cannot take a patch set).
+    /// </summary>
+    [Trait("Speed", "Slow")]
+    [IdaFact]
+    public async Task Patched_bytes_decompile_from_the_open_database_and_undo_reverts_them()
+    {
+        var dll = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "dbghelp.dll");
+        const string Export = "SymGetOptions";
+        if (!File.Exists(dll)) return;
+        var rig = Setup();
+        var clock = Stopwatch.StartNew();
+        var original = await rig.Analysis.DecompileNative(dll, Export);
+        var open = clock.Elapsed;
+        var native = rig.Workspace.Read(() => rig.Workspace.Natives[0]);
+        Assert.DoesNotContain("return 0x5A17;", original);
+        var edits = new NativeEditService(rig.Workspace, rig.Code);
+
+        async Task Patch()
+        {
+            var index = await rig.Code.Index(native, null, default);
+            var rva = index.AddressOfName(Export) ?? native.Image.Exports.First(e => e.Name == Export).Rva;
+            edits.ApplyPatch(native, index, edits.PreparePatch(index, rva, [0xB8, 0x17, 0x5A, 0x00, 0x00, 0xC3], false, "return 0x5A17"), dryRun: false);
+        }
+
+        await Patch();
+        clock.Restart();
+        var patched = await rig.Analysis.DecompileNative(native.Id, Export);
+        var inDatabase = clock.Elapsed;
+        output.WriteLine(patched);
+        Assert.Contains("return 23063;", patched.Replace("0x5A17", "23063"));
+        Assert.Contains("applied in the database", patched);
+        Assert.False(rig.Engines.ServesPatchedCopy(native));
+        var sync = rig.Engines.LastPatchSync(native)!;
+        output.WriteLine($"sync: {sync}");
+        Assert.True(sync.Complete);
+
+        edits.Undo(native, null);
+        clock.Restart();
+        var undone = await rig.Analysis.DecompileNative(native.Id, Export);
+        var undoTime = clock.Elapsed;
+        Assert.Equal(Body(original), Body(undone));
+        Assert.True(rig.Engines.LastPatchSync(native)!.Reverted > 0);
+        // the tool may answer from its page cache (same bytes as the original): ask the database itself
+        var session = await rig.Engines.Session(native, null, null, default);
+        var fresh = await session.DecompileAsync(native.Image.Exports.First(e => e.Name == Export).Rva);
+        Assert.DoesNotContain("23063", fresh.Text);
+        Assert.DoesNotContain("5A17", fresh.Text);
+
+        // The same patch analyzed from scratch: what every patch cost without applying it to the database.
+        rig.Engines.PatchInDatabase = false;
+        await Patch();
+        clock.Restart();
+        var reanalyzed = await rig.Analysis.DecompileNative(native.Id, Export);
+        var fromScratch = clock.Elapsed;
+        Assert.Contains("analyzed as a patched copy", reanalyzed);
+        Assert.True(rig.Engines.ServesPatchedCopy(native));
+        Assert.Contains("return 23063;", reanalyzed.Replace("0x5A17", "23063"));
+        output.WriteLine($"{Path.GetFileName(dll)} ({new FileInfo(dll).Length:N0} bytes): first open {open.TotalSeconds:0.0} s; decompile after a patch: " +
+                         $"{inDatabase.TotalSeconds:0.00} s applied in the database (sync {sync.Elapsed.TotalSeconds:0.00} s, {sync.Functions} function(s) reanalyzed) " +
+                         $"vs {fromScratch.TotalSeconds:0.0} s re-analyzing the patched copy; after undo {undoTime.TotalSeconds:0.00} s");
+
+        static string Body(string text) => string.Join('\n', text.Split('\n').Where(l => !l.StartsWith("//", StringComparison.Ordinal)));
+    }
+
     private const string StaticSource = """
         #include <stdio.h>
         #include <stdlib.h>

@@ -371,6 +371,19 @@ internal sealed class IdaSession : INativeDecompilerSession
             r.GetProperty("failures").EnumerateArray().Select(f => f.GetString() ?? "").ToList());
     }
 
+    public async Task<PatchSyncResult> SyncPatchesAsync(IReadOnlyList<NativeByteRange> wanted, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(wanted);
+        var rows = new JsonArray();
+        foreach (var w in wanted) rows.Add(new JsonArray(w.Rva, Convert.ToHexString(w.Bytes)));
+        // Journaled: a worker restarted from the saved database gets the same patch set again (the operation is idempotent).
+        var r = await CallAsync("sync_patches", IdaProvider.Args(("items", rows)), cancellationToken, journal: true).ConfigureAwait(false);
+        var problems = r.GetProperty("missing").EnumerateArray().Concat(r.GetProperty("mismatches").EnumerateArray()).Select(e => e.GetUInt32()).ToList();
+        return new PatchSyncResult(r.GetProperty("patched").GetInt32(), r.GetProperty("reverted").GetInt32(), r.GetProperty("ranges").GetInt32(),
+            r.GetProperty("functions").GetInt32(), r.GetProperty("missing_count").GetInt32(), r.GetProperty("mismatch_count").GetInt32(), problems,
+            TimeSpan.FromSeconds(r.GetProperty("seconds").GetDouble()));
+    }
+
     public async Task<string?> GetStampAsync(string key, CancellationToken cancellationToken = default)
     {
         var r = await CallAsync("get_stamp", IdaProvider.Args(("key", key)), cancellationToken).ConfigureAwait(false);

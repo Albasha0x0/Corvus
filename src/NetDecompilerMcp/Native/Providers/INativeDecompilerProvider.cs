@@ -71,6 +71,15 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     Task<NativeBlockGraph> GetBlocksAsync(uint rva, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not report basic blocks.");
 
+    /// <summary>
+    /// Makes the bytes patched in the database exactly <paramref name="wanted"/> (bytes patched earlier and not wanted
+    /// are restored to their original values) and decodes the touched code again, so the analysis reflects the patched
+    /// image without a new auto-analysis. A result with missing or mismatched bytes means the database could not take
+    /// the patch set; the caller analyzes the patched file instead.
+    /// </summary>
+    Task<PatchSyncResult> SyncPatchesAsync(IReadOnlyList<NativeByteRange> wanted, CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not apply byte patches.");
+
     /// <summary>References to <paramref name="rva"/> (ordinary flow excluded).</summary>
     Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default);
 
@@ -165,6 +174,20 @@ public sealed record NativeBlockInfo(uint StartRva, uint EndRva, int Instruction
 
 /// <summary>The blocks of one function and the targets its jumps reach outside it (tail calls).</summary>
 public sealed record NativeBlockGraph(uint StartRva, string Name, IReadOnlyList<NativeBlockInfo> Blocks, IReadOnlyList<uint> TailCalls);
+
+/// <summary>Bytes wanted at an RVA (a patch's replacement).</summary>
+public sealed record NativeByteRange(uint Rva, byte[] Bytes);
+
+/// <summary>
+/// What <see cref="INativeDecompilerSession.SyncPatchesAsync"/> did: bytes patched and reverted, code ranges decoded
+/// again and functions reanalyzed; bytes not in the database (<see cref="Missing"/>) or that would not take
+/// (<see cref="Mismatches"/>), with up to 20 of their RVAs each in <see cref="Problems"/>.
+/// </summary>
+public sealed record PatchSyncResult(int Patched, int Reverted, int Ranges, int Functions, int Missing, int Mismatches, IReadOnlyList<uint> Problems,
+    TimeSpan Elapsed)
+{
+    public bool Complete => Missing == 0 && Mismatches == 0;
+}
 
 public sealed record FunctionDisassembly(uint StartRva, uint EndRva, string Name, IReadOnlyList<DisassembledInstruction> Instructions, bool Truncated);
 

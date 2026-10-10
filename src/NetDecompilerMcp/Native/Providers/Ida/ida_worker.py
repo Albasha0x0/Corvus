@@ -59,10 +59,10 @@ def ida():
         import idapro
     except BaseException as e:
         raise WorkerError("provider_unavailable", "idalib failed to load: %s" % (str(e).strip() or type(e).__name__))
-    import ida_auto, ida_bytes, ida_entry, ida_funcs, ida_ida, ida_lines, ida_loader, ida_nalt, ida_name, ida_segment, ida_xref, idautils
+    import ida_auto, ida_bytes, ida_entry, ida_funcs, ida_ida, ida_lines, ida_loader, ida_nalt, ida_name, ida_segment, ida_ua, ida_xref, idautils
     mods = dict(idapro=idapro, ida_auto=ida_auto, ida_bytes=ida_bytes, ida_entry=ida_entry, ida_funcs=ida_funcs,
                 ida_ida=ida_ida, ida_lines=ida_lines, ida_loader=ida_loader, ida_nalt=ida_nalt, ida_name=ida_name,
-                ida_segment=ida_segment, ida_xref=ida_xref, idautils=idautils)
+                ida_segment=ida_segment, ida_ua=ida_ua, ida_xref=ida_xref, idautils=idautils)
     try:
         import ida_hexrays
         mods["ida_hexrays"] = ida_hexrays
@@ -370,6 +370,85 @@ def op_set_comment(args):
     return {"comment": m.ida_bytes.get_cmt(ea, repeatable) or ""}
 
 
+def op_sync_patches(args):
+    # Makes the database's patched bytes exactly items ([[rva, hex bytes]]): bytes patched before and not wanted now are
+    # reverted to their original values, wanted bytes patched; code in the touched ranges is decoded again and its
+    # functions reanalyzed. Reports the wanted bytes that could not be set (mismatches) or are not in the database (missing).
+    m = need_open()
+    start = time.time()
+    badaddr = m.idautils.ida_idaapi.BADADDR
+    base = _state["base"]
+    desired = {}
+    for item in args.get("items") or []:
+        data = bytes.fromhex(item[1])
+        for i, b in enumerate(data):
+            desired[base + item[0] + i] = b
+    current = {}
+
+    def visit(ea, fpos, org, val):
+        current[ea] = org
+        return 0
+
+    m.ida_bytes.visit_patched_bytes(0, badaddr, visit)
+    touched = set()
+    reverted = patched = 0
+    for ea, org in current.items():
+        if ea not in desired or desired[ea] == org:
+            if m.ida_bytes.revert_byte(ea):
+                reverted += 1
+                touched.add(ea)
+    missing = []
+    for ea, b in sorted(desired.items()):
+        if not m.ida_bytes.is_loaded(ea):
+            missing.append(ea - base)
+            continue
+        if m.ida_bytes.get_byte(ea) == b:
+            continue
+        if m.ida_bytes.get_original_byte(ea) == b:
+            m.ida_bytes.revert_byte(ea)
+            reverted += 1
+        else:
+            m.ida_bytes.patch_byte(ea, b)
+            patched += 1
+        touched.add(ea)
+    mismatches = [ea - base for ea, b in desired.items() if m.ida_bytes.is_loaded(ea) and m.ida_bytes.get_byte(ea) != b]
+    # coalesce touched bytes into ranges, then decode the code in them again
+    ranges = []
+    for ea in sorted(touched):
+        if ranges and ea <= ranges[-1][1]:
+            ranges[-1][1] = ea + 1
+        else:
+            ranges.append([ea, ea + 1])
+    functions = set()
+    for lo, hi in ranges:
+        seg = m.ida_segment.getseg(lo)
+        if seg is None or not (seg.perm & m.ida_segment.SEGPERM_EXEC or seg.type == m.ida_segment.SEG_CODE):
+            continue
+        f = m.ida_funcs.get_func(lo)
+        head = m.ida_bytes.get_item_head(lo)
+        end = m.ida_bytes.get_item_end(hi - 1)
+        if f is not None:
+            functions.add(f.start_ea)
+        m.ida_bytes.del_items(head, m.ida_bytes.DELIT_SIMPLE, end - head)
+        ea = head
+        while ea < end:
+            n = m.ida_ua.create_insn(ea)
+            ea += n if n > 0 else 1
+        m.ida_auto.auto_mark_range(head, end, m.ida_auto.AU_USED)
+    m.ida_auto.auto_wait()
+    for fs in functions:
+        f = m.ida_funcs.get_func(fs)
+        if f is None:
+            m.ida_funcs.add_func(fs, badaddr)
+        else:
+            m.ida_funcs.reanalyze_function(f, f.start_ea, f.end_ea, False)
+    m.ida_auto.auto_wait()
+    changed(m)
+    return {"patched": patched, "reverted": reverted, "ranges": len(ranges), "functions": len(functions),
+            "missing": missing[:20], "missing_count": len(missing), "mismatches": mismatches[:20],
+            "mismatch_count": len(mismatches), "seconds": round(time.time() - start, 3)}
+
+
 STAMP_NODE = "$ netdecompilermcp stamps"
 
 
@@ -453,7 +532,7 @@ def op_sleep(args):
 OPS = {"hello": op_hello, "open": op_open, "rebase": op_rebase, "functions": op_functions, "decompile": op_decompile,
        "disasm": op_disasm, "disasm_range": op_disasm_range, "blocks": op_blocks, "xrefs_to": op_xrefs_to, "xrefs_from": op_xrefs_from, "set_name": op_set_name,
        "set_comment": op_set_comment, "apply_names": op_apply_names, "get_stamp": op_get_stamp, "save": op_save,
-       "close": op_close, "sleep": op_sleep}
+       "sync_patches": op_sync_patches, "close": op_close, "sleep": op_sleep}
 
 
 def main():

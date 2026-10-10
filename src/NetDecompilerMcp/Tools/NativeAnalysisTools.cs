@@ -40,6 +40,10 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
             throw new ToolError(ErrorCode.Unsupported, $"The {session.ProviderId} decompiler is not available for {session.Arch} code here.",
                 "disassemble the function instead, or install/license the decompiler for this architecture");
         var pushed = names != null ? NativeNamePush.Describe(await names.EnsureAsync(native, session, cancellationToken)) : null;
+        if (native.HasPatches)
+            pushed = (pushed != null ? pushed + "\n// " : "") + (engines.ServesPatchedCopy(native)
+                ? $"patched image: analyzed as a patched copy (the database could not take {Plural(native.Patches.Patches.Count, "patch")})"
+                : $"patched image: {Plural(native.Patches.Patches.Count, "patch")} applied in the database");
         var key = $"decompile|{native.Image.Sha256}|{rva:X}|{addresses}|{NativeNamePush.CurrentStamp(session)}";
         var text = pager.GetOrCreate(key, () =>
         {
