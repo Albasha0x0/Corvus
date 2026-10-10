@@ -62,6 +62,10 @@ internal static class ServerInstructions
            Calls: disassemble and find_xrefs show recovered call arguments (CreateFileW(L"a.ini", GENERIC_READ, ...)); get_call_arguments
            gives them as data. Late-bound imports (GetProcAddress) appear in get_pe_info, list_imports includeDynamic=true, find_xrefs
            ('module!name') and native_call_tree as [dynamic]. survey_features also takes a native image.
+           Virtual calls: the code index resolves obj->vfunc() sites through MSVC RTTI (receiver class from vftable stores and
+           constructors, this of virtual methods, decorated names; the slot's implementations over the class hierarchy).
+           native_call_tree marks them [virtual] / [virtual?: one of n] (calls=direct|virtual), find_xrefs lists VirtualExact /
+           VirtualPossible rows; find_virtual_calls lists the sites or the unresolved reason; crossCheck=true compares with IDA.
            Cross-image: load the DLLs an image imports (by path, or load_assembly loadProviders=true) and native_call_tree, find_xrefs,
            disassemble and resolve_address follow imports, forwarders and thunks into them; list_imports bind=true shows each binding.
            find_callees / get_call_tree follow P/Invokes into native code ('native: kernel32.dll!CreateFileW -> KernelBase.dll!CreateFileW
