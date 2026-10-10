@@ -62,7 +62,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         return index;
     }
 
-    [McpServerTool(Name = "get_call_arguments", Title = "Native call arguments", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "get_call_arguments", Title = "Native call arguments", UseStructuredContent = true)]
     [Description("Call sites of a native image (x86 / x64) with their argument values, recovered by backward constant propagation in the calling " +
                  "function under the platform conventions (x64 rcx, rdx, r8, r9 / xmm0-3, then [rsp+20h+8*i]; x86 pushed / stored stack slots): " +
                  "immediates, string literals, named addresses, results of earlier calls, globals; merges of different values are unknown. " +

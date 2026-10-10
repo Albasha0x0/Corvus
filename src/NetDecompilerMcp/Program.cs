@@ -69,7 +69,8 @@ builder.Services
     .AddSingleton<NativeNamePush>()
     .AddSingleton<NativeTypePush>()
     .AddSingleton<ReadyToRunService>()
-    .AddSingleton<PdbService>();
+    .AddSingleton<PdbService>()
+    .AddSingleton<MinidumpService>();
 
 builder.Services
     .AddMcpServer(o =>
@@ -83,13 +84,8 @@ builder.Services
         o.ServerInstructions = ServerInstructions.Text;
     })
     .WithStdioServerTransport()
-    // Serialize nulls explicitly: generated output schemas mark every property required, so omitted nulls fail validation.
-    .WithToolsFromAssembly(serializerOptions: new System.Text.Json.JsonSerializerOptions(McpJsonUtilities.DefaultOptions)
-    {
-        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never,
-    })
-    .WithResourcesFromAssembly()
-    .WithPromptsFromAssembly()
+    // Tools (annotations from Mcp/ToolEffects.cs), resources and prompts.
+    .WithCatalog()
     .WithCompleteHandler((context, _) =>
         ValueTask.FromResult(Completions.Complete(context.Services!.GetRequiredService<AssemblyWorkspace>(), context.Params!)))
     .WithRequestFilters(filters => filters.AddCallToolFilter(next => async (context, cancellationToken) =>
@@ -98,7 +94,12 @@ builder.Services
         {
             if (context.MatchedPrimitive is ModelContextProtocol.Server.McpServerTool tool)
                 ArgumentCheck.Apply(tool.ProtocolTool.InputSchema, context.Params?.Arguments);
+            var structured = StructuredOutput.Begin();
             var result = await next(context, cancellationToken);
+            // A tool that keeps its readable text hands its record over separately; bounded to the page size.
+            if (structured.Value is { } value && context.Services is { } provider)
+                result.StructuredContent = StructuredOutput.Serialize(value,
+                    ResponseBudget.Budget(provider.GetRequiredService<ServerOptions>(), context.Params) - ResponseBudget.Slack);
             // Transformed names made of zero-width and bidi characters would print as nothing or scramble the line.
             foreach (var block in result.Content.OfType<TextContentBlock>())
                 block.Text = NetDecompilerMcp.Core.Format.EscapeInvisible(block.Text);
@@ -113,41 +114,25 @@ builder.Services
         }
         catch (NetDecompilerMcp.Core.ToolError ex)
         {
-            // Code, message and next step, with names made of invisible characters escaped as in results.
-            return new CallToolResult
-            {
-                IsError = true,
-                Content = [new TextContentBlock { Text = NetDecompilerMcp.Core.Format.EscapeInvisible(ex.Render(context.Params?.Name)) }],
-            };
+            // Code, message and next step (names made of invisible characters escaped as in results), then the same as JSON.
+            return ErrorResult.From(ex, context.Params?.Name);
         }
         catch (ArgumentException ex) when (ex.ParamName == "arguments" && System.Text.RegularExpressions.Regex.Match(ex.Message, "required parameter '([^']+)'") is { Success: true } m)
         {
             // Argument binding: a required parameter is missing.
-            return new CallToolResult
-            {
-                IsError = true,
-                Content = [new TextContentBlock { Text = new NetDecompilerMcp.Core.ToolError(NetDecompilerMcp.Core.ErrorCode.InvalidArgument,
-                    $"missing required parameter '{m.Groups[1].Value}'.").Render(context.Params?.Name) }],
-            };
+            return ErrorResult.From(new NetDecompilerMcp.Core.ToolError(NetDecompilerMcp.Core.ErrorCode.InvalidArgument,
+                $"missing required parameter '{m.Groups[1].Value}'.") { Details = new { parameter = m.Groups[1].Value } }, context.Params?.Name);
         }
         catch (Exception ex) when (ArgumentCheck.FileSystemError(ex) is { } error)
         {
             // A path argument System.IO rejected or could not reach.
-            return new CallToolResult
-            {
-                IsError = true,
-                Content = [new TextContentBlock { Text = NetDecompilerMcp.Core.Format.EscapeInvisible(error.Render(context.Params?.Name)) }],
-            };
+            return ErrorResult.From(error, context.Params?.Name);
         }
         catch (Exception ex) when (ex is not McpException && ex is not OperationCanceledException)
         {
             // Return unexpected exceptions as a descriptive tool error instead of a generic protocol error.
             context.Services?.GetService<ILogger<AssemblyWorkspace>>()?.LogError(ex, "Tool {Tool} failed", context.Params?.Name);
-            return new CallToolResult
-            {
-                IsError = true,
-                Content = [new TextContentBlock { Text = $"Error (internal) in {context.Params?.Name}: {ex.GetType().Name}: {ex.Message}" }],
-            };
+            return ErrorResult.Internal(ex, context.Params?.Name);
         }
     }));
 

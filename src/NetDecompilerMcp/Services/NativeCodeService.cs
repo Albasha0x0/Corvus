@@ -45,15 +45,28 @@ public sealed class NativeCodeService
     public async Task<NativeCodeIndex> Index(LoadedNative native, IProgress<CodeIndexProgress>? progress, CancellationToken ct)
     {
         var holder = Holder(native);
-        Action<CodeIndexProgress>? listener = progress != null ? progress.Report : null;
+        object? last = null; // boxed: written by the build thread
+        Action<CodeIndexProgress> listener = p => { Volatile.Write(ref last, p); progress?.Report(p); };
         holder.Progress += listener;
         try { return await holder.Start(_logger, this).WaitAsync(ct); }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             // The build was cancelled because the image was unloaded, reloaded or patched by another call.
-            throw native.Gone();
+            var gone = native.Gone();
+            if (Volatile.Read(ref last) is CodeIndexProgress reached) gone.Partial = new { image = native.Id, indexPhase = reached.Phase, done = reached.Done, total = reached.Total };
+            throw gone;
         }
         finally { holder.Progress -= listener; }
+    }
+
+    /// <summary>
+    /// A one-off index over the image's original (pre-patch) bytes, with the same symbol starts the live index uses.
+    /// Patch migration matches the clean old build so in-memory patches do not hide a function's identity. Not cached.
+    /// </summary>
+    public NativeCodeIndex IndexOfOriginal(LoadedNative native, CancellationToken ct)
+    {
+        var original = Native.Pe.PeFile.FromBytes(native.Patches.OriginalBytes(), native.FilePath);
+        return NativeCodeIndex.Build(original, BuildOptions(native, ct), null, ct);
     }
 
     /// <summary>The index when it is already built, else null (does not start a build).</summary>

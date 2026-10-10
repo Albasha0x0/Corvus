@@ -8,8 +8,16 @@ using static NetDecompilerMcp.Services.MetadataUtil;
 namespace NetDecompilerMcp.Services;
 
 /// <summary>Name, string-literal, constant and IL-pattern search over loaded assemblies.</summary>
-public sealed class SearchService
+public sealed class SearchService(ServerOptions? options = null)
 {
+    /// <summary>How long one search may run; past it the search fails with the results found so far as its partial result.</summary>
+    public TimeSpan TimeLimit { get; set; } = TimeSpan.FromSeconds(options?.TimeoutSeconds ?? 180);
+
+    /// <summary>Results listed in a timeout error's partial result.</summary>
+    private const int PartialResults = 50;
+
+    private static List<string> Labels<T>(List<T> found, Func<T, string> label) => found.Take(PartialResults).Select(label).ToList();
+
     public sealed record StringHit(LoadedAssembly Assembly, IMemberDef Owner, uint? ILOffset, string Value);
 
     public sealed record ConstantHit(LoadedAssembly Assembly, IMemberDef Owner, uint? ILOffset, string Kind, string Value);
@@ -31,7 +39,7 @@ public sealed class SearchService
                 if (matcher(name) || (matchFullName && matcher(Format.MemberLabel(member))))
                     found.Add((new ResolvedSymbol(asm, member), Rank(name, query)));
             }
-        }, ct);
+        }, ct, TimeLimit, sofar => Labels(sofar, h => $"{h.Symbol.Label}  [{h.Symbol.Assembly.Id}]"));
 
         var ordered = hits.OrderBy(h => h.Rank).ThenBy(h => h.Symbol.Label.Length).Select(h => h.Symbol).ToList();
         return new(ordered.Take(limit).ToList(), ordered.Count);
@@ -68,7 +76,7 @@ public sealed class SearchService
                 foreach (var instr in FastIlReader.Instructions(asm, m))
                     if (instr.OpCode.Code == Code.Ldstr && instr.Operand is string str && matcher(str))
                         found.Add(new StringHit(asm, m, instr.Offset, str));
-        }, ct);
+        }, ct, TimeLimit, sofar => Labels(sofar, h => $"{Format.Literal(Format.Clip(h.Value, 80))} in {Format.MemberLabel(h.Owner)}  [{h.Assembly.Id}]"));
         return SearchResult<StringHit>.From(hits, limit);
     }
 
@@ -113,7 +121,7 @@ public sealed class SearchService
                     }
                 }
             }
-        }, ct);
+        }, ct, TimeLimit, sofar => Labels(sofar, h => $"{Format.MemberLabel(h.Owner)}{(h.ILOffset is { } o ? $" @IL_{o:X4}" : "")} {h.Kind}  [{h.Assembly.Id}]"));
 
         foreach (var (asm, field) in dataFields.OrderBy(d => d.Asm.Id, StringComparer.Ordinal).ThenBy(d => d.Field.MDToken.Raw))
         {
@@ -280,7 +288,7 @@ public sealed class SearchService
                     start = end - 1;
                 }
             }
-        }, ct);
+        }, ct, TimeLimit, sofar => Labels(sofar, h => $"{Format.MemberLabel(h.Method)} @IL_{h.Offset:X4}  [{h.Assembly.Id}]"));
         return SearchResult<IlMatch>.From(hits, limit);
     }
 

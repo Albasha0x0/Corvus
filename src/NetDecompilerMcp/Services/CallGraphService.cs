@@ -131,11 +131,16 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
     /// indent level; used for native code a method binds to (callees) or native code calling it (callers).
     /// </param>
     public string Tree(LoadedAssembly asm, MethodDef root, bool callers, int depth, int maxNodes, bool includeExternal, CancellationToken ct,
-        Func<MethodDef, int, int, string>? native = null)
+        Func<MethodDef, int, int, string>? native = null, List<TreeNode>? nodes = null) =>
+        Tree(asm, root, callers, depth, maxNodes, includeExternal, ct, native, nodes, out _);
+
+    /// <summary>As above; <paramref name="truncated"/>: maxNodes stopped the walk.</summary>
+    public string Tree(LoadedAssembly asm, MethodDef root, bool callers, int depth, int maxNodes, bool includeExternal, CancellationToken ct,
+        Func<MethodDef, int, int, string>? native, List<TreeNode>? nodes, out bool truncated)
     {
         var sb = new StringBuilder($"{(callers ? "Callers" : "Callees")} of {Format.MemberLabel(root)}  [{asm.Id}]  (depth {depth})\n");
         int length = sb.Length;
-        bool truncated = WriteTree(sb, asm, root, callers, depth, maxNodes, includeExternal, 0, native, ct);
+        truncated = WriteTree(sb, asm, root, callers, depth, maxNodes, includeExternal, 0, native, ct, nodes);
         if (sb.Length == length)
             sb.AppendLine(callers ? "  (no callers in the loaded assemblies — load the assemblies that might call it)" : "  (calls nothing in the loaded assemblies; includeExternal=true shows framework calls)");
         if (truncated) sb.AppendLine($"[Stopped after {maxNodes} nodes (the levels above the last one shown are complete): raise maxNodes or lower depth.]");
@@ -143,8 +148,9 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
     }
 
     /// <summary>The tree below <paramref name="root"/> (not the root line), indented by <paramref name="baseIndent"/> levels; true when maxNodes cut it.</summary>
+    /// <param name="sink">When given, receives the lines written as nodes (level relative to the root, without <paramref name="baseIndent"/>).</param>
     public bool WriteTree(StringBuilder sb, LoadedAssembly asm, MethodDef root, bool callers, int depth, int maxNodes, bool includeExternal, int baseIndent,
-        Func<MethodDef, int, int, string>? native, CancellationToken ct)
+        Func<MethodDef, int, int, string>? native, CancellationToken ct, List<TreeNode>? sink = null)
     {
         var g = GetGraph(ct);
 
@@ -204,17 +210,37 @@ public sealed class CallGraphService(AssemblyWorkspace workspace)
                     tags.Add(IsAncestor(child, m) ? "recursive" : $"expanded under {(home.Parent == root ? "the root" : Format.MemberLabel(home.Parent))}");
                 var owner = workspace.FindByModule(child.Module)?.Id;
                 sb.AppendLine($"{new string(' ', (l + baseIndent) * 2)}{Format.MemberLabel(child)}{(owner != null && owner != asm.Id ? $"  [{owner}]" : "")}{(tags.Count > 0 ? $"  ({string.Join(", ", tags)})" : "")}");
+                sink?.Add(new TreeNode(l, Format.MemberLabel(child), owner, "method", tags.Count > 0 ? string.Join(", ", tags) : null));
                 if (expandHere) Print(child, l + 1);
             }
             if (!callers && includeExternal && children.ContainsKey(m) && g.External.TryGetValue(m, out var ext))
                 foreach (var e in ext)
+                {
                     sb.AppendLine($"{new string(' ', (l + baseIndent) * 2)}{e}  (external)");
-            if (native != null && depth - l + 1 > 0) sb.Append(native(m, depth - l + 1, l + baseIndent));
+                    sink?.Add(new TreeNode(l, e, null, "external", null));
+                }
+            if (native != null && depth - l + 1 > 0)
+            {
+                var lines = native(m, depth - l + 1, l + baseIndent);
+                sb.Append(lines);
+                // Native lines are indented two spaces per level, like the managed ones.
+                if (sink != null)
+                    foreach (var line in lines.Split('\n').Where(x => x.Trim().Length > 0))
+                        sink.Add(new TreeNode(Math.Max(l, (line.Length - line.TrimStart(' ').Length) / 2 - baseIndent), line.Trim(), null, "native", null));
+            }
         }
 
         Print(root, 1);
         return truncated;
     }
+
+    /// <summary>A line of a call tree: a method, an external call, or a line of native code below a method.</summary>
+    public sealed record TreeNode(
+        [property: System.ComponentModel.Description("Depth below the root (1: direct callers/callees).")] int Level,
+        string Label,
+        [property: System.ComponentModel.Description("Assembly id when it differs from the root's.")] string? Assembly,
+        [property: System.ComponentModel.Description("method, external or native.")] string Kind,
+        [property: System.ComponentModel.Description("xN, virtual, via ..., recursive, expanded under ...")] string? Note);
 
     /// <summary>A call path step; <c>Via</c> is the base/interface method called when reached by virtual dispatch.</summary>
     public sealed record PathStep(MethodDef Method, MethodDef? Via);

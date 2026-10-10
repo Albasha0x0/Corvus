@@ -313,7 +313,12 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            throw new ToolError(ErrorCode.Timeout, $"Project export timed out after {options.TimeoutSeconds * 10}s. Partial output is in {dir}.");
+            var written = Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(dir, f)).ToList();
+            throw new ToolError(ErrorCode.Timeout, $"Project export timed out after {options.TimeoutSeconds * 10}s. Partial output is in {dir}.",
+                "export into a new empty directory with a larger --timeout, or decompile the types needed with decompile_type")
+            {
+                Partial = new { outputDirectory = dir, filesWritten = written.Count, files = written.Take(100).ToList() },
+            };
         }
         IncludeEmbeddedReferences(asm, dir);
         ThrowInFailedBodies(dir);

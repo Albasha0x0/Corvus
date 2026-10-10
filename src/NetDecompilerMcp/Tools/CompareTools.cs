@@ -18,7 +18,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
 
     private static readonly string[] Confidences = ["exact", "strong", "structural"];
 
-    [McpServerTool(Name = "compare_assemblies", Title = "Compare two builds", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "compare_assemblies", Title = "Compare two builds")]
     [Description("Compare two builds of an assembly (e.g. before and after an update; load both — the second gets an id like Name#2). " +
                  "Reports renamed/moved types and members (matched by content, so transformed or refactored names carry forward), added and removed members, " +
                  "signature changes, changed method bodies (normalized IL hash), metadata-only changes (flags or attributes changed, IL identical), field type changes, " +
@@ -99,7 +99,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         return pager.Page(sb.ToString(), offset, maxChars);
     }, cancellationToken);
 
-    [McpServerTool(Name = "find_counterpart", Title = "Find symbol in another build", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "find_counterpart", Title = "Find symbol in another build")]
     [Description("Where did a type or member of the old build go in the new build? Matches by name, then by content (renamed/transformed members), " +
                  "taking a match only when it is unique on both sides. Shows the new name and token, the matching tier and its confidence (exact, strong, structural), " +
                  "whether a method body changed (normalized IL hash), and Il2Cpp offset/address changes; ambiguous matches list their candidates. " +

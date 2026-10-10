@@ -38,7 +38,7 @@ internal static class SetupCli
                                 then start it once to check it works. --no-check skips the check.
           uninstall [client...] Remove the registration from every client (or the named ones). With no names it
                                 also deletes an installed copy; --keep-files keeps it.
-          status | doctor       Show which clients have it registered, check the server starts and that its tools match this build.
+          status | doctor       Show which clients have it registered, check the server starts and that its tool catalog (digest) matches this build.
           config [client]       Print the configuration to add by hand (for clients not listed).
           update                Install the latest release (installed copies only).
           version               Print the version.
@@ -134,17 +134,30 @@ internal static class SetupCli
         }
         var test = SelfTest.Run(launch, TimeSpan.FromSeconds(60));
         output.WriteLine(test.Ok ? $"Server check: OK ({test.Detail})" : $"Server check FAILED: {test.Detail}");
-        if (!test.Ok || test.Tools == null) return 1;
-        var declared = SelfTest.DeclaredTools();
-        var missing = declared.Except(test.Tools).ToList();
-        var extra = test.Tools.Except(declared).ToList();
-        if (missing.Count == 0 && extra.Count == 0)
+        if (!test.Ok || test.ToolList == null) return 1;
+        // The catalog digest server_status reports, of the registered server (from its tools/list and prompts/list) and of this build.
+        var (tools, prompts) = NetDecompilerMcp.Mcp.Catalog.OfThisBuild();
+        var expected = NetDecompilerMcp.Mcp.Catalog.Digest(tools, prompts);
+        var installed = NetDecompilerMcp.Mcp.Catalog.Digest(test.ToolList, test.PromptList ?? []);
+        if (expected == installed)
         {
-            output.WriteLine($"Tool catalog: matches this build ({declared.Count} tools)");
+            output.WriteLine($"Tool catalog: matches this build ({tools.Count} tools); digest {expected}");
             return 0;
         }
-        output.WriteLine("Tool catalog differs from this build (the registered server is another version; run: NetDecompilerMcp install):"
-            + (missing.Count > 0 ? $" missing {string.Join(", ", missing)};" : "") + (extra.Count > 0 ? $" extra {string.Join(", ", extra)}" : ""));
+        var differences = new List<string>();
+        void Compare(string kind, SortedDictionary<string, string> build, SortedDictionary<string, string> server)
+        {
+            var missing = build.Keys.Except(server.Keys).ToList();
+            var extra = server.Keys.Except(build.Keys).ToList();
+            var changed = build.Keys.Intersect(server.Keys).Where(k => build[k] != server[k]).ToList();
+            if (missing.Count > 0) differences.Add($"missing {kind} {string.Join(", ", missing)}");
+            if (extra.Count > 0) differences.Add($"extra {kind} {string.Join(", ", extra)}");
+            if (changed.Count > 0) differences.Add($"changed {kind} {string.Join(", ", changed.Take(20))}{(changed.Count > 20 ? $" and {changed.Count - 20} more" : "")}");
+        }
+        Compare("tools", NetDecompilerMcp.Mcp.Catalog.ToolHashes(tools), NetDecompilerMcp.Mcp.Catalog.ToolHashes(test.ToolList));
+        Compare("prompts", NetDecompilerMcp.Mcp.Catalog.PromptHashes(prompts), NetDecompilerMcp.Mcp.Catalog.PromptHashes(test.PromptList ?? []));
+        output.WriteLine($"Tool catalog differs from this build (the registered server is another version; run: NetDecompilerMcp install): " +
+                         $"digest {installed}, this build {expected}; {string.Join("; ", differences)}");
         return 1;
     }
 

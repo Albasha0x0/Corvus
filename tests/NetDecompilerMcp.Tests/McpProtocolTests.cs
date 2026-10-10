@@ -63,7 +63,51 @@ public abstract class McpProtocolTests : IAsyncLifetime
         var text = Text(result);
         Assert.True(expectError == (result.IsError == true), $"{tool} IsError={result.IsError}: {text}");
         if (!expectError) await AssertMatchesOutputSchema(_client, tool, result);
+        else ErrorJson(result);
         return text;
+    }
+
+    /// <summary>
+    /// Problems with an error result's shape: the first text block is the rendered error, a second block carries the same
+    /// error as JSON { code, retryable, message, next, partial, details } agreeing with the text; empty when it is well formed.
+    /// </summary>
+    internal static List<string> ErrorShapeProblems(CallToolResult result)
+    {
+        var problems = new List<string>();
+        var blocks = result.Content.OfType<TextContentBlock>().Where(b => !b.Text.StartsWith("[workspace]", StringComparison.Ordinal)).ToList();
+        if (result.IsError != true) problems.Add("not IsError");
+        if (result.StructuredContent != null) problems.Add("an error result carries structuredContent");
+        if (blocks.Count != 2) { problems.Add($"{blocks.Count} text blocks instead of the error text and its JSON"); return problems; }
+        var head = System.Text.RegularExpressions.Regex.Match(blocks[0].Text, @"^Error \(([a-z_]+)(, retryable)?\)( in \S+)?: ");
+        if (!head.Success) problems.Add($"first block is not 'Error (code) in tool: ...': {blocks[0].Text}");
+        if (!blocks[1].Text.StartsWith(ErrorJsonMarker, StringComparison.Ordinal)) { problems.Add("second block does not start with the JSON marker"); return problems; }
+        JsonElement json;
+        try { json = JsonDocument.Parse(blocks[1].Text[ErrorJsonMarker.Length..]).RootElement; }
+        catch (JsonException ex) { problems.Add($"error JSON does not parse: {ex.Message}"); return problems; }
+        if (json.ValueKind != JsonValueKind.Object) { problems.Add("error JSON is not an object"); return problems; }
+        string[] keys = ["code", "retryable", "message", "next", "partial", "details"];
+        var names = json.EnumerateObject().Select(p => p.Name).ToList();
+        if (!names.SequenceEqual(keys)) problems.Add($"error JSON members are [{string.Join(", ", names)}], expected [{string.Join(", ", keys)}]");
+        if (!json.TryGetProperty("code", out var code) || code.ValueKind != JsonValueKind.String) problems.Add("code is not a string");
+        else if (head.Success && code.GetString() != head.Groups[1].Value) problems.Add($"code {code} differs from the text's {head.Groups[1].Value}");
+        if (!json.TryGetProperty("retryable", out var retryable) || retryable.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) problems.Add("retryable is not a boolean");
+        else if (head.Success && retryable.GetBoolean() != head.Groups[2].Success) problems.Add("retryable differs from the text");
+        if (!json.TryGetProperty("message", out var message) || message.ValueKind != JsonValueKind.String || message.GetString()!.Length == 0) problems.Add("message is not a non-empty string");
+        else if (!blocks[0].Text.Contains(message.GetString()!, StringComparison.Ordinal)) problems.Add("message is not the text's message");
+        if (!json.TryGetProperty("next", out var next) || next.ValueKind is not (JsonValueKind.String or JsonValueKind.Null)) problems.Add("next is not a string or null");
+        else if ((next.ValueKind == JsonValueKind.String) != blocks[0].Text.Contains("\nNext: ", StringComparison.Ordinal)) problems.Add("next differs from the text's Next line");
+        if (json.TryGetProperty("details", out var details) && details.ValueKind is not (JsonValueKind.Object or JsonValueKind.Null)) problems.Add("details is not an object or null");
+        return problems;
+    }
+
+    internal const string ErrorJsonMarker = "\n\nerror (json): ";
+
+    /// <summary>The error JSON of a well-formed error result.</summary>
+    internal static JsonElement ErrorJson(CallToolResult result)
+    {
+        var problems = ErrorShapeProblems(result);
+        Assert.True(problems.Count == 0, string.Join("\n", problems));
+        return JsonDocument.Parse(result.Content.OfType<TextContentBlock>().Last().Text[ErrorJsonMarker.Length..]).RootElement.Clone();
     }
 
     private static readonly Dictionary<McpClient, Dictionary<string, JsonElement?>> Schemas = [];
@@ -194,6 +238,8 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["patch_bytes"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["hex"] = "90" }, "Patched"),
         ["list_native_edits"] = (new() { ["image"] = NativeSample(dir) }, "native edit"),
         ["save_native"] = (new() { ["image"] = NativeSample(dir), ["outputPath"] = dir.File("patched.dll") }, "Wrote"),
+        ["export_native_patches"] = (new() { ["image"] = NativeSample(dir), ["outputPath"] = dir.File("patches.dif"), ["format"] = "dif" }, "\"format\":\"dif\""),
+        ["migrate_native_patches"] = (new() { ["oldImage"] = NativeSample(dir), ["newImage"] = NativeSampleV2(dir), ["dryRun"] = true }, "\"source\":\"in_memory\""),
         ["undo_native_edit"] = (new() { ["image"] = NativeSample(dir) }, "Undid"),
         ["apply_il2cpp_names"] = (new() { ["image"] = NativeSample(dir), ["assembly"] = "TestFixture" }, "il2cpp names from TestFixture"),
         ["load_pdb"] = (new() { ["image"] = PdbSample(dir) }, "matches the image"),
@@ -210,6 +256,9 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["migrate_native_names"] = (new() { ["oldImage"] = NativeSample(dir), ["newImage"] = NativeSampleV2(dir), ["dryRun"] = true }, "\"dryRun\":true"),
         ["make_code_pattern"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "\"anchor\""),
         ["search_code_pattern"] = (new() { ["pattern"] = "C3", ["images"] = NativeSample(dir) }, "\"hits\""),
+        ["open_minidump"] = (new() { ["path"] = SyntheticCrash.Write(dir) }, "EXCEPTION_ACCESS_VIOLATION"),
+        ["dump_stack"] = (new() { ["dump"] = SyntheticCrash.Write(dir) }, "\"function\":\"Outer\""),
+        ["read_dump_memory"] = (new() { ["dump"] = SyntheticCrash.Write(dir), ["address"] = "synth+0x1000" }, "53 48 83 EC"),
         ["read_result"] = (new() { ["id"] = "r999" }, "Error (not_found) in read_result"),
         ["unload_assembly"] = (new() { ["assembly"] = "TestFixture.Consumer" }, "Unloaded"),
     };
@@ -227,10 +276,27 @@ public abstract class McpProtocolTests : IAsyncLifetime
                 Assert.False(string.IsNullOrWhiteSpace(tool.Description), tool.Name);
                 Assert.False(string.IsNullOrWhiteSpace(tool.ProtocolTool.Title), tool.Name);
                 Assert.NotNull(tool.ProtocolTool.Annotations);
-                Assert.Equal(ContractSweep.OpenWorldTools.Contains(tool.Name), tool.ProtocolTool.Annotations!.OpenWorldHint);
+                Assert.Equal(NetDecompilerMcp.Mcp.ToolEffects.Table[tool.Name].OpenWorld, tool.ProtocolTool.Annotations!.OpenWorldHint);
             }
             Assert.True(tools.Single(t => t.Name == "decompile_type").ProtocolTool.Annotations!.ReadOnlyHint);
             Assert.True(tools.Single(t => t.Name == "save_assembly").ProtocolTool.Annotations!.DestructiveHint);
+
+            // Stale-server check: the digest of what the client sees and server_status's agree (SetupTests: and this build's, in process).
+            var prompts = await _client.ListPromptsAsync();
+            var seen = NetDecompilerMcp.Mcp.Catalog.Digest(
+                tools.Select(t => JsonSerializer.SerializeToNode(t.ProtocolTool, McpJsonUtilities.DefaultOptions)),
+                prompts.Select(p => JsonSerializer.SerializeToNode(p.ProtocolPrompt, McpJsonUtilities.DefaultOptions)));
+            async Task<JsonElement> Status(string? expected) =>
+                JsonDocument.Parse((await _client.CallToolAsync("server_status", new Dictionary<string, object?> { ["expectedCatalogDigest"] = expected })).StructuredContent!.ToString()!).RootElement;
+            var status = await Status(seen);
+            Assert.Equal(seen, status.GetProperty("catalogDigest").GetString());
+            Assert.True(status.GetProperty("catalogMatches").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, status.GetProperty("catalogDifference").ValueKind);
+            Assert.Contains("export_project", status.GetProperty("longRunningTools").EnumerateArray().Select(e => e.GetString()));
+            var stale = await Status($"t{tools.Count - 2}-0123456789ab.p{prompts.Count}-{seen[^8..]}");
+            Assert.False(stale.GetProperty("catalogMatches").GetBoolean());
+            Assert.Equal($"tools: {tools.Count - 2} expected, this server has {tools.Count} (added 2 or more)", stale.GetProperty("catalogDifference").GetString());
+            Assert.Equal(JsonValueKind.Null, (await Status(null)).GetProperty("catalogMatches").ValueKind);
         }
 
         [Trait("Speed", "Slow")]

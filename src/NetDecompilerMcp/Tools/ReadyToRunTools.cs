@@ -24,7 +24,7 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
         if (workspace.Read(() => workspace.FindByPath(path)) == null) workspace.Load(path);
     }
 
-    [McpServerTool(Name = "get_r2r_code", Title = "ReadyToRun native code of a method", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "get_r2r_code", Title = "ReadyToRun native code of a method")]
     [Description("The precompiled native code of a method in a ReadyToRun assembly (crossgen / PublishReadyToRun; the .NET shared framework's " +
                  "assemblies are ReadyToRun): entry address, every code range (hot body, exception funclets, cold code), the import cells " +
                  "its fixups resolve before it first runs, and its x86 / x64 disassembly with import cells named by what they resolve to " +
@@ -125,7 +125,7 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
         sb.AppendLine();
     }
 
-    [McpServerTool(Name = "find_r2r_method", Title = "Managed method at a ReadyToRun address", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "find_r2r_method", Title = "Managed method at a ReadyToRun address")]
     [Description("The managed method whose precompiled ReadyToRun code contains a native address (e.g. from a crash dump, profiler or debugger): " +
                  "its name and token, which range (hot body, funclet, cold code) and offset, and the instruction there. An import cell address " +
                  "is described by what it resolves to. Addresses are in the file holding the code (the assembly, or its composite image).")]

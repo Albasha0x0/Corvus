@@ -8,7 +8,7 @@ namespace NetDecompilerMcp.Tools;
 [McpServerToolType]
 public sealed class UnpackTools(UnpackService unpacker)
 {
-    [McpServerTool(Name = "unpack_container", Title = "Unpack container", Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "unpack_container", Title = "Unpack container", UseStructuredContent = true)]
     [Description("Extract the .NET assemblies shipped inside a container and (by default) load them: .NET single-file bundles " +
                  "(apphost .exe / Linux / macOS, compressed or not), Costura.Fody embedded assemblies, NuGet packages, Xamarin / MAUI " +
                  ".apk / .aab (including XALZ LZ4 assemblies and assemblies.blob stores), plain zips, and .NET images embedded anywhere " +
@@ -21,7 +21,7 @@ public sealed class UnpackTools(UnpackService unpacker)
         CancellationToken cancellationToken = default) =>
         Task.Run(() => unpacker.Unpack(path, outputDirectory, load, AnalysisLimits.Default, cancellationToken), cancellationToken);
 
-    [McpServerTool(Name = "search_container", Title = "Search inside a container", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "search_container", Title = "Search inside a container", UseStructuredContent = true)]
     [Description("Find types and members by name in every managed assembly inside a container (single-file bundle, .nupkg, .apk / .aab, " +
                  "Costura host, zip; nested containers too) or a plain assembly, without extracting or loading anything. " +
                  "Query is a case-insensitive substring ('*' / '?' wildcards; a query with '.' or ':' also matches full names). " +

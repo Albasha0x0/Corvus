@@ -2,6 +2,7 @@ using System.Text;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Mcp;
 using NetDecompilerMcp.Native;
 using NetDecompilerMcp.Native.Code;
 using NetDecompilerMcp.Native.Providers;
@@ -44,13 +45,15 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
     private static string Name(NativeCodeIndex index, uint rva, string engineName) =>
         index.Sourced.NameAt(rva)?.Name ?? index.FunctionByStart(rva)?.KnownName ?? (engineName.Length > 0 ? engineName : $"sub_{rva:X}");
 
-    private static string Flags(NativeFunctionFlags flags)
+    private static List<string> FlagList(NativeFunctionFlags flags)
     {
         var list = new List<string>();
         if (flags.HasFlag(NativeFunctionFlags.Thunk)) list.Add("thunk");
         if (flags.HasFlag(NativeFunctionFlags.Library)) list.Add("library");
-        return list.Count > 0 ? $"  [{string.Join(", ", list)}]" : "";
+        return list;
     }
+
+    private static string Flags(NativeFunctionFlags flags) => FlagList(flags) is { Count: > 0 } list ? $"  [{string.Join(", ", list)}]" : "";
 
     private sealed class Functions(IReadOnlyList<NativeFunctionInfo> list)
     {
@@ -86,17 +89,17 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
             "callers" => rows.OrderByDescending(x => x.f.References ?? 0),
             _ => rows,
         };
-        var lines = rows.Select(x =>
-        {
-            var declared = index.FunctionByStart(x.f.StartRva)?.Sources;
-            return $"{Va(index, x.f.StartRva)}  {x.f.EndRva - x.f.StartRva,7}  {x.Name}{Flags(x.f.Flags)}  " +
-                   $"(ida{(declared != null ? ", " + declared : "")}; {x.f.References ?? 0} refs)";
-        }).ToList();
+        var list = rows.ToList();
+        string Sources(NativeFunctionInfo f) => index.FunctionByStart(f.StartRva)?.Sources is { } declared ? $"ida, {declared}" : "ida";
+        var lines = list.Select(x => $"{Va(index, x.f.StartRva)}  {x.f.EndRva - x.f.StartRva,7}  {x.Name}{Flags(x.f.Flags)}  ({Sources(x.f)}; {x.f.References ?? 0} refs)").ToList();
         int thunks = functions.List.Count(f => f.Flags.HasFlag(NativeFunctionFlags.Thunk));
         int library = functions.List.Count(f => f.Flags.HasFlag(NativeFunctionFlags.Library));
-        return $"{native.Id}: {Plural(functions.List.Count, "function")} ({thunks} thunks, {library} library) {Via}\n" +
-               $"Note: {index.SupportNote ?? $"{index.Image.Arch} instructions are not decoded by the built-in analysis"}; functions, sizes and references come from IDA\n" +
-               pager.PageRows(lines, offset, limit, "function");
+        var coverage = $"{index.SupportNote ?? $"{index.Image.Arch} instructions are not decoded by the built-in analysis"}; functions, sizes and references come from IDA";
+        var structured = Paged(list, offset, limit, (page, o, total, more) => new FunctionList(native.Id, functions.List.Count,
+            page.Select(x => new FunctionEntry(Va(index, x.f.StartRva), (int)(x.f.EndRva - x.f.StartRva), x.Name, FlagList(x.f.Flags), Sources(x.f), x.f.References ?? 0)).ToList(),
+            o, total, more, coverage));
+        return StructuredOutput.With($"{native.Id}: {Plural(functions.List.Count, "function")} ({thunks} thunks, {library} library) {Via}\n" +
+                                     $"Note: {coverage}\n" + pager.PageRows(lines, offset, limit, "function"), structured);
     }
 
     public async Task<string> Disassemble(LoadedNative native, NativeCodeIndex index, uint rva, bool function, int max, int offset, int? maxChars,
@@ -182,7 +185,8 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
         };
     }
 
-    public async Task<string> Xrefs(LoadedNative native, NativeCodeIndex index, uint rva, int offset, int limit,
+    /// <summary>find_xrefs rows in the tool's format, the header line and the target as shown.</summary>
+    public async Task<(string Header, List<string> Rows, string Target)> Xrefs(LoadedNative native, NativeCodeIndex index, uint rva,
         IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
         var session = await Session(native, progress, ct);
@@ -194,8 +198,9 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
                 ? $"{Name(index, f, info.Name)}+0x{x.FromRva - f:X}" : "(no function)";
             return $"{Va(index, x.FromRva)}  {x.Kind,-10} {where}";
         }).ToList();
-        var target = functions.ByStart.TryGetValue(rva, out var t) ? Name(index, rva, t.Name) : index.NameAt(rva);
-        return $"References to {Va(index, rva)}{(target != null ? $" ({target})" : "")} {Via}:\n" + pager.PageRows(rows, offset, limit, "reference");
+        var name = functions.ByStart.TryGetValue(rva, out var t) ? Name(index, rva, t.Name) : index.NameAt(rva);
+        var target = $"{Va(index, rva)}{(name != null ? $" ({name})" : "")}";
+        return ($"References to {target} {Via}:\n", rows, target);
     }
 
     public async Task<string> CallTree(LoadedNative native, NativeCodeIndex index, uint rva, bool callers, int depth, int maxNodes, int offset, int? maxChars,

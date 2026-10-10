@@ -103,7 +103,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 
     // ---- tools ----
 
-    [McpServerTool(Name = "compare_native_images", Title = "Compare native builds", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "compare_native_images", Title = "Compare native builds", UseStructuredContent = true)]
     [Description("Match the functions of two builds of one native image (x86 / x64), e.g. before and after an application update. Tiers, each accepting a pair " +
                  "only when unique on both sides: 1 same name (export, PDB, Il2Cpp, user), same import thunk, or identical bytes with addresses masked; " +
                  "2 same canonical control-flow graph and instruction shapes; 3 same imports, strings and constants; 4 call-graph propagation from matched " +
@@ -175,7 +175,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             offset, total, offset + limit < total, pairs, unmatched, ambiguous, notes, Math.Round(sw.Elapsed.TotalSeconds, 2));
     }
 
-    [McpServerTool(Name = "map_address_between_builds", Title = "Map an address to a new build", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "map_address_between_builds", Title = "Map an address to a new build", UseStructuredContent = true)]
     [Description("Where an address of the old build is in the new build: a function start goes to the matched function (compare_native_images), " +
                  "an address inside a function to the corresponding instruction after aligning both instruction sequences, a string literal to the same " +
                  "string, other data by following the old build's references through matched instructions. Returns the new address with a confidence " +
@@ -199,7 +199,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             oldFn != null ? Name(o, oldFn) : null, newFn != null ? Name(n, newFn) : null, mapped.Pair?.Tier, mapped.Candidates.Select(c => Va(n, c)).ToList());
     }
 
-    [McpServerTool(Name = "migrate_native_names", Title = "Carry names to a new build", Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "migrate_native_names", Title = "Carry names to a new build", UseStructuredContent = true)]
     [Description("Copy names and comments from the old build to the new build's user annotations through the function matches of compare_native_images " +
                  "and map_address_between_builds: function names to the matched function, names and comments inside functions to the aligned instruction, " +
                  "data names to the same string or the data the matched instructions reference. Sources: the old build's user annotations (default), and " +
@@ -274,7 +274,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             offset + limit < steps.Count, entries, notes);
     }
 
-    [McpServerTool(Name = "make_code_pattern", Title = "Make a code pattern", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "make_code_pattern", Title = "Make a code pattern", UseStructuredContent = true)]
     [Description("A byte pattern for an address that survives rebuilds: instruction bytes with branch displacements, RIP-relative displacements and " +
                  "relocated or in-image addresses as ?? (IDA style '48 8B 05 ?? ?? ?? ??'), extended an instruction at a time until it occurs once in the " +
                  "image's executable sections. When the code at the address is not unique (anchor auto) or anchor=reference, the pattern starts at or shortly " +
@@ -298,7 +298,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             made.Anchor, Va(index, made.Start), made.ReferenceOffset, made.OperandOffset, made.OperandSize, made.OperandKind, made.InstructionEnd, made.Note);
     }
 
-    [McpServerTool(Name = "search_code_pattern", Title = "Search a code pattern", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "search_code_pattern", Title = "Search a code pattern", UseStructuredContent = true)]
     [Description("Find a byte pattern with ?? wildcards (as make_code_pattern or search_bytes write it) in the executable sections of every loaded native image, " +
                  "or of the given images, with the function containing each hit and the offset into it.")]
     public async Task<PatternSearch> SearchCodePattern(

@@ -34,6 +34,7 @@ public enum ErrorCode
 /// <summary>
 /// A user-facing error; as an McpException its message is returned verbatim to the client as a tool error result.
 /// <see cref="Code"/> classifies it and <see cref="Remediation"/> names the next step that can succeed.
+/// The client receives it as an IsError result (<see cref="Mcp.ErrorResult"/>): the rendered text, then the same error as JSON.
 /// </summary>
 public sealed class ToolError : McpException
 {
@@ -47,6 +48,18 @@ public sealed class ToolError : McpException
 
     public ErrorCode Code { get; }
     public string? Remediation { get; }
+
+    /// <summary>
+    /// Results produced before the failure (matches found before a time limit, files written before a timeout, the phase an
+    /// index build reached); serialized as the "partial" member of the error's JSON. Keep it bounded: larger than
+    /// <see cref="MaxPartialChars"/> serialized, it is dropped and only its size reported.
+    /// </summary>
+    public object? Partial { get; set; }
+
+    /// <summary>Further machine-readable facts (limits, ids, candidates); the "details" member of the error's JSON.</summary>
+    public object? Details { get; set; }
+
+    public const int MaxPartialChars = 32_000;
 
     /// <summary>Whether repeating the same call can succeed without changing its arguments.</summary>
     public bool Retryable => Code is ErrorCode.Timeout or ErrorCode.IoError or ErrorCode.ProviderUnavailable;
@@ -73,5 +86,58 @@ public sealed class ToolError : McpException
     {
         var head = $"Error ({CodeName(Code)}{(Retryable ? ", retryable" : "")}){(tool != null ? " in " + tool : "")}: {Message}";
         return Remediation is { Length: > 0 } r ? head + "\nNext: " + r : head;
+    }
+
+    /// <summary>The error as JSON: { code, retryable, message, next, partial, details }; invisible characters escaped as in the text.</summary>
+    public string ToJson() =>
+        ErrorJson(CodeName(Code), Retryable, Format.EscapeInvisible(Message), Remediation is { Length: > 0 } r ? Format.EscapeInvisible(r) : null, Partial, Details);
+
+    private static readonly System.Text.Json.JsonSerializerOptions JsonOptions = new(System.Text.Json.JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never,
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+        MaxDepth = 32,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
+    /// <summary>The error JSON for any code (also "internal", which has no <see cref="ErrorCode"/>).</summary>
+    public static string ErrorJson(string code, bool retryable, string message, string? next, object? partial = null, object? details = null)
+    {
+        var partialNode = Serialize(partial, out var partialChars);
+        var detailsNode = Serialize(details, out _);
+        if (partialNode != null && partialChars > MaxPartialChars)
+        {
+            // Too large to send with an error: report that there was one.
+            partialNode = null;
+            var extended = detailsNode as System.Text.Json.Nodes.JsonObject ?? new System.Text.Json.Nodes.JsonObject();
+            extended["partialOmittedChars"] = partialChars;
+            detailsNode = extended;
+        }
+        var json = new System.Text.Json.Nodes.JsonObject
+        {
+            ["code"] = code,
+            ["retryable"] = retryable,
+            ["message"] = message,
+            ["next"] = next,
+            ["partial"] = partialNode,
+            ["details"] = detailsNode,
+        };
+        return json.ToJsonString(JsonOptions);
+    }
+
+    private static System.Text.Json.Nodes.JsonNode? Serialize(object? value, out int chars)
+    {
+        chars = 0;
+        if (value == null) return null;
+        try
+        {
+            var text = System.Text.Json.JsonSerializer.Serialize(value, value.GetType(), JsonOptions);
+            chars = text.Length;
+            return System.Text.Json.Nodes.JsonNode.Parse(text);
+        }
+        catch (Exception ex) when (ex is NotSupportedException or System.Text.Json.JsonException or InvalidOperationException)
+        {
+            return System.Text.Json.Nodes.JsonValue.Create($"(not serializable: {ex.GetType().Name})");
+        }
     }
 }

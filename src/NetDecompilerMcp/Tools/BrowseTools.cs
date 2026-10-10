@@ -3,6 +3,7 @@ using System.Text;
 using dnlib.DotNet;
 using ModelContextProtocol.Server;
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Mcp;
 using NetDecompilerMcp.Services;
 using static NetDecompilerMcp.Tools.ToolSupport;
 
@@ -13,14 +14,19 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
 {
     private const string CompilerGenerated = "System.Runtime.CompilerServices.CompilerGeneratedAttribute";
 
-    [McpServerTool(Name = "list_namespaces", Title = "List namespaces", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "list_namespaces", Title = "List namespaces", UseStructuredContent = true, OutputSchemaType = typeof(NamespaceList))]
     [Description("List namespaces with their type counts (nested types counted under their outer type's namespace, as list_types lists them; the counts add up to get_assembly_info's total).")]
     public Task<string> ListNamespaces(
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Only namespaces containing this text (case-insensitive).")] string? filter = null,
+        [Description("Index of the first namespace to return.")] int offset = 0,
+        [Description("Max namespaces (default 2000).")] int limit = 2000,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
-        var sb = new StringBuilder();
+        limit = ClampLimit(limit);
+        offset = Math.Max(0, offset);
+        var all = new List<NamespaceEntry>();
+        var perAssembly = new List<(LoadedAssembly Asm, int Count)>();
         foreach (var asm in workspace.Scope(assembly))
         {
             var groups = MetadataUtil.CountedTypes(asm.Module)
@@ -30,14 +36,26 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
                 .ToList();
             if (groups.Count == 0 && assembly == null && filter != null)
                 continue; // when filtering across all assemblies, omit those with no match
-            sb.AppendLine($"[{asm.Id}] {Plural(groups.Count, "namespace")}:");
-            foreach (var g in groups)
-                sb.AppendLine($"  {(g.Key.Length == 0 ? "<global>" : g.Key)}  ({g.Count()})");
+            perAssembly.Add((asm, groups.Count));
+            all.AddRange(groups.Select(g => new NamespaceEntry(asm.Id, g.Key, g.Count())));
         }
-        return sb.Length == 0 ? $"No namespaces match '{filter}'." : pager.Page(sb.ToString());
+        var page = all.Skip(offset).Take(limit).ToList();
+        var result = new NamespaceList(page, offset, all.Count, offset + page.Count < all.Count);
+        if (perAssembly.Count == 0) return StructuredOutput.With($"No namespaces match '{filter}'.", result);
+        var sb = new StringBuilder();
+        foreach (var (asm, count) in perAssembly)
+        {
+            var shown = page.Where(e => e.Assembly == asm.Id).ToList();
+            if (shown.Count == 0 && count > 0) continue; // outside this page
+            sb.AppendLine($"[{asm.Id}] {Plural(count, "namespace")}:");
+            foreach (var e in shown)
+                sb.AppendLine($"  {(e.Namespace.Length == 0 ? "<global>" : e.Namespace)}  ({e.Types})");
+        }
+        if (result.Truncated) sb.AppendLine($"[More: call again with offset={offset + page.Count}]");
+        return StructuredOutput.With(pager.Page(sb.ToString()), result);
     }, cancellationToken);
 
-    [McpServerTool(Name = "list_types", Title = "List types", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "list_types", Title = "List types", UseStructuredContent = true, OutputSchemaType = typeof(TypeList))]
     [Description("List types, optionally restricted to a namespace, a name filter and a kind. Paged by offset/limit.")]
     public Task<string> ListTypes(
         [Description(AssemblyFilterDescription)] string? assembly = null,
@@ -54,6 +72,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         var ns = @namespace == "<global>" ? "" : @namespace;
         bool showAssembly = workspace.Assemblies.Count > 1;
         var rows = new List<string>();
+        var items = new List<TypeEntry>();
         foreach (var asm in workspace.Scope(assembly))
             foreach (var t in includeNested ? asm.Module.GetTypes() : asm.Module.Types)
             {
@@ -63,11 +82,12 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
                 if (kind != null && !k.EndsWith(kind.Trim(), StringComparison.OrdinalIgnoreCase)) continue;
                 if (matcher != null && !matcher(Format.StripArity(t.Name)) && !matcher(t.FullName)) continue;
                 rows.Add($"{Format.Token(t)}  {k,-12} {t.FullName}{(showAssembly ? $"  [{asm.Id}]" : "")}");
+                items.Add(new TypeEntry(asm.Id, Format.Token(t), k, t.FullName));
             }
-        return pager.PageRows(rows, offset, limit, "type");
+        return StructuredOutput.With(pager.PageRows(rows, offset, limit, "type"), Paged(items, offset, limit, (page, o, total, more) => new TypeList(page, o, total, more)));
     }, cancellationToken);
 
-    [McpServerTool(Name = "get_type_info", Title = "Type outline", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "get_type_info", Title = "Type outline", UseStructuredContent = true, OutputSchemaType = typeof(TypeOutline))]
     [Description("Outline of a type without decompiling: declaration, attributes, nested types, fields (constants, enum values with hex, Il2Cpp offsets), properties, events and method signatures with tokens, IL sizes and Il2Cpp RVAs.")]
     public Task<string> GetTypeInfo(
         [Description("Type name or token. " + SymbolDescription)] string type,
@@ -108,9 +128,28 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
             return $"{Format.Token(m)}  {Format.Method(m)}{accessor}{size}{Il2Cpp(m)}";
         });
 
-        if (fields.Count != t.Fields.Count || methods.Count != t.Methods.Count || nested.Count != t.NestedTypes.Count)
+        bool hidden = fields.Count != t.Fields.Count || methods.Count != t.Methods.Count || nested.Count != t.NestedTypes.Count;
+        if (hidden)
             sb.AppendLine("\n(Compiler-generated members hidden; pass includeCompilerGenerated=true to show them.)");
-        return pager.Page(sb.ToString());
+
+        const int MaxMembers = 2000;
+        bool cut = false;
+        List<MemberEntry> Entries<T>(IReadOnlyList<T> items, Func<T, MemberEntry> entry)
+        {
+            cut |= items.Count > MaxMembers;
+            return items.Take(MaxMembers).Select(entry).ToList();
+        }
+        var outline = new TypeOutline(SymbolRef.Of(sym), t.FullName, Format.TypeHeader(t), t.DeclaringType?.FullName,
+            t.CustomAttributes.Select(Format.Attribute).ToList(),
+            Entries(nested, n => new MemberEntry(Format.Token(n), n.Name, $"{Format.Kind(n)} {Format.TypeName(n)}", null, null)),
+            Entries(fields, f => new MemberEntry(Format.Token(f), f.Name,
+                t.IsEnum && f.IsLiteral ? $"{f.Name} = {Format.LiteralWithHex(f.Constant?.Value)}" : Format.Field(f), Il2CppService.CompactSummary(f), null)),
+            Entries(t.Properties.ToList(), p => new MemberEntry(Format.Token(p), p.Name, Format.Property(p), null, null)),
+            Entries(t.Events.ToList(), e => new MemberEntry(Format.Token(e), e.Name, Format.Event(e), null, null)),
+            Entries(methods, m => new MemberEntry(Format.Token(m), m.Name, Format.Method(m), Il2CppService.CompactSummary(m),
+                MetadataUtil.SafeBody(m)?.Instructions.Count)),
+            hidden, cut);
+        return StructuredOutput.With(pager.Page(sb.ToString()), outline);
     }, cancellationToken);
 
     private static void Section<T>(StringBuilder sb, string title, IReadOnlyList<T> items, Func<T, string> line)
@@ -120,7 +159,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         foreach (var item in items) sb.AppendLine("  " + line(item));
     }
 
-    [McpServerTool(Name = "get_type_hierarchy", Title = "Type hierarchy", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "get_type_hierarchy", Title = "Type hierarchy")]
     [Description("Base-type chain, all implemented interfaces (including inherited), and the types that directly derive from it (or implement it, for an interface) across all loaded assemblies.")]
     public Task<string> GetTypeHierarchy(
         [Description("Type name or token. " + SymbolDescription)] string type,
@@ -143,7 +182,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         return sb.ToString();
     }, cancellationToken);
 
-    [McpServerTool(Name = "get_attributes", Title = "Custom attributes", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "get_attributes", Title = "Custom attributes")]
     [Description("Custom attributes with arguments on a type, method (including parameter and return attributes), field, property or event — or on the assembly/module when symbol is omitted. " +
                  "To find everything carrying an attribute, use find_references on the attribute type.")]
     public Task<string> GetAttributes(
@@ -183,7 +222,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         return sb.Length == 0 ? "No custom attributes" + (filter != null ? $" matching '{filter}'." : ".") : pager.Page(sb.ToString());
     }, cancellationToken);
 
-    [McpServerTool(Name = "resolve_symbol", Title = "Resolve symbol", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "resolve_symbol", Title = "Resolve symbol", UseStructuredContent = true, OutputSchemaType = typeof(SymbolList))]
     [Description("Show what a symbol string or metadata token resolves to (every match, with kind, assembly, token and signature). Use it to disambiguate before other calls.")]
     public Task<string> ResolveSymbol(
         [Description(SymbolDescription)] string symbol,
@@ -193,6 +232,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
     {
         var all = SymbolResolver.Resolve(workspace, assembly, symbol, SymbolResolver.ParseKind(kind));
         var sb = new StringBuilder($"{Plural(all.Count, "match")}:\n");
+        var items = new List<SymbolMatch>();
         foreach (var r in all)
         {
             var signature = r.Member switch
@@ -205,7 +245,11 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
                 _ => "",
             };
             sb.AppendLine($"  {r}\n      {signature}");
+            if (items.Count < 1000) items.Add(Match(r, signature));
         }
-        return sb.ToString();
+        return StructuredOutput.With(sb.ToString(), Firsts(items, all.Count, (page, o, total, more) => new SymbolList(page, o, total, more)));
     }, cancellationToken);
+
+    internal static SymbolMatch Match(ResolvedSymbol r, string? signature = null) =>
+        new(SymbolRef.MemberKind(r.Member), r.Label, r.Assembly.Id, Format.Token(r.Member), signature);
 }

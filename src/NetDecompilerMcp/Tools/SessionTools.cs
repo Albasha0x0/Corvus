@@ -1,9 +1,9 @@
 using System.ComponentModel;
-using System.Security.Cryptography;
-using System.Text;
+using System.Runtime.CompilerServices;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Mcp;
 using NetDecompilerMcp.Services;
 using static NetDecompilerMcp.Tools.ToolSupport;
 
@@ -15,19 +15,37 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
 {
     public sealed record Capability(string Name, bool Available, string Detail, string? Remediation);
 
-    public sealed record ServerStatus(string Version, string CatalogDigest, int Tools, int LoadedAssemblies, string BackgroundIndexing,
-        int MaxOutputChars, int TimeoutSeconds, long WorkingSetMB, IReadOnlyList<Capability> Capabilities);
+    public sealed record ServerStatus(string Version,
+        [property: Description("Digest of the tool and prompt catalog (names, schemas, descriptions, annotations; prompt arguments): t<tools>-<hash>.p<prompts>-<hash>.")]
+        string CatalogDigest,
+        [property: Description("Whether CatalogDigest equals expectedCatalogDigest; null when none was given.")]
+        bool? CatalogMatches,
+        [property: Description("On a mismatch, what differs as far as the digests tell (tool or prompt counts, or definitions); else null.")]
+        string? CatalogDifference,
+        int Tools, int LoadedAssemblies, string BackgroundIndexing,
+        int MaxOutputChars, int TimeoutSeconds, long WorkingSetMB, IReadOnlyList<Capability> Capabilities,
+        [property: Description("Tools whose calls can take more than 10 s on large inputs (whole-input work, an external engine, a native image's first code index).")]
+        IReadOnlyList<string> LongRunningTools);
 
-    [McpServerTool(Name = "server_status", Title = "Server status", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
-    [Description("Version, a digest of the tool catalog (compare it to detect a stale server), what is loaded, background indexing state, " +
-                 "response limits, and which capabilities are available here with the reason and the fix when one is not.")]
-    public ServerStatus GetServerStatus(RequestContext<CallToolRequestParams> context = null!)
+    private static readonly ConditionalWeakTable<McpServerOptions, string> Digests = new();
+
+    [McpServerTool(Name = "server_status", Title = "Server status", UseStructuredContent = true)]
+    [Description("Version, a digest of the tool and prompt catalog, what is loaded, background indexing state, response limits, long-running tools, " +
+                 "and which capabilities are available here with the reason and the fix when one is not. Pass expectedCatalogDigest (from an earlier " +
+                 "server_status, or NetDecompilerMcp doctor) to detect a stale server: the result says whether it matches and what differs.")]
+    public ServerStatus GetServerStatus(
+        [Description("Catalog digest to compare with this server's (e.g. t92-0123456789ab.p5-01234567).")] string? expectedCatalogDigest = null,
+        RequestContext<CallToolRequestParams> context = null!)
     {
-        var tools = context?.Server?.ServerOptions.ToolCollection?.Select(t => t.ProtocolTool).OrderBy(t => t.Name, StringComparer.Ordinal).ToList() ?? [];
-        var catalog = new StringBuilder();
-        foreach (var t in tools)
-            catalog.Append(t.Name).Append('\n').Append(t.InputSchema.GetRawText()).Append('\n').Append(t.OutputSchema?.GetRawText()).Append('\n');
-        var digest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(catalog.ToString())))[..16];
+        var server = context?.Server?.ServerOptions;
+        var digest = server == null ? "" : Digests.GetValue(server, o =>
+        {
+            var (tools, prompts) = Catalog.Of(o);
+            return Catalog.Digest(tools, prompts);
+        });
+        bool expected = !string.IsNullOrWhiteSpace(expectedCatalogDigest);
+        var difference = expected ? Catalog.Difference(expectedCatalogDigest!, digest) : null;
+        int toolCount = server?.ToolCollection?.Count ?? 0;
 
         List<Capability> capabilities =
         [
@@ -51,11 +69,12 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
                 : new("IDA background analysis on load", false, "off: the first decompile_native on an image waits for IDA's auto-analysis",
                     $"start the server with --ida-prewarm (or {ServerOptions.IdaPrewarmVariable}=1)"));
         int loaded = workspace.Read(() => workspace.Assemblies.Count + workspace.Natives.Count);
-        return new ServerStatus(typeof(ServerOptions).Assembly.GetName().Version?.ToString(3) ?? "?", digest, tools.Count, loaded, indexing.Status,
-            options.MaxOutputChars, options.TimeoutSeconds, Environment.WorkingSet / (1024 * 1024), capabilities);
+        return new ServerStatus(typeof(ServerOptions).Assembly.GetName().Version?.ToString(3) ?? "?", digest, expected ? difference == null : null, difference,
+            toolCount, loaded, indexing.Status, options.MaxOutputChars, options.TimeoutSeconds, Environment.WorkingSet / (1024 * 1024), capabilities,
+            ToolEffects.LongRunning.ToList());
     }
 
-    [McpServerTool(Name = "read_result", Title = "Read a kept result", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "read_result", Title = "Read a kept result")]
     [Description("Page through a result that was too large to send (a limit_exceeded error names it, e.g. r3). Results are kept while memory allows.")]
     public string ReadResult(
         [Description("Kept result id from the limit_exceeded error, e.g. r3.")] string id,

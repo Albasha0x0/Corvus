@@ -5,6 +5,7 @@ using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Mcp;
 using NetDecompilerMcp.Native;
 using NetDecompilerMcp.Native.Code;
 using NetDecompilerMcp.Services;
@@ -14,7 +15,7 @@ namespace NetDecompilerMcp.Tools;
 
 /// <summary>Native code: functions, disassembly, control flow, cross-references, call trees and strings (x86 / x64).</summary>
 [McpServerToolType]
-public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeService code, OutputPager pager, NativeLinkService? link = null,
+public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeService code, OutputPager pager, NativeLinkService? link = null,
     NativeEngineService? engines = null, NativeNamePush? names = null)
 {
     /// <summary>Answers for images whose instructions the built-in analysis does not decode (ARM64, ARM), through IDA.</summary>
@@ -62,7 +63,9 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         index.FunctionAt(rva) ?? throw new ToolError(ErrorCode.NotFound, $"No function contains {NativeAddress.Va(index.Image, rva)}.",
             "list_functions shows the functions; disassemble shows raw instructions at any address");
 
-    private static string Flags(NativeFunction f, NativeCodeIndex? index = null)
+    private static string Flags(NativeFunction f, NativeCodeIndex? index = null) => FlagList(f, index) is { Count: > 0 } flags ? $"  [{string.Join(", ", flags)}]" : "";
+
+    private static List<string> FlagList(NativeFunction f, NativeCodeIndex? index = null)
     {
         var flags = new List<string>();
         if (index != null && EngineLibraryNames.IsLibrary(index, f.Start)) flags.Add("library");
@@ -74,7 +77,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         if (f.Flags.HasFlag(FunctionFlags.Funclet)) flags.Add("funclet");
         if (f.Parent != null) flags.Add($"funclet of {f.Parent.Name}");
         if (f.Chunks.Count > 0) flags.Add(Plural(f.Chunks.Count, "exception chunk"));
-        return flags.Count > 0 ? $"  [{string.Join(", ", flags)}]" : "";
+        return flags;
     }
 
     private static string Coverage(NativeCodeIndex index)
@@ -86,7 +89,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         return notes.Count > 0 ? "Note: " + string.Join("; ", notes) + "\n" : "";
     }
 
-    [McpServerTool(Name = "list_functions", Title = "List native functions", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "list_functions", Title = "List native functions", UseStructuredContent = true, OutputSchemaType = typeof(FunctionList))]
     [Description("Functions of a native image (x86 / x64): address, size, name (export name, module!import for thunks, or sub_<rva>), flags " +
                  "(thunk, noreturn, unresolved jumps, invalid code, funclet, funclet of its parent, exception chunks: catch blocks, unwind funclets, filters " +
                  "and handlers attached to their function), how it was found and how many call sites reach it. get_exception_info shows the details. " +
@@ -113,16 +116,21 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
             "callers" => list.OrderByDescending(f => index.CountRefsTo(f.Start)),
             _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown sort '{sort}'.", "use address, size or callers"),
         };
-        var rows = list.Select(f => $"{NativeAddress.Va(index.Image, f.Start)}  {f.Size,7}  {f.Name}{Flags(f, index)}  " +
-                                    $"({f.Sources}{(EngineLibraryNames.IsLibrary(index, f.Start) ? ", ida" : "")}; {index.CountRefsTo(f.Start)} refs)").ToList();
+        var functions = list.ToList();
+        string Sources(NativeFunction f) => f.Sources + (EngineLibraryNames.IsLibrary(index, f.Start) ? ", ida" : "");
+        var rows = functions.Select(f => $"{NativeAddress.Va(index.Image, f.Start)}  {f.Size,7}  {f.Name}{Flags(f, index)}  ({Sources(f)}; {index.CountRefsTo(f.Start)} refs)").ToList();
         var s = index.Stats;
+        var coverage = Coverage(index);
         int library = index.Sourced.Count(NativeNameSource.Ida);
-        return $"{native.Id}: {Plural(s.Functions, "function")} ({s.Thunks} thunks, {s.NoReturnFunctions} noreturn" +
+        var result = Paged(functions, offset, limit, (page, o, total, more) => new FunctionList(native.Id, s.Functions,
+            page.Select(f => new FunctionEntry(NativeAddress.Va(index.Image, f.Start), (int)f.Size, f.Name, FlagList(f, index), Sources(f), index.CountRefsTo(f.Start))).ToList(),
+            o, total, more, coverage.Length > 0 ? coverage.Trim() : null));
+        return StructuredOutput.With($"{native.Id}: {Plural(s.Functions, "function")} ({s.Thunks} thunks, {s.NoReturnFunctions} noreturn" +
                (library > 0 ? $", {library} library functions named by IDA" : "") + $"), {s.Instructions:N0} instructions, " +
-               $"{s.Xrefs:N0} references, {Plural(s.Strings, "string")}\n" + Coverage(index) + pager.PageRows(rows, offset, limit, "function");
+               $"{s.Xrefs:N0} references, {Plural(s.Strings, "string")}\n" + coverage + pager.PageRows(rows, offset, limit, "function"), result);
     });
 
-    [McpServerTool(Name = "disassemble", Title = "Disassemble native code", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "disassemble", Title = "Disassemble native code")]
     [Description("MASM-syntax disassembly of the native function containing an address (with block labels), or of maxInstructions from the address " +
                  "when it is in no function or function=false. Calls and data references are named (module!import, exports, sub_<rva>, loc_<rva>) " +
                  "and string references shown as comments; calls are commented with their recovered arguments (CreateFileW(L\"a.ini\", GENERIC_READ, ...), see get_call_arguments). " + IndexNote)]
@@ -189,7 +197,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         return $"  {l.Address:X}  {l.Bytes,-24} {l.Text}{(comment != null ? "  ; " + comment : "")}";
     }
 
-    [McpServerTool(Name = "get_cfg", Title = "Native control-flow graph", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "get_cfg", Title = "Native control-flow graph")]
     [Description("Basic blocks of the native function containing an address: each block's range, instruction count, how it ends (return, jump, " +
                  "switch, tail call, noreturn call...) and its successors; resolved switch tables with their cases; indirect jumps whose targets are unknown. " + IndexNote)]
     public Task<string> GetCfg(
@@ -219,7 +227,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         return pager.Page(sb.ToString(), offset, maxChars);
     });
 
-    [McpServerTool(Name = "find_xrefs", Title = "Native cross-references", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "find_xrefs", Title = "Native cross-references", UseStructuredContent = true, OutputSchemaType = typeof(XrefList))]
     [Description("Everything in a native image that references an address: calls (direct and through import slots and thunks), jumps, data reads " +
                  "and writes, address-taken uses, switch tables and relocated data pointers, each with the function it is in. For an import " +
                  "(module!name) lists the call sites of that API (x86 calls through a register loaded from the slot included) and what it is bound to; " +
@@ -235,14 +243,18 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
     {
         var (native, index) = await Open(image, context, progress, cancellationToken);
         if (_engine?.Serves(index) == true)
-            return await _engine.Xrefs(native, index, Address(index, address), offset, limit, progress, cancellationToken);
+        {
+            var via = await _engine.Xrefs(native, index, Address(index, address), progress, cancellationToken);
+            return StructuredOutput.With(via.Header + pager.PageRows(via.Rows, offset, limit, "reference"), Xrefs(native.Id, via.Target, via.Rows, offset, limit, null));
+        }
         // a late-bound import (GetProcAddress) by name: its resolution and the calls through its pointer
         var dynamicRows = NativeCallTools.DynamicXrefRows(index, address, cancellationToken);
         uint rva;
         try { rva = Address(index, address); }
         catch (ToolError) when (dynamicRows != null)
         {
-            return $"References to {address.Trim()} (late-bound import):\n" + Coverage(index) + pager.PageRows(dynamicRows, offset, limit, "reference");
+            return StructuredOutput.With($"References to {address.Trim()} (late-bound import):\n" + Coverage(index) + pager.PageRows(dynamicRows, offset, limit, "reference"),
+                Xrefs(native.Id, $"{address.Trim()} (late-bound import)", dynamicRows, offset, limit, null));
         }
         string Va(uint r) => NativeAddress.Va(index.Image, r);
         string Where(uint from) => index.FunctionAt(from) is { } f ? $"{f.Name}+0x{from - f.Start:X}" : "(no function)";
@@ -256,17 +268,33 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         if (dynamicRows != null) rows.AddRange(dynamicRows);
         var target = index.NameAt(rva) ?? NativeCallTools.PointerName(index, rva, cancellationToken) ?? (index.StringAt(rva) is { } s ? index.CommentFor(rva) : null);
         var header = $"References to {Va(rva)}{(target != null ? $" ({target})" : "")}:\n";
+        string? boundTo = null;
         if (link != null)
         {
             // Other loaded images reach this address through their imports; an import slot shows what it is bound to.
             await link.WarmUp(null, cancellationToken);
-            if (import != null) header += $"Bound to: {NativeLinkService.Describe(link.BindImport(native, import))}\n";
+            if (import != null) header += $"Bound to: {boundTo = NativeLinkService.Describe(link.BindImport(native, import))}\n";
             rows.AddRange(workspace.Read(() => link.ImportCallSites(native, rva, cancellationToken)));
         }
-        return header + Coverage(index) + pager.PageRows(rows, offset, limit, "reference");
+        return StructuredOutput.With(header + Coverage(index) + pager.PageRows(rows, offset, limit, "reference"),
+            Xrefs(native.Id, $"{Va(rva)}{(target != null ? $" ({target})" : "")}", rows, offset, limit, boundTo));
     });
 
-    [McpServerTool(Name = "native_call_tree", Title = "Native call tree", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    /// <summary>
+    /// find_xrefs rows ("[image] VA  Kind  function+0xN  detail") as fields; a row of another form (an importer whose index is
+    /// not built) has only its text, as Detail.
+    /// </summary>
+    private static XrefList Xrefs(string image, string target, List<string> rows, int offset, int limit, string? boundTo) =>
+        Paged(rows, offset, limit, (page, o, total, more) => new XrefList(image, target, page.Select(row =>
+            XrefRow().Match(row) is { Success: true } m
+                ? new XrefEntry(m.Groups["image"].Success ? m.Groups["image"].Value : null, m.Groups["va"].Value, m.Groups["kind"].Value, m.Groups["where"].Value,
+                    m.Groups["rest"].Value.Length > 0 ? m.Groups["rest"].Value : null)
+                : new XrefEntry(null, null, null, null, row)).ToList(), o, total, more, boundTo));
+
+    [GeneratedRegex(@"^(?:\[(?<image>[^\]]+)\] )?(?<va>0x[0-9A-F]+)\s+(?<kind>\S+)\s+(?<where>\(no function\)|\S+)\s*(?<rest>.*)$")]
+    private static partial Regex XrefRow();
+
+    [McpServerTool(Name = "native_call_tree", Title = "Native call tree")]
     [Description("Callers or callees of a native function, several levels deep (calls through thunks and import slots included). Across images: " +
                  "a call through module!import continues into the provider's function when that image is loaded (shown as module!import -> " +
                  "PROVIDER.dll!export at VA [image], forwarders and jump thunks followed; otherwise the provider's path, or why it does not resolve), " +
@@ -317,7 +345,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         return pager.Page(sb.ToString(), offset, maxChars);
     });
 
-    [McpServerTool(Name = "search_native_strings", Title = "Search native strings", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "search_native_strings", Title = "Search native strings", UseStructuredContent = true, OutputSchemaType = typeof(NativeStringList))]
     [Description("Strings (ASCII and UTF-16) a native image's code or data references, with the address, the number of references and the first " +
                  "referencing function; filter by substring or regex. After apply_il2cpp_names also the Il2Cpp string literals, by the slot code loads them from. " + IndexNote)]
     public Task<string> SearchNativeStrings(
@@ -337,6 +365,8 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         }
         var (native, index) = await Open(image, context, progress, cancellationToken);
         var rows = new List<string>();
+        var items = new List<NativeStringEntry>();
+        int pageStart = Math.Max(0, offset), pageEnd = pageStart + Math.Clamp(limit, 1, 5_000); // the page PageRows shows
         foreach (var s in index.Strings)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -347,6 +377,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
             var first = refs.Count > 0 && index.FunctionAt(refs[0].From) is { } f ? f.Name : null;
             rows.Add($"{NativeAddress.Va(index.Image, s.Rva)}  {(s.Encoding == StringEncoding.Utf16 ? "L" : " ")}\"{Format.Clip(Escape(text), 200)}\"  " +
                      $"{index.CountRefsTo(s.Rva)} refs{(first != null ? $", first in {first}" : "")}");
+            if (rows.Count - 1 >= pageStart && rows.Count - 1 < pageEnd) items.Add(new NativeStringEntry(NativeAddress.Va(index.Image, s.Rva), s.Encoding == StringEncoding.Utf16 ? "utf16" : "ascii", text, index.CountRefsTo(s.Rva), first));
         }
         // Il2Cpp string literals live in the metadata file; code loads them through slots named by apply_il2cpp_names.
         if (Il2CppNativeNames.Of(native) is { } il2cpp)
@@ -360,8 +391,10 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
                 var first = refs.Count > 0 && index.FunctionAt(refs[0].From) is { } f ? f.Name : null;
                 rows.Add($"{NativeAddress.Va(index.Image, slot)}  il2cpp \"{Format.Clip(Escape(text), 200)}\"  slot {index.NameAt(slot)}, " +
                          $"{index.CountRefsTo(slot)} refs{(first != null ? $", first in {first}" : "")}");
+                if (rows.Count - 1 >= pageStart && rows.Count - 1 < pageEnd) items.Add(new NativeStringEntry(NativeAddress.Va(index.Image, slot), "il2cpp", Format.Clip(text, 400), index.CountRefsTo(slot), first));
             }
-        return pager.PageRows(rows, offset, limit, "string");
+        return StructuredOutput.With(pager.PageRows(rows, offset, limit, "string"),
+            new NativeStringList(native.Id, items, pageStart, rows.Count, pageStart + items.Count < rows.Count));
     });
 
     private static bool SafeMatch(Regex r, string text)

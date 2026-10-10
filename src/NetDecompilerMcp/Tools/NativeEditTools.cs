@@ -45,7 +45,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         "reusing an ABSOLUTE slot of the page's relocation block; keep leaves every entry as it is; neutralize neutralizes every entry " +
         "under the patch. The report lists kept / neutralized / added entries; undo restores them.";
 
-    [McpServerTool(Name = "rename_native", Title = "Name a native address", OpenWorld = false)]
+    [McpServerTool(Name = "rename_native", Title = "Name a native address")]
     [Description("Give a name to a native address (a function start, or any address): the name shows up in list_functions, disassemble (labels and " +
                  "call targets), find_xrefs and native_call_tree, and is saved to a per-user sidecar keyed by the file's SHA-256, so it survives reloads " +
                  "and restarts. Names are C-identifier-like (<=255 chars) and unique unless allowDuplicate=true. An empty name clears it.")]
@@ -62,7 +62,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         return string.IsNullOrWhiteSpace(name) ? edits.ClearName(native, index, rva) : edits.Rename(native, index, rva, name, allowDuplicate);
     });
 
-    [McpServerTool(Name = "comment_native", Title = "Comment a native address", OpenWorld = false)]
+    [McpServerTool(Name = "comment_native", Title = "Comment a native address")]
     [Description("Attach a comment to a native address; it shows up next to disassembly that references the address and is saved to the per-user sidecar " +
                  "keyed by the file's SHA-256 (so it survives reloads and restarts). An empty text clears the comment.")]
     public Task<string> CommentNative(
@@ -76,7 +76,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         return edits.Comment(native, index, Address(index, address), text);
     });
 
-    [McpServerTool(Name = "export_native_annotations", Title = "Export native annotations", OpenWorld = false)]
+    [McpServerTool(Name = "export_native_annotations", Title = "Export native annotations")]
     [Description("Write the image's names and comments as an IDAPython script (format=ida), a Ghidra script (format=ghidra) or JSON (format=json). " +
                  "Scripts apply by RVA rebased to the database's own image base at run time.")]
     public Task<string> ExportNativeAnnotations(
@@ -96,7 +96,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         return $"Exported {ann.NameCount} name(s) and {ann.CommentCount} comment(s) to {target} ({fmt} format).";
     });
 
-    [McpServerTool(Name = "patch_bytes", Title = "Patch native bytes", Destructive = true, OpenWorld = false)]
+    [McpServerTool(Name = "patch_bytes", Title = "Patch native bytes")]
     [Description("Replace bytes at a native address with a hex string, in memory. The patch is recorded as an undoable edit and every read path " +
                  "(disassemble, strings, search_bytes, read_bytes) then sees the patched bytes. Over code, trailing bytes of a partly overwritten " +
                  "instruction are padded with NOPs; the patch is refused if it would start mid-instruction, run past the function end or hit " +
@@ -120,7 +120,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         return edits.ApplyPatch(native, index, prepared, dryRun);
     });
 
-    [McpServerTool(Name = "patch_asm", Title = "Assemble and patch native code", Destructive = true, OpenWorld = false)]
+    [McpServerTool(Name = "patch_asm", Title = "Assemble and patch native code")]
     [Description("Assemble x86/x64 instructions (multi-line; labels, numeric and symbol branch targets; a 'db <hex>' escape) and write them at a " +
                  "native address, in memory. Branch displacements and RIP-relative references are computed for the target address. Same safety rules " +
                  "and NOP padding as patch_bytes; the patch is recorded as an undoable edit. Absolute addresses (x86 [addr] operands, 'offset name' / " +
@@ -145,11 +145,11 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
             try { return index.Image.ImageBase + Address(index, name); }
             catch (ToolError) { return null; }
         });
-        var prepared = edits.PreparePatch(index, rva, result.Bytes, force, "patch_asm", mode, result.Constants);
+        var prepared = edits.PreparePatch(index, rva, result.Bytes, force, "patch_asm", mode, result.Constants, assembly);
         return edits.ApplyPatch(native, index, prepared, dryRun);
     });
 
-    [McpServerTool(Name = "list_native_edits", Title = "List native byte patches", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "list_native_edits", Title = "List native byte patches")]
     [Description("The in-memory byte patches of a native image, numbered; undo_native_edit reverts by number and save_native writes them to a file.")]
     public Task<string> ListNativeEdits(
         [Description(NativeTools.ImageDescription)] string image,
@@ -160,7 +160,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         return edits.List(native);
     });
 
-    [McpServerTool(Name = "undo_native_edit", Title = "Undo a native byte patch", OpenWorld = false)]
+    [McpServerTool(Name = "undo_native_edit", Title = "Undo a native byte patch")]
     [Description("Undo one in-memory byte patch of a native image — the last by default, or any earlier one by number (from list_native_edits).")]
     public Task<string> UndoNativeEdit(
         [Description(NativeTools.ImageDescription)] string image,
@@ -172,7 +172,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         return edits.Undo(native, number);
     });
 
-    [McpServerTool(Name = "save_native", Title = "Save patched native image", Destructive = true, OpenWorld = false)]
+    [McpServerTool(Name = "save_native", Title = "Save patched native image")]
     [Description("Write the patched native image to a file. Everything not patched is byte-for-byte identical to the original; the PE checksum is " +
                  "recomputed when the original had one; a signed file becomes unsigned (pass stripSignature=true to remove the certificate table). " +
                  "Writes atomically, never overwrites without overwrite=true (the original is backed up to .bak), and verifies by re-parsing and comparing " +

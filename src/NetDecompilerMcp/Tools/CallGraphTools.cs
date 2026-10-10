@@ -3,6 +3,7 @@ using System.Text;
 using dnlib.DotNet;
 using ModelContextProtocol.Server;
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Mcp;
 using NetDecompilerMcp.Services;
 using static NetDecompilerMcp.Tools.ToolSupport;
 
@@ -11,7 +12,7 @@ namespace NetDecompilerMcp.Tools;
 [McpServerToolType]
 public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService graph, OutputPager pager, NativeLinkService? link = null)
 {
-    [McpServerTool(Name = "get_call_tree", Title = "Call tree (callers / callees)", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "get_call_tree", Title = "Call tree (callers / callees)", UseStructuredContent = true, OutputSchemaType = typeof(CallTree))]
     [Description("Multi-level call tree of a method across all loaded assemblies: direction=callers (who calls it, who calls those...) or callees (what it calls, recursively). " +
                  "Callers include calls through base/interface methods it overrides or implements. Repeated nodes and recursion are marked instead of expanded again. " +
                  "Callees continue into native code: a P/Invoke (or a native method body of a mixed-mode C++/CLI assembly) shows 'native: module!export -> " +
@@ -36,10 +37,18 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
             _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown direction '{direction}'. Use callers or callees."),
         };
         int levels = Math.Clamp(depth, 1, 8), max = ClampLimit(maxNodes, 20_000);
+        var directionName = callers ? "callers" : "callees";
         if (link != null && SymbolResolver.ParseNative(method) is { } native)
         {
             await link.WarmUp(null, cancellationToken);
-            return await Read(workspace, () => pager.Page(NativeTree(link, native, callers, levels, max, cancellationToken), offset, maxChars), cancellationToken);
+            return await Read(workspace, () =>
+            {
+                var text = NativeTree(link, native, callers, levels, max, cancellationToken);
+                // Lines below the header, two spaces per level.
+                var nodes = ReferenceTools.Lines(text).Skip(1)
+                    .Select(l => new CallGraphService.TreeNode(Math.Max(1, (l.Length - l.TrimStart(' ').Length) / 2), l.Trim(), null, "native", null)).ToList();
+                return StructuredOutput.With(pager.Page(text, offset, maxChars), new CallTree($"native {native}", directionName, levels, nodes, nodes.Count, false));
+            }, cancellationToken);
         }
         if (link != null) await link.WarmUp(null, cancellationToken);
         return await Read(workspace, () =>
@@ -48,8 +57,10 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
             Func<MethodDef, int, int, string>? hook = link == null ? null
                 : callers ? (m, left, indent) => link.NativeCallers(m, left, indent, max, cancellationToken)
                 : (m, left, indent) => link.NativeCallees(m, left, indent, max, cancellationToken);
-            var text = graph.Tree(sym.Assembly, (MethodDef)sym.Member, callers, levels, max, includeExternal, cancellationToken, hook);
-            return pager.Page(text, offset, maxChars);
+            var nodes = new List<CallGraphService.TreeNode>();
+            var text = graph.Tree(sym.Assembly, (MethodDef)sym.Member, callers, levels, max, includeExternal, cancellationToken, hook, nodes, out bool truncated);
+            return StructuredOutput.With(pager.Page(text, offset, maxChars),
+                new CallTree($"{sym.Label} [{sym.Assembly.Id}]", directionName, levels, nodes, nodes.Count, truncated));
         }, cancellationToken);
     }
 
@@ -78,7 +89,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
         return sb.ToString();
     }
 
-    [McpServerTool(Name = "find_call_paths", Title = "Call paths to a method", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "find_call_paths", Title = "Call paths to a method", UseStructuredContent = true, OutputSchemaType = typeof(CallPathList))]
     [Description("How execution reaches a method: call chains from 'from' to 'to', or — when 'from' is omitted — from entry points (methods nothing in the workspace calls: Main, Unity callbacks, event handlers). " +
                  "Shortest first, direct calls preferred; a hop that only happens through virtual dispatch (a call to a base/interface method this one overrides) is marked. " +
                  "'to' may be a native export: paths then end at the P/Invoke declarations bound to it, followed by the native hop.")]
@@ -137,7 +148,11 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
                 if (nativeHop != null)
                     sb.AppendLine($"  {new string(' ', path.Count * 2)}-> native: {NativeLinkService.Describe(nativeHop.Binding)}");
             }
-            return pager.Page(sb.ToString());
+            var items = found.Select(p => new CallPathEntry(
+                p.Path.Select(s => new PathStepEntry(new SymbolRef("method", Format.MemberLabel(s.Method), workspace.FindByModule(s.Method.Module)?.Id ?? "",
+                    Format.Token(s.Method)), s.Via is { } via ? Format.MemberLabel(via) : null)).ToList(),
+                p.Path.Count(s => s.Via != null), p.Native is { } hop ? NativeLinkService.Describe(hop.Binding) : null)).ToList();
+            return StructuredOutput.With(pager.Page(sb.ToString()), new CallPathList(label, start?.Label, items, items.Count, false));
         }, cancellationToken);
     }
 }

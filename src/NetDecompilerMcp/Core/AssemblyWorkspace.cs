@@ -154,7 +154,7 @@ public sealed class AssemblyWorkspace : IDisposable
     /// </summary>
     private void AttachNativeView(LoadedAssembly asm, byte[] bytes)
     {
-        if (asm.Module.IsILOnly) return;
+        if (!Native.Linking.MixedModeMap.IsMixedMode(asm.Module)) return;
         Native.Pe.PeFile image;
         try { image = Native.Pe.PeFile.FromBytes(bytes, asm.FilePath); }
         catch (ToolError) { return; }

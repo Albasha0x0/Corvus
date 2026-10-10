@@ -10,4 +10,7 @@ public sealed record NativePatch(uint Rva, long FileOffset, byte[] Original, byt
     public int Length => Replacement.Length;
     public uint EndRva => Rva + (uint)Replacement.Length;
     public IReadOnlyList<RelocationEdit> RelocationEdits => Relocations?.Edits ?? [];
+
+    /// <summary>The assembly text a patch_asm patch was assembled from (null for raw bytes); migration re-assembles it at the new address.</summary>
+    public string? Assembly { get; init; }
 }

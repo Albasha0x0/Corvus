@@ -46,7 +46,10 @@ internal static class ResponseBudget
         var id = store.Add(tool ?? "?", text);
         var error = new ToolError(ErrorCode.LimitExceeded,
             $"the result is {size:N0} characters, over the {budget:N0}-character response limit. It is kept as {id}.",
-            $"read_result id={id} pages through it; or narrow the call (limit, filters, one member instead of a type)");
-        return new CallToolResult { IsError = true, Content = [new TextContentBlock { Text = error.Render(tool) }] };
+            $"read_result id={id} pages through it; or narrow the call (limit, filters, one member instead of a type)")
+        {
+            Details = new { resultId = id, chars = size, limit = budget },
+        };
+        return ErrorResult.From(error, tool);
     }
 }
