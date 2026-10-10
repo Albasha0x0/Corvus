@@ -46,6 +46,33 @@ public static class LlvmOracle
         public const string MachOPrivateHeaders = "--macho --private-headers";
         public const string MachOUniversalHeaders = "--macho --universal-headers";
         public const string MachOArch = "--arch=";
+        public const string Disassemble = "-d --no-show-raw-insn";
+        /// <summary>A position-independent shared object without a C library, linked by lld.</summary>
+        public const string ClangSharedObject = "-O1 -fPIC -shared -nostdlib -fuse-ld=lld -Wno-incompatible-library-redeclaration";
+        public const string LinkAndroidPacked = "-Wl,--pack-dyn-relocs=android";
+        public const string LinkAndroidPackedRelr = "-Wl,--pack-dyn-relocs=android+relr";
+        public const string LinkRelr = "-Wl,-z,pack-relative-relocs";
+        public const string LinkLazy = "-Wl,-z,lazy";
+        public const string LinkBothHashes = "-Wl,--hash-style=both";
+        public const string LinkBuildId = "-Wl,--build-id";
+        public const string Target = "--target=";
+    }
+
+    /// <summary>Compiles <paramref name="source"/> (C) with clang into <paramref name="output"/>; null on success, else clang's output.</summary>
+    public static string? Compile(string source, string output, string options)
+    {
+        if (Bin is not { } bin) return "NDM_LLVM_BIN is not set";
+        var exe = System.IO.Path.Combine(bin, OperatingSystem.IsWindows() ? "clang.exe" : "clang");
+        if (!System.IO.File.Exists(exe)) return $"{exe} not found";
+        var c = System.IO.Path.ChangeExtension(output, ".c");
+        System.IO.File.WriteAllText(c, source);
+        var psi = new ProcessStartInfo(exe);
+        foreach (var o in options.Split(' ', StringSplitOptions.RemoveEmptyEntries)) psi.ArgumentList.Add(o);
+        psi.ArgumentList.Add(c);
+        psi.ArgumentList.Add("-o");
+        psi.ArgumentList.Add(output);
+        var (code, log) = Tools.Run(psi, 120_000);
+        return code == 0 && System.IO.File.Exists(output) ? null : log;
     }
 
     public static string? Bin => RealData.Get(Variable) is { } dir && Directory.Exists(dir) ? dir : null;

@@ -60,6 +60,11 @@
     <PackageDownload Include="Microsoft.NETCore.App.Host.osx-arm64" Version="[10.0.11]" />
     <PackageDownload Include="SkiaSharp.NativeAssets.macOS" Version="[2.88.9]" />
   </ItemGroup>
+  <!-- Large runtime packs for the slow native format tests only. -->
+  <ItemGroup Condition="'$(NDM_ALL_TESTS)' == '1'">
+    <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-arm64" Version="[10.0.11]" />
+    <PackageDownload Include="Microsoft.NETCore.App.Runtime.osx-arm64" Version="[10.0.11]" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\NetDecompilerMcp\NetDecompilerMcp.csproj" />
