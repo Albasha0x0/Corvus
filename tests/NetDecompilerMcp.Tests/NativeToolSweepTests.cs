@@ -118,6 +118,10 @@ public class NativeToolSweepTests(ITestOutputHelper output)
         var runaway = new List<string>();
         foreach (var file in large)
         {
+            // The previous image's garbage is collected first so the sample counts this image only.
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
             using var harness = new NativeToolHarness();
             long fileHeap = 0, filePrivate = 0;
             using var sampling = new CancellationTokenSource();
