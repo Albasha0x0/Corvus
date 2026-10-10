@@ -71,8 +71,8 @@ public static class Il2CppMetadataReader
         byte[] metadata, binary;
         try
         {
-            metadata = File.ReadAllBytes(files.Metadata);
-            binary = File.ReadAllBytes(files.Binary);
+            metadata = File.ReadAllBytes(InputFiles.RequireRegularFile(files.Metadata, "metadata file"));
+            binary = File.ReadAllBytes(InputFiles.RequireRegularFile(files.Binary, "binary file"));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { throw new ToolError(ErrorCode.IoError, $"Cannot read the game files: {ex.Message}"); }
         int headerVersion = CheckHeader(files.Metadata, metadata);

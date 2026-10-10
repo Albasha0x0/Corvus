@@ -99,7 +99,7 @@ internal sealed class MsfFile : IDisposable
     public static MsfFile Open(string path)
     {
         FileInfo info;
-        try { info = new FileInfo(path); }
+        try { info = new FileInfo(InputFiles.RequireRegularFile(path, "PDB file")); }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             throw new ToolError(ErrorCode.InvalidArgument, $"invalid path '{path}': {ex.Message}");

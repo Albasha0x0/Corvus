@@ -28,7 +28,7 @@ public sealed partial class PeFile : INativeImage
     public static PeFile Open(string path)
     {
         FileInfo info;
-        try { info = new FileInfo(path); }
+        try { info = new FileInfo(InputFiles.RequireRegularFile(path, "image file")); }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             throw new ToolError(ErrorCode.InvalidArgument, $"invalid path '{path}': {ex.Message}");

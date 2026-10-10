@@ -84,8 +84,8 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
 
     private static (string Full, byte[] Bytes) ReadFile(string path)
     {
-        var full = Path.GetFullPath(path);
-        if (Directory.Exists(full)) throw new ToolError(ErrorCode.InvalidArgument, $"{full} is a directory; pass a file (list_assemblies with path lists the assemblies a folder or container holds).");
+        if (Directory.Exists(Path.GetFullPath(path))) throw new ToolError(ErrorCode.InvalidArgument, $"{Path.GetFullPath(path)} is a directory; pass a file (list_assemblies with path lists the assemblies a folder or container holds).");
+        var full = InputFiles.RequireRegularFile(path);
         if (!File.Exists(full)) throw new ToolError(ErrorCode.NotFound, $"File not found: {full}");
         var length = new FileInfo(full).Length;
         if (length > Math.Min(Limits.MaxTotalBytes, Array.MaxLength)) throw new ToolError(ErrorCode.LimitExceeded, $"{full} is too large to analyze ({length:N0} bytes).");
@@ -135,7 +135,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         }
         else
         {
-            var full = Path.GetFullPath(path!);
+            var full = InputFiles.RequireRegularFile(path!);
             if (!File.Exists(full)) return null;
             var head = new byte[Math.Min(4096, new FileInfo(full).Length)];
             using (var f = File.OpenRead(full)) f.ReadExactly(head);

@@ -88,7 +88,7 @@ public sealed class AssemblyWorkspace : IDisposable
             throw new ToolError(ErrorCode.NotFound, $"Directory not found: {full}");
         Write(() =>
         {
-            if (!_searchDirectories.Contains(full, StringComparer.OrdinalIgnoreCase))
+            if (!_searchDirectories.Contains(full, InputFiles.PathComparer))
                 _searchDirectories.Add(full);
             return 0;
         });
@@ -110,8 +110,8 @@ public sealed class AssemblyWorkspace : IDisposable
     /// </summary>
     public (LoadedAssembly? Assembly, LoadedNative? Native) LoadAny(string path)
     {
-        var full = Path.GetFullPath(path);
-        if (Read(() => _natives.FirstOrDefault(n => string.Equals(n.FilePath, full, StringComparison.OrdinalIgnoreCase))) is { } existing)
+        var full = InputFiles.RequireRegularFile(path);
+        if (Read(() => _natives.FirstOrDefault(n => InputFiles.SamePath(n.FilePath, full))) is { } existing)
             return (existing.ManagedView, existing);
         try
         {
@@ -132,7 +132,7 @@ public sealed class AssemblyWorkspace : IDisposable
 
     private LoadedNative LoadNativeCore(string full, Native.Pe.PeFile image)
     {
-        var existing = _natives.FirstOrDefault(n => string.Equals(n.FilePath, full, StringComparison.OrdinalIgnoreCase));
+        var existing = _natives.FirstOrDefault(n => InputFiles.SamePath(n.FilePath, full));
         if (existing != null) return existing;
         var baseId = Path.GetFileName(full);
         var id = baseId;
@@ -197,7 +197,7 @@ public sealed class AssemblyWorkspace : IDisposable
         var id = identifier.Trim();
         return _natives.FirstOrDefault(n => n.Id.Equals(id, StringComparison.OrdinalIgnoreCase))
                ?? _natives.FirstOrDefault(n => Path.GetFileName(n.FilePath).Equals(id, StringComparison.OrdinalIgnoreCase)
-                                               || n.FilePath.Equals(SafeFullPath(id), StringComparison.OrdinalIgnoreCase))
+                                               || InputFiles.SamePath(n.FilePath, SafeFullPath(id)))
                // A mixed-mode assembly's id names its native view too.
                ?? _natives.FirstOrDefault(n => n.ManagedView?.Id.Equals(id, StringComparison.OrdinalIgnoreCase) == true);
     }
@@ -249,7 +249,7 @@ public sealed class AssemblyWorkspace : IDisposable
 
     private LoadedAssembly LoadCore(string path)
     {
-        var full = Path.GetFullPath(path);
+        var full = InputFiles.RequireRegularFile(path);
         if (!File.Exists(full))
         {
             // Windows raises PathTooLongException for these; Linux and macOS only report the file missing.
@@ -258,7 +258,7 @@ public sealed class AssemblyWorkspace : IDisposable
             throw new ToolError(ErrorCode.NotFound, $"File not found: {full}");
         }
 
-        var existing = _assemblies.FirstOrDefault(a => string.Equals(a.FilePath, full, StringComparison.OrdinalIgnoreCase));
+        var existing = _assemblies.FirstOrDefault(a => InputFiles.SamePath(a.FilePath, full));
         if (existing != null)
             return existing;
 
@@ -287,7 +287,7 @@ public sealed class AssemblyWorkspace : IDisposable
         AttachNativeView(asm, bytes);
 
         var dir = Path.GetDirectoryName(full)!;
-        if (!_searchDirectories.Contains(dir, StringComparer.OrdinalIgnoreCase))
+        if (!_searchDirectories.Contains(dir, InputFiles.PathComparer))
             _searchDirectories.Add(dir);
         _logger?.LogInformation("Loaded {Id} from {Path}", asm.Id, full);
         return asm;
@@ -377,7 +377,7 @@ public sealed class AssemblyWorkspace : IDisposable
         var matches = all.Where(a => a.Id.Equals(id, StringComparison.OrdinalIgnoreCase)).ToList();
         if (matches.Count == 0)
             matches = all.Where(a => Path.GetFileName(a.FilePath).Equals(id, StringComparison.OrdinalIgnoreCase)
-                                     || a.FilePath.Equals(SafeFullPath(id), StringComparison.OrdinalIgnoreCase)).ToList();
+                                     || InputFiles.SamePath(a.FilePath, SafeFullPath(id))).ToList();
         if (matches.Count == 0)
             matches = all.Where(a => a.AssemblyName.Equals(id, StringComparison.OrdinalIgnoreCase)).ToList();
 
@@ -418,7 +418,7 @@ public sealed class AssemblyWorkspace : IDisposable
         foreach (var a in _assemblies)
         {
             if (!a.AssemblyName.Equals(name, StringComparison.OrdinalIgnoreCase)) continue;
-            bool sameDir = requesterDir != null && string.Equals(SafeDirectory(a.FilePath), requesterDir, StringComparison.OrdinalIgnoreCase);
+            bool sameDir = requesterDir != null && InputFiles.SamePath(SafeDirectory(a.FilePath), requesterDir);
             var token = a.Module.Assembly?.PublicKeyToken?.Data;
             bool tokenMatches = tokenRequested && token is { Length: > 0 } && token.AsSpan().SequenceEqual(publicKeyToken);
             if (!sameDir && tokenRequested && !tokenMatches) continue;
@@ -442,7 +442,7 @@ public sealed class AssemblyWorkspace : IDisposable
     }
 
     public LoadedAssembly? FindByPath(string path) =>
-        _assemblies.FirstOrDefault(a => string.Equals(a.FilePath, path, StringComparison.OrdinalIgnoreCase));
+        _assemblies.FirstOrDefault(a => InputFiles.SamePath(a.FilePath, path));
 
     public LoadedAssembly? FindByModule(ModuleDef? module) =>
         module == null ? null : _assemblies.FirstOrDefault(a => ReferenceEquals(a.Module, module));
@@ -475,14 +475,14 @@ public sealed class AssemblyWorkspace : IDisposable
     {
         var first = requesterPath == null ? null : SafeDirectory(requesterPath);
         var dirs = (first != null ? [first] : Array.Empty<string>()).Concat(_searchDirectories).Concat(Frameworks.DirectoriesFor(version, netFramework))
-            .Distinct(StringComparer.OrdinalIgnoreCase);
+            .Distinct(InputFiles.PathComparer);
         string? otherMajor = null;
         foreach (var dir in dirs)
             foreach (var ext in new[] { ".dll", ".exe", ".winmd" })
             {
                 var candidate = Path.Combine(dir, simpleName + ext);
                 if (!File.Exists(candidate)) continue;
-                bool sameDir = string.Equals(dir, first, StringComparison.OrdinalIgnoreCase);
+                bool sameDir = InputFiles.SamePath(dir, first);
                 // Outside the requester's folder a requested public key token must match.
                 if (publicKeyToken is { Length: > 0 } && !sameDir && !TokenMatches(candidate, publicKeyToken))
                     continue;
@@ -617,7 +617,7 @@ public sealed class AssemblyWorkspace : IDisposable
         {
             var requesterDir = requesterPath == null ? null : SafeDirectory(requesterPath);
             var local = FindReference(name, version, token, requesterPath, sameMajor: true, netFramework);
-            return local == null || !string.Equals(SafeDirectory(local.FilePath), requesterDir, StringComparison.OrdinalIgnoreCase)
+            return local == null || !InputFiles.SamePath(SafeDirectory(local.FilePath), requesterDir)
                 ? new(null, frameworkFile, null, null)
                 : null;
         }

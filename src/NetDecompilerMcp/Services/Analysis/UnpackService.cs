@@ -240,8 +240,8 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
 
     private static (string Source, byte[] Data, string Sha) ReadSource(string path, AnalysisLimits limits)
     {
-        var source = Path.GetFullPath(path);
-        if (Directory.Exists(source)) throw new ToolError(ErrorCode.InvalidArgument, $"{source} is a directory; pass a container file (single-file app, .nupkg, .apk, Costura host). To load a folder of assemblies, use load_assembly.");
+        if (Directory.Exists(Path.GetFullPath(path))) throw new ToolError(ErrorCode.InvalidArgument, $"{Path.GetFullPath(path)} is a directory; pass a container file (single-file app, .nupkg, .apk, Costura host). To load a folder of assemblies, use load_assembly.");
+        var source = InputFiles.RequireRegularFile(path, "container file");
         if (!File.Exists(source)) throw new ToolError(ErrorCode.NotFound, $"File not found: {source}");
         var length = new FileInfo(source).Length;
         if (length > Math.Min(limits.MaxTotalBytes, Array.MaxLength)) throw new ToolError(ErrorCode.LimitExceeded, $"{source} is too large to unpack ({length:N0} bytes).");

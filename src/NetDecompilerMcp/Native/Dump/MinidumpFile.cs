@@ -37,13 +37,7 @@ public sealed partial class MinidumpFile : IProcessMemory, IDisposable
 
     public static MinidumpFile Open(string path)
     {
-        string full;
-        try { full = System.IO.Path.GetFullPath(path); }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            throw new ToolError(ErrorCode.InvalidArgument, $"invalid path '{path}': {ex.Message}");
-        }
-        if (Directory.Exists(full)) throw new ToolError(ErrorCode.InvalidArgument, $"{path} is a directory, not a dump file.");
+        var full = InputFiles.RequireRegularFile(path, "dump file");
         if (!File.Exists(full)) throw new ToolError(ErrorCode.NotFound, $"file not found: {path}");
         IDumpSource source;
         try { source = new FileDumpSource(full); }
