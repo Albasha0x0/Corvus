@@ -1,0 +1,161 @@
+namespace NetDecompilerMcp.Mcp;
+
+/// <summary>
+/// The server's guidance: a core sent as the MCP instructions, and topics served by the guide prompt and the
+/// netdecomp://guide/{topic} resource. Clients cut instructions at 2,048 characters, so the core names an entry tool
+/// for every area and the rules; the details live in the topics.
+/// </summary>
+public static class Guide
+{
+    /// <summary>Claude Code's default cut for server instructions and each tool description.</summary>
+    public const int ClientLimit = 2_048;
+
+    public const string Core = """
+        Reverse engineering of .NET assemblies and native PE files (x86/x64). Reads bytes only; nothing is executed.
+        Start: load_assembly(path) takes a file or a folder (.NET or native .exe/.dll/.sys); results name an id (app.dll, app.dll#2) that later calls take as assembly or image. Unknown file: summarize_file. Wrapped apps (single-file, .apk, .nupkg, Costura): list_assemblies path=..., unpack_container. Unity: unity_overview. Il2Cpp: load the game folder or global-metadata.dat.
+        .NET: find with search_symbols, search_strings, search_constants, search_il; outline with get_type_info; read with decompile_member (one method, cheapest), decompile_type, get_il; follow with find_references, find_callees, get_call_tree, find_call_paths, find_overrides, get_type_hierarchy.
+        Native: get_pe_info, list_imports, list_exports, list_functions, find_xrefs ('kernel32!CreateFileW'), disassemble, native_call_tree, decompile_native (IDA; server_status says if available).
+        Edit in memory, dryRun=true first: rename_symbol, stub_method, patch_method_csharp, patch_method_il, simplify_methods (folds string decoders); native rename_native, patch_bytes, patch_asm. Review list_edits / diff_edits, undo_edit; save_assembly / save_native write a new file.
+        New build: load both, then update_to_new_build (dryRun) or compare_assemblies / compare_native_images.
+        Rules: an error reads "Error (<code>)" with a Next: line; follow it. limit_exceeded returns an id: read_result pages it. Long text: pass the footer's offset=N. Lists also return structured items/offset/total. Symbols: Ns.Type::Method(int), short names, or tokens (0x06000123).
+        More: server_status for version, engines, limits and a stale-server check.
+        """;
+
+    /// <summary>Topic name to text, in the order they are listed.</summary>
+    public static readonly IReadOnlyDictionary<string, string> Topics = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["dotnet"] = """
+            .NET assemblies.
+            Load: load_assembly takes a file or a whole folder (an application folder, a Unity *_Data/Managed folder, an Il2CppDumper
+            DummyDll folder). Load related assemblies too: cross-references and inherited members only see what is loaded or resolvable;
+            add_search_directory adds a folder for reference resolution. Method bodies are indexed in the background after loading; files
+            that change on disk are reloaded automatically (notices appear as "[workspace] ..." lines at the top of a tool result).
+            reload_assembly re-reads a file, unload_assembly drops it (both discard unsaved edits); list_assemblies lists what is loaded.
+            Discover: search_symbols, search_strings, search_constants, search_il, list_namespaces, list_types, get_type_info (cheap
+            outline), get_assembly_info, resolve_symbol (what a name resolves to), get_attributes, decompile_assembly_attributes.
+            Read: decompile_member (one method) is faster and smaller than decompile_type; get_il for raw IL.
+            Navigate: find_references (who uses X, incl. calls through base/interface methods), find_callees, get_call_tree (multi-level
+            callers/callees), find_call_paths (how execution reaches a method), find_overrides, get_type_hierarchy.
+            P/Invokes: find_callees / get_call_tree follow them into loaded native code ('native: kernel32.dll!CreateFileW -> ...'); the
+            .NET call tools take native exports as symbols ('kernel32.dll!CreateFileW', 'native:<image>!<name|#ord|addr>').
+            verify_native_imports checks [DllImport]s against the real DLL exports (verified, contradicted, unresolved, dynamic_only,
+            not_checked, each with a reason).
+            Resources: list_resources, get_resource (managed and Win32 resources; savePath writes one to a file).
+            ReadyToRun: get_r2r_code shows a method's precompiled native code (calls named as managed methods); find_r2r_method maps a
+            native address back to its method. Mixed-mode C++/CLI assemblies load as .NET plus a native view.
+            Export: export_project writes a buildable C# project into an empty directory.
+            Malformed metadata is named with stream / table / row / token / file offset in get_assembly_info.
+            """,
+        ["il2cpp"] = """
+            Il2Cpp games.
+            No external dumper is needed: load_assembly the game folder or its global-metadata.dat (GameAssembly.dll beside it; a memory
+            dump of it works too). The built-in reader (metadata v24-31) makes dummy assemblies plus the script and literal data, cached
+            per user. Unreadable metadata is an error with a reason; items it could not read are listed by reason in the load report.
+            Dummy DLLs have empty bodies: get_il2cpp_info (RVAs, field offsets; slot=N for the method implementing a vtable slot),
+            find_method_by_address (native address -> method), export_il2cpp_symbols (IDA/Ghidra scripts + C struct header).
+            With Il2CppDumper's script.json next to a DummyDll folder, functions are bounded by the next function start, generic
+            instantiations are named both ways (get_il2cpp_info 'List`1<int>::Add'), and type metadata / MethodInfo slots resolve.
+            With stringliteral.json and GameAssembly.dll too, search_strings finds the literals and the methods whose native code loads them.
+            generate_cpp_binding emits C++ binding code for a Mono or Il2Cpp type (style mono, il2cpp or hostapi).
+            Native view: load the dummy DLLs and GameAssembly.dll, then apply_il2cpp_names (C# names in every native tool and in IDA).
+            Unity: unity_overview (folder or exe) reports engine version, Mono or Il2Cpp, whether the metadata is readable or encrypted,
+            markers and the next calls; nextSteps dump_from_memory means the metadata or Assembly-CSharp.dll is encrypted on disk.
+            """,
+        ["containers"] = """
+            Files, containers and wrapped apps (nothing is executed).
+            summarize_file reports signature, markers, container wrapping, features, typed strings and entry points of a file in one call;
+            survey_features, extract_strings and extract_embedded give the details.
+            An app wrapped in a container (single-file .exe, Costura, .nupkg, Xamarin/MAUI .apk): list_assemblies with path shows the
+            assemblies inside, search_container finds types/members in them by name, and unpack_container extracts and loads them.
+            list_assemblies and unpack_container flag ReadyToRun and merged (ILMerge/ILRepack) assemblies.
+            Unity builds: unity_overview first.
+            """,
+        ["edits"] = """
+            Editing and saving (in memory until saved; dryRun=true previews).
+            .NET: rename_symbol, rename_namespace, stub_method (always return X), patch_method_csharp (C# body; lambdas, async, LINQ),
+            add_members_csharp, add_types_csharp, patch_method_il (prepend hooks, IL that C# cannot express).
+            simplify_methods cleans transformed code. fold: calls that compute a string from constant inputs (string decoders; char,
+            array, StringBuilder, Encoding and Base64 helpers) run in a safe IL interpreter and become the literal; calls outside the
+            safe subset (I/O, reflection, exceptions, instance objects, native code, mutable statics) are kept and reported. cfg: constant
+            branches and switches fold (constant propagation through locals, readonly statics and calls with constant arguments), dead
+            stores, empty try/finally, dead handlers and unreachable code go, and flattened control flow becomes sequential code; a
+            dispatcher whose state differs between runs is kept (flattened-shape). inline: forwarders and static delegate fields (call
+            proxies) call their real target when the field's initializer always sets the same one (else delegate-target). Every body is
+            stack-verified or left unchanged, with a reason code (docs/simplify.md). decompile_member simplified=true previews it.
+            Review: list_edits, diff_edits; undo_edit, revert_edits. Carry edits: export_edits writes a script, apply_edits replays it
+            (tied to its build: another build needs targetBuild=other; dryRun=true first).
+            save_assembly writes a new file (never overwrites the original without overwrite=true; keeps a .bak; untouched parts are
+            written byte-for-byte, anything that cannot be is listed; strict=true refuses such a save).
+            Native: rename_native and comment_native (kept per file hash), patch_bytes / patch_asm (relocation-correct under ASLR; a
+            patch larger than its site: extend=true moves it into a code cave or a new section; unsafe sites are refused with a reason),
+            list_native_edits, undo_native_edit, save_native to a new file (checksum recomputed, an invalidated signature reported).
+            export_native_annotations writes IDA / Ghidra scripts; export_native_patches writes IDAPython, IDA .dif, IPS or JSON.
+            Engine edits (IDA): set_native_type (prototypes), set_native_local (Hex-Rays locals), get_native_frame and
+            set_native_stack_var (stack frames), declare_native_types and list_native_types (C declarations kept per image);
+            ida_python runs IDAPython in the image's IDA worker, off unless --ida-scripting.
+            """,
+        ["builds"] = """
+            New builds: load both (the second gets an id like app.dll#2).
+            .NET: compare_assemblies, then find_counterpart carries renamed types/members and changed offsets forward; export_edits +
+            apply_edits re-applies a patch set to the new build.
+            Native: update_to_new_build (dryRun=true first) carries names, comments, PDB / Il2Cpp layers, patches, code patterns and
+            the Il2Cpp method mapping in one call, with a reason code for everything that did not carry. The single steps:
+            compare_native_images, map_address_between_builds, migrate_native_names, migrate_native_patches, make_code_pattern
+            (anchor=xrefs: a signature at every referencing instruction) / search_code_pattern.
+            """,
+        ["native"] = """
+            Native PE files (.exe/.dll/.sys without .NET metadata; x86 and x64): load_assembly the file, or pass its path as image.
+            Overview: get_pe_info (headers, mitigations, PDB, version, rich header, signature, anything malformed), list_imports
+            (includeDynamic=true adds GetProcAddress imports; bind=true shows each binding), list_exports (MSVC names demangled),
+            list_resources / get_resource, survey_features.
+            Code: list_functions, disassemble, get_cfg, find_xrefs (every call site of an import: 'kernel32!CreateFileW'; struct
+            members through IDA: Type::member), native_call_tree, get_call_arguments (recovered arguments as data),
+            search_native_strings, search_bytes (?? wildcards), read_bytes, resolve_address, list_cpp_classes (RTTI classes, bases,
+            vftables), get_exception_info (MSVC try / catch, SEH scopes, funclets), find_virtual_calls (obj->vfunc() sites resolved
+            through RTTI; crossCheck=true compares with IDA), decompile_native (C pseudocode through IDA when installed).
+            Addresses: hex VA or RVA, rva:/va:/off: prefixes, export names, module!import, sub_<rva>.
+            Symbols: a matching local PDB is read with the code index; load_pdb loads one by path or downloads it (download=true);
+            search_pdb_symbols lists its symbols. Names from load_pdb and apply_il2cpp_names are saved per file SHA-256 and reapplied
+            when the same file loads again; list_native_edits shows the layers, clear=true on either tool removes one.
+            Cross-image: load the DLLs an image imports (or load_assembly loadProviders=true) and the call tools follow imports,
+            forwarders and thunks into them.
+            Engines: list_functions, disassemble, get_cfg, find_xrefs and native_call_tree take engine=auto|ours|ida. auto (default)
+            uses IDA's analysis once it has finished in this session, else the built-in index, and never starts IDA; every result has
+            an "Engine: ours|ida (why)" line. ARM64 / ARM images work through IDA. Name priority: user > pdb > il2cpp > ida > discovered.
+            decompile_native pushes names, patches, Il2Cpp prototypes, RTTI and PDB types into the IDA database; --ida-prewarm analyzes
+            images in IDA as they load. Code indexes are saved on disk by file SHA-256 (--index-cache off disables it).
+            Editing and engine type edits: the edits topic. Build-to-build: the builds topic.
+            """,
+        ["dumps"] = """
+            Crash dumps and live processes.
+            open_minidump (user-mode .dmp: exception, faulting module+function and instruction, modules and whether the binaries exist
+            locally, threads), dump_stack (x64 unwind data, x86 frame pointers; scanned frames marked heuristic), read_dump_memory.
+            Load the crashed binaries first so frames get your names, PDB and Il2Cpp names; pass imageDirectories when they are not at
+            their recorded paths. Managed frames are only identified.
+            inspect_process does the same for a running local process (Windows), read-only: modules, regions, threads and stacks. It
+            opens only query and read handles, writes and suspends nothing, and closes every handle before returning. Pick the target
+            by pid or name (a shared name is refused with the candidate pids).
+            """,
+        ["errors"] = """
+            Errors, paging and limits.
+            Errors start with "Error (<code>)" (not_found, ambiguous, invalid_argument, unsupported, not_loaded, limit_exceeded, timeout,
+            provider_unavailable, ...) and usually a "Next:" line with the call that can succeed. After the text, errors repeat as JSON
+            ("error (json): {code, retryable, message, next, partial, details}"); partial holds what was found before a time limit or
+            cancellation. An argument name the tool does not declare is invalid_argument with the closest declared names.
+            A result too large to send comes back as limit_exceeded with an id: read_result pages through it. Long text is paged:
+            follow the footer's offset=N. List, search and info tools also return structured content (items, offset, total, truncated);
+            to page on, pass offset = offset + the items received. Tools marked [Long-running ...] can take more than 10 s.
+            Symbols: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method', 'Ns.Type::Method(int, string)', 'Ns.Type::.ctor', short names, or
+            tokens like '0x06000123'. The assembly parameter is optional unless a name is ambiguous; errors list candidates.
+            server_status: version, limits and engines; expectedCatalogDigest detects a stale server (`NetDecompilerMcp doctor` checks too).
+            Resources: netdecomp://assemblies, netdecomp://assembly/{id}/info, netdecomp://assembly/{id}/type/{Ns.Type},
+            netdecomp://assembly/{id}/il/{symbol}.
+            """,
+    };
+
+    /// <summary>The topic's text, or null for an unknown topic (case-insensitive).</summary>
+    public static string? Topic(string? name) =>
+        name is null ? null : Topics.FirstOrDefault(t => t.Key.Equals(name.Trim(), StringComparison.OrdinalIgnoreCase)).Value;
+
+    public static string TopicList => string.Join(", ", Topics.Keys);
+}

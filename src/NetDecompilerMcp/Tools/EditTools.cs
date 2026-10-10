@@ -176,23 +176,18 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
 
     [McpServerTool(Name = "simplify_methods", Title = "Simplify method bodies")]
     [Description("Compiler-style cleanup of method bodies in memory, e.g. for transformed code. Passes (all by default): " +
-                 "fold: calls that compute a string from constant inputs (string decoders; char, array, StringBuilder, Encoding and Base64 helpers; " +
-                 "nested helper calls of the same assembly) are run by a safe IL interpreter and replaced with the string literal. Calls outside the safe " +
-                 "subset (I/O, reflection, exceptions, instance objects, native code, mutable statics) or over the depth / instruction budget are kept and reported. " +
-                 "cfg: branches and switches on constant conditions are folded, also when the condition is computed through locals and blocks " +
-                 "(constant propagation; readonly statics, calls with constant arguments and constant reads through a local's address are " +
-                 "evaluated); dead stores, branch-to-branch chains, " +
-                 "empty try/finally, dead handlers and unreachable code are removed; flattened control flow (a loop over a switch on a state local or " +
-                 "a stack value, also with computed transitions) becomes sequential code; a dispatcher whose state differs between runs is kept and " +
-                 "reported (flattened-shape) while the rest of the method is still simplified. " +
-                 "inline: call sites of forwarders (methods that only pass their arguments on to another method) call the real target; " +
-                 "virtually dispatched wrappers and inaccessible targets are skipped; calls through static delegate fields (call proxies and string " +
-                 "delegates) call the delegate's target directly when the field's type initializer, run in the " +
-                 "interpreter (reflection-based initializers with DynamicMethod included), always sets the same target; others are reported (delegate-target). " +
+                 "fold: calls that compute a string from constant inputs (string decoders and their char, array, StringBuilder, Encoding and Base64 " +
+                 "helpers) run in a safe IL interpreter and become the string literal; calls outside the safe subset (I/O, reflection, exceptions, " +
+                 "instance objects, native code, mutable statics) or over budget are kept and reported. " +
+                 "cfg: branches and switches on constant conditions fold (constant propagation through locals, readonly statics and calls with " +
+                 "constant arguments); dead stores, branch chains, empty try/finally, dead handlers and unreachable code are removed; flattened " +
+                 "control flow (a loop over a state switch) becomes sequential code, and a dispatcher whose state differs between runs is kept (flattened-shape). " +
+                 "inline: call sites of forwarders and of static delegate fields (call proxies) call the real target when it is always the same (else delegate-target). " +
                  "Scope: a method, a type (nested types included), or omit symbol for the whole assembly. Each rewritten body is stack-verified or left unchanged; " +
                  "every call left alone and every method left unchanged is reported with a reason code (docs/simplify.md lists the evaluated instructions, " +
-                 "the limits and the codes). Limits: per-evaluation budget, per-method budget, 16 MB of simulated memory, 5 s per method. " +
-                 "Persisted only by save_assembly. To preview the C# without editing, use decompile_member / decompile_type with simplified=true.")]
+                 "the limits and the codes; the guide's edits topic summarizes the passes). Limits: per-evaluation and per-method budgets, 16 MB of " +
+                 "simulated memory, 5 s per method. Persisted only by save_assembly. To preview the C# without editing, use decompile_member / " +
+                 "decompile_type with simplified=true.")]
     public Task<string> SimplifyMethods(
         [Description("Method or type. " + SymbolDescription + " Omit to simplify every method of the assembly.")] string? symbol = null,
         [Description(AssemblyFilterDescription + " Required when symbol is omitted.")] string? assembly = null,
