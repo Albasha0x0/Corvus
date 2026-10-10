@@ -88,8 +88,12 @@ public static class SafeFile
         }
     }
 
-    /// <summary>Writes bytes atomically; an existing file is a Conflict unless <paramref name="overwrite"/>. Returns the full path.</summary>
-    public static string WriteAllBytes(string path, ReadOnlySpan<byte> bytes, bool overwrite) => Write(FullPath(path), null, bytes, overwrite);
+    /// <summary>
+    /// Writes bytes atomically; an existing file is a Conflict unless <paramref name="overwrite"/>. <paramref name="beforeReplace"/>
+    /// gets the flushed temp file before the rename and throws to abort, leaving the target untouched. Returns the full path.
+    /// </summary>
+    public static string WriteAllBytes(string path, ReadOnlySpan<byte> bytes, bool overwrite, Action<string>? beforeReplace = null) =>
+        Write(FullPath(path), null, bytes, overwrite, beforeReplace);
 
     /// <summary>Writes UTF-8 text (no BOM) atomically; an existing file is a Conflict unless <paramref name="overwrite"/>.</summary>
     public static string WriteAllText(string path, string text, bool overwrite) => WriteAllBytes(path, Encoding.UTF8.GetBytes(text), overwrite);
@@ -101,7 +105,7 @@ public static class SafeFile
         return Write(full, FullPath(root), bytes, overwrite);
     }
 
-    private static string Write(string full, string? root, ReadOnlySpan<byte> bytes, bool overwrite)
+    private static string Write(string full, string? root, ReadOnlySpan<byte> bytes, bool overwrite, Action<string>? beforeReplace = null)
     {
         var dir = Path.GetDirectoryName(full)!;
         Directory.CreateDirectory(dir);
@@ -117,6 +121,7 @@ public static class SafeFile
                 stream.Write(bytes);
                 stream.Flush(flushToDisk: true);
             }
+            beforeReplace?.Invoke(temp);
             // Without overwrite the rename itself refuses an existing target, so a file created since the check is never replaced.
             try { File.Move(temp, full, overwrite); }
             catch (IOException) when (!overwrite && Path.Exists(full)) { throw Exists(full); }

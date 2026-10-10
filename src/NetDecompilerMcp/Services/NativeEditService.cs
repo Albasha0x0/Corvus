@@ -267,30 +267,23 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
     {
         if (string.IsNullOrWhiteSpace(outputPath))
             throw new ToolError(ErrorCode.InvalidArgument, "An output path is required.");
-        var target = Path.GetFullPath(outputPath);
-        bool isOriginal = string.Equals(target, native.FilePath, StringComparison.OrdinalIgnoreCase);
-        if (File.Exists(target) && !overwrite)
-            throw new ToolError(ErrorCode.Conflict, $"{target} already exists. Pass overwrite=true to replace it{(isOriginal ? " (the original is backed up to .bak)" : "")}.");
+        var (target, isOriginal) = SaveTarget.Resolve(outputPath, native.FilePath, native.OriginalSha256, overwrite);
 
         var notes = new List<string>();
         var bytes = OutputBytes(native, stripSignature, notes);
 
-        string? backup = null;
-        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-        if (isOriginal)
+        string? backup = isOriginal ? SaveTarget.Backup(target, native.Patches.OriginalBytes()) : null;
+        string verify = "";
+        // Verified on the written temp file, so a file that does not read back or parse never replaces the target.
+        SafeFile.WriteAllBytes(target, bytes, overwrite, temp =>
         {
-            backup = target + ".bak";
-            if (!File.Exists(backup)) File.Copy(target, backup);
-        }
-        var temp = target + ".tmp-" + Environment.ProcessId;
-        try
-        {
-            File.WriteAllBytes(temp, bytes);
-            File.Move(temp, target, overwrite: true);
-        }
-        finally { if (File.Exists(temp)) File.Delete(temp); }
-
-        var verify = Verify(native, bytes, stripSignature);
+            var written = File.ReadAllBytes(temp);
+            if (!written.AsSpan().SequenceEqual(bytes))
+                throw new ToolError(ErrorCode.IoError, $"The bytes written for {target} did not read back as written. Nothing was replaced.");
+            verify = Verify(native, written, stripSignature);
+            if (verify.StartsWith(UnparsableNote, StringComparison.Ordinal))
+                throw new ToolError(ErrorCode.Conflict, $"Not saved: {verify} Nothing was replaced.");
+        });
         return $"Wrote {target} ({bytes.Length:N0} bytes, {native.Patches.Patches.Count} patch(es))." +
                (backup != null ? $" Original backed up to {backup}." : "") +
                (notes.Count > 0 ? "\n  " + string.Join("\n  ", notes) : "") +
@@ -346,6 +339,8 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
             notes.Add("Zeroed the security directory entry; the certificate bytes are not at the end of the file, so they were left in place.");
     }
 
+    private const string UnparsableNote = "WARNING: the written file could not be re-parsed for verification";
+
     private string Verify(LoadedNative native, byte[] written, bool strippedSignature)
     {
         try
@@ -376,7 +371,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         }
         catch (Exception ex) when (ex is ToolError or IOException)
         {
-            return $"WARNING: the written file could not be re-parsed for verification ({ex.Message}).";
+            return $"{UnparsableNote} ({ex.Message}).";
         }
     }
 

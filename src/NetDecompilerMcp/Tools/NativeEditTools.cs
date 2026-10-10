@@ -212,7 +212,8 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     [McpServerTool(Name = "save_native", Title = "Save patched native image")]
     [Description("Write the patched native image to a file. Everything not patched is byte-for-byte identical to the original; the PE checksum is " +
                  "recomputed when the original had one; a signed file becomes unsigned (pass stripSignature=true to remove the certificate table). " +
-                 "Writes atomically, never overwrites without overwrite=true (the original is backed up to .bak), and verifies by re-parsing and comparing " +
+                 "Writes atomically, never overwrites without overwrite=true (the original, also through a link, is backed up to .bak; one changed on disk " +
+                 "since load is refused), and verifies the written file before it replaces the target by re-parsing and comparing " +
                  "every byte outside the patched ranges (and the relocation entries the patches rewrote), then re-parses the relocation table and " +
                  "checks that every patched range holds exactly its kept/added entries.")]
     public Task<string> SaveNative(

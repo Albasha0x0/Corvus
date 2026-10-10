@@ -584,19 +584,15 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
 
     /// <summary>
     /// Writes the (edited) module. Refuses to overwrite the original file unless asked; when overwriting, the original
-    /// is first copied to &lt;file&gt;.bak. Whatever no edit touched is written as in the original; the result lists what
+    /// is first copied to &lt;file&gt;.bak (<see cref="SaveTarget"/>). Whatever no edit touched is written as in the original; the result lists what
     /// could not be (and what is invalid in the original). <paramref name="strict"/>: refuse the save instead when
     /// anything would be written differently without an edit asking for it. Nothing is written when the save fails.
     /// </summary>
     public string Save(LoadedAssembly asm, string? outputPath, bool overwrite, bool strict = false)
     {
-        var target = Path.GetFullPath(string.IsNullOrWhiteSpace(outputPath)
+        var (target, isOriginal) = SaveTarget.Resolve(string.IsNullOrWhiteSpace(outputPath)
             ? Path.Combine(Path.GetDirectoryName(asm.FilePath)!, Path.GetFileNameWithoutExtension(asm.FilePath) + ".patched" + Path.GetExtension(asm.FilePath))
-            : outputPath);
-
-        bool isOriginal = string.Equals(target, asm.FilePath, StringComparison.OrdinalIgnoreCase);
-        if (File.Exists(target) && !overwrite)
-            throw new ToolError(ErrorCode.Conflict, $"{target} already exists. Pass overwrite=true to replace it{(isOriginal ? " (the original will be backed up to .bak)" : "")}.");
+            : outputPath, asm.FilePath, asm.OriginalSha256, overwrite);
 
         byte[] image;
         SaveReport report;
@@ -612,24 +608,8 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
             throw new ToolError(ErrorCode.Conflict, $"Not saved (strict=true): {report.Changed.Count()} member(s) would be written differently from the original " +
                                 $"without an edit asking for it. Nothing was written; save without strict to accept the changes listed.{report.Describe()}");
 
-        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-        string? backup = null;
-        if (isOriginal)
-        {
-            backup = target + ".bak";
-            if (!File.Exists(backup)) File.Copy(target, backup);
-        }
-
-        var temp = target + ".tmp-" + Environment.ProcessId;
-        try
-        {
-            File.WriteAllBytes(temp, image);
-            File.Move(temp, target, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(temp)) File.Delete(temp);
-        }
+        string? backup = isOriginal ? SaveTarget.Backup(target, asm.OriginalBytes) : null;
+        SafeFile.WriteAllBytes(target, image, overwrite);
 
         var kept = asm.IsDirty ? "everything no edit touched is as in the original" : "no edits: the original bytes";
         return $"Wrote {target} ({new FileInfo(target).Length:N0} bytes, {asm.Edits.Count} edit(s); {kept})." +
