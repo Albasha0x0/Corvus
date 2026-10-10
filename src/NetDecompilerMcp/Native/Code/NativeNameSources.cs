@@ -41,12 +41,17 @@ public sealed class SourcedNames
     private readonly Dictionary<uint, string>[] _names = Enumerable.Range(0, Sources).Select(_ => new Dictionary<uint, string>()).ToArray();
     private readonly Dictionary<uint, string>[] _comments = Enumerable.Range(0, Sources).Select(_ => new Dictionary<uint, string>()).ToArray();
     private readonly Dictionary<string, uint> _addressOf = new(StringComparer.Ordinal);
+    private int _version;
+
+    /// <summary>Incremented by every change; output cached under it goes stale with the names.</summary>
+    public int Version => Volatile.Read(ref _version);
 
     /// <summary>Sets (null or empty clears) one source's name at <paramref name="rva"/>; returns the name now in effect there.</summary>
     public string? SetName(uint rva, string? name, NativeNameSource source)
     {
         lock (_gate)
         {
+            _version++;
             var before = NameCore(rva)?.Name;
             if (string.IsNullOrEmpty(name)) _names[(int)source].Remove(rva);
             else _names[(int)source][rva] = name;
@@ -59,6 +64,7 @@ public sealed class SourcedNames
     {
         lock (_gate)
         {
+            _version++;
             var old = _names[(int)source];
             var touched = new HashSet<uint>(old.Keys);
             if (names != null) touched.UnionWith(names.Keys);
@@ -78,6 +84,7 @@ public sealed class SourcedNames
     {
         lock (_gate)
         {
+            _version++;
             if (string.IsNullOrEmpty(text)) _comments[(int)source].Remove(rva);
             else _comments[(int)source][rva] = text;
         }
@@ -86,7 +93,10 @@ public sealed class SourcedNames
     public void ReplaceComments(NativeNameSource source, IReadOnlyDictionary<uint, string>? comments)
     {
         lock (_gate)
+        {
+            _version++;
             _comments[(int)source] = comments != null ? comments.Where(kv => !string.IsNullOrEmpty(kv.Value)).ToDictionary() : new();
+        }
     }
 
     /// <summary>The highest-priority name at <paramref name="rva"/> and its source, or null.</summary>

@@ -312,6 +312,66 @@ def op_set_comment(args):
     return {"comment": m.ida_bytes.get_cmt(ea, repeatable) or ""}
 
 
+STAMP_NODE = "$ netdecompilermcp stamps"
+
+
+def stamp_node(create):
+    import ida_netnode
+    n = ida_netnode.netnode(STAMP_NODE, 0, create)
+    return n if n != ida_netnode.BADNODE else None
+
+
+def op_apply_names(args):
+    # items: [[rva, name or null, comment or null, make_function]]; empty name/comment removes it.
+    m = need_open()
+    start = time.time()
+    badaddr = m.idautils.ida_idaapi.BADADDR
+    flags = m.ida_name.SN_NOWARN | m.ida_name.SN_NOCHECK | m.ida_name.SN_FORCE
+    named = name_failures = commented = created = 0
+    failures = []
+    for item in args.get("items") or []:
+        rva, name, comment, make_function = item[0], item[1], item[2], item[3]
+        ea = _state["base"] + rva
+        f = m.ida_funcs.get_func(ea)
+        if make_function and f is None:
+            if m.ida_funcs.add_func(ea, badaddr):
+                created += 1
+                f = m.ida_funcs.get_func(ea)
+        if name is not None:
+            if m.ida_name.set_name(ea, name, flags if name else m.ida_name.SN_NOWARN):
+                named += 1
+            else:
+                name_failures += 1
+                if len(failures) < 20:
+                    failures.append("rva 0x%X: %s" % (rva, name))
+        if comment is not None:
+            if f is not None and f.start_ea == ea:
+                ok = m.ida_funcs.set_func_cmt(f, comment, True)
+            else:
+                ok = m.ida_bytes.set_cmt(ea, comment, True)
+            if ok:
+                commented += 1
+    changed(m)
+    key = args.get("stamp_key")
+    if key:
+        n = stamp_node(True)
+        n.hashset_buf(key, args.get("stamp") or "")
+    if args.get("save"):
+        if not m.ida_loader.save_database(m.ida_loader.get_path(m.ida_loader.PATH_TYPE_IDB), 0):
+            raise WorkerError("io_error", "save_database failed")
+    return {"named": named, "name_failures": name_failures, "commented": commented, "functions_created": created,
+            "seconds": round(time.time() - start, 3), "failures": failures}
+
+
+def op_get_stamp(args):
+    need_open()
+    n = stamp_node(False)
+    value = n.hashstr_buf(args["key"]) if n is not None else None
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", "replace")
+    return {"stamp": value or None}
+
+
 def op_save(args):
     m = need_open()
     if not m.ida_loader.save_database(m.ida_loader.get_path(m.ida_loader.PATH_TYPE_IDB), 0):
@@ -334,7 +394,8 @@ def op_sleep(args):
 
 OPS = {"hello": op_hello, "open": op_open, "rebase": op_rebase, "functions": op_functions, "decompile": op_decompile,
        "disasm": op_disasm, "xrefs_to": op_xrefs_to, "xrefs_from": op_xrefs_from, "set_name": op_set_name,
-       "set_comment": op_set_comment, "save": op_save, "close": op_close, "sleep": op_sleep}
+       "set_comment": op_set_comment, "apply_names": op_apply_names, "get_stamp": op_get_stamp, "save": op_save,
+       "close": op_close, "sleep": op_sleep}
 
 
 def main():

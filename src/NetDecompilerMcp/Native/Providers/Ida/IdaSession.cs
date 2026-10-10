@@ -328,6 +328,27 @@ internal sealed class IdaSession : INativeDecompilerSession
         return r.GetProperty("comment").GetString() ?? "";
     }
 
+    public async Task<NameBatchResult> ApplyNamesAsync(IReadOnlyList<NativeNameItem> items, string? stampKey = null, string? stamp = null, bool save = false,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        var rows = new JsonArray();
+        foreach (var i in items)
+            rows.Add(new JsonArray(i.Rva, i.Name, i.Comment, i.MakeFunction ? 1 : 0));
+        var args = IdaProvider.Args(("items", rows), ("stamp_key", stampKey), ("stamp", stamp), ("save", save));
+        // A saved batch is in the database; an unsaved one is journaled so a restart re-applies it.
+        var r = await CallAsync("apply_names", args, cancellationToken, journal: !save, saves: save).ConfigureAwait(false);
+        return new NameBatchResult(r.GetProperty("named").GetInt32(), r.GetProperty("name_failures").GetInt32(), r.GetProperty("commented").GetInt32(),
+            r.GetProperty("functions_created").GetInt32(), TimeSpan.FromSeconds(r.GetProperty("seconds").GetDouble()),
+            r.GetProperty("failures").EnumerateArray().Select(f => f.GetString() ?? "").ToList());
+    }
+
+    public async Task<string?> GetStampAsync(string key, CancellationToken cancellationToken = default)
+    {
+        var r = await CallAsync("get_stamp", IdaProvider.Args(("key", key)), cancellationToken).ConfigureAwait(false);
+        return r.GetProperty("stamp").ValueKind == JsonValueKind.String ? r.GetProperty("stamp").GetString() : null;
+    }
+
     public Task SaveAsync(CancellationToken cancellationToken = default) =>
         CallAsync("save", new JsonObject(), cancellationToken, saves: true);
 

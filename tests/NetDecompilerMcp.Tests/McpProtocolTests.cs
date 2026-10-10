@@ -169,6 +169,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["list_native_edits"] = (new() { ["image"] = NativeSample(dir) }, "native edit"),
         ["save_native"] = (new() { ["image"] = NativeSample(dir), ["outputPath"] = dir.File("patched.dll") }, "Wrote"),
         ["undo_native_edit"] = (new() { ["image"] = NativeSample(dir) }, "Undid"),
+        ["apply_il2cpp_names"] = (new() { ["image"] = NativeSample(dir), ["assembly"] = "TestFixture" }, "il2cpp names from TestFixture"),
         ["verify_native_imports"] = (new() { ["assembly"] = "TestFixture" }, "TestFixture"),
         ["get_r2r_code"] = R2RFramework.Linq is { } linq
             ? (new() { ["method"] = "System.Linq.Enumerable::Any", ["assembly"] = linq, ["maxBodies"] = 1 }, "native code in System.Linq.dll")
