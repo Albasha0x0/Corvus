@@ -1,7 +1,7 @@
 namespace NetDecompilerMcp.Native.Providers;
 
 /// <summary>
-/// An external engine that analyzes a native image and decompiles its functions (IDA via idalib; Ghidra later).
+/// An external engine that analyzes a native image and decompiles its functions (IDA via idalib, Ghidra via a Java worker).
 /// Addresses in and out are RVAs relative to the image base the engine loaded, which the session verifies against
 /// the PE header. Failures surface as <see cref="Core.ToolError"/>: ProviderUnavailable (engine missing, crashed or
 /// unlicensed), Timeout, Unsupported (architecture or decompiler not available), NotFound, InvalidArgument,
@@ -29,9 +29,10 @@ public interface INativeDecompilerProvider : IDisposable
 }
 
 /// <summary>
-/// One analyzed image. Requests run one at a time in arrival order. A request that times out or is cancelled stops
-/// the engine; the next request restarts it from the saved database and re-applies names and comments set since the
-/// last save. Disposing closes the engine without waiting longer than the shutdown grace period.
+/// One analyzed image. Requests that change the database run one at a time in arrival order; an engine may run reads
+/// in parallel (Ghidra). A request that times out or is cancelled stops the engine unless the engine can stop that
+/// request alone; the next request restarts a stopped engine from the saved database and re-applies names and comments
+/// set since the last save. Disposing closes the engine without waiting longer than the shutdown grace period.
 /// </summary>
 public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
 {

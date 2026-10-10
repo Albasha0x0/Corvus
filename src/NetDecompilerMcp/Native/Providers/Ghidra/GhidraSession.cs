@@ -1,0 +1,290 @@
+using System.Buffers.Binary;
+using System.Diagnostics;
+using System.Globalization;
+using System.Reflection.PortableExecutable;
+using System.Text.Json.Nodes;
+using NetDecompilerMcp.Core;
+
+namespace NetDecompilerMcp.Native.Providers.Ghidra;
+
+/// <summary>
+/// One image open in a Ghidra worker. Reads run concurrently on the worker's decompiler pool; changes are serialized
+/// and journaled (see <see cref="WorkerSessionBase"/>). The project lives in the cache entry under a directory named
+/// by the profile key, so a later open of the same bytes under the same configuration reopens it without analysis.
+/// </summary>
+internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation ghidra, JavaRuntime java, NativeOpenOptions options)
+    : WorkerSessionBase(options), INativeDecompilerSession
+{
+    internal const string ProjectName = "ndm";
+
+    private ulong? _headerImageBase;
+    private string _projectDirectory = "";
+    private List<KeyValuePair<string, string>> _loaderArguments = [];
+    private IReadOnlyList<KeyValuePair<string, string>> _analyzerOptions = [];
+
+    public override string ProviderId => GhidraProvider.ProviderId;
+    protected override string EngineName => "Ghidra";
+    protected override TimeSpan ShutdownGrace => provider.Options.ShutdownGrace;
+    protected override int MaxRestarts => provider.Options.MaxRestarts;
+    protected override bool ConcurrentRequests => true;
+
+    internal string ProjectDirectory => _projectDirectory;
+    /// <summary>False when the first analysis ran out of time; the saved project then holds what was analyzed.</summary>
+    internal bool AnalysisComplete { get; private set; }
+    internal string Language { get; private set; } = "";
+    internal int FunctionCount { get; private set; }
+    internal IReadOnlyList<string> Warnings { get; private set; } = [];
+
+    protected override CacheEntry AcquireEntry(string imagePath, string? sha256) => provider.Cache.Acquire(ProviderId, imagePath, sha256);
+
+    protected override void PrepareOpen()
+    {
+        var header = ReadHeader(Entry!.InputCopy, ImagePath);
+        Arch = header.Arch;
+        _headerImageBase = header.ImageBase;
+        var profile = provider.Profile;
+        _loaderArguments = [.. GhidraOptions.LoaderArguments(profile)];
+        if (header.IsElf && header.ImageBase is { } elfBase)
+            _loaderArguments.Add(new(GhidraOptions.ElfImageBaseArgument, elfBase.ToString("x", CultureInfo.InvariantCulture)));
+        _analyzerOptions = GhidraOptions.AnalyzerOptions(profile, Options.Symbols, provider.ExtraOptions);
+        var key = GhidraOptions.ProfileKey(ghidra, profile, _loaderArguments, _analyzerOptions);
+        _projectDirectory = Path.Combine(Entry.Directory, "p-" + key);
+    }
+
+    internal readonly record struct Header(NativeArch Arch, ulong? ImageBase, bool IsElf);
+
+    /// <summary>
+    /// Architecture and image base from a PE or ELF header (ELF: the lowest PT_LOAD address). Other formats are left
+    /// to Ghidra's loaders, whose base is then taken as loaded.
+    /// </summary>
+    internal static Header ReadHeader(string copy, string original)
+    {
+        try
+        {
+            var head = new byte[64];
+            int n;
+            using (var s = File.OpenRead(copy)) n = s.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
+            if (n >= 2 && head[0] == 'M' && head[1] == 'Z') return ReadPe(copy, original);
+            if (n >= 20 && head[0] == 0x7F && head[1] == 'E' && head[2] == 'L' && head[3] == 'F') return ReadElf(copy, original);
+            return new Header(NativeArch.Unknown, null, false);
+        }
+        catch (IOException ex)
+        {
+            throw new ToolError(ErrorCode.IoError, $"Reading {original} failed: {ex.Message}");
+        }
+    }
+
+    private static Header ReadPe(string copy, string original)
+    {
+        try
+        {
+            using var s = File.OpenRead(copy);
+            using var pe = new PEReader(s);
+            if (pe.PEHeaders.PEHeader is not { } opt) return new Header(NativeArch.Unknown, null, false); // DOS or NE/LE: Ghidra decides
+            if (pe.PEHeaders.CorHeader is { } cor && (cor.Flags & CorFlags.ILOnly) != 0)
+                throw new ToolError(ErrorCode.Unsupported, $"{original} is an IL-only .NET assembly; it has no native code to decompile.",
+                    "Load it as a .NET assembly and use the .NET decompiler.");
+            var arch = pe.PEHeaders.CoffHeader.Machine switch
+            {
+                Machine.I386 => NativeArch.X86,
+                Machine.Amd64 => NativeArch.X64,
+                Machine.Arm64 => NativeArch.Arm64,
+                Machine.Arm or Machine.ArmThumb2 or Machine.Thumb => NativeArch.Arm,
+                _ => NativeArch.Unknown,
+            };
+            return new Header(arch, opt.ImageBase, false);
+        }
+        catch (BadImageFormatException ex)
+        {
+            throw new ToolError(ErrorCode.MalformedInput, $"{original} is not a valid PE image: {ex.Message}");
+        }
+    }
+
+    private static Header ReadElf(string copy, string original)
+    {
+        var bytes = File.ReadAllBytes(copy);
+        bool is64 = bytes[4] == 2, little = bytes[5] != 2;
+        ulong U(int at, int size)
+        {
+            if (at < 0 || at + size > bytes.Length) throw new ToolError(ErrorCode.MalformedInput, $"{original} has a truncated ELF header.");
+            var span = bytes.AsSpan(at, size);
+            return size switch
+            {
+                2 => little ? BinaryPrimitives.ReadUInt16LittleEndian(span) : BinaryPrimitives.ReadUInt16BigEndian(span),
+                4 => little ? BinaryPrimitives.ReadUInt32LittleEndian(span) : BinaryPrimitives.ReadUInt32BigEndian(span),
+                _ => little ? BinaryPrimitives.ReadUInt64LittleEndian(span) : BinaryPrimitives.ReadUInt64BigEndian(span),
+            };
+        }
+        var arch = U(18, 2) switch
+        {
+            3 => NativeArch.X86,
+            62 => NativeArch.X64,
+            40 => NativeArch.Arm,
+            183 => NativeArch.Arm64,
+            _ => NativeArch.Unknown,
+        };
+        var phoff = (long)U(is64 ? 32 : 28, is64 ? 8 : 4);
+        var phentsize = (int)U(is64 ? 54 : 42, 2);
+        var phnum = (int)U(is64 ? 56 : 44, 2);
+        ulong? lowest = null;
+        for (int i = 0; i < phnum && phoff + (long)(i + 1) * phentsize <= bytes.Length; i++)
+        {
+            var at = (int)(phoff + (long)i * phentsize);
+            if (U(at, 4) != 1) continue; // PT_LOAD
+            var vaddr = is64 ? U(at + 16, 8) : U(at + 8, 4);
+            if (lowest is not { } l || vaddr < l) lowest = vaddr;
+        }
+        return new Header(arch, lowest ?? 0, true);
+    }
+
+    protected override bool DatabaseExists => File.Exists(Path.Combine(_projectDirectory, ProjectName + ".gpr"));
+
+    protected override void DeleteDatabase()
+    {
+        try
+        {
+            if (Directory.Exists(_projectDirectory)) Directory.Delete(_projectDirectory, recursive: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new ToolError(ErrorCode.IoError, $"Removing the damaged Ghidra project {_projectDirectory} failed: {ex.Message}", "Close other programs using it and retry.");
+        }
+    }
+
+    protected override async Task StartWorkerAndOpenCoreAsync(CancellationToken cancellationToken)
+    {
+        var clock = Stopwatch.StartNew();
+        Options.Progress?.Report(new NativeProviderProgress("start", clock.Elapsed));
+        var worker = await provider.StartWorkerAsync(ghidra, java, new FileInfo(Entry!.InputCopy).Length, cancellationToken).ConfigureAwait(false);
+        SetWorker(worker);
+        worker.EventReceived += e =>
+        {
+            if (e.Name == "progress" && e.Body.TryGetProperty("stage", out var stage) && stage.GetString() is { Length: > 0 } s)
+                Options.Progress?.Report(new NativeProviderProgress(s, clock.Elapsed));
+        };
+        await worker.WaitReadyAsync(provider.Options.StartTimeout, cancellationToken).ConfigureAwait(false);
+
+        var reuse = DatabaseExists;
+        ReusedDatabase = reuse;
+        Options.Progress?.Report(new NativeProviderProgress(reuse ? "load" : "analysis", clock.Elapsed));
+        if (!reuse) await provider.ColdAnalysis.WaitAsync(cancellationToken).ConfigureAwait(false);
+        System.Text.Json.JsonElement info;
+        try
+        {
+            var remaining = Options.OpenTimeout - clock.Elapsed;
+            if (remaining <= TimeSpan.Zero) remaining = TimeSpan.FromSeconds(1);
+            // The analysis stops early enough to save what it has inside the open's limit.
+            var budget = remaining - TimeSpan.FromSeconds(Math.Min(120, remaining.TotalSeconds * 0.2));
+            var args = WorkerRows.Args(
+                ("input", Entry.InputCopy),
+                ("project_dir", _projectDirectory),
+                ("project_name", ProjectName),
+                ("program_name", Path.GetFileName(Entry.InputCopy)),
+                ("loader_args", Pairs(_loaderArguments)),
+                ("options", Pairs(_analyzerOptions)),
+                ("budget_seconds", Math.Max(1, budget.TotalSeconds)),
+                ("pdb", Options.Symbols == SymbolMode.Off ? null : Options.PdbPath),
+                ("decompilers", provider.Options.Decompilers),
+                ("decompile_timeout", (int)GhidraOptions.DecompileTimeout.TotalSeconds));
+            info = await worker.RequestAsync("open", args, remaining, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (!reuse) provider.ColdAnalysis.Release();
+        }
+
+        var loadedBase = ulong.Parse(info.GetProperty("imagebase").GetRawText(), CultureInfo.InvariantCulture);
+        if (_headerImageBase is { } want && loadedBase != want)
+        {
+            var rebased = await worker.RequestAsync("rebase", WorkerRows.Args(("imagebase", want)), Options.RequestTimeout, cancellationToken).ConfigureAwait(false);
+            loadedBase = ulong.Parse(rebased.GetProperty("imagebase").GetRawText(), CultureInfo.InvariantCulture);
+            if (loadedBase != want)
+                throw new ToolError(ErrorCode.Failed, $"Ghidra loaded {ImagePath} at 0x{loadedBase:X} and could not rebase it to the header image base 0x{want:X}.");
+        }
+        ImageBase = loadedBase;
+        DecompilerAvailable = info.GetProperty("decompiler").GetBoolean();
+        AnalysisComplete = info.GetProperty("analysis_complete").GetBoolean();
+        Language = info.GetProperty("language").GetString() ?? "";
+        FunctionCount = info.GetProperty("functions").GetInt32();
+        Warnings = info.GetProperty("warnings").EnumerateArray().Select(w => w.GetString() ?? "").ToList();
+        if (Arch == NativeArch.Unknown) Arch = ArchOf(Language);
+        Options.Progress?.Report(new NativeProviderProgress("ready", clock.Elapsed));
+    }
+
+    private static JsonArray Pairs(IEnumerable<KeyValuePair<string, string>> pairs) =>
+        new(pairs.Select(p => (JsonNode)new JsonArray(p.Key, p.Value)).ToArray());
+
+    /// <summary>Architecture from a Ghidra language id such as "x86:LE:64:default" or "AARCH64:LE:64:v8A".</summary>
+    internal static NativeArch ArchOf(string language)
+    {
+        var parts = language.Split(':');
+        if (parts.Length < 3) return NativeArch.Unknown;
+        return (parts[0].ToUpperInvariant(), parts[2]) switch
+        {
+            ("X86", "64") => NativeArch.X64,
+            ("X86", "32") => NativeArch.X86,
+            ("AARCH64", _) => NativeArch.Arm64,
+            ("ARM", _) => NativeArch.Arm,
+            _ => NativeArch.Unknown,
+        };
+    }
+
+    protected override JsonObject CloseArgs(bool save) => WorkerRows.Args(("save", save));
+
+    protected override void Forget() => provider.Forget(this);
+
+    public Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(CancellationToken cancellationToken = default) =>
+        ListFunctionsAsync(false, cancellationToken);
+
+    public async Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(bool withReferences, CancellationToken cancellationToken = default) =>
+        WorkerRows.Functions(await CallAsync("functions", WorkerRows.Args(("refs", withReferences)), cancellationToken).ConfigureAwait(false));
+
+    public async Task<DecompiledFunction> DecompileAsync(uint rva, CancellationToken cancellationToken = default)
+    {
+        if (!DecompilerAvailable)
+            throw new ToolError(ErrorCode.Unsupported, $"Ghidra's native decompiler is not built for {GhidraInstallation.PlatformName} in {ghidra.Directory}.",
+                ghidra.DecompilerRemediation);
+        return WorkerRows.Decompiled(await CallAsync("decompile",
+            WorkerRows.Args(("rva", rva), ("timeout", (int)GhidraOptions.DecompileTimeout.TotalSeconds)), cancellationToken).ConfigureAwait(false));
+    }
+
+    public async Task<FunctionDisassembly> DisassembleAsync(uint rva, CancellationToken cancellationToken = default) =>
+        WorkerRows.Disassembly(await CallAsync("disasm", WorkerRows.Args(("rva", rva)), cancellationToken).ConfigureAwait(false));
+
+    public async Task<FunctionDisassembly> DisassembleRangeAsync(uint rva, int count, CancellationToken cancellationToken = default) =>
+        WorkerRows.Range(rva, await CallAsync("disasm_range", WorkerRows.Args(("rva", rva), ("count", Math.Clamp(count, 1, 200_000))), cancellationToken).ConfigureAwait(false));
+
+    public async Task<NativeBlockGraph> GetBlocksAsync(uint rva, CancellationToken cancellationToken = default) =>
+        WorkerRows.Blocks(await CallAsync("blocks", WorkerRows.Args(("rva", rva)), cancellationToken).ConfigureAwait(false));
+
+    public async Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default) =>
+        WorkerRows.Xrefs(await CallAsync("xrefs_to", WorkerRows.Args(("rva", rva)), cancellationToken).ConfigureAwait(false));
+
+    public async Task<IReadOnlyList<NativeXref>> GetXrefsFromAsync(uint rva, bool wholeFunction = false, CancellationToken cancellationToken = default) =>
+        WorkerRows.Xrefs(await CallAsync("xrefs_from", WorkerRows.Args(("rva", rva), ("function", wholeFunction)), cancellationToken).ConfigureAwait(false));
+
+    public async Task<string> SetNameAsync(uint rva, string name, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        var r = await CallAsync("set_name", WorkerRows.Args(("rva", rva), ("name", name)), cancellationToken, journal: true).ConfigureAwait(false);
+        return r.GetProperty("name").GetString() ?? "";
+    }
+
+    public async Task<string> SetCommentAsync(uint rva, string text, bool repeatable = false, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        var r = await CallAsync("set_comment", WorkerRows.Args(("rva", rva), ("text", text), ("repeatable", repeatable)), cancellationToken, journal: true).ConfigureAwait(false);
+        return r.GetProperty("comment").GetString() ?? "";
+    }
+
+    public async Task<NameBatchResult> ApplyNamesAsync(IReadOnlyList<NativeNameItem> items, string? stampKey = null, string? stamp = null, bool save = false,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        var args = WorkerRows.Args(("items", WorkerRows.NameItems(items)), ("stamp_key", stampKey), ("stamp", stamp), ("save", save));
+        return WorkerRows.NameBatch(await CallAsync("apply_names", args, cancellationToken, journal: !save, saves: save).ConfigureAwait(false));
+    }
+
+    public async Task<string?> GetStampAsync(string key, CancellationToken cancellationToken = default) =>
+        WorkerRows.Stamp(await CallAsync("get_stamp", WorkerRows.Args(("key", key)), cancellationToken).ConfigureAwait(false));
+}
