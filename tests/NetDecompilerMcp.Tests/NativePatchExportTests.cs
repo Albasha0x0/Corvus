@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using NetDecompilerMcp.Core;
@@ -48,7 +49,8 @@ public class NativePatchExportTests(ITestOutputHelper output)
     /// <summary>Applies an IPS ("PATCH" ... "EOF", 3-byte offsets) or IPS32 ("IPS32" ... "EEOF", 4-byte offsets) patch, incl. RLE records.</summary>
     public static byte[] ApplyIps(byte[] original, byte[] ips)
     {
-        var bytes = (byte[])original.Clone();
+        var bytes = new List<byte>(original); // IPS records past the end of file extend it
+        void Ensure(long end) { while (bytes.Count < end) bytes.Add(0); }
         bool ips32 = Encoding.ASCII.GetString(ips, 0, 5) == "IPS32";
         Assert.True(ips32 || Encoding.ASCII.GetString(ips, 0, 5) == "PATCH");
         int at = 5;
@@ -63,29 +65,34 @@ public class NativePatchExportTests(ITestOutputHelper output)
             if (size == 0)
             {
                 int run = BinaryPrimitives.ReadUInt16BigEndian(ips.AsSpan(at));
-                bytes.AsSpan((int)offset, run).Fill(ips[at + 2]);
+                Ensure(offset + run);
+                for (int i = 0; i < run; i++) bytes[(int)offset + i] = ips[at + 2];
                 at += 3;
             }
             else
             {
-                ips.AsSpan(at, size).CopyTo(bytes.AsSpan((int)offset));
+                Ensure(offset + size);
+                for (int i = 0; i < size; i++) bytes[(int)offset + i] = ips[at + i];
                 at += size;
             }
         }
-        return bytes;
+        return bytes.ToArray();
     }
 
     /// <summary>Applies the JSON patch set: each patch's replacement, its relocation edits and the checksum, checking the original bytes.</summary>
     public static byte[] ApplyJson(byte[] original, string json)
     {
-        var bytes = (byte[])original.Clone();
+        var bytes = new List<byte>(original);
+        void Ensure(long end) { while (bytes.Count < end) bytes.Add(0); }
         using var doc = JsonDocument.Parse(json);
         void Put(long offset, string originalHex, string replacementHex)
         {
             var o = Convert.FromHexString(originalHex);
             var r = Convert.FromHexString(replacementHex);
-            Assert.Equal(o, bytes.AsSpan((int)offset, o.Length).ToArray());
-            r.CopyTo(bytes, offset);
+            Ensure(offset + o.Length);
+            for (int i = 0; i < o.Length; i++) Assert.Equal(o[i], bytes[(int)offset + i]);
+            Ensure(offset + r.Length);
+            for (int i = 0; i < r.Length; i++) bytes[(int)offset + i] = r[i];
         }
         static long Hex(JsonElement e) => Convert.ToInt64(e.GetString()!, 16);
         foreach (var p in doc.RootElement.GetProperty("patches").EnumerateArray())
@@ -94,13 +101,25 @@ public class NativePatchExportTests(ITestOutputHelper output)
             foreach (var e in p.GetProperty("relocationEdits").EnumerateArray())
             {
                 long at = Hex(e.GetProperty("fileOffset"));
-                Assert.Equal((ushort)Hex(e.GetProperty("original")), BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan((int)at)));
-                BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan((int)at), (ushort)Hex(e.GetProperty("replacement")));
+                Assert.Equal((ushort)Hex(e.GetProperty("original")), BinaryPrimitives.ReadUInt16LittleEndian(CollectionsMarshal.AsSpan(bytes).Slice((int)at)));
+                BinaryPrimitives.WriteUInt16LittleEndian(CollectionsMarshal.AsSpan(bytes).Slice((int)at), (ushort)Hex(e.GetProperty("replacement")));
             }
         }
+        // version-2 header edits (section count, the new section header, SizeOfImage/Code) outside any recorded patch body
+        if (doc.RootElement.TryGetProperty("extraEdits", out var extra))
+            foreach (var e in extra.EnumerateArray())
+                Put(Hex(e.GetProperty("fileOffset")), e.GetProperty("original").GetString()!, e.GetProperty("replacement").GetString()!);
         if (doc.RootElement.GetProperty("checksum") is { ValueKind: JsonValueKind.Object } cs)
             Put(Hex(cs.GetProperty("fileOffset")), cs.GetProperty("original").GetString()!, cs.GetProperty("replacement").GetString()!);
-        return bytes;
+        // the appended section grows the file
+        if (doc.RootElement.TryGetProperty("append", out var app) && app.ValueKind == JsonValueKind.Object)
+        {
+            long at = Hex(app.GetProperty("fileOffset"));
+            var tail = Convert.FromHexString(app.GetProperty("bytes").GetString()!);
+            Ensure(at + tail.Length);
+            for (int i = 0; i < tail.Length; i++) bytes[(int)at + i] = tail[i];
+        }
+        return bytes.ToArray();
     }
 
     private sealed class Harness : IDisposable
@@ -204,6 +223,47 @@ public class NativePatchExportTests(ITestOutputHelper output)
         Assert.Equal(reports["ida"].Records, script.Split('\n').Count(l => l.StartsWith("    (\"", StringComparison.Ordinal)));
         Assert.DoesNotContain('\r', script);
         Assert.DoesNotContain('\t', script);
+    }
+
+    [Fact]
+    public void Grown_file_renders_in_each_format_and_ips_json_reproduce_the_output()
+    {
+        // An image "grown" by a fake appended section plus a header-area byte edit (as section growth would make).
+        var original = new byte[0x600];
+        new Random(1).NextBytes(original);
+        var output = new byte[0x800];
+        original.CopyTo(output, 0);
+        output[0x94] = (byte)(original[0x94] + 1);                 // a header edit no patch body covers -> extraEdits
+        for (int i = 0x600; i < 0x800; i++) output[i] = (byte)(i & 0xFF); // the appended section bytes
+        var src = new PatchExportSource("grown.dll", "", 0x400000, NativeArch.X64, [], original, output, -1, _ => null,
+            [new AppendedSection(".ndm", 0x5000, 0x200, 0x600, output[0x600..])]);
+
+        // .dif cannot grow the file: refused with a typed reason
+        var ex = Assert.Throws<ToolError>(() => PatchExport.Render(src, PatchExport.Format.Dif));
+        Assert.Contains("grown_file", ex.Message);
+        Assert.Contains("ips", ex.Remediation);
+
+        // IPS / IPS32 and JSON applied to the original reproduce the output exactly
+        foreach (var fmt in new[] { PatchExport.Format.Ips, PatchExport.Format.Ips32 })
+        {
+            var r = PatchExport.Render(src, fmt);
+            Assert.Equal(output, ApplyIps(original, r.Content));
+            Assert.Equal(0x200 + 1, r.ChangedBytes); // the appended section plus the one header byte
+        }
+        var json = PatchExport.Render(src, PatchExport.Format.Json);
+        Assert.Equal(output, ApplyJson(original, Encoding.UTF8.GetString(json.Content)));
+        using var doc = JsonDocument.Parse(Encoding.UTF8.GetString(json.Content));
+        Assert.Equal(2, doc.RootElement.GetProperty("version").GetInt32());
+        Assert.Equal(0x800, doc.RootElement.GetProperty("image").GetProperty("outputFileSize").GetInt32());
+        Assert.Equal("0x600", doc.RootElement.GetProperty("append").GetProperty("fileOffset").GetString());
+        Assert.Contains(doc.RootElement.GetProperty("extraEdits").EnumerateArray(), e => e.GetProperty("fileOffset").GetString() == "0x94");
+        Assert.Contains(doc.RootElement.GetProperty("appendedSections").EnumerateArray(), e => e.GetProperty("name").GetString() == ".ndm");
+
+        // the IDAPython script renders, creates the segment and still parses structurally
+        var ida = Encoding.UTF8.GetString(PatchExport.Render(src, PatchExport.Format.Ida).Content);
+        Assert.Contains("ida_segment", ida);
+        Assert.Contains("add_segments()", ida);
+        Assert.Contains("(\".ndm\", 0x5000,", ida);
     }
 
     [Fact]

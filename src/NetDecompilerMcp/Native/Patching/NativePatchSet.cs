@@ -87,16 +87,29 @@ public sealed class NativePatchSet
         return patch;
     }
 
-    /// <summary>The original file bytes with every patch overlaid (a fresh array each call).</summary>
+    /// <summary>
+    /// The original file bytes with every patch overlaid (a fresh array each call). A patch that grows the file (a stub
+    /// placed in a new section) makes the result longer: its appended section data is written past the original end and
+    /// its header edits admit the section. Removing that patch shrinks the result back to the original length.
+    /// </summary>
     public byte[] PatchedBytes()
     {
-        var bytes = (byte[])_original.Clone();
+        long target = _original.Length;
+        foreach (var p in _patches) target = Math.Max(target, p.OutputEnd);
+        var bytes = new byte[target];
+        _original.CopyTo(bytes, 0);
         foreach (var p in _patches)
         {
             p.Replacement.CopyTo(bytes.AsSpan((int)p.FileOffset));
-            if (p.Stub is { } s) s.Replacement.CopyTo(bytes.AsSpan((int)s.FileOffset));
+            // A grown patch writes its stub inside the appended section data; a cave stub overlays existing file bytes.
+            if (p.Stub is { } s && p.Growth is null) s.Replacement.CopyTo(bytes.AsSpan((int)s.FileOffset));
             foreach (var e in p.RelocationEdits)
                 BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan((int)e.FileOffset), e.Replacement);
+            if (p.Growth is { } g)
+            {
+                foreach (var h in g.HeaderEdits) h.Replacement.CopyTo(bytes.AsSpan((int)h.FileOffset));
+                g.AppendedData.CopyTo(bytes.AsSpan((int)g.AppendFileOffset));
+            }
         }
         return bytes;
     }

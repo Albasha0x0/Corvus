@@ -362,18 +362,22 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
             var patched = native.Patches.Patches;
             var ranges = patched.Select(p => (Start: p.FileOffset, Length: (long)p.Length))
                 .Concat(patched.Where(p => p.Stub != null).Select(p => (Start: p.Stub!.FileOffset, Length: (long)p.Stub!.Length)))
-                .Concat(patched.SelectMany(p => p.RelocationEdits).Select(e => (Start: e.FileOffset, Length: 2L))).ToList();
+                .Concat(patched.SelectMany(p => p.RelocationEdits).Select(e => (Start: e.FileOffset, Length: 2L)))
+                .Concat(patched.Where(p => p.Growth != null).SelectMany(p => p.Growth!.HeaderEdits).Select(h => (Start: h.FileOffset, Length: (long)h.Length)))
+                .Concat(patched.Where(p => p.Growth != null).Select(p => (Start: p.Growth!.AppendFileOffset, Length: (long)p.Growth!.AppendedData.Length))).ToList();
+            long grownBy = Math.Max(0, (long)written.Length - originalBytes.Length);
             int mismatches = 0;
             for (int i = 0; i < Math.Min(originalBytes.Length, written.Length); i++)
             {
                 if (i >= checksumField && i < checksumField + 4) continue;          // checksum field may differ
                 if (strippedSignature) continue;                                     // signature strip changes several areas
-                if (ranges.Any(r => i >= r.Start && i < r.Start + r.Length)) continue; // inside a patch or a relocation entry rewrite
+                if (ranges.Any(r => i >= r.Start && i < r.Start + r.Length)) continue; // inside a patch, a relocation / header rewrite or the appended section
                 if (originalBytes[i] != written[i]) mismatches++;
             }
+            var grown = grownBy > 0 ? $" (grown by {grownBy:N0} byte(s) for an appended section)" : "";
             var bytesLine = mismatches == 0
-                ? "Verified: every byte outside the patched ranges (and the checksum field) matches the original."
-                : $"WARNING: {mismatches} byte(s) outside the patched ranges differ from the original.";
+                ? $"Verified: every byte outside the patched ranges (and the checksum field) matches the original{grown}."
+                : $"WARNING: {mismatches} byte(s) outside the patched ranges differ from the original{grown}.";
             return bytesLine + "\n" + VerifyRelocations(reparsed, PeFile.FromBytes(originalBytes, native.FilePath), patched);
         }
         catch (Exception ex) when (ex is ToolError or IOException)

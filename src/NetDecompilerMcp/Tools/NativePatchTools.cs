@@ -58,8 +58,13 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
             var output = NativeEditService.OutputBytes(native, stripSignature: false, notes);
             var original = native.Patches.OriginalBytes();
             var pe = native.Image;
+            var appended = native.Patches.Patches.Where(p => p.Growth != null).Select(p =>
+            {
+                var g = p.Growth!;
+                return new AppendedSection(g.SectionName, g.SectionRva, g.SectionVirtualSize, g.AppendFileOffset, g.AppendedData);
+            }).ToList();
             var source = new PatchExportSource(native.FilePath, native.OriginalSha256, pe.ImageBase, pe.Arch, native.Patches.Patches.ToList(), original, output,
-                pe.OptionalHeaderOffset + 64, offset => pe.TryFileOffsetToRva(offset, out var rva) ? rva : null);
+                pe.OptionalHeaderOffset + 64, offset => pe.TryFileOffsetToRva(offset, out var rva) ? rva : null, appended);
             var rendered = PatchExport.Render(source, fmt);
             rendered.Notes.InsertRange(0, notes.Where(n => n.StartsWith("The file is Authenticode-signed", StringComparison.Ordinal)));
             return rendered;
