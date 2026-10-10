@@ -20,6 +20,9 @@ internal static class ServerInstructions
            method's precompiled native code (calls named as managed methods) and find_r2r_method maps a native address back to its method.
            summarize_file reports signature, markers, container wrapping, features, typed strings and entry points of a file in one call;
            survey_features, extract_strings and extract_embedded give the details. Nothing is executed.
+           For a Unity game start with unity_overview (folder or exe): engine version, Mono or Il2Cpp, whether the Il2Cpp
+           metadata is readable or encrypted, anti-cheat / obfuscator / packer markers and the next calls with their arguments;
+           nextSteps dump_from_memory means the metadata or Assembly-CSharp.dll is encrypted on disk.
         2. Discover: search_symbols, search_strings, search_constants, search_il, list_namespaces, list_types, get_type_info (cheap outline).
         3. Read code: decompile_member (one method) is faster and smaller than decompile_type; get_il for raw IL.
         4. Navigate: find_references (who uses X, incl. calls through base/interface methods), find_callees, get_call_tree
