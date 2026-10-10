@@ -157,6 +157,8 @@ public sealed class WorkerConnection : IDisposable
         lock (_sync) reason = _killReason;
         var exit = _process.ExitCode is { } c ? $" with code {c} (0x{c:X8})" : "";
         var what = reason != null ? $"{_name} was stopped ({reason})" : $"{_name} exited{exit}";
+        if (_process.MemoryLimitReached() is { } limit)
+            what += $" after reaching its memory limit of {limit >> 20} MB ({EngineMemoryLimit.Variable})";
         var message = $"{what} while handling '{op}'.{StderrSuffix()}";
         return new ToolError(ErrorCode.ProviderUnavailable, message, _remediation(ErrorCode.ProviderUnavailable, message));
     }

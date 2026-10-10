@@ -23,6 +23,8 @@ public sealed record IdaProviderOptions
     public TimeSpan StartTimeout { get; init; } = TimeSpan.FromSeconds(60);
     /// <summary>Consecutive worker failures a session survives by restarting from the saved database.</summary>
     public int MaxRestarts { get; init; } = 3;
+    /// <summary>Memory cap of each worker in bytes (0: none); null: <see cref="EngineMemoryLimit.Variable"/>, else three quarters of the memory available.</summary>
+    public long? MemoryLimitBytes { get; init; }
 }
 
 /// <summary>
@@ -170,6 +172,7 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
         {
             WorkingDirectory = workerDir,
             Environment = env,
+            MemoryLimitBytes = EngineMemoryLimit.Resolve(_options.MemoryLimitBytes),
         };
         try
         {
@@ -211,6 +214,8 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
     {
         if (message.Contains("licen", StringComparison.OrdinalIgnoreCase))
             return "Start IDA once interactively to accept the license terms, and check that the license is valid on this machine.";
+        if (message.Contains(EngineMemoryLimit.Variable, StringComparison.Ordinal))
+            return $"Raise {EngineMemoryLimit.Variable} (MB; 0 turns the limit off) and retry.";
         return code switch
         {
             ErrorCode.Timeout => "Retry; the next request restarts IDA from the saved database. Raise the time limit for large images.",

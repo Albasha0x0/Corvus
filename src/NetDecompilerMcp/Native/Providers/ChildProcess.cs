@@ -11,6 +11,8 @@ public sealed record ChildProcessStart(string FileName, IReadOnlyList<string> Ar
 {
     public string? WorkingDirectory { get; init; }
     public IReadOnlyDictionary<string, string?> Environment { get; init; } = new Dictionary<string, string?>();
+    /// <summary>Most committed memory of the whole tree in bytes (Windows: the job's limit; allocations past it fail); null: none.</summary>
+    public long? MemoryLimitBytes { get; init; }
 }
 
 /// <summary>
@@ -35,6 +37,8 @@ public abstract class ChildProcess : IDisposable
     public abstract IReadOnlyList<int> TreeProcessIds();
     /// <summary>Stops the process and its children. Safe to call more than once.</summary>
     public abstract void Kill();
+    /// <summary>The memory limit in bytes when the tree's peak usage reached it (allocations failed), else null.</summary>
+    public virtual long? MemoryLimitReached() => null;
     public abstract void Dispose();
 
     public static ChildProcess Start(ChildProcessStart start) =>
@@ -124,9 +128,16 @@ internal sealed class WindowsJobProcess : ChildProcess
     private readonly ProcessWaitHandle _waitHandle;
     private int _disposed;
 
-    private WindowsJobProcess(SafeFileHandle job, SafeProcessHandle process, int id, SafeFileHandle stdin, SafeFileHandle stdout, SafeFileHandle stderr)
+    private readonly long? _memoryLimit;
+    private readonly SafeFileHandle? _port;
+    private bool _limitHit;
+
+    private WindowsJobProcess(SafeFileHandle job, SafeProcessHandle process, int id, SafeFileHandle stdin, SafeFileHandle stdout, SafeFileHandle stderr,
+        long? memoryLimit, SafeFileHandle? port)
     {
         _job = job;
+        _memoryLimit = memoryLimit;
+        _port = port;
         _processHandle = process;
         _id = id;
         _stdin = new FileStream(stdin, FileAccess.Write, 1);
@@ -168,11 +179,22 @@ internal sealed class WindowsJobProcess : ChildProcess
         if (!_job.IsClosed) TerminateJobObject(_job, 1);
     }
 
+    public override long? MemoryLimitReached()
+    {
+        if (_memoryLimit is not { } limit || _port is not { IsClosed: false } port) return null;
+        // the job posts JOB_OBJECT_MSG_JOB_MEMORY_LIMIT when an allocation would pass the limit (and fails)
+        lock (port)
+            while (!_limitHit && GetQueuedCompletionStatus(port, out var message, out _, out _, 0))
+                _limitHit = message == JobMessageJobMemoryLimit;
+        return _limitHit ? limit : null;
+    }
+
     public override void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         Kill();
         _job.Dispose(); // KILL_ON_JOB_CLOSE: anything left in the job dies here
+        if (_port != null) lock (_port) _port.Dispose();
         foreach (var s in new Stream[] { _stdin, _stdout, _stderr })
         {
             try { s.Dispose(); } catch (IOException) { }
@@ -188,17 +210,29 @@ internal sealed class WindowsJobProcess : ChildProcess
     {
         var job = CreateJobObjectW(IntPtr.Zero, null);
         if (job.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateJobObject failed");
-        SafeFileHandle? inRead = null, inWrite = null, outRead = null, outWrite = null, errRead = null, errWrite = null;
+        SafeFileHandle? inRead = null, inWrite = null, outRead = null, outWrite = null, errRead = null, errWrite = null, port = null;
         IntPtr attributes = IntPtr.Zero, handleList = IntPtr.Zero;
         var info = default(PROCESS_INFORMATION);
         try
         {
             var limits = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION
             {
-                BasicLimitInformation = new JOBOBJECT_BASIC_LIMIT_INFORMATION { LimitFlags = KillOnJobClose | DieOnUnhandledException },
+                BasicLimitInformation = new JOBOBJECT_BASIC_LIMIT_INFORMATION
+                {
+                    LimitFlags = KillOnJobClose | DieOnUnhandledException | (start.MemoryLimitBytes is > 0 ? JobMemory : 0),
+                },
+                JobMemoryLimit = checked((UIntPtr)(ulong)Math.Max(0, start.MemoryLimitBytes ?? 0)),
             };
             if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, ref limits, (uint)Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>()))
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "SetInformationJobObject failed");
+            if (start.MemoryLimitBytes is > 0)
+            {
+                port = CreateIoCompletionPort(new IntPtr(-1), IntPtr.Zero, UIntPtr.Zero, 1);
+                if (port.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateIoCompletionPort failed");
+                var association = new JOBOBJECT_ASSOCIATE_COMPLETION_PORT { CompletionKey = IntPtr.Zero, CompletionPort = port.DangerousGetHandle() };
+                if (!SetInformationJobObject(job, JobObjectAssociateCompletionPortInformation, ref association, (uint)Marshal.SizeOf<JOBOBJECT_ASSOCIATE_COMPLETION_PORT>()))
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "SetInformationJobObject (completion port) failed");
+            }
 
             CreateInheritablePipe(out inRead, out inWrite, childEndIsRead: true);
             CreateInheritablePipe(out outRead, out outWrite, childEndIsRead: false);
@@ -250,7 +284,7 @@ internal sealed class WindowsJobProcess : ChildProcess
                 process.Dispose();
                 throw new Win32Exception(error, "ResumeThread failed");
             }
-            var child = new WindowsJobProcess(job, process, GetProcessId(process), inWrite, outRead, errRead);
+            var child = new WindowsJobProcess(job, process, GetProcessId(process), inWrite, outRead, errRead, start.MemoryLimitBytes is > 0 ? start.MemoryLimitBytes : null, port);
             inWrite = outRead = errRead = null;
             return child;
         }
@@ -258,6 +292,7 @@ internal sealed class WindowsJobProcess : ChildProcess
         {
             if (info.hProcess != IntPtr.Zero) { TerminateProcess(new SafeProcessHandle(info.hProcess, true), 1); CloseHandle(info.hThread); }
             job.Dispose();
+            port?.Dispose();
             inWrite?.Dispose(); outRead?.Dispose(); errRead?.Dispose();
             throw;
         }
@@ -303,7 +338,10 @@ internal sealed class WindowsJobProcess : ChildProcess
     private const uint StillActive = 259;
     private const int JobObjectBasicProcessIdList = 3;
     private const int JobObjectExtendedLimitInformation = 9;
+    private const int JobObjectAssociateCompletionPortInformation = 7;
+    private const uint JobMessageJobMemoryLimit = 10;
     private const uint KillOnJobClose = 0x2000;
+    private const uint JobMemory = 0x200;
     private const uint DieOnUnhandledException = 0x400;
     private const uint CreateSuspended = 0x4;
     private const uint CreateNoWindow = 0x08000000;
@@ -359,6 +397,18 @@ internal sealed class WindowsJobProcess : ChildProcess
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool SetInformationJobObject(SafeFileHandle job, int infoClass, ref JOBOBJECT_EXTENDED_LIMIT_INFORMATION info, uint length);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct JOBOBJECT_ASSOCIATE_COMPLETION_PORT { public IntPtr CompletionKey, CompletionPort; }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetInformationJobObject(SafeFileHandle job, int infoClass, ref JOBOBJECT_ASSOCIATE_COMPLETION_PORT info, uint length);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern SafeFileHandle CreateIoCompletionPort(IntPtr file, IntPtr existingPort, UIntPtr key, uint threads);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetQueuedCompletionStatus(SafeFileHandle port, out uint bytes, out UIntPtr key, out IntPtr overlapped, uint milliseconds);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool QueryInformationJobObject(SafeFileHandle job, int infoClass, IntPtr info, uint length, out uint returned);

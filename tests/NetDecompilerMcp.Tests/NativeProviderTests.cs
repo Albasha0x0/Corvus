@@ -156,6 +156,33 @@ public class NativeProviderTests
         Assert.NotNull(missing.StartError);
     }
 
+    [WindowsFact]
+    public void Job_memory_limit_fails_allocations_past_it_and_is_reported()
+    {
+        var python = PythonLocator.Find([], []);
+        if (python == null) return;
+        var limit = 256L << 20;
+        using var capped = ChildProcess.Start(new ChildProcessStart(python.Executable, ["-I", "-c", "b = bytearray(1 << 30)"]) { MemoryLimitBytes = limit });
+        Assert.True(capped.Exited.Wait(30_000));
+        Assert.NotEqual(0, capped.ExitCode);
+        Assert.Equal(limit, capped.MemoryLimitReached());
+
+        using var within = ChildProcess.Start(new ChildProcessStart(python.Executable, ["-I", "-c", "b = bytearray(16 << 20)"]) { MemoryLimitBytes = limit });
+        Assert.True(within.Exited.Wait(30_000));
+        Assert.Equal(0, within.ExitCode);
+        Assert.Null(within.MemoryLimitReached());
+    }
+
+    [Theory]
+    [InlineData(null, 0x1_0000_0000L, 0xC000_0000L)]
+    [InlineData("", 0x1_0000_0000L, 0xC000_0000L)]
+    [InlineData("2048", 0x1_0000_0000L, 2048L << 20)]
+    [InlineData("0", 0x1_0000_0000L, null)]
+    [InlineData("off", 0x1_0000_0000L, null)]
+    [InlineData("lots", 0x1_0000_0000L, 0xC000_0000L)]
+    public void Engine_memory_limit_parses_the_setting(string? value, long available, long? expected) =>
+        Assert.Equal(expected, EngineMemoryLimit.Parse(value, available));
+
     private static Process? TryOpen(int pid)
     {
         try { return Process.GetProcessById(pid); }

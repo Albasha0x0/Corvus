@@ -528,6 +528,9 @@ Options go after the command in a client's configuration (`args`), e.g. to prelo
 
 Logs go to stderr; stdout is reserved for the protocol.
 
+Each IDA worker is capped at three quarters of the memory available to the server (Windows Job Object; `NDM_ENGINE_MEMORY_MB`
+sets the limit in MB, `0` removes it). A worker that reaches it fails its request with the limit named and restarts on the next one.
+
 Code that targets a .NET version not installed on the machine is read against that version's reference pack, which
 is downloaded once from nuget.org into the local app data folder. Set `NDM_OFFLINE=1` to never download; such code is
 then read against the nearest installed version.

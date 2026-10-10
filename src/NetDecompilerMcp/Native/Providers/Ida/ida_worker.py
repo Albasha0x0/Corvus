@@ -833,13 +833,30 @@ OPS = {"hello": op_hello, "open": op_open, "rebase": op_rebase, "functions": op_
        "close": op_close, "sleep": op_sleep}
 
 
+def watch_parent(parent):
+    # POSIX has no job object: exit when the server dies, even while a request runs (stdin EOF is only seen between requests)
+    try:
+        import ctypes
+        import signal
+        if sys.platform.startswith("linux"):
+            ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGKILL)  # PR_SET_PDEATHSIG
+    except BaseException:
+        pass
+    while True:
+        time.sleep(1.0)
+        if os.getppid() != parent:
+            os._exit(3)
+
+
 def main():
     global _busy
     if os.name != "nt":
+        parent = os.getppid()
         try:
             os.setsid()
         except OSError:
             pass
+        threading.Thread(target=watch_parent, args=(parent,), daemon=True).start()
     threading.Thread(target=heartbeat, daemon=True).start()
     send({"event": "ready", "protocol": PROTOCOL, "pid": os.getpid()})
     while True:
