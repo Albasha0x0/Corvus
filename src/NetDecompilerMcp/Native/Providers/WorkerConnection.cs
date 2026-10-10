@@ -131,7 +131,7 @@ public sealed class WorkerConnection : IDisposable
             if (tcs.Task.IsCompleted) return Result(tcs.Task.Result);
             if (_closed.Task.IsCompleted && !timer.IsCancellationRequested) throw Died(op);
             var cancelled = cancellationToken.IsCancellationRequested;
-            if (await CancelAsync(id, tcs.Task).ConfigureAwait(false))
+            if (await CancelAsync(id, write, tcs.Task).ConfigureAwait(false))
             {
                 if (cancelled) throw new OperationCanceledException(cancellationToken);
                 throw new ToolError(ErrorCode.Timeout, $"{_name} did not finish '{op}' within {Seconds(timeout)}; the request was cancelled.",
@@ -177,9 +177,12 @@ public sealed class WorkerConnection : IDisposable
     }
 
     /// <summary>Asks the worker to stop request <paramref name="id"/>; true when it answered within the grace time and is still alive.</summary>
-    private async Task<bool> CancelAsync(long id, Task<WorkerMessage.Response> response)
+    private async Task<bool> CancelAsync(long id, Task write, Task<WorkerMessage.Response> response)
     {
         if (_options.CancelGrace is not { } grace || !IsAlive) return false;
+        // Writes run on the pool in any order: the cancel must not overtake the request it names.
+        await Task.WhenAny(write, Task.Delay(grace)).ConfigureAwait(false);
+        if (!write.IsCompletedSuccessfully) return false;
         try
         {
             await Send(WorkerProtocol.EncodeRequest(Interlocked.Increment(ref _nextId), WorkerProtocol.CancelOp, new JsonObject { ["id"] = id }))
