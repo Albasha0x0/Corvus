@@ -10,6 +10,16 @@ to pair renamed methods whose bodies are identical.
 A method without a body (abstract, extern, runtime-implemented) or whose body is not valid IL (see
 `get_assembly_info`) has no hash.
 
+## Raw IL SHA-256
+
+`get_il` also prints `raw IL SHA-256: <first 16 hex digits>`: the SHA-256 of the method's IL code bytes exactly as
+stored in the file as loaded. The bytes start after the tiny (1-byte) or fat (12-byte) method header and run for the
+header's code size; the header, the alignment padding and the extra data sections (exception clauses) are not
+included. It changes whenever a token or an offset changes, so it identifies one exact build, where the normalized
+hash identifies the code. For an assembly with unsaved edits it is still the file's value (`(file as loaded)`).
+Methods without an IL body (abstract, extern, runtime-implemented, native) have none. `decompile_member` with
+`provenance=true` prints both hashes in full.
+
 ## Encoding (version 1)
 
 The hash is the lower-case hex SHA-256 of the UTF-8 bytes of a text. Each line ends with `\n` (also the last).

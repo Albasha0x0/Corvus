@@ -163,8 +163,40 @@ public class IlHashTests : IDisposable
         using var env = new Env(Vector());
         var tools = new DecompileTools(env.Workspace, env.Decompiler, env.Pager);
         var method = await tools.GetIL("Lab.P::Parse");
-        Assert.Contains($"// IL hash: {VectorHash[..16]}\n", method);
+        Assert.Matches($@"// IL hash: {VectorHash[..16]}  raw IL SHA-256: [0-9a-f]{{16}}\n", method);
         var type = await tools.GetIL("Lab.P");
-        Assert.Contains($"// IL hash: {VectorHash[..16]}  Parse(string)\n", type);
+        Assert.Matches($@"// IL hash: {VectorHash[..16]}  raw IL SHA-256: [0-9a-f]{{16}}  Parse\(string\)\n", type);
+    }
+
+    /// <summary>The raw IL SHA-256 covers exactly the code bytes after the fat header, and changes with the tokens where the normalized hash does not.</summary>
+    [Fact]
+    public async Task RawIlSha256_IsOverTheExactCodeBytes()
+    {
+        var path = Vector();
+        var bytes = File.ReadAllBytes(path);
+        using var env = new Env(path);
+        var parse = env.Def<MethodDef>("Lab.P::Parse");
+        int at = FileOffset(bytes, (uint)parse.RVA);
+        Assert.Equal(3, bytes[at] & 3); // fat header: 12 bytes, code size at +4
+        int size = BitConverter.ToInt32(bytes, at + 4);
+        Assert.Equal(0x16, size);
+        var expected = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes.AsSpan(at + 12, size)));
+        using (var reader = IlHash.RawReader(env.Fixture))
+            Assert.Equal(expected, IlHash.RawSha256(reader, parse));
+        Assert.Contains($"// IL hash: {VectorHash[..16]}  raw IL SHA-256: {expected[..16]}\n",
+            await new DecompileTools(env.Workspace, env.Decompiler, env.Pager).GetIL("Lab.P::Parse"));
+
+        using var other = new Env(Vector(longForms: true, padding: 3));
+        var moved = other.Def<MethodDef>("Lab.P::Parse");
+        using var otherReader = IlHash.RawReader(other.Fixture);
+        Assert.Equal(VectorHash, other.Workspace.Read(() => IlHash.Of(other.Fixture, moved)));
+        Assert.NotEqual(expected, IlHash.RawSha256(otherReader, moved));
+    }
+
+    private static int FileOffset(byte[] image, uint rva)
+    {
+        var headers = new System.Reflection.PortableExecutable.PEHeaders(new MemoryStream(image));
+        var s = headers.SectionHeaders.Single(h => rva >= h.VirtualAddress && rva < h.VirtualAddress + h.VirtualSize);
+        return (int)(rva - s.VirtualAddress + s.PointerToRawData);
     }
 }

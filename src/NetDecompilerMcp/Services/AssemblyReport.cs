@@ -15,6 +15,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         string Id,
         string FullName,
         string File,
+        [property: System.ComponentModel.Description("SHA-256 of the file as loaded (unsaved edits not included).")] string Sha256,
         string Mvid,
         string Runtime,
         string Kind,
@@ -47,6 +48,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         sb.AppendLine($"Assembly: {asm.FullAssemblyName}");
         sb.AppendLine($"File: {asm.FilePath}");
         sb.AppendLine($"Module: {m.Name}  MVID {m.Mvid}");
+        sb.AppendLine($"SHA-256: {asm.OriginalSha256}{(asm.IsDirty ? " (file as loaded; unsaved edits not included)" : "")}");
         sb.AppendLine($"Runtime: {m.RuntimeVersion}  Kind: {m.Kind}  Machine: {m.Machine}  IL-only: {m.IsILOnly}  32-bit required: {m.Is32BitRequired}");
         var tfa = m.Assembly?.CustomAttributes.FirstOrDefault(c => c.TypeFullName == "System.Runtime.Versioning.TargetFrameworkAttribute");
         if (tfa?.ConstructorArguments.Count > 0)
@@ -99,7 +101,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
             sb.AppendLine("Assembly attributes:");
             foreach (var ca in attrs.Take(40)) sb.AppendLine("  " + Format.Attribute(ca));
         }
-        summary = new Summary(asm.Id, asm.FullAssemblyName, asm.FilePath, m.Mvid?.ToString() ?? "", m.RuntimeVersion ?? "", m.Kind.ToString(), m.Machine.ToString(),
+        summary = new Summary(asm.Id, asm.FullAssemblyName, asm.FilePath, asm.OriginalSha256, m.Mvid?.ToString() ?? "", m.RuntimeVersion ?? "", m.Kind.ToString(), m.Machine.ToString(),
             tfa?.ConstructorArguments.Count > 0 ? tfa.ConstructorArguments[0].Value?.ToString() : null,
             m.EntryPoint != null ? Format.MemberLabel(m.EntryPoint) : null,
             types.Count, types.Count(t => t.DeclaringType != null), MetadataUtil.NamespaceCount(types),

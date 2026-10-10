@@ -53,6 +53,9 @@ public sealed class LoadedAssembly : IDisposable
     /// <summary>SHA-256 (lowercase hex) of the image as loaded; computed once.</summary>
     public string OriginalSha256 => _originalSha256 ??= Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(_originalBytes));
 
+    /// <summary>"SHA-256 &lt;hex&gt;, MVID &lt;guid&gt;": the build a result belongs to (metadata tokens are only valid within it).</summary>
+    public string BuildIdentity => $"SHA-256 {OriginalSha256}, MVID {Module.Mvid?.ToString() ?? "none"}";
+
     private IlHealth.Result? _bodyHealth;
 
     /// <summary>Method bodies of the original image that are not valid IL (encrypted or dumped images); computed once.</summary>

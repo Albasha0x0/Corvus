@@ -59,7 +59,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
             types = types.Select(t => t with { Members = t.Members.Where(m => !IsGenerated(m.Old ?? m.New)).ToList() }).ToList();
         }
 
-        var sb = new StringBuilder($"Comparing {oldAsm.Id} ({oldAsm.FilePath})\n       -> {newAsm.Id} ({newAsm.FilePath})\n");
+        var sb = new StringBuilder($"Comparing {oldAsm.Id} ({oldAsm.FilePath}; {oldAsm.BuildIdentity})\n       -> {newAsm.Id} ({newAsm.FilePath}; {newAsm.BuildIdentity})\n");
         var memberCounts = types.SelectMany(t => t.Members).SelectMany(m => m.Dimensions).GroupBy(d => d.Kind).ToDictionary(g => g.Key, g => g.Count());
         sb.AppendLine($"Types: {Count(types, "renamed")} renamed, {Count(types, "changed")} with member changes, {Count(types, "removed")} removed, {Count(types, "added")} added" +
                       $"{(Count(types, "ambiguous") > 0 ? $", {Count(types, "ambiguous")} ambiguous" : "")} " +
@@ -104,7 +104,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
     [Description("Where did a type or member of the old build go in the new build? Matches by name, then by content (renamed/transformed members), " +
                  "taking a match only when it is unique on both sides. Shows the new name and token, the matching tier and its confidence (exact, strong, structural), " +
                  "whether a method body changed (normalized IL hash), and Il2Cpp offset/address changes; ambiguous matches list their candidates. " +
-                 "Use it to update FindClass names and offsets after an update.")]
+                 "Both builds are identified by file SHA-256 and MVID (tokens are only valid within their build). Use it to update FindClass names and offsets after an update.")]
     public Task<string> FindCounterpart(
         [Description("Symbol in the old build. " + SymbolDescription)] string symbol,
         [Description("The old build (id, name or path).")] string oldAssembly,
@@ -114,7 +114,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         var oldAsm = workspace.Get(oldAssembly);
         var newAsm = workspace.Get(newAssembly);
         var cmp = comparer.Compare(oldAsm, newAsm, cancellationToken);
-        var sb = new StringBuilder();
+        var sb = new StringBuilder($"Old: {oldAsm.Id} ({oldAsm.BuildIdentity})\nNew: {newAsm.Id} ({newAsm.BuildIdentity})\n");
         if (cmp.OldSkippedBodies + cmp.NewSkippedBodies > 0)
             sb.AppendLine($"Skipped: {cmp.OldSkippedBodies} old and {cmp.NewSkippedBodies} new method bodies are not valid IL and were not compared; " +
                           "matches by content involving them are less reliable.");

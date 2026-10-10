@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -42,6 +43,20 @@ public static class IlHash
         if (!asm.IsDirty && asm.BodyHealth.IsInvalid(method)) return null;
         return Hex(SHA256.HashData(Encoding.UTF8.GetBytes(Canonical(body))));
     }
+
+    /// <summary>
+    /// Hex SHA-256 of the method's IL code bytes as stored in <paramref name="pe"/>: exactly the header's code size,
+    /// header, padding and exception sections excluded (docs/il-hash.md). Null when the method has no IL body.
+    /// </summary>
+    public static string? RawSha256(PEReader pe, MethodDef method)
+    {
+        if (method.RVA == 0 || method.CodeType != MethodImplAttributes.IL) return null;
+        try { return Hex(SHA256.HashData(System.Reflection.Metadata.PEReaderExtensions.GetMethodBody(pe, (int)method.RVA).GetILContent().AsSpan())); }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException or InvalidOperationException) { return null; }
+    }
+
+    /// <summary>A reader over the image as loaded, for <see cref="RawSha256"/>.</summary>
+    public static PEReader RawReader(LoadedAssembly asm) => new(new MemoryStream(asm.OriginalBytes, writable: false));
 
     /// <summary>First 16 hex digits: enough to tell bodies apart in listings.</summary>
     public static string Short(string hash) => hash[..16];

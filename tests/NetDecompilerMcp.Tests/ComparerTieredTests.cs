@@ -119,7 +119,12 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
         // Filtering by a secondary change still lists the member with all of its changes.
         Assert.Contains("signature method Both(int)", await tools.CompareAssemblies(env.Fixture.Id, newer.Id, changes: "metadata"));
 
+        Assert.Contains($"({env.Fixture.FilePath}; SHA-256 {env.Fixture.OriginalSha256}, MVID {env.Fixture.Module.Mvid})", text);
+        Assert.Contains($"-> {newer.Id} ({newer.FilePath}; SHA-256 {newer.OriginalSha256}, MVID {newer.Module.Mvid})", text);
+
         var both = await tools.FindCounterpart("Multi::Both", env.Fixture.Id, newer.Id);
+        Assert.StartsWith($"Old: {env.Fixture.Id} (SHA-256 {env.Fixture.OriginalSha256}, MVID {env.Fixture.Module.Mvid})", both);
+        Assert.Contains($"New: {newer.Id} (SHA-256 {newer.OriginalSha256}, MVID {newer.Module.Mvid})", both);
         Assert.Contains("changes: signature, body, metadata", both);
         Assert.Contains("metadata: flags -Public +Assembly", both);
         Assert.Contains("changes: none", await tools.FindCounterpart("Multi::Kept", env.Fixture.Id, newer.Id));

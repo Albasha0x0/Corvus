@@ -57,6 +57,7 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
 
     [McpServerTool(Name = "get_il", Title = "IL disassembly")]
     [Description("IL disassembly (ildasm style, with /* metadata token */ comments, IL offsets and structured try/catch blocks) of a method, field, property, event, or a whole type. " +
+                 "Each method starts with its normalized IL hash (stable across rebuilds) and the SHA-256 of its raw IL bytes (exact build). " +
                  "Use it when the C# looks wrong, for transformed code, or as the starting point for patch_method_il.")]
     public Task<string> GetIL(
         [Description(SymbolDescription)] string symbol,
@@ -72,7 +73,7 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         return pager.Page(text, offset, maxChars);
     }, cancellationToken);
 
-    /// <summary>One "// IL hash:" line per method of the symbol (docs/il-hash.md), with the method's name unless the symbol is that method.</summary>
+    /// <summary>One "// IL hash:" line per method of the symbol with its raw IL SHA-256 (docs/il-hash.md), and the method's name unless the symbol is that method.</summary>
     private static string HashLines(ResolvedSymbol s)
     {
         IEnumerable<MethodDef> methods = s.Member switch
@@ -84,12 +85,15 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
             _ => [],
         };
         var sb = new StringBuilder();
+        using var raw = IlHash.RawReader(s.Assembly);
         foreach (var m in methods)
         {
             var hash = IlHash.Of(s.Assembly, m);
             var value = hash != null ? IlHash.Short(hash)
                 : m.RVA == 0 && MetadataUtil.SafeBody(m) == null ? "none (no body)" : "none (body not valid IL)";
             sb.Append("// IL hash: ").Append(value);
+            if (IlHash.RawSha256(raw, m) is { } bytes)
+                sb.Append("  raw IL SHA-256: ").Append(IlHash.Short(bytes)).Append(s.Assembly.IsDirty ? " (file as loaded)" : "");
             if (s.Member is not MethodDef) sb.Append("  ").Append(m.Name).Append('(').Append(Format.ParameterTypes(m.MethodSig)).Append(')');
             sb.Append('\n');
         }
