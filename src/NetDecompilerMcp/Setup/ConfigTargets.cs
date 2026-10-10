@@ -11,8 +11,11 @@ internal sealed record ServerLaunch(string Command, IReadOnlyList<string> Args);
 /// <summary>The outcome of changing one configuration file.</summary>
 internal sealed record ConfigChange(bool Changed, string Message);
 
-/// <summary>A registered server entry as the client reads it; <see cref="Disabled"/> when the client will not start it.</summary>
-internal sealed record RegisteredEntry(string Command, IReadOnlyList<string> Args, IReadOnlyDictionary<string, string> Env, bool Disabled);
+/// <summary>
+/// A registered server entry as the client reads it; <see cref="Disabled"/> when the client will not start it,
+/// <see cref="StartupTimeout"/> the seconds it waits for the server when the entry says (Codex, Grok Build).
+/// </summary>
+internal sealed record RegisteredEntry(string Command, IReadOnlyList<string> Args, IReadOnlyDictionary<string, string> Env, bool Disabled, double? StartupTimeout = null);
 
 /// <summary>Plan actions; the strings appear in --json output.</summary>
 internal static class SetupAction
@@ -386,6 +389,7 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
         List<string> args = [];
         var env = new Dictionary<string, string>(StringComparer.Ordinal);
         bool disabled = false;
+        double? timeout = null;
         foreach (var (start, end) in blocks)
         {
             var sub = ServerHeader().Match(lines[start]).Groups["sub"];
@@ -401,6 +405,8 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
                 if (CommandLine().IsMatch(lines[i])) command = CommandValue(lines[i]);
                 else if (ParseArgs(lines[i]) is { } a) args = a;
                 else if (EnabledFalse().IsMatch(lines[i])) disabled = true;
+                else if (StartupTimeoutLine().Match(lines[i]) is { Success: true } t
+                         && double.TryParse(t.Groups["v"].Value, System.Globalization.CultureInfo.InvariantCulture, out var seconds)) timeout = seconds;
                 else if (InlineEnv().Match(lines[i]) is { Success: true } inline)
                     foreach (var item in inline.Groups["items"].Value.Split(','))
                         if (KeyValue().Match(item) is { Success: true } kv) env[kv.Groups["k"].Value.Trim('"')] = Unescape(kv.Groups["v"].Value);
@@ -411,11 +417,14 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
             if (DisabledList().Match(lines[i]) is { Success: true } list
                 && TomlString().Matches(list.Groups["items"].Value).Any(s => (s.Value[0] == '\'' ? s.Groups["v"].Value : Unescape(s.Groups["v"].Value)) == name))
                 disabled = true;
-        return new RegisteredEntry(command, args, env, disabled);
+        return new RegisteredEntry(command, args, env, disabled, timeout);
     }
 
     [GeneratedRegex(@"^\s*disabled_mcp_servers\s*=\s*\[(?<items>[^\]]*)\]")]
     private static partial Regex DisabledList();
+
+    [GeneratedRegex(@"^\s*startup_timeout_sec\s*=\s*(?<v>[0-9.]+)")]
+    private static partial Regex StartupTimeoutLine();
 
     /// <summary>The file text with the server registered, or null when it already is.</summary>
     private static string? Installed(List<string> lines, string name, ServerLaunch launch)

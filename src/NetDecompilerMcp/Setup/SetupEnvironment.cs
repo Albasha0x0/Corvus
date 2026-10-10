@@ -24,6 +24,10 @@ internal sealed class SetupEnvironment
     public bool Interactive { get; init; }
     /// <summary>Asks a yes/no question whose default is yes.</summary>
     public Func<string, bool> Confirm { get; init; } = _ => false;
+    /// <summary>IDA's availability; with true, a started idalib worker. Machine-dependent, so tests replace it.</summary>
+    public Func<bool, NetDecompilerMcp.Native.Providers.ProviderAvailability> Ida { get; init; } = Doctor.ProbeIda;
+    /// <summary>The Python interpreter IDA would use and why each candidate was rejected.</summary>
+    public Func<(string? Python, List<string> Log)> Python { get; init; } = Doctor.FindPython;
 
     public static SetupEnvironment Current()
     {

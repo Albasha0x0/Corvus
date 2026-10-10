@@ -13,7 +13,7 @@ internal static class SetupCli
     {
         ["install"] = ["--no-check", "--check", "--dry-run", "--json", "--yes", "-y", "--all-detected", "--strict", "--client", "--refresh-only"],
         ["uninstall"] = ["--keep-files", "--purge-data", "--dry-run", "--json", "--client"],
-        ["status"] = [],
+        ["status"] = ["--json", "--client", "--engine", "--target", "--deep"],
         ["config"] = ["--client"],
         ["update"] = [],
     };
@@ -37,7 +37,7 @@ internal static class SetupCli
         {
             case "install": return Install(output, env, launch, parsed);
             case "uninstall": return Uninstall(output, env, parsed);
-            case "status": return Status(output, env, launch);
+            case "status": return Status(output, env, launch, parsed);
             case "config": return Config(output, env, launch, parsed.Clients);
             case "update": return Installation.Update(output);
             case "version" or "--version" or "-v": output.WriteLine(Installation.Version); return 0;
@@ -62,7 +62,12 @@ internal static class SetupCli
                                 also deletes an installed copy's program files; --keep-files keeps them. Your data
                                 (annotations, caches, symbols) is kept; --purge-data deletes it as well.
                                 --dry-run and --json as for install.
-          status | doctor       Show which clients have it registered, check the server starts and that its tool catalog (digest) matches this build.
+          status | doctor       Read-only check. Starts each client's registered command with that entry's own args
+                                and env, checks this build's server and tool catalog (digest), and the engines.
+                                --client X      only these clients (fails only for them)
+                                --engine E      only ida, python, ghidra or all (--deep also starts IDA's worker)
+                                --target PATH   what the file is and which engines read it
+                                --json          the report as JSON
           config [client]       Print the configuration to add by hand (for clients not listed).
           update                Install the latest release (installed copies only) and refresh existing registrations;
                                 it never adds clients.
@@ -247,28 +252,77 @@ internal static class SetupCli
         return 0;
     }
 
-    private static int Status(TextWriter output, SetupEnvironment env, ServerLaunch launch)
+    /// <summary>
+    /// Read-only. Without a scope: detected clients, this build's server and the engines; it fails only for a broken
+    /// registration or server. With --client, --engine or --target only those are checked and only they can fail.
+    /// </summary>
+    private static int Status(TextWriter output, SetupEnvironment env, ServerLaunch launch, SetupArgs a)
     {
-        output.WriteLine($"NetDecompilerMcp {Installation.Version}");
-        output.WriteLine($"Server command: {string.Join(" ", [launch.Command, .. launch.Args])}");
-        foreach (var client in ClientCatalog.All(env))
+        bool json = a.Has("--json"), deep = a.Has("--deep");
+        var all = ClientCatalog.All(env);
+        if (Named(output, all, a.Clients) is not { } named) return 2;
+        var engines = a.Values("--engine").SelectMany(v => v.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Select(e => e.ToLowerInvariant()).Distinct().ToList();
+        if (engines.FirstOrDefault(e => e != "all" && !Doctor.Engines.Contains(e)) is { } unknown)
         {
-            var registered = client.Target.Registered(ClientCatalog.ServerName);
-            if (!client.Present && registered == null) continue;
-            string state = registered switch
-            {
-                null => "not registered (run: NetDecompilerMcp install)",
-                _ when registered.Equals(launch.Command, StringComparison.OrdinalIgnoreCase) => "registered",
-                _ when registered.Length > 0 && !File.Exists(registered) => $"registered with a missing program: {registered} (run: NetDecompilerMcp install)",
-                _ => $"registered with another copy: {registered}",
-            };
-            output.WriteLine($"  {client.Name,-20} {state}");
+            output.WriteLine($"Unknown engine '{unknown}'. Known: {string.Join(", ", Doctor.Engines)}, all");
+            return 2;
         }
-        var server = ServerReport.From(SelfTest.Run(launch, TimeSpan.FromSeconds(60)));
-        output.WriteLine(server.Ok ? $"Server check: OK ({server.Detail})" : $"Server check FAILED: {server.Detail}");
-        if (!server.Ok) return 1;
-        output.WriteLine(server.CatalogLine());
-        return server.MatchesThisBuild == true ? 0 : 1;
+        if (engines.Contains("all")) engines = [.. Doctor.Engines];
+        var target = a.Value("--target");
+        bool audit = named.Count == 0 && engines.Count == 0 && target == null;
+        var text = json ? TextWriter.Null : output;
+        var report = new SetupReport { Command = "status", Launch = Describe(launch) };
+        bool failed = false;
+        text.WriteLine($"NetDecompilerMcp {Installation.Version}");
+        text.WriteLine($"Server command: {string.Join(" ", [launch.Command, .. launch.Args])}");
+
+        var tests = new Dictionary<string, ServerReport>();
+        if (audit || named.Count > 0)
+        {
+            foreach (var client in named.Count > 0 ? named : all)
+            {
+                var current = client.Target.Current(ClientCatalog.ServerName);
+                if (named.Count == 0 && !client.Present && current == null && !File.Exists(client.Target.Path)) continue;
+                var row = new ClientReport
+                {
+                    Id = client.Id, Name = client.Name, Detected = client.Present, ConfigPath = client.Target.Path, Registered = current,
+                    Action = null, Client = client,
+                };
+                Doctor.Check(row, env, launch, tests);
+                if (named.Count == 0 && row.State == Doctor.NotRegistered && !client.Present) continue;
+                report.Clients.Add(row);
+                text.WriteLine($"  {client.Name,-20} {row.Message}");
+                if (Doctor.Fails(row.State) || (named.Count > 0 && row.State == Doctor.NotRegistered)) failed = true;
+            }
+        }
+
+        if (audit)
+        {
+            var server = report.Server = Doctor.Test(launch, new Dictionary<string, string>(), tests);
+            text.WriteLine(server.Ok ? $"Server check: OK ({server.Detail})" : $"Server check FAILED: {server.Detail}");
+            if (server.Ok) text.WriteLine(server.CatalogLine());
+            failed |= !server.Ok || server.MatchesThisBuild != true;
+        }
+
+        foreach (var name in audit ? Doctor.Engines : [.. engines])
+        {
+            var check = Doctor.Engine(env, name, deep);
+            report.Engines.Add(check);
+            text.WriteLine($"Engine {name}: {(check.Ok ? "available" : "not available")} ({check.Detail}){(check.Remediation is { } fix ? " - " + fix : "")}");
+            if (!audit && !check.Ok) failed = true;
+        }
+
+        if (target != null)
+        {
+            var check = report.Target = Doctor.Target(env, target);
+            text.WriteLine($"Target {check.Name}: {check.Detail}{(check.Remediation is { } fix ? " - " + fix : "")}");
+            failed |= !check.Ok;
+        }
+
+        report.Healthy = !failed;
+        if (json) output.WriteLine(report.ToJson());
+        return failed ? 1 : 0;
     }
 
     private static int Config(TextWriter output, SetupEnvironment env, ServerLaunch launch, IReadOnlyList<string> names)

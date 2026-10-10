@@ -161,19 +161,30 @@ public sealed class SetupTests : IDisposable
 
     [Trait("Speed", "Slow")]
     [Fact]
-    public void Status_ReportsRegistrations_AndSelfTestStartsTheRealServer()
+    public void Status_StartsEachRegistrationWithItsOwnArgsAndEnv_AndTheRealServer()
     {
-        Directory.CreateDirectory(Home(".cursor"));
-        File.WriteAllText(Home(".cursor", "mcp.json"), """{ "mcpServers": { "net-decompiler": { "command": "C:/gone/NetDecompilerMcp.exe" } } }""");
+        using var home = new SetupHome();
+        var dll = typeof(NetDecompilerMcp.Core.AssemblyWorkspace).Assembly.Location;
+        var server = new ServerLaunch("dotnet", [dll]);
+        var q = System.Text.Json.JsonSerializer.Serialize(dll);
+        home.Write($$"""{ "mcpServers": { "net-decompiler": { "command": "dotnet", "args": [{{q}}] } } }""", ".cursor", "mcp.json");
+        // The entry's env reaches the server: an invalid engine makes it exit.
+        home.Write($$"""{ "mcpServers": { "net-decompiler": { "command": "dotnet", "args": [{{q}}], "env": { "NDM_ENGINE": "nonsense" } } } }""", ".kiro", "settings", "mcp.json");
+        home.Write("""{ "mcpServers": { "net-decompiler": { "command": "C:/gone/NetDecompilerMcp.exe" } } }""", ".lmstudio", "mcp.json");
         var output = new StringWriter();
-        var server = new ServerLaunch("dotnet", [typeof(NetDecompilerMcp.Core.AssemblyWorkspace).Assembly.Location]);
-        var code = SetupCli.TryRun(["status"], output, _env, server);
-        Assert.True(code == 0, output.ToString());
-        Assert.Contains("registered with a missing program: C:/gone/NetDecompilerMcp.exe", output.ToString());
+        var code = SetupCli.TryRun(["status"], output, home.Env(), server);
+        var text = output.ToString();
+        Assert.True(code == 1, text);
+        Assert.Contains("registered with a missing program: C:/gone/NetDecompilerMcp.exe", text);
+        Assert.Contains("must be auto, ours or ida", text);
         var tools = SelfTest.DeclaredTools().Count;
         Assert.True(tools > 50, $"{tools} declared tools");
-        Assert.Matches($@"Server check: OK \(version [0-9.]+, {tools} tools", output.ToString());
-        Assert.Matches($@"Tool catalog: matches this build \({tools} tools\); digest t{tools}-[0-9a-f]{{12}}\.p\d+-[0-9a-f]{{8}}", output.ToString());
+        Assert.Matches($@"Cursor\s+registered \(version [0-9.]+, {tools} tools", text);
+        Assert.Matches($@"Server check: OK \(version [0-9.]+, {tools} tools", text);
+        Assert.Matches($@"Tool catalog: matches this build \({tools} tools\); digest t{tools}-[0-9a-f]{{12}}\.p\d+-[0-9a-f]{{8}}", text);
+
+        output = new StringWriter();
+        Assert.Equal(0, SetupCli.TryRun(["status", "--client", "cursor"], output, home.Env(), server));
     }
 
     [Fact]

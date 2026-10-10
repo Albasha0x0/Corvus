@@ -14,8 +14,12 @@ internal sealed class SetupHome : IDisposable
     public string Path(params string[] parts) => System.IO.Path.Combine([_dir.Path, .. parts]);
 
     public SetupEnvironment Env(bool interactive = false, Func<string, bool>? confirm = null, IReadOnlyDictionary<string, string>? variables = null,
-        HostOs? os = null, Func<string, string?>? findTool = null) => new()
+        HostOs? os = null, Func<string, string?>? findTool = null, bool idaAvailable = false) => new()
     {
+        Ida = deep => idaAvailable
+            ? NetDecompilerMcp.Native.Providers.ProviderAvailability.Ok("ida", new Dictionary<string, string> { ["install_dir"] = "fake", ["deep"] = deep.ToString() })
+            : NetDecompilerMcp.Native.Providers.ProviderAvailability.Missing("ida", "IDA not found (test)", "Install IDA."),
+        Python = () => (null, ["test: no interpreter"]),
         Os = os ?? (OperatingSystem.IsWindows() ? HostOs.Windows : OperatingSystem.IsMacOS() ? HostOs.MacOs : HostOs.Linux),
         Home = _dir.Path,
         AppData = Path("AppData", "Roaming"),

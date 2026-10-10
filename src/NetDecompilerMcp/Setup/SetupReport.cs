@@ -44,7 +44,7 @@ internal sealed class ClientReport
     public bool Detected { get; init; }
     public required string ConfigPath { get; init; }
     /// <summary>A <see cref="SetupAction"/> value.</summary>
-    public string Action { get; set; } = SetupAction.Skip;
+    public string? Action { get; set; } = SetupAction.Skip;
     /// <summary>A detected client without a registration: added only with --yes, --all-detected or a confirmation.</summary>
     public bool NeedsConsent { get; set; }
     /// <summary>A status classification (status only): healthy, not_registered, other_copy, missing_program, disabled, ...</summary>

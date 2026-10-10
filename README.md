@@ -51,7 +51,7 @@ Amazon Q, Kiro, Antigravity, Devin, Command Code, Grok Build, OMP and Pi. Any ot
 
 | Command | What it does |
 |---|---|
-| `NetDecompilerMcp status` | Which clients have it registered (and with which copy), plus a live server check. |
+| `NetDecompilerMcp status` | Read-only check (alias `doctor`): which clients have it registered and with which copy, each registration started with its own args and env, the tool catalog against this build, and the engines (IDA, Python, Ghidra). `--client X`, `--engine ida\|python\|ghidra\|all` (`--deep` starts IDA's worker) and `--target PATH` narrow it, and only what is in scope can fail; `--json` prints the report. Exit codes: 0 healthy, 1 a failure in scope, 2 usage error. |
 | `NetDecompilerMcp install [client...]` | Register again, e.g. after installing a new client; names (or `--client a,b`) register clients not detected. `--dry-run` prints the plan and writes nothing, `--json` prints the plan and result as JSON, `--yes` / `--all-detected` add new clients without asking, `--strict` writes nothing when a client's file cannot be read. |
 | `NetDecompilerMcp update` | Install the latest release and refresh existing registrations (it never adds clients); client settings point at a stable path and need no change. |
 | `NetDecompilerMcp config [client]` | Print the configuration for a client, or the generic `mcpServers` JSON. |
