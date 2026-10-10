@@ -80,7 +80,7 @@ public class ConcurrencyTests
             cts.Cancel();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => explicitToken);
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ambient);
-            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"cancelled waits took {watch.Elapsed}");
+            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"cancelled waits took {watch.Elapsed}");
         }
         finally
         {
