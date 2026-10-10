@@ -13,7 +13,7 @@ public sealed partial class NativeCodeIndex
     /// (new fields, new cross-reference kinds such as virtual-call edges) or the analysis gives different results for the
     /// same bytes: saved indexes of another version are ignored and rebuilt.
     /// </summary>
-    public const int PersistFormatVersion = 1;
+    public const int PersistFormatVersion = 2;
 
     /// <summary>Read from the code index cache instead of built; <see cref="CacheLoadTime"/> says how long that took.</summary>
     public bool LoadedFromCache { get; private set; }
@@ -38,6 +38,8 @@ public sealed partial class NativeCodeIndex
         I64(options.MaxStringLength);
         I64(options.MaxNoReturnRounds);
         I64(options.ScanPrologues ? 1 : 0);
+        I64(options.ResolveVirtualCalls ? 1 : 0);
+        I64(options.MaxVirtualTargets);
         I64(CodeContext.KernelModeByName(image.Path) ? 1 : 0);
         var starts = (options.SymbolStarts ?? []).Distinct().ToArray();
         Array.Sort(starts);
@@ -123,6 +125,7 @@ public sealed partial class NativeCodeIndex
         w.UInts(thunks.Select(t => _ctx.Thunks[t]).ToArray());
 
         WriteEh(w, ExceptionInfo);
+        WriteVirtualCalls(w);
     }
 
     private static uint[] Sorted(IEnumerable<uint> values)
@@ -273,6 +276,7 @@ public sealed partial class NativeCodeIndex
         int tn = thunkStarts.Length;
         var thunkSlots = r.UInts(tn);
         plan.Eh = ReadEh(ref r);
+        var (virtualCalls, virtualEdges) = ReadVirtualCalls(ref r);
         if (!r.AtEnd) throw new InvalidDataException("data after the end of the index");
         ct.ThrowIfCancellationRequested();
 
@@ -289,6 +293,7 @@ public sealed partial class NativeCodeIndex
 
         var index = new NativeCodeIndex(image, CodeSupport.Full, null, ctx, functions, rangeStarts, rangeEnds, xrefs, strings, truncations, stats, byTo);
         index.Apply(plan);
+        index.SetVirtualCalls(virtualCalls, virtualEdges);
         index.LoadedFromCache = true;
         return index;
     }

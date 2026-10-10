@@ -100,6 +100,26 @@ public sealed class NativeTypePush(AssemblyWorkspace? workspace = null)
         finally { state.Gate.Release(); }
     }
 
+    /// <summary>
+    /// <see cref="EnsureMethodAsync"/> for many functions in one request: the virtual methods among <paramref name="starts"/> the
+    /// last batch left for later get their class as the type of their first argument. Returns how many were sent.
+    /// </summary>
+    public async Task<int> EnsureMethodsAsync(LoadedNative native, INativeDecompilerSession session, IEnumerable<uint> starts, CancellationToken ct)
+    {
+        if (!States.TryGetValue(session, out var state)) return 0;
+        await state.Gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var owners = new List<NativeMethodOwner>();
+            foreach (var start in starts.Distinct())
+                if (state.Owners.TryGetValue(start, out var owner) && state.Asked.Add(start)) owners.Add(new NativeMethodOwner(start, owner));
+            if (owners.Count == 0) return 0;
+            await session.ApplyTypesAsync(new NativeTypeBatch(null, [], [], owners, native.Image.Is64Bit ? 8 : 4), cancellationToken: ct).ConfigureAwait(false);
+            return owners.Count;
+        }
+        finally { state.Gate.Release(); }
+    }
+
     /// <summary>The stamp of the types last pushed to <paramref name="session"/>, or "" before any push.</summary>
     public static string CurrentStamp(INativeDecompilerSession session) => States.TryGetValue(session, out var s) ? s.Stamp ?? "" : "";
 

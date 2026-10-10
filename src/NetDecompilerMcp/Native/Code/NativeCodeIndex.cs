@@ -31,6 +31,10 @@ public sealed class CallTreeNode
     public required NativeFunction? Function { get; init; }
     public NativeImport? Import { get; init; }
     public uint Address { get; init; }
+    /// <summary>How the parent reaches this node (call, tail call, import call, VirtualExact, VirtualPossible).</summary>
+    public XrefKind Via { get; init; }
+    /// <summary>The call instruction the edge from the parent comes from (callers: in this node; callees: in the parent).</summary>
+    public uint Site { get; init; }
     public List<CallTreeNode> Children { get; } = [];
     /// <summary>Already shown higher in the tree (recursion or repeated subtree): not expanded again.</summary>
     public bool Repeated { get; set; }
@@ -236,13 +240,22 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         return result;
     }
 
-    /// <summary>Calls and tail calls to <paramref name="f"/> (and, for a thunk, to its import), with the calling function.</summary>
-    public List<CallSite> Callers(NativeFunction f)
+    /// <summary>
+    /// Calls and tail calls to <paramref name="f"/> (and, for a thunk, to its import), with the calling function; with
+    /// <paramref name="edges"/> All or Virtual also the virtual call sites that may reach it. Sorted by source.
+    /// </summary>
+    public List<CallSite> Callers(NativeFunction f, CallEdgeFilter edges = CallEdgeFilter.All)
     {
         var result = new List<CallSite>();
-        foreach (var x in RefsTo(f.Start))
-            if (x.Kind is XrefKind.Call or XrefKind.TailCall)
-                result.Add(new CallSite(x.From, x.To, x.Kind, FunctionAt(x.From), f, null));
+        if (edges != CallEdgeFilter.Virtual)
+            foreach (var x in RefsTo(f.Start))
+                if (x.Kind is XrefKind.Call or XrefKind.TailCall)
+                    result.Add(new CallSite(x.From, x.To, x.Kind, FunctionAt(x.From), f, null));
+        if (edges != CallEdgeFilter.Direct && _virtualEdges.Length > 0)
+        {
+            foreach (var x in VirtualEdgesTo(f.Start)) result.Add(new CallSite(x.From, x.To, x.Kind, FunctionAt(x.From), f, null));
+            result.Sort((a, b) => a.From.CompareTo(b.From));
+        }
         return result;
     }
 
@@ -264,20 +277,35 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         return result;
     }
 
-    /// <summary>Direct calls, tail calls and import calls made by <paramref name="f"/>, in address order.</summary>
-    public List<CallSite> Callees(NativeFunction f)
+    /// <summary>
+    /// Direct calls, tail calls and import calls made by <paramref name="f"/>, with <paramref name="edges"/> All or Virtual also
+    /// the implementations its virtual call sites may reach; in address order.
+    /// </summary>
+    public List<CallSite> Callees(NativeFunction f, CallEdgeFilter edges = CallEdgeFilter.All)
     {
         var result = new List<CallSite>();
-        foreach (var x in RefsFrom(f))
-        {
-            if (!x.IsCallLike) continue;
-            if (x.Kind is XrefKind.ImportCall or XrefKind.ImportJump)
-                result.Add(new CallSite(x.From, x.To, x.Kind, f, null, _imports.GetValueOrDefault(x.To)));
-            else
+        if (edges != CallEdgeFilter.Virtual)
+            foreach (var x in RefsFrom(f))
             {
-                var target = FunctionByStart(x.To);
-                result.Add(new CallSite(x.From, x.To, x.Kind, f, target, target?.ThunkImport));
+                if (!x.IsCallLike) continue;
+                if (x.Kind is XrefKind.ImportCall or XrefKind.ImportJump)
+                    result.Add(new CallSite(x.From, x.To, x.Kind, f, null, _imports.GetValueOrDefault(x.To)));
+                else
+                {
+                    var target = FunctionByStart(x.To);
+                    result.Add(new CallSite(x.From, x.To, x.Kind, f, target, target?.ThunkImport));
+                }
             }
+        if (edges != CallEdgeFilter.Direct && _virtualEdges.Length > 0)
+        {
+            int before = result.Count;
+            foreach (var (s, e) in Ranges(f))
+                foreach (var x in VirtualEdgesFrom(s, e))
+                {
+                    var target = FunctionByStart(x.To);
+                    result.Add(new CallSite(x.From, x.To, x.Kind, f, target, target?.ThunkImport));
+                }
+            if (result.Count > before) result.Sort((a, b) => a.From != b.From ? a.From.CompareTo(b.From) : a.Target.CompareTo(b.Target));
         }
         return result;
     }
@@ -286,7 +314,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     /// Callers (<paramref name="callers"/> = true) or callees of <paramref name="root"/> to <paramref name="depth"/> levels,
     /// at most <paramref name="maxNodes"/> nodes; repeated functions are listed once and not expanded again.
     /// </summary>
-    public CallTreeNode CallTree(NativeFunction root, int depth, bool callers, int maxNodes = 2000)
+    public CallTreeNode CallTree(NativeFunction root, int depth, bool callers, int maxNodes = 2000, CallEdgeFilter edges = CallEdgeFilter.All)
     {
         var node = new CallTreeNode { Function = root, Address = root.Start };
         var expanded = new HashSet<uint> { root.Start };
@@ -297,7 +325,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         {
             var (n, d) = queue.Dequeue();
             if (n.Function == null) continue;
-            var sites = callers ? Callers(n.Function) : Callees(n.Function);
+            var sites = callers ? Callers(n.Function, edges) : Callees(n.Function, edges);
             if (d >= depth) { if (sites.Count > 0) n.Truncated = true; continue; }
             var seenHere = new HashSet<(uint, bool)>();
             foreach (var s in sites)
@@ -306,7 +334,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
                 uint key = fn?.Start ?? s.Target;
                 if (!seenHere.Add((key, fn != null))) continue;
                 if (count >= maxNodes) { n.Truncated = true; break; }
-                var child = new CallTreeNode { Function = fn, Import = callers ? null : s.Import, Address = callers ? s.From : s.Target };
+                var child = new CallTreeNode { Function = fn, Import = callers ? null : s.Import, Address = callers ? s.From : s.Target, Via = s.Kind, Site = s.From };
                 count++;
                 n.Children.Add(child);
                 if (fn == null) continue;
@@ -532,6 +560,12 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             var chunks = AttachExceptionChunks(ref starts, ref results);
             var index = Assemble(starts, results);
             index.Apply(chunks);
+            if (options.ResolveVirtualCalls && image.Arch is NativeArch.X86 or NativeArch.X64)
+            {
+                report.Report("resolving virtual calls", 0, 0);
+                index.ResolveVirtualCalls(options, ct);
+                report.Done();
+            }
             return index;
         }
 

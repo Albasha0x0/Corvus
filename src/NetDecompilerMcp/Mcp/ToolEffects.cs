@@ -118,6 +118,7 @@ public static class ToolEffects
         ["get_cfg"] = Reads(longRunning: true),
         ["find_xrefs"] = Reads(longRunning: true),
         ["native_call_tree"] = Reads(longRunning: true),
+        ["find_virtual_calls"] = Reads(longRunning: true, openWorld: true), // crossCheck runs IDA (idalib) in a worker process; its database is a private cache
         ["search_native_strings"] = Reads(longRunning: true),
         ["get_call_arguments"] = Reads(longRunning: true),
         ["get_exception_info"] = Reads(longRunning: true),

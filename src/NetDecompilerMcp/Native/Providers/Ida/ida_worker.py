@@ -646,6 +646,67 @@ def apply_classes(m, ti, til, model, result):
             result["structs"] += 1
 
 
+def op_virtual_targets(args):
+    # What IDA knows about the call instructions at sites (rvas) in functions (rvas), within seconds:
+    # [site, "xref", target]: IDA's code references from the call instruction to a function;
+    # [site, "vftable", struct name, member offset]: Hex-Rays shows the call through a member of a vftable struct type
+    #   (<class>_vftable or <class>_vftable_<offset>, as apply_types defines them);
+    # [site, "direct", target]: Hex-Rays resolved the call to a function;
+    # [site, "other", expression kind]: Hex-Rays shows the call through an untyped pointer.
+    m = need_open()
+    base = _state["base"]
+    sites = set(base + r for r in args.get("sites") or [] if isinstance(r, int) and r >= 0)
+    deadline = time.time() + float(args.get("seconds") or 60)
+    rows = []
+    for ea in sorted(sites):
+        for x in m.idautils.XrefsFrom(ea, 0):
+            if x.iscode and x.type in (m.ida_xref.fl_CN, m.ida_xref.fl_CF):
+                g = m.ida_funcs.get_func(x.to)
+                if g is not None and g.start_ea == x.to and rva_of(x.to) is not None:
+                    rows.append([rva_of(ea), "xref", rva_of(x.to)])
+    decompiled, failed, skipped = 0, [], 0
+    if not hexrays_ready(m):
+        return {"rows": rows, "decompiled": 0, "failed": [], "skipped": len(args.get("functions") or []), "decompiler": False}
+    hr = m.ida_hexrays
+
+    class Calls(hr.ctree_visitor_t):
+        def __init__(self):
+            hr.ctree_visitor_t.__init__(self, hr.CV_FAST)
+
+        def visit_expr(self, e):
+            if e.op != hr.cot_call or e.ea not in sites:
+                return 0
+            x = e.x
+            while x.op == hr.cot_cast:
+                x = x.x
+            if x.op in (hr.cot_memptr, hr.cot_memref):
+                t = x.x.type
+                if x.op == hr.cot_memptr:
+                    t = t.get_pointed_object()
+                rows.append([rva_of(e.ea), "vftable", t.get_type_name() or t.dstr(), int(x.m)])
+            elif x.op == hr.cot_obj and rva_of(x.obj_ea) is not None:
+                rows.append([rva_of(e.ea), "direct", rva_of(x.obj_ea)])
+            else:
+                rows.append([rva_of(e.ea), "other", x.opname])
+            return 0
+
+    for rva in args.get("functions") or []:
+        if time.time() > deadline:
+            skipped += 1
+            continue
+        try:
+            cf = hr.decompile(base + rva, hr.hexrays_failure_t(), hr.DECOMP_NO_WAIT)
+        except hr.DecompilationFailure as e:
+            failed.append([rva, (str(e).strip() or "failed")[:200]])
+            continue
+        if cf is None:
+            failed.append([rva, "failed"])
+            continue
+        decompiled += 1
+        Calls().apply_to(cf.body, None)
+    return {"rows": rows, "decompiled": decompiled, "failed": failed, "skipped": skipped, "decompiler": True}
+
+
 STAMP_NODE = "$ netdecompilermcp stamps"
 
 
@@ -729,7 +790,7 @@ def op_sleep(args):
 OPS = {"hello": op_hello, "open": op_open, "rebase": op_rebase, "functions": op_functions, "decompile": op_decompile,
        "disasm": op_disasm, "disasm_range": op_disasm_range, "blocks": op_blocks, "xrefs_to": op_xrefs_to, "xrefs_from": op_xrefs_from, "set_name": op_set_name,
        "set_comment": op_set_comment, "apply_names": op_apply_names, "get_stamp": op_get_stamp, "save": op_save,
-       "sync_patches": op_sync_patches, "apply_types": op_apply_types, "close": op_close, "sleep": op_sleep}
+       "sync_patches": op_sync_patches, "apply_types": op_apply_types, "virtual_targets": op_virtual_targets, "close": op_close, "sleep": op_sleep}
 
 
 def main():

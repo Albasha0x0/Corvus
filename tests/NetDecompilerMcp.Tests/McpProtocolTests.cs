@@ -229,6 +229,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["find_xrefs"] = (new() { ["image"] = NativeSample(dir), ["address"] = "KERNEL32!ExitProcess" }, "References to"),
         ["get_call_arguments"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "\"scope\""),
         ["native_call_tree"] = (new() { ["image"] = NativeSample(dir), ["function"] = "First" }, "First"),
+        ["find_virtual_calls"] = (new() { ["image"] = NativeSample(dir), ["status"] = "exact" }, "\"sites\":0"),
         ["search_native_strings"] = (new() { ["image"] = NativeSample(dir) }, "string"),
         ["decompile_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["engine"] = "ghidra" }, "Error (invalid_argument) in decompile_native: Unknown engine"),
         ["rename_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["name"] = "SweepFunc" }, "Named"),

@@ -88,6 +88,15 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
         CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not take types.");
 
+    /// <summary>
+    /// What the engine knows about the call instructions at <paramref name="sites"/>: its code references from them, and how its
+    /// decompiler shows them in <paramref name="functions"/> (through a member of a vftable struct type, a function, or an
+    /// untyped pointer), within <paramref name="seconds"/>.
+    /// </summary>
+    Task<NativeCallTargets> GetCallTargetsAsync(IReadOnlyList<uint> functions, IReadOnlyList<uint> sites, double seconds,
+        CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not report call targets.");
+
     /// <summary>References to <paramref name="rva"/> (ordinary flow excluded).</summary>
     Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default);
 
@@ -245,6 +254,17 @@ public enum NativeXrefKind
 public sealed record NativeNameItem(uint Rva, string? Name, string? Comment, bool MakeFunction = false);
 
 public sealed record NameBatchResult(int Named, int NameFailures, int Commented, int FunctionsCreated, TimeSpan Elapsed, IReadOnlyList<string> Failures);
+
+/// <summary>
+/// What an engine says about one call instruction: Kind "xref" (a code reference to the function at <see cref="Target"/>),
+/// "vftable" (the decompiler calls through member offset <see cref="MemberOffset"/> of struct type <see cref="TypeName"/>),
+/// "direct" (the decompiler calls the function at <see cref="Target"/>) or "other" (an untyped pointer; <see cref="TypeName"/> is the expression kind).
+/// </summary>
+public sealed record NativeCallTarget(uint Site, string Kind, uint? Target, string? TypeName, int? MemberOffset);
+
+/// <summary>Result of <see cref="INativeDecompilerSession.GetCallTargetsAsync"/>: functions decompiled, failed (with the reason) and not reached in time.</summary>
+public sealed record NativeCallTargets(IReadOnlyList<NativeCallTarget> Targets, int Decompiled, IReadOnlyList<(uint Function, string Reason)> Failed, int Skipped,
+    bool DecompilerAvailable);
 
 /// <summary>A reference; <see cref="FromFunctionRva"/> is the start of the function containing the source, when any.</summary>
 public sealed record NativeXref(uint FromRva, uint ToRva, NativeXrefKind Kind, uint? FromFunctionRva);

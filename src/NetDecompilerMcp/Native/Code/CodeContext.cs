@@ -18,6 +18,10 @@ public sealed record CodeIndexOptions
     public int MaxParallelism { get; init; }
     /// <summary>Function starts from debug symbols (PDB): roots like .pdata entries, kept when they are in code.</summary>
     public IReadOnlyCollection<uint>? SymbolStarts { get; init; }
+    /// <summary>Resolve virtual call sites through MSVC RTTI (<see cref="NativeCodeIndex.VirtualCalls"/>).</summary>
+    public bool ResolveVirtualCalls { get; init; } = true;
+    /// <summary>A virtual call site with more possible implementations than this gets no edges (counted as too_many_targets).</summary>
+    public int MaxVirtualTargets { get; init; } = 64;
 }
 
 /// <summary>What the analysis knows about the image while it runs: shared, read-only during each pass.</summary>

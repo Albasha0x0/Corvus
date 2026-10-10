@@ -158,6 +158,13 @@ public enum XrefKind : byte
     JumpTable,
     /// <summary>A relocated pointer stored in data points at the target.</summary>
     Pointer,
+    /// <summary>
+    /// A virtual call (through a vftable slot) whose only implementation is the target (<see cref="NativeCodeIndex.VirtualCalls"/>);
+    /// kept apart from the other cross-references (RefsFrom / RefsTo do not list it).
+    /// </summary>
+    VirtualExact,
+    /// <summary>A virtual call one of whose possible implementations is the target.</summary>
+    VirtualPossible,
 }
 
 /// <summary>One cross-reference; From and To are RVAs.</summary>
@@ -165,6 +172,7 @@ public readonly record struct CodeXref(uint From, uint To, XrefKind Kind)
 {
     public bool IsCodeFlow => Kind is XrefKind.Call or XrefKind.Jump or XrefKind.ConditionalJump or XrefKind.TailCall or XrefKind.SwitchCase;
     public bool IsCallLike => Kind is XrefKind.Call or XrefKind.TailCall or XrefKind.ImportCall or XrefKind.ImportJump;
+    public bool IsVirtualCall => Kind is XrefKind.VirtualExact or XrefKind.VirtualPossible;
 }
 
 public enum StringEncoding : byte

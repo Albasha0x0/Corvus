@@ -37,6 +37,10 @@ public enum CalleeKind : byte
     Dynamic,
     /// <summary>A pointer whose target is not known (virtual call, callback).</summary>
     Indirect,
+    /// <summary>A virtual call with one implementation (resolved through RTTI, <see cref="Code.NativeCodeIndex.VirtualCalls"/>).</summary>
+    VirtualExact,
+    /// <summary>A virtual call with several possible implementations.</summary>
+    VirtualPossible,
 }
 
 /// <param name="Location">rcx, xmm1, [sp+20h]: where the argument is passed.</param>
@@ -281,7 +285,7 @@ public sealed partial class CallAnalysis
             if (callee.Import != null) return X86ImportArity.Pops(callee.Import, Image.Path);
             if (callee.Dynamic is { Module: { } module } dyn)
                 return X86ImportArity.Pops(new NativeImport(module, dyn.Name, null, 0, 0, false), Image.Path);
-            if (callee.Kind == CalleeKind.Function && callee.Target is { } t && Index.FunctionByStart(t) is { } f && f.ThunkImport == null)
+            if (callee.Kind is CalleeKind.Function or CalleeKind.VirtualExact && callee.Target is { } t && Index.FunctionByStart(t) is { } f && f.ThunkImport == null)
                 return LocalPops(f);
             return null;
         }
@@ -319,6 +323,7 @@ public sealed partial class CallAnalysis
     {
         ref readonly var d = ref code.Blocks[block][index];
         ref readonly var x = ref d.I;
+        if (Index.VirtualCalls.SiteAt(d.Rva) is { Status: not VirtualCallStatus.Unresolved } site) return Virtual(site);
         if (x.Op0Kind is OpKind.NearBranch16 or OpKind.NearBranch32 or OpKind.NearBranch64)
         {
             if (!FunctionCode.TryRva(Image, Is64, x.NearBranchTarget, out uint t)) return new Callee($"0x{x.NearBranchTarget:X}", CalleeKind.Indirect, null, null, null, "outside the image");
@@ -341,6 +346,17 @@ public sealed partial class CallAnalysis
         if (x.Op0Kind == OpKind.Register)
             return FromValue(resolver.ValueBefore(Loc.Of(x.Op0Register), block, index), null);
         return new Callee(x.ToString(), CalleeKind.Indirect, null, null, null, null);
+    }
+
+    /// <summary>A virtual call resolved through RTTI: the implementation, or "one of n: a | b | ...".</summary>
+    private Callee Virtual(VirtualCallSite site)
+    {
+        var targets = Index.VirtualTargets(site.Rva);
+        string Name(uint t) => Index.NameAt(t) ?? $"sub_{t:X}";
+        if (site.Status == VirtualCallStatus.Exact && targets.Count == 1)
+            return new Callee(Name(targets[0]), CalleeKind.VirtualExact, null, targets[0], null, $"virtual call through slot {site.Slot}, the only implementation");
+        var names = string.Join(" | ", targets.Take(4).Select(Name)) + (targets.Count > 4 ? " | ..." : "");
+        return new Callee($"<one of {targets.Count}: {names}>", CalleeKind.VirtualPossible, null, null, null, $"virtual call through slot {site.Slot}");
     }
 
     private Callee FromImport(NativeImport imp) => new(NativeCodeIndex.ImportName(imp), CalleeKind.Import, imp, imp.SlotRva, null, null);
@@ -543,7 +559,7 @@ public sealed partial class CallAnalysis
         try
         {
             var c = ResolveCallee(code, b, i, new ValueResolver(this, code) { Budget = 1500 });
-            if (c.Kind == CalleeKind.Indirect) return $"the call at {Va(site)}";
+            if (c.Kind is CalleeKind.Indirect or CalleeKind.VirtualPossible) return $"the call at {Va(site)}";
             int bang = c.Name.LastIndexOf('!');
             return bang >= 0 ? c.Name[(bang + 1)..] : c.Name;
         }

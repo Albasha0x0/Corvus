@@ -31,7 +31,8 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         [property: Description("VA of the call instruction.")] string Address,
         [property: Description("The calling function.")] string Function,
         [property: Description("Callee: module!name for imports and late-bound imports, a function name, or the pointer for indirect calls.")] string Callee,
-        [property: Description("import, function, dynamic (GetProcAddress pointer) or indirect.")] string CalleeKind,
+        [property: Description("import, function, dynamic (GetProcAddress pointer), virtual_exact (a virtual call with one implementation, resolved through RTTI), " +
+                               "virtual_possible (one of several implementations, listed in Callee) or indirect.")] string CalleeKind,
         [property: Description("A jump to the callee (tail call) rather than a call.")] bool TailCall,
         [property: Description("The callee's signature is known (parameter names, count and constant decoding); otherwise the arguments are the registers / stack slots set just before the call.")] bool SignatureKnown,
         [property: Description("The call with its arguments, e.g. CreateFileW(L\"config.ini\", GENERIC_READ, ...).")] string Display,
@@ -163,7 +164,8 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
     private static CallSiteRecord Record(NativeCodeIndex index, CallSiteInfo s)
     {
         string Va(uint rva) => NativeAddress.Va(index.Image, rva);
-        return new CallSiteRecord(Va(s.Rva), $"{s.Caller.Name}+0x{s.Rva - s.Caller.Start:X}", s.Callee, s.Kind.ToString().ToLowerInvariant(), s.TailCall,
+        var kind = s.Kind switch { CalleeKind.VirtualExact => "virtual_exact", CalleeKind.VirtualPossible => "virtual_possible", _ => s.Kind.ToString().ToLowerInvariant() };
+        return new CallSiteRecord(Va(s.Rva), $"{s.Caller.Name}+0x{s.Rva - s.Caller.Start:X}", s.Callee, kind, s.TailCall,
             !s.Guessed, s.Display,
             s.Arguments.Select(a => new CallArgumentRecord(a.Index, a.Name, a.Type, a.Location, a.Kind.ToString().ToLowerInvariant(), a.Text,
                 a.Value is { } v ? $"0x{v:X}" : null, a.Rva is { } r ? Va(r) : null, a.Derivation)).ToList());

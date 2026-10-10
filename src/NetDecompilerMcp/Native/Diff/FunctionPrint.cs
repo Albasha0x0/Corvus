@@ -95,11 +95,11 @@ public sealed class ImagePrints
             var f = functions[i];
             var callees = new List<int>();
             var seen = new HashSet<int>();
-            foreach (var site in index.Callees(f))
+            foreach (var site in index.Callees(f, CallEdgeFilter.Direct))
                 if (site.Function != null && byStart.TryGetValue(site.Function.Start, out var c) && seen.Add(c)) callees.Add(c);
             prints[i].Callees = callees.ToArray();
             var callers = new SortedSet<int>();
-            foreach (var site in index.Callers(f))
+            foreach (var site in index.Callers(f, CallEdgeFilter.Direct))
                 if (site.Caller != null && byStart.TryGetValue(site.Caller.Start, out var c)) callers.Add(c);
             prints[i].Callers = callers.ToArray();
         });

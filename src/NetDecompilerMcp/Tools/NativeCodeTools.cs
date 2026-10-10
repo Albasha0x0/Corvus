@@ -229,7 +229,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
 
     [McpServerTool(Name = "find_xrefs", Title = "Native cross-references", UseStructuredContent = true, OutputSchemaType = typeof(XrefList))]
     [Description("Everything in a native image that references an address: calls (direct and through import slots and thunks), jumps, data reads " +
-                 "and writes, address-taken uses, switch tables and relocated data pointers, each with the function it is in. For an import " +
+                 "and writes, address-taken uses, switch tables and relocated data pointers, each with the function it is in; for a virtual method, the " +
+                 "virtual call sites that reach it (VirtualExact: the only implementation; VirtualPossible: one of several; resolved through MSVC RTTI). For an import " +
                  "(module!name) lists the call sites of that API (x86 calls through a register loaded from the slot included) and what it is bound to; " +
                  "for an export, also the call sites in other loaded images that import it ([image] prefix). Call rows show the recovered arguments. " +
                  "A late-bound import (module!name resolved by GetProcAddress) lists where it is resolved and the calls through its pointer. " + IndexNote)]
@@ -263,8 +264,12 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         if (import != null)
             rows.AddRange(NativeCallTools.ImportRows(index, import, Where, cancellationToken));
         else
-            rows.AddRange(NativeCallTools.WithArguments(index, index.RefsTo(rva).Select(x => (x.From, x.Kind.ToString(), x.Kind is XrefKind.Call or XrefKind.TailCall)),
+        {
+            // virtual call sites that may reach the address (RTTI resolution) among the instruction references, by source
+            var refs = index.RefsTo(rva).Concat(index.VirtualEdgesTo(rva)).OrderBy(x => x.From).ToList();
+            rows.AddRange(NativeCallTools.WithArguments(index, refs.Select(x => (x.From, x.Kind.ToString(), x.Kind is XrefKind.Call or XrefKind.TailCall || x.IsVirtualCall)),
                 Where, cancellationToken));
+        }
         if (dynamicRows != null) rows.AddRange(dynamicRows);
         var target = index.NameAt(rva) ?? NativeCallTools.PointerName(index, rva, cancellationToken) ?? (index.StringAt(rva) is { } s ? index.CommentFor(rva) : null);
         var header = $"References to {Va(rva)}{(target != null ? $" ({target})" : "")}:\n";
@@ -299,7 +304,9 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
                  "a call through module!import continues into the provider's function when that image is loaded (shown as module!import -> " +
                  "PROVIDER.dll!export at VA [image], forwarders and jump thunks followed; otherwise the provider's path, or why it does not resolve), " +
                  "and callers include call sites in other loaded images that import the function. Callees include late-bound imports called " +
-                 "through a GetProcAddress pointer stored once ([dynamic]). Repeated subtrees and recursion are marked instead of expanded. " + IndexNote)]
+                 "through a GetProcAddress pointer stored once ([dynamic]) and the implementations virtual calls reach, resolved through MSVC RTTI " +
+                 "([virtual]: the only one; [virtual?: one of n]: one of several; find_virtual_calls lists the sites). Repeated subtrees and recursion are " +
+                 "marked instead of expanded. " + IndexNote)]
     public Task<string> NativeCallTree(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string function,
@@ -308,6 +315,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description("Max nodes (default 500).")] int maxNodes = 500,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description("Call edges to follow: all (default), direct (no virtual call edges) or virtual (only virtual_exact / virtual_possible edges).")] string? calls = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -316,6 +324,13 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             "callers" => true,
             "callees" or null or "" => false,
             _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown direction '{direction}'.", "use callers or callees"),
+        };
+        var edges = calls?.Trim().ToLowerInvariant() switch
+        {
+            null or "" or "all" => CallEdgeFilter.All,
+            "direct" => CallEdgeFilter.Direct,
+            "virtual" => CallEdgeFilter.Virtual,
+            _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown calls filter '{calls}'.", "use all, direct or virtual"),
         };
         var (native, index) = await Open(image, context, progress, cancellationToken);
         if (_engine?.Serves(index) == true)
@@ -326,17 +341,23 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         {
             await link.WarmUp(null, cancellationToken);
             var text = new StringBuilder();
-            workspace.Read(() => link.AppendTree(text, native, fn, callers, Math.Clamp(depth, 1, 8), ClampLimit(maxNodes, 20_000), 0, true, cancellationToken));
+            workspace.Read(() => link.AppendTree(text, native, fn, callers, Math.Clamp(depth, 1, 8), ClampLimit(maxNodes, 20_000), 0, true, cancellationToken, edges));
             return pager.Page(text.ToString());
         }
-        var root = index.CallTree(fn, Math.Clamp(depth, 1, 8), callers, ClampLimit(maxNodes, 20_000));
-        var dynamic = callers ? new HashSet<CallTreeNode>() : NativeCallTools.AddDynamicCallees(index, root, cancellationToken);
+        var root = index.CallTree(fn, Math.Clamp(depth, 1, 8), callers, ClampLimit(maxNodes, 20_000), edges);
+        var dynamic = callers || edges == CallEdgeFilter.Virtual ? new HashSet<CallTreeNode>() : NativeCallTools.AddDynamicCallees(index, root, cancellationToken);
         var sb = new StringBuilder();
         void Walk(CallTreeNode node, int level)
         {
             var name = node.Function?.Name ?? (node.Import != null ? NativeCodeIndex.ImportName(node.Import) : NativeAddress.Va(index.Image, node.Address));
             sb.Append(new string(' ', level * 2)).Append(name)
               .Append(dynamic.Contains(node) ? "  [dynamic]" : "")
+              .Append(node.Via switch
+              {
+                  XrefKind.VirtualExact => "  [virtual]",
+                  XrefKind.VirtualPossible => $"  [virtual?: one of {index.VirtualCalls.SiteAt(node.Site)?.TargetCount ?? 0}]",
+                  _ => "",
+              })
               .Append(node.Function != null ? $"  {NativeAddress.Va(index.Image, node.Function.Start)}" : "")
               .Append(node.Repeated ? "  (repeated)" : "").Append(node.Truncated ? "  (more not shown)" : "").AppendLine();
             foreach (var child in node.Children) Walk(child, level + 1);

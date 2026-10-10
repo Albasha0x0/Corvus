@@ -217,6 +217,10 @@ public sealed class CodeIndexCacheTests : IDisposable
         Assert.Equal(a.Functions.Count, b.Functions.Count);
         var json = new JsonSerializerOptions { IncludeFields = true };
         Assert.Equal(JsonSerializer.Serialize(a.ExceptionInfo, json), JsonSerializer.Serialize(b.ExceptionInfo, json));
+        Assert.Equal(a.VirtualCalls.Sites, b.VirtualCalls.Sites);
+        Assert.Equal(a.VirtualCalls.Stats, b.VirtualCalls.Stats);
+        Assert.Equal(a.VirtualCalls.Notes, b.VirtualCalls.Notes);
+        Assert.Equal(a.VirtualEdges, b.VirtualEdges);
         for (int i = 0; i < a.Functions.Count; i++)
         {
             var f = a.Functions[i];

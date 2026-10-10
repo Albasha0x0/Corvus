@@ -319,6 +319,30 @@ internal sealed class IdaSession : INativeDecompilerSession
             r.GetProperty("tail_calls").EnumerateArray().Select(t => t.GetUInt32()).ToList());
     }
 
+    public async Task<NativeCallTargets> GetCallTargetsAsync(IReadOnlyList<uint> functions, IReadOnlyList<uint> sites, double seconds,
+        CancellationToken cancellationToken = default)
+    {
+        // the budget stays under the request timeout so a slow decompilation ends the batch instead of the worker
+        double budget = Math.Clamp(seconds, 1, Math.Max(1, _options.RequestTimeout.TotalSeconds * 0.6));
+        var args = IdaProvider.Args(("functions", new JsonArray(functions.Select(f => (JsonNode)f).ToArray())),
+            ("sites", new JsonArray(sites.Select(s => (JsonNode)s).ToArray())), ("seconds", budget));
+        var r = await CallAsync("virtual_targets", args, cancellationToken).ConfigureAwait(false);
+        var targets = new List<NativeCallTarget>();
+        foreach (var row in r.GetProperty("rows").EnumerateArray())
+        {
+            uint site = row[0].GetUInt32();
+            var kind = row[1].GetString() ?? "other";
+            targets.Add(kind switch
+            {
+                "xref" or "direct" => new NativeCallTarget(site, kind, row[2].GetUInt32(), null, null),
+                "vftable" => new NativeCallTarget(site, kind, null, row[2].GetString(), row[3].GetInt32()),
+                _ => new NativeCallTarget(site, "other", null, row.GetArrayLength() > 2 ? row[2].GetString() : null, null),
+            });
+        }
+        var failed = r.GetProperty("failed").EnumerateArray().Select(f => (f[0].GetUInt32(), f[1].GetString() ?? "")).ToList();
+        return new NativeCallTargets(targets, r.GetProperty("decompiled").GetInt32(), failed, r.GetProperty("skipped").GetInt32(), r.GetProperty("decompiler").GetBoolean());
+    }
+
     public async Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default) =>
         Xrefs(await CallAsync("xrefs_to", IdaProvider.Args(("rva", rva)), cancellationToken).ConfigureAwait(false));
 

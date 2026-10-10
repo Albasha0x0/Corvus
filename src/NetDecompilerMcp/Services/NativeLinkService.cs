@@ -296,7 +296,7 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
     /// (the root line included when <paramref name="withRoot"/>); returns the number of nodes written.
     /// </summary>
     public int AppendTree(StringBuilder sb, LoadedNative native, NativeFunction root, bool callers, int depth, int maxNodes, int indent, bool withRoot,
-        CancellationToken ct)
+        CancellationToken ct, CallEdgeFilter edges = CallEdgeFilter.All)
     {
         var top = new TreeNode(native, root, FunctionLabel(native, root, native));
         var expanded = new HashSet<(LoadedNative, uint)> { (native, root.Start) };
@@ -308,7 +308,7 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
             ct.ThrowIfCancellationRequested();
             var (n, d) = queue.Dequeue();
             if (n.Function == null) continue;
-            var children = callers ? CallerNodes(n, native, ct) : CalleeNodes(n, native);
+            var children = callers ? CallerNodes(n, native, ct, edges) : CalleeNodes(n, native, edges);
             if (d >= depth) { if (children.Count > 0) n.Truncated = true; continue; }
             foreach (var child in children)
             {
@@ -332,21 +332,21 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
     }
 
     /// <summary>Functions and imports <paramref name="node"/> calls; bound imports become nodes in the provider.</summary>
-    private List<TreeNode> CalleeNodes(TreeNode node, LoadedNative home)
+    private List<TreeNode> CalleeNodes(TreeNode node, LoadedNative home, CallEdgeFilter edges)
     {
         var result = new List<TreeNode>();
         if (code.Ready(node.Image) is not { } index) return result;
         var seen = new HashSet<(LoadedNative?, uint)>();
-        foreach (var site in index.Callees(node.Function!))
+        foreach (var site in index.Callees(node.Function!, edges))
         {
             if (site.Function is { } fn)
             {
-                if (seen.Add((node.Image, fn.Start))) result.Add(new TreeNode(node.Image, fn, FunctionLabel(node.Image, fn, home)));
+                if (seen.Add((node.Image, fn.Start))) result.Add(new TreeNode(node.Image, fn, FunctionLabel(node.Image, fn, home) + VirtualMark(index, site)));
                 continue;
             }
-            if (site.Import is not { } import)
+            if (site.Import is not { } import || site.Kind is XrefKind.VirtualExact or XrefKind.VirtualPossible)
             {
-                if (seen.Add((null, site.Target))) result.Add(new TreeNode(node.Image, null, NativeAddress.Va(node.Image.Image, site.Target)));
+                if (seen.Add((null, site.Target))) result.Add(new TreeNode(node.Image, null, NativeAddress.Va(node.Image.Image, site.Target) + VirtualMark(index, site)));
                 continue;
             }
             var b = BindImport(node.Image, import);
@@ -363,6 +363,7 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
             else if (seen.Add((null, import.SlotRva)))
                 result.Add(new TreeNode(node.Image, null, b.Status == NotLoaded ? $"{name} -> {Describe(b)}" : $"{name}  ({Describe(b)})"));
         }
+        if (edges == CallEdgeFilter.Virtual) return result;
         AddManagedCallees(result, node, index);
         // late-bound imports called through a GetProcAddress pointer stored once
         if (index.Support == CodeSupport.Full
@@ -373,14 +374,15 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
     }
 
     /// <summary>Functions calling <paramref name="node"/>: in its image, and in loaded images through the import bound to it.</summary>
-    private List<TreeNode> CallerNodes(TreeNode node, LoadedNative home, CancellationToken ct)
+    private List<TreeNode> CallerNodes(TreeNode node, LoadedNative home, CancellationToken ct, CallEdgeFilter edges)
     {
         var result = new List<TreeNode>();
         var seen = new HashSet<(LoadedNative, uint)>();
         if (code.Ready(node.Image) is { } index)
-            foreach (var site in index.Callers(node.Function!))
+            foreach (var site in index.Callers(node.Function!, edges))
                 if (site.Caller is { } caller && seen.Add((node.Image, caller.Start)))
-                    result.Add(new TreeNode(node.Image, caller, FunctionLabel(node.Image, caller, home)));
+                    result.Add(new TreeNode(node.Image, caller, FunctionLabel(node.Image, caller, home) + VirtualMark(index, site)));
+        if (edges == CallEdgeFilter.Virtual) return result;
         foreach (var (importer, import) in ImportersOf(node.Image, node.Function!.Start, ct))
         {
             if (code.Ready(importer) is not { } other)
@@ -395,6 +397,14 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
         AddManagedCallers(result, node, ct);
         return result;
     }
+
+    /// <summary>"  [virtual]" for a virtual_exact edge, "  [virtual?: one of n]" for a virtual_possible one, "" otherwise.</summary>
+    internal static string VirtualMark(NativeCodeIndex index, Native.Code.CallSite site) => site.Kind switch
+    {
+        XrefKind.VirtualExact => "  [virtual]",
+        XrefKind.VirtualPossible => $"  [virtual?: one of {index.VirtualCalls.SiteAt(site.From)?.TargetCount ?? 0}]",
+        _ => "",
+    };
 
     /// <summary>Calls and jumps through an import's slot with the function they are in (a jump thunk is its own caller).</summary>
     private static IEnumerable<(CodeXref Ref, NativeFunction? Caller, NativeImport Import)> SlotUses(NativeCodeIndex index, NativeImport import)

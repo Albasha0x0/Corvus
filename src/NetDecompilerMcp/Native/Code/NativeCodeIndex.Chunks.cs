@@ -53,7 +53,7 @@ public sealed partial class NativeCodeIndex
     }
 
     /// <summary>Chunk starts of <paramref name="f"/> as extra walk roots, or null.</summary>
-    private static List<uint>? ChunkRoots(NativeFunction f) => f.Chunks.Count == 0 ? null : f.Chunks.Select(c => c.Start).ToList();
+    internal static List<uint>? ChunkRoots(NativeFunction f) => f.Chunks.Count == 0 ? null : f.Chunks.Select(c => c.Start).ToList();
 
     /// <summary>Which function's code contains an address, from the walk results of the build (for the exception decoder).</summary>
     private sealed class WalkView : IMsvcEhCodeView
