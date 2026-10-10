@@ -55,6 +55,9 @@ internal sealed class FunctionDiscovery
             if (_ctx.Code.IsCode(t)) Add(t, FunctionSource.TlsCallback, strong: true);
         foreach (var t in _ctx.GuardCfFunctions) Add(t, FunctionSource.GuardCf, strong: true);
         foreach (var t in _ctx.ExceptionHandlers) Add(t, FunctionSource.ExceptionHandler, strong: true);
+        if (_ctx.Options.SymbolStarts is { } symbols)
+            foreach (var t in symbols)
+                if (_ctx.Code.IsCode(t)) Add(t, FunctionSource.Symbol, strong: true);
         var exports = image.Exports.Where(e => e.ForwardedTo == null && _ctx.Code.IsCode(e.Rva)).ToList();
         foreach (var e in exports)
             if (ExportKind(e.Name) == true) Add(e.Rva, FunctionSource.Export, strong: true);

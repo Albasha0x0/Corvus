@@ -15,12 +15,14 @@ namespace NetDecompilerMcp.Tools;
 
 /// <summary>Native analysis built on the PE model: decompilation through an engine, C++ classes, P/Invoke checks.</summary>
 [McpServerToolType]
-public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngineService engines, OutputPager pager)
+public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngineService engines, OutputPager pager, NativeNamePush? names = null,
+    NativeCodeService? code = null)
 {
     [McpServerTool(Name = "decompile_native", Title = "Decompile native function", ReadOnly = true, OpenWorld = false)]
     [Description("C pseudocode of the native function containing an address, through IDA (idalib; Hex-Rays). The first call on an image runs IDA's " +
                  "auto-analysis (seconds for a small DLL, minutes for a large game executable; progress is reported) and keeps the database per file " +
-                 "hash, so later calls and later sessions are fast. Lines are annotated with the address they come from.")]
+                 "hash, so later calls and later sessions are fast. Lines are annotated with the address they come from. Names and comments in effect " +
+                 "(rename_native / comment_native, apply_il2cpp_names, PDB names) are pushed into the database first, once per change, and saved with it.")]
     public Task<string> DecompileNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -37,7 +39,8 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         if (!session.DecompilerAvailable)
             throw new ToolError(ErrorCode.Unsupported, $"The {session.ProviderId} decompiler is not available for {session.Arch} code here.",
                 "disassemble the function instead, or install/license the decompiler for this architecture");
-        var key = $"decompile|{native.Image.Sha256}|{rva:X}|{addresses}";
+        var pushed = names != null ? NativeNamePush.Describe(await names.EnsureAsync(native, session, cancellationToken)) : null;
+        var key = $"decompile|{native.Image.Sha256}|{rva:X}|{addresses}|{NativeNamePush.CurrentStamp(session)}";
         var text = pager.GetOrCreate(key, () =>
         {
             var function = session.DecompileAsync(rva, cancellationToken).GetAwaiter().GetResult();
@@ -50,7 +53,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
                   .AppendLine(lines[i].TrimEnd('\r'));
             return sb.ToString();
         });
-        return pager.Page(text, offset, maxChars);
+        return (pushed != null ? $"// {pushed}\n" : "") + pager.Page(text, offset, maxChars);
     });
 
     private (LoadedNative Native, uint Rva) Resolve(string image, string address)
@@ -61,7 +64,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         return workspace.Read(() =>
         {
             var native = workspace.GetNative(id ?? image);
-            return (native, NativeAddress.Parse(native.Image, address));
+            return (native, NativeAddress.Parse(native.Image, address, code?.Ready(native) is { } index ? index.AddressOfName : null));
         });
     }
 

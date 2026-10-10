@@ -71,6 +71,18 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     /// <summary>Sets (or with empty text clears) the comment at <paramref name="rva"/>. Returns the comment now stored.</summary>
     Task<string> SetCommentAsync(uint rva, string text, bool repeatable = false, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Applies many names and comments in one request (imported symbol sets: tens of thousands at once). Names are
+    /// forced (a name taken elsewhere gets an engine-chosen suffix); failures are counted, not thrown. With
+    /// <paramref name="stampKey"/> the database records <paramref name="stamp"/> under it (see <see cref="GetStampAsync"/>);
+    /// <paramref name="save"/> writes the database afterwards.
+    /// </summary>
+    Task<NameBatchResult> ApplyNamesAsync(IReadOnlyList<NativeNameItem> items, string? stampKey = null, string? stamp = null, bool save = false,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>The stamp recorded in the database under <paramref name="key"/> by <see cref="ApplyNamesAsync"/>, or null.</summary>
+    Task<string?> GetStampAsync(string key, CancellationToken cancellationToken = default);
+
     /// <summary>Writes the analysis database so names and comments survive a crash.</summary>
     Task SaveAsync(CancellationToken cancellationToken = default);
 
@@ -99,6 +111,8 @@ public enum SymbolMode
 public sealed record NativeOpenOptions
 {
     public SymbolMode Symbols { get; init; } = SymbolMode.Default;
+    /// <summary>The image's PDB as located by the server (verified by GUID and age); the engine looks there first. Ignored with <see cref="SymbolMode.Off"/>.</summary>
+    public string? PdbPath { get; init; }
     /// <summary>Limit for engine start plus loading or auto-analysis.</summary>
     public TimeSpan OpenTimeout { get; init; } = TimeSpan.FromMinutes(20);
     /// <summary>Limit for each request after the open.</summary>
@@ -145,6 +159,15 @@ public enum NativeXrefKind
     Info,
     Data,
 }
+
+/// <summary>
+/// One entry of <see cref="INativeDecompilerSession.ApplyNamesAsync"/>: a null name or comment is left as is, an empty
+/// one removed; <see cref="MakeFunction"/> creates a function at <see cref="Rva"/> when none contains it. A comment at
+/// a function start becomes the function comment.
+/// </summary>
+public sealed record NativeNameItem(uint Rva, string? Name, string? Comment, bool MakeFunction = false);
+
+public sealed record NameBatchResult(int Named, int NameFailures, int Commented, int FunctionsCreated, TimeSpan Elapsed, IReadOnlyList<string> Failures);
 
 /// <summary>A reference; <see cref="FromFunctionRva"/> is the start of the function containing the source, when any.</summary>
 public sealed record NativeXref(uint FromRva, uint ToRva, NativeXrefKind Kind, uint? FromFunctionRva);

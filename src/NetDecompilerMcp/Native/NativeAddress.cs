@@ -77,7 +77,10 @@ public static class NativeAddress
         if (t.StartsWith('#')) return ulong.TryParse(t[1..], NumberStyles.None, CultureInfo.InvariantCulture, out var d) ? d : null;
         if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) t = t[2..];
         else if (t.EndsWith('h') || t.EndsWith('H')) t = t[..^1];
-        return t.Length is > 0 and <= 16 && ulong.TryParse(t, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var v) ? v : null;
+        if (t.Length == 0) return null;
+        var digits = t.TrimStart('0');                  // MASM writes leading-zero hex (0FFFF...h); the value is unchanged
+        if (digits.Length == 0) return 0UL;
+        return digits.Length <= 16 && ulong.TryParse(digits, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var v) ? v : null;
     }
 
     private static ToolError Bad(string text) =>

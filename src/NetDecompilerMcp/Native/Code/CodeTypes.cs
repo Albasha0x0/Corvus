@@ -69,6 +69,8 @@ public enum FunctionSource : ushort
     GuardCf = 512,
     /// <summary>x64: language-specific exception handler named by unwind information.</summary>
     ExceptionHandler = 1024,
+    /// <summary>A function a loaded PDB names (<see cref="CodeIndexOptions.SymbolStarts"/>).</summary>
+    Symbol = 2048,
 }
 
 [Flags]
@@ -109,6 +111,16 @@ public sealed class NativeFunction
     public uint Size { get; internal set; }
     public int BlockCount { get; internal set; }
     public int InstructionCount { get; internal set; }
+    /// <summary>
+    /// Code reached only through exception metadata that belongs to this function (catch blocks, unwind funclets,
+    /// filters, handlers); their code is part of the function's ranges, and they are not functions of their own.
+    /// </summary>
+    public IReadOnlyList<FunctionChunk> Chunks { get; internal set; } = [];
+    /// <summary>
+    /// x64 C++ funclet (a catch block or unwind funclet with its own .pdata entry, kept a function): the function whose
+    /// exception metadata names it, the first when the linker folded it for several; null otherwise.
+    /// </summary>
+    public NativeFunction? Parent { get; internal set; }
     internal int Index { get; set; }
     internal int FirstRange { get; set; }
     internal int RangeCount { get; set; }

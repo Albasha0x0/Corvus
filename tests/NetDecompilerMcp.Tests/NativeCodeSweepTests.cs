@@ -62,6 +62,7 @@ public class NativeCodeSweepTests(ITestOutputHelper output)
         if (!OperatingSystem.IsWindows()) return;
         int files = 0, skipped = 0;
         long functions = 0, instructions = 0, xrefs = 0, pdata = 0, pdataMissing = 0, unresolved = 0, switches = 0, invalid = 0;
+        long ehFrames = 0, ehChunks = 0, ehFunclets = 0, ehRejects = 0;
         var failures = new List<string>();
         var mostInvalid = new List<(string Name, int Invalid, int Functions)>();
         var slowest = (Name: "", Time: TimeSpan.Zero, Size: 0L);
@@ -91,6 +92,19 @@ public class NativeCodeSweepTests(ITestOutputHelper output)
             switches += index.Stats.ResolvedSwitches;
             invalid += index.Stats.FunctionsWithInvalidCode;
             mostInvalid.Add((Path.GetFileName(path), index.Stats.FunctionsWithInvalidCode, index.Stats.Functions));
+            // exception metadata: decoded without internal errors, chunks part of their function
+            ehFrames += index.ExceptionInfo.Stats.Frames;
+            ehRejects += index.ExceptionInfo.RejectCount;
+            ehChunks += index.Functions.Sum(f => f.Chunks.Count);
+            ehFunclets += index.Functions.Count(f => f.Parent != null);
+            if (index.Truncations.FirstOrDefault(t => t.StartsWith("exception metadata", StringComparison.Ordinal)) is { } ehError)
+                failures.Add($"{Path.GetFileName(path)}: {ehError}");
+            try
+            {
+                MsvcEhTests.CheckInvariants(image, index.ExceptionInfo);
+                MsvcEhTests.CheckChunks(index, maxGraphs: 20);
+            }
+            catch (Xunit.Sdk.XunitException ex) { failures.Add($"{Path.GetFileName(path)}: exception metadata: {ex.Message}"); }
             var missing = PdataStartsMissing(image, index);
             pdata += missing.Total;
             pdataMissing += missing.Missing.Count;
@@ -100,20 +114,21 @@ public class NativeCodeSweepTests(ITestOutputHelper output)
         output.WriteLine($"{directory} ({arch}): {files} files, {skipped} skipped, {total.Elapsed.TotalSeconds:F1} s");
         output.WriteLine($"functions {functions}, instructions {instructions}, xrefs {xrefs}, switches {switches}, unresolved indirect jumps (functions) {unresolved}, functions with invalid code {invalid}");
         if (arch == NativeArch.X64) output.WriteLine($".pdata primary starts {pdata}, missing {pdataMissing}");
+        output.WriteLine($"exception metadata: {ehFrames} frames, {ehChunks} chunks attached, {ehFunclets} funclets with a parent, {ehRejects} rejects");
         output.WriteLine($"slowest: {slowest.Name} ({slowest.Size / 1024} KB) {slowest.Time.TotalSeconds:F2} s");
         output.WriteLine("most functions with invalid code: " + string.Join(", ", mostInvalid.OrderByDescending(m => m.Invalid).Take(6).Select(m => $"{m.Name} {m.Invalid}/{m.Functions}")));
         foreach (var f in failures.Take(50)) output.WriteLine("FAIL " + f);
         Assert.Empty(failures);
     }
 
-    /// <summary>Primary (not chained) .pdata starts in executable code that are not function starts of the index.</summary>
+    /// <summary>Primary (not chained) .pdata starts in executable code that are neither function starts of the index nor chunks of a function.</summary>
     internal static (int Total, List<uint> Missing) PdataStartsMissing(INativeImage image, NativeCodeIndex index)
     {
         var primaries = new HashSet<uint>();
         var fragments = ChainedFragments(image);
         foreach (var rf in image.RuntimeFunctions)
             if (!fragments.Contains(rf.BeginRva) && image.SectionAt(rf.BeginRva) is { IsExecutable: true }) primaries.Add(rf.BeginRva);
-        var missing = primaries.Where(p => index.FunctionByStart(p) == null).Order().ToList();
+        var missing = primaries.Where(p => index.FunctionByStart(p) == null && index.ChunkOwner(p) == null).Order().ToList();
         return (primaries.Count, missing);
     }
 

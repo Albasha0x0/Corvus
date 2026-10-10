@@ -59,20 +59,35 @@ internal sealed class FunctionWalker
         _dec = ctx.NewDecoder(computeAccess: true);
     }
 
-    public WalkResult Walk(NativeFunction? function, uint start, bool buildGraph, CancellationToken ct)
+    /// <param name="chunks">
+    /// Further roots of the same function (exception funclets and handlers), walked after its body, each with its own
+    /// .pdata ranges when it has them; code shared with the body is decoded once.
+    /// </param>
+    public WalkResult Walk(NativeFunction? function, uint start, bool buildGraph, CancellationToken ct, IReadOnlyList<uint>? chunks = null)
     {
         _visited.Clear(); _insns.Clear(); _lengths.Clear(); _runs.Clear(); _leaders.Clear(); _work.Clear(); _xrefs.Clear(); _callees.Clear();
         _branches.Clear(); _conditionals.Clear(); _switches.Clear(); _unresolved.Clear(); _tails.Clear(); _fallsInto.Clear(); _pending.Clear(); _pendingRun.Clear();
         var result = new WalkResult();
         // chained .pdata fragments only say which jumps stay inside the function: a fragment can begin with data
         // (a switch table), so fragments are reached by flow, never decoded from their begin
-        var own = _ctx.PdataRanges.GetValueOrDefault(start);
+        var bodyOwn = _ctx.PdataRanges.GetValueOrDefault(start);
+        var own = bodyOwn;
+        uint root = start;
+        int nextChunk = 0;
         Push(start, IndexBound.None);
         int cap = _ctx.Options.MaxInstructionsPerFunction;
         int checkCounter = 0;
 
-        while (_work.Count > 0)
+        while (true)
         {
+            if (_work.Count == 0)
+            {
+                if (chunks == null || nextChunk >= chunks.Count) break;
+                root = chunks[nextChunk++];
+                own = _ctx.PdataRanges.GetValueOrDefault(root) ?? bodyOwn;
+                Push(root, IndexBound.None);
+                continue;
+            }
             var (a, bound) = _work.Pop();
             if (_visited.Contains(a))
             {
@@ -91,7 +106,7 @@ internal sealed class FunctionWalker
                 _insns.Add(a);
                 _lengths.Add((byte)insn.Length);
                 RecordData(in insn);
-                bool stop = Step(in insn, start, own, ref run, result);
+                bool stop = Step(in insn, root, own, ref run, result);
                 a = insn.Next;
                 if (stop) break;
                 bool conditional = insn.Flow == FlowKind.ConditionalJump;
@@ -102,7 +117,7 @@ internal sealed class FunctionWalker
                     if (!conditional) _branches.Add((insn.Rva, a, EdgeKind.FallThrough));
                     break;
                 }
-                if (a != start && _ctx.FunctionStarts.Contains(a))
+                if (a != start && a != root && _ctx.FunctionStarts.Contains(a))
                 {
                     run.EndKind = RunEnd.FunctionBoundary;
                     _callees.Add(a);

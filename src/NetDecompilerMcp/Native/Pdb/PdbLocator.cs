@@ -1,0 +1,248 @@
+using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Native.Pe;
+
+namespace NetDecompilerMcp.Native.Pdb;
+
+/// <summary>One place looked at while locating a PDB, and what was there.</summary>
+public sealed record PdbProbe(string Location, string Outcome);
+
+/// <summary>Outcome of <see cref="PdbLocator.Locate"/>: the matching PDB (or null) and every place looked at.</summary>
+public sealed record PdbLocation(string? Path, IReadOnlyList<PdbProbe> Probes, IReadOnlyList<string> Servers);
+
+/// <summary>
+/// Finds the PDB of an image by its CodeView record (RSDS GUID + age), the way debuggers do, without network access:
+/// an explicit file or directory, the image's directory, the absolute path in the CodeView record, the local stores
+/// and directories of _NT_SYMBOL_PATH / _NT_ALT_SYMBOL_PATH (srv*cache*server elements contribute their caches),
+/// the usual default caches (Visual Studio, WinDbg, C:\symbols) and this server's own download cache. Store layout:
+/// &lt;store&gt;\&lt;pdb name&gt;\&lt;GUID&gt;&lt;age&gt;\&lt;pdb name&gt; (two-tier stores with index2.txt too). Every
+/// candidate is checked by GUID and age; a mismatching file is reported, never used.
+/// <see cref="DownloadAsync"/> fetches from a symbol server and is only called when the user asked for it.
+/// </summary>
+public static class PdbLocator
+{
+    public const string DefaultServer = "https://msdl.microsoft.com/download/symbols";
+    /// <summary>Overrides the download cache directory.</summary>
+    public const string CacheVariable = "NDM_SYMBOL_CACHE";
+    public const long DefaultMaxDownloadBytes = 2L << 30;
+
+    public static string DownloadCache =>
+        Environment.GetEnvironmentVariable(CacheVariable) is { Length: > 0 } custom
+            ? custom
+            : System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create),
+                "NetDecompilerMcp", "symbols");
+
+    /// <summary>The symbol store key: GUID (32 upper-case hex digits) followed by the age in hex.</summary>
+    public static string StoreKey(PeCodeView cv) => cv.Guid.ToString("N").ToUpperInvariant() + cv.Age.ToString("X");
+
+    /// <summary>The PDB file name from the CodeView path (either slash), or null when it has none.</summary>
+    public static string? PdbFileName(PeCodeView cv)
+    {
+        var p = cv.PdbPath.Replace('/', '\\');
+        int slash = p.LastIndexOf('\\');
+        var name = slash >= 0 ? p[(slash + 1)..] : p;
+        return name.Length == 0 || name.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0 ? null : name;
+    }
+
+    /// <summary>
+    /// Local symbol directories and stores, in search order: the symbol path variables, the default caches that exist, the
+    /// download cache. <paramref name="servers"/> receives the http(s) servers the symbol path names.
+    /// </summary>
+    public static List<string> LocalStores(List<string> servers, string? symbolPath = null)
+    {
+        var stores = new List<string>();
+        var paths = symbolPath != null ? [symbolPath]
+            : new[] { Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH"), Environment.GetEnvironmentVariable("_NT_ALT_SYMBOL_PATH") };
+        foreach (var path in paths)
+            if (path != null) ParseSymbolPath(path, stores, servers);
+        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var temp = System.IO.Path.GetTempPath();
+        string?[] defaults =
+        [
+            local.Length > 0 ? System.IO.Path.Combine(local, "Temp", "SymbolCache") : null, // Visual Studio
+            System.IO.Path.Combine(temp, "SymbolCache"),
+            OperatingSystem.IsWindows() ? @"C:\ProgramData\dbg\sym" : null, // WinDbg
+            OperatingSystem.IsWindows() ? @"C:\symbols" : null,
+            OperatingSystem.IsWindows() ? @"C:\SymCache" : null,
+            System.IO.Path.Combine(temp, "ida"),
+            DownloadCache,
+        ];
+        foreach (var d in defaults)
+            if (d != null && Directory.Exists(d)) AddDistinct(stores, d);
+        return stores;
+    }
+
+    /// <summary>Splits a symbol path ("srv*C:\cache*https://server;C:\dir;cache*C:\c2") into local directories and servers.</summary>
+    public static void ParseSymbolPath(string symbolPath, List<string> stores, List<string> servers)
+    {
+        foreach (var raw in symbolPath.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = raw.Split('*', StringSplitOptions.TrimEntries);
+            string head = parts[0].ToLowerInvariant();
+            bool tagged = parts.Length > 1 && head is "srv" or "symsrv" or "cache";
+            foreach (var (part, i) in parts.Select((p, i) => (p, i)))
+            {
+                if (part.Length == 0 || (tagged && i == 0)) continue;
+                if (part.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) continue; // symsrv*symsrv.dll*...
+                if (part.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || part.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                    AddDistinct(servers, part.TrimEnd('/'));
+                else if (IsUsablePath(part)) AddDistinct(stores, Environment.ExpandEnvironmentVariables(part));
+            }
+        }
+    }
+
+    private static bool IsUsablePath(string p) => p.IndexOfAny(System.IO.Path.GetInvalidPathChars()) < 0 && !p.Contains("://");
+
+    private static void AddDistinct(List<string> list, string item)
+    {
+        if (!list.Contains(item, StringComparer.OrdinalIgnoreCase)) list.Add(item);
+    }
+
+    /// <summary>
+    /// Looks for the image's PDB; <paramref name="explicitPath"/> (a file or a directory) is tried first. No network.
+    /// </summary>
+    public static PdbLocation Locate(PeFile image, string? explicitPath = null, string? symbolPath = null)
+    {
+        var probes = new List<PdbProbe>();
+        var servers = new List<string>();
+        var cv = image.CodeView;
+        string? name = cv != null ? PdbFileName(cv) : null;
+        string imageDir = System.IO.Path.GetDirectoryName(image.Path) ?? "";
+        string fallbackName = System.IO.Path.GetFileNameWithoutExtension(image.Path) + ".pdb";
+
+        var candidates = new List<string>();
+        if (!string.IsNullOrWhiteSpace(explicitPath))
+        {
+            if (Directory.Exists(explicitPath))
+            {
+                if (name != null) candidates.Add(System.IO.Path.Combine(explicitPath, name));
+                candidates.Add(System.IO.Path.Combine(explicitPath, fallbackName));
+                if (name != null && cv != null) candidates.Add(System.IO.Path.Combine(explicitPath, name, StoreKey(cv), name));
+            }
+            else candidates.Add(explicitPath);
+        }
+        if (cv == null || cv.Format != "RSDS")
+        {
+            // without a GUID only an explicit file can be used, unverified
+            if (candidates.Count > 0 && File.Exists(candidates[0]) && !Directory.Exists(explicitPath))
+                return new PdbLocation(candidates[0], [new PdbProbe(candidates[0], cv == null ? "used unverified: the image has no CodeView record" : "used unverified: the image has a PDB 2.0 (NB10) record")], servers);
+            probes.Add(new PdbProbe(image.Path, cv == null ? "the image has no CodeView debug record: it names no PDB" : "the image has a PDB 2.0 (NB10) record; only PDB 7.0 (RSDS) is matched"));
+            return new PdbLocation(null, probes, servers);
+        }
+
+        if (imageDir.Length > 0)
+        {
+            if (name != null) candidates.Add(System.IO.Path.Combine(imageDir, name));
+            candidates.Add(System.IO.Path.Combine(imageDir, fallbackName));
+        }
+        if (cv.PdbPath.Length > 0 && IsUsablePath(cv.PdbPath) && System.IO.Path.IsPathFullyQualified(cv.PdbPath)) candidates.Add(cv.PdbPath);
+        if (name != null)
+        {
+            string key = StoreKey(cv);
+            foreach (var store in LocalStores(servers, symbolPath))
+            {
+                candidates.Add(System.IO.Path.Combine(store, name, key, name));
+                if (File.Exists(System.IO.Path.Combine(store, "index2.txt")) && name.Length >= 2)
+                    candidates.Add(System.IO.Path.Combine(store, name[..2], name, key, name));
+                candidates.Add(System.IO.Path.Combine(store, name));
+            }
+        }
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var c in candidates)
+        {
+            string full;
+            try { full = System.IO.Path.GetFullPath(c); }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { continue; }
+            if (!seen.Add(full)) continue;
+            if (!File.Exists(full)) { probes.Add(new PdbProbe(full, "not found")); continue; }
+            var outcome = Check(full, cv);
+            probes.Add(new PdbProbe(full, outcome ?? "match"));
+            if (outcome == null) return new PdbLocation(full, probes, servers);
+        }
+        return new PdbLocation(null, probes, servers);
+    }
+
+    /// <summary>Null when <paramref name="path"/> is the PDB of <paramref name="cv"/>; else why not.</summary>
+    public static string? Check(string path, PeCodeView cv)
+    {
+        try
+        {
+            var (guid, infoAge, dbiAge) = PdbFile.ReadIdentity(path);
+            uint age = dbiAge != 0 ? dbiAge : infoAge;
+            if (guid != cv.Guid) return $"different build (GUID {guid:D}, image wants {cv.Guid:D})";
+            if (age != cv.Age) return $"different age ({age}, image wants {cv.Age})";
+            return null;
+        }
+        catch (ToolError e) { return "unreadable: " + e.Message; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return "unreadable: " + ex.Message; }
+    }
+
+    /// <summary>
+    /// Downloads the PDB from <paramref name="server"/> into the download cache (store layout) and verifies GUID and age;
+    /// returns the cached path. Writes to a temporary file first; a mismatching or oversized file is deleted.
+    /// </summary>
+    public static async Task<string> DownloadAsync(PeCodeView cv, string server, TimeSpan timeout, long maxBytes, HttpMessageHandler? handler = null, string? cache = null,
+        CancellationToken ct = default)
+    {
+        if (cv.Format != "RSDS" || PdbFileName(cv) is not { } name)
+            throw new ToolError(ErrorCode.Unsupported, "The image has no PDB 7.0 (RSDS) CodeView record with a file name; there is nothing to download.");
+        if (!Uri.TryCreate(server.TrimEnd('/') + "/", UriKind.Absolute, out var baseUri) || baseUri.Scheme is not ("https" or "http"))
+            throw new ToolError(ErrorCode.InvalidArgument, $"'{server}' is not an http(s) symbol server URL.", $"for example {DefaultServer}");
+        string key = StoreKey(cv);
+        var target = System.IO.Path.Combine(cache ?? DownloadCache, name, key, name);
+        if (File.Exists(target) && Check(target, cv) == null) return target;
+        var url = new Uri(baseUri, $"{Uri.EscapeDataString(name)}/{key}/{Uri.EscapeDataString(name)}");
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(target)!);
+        var temp = target + $".{Environment.ProcessId}.{Guid.NewGuid():N}.part";
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(timeout);
+        try
+        {
+            using var http = handler != null ? new HttpClient(handler, disposeHandler: false) : new HttpClient();
+            http.Timeout = Timeout.InfiniteTimeSpan;
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("Microsoft-Symbol-Server/10.0.0.0");
+            using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token).ConfigureAwait(false);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                throw new ToolError(ErrorCode.NotFound, $"{url} does not have this PDB (404).", "the build may not be on that server; try another server or a local path");
+            if (!response.IsSuccessStatusCode)
+                throw new ToolError(ErrorCode.ProviderUnavailable, $"{url} answered {(int)response.StatusCode} {response.ReasonPhrase}.");
+            if (response.Content.Headers.ContentLength is { } declared && declared > maxBytes)
+                throw new ToolError(ErrorCode.LimitExceeded, $"{url} is {declared} bytes; the download limit is {maxBytes} bytes.");
+            await using (var body = await response.Content.ReadAsStreamAsync(timeoutCts.Token).ConfigureAwait(false))
+            await using (var file = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16, useAsync: true))
+            {
+                var buffer = new byte[1 << 16];
+                long total = 0;
+                int n;
+                while ((n = await body.ReadAsync(buffer, timeoutCts.Token).ConfigureAwait(false)) > 0)
+                {
+                    total += n;
+                    if (total > maxBytes)
+                        throw new ToolError(ErrorCode.LimitExceeded, $"{url} is larger than the download limit of {maxBytes} bytes.");
+                    await file.WriteAsync(buffer.AsMemory(0, n), timeoutCts.Token).ConfigureAwait(false);
+                }
+            }
+            if (Check(temp, cv) is { } why)
+                throw new ToolError(ErrorCode.MalformedInput, $"The file downloaded from {url} is not this image's PDB: {why}.");
+            File.Move(temp, target, overwrite: true);
+            return target;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new ToolError(ErrorCode.Timeout, $"Downloading {url} took longer than {timeout.TotalSeconds:0} s.");
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new ToolError(ErrorCode.ProviderUnavailable, $"Downloading {url} failed: {ex.Message}");
+        }
+        catch (IOException ex)
+        {
+            throw new ToolError(ErrorCode.IoError, $"Writing {target} failed: {ex.Message}");
+        }
+        finally
+        {
+            try { if (File.Exists(temp)) File.Delete(temp); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+    }
+}
