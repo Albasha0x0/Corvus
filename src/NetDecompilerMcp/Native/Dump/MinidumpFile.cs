@@ -27,7 +27,7 @@ public static class MinidumpLimits
 /// streams, counts past the data, unknown versions) is recorded in <see cref="Issues"/> and the rest is still read.
 /// The file is read with positional reads: captured memory is never loaded as a whole.
 /// </summary>
-public sealed partial class MinidumpFile : IDisposable
+public sealed partial class MinidumpFile : IProcessMemory, IDisposable
 {
     public const uint Signature = 0x504D444D; // "MDMP"
 
@@ -163,61 +163,23 @@ public sealed partial class MinidumpFile : IDisposable
         return best >= 0 && address - _memory[best].Start < _memory[best].Size ? best : -1;
     }
 
-    public bool TryReadU64(ulong address, out ulong value)
-    {
-        Span<byte> b = stackalloc byte[8];
-        value = 0;
-        if (ReadMemory(address, b) < 8) return false;
-        value = BinaryPrimitives.ReadUInt64LittleEndian(b);
-        return true;
-    }
-
-    public bool TryReadU32(ulong address, out uint value)
-    {
-        Span<byte> b = stackalloc byte[4];
-        value = 0;
-        if (ReadMemory(address, b) < 4) return false;
-        value = BinaryPrimitives.ReadUInt32LittleEndian(b);
-        return true;
-    }
-
-    /// <summary>A pointer-sized value of the dumped process.</summary>
-    public bool TryReadPointer(ulong address, out ulong value)
-    {
-        if (Is64Bit) return TryReadU64(address, out value);
-        bool ok = TryReadU32(address, out uint v);
-        value = v;
-        return ok;
-    }
-
     /// <summary>The memory region (MemoryInfoList) containing <paramref name="address"/>, or null.</summary>
-    public DumpMemoryRegion? RegionAt(ulong address)
-    {
-        var regions = MemoryRegions;
-        int lo = 0, hi = regions.Count - 1, best = -1;
-        while (lo <= hi)
-        {
-            int mid = (lo + hi) >>> 1;
-            if (regions[mid].Base <= address) { best = mid; lo = mid + 1; }
-            else hi = mid - 1;
-        }
-        return best >= 0 && regions[best].Contains(address) ? regions[best] : null;
-    }
+    public DumpMemoryRegion? RegionAt(ulong address) => ProcessMemoryExtensions.RegionAt(MemoryRegions, address);
 
-    public DumpModule? ModuleAt(ulong address)
+    public DumpModule? ModuleAt(ulong address) => ProcessMemoryExtensions.ModuleAt(Modules, address);
+
+    public string Identity => $"dump|{Path}|{FileSize}|{TimeDateStamp:X}";
+
+    /// <summary>The end of the last captured range inside [start, start+size), as an offset from start.</summary>
+    public ulong ReadableExtent(ulong start, ulong size)
     {
-        var modules = Modules;
-        int lo = 0, hi = modules.Count - 1, best = -1;
-        while (lo <= hi)
+        ulong extent = 0;
+        foreach (var r in _memory)
         {
-            int mid = (lo + hi) >>> 1;
-            if (modules[mid].Base <= address) { best = mid; lo = mid + 1; }
-            else hi = mid - 1;
+            if (r.Start >= start + size) break;
+            if (r.End > start) extent = Math.Max(extent, Math.Min(r.End, start + size) - start);
         }
-        // overlapping modules (malformed lists): a near one below that contains the address
-        for (int i = best; i >= 0 && best - i < 4; i--)
-            if (modules[i].Contains(address)) return modules[i];
-        return null;
+        return extent;
     }
 
     public DumpThread? ThreadById(uint id) => Threads.FirstOrDefault(t => t.Id == id);
@@ -229,48 +191,7 @@ public sealed partial class MinidumpFile : IDisposable
     {
         if (location.Size == 0 || location.Rva == 0) return null;
         var bytes = Block(location.Rva, (int)Math.Min(location.Size, 0x4D0u + 0x100));
-        if (bytes.Length < 8) return null;
-        var arch = Arch;
-        var c = new DumpContext(arch);
-        switch (arch)
-        {
-            case NativeArch.X64:
-                c.Complete = bytes.Length >= 0x2A0;
-                c.ContextFlags = U32(bytes, 0x30);
-                c.SegCs = U16(bytes, 0x38);
-                c.Flags = U32(bytes, 0x44);
-                for (int i = 0; i < 16; i++) c.Gpr[i] = U64(bytes, 0x78 + 8 * i);
-                c.Ip = U64(bytes, 0xF8);
-                if (bytes.Length >= 0x1A0 + 256) bytes.AsSpan(0x1A0, 256).CopyTo(c.Xmm);
-                break;
-            case NativeArch.X86:
-                c.Complete = bytes.Length >= 0xCC;
-                c.ContextFlags = U32(bytes, 0);
-                c.Gpr[7] = U32(bytes, 0x9C);
-                c.Gpr[6] = U32(bytes, 0xA0);
-                c.Gpr[3] = U32(bytes, 0xA4);
-                c.Gpr[2] = U32(bytes, 0xA8);
-                c.Gpr[1] = U32(bytes, 0xAC);
-                c.Gpr[0] = U32(bytes, 0xB0);
-                c.Gpr[5] = U32(bytes, 0xB4);
-                c.Ip = U32(bytes, 0xB8);
-                c.SegCs = (ushort)U32(bytes, 0xBC);
-                c.Flags = U32(bytes, 0xC0);
-                c.Gpr[4] = U32(bytes, 0xC4);
-                break;
-            case NativeArch.Arm64:
-                // ContextFlags, Cpsr, X0-X28, Fp, Lr, Sp, Pc: only the frame registers are kept
-                c.Complete = bytes.Length >= 0x110;
-                c.ContextFlags = U32(bytes, 0);
-                c.Flags = U32(bytes, 4);
-                c.Gpr[5] = U64(bytes, 0xF0);
-                c.Gpr[4] = U64(bytes, 0x100);
-                c.Ip = U64(bytes, 0x108);
-                break;
-            default:
-                return null;
-        }
-        return c;
+        return DumpContext.Parse(Arch, bytes);
     }
 
     // ---- helpers ----

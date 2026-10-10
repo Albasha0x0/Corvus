@@ -29,6 +29,8 @@ public enum ErrorCode
     Timeout,
     /// <summary>An external engine (IDA, Ghidra, a reference pack download) is missing or failed.</summary>
     ProviderUnavailable,
+    /// <summary>The operating system refused access (another user's or a protected process, missing privileges).</summary>
+    AccessDenied,
 }
 
 /// <summary>
@@ -78,6 +80,7 @@ public sealed class ToolError : McpException
         ErrorCode.IoError => "io_error",
         ErrorCode.Timeout => "timeout",
         ErrorCode.ProviderUnavailable => "provider_unavailable",
+        ErrorCode.AccessDenied => "access_denied",
         _ => "failed",
     };
 

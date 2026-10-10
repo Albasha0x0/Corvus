@@ -40,7 +40,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         }
 
         public PeFile? Image { get; }
-        /// <summary>disk, dump_memory or none.</summary>
+        /// <summary>disk, dump_memory, process_memory or none.</summary>
         public string Source { get; }
         public string? LocalPath { get; }
         public string Detail { get; }
@@ -72,21 +72,23 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         }
     }
 
-    /// <summary>One tool call's view of a dump: the file and the module images it resolved.</summary>
-    internal sealed class Session(MinidumpService owner, string id, MinidumpFile dump, IReadOnlyList<string> directories) : IDisposable
+    /// <summary>One tool call's view of a dump (or of a live process): its memory and the module images it resolved.</summary>
+    internal sealed class Session(MinidumpService owner, string id, IProcessMemory memory, IReadOnlyList<string> directories) : IDisposable
     {
         private readonly Dictionary<DumpModule, ModuleCode> _modules = [];
         private readonly Dictionary<DumpModule, Task<NativeCodeIndex?>> _indexes = [];
 
         public string Id { get; } = id;
-        public MinidumpFile Dump { get; } = dump;
+        public IProcessMemory Memory { get; } = memory;
+        /// <summary>The minidump of a dump session.</summary>
+        public MinidumpFile Dump => Memory as MinidumpFile ?? throw new InvalidOperationException("not a dump session");
         public IReadOnlyList<string> Directories { get; } = directories;
 
         public ModuleCode Code(DumpModule module)
         {
             lock (_modules)
             {
-                if (!_modules.TryGetValue(module, out var c)) _modules[module] = c = owner.Load(Dump, module, Directories);
+                if (!_modules.TryGetValue(module, out var c)) _modules[module] = c = owner.Load(Memory, module, Directories);
                 return c;
             }
         }
@@ -105,7 +107,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
             get { lock (_modules) return _modules.Select(kv => (kv.Key, kv.Value)).ToList(); }
         }
 
-        public void Dispose() => Dump.Dispose();
+        public void Dispose() => (Memory as IDisposable)?.Dispose();
     }
 
     // ---- ids ----
@@ -139,6 +141,9 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         return new Session(this, id, file, dirs);
     }
 
+    /// <summary>A session over other process memory (a live process); it owns <paramref name="memory"/>.</summary>
+    internal Session SessionFor(string id, IProcessMemory memory, IReadOnlyList<string> directories) => new(this, id, memory, directories);
+
     private string Register(string path)
     {
         foreach (var (k, v) in _ids)
@@ -156,7 +161,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
     }
 
     /// <summary>Folders searched for module images: the caller's (';'-separated), then the dump's own folder.</summary>
-    private static List<string> Directories(string? list, string dumpPath)
+    internal static List<string> Directories(string? list, string dumpPath)
     {
         var dirs = new List<string>();
         foreach (var raw in (list ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -179,11 +184,11 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
 
     // ---- module images ----
 
-    private ModuleCode Load(MinidumpFile dump, DumpModule module, IReadOnlyList<string> directories)
+    internal ModuleCode Load(IProcessMemory dump, DumpModule module, IReadOnlyList<string> directories)
     {
         var local = DumpImages.Find(module, directories, dump.Arch);
         string key = local.Matches ? $"disk|{local.Path}|{module.TimeDateStamp:X}|{module.Size:X}"
-            : $"memory|{dump.Path}|{dump.FileSize}|{dump.TimeDateStamp:X}|{module.Base:X}";
+            : $"memory|{dump.Identity}|{module.Base:X}";
         lock (_cacheGate)
             if (_cache.TryGetValue(key, out var cached)) return cached;
         ModuleCode result;
@@ -196,9 +201,11 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         {
             var image = DumpImages.FromMemory(dump, module, out ulong captured);
             string why = local.Exists ? $"{local.Path}: {local.Detail}" : local.Detail;
+            bool isDump = dump is MinidumpFile;
             result = image != null
-                ? new ModuleCode(image, "dump_memory", null, $"rebuilt from dump memory ({captured * 100 / Math.Max(1u, module.Size)}% captured); local file: {why}")
-                : new ModuleCode(null, "none", local.Path, $"no image: {why}; the dump does not hold its headers");
+                ? new ModuleCode(image, isDump ? "dump_memory" : "process_memory", null,
+                    $"rebuilt from {(isDump ? "dump" : "process")} memory ({captured * 100 / Math.Max(1u, module.Size)}% {(isDump ? "captured" : "readable")}); local file: {why}")
+                : new ModuleCode(null, "none", local.Path, $"no image: {why}; {(isDump ? "the dump does not hold its headers" : "its headers are not readable")}");
         }
         lock (_cacheGate)
         {
@@ -227,7 +234,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
     internal sealed record Location(
         DumpModule? Module, uint? Rva, string? Symbol, string? Function, string? Source, ulong? FunctionAddress, string Kind, string? Note);
 
-    internal static bool HostsClr(MinidumpFile dump, out string? runtime)
+    internal static bool HostsClr(IProcessMemory dump, out string? runtime)
     {
         runtime = null;
         foreach (var m in dump.Modules)
@@ -249,7 +256,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
     internal async Task<Location> Locate(Session s, ulong address, bool returnAddress, CancellationToken ct)
     {
         ulong lookup = returnAddress && address > 0 ? address - 1 : address;
-        var dump = s.Dump;
+        var dump = s.Memory;
         var module = dump.ModuleAt(lookup);
         if (module == null)
         {
