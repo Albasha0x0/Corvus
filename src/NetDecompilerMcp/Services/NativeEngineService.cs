@@ -33,11 +33,18 @@ public sealed class NativeEngineService : IDisposable
         lock (holder)
         {
             if (holder.Opening is { } existing && !(existing.IsCompleted && (existing.IsFaulted || existing.IsCanceled || !existing.Result.IsOpen)))
-                return existing.WaitAsync(ct);
+                return Wait(existing);
             var provider = Provider(engine);
-            // The open is not tied to this call's cancellation: a later call reuses the same analysis.
-            holder.Opening = provider.OpenAsync(native.FilePath, native.Image.Sha256, new NativeOpenOptions { Progress = progress, PdbPath = PdbService.PathForEngines(native) }, CancellationToken.None);
-            return holder.Opening.WaitAsync(ct);
+            // The open is not tied to this call's cancellation (a later call reuses the same analysis) but ends when the image is unloaded or reloaded.
+            holder.Opening = provider.OpenAsync(native.FilePath, native.Image.Sha256,
+                new NativeOpenOptions { Progress = progress, PdbPath = PdbService.PathForEngines(native) }, native.Released);
+            return Wait(holder.Opening);
+        }
+
+        async Task<INativeDecompilerSession> Wait(Task<INativeDecompilerSession> opening)
+        {
+            try { return await opening.WaitAsync(ct); }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested && native.Released.IsCancellationRequested) { throw native.Gone(); }
         }
     }
 

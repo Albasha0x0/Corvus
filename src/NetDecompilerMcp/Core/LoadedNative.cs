@@ -8,6 +8,7 @@ namespace NetDecompilerMcp.Core;
 public sealed class LoadedNative
 {
     private readonly object _gate = new();
+    private readonly CancellationTokenSource _released = new();
 
     internal LoadedNative(string id, string filePath, PeFile image)
     {
@@ -33,11 +34,44 @@ public sealed class LoadedNative
     /// <summary>SHA-256 of the file as first loaded; the key for annotations, stable across in-memory patches.</summary>
     public string OriginalSha256 { get; }
 
+    /// <summary>Cancelled when the image is unloaded or reloaded.</summary>
+    public CancellationToken Released => _released.Token;
+
     /// <summary>Per-image analysis state (code index, engine sessions); created on first use and cleared on a patch.</summary>
     public System.Collections.Concurrent.ConcurrentDictionary<Type, object> Analysis { get; } = new();
 
-    public T GetAnalysis<T>(Func<LoadedNative, T> create) where T : class =>
-        (T)Analysis.GetOrAdd(typeof(T), _ => create(this));
+    /// <summary>
+    /// The analysis of type <typeparamref name="T"/>, created on first use. Disposable state (background builds, engine
+    /// sessions) is not kept for an image that was unloaded or reloaded meanwhile: it is disposed and the call fails.
+    /// </summary>
+    public T GetAnalysis<T>(Func<LoadedNative, T> create) where T : class
+    {
+        var value = (T)Analysis.GetOrAdd(typeof(T), _ => create(this));
+        if (value is IDisposable && _released.IsCancellationRequested)
+        {
+            if (Analysis.TryRemove(typeof(T), out var removed)) ((IDisposable)removed).Dispose();
+            throw Gone();
+        }
+        return value;
+    }
+
+    /// <summary>The error for a call whose analysis was discarded while it ran (image unloaded, reloaded or patched).</summary>
+    public ToolError Gone() =>
+        new(ErrorCode.Conflict, $"{Id} was unloaded, reloaded or patched while the call was running.", "repeat the call; the image is analyzed afresh");
+
+    /// <summary>Marks the image unloaded and disposes its analysis state (cancels a code index build, ends engine sessions).</summary>
+    internal void Release()
+    {
+        _released.Cancel();
+        DisposeAnalysis();
+    }
+
+    /// <summary>Removes and disposes every analysis object (each exactly once, also under concurrent calls).</summary>
+    private void DisposeAnalysis()
+    {
+        foreach (var key in Analysis.Keys)
+            if (Analysis.TryRemove(key, out var analysis) && analysis is IDisposable d) d.Dispose();
+    }
 
     /// <summary>In-memory byte patches of this image; survives analysis invalidation. Created on first use.</summary>
     public NativePatchSet Patches
@@ -71,8 +105,7 @@ public sealed class LoadedNative
         lock (_gate)
         {
             Image = image;
-            foreach (var analysis in Analysis.Values.OfType<IDisposable>()) analysis.Dispose();
-            Analysis.Clear();
+            DisposeAnalysis();
         }
     }
 }

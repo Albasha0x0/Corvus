@@ -17,7 +17,7 @@ namespace NetDecompilerMcp.Tools;
 public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeService code, OutputPager pager, NativeLinkService? link = null)
 {
     private const string IndexNote = "The first call on an image waits for its code index (built in the background after loading; seconds for a typical DLL, " +
-                                     "under a minute for a 300 MB executable; progress is reported).";
+                                     "one to two minutes for a 300 MB browser DLL; progress is reported).";
 
     /// <summary>Loads the image if given by path, waits for its index, and resolves the address (names include functions).</summary>
     private async Task<(LoadedNative Native, NativeCodeIndex Index)> Open(string image, RequestContext<CallToolRequestParams>? context,
@@ -31,8 +31,14 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
                     "use the .NET tools for it");
             return workspace.Read(() => workspace.GetNative(id ?? image));
         }, ct);
+        // Progress is the seconds waited: phase counts restart at zero, and progress that goes backwards is not sent.
+        var waited = System.Diagnostics.Stopwatch.StartNew();
         var index = await code.Index(native, new Progress<CodeIndexProgress>(p =>
-            progress.Report(new ProgressNotificationValue { Progress = p.Done, Total = p.Total > 0 ? p.Total : null, Message = $"indexing {native.Id}: {p.Phase}" })), ct);
+            progress.Report(new ProgressNotificationValue
+            {
+                Progress = (float)waited.Elapsed.TotalSeconds,
+                Message = $"indexing {native.Id}: {p.Phase}" + (p.Total > 0 ? $" {p.Done:N0}/{p.Total:N0}" : p.Done > 0 ? $" ({p.Done:N0} instructions)" : ""),
+            })), ct);
         if (index.Support == CodeSupport.DeclaredFunctionsOnly && index.SupportNote != null)
             workspace.Notify($"{native.Id}: {index.SupportNote}");
         return (native, index);
@@ -176,6 +182,8 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var (_, index) = await Open(image, context, progress, cancellationToken);
+        if (index.Support == CodeSupport.DeclaredFunctionsOnly)
+            throw new ToolError(ErrorCode.Unsupported, $"Instructions are not decoded for {index.Image.Arch} images.", "decompile_native analyzes them through IDA");
         var fn = FunctionAt(index, Address(index, address));
         var graph = index.GetGraph(fn, cancellationToken);
         string Va(uint rva) => NativeAddress.Va(index.Image, rva);
@@ -238,6 +246,8 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description("callers or callees (default callees).")] string direction = "callees",
         [Description("Levels (1-8, default 3).")] int depth = 3,
         [Description("Max nodes (default 500).")] int maxNodes = 500,
+        [Description(OffsetDescription)] int offset = 0,
+        [Description(MaxCharsDescription)] int? maxChars = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -267,7 +277,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
             foreach (var child in node.Children) Walk(child, level + 1);
         }
         Walk(root, 0);
-        return pager.Page(sb.ToString());
+        return pager.Page(sb.ToString(), offset, maxChars);
     });
 
     [McpServerTool(Name = "search_native_strings", Title = "Search native strings", ReadOnly = true, Idempotent = true, OpenWorld = false)]

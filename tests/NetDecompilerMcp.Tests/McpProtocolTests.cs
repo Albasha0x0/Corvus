@@ -42,8 +42,12 @@ public abstract class McpProtocolTests : IAsyncLifetime
             Command = "dotnet",
             Arguments = [ServerDll, .. args],
             WorkingDirectory = workingDirectory,
-            // Keep the annotation sidecars out of the real per-user folder during tests.
-            EnvironmentVariables = new Dictionary<string, string?> { ["NDM_ANNOTATIONS_DIR"] = AnnotationsDir },
+            // Keep the annotation sidecars out of the real per-user folder during tests; a server with its own working
+            // directory (the contract sweep) also gets its own sidecars, so its renames never reach a server running beside it.
+            EnvironmentVariables = new Dictionary<string, string?>
+            {
+                ["NDM_ANNOTATIONS_DIR"] = workingDirectory != null ? Path.Combine(workingDirectory, ".ndm-annotations") : AnnotationsDir,
+            },
             // The SDK waits this long for the server to exit before it closes the server's input, then ends it; the
             // server exits on end of input (ServerExitsWhenItsInputCloses), so waiting longer only delays each test.
             ShutdownTimeout = TimeSpan.FromMilliseconds(200),
@@ -87,6 +91,14 @@ public abstract class McpProtocolTests : IAsyncLifetime
     {
         var path = dir.File("native.dll");
         if (!File.Exists(path)) File.WriteAllBytes(path, NativePeTests.KitchenSink(is64: true));
+        return path;
+    }
+
+    /// <summary>A second build of <see cref="NativeSample"/>: the same image with one byte appended (another file hash).</summary>
+    internal static string NativeSampleV2(TempDir dir)
+    {
+        var path = dir.File("native-v2.dll");
+        if (!File.Exists(path)) File.WriteAllBytes(path, [.. NativePeTests.KitchenSink(is64: true), 0]);
         return path;
     }
 
@@ -192,6 +204,11 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["find_r2r_method"] = R2RFramework.LinqEntryVa() is { } va
             ? (new() { ["assembly"] = R2RFramework.Linq, ["address"] = va }, "+0x0 into the hot code")
             : (new() { ["assembly"] = "TestFixture", ["address"] = "0x1000" }, "Error (unsupported) in find_r2r_method"),
+        ["compare_native_images"] = (new() { ["oldImage"] = NativeSample(dir), ["newImage"] = NativeSampleV2(dir) }, "\"basis\":\"name\""),
+        ["map_address_between_builds"] = (new() { ["oldImage"] = NativeSample(dir), ["newImage"] = NativeSampleV2(dir), ["address"] = "First" }, "\"reason\":\"function_start\""),
+        ["migrate_native_names"] = (new() { ["oldImage"] = NativeSample(dir), ["newImage"] = NativeSampleV2(dir), ["dryRun"] = true }, "\"dryRun\":true"),
+        ["make_code_pattern"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "\"anchor\""),
+        ["search_code_pattern"] = (new() { ["pattern"] = "C3", ["images"] = NativeSample(dir) }, "\"hits\""),
         ["read_result"] = (new() { ["id"] = "r999" }, "Error (not_found) in read_result"),
         ["unload_assembly"] = (new() { ["assembly"] = "TestFixture.Consumer" }, "Unloaded"),
     };

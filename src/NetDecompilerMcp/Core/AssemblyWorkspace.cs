@@ -171,7 +171,7 @@ public sealed class AssemblyWorkspace : IDisposable
         foreach (var view in _natives.Where(n => n.ManagedView == asm).ToList())
         {
             _natives.Remove(view);
-            foreach (var analysis in view.Analysis.Values.OfType<IDisposable>()) analysis.Dispose();
+            view.Release();
         }
     }
 
@@ -219,7 +219,7 @@ public sealed class AssemblyWorkspace : IDisposable
     public void UnloadNative(LoadedNative native) => Write(() =>
     {
         if (!_natives.Remove(native)) throw Gone(native.Id);
-        foreach (var analysis in native.Analysis.Values.OfType<IDisposable>()) analysis.Dispose();
+        native.Release();
         return 0;
     });
 
@@ -234,10 +234,10 @@ public sealed class AssemblyWorkspace : IDisposable
         {
             int index = _natives.IndexOf(native);
             if (index < 0) throw Gone(native.Id);
-            _natives.Remove(native);
-            foreach (var analysis in native.Analysis.Values.OfType<IDisposable>()) analysis.Dispose();
+            _natives.RemoveAt(index);
+            native.Release();
             var reloaded = new LoadedNative(native.Id, native.FilePath, image) { ManagedView = native.ManagedView };
-            _natives.Insert(Math.Max(0, Math.Min(index, _natives.Count)), reloaded);
+            _natives.Insert(index, reloaded);
             return reloaded;
         });
         NativeLoaded?.Invoke(fresh);
@@ -810,6 +810,10 @@ public sealed class AssemblyWorkspace : IDisposable
         foreach (var a in _assemblies)
             a.Dispose();
         _assemblies.Clear();
+        // Cancels background code index builds and closes engine sessions.
+        foreach (var n in _natives)
+            n.Release();
+        _natives.Clear();
         _lock.Dispose();
     }
 }

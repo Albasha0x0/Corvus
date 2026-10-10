@@ -281,6 +281,7 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
         [Description("Treat pattern as text (ASCII and UTF-16LE).")] bool text = false,
         [Description("Only this section (e.g. .text, .rdata).")] string? section = null,
         [Description("Max hits (default 200).")] int limit = 200,
+        [Description("Index of the first hit.")] int offset = 0,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
         var pe = native.Image;
@@ -290,28 +291,65 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
         if (patterns.Any(p => p.Bytes.Length == 0))
             throw new ToolError(ErrorCode.InvalidArgument, "The pattern is empty.", "pass hex bytes such as '48 8B 05 ?? ?? ?? ??' or text with text=true");
         int max = ClampLimit(limit, 10_000);
+        offset = Math.Max(0, offset);
         var hits = new List<string>();
-        int total = 0;
+        long total = 0;
+        int chars = 0;
+        void Hit(NativeSection s, uint rva, string label)
+        {
+            // Rows stop at the page size; the rest is reached with offset.
+            if (total++ < offset || hits.Count >= max || chars >= 50_000) return;
+            var row = $"{NativeAddress.Va(pe, rva)}  {s.Name}{(patterns.Count > 1 ? "  " + label : "")}" +
+                      (pe.TryRvaToFileOffset(rva, out var fo) ? $"  file 0x{fo:X}" : "  (zero fill, not in the file)");
+            hits.Add(row);
+            chars += row.Length + 1;
+        }
+        // The file-backed part of each section is read in 1 MB chunks overlapping by the pattern length; matches in the
+        // zero fill after it (which can be gigabytes) are counted, not scanned.
+        int longest = patterns.Max(p => p.Bytes.Length);
+        var data = new byte[(1 << 20) + longest];
         foreach (var s in pe.Sections)
         {
             if (section != null && !s.Name.Equals(section.Trim(), StringComparison.OrdinalIgnoreCase)) continue;
-            var data = new byte[Math.Min(s.MappedSize, 512u << 20)];
-            int read = pe.Read(s.Rva, data);
-            var span = data.AsSpan(0, read);
-            foreach (var (bytes, mask, label) in patterns)
-                for (int i = 0; i + bytes.Length <= span.Length; i++)
+            uint size = (uint)Math.Min(s.MappedSize, Math.Max(0L, (long)pe.SizeOfImage - s.Rva));
+            uint backed = (uint)pe.FileBackedLength(s.Rva, size);
+            for (uint at = 0; at < backed; at += 1 << 20)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                int read = pe.Read(s.Rva + at, data.AsSpan(0, (int)Math.Min((uint)data.Length, size - at)));
+                if (read <= 0) break;
+                var span = data.AsSpan(0, read);
+                int starts = (int)Math.Min(Math.Min(read, 1 << 20), backed - at);
+                foreach (var (bytes, mask, label) in patterns)
                 {
-                    if ((i & 0xFFFFF) == 0) cancellationToken.ThrowIfCancellationRequested();
-                    if (!Matches(span, i, bytes, mask)) continue;
-                    total++;
-                    if (hits.Count < max)
-                        hits.Add($"{NativeAddress.Va(pe, s.Rva + (uint)i)}  {s.Name}{(patterns.Count > 1 ? "  " + label : "")}" +
-                                 (pe.TryRvaToFileOffset(s.Rva + (uint)i, out var fo) ? $"  file 0x{fo:X}" : "  (zero fill, not in the file)"));
+                    // Candidates are found with a vectorized search for the fixed bytes the pattern starts with.
+                    int fixedPrefix = Array.IndexOf(mask, false) is var w and >= 0 ? w : mask.Length;
+                    var prefix = bytes.AsSpan(0, fixedPrefix);
+                    for (int i = 0; i < starts && i + bytes.Length <= span.Length; i++)
+                    {
+                        int k = span[i..Math.Min(span.Length, starts + prefix.Length - 1)].IndexOf(prefix);
+                        if (k < 0) break;
+                        i += k;
+                        if (i < starts && i + bytes.Length <= span.Length && Matches(span, i, bytes, mask)) Hit(s, s.Rva + at + (uint)i, label);
+                    }
                 }
+            }
+            foreach (var (bytes, mask, label) in patterns)
+            {
+                if (bytes.Where((b, i) => mask[i] && b != 0).Any() || (long)size - backed < bytes.Length) continue;
+                long zeroStarts = (long)size - backed - bytes.Length + 1;
+                long skip = Math.Clamp(offset - total, 0, zeroStarts);
+                total += skip;
+                long i = skip;
+                for (; i < zeroStarts && hits.Count < max && chars < 50_000; i++) Hit(s, s.Rva + backed + (uint)i, label);
+                total += zeroStarts - i;
+            }
         }
         if (section != null && !pe.Sections.Any(s => s.Name.Equals(section.Trim(), StringComparison.OrdinalIgnoreCase)))
             throw new ToolError(ErrorCode.NotFound, $"No section '{section}'. Sections: {string.Join(", ", pe.Sections.Select(s => s.Name))}.");
-        return $"{Plural(total, "hit")}{TruncationNote(hits.Count, total)}\n" + string.Join("\n", hits);
+        var more = offset + hits.Count < total ? $"\n[More: call again with offset={offset + hits.Count}]" : "";
+        return $"{total} hit{(total == 1 ? "" : "s")}{(offset > 0 || hits.Count < total ? $" (showing {(hits.Count == 0 ? 0 : offset + 1)}-{offset + hits.Count})" : "")}\n" +
+               string.Join("\n", hits) + more;
     }, cancellationToken);
 
     private static (byte[], bool[], string) Exact(byte[] bytes, string label) => (bytes, bytes.Select(_ => true).ToArray(), label);
@@ -350,6 +388,8 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
         [Description(ImageDescription)] string image,
         [Description(AddressDescription)] string address,
         [Description("Bytes to dump (default 256, max 65536).")] int length = 256,
+        [Description(OffsetDescription)] int offset = 0,
+        [Description(MaxCharsDescription)] int? maxChars = null,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
         var pe = native.Image;
@@ -366,7 +406,7 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
             for (int i = 0; i < n; i++) sb.Append(buffer[row + i] is >= 0x20 and < 0x7F ? (char)buffer[row + i] : '.');
             sb.AppendLine();
         }
-        return pager.Page(sb.ToString());
+        return pager.Page(sb.ToString(), offset, maxChars);
     }, cancellationToken);
 
     private static readonly Lazy<ApiSetSchema?> ApiSets = new(() => ApiSetSchema.FromSystem(PeFile.Open));

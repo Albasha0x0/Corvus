@@ -535,7 +535,7 @@ public class NativeCodeTests
     [MemberData(nameof(SmallSystemDlls))]
     public void Small_system_dll(string path)
     {
-        var image = CodeTestImage.Load(path);
+        var image = NetDecompilerMcp.Native.Pe.PeFile.Open(path);
         var index = NativeCodeIndex.Build(image);
         Assert.Equal(CodeSupport.Full, index.Support);
         Assert.Empty(index.Truncations);

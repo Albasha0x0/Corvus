@@ -91,7 +91,7 @@ public class NativeCodeOracleTests(ITestOutputHelper output)
         var totals = new Dictionary<NativeArch, (int Ours, int Ida, int Both, int InIda, int OurCalls, int IdaCalls, int BothCalls)>();
         foreach (var path in Samples())
         {
-            var image = CodeTestImage.Load(path);
+            var image = NetDecompilerMcp.Native.Pe.PeFile.Open(path);
             if (image.Arch is not (NativeArch.X86 or NativeArch.X64)) continue;
             var result = RunIda(ida, cache, path, image.Sha256);
             if (result == null) { output.WriteLine($"{path}: IDA run failed, skipped"); continue; }

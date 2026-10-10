@@ -191,13 +191,16 @@ public static class MsvcRtti
         {
             foreach (var s in sections)
             {
-                if (s.RawSize == 0 || s.MappedSize == 0) continue;
-                if (s.MappedSize > options.MaxSectionBytes)
+                if (s.RawSize == 0 || s.MappedSize == 0 || s.Rva >= image.SizeOfImage) continue;
+                // RTTI is initialized data: the zero fill past a section's file bytes holds none.
+                long length = image.FileBackedLength(s.Rva, Math.Min(s.MappedSize, (long)image.SizeOfImage - s.Rva));
+                if (length == 0) continue;
+                if (length > options.MaxSectionBytes || bytesScanned + length > 2 * options.MaxSectionBytes)
                 {
-                    notes.Add($"section {s.Name} ({s.MappedSize} bytes) is larger than the scan limit; not scanned");
+                    notes.Add($"section {s.Name} ({length} bytes) is larger than the scan limit; not scanned");
                     continue;
                 }
-                var buffer = new byte[s.MappedSize];
+                var buffer = new byte[length];
                 int n = image.Read(s.Rva, buffer);
                 if (n < buffer.Length) Array.Resize(ref buffer, n);
                 data[s] = buffer;
