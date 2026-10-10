@@ -66,6 +66,7 @@ public class IlHealthTests : IDisposable
             var balance = IlHealth.Assess(File.ReadAllBytes(file));
             bodies += balance.Bodies;
             if (balance.Invalid > 0) flagged.Add($"{Path.GetFileName(file)} {balance.Invalid}/{balance.Bodies}");
+            if (balance.InvalidClauseCount > 0) flagged.Add($"{Path.GetFileName(file)}: {balance.InvalidClauseCount} exception clauses, e.g. {balance.InvalidClauses.First().Value[0]}");
         }
         Assert.True(bodies > 50_000, $"{bodies} bodies");
         Assert.Empty(flagged);
@@ -158,5 +159,86 @@ public class IlHealthTests : IDisposable
         Assert.False(Valid(0x20, 0x01, 0x02));            // ldc.i4 with a truncated operand
         Assert.False(Valid(0x45, 0xFF, 0xFF, 0xFF, 0x7F)); // switch with an impossible count
         Assert.False(Valid(0x2A, 0xFE));                  // a lone two-byte prefix at the end
+    }
+
+    // ldarg.0; call 0x0A000001; stloc.0; leave.s IL_000e; pop; ldc.i4.m1; stloc.0; leave.s IL_000e; ldloc.0; ret
+    private static readonly byte[] TryCatchIl = [0x02, 0x28, 1, 0, 0, 0x0A, 0x0A, 0xDE, 0x05, 0x26, 0x15, 0x0A, 0xDE, 0x00, 0x06, 0x2A];
+
+    [Fact]
+    public void ExceptionClauses_FlagsExtentsBoundariesAndFilterOrder()
+    {
+        static List<string> Issues(byte[] il, params IlHealth.Clause[] clauses) => IlHealth.ClauseIssues(il, clauses);
+        static IlHealth.Clause Catch(int tryLength = 9, int handler = 9, int handlerLength = 5, bool typed = true, int flags = 0, int filter = -1) =>
+            new(flags, 0, tryLength, handler, handlerLength, filter, typed);
+
+        Assert.Empty(Issues(TryCatchIl, Catch(), Catch(flags: 2, typed: false), Catch(flags: 4, typed: false)));
+        Assert.Equal(["clause 0 (flags 0x3): flags are not catch (0), filter (1), finally (2) or fault (4)"], Issues(TryCatchIl, Catch(flags: 3)));
+        Assert.Equal(["clause 0 (catch): try range ends inside an instruction (IL_0008)"], Issues(TryCatchIl, Catch(tryLength: 8)));
+        Assert.Equal(["clause 0 (catch): handler range starts inside an instruction (IL_0002)"], Issues(TryCatchIl, Catch(handler: 2, handlerLength: 4)));
+        Assert.Equal(["clause 0 (catch): handler range IL_0009+0x14 leaves the code (0x10 bytes)"], Issues(TryCatchIl, Catch(handlerLength: 20)));
+        Assert.Equal(["clause 0 (catch): catch clause without a catch type"], Issues(TryCatchIl, Catch(typed: false)));
+        // A handler that runs to the end of the code ends on a boundary.
+        Assert.Empty(Issues(TryCatchIl, Catch(handlerLength: 7)));
+        // Filters: the filter block starts on an instruction before its handler.
+        Assert.Empty(Issues(TryCatchIl, Catch(flags: 1, handler: 10, handlerLength: 4, filter: 9, typed: false)));
+        Assert.Equal(["clause 0 (filter): filter at IL_0009 does not start on an instruction before its handler (IL_0009)"],
+            Issues(TryCatchIl, Catch(flags: 1, filter: 9, typed: false)));
+        Assert.Equal(["clause 0 (filter): filter at IL_0002 does not start on an instruction before its handler (IL_000A)"],
+            Issues(TryCatchIl, Catch(flags: 1, handler: 10, handlerLength: 4, filter: 2, typed: false)));
+        // Only the bad clause of several is reported, with its index.
+        Assert.Equal(["clause 1 (catch): try range ends inside an instruction (IL_0008)"], Issues(TryCatchIl, Catch(), Catch(tryLength: 8)));
+
+        // volatile. ldsfld 0x04000001; pop; ret: the prefix and the instruction it modifies are one boundary.
+        byte[] prefixed = [0xFE, 0x13, 0x7E, 1, 0, 0, 4, 0x26, 0x2A];
+        Assert.Empty(Issues(prefixed, new IlHealth.Clause(2, 0, 7, 7, 1, -1, false)));
+        Assert.Equal(["clause 0 (finally): try range starts inside an instruction (IL_0002)"], Issues(prefixed, new IlHealth.Clause(2, 2, 5, 7, 1, -1, false)));
+        // Invalid IL: clauses are not checked (the body is reported as invalid instead).
+        Assert.Empty(IlHealth.ClauseIssues([0xA6, 0x2A], [Catch(flags: 3)]));
+    }
+
+    /// <summary>A try range shortened by one byte in the file is reported by get_assembly_info and get_il; the body itself stays valid IL.</summary>
+    [Fact]
+    public async Task ExceptionClause_OffAnInstructionBoundary_ReportedInInfoAndIl()
+    {
+        var lab = new IlLab();
+        var parse = new dnlib.DotNet.MemberRefUser(lab.Module, "Parse", dnlib.DotNet.MethodSig.CreateStatic(lab.T.Int32, lab.T.String), lab.T.Int32.TypeDefOrRef);
+        var end = dnlib.DotNet.Emit.OpCodes.Ldloc_0.ToInstruction();
+        var code = new List<dnlib.DotNet.Emit.Instruction>
+        {
+            dnlib.DotNet.Emit.OpCodes.Ldarg_0.ToInstruction(), dnlib.DotNet.Emit.OpCodes.Call.ToInstruction(parse), dnlib.DotNet.Emit.OpCodes.Stloc_0.ToInstruction(),
+            dnlib.DotNet.Emit.OpCodes.Leave_S.ToInstruction(end),
+            dnlib.DotNet.Emit.OpCodes.Pop.ToInstruction(), dnlib.DotNet.Emit.OpCodes.Ldc_I4_M1.ToInstruction(), dnlib.DotNet.Emit.OpCodes.Stloc_0.ToInstruction(),
+            dnlib.DotNet.Emit.OpCodes.Leave_S.ToInstruction(end),
+            end, IlLab.Ret(),
+        };
+        var handler = new dnlib.DotNet.Emit.ExceptionHandler(dnlib.DotNet.Emit.ExceptionHandlerType.Catch)
+        {
+            TryStart = code[0], TryEnd = code[4], HandlerStart = code[4], HandlerEnd = code[8], CatchType = lab.T.GetTypeRef("System", "FormatException"),
+        };
+        lab.Method("Parse", lab.T.Int32, [lab.T.String], code, [lab.T.Int32], handlers: [handler]);
+        var image = lab.Write();
+
+        using (var pe = new PEReader(new MemoryStream(image)))
+        {
+            var md = pe.GetMetadataReader();
+            var def = md.GetMethodDefinition(md.MethodDefinitions.Single(h => md.GetString(md.GetMethodDefinition(h).Name) == "Parse"));
+            int at = FileOffset(pe, def.RelativeVirtualAddress);
+            Assert.Equal(3, image[at] & 3); // fat header
+            int section = (at + 12 + BitConverter.ToInt32(image, at + 4) + 3) & ~3;
+            Assert.Equal(1, image[section]); // small exception section; its first clause follows the 4-byte header
+            Assert.Equal(9, image[section + 8]); // try length
+            image[section + 8] = 8;
+        }
+        var path = WriteCopy("clause", image);
+        using var env = new Env(path);
+        Assert.Equal(0, env.Fixture.BodyHealth.Invalid);
+        Assert.Equal(1, env.Fixture.BodyHealth.InvalidClauseCount);
+
+        const string issue = "clause 0 (catch): try range ends inside an instruction (IL_0008)";
+        AssemblyReport.Summary summary = null!;
+        var info = env.Workspace.Read(() => env.Report.Build(env.Fixture, out summary));
+        Assert.Contains($"Exception clauses: 1 invalid in 1 method(s) (e.g. Lab.P::Parse(string) {issue})", info);
+        Assert.Equal(1, summary.InvalidExceptionClauses);
+        Assert.Contains($"// invalid exception clause: {issue}\n", await new DecompileTools(env.Workspace, env.Decompiler, env.Pager).GetIL("Lab.P::Parse"));
     }
 }

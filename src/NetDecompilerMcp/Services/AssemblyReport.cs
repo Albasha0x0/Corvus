@@ -31,6 +31,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         bool ReferenceAssembly,
         [property: System.ComponentModel.Description("Il2Cpp dummy DLL: methods with [Address] attributes.")] int Il2CppAddressedMethods,
         [property: System.ComponentModel.Description("Method bodies that are not valid IL.")] int InvalidBodies,
+        [property: System.ComponentModel.Description("Exception clauses of valid bodies with bad flags, ranges outside the code or off instruction boundaries, or a misplaced filter.")] int InvalidExceptionClauses,
         IReadOnlyList<string> UnsavedEdits,
         IReadOnlyList<ReferenceStatus> References,
         [property: System.ComponentModel.Description("Assembly attributes (first 40).")] IReadOnlyList<string> Attributes,
@@ -77,6 +78,10 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         else if (health.Invalid > 0)
             sb.AppendLine($"IL: {health.Invalid} of {health.Bodies} method bodies are not valid IL (e.g. " +
                           string.Join(", ", m.GetTypes().SelectMany(t => t.Methods).Where(health.IsInvalid).Take(3).Select(Format.MemberLabel)) + ").");
+        if (health.InvalidClauseCount > 0)
+            sb.AppendLine($"Exception clauses: {health.InvalidClauseCount} invalid in {health.InvalidClauses.Count} method(s) (e.g. " +
+                          string.Join("; ", m.GetTypes().SelectMany(t => t.Methods).Where(x => health.ClauseIssues(x).Count > 0).Take(3)
+                              .Select(x => $"{Format.MemberLabel(x)} {health.ClauseIssues(x)[0]}")) + "); get_il shows them per method.");
         if (ReadyToRunService.Summary(workspace, asm) is { } readyToRun)
             sb.AppendLine(readyToRun);
         if (asm.IsDirty)
@@ -117,7 +122,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
             m.EntryPoint != null ? Format.MemberLabel(m.EntryPoint) : null,
             types.Count, types.Count(t => t.DeclaringType != null), MetadataUtil.NamespaceCount(types),
             m.GetTypes().Sum(t => t.Methods.Count), m.GetTypes().Sum(t => t.Fields.Count), m.Resources.Count,
-            MetadataUtil.IsReferenceAssembly(m), addressed, health.Invalid, asm.Edits.Select(e => e.ToString()).ToList(), references,
+            MetadataUtil.IsReferenceAssembly(m), addressed, health.Invalid, health.InvalidClauseCount, asm.Edits.Select(e => e.ToString()).ToList(), references,
             attrs.Take(40).Select(Format.Attribute).ToList(), tables, heaps);
         return sb.ToString();
     }

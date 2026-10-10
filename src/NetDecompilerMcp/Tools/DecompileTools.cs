@@ -57,7 +57,7 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
 
     [McpServerTool(Name = "get_il", Title = "IL disassembly")]
     [Description("IL disassembly (ildasm style, with /* metadata token */ comments, IL offsets and structured try/catch blocks) of a method, field, property, event, or a whole type. " +
-                 "Each method starts with its normalized IL hash (stable across rebuilds) and the SHA-256 of its raw IL bytes (exact build). " +
+                 "Each method starts with its normalized IL hash (stable across rebuilds), the SHA-256 of its raw IL bytes (exact build) and any invalid exception clause. " +
                  "Use it when the C# looks wrong, for transformed code, or as the starting point for patch_method_il.")]
     public Task<string> GetIL(
         [Description(SymbolDescription)] string symbol,
@@ -96,6 +96,9 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
                 sb.Append("  raw IL SHA-256: ").Append(IlHash.Short(bytes)).Append(s.Assembly.IsDirty ? " (file as loaded)" : "");
             if (s.Member is not MethodDef) sb.Append("  ").Append(m.Name).Append('(').Append(Format.ParameterTypes(m.MethodSig)).Append(')');
             sb.Append('\n');
+            if (!s.Assembly.IsDirty)
+                foreach (var issue in s.Assembly.BodyHealth.ClauseIssues(m))
+                    sb.Append("// invalid exception clause: ").Append(issue).Append('\n');
         }
         return sb.ToString();
     }
