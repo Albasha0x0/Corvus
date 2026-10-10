@@ -11,6 +11,7 @@ namespace NetDecompilerMcp.Tests;
 /// NDM_NATIVE_STRESS_SECONDS sets the duration (default 30).
 /// </summary>
 [Trait("Speed", "Slow")]
+[Collection(SweepCollection.Name)]
 public class NativeConcurrencyTests(ITestOutputHelper output)
 {
     private static readonly TimeSpan Hang = TimeSpan.FromSeconds(120);

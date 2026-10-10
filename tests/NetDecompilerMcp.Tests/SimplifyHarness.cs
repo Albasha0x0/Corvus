@@ -11,7 +11,10 @@ using NetDecompilerMcp.Services.Simplify;
 
 namespace NetDecompilerMcp.Tests;
 
-/// <summary>Whole-assembly simplify runs (fuzz, sweep) are timed: they run alone, after the parallel tests.</summary>
+/// <summary>
+/// Timed or memory-measured runs (simplify fuzz and sweep, the native tool sweeps, fuzz, stdio and stress runs): they run
+/// alone, after the parallel tests, so other tests in the process do not distort their clocks and heap readings.
+/// </summary>
 [CollectionDefinition(Name, DisableParallelization = true)]
 public sealed class SweepCollection
 {

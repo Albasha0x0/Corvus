@@ -13,6 +13,7 @@ namespace NetDecompilerMcp.Tests;
 /// images also decompiled through IDA (default 2, when IDA is installed). Images of 64 MB and more run one at a time with their memory sampled.
 /// </summary>
 [Trait("Speed", "Slow")]
+[Collection(SweepCollection.Name)]
 public class NativeToolSweepTests(ITestOutputHelper output)
 {
     private static int Limit => int.TryParse(Environment.GetEnvironmentVariable("NDM_NATIVE_TOOL_SWEEP_LIMIT"), out var l) ? l : 120;

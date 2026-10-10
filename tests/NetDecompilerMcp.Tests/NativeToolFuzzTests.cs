@@ -16,6 +16,7 @@ namespace NetDecompilerMcp.Tests;
 /// NDM_NATIVE_TOOL_FUZZ_SEED the base seed; NDM_NATIVE_TOOL_FUZZ_DUMP a folder that receives the failing inputs.
 /// </summary>
 [Trait("Speed", "Slow")]
+[Collection(SweepCollection.Name)]
 public class NativeToolFuzzTests(ITestOutputHelper output)
 {
     [Fact]

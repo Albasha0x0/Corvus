@@ -20,7 +20,7 @@ public class MsvcRttiTests(ITestOutputHelper output)
     }
 
     /// <summary>The image through the real PE parser; null when the file is not a PE image or cannot be read.</summary>
-    private static PeFile? TryOpen(string path)
+    internal static PeFile? TryOpen(string path)
     {
         try { return PeFile.Open(path); }
         catch (NetDecompilerMcp.Core.ToolError) { return null; }
@@ -98,76 +98,6 @@ public class MsvcRttiTests(ITestOutputHelper output)
                 Assert.All(v.SlotRvas, s => Assert.True(image.SectionAt(s)?.IsExecutable, $"{c.Name}: slot 0x{s:X} not in an executable section"));
             }
         }
-    }
-
-    /// <summary>
-    /// Every DLL and EXE in System32 and SysWOW64: no exception, bounded time per file, structural invariants, and the
-    /// same classes and vftable starts with and without the relocation cross-check.
-    /// </summary>
-    [Fact]
-    [Trait("Speed", "Slow")]
-    public void SweepSystemImages()
-    {
-        var files = MsvcCorpus.SystemDirectories().Distinct(StringComparer.OrdinalIgnoreCase)
-            .SelectMany(d => MsvcCorpus.SafeFiles(d, "*.dll").Concat(MsvcCorpus.SafeFiles(d, "*.exe"))).ToList();
-        var sw = Stopwatch.StartNew();
-        int images = 0, withRtti = 0, classes = 0, vtables = 0, locators = 0, noVtable = 0, tdRejected = 0, colRejected = 0, issues = 0;
-        int startsDiffer = 0, slotsLonger = 0, slotsShorter = 0;
-        var endReasons = new Dictionary<string, int>();
-        var slowest = (File: "", Time: TimeSpan.Zero);
-        var failures = new List<string>();
-        var gate = new object();
-        Parallel.ForEach(files, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(2, Environment.ProcessorCount / 2) }, file =>
-        {
-            var image = TryOpen(file);
-            if (image == null || image.Arch == NativeArch.Unknown) return;
-            var t = Stopwatch.StartNew();
-            MsvcRttiResult result, plain;
-            try
-            {
-                result = MsvcRtti.Analyze(image);
-                plain = MsvcRtti.Analyze(MsvcTestImage.TryLoad(file, withRelocations: false)!);
-                CheckInvariants(image, result);
-            }
-            catch (Exception ex)
-            {
-                lock (gate) failures.Add($"{file}: {ex.GetType().Name}: {ex.Message.Split('\n')[0]}");
-                return;
-            }
-            t.Stop();
-            var withRelocs = result.Classes.SelectMany(c => c.Vtables).ToDictionary(v => v.VftableRva, v => v.SlotRvas.Count);
-            var without = plain.Classes.SelectMany(c => c.Vtables).ToDictionary(v => v.VftableRva, v => v.SlotRvas.Count);
-            lock (gate)
-            {
-                images++;
-                if (result.Classes.Count > 0) withRtti++;
-                classes += result.Classes.Count;
-                vtables += result.Stats.Vtables;
-                locators += result.Stats.Locators;
-                noVtable += result.Stats.LocatorsWithoutVtable;
-                tdRejected += result.Stats.TypeDescriptorCandidatesRejected;
-                colRejected += result.Stats.LocatorCandidatesRejected;
-                issues += result.Classes.Sum(c => c.Issues.Count);
-                if (!withRelocs.Keys.Order().SequenceEqual(without.Keys.Order())) startsDiffer++;
-                foreach (var (rva, n) in withRelocs)
-                    if (without.TryGetValue(rva, out var m))
-                    {
-                        if (m > n) slotsLonger++;
-                        else if (m < n) slotsShorter++;
-                    }
-                foreach (var v in result.Classes.SelectMany(c => c.Vtables))
-                    endReasons[v.EndReason] = endReasons.GetValueOrDefault(v.EndReason) + 1;
-                if (t.Elapsed > slowest.Time) slowest = (file, t.Elapsed);
-                if (t.Elapsed > TimeSpan.FromSeconds(20)) failures.Add($"{file}: {t.Elapsed.TotalSeconds:F1} s");
-            }
-        });
-        output.WriteLine($"{images} images in {sw.Elapsed.TotalSeconds:F1} s; {withRtti} with RTTI: {classes} classes, {locators} locators, {vtables} vftables");
-        output.WriteLine($"locators without vftable {noVtable}; rejected candidates: type descriptors {tdRejected}, locators {colRejected}; class issues {issues}");
-        output.WriteLine($"without relocations: images with different vftable starts {startsDiffer}, vftables longer {slotsLonger}, shorter {slotsShorter}");
-        output.WriteLine("vftable end: " + string.Join(", ", endReasons.OrderByDescending(e => e.Value).Select(e => $"{e.Key} {e.Value}")));
-        output.WriteLine($"slowest: {slowest.File} {slowest.Time.TotalSeconds:F2} s");
-        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(50)));
-        Assert.True(images > 100, $"only {images} images");
     }
 
     // ---- compiled sample ----
@@ -371,5 +301,80 @@ public class MsvcRttiTests(ITestOutputHelper output)
             if (va >= imageBase) map.TryAdd(m.Groups[1].Value, (uint)(va - imageBase));
         }
         return map;
+    }
+}
+
+/// <summary>The System32 / SysWOW64 RTTI sweep: timed per file, so it runs alone after the parallel tests.</summary>
+[Collection(SweepCollection.Name)]
+public class MsvcRttiSweepTests(ITestOutputHelper output)
+{
+    /// <summary>
+    /// Every DLL and EXE in System32 and SysWOW64: no exception, bounded time per file, structural invariants, and the
+    /// same classes and vftable starts with and without the relocation cross-check.
+    /// </summary>
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void SweepSystemImages()
+    {
+        var files = MsvcCorpus.SystemDirectories().Distinct(StringComparer.OrdinalIgnoreCase)
+            .SelectMany(d => MsvcCorpus.SafeFiles(d, "*.dll").Concat(MsvcCorpus.SafeFiles(d, "*.exe"))).ToList();
+        var sw = Stopwatch.StartNew();
+        int images = 0, withRtti = 0, classes = 0, vtables = 0, locators = 0, noVtable = 0, tdRejected = 0, colRejected = 0, issues = 0;
+        int startsDiffer = 0, slotsLonger = 0, slotsShorter = 0;
+        var endReasons = new Dictionary<string, int>();
+        var slowest = (File: "", Time: TimeSpan.Zero);
+        var failures = new List<string>();
+        var gate = new object();
+        Parallel.ForEach(files, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(2, Environment.ProcessorCount / 2) }, file =>
+        {
+            var image = MsvcRttiTests.TryOpen(file);
+            if (image == null || image.Arch == NativeArch.Unknown) return;
+            var t = Stopwatch.StartNew();
+            MsvcRttiResult result, plain;
+            try
+            {
+                result = MsvcRtti.Analyze(image);
+                plain = MsvcRtti.Analyze(MsvcTestImage.TryLoad(file, withRelocations: false)!);
+                MsvcRttiTests.CheckInvariants(image, result);
+            }
+            catch (Exception ex)
+            {
+                lock (gate) failures.Add($"{file}: {ex.GetType().Name}: {ex.Message.Split('\n')[0]}");
+                return;
+            }
+            t.Stop();
+            var withRelocs = result.Classes.SelectMany(c => c.Vtables).ToDictionary(v => v.VftableRva, v => v.SlotRvas.Count);
+            var without = plain.Classes.SelectMany(c => c.Vtables).ToDictionary(v => v.VftableRva, v => v.SlotRvas.Count);
+            lock (gate)
+            {
+                images++;
+                if (result.Classes.Count > 0) withRtti++;
+                classes += result.Classes.Count;
+                vtables += result.Stats.Vtables;
+                locators += result.Stats.Locators;
+                noVtable += result.Stats.LocatorsWithoutVtable;
+                tdRejected += result.Stats.TypeDescriptorCandidatesRejected;
+                colRejected += result.Stats.LocatorCandidatesRejected;
+                issues += result.Classes.Sum(c => c.Issues.Count);
+                if (!withRelocs.Keys.Order().SequenceEqual(without.Keys.Order())) startsDiffer++;
+                foreach (var (rva, n) in withRelocs)
+                    if (without.TryGetValue(rva, out var m))
+                    {
+                        if (m > n) slotsLonger++;
+                        else if (m < n) slotsShorter++;
+                    }
+                foreach (var v in result.Classes.SelectMany(c => c.Vtables))
+                    endReasons[v.EndReason] = endReasons.GetValueOrDefault(v.EndReason) + 1;
+                if (t.Elapsed > slowest.Time) slowest = (file, t.Elapsed);
+                if (t.Elapsed > TimeSpan.FromSeconds(20)) failures.Add($"{file}: {t.Elapsed.TotalSeconds:F1} s");
+            }
+        });
+        output.WriteLine($"{images} images in {sw.Elapsed.TotalSeconds:F1} s; {withRtti} with RTTI: {classes} classes, {locators} locators, {vtables} vftables");
+        output.WriteLine($"locators without vftable {noVtable}; rejected candidates: type descriptors {tdRejected}, locators {colRejected}; class issues {issues}");
+        output.WriteLine($"without relocations: images with different vftable starts {startsDiffer}, vftables longer {slotsLonger}, shorter {slotsShorter}");
+        output.WriteLine("vftable end: " + string.Join(", ", endReasons.OrderByDescending(e => e.Value).Select(e => $"{e.Key} {e.Value}")));
+        output.WriteLine($"slowest: {slowest.File} {slowest.Time.TotalSeconds:F2} s");
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(50)));
+        Assert.True(images > 100, $"only {images} images");
     }
 }

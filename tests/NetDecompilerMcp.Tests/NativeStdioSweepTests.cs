@@ -17,6 +17,7 @@ namespace NetDecompilerMcp.Tests;
 /// <see cref="MaxSilence"/>. NDM_NATIVE_STDIO_SAMPLE sets the images per directory (default 25).
 /// </summary>
 [Trait("Speed", "Slow")]
+[Collection(SweepCollection.Name)]
 public class NativeStdioSweepTests(ITestOutputHelper output)
 {
     private static readonly TimeSpan MaxSilence = TimeSpan.FromSeconds(15);
