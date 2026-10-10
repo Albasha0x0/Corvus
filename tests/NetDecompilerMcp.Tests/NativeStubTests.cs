@@ -132,6 +132,96 @@ public class NativeStubTests(ITestOutputHelper output)
             Assert.True(trace.FindIndex(t => t.StartsWith("sub ")) < trace.FindIndex(t => t == "mov eax, 2"));
     }
 
+    [Theory]
+    [InlineData(NativeArch.X64, StubMode.Before)]
+    [InlineData(NativeArch.X64, StubMode.Replace)]
+    [InlineData(NativeArch.X64, StubMode.After)]
+    [InlineData(NativeArch.X86, StubMode.Before)]
+    [InlineData(NativeArch.X86, StubMode.Replace)]
+    public async Task GrownSection_RoundTripsThroughSaveAndPreservesOrder(NativeArch arch, StubMode mode)
+    {
+        using var h = new Harness();
+        var (native, index, _, entry, ret) = await h.Load(arch);
+        var original = native.Image.FileBytes.ToArray();
+
+        // placement=section forces a new section even though the image has a cave.
+        var newBytes = X86Assembler.Assemble(arch, native.Image.ImageBase + entry, "mov eax, 2").Bytes;
+        var prepared = h.Edits.PrepareExtendedPatch(index, entry, newBytes, "mov eax, 2", mode, "grow stub", null, StubPlacement.Section);
+        var stub = prepared.Patch.Stub!;
+        var growth = prepared.Patch.Growth!;
+        Assert.Equal(ret, stub.ReturnRva);
+        Assert.StartsWith("new section", stub.Placement);
+        Assert.Equal(stub.Rva, growth.SectionRva);
+        h.Edits.ApplyPatch(native, index, prepared, dryRun: false);
+
+        // Save: the file grows and verify accepts it.
+        var outPath = h.Dir.File($"grow-{arch}-{mode}.dll");
+        var report = h.Edits.Save(native, outPath, overwrite: true, stripSignature: false);
+        Assert.Contains("Verified", report);
+        Assert.Contains("grown by", report);
+        Assert.True(new FileInfo(outPath).Length > original.Length);
+
+        // Reload the written file in a fresh workspace: it parses, the new section is listed, the trace holds.
+        using var env2 = new Env();
+        var code2 = new NativeCodeService(env2.Workspace, env2.Options, null, h.Store);
+        var reloaded = env2.Workspace.LoadAny(outPath).Native!;
+        var index2 = await code2.Index(reloaded, null, default);
+        Assert.Contains(reloaded.Image.Sections, s => s.Name == growth.SectionName && s.Rva == growth.SectionRva);
+        Assert.True(reloaded.Image.SizeOfImage > native.Image.SizeOfImage - growth.SectionVirtualSize); // SizeOfImage grew
+
+        var trace = Trace(index2, entry).Select(t => string.Join(' ', t.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))).ToList();
+        _output.WriteLine($"{arch} {mode} (section): {string.Join(" | ", trace)}");
+        Assert.Contains("mov eax, 2", trace);
+        Assert.Contains("mov eax, 7", trace);
+        Assert.Equal("ret", trace[^1]);
+        bool hasSub = trace.Any(t => t.StartsWith("sub "));
+        Assert.Equal(mode != StubMode.Replace, hasSub);
+        if (mode == StubMode.Before)
+            Assert.True(trace.FindIndex(t => t == "mov eax, 2") < trace.FindIndex(t => t.StartsWith("sub ")));
+        if (mode == StubMode.After)
+            Assert.True(trace.FindIndex(t => t.StartsWith("sub ")) < trace.FindIndex(t => t == "mov eax, 2"));
+
+        // Undo removes the section: the image returns byte-for-byte to the original.
+        h.Edits.Undo(native, null);
+        Assert.Equal(Convert.ToHexString(original), Convert.ToHexString(native.Patches.PatchedBytes()));
+    }
+
+    [Fact]
+    public async Task GrownSection_ExportsAndReappliesAcrossFormats()
+    {
+        using var h = new Harness();
+        var (native, index, path, entry, _) = await h.Load(NativeArch.X64);
+        var newBytes = X86Assembler.Assemble(NativeArch.X64, native.Image.ImageBase + entry, "mov eax, 2").Bytes;
+        var prepared = h.Edits.PrepareExtendedPatch(index, entry, newBytes, "mov eax, 2", StubMode.Before, "grow stub", null, StubPlacement.Section);
+        h.Edits.ApplyPatch(native, index, prepared, dryRun: false);
+
+        var tools = new NativePatchTools(h.Env.Workspace, h.Code, h.Edits);
+        var saved = h.Dir.File("grow-saved.bin");
+        h.Edits.Save(native, saved, overwrite: true, stripSignature: false);
+        var expected = File.ReadAllBytes(saved);
+        var originalBytes = native.Patches.OriginalBytes();
+
+        // IPS/IPS32 and JSON applied to the original reproduce save_native's grown file; .dif refuses growth.
+        foreach (var fmt in new[] { "ips", "ips32", "json" })
+        {
+            var p = h.Dir.File($"grow.{fmt}");
+            var r = await tools.ExportNativePatches(native.Id, p, fmt);
+            byte[] applied = fmt == "json"
+                ? NativePatchExportTests.ApplyJson(originalBytes, File.ReadAllText(p))
+                : NativePatchExportTests.ApplyIps(originalBytes, File.ReadAllBytes(p));
+            Assert.True(expected.AsSpan().SequenceEqual(applied), $"{fmt} did not reproduce save_native's grown file");
+        }
+        await Assert.ThrowsAsync<ToolError>(() => tools.ExportNativePatches(native.Id, h.Dir.File("grow.dif"), "dif"));
+
+        // The IDAPython script creates the segment for the appended section.
+        var idaPath = h.Dir.File("grow.ida");
+        await tools.ExportNativePatches(native.Id, idaPath, "ida");
+        var script = File.ReadAllText(idaPath);
+        Assert.Contains("ida_segment", script);
+        Assert.Contains("add_segments()", script);
+        Assert.Contains(".ndm", script);
+    }
+
     [Fact]
     public async Task DryRun_ShowsStubAddressAndDisassembly_WithoutRecording()
     {
@@ -197,7 +287,8 @@ public class NativeStubTests(ITestOutputHelper output)
         var n = h.Env.Workspace.LoadAny(path).Native!;
         var idx = await h.Code.Index(n, null, default);
         var nb = X86Assembler.Assemble(NativeArch.X64, n.Image.ImageBase + text.Rva, "mov eax, 2").Bytes;
-        var ex = Assert.Throws<ToolError>(() => h.Edits.PrepareExtendedPatch(idx, text.Rva, nb, "mov eax, 2", StubMode.Replace, "s", null));
+        // placement=cave: with no cave it still refuses (auto would grow a section instead).
+        var ex = Assert.Throws<ToolError>(() => h.Edits.PrepareExtendedPatch(idx, text.Rva, nb, "mov eax, 2", StubMode.Replace, "s", null, StubPlacement.Cave));
         Assert.Contains("no_space", ex.Message);
     }
 
@@ -272,6 +363,111 @@ public class NativeStubTests(ITestOutputHelper output)
             _output.WriteLine($"{archFlag}: baseline={baseline.Output.Trim()} patched={run.Output.Trim()}");
             Assert.Equal("2", run.Output.Trim());
         }
+    }
+
+    [Trait("Speed", "Slow")]
+    [WindowsFact]
+    public void GrownSection_ChangesCompiledProgramOutput()
+    {
+        var vcvars = VisualStudio.VcVarsAll();
+        if (vcvars == null) return; // no MSVC toolchain
+
+        using var dir = new TempDir();
+        var src = dir.File("prog.c");
+        File.WriteAllText(src, "#include <stdio.h>\n__declspec(noinline) int value(void){ return 1; }\nint main(void){ printf(\"%d\\n\", value()); return 0; }\n");
+        var exe = dir.File("prog.exe");
+
+        foreach (var (archFlag, arch) in new[] { ("x64", NativeArch.X64), ("x86", NativeArch.X86) })
+        {
+            var bat = dir.File($"build-{archFlag}.bat");
+            File.WriteAllText(bat, $"@call \"{vcvars}\" {archFlag} >nul\r\n@cl /nologo /Od \"{src}\" /Fe:\"{exe}\" >nul\r\n");
+            var (code, outp) = Tools.Run(new ProcessStartInfo("cmd.exe", $"/c \"{bat}\""), 180_000);
+            if (code != 0 || !File.Exists(exe)) { _output.WriteLine($"{archFlag} build skipped: {outp}"); continue; }
+
+            var baseline = Tools.Run(new ProcessStartInfo(exe), 30_000);
+            Assert.Equal("1", baseline.Output.Trim());
+
+            using var env = new Env();
+            using var store = new TempDir();
+            var code2 = new NativeCodeService(env.Workspace, env.Options, null, new AnnotationStore(store.File("ann")));
+            var edits = new NativeEditService(env.Workspace, code2);
+            var native = env.Workspace.LoadAny(exe).Native!;
+            var index = code2.Index(native, null, default).Result;
+            if (index.Image.Arch != arch) continue;
+            if (!TryFindMovEax1Site(index, out uint site)) { _output.WriteLine("mov eax,1 site not located"); continue; }
+
+            // Force placement=section: the stub goes into a brand-new appended section, not a cave.
+            var nb = X86Assembler.Assemble(arch, index.Image.ImageBase + site, "mov eax, 2").Bytes;
+            var prepared = edits.PrepareExtendedPatch(index, site, nb, "mov eax, 2", StubMode.Replace, "ret 2", null, StubPlacement.Section);
+            Assert.StartsWith("new section", prepared.Patch.Stub!.Placement);
+            edits.ApplyPatch(native, index, prepared, dryRun: false);
+            var patched = dir.File($"prog-grow-{archFlag}.exe");
+            var report = edits.Save(native, patched, overwrite: true, stripSignature: false);
+            Assert.Contains("grown by", report);
+
+            var run = Tools.Run(new ProcessStartInfo(patched), 30_000);
+            _output.WriteLine($"{archFlag} (section): baseline={baseline.Output.Trim()} patched={run.Output.Trim()} exit={run.ExitCode}");
+            Assert.Equal("2", run.Output.Trim());
+            Assert.Equal(0, run.ExitCode);
+        }
+    }
+
+    /// <summary>A copy of a real System32 DLL: grown with a stub in a new section, it reloads and the trace jmp -> stub -> back holds.</summary>
+    [Trait("Speed", "Slow")]
+    [WindowsFact]
+    public async Task GrownSection_RealSystem32Binary_ReloadsAndTraceHolds()
+    {
+        var src = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "version.dll");
+        if (!File.Exists(src)) return;
+        using var h = new Harness();
+        var copy = h.Dir.File("version.dll");
+        File.Copy(src, copy); // read-only source, patch a writable copy
+        var native = h.Env.Workspace.LoadAny(copy).Native!;
+        var index = await h.Code.Index(native, null, default);
+        if (index.Support != CodeSupport.Full) return;
+
+        // Find a site, past any prologue, that PatchExtension accepts; skip cleanly if none is found quickly.
+        NativeEditService.PatchResult? prepared = null;
+        uint site = 0;
+        var dis = index.CreateDisassembler();
+        foreach (var f in index.Functions.Take(400))
+        {
+            if (f.Size < 16) continue;
+            foreach (var line in dis.Disassemble(f.Start, 24, f.End))
+            {
+                if (line.Rva <= f.Start + 8 || line.Rva + 5 > f.End) continue; // past the prologue, room for a jmp
+                try
+                {
+                    prepared = h.Edits.PrepareExtendedPatch(index, line.Rva, [0x90], null, StubMode.Before, "grow", null, StubPlacement.Section);
+                    site = line.Rva;
+                }
+                catch (ToolError) { continue; }
+                break;
+            }
+            if (prepared != null) break;
+        }
+        if (prepared == null) { _output.WriteLine("no stub-able site found in version.dll"); return; }
+        var growth = prepared.Patch.Growth!;
+        h.Edits.ApplyPatch(native, index, prepared, dryRun: false);
+
+        var outPath = h.Dir.File("version-grown.dll");
+        var report = h.Edits.Save(native, outPath, overwrite: true, stripSignature: true);
+        Assert.Contains("Verified", report);
+
+        using var env2 = new Env();
+        var code2 = new NativeCodeService(env2.Workspace, env2.Options, null, h.Store);
+        var reloaded = env2.Workspace.LoadAny(outPath).Native!;
+        var index2 = await code2.Index(reloaded, null, default);
+        Assert.Contains(reloaded.Image.Sections, s => s.Name == growth.SectionName);
+
+        // The site now jumps into the new section; following it returns to the instruction after the site.
+        var facts = index2.Decode(site);
+        Assert.NotNull(facts);
+        Assert.Equal(FlowKind.Jump, facts!.Flow);
+        Assert.Equal(growth.SectionRva, facts.BranchTarget);
+        var stubFacts = index2.Decode(growth.SectionRva);
+        Assert.NotNull(stubFacts); // the new section decodes
+        _output.WriteLine($"version.dll grown: site 0x{site:X} -> section '{growth.SectionName}' 0x{growth.SectionRva:X} ({growth.SectionVirtualSize} bytes), file {new FileInfo(src).Length:N0} -> {new FileInfo(outPath).Length:N0}");
     }
 
     /// <summary>Locates the "mov eax, 1" instruction inside a small function (value()); returns its RVA as the patch site.</summary>

@@ -26,13 +26,19 @@ internal sealed class ByteImage(INativeImage inner, uint windowRva, byte[] windo
     public int Read(uint rva, Span<byte> destination)
     {
         int n = inner.Read(rva, destination);
-        // Overlay the window where it intersects [rva, rva+n).
-        for (int i = 0; i < n; i++)
+        // Overlay the window where it intersects the request, and serve it even past what the inner image maps (the
+        // window can describe a stub in a new section that is not yet part of the image).
+        int filled = n;
+        for (int i = 0; i < destination.Length; i++)
         {
             uint cur = rva + (uint)i;
-            if (cur >= windowRva && cur - windowRva < window.Length) destination[i] = window[cur - windowRva];
+            if (cur >= windowRva && cur - windowRva < window.Length)
+            {
+                destination[i] = window[cur - windowRva];
+                if (i + 1 > filled) filled = i + 1;
+            }
         }
-        return n;
+        return filled;
     }
 
     public bool TryRvaToFileOffset(uint rva, out long fileOffset) => inner.TryRvaToFileOffset(rva, out fileOffset);

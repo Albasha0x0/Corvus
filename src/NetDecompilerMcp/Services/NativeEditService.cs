@@ -111,9 +111,9 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
     /// <see cref="PatchExtension"/> for the safety rules and reason codes.
     /// </summary>
     public PatchResult PrepareExtendedPatch(NativeCodeIndex index, uint rva, byte[] newBytes, string? assembly,
-        StubMode mode, string description, Func<string, ulong?>? resolve)
+        StubMode mode, string description, Func<string, ulong?>? resolve, StubPlacement placement = StubPlacement.Auto)
     {
-        var ext = PatchExtension.Build(index, rva, newBytes, assembly, mode, description, resolve);
+        var ext = PatchExtension.Build(index, rva, newBytes, assembly, mode, description, resolve, placement);
         var image = index.Image;
         var before = Disasm(index, rva, ext.Patch.Length);
         var after = DisasmBytes(image, rva, ext.Patch.Replacement);

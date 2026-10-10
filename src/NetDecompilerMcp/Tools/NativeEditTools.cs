@@ -47,13 +47,20 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
 
     private const string ExtendDescription =
         "When the new code is larger than a single in-place patch allows (or always, to keep the original site intact), place a relocation " +
-        "stub in slack space: the site becomes a 5-byte jump to a file-backed code cave holding the new code, and control returns to the " +
-        "instruction after the site. Refused with a reason code (branch_target_in_site, displaced_absolute_reloc, unwind_data, no_space, " +
-        "no_space_at_site, arm64_unsupported) when unsafe. The stub is one undoable edit, exported and saved with the patch.";
+        "stub in slack space: the site becomes a near jump to the stub (a file-backed code cave, or a new executable section when none fits — " +
+        "see placement) holding the new code, and control returns to the instruction after the site. Refused with a reason code " +
+        "(branch_target_in_site, displaced_absolute_reloc, unwind_data, no_space, no_space_at_site, no_header_space, stub_needs_reloc, " +
+        "unreachable_section, arm64_unsupported) when unsafe. The stub is one undoable edit, exported and saved with the patch.";
 
     private const string StubModeDescription =
         "With extend=true, how the stub runs the new code relative to the site's displaced instructions: replace (default; the new code " +
         "runs instead of them), before (new code then the displaced originals), after (the displaced originals then the new code).";
+
+    private const string PlacementDescription =
+        "With extend=true, where the stub goes: auto (default; a reusable code cave if one fits, else a new executable section), cave (a " +
+        "file-backed code cave only; no_space when none fits), section (always a new section appended to the file). A new section updates the " +
+        "section count, SizeOfImage, SizeOfCode and PE checksum; undo removes it and the file returns byte-for-byte to the original. Refused " +
+        "with no_header_space (no free section-table slot), stub_needs_reloc (an absolute in-image operand under ASLR) or unreachable_section.";
 
     [McpServerTool(Name = "rename_native", Title = "Name a native address")]
     [Description("Give a name to a native address (a function start, or any address): the name shows up in list_functions, disassemble (labels and " +
@@ -121,6 +128,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description(RelocationsDescription)] string? relocations = null,
         [Description(ExtendDescription)] bool extend = false,
         [Description(StubModeDescription)] string? stubMode = null,
+        [Description(PlacementDescription)] string? placement = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -129,7 +137,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         var bytes = ParseHex(hex);
         if (extend)
         {
-            var extended = edits.PrepareExtendedPatch(index, rva, bytes, null, PatchExtension.ParseMode(stubMode), $"patch_bytes {bytes.Length} bytes (stub)", null);
+            var extended = edits.PrepareExtendedPatch(index, rva, bytes, null, PatchExtension.ParseMode(stubMode), $"patch_bytes {bytes.Length} bytes (stub)", null, PatchExtension.ParsePlacement(placement));
             return edits.ApplyPatch(native, index, extended, dryRun);
         }
         var mode = NativeEditService.ParseRelocationMode(relocations);
@@ -152,6 +160,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description(RelocationsDescription)] string? relocations = null,
         [Description(ExtendDescription)] bool extend = false,
         [Description(StubModeDescription)] string? stubMode = null,
+        [Description(PlacementDescription)] string? placement = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -167,7 +176,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         {
             // Assemble the new code at the eventual stub address inside the extension; here only validate it decodes.
             var newBytes = X86Assembler.Assemble(index.Image.Arch, startVa, assembly, resolve).Bytes;
-            var extended = edits.PrepareExtendedPatch(index, rva, newBytes, assembly, PatchExtension.ParseMode(stubMode), "patch_asm (stub)", resolve);
+            var extended = edits.PrepareExtendedPatch(index, rva, newBytes, assembly, PatchExtension.ParseMode(stubMode), "patch_asm (stub)", resolve, PatchExtension.ParsePlacement(placement));
             return edits.ApplyPatch(native, index, extended, dryRun);
         }
         var mode = NativeEditService.ParseRelocationMode(relocations);
