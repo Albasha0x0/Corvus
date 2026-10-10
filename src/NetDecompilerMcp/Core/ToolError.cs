@@ -2,34 +2,26 @@ using ModelContextProtocol;
 
 namespace NetDecompilerMcp.Core;
 
-/// <summary>Why a tool call failed; rendered as a snake_case code at the start of the error text.</summary>
+/// <summary>
+/// Why a tool call failed; rendered as a snake_case code at the start of the error text. Meanings and retryability:
+/// <see cref="ToolError.Meaning"/> and <see cref="ToolError.IsRetryable"/> (published as docs/errors.md).
+/// </summary>
 public enum ErrorCode
 {
-    /// <summary>Not classified yet.</summary>
     Failed,
-    /// <summary>An argument is missing, malformed or out of range.</summary>
     InvalidArgument,
-    /// <summary>The named symbol, address, file or entry does not exist.</summary>
     NotFound,
-    /// <summary>A name matches several things and the call needs one.</summary>
     Ambiguous,
-    /// <summary>The call needs a loaded target that is not loaded.</summary>
     NotLoaded,
-    /// <summary>The target kind, architecture or construct is not handled.</summary>
     Unsupported,
-    /// <summary>The input is corrupt or not of the expected format.</summary>
     MalformedInput,
-    /// <summary>A size, count or time limit was reached.</summary>
     LimitExceeded,
-    /// <summary>The change conflicts with the current state (stale edit, changed file, failed compile).</summary>
     Conflict,
-    /// <summary>Reading or writing a file failed.</summary>
+    ChangedOnDisk,
     IoError,
-    /// <summary>The operation took longer than its time limit.</summary>
     Timeout,
-    /// <summary>An external engine (IDA, Ghidra, a reference pack download) is missing or failed.</summary>
+    Cancelled,
     ProviderUnavailable,
-    /// <summary>The operating system refused access (another user's or a protected process, missing privileges).</summary>
     AccessDenied,
 }
 
@@ -63,7 +55,30 @@ public sealed class ToolError : McpException
     public const int MaxPartialChars = 32_000;
 
     /// <summary>Whether repeating the same call can succeed without changing its arguments.</summary>
-    public bool Retryable => Code is ErrorCode.Timeout or ErrorCode.IoError or ErrorCode.ProviderUnavailable;
+    public bool Retryable => IsRetryable(Code);
+
+    public static bool IsRetryable(ErrorCode code) => code is ErrorCode.Timeout or ErrorCode.Cancelled or ErrorCode.IoError or ErrorCode.ProviderUnavailable;
+
+    /// <summary>What a code means, for client authors.</summary>
+    public static string Meaning(ErrorCode code) => code switch
+    {
+        ErrorCode.Failed => "Not classified.",
+        ErrorCode.InvalidArgument => "An argument is missing, malformed, out of range or outside its value set, or a parameter is not declared.",
+        ErrorCode.NotFound => "The named symbol, address, file, entry or kept result does not exist.",
+        ErrorCode.Ambiguous => "A name matches several things and the call needs one; the candidates are listed.",
+        ErrorCode.NotLoaded => "The call needs a loaded target that is not loaded (or was unloaded meanwhile).",
+        ErrorCode.Unsupported => "The target kind, architecture or construct is not handled.",
+        ErrorCode.MalformedInput => "The input is corrupt or not of the expected format.",
+        ErrorCode.LimitExceeded => "A size or count limit was reached; an oversized result is kept for read_result.",
+        ErrorCode.Conflict => "The change conflicts with the current state (stale edit, existing file, failed compile).",
+        ErrorCode.ChangedOnDisk => "The file changed on disk since it was loaded; writing would lose those changes.",
+        ErrorCode.IoError => "Reading or writing a file failed.",
+        ErrorCode.Timeout => "The operation or the call took longer than its time limit; partial holds what was done.",
+        ErrorCode.Cancelled => "The server cancelled the work (the target was unloaded, reloaded or superseded).",
+        ErrorCode.ProviderUnavailable => "An external engine (IDA, a reference pack download) is missing or failed.",
+        ErrorCode.AccessDenied => "The operating system refused access (another user's or a protected process, missing privileges).",
+        _ => "Not classified.",
+    };
 
     public static string CodeName(ErrorCode code) => code switch
     {
@@ -76,8 +91,10 @@ public sealed class ToolError : McpException
         ErrorCode.MalformedInput => "malformed_input",
         ErrorCode.LimitExceeded => "limit_exceeded",
         ErrorCode.Conflict => "conflict",
+        ErrorCode.ChangedOnDisk => "changed_on_disk",
         ErrorCode.IoError => "io_error",
         ErrorCode.Timeout => "timeout",
+        ErrorCode.Cancelled => "cancelled",
         ErrorCode.ProviderUnavailable => "provider_unavailable",
         ErrorCode.AccessDenied => "access_denied",
         _ => "failed",

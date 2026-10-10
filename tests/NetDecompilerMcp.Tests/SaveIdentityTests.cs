@@ -73,7 +73,7 @@ public class SaveIdentityTests : IDisposable
         File.WriteAllBytes(original, changed);
 
         var error = Assert.Throws<ToolError>(() => env.Edits.Save(env.Fixture, original, overwrite: true));
-        Assert.Equal(ErrorCode.Conflict, error.Code);
+        Assert.Equal(ErrorCode.ChangedOnDisk, error.Code);
         Assert.Contains("changed on disk since load", error.Message);
         Assert.Equal(changed, File.ReadAllBytes(original));
         Assert.False(File.Exists(original + ".bak"));

@@ -22,7 +22,7 @@ public static class SaveTarget
         if (Path.Exists(full) && !overwrite)
             throw new ToolError(ErrorCode.Conflict, $"{full} already exists. Pass overwrite=true to replace it{(isOriginal ? " (the original is backed up to .bak)" : "")}.");
         if (isOriginal && File.Exists(full) && !string.Equals(Sha256(full), originalSha256, StringComparison.OrdinalIgnoreCase))
-            throw new ToolError(ErrorCode.Conflict, $"{full} changed on disk since load; replacing it would lose those changes. Nothing was written.",
+            throw new ToolError(ErrorCode.ChangedOnDisk, $"{full} changed on disk since load; replacing it would lose those changes. Nothing was written.",
                 "save to another path, or export the edits, reload the file and apply them again");
         return new(full, isOriginal);
     }

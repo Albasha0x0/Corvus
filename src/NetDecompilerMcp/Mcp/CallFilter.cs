@@ -84,6 +84,12 @@ internal static partial class CallFilter
         {
             return DeadlineError(tool, ex.Limit, stillRunning: true);
         }
+        catch (OperationCanceledException) when (!call.IsCancellationRequested)
+        {
+            // Neither the client nor the deadline: the server cancelled the work (an unload, reload or newer request).
+            return ErrorResult.From(new ToolError(ErrorCode.Cancelled, "the work was cancelled by the server before it finished.",
+                "call again; if the target was unloaded or reloaded, check list_assemblies first"), tool);
+        }
         catch (ArgumentException ex) when (ex.ParamName == "arguments" && MissingParameter().Match(ex.Message) is { Success: true } m)
         {
             // Argument binding: a required parameter is missing.

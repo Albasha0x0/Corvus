@@ -56,6 +56,16 @@ public class CallDeadlineTests
     }
 
     [Fact]
+    public async Task ServerSideCancellationIsACancelledError()
+    {
+        using var services = Services();
+        var result = await Run(services, "get_type_info", _ => throw new OperationCanceledException());
+        var json = McpProtocolTests.ErrorJson(result);
+        Assert.Equal("cancelled", json.GetProperty("code").GetString());
+        Assert.True(json.GetProperty("retryable").GetBoolean());
+    }
+
+    [Fact]
     public async Task ToolTimeoutErrorsKeepTheirPartialResult()
     {
         using var services = Services();

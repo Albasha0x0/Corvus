@@ -56,7 +56,7 @@ From source instead: `./publish.ps1`, then `publish/NetDecompilerMcp install`.
 
 **MCP features:** 101 tools (each with a title and read-only / destructive / idempotent / open-world annotations from one audited table, `src/NetDecompilerMcp/Mcp/ToolEffects.cs`),
 resources and resource templates (subscribers get an update notice after each workspace change), 9 prompts, argument completion, progress notifications, structured output for the list,
-search and info tools, typed errors (`Error (<code>) in <tool>: ...` with a `Next:` step and a JSON copy), strict arguments
+search and info tools, typed errors (`Error (<code>) in <tool>: ...` with a `Next:` step and a JSON copy; codes and format in [docs/errors.md](docs/errors.md)), strict arguments
 (an undeclared parameter is `invalid_argument` naming the closest declared ones; closed value sets such as `engine`, `kind`
 and `format` are advertised as `enum` and an unlisted value is `invalid_argument` with the closest one), a stale-server check
 (`server_status expectedCatalogDigest=...`, `NetDecompilerMcp doctor`), a response-size guard (`read_result`), cancellation,
