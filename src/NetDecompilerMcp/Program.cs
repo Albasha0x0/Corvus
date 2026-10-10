@@ -67,6 +67,7 @@ builder.Services
     .AddSingleton<NativeEditService>()
     .AddSingleton<Il2CppNativeNames>()
     .AddSingleton<NativeNamePush>()
+    .AddSingleton<NativeTypePush>()
     .AddSingleton<ReadyToRunService>()
     .AddSingleton<PdbService>()
     .AddSingleton<MinidumpService>();
@@ -140,6 +141,7 @@ var host = builder.Build();
 host.Services.GetRequiredService<IndexingService>();
 host.Services.GetRequiredService<NativeCodeService>();
 host.Services.GetRequiredService<PdbService>(); // reads matching local PDBs during index builds
+host.Services.GetRequiredService<NativeEngineService>(); // with --ida-prewarm, analyzes preloaded native images in the background
 host.Services.GetRequiredService<FileWatchService>().Changed += _ => NotifyResourcesChanged(host.Services);
 Preload(host.Services.GetRequiredService<AssemblyWorkspace>(), host.Services.GetRequiredService<ILogger<AssemblyWorkspace>>(), options);
 await host.RunAsync();

@@ -190,7 +190,7 @@ public sealed class Il2CppExporter(Il2CppService il2cpp)
         """;
 
     /// <summary>Every type of the scope with fields, and the static fields of each, laid out (generic instances follow from use).</summary>
-    private static void LayOut(Il2CppLayout layout, IReadOnlyList<LoadedAssembly> scope, CancellationToken ct)
+    internal static void LayOut(Il2CppLayout layout, IReadOnlyList<LoadedAssembly> scope, CancellationToken ct)
     {
         foreach (var t in scope.SelectMany(a => a.Module.GetTypes()))
         {
@@ -201,7 +201,7 @@ public sealed class Il2CppExporter(Il2CppService il2cpp)
         }
     }
 
-    private static string Header(Il2CppLayout layout)
+    internal static string Header(Il2CppLayout layout)
     {
         var sb = new StringBuilder(Prelude);
         foreach (var s in layout.Structs)
@@ -245,7 +245,7 @@ public sealed class Il2CppExporter(Il2CppService il2cpp)
     /// The C prototype of a method's native code: this (a pointer to its struct, or nd_ptr), the parameters and the
     /// trailing MethodInfo pointer every Il2Cpp method takes; value types by value, references as pointers.
     /// </summary>
-    private static string Prototype(Il2CppLayout layout, MethodDef method, string name)
+    internal static string Prototype(Il2CppLayout layout, MethodDef method, string name)
     {
         var parameters = new List<string>();
         var used = new HashSet<string>(StringComparer.Ordinal) { "method" };

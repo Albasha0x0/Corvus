@@ -53,11 +53,40 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
 
     Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>The functions, with the number of code references to each start when <paramref name="withReferences"/> is set.</summary>
+    Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(bool withReferences, CancellationToken cancellationToken = default) =>
+        ListFunctionsAsync(cancellationToken);
+
     /// <summary>Pseudocode of the function containing <paramref name="rva"/>.</summary>
     Task<DecompiledFunction> DecompileAsync(uint rva, CancellationToken cancellationToken = default);
 
     /// <summary>Instructions of the function containing <paramref name="rva"/>, in address order including chunks.</summary>
     Task<FunctionDisassembly> DisassembleAsync(uint rva, CancellationToken cancellationToken = default);
+
+    /// <summary>Up to <paramref name="count"/> items (instructions, or data the engine did not decode) from <paramref name="rva"/> in address order.</summary>
+    Task<FunctionDisassembly> DisassembleRangeAsync(uint rva, int count, CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not disassemble address ranges.");
+
+    /// <summary>Basic blocks of the function containing <paramref name="rva"/>, as the engine splits them.</summary>
+    Task<NativeBlockGraph> GetBlocksAsync(uint rva, CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not report basic blocks.");
+
+    /// <summary>
+    /// Makes the bytes patched in the database exactly <paramref name="wanted"/> (bytes patched earlier and not wanted
+    /// are restored to their original values) and decodes the touched code again, so the analysis reflects the patched
+    /// image without a new auto-analysis. A result with missing or mismatched bytes means the database could not take
+    /// the patch set; the caller analyzes the patched file instead.
+    /// </summary>
+    Task<PatchSyncResult> SyncPatchesAsync(IReadOnlyList<NativeByteRange> wanted, CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not apply byte patches.");
+
+    /// <summary>
+    /// Imports C declarations, applies function prototypes and builds C++ class types (vftable and class structs) in
+    /// one request; failures are counted, not thrown. Stamp and save as in <see cref="ApplyNamesAsync"/>.
+    /// </summary>
+    Task<TypeBatchResult> ApplyTypesAsync(NativeTypeBatch batch, string? stampKey = null, string? stamp = null, bool save = false,
+        CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not take types.");
 
     /// <summary>References to <paramref name="rva"/> (ordinary flow excluded).</summary>
     Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default);
@@ -134,7 +163,8 @@ public enum NativeFunctionFlags
 }
 
 /// <summary>A function as the engine sees it; <see cref="EndRva"/> is exclusive and covers the main chunk only.</summary>
-public sealed record NativeFunctionInfo(uint StartRva, uint EndRva, string Name, NativeFunctionFlags Flags);
+/// <summary><see cref="References"/>: code references to the start, when asked for.</summary>
+public sealed record NativeFunctionInfo(uint StartRva, uint EndRva, string Name, NativeFunctionFlags Flags, int? References = null);
 
 /// <summary>Pseudocode line (0-based) and the lowest instruction RVA it was generated from.</summary>
 public sealed record PseudocodeLineAddress(int Line, uint Rva);
@@ -142,6 +172,53 @@ public sealed record PseudocodeLineAddress(int Line, uint Rva);
 public sealed record DecompiledFunction(uint StartRva, string Name, string Text, IReadOnlyList<PseudocodeLineAddress> LineAddresses);
 
 public sealed record DisassembledInstruction(uint Rva, byte[] Bytes, string Text, string? Comment);
+
+/// <summary>
+/// A basic block as the engine splits it: [<see cref="StartRva"/>, <see cref="EndRva"/>), its instruction count, how it
+/// ends (engine kind: normal, indjump, ret, cndret, noret, enoret, error), its successors in the function, and whether
+/// its last instruction is a switch the engine resolved.
+/// </summary>
+public sealed record NativeBlockInfo(uint StartRva, uint EndRva, int Instructions, string Kind, IReadOnlyList<uint> Successors, bool Switch);
+
+/// <summary>The blocks of one function and the targets its jumps reach outside it (tail calls).</summary>
+public sealed record NativeBlockGraph(uint StartRva, string Name, IReadOnlyList<NativeBlockInfo> Blocks, IReadOnlyList<uint> TailCalls);
+
+/// <summary>A C declaration for the function at <see cref="Rva"/> ("ret name(params);").</summary>
+public sealed record NativePrototype(uint Rva, string Declaration);
+
+/// <summary>A vftable of a class: the subobject offset it serves, its RVA and its slot targets.</summary>
+public sealed record NativeVftableType(uint Offset, uint Rva, IReadOnlyList<uint> Slots);
+
+/// <summary>A base class subobject (by its type name in the batch) at an offset in the class.</summary>
+public sealed record NativeBaseType(string Name, int Offset);
+
+/// <summary>A polymorphic class as far as RTTI tells: C identifier name, vftables, base subobjects (bases listed earlier in the batch).</summary>
+public sealed record NativeClassType(string Name, IReadOnlyList<NativeVftableType> Vftables, IReadOnlyList<NativeBaseType> Bases);
+
+/// <summary>A function whose first argument is a pointer to <see cref="Class"/> (a virtual method found only in that class's vftable).</summary>
+public sealed record NativeMethodOwner(uint Rva, string Class);
+
+/// <summary>Types for <see cref="INativeDecompilerSession.ApplyTypesAsync"/>.</summary>
+public sealed record NativeTypeBatch(string? Declarations, IReadOnlyList<NativePrototype> Prototypes, IReadOnlyList<NativeClassType> Classes,
+    IReadOnlyList<NativeMethodOwner> Methods, int PointerSize);
+
+/// <summary><see cref="MethodSkips"/>: methods not typed, by reason (no_class_type, not_own_function, typed, no_type, no_arguments, rejected).</summary>
+public sealed record TypeBatchResult(int DeclarationErrors, int Typed, int TypeFailures, int Structs, int VftablesTyped, int MethodsTyped, TimeSpan Elapsed,
+    IReadOnlyList<string> Failures, IReadOnlyDictionary<string, int> MethodSkips);
+
+/// <summary>Bytes wanted at an RVA (a patch's replacement).</summary>
+public sealed record NativeByteRange(uint Rva, byte[] Bytes);
+
+/// <summary>
+/// What <see cref="INativeDecompilerSession.SyncPatchesAsync"/> did: bytes patched and reverted, code ranges decoded
+/// again and functions reanalyzed; bytes not in the database (<see cref="Missing"/>) or that would not take
+/// (<see cref="Mismatches"/>), with up to 20 of their RVAs each in <see cref="Problems"/>.
+/// </summary>
+public sealed record PatchSyncResult(int Patched, int Reverted, int Ranges, int Functions, int Missing, int Mismatches, IReadOnlyList<uint> Problems,
+    TimeSpan Elapsed)
+{
+    public bool Complete => Missing == 0 && Mismatches == 0;
+}
 
 public sealed record FunctionDisassembly(uint StartRva, uint EndRva, string Name, IReadOnlyList<DisassembledInstruction> Instructions, bool Truncated);
 

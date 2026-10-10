@@ -5,18 +5,20 @@ namespace NetDecompilerMcp.Native.Code;
 
 /// <summary>
 /// Where a name or comment at a native address comes from. At one address the highest source wins:
-/// user (rename_native / comment_native) &gt; pdb &gt; il2cpp &gt; discovered (exports, imports, sub_&lt;rva&gt;).
+/// user (rename_native / comment_native) &gt; pdb &gt; il2cpp &gt; ida (library functions IDA recognized by signature) &gt;
+/// discovered (exports, imports, sub_&lt;rva&gt;).
 /// </summary>
-public enum NativeNameSource { Discovered = 0, Il2Cpp = 1, Pdb = 2, User = 3 }
+public enum NativeNameSource { Discovered = 0, Ida = 1, Il2Cpp = 2, Pdb = 3, User = 4 }
 
 public static class NativeNameSources
 {
-    /// <summary>The source's identifier in tool output and sidecar files: user, pdb, il2cpp, discovered.</summary>
+    /// <summary>The source's identifier in tool output and sidecar files: user, pdb, il2cpp, ida, discovered.</summary>
     public static string Id(this NativeNameSource source) => source switch
     {
         NativeNameSource.User => "user",
         NativeNameSource.Pdb => "pdb",
         NativeNameSource.Il2Cpp => "il2cpp",
+        NativeNameSource.Ida => "ida",
         _ => "discovered",
     };
 

@@ -16,7 +16,7 @@ namespace NetDecompilerMcp.Tools;
 /// <summary>Native analysis built on the PE model: decompilation through an engine, C++ classes, P/Invoke checks.</summary>
 [McpServerToolType]
 public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngineService engines, OutputPager pager, NativeNamePush? names = null,
-    NativeCodeService? code = null)
+    NativeCodeService? code = null, NativeTypePush? types = null)
 {
     [McpServerTool(Name = "decompile_native", Title = "Decompile native function")]
     [Description("C pseudocode of the native function containing an address, through IDA (idalib; Hex-Rays). The first call on an image runs IDA's " +
@@ -40,7 +40,14 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
             throw new ToolError(ErrorCode.Unsupported, $"The {session.ProviderId} decompiler is not available for {session.Arch} code here.",
                 "disassemble the function instead, or install/license the decompiler for this architecture");
         var pushed = names != null ? NativeNamePush.Describe(await names.EnsureAsync(native, session, cancellationToken)) : null;
-        var key = $"decompile|{native.Image.Sha256}|{rva:X}|{addresses}|{NativeNamePush.CurrentStamp(session)}";
+        if (types != null && NativeTypePush.Describe(await types.EnsureAsync(native, session, cancellationToken)) is { } typed)
+            pushed = (pushed != null ? pushed + "\n// " : "") + typed;
+        if (types != null) await types.EnsureMethodAsync(native, session, code?.Ready(native)?.FunctionAt(rva)?.Start ?? rva, cancellationToken);
+        if (native.HasPatches)
+            pushed = (pushed != null ? pushed + "\n// " : "") + (engines.ServesPatchedCopy(native)
+                ? $"patched image: analyzed as a patched copy (the database could not take {Plural(native.Patches.Patches.Count, "patch")})"
+                : $"patched image: {Plural(native.Patches.Patches.Count, "patch")} applied in the database");
+        var key = $"decompile|{native.Image.Sha256}|{rva:X}|{addresses}|{NativeNamePush.CurrentStamp(session)}|{NativeTypePush.CurrentStamp(session)}";
         var text = pager.GetOrCreate(key, () =>
         {
             var function = session.DecompileAsync(rva, cancellationToken).GetAwaiter().GetResult();

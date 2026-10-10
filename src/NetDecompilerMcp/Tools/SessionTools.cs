@@ -61,6 +61,13 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             capabilities.Add(new($"native decompilation ({provider.DisplayName})", a.IsAvailable,
                 a.IsAvailable ? string.Join(", ", a.Details.Select(d => $"{d.Key} {d.Value}")) : a.Reason ?? "unavailable", a.Remediation));
         }
+        if (engines?.Prewarming is { } p)
+            capabilities.Add(p.Enabled
+                ? new("IDA background analysis on load", true,
+                    $"on: {(p.Running != null ? $"analyzing {p.Running} ({p.RunningSeconds:0} s)" : "idle")}, {p.Queued} queued, {p.Done} done, {p.Failed} failed, {p.Cancelled} cancelled" +
+                    (p.LastError != null ? $"; last error: {p.LastError}" : ""), null)
+                : new("IDA background analysis on load", false, "off: the first decompile_native on an image waits for IDA's auto-analysis",
+                    $"start the server with --ida-prewarm (or {ServerOptions.IdaPrewarmVariable}=1)"));
         int loaded = workspace.Read(() => workspace.Assemblies.Count + workspace.Natives.Count);
         return new ServerStatus(typeof(ServerOptions).Assembly.GetName().Version?.ToString(3) ?? "?", digest, expected ? difference == null : null, difference,
             toolCount, loaded, indexing.Status, options.MaxOutputChars, options.TimeoutSeconds, Environment.WorkingSet / (1024 * 1024), capabilities,

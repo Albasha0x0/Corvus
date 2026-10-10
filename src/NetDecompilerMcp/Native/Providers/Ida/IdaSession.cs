@@ -261,12 +261,16 @@ internal sealed class IdaSession : INativeDecompilerSession
         _provider.Forget(this);
     }
 
-    public async Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(CancellationToken cancellationToken = default) =>
+        ListFunctionsAsync(false, cancellationToken);
+
+    public async Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(bool withReferences, CancellationToken cancellationToken = default)
     {
-        var r = await CallAsync("functions", new JsonObject(), cancellationToken).ConfigureAwait(false);
+        var r = await CallAsync("functions", IdaProvider.Args(("refs", withReferences)), cancellationToken).ConfigureAwait(false);
         var list = new List<NativeFunctionInfo>(r.GetArrayLength());
         foreach (var f in r.EnumerateArray())
-            list.Add(new NativeFunctionInfo(f[0].GetUInt32(), f[1].GetUInt32(), f[2].GetString() ?? "", (NativeFunctionFlags)f[3].GetInt32()));
+            list.Add(new NativeFunctionInfo(f[0].GetUInt32(), f[1].GetUInt32(), f[2].GetString() ?? "", (NativeFunctionFlags)f[3].GetInt32(),
+                f.GetArrayLength() > 4 ? f[4].GetInt32() : null));
         return list;
     }
 
@@ -289,6 +293,30 @@ internal sealed class IdaSession : INativeDecompilerSession
             .ToList();
         return new FunctionDisassembly(r.GetProperty("start").GetUInt32(), r.GetProperty("end").GetUInt32(), r.GetProperty("name").GetString() ?? "",
             insns, r.GetProperty("truncated").GetBoolean());
+    }
+
+    public async Task<FunctionDisassembly> DisassembleRangeAsync(uint rva, int count, CancellationToken cancellationToken = default)
+    {
+        var r = await CallAsync("disasm_range", IdaProvider.Args(("rva", rva), ("count", Math.Clamp(count, 1, 200_000))), cancellationToken).ConfigureAwait(false);
+        var insns = Instructions(r);
+        return new FunctionDisassembly(rva, insns.Count > 0 ? insns[^1].Rva + (uint)insns[^1].Bytes.Length : rva, "", insns, r.GetProperty("truncated").GetBoolean());
+    }
+
+    private static List<DisassembledInstruction> Instructions(JsonElement r) =>
+        r.GetProperty("insns").EnumerateArray()
+            .Select(i => new DisassembledInstruction(i[0].GetUInt32(), Convert.FromHexString(i[1].GetString() ?? ""), i[2].GetString() ?? "",
+                i[3].ValueKind == JsonValueKind.String ? i[3].GetString() : null))
+            .ToList();
+
+    public async Task<NativeBlockGraph> GetBlocksAsync(uint rva, CancellationToken cancellationToken = default)
+    {
+        var r = await CallAsync("blocks", IdaProvider.Args(("rva", rva)), cancellationToken).ConfigureAwait(false);
+        var blocks = r.GetProperty("blocks").EnumerateArray()
+            .Select(b => new NativeBlockInfo(b[0].GetUInt32(), b[1].GetUInt32(), b[2].GetInt32(), b[3].GetString() ?? "normal",
+                b[4].EnumerateArray().Select(s => s.GetUInt32()).ToList(), b[5].GetBoolean()))
+            .ToList();
+        return new NativeBlockGraph(r.GetProperty("start").GetUInt32(), r.GetProperty("name").GetString() ?? "", blocks,
+            r.GetProperty("tail_calls").EnumerateArray().Select(t => t.GetUInt32()).ToList());
     }
 
     public async Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default) =>
@@ -341,6 +369,50 @@ internal sealed class IdaSession : INativeDecompilerSession
         return new NameBatchResult(r.GetProperty("named").GetInt32(), r.GetProperty("name_failures").GetInt32(), r.GetProperty("commented").GetInt32(),
             r.GetProperty("functions_created").GetInt32(), TimeSpan.FromSeconds(r.GetProperty("seconds").GetDouble()),
             r.GetProperty("failures").EnumerateArray().Select(f => f.GetString() ?? "").ToList());
+    }
+
+    public async Task<PatchSyncResult> SyncPatchesAsync(IReadOnlyList<NativeByteRange> wanted, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(wanted);
+        var rows = new JsonArray();
+        foreach (var w in wanted) rows.Add(new JsonArray(w.Rva, Convert.ToHexString(w.Bytes)));
+        // Journaled: a worker restarted from the saved database gets the same patch set again (the operation is idempotent).
+        var r = await CallAsync("sync_patches", IdaProvider.Args(("items", rows)), cancellationToken, journal: true).ConfigureAwait(false);
+        var problems = r.GetProperty("missing").EnumerateArray().Concat(r.GetProperty("mismatches").EnumerateArray()).Select(e => e.GetUInt32()).ToList();
+        return new PatchSyncResult(r.GetProperty("patched").GetInt32(), r.GetProperty("reverted").GetInt32(), r.GetProperty("ranges").GetInt32(),
+            r.GetProperty("functions").GetInt32(), r.GetProperty("missing_count").GetInt32(), r.GetProperty("mismatch_count").GetInt32(), problems,
+            TimeSpan.FromSeconds(r.GetProperty("seconds").GetDouble()));
+    }
+
+    public async Task<TypeBatchResult> ApplyTypesAsync(NativeTypeBatch batch, string? stampKey = null, string? stamp = null, bool save = false,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        var prototypes = new JsonArray();
+        foreach (var p in batch.Prototypes) prototypes.Add(new JsonArray(p.Rva, p.Declaration));
+        JsonObject? classes = null;
+        if (batch.Classes.Count > 0 || batch.Methods.Count > 0)
+        {
+            var list = new JsonArray();
+            foreach (var c in batch.Classes)
+            {
+                var vftables = new JsonArray();
+                foreach (var v in c.Vftables) vftables.Add(new JsonArray(v.Offset, v.Rva, new JsonArray(v.Slots.Select(s => (JsonNode)s).ToArray())));
+                var bases = new JsonArray();
+                foreach (var b in c.Bases) bases.Add(new JsonArray(b.Name, b.Offset));
+                list.Add(new JsonObject { ["name"] = c.Name, ["vftables"] = vftables, ["bases"] = bases });
+            }
+            var methods = new JsonArray();
+            foreach (var m in batch.Methods) methods.Add(new JsonArray(m.Rva, m.Class));
+            classes = new JsonObject { ["ptr"] = batch.PointerSize, ["classes"] = list, ["methods"] = methods };
+        }
+        var args = IdaProvider.Args(("decls", batch.Declarations), ("prototypes", prototypes), ("classes", classes), ("stamp_key", stampKey), ("stamp", stamp), ("save", save));
+        // The request is large and mostly in the type library: a saved batch is in the database, an unsaved one journaled.
+        var r = await CallAsync("apply_types", args, cancellationToken, journal: !save, saves: save).ConfigureAwait(false);
+        return new TypeBatchResult(r.GetProperty("decl_errors").GetInt32(), r.GetProperty("typed").GetInt32(), r.GetProperty("type_failures").GetInt32(),
+            r.GetProperty("structs").GetInt32(), r.GetProperty("vftables_typed").GetInt32(), r.GetProperty("methods_typed").GetInt32(),
+            TimeSpan.FromSeconds(r.GetProperty("seconds").GetDouble()), r.GetProperty("failures").EnumerateArray().Select(f => f.GetString() ?? "").ToList(),
+            r.TryGetProperty("method_skips", out var skips) ? skips.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetInt32()) : new Dictionary<string, int>());
     }
 
     public async Task<string?> GetStampAsync(string key, CancellationToken cancellationToken = default)
