@@ -155,11 +155,20 @@ internal static class PeCorpus
     }
 }
 
-/// <summary>A fact that runs only on Windows (it reads the Windows installation's own images).</summary>
+/// <summary>A fact that runs only on Windows (by default: it reads the Windows installation's own images).</summary>
 public sealed class WindowsFactAttribute : FactAttribute
 {
-    public WindowsFactAttribute()
+    public WindowsFactAttribute(string reason = "Needs the PE files of a Windows installation.")
     {
-        if (!OperatingSystem.IsWindows()) Skip = "Needs the PE files of a Windows installation.";
+        if (!OperatingSystem.IsWindows()) Skip = reason;
+    }
+}
+
+/// <summary>A theory that runs only on Windows (by default: it reads the Windows installation's own images).</summary>
+public sealed class WindowsTheoryAttribute : TheoryAttribute
+{
+    public WindowsTheoryAttribute(string reason = "Needs the PE files of a Windows installation.")
+    {
+        if (!OperatingSystem.IsWindows()) Skip = reason;
     }
 }

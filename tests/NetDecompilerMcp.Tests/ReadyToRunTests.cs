@@ -18,11 +18,15 @@ internal static class R2RFramework
 
     public static string Directory => Path.GetDirectoryName(typeof(object).Assembly.Location)!;
 
-    /// <summary>The framework file when it exists and is ReadyToRun, else null.</summary>
+    /// <summary>
+    /// The framework file when it exists and is ReadyToRun code get_r2r_code disassembles (x86 / x64; macOS and Linux
+    /// on ARM64 ship ARM64 code), else null.
+    /// </summary>
     public static string? Find(string file)
     {
         var path = Path.Combine(Directory, file);
-        return File.Exists(path) && AssemblyTraits.IsReadyToRun(File.ReadAllBytes(path)) ? path : null;
+        return File.Exists(path) && AssemblyTraits.IsReadyToRun(File.ReadAllBytes(path))
+               && R2RImage.Open(PeFile.Open(path)) is { } image && R2RDisassembly.CanDecode(image.Arch) ? path : null;
     }
 
     public static string? Linq => LinqPath.Value;
@@ -41,7 +45,7 @@ public sealed class R2RFrameworkFactAttribute : FactAttribute
 {
     public R2RFrameworkFactAttribute()
     {
-        if (R2RFramework.Linq == null) Skip = "The shared framework's System.Linq.dll is not ReadyToRun here.";
+        if (R2RFramework.Linq == null) Skip = "The shared framework's System.Linq.dll is not x86 / x64 ReadyToRun code here.";
     }
 }
 

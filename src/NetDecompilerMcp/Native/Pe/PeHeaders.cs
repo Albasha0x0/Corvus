@@ -127,6 +127,19 @@ public static class PeDirectory
 /// <summary>Names of header constants and flags (winnt.h spelling without the IMAGE_ prefixes).</summary>
 public static class PeNames
 {
+    /// <summary>XOR masks crossgen applies to the machine field of a ReadyToRun image built for each target OS.</summary>
+    public static readonly (ushort Mask, string Os)[] ReadyToRunOsMasks =
+        [(0, "Windows"), (0x7B79, "Linux"), (0x4644, "Apple"), (0xADC4, "FreeBSD"), (0x1993, "NetBSD"), (0x1992, "SunOS")];
+
+    /// <summary>The target OS when <paramref name="machine"/> names an architecture only after removing a non-Windows ReadyToRun mask; null otherwise.</summary>
+    public static string? NonWindowsReadyToRunOs(ushort machine)
+    {
+        if (Arch(machine) != NativeArch.Unknown) return null;
+        foreach (var (mask, os) in ReadyToRunOsMasks)
+            if (mask != 0 && Arch((ushort)(machine ^ mask)) != NativeArch.Unknown) return os;
+        return null;
+    }
+
     public static NativeArch Arch(ushort machine) => machine switch
     {
         0x014c => NativeArch.X86,

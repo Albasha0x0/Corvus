@@ -330,6 +330,24 @@ public sealed class NativePeTests
     }
 
     [Fact]
+    public void SectionLayout_ReadyToRunForAnotherOsMapsThroughTheSectionTable()
+    {
+        // crossgen for macOS / Linux: ARM64 ^ the Apple mask, 0x200 alignment, RVAs 0x10000 apart from the file offsets.
+        var b = new PeBuilder { Machine = 0xAA64 ^ 0x4644, SectionAlignment = 0x200, FileAlignment = 0x200 };
+        var text = b.Add(".text", [1, 2, 3, 4]);
+        text.Rva = 0x10200;
+        text.RawOffset = 0x200;
+        var pe = Parse(b.Build());
+        Assert.True(pe.TryRvaToFileOffset(0x10200, out long offset));
+        Assert.Equal(0x200, offset);
+        var buffer = new byte[4];
+        Assert.Equal(4, pe.Read(0x10200, buffer));
+        Assert.Equal([1, 2, 3, 4], buffer);
+        Assert.Equal("Apple", PeNames.NonWindowsReadyToRunOs(pe.Coff.Machine));
+        Assert.Null(PeNames.NonWindowsReadyToRunOs(0x8664));
+    }
+
+    [Fact]
     public void MappedReadsCrossSections()
     {
         var b = Basic();

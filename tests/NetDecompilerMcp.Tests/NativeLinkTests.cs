@@ -226,7 +226,7 @@ public sealed class NativeLinkTests : IDisposable
             new CallGraphTools(env.Workspace, new CallGraphService(env.Workspace), env.Pager, link));
     }
 
-    [Fact]
+    [WindowsFact("P/Invoke DLL lookup is done on Windows hosts only.")]
     public async Task ManagedCallsContinueIntoNativeCode()
     {
         var (env, refs, graph) = ManagedSetup();

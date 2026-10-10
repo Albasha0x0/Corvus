@@ -531,7 +531,7 @@ public class NativeCodeTests
         return data;
     }
 
-    [Theory]
+    [WindowsTheory]
     [MemberData(nameof(SmallSystemDlls))]
     public void Small_system_dll(string path)
     {

@@ -420,12 +420,15 @@ public static class SymbolResolver
         var image = s[..bang].Trim();
         var export = s[(bang + 1)..].Trim();
         if (!prefixed && !(NativeExtensions.Any(e => image.EndsWith(e, StringComparison.OrdinalIgnoreCase))
-                           && (Path.IsPathFullyQualified(image) || image.IndexOfAny(['(', '<', ',', ' ', ':']) < 0)))
+                           && (Path.IsPathFullyQualified(image) || IsWindowsDrivePath(image) || image.IndexOfAny(['(', '<', ',', ' ', ':']) < 0)))
             return null;
         if (image.Length == 0 || export.Length == 0)
             throw new ToolError(ErrorCode.InvalidArgument, $"'{symbol}' is not image!export.", "write native:kernel32.dll!CreateFileW");
         return new NativeSymbol(image, export);
     }
+
+    /// <summary>C:\dir\file or C:/dir/file, read as a path on every host (PE images usually come with Windows paths).</summary>
+    private static bool IsWindowsDrivePath(string s) => s.Length >= 3 && char.IsAsciiLetter(s[0]) && s[1] == ':' && s[2] is '\\' or '/';
 
     public static SymbolKind ParseKind(string? kind) => (kind ?? "any").Trim().ToLowerInvariant() switch
     {

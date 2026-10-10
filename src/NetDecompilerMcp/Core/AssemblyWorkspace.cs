@@ -244,11 +244,19 @@ public sealed class AssemblyWorkspace : IDisposable
         return fresh;
     }
 
+    /// <summary>The longest file or directory name Windows, Linux and macOS file systems accept.</summary>
+    private const int MaxFileNameLength = 255;
+
     private LoadedAssembly LoadCore(string path)
     {
         var full = Path.GetFullPath(path);
         if (!File.Exists(full))
+        {
+            // Windows raises PathTooLongException for these; Linux and macOS only report the file missing.
+            if (full.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Any(part => part.Length > MaxFileNameLength))
+                throw new ToolError(ErrorCode.InvalidArgument, "a path is too long.", "Pass a shorter path.");
             throw new ToolError(ErrorCode.NotFound, $"File not found: {full}");
+        }
 
         var existing = _assemblies.FirstOrDefault(a => string.Equals(a.FilePath, full, StringComparison.OrdinalIgnoreCase));
         if (existing != null)

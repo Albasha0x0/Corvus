@@ -17,7 +17,9 @@ public sealed partial class PeFile
     /// Lays the sections out as the Windows loader maps them: the raw pointer rounded down to 0x200 when the file
     /// alignment is at least 0x200, the raw size rounded up to the file alignment and capped at the virtual extent, a
     /// virtual size of 0 replaced by the raw size, and images with a section alignment below the page size mapped flat
-    /// (RVA = file offset). Where sections overlap, the one starting lower owns the overlap. Raw data past the end of
+    /// (RVA = file offset), except ReadyToRun images built for another OS, which the runtime maps through the section
+    /// table whatever the alignment (crossgen gives them a 0x200 section alignment with RVAs apart from the file
+    /// offsets). Where sections overlap, the one starting lower owns the overlap. Raw data past the end of
     /// the file reads as zeros.
     /// </summary>
     private void BuildLayout()
@@ -33,7 +35,7 @@ public sealed partial class PeFile
             headerLog.Add($"FileAlignment 0x{fa:X} is not a power of two; raw sizes used unaligned", OptionalHeaderOffset + 36);
             fa = 1;
         }
-        bool flat = sa < PageSize;
+        bool flat = sa < PageSize && PeNames.NonWindowsReadyToRunOs(Coff.Machine) == null;
         if (flat && fa != sa)
             headerLog.Add($"SectionAlignment 0x{sa:X} is below the page size, which requires FileAlignment to equal it (0x{fa:X})", OptionalHeaderOffset + 32);
 

@@ -117,9 +117,6 @@ public sealed class R2RImage
         return r2r;
     }
 
-    private static readonly (ushort Mask, string Os)[] OsMasks =
-        [(0, "Windows"), (0x7B79, "Linux"), (0x4644, "Apple"), (0xADC4, "FreeBSD"), (0x1993, "NetBSD"), (0x1992, "SunOS")];
-
     private void Parse(PeFile pe, CancellationToken ct)
     {
         var v = View;
@@ -128,7 +125,7 @@ public sealed class R2RImage
         Flags = v.U32(HeaderRva + 8);
         Sections = ReadSections(HeaderRva + 12);
 
-        foreach (var (mask, os) in OsMasks)
+        foreach (var (mask, os) in PeNames.ReadyToRunOsMasks)
         {
             var arch = PeNames.Arch((ushort)(pe.Coff.Machine ^ mask));
             if (arch == NativeArch.Unknown) continue;
