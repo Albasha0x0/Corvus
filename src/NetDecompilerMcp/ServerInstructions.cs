@@ -48,6 +48,20 @@ internal static class ServerInstructions
            names functions and data (load_pdb loads one by path, or downloads it with download=true; search_pdb_symbols lists its symbols
            with signatures). verify_native_imports checks a .NET
            assembly's [DllImport]s against the real DLL exports.
+           Calls: disassemble and find_xrefs show recovered call arguments (CreateFileW(L"a.ini", GENERIC_READ, ...)); get_call_arguments
+           gives them as data. Late-bound imports (GetProcAddress) appear in get_pe_info, list_imports includeDynamic=true, find_xrefs
+           ('module!name') and native_call_tree as [dynamic]. survey_features also takes a native image.
+           Cross-image: load the DLLs an image imports (by path, or load_assembly loadProviders=true) and native_call_tree, find_xrefs,
+           disassemble and resolve_address follow imports, forwarders and thunks into them; list_imports bind=true shows each binding.
+           find_callees / get_call_tree follow P/Invokes into native code ('native: kernel32.dll!CreateFileW -> KernelBase.dll!CreateFileW
+           at VA [image]'); the .NET call tools take native exports as symbols ('kernel32.dll!CreateFileW', 'native:<image>!<name|#ord|addr>').
+           Mixed-mode C++/CLI assemblies load as .NET plus a native view (id = file name). ReadyToRun: get_r2r_code, find_r2r_method.
+           Il2Cpp games: load the dummy DLLs and GameAssembly.dll, then apply_il2cpp_names (C# names in every native tool and in IDA).
+           Edits: rename_native / comment_native (kept per file hash), patch_bytes / patch_asm (dryRun first), list_native_edits,
+           undo_native_edit, save_native to a new file; export_native_annotations writes IDA / Ghidra scripts.
+           New builds: load both (the second gets an id like game.dll#2); compare_native_images matches functions (unique-only, ambiguous
+           ones listed), map_address_between_builds carries an address over, migrate_native_names (dryRun first) copies your names;
+           make_code_pattern / search_code_pattern give byte patterns that survive rebuilds.
 
         Errors start with "Error (<code>)" (not_found, ambiguous, invalid_argument, unsupported, not_loaded, limit_exceeded, timeout,
         provider_unavailable, ...) and usually a "Next:" line with the call that can succeed. A result too large to send comes back as
