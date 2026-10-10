@@ -190,4 +190,25 @@ public class NativeAotTypeTests
         Assert.Equal(NativeAotStage.Partial, frozen.Stage.Status);
         Assert.Contains("no MethodTable for the object", frozen.Stage.Detail);
     }
+
+    /// <summary>Mutated images: every stage ends complete, partial, absent or unsupported, never with an exception.</summary>
+    [Fact]
+    public void MutatedImages_NeverThrow()
+    {
+        var image = (Native.Pe.PeFile)Build(16).Aot.Image;
+        var bytes = image.FileBytes.ToArray();
+        Assert.True(image.TryRvaToFileOffset(B.RdataRva, out long start));
+        Assert.True(image.TryRvaToFileOffset(B.DataRva, out long dataStart));
+        int end = (int)dataStart + 0x400;
+        var random = new Random(7);
+        string[] statuses = [NativeAotStage.Complete, NativeAotStage.Partial, NativeAotStage.Absent, NativeAotStage.Unsupported];
+        for (int i = 0; i < 500; i++)
+        {
+            var copy = (byte[])bytes.Clone();
+            for (int k = 0; k < 8; k++) copy[random.Next((int)start, Math.Min(end, copy.Length))] = (byte)random.Next(256);
+            var aot = NativeAotImage.Open(Native.Pe.PeFile.FromBytes(copy));
+            if (aot == null) continue;
+            Assert.All(aot.Summary().Stages, s => Assert.Contains(s.Status, statuses));
+        }
+    }
 }
