@@ -625,7 +625,8 @@ public sealed class ContractSweepTests(Xunit.Abstractions.ITestOutputHelper outp
     }
 }
 
-/// <summary>The full argument matrix over every tool (NDM_ALL_TESTS=1).</summary>
+/// <summary>The full argument matrix over every tool (NDM_ALL_TESTS=1). Each call has a time limit, so it runs alone.</summary>
+[Collection(SweepCollection.Name)]
 public sealed class ContractSweepFullTests(Xunit.Abstractions.ITestOutputHelper output)
 {
     private readonly Xunit.Abstractions.ITestOutputHelper _output = output;

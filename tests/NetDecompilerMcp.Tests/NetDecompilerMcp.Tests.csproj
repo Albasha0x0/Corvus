@@ -11,6 +11,9 @@
   <PropertyGroup Condition="'$(NDM_ALL_TESTS)' != '1'">
     <RunSettingsFilePath>$(MSBuildThisFileDirectory)quick.runsettings</RunSettingsFilePath>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(NDM_ALL_TESTS)' == '1'">
+    <RunSettingsFilePath>$(MSBuildThisFileDirectory)full.runsettings</RunSettingsFilePath>
+  </PropertyGroup>
 
   <ItemGroup>
     <!-- Also a real library the tests export (restores AsmResolver and AsmResolver.PE.File with it); the native PE sweep uses it as an oracle. -->

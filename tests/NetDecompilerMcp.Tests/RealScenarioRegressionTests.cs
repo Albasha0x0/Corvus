@@ -332,9 +332,11 @@ public sealed class RealScenarioRegressionTests
     {
         await using var client = await McpProtocolTests.StartServerAsync("--load", Env.FixturePath);
         var result = await client.CallToolAsync("decompile_member", new Dictionary<string, object?>());
-        var text = string.Join("\n", result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(c => c.Text));
+        // The first block is the readable error; the second repeats it as JSON.
+        var text = result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().First().Text;
         Assert.True(result.IsError);
         Assert.Equal("Error (invalid_argument) in decompile_member: missing required parameter 'member'.", text);
+        Assert.Equal("member", McpProtocolTests.ErrorJson(result).GetProperty("details").GetProperty("parameter").GetString());
     }
 
     [Fact]
