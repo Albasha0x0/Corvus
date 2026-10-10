@@ -373,7 +373,7 @@ public class NativePatchExportTests(ITestOutputHelper output)
         output.WriteLine(run.Stdout);
         output.WriteLine(run.Stderr);
         var line = run.Stdout.Split('\n').FirstOrDefault(l => l.StartsWith("RESULT", StringComparison.Ordinal));
-        Assert.NotNull(line);
+        Assert.True(line != null, $"no RESULT line (exit {run.ExitCode}, timed out {run.TimedOut}, start error {run.StartError}):\n{run.Stdout}\n{run.Stderr}");
         var f = line!.Split(' ');
         int applied = int.Parse(f[1]), differ = int.Parse(f[3]), checkedEntries = int.Parse(f[6]), bad = int.Parse(f[8]), rerun = int.Parse(f[10]);
         Assert.True(applied >= 2, line);
