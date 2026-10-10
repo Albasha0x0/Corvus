@@ -244,6 +244,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["declare_native_types"] = (new() { ["image"] = NativeSample(dir), ["declarations"] = "struct S { int a; };", ["engine"] = "ghidra" },
             "Error (invalid_argument) in declare_native_types: Unknown engine"),
         ["list_native_types"] = (new() { ["image"] = NativeSample(dir), ["engine"] = "ghidra" }, "Error (invalid_argument) in list_native_types: Unknown engine"),
+        ["ida_python"] = (new() { ["image"] = NativeSample(dir), ["code"] = "1 + 1" }, "Error (unsupported) in ida_python: ida_python is disabled"),
         ["rename_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["name"] = "SweepFunc" }, "Named"),
         ["comment_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["text"] = "entry" }, "Commented"),
         ["export_native_annotations"] = (new() { ["image"] = NativeSample(dir), ["outputPath"] = dir.File("ann.py"), ["format"] = "ida" }, "Exported"),

@@ -1301,6 +1301,51 @@ def op_load_pdb(args):
     return result
 
 
+_py_globals = None
+PY_MODULES = ("idaapi", "idc", "idautils", "ida_auto", "ida_bytes", "ida_entry", "ida_frame", "ida_funcs", "ida_gdl", "ida_hexrays", "ida_ida",
+              "ida_lines", "ida_loader", "ida_nalt", "ida_name", "ida_netnode", "ida_segment", "ida_typeinf", "ida_ua", "ida_xref")
+
+
+def clip(text, limit=200000):
+    return text if text is None or len(text) <= limit else text[:limit] + "\n[clipped at %d characters]" % limit
+
+
+def op_python(args):
+    # Runs code with IDAPython modules imported and `base` (the image base) set; globals persist between calls (reset clears
+    # them). The value of a final expression is returned, with stdout and stderr; an exception comes back as its traceback.
+    global _py_globals
+    m = need_open()
+    import ast
+    import io
+    if _py_globals is None or args.get("reset"):
+        g = {"__builtins__": __builtins__, "__name__": "__ndm_script__"}
+        for name in PY_MODULES:
+            try:
+                g[name] = __import__(name)
+            except BaseException:
+                pass
+        _py_globals = g
+    g = _py_globals
+    g["base"] = _state["base"]
+    out, err = io.StringIO(), io.StringIO()
+    saved = sys.stdout, sys.stderr
+    value = error = None
+    try:
+        sys.stdout, sys.stderr = out, err
+        tree = ast.parse(args.get("code") or "", "<ida_python>", "exec")
+        last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
+        exec(compile(tree, "<ida_python>", "exec"), g)
+        if last is not None:
+            v = eval(compile(ast.Expression(last.value), "<ida_python>", "eval"), g)
+            value = None if v is None else repr(v)
+    except BaseException:
+        error = traceback.format_exc(limit=8)
+    finally:
+        sys.stdout, sys.stderr = saved
+    changed(m)
+    return {"result": clip(value), "stdout": clip(out.getvalue()), "stderr": clip(err.getvalue()), "error": clip(error)}
+
+
 def op_get_stamp(args):
     need_open()
     n = stamp_node(False)
@@ -1335,7 +1380,7 @@ OPS = {"hello": op_hello, "open": op_open, "rebase": op_rebase, "functions": op_
        "set_comment": op_set_comment, "apply_names": op_apply_names, "get_stamp": op_get_stamp, "save": op_save,
        "sync_patches": op_sync_patches, "apply_types": op_apply_types, "load_pdb": op_load_pdb, "virtual_targets": op_virtual_targets,
        "apply_user_types": op_apply_user_types, "frame": op_frame, "types": op_types, "type": op_type, "field_xrefs": op_field_xrefs,
-       "close": op_close, "sleep": op_sleep}
+       "python": op_python, "close": op_close, "sleep": op_sleep}
 
 
 def watch_parent(parent):

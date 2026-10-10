@@ -481,6 +481,13 @@ internal sealed class IdaSession : INativeDecompilerSession
             r.GetProperty("scanned").GetInt32(), r.GetProperty("failed").GetInt32(), r.GetProperty("skipped").GetInt32(), r.GetProperty("decompiler").GetBoolean());
     }
 
+    public async Task<NativeScriptResult> RunScriptAsync(string code, bool reset = false, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(code);
+        var r = await CallAsync("python", IdaProvider.Args(("code", code), ("reset", reset)), cancellationToken).ConfigureAwait(false);
+        return new NativeScriptResult(Text(r.GetProperty("result")), Text(r.GetProperty("stdout")) ?? "", Text(r.GetProperty("stderr")) ?? "", Text(r.GetProperty("error")));
+    }
+
     public async Task<NativeTypeDetail> GetTypeAsync(string name, CancellationToken cancellationToken = default)
     {
         var r = await CallAsync("type", IdaProvider.Args(("name", name)), cancellationToken).ConfigureAwait(false);

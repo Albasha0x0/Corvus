@@ -152,6 +152,7 @@ public static class ToolEffects
         ["get_native_frame"] = Reads(longRunning: true, openWorld: true),
         ["declare_native_types"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true), // replaces a type of the same name
         ["list_native_types"] = Reads(longRunning: true, openWorld: true),
+        ["ida_python"] = Changes(destructive: true, idempotent: false, longRunning: true, openWorld: true), // arbitrary code; off unless --ida-scripting
         ["patch_bytes"] = Changes(destructive: true, idempotent: false, longRunning: true),
         ["patch_asm"] = Changes(destructive: true, idempotent: false, longRunning: true),
         ["list_native_edits"] = Reads(longRunning: true),

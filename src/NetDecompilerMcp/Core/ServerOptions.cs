@@ -13,6 +13,7 @@ namespace NetDecompilerMcp.Core;
 ///   --binding-style &lt;s&gt;  default generate_cpp_binding style when none is requested or detected: mono, il2cpp or hostapi
 ///   --binding-project &lt;d&gt; default project directory scanned for a host table by generate_cpp_binding
 ///   --ida-prewarm         start IDA's analysis of each native image in the background right after it loads (one at a time)
+///   --ida-scripting       allow ida_python (arbitrary Python in the IDA worker; NDM_IDA_SCRIPTING=1)
 ///   --engine &lt;e&gt;         where native functions, xrefs and CFGs come from by default: auto (IDA's analysis when it is complete, else ours), ours or ida
 ///   --index-cache &lt;dir|off&gt;  directory of saved native code indexes (default &lt;LocalAppData&gt;/NetDecompilerMcp/code-index), or off
 ///   --index-cache-mb &lt;n&gt;  size limit of the code index cache in MB (default 8192)
@@ -47,6 +48,11 @@ public sealed class ServerOptions
     public bool IdaPrewarm { get; set; }
 
     public const string IdaPrewarmVariable = "NDM_IDA_PREWARM";
+
+    /// <summary>Allow ida_python: arbitrary Python in the IDA worker, with the server's rights (default off).</summary>
+    public bool IdaScripting { get; set; }
+
+    public const string IdaScriptingVariable = "NDM_IDA_SCRIPTING";
 
     /// <summary>Default engine of the native code tools when a call names none (see <see cref="EngineMode"/>).</summary>
     public EngineMode Engine { get; set; } = EngineMode.Auto;
@@ -89,6 +95,7 @@ public sealed class ServerOptions
                     break;
                 case "--binding-project": o.BindingProject = Next(); break;
                 case "--ida-prewarm": o.IdaPrewarm = true; break;
+                case "--ida-scripting": o.IdaScripting = true; break;
                 case "--engine": engine = Next(); break;
                 case "--index-cache": cacheRoot = Next(); break;
                 case "--index-cache-mb": cacheMb = long.TryParse(Next(), out var mb) && mb > 0 ? mb : throw new ArgumentException("--index-cache-mb must be a positive number"); break;
@@ -111,6 +118,7 @@ public sealed class ServerOptions
         if (logLevel != null)
             o.LogLevel = ParseLogLevel(logLevel) ?? throw new ArgumentException($"--log-level (or {LogLevelVariable}) must be trace, debug, information, warning, error or none, not '{logLevel.Trim()}'");
         if (Environment.GetEnvironmentVariable(IdaPrewarmVariable)?.Trim() is "1" or "true" or "on") o.IdaPrewarm = true;
+        if (Environment.GetEnvironmentVariable(IdaScriptingVariable)?.Trim() is "1" or "true" or "on") o.IdaScripting = true;
         if (engine != null)
             o.Engine = EngineModes.TryParse(engine) ?? throw new ArgumentException($"--engine (or {EngineVariable}) must be auto, ours or ida, not '{engine.Trim()}'");
         var env = Environment.GetEnvironmentVariable("NETDECOMP_LOAD");

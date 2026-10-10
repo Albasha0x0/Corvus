@@ -136,6 +136,13 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
         CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not report struct member references.");
 
+    /// <summary>
+    /// Runs a script in the engine's own language against the database (IDA: Python with IDAPython); its globals persist
+    /// between calls unless <paramref name="reset"/>. Not journaled: a restart loses its unsaved changes.
+    /// </summary>
+    Task<NativeScriptResult> RunScriptAsync(string code, bool reset = false, CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not run scripts.");
+
     /// <summary>References to <paramref name="rva"/> (ordinary flow excluded).</summary>
     Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default);
 
@@ -381,6 +388,9 @@ public sealed record NativeFieldAccess(uint Rva, string Kind, uint? FunctionRva)
 /// </summary>
 public sealed record NativeFieldXrefs(string Type, string Member, int Offset, int Size, string MemberType, IReadOnlyList<NativeFieldAccess> Accesses,
     int Candidates, int Scanned, int Failed, int Skipped, bool DecompilerAvailable);
+
+/// <summary>What a script printed and returned (the value of a final expression), or the exception it raised.</summary>
+public sealed record NativeScriptResult(string? Result, string Stdout, string Stderr, string? Error);
 
 /// <summary>A reference; <see cref="FromFunctionRva"/> is the start of the function containing the source, when any.</summary>
 public sealed record NativeXref(uint FromRva, uint ToRva, NativeXrefKind Kind, uint? FromFunctionRva);

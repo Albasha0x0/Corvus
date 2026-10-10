@@ -28,18 +28,18 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
     private static string Image => NativeIdaProviderTests.System64;
 
     internal sealed record Rig(AssemblyWorkspace Workspace, NativeCodeService Code, NativeEngineService Engines, NativeAnalysisTools Analysis, NativeTypeTools Types,
-        NativeCodeTools CodeTools)
+        NativeCodeTools CodeTools, EngineScriptTools Scripts)
     {
         public LoadedNative Native => Workspace.Read(() => Workspace.Natives[0]);
         public async Task<IdaSession> Session() => (IdaSession)await Engines.Session(Native, null, null, default);
     }
 
     /// <summary>A server on <paramref name="cache"/> (its IDA databases) and the shared annotation sidecars.</summary>
-    private Rig Setup(string cache)
+    private Rig Setup(string cache, bool scripting = false, string annotations = "annotations")
     {
-        var options = new ServerOptions { TimeoutSeconds = 300, BackgroundIndexing = false };
+        var options = new ServerOptions { TimeoutSeconds = 300, BackgroundIndexing = false, IdaScripting = scripting };
         var workspace = new AssemblyWorkspace(options);
-        var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(_dir.File("annotations")));
+        var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(_dir.File(annotations)));
         var engines = new NativeEngineService(new IdaProviderOptions { CacheRoot = _dir.File(cache) }, code, workspace, options);
         _owned.Add(engines);
         _owned.Add(workspace);
@@ -49,7 +49,8 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         var user = new NativeUserTypePush(code);
         workspace.LoadAny(Image);
         return new Rig(workspace, code, engines, new NativeAnalysisTools(workspace, engines, pager, names, code, types, user),
-            new NativeTypeTools(workspace, engines, user, code, names, types), new NativeCodeTools(workspace, code, pager, null, engines, names, types, user));
+            new NativeTypeTools(workspace, engines, user, code, names, types), new NativeCodeTools(workspace, code, pager, null, engines, names, types, user),
+            new EngineScriptTools(workspace, engines, options, code, names, types, user));
     }
 
     [IdaFact]
@@ -213,6 +214,62 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => rig.CodeTools.FindXrefs(Image, "_IMAGE_NT_HEADERS64::Signature", engine: "ours"))).Code);
         // an ordinary name still resolves as an address
         Assert.Contains("References to", await rig.CodeTools.FindXrefs(Image, Function));
+    }
+
+    [IdaFact]
+    public async Task Python_runs_in_the_worker_only_when_allowed_and_refreshes_cached_pseudocode()
+    {
+        var off = Setup("cache-p");
+        Assert.Equal(ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => off.Scripts.IdaPython(Image, "1 + 1"))).Code);
+        foreach (var d in _owned) d.Dispose();
+        _owned.Clear();
+
+        var rig = Setup("cache-q", scripting: true);
+        var count = await rig.Scripts.IdaPython(Image, "len(list(idautils.Functions()))");
+        output.WriteLine(count);
+        Assert.True(int.Parse(count.Split("Result: ")[1].Split('\n')[0]) > 50, count);
+        await rig.Scripts.IdaPython(Image, "x = 20\nprint('set', x)");
+        Assert.Contains("Result: 42", await rig.Scripts.IdaPython(Image, "x * 2 + 2"));
+        Assert.Contains("ZeroDivisionError", await rig.Scripts.IdaPython(Image, "1 / 0"));
+        Assert.Contains("NameError", await rig.Scripts.IdaPython(Image, "x", reset: true));
+        var printed = await rig.Scripts.IdaPython(Image, "print('hello from ida')");
+        Assert.Contains("stdout:\nhello from ida", printed);
+
+        // a script's change shows in the next decompilation (the cached text is made again)
+        Assert.DoesNotContain("scriptedBase", await rig.Analysis.DecompileNative(Image, Function));
+        var rva = rig.Native.Image.Exports.First(e => e.Name == Function).Rva;
+        await rig.Scripts.IdaPython(Image, $"idc.SetType(base + 0x{rva:X}, 'int __fastcall f(void *scriptedBase, unsigned int n, unsigned int *a, unsigned int *b)')");
+        Assert.Contains("scriptedBase", await rig.Analysis.DecompileNative(Image, Function));
+    }
+
+    [IdaFact]
+    public async Task Exported_IDA_script_applies_every_user_type_to_another_database()
+    {
+        var rig = Setup("cache-x");
+        var local = FirstDefaultLocal(await rig.Analysis.DecompileNative(Image, Function));
+        await rig.Types.DeclareNativeTypes(Image, "struct NdmExported { int a; int b; };");
+        await rig.Types.SetNativeType(Image, Function, "int __fastcall CheckSumMappedFile(void *exportedBase, unsigned int n, unsigned int *a, unsigned int *b)");
+        await rig.Types.SetNativeLocal(Image, Function, local, newName: "ndm_exported_local");
+        var frame = await (await rig.Session()).GetFrameAsync(rig.Native.Image.Exports.First(e => e.Name == Function).Rva);
+        var member = frame.Members.First(m => m.Kind == "local");
+        await rig.Types.SetNativeStackVar(Image, Function, member.Name, newName: "ndm_exported_slot", type: "int");
+        var script = _dir.File("apply.py");
+        File.WriteAllText(script, Native.Annotations.AnnotationExport.Render(rig.Code.Annotations(rig.Native), Native.Annotations.AnnotationExport.Format.Ida));
+        foreach (var d in _owned) d.Dispose();
+        _owned.Clear();
+
+        // another database without the sidecar: the script alone brings the edits
+        var other = Setup("cache-y", scripting: true, annotations: "other-annotations");
+        var run = await other.Scripts.IdaPython(Image, $"exec(open({System.Text.Json.JsonSerializer.Serialize(script)}).read())");
+        output.WriteLine(run);
+        Assert.DoesNotContain("not applied", run);
+        Assert.Contains("4 user type(s)", run);
+        var text = await other.Analysis.DecompileNative(Image, Function);
+        Assert.Contains("exportedBase", text);
+        Assert.Contains("ndm_exported_local", text);
+        var session = await other.Session();
+        Assert.Contains((await session.GetFrameAsync(frame.StartRva)).Members, m => m.Name == "ndm_exported_slot" && m.Type == "int");
+        Assert.Contains((await session.GetTypeAsync("NdmExported")).Members, m => m.Name == "b");
     }
 
     [IdaFact]
