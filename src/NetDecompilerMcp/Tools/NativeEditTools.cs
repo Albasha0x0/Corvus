@@ -39,6 +39,12 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         return index.AddressOfName(name);
     });
 
+    private const string RelocationsDescription =
+        "Base relocations under the patch (the loader adds the load delta to each under ASLR / rebasing): auto (default) keeps an entry " +
+        "where the new bytes still hold an address, neutralizes the rest (type ABSOLUTE) and adds entries for new absolute addresses by " +
+        "reusing an ABSOLUTE slot of the page's relocation block; keep leaves every entry as it is; neutralize neutralizes every entry " +
+        "under the patch. The report lists kept / neutralized / added entries; undo restores them.";
+
     [McpServerTool(Name = "rename_native", Title = "Name a native address", OpenWorld = false)]
     [Description("Give a name to a native address (a function start, or any address): the name shows up in list_functions, disassemble (labels and " +
                  "call targets), find_xrefs and native_call_tree, and is saved to a per-user sidecar keyed by the file's SHA-256, so it survives reloads " +
@@ -94,45 +100,52 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     [Description("Replace bytes at a native address with a hex string, in memory. The patch is recorded as an undoable edit and every read path " +
                  "(disassemble, strings, search_bytes, read_bytes) then sees the patched bytes. Over code, trailing bytes of a partly overwritten " +
                  "instruction are padded with NOPs; the patch is refused if it would start mid-instruction, run past the function end or hit " +
-                 "zero-fill/header bytes, unless force=true. dryRun shows the before/after disassembly without recording it.")]
+                 "zero-fill/header bytes, unless force=true. Base relocations under the patch are planned (see relocations). dryRun shows the " +
+                 "before/after disassembly and the relocation changes without recording it.")]
     public Task<string> PatchBytes(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
         [Description("Replacement bytes as hex (e.g. '90 90' or '9090' or '0x90,0x90').")] string hex,
-        [Description("Override the safety checks (mid-instruction, past function end, header bytes).")] bool force = false,
+        [Description("Override the safety checks (mid-instruction, past function end, header bytes, a new address with no free relocation slot).")] bool force = false,
         [Description("Preview only; do not record the patch.")] bool dryRun = false,
+        [Description(RelocationsDescription)] string? relocations = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var (native, index) = await Open(image, progress, cancellationToken);
         var rva = Address(index, address);
         var bytes = ParseHex(hex);
-        var prepared = edits.PreparePatch(index, rva, bytes, force, $"patch_bytes {bytes.Length} bytes");
+        var mode = NativeEditService.ParseRelocationMode(relocations);
+        var prepared = edits.PreparePatch(index, rva, bytes, force, $"patch_bytes {bytes.Length} bytes", mode);
         return edits.ApplyPatch(native, index, prepared, dryRun);
     });
 
     [McpServerTool(Name = "patch_asm", Title = "Assemble and patch native code", Destructive = true, OpenWorld = false)]
     [Description("Assemble x86/x64 instructions (multi-line; labels, numeric and symbol branch targets; a 'db <hex>' escape) and write them at a " +
                  "native address, in memory. Branch displacements and RIP-relative references are computed for the target address. Same safety rules " +
-                 "and NOP padding as patch_bytes; the patch is recorded as an undoable edit. dryRun shows the before/after disassembly without recording it.")]
+                 "and NOP padding as patch_bytes; the patch is recorded as an undoable edit. Absolute addresses (x86 [addr] operands, 'offset name' / " +
+                 "symbol immediates, x64 imm64 addresses) get base relocations and overwritten ones are neutralized (see relocations). dryRun shows " +
+                 "the before/after disassembly and the relocation changes without recording it.")]
     public Task<string> PatchAsm(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
         [Description("Assembly, one instruction per line (e.g. 'jmp target' with a 'target:' label, or 'mov eax, 1\\nret').")] string assembly,
-        [Description("Override the safety checks (mid-instruction, past function end, header bytes).")] bool force = false,
+        [Description("Override the safety checks (mid-instruction, past function end, header bytes, a new address with no free relocation slot).")] bool force = false,
         [Description("Preview only; do not record the patch.")] bool dryRun = false,
+        [Description(RelocationsDescription)] string? relocations = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var (native, index) = await Open(image, progress, cancellationToken);
         var rva = Address(index, address);
+        var mode = NativeEditService.ParseRelocationMode(relocations);
         ulong startVa = index.Image.ImageBase + rva;
         var result = X86Assembler.Assemble(index.Image.Arch, startVa, assembly, name =>
         {
             try { return index.Image.ImageBase + Address(index, name); }
             catch (ToolError) { return null; }
         });
-        var prepared = edits.PreparePatch(index, rva, result.Bytes, force, "patch_asm");
+        var prepared = edits.PreparePatch(index, rva, result.Bytes, force, "patch_asm", mode, result.Constants);
         return edits.ApplyPatch(native, index, prepared, dryRun);
     });
 
@@ -163,7 +176,8 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     [Description("Write the patched native image to a file. Everything not patched is byte-for-byte identical to the original; the PE checksum is " +
                  "recomputed when the original had one; a signed file becomes unsigned (pass stripSignature=true to remove the certificate table). " +
                  "Writes atomically, never overwrites without overwrite=true (the original is backed up to .bak), and verifies by re-parsing and comparing " +
-                 "every byte outside the patched ranges.")]
+                 "every byte outside the patched ranges (and the relocation entries the patches rewrote), then re-parses the relocation table and " +
+                 "checks that every patched range holds exactly its kept/added entries.")]
     public Task<string> SaveNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Output file path.")] string outputPath,

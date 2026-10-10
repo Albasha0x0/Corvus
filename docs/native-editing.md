@@ -74,8 +74,59 @@ Services/NativeEditService.cs).
     far pointers (`jmp far`, `call far`), address-size overrides, and the explicit-operand string forms
     (`movs byte ptr [rdi], byte ptr [rsi]`; the sized forms such as `rep movsb` work). `notrack` is dropped. Use
     `patch_bytes` or `db` for these.
-- `dryRun` shows the before/after disassembly without recording the patch. `list_native_edits` / `undo_native_edit`
-  manage the recorded patches.
+- `dryRun` shows the before/after disassembly and the relocation changes without recording the patch.
+  `list_native_edits` / `undo_native_edit` manage the recorded patches.
+
+## Relocations
+
+Under ASLR or a rebase the Windows loader adds (actual base - preferred base) to every location a base relocation
+names (HIGHLOW: 4 bytes on x86, DIR64: 8 bytes on x64), whatever bytes are there. A patch therefore has two ways to
+break at a non-preferred base: an entry still covers bytes that are no longer an address (a `push offset X`, `mov
+eax, [abs]`, `call [IAT]`, jump-table or `mov r64, imm64` overwritten by something else: the loader corrupts the new
+code), or the new bytes hold an absolute address with no entry (the assembler resolves names to absolute addresses
+on x86, so `mov eax, [global]` is one). x64 code is mostly RIP-relative and unaffected. `PatchRelocations`
+(Native/Patching) plans both sides for every `patch_bytes` / `patch_asm`:
+
+- **Which entries are under the patch**: the relocation directory is walked as the loader walks it (block = page RVA,
+  size, 16-bit entries; a HIGHADJ parameter slot is not an entry); every entry whose target bytes overlap the patched
+  (NOP-padded) range.
+- **Which addresses the new bytes hold**: the displacements and immediates of the new instructions, by Iced
+  `ConstantOffsets` (branch displacements and RIP-relative operands are relative and left out). For `patch_asm` the
+  assembler marks the operands written as a symbol or with `offset`; those are addresses. Otherwise an operand is an
+  address when its value lies in [ImageBase, ImageBase+SizeOfImage) and it is an x86 absolute `[disp32]` with no base
+  register, an x64 64-bit constant (`mov r64, imm64`, `moffs64`), or sits exactly where an entry of the same type was
+  (a copied instruction). A numeric in-image x86 immediate written by hand is not relocated, with a note saying to
+  write `offset 0x...` or a name. Raw `patch_bytes` has no symbol intent: over code the new bytes are decoded and an
+  in-image x86 imm32 counts as an address too; over data an entry stays when the new pointer-sized value is still an
+  in-image address.
+- **`relocations` option** (`auto` default, `keep`, `neutralize`): `auto` keeps an entry whose position still holds an
+  address of the same type, neutralizes the others and adds entries for new addresses; `keep` leaves every entry
+  untouched (and lists new addresses as unrelocated); `neutralize` neutralizes every entry under the patch.
+- **Neutralize** = rewrite the entry's type to IMAGE_REL_BASED_ABSOLUTE (type 0, offset bits kept): a 2-byte in-place
+  edit inside `.reloc`. **Add** = rewrite an ABSOLUTE slot of the relocation block of the same 4 KB page (a slot just
+  neutralized by this patch first, else block padding or an earlier neutralized entry) to `type << 12 | offset`. The
+  directory never grows or moves.
+- **No slot**: when the page's block has no ABSOLUTE slot (or the page has no block), the patch is refused with
+  `conflict` / reason `no_relocation_slot`; the remediation is to write the reference RIP-relative (x64), load the
+  address from data that is already relocated (an existing pointer or IAT slot), or pass `force=true` to accept a
+  patch that is only correct at the preferred base (reported as `unrelocated`). Clearing DYNAMIC_BASE would also avoid
+  it but weakens the binary's ASLR; that is never done automatically.
+- **Not relocatable** images (no relocation directory, or IMAGE_FILE_RELOCS_STRIPPED): "image is not relocatable:
+  absolute addresses are fixed (no action needed)".
+- **Recording**: the entry rewrites belong to the patch (`NativePatch.Relocations`: edits + a per-entry report of
+  kept / neutralized / added / unrelocated with the target and the entry's RVA in `.reloc`). They are overlaid with the
+  patch bytes, so every read path (and `RelocationRvas`) sees the new table, and `undo_native_edit` restores it. A
+  later patch may reuse a slot an earlier one neutralized; undoing the earlier one first is refused (`conflict`, "undo
+  #n first"). A patch whose bytes overlap another patch's entry rewrites is refused like an overlapping patch.
+- **Reports**: the patch / dry-run output and `list_native_edits` list the relocation changes per patch.
+
+Measured (Slow tests, NativeRelocationPatchTests): copies of SysWOW64 `version.dll` and `msvcrt.dll` with (a) a `push
+offset X` made `push 1234h` (entry neutralized) and (b) a `push offset X` made `nop ; mov eax, [X]` (entry neutralized,
+its slot retargeted one byte on), saved, then rebased in memory by +0xA30000 applying every entry as the loader does:
+the push keeps 1234h and the mov reads X at its new address. An MSVC x86 DLL (`/DYNAMICBASE /Od`, built through
+vswhere): `GetValue` rewritten to read another global (`added 0x1001, neutralized 0x1004`) and `GetText`'s `mov eax,
+offset str` made a number; after the rebase both decode to the intended operation. The test process is x64, so the
+x86 DLL is not loaded with LoadLibraryEx; the in-memory rebase is the check.
 
 ## save_native
 
@@ -85,5 +136,7 @@ Services/NativeEditService.cs).
 - A signed file becomes unsigned: the note says so. `stripSignature=true` zeroes the security data-directory entry
   and drops the trailing certificate-table overlay.
 - Atomic write (temp file + move); never overwrites the input without `overwrite=true`, keeping a `.bak`.
-- Verified by re-parsing the written file and comparing every byte outside the patched ranges (and the checksum
-  field) to the original.
+- Verified by re-parsing the written file and comparing every byte outside the patched ranges, the relocation entry
+  rewrites and the checksum field to the original; then the relocation table of the written file is re-parsed and
+  checked against the patches: inside every patched range exactly the kept and added entries remain (nothing
+  neutralized survives, nothing unplanned appears), and the table reads with no more issues than the original's.

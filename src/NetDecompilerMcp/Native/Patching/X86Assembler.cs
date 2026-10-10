@@ -17,7 +17,12 @@ namespace NetDecompilerMcp.Native.Patching;
 /// </summary>
 public static class X86Assembler
 {
-    public sealed record Result(byte[] Bytes);
+    /// <param name="Bytes">The encoded block.</param>
+    /// <param name="Constants">
+    /// Displacements and immediates of the encoded instructions (not branch displacements or RIP-relative operands),
+    /// flagged when the operand was written as a symbol or with 'offset': the base-relocation planning input.
+    /// </param>
+    public sealed record Result(byte[] Bytes, IReadOnlyList<OperandConstant> Constants);
 
     private sealed class ByteWriter : CodeWriter
     {
@@ -27,7 +32,7 @@ public static class X86Assembler
 
     // Each assembled line becomes one Iced Instruction (db becomes a DeclareByte pseudo-instruction). A branch whose
     // target is a label/number/symbol keeps the token so it can be resolved once every item has an identifier IP.
-    private sealed record Item(int Line, Instruction Instruction, string? BranchToken);
+    private sealed record Item(int Line, Instruction Instruction, string? BranchToken, bool ImmSymbol = false, bool DispSymbol = false);
 
     /// <param name="resolveSymbol">Resolves a name that is neither a label nor a number to a VA (e.g. an export).</param>
     public static Result Assemble(NativeArch arch, ulong startVa, string text, Func<string, ulong?>? resolveSymbol = null)
@@ -75,9 +80,17 @@ public static class X86Assembler
 
         var writer = new ByteWriter();
         var block = new InstructionBlock(writer, list, startVa);
-        if (!BlockEncoder.TryEncode(bitness, block, out var err, out _, BlockEncoderOptions.None))
+        if (!BlockEncoder.TryEncode(bitness, block, out var err, out var encoded, BlockEncoderOptions.ReturnNewInstructionOffsets))
             throw new ToolError(ErrorCode.InvalidArgument, $"Assembly failed to encode: {CleanError(err)}");
-        return new Result(writer.Bytes.ToArray());
+        var bytes = writer.Bytes.ToArray();
+        var points = new List<(int, bool, bool)>();
+        for (int i = 0; i < items.Count && i < encoded.NewInstructionOffsets.Length; i++)
+        {
+            uint off = encoded.NewInstructionOffsets[i];
+            if (off == uint.MaxValue || items[i].BranchToken != null || items[i].Instruction.Code == IcedCode.DeclareByte) continue;
+            points.Add(((int)off, items[i].ImmSymbol, items[i].DispSymbol));
+        }
+        return new Result(bytes, PatchRelocations.Decode(bitness, startVa, bytes, points));
     }
 
     private static void SetBranchTarget(int bitness, ref Instruction instr, int line, string token,
@@ -163,7 +176,8 @@ public static class X86Assembler
 
         var built = Select(bitness, startVa, line, mnemText, mnemonic, operands);
         ApplyPrefixes(ref built, line, lockp, rep, repe, repne, bnd, notrack);
-        return new Item(line, built, null);
+        return new Item(line, built, null,
+            operands.Any(o => o.Class == OpClass.Imm && o.Symbol), operands.Any(o => o.Class == OpClass.Mem && o.Symbol));
     }
 
     private static void ApplyPrefixes(ref Instruction instr, int line, bool lockp, bool rep, bool repe, bool repne, bool bnd, bool notrack)
@@ -184,7 +198,9 @@ public static class X86Assembler
         Register Base = Register.None, Register Index = Register.None, int Scale = 1,
         long Disp = 0, bool Rip = false, Register Segment = Register.None, int? SizeBytes = null, bool Absolute = false, bool AutoRip = false,
         // immediate (Applied holds the value with any sign already folded in)
-        ulong Applied = 0);
+        ulong Applied = 0,
+        // written as a symbol (or with 'offset'): an address the image's relocations must cover
+        bool Symbol = false);
 
     private static Operand ParseOperand(int bitness, int line, string text, Func<string, ulong?>? resolve)
     {
@@ -193,7 +209,7 @@ public static class X86Assembler
 
         // "offset <name>" is an immediate address.
         if (t.StartsWith("offset ", StringComparison.OrdinalIgnoreCase))
-            return ImmediateOperand(line, t[7..].Trim(), resolve);
+            return ImmediateOperand(line, t[7..].Trim(), resolve) with { Symbol = true };
 
         // Size specifier, e.g. "dword ptr".
         int? sizeBytes = null;
@@ -241,7 +257,7 @@ public static class X86Assembler
         else if (s.StartsWith('+')) s = s[1..].Trim();
         if (NativeAddress.Number(s) is { } num)
             return new Operand(OpClass.Imm, Applied: neg ? (ulong)(-(long)num) : num);
-        if (resolve?.Invoke(t) is { } va) return new Operand(OpClass.Imm, Applied: va);
+        if (resolve?.Invoke(t) is { } va) return new Operand(OpClass.Imm, Applied: va, Symbol: true);
         throw Error(line, $"'{t}' is not a register, a number, or a known symbol.");
     }
 
@@ -255,7 +271,7 @@ public static class X86Assembler
         Register bse = Register.None, index = Register.None;
         int scale = 1;
         long disp = 0;
-        bool haveScaledIndex = false;
+        bool haveScaledIndex = false, symbol = false;
 
         foreach (var (termRaw, sign) in SplitTerms(inner))
         {
@@ -287,7 +303,7 @@ public static class X86Assembler
             bool dneg = sign < 0;
             if (dt.StartsWith('-')) { dneg = !dneg; dt = dt[1..].Trim(); }
             if (NativeAddress.Number(dt) is { } dn) value = dn;
-            else if (resolve?.Invoke(term) is { } va) { value = va; }
+            else if (resolve?.Invoke(term) is { } va) { value = va; symbol = true; }
             else throw Error(line, $"'{term}' is not a register, a number, or a known symbol in '{t}'.");
             disp += dneg ? -(long)value : (long)value;
         }
@@ -303,7 +319,7 @@ public static class X86Assembler
             else absolute = true;
         }
         return new Operand(OpClass.Mem, Base: rip ? Register.RIP : bse, Index: index, Scale: scale,
-            Disp: disp, Rip: rip, Segment: segment, SizeBytes: sizeBytes, Absolute: absolute, AutoRip: autoRip);
+            Disp: disp, Rip: rip, Segment: segment, SizeBytes: sizeBytes, Absolute: absolute, AutoRip: autoRip, Symbol: symbol);
     }
 
     // ---- code selection ----

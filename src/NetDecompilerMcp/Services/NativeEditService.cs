@@ -105,7 +105,22 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
 
     public sealed record PatchResult(NativePatch Patch, string BeforeDisasm, string AfterDisasm, string Note);
 
-    public PatchResult PreparePatch(NativeCodeIndex index, uint rva, byte[] newBytes, bool force, string description)
+    /// <summary>Parses the relocations option of patch_bytes / patch_asm (auto, keep, neutralize; default auto).</summary>
+    public static RelocationMode ParseRelocationMode(string? text) => (text ?? "").Trim().ToLowerInvariant() switch
+    {
+        "" or "auto" => RelocationMode.Auto,
+        "keep" => RelocationMode.Keep,
+        "neutralize" or "neutralise" => RelocationMode.Neutralize,
+        _ => throw new ToolError(ErrorCode.InvalidArgument, $"relocations must be auto, keep or neutralize, not '{text}'."),
+    };
+
+    /// <summary>
+    /// Prepares a patch of <paramref name="newBytes"/> at <paramref name="rva"/>: the NOP-padded replacement, the
+    /// before/after disassembly, and the base-relocation plan. <paramref name="assembled"/> are the operand constants
+    /// the assembler produced (with which ones came from symbols); null for raw bytes, whose constants are decoded.
+    /// </summary>
+    public PatchResult PreparePatch(NativeCodeIndex index, uint rva, byte[] newBytes, bool force, string description,
+        RelocationMode relocations = RelocationMode.Auto, IReadOnlyList<OperandConstant>? assembled = null)
     {
         var image = index.Image;
         var (fileOffset, paddedLength, _, note) = Plan(index, rva, newBytes.Length, force);
@@ -117,7 +132,16 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         int read = image.Read(rva, original);
         if (read < paddedLength) throw new ToolError(ErrorCode.InvalidArgument, $"Only {read} of {paddedLength} bytes at {NativeAddress.Va(image, rva)} are mapped.");
 
-        var patch = new NativePatch(rva, fileOffset, original, replacement, description);
+        var plan = RelocationPlan.None;
+        if (image is PeFile pe)
+        {
+            bool x86 = image.Arch is NativeArch.X86 or NativeArch.X64;
+            bool code = image.SectionAt(rva) is { IsExecutable: true } && x86;
+            var operands = assembled ?? (code ? PatchRelocations.Decode(image.Is64Bit ? 64 : 32, image.ImageBase + rva, replacement) : null);
+            plan = PatchRelocations.Plan(pe, rva, original, replacement, operands, assembled == null, relocations, force);
+        }
+
+        var patch = new NativePatch(rva, fileOffset, original, replacement, description, plan);
         var before = Disasm(index, rva, paddedLength);
         var after = DisasmBytes(image, rva, replacement);
         return new PatchResult(patch, before, after, note ?? "");
@@ -126,8 +150,8 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
     public string ApplyPatch(LoadedNative native, NativeCodeIndex index, PatchResult prepared, bool dryRun)
     {
         var image = index.Image;
-        if (native.Patches.Overlapping(prepared.Patch.Rva, prepared.Patch.Length) is { } clash && !dryRun)
-            throw new ToolError(ErrorCode.Conflict, $"An existing patch already covers {NativeAddress.Va(image, clash.Rva)} (#{native.Patches.Patches.ToList().IndexOf(clash) + 1}). undo_native_edit it first.");
+        if (native.Patches.Conflicting(prepared.Patch) is { } clash && !dryRun)
+            throw new ToolError(ErrorCode.Conflict, $"An existing patch already covers {NativeAddress.Va(image, clash.Rva)} or its relocation entries (#{native.Patches.Patches.ToList().IndexOf(clash) + 1}). undo_native_edit it first.");
 
         var sb = new StringBuilder();
         sb.AppendLine($"{(dryRun ? "Dry run — would patch" : "Patched")} {prepared.Patch.Length} byte(s) at {NativeAddress.Va(image, prepared.Patch.Rva)}" +
@@ -136,6 +160,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         sb.Append(prepared.BeforeDisasm);
         sb.AppendLine("After:");
         sb.Append(prepared.AfterDisasm);
+        AppendRelocations(sb, image, prepared.Patch.Relocations, "  ");
         if (dryRun) return sb.ToString();
 
         workspace.Write(() =>
@@ -158,14 +183,35 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         var sb = new StringBuilder($"{native.Id}: {patches.Count} native edit(s)\n");
         int i = 1;
         foreach (var p in patches)
+        {
             sb.AppendLine($"  #{i++}  {NativeAddress.Va(native.Image, p.Rva)}  {p.Length} bytes  {Hex(p.Original)} -> {Hex(p.Replacement)}  {p.Description}");
+            AppendRelocations(sb, native.Image, p.Relocations, "      ");
+        }
         return sb.ToString();
+    }
+
+    /// <summary>The relocation side of a patch: one line per kept / neutralized / added / unrelocated entry, then notes.</summary>
+    private static void AppendRelocations(StringBuilder sb, INativeImage image, RelocationPlan? plan, string indent)
+    {
+        if (plan == null || (plan.Changes.Count == 0 && plan.Notes.Count == 0)) return;
+        if (plan.Changes.Count > 0)
+        {
+            sb.AppendLine($"{indent}Relocations:");
+            foreach (var c in plan.Changes)
+                sb.AppendLine($"{indent}  {c.Action,-11} {c.Type.ToString().ToUpperInvariant(),-8} at {NativeAddress.Va(image, c.TargetRva)}" +
+                              (c.SlotRva is { } slot ? $"  (entry at rva 0x{slot:X})" : "") + (c.Note is { Length: > 0 } n ? $"  {n}" : ""));
+        }
+        foreach (var note in plan.Notes) sb.AppendLine($"{indent}Note: {note}");
     }
 
     public string Undo(LoadedNative native, int? number)
     {
         return workspace.Write(() =>
         {
+            if (native.Patches.LaterSlotUser(number) is { } later)
+                throw new ToolError(ErrorCode.Conflict,
+                    $"Native edit #{later.Number} ({later.Patch.Description}) rewrote a relocation entry this edit also rewrote; undoing this one first would leave the table inconsistent.",
+                    $"undo #{later.Number} first");
             var removed = native.Patches.Remove(number);
             if (removed == null) throw new ToolError(ErrorCode.NotFound, number is { } n ? $"There is no native edit #{n}." : "There are no native edits to undo.");
             Rebuild(native);
@@ -253,20 +299,23 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         try
         {
             var reparsed = PeFile.FromBytes(written, native.FilePath);
-            var originalBytes = native.Patches.Patches.Count >= 0 ? OriginalSnapshot(native) : written;
+            var originalBytes = native.Patches.OriginalBytes();
             long checksumField = reparsed.OptionalHeaderOffset + 64;
             var patched = native.Patches.Patches;
+            var ranges = patched.Select(p => (Start: p.FileOffset, Length: (long)p.Length))
+                .Concat(patched.SelectMany(p => p.RelocationEdits).Select(e => (Start: e.FileOffset, Length: 2L))).ToList();
             int mismatches = 0;
             for (int i = 0; i < Math.Min(originalBytes.Length, written.Length); i++)
             {
                 if (i >= checksumField && i < checksumField + 4) continue;          // checksum field may differ
                 if (strippedSignature) continue;                                     // signature strip changes several areas
-                if (patched.Any(p => i >= p.FileOffset && i < p.FileOffset + p.Length)) continue; // inside a patch
+                if (ranges.Any(r => i >= r.Start && i < r.Start + r.Length)) continue; // inside a patch or a relocation entry rewrite
                 if (originalBytes[i] != written[i]) mismatches++;
             }
-            return mismatches == 0
+            var bytesLine = mismatches == 0
                 ? "Verified: every byte outside the patched ranges (and the checksum field) matches the original."
                 : $"WARNING: {mismatches} byte(s) outside the patched ranges differ from the original.";
+            return bytesLine + "\n" + VerifyRelocations(reparsed, PeFile.FromBytes(originalBytes, native.FilePath), patched);
         }
         catch (Exception ex) when (ex is ToolError or IOException)
         {
@@ -274,12 +323,36 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         }
     }
 
-    private static byte[] OriginalSnapshot(LoadedNative native)
+    /// <summary>
+    /// Re-parses the written relocation table and checks it against the patches: inside every patched range exactly the
+    /// kept and added entries remain (nothing neutralized survives, nothing unplanned appears), and the table reads with
+    /// no more issues than the original's.
+    /// </summary>
+    private static string VerifyRelocations(PeFile written, PeFile original, IReadOnlyList<NativePatch> patches)
     {
-        // The unpatched bytes: patched bytes with every replacement reverted to its original.
-        var bytes = native.Patches.PatchedBytes();
-        foreach (var p in native.Patches.Patches) p.Original.CopyTo(bytes.AsSpan((int)p.FileOffset));
-        return bytes;
+        if (!PatchRelocations.IsRelocatable(original))
+            return "Relocations: the image is not relocatable (absolute addresses are fixed); nothing to check.";
+        var problems = new List<string>();
+        var entries = written.BaseRelocations;
+        int checkedPatches = 0, expectedTotal = 0;
+        foreach (var p in patches)
+        {
+            var plan = p.Relocations;
+            if (plan == null) continue;
+            checkedPatches++;
+            var expected = plan.Changes.Where(c => c.Action is "kept" or "added").Select(c => (Rva: c.TargetRva, c.Type)).ToHashSet();
+            expectedTotal += expected.Count;
+            var actual = entries.Where(e => e.Type != PeRelocationType.Absolute && e.Rva < p.EndRva && e.Rva + (uint)PatchRelocations.Width(e.Type) > p.Rva)
+                .Select(e => (e.Rva, e.Type)).ToHashSet();
+            foreach (var m in expected.Except(actual)) problems.Add($"missing {m.Type} entry at rva 0x{m.Rva:X}");
+            foreach (var x in actual.Except(expected)) problems.Add($"unexpected {x.Type} entry at rva 0x{x.Rva:X}");
+        }
+        int issuesBefore = original.Issues.Count(i => i.Message.Contains("relocation", StringComparison.OrdinalIgnoreCase));
+        int issuesAfter = written.Issues.Count(i => i.Message.Contains("relocation", StringComparison.OrdinalIgnoreCase));
+        if (issuesAfter > issuesBefore) problems.Add($"the relocation table reads with {issuesAfter - issuesBefore} new issue(s)");
+        return problems.Count == 0
+            ? $"Relocations verified: the table re-parses ({entries.Count:N0} entries) and every patched range holds exactly its kept/added entries ({expectedTotal} across {checkedPatches} patch(es))."
+            : "WARNING: relocations inconsistent with the patches: " + string.Join("; ", problems.Take(10)) + (problems.Count > 10 ? $" (+{problems.Count - 10} more)" : "");
     }
 
     // ---- disassembly previews ----
