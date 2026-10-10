@@ -145,7 +145,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
             try { return index.Image.ImageBase + Address(index, name); }
             catch (ToolError) { return null; }
         });
-        var prepared = edits.PreparePatch(index, rva, result.Bytes, force, "patch_asm", mode, result.Constants);
+        var prepared = edits.PreparePatch(index, rva, result.Bytes, force, "patch_asm", mode, result.Constants, assembly);
         return edits.ApplyPatch(native, index, prepared, dryRun);
     });
 

@@ -128,6 +128,63 @@ vswhere): `GetValue` rewritten to read another global (`added 0x1001, neutralize
 offset str` made a number; after the rebase both decode to the intended operation. The test process is x64, so the
 x86 DLL is not loaded with LoadLibraryEx; the in-memory rebase is the check.
 
+## Patch export (export_native_patches)
+
+Tool in Tools/NativePatchTools.cs, renderer `PatchExport` (Native/Patching). The exported bytes are save_native's
+bytes (`NativeEditService.OutputBytes`, without stripping the signature): every patch, its relocation-table entry
+rewrites (2-byte edits in `.reloc`) and the recomputed PE checksum when the original had one.
+
+- `ida`: an IDAPython script. A `PATCHES` list of (label, RVA, original hex, replacement hex): one entry per patch, per
+  relocation entry rewrite and for the checksum. Each is applied at `idaapi.get_imagebase() + rva` with
+  `ida_bytes.patch_bytes` only when the database holds the original bytes (entries already applied count as such; others
+  are reported with the expected and found bytes; bytes not loaded in the database are skipped: IDA loads neither the PE
+  header nor `.reloc` by default). Then `ida_auto.plan_range` + `auto_wait`, and a summary line.
+- `dif`: IDA's format, as IDA writes it (checked against `gen_file(OFILE_DIF)` of a patched idalib database): `This
+  difference file was created by IDA`, a blank line, the file name, then `%016X: %02X %02X` (file offset, original,
+  patched) per changed byte, LF line ends.
+- `ips`: `PATCH`, records of 3-byte big-endian file offset + 2-byte size + data, `EOF`. Runs of changed bytes separated
+  by up to 4 unchanged bytes are merged into one record; records are at most 0xFFFE bytes. A record that would start
+  at 0x454F46 (whose offset bytes read `EOF`) starts one byte earlier. Offsets past 16 MB are refused with a pointer to
+  `ips32` (`IPS32`, 4-byte offsets, `EEOF`; 0x45454F46 moved the same way).
+- `json`: kind `netdecompilermcp.native_patches`, the image (path, SHA-256 of the original, arch, preferred base, file
+  size, SHA-256 of the patched output), every patch (RVA, file offset, original / replacement hex, description, origin
+  `asm` / `bytes`, the assembly text, relocation edits and changes) and the checksum change. migrate_native_patches
+  reads it.
+
+Tests (NativePatchExportTests): independent appliers for .dif, IPS / IPS32 and the JSON reproduce save_native's file
+byte for byte (an x86 image with relocation edits and a stored checksum; a copy of System32 `version.dll`), the IPS
+end-marker offset and the 16 MB limit; under idalib (Slow, when IDA is present) the script applies to a fresh
+database of the original (2 applied, the checksum entry not loaded, 0 differing; a second run applies nothing), every
+patched database byte equals the saved file's byte, and IDA's own .dif of that database is our .dif minus the header
+bytes it does not load.
+
+## Patch migration (migrate_native_patches)
+
+`PatchMigration` (Native/Patching) carries an old build's byte patches to a new build. Source: the old build's
+in-memory patches (default) or a json patch set from export_native_patches (`patchSet`). For each patch:
+
+- **Map the old address to the new build** through `AddressMapper` (the compare_native_images matcher: function match
+  + instruction alignment). The old build is matched on its *pristine* bytes (`NativeCodeService.IndexOfOriginal`
+  rebuilds the index over `NativePatchSet.OriginalBytes` when it is dirty), so an in-memory patch does not hide the
+  function's identity. No mapping → refused with the mapper's reason (`function_not_matched`, `ambiguous`,
+  `changed_region`, `not_an_instruction`, ...).
+- **Check the expected pre-patch bytes** against the new build's original bytes at the mapped address: exact for raw
+  patch_bytes; for patch_asm, both sides are decoded and the bytes each marks as an address (branch / RIP-relative
+  displacements, relocated / in-image absolute operands) are masked, so a legitimately relocated operand does not count
+  as a difference. Otherwise refused `original_bytes_differ` with the expected and found bytes (`??` = masked).
+- **Produce the replacement**: patch_asm re-assembles its recorded assembly text at the new address (new branch and
+  RIP-relative targets; symbols resolved against the new build), raw patches apply their recorded bytes verbatim. A
+  failed re-assembly is refused `assemble_failed`.
+- **Reapply through the normal patch path** (PreparePatch: boundary and function-end checks, relocation planning). A
+  safety or relocation failure is refused with `relocation_slot_unavailable`, `mid_instruction`, `past_function_end`,
+  `conflicts_with_existing_patch` or `cannot_prepare`. Applied patches are rebuilt into the new image between each one,
+  so later patches see earlier ones.
+
+Every patch is reported applied / would_apply (dryRun) / refused with a reason and evidence; dryRun (the default)
+changes nothing. Tests (NativePatchMigrationTests): a synthetic pair of builds covers migrate / refuse-on-differing-
+bytes / unmatched-function / json-source; a Slow test migrates a patch_asm and a patch_bytes between real consecutive
+builds (C:\symbols versions and side-by-side .NET runtimes) and verifies the applied bytes at the mapped addresses.
+
 ## save_native
 
 - Writes the patched bytes. Everything not inside a patched range is byte-for-byte identical to the original.
