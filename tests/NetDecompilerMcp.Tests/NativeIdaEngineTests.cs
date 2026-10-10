@@ -450,4 +450,27 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         new NativeEditService(rig.Workspace, rig.Code).Rename(native, index, first.Start, "MyLibraryFunction", false);
         Assert.Contains("MyLibraryFunction  [library", await rig.Tools.ListFunctions(native.Id, filter: "MyLibraryFunction", engine: "ours"));
     }
+
+    [Trait("Speed", "Slow")]
+    [IdaFact]
+    public async Task Signatures_at_every_reference_take_IDAs_references_too()
+    {
+        var rig = Setup();
+        var path = NativeIdaProviderTests.System64;
+        var diff = new NativeDiffTools(rig.Workspace, rig.Code, rig.Engines);
+        // the function CheckSumMappedFile calls most often (ChkSum, twice), with its call sites as the references
+        var session = await rig.Engines.Session(rig.Workspace.LoadAny(path).Native!, null, null, default);
+        var calls = (await session.GetXrefsFromAsync(NativeIdaProviderTests.ExportRva(path, "CheckSumMappedFile"), true))
+            .Where(x => x.Kind == Native.Providers.NativeXrefKind.Call).GroupBy(x => x.ToRva).OrderByDescending(g => g.Count()).First();
+        var target = $"rva:0x{calls.Key:X}";
+        var ours = await diff.MakeCodePattern(path, target, anchor: "xrefs", engine: "ours");
+        var ida = await diff.MakeCodePattern(path, target, anchor: "xrefs", engine: "ida");
+        output.WriteLine($"ours: {ours.Note}\nida: {ida.Note}");
+        foreach (var r in ida.References!) output.WriteLine($"  {r.Pattern}  at {r.ReferenceAddress} ({r.Source}) {r.Note}");
+        Assert.Equal("ida", ida.Engine);
+        Assert.NotEmpty(ida.References!);
+        Assert.True(ida.References!.Count >= ours.References!.Count);
+        Assert.All(ida.References!, r => Assert.True(r.OperandKind != null, r.Note));
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => diff.MakeCodePattern(path, target, anchor: "xrefs", maxPatterns: 0))).Code);
+    }
 }

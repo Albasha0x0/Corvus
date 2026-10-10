@@ -7,6 +7,7 @@ using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native;
 using NetDecompilerMcp.Native.Code;
 using NetDecompilerMcp.Native.Diff;
+using NetDecompilerMcp.Native.Providers;
 using NetDecompilerMcp.Services;
 using static NetDecompilerMcp.Tools.ToolSupport;
 
@@ -14,7 +15,7 @@ namespace NetDecompilerMcp.Tools;
 
 /// <summary>Two builds of one native image: function matching, carrying names and addresses forward, and rebuild-stable code patterns.</summary>
 [McpServerToolType]
-public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeService code)
+public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEngineService? engines = null)
 {
     private const string OldDescription = "The older build: native image id (e.g. game.dll) or path. Load both builds; the second gets an id like game.dll#2.";
     private const string NewDescription = "The newer build: native image id (e.g. game.dll#2) or path.";
@@ -94,7 +95,20 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         int? OperandSize,
         [property: Description("relative, rip_relative or absolute.")] string? OperandKind,
         [property: Description("Reference anchor: offset of the end of the referencing instruction (relative operands count from it).")] int? InstructionEnd,
-        string Note);
+        string Note,
+        [property: Description("anchor=xrefs: a unique pattern at each referencing instruction, shortest first; null otherwise.")] IReadOnlyList<ReferencePattern>? References,
+        [property: Description("anchor=xrefs: where the references came from.")] string? Engine);
+
+    public sealed record ReferencePattern(
+        string Pattern, int Length, int FixedBytes,
+        [property: Description("Where the pattern starts.")] string PatternAddress,
+        [property: Description("The instruction that references the address.")] string ReferenceAddress,
+        string? Function,
+        [property: Description("Offset of the address operand from the pattern start.")] int? OperandOffset,
+        int? OperandSize,
+        [property: Description("relative, rip_relative or absolute.")] string? OperandKind,
+        int? InstructionEnd, string Note,
+        [property: Description("ours (a reference the built-in index has) or ida (one only IDA has).")] string Source);
 
     public sealed record PatternHit(string Image, string Address, string Section, string? Function, string? FunctionAddress, uint? FunctionOffset);
 
@@ -285,23 +299,58 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
                  "relocated or in-image addresses as ?? (IDA style '48 8B 05 ?? ?? ?? ??'), extended an instruction at a time until it occurs once in the " +
                  "image's executable sections. When the code at the address is not unique (anchor auto) or anchor=reference, the pattern starts at or shortly " +
                  "before an instruction that references the address, with the operand's offset and how to recover the address from a hit. " +
+                 "anchor=xrefs makes a unique signature at each instruction that references the address (shortest first; IDA's references " +
+                 "are added when the engine is IDA), so a new build that changed one site still has others. " +
                  "search_code_pattern finds it again in another build.")]
     public async Task<CodePatternResult> MakeCodePattern(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
-        [Description("auto (default): at the address, else at a reference to it; address; reference.")] string? anchor = null,
+        [Description("auto (default): at the address, else at a reference to it; address; reference; xrefs: one at each reference.")] string? anchor = null,
         [Description("Longest pattern in bytes (default 64, 8-512).")] int maxBytes = 64,
+        [Description("anchor=xrefs: most signatures (default 8, 1-32).")] int maxPatterns = 8,
+        [Description("anchor=xrefs: " + NativeCodeTools.EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default)
     {
         var a = (anchor ?? "auto").Trim().ToLowerInvariant();
-        if (a is not ("auto" or "address" or "reference"))
-            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown anchor '{anchor}'.", "use auto, address or reference");
+        if (a is not ("auto" or "address" or "reference" or "xrefs"))
+            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown anchor '{anchor}'.", "use auto, address, reference or xrefs");
+        if (maxPatterns is < 1 or > 32) throw new ToolError(ErrorCode.InvalidArgument, $"maxPatterns must be 1-32, not {maxPatterns}.");
+        var mode = EngineModes.Resolve(engine, engines?.DefaultMode ?? EngineMode.Auto);
         var (native, index) = await Open(image, context, cancellationToken);
         uint rva = NativeCodeTools.Address(index, address);
+        if (a == "xrefs") return await XrefPatterns(native, index, rva, maxBytes, maxPatterns, mode, !string.IsNullOrWhiteSpace(engine), cancellationToken);
         var made = await Task.Run(() => CodePatterns.Make(index, rva, maxBytes, allowReference: a != "address", referenceOnly: a == "reference", cancellationToken), cancellationToken);
         return new CodePatternResult(native.Id, Va(index, rva), made.Pattern.ToString(), made.Pattern.Length, made.Pattern.FixedBytes, made.Unique, made.Hits,
-            made.Anchor, Va(index, made.Start), made.ReferenceOffset, made.OperandOffset, made.OperandSize, made.OperandKind, made.InstructionEnd, made.Note);
+            made.Anchor, Va(index, made.Start), made.ReferenceOffset, made.OperandOffset, made.OperandSize, made.OperandKind, made.InstructionEnd, made.Note, null, null);
+    }
+
+    /// <summary>make_code_pattern anchor=xrefs: a signature per referencing instruction, the engine's references added.</summary>
+    private async Task<CodePatternResult> XrefPatterns(LoadedNative native, NativeCodeIndex index, uint rva, int maxBytes, int maxPatterns, EngineMode mode, bool named,
+        CancellationToken ct)
+    {
+        var choice = NativeEngineCode.Choose(mode, named, engines, native, index);
+        var ours = index.RefsTo(rva, 256).Select(x => x.From).ToHashSet();
+        var extra = new List<uint>();
+        if (choice.Ida)
+        {
+            var session = await engines!.Session(native, null, null, ct);
+            // code that uses the address; data pointers to it are not signatures
+            extra.AddRange((await session.GetXrefsToAsync(rva, ct)).Where(x => x.FromFunctionRva != null && x.Kind is not (NativeXrefKind.Jump or NativeXrefKind.Data))
+                .Select(x => x.FromRva).Where(f => !ours.Contains(f)));
+        }
+        var made = await Task.Run(() => CodePatterns.MakeAtReferences(index, rva, maxBytes, maxPatterns, extra, ct), ct);
+        var refs = made.Select(p => p.Start + (uint)(p.ReferenceOffset ?? 0)).ToList();
+        var list = made.Zip(refs).Select(t => new ReferencePattern(t.First.Pattern.ToString(), t.First.Pattern.Length, t.First.Pattern.FixedBytes, Va(index, t.First.Start),
+            Va(index, t.Second), index.FunctionAt(t.Second) is { } f ? Name(index, f) : null, t.First.OperandOffset, t.First.OperandSize, t.First.OperandKind,
+            t.First.InstructionEnd, t.First.Note, ours.Contains(t.Second) ? "ours" : "ida")).ToList();
+        var note = $"{list.Count} unique signature(s) from {ours.Count + extra.Count} reference(s) ({ours.Count} built-in, {extra.Count} IDA-only); {choice.Line}";
+        if (made.FirstOrDefault() is not { } best)
+            return new CodePatternResult(native.Id, Va(index, rva), "", 0, 0, false, 0, "xrefs", Va(index, rva), null, null, null, null, null,
+                "no instruction that references the address yields a unique pattern; " + note, list, choice.Engine);
+        return new CodePatternResult(native.Id, Va(index, rva), best.Pattern.ToString(), best.Pattern.Length, best.Pattern.FixedBytes, best.Unique, best.Hits,
+            "xrefs", Va(index, best.Start), best.ReferenceOffset, best.OperandOffset, best.OperandSize, best.OperandKind, best.InstructionEnd,
+            best.Note + "; " + note, list, choice.Engine);
     }
 
     [McpServerTool(Name = "search_code_pattern", Title = "Search a code pattern", UseStructuredContent = true)]

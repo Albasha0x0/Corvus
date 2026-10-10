@@ -136,7 +136,7 @@ public static class ToolEffects
         // Native builds
         ["compare_native_images"] = Reads(longRunning: true),
         ["map_address_between_builds"] = Reads(longRunning: true),
-        ["make_code_pattern"] = Reads(longRunning: true),
+        ["make_code_pattern"] = Reads(longRunning: true, openWorld: true), // anchor=xrefs with engine=ida runs IDA
         ["search_code_pattern"] = Reads(longRunning: true),
         ["migrate_native_names"] = Changes(destructive: false, idempotent: true, longRunning: true), // never replaces a name; saved to the sidecar
 

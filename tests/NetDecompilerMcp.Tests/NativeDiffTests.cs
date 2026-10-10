@@ -190,6 +190,30 @@ public class NativeDiffTests
     }
 
     [Fact]
+    public void Patterns_at_every_reference_each_recover_the_address_in_the_new_build()
+    {
+        var (o, n, _) = Pair.Value;
+        // A is called from main and from B: one signature per call site, each unique, shortest first
+        var made = CodePatterns.MakeAtReferences(o.Index, o.At["A"], 64, 8, [], default);
+        Assert.Equal(2, made.Count);
+        Assert.True(made[0].Pattern.Length <= made[1].Pattern.Length);
+        Assert.Equal(2, made.Select(p => p.Start + (uint)p.ReferenceOffset!.Value).Distinct().Count());
+        var sections = CodePatterns.CodeSections(n.Index.Image);
+        foreach (var p in made)
+        {
+            Assert.True(p.Unique, p.Note);
+            var hits = CodePatterns.Find(sections, p.Pattern, 10, out int total, default);
+            Assert.Equal(1, total);
+            var bytes = new byte[4];
+            n.Index.Image.Read(hits[0] + (uint)p.OperandOffset!.Value, bytes);
+            Assert.Equal(n.At["A"], hits[0] + (uint)p.InstructionEnd!.Value + (uint)BitConverter.ToInt32(bytes));
+        }
+        Assert.Single(CodePatterns.MakeAtReferences(o.Index, o.At["A"], 64, 1, [], default));
+        // an engine's reference that is not code adds nothing
+        Assert.Equal(2, CodePatterns.MakeAtReferences(o.Index, o.At["A"], 64, 8, [o.Text], default).Count);
+    }
+
+    [Fact]
     public async Task Migrate_tool_writes_the_new_builds_user_layer_and_a_dry_run_does_not()
     {
         using var dir = new TempDir();

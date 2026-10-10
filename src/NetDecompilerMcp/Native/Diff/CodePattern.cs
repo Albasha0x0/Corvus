@@ -123,50 +123,78 @@ public static class CodePatterns
         }
 
         MadePattern? best = null;
-        int tried = 0;
-        foreach (var x in index.RefsTo(rva, 256))
+        foreach (var from in ReferenceSites(index, rva, []).Take(16))
         {
-            if (x.Kind is XrefKind.Pointer or XrefKind.Jump or XrefKind.ConditionalJump or XrefKind.SwitchCase) continue;
-            if (tried++ >= 16) break;
             ct.ThrowIfCancellationRequested();
-            foreach (var start in StartsBefore(index, decoder, x.From, 6))
-            {
-                var p = Grow(decoder, sections, start, maxBytes, ct);
-                if (!p.Unique) continue;
-                if (decoder.DecodeOne(x.From) is not { } refInsn) continue;
-                int refOffset = (int)(x.From - start);
-                if (refOffset >= p.Pattern.Length) continue;
-                var made = p with
-                {
-                    Anchor = "reference",
-                    Target = rva,
-                    ReferenceOffset = refOffset,
-                    OperandOffset = refInsn.OperandKind != AddressOperand.None ? refOffset + refInsn.OperandOffset : null,
-                    OperandSize = refInsn.OperandKind != AddressOperand.None ? refInsn.OperandSize : null,
-                    OperandKind = refInsn.OperandKind switch
-                    {
-                        AddressOperand.Relative => "relative",
-                        AddressOperand.RipRelative => "rip_relative",
-                        AddressOperand.Absolute => "absolute",
-                        _ => null,
-                    },
-                    InstructionEnd = refOffset + refInsn.Length,
-                    Note = refInsn.OperandKind switch
-                    {
-                        AddressOperand.Relative or AddressOperand.RipRelative =>
-                            $"address = hit + {refOffset + refInsn.Length} + signed {refInsn.OperandSize * 8}-bit value at hit + {refOffset + refInsn.OperandOffset}",
-                        AddressOperand.Absolute => $"address = the {refInsn.OperandSize * 8}-bit value at hit + {refOffset + refInsn.OperandOffset} (a VA; subtract the image base)",
-                        _ => $"the referencing instruction is at hit + {refOffset}",
-                    },
-                };
-                if (best == null || made.Pattern.Length < best.Pattern.Length) best = made;
-                break;
-            }
-            if (best != null && best.Pattern.Length <= 16) break;
+            if (AtReference(index, decoder, sections, rva, from, maxBytes, ct) is not { } made) continue;
+            if (best == null || made.Pattern.Length < best.Pattern.Length) best = made;
+            if (best.Pattern.Length <= 16) break;
         }
         if (best != null) return best;
         return direct ?? new MadePattern(new BytePattern([], []), rva, false, 0, "reference", rva, null, null, null, null, null,
             "no instruction that references the address yields a unique pattern");
+    }
+
+    /// <summary>
+    /// A unique pattern at each instruction that references <paramref name="rva"/> (the built-in references, plus
+    /// <paramref name="extraSites"/> from an engine), shortest first, at most <paramref name="max"/>: several independent
+    /// signatures, so a new build that changed one site still has the others.
+    /// </summary>
+    public static List<MadePattern> MakeAtReferences(NativeCodeIndex index, uint rva, int maxBytes, int max, IEnumerable<uint> extraSites, CancellationToken ct)
+    {
+        maxBytes = Math.Clamp(maxBytes, 8, MaxPatternBytes);
+        var decoder = new MaskedDecoder(index.Image);
+        var sections = CodeSections(index.Image);
+        var made = new List<MadePattern>();
+        foreach (var from in ReferenceSites(index, rva, extraSites).Take(64))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (AtReference(index, decoder, sections, rva, from, maxBytes, ct) is { } p) made.Add(p);
+        }
+        return made.OrderBy(p => p.Pattern.Length).ThenByDescending(p => p.Pattern.FixedBytes).ThenBy(p => p.Start).Take(Math.Max(1, max)).ToList();
+    }
+
+    /// <summary>Instructions that reference <paramref name="rva"/> as code (not data pointers, jumps or switch cases), then the extra sites.</summary>
+    private static IEnumerable<uint> ReferenceSites(NativeCodeIndex index, uint rva, IEnumerable<uint> extraSites) =>
+        index.RefsTo(rva, 256).Where(x => x.Kind is not (XrefKind.Pointer or XrefKind.Jump or XrefKind.ConditionalJump or XrefKind.SwitchCase))
+            .Select(x => x.From).Concat(extraSites).Distinct();
+
+    /// <summary>The first unique pattern starting at or up to six instructions before <paramref name="from"/>, with how to recover the address.</summary>
+    private static MadePattern? AtReference(NativeCodeIndex index, MaskedDecoder decoder, List<(uint Rva, byte[] Bytes, string Name)> sections, uint rva, uint from,
+        int maxBytes, CancellationToken ct)
+    {
+        if (decoder.DecodeOne(from) is not { } refInsn) return null;
+        foreach (var start in StartsBefore(index, decoder, from, 6))
+        {
+            var p = Grow(decoder, sections, start, maxBytes, ct);
+            if (!p.Unique) continue;
+            int refOffset = (int)(from - start);
+            if (refOffset >= p.Pattern.Length) continue;
+            return p with
+            {
+                Anchor = "reference",
+                Target = rva,
+                ReferenceOffset = refOffset,
+                OperandOffset = refInsn.OperandKind != AddressOperand.None ? refOffset + refInsn.OperandOffset : null,
+                OperandSize = refInsn.OperandKind != AddressOperand.None ? refInsn.OperandSize : null,
+                OperandKind = refInsn.OperandKind switch
+                {
+                    AddressOperand.Relative => "relative",
+                    AddressOperand.RipRelative => "rip_relative",
+                    AddressOperand.Absolute => "absolute",
+                    _ => null,
+                },
+                InstructionEnd = refOffset + refInsn.Length,
+                Note = refInsn.OperandKind switch
+                {
+                    AddressOperand.Relative or AddressOperand.RipRelative =>
+                        $"address = hit + {refOffset + refInsn.Length} + signed {refInsn.OperandSize * 8}-bit value at hit + {refOffset + refInsn.OperandOffset}",
+                    AddressOperand.Absolute => $"address = the {refInsn.OperandSize * 8}-bit value at hit + {refOffset + refInsn.OperandOffset} (a VA; subtract the image base)",
+                    _ => $"the referencing instruction is at hit + {refOffset}",
+                },
+            };
+        }
+        return null;
     }
 
     /// <summary>Instruction starts at <paramref name="at"/> and up to <paramref name="back"/> instructions before it in its block.</summary>
