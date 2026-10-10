@@ -14,10 +14,12 @@ public sealed class NativeCodeService
 {
     private readonly ILogger<NativeCodeService>? _logger;
     private readonly AnnotationStore _store;
+    private readonly AssemblyWorkspace _workspace;
 
     public NativeCodeService(AssemblyWorkspace workspace, ServerOptions options, ILogger<NativeCodeService>? logger = null, AnnotationStore? annotations = null)
     {
         _logger = logger;
+        _workspace = workspace;
         _store = annotations ?? new AnnotationStore();
         IndexCache = options.CodeIndexCache is { } cache ? new CodeIndexCache(cache) : null;
         if (options.BackgroundIndexing)
@@ -51,7 +53,7 @@ public sealed class NativeCodeService
 
     /// <summary>The image's annotations (names and comments), loaded from the sidecar on first use.</summary>
     public NativeAnnotations Annotations(LoadedNative native) =>
-        native.Annotations(n => new NativeAnnotations(_store, n.FilePath, n.OriginalSha256, n.Image.ImageBase));
+        native.Annotations(n => new NativeAnnotations(_store, n.FilePath, n.OriginalSha256, n.Image.ImageBase, _workspace.Notify));
 
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<LoadedNative, object> RestoreDone = new();
     private static readonly NativeNameSource[] SavedSources = [NativeNameSource.Pdb, NativeNameSource.Il2Cpp];

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native.Code;
 using NetDecompilerMcp.Native.Providers;
 
@@ -8,6 +9,8 @@ namespace NetDecompilerMcp.Native.Annotations;
 /// <summary>The persisted names and comments of one image, keyed by RVA (lowercase hex, no 0x).</summary>
 public sealed class AnnotationDocument
 {
+    /// <summary>0 in files written before the field existed.</summary>
+    [JsonPropertyName("formatVersion")] public int FormatVersion { get; set; }
     [JsonPropertyName("path")] public string Path { get; set; } = "";
     [JsonPropertyName("sha256")] public string Sha256 { get; set; } = "";
     [JsonPropertyName("imageBase")] public ulong ImageBase { get; set; }
@@ -29,6 +32,9 @@ public sealed class AnnotationStore
 {
     public const string RootVariable = "NDM_ANNOTATIONS_DIR";
 
+    /// <summary>The sidecar format this build writes; a newer one is left untouched.</summary>
+    public const int FormatVersion = 1;
+
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
     public string Root { get; }
@@ -43,42 +49,89 @@ public sealed class AnnotationStore
 
     private string FileFor(string sha256) => System.IO.Path.Combine(Root, sha256.ToLowerInvariant() + ".json");
 
-    /// <summary>The saved document for <paramref name="sha256"/>, or null when none exists (or it cannot be read).</summary>
-    public AnnotationDocument? Load(string sha256)
+    /// <summary>
+    /// A loaded sidecar. <paramref name="Warning"/> reports a sidecar that could not be used; <paramref name="WriteBlocked"/>
+    /// means it is still in place (locked, or a newer format) and must not be overwritten.
+    /// </summary>
+    public sealed record LoadResult(AnnotationDocument? Document, string? Warning, bool WriteBlocked);
+
+    /// <summary>The saved document for <paramref name="sha256"/>, or null when none exists or it could not be used.</summary>
+    public AnnotationDocument? Load(string sha256) => Open(sha256).Document;
+
+    /// <summary>
+    /// Reads the sidecar of <paramref name="sha256"/>. One that is malformed, unreadable or locked is moved aside to
+    /// &lt;sha256&gt;.json.corrupt-&lt;utc&gt;-&lt;guid&gt; so a later save cannot destroy it; if it cannot be moved it is left in place and writes are blocked.
+    /// </summary>
+    public LoadResult Open(string sha256)
     {
         var file = FileFor(sha256);
-        try
+        string problem;
+        for (int attempt = 0; ; attempt++)
         {
-            if (!File.Exists(file)) return null;
-            return JsonSerializer.Deserialize<AnnotationDocument>(File.ReadAllText(file), Json);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>Writes <paramref name="document"/> atomically; deletes the sidecar when it has become empty.</summary>
-    public void Save(AnnotationDocument document)
-    {
-        var file = FileFor(document.Sha256);
-        try
-        {
-            Directory.CreateDirectory(Root);
-            if (document.IsEmpty)
+            try
             {
-                if (File.Exists(file)) File.Delete(file);
-                return;
+                // Shared for delete so a concurrent writer's rename over the file is not blocked by this read.
+                using var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                var doc = JsonSerializer.Deserialize<AnnotationDocument>(fs, Json);
+                if (doc == null) { problem = "the document is null"; break; }
+                if (doc.FormatVersion > FormatVersion)
+                    return new(null, $"The annotation sidecar {file} has format version {doc.FormatVersion} (this build writes {FormatVersion}); " +
+                                     "it is left untouched and names and comments of this image are not saved this session.", true);
+                return new(doc, null, false);
             }
-            var temp = file + ".tmp-" + Environment.ProcessId;
-            File.WriteAllText(temp, JsonSerializer.Serialize(document, Json));
-            File.Move(temp, file, overwrite: true);
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { return new(null, null, false); }
+            catch (JsonException ex) { problem = "malformed: " + ex.Message; break; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                problem = ex.Message;
+                if (attempt >= 4) break;
+                Thread.Sleep(20 << attempt); // a transient lock (antivirus, a backup) usually clears quickly
+            }
+        }
+        var aside = $"{file}.corrupt-{DateTime.UtcNow:yyyyMMddTHHmmssZ}-{Guid.NewGuid():N}";
+        try
+        {
+            File.Move(file, aside);
+            return new(null, $"The annotation sidecar {file} could not be read ({problem}); it was moved to {aside} and this image starts with no saved names or comments.", false);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Persistence is best-effort; in-memory annotations still work for this session.
+            return new(null, $"The annotation sidecar {file} could not be read ({problem}) or moved aside ({ex.Message}); it is left untouched " +
+                             "and names and comments of this image are not saved this session.", true);
         }
     }
+
+    /// <summary>
+    /// Writes <paramref name="document"/> through a temp file and an atomic rename; deletes the sidecar when it has become
+    /// empty. Returns null on success, else the problem (persistence is best-effort; in-memory annotations still work).
+    /// </summary>
+    public string? Save(AnnotationDocument document)
+    {
+        var file = FileFor(document.Sha256);
+        document.FormatVersion = FormatVersion;
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(document, Json);
+        lock (WriteGates.GetOrAdd(file, _ => new object()))
+            for (int attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    Directory.CreateDirectory(Root);
+                    if (document.IsEmpty) File.Delete(file);
+                    else SafeFile.WriteAllBytes(file, bytes, overwrite: true);
+                    return null;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ToolError)
+                {
+                    // Another process renaming over the file, or a reader, can hold the target briefly.
+                    if (attempt >= 7 || ex is ToolError) return ex.Message;
+                    Thread.Sleep(10 * (attempt + 1) + Random.Shared.Next(10));
+                }
+            }
+    }
+
+    /// <summary>Serializes writers of one sidecar within the process, across store instances.</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, object> WriteGates =
+        new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
 
     // ---- imported name layers (load_pdb, apply_il2cpp_names) ----
 
@@ -160,13 +213,14 @@ public sealed class AnnotationStore
             {
                 try
                 {
-                    var doc = JsonSerializer.Deserialize<AnnotationDocument>(File.ReadAllText(file), Json);
+                    using var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                    var doc = JsonSerializer.Deserialize<AnnotationDocument>(fs, Json);
                     if (doc != null && !doc.IsEmpty
                         && string.Equals(System.IO.Path.GetFullPath(doc.Path), full, StringComparison.OrdinalIgnoreCase)
                         && !string.Equals(doc.Sha256, currentSha256, StringComparison.OrdinalIgnoreCase))
                         result.Add(doc.Sha256);
                 }
-                catch (Exception ex) when (ex is IOException or JsonException or ArgumentException) { }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or ArgumentException) { }
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }

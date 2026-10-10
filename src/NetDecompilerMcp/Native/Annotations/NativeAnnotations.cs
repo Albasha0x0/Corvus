@@ -23,14 +23,25 @@ public sealed class NativeAnnotations
     /// <summary>Hashes of sidecars for the same path but a different file version, if any (set once at load).</summary>
     public IReadOnlyList<string> StaleSiblingHashes { get; }
 
-    public NativeAnnotations(AnnotationStore store, string filePath, string sha256, ulong imageBase)
+    /// <summary>Set when the sidecar is left in place and must not be overwritten: changes stay in memory.</summary>
+    public string? WriteBlocked { get; }
+
+    private readonly Action<string>? _notify;
+    private string? _lastSaveProblem;
+
+    /// <param name="notify">Receives warnings about the sidecar (moved aside, left in place, a failed save).</param>
+    public NativeAnnotations(AnnotationStore store, string filePath, string sha256, ulong imageBase, Action<string>? notify = null)
     {
         _store = store;
+        _notify = notify;
         FilePath = filePath;
         Sha256 = sha256;
         ImageBase = imageBase;
         StaleSiblingHashes = store.FindOtherHashesForPath(filePath, sha256);
-        if (store.Load(sha256) is { } doc)
+        var loaded = store.Open(sha256);
+        if (loaded.Warning != null) notify?.Invoke(loaded.Warning);
+        if (loaded.WriteBlocked) WriteBlocked = loaded.Warning;
+        if (loaded.Document is { } doc)
         {
             foreach (var (k, v) in doc.Names) if (Rva(k) is { } r) _names[r] = v;
             foreach (var (k, v) in doc.Comments) if (Rva(k) is { } r) _comments[r] = v;
@@ -105,9 +116,13 @@ public sealed class NativeAnnotations
 
     private void Persist()
     {
+        if (WriteBlocked != null) return;
         var doc = new AnnotationDocument { Path = FilePath, Sha256 = Sha256, ImageBase = ImageBase };
         foreach (var (r, n) in _names) doc.Names[r.ToString("x")] = n;
         foreach (var (r, c) in _comments) doc.Comments[r.ToString("x")] = c;
-        _store.Save(doc);
+        var problem = _store.Save(doc);
+        // One notice per distinct problem, not one per change.
+        if (problem != null && problem != _lastSaveProblem) _notify?.Invoke($"Annotations of {FilePath} could not be saved: {problem}");
+        _lastSaveProblem = problem;
     }
 }
