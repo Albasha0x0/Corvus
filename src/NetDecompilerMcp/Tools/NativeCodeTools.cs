@@ -75,7 +75,8 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
 
     [McpServerTool(Name = "list_functions", Title = "List native functions", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("Functions of a native image (x86 / x64): address, size, name (export name, module!import for thunks, or sub_<rva>), flags " +
-                 "(thunk, noreturn, unresolved jumps, invalid code, funclet), how it was found and how many call sites reach it. " + IndexNote)]
+                 "(thunk, noreturn, unresolved jumps, invalid code, funclet), how it was found and how many call sites reach it. Names from rename_native, PDB symbols " +
+                 "and apply_il2cpp_names take precedence in that order. " + IndexNote)]
     public Task<string> ListFunctions(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Only functions whose name contains this text (case-insensitive).")] string? filter = null,
@@ -120,15 +121,17 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         var rva = Address(index, address);
         int max = Math.Clamp(maxInstructions, 1, 200_000);
         var fn = function ? index.FunctionAt(rva) : null;
-        var text = pager.GetOrCreate($"disasm|{index.Image.Sha256}|{(fn != null ? "f" + fn.Start : "r" + rva)}|{max}", () =>
+        var text = pager.GetOrCreate($"disasm|{index.Image.Sha256}|{(fn != null ? "f" + fn.Start : "r" + rva)}|{max}|{index.Sourced.Version}", () =>
         {
             var sb = new StringBuilder();
             if (fn != null)
             {
                 sb.AppendLine($"; {fn.Name} at {NativeAddress.Va(index.Image, fn.Start)}, {fn.Size} bytes, {Plural(fn.BlockCount, "block")}{Flags(fn)}");
+                if (index.Sourced.CommentAt(fn.Start) is { } fc)
+                    foreach (var c in fc.Text.Split('\n')) sb.AppendLine($"; {c}");
                 foreach (var (label, line) in index.DisassembleFunction(fn, max, out bool truncated, cancellationToken))
                 {
-                    if (label != null) sb.AppendLine($"{label}:");
+                    if (label != null) sb.AppendLine(label.EndsWith(':') ? label : label + ":");
                     if (line != null) sb.AppendLine(Line(line));
                     if (truncated && label == null && line == null) break;
                 }
@@ -234,7 +237,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
 
     [McpServerTool(Name = "search_native_strings", Title = "Search native strings", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("Strings (ASCII and UTF-16) a native image's code or data references, with the address, the number of references and the first " +
-                 "referencing function; filter by substring or regex. " + IndexNote)]
+                 "referencing function; filter by substring or regex. After apply_il2cpp_names also the Il2Cpp string literals, by the slot code loads them from. " + IndexNote)]
     public Task<string> SearchNativeStrings(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Text to find (case-insensitive substring), or a regex with regex=true; omit to list all.")] string? query = null,
@@ -250,7 +253,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
             try { pattern = new Regex(query, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)); }
             catch (ArgumentException ex) { throw new ToolError(ErrorCode.InvalidArgument, $"Invalid regex: {ex.Message}"); }
         }
-        var (_, index) = await Open(image, context, progress, cancellationToken);
+        var (native, index) = await Open(image, context, progress, cancellationToken);
         var rows = new List<string>();
         foreach (var s in index.Strings)
         {
@@ -263,6 +266,19 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
             rows.Add($"{NativeAddress.Va(index.Image, s.Rva)}  {(s.Encoding == StringEncoding.Utf16 ? "L" : " ")}\"{Format.Clip(Escape(text), 200)}\"  " +
                      $"{index.CountRefsTo(s.Rva)} refs{(first != null ? $", first in {first}" : "")}");
         }
+        // Il2Cpp string literals live in the metadata file; code loads them through slots named by apply_il2cpp_names.
+        if (Il2CppNativeNames.Of(native) is { } il2cpp)
+            for (int i = 0; i < il2cpp.LiteralSlots.Length; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var text = il2cpp.LiteralTexts[i];
+                if (query != null && !(pattern != null ? SafeMatch(pattern, text) : text.Contains(query, StringComparison.OrdinalIgnoreCase))) continue;
+                uint slot = il2cpp.LiteralSlots[i];
+                var refs = index.RefsTo(slot, 1);
+                var first = refs.Count > 0 && index.FunctionAt(refs[0].From) is { } f ? f.Name : null;
+                rows.Add($"{NativeAddress.Va(index.Image, slot)}  il2cpp \"{Format.Clip(Escape(text), 200)}\"  slot {index.NameAt(slot)}, " +
+                         $"{index.CountRefsTo(slot)} refs{(first != null ? $", first in {first}" : "")}");
+            }
         return pager.PageRows(rows, offset, limit, "string");
     });
 

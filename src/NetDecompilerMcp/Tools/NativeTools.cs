@@ -3,14 +3,16 @@ using System.Text;
 using ModelContextProtocol.Server;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native;
+using NetDecompilerMcp.Native.Code;
 using NetDecompilerMcp.Native.Pe;
+using NetDecompilerMcp.Services;
 using static NetDecompilerMcp.Tools.ToolSupport;
 
 namespace NetDecompilerMcp.Tools;
 
 /// <summary>Native PE images: headers, imports, exports, addresses and bytes.</summary>
 [McpServerToolType]
-public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager)
+public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, NativeCodeService? code = null)
 {
     public const string ImageDescription = "Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded.";
 
@@ -197,15 +199,19 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager)
     }, cancellationToken);
 
     [McpServerTool(Name = "resolve_address", Title = "Resolve native address", ReadOnly = true, Idempotent = true, OpenWorld = false)]
-    [Description("What an address in a native image is: RVA, VA and file offset, the section and its permissions, and the nearest export or import at or before it.")]
+    [Description("What an address in a native image is: RVA, VA and file offset, the section and its permissions, the nearest export or import at or before it, " +
+                 "and, once the code index is built, its name and the name's source (user, pdb, il2cpp); after apply_il2cpp_names the managed method or metadata slot.")]
     public Task<string> ResolveAddress(
         [Description(ImageDescription)] string image,
         [Description(AddressDescription)] string address,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
         var pe = native.Image;
-        var rva = NativeAddress.Parse(pe, address);
+        var index = code?.Ready(native);
+        var rva = NativeAddress.Parse(pe, address, index != null ? index.AddressOfName : null);
         var sb = new StringBuilder($"{address.Trim()}: {NativeAddress.Describe(pe, rva)}\n");
+        if (index?.Sourced.NameAt(rva) is { } named) sb.AppendLine($"  name {named.Name} ({named.Source.Id()})");
+        foreach (var line in Il2CppNativeNames.Describe(native, index, rva)) sb.AppendLine("  " + line);
         var section = pe.SectionAt(rva);
         sb.AppendLine(section != null
             ? $"  section {section.Name} ({Access(section.Access)}), +0x{rva - section.Rva:X} into it"
