@@ -264,6 +264,12 @@ public sealed class AssemblyWorkspace : IDisposable
         }
         catch (Exception ex)
         {
+            // Malformed metadata: say where (the survey reads the structures directly, without dnlib).
+            var issues = MetadataSurvey.Survey(bytes);
+            if (issues.Count > 0)
+                throw new ToolError(ErrorCode.MalformedInput, $"Not a loadable .NET assembly: {full} ({ex.Message}). Metadata issues: " +
+                    string.Join("; ", issues.Take(8).Select(i => $"{i.Code} at {i.Location}{(i.FileOffset != null ? $", file offset {i.FileOffset}" : "")}: {i.Detail}")),
+                    "the metadata is damaged beyond what can be read leniently; repair the named structures or load another copy");
             throw new ToolError(ErrorCode.Unsupported, $"Not a loadable .NET assembly: {full} ({ex.Message})");
         }
         module.Location = full;
