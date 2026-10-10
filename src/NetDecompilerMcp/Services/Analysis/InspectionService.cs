@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using dnlib.DotNet;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native.Code;
+using NetDecompilerMcp.Native.NativeAot;
 
 namespace NetDecompilerMcp.Services.Analysis;
 
@@ -46,7 +47,11 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         IReadOnlyList<string> Highlights, IReadOnlyList<string> Notes);
 
     public sealed record FileSummary(FileFacts File, string Container, IReadOnlyList<AssemblySummary> Assemblies, IReadOnlyList<string> Highlights,
-        IReadOnlyList<string> Notes);
+        IReadOnlyList<string> Notes)
+    {
+        /// <summary>Set for a NativeAOT image: runtime version, module header and the recovery stages.</summary>
+        public NativeAotSummary? NativeAot { get; init; }
+    }
 
     private sealed record Scanned(ModuleDef Module, ModuleScan Scan, byte[] Image, string Label);
 
@@ -310,7 +315,14 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         var highlights = new List<string>(fileHighlights);
         foreach (var (assemblyPath, list) in found)
             highlights.AddRange(found.Count == 1 ? list : list.Select(h => $"[{assemblyPath}] {h}"));
-        return new FileSummary(facts, managed.Container, summarized, highlights.Distinct().ToList(), reportNotes);
+        return new FileSummary(facts, managed.Container, summarized, highlights.Distinct().ToList(), reportNotes) { NativeAot = NativeAotFacts(bytes, ct) };
+    }
+
+    private static NativeAotSummary? NativeAotFacts(byte[] bytes, CancellationToken ct)
+    {
+        if (Blob.Identify(bytes) != "NativeAOT executable") return null;
+        try { return NativeAotImage.Open(Native.Pe.PeFile.FromBytes(bytes), ct)?.Summary(); }
+        catch (ToolError) { return null; }
     }
 
     private static IEnumerable<string> MappingNotes(byte[] bytes) =>

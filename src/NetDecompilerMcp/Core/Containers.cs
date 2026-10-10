@@ -46,7 +46,7 @@ public static class Containers
             var bundle = OpenBundle(data, limits, ct);
             if (bundle != null) return bundle;
             if (pe.IsNativeAot(data))
-                return new ContainerContents("NativeAOT executable", [], ["NativeAOT: the managed code was compiled to native code; there is no IL or metadata to decompile. Analyze it with a native disassembler (IDA / Ghidra)."]);
+                return new ContainerContents("NativeAOT executable", [], [NativeAotNote(data)]);
         }
         if (pe != null && pe.IsDotNet(data))
         {
@@ -60,6 +60,16 @@ public static class Containers
             if (bundle != null) return bundle;
         }
         return Carve(data, name, pe != null ? "native PE" : kind, limits, ct);
+    }
+
+    private static string NativeAotNote(byte[] data)
+    {
+        string? found = null;
+        try { found = Native.NativeAot.NativeAotImage.Open(Native.Pe.PeFile.FromBytes(data))?.Describe(); }
+        catch (ToolError) { } // an unreadable header only loses the version detail
+        return $"NativeAOT{(found != null ? $" ({found})" : "")}: the managed code was compiled to native code, so there is no IL to decompile. " +
+               "summarize_file reports the recovered runtime version and NativeAOT metadata; load_assembly opens it as a native image " +
+               "for list_functions, disassemble and decompile_native.";
     }
 
     private static ContainerContents? OpenBundle(byte[] data, AnalysisLimits limits, CancellationToken ct)

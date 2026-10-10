@@ -231,7 +231,43 @@ public sealed class PeImage
         return result;
     }
 
-    /// <summary>NativeAOT: no CLI header, plus a ".managed" / ".hydrated" section or a DotNetRuntimeDebugHeader export.</summary>
+    /// <summary>
+    /// NativeAOT: no CLI header, plus a ".managed" / "hydrated" section (.NET 7–8), a DotNetRuntimeDebugHeader export or a
+    /// NativeAOT module header in the section data (.NET 9+ merge their sections into .text / .data, DLLs may not export the debug header).
+    /// </summary>
     public bool IsNativeAot(ReadOnlySpan<byte> data) =>
-        !IsDotNet(data) && (Sections.Any(s => s.Name is ".managed" or ".hydrated") || Exports(data).Contains("DotNetRuntimeDebugHeader"));
+        !IsDotNet(data) && (Sections.Any(s => s.Name is ".managed" or "hydrated" or ".hydrated") || Exports(data).Contains("DotNetRuntimeDebugHeader")
+                            || HasNativeAotHeader(data));
+
+    /// <summary>"RTR\0" at a 4-byte aligned RVA with the NativeAOT header shape: row size 2 pointers + 8, row type 1, 1–127 rows, ids 100–1000.</summary>
+    private bool HasNativeAotHeader(ReadOnlySpan<byte> data)
+    {
+        int rowSize = Is64 ? 24 : 16;
+        foreach (var s in Sections)
+        {
+            if (s.RawSize == 0 || s.RawPointer >= data.Length) continue;
+            long start = Start + (long)s.RawPointer;
+            var raw = data.Slice((int)start, (int)Math.Min(s.RawSize, data.Length - start));
+            for (int at = 0; ;)
+            {
+                int hit = raw[at..].IndexOf("RTR\0"u8);
+                if (hit < 0) break;
+                at += hit;
+                if ((s.VirtualAddress + at) % 4 == 0 && raw.Length - at >= 16 + rowSize)
+                {
+                    var h = raw[at..];
+                    int rows = BinaryPrimitives.ReadUInt16LittleEndian(h[12..]);
+                    if (h[14] == rowSize && h[15] == 1 && rows is > 0 and < 128 && raw.Length - at >= 16 + rows * rowSize)
+                    {
+                        bool ids = true;
+                        for (int i = 0; i < rows && ids; i++)
+                            ids = BinaryPrimitives.ReadInt32LittleEndian(h[(16 + i * rowSize)..]) is >= 100 and <= 1000;
+                        if (ids) return true;
+                    }
+                }
+                at += 4;
+            }
+        }
+        return false;
+    }
 }

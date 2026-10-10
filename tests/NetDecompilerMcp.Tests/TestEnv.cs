@@ -93,13 +93,16 @@ public sealed class RequiresPathFactAttribute : FactAttribute
 public static class RealPackages
 {
     /// <summary>Path of a library in the NuGet global packages folder.</summary>
-    public static string Lib(string id, string version, string framework, string file)
+    public static string Lib(string id, string version, string framework, string file) => File(id, version, "lib", framework, file);
+
+    /// <summary>Path of any file of a package in the NuGet global packages folder.</summary>
+    public static string File(string id, string version, params string[] parts)
     {
         var root = Environment.GetEnvironmentVariable("NUGET_PACKAGES") is { Length: > 0 } custom
             ? custom
             : System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
-        var path = System.IO.Path.Combine(root, id.ToLowerInvariant(), version, "lib", framework, file);
-        Assert.True(File.Exists(path), $"{path} not found: restore the test project");
+        var path = System.IO.Path.Combine([root, id.ToLowerInvariant(), version, .. parts]);
+        Assert.True(System.IO.File.Exists(path), $"{path} not found: restore the test project");
         return path;
     }
 }
