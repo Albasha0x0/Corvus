@@ -15,6 +15,8 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
 {
     public sealed record Capability(string Name, bool Available, string Detail, string? Remediation);
 
+    public sealed record Toolset(string Name, bool Enabled, bool Default, int Tools, string Description);
+
     public sealed record ServerStatus(string Version,
         [property: Description("Digest of the tool and prompt catalog (names, schemas, descriptions, annotations; prompt arguments): t<tools>-<hash>.p<prompts>-<hash>.")]
         string CatalogDigest,
@@ -25,13 +27,15 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         int Tools, int LoadedAssemblies, string BackgroundIndexing,
         int MaxOutputChars, int TimeoutSeconds, long WorkingSetMB, IReadOnlyList<Capability> Capabilities,
         [property: Description("Tools whose calls can take more than 10 s on large inputs (whole-input work, an external engine, a native image's first code index).")]
-        IReadOnlyList<string> LongRunningTools);
+        IReadOnlyList<string> LongRunningTools,
+        [property: Description("Tool families and whether this server registers them; start it with --toolsets <list> (or NDM_TOOLSETS: all, default, or names such as default,dumps) to change them.")]
+        IReadOnlyList<Toolset> Toolsets);
 
     private static readonly ConditionalWeakTable<McpServerOptions, string> Digests = new();
 
     [McpServerTool(Name = "server_status", Title = "Server status", UseStructuredContent = true)]
     [Description("Version, a digest of the tool and prompt catalog, what is loaded, background indexing state, response limits, long-running tools, " +
-                 "and which capabilities are available here with the reason and the fix when one is not. Pass expectedCatalogDigest (from an earlier " +
+                 "which capabilities are available here with the reason and the fix when one is not, and the tool families registered. Pass expectedCatalogDigest (from an earlier " +
                  "server_status, or NetDecompilerMcp doctor) to detect a stale server: the result says whether it matches and what differs.")]
     public ServerStatus GetServerStatus(
         [Description("Catalog digest to compare with this server's (e.g. t92-0123456789ab.p5-01234567).")] string? expectedCatalogDigest = null,
@@ -93,7 +97,8 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         int loaded = workspace.Read(() => workspace.Assemblies.Count + workspace.Natives.Count);
         return new ServerStatus(typeof(ServerOptions).Assembly.GetName().Version?.ToString(3) ?? "?", digest, expected ? difference == null : null, difference,
             toolCount, loaded, indexing.Status, options.MaxOutputChars, options.TimeoutSeconds, Environment.WorkingSet / (1024 * 1024), capabilities,
-            ToolEffects.LongRunning.ToList());
+            ToolEffects.LongRunning.Where(t => Core.Toolsets.Registers(options.Toolsets, t)).ToList(),
+            Core.Toolsets.Families.Select(f => new Toolset(f.Name, options.Toolsets.Contains(f.Name), f.Default, f.Tools.Length, f.Description)).ToList());
     }
 
     [McpServerTool(Name = "read_result", Title = "Read a kept result")]

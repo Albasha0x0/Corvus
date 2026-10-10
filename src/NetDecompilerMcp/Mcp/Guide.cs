@@ -18,7 +18,7 @@ public static class Guide
         Edit in memory, dryRun=true first: rename_symbol, stub_method, patch_method_csharp, patch_method_il, simplify_methods (folds string decoders); native rename_native, patch_bytes, patch_asm. Review list_edits / diff_edits, undo_edit; save_assembly / save_native write a new file.
         New build: load both, then update_to_new_build (dryRun) or compare_assemblies / compare_native_images.
         Rules: an error reads "Error (<code>)" with a Next: line; follow it. limit_exceeded returns an id: read_result pages it. Long text: pass the footer's offset=N. Lists also return structured items/offset/total. Symbols: Ns.Type::Method(int), short names, or tokens (0x06000123).
-        More: the guide prompt or netdecomp://guide/{topic} (dotnet, native, il2cpp, containers, edits, builds, dumps, errors); server_status for version, engines, limits and a stale-server check.
+        More: the guide prompt or netdecomp://guide/{topic} (dotnet, native, il2cpp, containers, edits, builds, dumps, errors); server_status for version, engines, limits, a stale-server check and the toolsets (crash dumps, live processes and engine type edits are opt-in: --toolsets).
         """;
 
     /// <summary>Topic name to text, in the order they are listed.</summary>
@@ -90,7 +90,7 @@ public static class Guide
             patch larger than its site: extend=true moves it into a code cave or a new section; unsafe sites are refused with a reason),
             list_native_edits, undo_native_edit, save_native to a new file (checksum recomputed, an invalidated signature reported).
             export_native_annotations writes IDA / Ghidra scripts; export_native_patches writes IDAPython, IDA .dif, IPS or JSON.
-            Engine edits (IDA): set_native_type (prototypes), set_native_local (Hex-Rays locals), get_native_frame and
+            Engine edits (IDA; opt-in toolset engine):set_native_type (prototypes), set_native_local (Hex-Rays locals), get_native_frame and
             set_native_stack_var (stack frames), declare_native_types and list_native_types (C declarations kept per image);
             ida_python runs IDAPython in the image's IDA worker, off unless --ida-scripting.
             """,
@@ -127,7 +127,8 @@ public static class Guide
             Editing and engine type edits: the edits topic. Build-to-build: the builds topic.
             """,
         ["dumps"] = """
-            Crash dumps and live processes.
+            Crash dumps and live processes (opt-in toolsets dumps and live: start the server with --toolsets default,dumps,live
+            or NDM_TOOLSETS; server_status lists the toolsets).
             open_minidump (user-mode .dmp: exception, faulting module+function and instruction, modules and whether the binaries exist
             locally, threads), dump_stack (x64 unwind data, x86 frame pointers; scanned frames marked heuristic), read_dump_memory.
             Load the crashed binaries first so frames get your names, PDB and Il2Cpp names; pass imageDirectories when they are not at
@@ -147,7 +148,9 @@ public static class Guide
             to page on, pass offset = offset + the items received. Tools marked [Long-running ...] can take more than 10 s.
             Symbols: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method', 'Ns.Type::Method(int, string)', 'Ns.Type::.ctor', short names, or
             tokens like '0x06000123'. The assembly parameter is optional unless a name is ambiguous; errors list candidates.
-            server_status: version, limits and engines; expectedCatalogDigest detects a stale server (`NetDecompilerMcp doctor` checks too).
+            server_status: version, limits, engines and toolsets; expectedCatalogDigest detects a stale server (`NetDecompilerMcp doctor`
+            checks too). Toolsets: --toolsets (or NDM_TOOLSETS) takes all, default, or names such as default,dumps; a tool of a family
+            the server was not started with is not listed.
             Resources: netdecomp://assemblies, netdecomp://assembly/{id}/info, netdecomp://assembly/{id}/type/{Ns.Type},
             netdecomp://assembly/{id}/il/{symbol}, netdecomp://guide/{topic}.
             """,

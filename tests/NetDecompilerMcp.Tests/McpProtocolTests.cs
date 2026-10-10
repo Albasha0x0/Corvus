@@ -47,6 +47,8 @@ public abstract class McpProtocolTests : IAsyncLifetime
             EnvironmentVariables = new Dictionary<string, string?>
             {
                 ["NDM_ANNOTATIONS_DIR"] = workingDirectory != null ? Path.Combine(workingDirectory, ".ndm-annotations") : AnnotationsDir,
+                // Every tool; a --toolsets argument still wins.
+                [NetDecompilerMcp.Core.Toolsets.Variable] = "all",
             },
             // The SDK waits this long for the server to exit before it closes the server's input, then ends it; the
             // server exits on end of input (ServerExitsWhenItsInputCloses), so waiting longer only delays each test.

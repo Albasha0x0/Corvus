@@ -9,7 +9,7 @@ public partial class ReadmeSyncTests
     [Fact]
     public void ToolTablesAndCounts_MatchRegisteredTools()
     {
-        var registered = NetDecompilerMcp.Mcp.Catalog.OfThisBuild().Tools.Select(t => (string)t["name"]!).ToHashSet(StringComparer.Ordinal);
+        var registered = NetDecompilerMcp.Mcp.Catalog.OfThisBuild(NetDecompilerMcp.Core.Toolsets.All).Tools.Select(t => (string)t["name"]!).ToHashSet(StringComparer.Ordinal);
         var lines = File.ReadAllLines(Path.Combine(RepoRoot(), "README.md"));
 
         var listed = new HashSet<string>(StringComparer.Ordinal);

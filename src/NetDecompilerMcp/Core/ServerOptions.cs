@@ -19,8 +19,10 @@ namespace NetDecompilerMcp.Core;
 ///   --index-cache-mb &lt;n&gt;  size limit of the code index cache in MB (default 8192)
 ///   --index-cache-days &lt;n&gt; entries unused for this many days are deleted (default 30)
 ///   --log-level &lt;l&gt;     stderr log level: trace, debug (adds one line per tool call), information (default), warning, error or none
+///   --toolsets &lt;list&gt;   tool families to register (see <see cref="Core.Toolsets"/>): default, all, or names such as default,dumps
 /// The NETDECOMP_LOAD environment variable (';'-separated paths) is also honored; NDM_IDA_PREWARM=1 turns on --ida-prewarm; NDM_ENGINE sets --engine;
-/// NDM_CODE_INDEX_CACHE, NDM_CODE_INDEX_CACHE_MB and NDM_CODE_INDEX_CACHE_DAYS set the code index cache defaults; NDM_LOG_LEVEL sets --log-level.
+/// NDM_CODE_INDEX_CACHE, NDM_CODE_INDEX_CACHE_MB and NDM_CODE_INDEX_CACHE_DAYS set the code index cache defaults; NDM_LOG_LEVEL sets --log-level;
+/// NDM_TOOLSETS sets --toolsets.
 /// </summary>
 public sealed class ServerOptions
 {
@@ -64,6 +66,9 @@ public sealed class ServerOptions
 
     public const string LogLevelVariable = "NDM_LOG_LEVEL";
 
+    /// <summary>Tool families registered (<see cref="Core.Toolsets"/>); session is always among them.</summary>
+    public IReadOnlySet<string> Toolsets { get; set; } = Core.Toolsets.Default;
+
     /// <summary>
     /// Saved native code indexes, so reopening an image loads its index instead of building it again; null = off
     /// (the default for options not parsed from a command line, so embedded and test servers write nothing).
@@ -78,6 +83,7 @@ public sealed class ServerOptions
         int? cacheDays = null;
         string? engine = Environment.GetEnvironmentVariable(EngineVariable) is { Length: > 0 } fromEnv ? fromEnv : null;
         string? logLevel = Environment.GetEnvironmentVariable(LogLevelVariable) is { Length: > 0 } levelFromEnv ? levelFromEnv : null;
+        string? toolsets = Environment.GetEnvironmentVariable(Core.Toolsets.Variable) is { Length: > 0 } setsFromEnv ? setsFromEnv : null;
         for (int i = 0; i < args.Length; i++)
         {
             string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"Missing value after {args[i]}");
@@ -100,6 +106,7 @@ public sealed class ServerOptions
                 case "--index-cache": cacheRoot = Next(); break;
                 case "--index-cache-mb": cacheMb = long.TryParse(Next(), out var mb) && mb > 0 ? mb : throw new ArgumentException("--index-cache-mb must be a positive number"); break;
                 case "--log-level": logLevel = Next(); break;
+                case Core.Toolsets.Option: toolsets = Next(); break;
                 case "--index-cache-days": cacheDays = int.TryParse(Next(), out var days) && days > 0 ? days : throw new ArgumentException("--index-cache-days must be a positive number"); break;
                 default: throw new ArgumentException($"Unknown argument '{args[i]}'");
             }
@@ -117,6 +124,7 @@ public sealed class ServerOptions
         }
         if (logLevel != null)
             o.LogLevel = ParseLogLevel(logLevel) ?? throw new ArgumentException($"--log-level (or {LogLevelVariable}) must be trace, debug, information, warning, error or none, not '{logLevel.Trim()}'");
+        if (toolsets != null) o.Toolsets = Core.Toolsets.Parse(toolsets);
         if (Environment.GetEnvironmentVariable(IdaPrewarmVariable)?.Trim() is "1" or "true" or "on") o.IdaPrewarm = true;
         if (Environment.GetEnvironmentVariable(IdaScriptingVariable)?.Trim() is "1" or "true" or "on") o.IdaScripting = true;
         if (engine != null)

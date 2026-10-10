@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
+using NetDecompilerMcp.Core;
 
 namespace NetDecompilerMcp.Mcp;
 
@@ -31,32 +32,41 @@ public static partial class Catalog
     private static readonly string[] ToolFields = ["name", "title", "description", "inputSchema", "outputSchema", "annotations", "_meta"];
     private static readonly string[] PromptFields = ["name", "title", "description", "arguments"];
 
-    /// <summary>Registers this build's tools, resources and prompts, with annotations from <see cref="ToolEffects"/> and value sets from <see cref="ParameterDomains"/>.</summary>
+    /// <summary>
+    /// Registers this build's tools of the enabled <see cref="Toolsets"/> (from the registered <see cref="ServerOptions"/>, else the
+    /// default set), resources and prompts, with annotations from <see cref="ToolEffects"/> and value sets from <see cref="ParameterDomains"/>.
+    /// </summary>
     public static IMcpServerBuilder WithCatalog(this IMcpServerBuilder builder)
     {
         var assembly = typeof(Catalog).Assembly;
         builder.WithToolsFromAssembly(assembly, ToolSerializerOptions).WithResourcesFromAssembly(assembly).WithPromptsFromAssembly(assembly);
         // Applied once the tool collection is complete.
-        builder.Services.PostConfigure<McpServerOptions>(o =>
+        builder.Services.AddOptions<McpServerOptions>().PostConfigure<IServiceProvider>((o, services) =>
         {
             if (o.ToolCollection is not { } tools) return;
+            var enabled = services.GetService<ServerOptions>()?.Toolsets ?? Toolsets.Default;
+            foreach (var tool in tools.Where(t => !Toolsets.Registers(enabled, t.ProtocolTool.Name)).ToList()) tools.Remove(tool);
             ToolEffects.Apply(tools);
             ParameterDomains.Apply(tools);
         });
         return builder;
     }
 
-    /// <summary>This build's catalog, registered in process the way the server registers it.</summary>
-    public static (List<JsonNode> Tools, List<JsonNode> Prompts) OfThisBuild()
+    /// <summary>This build's catalog as a server started without --toolsets lists it (what a client's default registration sees).</summary>
+    public static (List<JsonNode> Tools, List<JsonNode> Prompts) OfThisBuild() => OfThisBuild(Toolsets.Default);
+
+    /// <summary>This build's catalog with <paramref name="toolsets"/> enabled (<see cref="Toolsets.All"/>: every tool).</summary>
+    public static (List<JsonNode> Tools, List<JsonNode> Prompts) OfThisBuild(IReadOnlySet<string> toolsets)
     {
         var (tools, prompts) = Built.Value;
-        return (tools.Select(t => t.DeepClone()).ToList(), prompts.Select(p => p.DeepClone()).ToList());
+        return (tools.Where(t => Toolsets.Registers(toolsets, (string)t["name"]!)).Select(t => t.DeepClone()).ToList(), prompts.Select(p => p.DeepClone()).ToList());
     }
 
-    // Built once: concurrent registrations in one process race in the SDK's schema generation (a RequestContext parameter leaks into the schema).
+    // Built once, with every toolset: concurrent registrations in one process race in the SDK's schema generation (a RequestContext parameter leaks into the schema).
     private static readonly Lazy<(List<JsonNode> Tools, List<JsonNode> Prompts)> Built = new(() =>
     {
         var services = new ServiceCollection();
+        services.AddSingleton(new ServerOptions { Toolsets = Toolsets.All });
         services.AddMcpServer().WithCatalog();
         using var provider = services.BuildServiceProvider();
         return Of(provider.GetRequiredService<IOptions<McpServerOptions>>().Value);
