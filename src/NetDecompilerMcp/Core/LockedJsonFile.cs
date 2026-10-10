@@ -87,9 +87,10 @@ public static class LockedJsonFile
 
     /// <summary>
     /// Under the lock, runs <paramref name="change"/> (which reads the file fresh itself) and applies its result.
+    /// <paramref name="written"/> runs after a successful write, still under the lock.
     /// Returns null on success, else the problem; the file is never left torn.
     /// </summary>
-    public static string? Update(string file, Func<Change> change, TimeSpan? timeout = null)
+    public static string? Update(string file, Func<Change> change, TimeSpan? timeout = null, Action? written = null)
     {
         using var held = TryLock(file, timeout ?? DefaultTimeout, out var problem);
         if (held == null) return problem;
@@ -101,6 +102,7 @@ public static class LockedJsonFile
             {
                 if (result.Delete) File.Delete(file);
                 else if (result.Bytes != null) SafeFile.WriteAllBytes(file, result.Bytes, overwrite: true);
+                written?.Invoke();
                 return null;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ToolError)

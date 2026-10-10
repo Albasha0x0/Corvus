@@ -147,7 +147,7 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task ConcurrentWriters_NeverTearTheFile_AndTheLastWriterKeepsItsEntries()
+    public async Task ConcurrentWriters_NeverTearTheFile_AndKeepEachOthersEntries()
     {
         var a = Open(new AnnotationStore(Root));
         var b = Open(new AnnotationStore(Root));
@@ -178,8 +178,166 @@ public class AnnotationStoreTests : IDisposable
         Assert.True(_notices.Count == 0, string.Join('\n', _notices));
         Assert.True(Volatile.Read(ref reads) > 0);
         var names = Parse(Sidecar).GetProperty("names");
-        for (uint i = 0; i < 20; i++) Assert.Equal($"A_{i}", names.GetProperty((0x1000 + i * 16).ToString("x")).GetString());
+        for (uint i = 0; i < 20; i++)
+        {
+            Assert.Equal($"A_{i}", names.GetProperty((0x1000 + i * 16).ToString("x")).GetString());
+            Assert.Equal($"B_{i}", names.GetProperty((0x8000 + i * 16).ToString("x")).GetString());
+        }
+        Assert.Equal(40, a.NameCount); // a's last save took in b's names
         Assert.Empty(Directory.GetFiles(Root, "*.tmp"));
         Assert.Empty(Directory.GetFiles(Root, "*.corrupt-*"));
+        if (OperatingSystem.IsWindows()) Assert.Empty(Directory.GetFiles(Root, "*.lock")); // kept on Unix by design
+    }
+
+    [Fact]
+    public void InterleavedWriters_BothSurvive_AndRefreshBringsTheOtherSidesNames()
+    {
+        var a = Open();
+        var b = Open();
+        var seen = new List<(uint, string?)>();
+        b.MergedFromDisk += (names, _) => seen.AddRange(names);
+        a.SetName(0x1000, "FromA");
+        b.SetName(0x2000, "FromB");
+        Assert.Equal("FromA", b.NameAt(0x1000)); // b's save merged a's name in
+        Assert.Contains((0x1000u, (string?)"FromA"), seen);
+        Assert.Null(a.NameAt(0x2000));
+        a.Refresh();
+        Assert.Equal("FromB", a.NameAt(0x2000));
+        a.SetComment(0x2000, "seen by a");
+        b.Refresh();
+        Assert.Equal("seen by a", b.CommentAt(0x2000));
+        Assert.Empty(_notices);
+        Assert.True(Parse(Sidecar).GetProperty("revision").GetUInt64() >= 3);
+    }
+
+    [Fact]
+    public void SameAddress_DifferentNames_IsAConflict_AndTheOtherNameIsKeptAsAComment()
+    {
+        var a = Open();
+        var b = Open();
+        a.SetName(0x1000, "AName");
+        b.SetName(0x1000, "BName");
+        Assert.Equal("BName", b.NameAt(0x1000));
+        Assert.Contains("[conflict] another process named this 'AName'", b.CommentAt(0x1000));
+        var notice = Assert.Single(_notices);
+        Assert.Contains("conflict", notice);
+        Assert.Contains("AName", notice);
+        Assert.Contains("[conflict]", Parse(Sidecar).GetProperty("comments").GetProperty("1000").GetString());
+    }
+
+    [Fact]
+    public void RemovalInOne_AdditionInTheOther_BothPersist_AndARemovalLosesToAConcurrentChange()
+    {
+        var a = Open();
+        a.SetName(0x1000, "Shared");
+        a.SetName(0x3000, "Renamed");
+        var b = Open();
+        a.SetName(0x1000, null);
+        b.SetName(0x2000, "Added");
+        var names = Parse(Sidecar).GetProperty("names");
+        Assert.False(names.TryGetProperty("1000", out _));
+        Assert.Equal("Added", names.GetProperty("2000").GetString());
+
+        a.SetName(0x3000, "RenamedAgain");
+        b.SetName(0x3000, null); // b never saw the rename: its removal loses
+        Assert.Equal("RenamedAgain", Parse(Sidecar).GetProperty("names").GetProperty("3000").GetString());
+        Assert.Equal("RenamedAgain", b.NameAt(0x3000));
+    }
+
+    [Fact]
+    public void UserTypes_FromTwoWriters_AreMerged()
+    {
+        var a = Open();
+        var b = Open();
+        a.ChangeUserTypes(l => l.WithDeclarations("struct A { int x; };").WithType(0x1000, "int f(A *a)"));
+        b.ChangeUserTypes(l => l.WithDeclarations("struct B { int y; };").WithLocal(new(0x2000, "v1", null, "count", null)).WithStackVar(new(0x2000, 8, "buf", "char[8]")));
+        var merged = Open().UserTypes;
+        Assert.Equal(["struct A { int x; };", "struct B { int y; };"], merged.Declarations);
+        Assert.Equal("int f(A *a)", merged.Types[0x1000]);
+        Assert.Equal("count", Assert.Single(merged.Locals[0x2000]).Name);
+        Assert.Equal("buf", Assert.Single(merged.StackVars[0x2000]).Name);
+        Assert.Equal(merged.Stamp, b.UserTypes.Stamp);
+        Assert.Equal(2, Parse(Sidecar).GetProperty("formatVersion").GetInt32());
+    }
+
+    [Fact]
+    public void WholeDocumentWriteByAnOlderBuild_IsMergedAsAChange()
+    {
+        var a = Open();
+        a.SetName(0x1000, "Mine");
+        // An older build rewrites the whole file without a revision and without a's name.
+        WriteSidecar("{\"formatVersion\":1,\"sha256\":\"ab12\",\"names\":{\"2000\":\"Old\"},\"comments\":{}}");
+        a.SetName(0x3000, "Next");
+        var names = Parse(Sidecar).GetProperty("names");
+        Assert.Equal("Old", names.GetProperty("2000").GetString());
+        Assert.Equal("Next", names.GetProperty("3000").GetString());
+        Assert.False(names.TryGetProperty("1000", out _)); // removed by that writer, not changed here since
+    }
+
+    [Fact]
+    public void HeldLock_TimesOut_KeepsTheChangeInMemory_AndTheNextSaveWritesIt()
+    {
+        var a = Open(new AnnotationStore(Root) { LockTimeout = TimeSpan.FromMilliseconds(200) });
+        a.SetName(0x1000, "Before");
+        using (new FileStream(Sidecar + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+        {
+            a.SetName(0x2000, "WhileLocked");
+            Assert.Equal("WhileLocked", a.NameAt(0x2000));
+        }
+        var notice = Assert.Single(_notices);
+        Assert.Contains("could not be saved", notice);
+        Assert.Contains("timed out", notice);
+        Assert.False(Parse(Sidecar).GetProperty("names").TryGetProperty("2000", out _));
+        a.SetComment(0x1000, "after");
+        Assert.Equal("WhileLocked", Parse(Sidecar).GetProperty("names").GetProperty("2000").GetString());
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task TwoProcesses_SavingNamesConcurrently_KeepAllOfThem()
+    {
+        const int PerSide = 500;
+        var image = McpProtocolTests.NativeSample(_dir);
+        var sha = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(image)));
+        // Any address inside the image takes a name.
+        const uint Start = 0x200;
+        Assert.True(NetDecompilerMcp.Services.NativeCodeScanner.Sections(image).Max(s => s.Rva + s.VirtualSize) > Start + 2 * PerSide);
+        await using var server = await ModelContextProtocol.Client.McpClient.CreateAsync(new ModelContextProtocol.Client.StdioClientTransport(new()
+        {
+            Name = "net-decompiler",
+            Command = "dotnet",
+            Arguments = [typeof(NetDecompilerMcp.Core.AssemblyWorkspace).Assembly.Location],
+            EnvironmentVariables = new Dictionary<string, string?> { ["NDM_ANNOTATIONS_DIR"] = Root },
+            ShutdownTimeout = TimeSpan.FromMilliseconds(200),
+        }));
+        Assert.True((await server.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = image })).IsError != true);
+        var here = new NativeAnnotations(new AnnotationStore(Root), image, sha, 0, n => { lock (_notices) _notices.Add(n); });
+
+        var remote = Task.Run(async () =>
+        {
+            for (uint i = 0; i < PerSide; i++)
+            {
+                var r = await server.CallToolAsync("rename_native", new Dictionary<string, object?>
+                {
+                    ["image"] = "native.dll", ["address"] = $"rva:0x{Start + i * 2:X}", ["name"] = $"Remote_{i}",
+                });
+                Assert.True(r.IsError != true, string.Join("\n", r.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(c => c.Text)));
+            }
+        });
+        var local = Task.Run(() => { for (uint i = 0; i < PerSide; i++) here.SetName(Start + i * 2 + 1, $"Local_{i}"); });
+        await Task.WhenAll(remote, local);
+
+        Assert.True(_notices.Count == 0, string.Join('\n', _notices));
+        var names = Parse(Path.Combine(Root, sha + ".json")).GetProperty("names");
+        for (uint i = 0; i < PerSide; i++)
+        {
+            Assert.Equal($"Remote_{i}", names.GetProperty((Start + i * 2).ToString("x")).GetString());
+            Assert.Equal($"Local_{i}", names.GetProperty((Start + i * 2 + 1).ToString("x")).GetString());
+        }
+        // The server's copy converged too: its export carries the names saved by this process.
+        var output = _dir.File("export.json");
+        var export = await server.CallToolAsync("export_native_annotations", new Dictionary<string, object?> { ["image"] = "native.dll", ["outputPath"] = output, ["format"] = "json" });
+        Assert.True(export.IsError != true);
+        Assert.Contains($"Local_{PerSide - 1}", File.ReadAllText(output));
     }
 }

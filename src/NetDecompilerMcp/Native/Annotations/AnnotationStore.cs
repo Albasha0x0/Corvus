@@ -11,6 +11,8 @@ public sealed class AnnotationDocument
 {
     /// <summary>0 in files written before the field existed.</summary>
     [JsonPropertyName("formatVersion")] public int FormatVersion { get; set; }
+    /// <summary>Incremented by every write; 0 in files written before the field existed, which readers treat as changed.</summary>
+    [JsonPropertyName("revision")] public ulong Revision { get; set; }
     [JsonPropertyName("path")] public string Path { get; set; } = "";
     [JsonPropertyName("sha256")] public string Sha256 { get; set; } = "";
     [JsonPropertyName("imageBase")] public ulong ImageBase { get; set; }
@@ -124,38 +126,50 @@ public sealed class AnnotationStore
         }
     }
 
+    /// <summary>How long a save waits for another process's write of the same sidecar.</summary>
+    public TimeSpan LockTimeout { get; init; } = LockedJsonFile.DefaultTimeout;
+
     /// <summary>
-    /// Writes <paramref name="document"/> through a temp file and an atomic rename; deletes the sidecar when it has become
-    /// empty. Returns null on success, else the problem (persistence is best-effort; in-memory annotations still work).
+    /// Saves under the cross-process lock: re-reads the sidecar fresh (through <see cref="Open"/>, so a corrupt one is
+    /// still moved aside), passes it to <paramref name="merge"/> and writes the result with the next revision, or deletes
+    /// the sidecar when the result is empty. A sidecar that must not be overwritten is left untouched. Returns the
+    /// document written (empty when deleted) or the problem (persistence is best-effort; in-memory annotations still work).
     /// </summary>
-    public string? Save(AnnotationDocument document)
+    public SaveResult Update(string sha256, Func<LoadResult, AnnotationDocument> merge)
     {
-        var file = FileFor(document.Sha256);
-        // version 2 adds user types; without them the file stays version 1, which older builds still read and write
-        document.FormatVersion = document.HasUserTypes ? FormatVersion : 1;
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(document, Json);
-        lock (WriteGates.GetOrAdd(file, _ => new object()))
-            for (int attempt = 0; ; attempt++)
-            {
-                try
-                {
-                    Directory.CreateDirectory(Root);
-                    if (document.IsEmpty) File.Delete(file);
-                    else SafeFile.WriteAllBytes(file, bytes, overwrite: true);
-                    return null;
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ToolError)
-                {
-                    // Another process renaming over the file, or a reader, can hold the target briefly.
-                    if (attempt >= 7 || ex is ToolError) return ex.Message;
-                    Thread.Sleep(10 * (attempt + 1) + Random.Shared.Next(10));
-                }
-            }
+        var file = FileFor(sha256);
+        AnnotationDocument? written = null;
+        (long, long) stamp = default;
+        var problem = LockedJsonFile.Update(file, () =>
+        {
+            var current = Open(sha256);
+            if (current.WriteBlocked) return LockedJsonFile.Change.Keep(current.Warning ?? $"{file} must not be overwritten");
+            written = merge(current);
+            if (written.IsEmpty) return LockedJsonFile.Change.Remove();
+            written.Revision = (current.Document?.Revision ?? 0) + 1;
+            // version 2 adds user types; without them the file stays version 1, which older builds still read and write
+            written.FormatVersion = written.HasUserTypes ? FormatVersion : 1;
+            return LockedJsonFile.Change.Write(JsonSerializer.SerializeToUtf8Bytes(written, Json));
+        }, LockTimeout, () => stamp = Stamp(sha256));
+        return problem == null ? new(written, stamp, null) : new(null, default, problem);
     }
 
-    /// <summary>Serializes writers of one sidecar within the process, across store instances.</summary>
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, object> WriteGates =
-        new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+    /// <summary>
+    /// The outcome of <see cref="Update"/>: the document written (empty when the sidecar was deleted) and the sidecar's
+    /// <see cref="Stamp"/> right after the write, or the problem.
+    /// </summary>
+    public sealed record SaveResult(AnnotationDocument? Written, (long Length, long Ticks) Stamp, string? Problem);
+
+    /// <summary>Length and last write time of the sidecar (zeros when absent): a cheap check for a write by another process.</summary>
+    public (long Length, long Ticks) Stamp(string sha256)
+    {
+        try
+        {
+            var info = new FileInfo(FileFor(sha256));
+            return info.Exists ? (info.Length, info.LastWriteTimeUtc.Ticks) : (0, 0);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return (-1, 0); }
+    }
 
     // ---- imported name layers (load_pdb, apply_il2cpp_names) ----
 
@@ -164,25 +178,22 @@ public sealed class AnnotationStore
     /// <summary>The file of one saved imported layer: &lt;sha256&gt;.&lt;source&gt;.names beside the sidecar.</summary>
     public string LayerFileFor(string sha256, NativeNameSource source) => System.IO.Path.Combine(Root, $"{sha256.ToLowerInvariant()}.{source.Id()}.names");
 
-    /// <summary>Writes an imported layer atomically; returns null on success, else the problem (persistence is best-effort).</summary>
+    /// <summary>
+    /// Writes an imported layer atomically; returns null on success, else the problem (persistence is best-effort).
+    /// Layers are whole files re-derivable from their source, so the last writer wins.
+    /// </summary>
     public string? SaveLayer(string sha256, string imagePath, NativeNameLayers.Layer layer)
     {
         var file = LayerFileFor(sha256, layer.Source);
-        var temp = file + ".tmp-" + Environment.ProcessId + "-" + Environment.CurrentManagedThreadId;
         try
         {
-            lock (_layerGate)
-            {
-                Directory.CreateDirectory(Root);
-                using (var fs = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16))
-                    SavedNameLayer.Write(fs, sha256.ToLowerInvariant(), imagePath, layer);
-                File.Move(temp, file, overwrite: true);
-            }
+            using var buffer = new MemoryStream();
+            SavedNameLayer.Write(buffer, sha256.ToLowerInvariant(), imagePath, layer);
+            lock (_layerGate) SafeFile.WriteAllBytes(file, buffer.GetBuffer().AsSpan(0, (int)buffer.Length), overwrite: true);
             return null;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ToolError)
         {
-            try { File.Delete(temp); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
             return ex.Message;
         }
     }

@@ -51,9 +51,26 @@ public sealed class NativeCodeService
         return index;
     }
 
-    /// <summary>The image's annotations (names and comments), loaded from the sidecar on first use.</summary>
-    public NativeAnnotations Annotations(LoadedNative native) =>
-        native.Annotations(n => new NativeAnnotations(_store, n.FilePath, n.OriginalSha256, n.Image.ImageBase, _workspace.Notify));
+    /// <summary>
+    /// The image's annotations (names and comments), loaded from the sidecar on first use and refreshed with what other
+    /// processes saved since (a file stat when nothing changed).
+    /// </summary>
+    public NativeAnnotations Annotations(LoadedNative native)
+    {
+        var ann = native.Annotations(n =>
+        {
+            var created = new NativeAnnotations(_store, n.FilePath, n.OriginalSha256, n.Image.ImageBase, _workspace.Notify);
+            created.MergedFromDisk += (names, comments) =>
+            {
+                if (Ready(n) is not { } index) return; // a later build reads them in ApplyAnnotations
+                foreach (var (rva, name) in names) index.SetUserName(rva, name);
+                foreach (var (rva, comment) in comments) index.SetUserComment(rva, comment);
+            };
+            return created;
+        });
+        ann.Refresh();
+        return ann;
+    }
 
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<LoadedNative, object> RestoreDone = new();
     private static readonly NativeNameSource[] SavedSources = [NativeNameSource.Pdb, NativeNameSource.Il2Cpp];
