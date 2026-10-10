@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Text;
 using ModelContextProtocol.Server;
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Mcp;
 using NetDecompilerMcp.Services;
 using static NetDecompilerMcp.Tools.ToolSupport;
 
@@ -10,20 +11,26 @@ namespace NetDecompilerMcp.Tools;
 [McpServerToolType]
 public sealed class ResourceTools(AssemblyWorkspace workspace, ResourceService resources, DecompilerService decompiler, OutputPager pager)
 {
-    [McpServerTool(Name = "list_resources", Title = "List manifest resources")]
+    [McpServerTool(Name = "list_resources", Title = "List manifest resources", UseStructuredContent = true, OutputSchemaType = typeof(ResourceList))]
     [Description("List manifest resources: embedded files, .resources containers (with entry counts), linked resources. For a native image, its Win32 resources as TYPE/NAME/LANGUAGE.")]
     public Task<string> ListResources(
         [Description(AssemblyDescription)] string assembly,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
-        if (workspace.FindNative(assembly) is { } native) return pager.Page(NativeResourceService.List(native));
+        if (workspace.FindNative(assembly) is { } native)
+        {
+            var win32 = native.Image.Resources;
+            return StructuredOutput.With(pager.Page(NativeResourceService.List(native)), new ResourceList(native.Id,
+                win32.Take(5_000).Select(r => new ResourceEntry(NativeResourceService.Key(r), r.TypeName, r.Size, null, null)).ToList(), win32.Count, win32.Count > 5_000));
+        }
         var asm = workspace.Get(assembly);
         var list = resources.List(asm);
-        if (list.Count == 0) return $"{asm.Id} has no resources.";
+        var result = new ResourceList(asm.Id, list.Select(r => new ResourceEntry(r.Name, r.Kind, r.Size, r.EntryCount, r.IsPublic)).ToList(), list.Count, false);
+        if (list.Count == 0) return StructuredOutput.With($"{asm.Id} has no resources.", result);
         var sb = new StringBuilder($"{asm.Id}: {Plural(list.Count, "resource")}\n");
         foreach (var r in list)
             sb.AppendLine($"  {r.Name}  [{r.Kind}{(r.Size is { } s ? $", {s:N0} bytes" : "")}{(r.EntryCount is { } n ? $", {n} entries" : "")}{(r.IsPublic ? "" : ", private")}]");
-        return sb.ToString();
+        return StructuredOutput.With(sb.ToString(), result);
     }, cancellationToken);
 
     [McpServerTool(Name = "get_resource", Title = "Read / extract resource")]

@@ -50,6 +50,22 @@ internal static class ToolSupport
 
     public static int ClampLimit(int limit, int max = 5_000) => Math.Clamp(limit, 1, max);
 
+    /// <summary>The page of <paramref name="all"/> that <see cref="OutputPager.PageRows"/> shows, as a structured list: (items, offset, total, truncated).</summary>
+    public static TResult Paged<T, TResult>(IReadOnlyList<T> all, int offset, int limit, Func<IReadOnlyList<T>, int, int, bool, TResult> make)
+    {
+        limit = Math.Clamp(limit, 1, 5_000);
+        offset = Math.Max(0, offset);
+        var page = all.Skip(offset).Take(limit).ToList();
+        return make(page, offset, all.Count, offset + page.Count < all.Count);
+    }
+
+    /// <summary>The first <paramref name="limit"/> of <paramref name="total"/> results as a structured list, offset 0.</summary>
+    public static TResult Firsts<T, TResult>(IEnumerable<T> shown, int total, Func<IReadOnlyList<T>, int, int, bool, TResult> make)
+    {
+        var items = shown.ToList();
+        return make(items, 0, total, items.Count < total);
+    }
+
     public static string TruncationNote(int shown, int total) => total > shown ? $" (showing {shown}; raise limit or refine)" : "";
 
     /// <summary>

@@ -556,6 +556,61 @@ public sealed class ContractSweepTests(Xunit.Abstractions.ITestOutputHelper outp
         Assert.Equal(JsonValueKind.Null, tooLong.GetProperty("partial").ValueKind);
     }
 
+    /// <summary>The list, search and info tools agents chain: readable text as the text block, the same facts as structured content.</summary>
+    [Fact]
+    public async Task ListsAndSearchesAreStructured()
+    {
+        string[] structured =
+        [
+            "list_namespaces", "list_types", "get_type_info", "search_symbols", "search_strings", "search_constants", "search_il", "find_references",
+            "find_callees", "find_overrides", "get_call_tree", "find_call_paths", "resolve_symbol", "list_resources", "get_assembly_info",
+            "list_imports", "list_exports", "list_functions", "find_xrefs", "search_native_strings", "resolve_address", "get_pe_info",
+        ];
+        foreach (var name in structured)
+            Assert.True(_tools.Single(t => t.Name == name).ProtocolTool.OutputSchema != null, $"{name} has no output schema");
+
+        async Task<(string Text, JsonElement Json)> Call(string tool, Dictionary<string, object?> args)
+        {
+            var r = await _client.CallToolAsync(tool, args);
+            var text = r.Content.OfType<TextContentBlock>().First(b => !b.Text.StartsWith("[workspace]", StringComparison.Ordinal)).Text;
+            Assert.True(r.IsError != true, text);
+            return (text, JsonDocument.Parse(r.StructuredContent!.ToString()!).RootElement);
+        }
+
+        var (text, json) = await Call("search_symbols", new() { ["query"] = "Charge", ["kind"] = "method" });
+        Assert.Matches(@"^\d+ matches:\n", text); // the readable text, not JSON
+        var first = json.GetProperty("items")[0];
+        Assert.Equal("method", first.GetProperty("kind").GetString());
+        Assert.StartsWith("Fixture.Model.Account::Charge(", first.GetProperty("label").GetString());
+        Assert.Equal("TestFixture", first.GetProperty("assembly").GetString());
+        Assert.StartsWith("0x06", first.GetProperty("token").GetString());
+
+        (text, json) = await Call("list_types", new() { ["assembly"] = "TestFixture", ["limit"] = 2, ["offset"] = 1 });
+        Assert.Equal(2, json.GetProperty("items").GetArrayLength());
+        Assert.Equal(1, json.GetProperty("offset").GetInt32());
+        Assert.True(json.GetProperty("total").GetInt32() > 3);
+        Assert.True(json.GetProperty("truncated").GetBoolean());
+        Assert.Contains($"(showing 2-3)", text);
+
+        (_, json) = await Call("get_call_tree", new() { ["method"] = "Account::Charge(int)", ["direction"] = "callers" });
+        Assert.Contains(json.GetProperty("items").EnumerateArray(), n => n.GetProperty("kind").GetString() == "method" && n.GetProperty("level").GetInt32() == 1);
+
+        (_, json) = await Call("list_exports", new() { ["image"] = McpProtocolTests.NativeSample(_dir) });
+        Assert.True(json.GetProperty("items")[0].GetProperty("ordinal").GetInt32() > 0);
+    }
+
+    [Fact]
+    public void StructuredContentIsCutToThePageSize()
+    {
+        var big = new NetDecompilerMcp.Tools.TypeList(Enumerable.Range(0, 5_000).Select(i => new NetDecompilerMcp.Tools.TypeEntry("A", $"0x{i:X8}", "class", $"Ns.Type{i}")).ToList(), 0, 5_000, false);
+        var json = NetDecompilerMcp.Mcp.StructuredOutput.Serialize(big, 20_000);
+        Assert.True(json.GetRawText().Length <= 20_000);
+        Assert.True(json.GetProperty("truncated").GetBoolean());
+        Assert.InRange(json.GetProperty("items").GetArrayLength(), 100, 4_999);
+        Assert.Equal(5_000, json.GetProperty("total").GetInt32());
+        Assert.False(NetDecompilerMcp.Mcp.StructuredOutput.Serialize(big with { Items = big.Items.Take(3).ToList() }, 20_000).GetProperty("truncated").GetBoolean());
+    }
+
     [Fact]
     public async Task CoreSweep()
     {

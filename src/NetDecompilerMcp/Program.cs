@@ -92,7 +92,12 @@ builder.Services
         {
             if (context.MatchedPrimitive is ModelContextProtocol.Server.McpServerTool tool)
                 ArgumentCheck.Apply(tool.ProtocolTool.InputSchema, context.Params?.Arguments);
+            var structured = StructuredOutput.Begin();
             var result = await next(context, cancellationToken);
+            // A tool that keeps its readable text hands its record over separately; bounded to the page size.
+            if (structured.Value is { } value && context.Services is { } provider)
+                result.StructuredContent = StructuredOutput.Serialize(value,
+                    ResponseBudget.Budget(provider.GetRequiredService<ServerOptions>(), context.Params) - ResponseBudget.Slack);
             // Transformed names made of zero-width and bidi characters would print as nothing or scramble the line.
             foreach (var block in result.Content.OfType<TextContentBlock>())
                 block.Text = NetDecompilerMcp.Core.Format.EscapeInvisible(block.Text);

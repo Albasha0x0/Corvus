@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Text;
 using ModelContextProtocol.Server;
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Mcp;
 using NetDecompilerMcp.Native;
 using NetDecompilerMcp.Native.Code;
 using NetDecompilerMcp.Native.Pe;
@@ -12,7 +13,7 @@ namespace NetDecompilerMcp.Tools;
 
 /// <summary>Native PE images: headers, imports, exports, addresses and bytes.</summary>
 [McpServerToolType]
-public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, NativeCodeService? code = null, NativeLinkService? link = null)
+public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager pager, NativeCodeService? code = null, NativeLinkService? link = null)
 {
     public const string ImageDescription = "Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded.";
 
@@ -31,7 +32,7 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
     public const string AddressDescription =
         "Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name.";
 
-    [McpServerTool(Name = "get_pe_info", Title = "PE overview")]
+    [McpServerTool(Name = "get_pe_info", Title = "PE overview", UseStructuredContent = true, OutputSchemaType = typeof(PeSummary))]
     [Description("Overview of a native PE image: machine, kind, subsystem, image base, entry point, timestamps, linker, sections (with flags and entropy), " +
                  "security mitigations (ASLR, DEP, CFG, SafeSEH, GS cookie, CET...), import/export counts, TLS callbacks, debug info (PDB path and GUID), " +
                  "load config, version resource, manifest, rich header (toolchain), checksum, overlay, Authenticode signature, and anything malformed.")]
@@ -42,8 +43,8 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
         var index = code?.Ready(native);
-        return pager.Page(pager.GetOrCreate($"peinfo|{native.Id}|{native.Image.Sha256}|{PdbTools.Status(native)}|{index != null}",
-            () => PeInfo(native, code == null ? "" : NativeCallTools.DynamicSection(index, cancellationToken))), offset, maxChars);
+        return StructuredOutput.With(pager.Page(pager.GetOrCreate($"peinfo|{native.Id}|{native.Image.Sha256}|{PdbTools.Status(native)}|{index != null}",
+            () => PeInfo(native, code == null ? "" : NativeCallTools.DynamicSection(index, cancellationToken))), offset, maxChars), Summary(native));
     }, cancellationToken);
 
     private static string PeInfo(LoadedNative native, string dynamicImports = "")
@@ -62,13 +63,8 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
         if (pe.DllCharacteristicNames.Count > 0) sb.AppendLine($"  DLL characteristics: {string.Join(", ", pe.DllCharacteristicNames)}");
         if (pe.IsDotNet) sb.AppendLine("  has .NET metadata (mixed-mode or loaded as native): the .NET tools apply to it too");
 
-        var m = pe.Mitigations;
-        var on = new List<string>();
-        var off = new List<string>();
-        void M(string name, bool value) => (value ? on : off).Add(name);
-        M("ASLR", m.Aslr); M("high-entropy VA", m.HighEntropyVa); M("DEP", m.Dep); M("CFG", m.ControlFlowGuard); M("SafeSEH", m.SafeSeh);
-        M("GS cookie", m.GsCookie); M("CET", m.CetCompatible); M("XFG", m.Xfg); M("EH continuation", m.EhContinuation); M("force integrity", m.ForceIntegrity);
-        sb.AppendLine($"Mitigations: on: {(on.Count > 0 ? string.Join(", ", on) : "none")}; off: {(off.Count > 0 ? string.Join(", ", off) : "none")}" + (m.NoSeh ? "; no SEH" : ""));
+        var (on, off) = Mitigations(pe);
+        sb.AppendLine($"Mitigations: on: {(on.Count > 0 ? string.Join(", ", on) : "none")}; off: {(off.Count > 0 ? string.Join(", ", off) : "none")}" + (pe.Mitigations.NoSeh ? "; no SEH" : ""));
 
         sb.AppendLine($"Sections ({pe.Sections.Count}):");
         foreach (var layout in pe.SectionLayouts)
@@ -134,6 +130,33 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
         return sb.ToString();
     }
 
+    private static (List<string> On, List<string> Off) Mitigations(PeFile pe)
+    {
+        var m = pe.Mitigations;
+        var on = new List<string>();
+        var off = new List<string>();
+        void M(string name, bool value) => (value ? on : off).Add(name);
+        M("ASLR", m.Aslr); M("high-entropy VA", m.HighEntropyVa); M("DEP", m.Dep); M("CFG", m.ControlFlowGuard); M("SafeSEH", m.SafeSeh);
+        M("GS cookie", m.GsCookie); M("CET", m.CetCompatible); M("XFG", m.Xfg); M("EH continuation", m.EhContinuation); M("force integrity", m.ForceIntegrity);
+        return (on, off);
+    }
+
+    /// <summary>get_pe_info's facts as fields.</summary>
+    private static PeSummary Summary(LoadedNative native)
+    {
+        var pe = native.Image;
+        var (on, off) = Mitigations(pe);
+        var cv = pe.CodeView;
+        var ck = pe.Checksum;
+        return new PeSummary(native.Id, native.FilePath, pe.MachineName, pe.IsDll ? "dll" : "exe", pe.Is64Bit ? "PE32+" : "PE32", pe.SubsystemName, pe.FileSize, pe.Sha256,
+            $"0x{pe.ImageBase:X}", pe.EntryPointRva == 0 ? null : NativeAddress.Va(pe, pe.EntryPointRva), $"0x{pe.Coff.TimeDateStamp:X8}", pe.IsDotNet, on, off,
+            pe.SectionLayouts.Select(l => new SectionEntry(l.Section.Name, $"0x{l.Section.Rva:X}", $"0x{l.Section.VirtualSize:X}", $"0x{l.Section.RawOffset:X}",
+                $"0x{l.Section.RawSize:X}", Access(l.Section.Access), Math.Round(Entropy(pe, l), 2), l.CharacteristicNames.ToList())).ToList(),
+            pe.ImportModules.Count, pe.ImportModules.Sum(i => i.Functions.Count), pe.DelayImportModules.Count, pe.Exports.Count, pe.TlsCallbackRvas.Count,
+            cv?.PdbPath, cv?.Guid.ToString("D"), cv != null ? (int)cv.Age : null, pe.Certificate.Present ? pe.Certificate.Signer : null,
+            ck.Stored == 0 ? null : ck.Matches, pe.Overlay?.Size, pe.Issues.Count);
+    }
+
     private static string Access(SectionAccess a) =>
         $"{((a & SectionAccess.Read) != 0 ? 'r' : '-')}{((a & SectionAccess.Write) != 0 ? 'w' : '-')}{((a & SectionAccess.Execute) != 0 ? 'x' : '-')}";
 
@@ -150,7 +173,7 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
         return h;
     }
 
-    [McpServerTool(Name = "list_imports", Title = "List native imports")]
+    [McpServerTool(Name = "list_imports", Title = "List native imports", UseStructuredContent = true, OutputSchemaType = typeof(ImportList))]
     [Description("Functions a native image imports, per DLL (delay-loaded marked), with the IAT slot address code calls through. " +
                  "API set names (api-ms-win-*) are shown with the DLL they resolve to on this system. With bind=true each import is bound like the " +
                  "loader does (DLL search order, API sets, forwarders, jump thunks in loaded providers) to its export: 'at VA [image]' when the provider " +
@@ -183,6 +206,7 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
             var apiSets = ApiSets.Value;
             var rows = new List<string>();
             var bindings = new List<NativeLinkService.Binding>();
+            var items = new List<ImportEntry>();
             var bySlot = bind && link != null
                 ? pe.Imports.Zip(link.BindAll(native, cancellationToken)).GroupBy(p => p.First.SlotRva).ToDictionary(g => g.Key, g => g.First().Second)
                 : null;
@@ -195,16 +219,27 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
                     var name = f.Name ?? $"#{f.Ordinal}";
                     if (filter != null && !name.Contains(filter, StringComparison.OrdinalIgnoreCase)) continue;
                     var row = $"{NativeAddress.Va(pe, f.SlotRva)}  {mod.Name}{(host != null ? $" ({host})" : "")}!{name}{(f.IsDelayLoad ? "  [delay]" : "")}";
+                    string? binding = null;
                     if (bySlot != null && bySlot.TryGetValue(f.SlotRva, out var b))
                     {
                         b = link!.FollowThunks(b);
                         bindings.Add(b);
-                        row += "  -> " + NativeLinkService.Describe(b);
+                        binding = NativeLinkService.Describe(b);
+                        row += "  -> " + binding;
                     }
                     rows.Add(row);
+                    items.Add(new ImportEntry(NativeAddress.Va(pe, f.SlotRva), mod.Name, name, host, f.IsDelayLoad, false, binding, null));
                 }
             }
-            if (dynamicRows != null) rows.AddRange(dynamicRows);
+            if (dynamicRows != null)
+            {
+                rows.AddRange(dynamicRows);
+                // "VA  module!name  [dynamic: where; confidence; how]"
+                foreach (var d in dynamicRows)
+                    items.Add(DynamicRow().Match(d) is { Success: true } m
+                        ? new ImportEntry(m.Groups[1].Value, m.Groups[2].Value, m.Groups[3].Value, null, false, true, null, m.Groups[4].Value)
+                        : new ImportEntry("", "", d, null, false, true, null, null));
+            }
             var head = "";
             if (bySlot != null)
             {
@@ -214,11 +249,15 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
                        (unresolved.Count > 0 ? $" ({string.Join(", ", unresolved.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Key} {kv.Value}"))})" : "") + "\n";
             }
             else if (bind) head = "Bindings: not available in this configuration\n";
-            return head + pager.PageRows(rows, offset, limit, "import");
+            return StructuredOutput.With(head + pager.PageRows(rows, offset, limit, "import"),
+                Paged(items, offset, limit, (page, o, total, more) => new ImportList(native.Id, page, o, total, more, head.Length > 0 ? head.Trim() : null)));
         }, cancellationToken);
     }
 
-    [McpServerTool(Name = "list_exports", Title = "List native exports")]
+    [System.Text.RegularExpressions.GeneratedRegex(@"^(\S+)\s+(.+?)!(\S+)\s+\[dynamic: (.*)\]$")]
+    private static partial System.Text.RegularExpressions.Regex DynamicRow();
+
+    [McpServerTool(Name = "list_exports", Title = "List native exports", UseStructuredContent = true, OutputSchemaType = typeof(ExportList))]
     [Description("Functions and data a native image exports: ordinal, address (VA), name (with the demangled C++ form for MSVC names), and forwarders.")]
     public Task<string> ListExports(
         [Description(ImageDescription)] string image,
@@ -229,6 +268,7 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
     {
         var pe = native.Image;
         var rows = new List<string>();
+        var items = new List<ExportEntry>();
         foreach (var e in pe.Exports)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -237,11 +277,14 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
             if (filter != null && !name.Contains(filter, StringComparison.OrdinalIgnoreCase) && demangled?.Contains(filter, StringComparison.OrdinalIgnoreCase) != true) continue;
             rows.Add($"#{e.Ordinal,-5} {(e.ForwardedTo != null ? "forwarder".PadRight(18) : NativeAddress.Va(pe, e.Rva).PadRight(18))} {name}" +
                      (demangled != null && demangled != name ? $"  = {demangled}" : "") + (e.ForwardedTo != null ? $"  -> {e.ForwardedTo}" : ""));
+            items.Add(new ExportEntry((int)e.Ordinal, e.ForwardedTo != null ? null : NativeAddress.Va(pe, e.Rva), e.Name,
+                demangled != null && demangled != name ? demangled : null, e.ForwardedTo));
         }
-        return pager.PageRows(rows, offset, limit, "export");
+        return StructuredOutput.With(pager.PageRows(rows, offset, limit, "export"),
+            Paged(items, offset, limit, (page, o, total, more) => new ExportList(native.Id, page, o, total, more)));
     }, cancellationToken);
 
-    [McpServerTool(Name = "resolve_address", Title = "Resolve native address")]
+    [McpServerTool(Name = "resolve_address", Title = "Resolve native address", UseStructuredContent = true, OutputSchemaType = typeof(AddressInfo))]
     [Description("What an address in a native image is: RVA, VA and file offset, the section and its permissions, the nearest export or import at or before it, " +
                  "and, once the code index is built, its name and the name's source (user, pdb, il2cpp); after apply_il2cpp_names the managed method or metadata slot. " +
                  "For an IAT slot, the export it is bound to (in a loaded image: its address and image); for an export, the loaded images importing it.")]
@@ -254,7 +297,8 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
         var index = code?.Ready(native);
         var rva = NativeAddress.Parse(pe, address, index != null ? index.AddressOfName : null);
         var sb = new StringBuilder($"{address.Trim()}: {NativeAddress.Describe(pe, rva)}\n");
-        if (index?.Sourced.NameAt(rva) is { } named) sb.AppendLine($"  name {named.Name} ({named.Source.Id()})");
+        var named = index?.Sourced.NameAt(rva);
+        if (named is { } n) sb.AppendLine($"  name {n.Name} ({n.Source.Id()})");
         foreach (var line in Il2CppNativeNames.Describe(native, index, rva)) sb.AppendLine("  " + line);
         var section = pe.SectionAt(rva);
         sb.AppendLine(section != null
@@ -262,7 +306,8 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
             : rva < pe.Optional.SizeOfHeaders ? "  in the PE headers" : "  in no section");
         var slot = pe.Imports.FirstOrDefault(i => i.SlotRva == rva);
         if (slot != null) sb.AppendLine($"  IAT slot of {slot.Module}!{slot.Name ?? "#" + slot.Ordinal}");
-        if (slot != null && link != null) sb.AppendLine($"  bound to {NativeLinkService.Describe(link.BindImport(native, slot))}");
+        var boundTo = slot != null && link != null ? NativeLinkService.Describe(link.BindImport(native, slot)) : null;
+        if (boundTo != null) sb.AppendLine($"  bound to {boundTo}");
         if (link != null) foreach (var line in link.DescribeManaged(native, rva)) sb.AppendLine("  " + line);
         if (link != null && link.ImportersOf(native, rva, cancellationToken) is { Count: > 0 } importers)
             sb.AppendLine($"  imported by {string.Join(", ", importers.GroupBy(i => i.Importer.Id).Select(g => $"{g.Key} ({string.Join(", ", g.Select(i => NativeCodeIndex.ImportName(i.Import)).Distinct())})"))}; find_xrefs lists the call sites");
@@ -270,7 +315,12 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
         if (export != null) sb.AppendLine(export.Rva == rva ? $"  export {export.Name ?? "#" + export.Ordinal}" : $"  nearest export before it: {export.Name ?? "#" + export.Ordinal} + 0x{rva - export.Rva:X}");
         var function = FindRuntimeFunction(pe, rva);
         if (function != null) sb.AppendLine($"  inside the unwind range 0x{pe.ImageBase + function.BeginRva:X}-0x{pe.ImageBase + function.EndRva:X}");
-        return sb.ToString();
+        var text = sb.ToString();
+        return StructuredOutput.With(text, new AddressInfo(native.Id, $"0x{rva:X}", NativeAddress.Va(pe, rva),
+            pe.TryRvaToFileOffset(rva, out var fileOffset) ? $"0x{fileOffset:X}" : null, section?.Name, section != null ? Access(section.Access) : null,
+            named?.Name, named?.Source.Id(), slot != null ? $"{slot.Module}!{slot.Name ?? "#" + slot.Ordinal}" : null, boundTo,
+            export == null ? null : export.Rva == rva ? export.Name ?? "#" + export.Ordinal : $"{export.Name ?? "#" + export.Ordinal}+0x{rva - export.Rva:X}",
+            text.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList()));
     }, cancellationToken);
 
     private static RuntimeFunction? FindRuntimeFunction(PeFile pe, uint rva)

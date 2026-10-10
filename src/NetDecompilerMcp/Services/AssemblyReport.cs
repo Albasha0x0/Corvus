@@ -7,8 +7,38 @@ namespace NetDecompilerMcp.Services;
 /// <summary>Assembly overview used by the get_assembly_info tool and the assembly info resource.</summary>
 public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il2cpp)
 {
+    /// <summary>A reference of the assembly and where it resolves.</summary>
+    public sealed record ReferenceStatus(string Name, [property: System.ComponentModel.Description("Where it resolves, or not found.")] string Status);
+
+    /// <summary>The overview's facts as fields (get_assembly_info's structured content).</summary>
+    public sealed record Summary(
+        string Id,
+        string FullName,
+        string File,
+        string Mvid,
+        string Runtime,
+        string Kind,
+        string Machine,
+        string? TargetFramework,
+        [property: System.ComponentModel.Description("Ns.Type::Method of the entry point.")] string? EntryPoint,
+        int Types,
+        int NestedTypes,
+        int Namespaces,
+        int Methods,
+        int Fields,
+        int Resources,
+        bool ReferenceAssembly,
+        [property: System.ComponentModel.Description("Il2Cpp dummy DLL: methods with [Address] attributes.")] int Il2CppAddressedMethods,
+        [property: System.ComponentModel.Description("Method bodies that are not valid IL.")] int InvalidBodies,
+        IReadOnlyList<string> UnsavedEdits,
+        IReadOnlyList<ReferenceStatus> References,
+        [property: System.ComponentModel.Description("Assembly attributes (first 40).")] IReadOnlyList<string> Attributes);
+
     /// <summary>Call under the workspace read lock.</summary>
-    public string Build(LoadedAssembly asm)
+    public string Build(LoadedAssembly asm) => Build(asm, out _);
+
+    /// <summary>The overview text, and its facts as <paramref name="summary"/>. Call under the workspace read lock.</summary>
+    public string Build(LoadedAssembly asm, out Summary summary)
     {
         var m = asm.Module;
         var types = MetadataUtil.CountedTypes(m);
@@ -45,6 +75,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         AppendMetadataIssues(sb, asm);
 
         sb.AppendLine("References:");
+        var references = new List<ReferenceStatus>();
         foreach (var r in m.GetAssemblyRefs())
         {
             var target = workspace.LocateReference(r.Name, r.Version, r.PublicKeyOrToken?.Token?.Data, asm.FilePath, Frameworks.TargetsNetFramework(m), Frameworks.TargetFrameworkOf(m));
@@ -59,6 +90,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
                     status += $", version {found} (no {wanted.Major}.x on this machine)";
             }
             sb.AppendLine($"  {r.FullName}  [{status}]");
+            references.Add(new ReferenceStatus(r.FullName, status));
         }
 
         var attrs = m.Assembly?.CustomAttributes.Where(c => c != tfa).ToList() ?? [];
@@ -67,6 +99,13 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
             sb.AppendLine("Assembly attributes:");
             foreach (var ca in attrs.Take(40)) sb.AppendLine("  " + Format.Attribute(ca));
         }
+        summary = new Summary(asm.Id, asm.FullAssemblyName, asm.FilePath, m.Mvid?.ToString() ?? "", m.RuntimeVersion ?? "", m.Kind.ToString(), m.Machine.ToString(),
+            tfa?.ConstructorArguments.Count > 0 ? tfa.ConstructorArguments[0].Value?.ToString() : null,
+            m.EntryPoint != null ? Format.MemberLabel(m.EntryPoint) : null,
+            types.Count, types.Count(t => t.DeclaringType != null), MetadataUtil.NamespaceCount(types),
+            m.GetTypes().Sum(t => t.Methods.Count), m.GetTypes().Sum(t => t.Fields.Count), m.Resources.Count,
+            MetadataUtil.IsReferenceAssembly(m), addressed, health.Invalid, asm.Edits.Select(e => e.ToString()).ToList(), references,
+            attrs.Take(40).Select(Format.Attribute).ToList());
         return sb.ToString();
     }
 

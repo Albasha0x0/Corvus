@@ -5,6 +5,7 @@ using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Mcp;
 using NetDecompilerMcp.Services;
 using NetDecompilerMcp.Services.Analysis;
 using static NetDecompilerMcp.Tools.ToolSupport;
@@ -205,8 +206,12 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
             return text;
         }, cancellationToken);
 
-    [McpServerTool(Name = "get_assembly_info", Title = "Assembly overview")]
+    [McpServerTool(Name = "get_assembly_info", Title = "Assembly overview", UseStructuredContent = true, OutputSchemaType = typeof(AssemblyReport.Summary))]
     [Description("Assembly overview: identity, target framework, entry point, counts, references (and whether each resolves), PE headers and sections, metadata streams, assembly attributes, Il2Cpp detection, unsaved edits.")]
     public Task<string> GetAssemblyInfo([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
-        Read(workspace, () => report.Build(workspace.Get(assembly)), cancellationToken);
+        Read(workspace, () =>
+        {
+            var text = report.Build(workspace.Get(assembly), out var summary);
+            return StructuredOutput.With(text, summary);
+        }, cancellationToken);
 }
