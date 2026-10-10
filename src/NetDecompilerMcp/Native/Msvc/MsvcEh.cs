@@ -156,9 +156,10 @@ public sealed class MsvcEhResult
     private readonly Dictionary<uint, MsvcEhFrame> _byFunction;
 
     internal MsvcEhResult(List<MsvcEhFrame> frames, Dictionary<uint, List<(uint Parent, MsvcEhChildKind Kind)>> parents,
-        Dictionary<uint, uint> fragments, List<MsvcEhReject> rejects, int rejectCount, MsvcEhStats stats)
+        Dictionary<uint, uint> fragments, List<MsvcEhReject> rejects, int rejectCount, MsvcEhStats stats, bool framesSorted = false)
     {
-        frames.Sort((a, b) => a.FunctionRva.CompareTo(b.FunctionRva));
+        // a saved result keeps its order exactly (the sort is not stable for frames of the same function)
+        if (!framesSorted) frames.Sort((a, b) => a.FunctionRva.CompareTo(b.FunctionRva));
         Frames = frames;
         _byFunction = [];
         foreach (var f in frames) _byFunction.TryAdd(f.FunctionRva, f);
