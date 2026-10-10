@@ -65,6 +65,9 @@ internal static class ServerInstructions
            undo_native_edit, save_native to a new file; export_native_annotations writes IDA / Ghidra scripts. Patches stay correct
            under ASLR: relocation entries the new bytes no longer use are neutralized and new absolute addresses get an entry; when
            the page has no free slot the error is no_relocation_slot (write it RIP-relative, or force=true for a preferred-base-only patch).
+           A patch larger than its site: patch_asm / patch_bytes extend=true put a relocation stub in a code cave (the site jumps to
+           it; it runs the new code, plus the displaced instructions with stubMode=before|after, and returns after the site); unsafe
+           sites are refused with a reason code (branch_target_in_site, unwind_data, no_space, ...). dryRun shows the stub first.
            New builds: load both (the second gets an id like game.dll#2); compare_native_images matches functions (unique-only, ambiguous
            ones listed), map_address_between_builds carries an address over, migrate_native_names (dryRun first) copies your names;
            make_code_pattern / search_code_pattern give byte patterns that survive rebuilds. export_native_patches writes your patches
