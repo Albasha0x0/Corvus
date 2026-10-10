@@ -170,6 +170,14 @@ internal static class Tools
         psi.Environment["UseSharedCompilation"] = "false";
         psi.Environment["DOTNET_NOLOGO"] = "1";
         psi.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
+        // Shells such as Git Bash drop ProgramFiles(x86); NativeAOT's linker setup (vcvarsall) runs vswhere from it and from PATH.
+        if (OperatingSystem.IsWindows())
+        {
+            var x86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+            if (!psi.Environment.ContainsKey("ProgramFiles(x86)")) psi.Environment["ProgramFiles(x86)"] = x86;
+            var installer = Path.Combine(x86, "Microsoft Visual Studio", "Installer");
+            if (Directory.Exists(installer)) psi.Environment["PATH"] = psi.Environment["PATH"] + Path.PathSeparator + installer;
+        }
         return Run(psi);
     }
 

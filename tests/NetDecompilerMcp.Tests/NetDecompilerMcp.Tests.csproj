@@ -55,10 +55,12 @@
     <ProjectReference Include="..\TestFixture.Consumer\TestFixture.Consumer.csproj" />
   </ItemGroup>
 
-  <!-- .NET Framework programs the pipeline round trip compiles and processes: data, not part of this project. -->
+  <!-- Programs the tests compile with external toolchains (pipeline round trip, NativeAOT samples): data, not part of this project. -->
   <ItemGroup>
     <Compile Remove="PipelineSamples\**" />
     <None Include="PipelineSamples\**" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Remove="NativeAotSample\**" />
+    <None Include="NativeAotSample\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
