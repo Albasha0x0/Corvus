@@ -10,13 +10,19 @@ namespace NetDecompilerMcp.Mcp;
 public static class ArgumentCheck
 {
     /// <summary>
-    /// Throws <see cref="ToolError"/> for an argument of the wrong JSON type. A null for an optional parameter that does not
-    /// take null is removed, so the parameter's default applies (some clients send null for "not given").
+    /// Throws <see cref="ToolError"/> for an argument name the schema does not declare (with the closest declared names)
+    /// or an argument of the wrong JSON type. A null for an optional parameter that does not take null is removed, so the
+    /// parameter's default applies (some clients send null for "not given").
     /// Integer parameters are all <see cref="int"/>, so integers outside its range are rejected here too.
     /// </summary>
     public static void Apply(JsonElement inputSchema, IDictionary<string, JsonElement>? arguments)
     {
-        if (arguments == null || !inputSchema.TryGetProperty("properties", out var properties)) return;
+        if (arguments == null || arguments.Count == 0) return;
+        var properties = inputSchema.TryGetProperty("properties", out var p) && p.ValueKind == JsonValueKind.Object ? p : default;
+        var declared = properties.ValueKind == JsonValueKind.Object ? properties.EnumerateObject().Select(e => e.Name).ToList() : [];
+        foreach (var name in arguments.Keys)
+            if (!declared.Contains(name, StringComparer.Ordinal))
+                throw UnknownParameter(name, declared);
         var required = inputSchema.TryGetProperty("required", out var r) ? r.EnumerateArray().Select(e => e.GetString()).ToHashSet() : [];
         foreach (var (name, value) in arguments.ToList())
         {
@@ -35,6 +41,65 @@ public static class ArgumentCheck
                 : $"{Describe(types)}, not {Kind(value)}";
             throw new ToolError(ErrorCode.InvalidArgument, $"parameter '{name}' must be {detail}.");
         }
+    }
+
+    /// <summary>The error for an argument name the tool does not declare: the closest declared names, or all of them.</summary>
+    public static ToolError UnknownParameter(string name, IReadOnlyList<string> declared)
+    {
+        var suggestions = Suggest(name, declared);
+        var shown = Format.EscapeInvisible(name.Length > 80 ? name[..80] + "..." : name);
+        var message = declared.Count == 0
+            ? $"unknown parameter '{shown}': this tool takes no parameters."
+            : suggestions.Count > 0
+                ? $"unknown parameter '{shown}'. Did you mean {string.Join(" or ", suggestions.Select(s => $"'{s}'"))}?"
+                : $"unknown parameter '{shown}'.";
+        var next = declared.Count == 0 ? "Call the tool without arguments." : $"Parameters: {string.Join(", ", declared)}.";
+        return new ToolError(ErrorCode.InvalidArgument, message, next)
+        {
+            Details = new { parameter = name, suggestions, parameters = declared },
+        };
+    }
+
+    /// <summary>
+    /// Declared names close to <paramref name="name"/>, closest first (at most three): same name ignoring case and
+    /// separators, an edit distance within a third of the length (at least 2), or one name containing the other.
+    /// </summary>
+    public static List<string> Suggest(string name, IReadOnlyList<string> declared)
+    {
+        var key = Normalize(name);
+        if (key.Length == 0) return [];
+        var scored = new List<(string Name, int Score)>();
+        foreach (var candidate in declared)
+        {
+            var other = Normalize(candidate);
+            var distance = Distance(key, other);
+            var limit = Math.Max(2, Math.Min(key.Length, other.Length) / 3);
+            if (distance <= limit) scored.Add((candidate, distance));
+            else if (Math.Min(key.Length, other.Length) >= 3 && (other.Contains(key) || key.Contains(other)))
+                scored.Add((candidate, limit + Math.Abs(key.Length - other.Length)));
+        }
+        return scored.OrderBy(s => s.Score).ThenBy(s => s.Name, StringComparer.Ordinal).Take(3).Select(s => s.Name).ToList();
+    }
+
+    private static string Normalize(string name) =>
+        new(name.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+
+    /// <summary>Optimal string alignment distance (insertions, deletions, substitutions, adjacent transpositions).</summary>
+    private static int Distance(string a, string b)
+    {
+        if (a.Length > 200 || b.Length > 200) return int.MaxValue;
+        var d = new int[a.Length + 1, b.Length + 1];
+        for (var i = 0; i <= a.Length; i++) d[i, 0] = i;
+        for (var j = 0; j <= b.Length; j++) d[0, j] = j;
+        for (var i = 1; i <= a.Length; i++)
+            for (var j = 1; j <= b.Length; j++)
+            {
+                var cost = a[i - 1] == b[j - 1] ? 0 : 1;
+                d[i, j] = Math.Min(Math.Min(d[i - 1, j] + 1, d[i, j - 1] + 1), d[i - 1, j - 1] + cost);
+                if (i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1])
+                    d[i, j] = Math.Min(d[i, j], d[i - 2, j - 2] + 1);
+            }
+        return d[a.Length, b.Length];
     }
 
     /// <summary>

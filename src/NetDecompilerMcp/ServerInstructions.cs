@@ -84,7 +84,8 @@ internal static class ServerInstructions
         provider_unavailable, ...) and usually a "Next:" line with the call that can succeed. A result too large to send comes back as
         limit_exceeded with an id: read_result pages through it. server_status reports version, limits and available engines.
         After the text, errors repeat as JSON ("error (json): {code, retryable, message, next, partial, details}"); partial holds what
-        was found before a time limit or cancellation. List, search and info tools also return structured content (items, offset,
+        was found before a time limit or cancellation. An argument name the tool does not declare is invalid_argument with the
+        closest declared names (details.suggestions); it is never ignored. List, search and info tools also return structured content (items, offset,
         total, truncated) beside the readable text; to page on, pass offset = offset + the items received. Tools marked
         [Long-running ...] can take more than 10 s (server_status lists them). Pass expectedCatalogDigest to server_status to detect
         a stale server; `NetDecompilerMcp doctor` compares the installed server with this build.
