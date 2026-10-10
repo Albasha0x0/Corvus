@@ -235,6 +235,8 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["decompile_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["engine"] = "ghidra" }, "Error (invalid_argument) in decompile_native: parameter 'engine' must be one of auto, ida"),
         ["set_native_type"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["type"] = "int f(void)", ["engine"] = "ghidra" },
             "Error (invalid_argument) in set_native_type: Unknown engine"),
+        ["set_native_local"] = (new() { ["image"] = NativeSample(dir), ["function"] = "First", ["local"] = "v1", ["newName"] = "count", ["engine"] = "ghidra" },
+            "Error (invalid_argument) in set_native_local: Unknown engine"),
         ["rename_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["name"] = "SweepFunc" }, "Named"),
         ["comment_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["text"] = "entry" }, "Commented"),
         ["export_native_annotations"] = (new() { ["image"] = NativeSample(dir), ["outputPath"] = dir.File("ann.py"), ["format"] = "ida" }, "Exported"),

@@ -798,6 +798,77 @@ def apply_user_type(m, ti, rva, decl):
     return ["type", rva, decl, True, None, None, None, type_text(ti, got, name if function else "")]
 
 
+def decompile_function(m, ea):
+    # (cfunc, None) or (None, reason)
+    if not hexrays_ready(m):
+        return None, "the Hex-Rays decompiler is not available"
+    try:
+        cf = m.ida_hexrays.decompile(ea, m.ida_hexrays.hexrays_failure_t(), m.ida_hexrays.DECOMP_NO_WAIT)
+    except m.ida_hexrays.DecompilationFailure as e:
+        return None, "decompilation failed: %s" % (str(e).strip() or "unknown reason")
+    return (cf, None) if cf is not None else (None, "decompilation failed")
+
+
+def find_lvar(lvars, local, stack, name):
+    # by stack offset (stable over renames), else the name it had when first edited, else the name it got
+    if stack is not None:
+        for v in lvars:
+            if v.is_stk_var() and v.get_stkoff() == stack:
+                return v
+    for wanted in (local, name):
+        if wanted:
+            for v in lvars:
+                if v.name == wanted:
+                    return v
+    return None
+
+
+def apply_local(m, ti, rva, local, stack, name, typ):
+    # Hex-Rays user lvar settings through modify_user_lvar_info (lvar_saved_info_t keyed by the variable's locator)
+    hr = m.ida_hexrays
+    f = m.ida_funcs.get_func(_state["base"] + rva)
+    if f is None:
+        return ["local", rva, local, False, "no function contains rva 0x%X" % rva, None, stack, None]
+    rva = rva_of(f.start_ea)
+    cf, why = decompile_function(m, f.start_ea)
+    if cf is None:
+        return ["local", rva, local, False, why, None, stack, None]
+    lvars = list(cf.get_lvars())
+    lv = find_lvar(lvars, local, stack, name)
+    if lv is None:
+        known = ", ".join(v.name for v in lvars if v.name)
+        return ["local", rva, local, False, "the function has no local %s (locals: %s)" % (local, known[:400]), None, stack, None]
+    resolved = lv.name
+    stk = lv.get_stkoff() if lv.is_stk_var() else None
+    if name and name != lv.name and any(v.name == name for v in lvars):
+        return ["local", rva, local, False, "the function already has a local named %s" % name, resolved, stk, None]
+    tif = None
+    if typ:
+        tif = parse_type(ti, typ, False)
+        if tif is None:
+            return ["local", rva, local, False, "the type does not parse (types it names must be declared first)", resolved, stk, None]
+    if name:
+        s = hr.lvar_saved_info_t()
+        s.ll = lv
+        s.name = name
+        if not hr.modify_user_lvar_info(f.start_ea, hr.MLI_NAME, s):
+            return ["local", rva, local, False, "Hex-Rays did not rename %s" % resolved, resolved, stk, None]
+    if tif is not None:
+        s = hr.lvar_saved_info_t()
+        s.ll = lv
+        s.type = tif
+        if not hr.modify_user_lvar_info(f.start_ea, hr.MLI_TYPE, s):
+            return ["local", rva, local, False, "Hex-Rays did not retype %s" % resolved, resolved, stk, None]
+    hr.mark_cfunc_dirty(f.start_ea, False)
+    cf, why = decompile_function(m, f.start_ea)
+    now = find_lvar(list(cf.get_lvars()), resolved, stk, name) if cf is not None else None
+    if now is None:
+        return ["local", rva, local, False, why or "the local is gone after the edit", resolved, stk, None]
+    if tif is not None and str(now.type()) != str(tif) and not now.type().equals_to(tif):
+        return ["local", rva, local, False, "Hex-Rays kept %s as %s (it did not accept %s)" % (now.name, now.type(), typ), resolved, stk, None]
+    return ["local", rva, local, True, None, resolved, stk, "%s %s" % (now.type(), now.name)]
+
+
 def op_apply_user_types(args):
     # decls: [C declarations]; types: [[rva, C type or prototype; "" clears]]; stack: [[function, offset, name, type]];
     # locals: [[function, local, stack offset or null, name, type]]. Items report [kind, rva, target, applied, error, resolved, stack, text].
@@ -807,6 +878,8 @@ def op_apply_user_types(args):
     result = {"decl_errors": 0, "decl_messages": [], "items": []}
     for rva, decl in args.get("types") or []:
         result["items"].append(apply_user_type(m, ti, rva, decl or ""))
+    for rva, local, stack, name, typ in args.get("locals") or []:
+        result["items"].append(apply_local(m, ti, rva, local, stack, name, typ))
     changed(m)
     key = args.get("stamp_key")
     if key:

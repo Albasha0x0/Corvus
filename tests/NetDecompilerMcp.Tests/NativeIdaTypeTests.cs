@@ -89,6 +89,43 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         Assert.Single(fresh.Code.Annotations(fresh.Native).UserTypes.Types);
     }
 
+    /// <summary>The first local the pseudocode declares with a decompiler-made name (v8: "unsigned int v8; // esi").</summary>
+    private static string FirstDefaultLocal(string pseudocode) =>
+        System.Text.RegularExpressions.Regex.Match(pseudocode, @"^\s+[\w ]+?\*?\b(v\d+); //", System.Text.RegularExpressions.RegexOptions.Multiline) is { Success: true } m
+            ? m.Groups[1].Value : throw new Xunit.Sdk.XunitException("no vN local in\n" + pseudocode);
+
+    [IdaFact]
+    public async Task Locals_rename_and_retype_stay_one_edit_and_reach_a_new_database()
+    {
+        var rig = Setup("cache-l");
+        var local = FirstDefaultLocal(await rig.Analysis.DecompileNative(Image, Function));
+        output.WriteLine(await rig.Types.SetNativeLocal(Image, Function, local, newName: "ndm_count", type: "unsigned __int64"));
+        var text = await rig.Analysis.DecompileNative(Image, Function);
+        output.WriteLine(text);
+        Assert.Contains("unsigned __int64 ndm_count", text);
+        // named by its new name: the same edit
+        await rig.Types.SetNativeLocal(Image, Function, "ndm_count", newName: "ndm_total");
+        var edit = Assert.Single(Assert.Single(rig.Code.Annotations(rig.Native).UserTypes.Locals).Value);
+        Assert.Equal((local, "ndm_total", "unsigned __int64"), (edit.Local, edit.Name, edit.Type));
+
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeLocal(Image, Function, "no_such_local", newName: "x"))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeLocal(Image, Function, "ndm_total", newName: "bad name"))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeLocal(Image, Function, "ndm_total"))).Code);
+
+        // journaled: a killed worker replays the edits
+        var session = await rig.Session();
+        using (var worker = Process.GetProcessById(session.WorkerProcessId!.Value)) worker.Kill();
+        await Task.Delay(300);
+        var rva = rig.Native.Image.Exports.First(e => e.Name == Function).Rva;
+        Assert.Contains("ndm_total", (await session.DecompileAsync(rva)).Text);
+
+        foreach (var d in _owned) d.Dispose();
+        _owned.Clear();
+        var fresh = Setup("cache-m");
+        var again = await fresh.Analysis.DecompileNative(Image, Function);
+        Assert.Contains("unsigned __int64 ndm_total", again);
+    }
+
     [IdaFact]
     public async Task Recovered_types_never_replace_user_types()
     {

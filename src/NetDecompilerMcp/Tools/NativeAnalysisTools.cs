@@ -25,7 +25,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
                  "(rename_native / comment_native, apply_il2cpp_names, PDB names) are pushed into the database first, once per change, and saved with it. " +
                  "When the image has a PDB (found next to it or in the symbol cache, or loaded with load_pdb), its structs, enums, typedefs and " +
                  "prototypes are loaded into the database through IDA's PDB loader (the server's own PDB type reader when that loader is not " +
-                 "available), once per PDB; the first line says which type source applies. The user's types (set_native_type) are applied last " +
+                 "available), once per PDB; the first line says which type source applies. The user's types (set_native_type, set_native_local) are applied last " +
                  "and win over recovered ones.")]
     public Task<string> DecompileNative(
         [Description(NativeTools.ImageDescription)] string image,

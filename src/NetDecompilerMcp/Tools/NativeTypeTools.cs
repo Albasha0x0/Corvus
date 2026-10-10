@@ -58,6 +58,52 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         return decl.Length == 0 ? $"Cleared the user type at {Va(native, rva)}." : $"Type at {Va(native, rva)}: {item.Text ?? decl}";
     });
 
+    [McpServerTool(Name = "set_native_local", Title = "Rename or retype a decompiler local")]
+    [Description("Rename and/or retype a local variable or argument in the pseudocode of a native function (IDA Hex-Rays): name it as " +
+                 "decompile_native shows it (v3, a1), or by stack offset as stack:0x28. Later edits may name it by its new name; it stays one edit. " +
+                 "The decompiler can refuse a type that does not fit the variable (reported)." + KeptNote)]
+    public Task<string> SetNativeLocal(
+        [Description(NativeTools.ImageDescription)] string image,
+        [Description("The function: " + NativeTools.AddressDescription)] string function,
+        [Description("The variable: its name in the pseudocode, or stack:<offset> (hex).")] string local,
+        [Description("New name (a C identifier).")] string? newName = null,
+        [Description("New C type, e.g. 'unsigned int', 'Packet *', 'char[16]'.")] string? type = null,
+        [Description(EngineDescription)] string? engine = null,
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
+    {
+        var name = string.IsNullOrWhiteSpace(newName) ? null : newName.Trim();
+        var decl = string.IsNullOrWhiteSpace(type) ? null : type.Trim();
+        if (name == null && decl == null) throw new ToolError(ErrorCode.InvalidArgument, "Nothing to change.", "pass newName, type or both");
+        if (name != null && !Identifier(name))
+            throw new ToolError(ErrorCode.InvalidArgument, $"'{name}' is not a C identifier.", "use letters, digits and _, not starting with a digit");
+        var (target, stack) = LocalTarget(local);
+        var (native, rva, session) = await Open(image, function, engine, progress, cancellationToken);
+        var result = await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch([], [], [], [new NativeLocalEdit(rva, target, stack, name, decl)]),
+            (r, layer) => r.Items is [{ Applied: true } item] ? layer.WithLocal(new NativeLocalEdit(item.Rva, item.Resolved ?? target, item.Stack, name, decl)) : null,
+            cancellationToken);
+        var done = Outcome(result);
+        return $"Local {done.Resolved} of the function at {Va(native, done.Rva)}{(done.Stack is { } k ? $" (stack 0x{k:X})" : "")} is now: {done.Text}";
+    });
+
+    /// <summary>A local named as "stack:0x28" (by stack offset) or by its name.</summary>
+    internal static (string Local, int? Stack) LocalTarget(string text)
+    {
+        var t = (text ?? "").Trim();
+        if (t.StartsWith("stack:", StringComparison.OrdinalIgnoreCase))
+        {
+            var n = NativeAddress.Number(t[6..].Trim());
+            if (n is not { } v || v > int.MaxValue)
+                throw new ToolError(ErrorCode.InvalidArgument, $"'{t}' is not a stack offset.", "use stack:0x28");
+            return (t, (int)v);
+        }
+        if (!Identifier(t)) throw new ToolError(ErrorCode.InvalidArgument, $"'{t}' is not a local's name.", "use the name decompile_native shows, or stack:<offset>");
+        return (t, null);
+    }
+
+    private static bool Identifier(string s) =>
+        s.Length is > 0 and <= 255 && (char.IsAsciiLetter(s[0]) || s[0] == '_') && s.All(c => char.IsAsciiLetterOrDigit(c) || c == '_');
+
     /// <summary>The single item of a one-edit batch, or the engine's reason as an invalid_argument error.</summary>
     private static NativeUserTypeOutcome Outcome(UserTypeResult result)
     {
