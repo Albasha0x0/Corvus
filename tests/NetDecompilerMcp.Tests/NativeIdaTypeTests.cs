@@ -27,7 +27,8 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
 
     private static string Image => NativeIdaProviderTests.System64;
 
-    internal sealed record Rig(AssemblyWorkspace Workspace, NativeCodeService Code, NativeEngineService Engines, NativeAnalysisTools Analysis, NativeTypeTools Types)
+    internal sealed record Rig(AssemblyWorkspace Workspace, NativeCodeService Code, NativeEngineService Engines, NativeAnalysisTools Analysis, NativeTypeTools Types,
+        NativeCodeTools CodeTools)
     {
         public LoadedNative Native => Workspace.Read(() => Workspace.Natives[0]);
         public async Task<IdaSession> Session() => (IdaSession)await Engines.Session(Native, null, null, default);
@@ -48,7 +49,7 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         var user = new NativeUserTypePush(code);
         workspace.LoadAny(Image);
         return new Rig(workspace, code, engines, new NativeAnalysisTools(workspace, engines, pager, names, code, types, user),
-            new NativeTypeTools(workspace, engines, user, code, names, types));
+            new NativeTypeTools(workspace, engines, user, code, names, types), new NativeCodeTools(workspace, code, pager, null, engines, names, types, user));
     }
 
     [IdaFact]
@@ -196,6 +197,22 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         _owned.Clear();
         var fresh = Setup("cache-e");
         Assert.Contains("+0x4  data  char[16]  16", await fresh.Types.ListNativeTypes(Image, name: "NdmPacket"));
+    }
+
+    [IdaFact]
+    public async Task Struct_member_references_come_from_typed_operands_and_pseudocode()
+    {
+        var rig = Setup("cache-f");
+        var text = await rig.CodeTools.FindXrefs(Image, "_IMAGE_NT_HEADERS64::OptionalHeader", engine: "ida");
+        output.WriteLine(text);
+        Assert.Contains("References to member _IMAGE_NT_HEADERS64::OptionalHeader (+0x18", text);
+        Assert.Matches(@"0x[0-9A-F]+  (read|address|write)  CheckSumMappedFile\+0x[0-9A-F]+", text);
+        // by offset: the member covering it
+        Assert.Contains("_IMAGE_NT_HEADERS64::OptionalHeader", await rig.CodeTools.FindXrefs(Image, "_IMAGE_NT_HEADERS64+0x20", engine: "ida"));
+        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => rig.CodeTools.FindXrefs(Image, "_IMAGE_NT_HEADERS64::NoSuchMember", engine: "ida"))).Code);
+        Assert.Equal(ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => rig.CodeTools.FindXrefs(Image, "_IMAGE_NT_HEADERS64::Signature", engine: "ours"))).Code);
+        // an ordinary name still resolves as an address
+        Assert.Contains("References to", await rig.CodeTools.FindXrefs(Image, Function));
     }
 
     [IdaFact]

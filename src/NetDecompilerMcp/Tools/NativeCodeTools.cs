@@ -16,7 +16,7 @@ namespace NetDecompilerMcp.Tools;
 /// <summary>Native code: functions, disassembly, control flow, cross-references, call trees and strings (x86 / x64).</summary>
 [McpServerToolType]
 public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeService code, OutputPager pager, NativeLinkService? link = null,
-    NativeEngineService? engines = null, NativeNamePush? names = null)
+    NativeEngineService? engines = null, NativeNamePush? names = null, NativeTypePush? types = null, NativeUserTypePush? userTypes = null)
 {
     /// <summary>Answers for images whose instructions the built-in analysis does not decode (ARM64, ARM), through IDA.</summary>
     private readonly NativeEngineCode? _engine = engines != null ? new NativeEngineCode(engines, pager, names) : null;
@@ -254,10 +254,13 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
                  "virtual call sites that reach it (VirtualExact: the only implementation; VirtualPossible: one of several; resolved through MSVC RTTI). For an import " +
                  "(module!name) lists the call sites of that API (x86 calls through a register loaded from the slot included) and what it is bound to; " +
                  "for an export, also the call sites in other loaded images that import it ([image] prefix). Call rows show the recovered arguments. " +
-                 "A late-bound import (module!name resolved by GetProcAddress) lists where it is resolved and the calls through its pointer. " + IndexNote)]
+                 "A late-bound import (module!name resolved by GetProcAddress) lists where it is resolved and the calls through its pointer. " +
+                 "A struct member (Type::member, Type.member or Type+0x18, from the engine's types: PDB, RTTI classes, Il2Cpp, declare_native_types) " +
+                 "lists its uses through IDA: operands typed as the member, and reads, writes and address-of in the pseudocode of the functions " +
+                 "whose prototype names the type (methods with a typed this). " + IndexNote)]
     public Task<string> FindXrefs(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description(NativeTools.AddressDescription)] string address,
+        [Description(NativeTools.AddressDescription + " Or a struct member: Type::member, Type.member, Type+0xOFFSET.")] string address,
         [Description("Index of the first row.")] int offset = 0,
         [Description("Max rows (default 500).")] int limit = 500,
         [Description(EngineDescription + " With IDA, the references are IDA's, plus the RTTI-resolved virtual call sites IDA has none for (marked ours).")]
@@ -267,6 +270,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     {
         var mode = Mode(engine);
         var (native, index) = await Open(image, context, progress, cancellationToken);
+        if (FieldTarget(address) is { } field && !IsAddress(index, address))
+            return await FieldXrefs(native, field, mode.Mode, offset, limit, progress, cancellationToken);
         var choice = Choose(mode, native, index);
         if (choice.Ida)
         {

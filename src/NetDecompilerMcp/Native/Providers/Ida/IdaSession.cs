@@ -466,6 +466,21 @@ internal sealed class IdaSession : INativeDecompilerSession
             .Select(x => new NativeTypeEntry(x[0].GetString() ?? "", x[1].GetString() ?? "", x[2].GetInt64(), x[3].GetInt32())).ToList());
     }
 
+    public async Task<NativeFieldXrefs> GetFieldXrefsAsync(IReadOnlyList<string> types, string? member, int? offset, IReadOnlyList<uint> functions, double seconds,
+        CancellationToken cancellationToken = default)
+    {
+        // the budget stays under the request timeout so slow decompilation ends the scan instead of the worker
+        double budget = Math.Clamp(seconds, 1, Math.Max(1, _options.RequestTimeout.TotalSeconds * 0.6));
+        var args = IdaProvider.Args(("types", new JsonArray(types.Select(t => (JsonNode)t).ToArray())), ("member", member), ("offset", offset),
+            ("functions", new JsonArray(functions.Select(f => (JsonNode)f).ToArray())), ("seconds", budget));
+        var r = await CallAsync("field_xrefs", args, cancellationToken).ConfigureAwait(false);
+        var rows = r.GetProperty("rows").EnumerateArray()
+            .Select(x => new NativeFieldAccess(x[0].GetUInt32(), x[1].GetString() ?? "", x[2].ValueKind == JsonValueKind.Number ? x[2].GetUInt32() : null)).ToList();
+        return new NativeFieldXrefs(r.GetProperty("type").GetString() ?? "", r.GetProperty("member").GetString() ?? "", r.GetProperty("offset").GetInt32(),
+            r.GetProperty("size").GetInt32(), r.GetProperty("member_type").GetString() ?? "", rows, r.GetProperty("candidates").GetInt32(),
+            r.GetProperty("scanned").GetInt32(), r.GetProperty("failed").GetInt32(), r.GetProperty("skipped").GetInt32(), r.GetProperty("decompiler").GetBoolean());
+    }
+
     public async Task<NativeTypeDetail> GetTypeAsync(string name, CancellationToken cancellationToken = default)
     {
         var r = await CallAsync("type", IdaProvider.Args(("name", name)), cancellationToken).ConfigureAwait(false);

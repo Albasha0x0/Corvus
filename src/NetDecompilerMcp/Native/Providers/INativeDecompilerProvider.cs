@@ -127,6 +127,15 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     Task<NativeTypeDetail> GetTypeAsync(string name, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not list types.");
 
+    /// <summary>
+    /// References to a member of a struct or union (the first of <paramref name="types"/> that exists), by name or by an
+    /// offset it covers: operands typed as the member, and member accesses in the pseudocode of the functions whose type
+    /// names the struct plus <paramref name="functions"/>, within <paramref name="seconds"/>. NotFound for no such type or member.
+    /// </summary>
+    Task<NativeFieldXrefs> GetFieldXrefsAsync(IReadOnlyList<string> types, string? member, int? offset, IReadOnlyList<uint> functions, double seconds,
+        CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not report struct member references.");
+
     /// <summary>References to <paramref name="rva"/> (ordinary flow excluded).</summary>
     Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default);
 
@@ -362,6 +371,16 @@ public sealed record NativeLocal(string Name, string Type, string Location, int?
 /// </summary>
 public sealed record NativeFrame(uint StartRva, string Name, int LocalSize, int SavedRegisters, int ReturnAddressOffset, IReadOnlyList<NativeFrameMember> Members,
     IReadOnlyList<NativeLocal> Locals, string? DecompilerError);
+
+/// <summary>A use of a struct member at <see cref="Rva"/>: Kind operand (typed operand), read, write or address (pseudocode access).</summary>
+public sealed record NativeFieldAccess(uint Rva, string Kind, uint? FunctionRva);
+
+/// <summary>
+/// The member found (type, name, offset, size, type text) and its uses; functions considered for the pseudocode scan,
+/// scanned, failed and not reached in time.
+/// </summary>
+public sealed record NativeFieldXrefs(string Type, string Member, int Offset, int Size, string MemberType, IReadOnlyList<NativeFieldAccess> Accesses,
+    int Candidates, int Scanned, int Failed, int Skipped, bool DecompilerAvailable);
 
 /// <summary>A reference; <see cref="FromFunctionRva"/> is the start of the function containing the source, when any.</summary>
 public sealed record NativeXref(uint FromRva, uint ToRva, NativeXrefKind Kind, uint? FromFunctionRva);

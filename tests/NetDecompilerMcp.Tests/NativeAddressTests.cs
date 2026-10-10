@@ -81,4 +81,19 @@ public class NativeAddressTests
         Assert.Empty(names.AddressesOf("b"));
         Assert.Equal([(2u, NativeNameSource.User)], names.AddressesOf("c"));
     }
+    [Theory]
+    [InlineData("Packet::length", "Packet", "length", null)]
+    [InlineData("Game::Player::health", "Game::Player", "health", null)]
+    [InlineData("Packet.length", "Packet", "length", null)]
+    [InlineData("Packet+0x18", "Packet", null, 0x18)]
+    [InlineData("Packet + 18h", "Packet", null, 0x18)]
+    public void Struct_member_targets_parse(string text, string type, string? member, int? offset) =>
+        Assert.Equal((type, member, offset), NativeCodeTools.FieldTarget(text));
+
+    [Theory]
+    [InlineData("0x180001000")]
+    [InlineData("KERNEL32!ExitProcess")]
+    [InlineData("First+0x4z")]
+    [InlineData("::x")]
+    public void Other_addresses_are_not_struct_members(string text) => Assert.Null(NativeCodeTools.FieldTarget(text));
 }

@@ -1060,6 +1060,106 @@ def op_type(args):
     return {"name": name, "kind": type_kind(ti, t), "size": size if size != ti.BADSIZE else -1, "decl": decl, "members": members}
 
 
+def op_field_xrefs(args):
+    # References to a struct member: IDA's references to the member (operands typed as struct offsets), then member accesses
+    # in the pseudocode of functions whose prototype names the type (typed this / arguments) plus the functions given,
+    # within seconds. rows: [rva, kind (operand, read, write, address), function rva or null]
+    m = need_open()
+    import ida_typeinf as ti
+    t, tname = None, None
+    for candidate in args.get("types") or []:
+        c = ti.tinfo_t()
+        if c.get_named_type(None, candidate) and c.is_udt():
+            t, tname = c, candidate
+            break
+    if t is None:
+        raise WorkerError("not_found", "no struct or union named %s" % " or ".join(args.get("types") or []))
+    udt = ti.udt_type_data_t()
+    t.get_udt_details(udt)
+    members = [(i, u.name, u.offset // 8, u.size // 8, str(u.type)) for i, u in enumerate(udt) if not u.is_gap()]
+    member, offset = args.get("member"), args.get("offset")
+    hit = [x for x in members if (member is not None and x[1] == member) or (member is None and x[2] <= offset < x[2] + max(1, x[3]))]
+    if not hit:
+        raise WorkerError("not_found", "%s has no member %s (members: %s)" % (tname, member if member is not None else "at +0x%X" % offset,
+                                                                         ", ".join("%s +0x%X" % (x[1], x[2]) for x in members[:60])))
+    idx, mname, moff, msize, mtype = hit[0]
+    names = {tname, t.get_type_name() or tname, t.get_final_type_name() or tname}
+    rows, seen = [], set()
+
+    def add(ea, kind):
+        if (ea, kind) in seen or rva_of(ea) is None:
+            return
+        seen.add((ea, kind))
+        f = m.ida_funcs.get_func(ea)
+        rows.append([rva_of(ea), kind, rva_of(f.start_ea) if f else None])
+
+    tid = t.get_udm_tid(idx)
+    funcs = set()
+    if tid != m.idautils.ida_idaapi.BADADDR:
+        for x in m.idautils.XrefsTo(tid, 0):
+            add(x.frm, "operand")
+            f = m.ida_funcs.get_func(x.frm)
+            if f is not None:
+                funcs.add(f.start_ea)
+    def names_struct(a):
+        while a.is_ptr() or a.is_array():
+            a = a.get_pointed_object() if a.is_ptr() else a.get_array_element()
+        return a.get_type_name() in names or a.get_final_type_name() in names
+
+    for ea in m.idautils.Functions():
+        ftif, ftd = ti.tinfo_t(), ti.func_type_data_t()
+        if m.ida_nalt.get_tinfo(ftif, ea) and ftif.get_func_details(ftd) and (names_struct(ftd.rettype) or any(names_struct(a.type) for a in ftd)):
+            funcs.add(ea)
+    funcs.update(_state["base"] + r for r in args.get("functions") or [])
+    result = {"type": tname, "member": mname, "offset": moff, "size": msize, "member_type": mtype, "rows": rows, "candidates": len(funcs),
+              "scanned": 0, "skipped": 0, "failed": 0, "decompiler": hexrays_ready(m)}
+    if not result["decompiler"]:
+        result["skipped"] = len(funcs)
+        return result
+    hr = m.ida_hexrays
+
+    class Members(hr.ctree_visitor_t):
+        def __init__(self):
+            hr.ctree_visitor_t.__init__(self, hr.CV_PARENTS)
+
+        def visit_expr(self, e):
+            if e.op in (hr.cot_memptr, hr.cot_memref) and e.m == moff:
+                obj = e.x.type.get_pointed_object() if e.op == hr.cot_memptr else e.x.type
+                if obj.get_type_name() in names or obj.get_final_type_name() in names:
+                    p = self.parent_expr()
+                    kind = "read"
+                    if p is not None and p.op == hr.cot_ref:
+                        kind = "address"
+                    elif p is not None and hr.cot_asg <= p.op <= hr.cot_asgumod and p.x == e:
+                        kind = "write"
+                    add(self.address(e), kind)
+            return 0
+
+        def address(self, e):
+            # the nearest item up the tree that has an address
+            bad = m.idautils.ida_idaapi.BADADDR
+            if e.ea != bad:
+                return e.ea
+            for i in range(len(self.parents) - 1, -1, -1):
+                if self.parents[i].ea != bad:
+                    return self.parents[i].ea
+            return bad
+
+    deadline = time.time() + float(args.get("seconds") or 30)
+    for ea in sorted(funcs):
+        if time.time() > deadline:
+            result["skipped"] += 1
+            continue
+        cf, why = decompile_function(m, ea)
+        if cf is None:
+            result["failed"] += 1
+            continue
+        result["scanned"] += 1
+        Members().apply_to(cf.body, None)
+    rows.sort(key=lambda r: (r[0], r[1]))
+    return result
+
+
 def reapply_user_decls():
     # the user's declarations (blob 'D' of USER_NODE) win over recovered types of the same name
     n = user_node(False)
@@ -1234,7 +1334,8 @@ OPS = {"hello": op_hello, "open": op_open, "rebase": op_rebase, "functions": op_
        "disasm": op_disasm, "disasm_range": op_disasm_range, "blocks": op_blocks, "xrefs_to": op_xrefs_to, "xrefs_from": op_xrefs_from, "set_name": op_set_name,
        "set_comment": op_set_comment, "apply_names": op_apply_names, "get_stamp": op_get_stamp, "save": op_save,
        "sync_patches": op_sync_patches, "apply_types": op_apply_types, "load_pdb": op_load_pdb, "virtual_targets": op_virtual_targets,
-       "apply_user_types": op_apply_user_types, "frame": op_frame, "types": op_types, "type": op_type, "close": op_close, "sleep": op_sleep}
+       "apply_user_types": op_apply_user_types, "frame": op_frame, "types": op_types, "type": op_type, "field_xrefs": op_field_xrefs,
+       "close": op_close, "sleep": op_sleep}
 
 
 def watch_parent(parent):
