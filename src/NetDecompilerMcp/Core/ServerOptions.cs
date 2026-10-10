@@ -11,7 +11,11 @@ namespace NetDecompilerMcp.Core;
 ///   --binding-style &lt;s&gt;  default generate_cpp_binding style when none is requested or detected: mono, il2cpp or hostapi
 ///   --binding-project &lt;d&gt; default project directory scanned for a host table by generate_cpp_binding
 ///   --ida-prewarm         start IDA's analysis of each native image in the background right after it loads (one at a time)
-/// The NETDECOMP_LOAD environment variable (';'-separated paths) is also honored; NDM_IDA_PREWARM=1 turns on --ida-prewarm.
+///   --index-cache &lt;dir|off&gt;  directory of saved native code indexes (default &lt;LocalAppData&gt;/NetDecompilerMcp/code-index), or off
+///   --index-cache-mb &lt;n&gt;  size limit of the code index cache in MB (default 8192)
+///   --index-cache-days &lt;n&gt; entries unused for this many days are deleted (default 30)
+/// The NETDECOMP_LOAD environment variable (';'-separated paths) is also honored; NDM_IDA_PREWARM=1 turns on --ida-prewarm;
+/// NDM_CODE_INDEX_CACHE, NDM_CODE_INDEX_CACHE_MB and NDM_CODE_INDEX_CACHE_DAYS set the code index cache defaults.
 /// </summary>
 public sealed class ServerOptions
 {
@@ -40,9 +44,18 @@ public sealed class ServerOptions
 
     public const string IdaPrewarmVariable = "NDM_IDA_PREWARM";
 
+    /// <summary>
+    /// Saved native code indexes, so reopening an image loads its index instead of building it again; null = off
+    /// (the default for options not parsed from a command line, so embedded and test servers write nothing).
+    /// </summary>
+    public Native.Code.CodeIndexCacheOptions? CodeIndexCache { get; set; }
+
     public static ServerOptions Parse(string[] args)
     {
-        var o = new ServerOptions();
+        var o = new ServerOptions { CodeIndexCache = Native.Code.CodeIndexCacheOptions.FromEnvironment() };
+        string? cacheRoot = null;
+        long? cacheMb = null;
+        int? cacheDays = null;
         for (int i = 0; i < args.Length; i++)
         {
             string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"Missing value after {args[i]}");
@@ -60,10 +73,23 @@ public sealed class ServerOptions
                     break;
                 case "--binding-project": o.BindingProject = Next(); break;
                 case "--ida-prewarm": o.IdaPrewarm = true; break;
+                case "--index-cache": cacheRoot = Next(); break;
+                case "--index-cache-mb": cacheMb = long.TryParse(Next(), out var mb) && mb > 0 ? mb : throw new ArgumentException("--index-cache-mb must be a positive number"); break;
+                case "--index-cache-days": cacheDays = int.TryParse(Next(), out var days) && days > 0 ? days : throw new ArgumentException("--index-cache-days must be a positive number"); break;
                 default: throw new ArgumentException($"Unknown argument '{args[i]}'");
             }
         }
 
+        if (cacheRoot?.Trim().ToLowerInvariant() is "off" or "none" or "0") o.CodeIndexCache = null;
+        else
+        {
+            var c = o.CodeIndexCache ?? Native.Code.CodeIndexCacheOptions.Default;
+            if (cacheRoot != null) c = c with { Root = cacheRoot };
+            if (cacheMb is { } m) c = c with { MaxBytes = m << 20 };
+            if (cacheDays is { } d) c = c with { MaxAge = TimeSpan.FromDays(d) };
+            // an explicit option turns the cache on even when the environment turned it off
+            if (o.CodeIndexCache != null || cacheRoot != null || cacheMb != null || cacheDays != null) o.CodeIndexCache = c;
+        }
         if (Environment.GetEnvironmentVariable(IdaPrewarmVariable)?.Trim() is "1" or "true" or "on") o.IdaPrewarm = true;
         var env = Environment.GetEnvironmentVariable("NETDECOMP_LOAD");
         if (!string.IsNullOrWhiteSpace(env))

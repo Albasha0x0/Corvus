@@ -69,10 +69,13 @@ internal sealed class CodeContext
         }
         if (image.Arch == NativeArch.X64) ReadPdata();
         ReadGuardCfTable();
-        IsKernelMode = image.Path.EndsWith(".sys", StringComparison.OrdinalIgnoreCase)
-            || image.Imports.Any(i => i.Module.Equals("ntoskrnl.exe", StringComparison.OrdinalIgnoreCase) || i.Module.Equals("hal.dll", StringComparison.OrdinalIgnoreCase))
-            || System.IO.Path.GetFileName(image.Path).Equals("ntoskrnl.exe", StringComparison.OrdinalIgnoreCase);
+        IsKernelMode = KernelModeByName(image.Path)
+            || image.Imports.Any(i => i.Module.Equals("ntoskrnl.exe", StringComparison.OrdinalIgnoreCase) || i.Module.Equals("hal.dll", StringComparison.OrdinalIgnoreCase));
     }
+
+    /// <summary>The file name alone marks a kernel-mode image (a driver, or the kernel): the one input besides the bytes.</summary>
+    public static bool KernelModeByName(string path) =>
+        path.EndsWith(".sys", StringComparison.OrdinalIgnoreCase) || System.IO.Path.GetFileName(path).Equals("ntoskrnl.exe", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsSorted(uint[] a)
     {
