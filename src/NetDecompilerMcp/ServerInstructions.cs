@@ -58,7 +58,9 @@ internal static class ServerInstructions
            Mixed-mode C++/CLI assemblies load as .NET plus a native view (id = file name). ReadyToRun: get_r2r_code, find_r2r_method.
            Il2Cpp games: load the dummy DLLs and GameAssembly.dll, then apply_il2cpp_names (C# names in every native tool and in IDA).
            Edits: rename_native / comment_native (kept per file hash), patch_bytes / patch_asm (dryRun first), list_native_edits,
-           undo_native_edit, save_native to a new file; export_native_annotations writes IDA / Ghidra scripts.
+           undo_native_edit, save_native to a new file; export_native_annotations writes IDA / Ghidra scripts. Patches stay correct
+           under ASLR: relocation entries the new bytes no longer use are neutralized and new absolute addresses get an entry; when
+           the page has no free slot the error is no_relocation_slot (write it RIP-relative, or force=true for a preferred-base-only patch).
            New builds: load both (the second gets an id like game.dll#2); compare_native_images matches functions (unique-only, ambiguous
            ones listed), map_address_between_builds carries an address over, migrate_native_names (dryRun first) copies your names;
            make_code_pattern / search_code_pattern give byte patterns that survive rebuilds.
