@@ -50,5 +50,10 @@ public sealed class DecompilerResources(AssemblyWorkspace workspace, DecompilerS
                 .Select(s => $"// [{s.Assembly.Id}] {s.Label}\n{decompiler.Disassemble(s.Assembly, s.Member, cancellationToken)}"));
         });
 
+    [McpServerResource(UriTemplate = Scheme + "://guide/{topic}", Name = "guide", Title = "Guide topic", MimeType = "text/plain")]
+    [Description("The full guidance on one area: dotnet, native, il2cpp, containers, edits, builds, dumps or errors.")]
+    public static string GuideTopic([Description("Topic name.")] string topic) =>
+        Guide.Topic(Decode(topic)) ?? throw WorkflowPrompts.UnknownTopic(Decode(topic));
+
     private static string Decode(string value) => Uri.UnescapeDataString(value);
 }

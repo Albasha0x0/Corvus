@@ -3,7 +3,7 @@ using NetDecompilerMcp.Core;
 
 namespace NetDecompilerMcp.Mcp;
 
-/// <summary>Argument completion for prompts and resource templates: assembly and native image ids, type names and file-system paths.</summary>
+/// <summary>Argument completion for prompts and resource templates: assembly and native image ids, type names, file-system paths and guide topics.</summary>
 public static class Completions
 {
     private const int MaxValues = 100;
@@ -24,6 +24,7 @@ public static class Completions
             "image" => [.. workspace.Read(() => workspace.Natives.Select(n => n.Id)
                 .Where(id => id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList()), .. Paths(prefix, drivesWhenEmpty: false)],
             "path" or "dummyDllFolder" => Paths(prefix),
+            "topic" => Guide.Topics.Keys.Where(t => t.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList(),
             _ => [],
         };
         return new CompleteResult

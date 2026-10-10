@@ -18,7 +18,7 @@ public static class Guide
         Edit in memory, dryRun=true first: rename_symbol, stub_method, patch_method_csharp, patch_method_il, simplify_methods (folds string decoders); native rename_native, patch_bytes, patch_asm. Review list_edits / diff_edits, undo_edit; save_assembly / save_native write a new file.
         New build: load both, then update_to_new_build (dryRun) or compare_assemblies / compare_native_images.
         Rules: an error reads "Error (<code>)" with a Next: line; follow it. limit_exceeded returns an id: read_result pages it. Long text: pass the footer's offset=N. Lists also return structured items/offset/total. Symbols: Ns.Type::Method(int), short names, or tokens (0x06000123).
-        More: server_status for version, engines, limits and a stale-server check.
+        More: the guide prompt or netdecomp://guide/{topic} (dotnet, native, il2cpp, containers, edits, builds, dumps, errors); server_status for version, engines, limits and a stale-server check.
         """;
 
     /// <summary>Topic name to text, in the order they are listed.</summary>
@@ -149,7 +149,7 @@ public static class Guide
             tokens like '0x06000123'. The assembly parameter is optional unless a name is ambiguous; errors list candidates.
             server_status: version, limits and engines; expectedCatalogDigest detects a stale server (`NetDecompilerMcp doctor` checks too).
             Resources: netdecomp://assemblies, netdecomp://assembly/{id}/info, netdecomp://assembly/{id}/type/{Ns.Type},
-            netdecomp://assembly/{id}/il/{symbol}.
+            netdecomp://assembly/{id}/il/{symbol}, netdecomp://guide/{topic}.
             """,
     };
 
