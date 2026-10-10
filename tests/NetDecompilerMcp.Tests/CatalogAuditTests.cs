@@ -18,7 +18,7 @@ public class CatalogAuditTests
     /// <summary>Model-facing catalog bytes (names, descriptions, input schemas); 152,082 at 108 tools. Raise only deliberately.</summary>
     private const int MaxModelFacingBytes = 160_000;
 
-    private static readonly List<JsonNode> Tools = Catalog.OfThisBuild(NetDecompilerMcp.Core.Toolsets.All).Tools;
+    private static readonly List<JsonNode> Tools = Catalog.OfThisBuild().Tools;
 
     private static int Bytes(JsonNode? node) => node == null ? 0 : Encoding.UTF8.GetByteCount(node.ToJsonString());
 

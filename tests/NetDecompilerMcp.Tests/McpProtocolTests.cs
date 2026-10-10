@@ -46,10 +46,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
             // directory (the contract sweep) also gets its own sidecars, so its renames never reach a server running beside it.
             EnvironmentVariables = new Dictionary<string, string?>
             {
-                ["NDM_ANNOTATIONS_DIR"] = workingDirectory != null ? Path.Combine(workingDirectory, ".ndm-annotations") : AnnotationsDir,
-                // Every tool; a --toolsets argument still wins.
-                [NetDecompilerMcp.Core.Toolsets.Variable] = "all",
-            },
+                ["NDM_ANNOTATIONS_DIR"] = workingDirectory != null ? Path.Combine(workingDirectory, ".ndm-annotations") : AnnotationsDir,            },
             // The SDK waits this long for the server to exit before it closes the server's input, then ends it; the
             // server exits on end of input (ServerExitsWhenItsInputCloses), so waiting longer only delays each test.
             ShutdownTimeout = TimeSpan.FromMilliseconds(200),

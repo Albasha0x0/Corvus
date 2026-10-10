@@ -6,7 +6,7 @@ namespace NetDecompilerMcp.Tests;
 /// <summary>The instructions fit the client cut, every tool description too, and the guide names every tool and only real ones.</summary>
 public class GuideTests
 {
-    private static readonly List<System.Text.Json.Nodes.JsonNode> Tools = Catalog.OfThisBuild(NetDecompilerMcp.Core.Toolsets.All).Tools;
+    private static readonly List<System.Text.Json.Nodes.JsonNode> Tools = Catalog.OfThisBuild().Tools;
     private static readonly HashSet<string> Names = Tools.Select(t => (string)t["name"]!).ToHashSet(StringComparer.Ordinal);
 
     /// <summary>Words that read like tool names but are not (a nextSteps code).</summary>

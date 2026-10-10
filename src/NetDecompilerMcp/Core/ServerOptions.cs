@@ -19,7 +19,7 @@ namespace NetDecompilerMcp.Core;
 ///   --index-cache-mb &lt;n&gt;  size limit of the code index cache in MB (default 8192)
 ///   --index-cache-days &lt;n&gt; entries unused for this many days are deleted (default 30)
 ///   --log-level &lt;l&gt;     stderr log level: trace, debug (adds one line per tool call), information (default), warning, error or none
-///   --toolsets &lt;list&gt;   tool families to register (see <see cref="Core.Toolsets"/>): default, all, or names such as default,dumps
+///   --toolsets &lt;list&gt;   register only these tool families (see <see cref="Core.Toolsets"/>; default all): core, or names such as core,dumps
 /// The NETDECOMP_LOAD environment variable (';'-separated paths) is also honored; NDM_IDA_PREWARM=1 turns on --ida-prewarm; NDM_ENGINE sets --engine;
 /// NDM_CODE_INDEX_CACHE, NDM_CODE_INDEX_CACHE_MB and NDM_CODE_INDEX_CACHE_DAYS set the code index cache defaults; NDM_LOG_LEVEL sets --log-level;
 /// NDM_TOOLSETS sets --toolsets.

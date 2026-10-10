@@ -9,7 +9,7 @@ namespace NetDecompilerMcp.Tests;
 public class ParameterDomainTests
 {
     private static readonly Dictionary<string, JsonObject> Schemas =
-        Catalog.OfThisBuild(NetDecompilerMcp.Core.Toolsets.All).Tools.ToDictionary(t => (string)t["name"]!, t => t["inputSchema"]!.AsObject());
+        Catalog.OfThisBuild().Tools.ToDictionary(t => (string)t["name"]!, t => t["inputSchema"]!.AsObject());
 
     private static JsonElement Schema(string tool) => JsonSerializer.SerializeToElement(Schemas[tool]);
 

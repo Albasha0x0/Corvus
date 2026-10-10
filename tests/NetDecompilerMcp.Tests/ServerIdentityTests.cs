@@ -7,7 +7,7 @@ namespace NetDecompilerMcp.Tests;
 /// <summary>server_status identity, the unavailable-tools table and the client _meta keys.</summary>
 public class ServerIdentityTests
 {
-    private static readonly List<System.Text.Json.Nodes.JsonNode> AllTools = Catalog.OfThisBuild(Toolsets.All).Tools;
+    private static readonly List<System.Text.Json.Nodes.JsonNode> AllTools = Catalog.OfThisBuild().Tools;
 
     [Fact]
     public void InstallKindFollowsThePath()

@@ -9,7 +9,7 @@ public class ToolsetTests
     [Fact]
     public void EveryToolIsInExactlyOneFamily()
     {
-        var registered = Catalog.OfThisBuild(Toolsets.All).Tools.Select(t => (string)t["name"]!).ToHashSet(StringComparer.Ordinal);
+        var registered = Catalog.OfThisBuild().Tools.Select(t => (string)t["name"]!).ToHashSet(StringComparer.Ordinal);
         var listed = Toolsets.Families.SelectMany(f => f.Tools).ToList();
         var twice = listed.GroupBy(t => t).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
         Assert.True(twice.Count == 0, $"tools in more than one family: {string.Join(", ", twice)}");
@@ -24,24 +24,28 @@ public class ToolsetTests
     {
         Assert.Equal(["dotnet", Toolsets.Session], Toolsets.Parse("dotnet").Order());
         Assert.True(Toolsets.Parse("ALL").SetEquals(Toolsets.All));
-        Assert.True(Toolsets.Parse(" default , dumps ").SetEquals([.. Toolsets.Default, "dumps"]));
+        Assert.True(Toolsets.Parse("default").SetEquals(Toolsets.All));
+        Assert.True(Toolsets.Parse(" core , dumps ").SetEquals([.. Toolsets.CoreProfile, "dumps"]));
         Assert.Contains("unknown toolset 'nope'", Assert.Throws<ArgumentException>(() => Toolsets.Parse("dotnet,nope")).Message);
-        Assert.Equal("default,dumps", Toolsets.Format(Toolsets.Parse("dumps,default")));
+        Assert.Equal("core,dumps", Toolsets.Format(Toolsets.Parse("dumps,core")));
         Assert.Equal("all", Toolsets.Format(Toolsets.All));
-        Assert.Equal("default", Toolsets.Format(Toolsets.Default));
+        Assert.Equal("core", Toolsets.Format(Toolsets.CoreProfile));
         Assert.Equal("dotnet,edit", Toolsets.Format(Toolsets.Parse("edit dotnet")));
         Assert.True(ServerOptions.Parse([Toolsets.Option, "native"]).Toolsets.SetEquals(["native", Toolsets.Session]));
+        Assert.True(new ServerOptions().Toolsets.SetEquals(Toolsets.All));
     }
 
     [Fact]
-    public void DefaultCatalogLeavesOutOptInFamilies()
+    public void DefaultIsEveryToolAndCoreLeavesOutTheRest()
     {
-        var names = Catalog.OfThisBuild().Tools.Select(t => (string)t["name"]!).ToList();
-        Assert.Contains("load_assembly", names);
-        Assert.Contains("decompile_native", names);
-        Assert.DoesNotContain("open_minidump", names);
-        Assert.DoesNotContain("set_native_type", names);
-        Assert.All(names, n => Assert.True(Toolsets.Default.Contains(Toolsets.FamilyOf(n)!), n));
+        Assert.Equal(Catalog.OfThisBuild(Toolsets.All).Tools.Count, Catalog.OfThisBuild().Tools.Count);
+        var core = Catalog.OfThisBuild(Toolsets.CoreProfile).Tools.Select(t => (string)t["name"]!).ToList();
+        Assert.Contains("load_assembly", core);
+        Assert.Contains("decompile_native", core);
+        Assert.DoesNotContain("open_minidump", core);
+        Assert.DoesNotContain("set_native_type", core);
+        Assert.DoesNotContain("inspect_process", core);
+        Assert.All(core, n => Assert.True(Toolsets.CoreProfile.Contains(Toolsets.FamilyOf(n)!), n));
     }
 
     [Fact]

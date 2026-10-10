@@ -15,7 +15,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
 {
     public sealed record Capability(string Name, bool Available, string Detail, string? Remediation);
 
-    public sealed record Toolset(string Name, bool Enabled, bool Default, int Tools, string Description);
+    public sealed record Toolset(string Name, bool Enabled, bool InCore, int Tools, string Description);
 
     public sealed record Client(string Name, string? Version);
 
@@ -43,7 +43,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         int MaxOutputChars, int TimeoutSeconds, long WorkingSetMB, IReadOnlyList<Capability> Capabilities,
         [property: Description("Tools whose calls can take more than 10 s on large inputs (whole-input work, an external engine, a native image's first code index).")]
         IReadOnlyList<string> LongRunningTools,
-        [property: Description("Tool families and whether this server registers them; start it with --toolsets <list> (or NDM_TOOLSETS: all, default, or names such as default,dumps) to change them.")]
+        [property: Description("Tool families and whether this server registers them; every family unless the server was started with --toolsets <list> (or NDM_TOOLSETS: all, core, or names such as core,dumps).")]
         IReadOnlyList<Toolset> Toolsets,
         [property: Description("Registered tools, or modes of them (e.g. engine=ida), that cannot work here, with the reason and the fix.")]
         IReadOnlyList<ToolAvailability.Unavailable> UnavailableTools);
@@ -126,7 +126,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             digest, expected ? difference == null : null, difference,
             toolCount, loaded, indexing.Status, options.MaxOutputChars, options.TimeoutSeconds, Environment.WorkingSet / (1024 * 1024), capabilities,
             ToolEffects.LongRunning.Where(registered.Contains).ToList(),
-            Core.Toolsets.Families.Select(f => new Toolset(f.Name, options.Toolsets.Contains(f.Name), f.Default, f.Tools.Length, f.Description)).ToList(),
+            Core.Toolsets.Families.Select(f => new Toolset(f.Name, options.Toolsets.Contains(f.Name), f.InCore, f.Tools.Length, f.Description)).ToList(),
             ToolAvailability.Of(registered, availability, options.IdaScripting, OperatingSystem.IsWindows()));
     }
 

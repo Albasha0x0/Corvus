@@ -1,7 +1,7 @@
 namespace NetDecompilerMcp.Core;
 
 /// <summary>
-/// Tool families: the server registers only the families it is started with (--toolsets / NDM_TOOLSETS), so clients with
+/// Tool families. A server registers every tool unless started with --toolsets / NDM_TOOLSETS, which lets a client with
 /// a small context see a smaller catalog with full schemas. Every tool is in exactly one family; session is always on.
 /// </summary>
 public static class Toolsets
@@ -10,7 +10,8 @@ public static class Toolsets
     public const string Variable = "NDM_TOOLSETS";
     public const string Session = "session";
 
-    public sealed record Family(string Name, bool Default, string Description, string[] Tools);
+    /// <summary>InCore: part of the core profile (--toolsets core).</summary>
+    public sealed record Family(string Name, bool InCore, string Description, string[] Tools);
 
     public static readonly IReadOnlyList<Family> Families =
     [
@@ -49,7 +50,11 @@ public static class Toolsets
 
     public static IReadOnlySet<string> All { get; } = Families.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
 
-    public static IReadOnlySet<string> Default { get; } = Families.Where(f => f.Default).Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
+    /// <summary>What a server registers without --toolsets: every family.</summary>
+    public static IReadOnlySet<string> Default => All;
+
+    /// <summary>The reduced profile for small-context clients: .NET and native core, without engine edits, dumps and live processes.</summary>
+    public static IReadOnlySet<string> CoreProfile { get; } = Families.Where(f => f.InCore).Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
 
     /// <summary>The family of a tool, or null for a tool no family lists.</summary>
     public static string? FamilyOf(string tool) => FamilyByTool.GetValueOrDefault(tool);
@@ -58,7 +63,7 @@ public static class Toolsets
     public static bool Registers(IReadOnlySet<string> enabled, string tool) => FamilyOf(tool) is not { } family || enabled.Contains(family);
 
     /// <summary>
-    /// Family names separated by commas or spaces; "default" and "all" stand for those sets, session is always added.
+    /// Family names separated by commas or spaces; "all" (also "default") and "core" stand for those sets, session is always added.
     /// An unknown name is an <see cref="ArgumentException"/> naming the families.
     /// </summary>
     public static IReadOnlySet<string> Parse(string text)
@@ -67,20 +72,20 @@ public static class Toolsets
         foreach (var raw in text.Split([',', ' ', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             var name = raw.ToLowerInvariant();
-            if (name == "all") result.UnionWith(All);
-            else if (name == "default") result.UnionWith(Default);
+            if (name is "all" or "default") result.UnionWith(All);
+            else if (name == "core") result.UnionWith(CoreProfile);
             else if (All.Contains(name)) result.Add(name);
-            else throw new ArgumentException($"{Option} (or {Variable}): unknown toolset '{raw}'; use all, default or {string.Join(", ", All)}");
+            else throw new ArgumentException($"{Option} (or {Variable}): unknown toolset '{raw}'; use all, core or {string.Join(", ", All)}");
         }
         return result;
     }
 
-    /// <summary>The shortest spelling of a set, for a client's args: "all", "default" plus extra names, or the names in table order.</summary>
+    /// <summary>The shortest spelling of a set, for a client's args: "all", "core" plus extra names, or the names in table order.</summary>
     public static string Format(IReadOnlySet<string> enabled)
     {
         if (enabled.IsSupersetOf(All)) return "all";
-        bool withDefault = enabled.IsSupersetOf(Default);
-        var names = Families.Where(f => f.Name != Session && enabled.Contains(f.Name) && !(withDefault && f.Default)).Select(f => f.Name);
-        return string.Join(",", withDefault ? names.Prepend("default") : names);
+        bool withCore = enabled.IsSupersetOf(CoreProfile);
+        var names = Families.Where(f => f.Name != Session && enabled.Contains(f.Name) && !(withCore && f.InCore)).Select(f => f.Name);
+        return string.Join(",", withCore ? names.Prepend("core") : names);
     }
 }
