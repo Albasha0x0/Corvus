@@ -19,7 +19,7 @@ namespace NetDecompilerMcp.Tests;
 /// </summary>
 /// <remarks>
 /// The pipeline is a command-line tool that reads a crproj project (NDM_PIPELINE_TOOL: its executable; the first
-/// configuration is neo-ConfuserEx 1.0.0-rc1's Confuser.CLI.exe). The samples are every PipelineSamples/*.cs (one
+/// configuration is the pipeline tool's command-line executable). The samples are every PipelineSamples/*.cs (one
 /// program each, named after the file; a new file is a new sample) and, with NDM_PIPELINE_SAMPLES, a folder of sample
 /// projects (one Program.cs each, as the tool's UnitTest/Samples). Optional: NDM_PIPELINE_PROFILES, a folder of bundled
 /// .crproj profiles (default: Build/Profiles next to the tool); NDM_PIPELINE_SEEDS (default 3); NDM_PIPELINE_ONLY and
@@ -71,7 +71,7 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
 
     /// <summary>
     /// What simplifying must take back of the instructions an option added, per sample (percent; null: not checked, e.g.
-    /// the processed build misbehaves). Pinned from a clean full run (3 seeds, neo-ConfuserEx 1.0.0-rc1) at the least any
+    /// the processed build misbehaves). Pinned from a clean full run (3 seeds, the pipeline tool) at the least any
     /// seed achieved, rounded down, less one point; 0 still fails when simplifying adds instructions.
     /// </summary>
     public sealed record Floors(double? Workload = null, double? BasicFlow = null, double? Constants = null, double? ExceptionFlow = null)
@@ -133,7 +133,7 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
     ];
 
     /// <summary>
-    /// Options not run (seen with neo-ConfuserEx 1.0.0-rc1): the tool itself fails on them, its output misbehaves before
+    /// Options not run: the tool itself fails on them, its output misbehaves before
     /// any simplification, or its output is not IL that can be checked. NDM_PIPELINE_RECHECK=1 runs them as any other
     /// option, to see whether a new tool build changed that. A profile's rule comes from its file (null here).
     /// </summary>
