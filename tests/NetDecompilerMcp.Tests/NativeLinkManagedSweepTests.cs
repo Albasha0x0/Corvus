@@ -38,7 +38,7 @@ public sealed class NativeLinkManagedSweepTests(ITestOutputHelper output)
             LoadedAssembly asm;
             try { asm = env.Workspace.Load(file); }
             catch (ToolError) { continue; }
-            var checks = verifier.Verify(asm, default).ToDictionary(c => c.Method);
+            var checks = verifier.Verify(asm, default).Checks.ToDictionary(c => c.Method);
             foreach (var type in asm.Module.GetTypes())
                 foreach (var m in type.Methods)
                 {
@@ -48,7 +48,7 @@ public sealed class NativeLinkManagedSweepTests(ITestOutputHelper output)
                     var key = b.Status == NativeLinkService.Unresolved ? $"unresolved {b.Reason}" : b.Status;
                     byStatus[key] = byStatus.GetValueOrDefault(key) + 1;
                     var check = checks[Format.MemberLabel(m)];
-                    bool verifierResolved = check.Status is NativeImportVerifier.Verified or NativeImportVerifier.Decorated or NativeImportVerifier.Forwarded or NativeImportVerifier.Ordinal;
+                    bool verifierResolved = check.Status == NativeImportVerifier.Verified;
                     bool same = verifierResolved == (b.Status != NativeLinkService.Unresolved)
                                 && (!verifierResolved || string.Equals(b.Link.Hops[0].File, check.ResolvedFile, StringComparison.OrdinalIgnoreCase));
                     if (same) agree++;

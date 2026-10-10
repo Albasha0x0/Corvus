@@ -113,28 +113,61 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         return pager.Page(sb.ToString(), offset, maxChars);
     }, cancellationToken);
 
-    [McpServerTool(Name = "verify_native_imports", Title = "Verify P/Invoke imports", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    public sealed record VerdictCount(string Status, string Reason, int Count);
+
+    public sealed record NativeImportReport(
+        string Assembly,
+        [property: Description("P/Invoke declarations checked.")] int Declarations,
+        [property: Description("Declarations per verdict and reason.")] IReadOnlyList<VerdictCount> Counts,
+        [property: Description("The status or reason filter applied, or null.")] string? Filter,
+        int Offset,
+        [property: Description("Declarations matching the filter.")] int Total,
+        bool Truncated,
+        [property: Description("Contradicted, unresolved and dynamic_only first, then not_checked and verified.")] IReadOnlyList<NativeImportVerifier.Check> Items,
+        [property: Description("Run-time native loading found in the IL (first 100).")] IReadOnlyList<DynamicNativeLoad> DynamicLoads,
+        int DynamicLoadsTotal,
+        [property: Description("Malformed metadata found while reading the declarations, with locations.")] IReadOnlyList<MetadataIssue> MetadataIssues,
+        IReadOnlyList<string> Notes);
+
+    [McpServerTool(Name = "verify_native_imports", Title = "Verify P/Invoke imports", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description("Check a .NET assembly's P/Invoke declarations ([DllImport]) against the exports of the DLLs they bind to on this machine, with the " +
                  "runtime's lookup rules: DLL search order (app folder, system folder for the assembly's bitness), API set redirection, A/W suffixes, " +
-                 "x86 stdcall decoration (_Name@N computed from the signature), ordinals and forwarder chains. Status per declaration: verified, " +
-                 "decorated, forwarded, ordinal, missing_export (with similar exports), dll_not_found (with the places searched), not_checked (runtime-internal).")]
-    public Task<string> VerifyNativeImports(
+                 "x86 stdcall decoration (_Name@N computed from the signature), ordinals and forwarder chains. Verdict per declaration, with a reason: " +
+                 "verified (exact, suffixed, decorated, forwarded, ordinal), contradicted (DLL found but missing_export, missing_ordinal, exact_spelling, " +
+                 "ordinal_points_elsewhere, forwarder_broken), unresolved (dll_not_found with the places searched, not checkable here, malformed_metadata " +
+                 "with its location), dynamic_only (the assembly loads the library itself: NativeLibrary.Load/GetExport, LoadLibrary/GetProcAddress, " +
+                 "a DllImportResolver), not_checked (runtime-internal). Run-time loading found in the IL is listed; a missing static import does not rule " +
+                 "out dynamic loading. Malformed metadata (duplicate or bogus streams, unknown tables, rows pointing out of range) is reported with locations.")]
+    public Task<NativeImportReport> VerifyNativeImports(
         [Description(AssemblyDescription)] string assembly,
-        [Description("Only declarations with this status (e.g. missing_export).")] string? status = null,
+        [Description("Only declarations with this status (verified, contradicted, unresolved, dynamic_only, not_checked) or reason (e.g. missing_export).")] string? status = null,
         [Description("Index of the first row.")] int offset = 0,
-        [Description("Max rows (default 500).")] int limit = 500,
-        CancellationToken cancellationToken = default) => Read(workspace, () =>
+        [Description("Max rows (default 500, max 5000).")] int limit = 500,
+        CancellationToken cancellationToken = default) => Task.Run(() => workspace.Read(() =>
     {
         var asm = workspace.Get(assembly);
-        var checks = new NativeImportVerifier(PeFile.Open).Verify(asm, cancellationToken);
-        if (checks.Count == 0) return $"{asm.Id} declares no P/Invoke methods.";
-        var summary = string.Join(", ", checks.GroupBy(c => c.Status).OrderBy(g => g.Key).Select(g => $"{g.Key} {g.Count()}"));
-        var rows = checks.Where(c => status == null || c.Status.Equals(status.Trim(), StringComparison.OrdinalIgnoreCase))
-            .OrderBy(c => c.Status == NativeImportVerifier.Verified ? 1 : 0).ThenBy(c => c.Module, StringComparer.OrdinalIgnoreCase).ThenBy(c => c.EntryPoint)
-            .Select(c => $"{c.Status,-15} {c.Module}!{c.EntryPoint}  ({c.Method}; {c.CharSet}{(c.ExactSpelling ? ", exact" : "")}, {c.CallingConvention})" +
-                         $"{(c.Export != null && c.Export != c.EntryPoint ? $" -> {c.Export}" : "")}{(c.ResolvedFile != null ? $" in {c.ResolvedFile}" : "")}" +
-                         (c.Status == NativeImportVerifier.Verified ? "" : $": {c.Detail}"))
-            .ToList();
-        return $"{asm.Id}: {Plural(checks.Count, "P/Invoke declaration")} ({summary})\n" + pager.PageRows(rows, offset, limit, "declaration");
-    }, cancellationToken);
+        var result = new NativeImportVerifier(PeFile.Open).Verify(asm, cancellationToken);
+        var checks = result.Checks;
+        var filter = string.IsNullOrWhiteSpace(status) ? null : status.Trim().ToLowerInvariant();
+        offset = Math.Max(0, offset);
+        limit = ClampLimit(limit);
+        var selected = checks.Where(c => filter == null || c.Status == filter || c.Reason == filter)
+            .OrderBy(c => c.Status switch { NativeImportVerifier.Contradicted => 0, NativeImportVerifier.Unresolved => 1, NativeImportVerifier.DynamicOnly => 2,
+                NativeImportVerifier.NotChecked => 3, _ => 4 })
+            .ThenBy(c => c.Module, StringComparer.OrdinalIgnoreCase).ThenBy(c => c.EntryPoint, StringComparer.Ordinal).ToList();
+        var counts = checks.GroupBy(c => (c.Status, c.Reason)).OrderBy(g => Array.IndexOf(NativeImportVerifier.Statuses, g.Key.Status)).ThenBy(g => g.Key.Reason)
+            .Select(g => new VerdictCount(g.Key.Status, g.Key.Reason, g.Count())).ToList();
+
+        var notes = new List<string>();
+        if (checks.Count == 0) notes.Add($"{asm.Id} declares no P/Invoke methods.");
+        if (filter != null && !NativeImportVerifier.Statuses.Contains(filter) && selected.Count == 0 && checks.Count > 0)
+            notes.Add($"No declaration has status or reason '{filter}'.");
+        notes.Add("A declaration that is unresolved or contradicted statically does not rule out dynamic loading: native code can also be loaded at run " +
+                  "time (NativeLibrary.Load/GetExport, LoadLibrary/GetProcAddress, a DllImportResolver), by this assembly (dynamicLoads lists what its IL does) " +
+                  "or by another one in the process.");
+        if (result.DynamicTruncated) notes.Add("dynamicLoads stopped at 2000 call sites.");
+        if (!OperatingSystem.IsWindows()) notes.Add("DLL lookup is checked on Windows hosts only: declarations are unresolved (not_windows) here.");
+        return new NativeImportReport(asm.Id, checks.Count, counts, filter, offset, selected.Count, offset + limit < selected.Count,
+            selected.Skip(offset).Take(limit).ToList(), result.DynamicLoads.Take(100).ToList(), result.DynamicLoads.Count, result.MetadataIssues, notes);
+    }), cancellationToken);
 }

@@ -21,7 +21,8 @@ internal static class ServerInstructions
         4. Navigate: find_references (who uses X, incl. calls through base/interface methods), find_callees, get_call_tree
            (multi-level callers/callees), find_call_paths (how execution reaches a method), find_overrides, get_type_hierarchy, get_attributes.
         5. New versions: load both builds (the second gets an id like Name#2), then compare_assemblies and find_counterpart to carry
-           renamed types/members and changed offsets forward; export_edits + apply_edits re-applies a patch set to the new build.
+           renamed types/members and changed offsets forward; export_edits + apply_edits re-applies a patch set to the new build
+           (scripts are tied to their build: apply_edits refuses another build unless targetBuild=other; dryRun=true first).
         6. Il2Cpp dummy DLLs have empty bodies: get_il2cpp_info (RVAs, field offsets; slot=N for the method implementing a vtable slot),
            find_method_by_address (native address -> method), export_il2cpp_symbols (IDA/Ghidra scripts + C struct header).
            With Il2CppDumper's script.json next to the DummyDll folder, functions are bounded by the next function start, generic
@@ -47,7 +48,10 @@ internal static class ServerInstructions
            module!import, sub_<rva>. The code index is built in the background after loading; a matching local PDB is read then and
            names functions and data (load_pdb loads one by path, or downloads it with download=true; search_pdb_symbols lists its symbols
            with signatures). verify_native_imports checks a .NET
-           assembly's [DllImport]s against the real DLL exports.
+           assembly's [DllImport]s against the real DLL exports: verified, contradicted (DLL found, export missing or the binding
+           disagrees), unresolved, dynamic_only (the assembly loads the library itself or sets a DllImportResolver) or not_checked,
+           each with a reason; a missing static import does not rule out run-time loading. Malformed metadata is named with
+           stream / table / row / token / file offset there and in get_assembly_info.
            Calls: disassemble and find_xrefs show recovered call arguments (CreateFileW(L"a.ini", GENERIC_READ, ...)); get_call_arguments
            gives them as data. Late-bound imports (GetProcAddress) appear in get_pe_info, list_imports includeDynamic=true, find_xrefs
            ('module!name') and native_call_tree as [dynamic]. survey_features also takes a native image.
