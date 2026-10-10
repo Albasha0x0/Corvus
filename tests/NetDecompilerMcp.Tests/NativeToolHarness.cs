@@ -136,13 +136,14 @@ internal sealed class NativeToolHarness : IDisposable
         if (pe.EntryPointRva != 0 && pe.EntryPointRva < pe.SizeOfImage)
         {
             await Run(path, "resolve_address", "entry", ct => Native.ResolveAddress(id, Va(pe.EntryPointRva), ct), mustSucceed: true);
-            await Run(path, "read_bytes", "entry", ct => Native.ReadBytes(id, $"rva:0x{pe.EntryPointRva:X}", 4096, ct), mustSucceed: true);
+            await Run(path, "read_bytes", "entry", ct => Native.ReadBytes(id, $"rva:0x{pe.EntryPointRva:X}", 4096, cancellationToken: ct), mustSucceed: true);
             var head = new byte[6];
             if (pe.Read(pe.EntryPointRva, head) == head.Length && head[0] != 0)
                 await Run(path, "search_bytes", "entry bytes", ct => Native.SearchBytes(id, Convert.ToHexString(head), cancellationToken: ct), mustSucceed: true);
         }
-        await Run(path, "read_bytes", "image end", ct => Native.ReadBytes(id, $"rva:0x{pe.SizeOfImage - 1:X}", 65_536, ct), mustSucceed: true);
-        await Run(path, "read_bytes", "headers", ct => Native.ReadBytes(id, "off:0", 512, ct), mustSucceed: pe.SizeOfImage > 0);
+        await Run(path, "read_bytes", "image end", ct => Native.ReadBytes(id, $"rva:0x{pe.SizeOfImage - 1:X}", 65_536, cancellationToken: ct), mustSucceed: true);
+        await Run(path, "read_bytes", "headers", ct => Native.ReadBytes(id, "off:0", 512, cancellationToken: ct), mustSucceed: pe.SizeOfImage > 0);
+        await Run(path, "read_bytes", "page 2", ct => Native.ReadBytes(id, "rva:0", 65_536, offset: 30_000, cancellationToken: ct));
         await Run(path, "search_bytes", "text", ct => Native.SearchBytes(id, "dll", text: true, limit: 50, cancellationToken: ct), mustSucceed: true);
         await Run(path, "search_bytes", "wildcards", ct => Native.SearchBytes(id, "00 ?? ?? 00", limit: 10_000, cancellationToken: ct), mustSucceed: true);
 

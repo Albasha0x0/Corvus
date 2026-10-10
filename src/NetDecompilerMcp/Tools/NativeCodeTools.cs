@@ -215,6 +215,8 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description("callers or callees (default callees).")] string direction = "callees",
         [Description("Levels (1-8, default 3).")] int depth = 3,
         [Description("Max nodes (default 500).")] int maxNodes = 500,
+        [Description(OffsetDescription)] int offset = 0,
+        [Description(MaxCharsDescription)] int? maxChars = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -237,7 +239,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
             foreach (var child in node.Children) Walk(child, level + 1);
         }
         Walk(root, 0);
-        return pager.Page(sb.ToString());
+        return pager.Page(sb.ToString(), offset, maxChars);
     });
 
     [McpServerTool(Name = "search_native_strings", Title = "Search native strings", ReadOnly = true, Idempotent = true, OpenWorld = false)]

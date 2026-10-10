@@ -338,6 +338,8 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager)
         [Description(ImageDescription)] string image,
         [Description(AddressDescription)] string address,
         [Description("Bytes to dump (default 256, max 65536).")] int length = 256,
+        [Description(OffsetDescription)] int offset = 0,
+        [Description(MaxCharsDescription)] int? maxChars = null,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
         var pe = native.Image;
@@ -354,7 +356,7 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager)
             for (int i = 0; i < n; i++) sb.Append(buffer[row + i] is >= 0x20 and < 0x7F ? (char)buffer[row + i] : '.');
             sb.AppendLine();
         }
-        return pager.Page(sb.ToString());
+        return pager.Page(sb.ToString(), offset, maxChars);
     }, cancellationToken);
 
     private static readonly Lazy<ApiSetSchema?> ApiSets = new(() => ApiSetSchema.FromSystem(PeFile.Open));
