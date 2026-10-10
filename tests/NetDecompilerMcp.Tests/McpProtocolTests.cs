@@ -90,6 +90,18 @@ public abstract class McpProtocolTests : IAsyncLifetime
         return path;
     }
 
+    /// <summary>A tiny native image with its PDB beside it (<see cref="PdbTests.TinyImage"/>, <see cref="PdbBuilder.Sample"/>).</summary>
+    internal static string PdbSample(TempDir dir)
+    {
+        var path = dir.File("tiny.dll");
+        if (!File.Exists(path))
+        {
+            File.WriteAllBytes(dir.File("tiny.pdb"), PdbBuilder.Sample().Build());
+            File.WriteAllBytes(path, PdbTests.TinyImage(PdbBuilder.Sample().Guid, 3));
+        }
+        return path;
+    }
+
     internal static Dictionary<string, (Dictionary<string, object?> Args, string Expect)> ToolCases(TempDir dir) => new()
     {
         ["load_assembly"] = (new() { ["path"] = Env.ConsumerPath }, "TestFixture.Consumer"),
@@ -170,7 +182,9 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["save_native"] = (new() { ["image"] = NativeSample(dir), ["outputPath"] = dir.File("patched.dll") }, "Wrote"),
         ["undo_native_edit"] = (new() { ["image"] = NativeSample(dir) }, "Undid"),
         ["apply_il2cpp_names"] = (new() { ["image"] = NativeSample(dir), ["assembly"] = "TestFixture" }, "il2cpp names from TestFixture"),
-        ["verify_native_imports"] = (new() { ["assembly"] = "TestFixture" }, "TestFixture"),
+        ["load_pdb"] = (new() { ["image"] = PdbSample(dir) }, "matches the image"),
+        ["search_pdb_symbols"] = (new() { ["image"] = PdbSample(dir), ["query"] = "Foo" }, "public: int __cdecl Bar::Foo(int)"),
+        ["verify_native_imports"] =(new() { ["assembly"] = "TestFixture" }, "TestFixture"),
         ["get_r2r_code"] = R2RFramework.Linq is { } linq
             ? (new() { ["method"] = "System.Linq.Enumerable::Any", ["assembly"] = linq, ["maxBodies"] = 1 }, "native code in System.Linq.dll")
             : (new() { ["method"] = "Account::Score" }, "Error (unsupported) in get_r2r_code"),
@@ -194,7 +208,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
                 Assert.False(string.IsNullOrWhiteSpace(tool.Description), tool.Name);
                 Assert.False(string.IsNullOrWhiteSpace(tool.ProtocolTool.Title), tool.Name);
                 Assert.NotNull(tool.ProtocolTool.Annotations);
-                Assert.False(tool.ProtocolTool.Annotations!.OpenWorldHint);
+                Assert.Equal(ContractSweep.OpenWorldTools.Contains(tool.Name), tool.ProtocolTool.Annotations!.OpenWorldHint);
             }
             Assert.True(tools.Single(t => t.Name == "decompile_type").ProtocolTool.Annotations!.ReadOnlyHint);
             Assert.True(tools.Single(t => t.Name == "save_assembly").ProtocolTool.Annotations!.DestructiveHint);

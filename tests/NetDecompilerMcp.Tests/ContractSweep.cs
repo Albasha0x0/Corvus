@@ -32,12 +32,15 @@ public static class ContractSweep
         ["save_native"] = ["outputPath"],
     };
 
+    /// <summary>Tools that can reach the network when an argument asks for it (load_pdb download=true); annotated open-world.</summary>
+    public static readonly HashSet<string> OpenWorldTools = ["load_pdb"];
+
     /// <summary>Tools that change the loaded assemblies or the workspace (in memory).</summary>
     public static readonly HashSet<string> WorkspaceEditors =
     [
         "load_assembly", "unload_assembly", "reload_assembly", "add_search_directory", "rename_symbol", "rename_namespace", "stub_method",
         "patch_method_csharp", "patch_method_il", "add_members_csharp", "add_types_csharp", "simplify_methods", "undo_edit", "revert_edits",
-        "apply_edits", "rename_native", "comment_native", "patch_bytes", "patch_asm", "undo_native_edit", "apply_il2cpp_names",
+        "apply_edits", "rename_native", "comment_native", "patch_bytes", "patch_asm", "undo_native_edit", "apply_il2cpp_names", "load_pdb",
     ];
 
     /// <summary>A parameter that names a file or directory the tool writes.</summary>
@@ -474,7 +477,8 @@ public sealed class ContractSweepTests(Xunit.Abstractions.ITestOutputHelper outp
             bool readOnly = annotations?.ReadOnlyHint == true;
             if (readOnly && ContractSweep.FileWriters.ContainsKey(tool.Name)) problems.Add($"{tool.Name}: writes files but is annotated read-only");
             if (readOnly && ContractSweep.WorkspaceEditors.Contains(tool.Name)) problems.Add($"{tool.Name}: changes the workspace but is annotated read-only");
-            if (annotations?.OpenWorldHint != false) problems.Add($"{tool.Name}: not annotated closed-world");
+            if ((annotations?.OpenWorldHint != false) != ContractSweep.OpenWorldTools.Contains(tool.Name))
+                problems.Add($"{tool.Name}: open-world annotation does not match ContractSweep.OpenWorldTools");
             // A parameter that looks like an output path must be classified in FileWriters so the sweep keeps it in its temp directory.
             foreach (var p in tool.ProtocolTool.InputSchema.GetProperty("properties").EnumerateObject())
                 if (ContractSweep.IsOutputPath(tool.Name, p.Name) && !(ContractSweep.FileWriters.TryGetValue(tool.Name, out var o) && o.Contains(p.Name)))
