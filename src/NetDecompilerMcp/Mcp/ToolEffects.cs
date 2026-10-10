@@ -177,7 +177,18 @@ public static class ToolEffects
     /// <summary>Tools that can run long, by name.</summary>
     public static IEnumerable<string> LongRunning => Table.Where(t => t.Value.LongRunning).Select(t => t.Key).Order(StringComparer.Ordinal);
 
-    /// <summary>Sets every tool's annotations (keeping its title), and marks long-running tools in the description and _meta.</summary>
+    /// <summary>
+    /// Claude Code saves a text result over 50,000 characters to a file unless the tool raises this limit (capped at 500,000).
+    /// This value is over the default page plus ResponseBudget.Slack, so a default page stays in context.
+    /// </summary>
+    public const string MaxResultSizeMetaKey = "anthropic/maxResultSizeChars";
+    public const int MaxResultSizeChars = 100_000;
+
+    /// <summary>Claude Code loads these tools' definitions up front instead of behind tool search.</summary>
+    public const string AlwaysLoadMetaKey = "anthropic/alwaysLoad";
+    public static readonly IReadOnlySet<string> AlwaysLoad = new HashSet<string>(StringComparer.Ordinal) { "load_assembly", "server_status" };
+
+    /// <summary>Sets every tool's annotations (keeping its title), marks long-running tools in the description and _meta, and sets the client _meta keys.</summary>
     public static void Apply(IEnumerable<McpServerTool> tools)
     {
         foreach (var tool in tools)
@@ -192,9 +203,11 @@ public static class ToolEffects
                 IdempotentHint = e.Idempotent,
                 OpenWorldHint = e.OpenWorld,
             };
+            t.Meta ??= new JsonObject();
+            t.Meta[MaxResultSizeMetaKey] = MaxResultSizeChars;
+            if (AlwaysLoad.Contains(t.Name)) t.Meta[AlwaysLoadMetaKey] = true;
             if (!e.LongRunning) continue;
             if (t.Description is { } d && !d.EndsWith(LongRunningSuffix, StringComparison.Ordinal)) t.Description = d + LongRunningSuffix;
-            t.Meta ??= new JsonObject();
             t.Meta[LongRunningMetaKey] = true;
         }
     }

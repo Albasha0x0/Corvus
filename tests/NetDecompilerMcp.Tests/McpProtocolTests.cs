@@ -316,6 +316,23 @@ public abstract class McpProtocolTests : IAsyncLifetime
             Assert.False(stale.GetProperty("catalogMatches").GetBoolean());
             Assert.Equal($"tools: {tools.Count - 2} expected, this server has {tools.Count} (added 2 or more)", stale.GetProperty("catalogDifference").GetString());
             Assert.Equal(JsonValueKind.Null, (await Status(null)).GetProperty("catalogMatches").ValueKind);
+
+            // Identity: which program runs, for which client, and whether it is the registered one.
+            async Task<JsonElement> Identity(string? expectedExecutable) =>
+                JsonDocument.Parse((await _client.CallToolAsync("server_status", new Dictionary<string, object?> { ["expectedExecutable"] = expectedExecutable })).StructuredContent!.ToString()!).RootElement;
+            var identity = await Identity(ServerDll);
+            Assert.True(identity.GetProperty("executableMatches").GetBoolean());
+            Assert.Equal(Path.GetFullPath(ServerDll), identity.GetProperty("executable").GetString(), ignoreCase: true);
+            Assert.Equal("source", identity.GetProperty("installKind").GetString());
+            Assert.Equal(_client.NegotiatedProtocolVersion, identity.GetProperty("protocolVersion").GetString());
+            Assert.False(string.IsNullOrEmpty(identity.GetProperty("client").GetProperty("name").GetString()));
+            Assert.StartsWith(identity.GetProperty("version").GetString()!, identity.GetProperty("informationalVersion").GetString());
+            Assert.True(identity.GetProperty("uptimeSeconds").GetInt64() >= 0);
+            Assert.Equal(JsonValueKind.Array, identity.GetProperty("unavailableTools").ValueKind);
+            Assert.False((await Identity(Path.Combine(_dir.Path, "NetDecompilerMcp.exe"))).GetProperty("executableMatches").GetBoolean());
+            var meta = tools.Single(t => t.Name == "load_assembly").ProtocolTool.Meta!;
+            Assert.True((bool)meta[NetDecompilerMcp.Mcp.ToolEffects.AlwaysLoadMetaKey]!);
+            Assert.Equal(NetDecompilerMcp.Mcp.ToolEffects.MaxResultSizeChars, (int)meta[NetDecompilerMcp.Mcp.ToolEffects.MaxResultSizeMetaKey]!);
         }
 
         [Fact]

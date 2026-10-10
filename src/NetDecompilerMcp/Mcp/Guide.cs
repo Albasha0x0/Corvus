@@ -148,8 +148,9 @@ public static class Guide
             to page on, pass offset = offset + the items received. Tools marked [Long-running ...] can take more than 10 s.
             Symbols: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method', 'Ns.Type::Method(int, string)', 'Ns.Type::.ctor', short names, or
             tokens like '0x06000123'. The assembly parameter is optional unless a name is ambiguous; errors list candidates.
-            server_status: version, limits, engines and toolsets; expectedCatalogDigest detects a stale server (`NetDecompilerMcp doctor`
-            checks too). Toolsets: --toolsets (or NDM_TOOLSETS) takes all, default, or names such as default,dumps; a tool of a family
+            server_status: version and commit, program path, install kind, client, limits, engines, toolsets, and the tools or modes that
+            cannot work here with the fix; expectedCatalogDigest detects a stale server (`NetDecompilerMcp doctor` checks too) and
+            expectedExecutable a client that started another copy than the one it was registered with. Toolsets: --toolsets (or NDM_TOOLSETS) takes all, default, or names such as default,dumps; a tool of a family
             the server was not started with is not listed.
             Resources: netdecomp://assemblies, netdecomp://assembly/{id}/info, netdecomp://assembly/{id}/type/{Ns.Type},
             netdecomp://assembly/{id}/il/{symbol}, netdecomp://guide/{topic}.

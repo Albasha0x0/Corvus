@@ -73,7 +73,7 @@ resources and resource templates (subscribers get an update notice after each wo
 search and info tools, typed errors (`Error (<code>) in <tool>: ...` with a `Next:` step and a JSON copy; codes and format in [docs/errors.md](docs/errors.md)), strict arguments
 (an undeclared parameter is `invalid_argument` naming the closest declared ones; closed value sets such as `engine`, `kind`
 and `format` are advertised as `enum` and an unlisted value is `invalid_argument` with the closest one), a stale-server check
-(`server_status expectedCatalogDigest=...`, `NetDecompilerMcp doctor`), a response-size guard (`read_result`), cancellation,
+(`server_status expectedCatalogDigest=...`, `NetDecompilerMcp doctor`), a response-size guard (`read_result`; every tool declares `anthropic/maxResultSizeChars` so Claude Code keeps a default page in context instead of saving it to a file), cancellation,
 server instructions (a core under 2,048 characters; the details in the `guide` prompt), and workspace notices (files reloaded from disk) at the top of the next tool result.
 
 | Area | Tools |
@@ -123,7 +123,7 @@ only `decompile_native` needs an external engine (IDA through idalib). Reliabili
 | .NET and native together | `verify_native_imports` (each `[DllImport]` checked against the real DLL's exports; on Linux / macOS the DLLs next to the assembly, system DLLs reported as system_dll_not_on_host: verified / contradicted / unresolved / dynamic_only / not_checked with a reason code, plus run-time loading sites in the IL) · `get_r2r_code` / `find_r2r_method` (a method's ReadyToRun precompiled code, and the method at a native address) · the .NET call tools take native exports as symbols (`kernel32.dll!CreateFileW`) and follow P/Invokes into native code; mixed-mode C++/CLI assemblies also load as native images |
 | Crash dumps | `open_minidump` (Windows user-mode minidump: the exception, faulting thread, instruction and registers, modules, threads) · `dump_stack` (x64 unwind through `.pdata`, x86 frame pointers; frames named from loaded images, PDBs and exports) · `read_dump_memory` |
 | Live processes | `inspect_process` (read-only view of a running local Windows process: modules, memory regions, threads and call stacks with named addresses; query and read handles only, nothing written or suspended: [docs/live-inspection.md](docs/live-inspection.md)) |
-| Session | `server_status` (version, tool catalog digest and `expectedCatalogDigest` check, limits, long-running tools, which engines are available and how to fix a missing one, IDA background-analysis state, saved native code indexes: directory, size, hits) · `read_result` (pages through a result too large to send; the `limit_exceeded` error names it) |
+| Session | `server_status` (version and commit, program path with an `expectedExecutable` check, install kind, start time, negotiated protocol and client, tool catalog digest and `expectedCatalogDigest` check, limits, toolsets, the tools or modes that cannot work here with the reason and fix, long-running tools, which engines are available and how to fix a missing one, IDA background-analysis state, saved native code indexes: directory, size, hits) · `read_result` (pages through a result too large to send; the `limit_exceeded` error names it) |
 
 ### Compared with [tuna1999/dnspy-mcp](https://github.com/tuna1999/dnspy-mcp)
 
