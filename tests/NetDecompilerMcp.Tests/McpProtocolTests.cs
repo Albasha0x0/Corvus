@@ -238,6 +238,8 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["patch_bytes"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["hex"] = "90" }, "Patched"),
         ["list_native_edits"] = (new() { ["image"] = NativeSample(dir) }, "native edit"),
         ["save_native"] = (new() { ["image"] = NativeSample(dir), ["outputPath"] = dir.File("patched.dll") }, "Wrote"),
+        ["export_native_patches"] = (new() { ["image"] = NativeSample(dir), ["outputPath"] = dir.File("patches.dif"), ["format"] = "dif" }, "\"format\":\"dif\""),
+        ["migrate_native_patches"] = (new() { ["oldImage"] = NativeSample(dir), ["newImage"] = NativeSampleV2(dir), ["dryRun"] = true }, "\"source\":\"in_memory\""),
         ["undo_native_edit"] = (new() { ["image"] = NativeSample(dir) }, "Undid"),
         ["apply_il2cpp_names"] = (new() { ["image"] = NativeSample(dir), ["assembly"] = "TestFixture" }, "il2cpp names from TestFixture"),
         ["load_pdb"] = (new() { ["image"] = PdbSample(dir) }, "matches the image"),
@@ -254,6 +256,9 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["migrate_native_names"] = (new() { ["oldImage"] = NativeSample(dir), ["newImage"] = NativeSampleV2(dir), ["dryRun"] = true }, "\"dryRun\":true"),
         ["make_code_pattern"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "\"anchor\""),
         ["search_code_pattern"] = (new() { ["pattern"] = "C3", ["images"] = NativeSample(dir) }, "\"hits\""),
+        ["open_minidump"] = (new() { ["path"] = SyntheticCrash.Write(dir) }, "EXCEPTION_ACCESS_VIOLATION"),
+        ["dump_stack"] = (new() { ["dump"] = SyntheticCrash.Write(dir) }, "\"function\":\"Outer\""),
+        ["read_dump_memory"] = (new() { ["dump"] = SyntheticCrash.Write(dir), ["address"] = "synth+0x1000" }, "53 48 83 EC"),
         ["read_result"] = (new() { ["id"] = "r999" }, "Error (not_found) in read_result"),
         ["unload_assembly"] = (new() { ["assembly"] = "TestFixture.Consumer" }, "Unloaded"),
     };

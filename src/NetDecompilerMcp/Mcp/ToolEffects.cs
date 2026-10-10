@@ -145,6 +145,13 @@ public static class ToolEffects
         ["list_native_edits"] = Reads(longRunning: true),
         ["undo_native_edit"] = Changes(destructive: true, idempotent: false, longRunning: true),
         ["save_native"] = Changes(destructive: true, idempotent: true, longRunning: true), // overwrite=true replaces a file (the original's .bak is made once)
+        ["export_native_patches"] = Changes(destructive: true, idempotent: true), // replaces the file at outputPath
+        ["migrate_native_patches"] = Changes(destructive: true, idempotent: false, longRunning: true), // patches the new build; matches through both code indexes
+
+        // Crash dumps (an open dump gets an id, as loading an image does)
+        ["open_minidump"] = Reads(),
+        ["dump_stack"] = Reads(),
+        ["read_dump_memory"] = Reads(),
     };
 
     /// <summary>MCP's defaults for a tool the table does not list: may change, destroy and reach anything.</summary>

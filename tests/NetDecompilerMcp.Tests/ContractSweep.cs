@@ -34,6 +34,7 @@ public static class ContractSweep
         ["extract_strings"] = ["savePath"],
         ["export_native_annotations"] = ["outputPath"],
         ["save_native"] = ["outputPath"],
+        ["export_native_patches"] = ["outputPath"],
     };
 
 

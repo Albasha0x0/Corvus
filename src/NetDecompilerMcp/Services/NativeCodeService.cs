@@ -59,6 +59,16 @@ public sealed class NativeCodeService
         finally { holder.Progress -= listener; }
     }
 
+    /// <summary>
+    /// A one-off index over the image's original (pre-patch) bytes, with the same symbol starts the live index uses.
+    /// Patch migration matches the clean old build so in-memory patches do not hide a function's identity. Not cached.
+    /// </summary>
+    public NativeCodeIndex IndexOfOriginal(LoadedNative native, CancellationToken ct)
+    {
+        var original = Native.Pe.PeFile.FromBytes(native.Patches.OriginalBytes(), native.FilePath);
+        return NativeCodeIndex.Build(original, BuildOptions(native, ct), null, ct);
+    }
+
     /// <summary>The index when it is already built, else null (does not start a build).</summary>
     public NativeCodeIndex? Ready(LoadedNative native) =>
         native.Analysis.TryGetValue(typeof(IndexHolder), out var h) && ((IndexHolder)h).Task is { IsCompletedSuccessfully: true } t ? t.Result : null;

@@ -120,7 +120,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
     /// the assembler produced (with which ones came from symbols); null for raw bytes, whose constants are decoded.
     /// </summary>
     public PatchResult PreparePatch(NativeCodeIndex index, uint rva, byte[] newBytes, bool force, string description,
-        RelocationMode relocations = RelocationMode.Auto, IReadOnlyList<OperandConstant>? assembled = null)
+        RelocationMode relocations = RelocationMode.Auto, IReadOnlyList<OperandConstant>? assembled = null, string? assembly = null)
     {
         var image = index.Image;
         var (fileOffset, paddedLength, _, note) = Plan(index, rva, newBytes.Length, force);
@@ -141,7 +141,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
             plan = PatchRelocations.Plan(pe, rva, original, replacement, operands, assembled == null, relocations, force);
         }
 
-        var patch = new NativePatch(rva, fileOffset, original, replacement, description, plan);
+        var patch = new NativePatch(rva, fileOffset, original, replacement, description, plan) { Assembly = assembly };
         var before = Disasm(index, rva, paddedLength);
         var after = DisasmBytes(image, rva, replacement);
         return new PatchResult(patch, before, after, note ?? "");
@@ -230,23 +230,8 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         if (File.Exists(target) && !overwrite)
             throw new ToolError(ErrorCode.Conflict, $"{target} already exists. Pass overwrite=true to replace it{(isOriginal ? " (the original is backed up to .bak)" : "")}.");
 
-        var bytes = native.Patches.PatchedBytes();
-        var patchedImage = PeFile.FromBytes(bytes, native.FilePath);
         var notes = new List<string>();
-
-        if (stripSignature) StripSignature(ref bytes, patchedImage, notes);
-
-        // Recompute the PE checksum when the original had one.
-        if (patchedImage.Checksum.Stored != 0)
-        {
-            var recomputed = PeFile.FromBytes(bytes, native.FilePath);
-            uint sum = recomputed.Checksum.Computed;
-            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan((int)(patchedImage.OptionalHeaderOffset + 64)), sum);
-            notes.Add($"PE checksum recomputed to 0x{sum:X8}.");
-        }
-
-        if (!stripSignature && patchedImage.CertificateTable is not null)
-            notes.Add("The file is Authenticode-signed; after patching the signature no longer matches and the file is effectively unsigned. Pass stripSignature=true to remove the certificate table.");
+        var bytes = OutputBytes(native, stripSignature, notes);
 
         string? backup = null;
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
@@ -268,6 +253,31 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
                (backup != null ? $" Original backed up to {backup}." : "") +
                (notes.Count > 0 ? "\n  " + string.Join("\n  ", notes) : "") +
                $"\n{verify}";
+    }
+
+    /// <summary>
+    /// The bytes save_native writes: the patched bytes, the certificate table removed when <paramref name="stripSignature"/>,
+    /// and the PE checksum recomputed when the original had one. export_native_patches exports the same bytes.
+    /// </summary>
+    public static byte[] OutputBytes(LoadedNative native, bool stripSignature, List<string> notes)
+    {
+        var bytes = native.Patches.PatchedBytes();
+        var patchedImage = PeFile.FromBytes(bytes, native.FilePath);
+
+        if (stripSignature) StripSignature(ref bytes, patchedImage, notes);
+
+        // Recompute the PE checksum when the original had one.
+        if (patchedImage.Checksum.Stored != 0)
+        {
+            var recomputed = PeFile.FromBytes(bytes, native.FilePath);
+            uint sum = recomputed.Checksum.Computed;
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan((int)(patchedImage.OptionalHeaderOffset + 64)), sum);
+            notes.Add($"PE checksum recomputed to 0x{sum:X8}.");
+        }
+
+        if (!stripSignature && patchedImage.CertificateTable is not null)
+            notes.Add("The file is Authenticode-signed; after patching the signature no longer matches and the file is effectively unsigned. Pass stripSignature=true to remove the certificate table.");
+        return bytes;
     }
 
     private static void StripSignature(ref byte[] bytes, PeFile image, List<string> notes)

@@ -29,7 +29,7 @@ public sealed partial class NativeLinkService
     /// <summary>The native body of a method in a mixed-mode image (bound to the assembly's native view), or null.</summary>
     private ManagedLink? NativeBody(LoadedAssembly asm, MethodDef method)
     {
-        if (asm.Module.IsILOnly || !Mixed(asm).Bodies.TryGetValue(method, out var rva)) return null;
+        if (!MixedModeMap.IsMixedMode(asm.Module) || !Mixed(asm).Bodies.TryGetValue(method, out var rva)) return null;
         var view = workspace.NativeViewOf(asm);
         var hop = new LinkHop(asm.FilePath, method.Name, 0, rva, null, "native body");
         var link = new LinkResult(NativeLinker.Resolved, Path.GetFileName(asm.FilePath), asm.FilePath, [hop], "native body");

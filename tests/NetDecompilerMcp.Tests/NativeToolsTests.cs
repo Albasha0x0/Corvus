@@ -134,6 +134,19 @@ public class NativeToolsTests
         Assert.Contains("vftable", classes);
     }
 
+    /// <summary>ReadyToRun images clear the IL-only flag too; they are not mixed-mode and get no native view.</summary>
+    [Fact]
+    public void ReadyToRunAssembliesGetNoNativeView()
+    {
+        var linq = Path.Combine(Path.GetDirectoryName(typeof(object).Assembly.Location)!, "System.Linq.dll");
+        using var env = new Env();
+        var asm = env.Workspace.Load(linq);
+        Assert.False(asm.Module.IsILOnly); // the flag a plain IL-only check would have taken for mixed-mode
+        Assert.False(NetDecompilerMcp.Native.Linking.MixedModeMap.IsMixedMode(asm.Module));
+        Assert.Null(env.Workspace.Read(() => env.Workspace.NativeViewOf(asm)));
+        Assert.Empty(env.Workspace.Read(() => env.Workspace.Natives));
+    }
+
     [WindowsFact]
     public void LoadAnyLoadsNativeImagesAndKeepsIdsUnique()
     {
