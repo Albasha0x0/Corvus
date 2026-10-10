@@ -195,6 +195,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["list_native_edits"] = (new() { ["image"] = NativeSample(dir) }, "native edit"),
         ["save_native"] = (new() { ["image"] = NativeSample(dir), ["outputPath"] = dir.File("patched.dll") }, "Wrote"),
         ["export_native_patches"] = (new() { ["image"] = NativeSample(dir), ["outputPath"] = dir.File("patches.dif"), ["format"] = "dif" }, "\"format\":\"dif\""),
+        ["migrate_native_patches"] = (new() { ["oldImage"] = NativeSample(dir), ["newImage"] = NativeSampleV2(dir), ["dryRun"] = true }, "\"source\":\"in_memory\""),
         ["undo_native_edit"] = (new() { ["image"] = NativeSample(dir) }, "Undid"),
         ["apply_il2cpp_names"] = (new() { ["image"] = NativeSample(dir), ["assembly"] = "TestFixture" }, "il2cpp names from TestFixture"),
         ["load_pdb"] = (new() { ["image"] = PdbSample(dir) }, "matches the image"),

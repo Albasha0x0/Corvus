@@ -116,7 +116,7 @@ public class NativePatchExportTests(ITestOutputHelper output)
         {
             Code = new NativeCodeService(Env.Workspace, Env.Options, null, new AnnotationStore(Dir.File("ann")));
             Edits = new NativeEditService(Env.Workspace, Code);
-            Tools = new NativePatchTools(Env.Workspace);
+            Tools = new NativePatchTools(Env.Workspace, Code, Edits);
             Path = Dir.File(name);
             File.WriteAllBytes(Path, image);
         }
