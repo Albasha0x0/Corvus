@@ -121,6 +121,23 @@ public class PdbOracleTests(ITestOutputHelper output)
         Assert.True(missing.Count == 0, string.Join(", ", missing));
     }
 
+    /// <summary>Downloads the PDB of a system DLL from Microsoft's symbol server; runs only with NDM_NETWORK_TESTS=1.</summary>
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task DownloadsASystemPdbWhenNetworkTestsAreOn()
+    {
+        if (Environment.GetEnvironmentVariable("NDM_NETWORK_TESTS") != "1") return;
+        var dll = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "kernel32.dll");
+        if (!File.Exists(dll)) return;
+        var image = PeFile.Open(dll);
+        using var dir = new TempDir();
+        var path = await PdbLocator.DownloadAsync(image.CodeView!, PdbLocator.DefaultServer, TimeSpan.FromMinutes(2), 256L << 20, null, dir.File("cache"));
+        var pdb = PdbFile.Open(path, image.Sections);
+        Assert.True(pdb.Matches(image.CodeView!));
+        var names = PdbNaming.Choose(pdb, image.SizeOfImage).Select(n => n.Name).ToHashSet();
+        Assert.Contains("CreateFileW", names);
+    }
+
     /// <summary>Every PDB in the local symbol caches (up to 400): read without exception; the issues and the slowest read are reported.</summary>
     [Fact]
     [Trait("Speed", "Slow")]
