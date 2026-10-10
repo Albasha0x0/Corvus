@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using NetDecompilerMcp.Native.Code;
 using NetDecompilerMcp.Native.Providers;
 
 namespace NetDecompilerMcp.Native.Annotations;
@@ -21,6 +22,8 @@ public sealed class AnnotationDocument
 /// <c>&lt;LocalAppData&gt;/NetDecompilerMcp/annotations/&lt;sha256&gt;.json</c> (the same per-user root the analysis
 /// cache uses, a sibling folder), written atomically. A different file hash is a different sidecar, so a changed file
 /// starts clean; <see cref="FindOtherHashesForPath"/> reports when a sidecar already exists for the same path.
+/// Imported name layers (load_pdb, apply_il2cpp_names) live beside it, one compressed file per source
+/// (&lt;sha256&gt;.&lt;source&gt;.names, <see cref="SavedNameLayer"/>); the JSON sidecar format is unchanged.
 /// </summary>
 public sealed class AnnotationStore
 {
@@ -74,6 +77,71 @@ public sealed class AnnotationStore
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Persistence is best-effort; in-memory annotations still work for this session.
+        }
+    }
+
+    // ---- imported name layers (load_pdb, apply_il2cpp_names) ----
+
+    private readonly object _layerGate = new();
+
+    /// <summary>The file of one saved imported layer: &lt;sha256&gt;.&lt;source&gt;.names beside the sidecar.</summary>
+    public string LayerFileFor(string sha256, NativeNameSource source) => System.IO.Path.Combine(Root, $"{sha256.ToLowerInvariant()}.{source.Id()}.names");
+
+    /// <summary>Writes an imported layer atomically; returns null on success, else the problem (persistence is best-effort).</summary>
+    public string? SaveLayer(string sha256, string imagePath, NativeNameLayers.Layer layer)
+    {
+        var file = LayerFileFor(sha256, layer.Source);
+        var temp = file + ".tmp-" + Environment.ProcessId + "-" + Environment.CurrentManagedThreadId;
+        try
+        {
+            lock (_layerGate)
+            {
+                Directory.CreateDirectory(Root);
+                using (var fs = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16))
+                    SavedNameLayer.Write(fs, sha256.ToLowerInvariant(), imagePath, layer);
+                File.Move(temp, file, overwrite: true);
+            }
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            try { File.Delete(temp); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+            return ex.Message;
+        }
+    }
+
+    /// <summary>The saved layer of <paramref name="source"/> for <paramref name="sha256"/>, or null when none (or unreadable).</summary>
+    public NativeNameLayers.Layer? LoadLayer(string sha256, NativeNameSource source, CancellationToken ct = default)
+    {
+        var file = LayerFileFor(sha256, source);
+        try
+        {
+            if (!File.Exists(file)) return null;
+            using var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16);
+            return SavedNameLayer.Read(fs, sha256, ct) is { } layer && layer.Source == source ? layer : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Deletes a saved layer; true when there was one.</summary>
+    public bool DeleteLayer(string sha256, NativeNameSource source)
+    {
+        var file = LayerFileFor(sha256, source);
+        try
+        {
+            lock (_layerGate)
+            {
+                if (!File.Exists(file)) return false;
+                File.Delete(file);
+                return true;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
         }
     }
 

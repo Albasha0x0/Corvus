@@ -27,8 +27,9 @@ public sealed record PdbState(
 /// discovery, so its functions become function starts and its names apply when the index is ready; load_pdb loads one
 /// explicitly (a path, or a download when asked) and rebuilds the index in the background when it adds function starts.
 /// PDB names form the "pdb" layer of <see cref="NativeNameLayers"/>: they rank above discovered and Il2Cpp names and
-/// below the user's names, which they never replace. State is kept per loaded image (it survives patching; a reload
-/// starts over).
+/// below the user's names, which they never replace. State is kept per loaded image (it survives patching). The names of
+/// an explicit load_pdb are saved beside the image's annotations (with the PDB's path, GUID and age, and its function
+/// starts) and restored when the same file is loaded again, the PDB read again when it is still there.
 /// </summary>
 public sealed class PdbService
 {
@@ -76,12 +77,14 @@ public sealed class PdbService
     private IReadOnlyCollection<uint>? AutoLoad(LoadedNative native, CancellationToken ct)
     {
         var slot = States.GetValue(native, _ => new Slot());
+        var saved = NativeNameLayers.OfOrNull(native)?.Get(NativeNameSource.Pdb) is { Info: { Restored: true } info } ? info : null;
         lock (slot.Gate)
         {
             if (slot.State != null) return slot.State.FunctionStarts;
-            if (slot.AutoTried || native.Image.CodeView is not { Format: "RSDS" }) return null;
+            if (slot.AutoTried || (saved == null && native.Image.CodeView is not { Format: "RSDS" })) return null;
             slot.AutoTried = true;
         }
+        if (saved != null) return Reopen(native, slot, saved, ct);
         var location = PdbLocator.Locate(native.Image);
         if (location.Path == null)
         {
@@ -100,6 +103,36 @@ public sealed class PdbService
         return state.FunctionStarts;
     }
 
+    /// <summary>
+    /// A PDB layer restored from disk: reads its PDB again when the file is still where it was and has the same identity
+    /// (so search_pdb_symbols works); otherwise the saved names and function starts stand alone. No local search: the
+    /// saved PDB was the user's choice.
+    /// </summary>
+    private IReadOnlyCollection<uint>? Reopen(LoadedNative native, Slot slot, ImportInfo saved, CancellationToken ct)
+    {
+        if (saved.SourcePath is not { } path || !File.Exists(path)) return null;
+        try
+        {
+            var state = Read(native, path, [new PdbProbe(path, "saved by an earlier load_pdb")], verified: false, downloaded: false, automatic: false, ct);
+            if (Identity(state.Pdb) != saved.SourceIdentity) return null;
+            state = state with { Verified = native.Image.CodeView is { Format: "RSDS" } cv && state.Pdb.Matches(cv) };
+            lock (slot.Gate)
+            {
+                if (slot.State != null) return slot.State.FunctionStarts;
+                slot.State = state;
+            }
+            return state.FunctionStarts;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ToolError)
+        {
+            _logger?.LogInformation("Saved PDB {Path} of {Id} not read again: {Message}", path, native.Id, ex.Message);
+            return null;
+        }
+    }
+
+    /// <summary>A PDB's identity as saved with its names: "GUID age".</summary>
+    public static string Identity(PdbFile pdb) => $"{pdb.Guid:D} {pdb.DbiAge}";
+
     private static PdbState Read(LoadedNative native, string path, IReadOnlyList<PdbProbe> probes, bool verified, bool downloaded, bool automatic, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
@@ -112,7 +145,8 @@ public sealed class PdbService
         new(NativeNameSource.Pdb, state.Names.ToDictionary(n => n.Rva, n => n.Name), new Dictionary<uint, string>(), state.Path);
 
     /// <summary>What <see cref="Load"/> did.</summary>
-    public sealed record LoadResult(PdbState? State, PdbLocation Location, string? DownloadError, int NamesApplied, int UserNamesKept, int NewFunctionStarts, bool Rebuilding);
+    public sealed record LoadResult(PdbState? State, PdbLocation Location, string? DownloadError, int NamesApplied, int UserNamesKept, int NewFunctionStarts, bool Rebuilding,
+        string? SaveProblem = null);
 
     /// <summary>
     /// Locates (or takes <paramref name="path"/>), optionally downloads, reads and applies the image's PDB. A PDB whose
@@ -170,7 +204,9 @@ public sealed class PdbService
         lock (slot.Gate) { slot.State = state; slot.AutoTried = true; slot.AutoSearch = null; }
 
         var index = _code.Ready(native);
-        NativeNameLayers.Of(native).Set(Layer(state), index);
+        var info = new ImportInfo(state.Path, Identity(state.Pdb), DateTime.UtcNow, state.FunctionStarts.Order().ToArray());
+        NativeNameLayers.Of(native).Set(Layer(state) with { Info = info }, index);
+        var saveProblem = _code.SaveImported(native, NativeNameSource.Pdb);
         int userKept = 0, newStarts = 0;
         bool rebuilding = false;
         if (index != null)
@@ -184,6 +220,20 @@ public sealed class PdbService
                 rebuilding = true;
             }
         }
-        return new LoadResult(state, location with { Probes = probes, Path = found }, downloadError, state.Names.Count - userKept, userKept, newStarts, rebuilding);
+        return new LoadResult(state, location with { Probes = probes, Path = found }, downloadError, state.Names.Count - userKept, userKept, newStarts, rebuilding, saveProblem);
+    }
+
+    /// <summary>
+    /// Removes the PDB names of <paramref name="native"/> (loaded, found automatically or restored) and the saved copy;
+    /// returns how many names the layer had (null when none) and whether a saved copy was deleted. A matching local PDB
+    /// is not read automatically again in this session.
+    /// </summary>
+    public (int? Removed, bool SavedDeleted) Clear(LoadedNative native)
+    {
+        _code.RestoreImported(native);
+        var slot = States.GetValue(native, _ => new Slot());
+        lock (slot.Gate) { slot.State = null; slot.AutoTried = true; slot.AutoSearch = null; }
+        var removed = NativeNameLayers.OfOrNull(native)?.Remove(NativeNameSource.Pdb, _code.Ready(native));
+        return (removed?.Names.Count, _code.ForgetImported(native, NativeNameSource.Pdb));
     }
 }

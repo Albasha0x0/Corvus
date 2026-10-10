@@ -125,7 +125,7 @@ public static class ToolEffects
         ["list_cpp_classes"] = Reads(),
         ["decompile_native"] = Reads(longRunning: true, openWorld: true), // runs IDA (idalib) in a worker process; its database is a private cache
         ["verify_native_imports"] = Reads(),
-        ["load_pdb"] = Changes(destructive: false, idempotent: true, longRunning: true, openWorld: true), // download=true fetches from a symbol server
+        ["load_pdb"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true), // download=true fetches from a symbol server; clear=true deletes the saved PDB names
         ["search_pdb_symbols"] = Reads(),
         ["get_r2r_code"] = Reads(),
         ["find_r2r_method"] = Reads(),

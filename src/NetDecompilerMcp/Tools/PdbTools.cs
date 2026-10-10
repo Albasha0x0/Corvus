@@ -46,7 +46,9 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs, Outpu
                  "Names show up as source 'pdb' in list_functions, disassemble and cross-references; user names (rename_native) are kept. Functions the PDB " +
                  "names that discovery missed become function starts (the index rebuilds in the background). A matching local PDB is also read " +
                  "automatically when the index is first built. The next decompile_native loads the PDB's types (structs, enums, prototypes) into " +
-                 "the IDA database.")]
+                 "the IDA database. The names of a load_pdb are saved with the image's annotations (PDB path, GUID and age, " +
+                 "names, function starts) and reapplied automatically when the same file is loaded again, even when the PDB has moved; clear=true " +
+                 "removes the PDB names and the saved copy.")]
     public Task<string> LoadPdb(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("PDB file, or a directory (or symbol store) to look in first.")] string? path = null,
@@ -55,10 +57,17 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs, Outpu
         [Description("Use the PDB at path even when its GUID or age differs from the image (names may be wrong).")] bool force = false,
         [Description("Download time limit in seconds (default 120).")] int timeoutSeconds = 120,
         [Description("Download size limit in MB (default 2048).")] int maxMegabytes = 2048,
+        [Description("Remove the image's PDB names and their saved copy instead of loading (a matching local PDB is not read again in this session).")] bool clear = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var native = await Native(image, cancellationToken);
+        if (clear)
+        {
+            var (removed, deleted) = await Task.Run(() => workspace.Read(() => pdbs.Clear(native)), cancellationToken);
+            return removed is { } n ? $"{native.Id}: removed {Plural(n, "PDB name")}{(deleted ? " and the saved copy" : "")}."
+                : deleted ? $"{native.Id}: deleted the saved PDB names." : $"{native.Id}: no PDB names were loaded.";
+        }
         progress.Report(new ProgressNotificationValue { Progress = 0, Message = $"locating the PDB of {native.Id}" });
         var timeout = TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 5, 3600));
         long maxBytes = Math.Clamp(maxMegabytes, 1, 16 * 1024) * (1L << 20);
@@ -89,6 +98,8 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs, Outpu
                         (p.HasOmap ? "; addresses mapped through OMAP" : ""));
         text.AppendLine($"  {Plural(s.Names.Count, "address")} named ({s.Names.Count(n => n.IsFunction)} functions); {r.NamesApplied} applied as 'pdb' names" +
                         (r.UserNamesKept > 0 ? $", {r.UserNamesKept} keep the user's name" : ""));
+        text.AppendLine(r.SaveProblem == null ? "  saved with the image's annotations: reapplied automatically when this file is loaded again (clear=true removes them)"
+            : $"  not saved for the next load: {r.SaveProblem}");
         if (r.NewFunctionStarts > 0)
             text.AppendLine($"  {Plural(r.NewFunctionStarts, "function")} named by the PDB were not found by discovery: " +
                             (r.Rebuilding ? "the code index is rebuilding in the background with them as function starts" : "they become function starts when the index is built"));

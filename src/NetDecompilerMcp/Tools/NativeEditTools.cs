@@ -177,7 +177,9 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     });
 
     [McpServerTool(Name = "list_native_edits", Title = "List native byte patches")]
-    [Description("The in-memory byte patches of a native image, numbered; undo_native_edit reverts by number and save_native writes them to a file.")]
+    [Description("The in-memory byte patches of a native image, numbered; undo_native_edit reverts by number and save_native writes them to a file. " +
+                 "Then the names by source: the user's (rename_native / comment_native) and each imported layer (pdb, il2cpp, ida) with counts, origin, " +
+                 "source file and identity, and whether it was saved or restored from the saved copy when the image loaded (with the import time).")]
     public Task<string> ListNativeEdits(
         [Description(NativeTools.ImageDescription)] string image,
         RequestContext<CallToolRequestParams> context = null!,
