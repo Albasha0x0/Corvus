@@ -89,7 +89,6 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not take types.");
 
     /// <summary>
-<<<<<<< HEAD
     /// What the engine knows about the call instructions at <paramref name="sites"/>: its code references from them, and how its
     /// decompiler shows them in <paramref name="functions"/> (through a member of a vftable struct type, a function, or an
     /// untyped pointer), within <paramref name="seconds"/>.
@@ -97,7 +96,8 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     Task<NativeCallTargets> GetCallTargetsAsync(IReadOnlyList<uint> functions, IReadOnlyList<uint> sites, double seconds,
         CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not report call targets.");
-=======
+
+    /// <summary>
     /// Loads <paramref name="pdbPath"/> with the engine's own PDB loader (types, prototypes, names). With
     /// <paramref name="trustAnalysisLoad"/>, a PDB the engine loaded itself during auto-analysis counts as this one and is
     /// not loaded again. On success the stamp is recorded under <paramref name="stampKey"/>, the names stamp is dropped
@@ -105,7 +105,6 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     /// </summary>
     Task<PdbLoadResult> LoadPdbAsync(string pdbPath, string stampKey, string stamp, bool trustAnalysisLoad, CancellationToken cancellationToken = default) =>
         Task.FromResult(new PdbLoadResult(false, false, false, 0, 0, TimeSpan.Zero));
->>>>>>> main
 
     /// <summary>References to <paramref name="rva"/> (ordinary flow excluded).</summary>
     Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default);
