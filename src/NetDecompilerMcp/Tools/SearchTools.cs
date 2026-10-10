@@ -10,7 +10,7 @@ namespace NetDecompilerMcp.Tools;
 [McpServerToolType]
 public sealed class SearchTools(AssemblyWorkspace workspace, SearchService search, Il2CppService il2cpp, Il2CppStringService il2cppStrings, OutputPager pager)
 {
-    [McpServerTool(Name = "search_symbols", Title = "Search symbols by name", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "search_symbols", Title = "Search symbols by name")]
     [Description("Find types and members by name across loaded assemblies. Query is a case-insensitive substring, a wildcard pattern (Get*Value?) or a regex (regex=true). " +
                  "Queries containing '.' or '::' also match full names. Exact matches are listed first.")]
     public Task<string> SearchSymbols(
@@ -30,7 +30,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         return pager.Page(sb.ToString());
     }, cancellationToken);
 
-    [McpServerTool(Name = "search_strings", Title = "Search string literals", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "search_strings", Title = "Search string literals")]
     [Description("Find string literals (ldstr in method bodies, and string constants) by substring, wildcard or regex, with the method and IL offset using each. Locates code from UI text, log messages, URLs, keys. " +
                  "For Il2CppDumper dummy DLLs (empty bodies) it searches the dump's stringliteral.json instead: each literal with its slot RVA and, when GameAssembly.dll is next to the dump, " +
                  "the native functions that load it, named by their dummy-DLL method (or script.json name for generic instantiations).")]
@@ -101,7 +101,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
                       (names > 1 ? $" and {names - 1} more names sharing this code" : ""));
     }
 
-    [McpServerTool(Name = "search_constants", Title = "Search numeric constants", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "search_constants", Title = "Search numeric constants")]
     [Description("Find a numeric constant (magic number, packet/opcode id, flag, hash seed, crypto constant) wherever it appears: IL literals (ldc.*), const and enum field values, attribute arguments, and static array data (lookup tables, S-boxes, CRC and crypto tables), read element by element as the array's own type. Accepts decimal, 0x hex, negative and floating-point values.")]
     public Task<string> SearchConstants(
         [Description("Number, e.g. 1337, 0xDEADBEEF, -1, 3.14.")] string value,
@@ -119,7 +119,7 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         return pager.Page(sb.ToString());
     }, cancellationToken);
 
-    [McpServerTool(Name = "search_il", Title = "Search IL instruction patterns", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "search_il", Title = "Search IL instruction patterns")]
     [Description("Find methods containing an IL instruction sequence. Elements separated by ';' or newlines, each 'opcode [operand]' with * and ? wildcards; '...' skips up to 16 instructions. " +
                  "Operands match member labels/full names, type names, strings and numbers (decimal or 0x hex). " +
                  "Examples: 'ldstr *password*; ...; call *::Hash*' | 'callvirt *Socket::Send*' | 'ldc.i4 0x1F4; call *' | 'newobj *Exception::.ctor*; throw'.")]

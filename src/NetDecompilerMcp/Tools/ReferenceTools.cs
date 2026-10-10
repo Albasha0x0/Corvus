@@ -11,7 +11,7 @@ namespace NetDecompilerMcp.Tools;
 [McpServerToolType]
 public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService references, OutputPager pager, NativeLinkService? link = null)
 {
-    [McpServerTool(Name = "find_references", Title = "Find usages (xrefs to)", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "find_references", Title = "Find usages (xrefs to)")]
     [Description("Every usage of a symbol across all loaded assemblies ('Used By'). " +
                  "Method: call sites (call/callvirt/newobj/ldftn/ldtoken). Field: reads, writes, address-taken. Property/event: accessor calls. " +
                  "Type: base type, interface, generic constraint, field/parameter/return/local types, catch clauses, attributes, instantiations, casts, member accesses. " +
@@ -85,7 +85,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
         return sb.ToString();
     }
 
-    [McpServerTool(Name = "find_callees", Title = "What a method uses (xrefs from)", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "find_callees", Title = "What a method uses (xrefs from)")]
     [Description("What a method uses: methods it calls, fields it reads/writes, types it instantiates/casts, and string literals, in IL order with offsets ('Uses'). " +
                  "Calls to P/Invoke declarations (and native method bodies of mixed-mode assemblies) also show the native code they bind to " +
                  "('native: module!export -> PROVIDER!export at VA [image]'; disassemble takes that image and VA). For a P/Invoke method itself, or a native " +
@@ -136,7 +136,7 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
             link != null && c.Method != null && link.NativeOf(c.Method) is { } n ? $"\n      -> native: {NativeLinkService.Describe(n.Binding)}" : "";
     }
 
-    [McpServerTool(Name = "find_overrides", Title = "Find overrides / implementations", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "find_overrides", Title = "Find overrides / implementations")]
     [Description("Methods that override a virtual/abstract method or implement an interface method, across all derived types in loaded assemblies (explicit and implicit implementations).")]
     public Task<string> FindOverrides(
         [Description("Virtual, abstract or interface method. " + SymbolDescription)] string method,

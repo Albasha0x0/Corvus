@@ -81,7 +81,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         return notes.Count > 0 ? "Note: " + string.Join("; ", notes) + "\n" : "";
     }
 
-    [McpServerTool(Name = "list_functions", Title = "List native functions", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "list_functions", Title = "List native functions")]
     [Description("Functions of a native image (x86 / x64): address, size, name (export name, module!import for thunks, or sub_<rva>), flags " +
                  "(thunk, noreturn, unresolved jumps, invalid code, funclet, funclet of its parent, exception chunks: catch blocks, unwind funclets, filters " +
                  "and handlers attached to their function), how it was found and how many call sites reach it. get_exception_info shows the details. " +
@@ -110,7 +110,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
                $"{s.Xrefs:N0} references, {Plural(s.Strings, "string")}\n" + Coverage(index) + pager.PageRows(rows, offset, limit, "function");
     });
 
-    [McpServerTool(Name = "disassemble", Title = "Disassemble native code", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "disassemble", Title = "Disassemble native code")]
     [Description("MASM-syntax disassembly of the native function containing an address (with block labels), or of maxInstructions from the address " +
                  "when it is in no function or function=false. Calls and data references are named (module!import, exports, sub_<rva>, loc_<rva>) " +
                  "and string references shown as comments; calls are commented with their recovered arguments (CreateFileW(L\"a.ini\", GENERIC_READ, ...), see get_call_arguments). " + IndexNote)]
@@ -176,7 +176,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         return $"  {l.Address:X}  {l.Bytes,-24} {l.Text}{(comment != null ? "  ; " + comment : "")}";
     }
 
-    [McpServerTool(Name = "get_cfg", Title = "Native control-flow graph", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "get_cfg", Title = "Native control-flow graph")]
     [Description("Basic blocks of the native function containing an address: each block's range, instruction count, how it ends (return, jump, " +
                  "switch, tail call, noreturn call...) and its successors; resolved switch tables with their cases; indirect jumps whose targets are unknown. " + IndexNote)]
     public Task<string> GetCfg(
@@ -205,7 +205,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         return pager.Page(sb.ToString(), offset, maxChars);
     });
 
-    [McpServerTool(Name = "find_xrefs", Title = "Native cross-references", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "find_xrefs", Title = "Native cross-references")]
     [Description("Everything in a native image that references an address: calls (direct and through import slots and thunks), jumps, data reads " +
                  "and writes, address-taken uses, switch tables and relocated data pointers, each with the function it is in. For an import " +
                  "(module!name) lists the call sites of that API (x86 calls through a register loaded from the slot included) and what it is bound to; " +
@@ -250,7 +250,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         return header + Coverage(index) + pager.PageRows(rows, offset, limit, "reference");
     });
 
-    [McpServerTool(Name = "native_call_tree", Title = "Native call tree", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "native_call_tree", Title = "Native call tree")]
     [Description("Callers or callees of a native function, several levels deep (calls through thunks and import slots included). Across images: " +
                  "a call through module!import continues into the provider's function when that image is loaded (shown as module!import -> " +
                  "PROVIDER.dll!export at VA [image], forwarders and jump thunks followed; otherwise the provider's path, or why it does not resolve), " +
@@ -298,7 +298,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         return pager.Page(sb.ToString(), offset, maxChars);
     });
 
-    [McpServerTool(Name = "search_native_strings", Title = "Search native strings", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "search_native_strings", Title = "Search native strings")]
     [Description("Strings (ASCII and UTF-16) a native image's code or data references, with the address, the number of references and the first " +
                  "referencing function; filter by substring or regex. After apply_il2cpp_names also the Il2Cpp string literals, by the slot code loads them from. " + IndexNote)]
     public Task<string> SearchNativeStrings(

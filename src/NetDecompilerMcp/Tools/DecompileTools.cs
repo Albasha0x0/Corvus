@@ -16,7 +16,7 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
 {
     private const int MaxMembersPerCall = 25;
 
-    [McpServerTool(Name = "decompile_type", Title = "Decompile type to C#", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "decompile_type", Title = "Decompile type to C#")]
     [Description("Decompile a whole type (class/struct/interface/enum/delegate, including nested types) to C#. Long output is paged: call again with the offset from the footer. " +
                  "If one method breaks the decompiler, the rest is still returned with IL for the broken part.")]
     public Task<string> DecompileType(
@@ -31,7 +31,7 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         return pager.Page(TypeSource(sym, simplified, cancellationToken), offset, maxChars);
     }, cancellationToken);
 
-    [McpServerTool(Name = "decompile_member", Title = "Decompile member to C#", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "decompile_member", Title = "Decompile member to C#")]
     [Description("Decompile a method, property, field, event or constructor to C#. When a name has several overloads all are returned, unless a parameter list narrows it ('Ns.Type::Foo(int, string)'). " +
                  "Async/iterator state machines and lambdas are folded back into the original method. A type name decompiles the whole type.")]
     public Task<string> DecompileMember(
@@ -55,7 +55,7 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         return pager.Page(text, offset, maxChars);
     }, cancellationToken);
 
-    [McpServerTool(Name = "get_il", Title = "IL disassembly", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "get_il", Title = "IL disassembly")]
     [Description("IL disassembly (ildasm style, with /* metadata token */ comments, IL offsets and structured try/catch blocks) of a method, field, property, event, or a whole type. " +
                  "Use it when the C# looks wrong, for transformed code, or as the starting point for patch_method_il.")]
     public Task<string> GetIL(
@@ -96,14 +96,14 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         return sb.ToString();
     }
 
-    [McpServerTool(Name = "decompile_assembly_attributes", Title = "Decompile assembly attributes", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "decompile_assembly_attributes", Title = "Decompile assembly attributes")]
     [Description("Decompile assembly- and module-level attributes (InternalsVisibleTo, versions, TargetFramework...) to C#.")]
     public Task<string> DecompileAssemblyAttributes(
         [Description(AssemblyDescription)] string assembly,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
             pager.Page(decompiler.DecompileAssemblyAttributes(workspace.Get(assembly), cancellationToken)), cancellationToken);
 
-    [McpServerTool(Name = "export_project", Title = "Export C# project", OpenWorld = false)]
+    [McpServerTool(Name = "export_project", Title = "Export C# project")]
     [Description("Decompile an entire assembly into a C# project on disk (one .cs file per type, a .csproj, and resources). Best way to grep or browse a large codebase with normal file tools. Reports progress.")]
     public Task<string> ExportProject(
         [Description(AssemblyDescription)] string assembly,

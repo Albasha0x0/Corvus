@@ -271,7 +271,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
                 Assert.False(string.IsNullOrWhiteSpace(tool.Description), tool.Name);
                 Assert.False(string.IsNullOrWhiteSpace(tool.ProtocolTool.Title), tool.Name);
                 Assert.NotNull(tool.ProtocolTool.Annotations);
-                Assert.Equal(ContractSweep.OpenWorldTools.Contains(tool.Name), tool.ProtocolTool.Annotations!.OpenWorldHint);
+                Assert.Equal(NetDecompilerMcp.Mcp.ToolEffects.Table[tool.Name].OpenWorld, tool.ProtocolTool.Annotations!.OpenWorldHint);
             }
             Assert.True(tools.Single(t => t.Name == "decompile_type").ProtocolTool.Annotations!.ReadOnlyHint);
             Assert.True(tools.Single(t => t.Name == "save_assembly").ProtocolTool.Annotations!.DestructiveHint);

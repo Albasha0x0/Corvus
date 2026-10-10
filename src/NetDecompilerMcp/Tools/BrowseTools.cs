@@ -13,7 +13,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
 {
     private const string CompilerGenerated = "System.Runtime.CompilerServices.CompilerGeneratedAttribute";
 
-    [McpServerTool(Name = "list_namespaces", Title = "List namespaces", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "list_namespaces", Title = "List namespaces")]
     [Description("List namespaces with their type counts (nested types counted under their outer type's namespace, as list_types lists them; the counts add up to get_assembly_info's total).")]
     public Task<string> ListNamespaces(
         [Description(AssemblyFilterDescription)] string? assembly = null,
@@ -37,7 +37,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         return sb.Length == 0 ? $"No namespaces match '{filter}'." : pager.Page(sb.ToString());
     }, cancellationToken);
 
-    [McpServerTool(Name = "list_types", Title = "List types", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "list_types", Title = "List types")]
     [Description("List types, optionally restricted to a namespace, a name filter and a kind. Paged by offset/limit.")]
     public Task<string> ListTypes(
         [Description(AssemblyFilterDescription)] string? assembly = null,
@@ -67,7 +67,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         return pager.PageRows(rows, offset, limit, "type");
     }, cancellationToken);
 
-    [McpServerTool(Name = "get_type_info", Title = "Type outline", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "get_type_info", Title = "Type outline")]
     [Description("Outline of a type without decompiling: declaration, attributes, nested types, fields (constants, enum values with hex, Il2Cpp offsets), properties, events and method signatures with tokens, IL sizes and Il2Cpp RVAs.")]
     public Task<string> GetTypeInfo(
         [Description("Type name or token. " + SymbolDescription)] string type,
@@ -120,7 +120,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         foreach (var item in items) sb.AppendLine("  " + line(item));
     }
 
-    [McpServerTool(Name = "get_type_hierarchy", Title = "Type hierarchy", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "get_type_hierarchy", Title = "Type hierarchy")]
     [Description("Base-type chain, all implemented interfaces (including inherited), and the types that directly derive from it (or implement it, for an interface) across all loaded assemblies.")]
     public Task<string> GetTypeHierarchy(
         [Description("Type name or token. " + SymbolDescription)] string type,
@@ -143,7 +143,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         return sb.ToString();
     }, cancellationToken);
 
-    [McpServerTool(Name = "get_attributes", Title = "Custom attributes", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "get_attributes", Title = "Custom attributes")]
     [Description("Custom attributes with arguments on a type, method (including parameter and return attributes), field, property or event — or on the assembly/module when symbol is omitted. " +
                  "To find everything carrying an attribute, use find_references on the attribute type.")]
     public Task<string> GetAttributes(
@@ -183,7 +183,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         return sb.Length == 0 ? "No custom attributes" + (filter != null ? $" matching '{filter}'." : ".") : pager.Page(sb.ToString());
     }, cancellationToken);
 
-    [McpServerTool(Name = "resolve_symbol", Title = "Resolve symbol", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "resolve_symbol", Title = "Resolve symbol")]
     [Description("Show what a symbol string or metadata token resolves to (every match, with kind, assembly, token and signature). Use it to disambiguate before other calls.")]
     public Task<string> ResolveSymbol(
         [Description(SymbolDescription)] string symbol,

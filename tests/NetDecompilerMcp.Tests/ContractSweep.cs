@@ -17,7 +17,11 @@ public static class ContractSweep
 {
     public static readonly TimeSpan CallLimit = TimeSpan.FromSeconds(20);
 
-    /// <summary>Tools that write files, and the parameters naming what they write. The sweep only passes paths inside its temp directory there.</summary>
+    /// <summary>
+    /// The parameters naming files a tool writes; the sweep only passes paths inside its temp directory there. What tools do
+    /// (read-only, destructive, open-world) is in the server's ToolEffects table, checked against these and against what the
+    /// full sweep observes.
+    /// </summary>
     public static readonly Dictionary<string, string[]> FileWriters = new()
     {
         ["export_project"] = ["outputDirectory"],
@@ -32,17 +36,6 @@ public static class ContractSweep
         ["save_native"] = ["outputPath"],
     };
 
-    /// <summary>Tools that can reach the network when an argument asks for it (load_pdb download=true); annotated open-world.</summary>
-    public static readonly HashSet<string> OpenWorldTools = ["load_pdb"];
-
-    /// <summary>Tools that change the loaded assemblies or the workspace (in memory).</summary>
-    public static readonly HashSet<string> WorkspaceEditors =
-    [
-        "load_assembly", "unload_assembly", "reload_assembly", "add_search_directory", "rename_symbol", "rename_namespace", "stub_method",
-        "patch_method_csharp", "patch_method_il", "add_members_csharp", "add_types_csharp", "simplify_methods", "undo_edit", "revert_edits",
-        "apply_edits", "rename_native", "comment_native", "patch_bytes", "patch_asm", "undo_native_edit", "apply_il2cpp_names", "load_pdb",
-        "migrate_native_names",
-    ];
 
     /// <summary>A parameter that names a file or directory the tool writes.</summary>
     public static bool IsOutputPath(string tool, string parameter) =>
@@ -255,14 +248,22 @@ public static class ContractSweep
     /// is): first the read-only tools and those with a dry run, then the others, which mostly take the exclusive lock and
     /// would hold up the first batch.
     /// </summary>
-    public static async Task<List<Result>> RunAsync(McpClient client, IList<McpClientTool> tools, List<Case> cases, bool byTool = true, int parallelism = 6)
+    /// <remarks>
+    /// With <paramref name="observe"/> (by tool only), the files under that directory and the fixtures' edits are compared
+    /// before and after each tool's calls: a tool annotated read-only that changed them fails.
+    /// </remarks>
+    public static async Task<List<Result>> RunAsync(McpClient client, IList<McpClientTool> tools, List<Case> cases, bool byTool = true, int parallelism = 6,
+        string? observe = null)
     {
         var outputSchemas = tools.ToDictionary(t => t.Name, t => t.ProtocolTool.OutputSchema);
-        var shared = tools.Where(t => t.ProtocolTool.Annotations?.ReadOnlyHint == true || t.ProtocolTool.InputSchema.GetProperty("properties").TryGetProperty("dryRun", out _))
+        var readOnly = tools.Where(t => t.ProtocolTool.Annotations?.ReadOnlyHint == true).Select(t => t.Name).ToHashSet();
+        var shared = tools.Where(t => readOnly.Contains(t.Name) || t.ProtocolTool.InputSchema.GetProperty("properties").TryGetProperty("dryRun", out _))
             .Select(t => t.Name).ToHashSet();
         var all = new List<Result>();
         foreach (var group in cases.GroupBy(c => byTool ? c.Tool : shared.Contains(c.Tool) ? "shared" : "exclusive").OrderBy(g => g.Key != "shared"))
         {
+            bool watch = observe != null && byTool && readOnly.Contains(group.Key);
+            var before = watch ? await StateAsync(client, observe!) : null;
             // Plausible calls first: they do the most work, so the slowest ones overlap the rest.
             var ordered = group.OrderBy(c => c.Label != "plausible").ToList();
             var results = new Result[ordered.Count];
@@ -270,9 +271,27 @@ public static class ContractSweep
                 async (item, _) => results[item.i] = await CheckAsync(client, item.c, outputSchemas.GetValueOrDefault(item.c.Tool)));
             all.AddRange(results);
             if (results.Any(r => r.Outcome == "gone")) break;
+            if (watch && await StateAsync(client, observe!) is var after && after != before)
+            {
+                var changed = after.Split('\n').Except(before!.Split('\n')).Concat(before.Split('\n').Except(after.Split('\n'))).Take(5);
+                all.Add(new Result(ordered[0], $"{group.Key}: annotated read-only but changed files or edits: {string.Join(" | ", changed)}", "wrote", TimeSpan.Zero));
+            }
             await RestoreAsync(client);
         }
         return all;
+    }
+
+    /// <summary>Files under <paramref name="root"/> (path, size, write time) and the fixtures' edit lists.</summary>
+    private static async Task<string> StateAsync(McpClient client, string root)
+    {
+        var lines = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal)
+            .Select(f => new FileInfo(f)).Select(i => $"{i.FullName} {i.Length} {i.LastWriteTimeUtc.Ticks}").ToList();
+        foreach (var assembly in new[] { "TestFixture", "TestFixture.Consumer" })
+        {
+            var r = await client.CallToolAsync("list_edits", new Dictionary<string, object?> { ["assembly"] = assembly });
+            lines.Add($"{assembly} edits: " + r.Content.OfType<TextContentBlock>().First(b => !b.Text.StartsWith("[workspace]", StringComparison.Ordinal)).Text.ReplaceLineEndings(" "));
+        }
+        return string.Join("\n", lines);
     }
 
     /// <summary>The failures, or an empty string.</summary>
@@ -470,25 +489,38 @@ public sealed class ContractSweepTests(Xunit.Abstractions.ITestOutputHelper outp
     public void AnnotationsMatchWhatToolsDo()
     {
         var problems = new List<string>();
+        var table = NetDecompilerMcp.Mcp.ToolEffects.Table;
         var names = _tools.Select(t => t.Name).ToHashSet();
-        foreach (var listed in ContractSweep.FileWriters.Keys.Concat(ContractSweep.WorkspaceEditors).Where(n => !names.Contains(n)))
-            problems.Add($"{listed}: listed in the sweep's tables but not advertised");
+        foreach (var listed in table.Keys.Where(n => !names.Contains(n)))
+            problems.Add($"{listed}: in ToolEffects.Table but not advertised");
+        foreach (var listed in ContractSweep.FileWriters.Keys.Where(n => !names.Contains(n)))
+            problems.Add($"{listed}: in ContractSweep.FileWriters but not advertised");
         foreach (var tool in _tools)
         {
-            var annotations = tool.ProtocolTool.Annotations;
-            bool readOnly = annotations?.ReadOnlyHint == true;
-            if (readOnly && ContractSweep.FileWriters.ContainsKey(tool.Name)) problems.Add($"{tool.Name}: writes files but is annotated read-only");
-            if (readOnly && ContractSweep.WorkspaceEditors.Contains(tool.Name)) problems.Add($"{tool.Name}: changes the workspace but is annotated read-only");
-            if ((annotations?.OpenWorldHint != false) != ContractSweep.OpenWorldTools.Contains(tool.Name))
-                problems.Add($"{tool.Name}: open-world annotation does not match ContractSweep.OpenWorldTools");
+            var t = tool.ProtocolTool;
+            if (!table.TryGetValue(t.Name, out var e)) { problems.Add($"{t.Name}: no entry in ToolEffects.Table"); continue; }
+            var a = t.Annotations;
+            if (a?.ReadOnlyHint != e.ReadOnly || a.DestructiveHint != e.Destructive || a.IdempotentHint != e.Idempotent || a.OpenWorldHint != e.OpenWorld)
+                problems.Add($"{t.Name}: advertised annotations differ from ToolEffects.Table");
+            if (a?.Title != t.Title) problems.Add($"{t.Name}: annotation title differs from the tool's title");
+            if (e.ReadOnly && ContractSweep.FileWriters.ContainsKey(t.Name)) problems.Add($"{t.Name}: writes files but is read-only in ToolEffects.Table");
+            if (e.ReadOnly && (e.Destructive || !e.Idempotent)) problems.Add($"{t.Name}: read-only, so not destructive and idempotent");
+            bool longMarked = t.Description?.EndsWith(NetDecompilerMcp.Mcp.ToolEffects.LongRunningSuffix, StringComparison.Ordinal) == true;
+            bool longMeta = t.Meta?[NetDecompilerMcp.Mcp.ToolEffects.LongRunningMetaKey]?.GetValue<bool>() == true;
+            if (longMarked != e.LongRunning || longMeta != e.LongRunning) problems.Add($"{t.Name}: long-running description suffix or _meta does not match ToolEffects.Table");
             // A parameter that looks like an output path must be classified in FileWriters so the sweep keeps it in its temp directory.
-            foreach (var p in tool.ProtocolTool.InputSchema.GetProperty("properties").EnumerateObject())
-                if (ContractSweep.IsOutputPath(tool.Name, p.Name) && !(ContractSweep.FileWriters.TryGetValue(tool.Name, out var o) && o.Contains(p.Name)))
-                    problems.Add($"{tool.Name}.{p.Name}: looks like an output path; add it to ContractSweep.FileWriters");
+            foreach (var p in t.InputSchema.GetProperty("properties").EnumerateObject())
+                if (ContractSweep.IsOutputPath(t.Name, p.Name) && !(ContractSweep.FileWriters.TryGetValue(t.Name, out var o) && o.Contains(p.Name)))
+                    problems.Add($"{t.Name}.{p.Name}: looks like an output path; add it to ContractSweep.FileWriters");
         }
-        foreach (var destructive in new[] { "save_assembly", "revert_edits" })
-            if (_tools.FirstOrDefault(t => t.Name == destructive)?.ProtocolTool.Annotations?.DestructiveHint != true)
-                problems.Add($"{destructive}: not annotated destructive");
+        // The table is the only source: no [McpServerTool] attribute sets an annotation.
+        var flags = typeof(ModelContextProtocol.Server.McpServerToolAttribute).GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            .Where(f => f.FieldType == typeof(bool?)).ToList();
+        Assert.Equal(4, flags.Count); // _readOnly, _destructive, _idempotent, _openWorld
+        foreach (var method in typeof(NetDecompilerMcp.Mcp.ToolEffects).Assembly.GetTypes().SelectMany(type => type.GetMethods()))
+            if (method.GetCustomAttributes(typeof(ModelContextProtocol.Server.McpServerToolAttribute), false).FirstOrDefault() is ModelContextProtocol.Server.McpServerToolAttribute attribute)
+                foreach (var f in flags.Where(f => f.GetValue(attribute) != null))
+                    problems.Add($"{attribute.Name}: [McpServerTool] sets {f.Name.TrimStart('_')}; annotations come from ToolEffects.Table");
         Assert.True(problems.Count == 0, string.Join("\n", problems));
     }
 
@@ -549,7 +581,7 @@ public sealed class ContractSweepFullTests(Xunit.Abstractions.ITestOutputHelper 
         await using var client = await ContractSweep.StartAsync(dir);
         var tools = await client.ListToolsAsync();
         var cases = ContractSweep.Build(tools, dir, ContractSweep.Depth.Full);
-        var results = await ContractSweep.RunAsync(client, tools, cases);
+        var results = await ContractSweep.RunAsync(client, tools, cases, observe: dir.Path);
         _output.WriteLine(ContractSweep.Summary(results));
         Assert.True(ContractSweep.Failures(results) == "", ContractSweep.Failures(results));
         Assert.Contains("Charge", (await client.CallToolAsync("get_type_info", new Dictionary<string, object?> { ["type"] = "Account" })).Content.OfType<TextContentBlock>().First().Text);

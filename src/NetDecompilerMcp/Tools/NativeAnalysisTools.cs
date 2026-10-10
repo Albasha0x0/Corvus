@@ -18,7 +18,7 @@ namespace NetDecompilerMcp.Tools;
 public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngineService engines, OutputPager pager, NativeNamePush? names = null,
     NativeCodeService? code = null)
 {
-    [McpServerTool(Name = "decompile_native", Title = "Decompile native function", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "decompile_native", Title = "Decompile native function")]
     [Description("C pseudocode of the native function containing an address, through IDA (idalib; Hex-Rays). The first call on an image runs IDA's " +
                  "auto-analysis (seconds for a small DLL, minutes for a large game executable; progress is reported) and keeps the database per file " +
                  "hash, so later calls and later sessions are fast. Lines are annotated with the address they come from. Names and comments in effect " +
@@ -68,7 +68,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         });
     }
 
-    [McpServerTool(Name = "list_cpp_classes", Title = "C++ classes from RTTI", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "list_cpp_classes", Title = "C++ classes from RTTI")]
     [Description("C++ classes of an MSVC-built native image recovered from RTTI: demangled class names, base classes (with offsets, virtual and multiple " +
                  "inheritance), and vftables with their slot targets. Every structure is cross-checked; rejected candidates are counted with the reason.")]
     public Task<string> ListCppClasses(
@@ -109,7 +109,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         return pager.Page(sb.ToString(), offset, maxChars);
     }, cancellationToken);
 
-    [McpServerTool(Name = "verify_native_imports", Title = "Verify P/Invoke imports", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "verify_native_imports", Title = "Verify P/Invoke imports")]
     [Description("Check a .NET assembly's P/Invoke declarations ([DllImport]) against the exports of the DLLs they bind to on this machine, with the " +
                  "runtime's lookup rules: DLL search order (app folder, system folder for the assembly's bitness), API set redirection, A/W suffixes, " +
                  "x86 stdcall decoration (_Name@N computed from the signature), ordinals and forwarder chains. Status per declaration: verified, " +

@@ -10,7 +10,7 @@ namespace NetDecompilerMcp.Tools;
 [McpServerToolType]
 public sealed class ResourceTools(AssemblyWorkspace workspace, ResourceService resources, DecompilerService decompiler, OutputPager pager)
 {
-    [McpServerTool(Name = "list_resources", Title = "List manifest resources", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "list_resources", Title = "List manifest resources")]
     [Description("List manifest resources: embedded files, .resources containers (with entry counts), linked resources. For a native image, its Win32 resources as TYPE/NAME/LANGUAGE.")]
     public Task<string> ListResources(
         [Description(AssemblyDescription)] string assembly,
@@ -26,7 +26,7 @@ public sealed class ResourceTools(AssemblyWorkspace workspace, ResourceService r
         return sb.ToString();
     }, cancellationToken);
 
-    [McpServerTool(Name = "get_resource", Title = "Read / extract resource", OpenWorld = false)]
+    [McpServerTool(Name = "get_resource", Title = "Read / extract resource")]
     [Description("Read a resource: text as text, binary as a hex preview, .resources containers as an entry list (pass entry to read one; WPF .baml entries come back as XAML). Pass savePath to extract the raw bytes to disk (images, asset bundles, configs). " +
                  "For a native image, name is TYPE/NAME[/LANGUAGE] from list_resources: version info and string tables are decoded, manifests shown as text.")]
     public Task<string> GetResource(

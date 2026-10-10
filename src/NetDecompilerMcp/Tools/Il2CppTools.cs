@@ -14,7 +14,7 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
 {
     private const int DefaultListLimit = 20;
 
-    [McpServerTool(Name = "get_il2cpp_info", Title = "Il2Cpp addresses and offsets", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "get_il2cpp_info", Title = "Il2Cpp addresses and offsets")]
     [Description("For Il2CppDumper/Cpp2IL dummy DLLs: native addresses (RVA, VA, file offset, vtable slot) of a method or of every method in a type, plus field offsets and metadata tokens. Use them to jump to the function in IDA/Ghidra. " +
                  "With the dump's script.json next to the DummyDll folder, also: a method's function bounds, the methods sharing its code, its MethodInfo slot and its generic instantiations (same-named overloads told apart by the C signature, or reported as ambiguous); " +
                  "a type's metadata slots (Ns.Type_TypeInfo class pointer, _var); and the native code of names that only script.json has, such as generic instantiations " +
@@ -243,7 +243,7 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
         if (used.Count > MaxLiteralsPerMethod) sb.AppendLine($"    … {used.Count - MaxLiteralsPerMethod} more");
     }
 
-    [McpServerTool(Name = "export_il2cpp_symbols", Title = "Export IDA/Ghidra scripts", OpenWorld = false)]
+    [McpServerTool(Name = "export_il2cpp_symbols", Title = "Export IDA/Ghidra scripts")]
     [Description("Export Il2Cpp dummy-DLL metadata for native analysis: an IDA Python script and a Ghidra script that create every function, name it Namespace.Type$$Method " +
                  "and comment it with the managed signature, a C header with struct layouts at the dumped field offsets (the IDA script imports it), and an Il2CppDumper-style script.json. " +
                  "Addresses are RVAs added to the database's image base, so the scripts work on any load address.")]
@@ -259,7 +259,7 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
                "\nIDA: File > Script file... on the _ida.py. Ghidra: run the _ghidra.py from the Script Manager; import the .h with File > Parse C Source.";
     }, cancellationToken);
 
-    [McpServerTool(Name = "find_method_by_address", Title = "Native address to method", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "find_method_by_address", Title = "Native address to method")]
     [Description("Map a native address from IDA/Ghidra/a crash log back to what is there: the method(s) whose function starts at or contains it, or the string literal, " +
                  "type metadata (Ns.Type_TypeInfo) or MethodInfo slot at it. With the dump's script.json next to the DummyDll folder, functions end where the next one starts " +
                  "and generic instantiations (which have no dummy-DLL method) are named, with the dummy method each instantiates; without it, only dummy-DLL methods are known and a containing method is a guess. " +

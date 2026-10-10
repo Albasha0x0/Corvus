@@ -16,9 +16,11 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
     public sealed record Capability(string Name, bool Available, string Detail, string? Remediation);
 
     public sealed record ServerStatus(string Version, string CatalogDigest, int Tools, int LoadedAssemblies, string BackgroundIndexing,
-        int MaxOutputChars, int TimeoutSeconds, long WorkingSetMB, IReadOnlyList<Capability> Capabilities);
+        int MaxOutputChars, int TimeoutSeconds, long WorkingSetMB, IReadOnlyList<Capability> Capabilities,
+        [property: Description("Tools whose calls can take more than 10 s on large inputs (whole-input work, an external engine, a native image's first code index).")]
+        IReadOnlyList<string> LongRunningTools);
 
-    [McpServerTool(Name = "server_status", Title = "Server status", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "server_status", Title = "Server status", UseStructuredContent = true)]
     [Description("Version, a digest of the tool catalog (compare it to detect a stale server), what is loaded, background indexing state, " +
                  "response limits, and which capabilities are available here with the reason and the fix when one is not.")]
     public ServerStatus GetServerStatus(RequestContext<CallToolRequestParams> context = null!)
@@ -45,10 +47,11 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         }
         int loaded = workspace.Read(() => workspace.Assemblies.Count + workspace.Natives.Count);
         return new ServerStatus(typeof(ServerOptions).Assembly.GetName().Version?.ToString(3) ?? "?", digest, tools.Count, loaded, indexing.Status,
-            options.MaxOutputChars, options.TimeoutSeconds, Environment.WorkingSet / (1024 * 1024), capabilities);
+            options.MaxOutputChars, options.TimeoutSeconds, Environment.WorkingSet / (1024 * 1024), capabilities,
+            NetDecompilerMcp.Mcp.ToolEffects.LongRunning.ToList());
     }
 
-    [McpServerTool(Name = "read_result", Title = "Read a kept result", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "read_result", Title = "Read a kept result")]
     [Description("Page through a result that was too large to send (a limit_exceeded error names it, e.g. r3). Results are kept while memory allows.")]
     public string ReadResult(
         [Description("Kept result id from the limit_exceeded error, e.g. r3.")] string id,

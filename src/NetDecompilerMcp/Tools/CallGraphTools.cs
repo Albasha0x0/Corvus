@@ -11,7 +11,7 @@ namespace NetDecompilerMcp.Tools;
 [McpServerToolType]
 public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService graph, OutputPager pager, NativeLinkService? link = null)
 {
-    [McpServerTool(Name = "get_call_tree", Title = "Call tree (callers / callees)", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "get_call_tree", Title = "Call tree (callers / callees)")]
     [Description("Multi-level call tree of a method across all loaded assemblies: direction=callers (who calls it, who calls those...) or callees (what it calls, recursively). " +
                  "Callers include calls through base/interface methods it overrides or implements. Repeated nodes and recursion are marked instead of expanded again. " +
                  "Callees continue into native code: a P/Invoke (or a native method body of a mixed-mode C++/CLI assembly) shows 'native: module!export -> " +
@@ -78,7 +78,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
         return sb.ToString();
     }
 
-    [McpServerTool(Name = "find_call_paths", Title = "Call paths to a method", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "find_call_paths", Title = "Call paths to a method")]
     [Description("How execution reaches a method: call chains from 'from' to 'to', or — when 'from' is omitted — from entry points (methods nothing in the workspace calls: Main, Unity callbacks, event handlers). " +
                  "Shortest first, direct calls preferred; a hop that only happens through virtual dispatch (a call to a base/interface method this one overrides) is marked. " +
                  "'to' may be a native export: paths then end at the P/Invoke declarations bound to it, followed by the native hop.")]

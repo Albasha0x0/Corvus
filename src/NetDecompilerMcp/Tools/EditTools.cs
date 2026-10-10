@@ -13,7 +13,7 @@ namespace NetDecompilerMcp.Tools;
 [McpServerToolType]
 public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, EditHistoryService history, DecompilerService decompiler, OutputPager pager)
 {
-    [McpServerTool(Name = "rename_symbol", Title = "Rename symbol", Destructive = false, OpenWorld = false)]
+    [McpServerTool(Name = "rename_symbol", Title = "Rename symbol")]
     [Description("Rename a type, method, field, property (with its accessors) or event in memory — e.g. to give transformed names meaning. Other assemblies that reference the old name are not updated.")]
     public Task<string> RenameSymbol(
         [Description(SymbolDescription)] string symbol,
@@ -27,7 +27,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         return $"[{sym.Assembly.Id}] {edits.Rename(sym, newName, dryRun)}{Pending(sym.Assembly, dryRun)}";
     }, cancellationToken);
 
-    [McpServerTool(Name = "rename_namespace", Title = "Rename namespace", Destructive = false, OpenWorld = false)]
+    [McpServerTool(Name = "rename_namespace", Title = "Rename namespace")]
     [Description("Move every type in a namespace (optionally including sub-namespaces) to a new namespace, in memory.")]
     public Task<string> RenameNamespace(
         [Description(AssemblyDescription)] string assembly,
@@ -41,7 +41,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         return $"[{asm.Id}] {edits.RenameNamespace(asm, oldNamespace, newNamespace, includeSubNamespaces, dryRun)}{Pending(asm, dryRun)}";
     }, cancellationToken);
 
-    [McpServerTool(Name = "stub_method", Title = "Stub method (return constant)", Destructive = false, OpenWorld = false)]
+    [McpServerTool(Name = "stub_method", Title = "Stub method (return constant)")]
     [Description("Replace a method's body with 'return <value>;' (or 'return;' for void) in memory — force a check to return true, disable a call. " +
                  "value: true/false, an integer (decimal or 0x hex), a float, a \"quoted string\", null, or default (omit).")]
     public Task<string> StubMethod(
@@ -55,7 +55,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         return $"[{sym.Assembly.Id}] {edits.StubMethod(sym, value, dryRun)}{Pending(sym.Assembly, dryRun)}";
     }, cancellationToken);
 
-    [McpServerTool(Name = "patch_method_csharp", Title = "Replace method body with C#", Destructive = false, OpenWorld = false)]
+    [McpServerTool(Name = "patch_method_csharp", Title = "Replace method body with C#")]
     [Description("Replace a method's body with C# statements, compiled against the assembly and its references (private/internal members are accessible, like in dnSpy's Edit Method). " +
                  "Pass only the body (statements), e.g. 'if (amount <= 0) return; _balance -= amount;'. Works for methods, constructors and property/indexer/event accessors. " +
                  "Lambdas, LINQ, local functions, async/await and yield work: the compiler-generated helpers are copied into the assembly. " +
@@ -74,7 +74,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         return $"[{sym.Assembly.Id}] {result}{Pending(sym.Assembly, dryRun)}\n\nDecompiled result:\n{after}";
     }, cancellationToken);
 
-    [McpServerTool(Name = "add_members_csharp", Title = "Add members to a type (C#)", Destructive = false, OpenWorld = false)]
+    [McpServerTool(Name = "add_members_csharp", Title = "Add members to a type (C#)")]
     [Description("Add new members written in C# to an existing class or struct: methods (incl. overloads), fields, properties, events, constructors, nested types. " +
                  "Code is compiled against the assembly (private/internal members accessible; lambdas/async/LINQ fine). " +
                  "Example: 'public int Twice(int x) { return x * 2; }  private static int _counter;'. Field/property initializers are not supported (initialize from a method). " +
@@ -90,7 +90,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         return $"[{sym.Assembly.Id}] {edits.AddMembersCSharp(sym, code, dryRun, cancellationToken)}{Pending(sym.Assembly, dryRun)}";
     }, cancellationToken);
 
-    [McpServerTool(Name = "add_types_csharp", Title = "Add new types (C#)", Destructive = false, OpenWorld = false)]
+    [McpServerTool(Name = "add_types_csharp", Title = "Add new types (C#)")]
     [Description("Add new classes, structs, interfaces, enums or delegates written in C# (with their namespace) to an assembly. They can use the assembly's own types, including private/internal ones. " +
                  "Combine with patch_method_csharp to call into the new code from existing methods. Persisted only by save_assembly.")]
     public Task<string> AddTypesCSharp(
@@ -103,12 +103,12 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         return $"[{asm.Id}] {edits.AddTypesCSharp(asm, code, dryRun, cancellationToken)}{Pending(asm, dryRun)}";
     }, cancellationToken);
 
-    [McpServerTool(Name = "list_edits", Title = "List unsaved edits", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "list_edits", Title = "List unsaved edits")]
     [Description("The unsaved in-memory edits of an assembly, numbered in the order they were applied (numbers are used by undo_edit and diff_edits).")]
     public Task<string> ListEdits([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Read(workspace, () => history.List(workspace.Get(assembly)), cancellationToken);
 
-    [McpServerTool(Name = "undo_edit", Title = "Undo an edit", Destructive = false, OpenWorld = false)]
+    [McpServerTool(Name = "undo_edit", Title = "Undo an edit")]
     [Description("Undo one edit — the last one by default, or any earlier one by number (from list_edits). The assembly is rebuilt from its original image " +
                  "and the remaining edits are re-applied; if one of them depended on the undone edit, nothing changes and the conflict is reported.")]
     public Task<string> UndoEdit(
@@ -117,12 +117,12 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         CancellationToken cancellationToken = default) => Write(workspace, () =>
             edits.Undo(workspace.Get(assembly), number, cancellationToken), cancellationToken);
 
-    [McpServerTool(Name = "revert_edits", Title = "Discard all edits", Destructive = true, OpenWorld = false)]
+    [McpServerTool(Name = "revert_edits", Title = "Discard all edits")]
     [Description("Discard every unsaved edit of an assembly (back to the image it was loaded from). Use export_edits first to keep them as a script.")]
     public Task<string> RevertEdits([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Write(workspace, () => edits.RevertAll(workspace.Get(assembly), cancellationToken), cancellationToken);
 
-    [McpServerTool(Name = "diff_edits", Title = "Diff edits (before/after C#)", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "diff_edits", Title = "Diff edits (before/after C#)")]
     [Description("Unified diff of the decompiled C# before and after the edits: every member touched by every edit, or one edit by number. Review this before save_assembly.")]
     public Task<string> DiffEdits(
         [Description(AssemblyDescription)] string assembly,
@@ -132,7 +132,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         CancellationToken cancellationToken = default) => Read(workspace, () =>
             pager.Page(history.Diff(workspace.Get(assembly), number, cancellationToken), offset, maxChars), cancellationToken);
 
-    [McpServerTool(Name = "export_edits", Title = "Export edits as a script", OpenWorld = false)]
+    [McpServerTool(Name = "export_edits", Title = "Export edits as a script")]
     [Description("Save the edits of an assembly as a JSON edit script. apply_edits can replay it later — e.g. on the next build after an update, where symbols are re-resolved by name.")]
     public Task<string> ExportEdits(
         [Description(AssemblyDescription)] string assembly,
@@ -140,7 +140,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         CancellationToken cancellationToken = default) => Read(workspace, () =>
             history.Export(workspace.Get(assembly), path), cancellationToken);
 
-    [McpServerTool(Name = "apply_edits", Title = "Apply an edit script", Destructive = false, OpenWorld = false)]
+    [McpServerTool(Name = "apply_edits", Title = "Apply an edit script")]
     [Description("Replay a JSON edit script (from export_edits) onto an assembly. On the same build, recorded tokens are used; on a different build, symbols are re-resolved by name and each edit reports ok/FAILED. " +
                  "dryRun applies every edit for real (C# compiled, IL stack-checked) and then rolls back, so it reports exactly what would fail, with the full compiler errors. " +
                  "With stopOnError (default) a failure rolls the assembly back to its state before the script.")]
@@ -152,7 +152,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         CancellationToken cancellationToken = default) => Write(workspace, () => // dry runs apply and roll back, so they also need the write lock
             history.Apply(path, assembly, dryRun, stopOnError, cancellationToken), cancellationToken);
 
-    [McpServerTool(Name = "patch_method_il", Title = "Rewrite method body in IL", Destructive = false, OpenWorld = false)]
+    [McpServerTool(Name = "patch_method_il", Title = "Rewrite method body in IL")]
     [Description("Rewrite a method body from IL text, in memory. Easiest: get_il the method, edit the instruction lines, pass them back (header lines are ignored; the /* token */ comments resolve operands exactly). " +
                  "Line syntax: '[label:] opcode [operand]'. Operands: numbers, \"strings\", labels, switch (L1, L2), arg/local index or name, members as 'Ns.Type::Method(int, string)' (framework members included) or tokens. '.local <type>' adds a local. " +
                  "mode=replace swaps the whole body (no try/catch); mode=prepend inserts before the original code and can branch to its IL_xxxx labels. Stack-validated before applying.")]
@@ -168,7 +168,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         return $"[{sym.Assembly.Id}] {edits.PatchMethodIL(sym, il, mode, dryRun)}{Pending(sym.Assembly, dryRun)}";
     }, cancellationToken);
 
-    [McpServerTool(Name = "simplify_methods", Title = "Simplify method bodies", Destructive = false, OpenWorld = false)]
+    [McpServerTool(Name = "simplify_methods", Title = "Simplify method bodies")]
     [Description("Compiler-style cleanup of method bodies in memory, e.g. for transformed code. Passes (all by default): " +
                  "fold: calls that compute a string from constant inputs (string decoders; char, array, StringBuilder, Encoding and Base64 helpers; " +
                  "nested helper calls of the same assembly) are run by a safe IL interpreter and replaced with the string literal. Calls outside the safe " +
@@ -219,7 +219,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         return $"[{asm.Id}] {edits.SimplifyMethods(asm, sym, options, dryRun, cancellationToken)}{Pending(asm, dryRun)}";
     }, cancellationToken);
 
-    [McpServerTool(Name = "save_assembly", Title = "Save patched assembly", Destructive = true, OpenWorld = false)]
+    [McpServerTool(Name = "save_assembly", Title = "Save patched assembly")]
     [Description("Write an assembly with its in-memory edits to disk. Default output: '<name>.patched.dll' next to the original. " +
                  "Replacing an existing file requires overwrite=true; when that file is the original, it is first copied to '<file>.bak'. Writes atomically. " +
                  "Without edits the original bytes are written; with edits, every method body and signature no edit touched keeps its original bytes, " +

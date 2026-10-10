@@ -134,6 +134,12 @@ builder.Services
         }
     }));
 
+// Annotations come from one audited table (Mcp/ToolEffects.cs), applied once the tool collection is complete.
+builder.Services.PostConfigure<ModelContextProtocol.Server.McpServerOptions>(o =>
+{
+    if (o.ToolCollection is { } tools) ToolEffects.Apply(tools);
+});
+
 var host = builder.Build();
 // Resolve before preloading so preloaded assemblies are indexed and watched.
 host.Services.GetRequiredService<IndexingService>();

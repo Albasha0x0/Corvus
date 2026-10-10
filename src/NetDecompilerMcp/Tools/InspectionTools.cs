@@ -10,7 +10,7 @@ public sealed class InspectionTools(InspectionService inspection)
     private const string AssemblyParam = "A loaded assembly (id, name, file name or path). Pass this or path.";
     private const string PathParam = "A .NET assembly file to analyze without loading it. Pass this or assembly.";
 
-    [McpServerTool(Name = "summarize_file", Title = "Summarize file", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true)]
     [Description("Summary of a file or loaded assembly, without executing it: file hashes, type and entropy; per managed assembly its identity " +
                  "(name, version, MVID, target framework, GUI/console/library, architecture, ReadyToRun, merged), signature (strong name, " +
                  "Authenticode signer with a digest check and chain), toolchain markers and heuristics, container wrapping (embedded assemblies, " +
@@ -25,7 +25,7 @@ public sealed class InspectionTools(InspectionService inspection)
         CancellationToken cancellationToken = default) =>
         Task.Run(() => inspection.Summarize(assembly, path, cancellationToken), cancellationToken);
 
-    [McpServerTool(Name = "survey_features", Title = "Survey features", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "survey_features", Title = "Survey features", UseStructuredContent = true)]
     [Description("Rule-based (capa-style) survey of the APIs an assembly calls, the native functions it imports (P/Invoke) and its string " +
                  "literals, in categories: network, execution, registry, persistence, collection (keylogging, screen, clipboard, browser " +
                  "credentials), anti-debug / anti-VM, defense evasion, reflective loading and run-time compilation, process injection, " +
@@ -41,7 +41,7 @@ public sealed class InspectionTools(InspectionService inspection)
         CancellationToken cancellationToken = default) =>
         Task.Run(() => inspection.SurveyFeatures(assembly, path, category, cancellationToken), cancellationToken);
 
-    [McpServerTool(Name = "extract_strings", Title = "Extract typed strings", Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "extract_strings", Title = "Extract typed strings", UseStructuredContent = true)]
     [Description("Typed values from string literals, constants, resource text and base64 / hex / compressed text decoded from the " +
                  "assembly: URLs, domains, IPv4 / IPv6, email addresses, file paths, named pipes, registry keys, mutex names, user agents and " +
                  "crypto keys, each with its count, locations and the APIs it is passed to. XML namespace URLs, version numbers and file " +
@@ -57,7 +57,7 @@ public sealed class InspectionTools(InspectionService inspection)
         Task.Run(() => inspection.ExtractStrings(assembly, path,
             types?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), savePath, format, overwrite, cancellationToken), cancellationToken);
 
-    [McpServerTool(Name = "extract_embedded", Title = "Extract embedded content", Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "extract_embedded", Title = "Extract embedded content", UseStructuredContent = true)]
     [Description("Embedded content of an assembly: embedded resources, .resources entries, static byte arrays (<PrivateImplementationDetails>) and " +
                  "string literals of 64+ characters, decoded through hex, base64, gzip / zlib / deflate and XOR (key recovered from a known PE / " +
                  "ZIP / gzip header; repeating-key XOR over plain text with xorText=true) until a recognized kind appears: .NET / native PE images, archives, " +

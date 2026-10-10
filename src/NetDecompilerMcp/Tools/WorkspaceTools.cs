@@ -31,7 +31,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         public IReadOnlyList<NativeEntry> NativeImages { get; init; } = [];
     }
 
-    [McpServerTool(Name = "load_assembly", Title = "Load assembly", Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "load_assembly", Title = "Load assembly")]
     [Description("Load a .NET assembly (.dll/.exe) or every assembly in a directory (e.g. an application folder, a Unity *_Data/Managed folder or an Il2CppDumper DummyDll folder). " +
                  "A native PE file (.exe/.dll/.sys without .NET metadata) given by path loads as a native image for the native tools (get_pe_info, list_imports, list_exports, list_functions, disassemble); " +
                  "folder loads take only .NET assemblies and list the native files they skipped. " +
@@ -115,7 +115,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         return sb.ToString();
     }
 
-    [McpServerTool(Name = "list_assemblies", Title = "List loaded assemblies", ReadOnly = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "list_assemblies", Title = "List loaded assemblies", UseStructuredContent = true)]
     [Description("Loaded assemblies with their ids (use the id in other tools), versions, paths, whether they are Il2Cpp dummy DLLs, " +
                  "ReadyToRun (precompiled native code next to the IL), merged (ILMerge / ILRepack output, with the original module count), " +
                  "and unsaved edits (paged: filter, offset, limit — total has the full count); plus the reference search directories. Pass path instead to list the managed assemblies inside a " +
@@ -152,7 +152,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         });
     }, cancellationToken);
 
-    [McpServerTool(Name = "unload_assembly", Title = "Unload assembly", Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "unload_assembly", Title = "Unload assembly")]
     [Description("Remove an assembly from the workspace (unsaved edits are discarded).")]
     public Task<string> UnloadAssembly([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
@@ -168,7 +168,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
             return $"Unloaded {asm.Id}{(edits > 0 ? $" (discarded {Plural(edits, "unsaved edit")})" : "")}.";
         }, cancellationToken);
 
-    [McpServerTool(Name = "reload_assembly", Title = "Reload assembly", OpenWorld = false)]
+    [McpServerTool(Name = "reload_assembly", Title = "Reload assembly")]
     [Description("Re-read an assembly from disk (e.g. after an update or after save_assembly overwrote it), discarding unsaved in-memory edits.")]
     public Task<string> ReloadAssembly([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
@@ -183,7 +183,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
             return $"Reloaded {fresh.Id} from {fresh.FilePath}.";
         }, cancellationToken);
 
-    [McpServerTool(Name = "add_search_directory", Title = "Add reference search directory", Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "add_search_directory", Title = "Add reference search directory")]
     [Description("Add a directory for resolving referenced assemblies that are not loaded (an application folder, a framework directory). Improves decompilation, cross-assembly navigation and C# patching.")]
     public Task<string> AddSearchDirectory([Description("Directory path.")] string directory, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
@@ -205,7 +205,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
             return text;
         }, cancellationToken);
 
-    [McpServerTool(Name = "get_assembly_info", Title = "Assembly overview", ReadOnly = true, OpenWorld = false)]
+    [McpServerTool(Name = "get_assembly_info", Title = "Assembly overview")]
     [Description("Assembly overview: identity, target framework, entry point, counts, references (and whether each resolves), PE headers and sections, metadata streams, assembly attributes, Il2Cpp detection, unsaved edits.")]
     public Task<string> GetAssemblyInfo([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Read(workspace, () => report.Build(workspace.Get(assembly)), cancellationToken);

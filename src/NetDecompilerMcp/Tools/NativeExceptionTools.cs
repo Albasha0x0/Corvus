@@ -18,7 +18,7 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
 {
     private const int MaxIpStates = 64;
 
-    [McpServerTool(Name = "get_exception_info", Title = "Native exception handling", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "get_exception_info", Title = "Native exception handling")]
     [Description("MSVC exception handling of the native function containing an address: the handler (__C_specific_handler, __CxxFrameHandler3/4, " +
                  "__GSHandlerCheck variants; x86 _except_handler3/4 frames and __ehhandler$ stubs), try blocks with their catch clauses and caught types, " +
                  "the unwind map, SEH scopes (filters, __except and __finally blocks), the IP-to-state map, and the code it reaches: catch blocks, unwind " +

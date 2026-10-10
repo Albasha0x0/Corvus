@@ -31,7 +31,7 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
     public const string AddressDescription =
         "Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name.";
 
-    [McpServerTool(Name = "get_pe_info", Title = "PE overview", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "get_pe_info", Title = "PE overview")]
     [Description("Overview of a native PE image: machine, kind, subsystem, image base, entry point, timestamps, linker, sections (with flags and entropy), " +
                  "security mitigations (ASLR, DEP, CFG, SafeSEH, GS cookie, CET...), import/export counts, TLS callbacks, debug info (PDB path and GUID), " +
                  "load config, version resource, manifest, rich header (toolchain), checksum, overlay, Authenticode signature, and anything malformed.")]
@@ -150,7 +150,7 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
         return h;
     }
 
-    [McpServerTool(Name = "list_imports", Title = "List native imports", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "list_imports", Title = "List native imports")]
     [Description("Functions a native image imports, per DLL (delay-loaded marked), with the IAT slot address code calls through. " +
                  "API set names (api-ms-win-*) are shown with the DLL they resolve to on this system. With bind=true each import is bound like the " +
                  "loader does (DLL search order, API sets, forwarders, jump thunks in loaded providers) to its export: 'at VA [image]' when the provider " +
@@ -218,7 +218,7 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
         }, cancellationToken);
     }
 
-    [McpServerTool(Name = "list_exports", Title = "List native exports", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "list_exports", Title = "List native exports")]
     [Description("Functions and data a native image exports: ordinal, address (VA), name (with the demangled C++ form for MSVC names), and forwarders.")]
     public Task<string> ListExports(
         [Description(ImageDescription)] string image,
@@ -241,7 +241,7 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
         return pager.PageRows(rows, offset, limit, "export");
     }, cancellationToken);
 
-    [McpServerTool(Name = "resolve_address", Title = "Resolve native address", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "resolve_address", Title = "Resolve native address")]
     [Description("What an address in a native image is: RVA, VA and file offset, the section and its permissions, the nearest export or import at or before it, " +
                  "and, once the code index is built, its name and the name's source (user, pdb, il2cpp); after apply_il2cpp_names the managed method or metadata slot. " +
                  "For an IAT slot, the export it is bound to (in a loaded image: its address and image); for an export, the loaded images importing it.")]
@@ -287,7 +287,7 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
         return null;
     }
 
-    [McpServerTool(Name = "search_bytes", Title = "Search native bytes", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "search_bytes", Title = "Search native bytes")]
     [Description("Find a byte pattern in a native image's mapped sections: hex bytes with ?? wildcards ('48 8B 05 ?? ?? ?? ?? C3'), or text with text=\"...\" " +
                  "(searched as ASCII and UTF-16). Reports each hit's VA, section and file offset.")]
     public Task<string> SearchBytes(
@@ -397,7 +397,7 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
         return true;
     }
 
-    [McpServerTool(Name = "read_bytes", Title = "Hex dump native bytes", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "read_bytes", Title = "Hex dump native bytes")]
     [Description("Hex dump (with ASCII) of a native image's mapped bytes at an address, as the loader maps them.")]
     public Task<string> ReadBytes(
         [Description(ImageDescription)] string image,

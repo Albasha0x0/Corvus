@@ -38,7 +38,7 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs, Outpu
         return "PDB not loaded (load_pdb)";
     }
 
-    [McpServerTool(Name = "load_pdb", Title = "Load native debug symbols", OpenWorld = true)]
+    [McpServerTool(Name = "load_pdb", Title = "Load native debug symbols")]
     [Description("Load the PDB (MSF 7.0) of a native image: function and data names with addresses (publics, global and static data, procedures of every " +
                  "module, thunks), checked against the image's CodeView GUID and age. Searched: the path given (file or directory), the image's directory, " +
                  "the path recorded in the image, _NT_SYMBOL_PATH caches and directories, the Visual Studio / WinDbg / IDA caches and C:\\symbols. " +
@@ -107,7 +107,7 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs, Outpu
         return sb.ToString();
     }
 
-    [McpServerTool(Name = "search_pdb_symbols", Title = "Search native debug symbols", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [McpServerTool(Name = "search_pdb_symbols", Title = "Search native debug symbols")]
     [Description("Symbols of the PDB loaded for a native image (load_pdb, or found automatically): address, kind (function, data, public, thunk), size, " +
                  "name, the full signature undecorated from the public name, and the module (object file). query matches names case-insensitively; " +
                  "empty lists all.")]
