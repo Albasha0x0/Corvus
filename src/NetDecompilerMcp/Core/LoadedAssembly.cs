@@ -48,6 +48,11 @@ public sealed class LoadedAssembly : IDisposable
     /// <summary>The image as loaded, before any edit.</summary>
     public byte[] OriginalBytes => _originalBytes;
 
+    private string? _originalSha256;
+
+    /// <summary>SHA-256 (lowercase hex) of the image as loaded; computed once.</summary>
+    public string OriginalSha256 => _originalSha256 ??= Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(_originalBytes));
+
     private Services.IlHealth.Result? _bodyHealth;
 
     /// <summary>Method bodies of the original image that are not valid IL (encrypted or dumped images); computed once.</summary>
