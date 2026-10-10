@@ -104,4 +104,21 @@ Tests on real files now use `PeFile`; the adapters remain for synthetic images b
 - IDA was exercised on a small sample only (`DecompilesThroughIdaAndRecoversCppClasses`, the unload test, and up to
   three sweep images); IDA on the largest images was not measured.
 - Program Files was sampled (3,000 of 52,490 files); the adapter cross-check covered 800 of the 7,446 System32 / SysWOW64 images.
-- Not covered here: dumpbin agreement for imports / exports (maturity gate item), x86 function recall against IDA.
+
+## Agreement with other tools
+
+Measured by the component test suites (all `Speed=Slow`), not by the tool sweeps above.
+
+| Component | Reference | Sample | Result |
+|---|---|---|---|
+| PE parser (`NativePeSweepTests`) | dumpbin (imports, delay / bound imports, exports, load config, SEH and CFG tables), `System.Reflection.PortableExecutable` (headers, sections), AsmResolver (imports, exports, relocations, TLS, `.pdata`, CodeView, resources), ImageHlp `CheckSumMappedFile`, `FileVersionInfo` | 15,031 System32 / SysWOW64 files (15,025 PE) | 0 disagreements; 2 documented oracle differences (AsmResolver lists ABSOLUTE relocation padding; `.pdata` entries whose end is not after their start are dropped with an issue) |
+| Function discovery (`NativeCodeOracleTests`) | IDA 9.3 through idalib, PDB loading off | version, cabinet, msvcp_win, wininet; x64 from System32, x86 from SysWOW64 | function starts: recall **99.96%** (x64), **99.03%** (x86); precision 99.83% (x64), 95.06% (x86) after exception funclets and handlers attach to their parent; direct call edges: recall 100% (x64), 100% (x86). The x86 extras are delay-load thunks and frame setups inside functions IDA starts earlier; all extra starts are code in IDA too. Floors asserted: precision 0.99 (x64), 0.93 (x86) |
+| MSVC demangler (`MsvcDemangleCorpusTests`) | DbgHelp `UnDecorateSymbolName` | 99,568 decorated names from System32 / SysWOW64 exports and SDK import libraries | 99.81% identical (whitespace-normalized); every remaining difference is a DbgHelp error, malformed output or rejection |
+| RTTI (`MsvcRttiTests`) | linker map of an MSVC-built sample | x86 and x64 builds | exact: type descriptors, hierarchy and base descriptors, locators, vftables, slot targets |
+| Exception metadata (`MsvcEhTests`) | linker map of an MSVC-built sample | x86 and x64 | exact catch types, funclet and handler addresses, chunk owners |
+| PDB reader (`PdbOracleTests`) | linker map; exports | compiled sample (x64, x86); 216 cached system PDBs (743 MB, 2.3 M symbols) | every map symbol matched (address, kind, name); 0 read issues |
+| Assembler (`NativeEditTests.RoundTrip_System32Functions`) | Iced decoder (same mnemonic, operand / address size, operands, immediates, prefixes) | 131,831 instructions from System32 / SysWOW64 functions | 100% equivalent (required), 97.5% byte-identical |
+| Cross-build matching (`NativeDiffRealTests`) | PDB / export names present in both builds | 13 real x64 pairs, matching with names off | precision 99.77-100% per pair; recall 76.7-99.8% (ambiguous functions reported, not guessed) |
+| ReadyToRun (`ReadyToRunTests`) | framework assemblies' metadata | ~61,000 methods in 6 framework assemblies | every method decodes, every name resolves, ranges inside executable code, reverse lookups consistent |
+
+- Not measured: IDA function recall on images larger than these four; the oracle samples are small system DLLs.

@@ -42,6 +42,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         if (asm.IsDirty)
             sb.AppendLine($"Unsaved edits: {string.Join("; ", asm.Edits)}");
         AppendPeInfo(sb, m);
+        AppendMetadataIssues(sb, asm);
 
         sb.AppendLine("References:");
         foreach (var r in m.GetAssemblyRefs())
@@ -90,5 +91,15 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         {
             sb.AppendLine($"PE: unavailable ({ex.Message})");
         }
+    }
+
+    /// <summary>Structural metadata problems (obfuscator-style) with their locations; nothing when there are none.</summary>
+    private static void AppendMetadataIssues(StringBuilder sb, LoadedAssembly asm)
+    {
+        var issues = MetadataSurvey.Survey(asm.OriginalBytes).Concat(MetadataSurvey.ImplMapRows(asm.Module).Values).ToList();
+        if (issues.Count == 0) return;
+        sb.AppendLine($"Metadata issues ({issues.Count}; the rest of the metadata is read leniently):");
+        foreach (var issue in issues.Take(20))
+            sb.AppendLine($"  {issue.Code} at {issue.Location}{(issue.FileOffset != null ? $", file offset {issue.FileOffset}" : "")}: {issue.Detail}");
     }
 }

@@ -33,17 +33,21 @@ public class BuildUpdateTests : IDisposable
         }
         """;
 
+    // Compiled once per test run, shared by the tests here.
+    private static readonly Lazy<byte[]> V1Image = new(() => ReferenceResolutionTests.Compile("Lib", V1));
+    private static readonly Lazy<byte[]> V2Image = new(() => ReferenceResolutionTests.Compile("Lib", V2));
+
     private (string Old, string New) Builds()
     {
-        string Write(string folder, string source)
+        string Write(string folder, byte[] image)
         {
             var dir = _dir.File(folder);
             Directory.CreateDirectory(dir);
             var path = Path.Combine(dir, "Lib.dll");
-            File.WriteAllBytes(path, ReferenceResolutionTests.Compile("Lib", source));
+            File.WriteAllBytes(path, image);
             return path;
         }
-        return (Write("v1", V1), Write("v2", V2));
+        return (Write("v1", V1Image.Value), Write("v2", V2Image.Value));
     }
 
     [Fact]
@@ -61,6 +65,54 @@ public class BuildUpdateTests : IDisposable
         Assert.Contains("<>c", await tools.CompareAssemblies(env.Fixture.Id, newer.Id, includeCompilerGenerated: true));
     }
 
+    [Fact]
+    public void EditScript_IsBoundToItsBuild_CrossBuildOnlyWhenAskedFor()
+    {
+        var (oldPath, newPath) = Builds();
+        var script = _dir.File("bound.json");
+        string sha;
+        using (var original = new Env(oldPath))
+        {
+            original.Edit(() => original.Edits.StubMethod(original.One("Calc::Other"), "9"));
+            Assert.Contains("Bound to the build: sha256 ", original.History.Export(original.Fixture, script));
+            sha = original.Fixture.OriginalSha256;
+        }
+        var json = File.ReadAllText(script);
+        Assert.Contains($"\"sha256\": \"{sha}\"", json);
+        Assert.Contains("\"identity\": \"Lib, Version=", json);
+
+        using (var same = new Env(oldPath))
+        {
+            var report = same.Edit(() => same.History.Apply(script, null, dryRun: true, stopOnError: true, default));
+            Assert.Contains($"Build check: same build (sha256 {sha[..16]}", report);
+            Assert.Contains("1 would apply, 0 would fail", report);
+        }
+
+        using var other = new Env(newPath);
+        var refused = Assert.Throws<ToolError>(() => other.Edit(() => other.History.Apply(script, null, dryRun: true, stopOnError: true, default)));
+        Assert.Equal(ErrorCode.Conflict, refused.Code);
+        Assert.Contains($"made for sha256 {sha}", refused.Message);
+        Assert.Contains($"Lib is sha256 {other.Fixture.OriginalSha256}", refused.Message);
+        Assert.Contains("targetBuild=other", refused.Remediation);
+        Assert.False(other.Fixture.IsDirty);
+        Assert.Throws<ToolError>(() => EditHistoryService.ParseTargetBuild("newer"));
+
+        var carried = other.Edit(() => other.History.Apply(script, null, dryRun: false, stopOnError: true, default, EditHistoryService.TargetBuild.Other));
+        Assert.Contains("Build check: different build, carried over (targetBuild=other)", carried);
+        Assert.Contains("1 applied, 0 failed", carried);
+        Assert.Contains("Cross-build: 1 edit(s) resolved by name, 0 target(s) followed", carried);
+        Assert.Equal("stub_method", Assert.Single(other.Fixture.Edits).Kind);
+
+        // A script written before the binding: applied with a warning.
+        var legacy = _dir.File("legacy.json");
+        File.WriteAllLines(legacy, File.ReadAllLines(script).Where(l => !l.Contains("\"sha256\"") && !l.Contains("\"identity\"")));
+        other.Edit(() => other.Edits.RevertAll(other.Fixture, default));
+        var old = other.Edit(() => other.History.Apply(legacy, null, dryRun: false, stopOnError: true, default));
+        Assert.Contains("WARNING: the script predates build binding", old);
+        Assert.Contains("differs from this build's", old);
+        Assert.Contains("1 applied", old);
+    }
+
     [Trait("Speed", "Slow")]
     [Fact]
     public void EditScript_FollowsATargetRenamedInTheNewBuild()
@@ -76,7 +128,7 @@ public class BuildUpdateTests : IDisposable
         // Only the new build loaded: the target is unresolved.
         using (var alone = new Env(newPath))
         {
-            var report = alone.Edit(() => alone.History.Apply(script, alone.Fixture.Id, dryRun: true, stopOnError: true, default));
+            var report = alone.Edit(() => alone.History.Apply(script, alone.Fixture.Id, dryRun: true, stopOnError: true, default, EditHistoryService.TargetBuild.Other));
             Assert.Contains("#1 FAILED", report);
             Assert.Contains("(load the build the script was made from, MVID", report);
         }
@@ -84,7 +136,7 @@ public class BuildUpdateTests : IDisposable
         // Both builds loaded: Add is followed to AddNumbers.
         using var env = new Env(newPath);
         env.Workspace.Load(oldPath);
-        var applied = env.Edit(() => env.History.Apply(script, env.Fixture.Id, dryRun: false, stopOnError: true, default));
+        var applied = env.Edit(() => env.History.Apply(script, env.Fixture.Id, dryRun: false, stopOnError: true, default, EditHistoryService.TargetBuild.Other));
         Assert.Contains("renamed ones through Lib#2 (the build the script was made from)", applied);
         Assert.Contains("#1 ok", applied);
         Assert.Contains("target renamed in this build: Calc::Add(int, int) -> Calc::AddNumbers(int, int)", applied);
