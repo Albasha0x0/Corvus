@@ -30,6 +30,7 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="NativeFormats\ItaniumCorpus.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- Real libraries the tests decompile, compare and export (downloaded on restore, not referenced). -->
@@ -64,6 +65,7 @@
   <ItemGroup Condition="'$(NDM_ALL_TESTS)' == '1'">
     <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-arm64" Version="[10.0.11]" />
     <PackageDownload Include="Microsoft.NETCore.App.Runtime.osx-arm64" Version="[10.0.11]" />
+    <PackageDownload Include="SkiaSharp.NativeAssets.Linux" Version="[3.119.4]" />
   </ItemGroup>
 
   <ItemGroup>
