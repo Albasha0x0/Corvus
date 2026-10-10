@@ -105,6 +105,13 @@ public sealed class SourcedNames
         lock (_gate) return NameCore(rva);
     }
 
+    /// <summary>One source's name at <paramref name="rva"/>, whether or not it is the one in effect.</summary>
+    public string? NameAt(uint rva, NativeNameSource source)
+    {
+        if (source == NativeNameSource.Discovered) return null;
+        lock (_gate) return _names[(int)source].GetValueOrDefault(rva);
+    }
+
     public (string Text, NativeNameSource Source)? CommentAt(uint rva)
     {
         lock (_gate)
