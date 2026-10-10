@@ -158,6 +158,33 @@ database of the original (2 applied, the checksum entry not loaded, 0 differing;
 patched database byte equals the saved file's byte, and IDA's own .dif of that database is our .dif minus the header
 bytes it does not load.
 
+## Patch migration (migrate_native_patches)
+
+`PatchMigration` (Native/Patching) carries an old build's byte patches to a new build. Source: the old build's
+in-memory patches (default) or a json patch set from export_native_patches (`patchSet`). For each patch:
+
+- **Map the old address to the new build** through `AddressMapper` (the compare_native_images matcher: function match
+  + instruction alignment). The old build is matched on its *pristine* bytes (`NativeCodeService.IndexOfOriginal`
+  rebuilds the index over `NativePatchSet.OriginalBytes` when it is dirty), so an in-memory patch does not hide the
+  function's identity. No mapping → refused with the mapper's reason (`function_not_matched`, `ambiguous`,
+  `changed_region`, `not_an_instruction`, ...).
+- **Check the expected pre-patch bytes** against the new build's original bytes at the mapped address: exact for raw
+  patch_bytes; for patch_asm, both sides are decoded and the bytes each marks as an address (branch / RIP-relative
+  displacements, relocated / in-image absolute operands) are masked, so a legitimately relocated operand does not count
+  as a difference. Otherwise refused `original_bytes_differ` with the expected and found bytes (`??` = masked).
+- **Produce the replacement**: patch_asm re-assembles its recorded assembly text at the new address (new branch and
+  RIP-relative targets; symbols resolved against the new build), raw patches apply their recorded bytes verbatim. A
+  failed re-assembly is refused `assemble_failed`.
+- **Reapply through the normal patch path** (PreparePatch: boundary and function-end checks, relocation planning). A
+  safety or relocation failure is refused with `relocation_slot_unavailable`, `mid_instruction`, `past_function_end`,
+  `conflicts_with_existing_patch` or `cannot_prepare`. Applied patches are rebuilt into the new image between each one,
+  so later patches see earlier ones.
+
+Every patch is reported applied / would_apply (dryRun) / refused with a reason and evidence; dryRun (the default)
+changes nothing. Tests (NativePatchMigrationTests): a synthetic pair of builds covers migrate / refuse-on-differing-
+bytes / unmatched-function / json-source; a Slow test migrates a patch_asm and a patch_bytes between real consecutive
+builds (C:\symbols versions and side-by-side .NET runtimes) and verifies the applied bytes at the mapped addresses.
+
 ## save_native
 
 - Writes the patched bytes. Everything not inside a patched range is byte-for-byte identical to the original.
