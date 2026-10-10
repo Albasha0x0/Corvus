@@ -18,6 +18,7 @@ public static class ParameterDomains
     private static Domain Of(string[] values, params string[] aliases) => new(values, aliases);
 
     private static readonly Domain Engine = Of(["auto", "ours", "ida"], "built-in", "builtin");
+    private static readonly Domain DecompilerEngine = Of(["auto", "ida"]);
     private static readonly Domain Relocations = Of(["auto", "keep", "neutralize"], "neutralise");
     private static readonly Domain StubMode = Of(["replace", "before", "after"]);
     private static readonly Domain Placement = Of(["auto", "cave", "section"]);
@@ -49,10 +50,17 @@ public static class ParameterDomains
         ["get_cfg"] = new Dictionary<string, Domain> { ["engine"] = Engine },
         ["find_xrefs"] = new Dictionary<string, Domain> { ["engine"] = Engine },
         ["native_call_tree"] = new Dictionary<string, Domain> { ["direction"] = Direction, ["calls"] = Of(["all", "direct", "virtual"]), ["engine"] = Engine },
-        ["decompile_native"] = new Dictionary<string, Domain> { ["engine"] = Of(["auto", "ida"]) },
+        ["decompile_native"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
+        ["get_native_frame"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
+        ["set_native_stack_var"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
+        ["set_native_type"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
+        ["set_native_local"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
+        ["declare_native_types"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
+        ["list_native_types"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
+        ["ida_python"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["find_virtual_calls"] = new Dictionary<string, Domain> { ["status"] = Of(["exact", "possible", "unresolved"]) },
         ["search_pdb_symbols"] = new Dictionary<string, Domain> { ["kind"] = Of(["function", "data", "public", "all"], "functions", "publics") },
-        ["make_code_pattern"] = new Dictionary<string, Domain> { ["anchor"] = Of(["auto", "address", "reference"]) },
+        ["make_code_pattern"] = new Dictionary<string, Domain> { ["anchor"] = Of(["auto", "address", "reference", "xrefs"]), ["engine"] = Engine },
         ["compare_native_images"] = new Dictionary<string, Domain> { ["view"] = Of(["pairs", "changed", "unmatched", "ambiguous"]) },
         ["export_native_patches"] = new Dictionary<string, Domain> { ["format"] = Of(["ida", "dif", "ips", "ips32", "json"], "idapython", "py", "diff") },
         ["export_native_annotations"] = new Dictionary<string, Domain> { ["format"] = Of(["ida", "ghidra", "json"], "idapython", "idc") },

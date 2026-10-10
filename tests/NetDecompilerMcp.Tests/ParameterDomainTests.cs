@@ -34,6 +34,14 @@ public class ParameterDomainTests
     }
 
     [Fact]
+    public void EveryEngineParameterHasADomain()
+    {
+        foreach (var (tool, schema) in Schemas)
+            if (schema["properties"]?["engine"] != null)
+                Assert.True(ParameterDomains.Table.TryGetValue(tool, out var p) && p.ContainsKey("engine"), $"{tool}: engine has no value set");
+    }
+
+    [Fact]
     public void OutOfSetValuesAreRejectedWithSuggestions()
     {
         var error = Assert.Throws<ToolError>(() => ArgumentCheck.Apply(Schema("list_functions"), Args(("image", "x"), ("sort", "calers")), "list_functions"));
