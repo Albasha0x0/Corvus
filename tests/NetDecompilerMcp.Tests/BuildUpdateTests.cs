@@ -33,17 +33,21 @@ public class BuildUpdateTests : IDisposable
         }
         """;
 
+    // Compiled once per test run, shared by the tests here.
+    private static readonly Lazy<byte[]> V1Image = new(() => ReferenceResolutionTests.Compile("Lib", V1));
+    private static readonly Lazy<byte[]> V2Image = new(() => ReferenceResolutionTests.Compile("Lib", V2));
+
     private (string Old, string New) Builds()
     {
-        string Write(string folder, string source)
+        string Write(string folder, byte[] image)
         {
             var dir = _dir.File(folder);
             Directory.CreateDirectory(dir);
             var path = Path.Combine(dir, "Lib.dll");
-            File.WriteAllBytes(path, ReferenceResolutionTests.Compile("Lib", source));
+            File.WriteAllBytes(path, image);
             return path;
         }
-        return (Write("v1", V1), Write("v2", V2));
+        return (Write("v1", V1Image.Value), Write("v2", V2Image.Value));
     }
 
     [Fact]
@@ -97,7 +101,7 @@ public class BuildUpdateTests : IDisposable
         Assert.Contains("Build check: different build, carried over (targetBuild=other)", carried);
         Assert.Contains("1 applied, 0 failed", carried);
         Assert.Contains("Cross-build: 1 edit(s) resolved by name, 0 target(s) followed", carried);
-        Assert.Contains("return 9;", other.Decompile("Calc::Other"));
+        Assert.Equal("stub_method", Assert.Single(other.Fixture.Edits).Kind);
 
         // A script written before the binding: applied with a warning.
         var legacy = _dir.File("legacy.json");

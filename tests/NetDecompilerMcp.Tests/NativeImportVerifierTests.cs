@@ -25,6 +25,7 @@ public class NativeImportVerifierTests
             [DllImport("kernel32.dll")] public static extern void NoSuchExport8f3a();
             [DllImport("api-ms-win-core-processthreads-l1-1-0.dll")] public static extern uint GetCurrentThreadId();
             [DllImport("QCall")] public static extern void RuntimeCall();
+            [DllImport("kernel32.dll", EntryPoint = "#1")] public static extern uint GetTickCount();
             [DllImport("kernel32.dll")] public static extern void Sizes(int a, long b, double c, IntPtr d, string s, ref int r, bool f, char ch);
         }
         """;
@@ -44,22 +45,26 @@ public class NativeImportVerifierTests
     {
         using var env = new Env();
         var asm = Compile(env, "PInvokes64", Platform.X64);
-        var checks = new NativeImportVerifier(PeFile.Open).Verify(asm, default).ToDictionary(c => c.Method.Split("::")[1].Split('(')[0]);
+        var checks = new NativeImportVerifier(PeFile.Open).Verify(asm, default).Checks.ToDictionary(c => c.Method.Split("::")[1].Split('(')[0]);
+        string Verdict(string method) => $"{checks[method].Status}/{checks[method].Reason}";
 
-        Assert.Equal(NativeImportVerifier.Verified, checks["GetCurrentProcess"].Status);
-        Assert.Equal(NativeImportVerifier.Decorated, checks["GetModuleHandle"].Status);
+        Assert.Equal("verified/exact", Verdict("GetCurrentProcess"));
+        Assert.Equal("verified/suffixed", Verdict("GetModuleHandle"));
         Assert.Equal("GetModuleHandleW", checks["GetModuleHandle"].Export);
         Assert.Equal("MessageBoxA", checks["MessageBox"].Export);
-        Assert.Equal(NativeImportVerifier.MissingExport, checks["ExactName"].Status);
+        Assert.Equal("contradicted/exact_spelling", Verdict("ExactName"));
         Assert.Contains("GetModuleHandleA", checks["ExactName"].Detail);
-        Assert.Equal(NativeImportVerifier.Forwarded, checks["Forwarded"].Status);
+        Assert.Equal("verified/forwarded", Verdict("Forwarded"));
         Assert.Contains("RtlAllocateHeap", checks["Forwarded"].Detail);
-        Assert.Equal(NativeImportVerifier.DllNotFound, checks["MissingDll"].Status);
-        Assert.Equal(NativeImportVerifier.MissingExport, checks["NoSuchExport8f3a"].Status);
-        Assert.Equal(NativeImportVerifier.Verified, checks["GetCurrentThreadId"].Status);
+        Assert.Equal("unresolved/dll_not_found", Verdict("MissingDll"));
+        Assert.Equal("contradicted/missing_export", Verdict("NoSuchExport8f3a"));
+        Assert.Equal("verified/exact", Verdict("GetCurrentThreadId"));
         Assert.EndsWith(".dll", checks["GetCurrentThreadId"].ResolvedFile!, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("api-ms-win", Path.GetFileName(checks["GetCurrentThreadId"].ResolvedFile!), StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(NativeImportVerifier.NotChecked, checks["RuntimeCall"].Status);
+        Assert.Equal("not_checked/runtime_internal", Verdict("RuntimeCall"));
+        Assert.Equal("contradicted/ordinal_points_elsewhere", Verdict("GetTickCount"));
+        Assert.Contains("is ordinal", checks["GetTickCount"].Detail);
+        Assert.All(checks.Values, c => Assert.Null(c.Location));
     }
 
     [WindowsFact]
@@ -67,7 +72,7 @@ public class NativeImportVerifierTests
     {
         using var env = new Env();
         var asm = Compile(env, "PInvokes32", Platform.X86);
-        var check = new NativeImportVerifier(PeFile.Open).Verify(asm, default).Single(c => c.Method.Contains("GetCurrentProcess"));
+        var check = new NativeImportVerifier(PeFile.Open).Verify(asm, default).Checks.Single(c => c.Method.Contains("GetCurrentProcess"));
         Assert.Equal(NativeImportVerifier.Verified, check.Status);
         Assert.Equal(NativeArch.X86, PeFile.Open(check.ResolvedFile!).Arch);
     }
@@ -115,20 +120,27 @@ public class NativeImportVerifierSweepTests(ITestOutputHelper output)
         using var env = new Env();
         var verifier = new NativeImportVerifier(PeFile.Open);
         var all = new List<NativeImportVerifier.Check>();
+        int dynamic = 0, issues = 0;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         foreach (var file in Directory.EnumerateFiles(Path.GetDirectoryName(typeof(object).Assembly.Location)!, "System.*.dll"))
         {
             LoadedAssembly asm;
             try { asm = env.Workspace.Load(file); }
             catch (ToolError) { continue; }
-            all.AddRange(verifier.Verify(asm, default));
+            var result = verifier.Verify(asm, default);
+            all.AddRange(result.Checks);
+            dynamic += result.DynamicLoads.Count;
+            issues += result.MetadataIssues.Count;
         }
-        foreach (var g in all.GroupBy(c => c.Status).OrderBy(g => g.Key))
+        output.WriteLine($"{all.Count} declarations in {sw.Elapsed.TotalSeconds:0.0} s; {dynamic} run-time loading sites; {issues} metadata issues");
+        foreach (var g in all.GroupBy(c => $"{c.Status} {c.Reason}").OrderBy(g => g.Key))
             output.WriteLine($"{g.Key}: {g.Count()}");
-        var missing = all.Where(c => c.Status == NativeImportVerifier.MissingExport).ToList();
-        foreach (var c in missing.Concat(all.Where(c => c.Status == NativeImportVerifier.DllNotFound)).Take(60))
-            output.WriteLine($"  {c.Status} {c.Module}!{c.EntryPoint} ({c.Method}): {c.Detail}");
+        var contradicted = all.Where(c => c.Status == NativeImportVerifier.Contradicted).ToList();
+        foreach (var c in contradicted.Concat(all.Where(c => c.Status == NativeImportVerifier.Unresolved)).Take(60))
+            output.WriteLine($"  {c.Status} {c.Reason} {c.Module}!{c.EntryPoint} ({c.Method}): {c.Detail}");
         Assert.True(all.Count > 500, $"{all.Count} declarations");
-        Assert.Empty(missing.Select(c => $"{c.Module}!{c.EntryPoint}: {c.Detail}"));
-        Assert.Empty(all.Where(c => c.Status == NativeImportVerifier.DllNotFound).Select(c => $"{c.Module}!{c.EntryPoint}: {c.Detail}"));
+        Assert.Empty(contradicted.Select(c => $"{c.Module}!{c.EntryPoint}: {c.Reason} {c.Detail}"));
+        Assert.Empty(all.Where(c => c.Status == NativeImportVerifier.Unresolved).Select(c => $"{c.Module}!{c.EntryPoint}: {c.Reason} {c.Detail}"));
+        Assert.Equal(0, issues);
     }
 }

@@ -266,15 +266,27 @@ public sealed class LoadedAssembly : IDisposable
             {
                 var old = _peFile;
                 var image = GetImageBytes();
-                var pe = new PEFile(FilePath, new MemoryStream(image, writable: false), PEStreamOptions.PrefetchEntireImage, MetadataReaderOptions.None);
+                // The reader refuses some metadata outright (unknown tables, a damaged duplicate stream): normalized like unreadable rows.
+                PEFile? pe;
+                string? problem;
+                try
+                {
+                    pe = new PEFile(FilePath, new MemoryStream(image, writable: false), PEStreamOptions.PrefetchEntireImage, MetadataReaderOptions.None);
+                    problem = MetadataProbe.Problem(pe.Metadata);
+                }
+                catch (BadImageFormatException ex)
+                {
+                    pe = null;
+                    problem = ex.Message;
+                }
                 string? note = null;
-                if (MetadataProbe.Problem(pe.Metadata) is { } problem)
+                if (problem != null)
                 {
                     try
                     {
                         var (copy, dropped) = MetadataNormalizer.Normalize(image);
                         var normalized = new PEFile(FilePath, new MemoryStream(copy, writable: false), PEStreamOptions.PrefetchEntireImage, MetadataReaderOptions.None);
-                        pe.Dispose();
+                        pe?.Dispose();
                         pe = normalized;
                         var left = MetadataProbe.Problem(pe.Metadata);
                         note = $"// Note: the decompiler cannot read this assembly's metadata as stored ({problem}); it is decompiled from a copy normalized by dnlib, with the same tokens" +
@@ -286,6 +298,10 @@ public sealed class LoadedAssembly : IDisposable
                         note = $"// Note: the decompiler cannot read this assembly's metadata as stored ({problem}), and normalizing it failed ({ex.Message}); some members will not decompile.\n";
                     }
                 }
+                if (pe == null)
+                    throw new ToolError(ErrorCode.MalformedInput, $"The decompiler cannot read the metadata of {Id} ({problem}), and a normalized copy could not be made. " +
+                        "Metadata issues: " + string.Join("; ", MetadataSurvey.Survey(image).Take(8).Select(i => $"{i.Code} at {i.Location}, file offset {i.FileOffset}: {i.Detail}")),
+                        "get_il, get_type_info and the other metadata tools still work (they read the metadata leniently)");
                 _peFile = pe;
                 DecompilerNote = note ?? "";
                 _peFileVersion = Version;
