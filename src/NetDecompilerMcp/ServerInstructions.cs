@@ -85,6 +85,9 @@ internal static class ServerInstructions
            Without a cave (or placement=section) the stub goes in a new executable section appended to the image (headers,
            SizeOfImage, SizeOfCode and checksum fixed up; undo removes it byte for byte); a stub needing a base relocation or with
            no free section-header slot is refused. export_native_patches handles a grown file in json / ida / ips; .dif cannot.
+           New native build in one call: update_to_new_build (dryRun=true first) carries names, comments, PDB / Il2Cpp layers,
+           patches (stubs re-created), code patterns and the Il2Cpp method mapping, with a reason code for everything that did not
+           carry; then dryRun=false (a re-run shows already_present). Page items with category / outcome (e.g. outcome=refused).
            New builds: load both (the second gets an id like game.dll#2); compare_native_images matches functions (unique-only, ambiguous
            ones listed), map_address_between_builds carries an address over, migrate_native_names (dryRun first) copies your names;
            make_code_pattern / search_code_pattern give byte patterns that survive rebuilds. export_native_patches writes your patches
