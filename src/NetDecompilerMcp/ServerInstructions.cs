@@ -82,6 +82,9 @@ internal static class ServerInstructions
            A patch larger than its site: patch_asm / patch_bytes extend=true put a relocation stub in a code cave (the site jumps to
            it; it runs the new code, plus the displaced instructions with stubMode=before|after, and returns after the site); unsafe
            sites are refused with a reason code (branch_target_in_site, unwind_data, no_space, ...). dryRun shows the stub first.
+           Without a cave (or placement=section) the stub goes in a new executable section appended to the image (headers,
+           SizeOfImage, SizeOfCode and checksum fixed up; undo removes it byte for byte); a stub needing a base relocation or with
+           no free section-header slot is refused. export_native_patches handles a grown file in json / ida / ips; .dif cannot.
            New builds: load both (the second gets an id like game.dll#2); compare_native_images matches functions (unique-only, ambiguous
            ones listed), map_address_between_builds carries an address over, migrate_native_names (dryRun first) copies your names;
            make_code_pattern / search_code_pattern give byte patterns that survive rebuilds. export_native_patches writes your patches
