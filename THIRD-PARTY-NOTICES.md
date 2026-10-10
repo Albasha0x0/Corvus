@@ -64,3 +64,34 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Ghidra servers (designs adapted, no code copied)
+
+The Ghidra worker (`src/NetDecompilerMcp/Native/Providers/Ghidra/worker/*.java`) is original code. Some of its
+designs follow these Apache License 2.0 projects (https://www.apache.org/licenses/LICENSE-2.0), and the files
+concerned say so in their headers.
+
+- [clearbluejar/pyghidra-mcp](https://github.com/clearbluejar/pyghidra-mcp), Copyright clearbluejar and contributors:
+  the decompiler pool in `Decompilers.java` (LIFO reuse, bounded slots, one deadline over both the wait and the
+  run, `flushCache` after writes), from `decompiler_pool.py`.
+- [LaurieWired/GhidraMCP](https://github.com/LaurieWired/GhidraMCP), Copyright 2025 LaurieWired: keeping fd 1 for
+  the protocol and sending `System.out` to stderr (`Worker.java`).
+- [bethington/ghidra-mcp](https://github.com/bethington/ghidra-mcp): a `BundleHost` acquired before analysis in a
+  custom headless host, and the program saved before it and the project are released on shutdown (`Worker.java`).
+  Its NOTICE file reads:
+
+  ```
+  Ghidra MCP Server
+  Copyright 2025-2026 Ben Ethington and Ghidra MCP Server contributors
+
+  This product was originally derived from the GhidraMCP project by
+  LaurieWired (https://github.com/LaurieWired/GhidraMCP), licensed
+  under the Apache License, Version 2.0. The current project has
+  since been substantially rewritten and extended; LaurieWired retains
+  copyright over any portions of the original work that remain.
+
+  Acknowledgments to all listed contributors in README.md.
+  ```
+- [cyberkaida/reverse-engineering-assistant](https://github.com/cyberkaida/reverse-engineering-assistant) (ReVa),
+  Copyright 2023 cyberkaida: a decompiler timeout reported as its own error, distinct from a decompilation failure
+  (`CodeOps.java`).

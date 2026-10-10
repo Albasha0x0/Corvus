@@ -5,6 +5,10 @@ namespace NetDecompilerMcp.Native.Providers;
 /// <summary>Writes a worker script embedded in this assembly to a per-user directory, named by its content hash.</summary>
 public static class EmbeddedScript
 {
+    /// <summary>Names of the embedded resources starting with <paramref name="prefix"/>, ordinal order.</summary>
+    public static IReadOnlyList<string> Names(string prefix) =>
+        typeof(EmbeddedScript).Assembly.GetManifestResourceNames().Where(n => n.StartsWith(prefix, StringComparison.Ordinal)).Order(StringComparer.Ordinal).ToList();
+
     public static byte[] Read(string resourceName)
     {
         using var s = typeof(EmbeddedScript).Assembly.GetManifestResourceStream(resourceName)

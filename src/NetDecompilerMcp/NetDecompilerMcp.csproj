@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Native\Providers\Ida\ida_worker.py" LogicalName="NetDecompilerMcp.Native.Providers.Ida.ida_worker.py" />
+    <EmbeddedResource Include="Native\Providers\Ghidra\worker\*.java" LogicalName="NetDecompilerMcp.Native.Providers.Ghidra.worker.%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>
