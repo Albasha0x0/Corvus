@@ -58,7 +58,7 @@ of the next tool result, plus best-effort `resources/list_changed` and log notif
 
 | Area | Tools |
 |---|---|
-| Workspace | `load_assembly` (a file or a whole folder; reports progress) · `list_assemblies` (ids, versions, ReadyToRun, merged-assembly label, unsaved edits; `filter` / `offset` / `limit` for big folders; with `path`, the managed assemblies inside a container file without extracting them) · `unload_assembly` · `reload_assembly` · `add_search_directory` · `get_assembly_info` (identity, TFM, references and whether each resolves (to the loaded build in the same folder first), PE headers and sections, metadata streams, attributes, Il2Cpp detection, method bodies that are not valid IL — encrypted or dumped before decryption, also flagged in decompiled code and comparisons) |
+| Workspace | `load_assembly` (a file or a whole folder; reports progress; an Il2Cpp game folder or `global-metadata.dat` goes through the built-in metadata reader (v24-31, also a memory dump of `GameAssembly.dll`): dummy assemblies with addresses, field offsets and tokens plus literals and script data for the Il2Cpp tools, cached per user, with the read report and unreadable items by reason) · `list_assemblies` (ids, versions, ReadyToRun, merged-assembly label, unsaved edits; `filter` / `offset` / `limit` for big folders; with `path`, the managed assemblies inside a container file without extracting them) · `unload_assembly` · `reload_assembly` · `add_search_directory` · `get_assembly_info` (identity, TFM, references and whether each resolves (to the loaded build in the same folder first), PE headers and sections, metadata streams, attributes, Il2Cpp detection, method bodies that are not valid IL — encrypted or dumped before decryption, also flagged in decompiled code and comparisons) |
 | Browse | `list_namespaces` · `list_types` · `get_type_info` (outline with tokens, constants, hex enum values, IL sizes, Il2Cpp RVAs and offsets) · `get_type_hierarchy` · `get_attributes` (type, member, parameter, return value, assembly or module) · `resolve_symbol` |
 | Decompile | `decompile_type` · `decompile_member` (overloads, async, iterators and lambdas folded back; `simplified=true` shows the code after `simplify_methods` without editing) · `get_il` (tokens, offsets, structured EH, a normalized IL hash per method: [docs/il-hash.md](docs/il-hash.md)) · `decompile_assembly_attributes` · `export_project` (whole assembly → .csproj that builds: see [Exported projects](#exported-projects); reports progress and failed types) |
 | Search | `search_symbols` (substring, wildcard or regex) · `search_strings` (paged; for Il2Cpp dummy DLLs, whose bodies are empty, the literals of the dump: see [Il2Cpp string literals](#il2cpp-string-literals)) · `search_constants` (IL literals, const and enum values, attribute arguments, and static array data such as S-boxes, CRC and crypto tables, read element by element as the array's own type) · `search_il` (instruction-sequence patterns with wildcards and gaps) |
@@ -152,6 +152,13 @@ Measured on a real Unity application (36 assemblies, 40,895 types, ~300k methods
   metadata and MethodInfo slot is named correctly.
 
 ## Il2Cpp navigation
+
+No external dumper is needed: `load_assembly` on an Il2Cpp game folder or its `global-metadata.dat` (with
+`GameAssembly.dll` beside it) reads the metadata directly through LibCpp2IL (versions 24-31; on a real game, a v31 memory dump,
+methods, RVAs, vtable slots, fields, field offsets and every `script.json` method agree 100% with Il2CppDumper's output; first read
+15 s, reloads from the per-user cache `NDM_IL2CPP_CACHE` in 0.1 s). Unreadable metadata is an error with a reason
+(`encrypted_or_obfuscated`, `unsupported_version`, `binary_mismatch_or_protected`, ...); single items that cannot be read
+are listed by reason in the load report. Il2CppDumper / Cpp2IL output folders keep working as below.
 
 With only the dummy DLLs, the known function starts are the dummy methods' `[Address]` RVAs; `find_method_by_address`
 then reports the preceding method as "probably inside", because generic instantiations (a third to a half of a game's
@@ -435,6 +442,7 @@ are unset:
 | `NDM_ASSEMBLY_DIR` | A folder of real .NET assemblies (e.g. a Unity `*_Data/Managed` folder) | decompile / search / xrefs / C# patch of the app's own code; call-path timing |
 | `NDM_CALLPATH_TARGET` | Optional: a method in that folder to search call paths to (default: picked automatically) | call-path timing |
 | `NDM_IL2CPP_DUMMY_DIR` | An Il2CppDumper / Cpp2IL `DummyDll` folder | address round-trips; IDA / Ghidra / C header export |
+| `NDM_IL2CPP_GAME`, `NDM_IL2CPP_GAME_DUMP` | A raw Il2Cpp game (folder or `global-metadata.dat`); optionally an Il2CppDumper `DummyDll` folder of the same game | built-in metadata reader end to end; agreement rates with the dump (types, methods, RVAs, fields, offsets, literals) |
 | `NDM_IL2CPP_STRINGS_DIR` | An Il2CppDumper `DummyDll` folder with `stringliteral.json` / `script.json` (and optionally `GameAssembly.dll`) beside it | string-literal index and code references: counts, timings, retained memory; navigation index size and time, round trips (method → RVA → method, script.json name → RVA → name, type → TypeInfo slot → type, vtable slot → method) |
 | `NDM_COMPARE_OLD_DIR`, `NDM_COMPARE_NEW_DIR` | Two builds of the same app | build comparison |
 | `NDM_COMPARE_ASSEMBLY` | Optional: the assembly to compare (default: the largest application assembly in both) | build comparison |

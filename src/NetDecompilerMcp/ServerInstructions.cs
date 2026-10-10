@@ -10,6 +10,10 @@ internal static class ServerInstructions
            Load related assemblies too: cross-references and inherited members only see what is loaded or resolvable.
            Method bodies are indexed in the background after loading; files that change on disk are reloaded automatically
            (notices appear as "[workspace] ..." lines at the top of a tool result).
+           Il2Cpp games need no external dumper: load_assembly the game folder or its global-metadata.dat (GameAssembly.dll beside
+           it; a memory dump of it works too). The built-in reader (metadata v24-31) makes dummy assemblies plus the script and
+           literal data, cached per user, and the Il2Cpp tools work as with an Il2CppDumper DummyDll folder. Unreadable metadata is
+           an error with a reason; items it could not read are listed by reason in the load report.
            An app that ships wrapped in a container (single-file .exe, Costura, .nupkg, Xamarin/MAUI .apk): list_assemblies with path shows the
            assemblies inside, search_container finds types/members in them by name, and unpack_container extracts and loads them.
            list_assemblies and unpack_container flag ReadyToRun and merged (ILMerge/ILRepack) assemblies; get_r2r_code shows a ReadyToRun
