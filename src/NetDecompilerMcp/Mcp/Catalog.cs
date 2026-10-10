@@ -47,11 +47,18 @@ public static partial class Catalog
     /// <summary>This build's catalog, registered in process the way the server registers it.</summary>
     public static (List<JsonNode> Tools, List<JsonNode> Prompts) OfThisBuild()
     {
+        var (tools, prompts) = Built.Value;
+        return (tools.Select(t => t.DeepClone()).ToList(), prompts.Select(p => p.DeepClone()).ToList());
+    }
+
+    // Built once: concurrent registrations in one process race in the SDK's schema generation (a RequestContext parameter leaks into the schema).
+    private static readonly Lazy<(List<JsonNode> Tools, List<JsonNode> Prompts)> Built = new(() =>
+    {
         var services = new ServiceCollection();
         services.AddMcpServer().WithCatalog();
         using var provider = services.BuildServiceProvider();
         return Of(provider.GetRequiredService<IOptions<McpServerOptions>>().Value);
-    }
+    });
 
     /// <summary>The protocol JSON of a server's tools and prompts.</summary>
     public static (List<JsonNode> Tools, List<JsonNode> Prompts) Of(McpServerOptions options) =>
