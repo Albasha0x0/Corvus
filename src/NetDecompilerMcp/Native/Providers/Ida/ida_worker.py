@@ -419,7 +419,13 @@ def op_sync_patches(args):
             ranges[-1][1] = ea + 1
         else:
             ranges.append([ea, ea + 1])
-    functions = set()
+    # functions that held patched code, remembered in the database: a patch can end a function (IDA deletes it when the
+    # new code no longer forms one), and reverting the bytes must bring it back
+    node = stamp_node(True)
+    remembered = node.hashstr_buf(PATCH_FUNCTIONS) or ""
+    if isinstance(remembered, bytes):
+        remembered = remembered.decode("ascii", "replace")
+    functions = set(int(x, 16) + base for x in remembered.split(",") if x)
     for lo, hi in ranges:
         seg = m.ida_segment.getseg(lo)
         if seg is None or not (seg.perm & m.ida_segment.SEGPERM_EXEC or seg.type == m.ida_segment.SEG_CODE):
@@ -440,13 +446,204 @@ def op_sync_patches(args):
         f = m.ida_funcs.get_func(fs)
         if f is None:
             m.ida_funcs.add_func(fs, badaddr)
-        else:
+        elif f.start_ea == fs:
             m.ida_funcs.reanalyze_function(f, f.start_ea, f.end_ea, False)
     m.ida_auto.auto_wait()
+    still = []
+    m.ida_bytes.visit_patched_bytes(0, badaddr, lambda ea, fpos, org, val: still.append(ea) or 1)
+    node.hashset_buf(PATCH_FUNCTIONS, ",".join("%X" % (fs - base) for fs in sorted(functions)) if still else "")
     changed(m)
     return {"patched": patched, "reverted": reverted, "ranges": len(ranges), "functions": len(functions),
             "missing": missing[:20], "missing_count": len(missing), "mismatches": mismatches[:20],
             "mismatch_count": len(mismatches), "seconds": round(time.time() - start, 3)}
+
+
+PATCH_FUNCTIONS = "patch_functions"
+
+
+def c_ident(text):
+    out = []
+    for ch in text:
+        out.append(ch if (ch.isalnum() and ord(ch) < 128) or ch == "_" else "_")
+    s = "".join(out).strip("_") or "x"
+    return "_" + s if s[0].isdigit() else s
+
+
+def op_apply_types(args):
+    # decls: C declarations (parse_decls); prototypes: [[rva, C declaration]] applied to functions;
+    # classes (C++ with vftables): {"ptr": 4|8, "classes": [{"name", "vftables": [[offset, vftable rva, [slot rvas]]],
+    #   "bases": [[name, offset]]}], "methods": [[rva, class name]]}: a <name>_vftable struct per vftable (slot function
+    #   pointers typed from the target's type when it has one), a <name> struct (vftable pointers at their subobject
+    #   offsets, base subobjects there), the vftables typed, and the methods' first argument set to <name>*.
+    m = need_open()
+    import ida_typeinf as ti
+    import idc
+    start = time.time()
+    til = ti.get_idati()
+    result = {"decl_errors": 0, "typed": 0, "type_failures": 0, "failures": [], "structs": 0, "vftables_typed": 0, "methods_typed": 0}
+    decls = args.get("decls")
+    if decls:
+        result["decl_errors"] = idc.parse_decls(decls, idc.PT_SILENT)
+    for rva, decl in args.get("prototypes") or []:
+        ea = _state["base"] + rva
+        if m.ida_funcs.get_func(ea) is None:
+            m.ida_funcs.add_func(ea, m.idautils.ida_idaapi.BADADDR)
+        if ti.apply_cdecl(til, ea, decl, ti.TINFO_DEFINITE):
+            result["typed"] += 1
+        else:
+            result["type_failures"] += 1
+            if len(result["failures"]) < 20:
+                result["failures"].append("rva 0x%X: %s" % (rva, decl))
+    model = args.get("classes")
+    if model:
+        apply_classes(m, ti, til, model, result)
+    changed(m)
+    key = args.get("stamp_key")
+    if key:
+        stamp_node(True).hashset_buf(key, args.get("stamp") or "")
+    if args.get("save"):
+        if not m.ida_loader.save_database(m.ida_loader.get_path(m.ida_loader.PATH_TYPE_IDB), 0):
+            raise WorkerError("io_error", "save_database failed")
+    result["seconds"] = round(time.time() - start, 3)
+    return result
+
+
+def apply_classes(m, ti, til, model, result):
+    import idc
+    base = _state["base"]
+    ptr_bits = 8 * int(model.get("ptr") or 8)
+    classes = model.get("classes") or []
+
+    def named(name):
+        t = ti.tinfo_t()
+        return t if t.get_named_type(til, name) else None
+
+    def pointer_to(t):
+        p = ti.tinfo_t()
+        p.create_ptr(t)
+        return p
+
+    def void_ptr():
+        return pointer_to(ti.tinfo_t(ti.BT_VOID))
+
+    def define(name, members, size_bytes=None):
+        udt = ti.udt_type_data_t()
+        for mname, offset_bytes, mtype in members:
+            u = ti.udm_t()
+            u.name = mname
+            u.type = mtype
+            u.offset = offset_bytes * 8
+            u.size = mtype.get_size() * 8
+            udt.push_back(u)
+        t = ti.tinfo_t()
+        t.create_udt(udt, ti.BTF_STRUCT)
+        return t.set_named_type(til, name, ti.NTF_REPLACE) == ti.TERR_OK
+
+    # forward declarations, so pointers to every class resolve
+    forward = "".join("struct %s; struct %s_vftable;" % (c["name"], c["name"]) for c in classes)
+    if forward:
+        result["decl_errors"] += idc.parse_decls(forward, idc.PT_SILENT)
+    # methods: first argument becomes a pointer to the class (functions without a type of their own only)
+    skips = result.setdefault("method_skips", {})
+
+    def skip(reason):
+        skips[reason] = skips.get(reason, 0) + 1
+
+    deadline = time.time() + float(model.get("method_seconds") or 15)
+    for rva, cname in model.get("methods") or []:
+        ea = base + rva
+        cls = named(cname)
+        f = m.ida_funcs.get_func(ea)
+        # library code (_purecall and the like) and thunks are not the class's own
+        if cls is None:
+            skip("no_class_type")
+            continue
+        if f is None or f.start_ea != ea or f.flags & (m.ida_funcs.FUNC_LIB | m.ida_funcs.FUNC_THUNK):
+            skip("not_own_function")
+            continue
+        # a type set on purpose (PDB, user, a pushed prototype) is kept
+        if m.ida_nalt.is_userti(ea):
+            skip("typed")
+            continue
+        ftif = ti.tinfo_t()
+        if not m.ida_nalt.get_tinfo(ftif, ea) and ti.guess_tinfo(ftif, ea) != ti.GUESS_FUNC_OK:
+            # the decompiler's view of the function gives its arguments; bounded per batch, the rest are typed when asked for
+            if time.time() > deadline:
+                skip("deferred")
+                continue
+            if not hexrays_ready(m):
+                skip("no_type")
+                continue
+            try:
+                cf = m.ida_hexrays.decompile(ea, m.ida_hexrays.hexrays_failure_t(), m.ida_hexrays.DECOMP_NO_WAIT)
+            except m.ida_hexrays.DecompilationFailure:
+                cf = None
+            if cf is None or not cf.get_func_type(ftif):
+                skip("no_type")
+                continue
+        ftd = ti.func_type_data_t()
+        if not ftif.is_func() or not ftif.get_func_details(ftd):
+            skip("no_arguments")
+            continue
+        if ftd.size() == 0:
+            # a method that does not use this still receives it
+            arg = ti.funcarg_t()
+            arg.type = pointer_to(cls)
+            ftd.push_back(arg)
+        ftd[0].type = pointer_to(cls)
+        ftd[0].name = "this"
+        typed = ti.tinfo_t()
+        if typed.create_func(ftd) and ti.apply_tinfo(ea, typed, ti.TINFO_DEFINITE):
+            result["methods_typed"] += 1
+            if hexrays_ready(m):
+                m.ida_hexrays.mark_cfunc_dirty(ea, False)
+        else:
+            skip("rejected")
+    # vftable structs (slots typed from their targets), then class structs
+    for c in classes:
+        cname = c["name"]
+        vmembers = {}
+        for offset, vrva, slots in c.get("vftables") or []:
+            used = set()
+            members = []
+            for i, target in enumerate(slots):
+                ea = base + target
+                mname = c_ident(m.ida_name.get_short_name(ea) or m.ida_funcs.get_func_name(ea) or "") if m.ida_funcs.get_func(ea) else ""
+                if not mname or mname in used or len(mname) > 120:
+                    mname = "slot_%d" % i
+                used.add(mname)
+                ftif = ti.tinfo_t()
+                have = m.ida_nalt.get_tinfo(ftif, ea) or ti.guess_tinfo(ftif, ea) == ti.GUESS_FUNC_OK
+                members.append((mname, i * ptr_bits // 8, pointer_to(ftif) if have and ftif.is_func() else void_ptr()))
+            vname = cname + "_vftable" if offset == 0 else "%s_vftable_%X" % (cname, offset)
+            if members and define(vname, members):
+                result["structs"] += 1
+                vt = named(vname)
+                vmembers[offset] = vt
+                if vt is not None and ti.apply_tinfo(base + vrva, vt, ti.TINFO_DEFINITE):
+                    result["vftables_typed"] += 1
+        members = []
+        taken = set()
+        for offset, vt in sorted(vmembers.items()):
+            members.append(("__vftable" if offset == 0 else "__vftable_%X" % offset, offset, pointer_to(vt)))
+            taken.add(offset)
+        for bname, offset in c.get("bases") or []:
+            bt = named(bname)
+            if bt is None or offset in taken or offset < 0:
+                continue
+            # a base subobject at its offset; its own vftable pointer is part of it
+            members = [x for x in members if x[1] != offset]
+            members.append(("__base_" + bname, offset, bt))
+            taken.add(offset)
+        members.sort(key=lambda x: x[1])
+        clean = []
+        end = 0
+        for x in members:
+            if x[1] >= end:
+                clean.append(x)
+                end = x[1] + max(1, x[2].get_size())
+        if clean and define(cname, clean):
+            result["structs"] += 1
 
 
 STAMP_NODE = "$ netdecompilermcp stamps"
@@ -532,7 +729,7 @@ def op_sleep(args):
 OPS = {"hello": op_hello, "open": op_open, "rebase": op_rebase, "functions": op_functions, "decompile": op_decompile,
        "disasm": op_disasm, "disasm_range": op_disasm_range, "blocks": op_blocks, "xrefs_to": op_xrefs_to, "xrefs_from": op_xrefs_from, "set_name": op_set_name,
        "set_comment": op_set_comment, "apply_names": op_apply_names, "get_stamp": op_get_stamp, "save": op_save,
-       "sync_patches": op_sync_patches, "close": op_close, "sleep": op_sleep}
+       "sync_patches": op_sync_patches, "apply_types": op_apply_types, "close": op_close, "sleep": op_sleep}
 
 
 def main():

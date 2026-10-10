@@ -31,7 +31,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         _owned.Add(engines);
         var pager = new OutputPager(options);
         var names = new NativeNamePush(code);
-        return new Rig(workspace, code, new NativeCodeTools(workspace, code, pager, null, engines, names), new NativeAnalysisTools(workspace, engines, pager, names, code), engines);
+        return new Rig(workspace, code, new NativeCodeTools(workspace, code, pager, null, engines, names), new NativeAnalysisTools(workspace, engines, pager, names, code, new NativeTypePush()), engines);
     }
 
     /// <summary>An ARM64 PE with code but no unwind data: the built-in analysis only lists the entry point.</summary>
@@ -262,6 +262,133 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         output.WriteLine($"first decompile_native after prewarm: {clock.ElapsedMilliseconds} ms");
         Assert.Contains("CheckSumMappedFile", text);
         Assert.True(clock.Elapsed < TimeSpan.FromSeconds(20));
+    }
+
+    /// <summary>The Il2Cpp header and method prototypes reach the pseudocode, persist in the database and are not pushed again.</summary>
+    [Trait("Speed", "Slow")]
+    [IdaFact]
+    public async Task Il2Cpp_types_reach_the_pseudocode_and_persist()
+    {
+        var (dll, binary) = Il2CppNativeNamesTests.CreateDump(_dir);
+        using var env = new Env(dll);
+        var code = new NativeCodeService(env.Workspace, env.Options, null, new Native.Annotations.AnnotationStore(_dir.File("ann")));
+        var native = env.Workspace.LoadAny(binary).Native!;
+        var index = await code.Index(native, null, default);
+        new Il2CppNativeNames(env.Il2Cpp, env.Il2CppNavigator, code).Apply(native, index, env.Workspace.Assemblies, default);
+        var batch = NativeTypePush.Build(native, Il2CppNativeNames.Of(native), null, default);
+        output.WriteLine($"{batch.Prototypes.Count} prototypes, header {batch.Declarations!.Length:N0} chars\n{string.Join('\n', batch.Prototypes.Select(p => $"0x{p.Rva:X} {p.Declaration}"))}");
+        Assert.Contains(batch.Prototypes, p => p.Rva == 0x1000 && p.Declaration.Contains("struct Fixture_Native_NativeThing* __this"));
+
+        using var provider = new IdaProvider(new IdaProviderOptions { CacheRoot = _dir.File("cache") });
+        var offline = new Native.Providers.NativeOpenOptions { Symbols = Native.Providers.SymbolMode.Off };
+        var types = new NativeTypePush();
+        await using (var session = await provider.OpenAsync(binary, null, offline))
+        {
+            await new NativeNamePush(code).EnsureAsync(native, session, default);
+            var pushed = await types.EnsureAsync(native, session, default);
+            output.WriteLine(NativeTypePush.Describe(pushed));
+            Assert.NotNull(pushed!.Totals);
+            Assert.Equal(0, pushed.Totals!.TypeFailures);
+            Assert.Equal(batch.Prototypes.Count, pushed.Totals.Typed);
+            var text = (await session.DecompileAsync(0x1000)).Text;
+            output.WriteLine(text);
+            Assert.Contains("Fixture_Native_NativeThing *this", text);
+            Assert.Contains("method", text);
+            Assert.Null(await types.EnsureAsync(native, session, default)); // nothing changed
+        }
+        await using (var session = await provider.OpenAsync(binary, null, offline))
+        {
+            Assert.True((await types.EnsureAsync(native, session, default))!.AlreadyInDatabase);
+            Assert.Contains("Fixture_Native_NativeThing *this", (await session.DecompileAsync(0x1000)).Text);
+        }
+    }
+
+    private const string ClassesSource = """
+        #include <stdio.h>
+        struct Shape { virtual ~Shape() {} virtual int Area() const = 0; virtual const char* Name() const { return "shape"; } int id = 7; };
+        struct Rect : Shape
+        {
+            int w, h;
+            Rect(int a, int b) : w(a), h(b) {}
+            int Area() const override { return w * h + id; }
+            const char* Name() const override { return "rect"; }
+            virtual int Twice() const { return Area() * 2 + (int)Name()[0]; }
+        };
+        struct Printer { virtual void Print(const Shape& s) { printf("%s %d\n", s.Name(), s.Area()); } virtual ~Printer() {} };
+        struct Both : Rect, Printer
+        {
+            Both() : Rect(2, 3) {}
+            void Print(const Shape& s) override { printf("both %d %d\n", s.Area(), Twice()); }
+        };
+        int main(int argc, char**)
+        {
+            Shape* s = argc > 1 ? (Shape*)new Rect(argc, 4) : (Shape*)new Both();
+            Printer* p = new Both();
+            p->Print(*s);
+            int r = ((Rect*)s)->Twice();
+            delete s;
+            delete p;
+            return r;
+        }
+        """;
+
+    /// <summary>MSVC RTTI classes become vftable and class structs; a class's own virtual methods get it as the type of this.</summary>
+    [Trait("Speed", "Slow")]
+    [IdaFact]
+    public async Task Rtti_class_types_reach_the_pseudocode()
+    {
+        var path = CallArgumentTests.BuildSample(_dir, "x64", ClassesSource, "classes", "/MD /TP /EHsc");
+        if (path == null) { output.WriteLine("no MSVC build tools"); return; }
+        var rig = Setup();
+        var text = await rig.Analysis.DecompileNative(path, "rva:0x" + PeFile.Open(path).EntryPointRva.ToString("X"));
+        output.WriteLine(text.Split('\n')[0] + "\n" + text.Split('\n')[1]);
+        var native = rig.Workspace.Read(() => rig.Workspace.Natives[0]);
+        var rtti = native.GetAnalysis(n => Native.Msvc.MsvcRtti.Analyze(n.Image));
+        var rect = rtti.Classes.Single(c => c.Name == "Rect");
+        var batch = NativeTypePush.Build(native, null, rtti, default);
+        output.WriteLine($"{batch.Classes.Count} classes, {batch.Methods.Count} methods owned: " +
+                         string.Join(", ", batch.Classes.Select(c => $"{c.Name}[{string.Join("/", c.Vftables.Select(v => $"+{v.Offset:X}:{v.Slots.Count}"))}]" +
+                                                                         (c.Bases.Count > 0 ? " bases " + string.Join(",", c.Bases.Select(b => $"{b.Name}@{b.Offset:X}")) : ""))));
+        Assert.Contains(batch.Classes, c => c.Name == "Both" && c.Bases.Any(b => b.Name == "Printer" && b.Offset > 0));
+
+        Assert.Contains("// types: pushed", text);
+
+        // Rect::Twice (Rect's last slot) is inherited by Both at offset 0: it is Rect's method
+        var twice = rect.Vtables.Single(v => v.Offset == 0).SlotRvas[^1];
+        Assert.Contains(batch.Methods, m => m.Rva == twice && m.Class == "Rect");
+        var decompiled = await rig.Analysis.DecompileNative(native.Id, $"rva:0x{twice:X}");
+        output.WriteLine(decompiled);
+        Assert.Contains("Rect *this", decompiled);
+        Assert.Contains("__vftable->", decompiled);
+
+        // a system DLL with many classes: how much is typed and what the push costs
+        var system = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "msvcp_win.dll");
+        if (!File.Exists(system)) return;
+        var clock = Stopwatch.StartNew();
+        var head = await rig.Analysis.DecompileNative(system, "rva:0x" + PeFile.Open(system).EntryPointRva.ToString("X"));
+        output.WriteLine($"msvcp_win.dll first decompile_native {clock.Elapsed.TotalSeconds:0.0} s: {head.Split('\n').First(l => l.Contains("types:"))}");
+    }
+
+    /// <summary>The protocol sample (no RTTI, no Il2Cpp): decompile_native with every push enabled.</summary>
+    [Trait("Speed", "Slow")]
+    [IdaFact]
+    public async Task Synthetic_sample_decompiles_with_name_and_type_pushes()
+    {
+        var rig = Setup();
+        var text = await rig.Analysis.DecompileNative(McpProtocolTests.NativeSample(_dir), "First");
+        output.WriteLine(text);
+        Assert.Contains("First", text);
+
+        // A patch that ends the function (ret -> nop) and its undo: the function comes back with the original bytes.
+        var native = rig.Workspace.Read(() => rig.Workspace.Natives[0]);
+        var index = await rig.Code.Index(native, null, default);
+        var edits = new NativeEditService(rig.Workspace, rig.Code);
+        edits.ApplyPatch(native, index, edits.PreparePatch(index, 0x1000, [0x90], false, "nop"), dryRun: false);
+        try { output.WriteLine(await rig.Analysis.DecompileNative(native.Id, "rva:0x1000")); }
+        catch (ToolError e) { output.WriteLine(e.Render("decompile_native")); }
+        edits.Undo(native, null);
+        var session = await rig.Engines.Session(native, null, null, default);
+        Assert.Equal(0x1000u, (await session.DecompileAsync(0x1000)).StartRva);
     }
 
     private const string StaticSource = """

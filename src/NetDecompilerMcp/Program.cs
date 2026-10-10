@@ -67,6 +67,7 @@ builder.Services
     .AddSingleton<NativeEditService>()
     .AddSingleton<Il2CppNativeNames>()
     .AddSingleton<NativeNamePush>()
+    .AddSingleton<NativeTypePush>()
     .AddSingleton<ReadyToRunService>()
     .AddSingleton<PdbService>();
 

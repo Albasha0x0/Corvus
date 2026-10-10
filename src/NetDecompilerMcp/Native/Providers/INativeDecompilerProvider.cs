@@ -80,6 +80,14 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     Task<PatchSyncResult> SyncPatchesAsync(IReadOnlyList<NativeByteRange> wanted, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not apply byte patches.");
 
+    /// <summary>
+    /// Imports C declarations, applies function prototypes and builds C++ class types (vftable and class structs) in
+    /// one request; failures are counted, not thrown. Stamp and save as in <see cref="ApplyNamesAsync"/>.
+    /// </summary>
+    Task<TypeBatchResult> ApplyTypesAsync(NativeTypeBatch batch, string? stampKey = null, string? stamp = null, bool save = false,
+        CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not take types.");
+
     /// <summary>References to <paramref name="rva"/> (ordinary flow excluded).</summary>
     Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default);
 
@@ -174,6 +182,29 @@ public sealed record NativeBlockInfo(uint StartRva, uint EndRva, int Instruction
 
 /// <summary>The blocks of one function and the targets its jumps reach outside it (tail calls).</summary>
 public sealed record NativeBlockGraph(uint StartRva, string Name, IReadOnlyList<NativeBlockInfo> Blocks, IReadOnlyList<uint> TailCalls);
+
+/// <summary>A C declaration for the function at <see cref="Rva"/> ("ret name(params);").</summary>
+public sealed record NativePrototype(uint Rva, string Declaration);
+
+/// <summary>A vftable of a class: the subobject offset it serves, its RVA and its slot targets.</summary>
+public sealed record NativeVftableType(uint Offset, uint Rva, IReadOnlyList<uint> Slots);
+
+/// <summary>A base class subobject (by its type name in the batch) at an offset in the class.</summary>
+public sealed record NativeBaseType(string Name, int Offset);
+
+/// <summary>A polymorphic class as far as RTTI tells: C identifier name, vftables, base subobjects (bases listed earlier in the batch).</summary>
+public sealed record NativeClassType(string Name, IReadOnlyList<NativeVftableType> Vftables, IReadOnlyList<NativeBaseType> Bases);
+
+/// <summary>A function whose first argument is a pointer to <see cref="Class"/> (a virtual method found only in that class's vftable).</summary>
+public sealed record NativeMethodOwner(uint Rva, string Class);
+
+/// <summary>Types for <see cref="INativeDecompilerSession.ApplyTypesAsync"/>.</summary>
+public sealed record NativeTypeBatch(string? Declarations, IReadOnlyList<NativePrototype> Prototypes, IReadOnlyList<NativeClassType> Classes,
+    IReadOnlyList<NativeMethodOwner> Methods, int PointerSize);
+
+/// <summary><see cref="MethodSkips"/>: methods not typed, by reason (no_class_type, not_own_function, typed, no_type, no_arguments, rejected).</summary>
+public sealed record TypeBatchResult(int DeclarationErrors, int Typed, int TypeFailures, int Structs, int VftablesTyped, int MethodsTyped, TimeSpan Elapsed,
+    IReadOnlyList<string> Failures, IReadOnlyDictionary<string, int> MethodSkips);
 
 /// <summary>Bytes wanted at an RVA (a patch's replacement).</summary>
 public sealed record NativeByteRange(uint Rva, byte[] Bytes);

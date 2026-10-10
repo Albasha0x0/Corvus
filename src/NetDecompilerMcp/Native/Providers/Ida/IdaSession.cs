@@ -384,6 +384,37 @@ internal sealed class IdaSession : INativeDecompilerSession
             TimeSpan.FromSeconds(r.GetProperty("seconds").GetDouble()));
     }
 
+    public async Task<TypeBatchResult> ApplyTypesAsync(NativeTypeBatch batch, string? stampKey = null, string? stamp = null, bool save = false,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        var prototypes = new JsonArray();
+        foreach (var p in batch.Prototypes) prototypes.Add(new JsonArray(p.Rva, p.Declaration));
+        JsonObject? classes = null;
+        if (batch.Classes.Count > 0 || batch.Methods.Count > 0)
+        {
+            var list = new JsonArray();
+            foreach (var c in batch.Classes)
+            {
+                var vftables = new JsonArray();
+                foreach (var v in c.Vftables) vftables.Add(new JsonArray(v.Offset, v.Rva, new JsonArray(v.Slots.Select(s => (JsonNode)s).ToArray())));
+                var bases = new JsonArray();
+                foreach (var b in c.Bases) bases.Add(new JsonArray(b.Name, b.Offset));
+                list.Add(new JsonObject { ["name"] = c.Name, ["vftables"] = vftables, ["bases"] = bases });
+            }
+            var methods = new JsonArray();
+            foreach (var m in batch.Methods) methods.Add(new JsonArray(m.Rva, m.Class));
+            classes = new JsonObject { ["ptr"] = batch.PointerSize, ["classes"] = list, ["methods"] = methods };
+        }
+        var args = IdaProvider.Args(("decls", batch.Declarations), ("prototypes", prototypes), ("classes", classes), ("stamp_key", stampKey), ("stamp", stamp), ("save", save));
+        // The request is large and mostly in the type library: a saved batch is in the database, an unsaved one journaled.
+        var r = await CallAsync("apply_types", args, cancellationToken, journal: !save, saves: save).ConfigureAwait(false);
+        return new TypeBatchResult(r.GetProperty("decl_errors").GetInt32(), r.GetProperty("typed").GetInt32(), r.GetProperty("type_failures").GetInt32(),
+            r.GetProperty("structs").GetInt32(), r.GetProperty("vftables_typed").GetInt32(), r.GetProperty("methods_typed").GetInt32(),
+            TimeSpan.FromSeconds(r.GetProperty("seconds").GetDouble()), r.GetProperty("failures").EnumerateArray().Select(f => f.GetString() ?? "").ToList(),
+            r.TryGetProperty("method_skips", out var skips) ? skips.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetInt32()) : new Dictionary<string, int>());
+    }
+
     public async Task<string?> GetStampAsync(string key, CancellationToken cancellationToken = default)
     {
         var r = await CallAsync("get_stamp", IdaProvider.Args(("key", key)), cancellationToken).ConfigureAwait(false);
