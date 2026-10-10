@@ -37,6 +37,8 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         else if (health.Invalid > 0)
             sb.AppendLine($"IL: {health.Invalid} of {health.Bodies} method bodies are not valid IL (e.g. " +
                           string.Join(", ", m.GetTypes().SelectMany(t => t.Methods).Where(health.IsInvalid).Take(3).Select(Format.MemberLabel)) + ").");
+        if (ReadyToRunService.Summary(workspace, asm) is { } readyToRun)
+            sb.AppendLine(readyToRun);
         if (asm.IsDirty)
             sb.AppendLine($"Unsaved edits: {string.Join("; ", asm.Edits)}");
         AppendPeInfo(sb, m);

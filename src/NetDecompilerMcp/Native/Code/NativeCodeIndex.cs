@@ -385,9 +385,40 @@ public sealed class NativeCodeIndex : ICodeSymbols
 
     public string ReadString(StringLiteral s, int maxChars = 1024) => StringDetector.Read(Image, s, maxChars);
 
+    // User annotations (rename_native / comment_native), mirrored from the image's NativeAnnotations; names here win
+    // over discovered names, and KnownName of the matching function is updated so list_functions and labels show them.
+    private readonly Dictionary<uint, string> _userNames = new();
+    private readonly Dictionary<uint, string> _userComments = new();
+    private readonly Dictionary<uint, string?> _builtinNames = new();
+
+    /// <summary>Applies a user name at a function start (null clears it, restoring the discovered name).</summary>
+    public void SetUserName(uint rva, string? name)
+    {
+        lock (_userNames)
+        {
+            if (name == null) _userNames.Remove(rva);
+            else _userNames[rva] = name;
+            if (_byStart.TryGetValue(rva, out var f))
+            {
+                if (!_builtinNames.ContainsKey(rva)) _builtinNames[rva] = f.KnownName;
+                f.KnownName = name ?? _builtinNames[rva];
+            }
+        }
+    }
+
+    public void SetUserComment(uint rva, string? text)
+    {
+        lock (_userComments)
+        {
+            if (string.IsNullOrEmpty(text)) _userComments.Remove(rva);
+            else _userComments[rva] = text;
+        }
+    }
+
     /// <summary>Import "module!name" (or "module!#ordinal"), function name, or export name at <paramref name="rva"/>.</summary>
     public string? NameAt(uint rva)
     {
+        lock (_userNames) if (_userNames.TryGetValue(rva, out var user)) return user;
         if (_imports.TryGetValue(rva, out var imp)) return ImportName(imp);
         if (_byStart.TryGetValue(rva, out var f)) return f.Name;
         return _exportNames.GetValueOrDefault(rva);
@@ -395,6 +426,7 @@ public sealed class NativeCodeIndex : ICodeSymbols
 
     public string? CommentFor(uint rva)
     {
+        lock (_userComments) if (_userComments.TryGetValue(rva, out var user)) return user;
         if (StringAt(rva) is not { } s) return null;
         const int max = 120;
         return (s.Encoding == StringEncoding.Utf16 ? "L" : "") + StringDetector.Quote(ReadString(s, max), s.Length > max);

@@ -81,10 +81,11 @@ public class NativeToolBoundsTests
         using var h = new NativeToolHarness(backgroundIndexing: false);
         var stale = h.Workspace.LoadAny(Kernel32).Native!;
         var first = h.Workspace.ReloadNative(stale);
-        var second = h.Workspace.ReloadNative(stale); // a second call that resolved the same entry before the first reload
-        Assert.Same(first, second);
-        Assert.Single(h.Workspace.Read(() => h.Workspace.Natives));
+        // a second call that resolved the same entry before the first reload
+        Assert.Equal(ErrorCode.Conflict, Assert.Throws<ToolError>(() => h.Workspace.ReloadNative(stale)).Code);
+        Assert.Same(first, Assert.Single(h.Workspace.Read(() => h.Workspace.Natives)));
+        Assert.True(stale.Released.IsCancellationRequested);
         h.Workspace.UnloadNative(first);
-        Assert.Throws<ToolError>(() => h.Workspace.ReloadNative(first));
+        Assert.Equal(ErrorCode.Conflict, Assert.Throws<ToolError>(() => h.Workspace.ReloadNative(first)).Code);
     }
 }

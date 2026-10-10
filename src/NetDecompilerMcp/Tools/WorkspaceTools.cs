@@ -52,9 +52,11 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                        (image.RuntimeFunctions.Count > 0 ? $", {Plural(image.RuntimeFunctions.Count, "unwind entry")}" : "") +
                        (image.Issues.Count > 0 ? $"\n  {Plural(image.Issues.Count, "parse issue")} (get_pe_info lists them)" : "");
             }
-            var asm = loaded!;
             return workspace.Read(() =>
             {
+                // Looked up again under the lock: a concurrent reload or unload may have replaced the loaded entry.
+                var asm = workspace.FindByPath(loaded!.FilePath)
+                          ?? throw new ToolError(ErrorCode.Conflict, $"{loaded.Id} was unloaded by another call right after loading.", "repeat load_assembly");
                 var types = MetadataUtil.CountedTypes(asm.Module);
                 return $"Loaded {asm.Id}: {asm.FullAssemblyName}\n  {asm.FilePath}\n  {types.Count} types, " +
                        $"{MetadataUtil.NamespaceCount(types)} namespaces" +

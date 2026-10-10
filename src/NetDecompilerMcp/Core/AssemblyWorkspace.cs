@@ -169,33 +169,29 @@ public sealed class AssemblyWorkspace : IDisposable
 
     public void UnloadNative(LoadedNative native) => Write(() =>
     {
-        _natives.Remove(native);
+        if (!_natives.Remove(native)) throw Gone(native.Id);
         native.Release();
         return 0;
     });
+
+    private static ToolError Gone(string id) =>
+        new(ErrorCode.Conflict, $"{id} was unloaded or reloaded by another call in the meantime.", "list_assemblies shows what is loaded now; repeat the call");
 
     /// <summary>Re-reads a native image from disk, discarding its analysis state.</summary>
     public LoadedNative ReloadNative(LoadedNative native)
     {
         var image = Native.Pe.PeFile.Open(native.FilePath);
-        bool replaced = false;
         var fresh = Write(() =>
         {
             int index = _natives.IndexOf(native);
-            if (index < 0)
-            {
-                // Unloaded or reloaded by a concurrent call: the current entry for the file, if any, is already fresh.
-                return _natives.FirstOrDefault(n => string.Equals(n.FilePath, native.FilePath, StringComparison.OrdinalIgnoreCase))
-                       ?? throw new ToolError(ErrorCode.NotLoaded, $"{native.Id} was unloaded.", "load_assembly with its path");
-            }
+            if (index < 0) throw Gone(native.Id);
             _natives.RemoveAt(index);
             native.Release();
             var reloaded = new LoadedNative(native.Id, native.FilePath, image);
             _natives.Insert(index, reloaded);
-            replaced = true;
             return reloaded;
         });
-        if (replaced) NativeLoaded?.Invoke(fresh);
+        NativeLoaded?.Invoke(fresh);
         return fresh;
     }
 
@@ -267,7 +263,8 @@ public sealed class AssemblyWorkspace : IDisposable
     {
         Write(() =>
         {
-            _assemblies.Remove(asm);
+            // A concurrent unload or reload already replaced it.
+            if (!_assemblies.Remove(asm)) throw Gone(asm.Id);
             asm.Dispose();
             return 0;
         });
@@ -286,6 +283,7 @@ public sealed class AssemblyWorkspace : IDisposable
     private LoadedAssembly ReloadCore(LoadedAssembly asm) => Write(() =>
     {
         int index = _assemblies.IndexOf(asm);
+        if (index < 0) throw Gone(asm.Id);
         _assemblies.Remove(asm);
         asm.Dispose();
         var fresh = LoadCore(asm.FilePath);

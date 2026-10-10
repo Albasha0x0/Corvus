@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Native.Annotations;
 using NetDecompilerMcp.Native.Code;
 
 namespace NetDecompilerMcp.Services;
@@ -12,17 +13,31 @@ namespace NetDecompilerMcp.Services;
 public sealed class NativeCodeService
 {
     private readonly ILogger<NativeCodeService>? _logger;
+    private readonly AnnotationStore _store;
 
-    public NativeCodeService(AssemblyWorkspace workspace, ServerOptions options, ILogger<NativeCodeService>? logger = null)
+    public NativeCodeService(AssemblyWorkspace workspace, ServerOptions options, ILogger<NativeCodeService>? logger = null, AnnotationStore? annotations = null)
     {
         _logger = logger;
+        _store = annotations ?? new AnnotationStore();
         if (options.BackgroundIndexing)
             workspace.NativeLoaded += native =>
             {
                 // Unloaded again before the event ran: nothing to build.
-                try { Holder(native).Start(_logger); }
+                try { Holder(native).Start(_logger, this); }
                 catch (ToolError) when (native.Released.IsCancellationRequested) { }
             };
+    }
+
+    /// <summary>The image's annotations (names and comments), loaded from the sidecar on first use.</summary>
+    public NativeAnnotations Annotations(LoadedNative native) =>
+        native.Annotations(n => new NativeAnnotations(_store, n.FilePath, n.OriginalSha256, n.Image.ImageBase));
+
+    /// <summary>Mirrors every saved name and comment onto a freshly built index so they show up in queries.</summary>
+    public void ApplyAnnotations(LoadedNative native, NativeCodeIndex index)
+    {
+        if (native.AnnotationsOrNull is not { } ann && (ann = Annotations(native)) is null) return;
+        foreach (var (rva, name) in ann.Names()) index.SetUserName(rva, name);
+        foreach (var (rva, comment) in ann.Comments()) index.SetUserComment(rva, comment);
     }
 
     /// <summary>The image's index, building it if needed; progress reports the build phase while the caller waits.</summary>
@@ -31,10 +46,10 @@ public sealed class NativeCodeService
         var holder = Holder(native);
         Action<CodeIndexProgress>? listener = progress != null ? progress.Report : null;
         holder.Progress += listener;
-        try { return await holder.Start(_logger).WaitAsync(ct); }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested && native.Released.IsCancellationRequested)
+        try { return await holder.Start(_logger, this).WaitAsync(ct); }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            // The build was cancelled by an unload or reload, not by this caller.
+            // The build was cancelled because the image was unloaded, reloaded or patched by another call.
             throw native.Gone();
         }
         finally { holder.Progress -= listener; }
@@ -54,7 +69,7 @@ public sealed class NativeCodeService
         /// <summary>Progress of the build, for every caller waiting on it.</summary>
         public event Action<CodeIndexProgress>? Progress;
 
-        public Task<NativeCodeIndex> Start(ILogger? logger)
+        public Task<NativeCodeIndex> Start(ILogger? logger, NativeCodeService owner)
         {
             lock (this)
             {
@@ -64,8 +79,12 @@ public sealed class NativeCodeService
                     .ContinueWith(done =>
                     {
                         if (done.IsCompletedSuccessfully)
+                        {
+                            try { owner.ApplyAnnotations(native, done.Result); }
+                            catch (Exception ex) { logger?.LogWarning(ex, "Applying annotations to {Id} failed", native.Id); }
                             logger?.LogInformation("Indexed {Id}: {Functions} functions, {Xrefs} references in {Seconds:0.0} s", native.Id,
                                 done.Result.Stats.Functions, done.Result.Stats.Xrefs, done.Result.Stats.Elapsed.TotalSeconds);
+                        }
                         else if (done.Exception is { } ex)
                             logger?.LogWarning(ex.GetBaseException(), "Indexing {Id} failed", native.Id);
                         return done;
