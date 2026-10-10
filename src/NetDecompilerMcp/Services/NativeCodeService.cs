@@ -30,6 +30,7 @@ public sealed class NativeCodeService
     /// <summary>Mirrors every saved name and comment onto a freshly built index so they show up in queries.</summary>
     public void ApplyAnnotations(LoadedNative native, NativeCodeIndex index)
     {
+        NativeNameLayers.OfOrNull(native)?.ReplayInto(index);
         if (native.AnnotationsOrNull is not { } ann && (ann = Annotations(native)) is null) return;
         foreach (var (rva, name) in ann.Names()) index.SetUserName(rva, name);
         foreach (var (rva, comment) in ann.Comments()) index.SetUserComment(rva, comment);

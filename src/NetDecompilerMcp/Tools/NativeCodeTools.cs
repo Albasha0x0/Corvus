@@ -45,7 +45,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
             if (n < index.Image.SizeOfImage && index.FunctionByStart((uint)n) != null) return (uint)n;
             if (n >= index.Image.ImageBase && n - index.Image.ImageBase < index.Image.SizeOfImage) return (uint)(n - index.Image.ImageBase);
         }
-        return index.Functions.FirstOrDefault(f => f.KnownName == name)?.Start;
+        return index.AddressOfName(name);
     });
 
     private static NativeFunction FunctionAt(NativeCodeIndex index, uint rva) =>
