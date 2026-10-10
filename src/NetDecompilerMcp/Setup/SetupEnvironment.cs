@@ -71,6 +71,18 @@ internal sealed class SetupEnvironment
 
     public string InHome(params string[] parts) => Path.Combine([Home, .. parts]);
 
+    /// <summary>A non-empty environment variable, else null.</summary>
+    public string? Set(string name) => Variable(name) is { Length: > 0 } value ? value : null;
+
+    /// <summary>A path from an override variable: "~" and "~/x" are under the home folder, relative paths under the working directory.</summary>
+    public string ExpandPath(string path)
+    {
+        if (path == "~") return Home;
+        if (path.StartsWith("~/", StringComparison.Ordinal) || path.StartsWith("~\\", StringComparison.Ordinal))
+            return Path.Combine([Home, .. path[2..].Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries)]);
+        return Path.GetFullPath(path);
+    }
+
     private static string? OnPath(string tool)
     {
         var dirs = (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);

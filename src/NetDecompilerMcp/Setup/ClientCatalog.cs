@@ -36,18 +36,18 @@ internal static class ClientCatalog
         JsonTarget Json(string path, Func<ServerLaunch, JsonObject> entry, params string[] container) =>
             new(path, container.Length == 0 ? Servers : container, entry);
 
-        var claudeJson = env.InHome(".claude.json");
+        // CLAUDE_CONFIG_DIR holds both .claude.json and what is otherwise ~/.claude.
+        var claudeDir = env.Set("CLAUDE_CONFIG_DIR");
+        var claudeJson = Path.Combine(claudeDir ?? env.Home, ".claude.json");
         var claudeTarget = env.FindTool("claude") is { } claudeCli
             ? (ConfigTarget)new ClaudeCliTarget(claudeCli, Json(claudeJson, ClaudeCode))
             : Json(claudeJson, ClaudeCode);
         Add("claude-code", "Claude Code", ["claude"], claudeTarget,
-            File.Exists(claudeJson) || Dir(env.InHome(".claude")) || env.HasTool("claude"));
+            File.Exists(claudeJson) || Dir(claudeDir ?? env.InHome(".claude")) || env.HasTool("claude"));
 
-        if (env.Os != HostOs.Linux)
-        {
-            var dir = env.AppSupport("Claude");
-            Add("claude-desktop", "Claude Desktop", ["claude-app"], Json(Path.Combine(dir, "claude_desktop_config.json"), Plain), Dir(dir));
-        }
+        // Linux: $XDG_CONFIG_HOME/Claude.
+        var desktop = env.AppSupport("Claude");
+        Add("claude-desktop", "Claude Desktop", ["claude-app"], Json(Path.Combine(desktop, "claude_desktop_config.json"), Plain), Dir(desktop));
 
         Add("cursor", "Cursor", [], Json(env.InHome(".cursor", "mcp.json"), Plain), Dir(env.InHome(".cursor")) || env.HasTool("cursor-agent"));
         Add("windsurf", "Windsurf", ["codeium"], Json(env.InHome(".codeium", "windsurf", "mcp_config.json"), Plain), Dir(env.InHome(".codeium", "windsurf")));
@@ -77,19 +77,30 @@ internal static class ClientCatalog
         var codexHome = env.Variable("CODEX_HOME") is { Length: > 0 } ch ? ch : env.InHome(".codex");
         Add("codex", "Codex", ["openai-codex"], new CodexTomlTarget(Path.Combine(codexHome, "config.toml")), Dir(codexHome) || env.HasTool("codex"));
 
-        Add("gemini-cli", "Gemini CLI", ["gemini"], Json(env.InHome(".gemini", "settings.json"), Plain),
-            File.Exists(env.InHome(".gemini", "settings.json")) || env.HasTool("gemini"));
-        Add("qwen-code", "Qwen Code", ["qwen"], Json(env.InHome(".qwen", "settings.json"), Plain), Dir(env.InHome(".qwen")) || env.HasTool("qwen"));
-        Add("copilot-cli", "GitHub Copilot CLI", ["copilot"], Json(env.InHome(".copilot", "mcp-config.json"), Copilot), Dir(env.InHome(".copilot")) || env.HasTool("copilot"));
+        // GEMINI_CLI_HOME replaces the home folder; QWEN_HOME and COPILOT_HOME replace the client's own folder.
+        var gemini = Path.Combine(env.Set("GEMINI_CLI_HOME") ?? env.Home, ".gemini", "settings.json");
+        Add("gemini-cli", "Gemini CLI", ["gemini"], Json(gemini, Plain), File.Exists(gemini) || env.HasTool("gemini"));
+        var qwen = env.Set("QWEN_HOME") is { } qwenHome ? env.ExpandPath(qwenHome) : env.InHome(".qwen");
+        Add("qwen-code", "Qwen Code", ["qwen"], Json(Path.Combine(qwen, "settings.json"), Plain), Dir(qwen) || env.HasTool("qwen"));
+        var copilot = env.Set("COPILOT_HOME") ?? env.InHome(".copilot");
+        Add("copilot-cli", "GitHub Copilot CLI", ["copilot"], Json(Path.Combine(copilot, "mcp-config.json"), Copilot), Dir(copilot) || env.HasTool("copilot"));
 
-        var opencode = env.InHome(".config", "opencode");
-        var opencodeFile = File.Exists(Path.Combine(opencode, "opencode.jsonc")) ? "opencode.jsonc" : "opencode.json";
-        Add("opencode", "OpenCode", [], Json(Path.Combine(opencode, opencodeFile), OpenCode, "mcp"), Dir(opencode) || env.HasTool("opencode"));
+        var (opencodeDir, opencodeFile) = OpenCodeFile(env);
+        Add("opencode", "OpenCode", [], Json(opencodeFile, OpenCode, "mcp"), Dir(opencodeDir) || File.Exists(opencodeFile) || env.HasTool("opencode"));
 
-        var crush = env.Os == HostOs.Windows && Dir(Path.Combine(env.LocalAppData, "crush")) ? Path.Combine(env.LocalAppData, "crush") : env.InHome(".config", "crush");
+        // An explicit XDG_CONFIG_HOME wins on every system, then %LOCALAPPDATA%\crush on Windows, then ~/.config.
+        var crush = env.Set("XDG_CONFIG_HOME") is { } xdg ? Path.Combine(xdg, "crush")
+            : env.Os == HostOs.Windows && Dir(Path.Combine(env.LocalAppData, "crush")) ? Path.Combine(env.LocalAppData, "crush")
+            : env.InHome(".config", "crush");
         Add("crush", "Crush", [], Json(Path.Combine(crush, "crush.json"), Stdio, "mcp"), Dir(crush) || env.HasTool("crush"));
 
-        var zed = env.Os == HostOs.Windows ? Path.Combine(env.AppData, "Zed") : env.InHome(".config", "zed");
+        // XDG on Linux only; macOS always uses ~/.config/zed.
+        var zed = env.Os switch
+        {
+            HostOs.Windows => Path.Combine(env.AppData, "Zed"),
+            HostOs.Linux => Path.Combine(env.XdgConfig, "zed"),
+            _ => env.InHome(".config", "zed"),
+        };
         Add("zed", "Zed", [], Json(Path.Combine(zed, "settings.json"), WithEnv, "context_servers"), Dir(zed));
 
         Add("lm-studio", "LM Studio", ["lmstudio"], Json(env.InHome(".lmstudio", "mcp.json"), Plain), Dir(env.InHome(".lmstudio")));
@@ -101,5 +112,21 @@ internal static class ClientCatalog
         Add("antigravity", "Antigravity", [], Json(Path.Combine(antigravity, "mcp_config.json"), Plain), Dir(shared) || Dir(env.InHome(".gemini", "antigravity")));
 
         return list;
+    }
+
+    /// <summary>
+    /// OpenCode's folder and the file it loads last (so ours wins): OPENCODE_CONFIG_DIR, else the OPENCODE_CONFIG file,
+    /// else $XDG_CONFIG_HOME/opencode; in a folder opencode.jsonc is loaded after opencode.json.
+    /// </summary>
+    private static (string Dir, string File) OpenCodeFile(SetupEnvironment env)
+    {
+        if (env.Set("OPENCODE_CONFIG_DIR") is null && env.Set("OPENCODE_CONFIG") is { } file)
+        {
+            var full = Path.GetFullPath(file);
+            return (Path.GetDirectoryName(full)!, full);
+        }
+        var dir = env.Set("OPENCODE_CONFIG_DIR") is { } custom ? Path.GetFullPath(custom) : Path.Combine(env.XdgConfig, "opencode");
+        var jsonc = Path.Combine(dir, "opencode.jsonc");
+        return (dir, System.IO.File.Exists(jsonc) ? jsonc : Path.Combine(dir, "opencode.json"));
     }
 }
