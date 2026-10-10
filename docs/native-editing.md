@@ -41,9 +41,31 @@ Services/NativeEditService.cs).
 - Over code, the overwritten span is extended to the next instruction boundary and the trailing bytes are padded
   with NOPs. A patch that would start in the middle of an instruction, or run past the end of the containing
   function, is refused unless `force=true`.
-- `patch_asm` assembles x86/x64 text with Iced (`X86Assembler`): multi-line, labels, numeric and symbol branch
-  targets, and a `db <hex>` escape. It encodes each instruction at its running address, iterating to a fixed point,
-  so near-branch displacements and RIP-relative references are correct for the patch address.
+- `patch_asm` assembles x86/x64 MASM/Intel text with Iced (`X86Assembler`), in the form our `disassemble` tool
+  prints it, so a line can be copied, edited and patched back. It aims at the whole general-purpose / SSE / AVX /
+  AVX-512 / x87 instruction set:
+  - **Operands.** Registers of every class (GPR 8/16/32/64 including `r8b`..`r15b`, `xmm`/`ymm`/`zmm`, `mm`, `k`,
+    segment, `cr`/`dr`/`tr`, `st(i)`); immediates in hex (`0x..`, `..h`, bare hex, with optional leading `-`) or
+    decimal (`#..`); and memory in any addressing form — `[base+index*scale+disp]`, segment overrides (`fs:[..]`),
+    size specifiers (`byte`/`word`/`dword`/`qword`/`tbyte`/`xmmword`/`ymmword`/`zmmword ptr`), and `[rip+X]`.
+  - **Symbols.** Branch and memory/immediate operands accept our names — `sub_<rva>`, export names, `loc_<rva>`
+    labels, and `module!import` (its IAT slot, for `call`/`jmp qword ptr [module!import]`). On x64 a bare absolute
+    `[addr]` assembles RIP-relative (as the disassembler prints it), falling back to an absolute `[disp32]` only when
+    the target is too far to reach RIP-relative from the patch.
+  - **Prefixes / string ops.** `lock`, `rep`/`repe`/`repne`, `bnd`; the sized string instructions
+    (`movs`/`stos`/`lods`/`scas`/`cmps` b/w/d/q).
+  - **How.** Rather than a per-mnemonic table it parses the operands and searches Iced's `Code` table for a form
+    whose operand kinds match, preferring the shortest encoding (and, on a tie, the MSVC-style placement, e.g. `8B`
+    over `89`), and rejecting obsolete aliases that do not decode back to themselves. The whole block is laid out with
+    `BlockEncoder` at the patch address, so near-branch sizes (short vs near), relative displacements and RIP-relative
+    references are correct. A `db <hex>` escape emits raw bytes.
+  - **Errors** are typed `ToolError(InvalidArgument)` naming the offending line, never an internal exception — e.g.
+    "operand size is ambiguous: add a size specifier such as 'dword ptr'" or "unknown mnemonic".
+  - **Round trip.** A property test assembles every instruction our disassembler prints for a set of System32 (x64)
+    and SysWOW64 (x86) functions and compares the bytes: ~99.8% reproduce an equivalent instruction (same text),
+    ~92% byte-for-byte identical; the remainder are non-canonical encodings (multi-byte `nop`, `int3` shown as
+    `int 3`, the reg,reg store vs load form) or a few implicit-operand oddities (`monitorx`/`mwaitx`) a human would
+    rewrite with `db`.
 - `dryRun` shows the before/after disassembly without recording the patch. `list_native_edits` / `undo_native_edit`
   manage the recorded patches.
 

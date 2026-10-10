@@ -1,3 +1,4 @@
+using System.Globalization;
 using Iced.Intel;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native;
@@ -6,11 +7,13 @@ using IcedCode = Iced.Intel.Code;
 namespace NetDecompilerMcp.Native.Patching;
 
 /// <summary>
-/// A small MASM/NASM-ish text assembler for x86 / x64, built on Iced's encoder. It assembles multi-line input at a
-/// fixed virtual address so branch displacements and RIP-relative references are correct for that address. Labels,
-/// numeric targets and caller-resolved symbols are all valid branch/call targets; a <c>db</c> escape emits raw bytes.
-/// The supported mnemonic set is deliberately narrow (control flow, stack, moves, common ALU ops); anything else is
-/// rejected with a clear message pointing at <c>db</c>.
+/// A MASM/Intel-syntax assembler for x86 / x64, built on Iced's encoder. It accepts essentially the whole
+/// general-purpose / SSE / AVX instruction set in the form our <c>disassemble</c> tool prints it, so a line can be
+/// copied, edited and patched back. Rather than a hand-written per-mnemonic table it parses each operand (register,
+/// immediate or memory in any addressing form) and searches Iced's <see cref="IcedCode"/> table for the form whose
+/// operand kinds match, preferring the shortest encoding. The whole block is laid out with <see cref="BlockEncoder"/>
+/// at the patch address, so near-branch sizes, relative displacements and RIP-relative references are correct.
+/// Labels, numeric targets and caller-resolved symbols are valid branch targets; a <c>db</c> escape emits raw bytes.
 /// </summary>
 public static class X86Assembler
 {
@@ -22,9 +25,9 @@ public static class X86Assembler
         public override void WriteByte(byte value) => Bytes.Add(value);
     }
 
-    private abstract record Item(int Line);
-    private sealed record Raw(int Line, byte[] Bytes) : Item(Line);
-    private sealed record Built(int Line, Instruction Instruction, string? TargetLabel) : Item(Line);
+    // Each assembled line becomes one Iced Instruction (db becomes a DeclareByte pseudo-instruction). A branch whose
+    // target is a label/number/symbol keeps the token so it can be resolved once every item has an identifier IP.
+    private sealed record Item(int Line, Instruction Instruction, string? BranchToken);
 
     /// <param name="resolveSymbol">Resolves a name that is neither a label nor a number to a VA (e.g. an export).</param>
     public static Result Assemble(NativeArch arch, ulong startVa, string text, Func<string, ulong?>? resolveSymbol = null)
@@ -33,7 +36,7 @@ public static class X86Assembler
             throw new ToolError(ErrorCode.Unsupported, $"Assembly is only supported for x86 and x64, not {arch}.");
         int bitness = arch == NativeArch.X64 ? 64 : 32;
 
-        // Pass 1: parse lines, collect label positions by item index.
+        // Pass 1: strip comments, collect labels by item index, parse each instruction.
         var items = new List<Item>();
         var labelIndex = new Dictionary<string, int>(StringComparer.Ordinal);
         int lineNo = 0;
@@ -44,174 +47,747 @@ public static class X86Assembler
             while (line.Length > 0)
             {
                 int colon = LabelColon(line);
-                if (colon >= 0)
-                {
-                    var label = line[..colon].Trim();
-                    if (label.Length == 0 || !IsName(label))
-                        throw Error(lineNo, $"'{label}' is not a valid label.");
-                    if (!labelIndex.TryAdd(label, items.Count))
-                        throw Error(lineNo, $"label '{label}' is defined more than once.");
-                    line = line[(colon + 1)..].Trim();
-                    continue;
-                }
-                break;
+                if (colon < 0) break;
+                var label = line[..colon].Trim();
+                if (label.Length == 0 || !IsName(label))
+                    throw Error(lineNo, $"'{label}' is not a valid label.");
+                if (!labelIndex.TryAdd(label, items.Count))
+                    throw Error(lineNo, $"label '{label}' is defined more than once.");
+                line = line[(colon + 1)..].Trim();
             }
             if (line.Length == 0) continue;
-            items.Add(Parse(bitness, lineNo, line, out _));
+            items.Add(ParseLine(bitness, startVa, lineNo, line, resolveSymbol));
         }
         if (items.Count == 0) throw new ToolError(ErrorCode.InvalidArgument, "No instructions to assemble.");
 
-        // Pass 2: iterate to a fixed point, resolving label targets to their current addresses.
-        var starts = new ulong[items.Count + 1];
-        for (int pass = 0; pass < 8; pass++)
-        {
-            bool stable = Layout(bitness, startVa, items, labelIndex, resolveSymbol, starts);
-            if (stable) break;
-        }
-        // Final encode.
-        Layout(bitness, startVa, items, labelIndex, resolveSymbol, starts);
-        var output = new List<byte>();
+        // Give each item a unique identifier IP well outside any real VA, so BlockEncoder relocates in-block branch
+        // targets (labels) while leaving external absolute targets alone. The real layout is recomputed by BlockEncoder.
+        const ulong labelBase = 0xF000_0000_0000_0000UL;
+        var list = new List<Instruction>(items.Count);
         for (int i = 0; i < items.Count; i++)
         {
-            if (items[i] is Raw raw) { output.AddRange(raw.Bytes); continue; }
-            var built = (Built)items[i];
-            var instr = WithTarget(bitness, built, labelIndex, resolveSymbol, starts);
-            var writer = new ByteWriter();
-            try { Encoder.Create(bitness, writer).Encode(instr, starts[i]); }
-            catch (EncoderException ex) { throw Error(built.Line, $"cannot encode: {ex.Message}"); }
-            output.AddRange(writer.Bytes);
+            var instr = items[i].Instruction;
+            instr.IP = labelBase + (ulong)i;
+            if (items[i].BranchToken is { } token)
+                SetBranchTarget(bitness, ref instr, items[i].Line, token, labelIndex, labelBase, resolveSymbol);
+            list.Add(instr);
         }
-        return new Result(output.ToArray());
+
+        var writer = new ByteWriter();
+        var block = new InstructionBlock(writer, list, startVa);
+        if (!BlockEncoder.TryEncode(bitness, block, out var err, out _, BlockEncoderOptions.None))
+            throw new ToolError(ErrorCode.InvalidArgument, $"Assembly failed to encode: {CleanError(err)}");
+        return new Result(writer.Bytes.ToArray());
     }
 
-    /// <summary>Lays out item start addresses; returns whether they are unchanged from <paramref name="starts"/>.</summary>
-    private static bool Layout(int bitness, ulong startVa, List<Item> items, Dictionary<string, int> labels,
-        Func<string, ulong?>? resolve, ulong[] starts)
+    private static void SetBranchTarget(int bitness, ref Instruction instr, int line, string token,
+        Dictionary<string, int> labels, ulong labelBase, Func<string, ulong?>? resolve)
     {
-        bool stable = true;
-        ulong at = startVa;
-        for (int i = 0; i < items.Count; i++)
+        ulong target;
+        if (labels.TryGetValue(token, out var index)) target = labelBase + (ulong)index;
+        else if (NativeAddress.Number(token) is { } n) target = n;
+        else if (resolve?.Invoke(token) is { } va) target = va;
+        else throw Error(line, $"branch target '{token}' is neither a label, a number, nor a known symbol.");
+        switch (instr.Op0Kind)
         {
-            if (starts[i] != at) { stable = false; starts[i] = at; }
-            int size;
-            if (items[i] is Raw raw) size = raw.Bytes.Length;
-            else
+            case OpKind.NearBranch64: instr.NearBranch64 = target; break;
+            case OpKind.NearBranch32: instr.NearBranch32 = (uint)target; break;
+            case OpKind.NearBranch16: instr.NearBranch16 = (ushort)target; break;
+            default: throw Error(line, "this branch does not take a code address here.");
+        }
+    }
+
+    // ---- parsing one line ----
+
+    private static Item ParseLine(int bitness, ulong startVa, int line, string text, Func<string, ulong?>? resolve)
+    {
+        // Leading prefixes: lock / rep* / bnd / notrack.
+        bool lockp = false, rep = false, repe = false, repne = false, bnd = false, notrack = false;
+        while (true)
+        {
+            int sp0 = text.IndexOfAny([' ', '\t']);
+            if (sp0 < 0) break;
+            var head = text[..sp0].ToLowerInvariant();
+            bool consumed = true;
+            switch (head)
             {
-                var built = (Built)items[i];
-                // Near branches/calls are fixed size (rel32), so for sizing we aim the branch at itself to stay in range;
-                // the final encode uses the resolved target. This avoids an out-of-range throw while targets settle.
-                var instr = built.Instruction;
-                if (built.TargetLabel != null) instr.NearBranch64 = at;
-                var writer = new ByteWriter();
-                try { Encoder.Create(bitness, writer).Encode(instr, at); }
-                catch (EncoderException ex) { throw Error(built.Line, $"cannot encode: {ex.Message}"); }
-                size = writer.Bytes.Count;
+                case "lock": lockp = true; break;
+                case "rep": rep = true; break;
+                case "repe": case "repz": repe = true; break;
+                case "repne": case "repnz": repne = true; break;
+                case "bnd": bnd = true; break;
+                case "notrack": notrack = true; break;
+                default: consumed = false; break;
             }
-            at += (uint)size;
+            if (!consumed) break;
+            text = text[(sp0 + 1)..].TrimStart();
         }
-        if (starts[items.Count] != at) { stable = false; starts[items.Count] = at; }
-        return stable;
-    }
 
-    private static Instruction WithTarget(int bitness, Built built, Dictionary<string, int> labels,
-        Func<string, ulong?>? resolve, ulong[] starts)
-    {
-        if (built.TargetLabel == null) return built.Instruction;
-        ulong target = ResolveTarget(built.Line, built.TargetLabel, labels, resolve, starts);
-        var instr = built.Instruction;
-        instr.NearBranch64 = target;
-        return instr;
-    }
-
-    private static ulong ResolveTarget(int line, string token, Dictionary<string, int> labels,
-        Func<string, ulong?>? resolve, ulong[] starts)
-    {
-        if (labels.TryGetValue(token, out var index)) return starts[index];
-        if (NativeAddress.Number(token) is { } n) return n;
-        if (resolve?.Invoke(token) is { } va) return va;
-        throw Error(line, $"branch target '{token}' is neither a label, a number, nor a known symbol.");
-    }
-
-    // ---- parsing one instruction ----
-
-    private static Item Parse(int bitness, int line, string text, out string mnemonic)
-    {
+        _ = notrack; // 3E notrack is accepted and ignored (no encoder slot)
         int sp = text.IndexOfAny([' ', '\t']);
-        mnemonic = (sp < 0 ? text : text[..sp]).ToLowerInvariant();
+        var mnemText = (sp < 0 ? text : text[..sp]).ToLowerInvariant();
         var rest = sp < 0 ? "" : text[(sp + 1)..].Trim();
-        var ops = rest.Length == 0 ? [] : rest.Split(',').Select(o => o.Trim()).ToArray();
+        var opTexts = SplitOperands(rest);
 
-        if (mnemonic == "db") return new Raw(line, ParseDb(line, ops, rest));
+        if (mnemText == "db") return new Item(line, Instruction.CreateDeclareByte(ParseDb(line, rest)), null);
 
-        // Zero-operand instructions.
-        if (ops.Length == 0 && ZeroOperand(bitness, mnemonic) is { } zcode)
-            return new Built(line, Instruction.Create(zcode), null);
+        // String instructions (movs/stos/lods/scas/cmps with a size suffix) use implicit [rsi]/[rdi] operands and are
+        // built with Iced's dedicated factories so the operand kinds and rep prefix are set. Only when no explicit
+        // operands were written, so "movsd xmm0, xmm1" still reaches the SSE form below.
+        if (opTexts.Length == 0 && StringOp(bitness, mnemText, rep || repe, repne) is { } sins)
+            return new Item(line, sins, null);
 
-        // Near branches / calls.
-        if (Branch(bitness, mnemonic) is { } bcode)
+        var mnemonic = MapMnemonic(mnemText);
+        if (mnemonic == Mnemonic.INVALID)
+            throw Error(line, $"unknown mnemonic '{mnemText}'. Use a standard x86/x64 mnemonic, or 'db <hex>' for raw bytes.");
+
+        // A branch / call with a single code-address operand (not a register or memory operand) is relative.
+        if (opTexts.Length == 1 && IsBranchMnemonic(mnemonic) && !LooksLikeRegOrMem(opTexts[0]))
         {
-            if (ops.Length != 1) throw Error(line, $"{mnemonic} takes one target.");
-            // The actual target address is filled in during layout; start with a placeholder near branch.
-            return new Built(line, Instruction.CreateBranch(bcode, 0), ops[0]);
+            var bcode = BranchCode(bitness, mnemonic) ?? throw Error(line, $"{mnemText} has no relative form in {bitness}-bit mode.");
+            var bins = Instruction.CreateBranch(bcode, 0);
+            ApplyPrefixes(ref bins, line, lockp, rep, repe, repne, bnd, notrack);
+            return new Item(line, bins, opTexts[0]);
         }
 
-        // ret imm16
-        if (mnemonic is "ret" or "retn" && ops.Length == 1)
-        {
-            if (NativeAddress.Number(ops[0]) is not { } imm || imm > ushort.MaxValue) throw Error(line, "ret operand must be a 16-bit immediate.");
-            return new Built(line, Instruction.Create(bitness == 64 ? IcedCode.Retnq_imm16 : IcedCode.Retnd_imm16, (int)imm), null);
-        }
+        // General case: parse operands, then search the Code table for a matching form.
+        var operands = new Operand[opTexts.Length];
+        for (int i = 0; i < opTexts.Length; i++) operands[i] = ParseOperand(bitness, line, opTexts[i], resolve);
 
-        // push / pop
-        if (mnemonic == "push" && ops.Length == 1)
-        {
-            if (Reg(ops[0]) is { } pr) return new Built(line, Instruction.Create(bitness == 64 ? IcedCode.Push_r64 : IcedCode.Push_r32, pr.Reg), null);
-            if (NativeAddress.Number(ops[0]) is { } imm && imm <= int.MaxValue)
-                return new Built(line, Instruction.Create(bitness == 64 ? IcedCode.Pushq_imm32 : IcedCode.Pushd_imm32, (int)imm), null);
-            throw Error(line, "push takes a register or a 32-bit immediate (use db for other forms).");
-        }
-        if (mnemonic == "pop" && ops.Length == 1 && Reg(ops[0]) is { } por)
-            return new Built(line, Instruction.Create(bitness == 64 ? IcedCode.Pop_r64 : IcedCode.Pop_r32, por.Reg), null);
+        // "imul reg, imm" is the two-operand shorthand for "imul reg, reg, imm" (destination also the source).
+        if (mnemonic == Mnemonic.Imul && operands is [{ Class: OpClass.Reg }, { Class: OpClass.Imm }])
+            operands = [operands[0], operands[0], operands[1]];
+        // xchg is commutative; our disassembler prints "xchg reg, [mem]" but the encoding is r/m first.
+        if (mnemonic == Mnemonic.Xchg && operands is [{ Class: OpClass.Reg }, { Class: OpClass.Mem }])
+            operands = [operands[1], operands[0]];
 
-        // mov reg, imm | reg, reg
-        if (mnemonic == "mov" && ops.Length == 2 && Reg(ops[0]) is { } md)
-        {
-            if (Reg(ops[1]) is { } ms)
-                return new Built(line, Instruction.Create(EnumCode(line, $"Mov_rm{md.Bits}_r{md.Bits}"), md.Reg, ms.Reg), null);
-            if (NativeAddress.Number(ops[1]) is { } imm)
-                return new Built(line, MovImm(line, md.Reg, md.Bits, imm), null);
-            throw Error(line, "mov source must be a register or an immediate (use db for memory forms).");
-        }
-
-        // one-operand ALU: inc/dec/neg/not reg
-        if (mnemonic is "inc" or "dec" or "neg" or "not" && ops.Length == 1 && Reg(ops[0]) is { } ur)
-            return new Built(line, Instruction.Create(EnumCode(line, $"{Cap(mnemonic)}_rm{ur.Bits}"), ur.Reg), null);
-
-        // two-operand ALU: add/sub/and/or/xor/cmp/test reg, reg|imm
-        if (mnemonic is "add" or "sub" or "and" or "or" or "xor" or "cmp" or "test" && ops.Length == 2 && Reg(ops[0]) is { } ar)
-        {
-            if (Reg(ops[1]) is { } asrc)
-                return new Built(line, Instruction.Create(EnumCode(line, $"{Cap(mnemonic)}_rm{ar.Bits}_r{ar.Bits}"), ar.Reg, asrc.Reg), null);
-            if (NativeAddress.Number(ops[1]) is { } imm && imm <= int.MaxValue)
-                return new Built(line, Instruction.Create(EnumCode(line, $"{Cap(mnemonic)}_rm{ar.Bits}_imm{(ar.Bits >= 32 ? 32 : ar.Bits)}"), ar.Reg, (int)imm), null);
-            throw Error(line, $"{mnemonic} source must be a register or a 32-bit immediate (use db otherwise).");
-        }
-
-        throw Error(line, $"unsupported instruction '{mnemonic}'. Supported: control flow (jmp/call/jcc), ret, push, pop, mov, " +
-                          "inc/dec/neg/not, add/sub/and/or/xor/cmp/test, and 'db <hex bytes>' for anything else.");
+        var built = Select(bitness, startVa, line, mnemText, mnemonic, operands);
+        ApplyPrefixes(ref built, line, lockp, rep, repe, repne, bnd, notrack);
+        return new Item(line, built, null);
     }
 
-    private static Instruction MovImm(int line, Register dst, int bits, ulong imm) => bits switch
+    private static void ApplyPrefixes(ref Instruction instr, int line, bool lockp, bool rep, bool repe, bool repne, bool bnd, bool notrack)
     {
-        64 => Instruction.Create(IcedCode.Mov_r64_imm64, dst, imm),
-        32 => Instruction.Create(IcedCode.Mov_r32_imm32, dst, (uint)imm),
-        16 => Instruction.Create(IcedCode.Mov_r16_imm16, dst, (uint)(ushort)imm),
-        _ => Instruction.Create(IcedCode.Mov_r8_imm8, dst, (uint)(byte)imm),
+        _ = line; _ = notrack;
+        if (lockp) instr.HasLockPrefix = true;
+        if (rep || repe) instr.HasRepePrefix = true;
+        if (repne || bnd) instr.HasRepnePrefix = true; // bnd shares the F2 prefix slot
+    }
+
+    // ---- operand model ----
+
+    private enum OpClass { Reg, Mem, Imm }
+
+    private sealed record Operand(OpClass Class,
+        Register Reg = Register.None,
+        // memory
+        Register Base = Register.None, Register Index = Register.None, int Scale = 1,
+        long Disp = 0, bool Rip = false, Register Segment = Register.None, int? SizeBytes = null, bool Absolute = false, bool AutoRip = false,
+        // immediate (Applied holds the value with any sign already folded in)
+        ulong Applied = 0);
+
+    private static Operand ParseOperand(int bitness, int line, string text, Func<string, ulong?>? resolve)
+    {
+        var t = text.Trim();
+        if (t.Length == 0) throw Error(line, "empty operand.");
+
+        // "offset <name>" is an immediate address.
+        if (t.StartsWith("offset ", StringComparison.OrdinalIgnoreCase))
+            return ImmediateOperand(line, t[7..].Trim(), resolve);
+
+        // Size specifier, e.g. "dword ptr".
+        int? sizeBytes = null;
+        foreach (var (word, bytes) in SizeWords)
+            if (t.StartsWith(word, StringComparison.OrdinalIgnoreCase) && (t.Length == word.Length || !char.IsLetterOrDigit(t[word.Length])))
+            {
+                sizeBytes = bytes;
+                t = t[word.Length..].TrimStart();
+                break;
+            }
+
+        // Optional segment override before a memory operand: "fs:[...]".
+        Register segment = Register.None;
+        int bracket = t.IndexOf('[');
+        if (bracket > 0 && t[bracket - 1] == ':')
+        {
+            var segText = t[..(bracket - 1)].Trim();
+            if (TryRegister(segText, out var seg) && seg.IsSegmentRegister())
+            {
+                // DS is the default data segment; the disassembler writes "ds:[abs]" for absolute addressing but no
+                // override prefix is emitted for it, so treat it as none to round-trip byte-for-byte.
+                if (seg != Register.DS) segment = seg;
+                t = t[bracket..];
+            }
+        }
+
+        if (t.StartsWith('['))
+            return ParseMemory(bitness, line, t, segment, sizeBytes, resolve);
+
+        if (sizeBytes != null)
+            throw Error(line, $"a size specifier must be followed by a memory operand: '{text}'.");
+
+        // Register?
+        if (TryRegister(t, out var reg)) return new Operand(OpClass.Reg, Reg: reg);
+
+        // Immediate (number or symbol).
+        return ImmediateOperand(line, t, resolve);
+    }
+
+    private static Operand ImmediateOperand(int line, string t, Func<string, ulong?>? resolve)
+    {
+        bool neg = false;
+        var s = t;
+        if (s.StartsWith('-')) { neg = true; s = s[1..].Trim(); }
+        else if (s.StartsWith('+')) s = s[1..].Trim();
+        if (NativeAddress.Number(s) is { } num)
+            return new Operand(OpClass.Imm, Applied: neg ? (ulong)(-(long)num) : num);
+        if (resolve?.Invoke(t) is { } va) return new Operand(OpClass.Imm, Applied: va);
+        throw Error(line, $"'{t}' is not a register, a number, or a known symbol.");
+    }
+
+    private static Operand ParseMemory(int bitness, int line, string t, Register segment, int? sizeBytes, Func<string, ulong?>? resolve)
+    {
+        int close = t.IndexOf(']');
+        if (!t.StartsWith('[') || close < 0) throw Error(line, $"malformed memory operand '{t}'.");
+        var inner = t[1..close].Trim();
+        if (inner.Length == 0) throw Error(line, $"empty memory operand '{t}'.");
+
+        Register bse = Register.None, index = Register.None;
+        int scale = 1;
+        long disp = 0;
+        bool haveScaledIndex = false;
+
+        foreach (var (termRaw, sign) in SplitTerms(inner))
+        {
+            var term = termRaw.Trim();
+            if (term.Length == 0) continue;
+            int star = term.IndexOf('*');
+            if (star >= 0)
+            {
+                var regText = term[..star].Trim();
+                var scaleText = term[(star + 1)..].Trim();
+                if (!TryRegister(regText, out var ir) || !ir.IsGPR())
+                    throw Error(line, $"'{regText}' is not an index register in '{t}'.");
+                if (NativeAddress.Number(scaleText) is not { } sc || sc is not (1 or 2 or 4 or 8))
+                    throw Error(line, $"index scale must be 1, 2, 4 or 8 in '{t}'.");
+                index = ir; scale = (int)sc; haveScaledIndex = true;
+                continue;
+            }
+            if (TryRegister(term, out var reg) && (reg.IsGPR() || reg == Register.RIP || reg == Register.EIP))
+            {
+                if (reg == Register.RIP || reg == Register.EIP) { bse = Register.RIP; }
+                else if (bse == Register.None && !haveScaledIndex) bse = reg;
+                else if (index == Register.None) { index = reg; scale = 1; }
+                else throw Error(line, $"too many registers in '{t}'.");
+                continue;
+            }
+            // Displacement: number or symbol.
+            ulong value;
+            var dt = term;
+            bool dneg = sign < 0;
+            if (dt.StartsWith('-')) { dneg = !dneg; dt = dt[1..].Trim(); }
+            if (NativeAddress.Number(dt) is { } dn) value = dn;
+            else if (resolve?.Invoke(term) is { } va) { value = va; }
+            else throw Error(line, $"'{term}' is not a register, a number, or a known symbol in '{t}'.");
+            disp += dneg ? -(long)value : (long)value;
+        }
+
+        bool rip = bse == Register.RIP;
+        // In 64-bit, an absolute [addr] with no base/index and no segment is normally RIP-relative in encoding (the
+        // disassembler prints the absolute target for RIP-relative operands), but falls back to a true absolute
+        // [disp32] when the target is too far to reach RIP-relative from the patch address; this is decided in SetMem.
+        bool autoRip = false, absolute = false;
+        if (!rip && bse == Register.None && index == Register.None)
+        {
+            if (bitness == 64 && segment == Register.None) autoRip = true;
+            else absolute = true;
+        }
+        return new Operand(OpClass.Mem, Base: rip ? Register.RIP : bse, Index: index, Scale: scale,
+            Disp: disp, Rip: rip, Segment: segment, SizeBytes: sizeBytes, Absolute: absolute, AutoRip: autoRip);
+    }
+
+    // ---- code selection ----
+
+    private static Instruction Select(int bitness, ulong startVa, int line, string mnemText, Mnemonic mnemonic, Operand[] operands)
+    {
+        var candidates = new List<(Instruction Instr, int Length, int RmRank, IcedCode Code)>();
+        var memSizes = new HashSet<int>();
+        bool anyMnemonic = false, anyArity = false;
+
+        foreach (var code in CodesFor(mnemonic))
+        {
+            var oc = code.ToOpCode();
+            if (!oc.IsInstruction) continue;
+            anyMnemonic = true;
+            if (bitness == 64 ? !oc.Mode64 : !oc.Mode32) continue;
+            if (oc.OpCount != operands.Length) continue;
+            anyArity = true;
+
+            if (!TryBuild(bitness, startVa, code, oc, operands, out var instr)) continue;
+
+            // Validate / collect the memory-operand size.
+            int memSize = -1;
+            if (operands.Any(o => o.Class == OpClass.Mem))
+            {
+                int sz = instr.MemorySize.GetInfo().Size;
+                memSize = sz;
+                var memOp = operands.First(o => o.Class == OpClass.Mem);
+                if (sz != 0 && memOp.SizeBytes is { } want && want != sz) continue; // ptr specifier disagrees
+                if (sz != 0) memSizes.Add(sz);
+            }
+
+            int len = EncodedLength(bitness, startVa, instr, out var encoded);
+            if (len < 0) continue;
+            // Reject obsolete / undocumented aliases (e.g. the 0F A7 cmpxchg486) whose bytes do not decode back to
+            // this instruction; a legitimate form always round-trips through the decoder.
+            if (!DecodesBackTo(bitness, encoded, startVa, code)) continue;
+            // Prefer putting a register in the modrm.reg slot and the r/m slot in a later operand (the "load" form,
+            // e.g. 8B/33 over 89/31) — this is what MSVC emits, so it maximizes byte-identity with Windows binaries.
+            int rmRank = 0;
+            for (int i = 0; i < operands.Length; i++)
+                if (Classify(oc.GetOpKind(i)).Role is Role.Rm or Role.Mem) rmRank += operands.Length - i;
+            candidates.Add((instr, len, rmRank, code));
+        }
+
+        if (candidates.Count == 0)
+        {
+            if (!anyMnemonic) throw Error(line, $"'{mnemText}' is not an encodable instruction.");
+            if (!anyArity) throw Error(line, $"{mnemText} does not take {operands.Length} operand(s) in {bitness}-bit mode.");
+            throw Error(line, $"no {mnemText} form matches these operands (check register sizes, or add a size specifier such as 'dword ptr').");
+        }
+
+        // If a memory operand has no explicit size and the surviving forms disagree on it, the size is ambiguous.
+        var memOperand = operands.FirstOrDefault(o => o.Class == OpClass.Mem);
+        if (memOperand is { SizeBytes: null } && memSizes.Count > 1)
+            throw Error(line, "operand size is ambiguous: add a size specifier such as 'byte ptr', 'word ptr', 'dword ptr' or 'qword ptr'.");
+
+        // Prefer the shortest encoding; then the MSVC-style operand placement; then the lower Code value.
+        candidates.Sort((a, b) =>
+            a.Length != b.Length ? a.Length - b.Length :
+            a.RmRank != b.RmRank ? a.RmRank - b.RmRank :
+            ((int)a.Code).CompareTo((int)b.Code));
+        return candidates[0].Instr;
+    }
+
+    private static bool TryBuild(int bitness, ulong startVa, IcedCode code, OpCodeInfo oc, Operand[] operands, out Instruction instr)
+    {
+        instr = default;
+        instr.Code = code;
+        for (int i = 0; i < operands.Length; i++)
+        {
+            var spec = Classify(oc.GetOpKind(i));
+            var op = operands[i];
+            switch (spec.Role)
+            {
+                case Role.Reg:
+                    if (op.Class != OpClass.Reg || !RegClassMatches(op.Reg, spec.RC, spec.RegSize)) return false;
+                    SetReg(ref instr, i, op.Reg);
+                    break;
+                case Role.Rm:
+                    if (op.Class == OpClass.Reg)
+                    {
+                        if (!RegClassMatches(op.Reg, spec.RC, spec.RegSize)) return false;
+                        SetReg(ref instr, i, op.Reg);
+                    }
+                    else if (op.Class == OpClass.Mem) { if (!SetMem(bitness, startVa, ref instr, i, op)) return false; }
+                    else return false;
+                    break;
+                case Role.Mem:
+                    if (op.Class != OpClass.Mem) return false;
+                    if (!SetMem(bitness, startVa, ref instr, i, op)) return false;
+                    break;
+                case Role.Fixed:
+                    if (op.Class != OpClass.Reg || op.Reg != spec.FixedReg) return false;
+                    SetOpKind(ref instr, i, OpKind.Register);
+                    SetReg(ref instr, i, op.Reg);
+                    break;
+                case Role.Imm:
+                    if (op.Class != OpClass.Imm || !ImmFits(op.Applied, spec.ImmKind)) return false;
+                    SetOpKind(ref instr, i, ImmOpKind(spec.ImmKind));
+                    instr.SetImmediate(i, unchecked((long)op.Applied));
+                    break;
+                default:
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    private static bool SetMem(int bitness, ulong startVa, ref Instruction instr, int i, Operand op)
+    {
+        SetOpKind(ref instr, i, OpKind.Memory);
+        instr.MemoryBase = op.Base;
+        instr.MemoryIndex = op.Index;
+        instr.MemoryIndexScale = op.Scale;
+        instr.SegmentPrefix = op.Segment;
+        // An x64 bare [addr]: RIP-relative when reachable from the patch, otherwise a true absolute [disp32].
+        bool rip = op.Rip || (op.AutoRip && Reachable((long)startVa, op.Disp));
+        if (rip)
+        {
+            instr.MemoryBase = Register.RIP;
+            instr.MemoryDisplacement64 = (ulong)op.Disp;
+            instr.MemoryDisplSize = 8;
+        }
+        else if (op.AutoRip)
+        {
+            instr.MemoryBase = Register.None;
+            instr.MemoryDisplacement64 = (ulong)op.Disp;
+            instr.MemoryDisplSize = 8; // x64 SIB absolute disp32
+        }
+        else if (op.Base == Register.None && op.Index == Register.None)
+        {
+            instr.MemoryDisplacement64 = (ulong)op.Disp;
+            instr.MemoryDisplSize = bitness == 64 ? 8 : 4;
+        }
+        else if (op.Base == Register.None) // index only -> disp32
+        {
+            instr.MemoryDisplacement64 = (ulong)op.Disp;
+            instr.MemoryDisplSize = 4;
+        }
+        else
+        {
+            instr.MemoryDisplacement64 = (ulong)op.Disp;
+            instr.MemoryDisplSize = op.Disp == 0 ? 0 : 1; // Iced grows disp8 -> disp32 and forces rbp/r13 as needed
+        }
+        return true;
+    }
+
+    /// <summary>Whether an absolute target is within a RIP-relative disp32 of the patch (with margin for the instruction).</summary>
+    private static bool Reachable(long startVa, long target)
+    {
+        long diff = target - startVa;
+        return diff >= int.MinValue + 0x20 && diff <= int.MaxValue - 0x20;
+    }
+
+    private static bool DecodesBackTo(int bitness, byte[] bytes, ulong startVa, IcedCode code)
+    {
+        var dec = Decoder.Create(bitness, new ByteArrayCodeReader(bytes), startVa, DecoderOptions.None);
+        var insn = dec.Decode();
+        return insn.Code == code;
+    }
+
+    private static int EncodedLength(int bitness, ulong startVa, Instruction instr, out byte[] bytes)
+    {
+        var w = new ByteWriter();
+        // Measure at the real patch address so a RIP-relative displacement to a far absolute target still fits int32.
+        try { int n = (int)Encoder.Create(bitness, w).Encode(instr, startVa); bytes = w.Bytes.ToArray(); return n; }
+        catch (EncoderException) { bytes = []; return -1; }
+    }
+
+    // ---- operand-kind classification ----
+
+    private enum Role { Reg, Rm, Mem, Imm, Fixed, Unsupported }
+    private enum RC { GPR, XMM, YMM, ZMM, MM, K, SEG, CR, DR, TR, BND, TMM, ST }
+
+    private readonly record struct Spec(Role Role, RC RC = RC.GPR, int RegSize = 0,
+        Register FixedReg = Register.None, OpCodeOperandKind ImmKind = OpCodeOperandKind.None);
+
+    private static Spec Classify(OpCodeOperandKind k) => k switch
+    {
+        OpCodeOperandKind.r8_or_mem => new(Role.Rm, RC.GPR, 1),
+        OpCodeOperandKind.r16_or_mem or OpCodeOperandKind.r16_reg_mem => new(Role.Rm, RC.GPR, 2),
+        OpCodeOperandKind.r32_or_mem or OpCodeOperandKind.r32_or_mem_mpx or OpCodeOperandKind.r32_reg_mem => new(Role.Rm, RC.GPR, 4),
+        OpCodeOperandKind.r64_or_mem or OpCodeOperandKind.r64_or_mem_mpx or OpCodeOperandKind.r64_reg_mem => new(Role.Rm, RC.GPR, 8),
+        OpCodeOperandKind.mm_or_mem => new(Role.Rm, RC.MM),
+        OpCodeOperandKind.xmm_or_mem => new(Role.Rm, RC.XMM),
+        OpCodeOperandKind.ymm_or_mem => new(Role.Rm, RC.YMM),
+        OpCodeOperandKind.zmm_or_mem => new(Role.Rm, RC.ZMM),
+        OpCodeOperandKind.k_or_mem => new(Role.Rm, RC.K),
+        OpCodeOperandKind.bnd_or_mem_mpx => new(Role.Rm, RC.BND),
+
+        OpCodeOperandKind.r8_reg or OpCodeOperandKind.r8_opcode => new(Role.Reg, RC.GPR, 1),
+        OpCodeOperandKind.r16_reg or OpCodeOperandKind.r16_rm or OpCodeOperandKind.r16_opcode => new(Role.Reg, RC.GPR, 2),
+        OpCodeOperandKind.r32_reg or OpCodeOperandKind.r32_rm or OpCodeOperandKind.r32_opcode or OpCodeOperandKind.r32_vvvv => new(Role.Reg, RC.GPR, 4),
+        OpCodeOperandKind.r64_reg or OpCodeOperandKind.r64_rm or OpCodeOperandKind.r64_opcode or OpCodeOperandKind.r64_vvvv => new(Role.Reg, RC.GPR, 8),
+        OpCodeOperandKind.seg_reg => new(Role.Reg, RC.SEG),
+        OpCodeOperandKind.k_reg or OpCodeOperandKind.kp1_reg or OpCodeOperandKind.k_rm or OpCodeOperandKind.k_vvvv => new(Role.Reg, RC.K),
+        OpCodeOperandKind.mm_reg or OpCodeOperandKind.mm_rm => new(Role.Reg, RC.MM),
+        OpCodeOperandKind.xmm_reg or OpCodeOperandKind.xmm_rm or OpCodeOperandKind.xmm_vvvv or OpCodeOperandKind.xmm_is4 or OpCodeOperandKind.xmm_is5 => new(Role.Reg, RC.XMM),
+        OpCodeOperandKind.ymm_reg or OpCodeOperandKind.ymm_rm or OpCodeOperandKind.ymm_vvvv or OpCodeOperandKind.ymm_is4 or OpCodeOperandKind.ymm_is5 => new(Role.Reg, RC.YMM),
+        OpCodeOperandKind.zmm_reg or OpCodeOperandKind.zmm_rm or OpCodeOperandKind.zmm_vvvv => new(Role.Reg, RC.ZMM),
+        OpCodeOperandKind.cr_reg => new(Role.Reg, RC.CR),
+        OpCodeOperandKind.dr_reg => new(Role.Reg, RC.DR),
+        OpCodeOperandKind.tr_reg => new(Role.Reg, RC.TR),
+        OpCodeOperandKind.bnd_reg => new(Role.Reg, RC.BND),
+        OpCodeOperandKind.sti_opcode => new(Role.Reg, RC.ST),
+
+        OpCodeOperandKind.es => new(Role.Fixed, FixedReg: Register.ES),
+        OpCodeOperandKind.cs => new(Role.Fixed, FixedReg: Register.CS),
+        OpCodeOperandKind.ss => new(Role.Fixed, FixedReg: Register.SS),
+        OpCodeOperandKind.ds => new(Role.Fixed, FixedReg: Register.DS),
+        OpCodeOperandKind.fs => new(Role.Fixed, FixedReg: Register.FS),
+        OpCodeOperandKind.gs => new(Role.Fixed, FixedReg: Register.GS),
+        OpCodeOperandKind.al => new(Role.Fixed, FixedReg: Register.AL),
+        OpCodeOperandKind.cl => new(Role.Fixed, FixedReg: Register.CL),
+        OpCodeOperandKind.ax => new(Role.Fixed, FixedReg: Register.AX),
+        OpCodeOperandKind.dx => new(Role.Fixed, FixedReg: Register.DX),
+        OpCodeOperandKind.eax => new(Role.Fixed, FixedReg: Register.EAX),
+        OpCodeOperandKind.rax => new(Role.Fixed, FixedReg: Register.RAX),
+        OpCodeOperandKind.st0 => new(Role.Fixed, FixedReg: Register.ST0),
+
+        OpCodeOperandKind.mem or OpCodeOperandKind.sibmem or OpCodeOperandKind.mem_mpx or OpCodeOperandKind.mem_mib or OpCodeOperandKind.mem_offs => new(Role.Mem),
+
+        OpCodeOperandKind.imm8 or OpCodeOperandKind.imm8_const_1 or OpCodeOperandKind.imm16 or OpCodeOperandKind.imm32
+            or OpCodeOperandKind.imm64 or OpCodeOperandKind.imm8sex16 or OpCodeOperandKind.imm8sex32 or OpCodeOperandKind.imm8sex64
+            or OpCodeOperandKind.imm32sex64 or OpCodeOperandKind.imm4_m2z => new(Role.Imm, ImmKind: k),
+
+        _ => new(Role.Unsupported),
     };
 
-    private static byte[] ParseDb(int line, string[] ops, string rest)
+    private static bool RegClassMatches(Register r, RC rc, int regSize) => rc switch
     {
-        // Accept "db 90 cc c3" or "db 0x90, 0xCC" or "db 0x90cc".
+        RC.GPR => r.IsGPR() && r.GetInfo().Size == regSize,
+        RC.XMM => r.IsXMM(),
+        RC.YMM => r.IsYMM(),
+        RC.ZMM => r.IsZMM(),
+        RC.MM => r.IsMM(),
+        RC.K => r.IsK(),
+        RC.SEG => r.IsSegmentRegister(),
+        RC.CR => r.IsCR(),
+        RC.DR => r.IsDR(),
+        RC.TR => r.IsTR(),
+        RC.BND => r.IsBND(),
+        RC.TMM => r.IsTMM(),
+        RC.ST => r >= Register.ST0 && r <= Register.ST7,
+        _ => false,
+    };
+
+    private static (int Src, int Dst) ImmBits(OpCodeOperandKind k) => k switch
+    {
+        OpCodeOperandKind.imm8 or OpCodeOperandKind.imm8_const_1 or OpCodeOperandKind.imm4_m2z => (8, 8),
+        OpCodeOperandKind.imm8sex16 => (8, 16),
+        OpCodeOperandKind.imm8sex32 => (8, 32),
+        OpCodeOperandKind.imm8sex64 => (8, 64),
+        OpCodeOperandKind.imm16 => (16, 16),
+        OpCodeOperandKind.imm32 => (32, 32),
+        OpCodeOperandKind.imm32sex64 => (32, 64),
+        OpCodeOperandKind.imm64 => (64, 64),
+        _ => (64, 64),
+    };
+
+    private static bool ImmFits(ulong applied, OpCodeOperandKind k)
+    {
+        if (k == OpCodeOperandKind.imm8_const_1) return applied == 1;
+        if (k == OpCodeOperandKind.imm4_m2z) return applied < 16;
+        var (src, dst) = ImmBits(k);
+        if (dst == 64)
+        {
+            long sv = unchecked((long)applied);
+            return src switch { 8 => sv is >= sbyte.MinValue and <= sbyte.MaxValue, 32 => sv is >= int.MinValue and <= int.MaxValue, _ => true };
+        }
+        ulong dstMask = (1UL << dst) - 1;
+        ulong v = applied & dstMask;
+        bool neg = (v & (1UL << (dst - 1))) != 0;
+        long val = neg ? (long)(v | ~dstMask) : (long)v;
+        if (src == dst) return (applied & ~dstMask) == 0 || (applied | dstMask) == ~0UL; // fits unsigned or sign-filled
+        long lim = 1L << (src - 1);
+        return val >= -lim && val < lim;
+    }
+
+    private static OpKind ImmOpKind(OpCodeOperandKind k) => k switch
+    {
+        OpCodeOperandKind.imm8 or OpCodeOperandKind.imm8_const_1 or OpCodeOperandKind.imm4_m2z => OpKind.Immediate8,
+        OpCodeOperandKind.imm8sex16 => OpKind.Immediate8to16,
+        OpCodeOperandKind.imm8sex32 => OpKind.Immediate8to32,
+        OpCodeOperandKind.imm8sex64 => OpKind.Immediate8to64,
+        OpCodeOperandKind.imm16 => OpKind.Immediate16,
+        OpCodeOperandKind.imm32 => OpKind.Immediate32,
+        OpCodeOperandKind.imm32sex64 => OpKind.Immediate32to64,
+        OpCodeOperandKind.imm64 => OpKind.Immediate64,
+        _ => OpKind.Immediate32,
+    };
+
+    private static void SetOpKind(ref Instruction instr, int i, OpKind kind)
+    {
+        switch (i) { case 0: instr.Op0Kind = kind; break; case 1: instr.Op1Kind = kind; break; case 2: instr.Op2Kind = kind; break; case 3: instr.Op3Kind = kind; break; default: instr.Op4Kind = kind; break; }
+    }
+
+    private static void SetReg(ref Instruction instr, int i, Register reg)
+    {
+        SetOpKind(ref instr, i, OpKind.Register);
+        switch (i) { case 0: instr.Op0Register = reg; break; case 1: instr.Op1Register = reg; break; case 2: instr.Op2Register = reg; break; case 3: instr.Op3Register = reg; break; default: instr.Op4Register = reg; break; }
+    }
+
+    // ---- mnemonic / code tables ----
+
+    private static Dictionary<Mnemonic, IcedCode[]>? _codesByMnemonic;
+
+    private static IcedCode[] CodesFor(Mnemonic m)
+    {
+        var map = _codesByMnemonic ??= BuildCodeMap();
+        return map.TryGetValue(m, out var codes) ? codes : [];
+    }
+
+    private static Dictionary<Mnemonic, IcedCode[]> BuildCodeMap()
+    {
+        var map = new Dictionary<Mnemonic, List<IcedCode>>();
+        foreach (IcedCode c in Enum.GetValues<IcedCode>())
+        {
+            if (c == IcedCode.INVALID) continue;
+            var m = c.Mnemonic();
+            if (!map.TryGetValue(m, out var list)) map[m] = list = new();
+            list.Add(c);
+        }
+        return map.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray());
+    }
+
+    private static Mnemonic MapMnemonic(string m)
+    {
+        if (Aliases.TryGetValue(m, out var alias)) return alias;
+        return Enum.TryParse<Mnemonic>(m, ignoreCase: true, out var mn) ? mn : Mnemonic.INVALID;
+    }
+
+    private static readonly Dictionary<string, Mnemonic> Aliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["jz"] = Mnemonic.Je, ["jnz"] = Mnemonic.Jne,
+        ["jc"] = Mnemonic.Jb, ["jnc"] = Mnemonic.Jae,
+        ["jnae"] = Mnemonic.Jb, ["jnb"] = Mnemonic.Jae, ["jna"] = Mnemonic.Jbe, ["jnbe"] = Mnemonic.Ja,
+        ["jng"] = Mnemonic.Jle, ["jnge"] = Mnemonic.Jl, ["jnl"] = Mnemonic.Jge, ["jnle"] = Mnemonic.Jg,
+        ["jpe"] = Mnemonic.Jp, ["jpo"] = Mnemonic.Jnp,
+        ["sal"] = Mnemonic.Shl, ["retn"] = Mnemonic.Ret, ["wait"] = Mnemonic.Wait, ["fwait"] = Mnemonic.Wait,
+        ["setz"] = Mnemonic.Sete, ["setnz"] = Mnemonic.Setne, ["setc"] = Mnemonic.Setb, ["setnc"] = Mnemonic.Setae,
+        ["setnae"] = Mnemonic.Setb, ["setnb"] = Mnemonic.Setae, ["setna"] = Mnemonic.Setbe, ["setnbe"] = Mnemonic.Seta,
+        ["setng"] = Mnemonic.Setle, ["setnge"] = Mnemonic.Setl, ["setnl"] = Mnemonic.Setge, ["setnle"] = Mnemonic.Setg,
+        ["setpe"] = Mnemonic.Setp, ["setpo"] = Mnemonic.Setnp,
+        ["cmovz"] = Mnemonic.Cmove, ["cmovnz"] = Mnemonic.Cmovne, ["cmovc"] = Mnemonic.Cmovb, ["cmovnc"] = Mnemonic.Cmovae,
+        ["cmovnae"] = Mnemonic.Cmovb, ["cmovnb"] = Mnemonic.Cmovae, ["cmovna"] = Mnemonic.Cmovbe, ["cmovnbe"] = Mnemonic.Cmova,
+        ["cmovng"] = Mnemonic.Cmovle, ["cmovnge"] = Mnemonic.Cmovl, ["cmovnl"] = Mnemonic.Cmovge, ["cmovnle"] = Mnemonic.Cmovg,
+        ["cmovpe"] = Mnemonic.Cmovp, ["cmovpo"] = Mnemonic.Cmovnp,
+        ["xlat"] = Mnemonic.Xlatb,
+    };
+
+    private static bool IsBranchMnemonic(Mnemonic m) => m is Mnemonic.Jmp or Mnemonic.Call
+        or Mnemonic.Je or Mnemonic.Jne or Mnemonic.Ja or Mnemonic.Jae or Mnemonic.Jb or Mnemonic.Jbe
+        or Mnemonic.Jg or Mnemonic.Jge or Mnemonic.Jl or Mnemonic.Jle or Mnemonic.Jo or Mnemonic.Jno
+        or Mnemonic.Js or Mnemonic.Jns or Mnemonic.Jp or Mnemonic.Jnp
+        or Mnemonic.Jcxz or Mnemonic.Jecxz or Mnemonic.Jrcxz
+        or Mnemonic.Loop or Mnemonic.Loope or Mnemonic.Loopne or Mnemonic.Xbegin;
+
+    private static IcedCode? BranchCode(int bitness, Mnemonic m)
+    {
+        // Pick the relative form whose address size matches the mode (jrcxz/jecxz have both a 16- and a 64-bit
+        // address form in 64-bit mode); among those, the largest displacement, which BlockEncoder shrinks as it fits.
+        var want = bitness == 64 ? OpKind.NearBranch64 : OpKind.NearBranch32;
+        IcedCode? best = null, fallback = null;
+        int bestRel = -1, fbRel = -1;
+        foreach (var c in CodesFor(m))
+        {
+            var oc = c.ToOpCode();
+            if (!oc.IsInstruction || oc.OpCount != 1) continue;
+            if (bitness == 64 ? !oc.Mode64 : !oc.Mode32) continue;
+            int rel = oc.GetOpKind(0) switch
+            {
+                OpCodeOperandKind.br16_1 or OpCodeOperandKind.br32_1 or OpCodeOperandKind.br64_1 => 1,
+                OpCodeOperandKind.br16_2 or OpCodeOperandKind.brdisp_2 or OpCodeOperandKind.xbegin_2 => 2,
+                OpCodeOperandKind.br32_4 or OpCodeOperandKind.br64_4 or OpCodeOperandKind.brdisp_4 or OpCodeOperandKind.xbegin_4 => 4,
+                _ => -1,
+            };
+            if (rel < 0) continue;
+            if (fallback == null || rel > fbRel) { fbRel = rel; fallback = c; }
+            if (Instruction.CreateBranch(c, 0).Op0Kind == want && rel > bestRel) { bestRel = rel; best = c; }
+        }
+        return best ?? fallback;
+    }
+
+    private static Instruction? StringOp(int bitness, string m, bool rep, bool repne)
+    {
+        var rk = rep ? RepPrefixKind.Repe : repne ? RepPrefixKind.Repne : RepPrefixKind.None;
+        int asz = bitness; // address size follows the mode (no explicit a16/a32 override support)
+        const Register seg = Register.None;
+        return m switch
+        {
+            "movsb" => Instruction.CreateMovsb(asz, seg, rk),
+            "movsw" => Instruction.CreateMovsw(asz, seg, rk),
+            "movsd" => Instruction.CreateMovsd(asz, seg, rk),
+            "movsq" => Instruction.CreateMovsq(asz, seg, rk),
+            "stosb" => Instruction.CreateStosb(asz, rk),
+            "stosw" => Instruction.CreateStosw(asz, rk),
+            "stosd" => Instruction.CreateStosd(asz, rk),
+            "stosq" => Instruction.CreateStosq(asz, rk),
+            "lodsb" => Instruction.CreateLodsb(asz, seg, rk),
+            "lodsw" => Instruction.CreateLodsw(asz, seg, rk),
+            "lodsd" => Instruction.CreateLodsd(asz, seg, rk),
+            "lodsq" => Instruction.CreateLodsq(asz, seg, rk),
+            "scasb" => Instruction.CreateScasb(asz, rk),
+            "scasw" => Instruction.CreateScasw(asz, rk),
+            "scasd" => Instruction.CreateScasd(asz, rk),
+            "scasq" => Instruction.CreateScasq(asz, rk),
+            "cmpsb" => Instruction.CreateCmpsb(asz, seg, rk),
+            "cmpsw" => Instruction.CreateCmpsw(asz, seg, rk),
+            "cmpsd" => Instruction.CreateCmpsd(asz, seg, rk),
+            "cmpsq" => Instruction.CreateCmpsq(asz, seg, rk),
+            _ => null,
+        };
+    }
+
+    // ---- lexing helpers ----
+
+    private static readonly (string Word, int Bytes)[] SizeWords =
+    [
+        ("byte ptr", 1), ("word ptr", 2), ("dword ptr", 4), ("qword ptr", 8), ("tbyte ptr", 10),
+        ("fword ptr", 6), ("mmword ptr", 8), ("xmmword ptr", 16), ("ymmword ptr", 32), ("zmmword ptr", 64),
+        ("oword ptr", 16), ("tword ptr", 10),
+    ];
+
+    private static bool LooksLikeRegOrMem(string op)
+    {
+        var t = op.Trim();
+        if (t.Contains('[')) return true;
+        foreach (var (w, _) in SizeWords) if (t.StartsWith(w, StringComparison.OrdinalIgnoreCase)) return true;
+        return TryRegister(t, out _);
+    }
+
+    private static bool TryRegister(string text, out Register reg)
+    {
+        reg = Register.None;
+        var t = text.Trim();
+        if (t.Length == 0 || !char.IsLetter(t[0])) return false; // reject numbers: Enum.TryParse would read them as enum values
+        // st(0) -> st0, st -> st0
+        if (t.Equals("st", StringComparison.OrdinalIgnoreCase)) t = "st0";
+        else if (t.StartsWith("st(", StringComparison.OrdinalIgnoreCase) && t.EndsWith(')')) t = "st" + t[3..^1].Trim();
+        // r8b..r15b -> r8l..r15l (Iced names the low byte 'l')
+        if (t.Length is 3 or 4 && (t[0] is 'r' or 'R') && (t[^1] is 'b' or 'B') && char.IsDigit(t[1]))
+            t = t[..^1] + "l";
+        if (!Enum.TryParse<Register>(t, ignoreCase: true, out var r) || r == Register.None) return false;
+        reg = r;
+        return true;
+    }
+
+    private static string[] SplitOperands(string rest)
+    {
+        if (rest.Length == 0) return [];
+        var result = new List<string>();
+        int depth = 0, start = 0;
+        for (int i = 0; i < rest.Length; i++)
+        {
+            char c = rest[i];
+            if (c is '[' or '(') depth++;
+            else if (c is ']' or ')') depth--;
+            else if (c == ',' && depth == 0) { result.Add(rest[start..i].Trim()); start = i + 1; }
+        }
+        result.Add(rest[start..].Trim());
+        return result.Where(s => s.Length > 0).ToArray();
+    }
+
+    private static IEnumerable<(string Term, int Sign)> SplitTerms(string inner)
+    {
+        int start = 0, sign = 1;
+        for (int i = 0; i < inner.Length; i++)
+        {
+            char c = inner[i];
+            if ((c == '+' || c == '-') && i > start)
+            {
+                yield return (inner[start..i], sign);
+                sign = c == '-' ? -1 : 1;
+                start = i + 1;
+            }
+        }
+        if (start < inner.Length) yield return (inner[start..], sign);
+    }
+
+    private static byte[] ParseDb(int line, string rest)
+    {
+        // Accept "db 90 cc c3", "db 0x90, 0xCC" or "db 0x90cc".
         var tokens = rest.Replace(",", " ").Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries);
         var bytes = new List<byte>();
         foreach (var tok in tokens)
@@ -224,69 +800,6 @@ public static class X86Assembler
         if (bytes.Count == 0) throw Error(line, "db needs at least one byte.");
         return bytes.ToArray();
     }
-
-    private static IcedCode EnumCode(int line, string name) =>
-        Enum.TryParse<IcedCode>(name, out var code) ? code : throw Error(line, $"this operand combination is not supported ({name}).");
-
-    private static IcedCode? ZeroOperand(int bitness, string m) => m switch
-    {
-        "nop" => IcedCode.Nopd,
-        "ret" or "retn" => bitness == 64 ? IcedCode.Retnq : IcedCode.Retnd,
-        "retf" => bitness == 64 ? IcedCode.Retfq : IcedCode.Retfd,
-        "leave" => bitness == 64 ? IcedCode.Leaveq : IcedCode.Leaved,
-        "int3" => IcedCode.Int3,
-        "ud2" => IcedCode.Ud2,
-        "hlt" => IcedCode.Hlt,
-        "pause" => IcedCode.Pause,
-        "cdq" => IcedCode.Cdq,
-        "cqo" => IcedCode.Cqo,
-        "cwde" => IcedCode.Cwde,
-        "stc" => IcedCode.Stc,
-        "clc" => IcedCode.Clc,
-        "cld" => IcedCode.Cld,
-        "std" => IcedCode.Std,
-        "cmc" => IcedCode.Cmc,
-        "sti" => IcedCode.Sti,
-        "cli" => IcedCode.Cli,
-        _ => null,
-    };
-
-    private static IcedCode? Branch(int bitness, string m)
-    {
-        string? baseName = m switch
-        {
-            "jmp" => "Jmp",
-            "call" => "Call",
-            "je" or "jz" => "Je",
-            "jne" or "jnz" => "Jne",
-            "jg" or "jnle" => "Jg",
-            "jge" or "jnl" => "Jge",
-            "jl" or "jnge" => "Jl",
-            "jle" or "jng" => "Jle",
-            "ja" or "jnbe" => "Ja",
-            "jae" or "jnb" or "jnc" => "Jae",
-            "jb" or "jnae" or "jc" => "Jb",
-            "jbe" or "jna" => "Jbe",
-            "jo" => "Jo",
-            "jno" => "Jno",
-            "js" => "Js",
-            "jns" => "Jns",
-            "jp" or "jpe" => "Jp",
-            "jnp" or "jpo" => "Jnp",
-            _ => null,
-        };
-        if (baseName == null) return null;
-        return Enum.Parse<IcedCode>($"{baseName}_rel32_{bitness}");
-    }
-
-    private static (Register Reg, int Bits)? Reg(string text)
-    {
-        if (!Enum.TryParse<Register>(text.Trim(), ignoreCase: true, out var reg) || reg == Register.None) return null;
-        int bits = reg.GetInfo().Size * 8;
-        return bits is 8 or 16 or 32 or 64 ? (reg, bits) : null;
-    }
-
-    // ---- lexing helpers ----
 
     private static string StripComment(string line)
     {
@@ -305,7 +818,13 @@ public static class X86Assembler
     private static bool IsName(string s) => s.Length > 0 && (char.IsLetter(s[0]) || s[0] is '_' or '.')
         && s.All(c => char.IsLetterOrDigit(c) || c is '_' or '$' or '@' or '.');
 
-    private static string Cap(string s) => char.ToUpperInvariant(s[0]) + s[1..];
+    private static string CleanError(string? err)
+    {
+        if (string.IsNullOrWhiteSpace(err)) return "the operands could not be encoded at this address.";
+        // BlockEncoder appends the formatted instruction after a ':'; keep the diagnostic part.
+        int colon = err.IndexOf(" : ", StringComparison.Ordinal);
+        return colon > 0 ? err[..colon] : err;
+    }
 
     private static ToolError Error(int line, string message) =>
         new(ErrorCode.InvalidArgument, $"Assembly error on line {line}: {message}");

@@ -5,11 +5,14 @@ using NetDecompilerMcp.Native.Code;
 using NetDecompilerMcp.Native.Patching;
 using NetDecompilerMcp.Services;
 using NetDecompilerMcp.Tools;
+using Xunit.Abstractions;
 
 namespace NetDecompilerMcp.Tests;
 
-public class NativeEditTests
+public class NativeEditTests(ITestOutputHelper output)
 {
+    private readonly ITestOutputHelper _output = output;
+
     // A tiny x64 image whose .text holds: mov eax,1 (5 bytes) ; ret ; then NOP filler.
     private static byte[] TinyImage()
     {
@@ -56,15 +59,14 @@ public class NativeEditTests
     [Fact]
     public void Assembler_JmpToLabel_ComputesDisplacement()
     {
-        // jmp over a nop to a label; at VA 0x140001000 the near jmp is E9 + rel32.
+        // jmp over a nop to a label; BlockEncoder picks the short form (EB rel8) since the target is in range.
         var r = X86Assembler.Assemble(NativeArch.X64, 0x140001000, "jmp target\nnop\ntarget:\nret");
-        Assert.Equal(0xE9, r.Bytes[0]);
-        int rel = BitConverter.ToInt32(r.Bytes, 1);
-        // jmp is 5 bytes, then 1 nop -> target is 1 byte past the jmp end, so rel == 1.
-        Assert.Equal(1, rel);
-        Assert.Equal(7, r.Bytes.Length); // 5 (jmp) + 1 (nop) + 1 (ret)
-        Assert.Equal(0x90, r.Bytes[5]);
-        Assert.Equal(0xC3, r.Bytes[6]);
+        Assert.Equal(0xEB, r.Bytes[0]);
+        // jmp is 2 bytes, then 1 nop -> target is 1 byte past the jmp end, so rel8 == 1.
+        Assert.Equal(1, (sbyte)r.Bytes[1]);
+        Assert.Equal(4, r.Bytes.Length); // 2 (jmp) + 1 (nop) + 1 (ret)
+        Assert.Equal(0x90, r.Bytes[2]);
+        Assert.Equal(0xC3, r.Bytes[3]);
     }
 
     [Fact]
@@ -74,6 +76,167 @@ public class NativeEditTests
         var r = X86Assembler.Assemble(NativeArch.X64, 0x140001000, "call 0x140001100");
         Assert.Equal(0xE8, r.Bytes[0]);
         Assert.Equal(0x100 - 5, BitConverter.ToInt32(r.Bytes, 1));
+    }
+
+    // ---- MASM-syntax round trip (assemble a line our disassembler prints, get the same instruction back) ----
+
+    // A curated table across the instruction classes. Each entry assembles, disassembles, and re-assembles: the two
+    // byte strings must be identical (copy a line, edit it, patch it back). Kept small so the quick set stays fast.
+    [Theory]
+    [InlineData(NativeArch.X64, "nop", "90")]
+    [InlineData(NativeArch.X64, "ret", "C3")]
+    [InlineData(NativeArch.X64, "int3", "CC")]
+    [InlineData(NativeArch.X64, "leave", "C9")]
+    [InlineData(NativeArch.X64, "push rbp", "55")]
+    [InlineData(NativeArch.X64, "pop r15", "415F")]
+    [InlineData(NativeArch.X64, "mov eax, 1", "B801000000")]
+    [InlineData(NativeArch.X64, "mov rax, rcx", null)]
+    [InlineData(NativeArch.X64, "xor eax, eax", null)]
+    [InlineData(NativeArch.X64, "add rsp, 28h", "4883C428")]
+    [InlineData(NativeArch.X64, "sub rsp, 0F8h", "4881ECF8000000")]
+    [InlineData(NativeArch.X64, "mov rax, qword ptr [rsp+40h]", "488B442440")]
+    [InlineData(NativeArch.X64, "mov dword ptr [rcx+rdx*4+10h], eax", "89449110")]
+    [InlineData(NativeArch.X64, "lea rcx, [rsp+20h]", "488D4C2420")]
+    [InlineData(NativeArch.X64, "movzx eax, byte ptr [rcx]", "0FB601")]
+    [InlineData(NativeArch.X64, "movsxd rax, dword ptr [rcx]", "4863 01")]
+    [InlineData(NativeArch.X64, "imul rax, rcx, 8", "486BC108")]
+    [InlineData(NativeArch.X64, "test rax, rax", "4885C0")]
+    [InlineData(NativeArch.X64, "cmp dword ptr [rax], 0", null)]
+    [InlineData(NativeArch.X64, "movaps xmm0, xmm1", null)]
+    [InlineData(NativeArch.X64, "vxorps xmm0, xmm0, xmm0", null)]
+    [InlineData(NativeArch.X64, "vmovdqu ymm1, ymmword ptr [rdx]", null)]
+    [InlineData(NativeArch.X64, "mov rax, gs:[60h]", null)]
+    [InlineData(NativeArch.X64, "shl eax, cl", "D3E0")]
+    [InlineData(NativeArch.X64, "sete al", "0F94C0")]
+    [InlineData(NativeArch.X64, "cmovne rax, rcx", "480F45C1")]
+    [InlineData(NativeArch.X64, "bt dword ptr [rcx], 5", "0FBA2105")]
+    [InlineData(NativeArch.X64, "mov dword ptr [rax], 1", "C70001000000")]
+    [InlineData(NativeArch.X64, "fld qword ptr [rcx]", "DD01")]
+    [InlineData(NativeArch.X64, "faddp st(1), st(0)", "DEC1")]
+    [InlineData(NativeArch.X64, "vaddps ymm0, ymm1, ymm2", "C5F458C2")]
+    [InlineData(NativeArch.X64, "vmovaps zmm0, zmm1", "62F17C4828C1")]
+    [InlineData(NativeArch.X64, "db 0F 1F 40 00", "0F1F4000")]
+    [InlineData(NativeArch.X86, "push ebp", "55")]
+    [InlineData(NativeArch.X86, "mov ebp, esp", "8BEC")]
+    [InlineData(NativeArch.X86, "mov eax, dword ptr [ebp+8]", "8B4508")]
+    [InlineData(NativeArch.X86, "mov eax, dword ptr [esi+edi*2+4]", null)]
+    [InlineData(NativeArch.X86, "rep movsd", "F3A5")]
+    public void RoundTrip_Curated(NativeArch arch, string text, string? expectedHex)
+    {
+        if (expectedHex != null)
+        {
+            // Authoritative encoding: the text assembles to exactly these bytes.
+            var want = Convert.FromHexString(expectedHex.Replace(" ", ""));
+            var got = X86Assembler.Assemble(arch, StartVa(arch), text).Bytes;
+            Assert.Equal(Convert.ToHexString(want), Convert.ToHexString(got));
+            return;
+        }
+        // Copy-edit-patch: disassembling the bytes and re-assembling that text reproduces them byte for byte.
+        var (bytes, disasm) = RoundTripOne(arch, text);
+        var again = X86Assembler.Assemble(arch, StartVa(arch), disasm).Bytes;
+        Assert.Equal(Convert.ToHexString(bytes), Convert.ToHexString(again));
+    }
+
+    [Fact]
+    public void RoundTrip_ReportsClearErrors()
+    {
+        // Operand size ambiguous without a specifier.
+        var ex = Assert.Throws<ToolError>(() => X86Assembler.Assemble(NativeArch.X64, 0x140001000, "inc [rax]"));
+        Assert.Contains("ambiguous", ex.Message);
+        // Unknown mnemonic.
+        Assert.Throws<ToolError>(() => X86Assembler.Assemble(NativeArch.X64, 0x140001000, "frobnicate rax"));
+        // A 32-bit-only form in 64-bit mode (push of a segment pair etc.) and bad operands are rejected, not thrown raw.
+        Assert.Throws<ToolError>(() => X86Assembler.Assemble(NativeArch.X64, 0x140001000, "mov rax, xmm0"));
+    }
+
+    private static ulong StartVa(NativeArch arch) => (arch == NativeArch.X64 ? 0x140000000UL : 0x10000000UL) + CodeTestImage.SyntheticCodeRva;
+
+    /// <summary>Assembles one line, then disassembles it back through a synthetic image; returns the bytes and the text.</summary>
+    private static (byte[] Bytes, string Text) RoundTripOne(NativeArch arch, string text)
+    {
+        ulong va = StartVa(arch);
+        var bytes = X86Assembler.Assemble(arch, va, text).Bytes;
+        var image = CodeTestImage.Synthetic(arch, bytes);
+        var dis = new NativeDisassembler(image);
+        var line = dis.DecodeOne(CodeTestImage.SyntheticCodeRva)!;
+        Assert.NotNull(line);
+        return (bytes, line.Text);
+    }
+
+    // The big sweep: round-trip every instruction our disassembler prints for a set of real System32 / SysWOW64
+    // functions, and report the exact-byte and equivalent (same text) rates per instruction class.
+    [Trait("Speed", "Slow")]
+    [WindowsFact]
+    public void RoundTrip_System32Functions()
+    {
+        var targets = new (string Name, NativeArch Arch)[]
+        {
+            ("kernel32.dll", NativeArch.X64), ("ntdll.dll", NativeArch.X64), ("user32.dll", NativeArch.X64),
+            ("gdi32.dll", NativeArch.X64), ("ole32.dll", NativeArch.X64),
+        };
+        var wow = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "SysWOW64");
+
+        long total = 0, exact = 0, equiv = 0, failed = 0;
+        var perClass = new SortedDictionary<string, (long Total, long Exact, long Equiv)>();
+        var sampleFailures = new List<string>();
+
+        void Sweep(string path, NativeArch arch, int maxFunctions)
+        {
+            if (!File.Exists(path)) return;
+            var image = CodeTestImage.Load(path);
+            if (image.Arch != arch) return;
+            var index = NativeCodeIndex.Build(image);
+            if (index.Support != CodeSupport.Full) return;
+            var dis = new NativeDisassembler(image);
+            int fn = 0;
+            foreach (var f in index.Functions)
+            {
+                if (fn++ >= maxFunctions) break;
+                foreach (var line in dis.Disassemble(f.Start, 400, f.End))
+                {
+                    if (line.Facts.Flow == FlowKind.Invalid || line.Text.StartsWith("(bad)")) continue;
+                    var orig = Convert.FromHexString(line.Bytes);
+                    total++;
+                    var cls = line.Text.Split(' ', '\t')[0];
+                    var pc = perClass.GetValueOrDefault(cls);
+                    pc.Total++;
+                    byte[]? asm = null;
+                    try { asm = X86Assembler.Assemble(arch, line.Address, line.Text).Bytes; }
+                    catch (ToolError) { }
+                    if (asm == null)
+                    {
+                        failed++;
+                        if (sampleFailures.Count < 40) sampleFailures.Add($"[not assembled] {line.Text}");
+                    }
+                    else if (asm.AsSpan().SequenceEqual(orig)) { exact++; pc.Exact++; equiv++; pc.Equiv++; }
+                    else
+                    {
+                        // Equivalent when the assembled bytes disassemble to the same text at the same address.
+                        var synth = new ByteImage(image, line.Rva, asm);
+                        var back = new NativeDisassembler(synth, null, []).DecodeOne(line.Rva);
+                        if (back != null && back.Text == line.Text) { equiv++; pc.Equiv++; }
+                        else if (sampleFailures.Count < 40) sampleFailures.Add($"[{line.Bytes} -> {Convert.ToHexString(asm)}] {line.Text}  =>  {back?.Text}");
+                    }
+                    perClass[cls] = pc;
+                }
+            }
+        }
+
+        foreach (var (name, arch) in targets)
+            if (PeCorpus.System32(name) is { } p) Sweep(p, arch, 150);
+        foreach (var name in new[] { "kernel32.dll", "user32.dll" })
+            Sweep(Path.Combine(wow, name), NativeArch.X86, 150);
+
+        if (total == 0) return; // not on Windows / no corpus
+
+        _output.WriteLine($"instructions: {total}, exact bytes: {exact} ({100.0 * exact / total:F1}%), " +
+                          $"equivalent: {equiv} ({100.0 * equiv / total:F1}%), not assembled: {failed}");
+        foreach (var (cls, c) in perClass.OrderByDescending(kv => kv.Value.Total).Take(40))
+            _output.WriteLine($"  {cls,-10} n={c.Total,-6} exact={100.0 * c.Exact / c.Total,5:F1}%  equiv={100.0 * c.Equiv / c.Total,5:F1}%");
+        _output.WriteLine("sample gaps:");
+        foreach (var s in sampleFailures) _output.WriteLine("  " + s);
+
+        Assert.True((double)equiv / total > 0.95, $"round-trip equivalence {100.0 * equiv / total:F1}% is below 95%");
     }
 
     [Fact]
