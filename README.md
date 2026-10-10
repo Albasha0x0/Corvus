@@ -132,7 +132,7 @@ only `decompile_native` needs an external engine (IDA through idalib). Reliabili
 | Concern | How it is handled |
 |---|---|
 | Locked files | Assemblies are read into memory; files on disk are never locked. |
-| Concurrency | Reads share a lock; edits take it exclusively. Stress-tested with interleaved readers and writers, and with 40 parallel MCP calls. |
+| Concurrency | Reads share a lock; edits take it exclusively, and a call cancelled while it waits for the lock returns at once. Stress-tested with interleaved readers and writers, and with 40 parallel MCP calls. |
 | Corrupt or transformed bodies | The IL scanner stops at invalid opcodes instead of throwing; `decompile_type` falls back to member-by-member output with IL for the broken part. |
 | Post-processed metadata | Out-of-range names and coded indexes that some third-party toolchains leave behind are read leniently by dnlib but not by the decompiler; such assemblies are decompiled from a copy normalized by dnlib, with the same tokens, and the output says so. |
 | Invisible names | Names made of zero-width and bidi characters (U+202E reverses the rest of a line) are shown as `\uXXXX`, as the decompiler does; symbols are accepted back in that form. |

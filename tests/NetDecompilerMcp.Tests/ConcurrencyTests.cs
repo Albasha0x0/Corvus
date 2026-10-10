@@ -47,4 +47,62 @@ public class ConcurrencyTests
         Assert.Empty(errors);
         Assert.True(env.Fixture.Edits.Count > 10);
     }
+
+    /// <summary>Holds the exclusive lock on a dedicated thread until the returned event is set.</summary>
+    private static (Task Holder, ManualResetEventSlim Release) HoldWriteLock(AssemblyWorkspace workspace)
+    {
+        var entered = new ManualResetEventSlim();
+        var release = new ManualResetEventSlim();
+        var holder = Task.Factory.StartNew(() => workspace.Write(() => { entered.Set(); release.Wait(); return 0; }), TaskCreationOptions.LongRunning);
+        Assert.True(entered.Wait(10_000));
+        return (holder, release);
+    }
+
+    [Fact]
+    public async Task QueuedLockWaitEndsWhenItsCallIsCancelled()
+    {
+        using var workspace = new AssemblyWorkspace();
+        var (holder, release) = HoldWriteLock(workspace);
+        try
+        {
+            using var cts = new CancellationTokenSource();
+            var explicitToken = Task.Run(() => workspace.Read(() => 1, cts.Token));
+            async Task<int> Call()
+            {
+                using var scope = AssemblyWorkspace.CancelWaitsWith(cts.Token);
+                await Task.Yield();
+                return workspace.Write(() => 2);
+            }
+            var ambient = Task.Run(Call);
+            await Task.Delay(150);
+            Assert.False(explicitToken.IsCompleted || ambient.IsCompleted);
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            cts.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => explicitToken);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ambient);
+            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"cancelled waits took {watch.Elapsed}");
+        }
+        finally
+        {
+            release.Set();
+            await holder;
+        }
+        Assert.Equal(3, workspace.Read(() => 3));
+    }
+
+    [Fact]
+    public async Task WorkLeftRunningAfterItsCallWaitsUncancellably()
+    {
+        using var workspace = new AssemblyWorkspace();
+        using var cts = new CancellationTokenSource();
+        Task<int> background;
+        using (AssemblyWorkspace.CancelWaitsWith(cts.Token))
+            background = Task.Run(async () => { await Task.Delay(200); return workspace.Read(() => 4); });
+        var (holder, release) = HoldWriteLock(workspace);
+        cts.Cancel();
+        await Task.Delay(400);
+        release.Set();
+        await holder;
+        Assert.Equal(4, await background);
+    }
 }

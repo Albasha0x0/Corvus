@@ -42,6 +42,7 @@ internal static partial class CallFilter
         {
             if (inputSchema is { } schema) ArgumentCheck.Apply(schema, request?.Arguments, tool);
             var structured = StructuredOutput.Begin();
+            using var waits = AssemblyWorkspace.CancelWaitsWith(cancellationToken);
             var result = await next(cancellationToken);
             // An error object never matches the tool's output schema, and clients validate whatever structuredContent is present.
             if (result.IsError == true) result.StructuredContent = null;

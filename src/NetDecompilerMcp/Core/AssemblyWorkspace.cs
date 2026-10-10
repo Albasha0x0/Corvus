@@ -53,16 +53,42 @@ public sealed class AssemblyWorkspace : IDisposable
 
     internal ModuleContext DnlibContext { get; }
 
-    public T Read<T>(Func<T> action)
+    private sealed class CallScope(CancellationToken token) : IDisposable
     {
-        _lock.EnterReadLock();
+        public CancellationToken Token => _ended ? default : token;
+        private volatile bool _ended;
+        public void Dispose() => _ended = true;
+    }
+
+    private static readonly AsyncLocal<CallScope?> Call = new();
+
+    /// <summary>
+    /// Until the scope is disposed, lock waits on this async flow (one tool call) end when <paramref name="cancellationToken"/>
+    /// is cancelled. Background work the call started inherits the flow; after the call it waits uncancellably again.
+    /// </summary>
+    public static IDisposable CancelWaitsWith(CancellationToken cancellationToken) => Call.Value = new CallScope(cancellationToken);
+
+    private static CancellationToken CallToken => Call.Value?.Token ?? default;
+
+    /// <summary>Waits in slices of this length when the wait can be cancelled.</summary>
+    private const int WaitSliceMs = 50;
+
+    public T Read<T>(Func<T> action) => Read(action, CallToken);
+
+    /// <summary>Runs <paramref name="action"/> under the shared lock; a cancelled wait throws <see cref="OperationCanceledException"/>.</summary>
+    public T Read<T>(Func<T> action, CancellationToken cancellationToken)
+    {
+        Enter(write: false, cancellationToken);
         try { return action(); }
         finally { _lock.ExitReadLock(); }
     }
 
-    public T Write<T>(Func<T> action)
+    public T Write<T>(Func<T> action) => Write(action, CallToken);
+
+    /// <summary>Runs <paramref name="action"/> under the exclusive lock; a cancelled wait throws <see cref="OperationCanceledException"/>.</summary>
+    public T Write<T>(Func<T> action, CancellationToken cancellationToken)
     {
-        _lock.EnterWriteLock();
+        Enter(write: true, cancellationToken);
         try { return action(); }
         finally
         {
@@ -71,6 +97,20 @@ public sealed class AssemblyWorkspace : IDisposable
             lock (_externalDecompilerRefs) _externalDecompilerRefs.Clear();
             _lock.ExitWriteLock();
         }
+    }
+
+    private void Enter(bool write, CancellationToken cancellationToken)
+    {
+        if (write ? _lock.TryEnterWriteLock(0) : _lock.TryEnterReadLock(0)) return;
+        if (!cancellationToken.CanBeCanceled)
+        {
+            if (write) _lock.EnterWriteLock();
+            else _lock.EnterReadLock();
+            return;
+        }
+        // ReaderWriterLockSlim waits take no token: a queued call checks it between slices.
+        while (!(write ? _lock.TryEnterWriteLock(WaitSliceMs) : _lock.TryEnterReadLock(WaitSliceMs)))
+            cancellationToken.ThrowIfCancellationRequested();
     }
 
     /// <summary>Snapshot of loaded assemblies; consistent only inside Read/Write.</summary>
