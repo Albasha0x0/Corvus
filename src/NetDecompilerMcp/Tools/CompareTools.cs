@@ -13,7 +13,7 @@ using TypeChange = NetDecompilerMcp.Services.AssemblyComparer.TypeChange;
 namespace NetDecompilerMcp.Tools;
 
 [McpServerToolType]
-public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer comparer, OutputPager pager)
+public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer comparer, OutputPager pager, DecompilerService decompiler)
 {
     private static readonly string[] AllKinds = ["renamed", "moved", "signature", "body", "metadata", "type", "offset", "address", "added", "removed", "ambiguous", "unknown"];
 
@@ -190,11 +190,15 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
     [Description("Where did a type or member of the old build go in the new build? Matches by name, then by content (renamed/transformed members), " +
                  "taking a match only when it is unique on both sides. Shows the new name and token, the matching tier and its confidence (exact, strong, structural), " +
                  "whether a method body changed (normalized IL hash), and Il2Cpp offset/address changes; ambiguous matches list their candidates. " +
-                 "Both builds are identified by file SHA-256 and MVID (tokens are only valid within their build). Use it to update FindClass names and offsets after an update.")]
+                 "Both builds are identified by file SHA-256 and MVID (tokens are only valid within their build). diff=true adds a unified diff of the " +
+                 "pair's decompiled C#, il=true one of their normalized IL. Use it to update FindClass names and offsets after an update.")]
     public Task<string> FindCounterpart(
         [Description("Symbol in the old build. " + SymbolDescription)] string symbol,
         [Description("The old build (id, name or path).")] string oldAssembly,
         [Description("The new build (id, name or path).")] string newAssembly,
+        [Description("Add a unified diff of the old and new decompiled C# of each matched pair (cut at " + DiffLinesText + " lines).")] bool diff = false,
+        [Description("Add a unified diff of the matched methods' normalized IL (the canonical text of docs/il-hash.md: names instead of tokens, " +
+                     "instruction indexes instead of offsets).")] bool il = false,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var oldAsm = workspace.Get(oldAssembly);
@@ -244,9 +248,40 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
             var newIl2Cpp = Il2CppService.CompactSummary(match);
             if (oldIl2Cpp != null || newIl2Cpp != null)
                 sb.AppendLine($"     il2cpp: {oldIl2Cpp ?? "-"} -> {newIl2Cpp ?? "-"}");
+            if (diff)
+                AppendDiff(sb, "C#", () => Source(oldAsm, sym.Member), () => Source(newAsm, match), $"{oldAsm.Id} {sym.Label}", $"{newAsm.Id} {Format.MemberLabel(match)}");
+            if (il && sym.Member is MethodDef im && match is MethodDef jm)
+                AppendDiff(sb, "normalized IL", () => NormalizedIl(oldAsm, im), () => NormalizedIl(newAsm, jm), $"{oldAsm.Id} {sym.Label}", $"{newAsm.Id} {Format.MemberLabel(match)}");
         }
         return sb.ToString();
+
+        string Source(LoadedAssembly asm, IMemberDef member) => member is TypeDef t
+            ? decompiler.DecompileType(asm, t, cancellationToken)
+            : decompiler.DecompileMembers(asm, [member], cancellationToken);
     }, cancellationToken);
+
+    private const int DiffLines = 300;
+    private const string DiffLinesText = "300";
+
+    private static string NormalizedIl(LoadedAssembly asm, MethodDef m) =>
+        FastIlReader.Read(asm, m) is { } body ? IlHash.Canonical(body) : "(no body)\n";
+
+    /// <summary>A unified diff of one pair, indented under it; cut at <see cref="DiffLines"/> lines with a note.</summary>
+    private static void AppendDiff(StringBuilder sb, string what, Func<string> before, Func<string> after, string beforeLabel, string afterLabel)
+    {
+        string text;
+        try { text = TextDiff.Unified(before(), after(), beforeLabel, afterLabel); }
+        catch (ToolError ex)
+        {
+            sb.AppendLine($"     {what} diff: unavailable ({ex.Message})");
+            return;
+        }
+        var lines = text.ReplaceLineEndings("\n").TrimEnd('\n').Split('\n');
+        sb.AppendLine($"     {what} diff:");
+        foreach (var line in lines.Take(DiffLines)) sb.Append("       ").AppendLine(line);
+        if (lines.Length > DiffLines)
+            sb.AppendLine($"       … diff cut at {DiffLines} of {lines.Length} lines; decompile_member / get_il on each build show the rest.");
+    }
 
     private static string Tier((string Tier, string Confidence) t) => $"tier: {t.Tier}, {t.Confidence}";
 

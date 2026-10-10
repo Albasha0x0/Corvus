@@ -56,7 +56,7 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
     {
         using var env = new Env(Write("v1", V1));
         var newer = env.Workspace.Load(Write("v2", V2));
-        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager);
+        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager, env.Decompiler);
 
         var text = await tools.CompareAssemblies(env.Fixture.Id, newer.Id);
         output.WriteLine(text);
@@ -116,7 +116,7 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
             """;
         using var env = new Env(Write("mv1", before));
         var newer = env.Workspace.Load(Write("mv2", after));
-        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager);
+        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager, env.Decompiler);
 
         var text = await tools.CompareAssemblies(env.Fixture.Id, newer.Id);
         output.WriteLine(text);
@@ -139,11 +139,37 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
+    public async Task Counterpart_DiffOfDecompiledCodeAndNormalizedIl_Bounded()
+    {
+        static string Big(int k) => "public class Big { public int Edit(int x) { return x + " + k + "; } public static int Many(int s) {\n" +
+            string.Concat(Enumerable.Range(0, 400).Select(i => $"s = s * {i + k} + {i};\n")) + "return s; } }";
+        using var env = new Env(Write("d1", Big(3)));
+        var newer = env.Workspace.Load(Write("d2", Big(4)));
+        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager, env.Decompiler);
+
+        var edit = await tools.FindCounterpart("Big::Edit", env.Fixture.Id, newer.Id, diff: true, il: true);
+        output.WriteLine(edit);
+        var lines = edit.ReplaceLineEndings("\n").Split('\n').Select(l => l.Replace("\t", "").Trim()).ToList();
+        Assert.Contains("C# diff:", lines);
+        Assert.Contains($"--- {env.Fixture.Id} Big::Edit(int)", lines);
+        Assert.Contains($"+++ {newer.Id} Big::Edit(int)", lines);
+        Assert.Contains("-return x + 3;", lines);
+        Assert.Contains("+return x + 4;", lines);
+        Assert.Contains("normalized IL diff:", lines);
+        Assert.Contains("-ldc.i4 i:3", lines);
+        Assert.Contains("+ldc.i4 i:4", lines);
+        Assert.DoesNotContain("diff:", await tools.FindCounterpart("Big::Edit", env.Fixture.Id, newer.Id));
+
+        var many = await tools.FindCounterpart("Big::Many", env.Fixture.Id, newer.Id, diff: true);
+        Assert.Matches(@"… diff cut at 300 of \d+ lines; decompile_member / get_il on each build show the rest\.", many);
+    }
+
+    [Fact]
     public async Task Compare_StructuredResult_AndTokenMapExport()
     {
         using var env = new Env(Write("v1", V1));
         var newer = env.Workspace.Load(Write("v2", V2));
-        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager);
+        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager, env.Decompiler);
         var mapPath = _dir.File("map.json");
 
         var collector = NetDecompilerMcp.Mcp.StructuredOutput.Begin();
@@ -200,7 +226,7 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
             """;
         using var env = new Env(Write("m1", before));
         var newer = env.Workspace.Load(Write("m2", after));
-        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager);
+        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager, env.Decompiler);
 
         var text = await tools.CompareAssemblies(env.Fixture.Id, newer.Id);
         output.WriteLine(text);
