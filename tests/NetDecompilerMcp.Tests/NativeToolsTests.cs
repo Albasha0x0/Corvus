@@ -72,7 +72,8 @@ public class NativeToolsTests
         Assert.Contains("ImportCall", xrefs);
 
         var tree = await tools.NativeCallTree("kernel32.dll", "BaseThreadInitThunk", depth: 2);
-        Assert.StartsWith("BaseThreadInitThunk", tree);
+        Assert.StartsWith("Engine: ours (", tree);
+        Assert.StartsWith("BaseThreadInitThunk", tree.Split('\n')[1]);
 
         var strings = await tools.SearchNativeStrings("kernel32.dll", ".dll", limit: 5);
         Assert.Contains("refs", strings);

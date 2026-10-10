@@ -21,7 +21,19 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     /// <summary>Answers for images whose instructions the built-in analysis does not decode (ARM64, ARM), through IDA.</summary>
     private readonly NativeEngineCode? _engine = engines != null ? new NativeEngineCode(engines, pager, names) : null;
 
-    private const string IndexNote = "The first call on an image waits for its code index (built in the background after loading; seconds for a typical DLL, " +
+    internal const string EngineDescription = "Where functions, references and control flow come from: auto (default: IDA's analysis when one of this image " +
+                                              "is complete in this session, else the built-in index; never starts IDA), ours (the built-in index only) or ida " +
+                                              "(IDA's analysis, started or waited for when needed). The server default is set with --engine or NDM_ENGINE.";
+
+    /// <summary>The engine mode a call asks for (checked before the image is opened) and whether it named one.</summary>
+    private (EngineMode Mode, bool Named) Mode(string? engine) =>
+        (EngineModes.Resolve(engine, engines?.DefaultMode ?? EngineMode.Auto), !string.IsNullOrWhiteSpace(engine));
+
+    /// <summary>The engine for this call (see <see cref="NativeEngineCode.Choose"/>).</summary>
+    private EngineChoice Choose((EngineMode Mode, bool Named) mode, LoadedNative native, NativeCodeIndex index) =>
+        NativeEngineCode.Choose(mode.Mode, mode.Named, engines, native, index);
+
+    private const string IndexNote ="The first call on an image waits for its code index (built in the background after loading; seconds for a typical DLL, " +
                                      "one to two minutes for a 300 MB browser DLL; progress is reported).";
 
     /// <summary>Loads the image if given by path, waits for its index, and resolves the address (names include functions).</summary>
@@ -100,12 +112,15 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description("Order: address (default), size (largest first) or callers (most called first).")] string? sort = null,
         [Description("Index of the first row.")] int offset = 0,
         [Description("Max rows (default 300).")] int limit = 300,
+        [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        var mode = Mode(engine);
         var (native, index) = await Open(image, context, progress, cancellationToken);
-        if (_engine?.Serves(index) == true)
-            return await _engine.ListFunctions(native, index, filter, sort, offset, limit, progress, cancellationToken);
+        var choice = Choose(mode, native, index);
+        if (choice.Ida)
+            return await _engine!.ListFunctions(native, index, filter, sort, offset, limit, choice, progress, cancellationToken);
         // library names of an IDA session already open (none is started for this)
         if (engines?.LibraryNames(native) is { IsCompleted: false } importing) await importing.WaitAsync(cancellationToken);
         IEnumerable<NativeFunction> list = index.Functions.Where(f => filter == null || f.Name.Contains(filter, StringComparison.OrdinalIgnoreCase));
@@ -124,10 +139,10 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         int library = index.Sourced.Count(NativeNameSource.Ida);
         var result = Paged(functions, offset, limit, (page, o, total, more) => new FunctionList(native.Id, s.Functions,
             page.Select(f => new FunctionEntry(NativeAddress.Va(index.Image, f.Start), (int)f.Size, f.Name, FlagList(f, index), Sources(f), index.CountRefsTo(f.Start))).ToList(),
-            o, total, more, coverage.Length > 0 ? coverage.Trim() : null));
+            o, total, more, coverage.Length > 0 ? coverage.Trim() : null, choice.Engine, choice.Note));
         return StructuredOutput.With($"{native.Id}: {Plural(s.Functions, "function")} ({s.Thunks} thunks, {s.NoReturnFunctions} noreturn" +
                (library > 0 ? $", {library} library functions named by IDA" : "") + $"), {s.Instructions:N0} instructions, " +
-               $"{s.Xrefs:N0} references, {Plural(s.Strings, "string")}\n" + coverage + pager.PageRows(rows, offset, limit, "function"), result);
+               $"{s.Xrefs:N0} references, {Plural(s.Strings, "string")}\n{choice.Line}\n" + coverage + pager.PageRows(rows, offset, limit, "function"), result);
     });
 
     [McpServerTool(Name = "disassemble", Title = "Disassemble native code")]
@@ -141,13 +156,16 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description("Max instructions (default 2000).")] int maxInstructions = 2000,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(EngineDescription + " With IDA, the function's bounds and instructions are IDA's.")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        var mode = Mode(engine);
         var (native, index) = await Open(image, context, progress, cancellationToken);
         int max = Math.Clamp(maxInstructions, 1, 200_000);
-        if (_engine?.Serves(index) == true)
-            return await _engine.Disassemble(native, index, Address(index, address), function, max, offset, maxChars, progress, cancellationToken);
+        var choice = Choose(mode, native, index);
+        if (choice.Ida)
+            return await _engine!.Disassemble(native, index, Address(index, address), function, max, offset, maxChars, choice, progress, cancellationToken);
         if (index.Support == CodeSupport.DeclaredFunctionsOnly) throw NativeEngineCode.Unsupported(index, engines);
         var rva = Address(index, address);
         var fn = function ? index.FunctionAt(rva) : null;
@@ -174,7 +192,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             }
             return sb.ToString();
         });
-        return Coverage(index) + pager.Page(text + await BoundImports(native, index, fn, cancellationToken), offset, maxChars);
+        return $"; {choice.Line}\n" + Coverage(index) + pager.Page(text + await BoundImports(native, index, fn, cancellationToken), offset, maxChars);
     });
 
     /// <summary>Where the imports a function calls are bound (one line each), for the disassembly footer.</summary>
@@ -205,12 +223,15 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description(NativeTools.AddressDescription)] string address,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description(EngineDescription + " With IDA, the blocks and edges are IDA's.")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        var mode = Mode(engine);
         var (native, index) = await Open(image, context, progress, cancellationToken);
-        if (_engine?.Serves(index) == true)
-            return await _engine.Cfg(native, index, Address(index, address), offset, maxChars, progress, cancellationToken);
+        var choice = Choose(mode, native, index);
+        if (choice.Ida)
+            return await _engine!.Cfg(native, index, Address(index, address), offset, maxChars, choice, progress, cancellationToken);
         if (index.Support == CodeSupport.DeclaredFunctionsOnly) throw NativeEngineCode.Unsupported(index, engines);
         var fn = FunctionAt(index, Address(index, address));
         var graph = index.GetGraph(fn, cancellationToken);
@@ -224,7 +245,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
                           string.Join(", ", sw.Targets.Take(64).Select(Va)) + (sw.Targets.Count > 64 ? ", ..." : ""));
         foreach (var j in graph.UnresolvedJumps) sb.AppendLine($"  unresolved indirect jump at {Va(j)}");
         foreach (var t in graph.TailCalls) sb.AppendLine($"  tail call to {index.NameAt(t) ?? Va(t)}");
-        return pager.Page(sb.ToString(), offset, maxChars);
+        return choice.Line + "\n" + pager.Page(sb.ToString(), offset, maxChars);
     });
 
     [McpServerTool(Name = "find_xrefs", Title = "Native cross-references", UseStructuredContent = true, OutputSchemaType = typeof(XrefList))]
@@ -239,14 +260,19 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description(NativeTools.AddressDescription)] string address,
         [Description("Index of the first row.")] int offset = 0,
         [Description("Max rows (default 500).")] int limit = 500,
+        [Description(EngineDescription + " With IDA, the references are IDA's, plus the RTTI-resolved virtual call sites IDA has none for (marked ours).")]
+        string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        var mode = Mode(engine);
         var (native, index) = await Open(image, context, progress, cancellationToken);
-        if (_engine?.Serves(index) == true)
+        var choice = Choose(mode, native, index);
+        if (choice.Ida)
         {
-            var via = await _engine.Xrefs(native, index, Address(index, address), progress, cancellationToken);
-            return StructuredOutput.With(via.Header + pager.PageRows(via.Rows, offset, limit, "reference"), Xrefs(native.Id, via.Target, via.Rows, offset, limit, null));
+            var via = await _engine!.Xrefs(native, index, Address(index, address), choice, progress, cancellationToken);
+            return StructuredOutput.With(via.Header + pager.PageRows(via.Rows, offset, limit, "reference"),
+                Xrefs(native.Id, via.Target, via.Rows, offset, limit, null, choice));
         }
         // a late-bound import (GetProcAddress) by name: its resolution and the calls through its pointer
         var dynamicRows = NativeCallTools.DynamicXrefRows(index, address, cancellationToken);
@@ -254,8 +280,9 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         try { rva = Address(index, address); }
         catch (ToolError) when (dynamicRows != null)
         {
-            return StructuredOutput.With($"References to {address.Trim()} (late-bound import):\n" + Coverage(index) + pager.PageRows(dynamicRows, offset, limit, "reference"),
-                Xrefs(native.Id, $"{address.Trim()} (late-bound import)", dynamicRows, offset, limit, null));
+            return StructuredOutput.With($"References to {address.Trim()} (late-bound import):\n{choice.Line}\n" + Coverage(index) +
+                                         pager.PageRows(dynamicRows, offset, limit, "reference"),
+                Xrefs(native.Id, $"{address.Trim()} (late-bound import)", dynamicRows, offset, limit, null, choice));
         }
         string Va(uint r) => NativeAddress.Va(index.Image, r);
         string Where(uint from) => index.FunctionAt(from) is { } f ? $"{f.Name}+0x{from - f.Start:X}" : "(no function)";
@@ -281,20 +308,20 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             if (import != null) header += $"Bound to: {boundTo = NativeLinkService.Describe(link.BindImport(native, import))}\n";
             rows.AddRange(workspace.Read(() => link.ImportCallSites(native, rva, cancellationToken)));
         }
-        return StructuredOutput.With(header + Coverage(index) + pager.PageRows(rows, offset, limit, "reference"),
-            Xrefs(native.Id, $"{Va(rva)}{(target != null ? $" ({target})" : "")}", rows, offset, limit, boundTo));
+        return StructuredOutput.With(header + choice.Line + "\n" + Coverage(index) + pager.PageRows(rows, offset, limit, "reference"),
+            Xrefs(native.Id, $"{Va(rva)}{(target != null ? $" ({target})" : "")}", rows, offset, limit, boundTo, choice));
     });
 
     /// <summary>
     /// find_xrefs rows ("[image] VA  Kind  function+0xN  detail") as fields; a row of another form (an importer whose index is
     /// not built) has only its text, as Detail.
     /// </summary>
-    private static XrefList Xrefs(string image, string target, List<string> rows, int offset, int limit, string? boundTo) =>
+    private static XrefList Xrefs(string image, string target, List<string> rows, int offset, int limit, string? boundTo, EngineChoice choice) =>
         Paged(rows, offset, limit, (page, o, total, more) => new XrefList(image, target, page.Select(row =>
             XrefRow().Match(row) is { Success: true } m
                 ? new XrefEntry(m.Groups["image"].Success ? m.Groups["image"].Value : null, m.Groups["va"].Value, m.Groups["kind"].Value, m.Groups["where"].Value,
                     m.Groups["rest"].Value.Length > 0 ? m.Groups["rest"].Value : null)
-                : new XrefEntry(null, null, null, null, row)).ToList(), o, total, more, boundTo));
+                : new XrefEntry(null, null, null, null, row)).ToList(), o, total, more, boundTo, choice.Engine, choice.Note));
 
     [GeneratedRegex(@"^(?:\[(?<image>[^\]]+)\] )?(?<va>0x[0-9A-F]+)\s+(?<kind>\S+)\s+(?<where>\(no function\)|\S+)\s*(?<rest>.*)$")]
     private static partial Regex XrefRow();
@@ -316,6 +343,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
         [Description("Call edges to follow: all (default), direct (no virtual call edges) or virtual (only virtual_exact / virtual_possible edges).")] string? calls = null,
+        [Description(EngineDescription + " With IDA, edges are IDA's call and jump references plus the RTTI-resolved virtual calls IDA has none for " +
+                     "(marked ours); calls into other loaded images are followed with the built-in index only.")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -332,17 +361,19 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             "virtual" => CallEdgeFilter.Virtual,
             _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown calls filter '{calls}'.", "use all, direct or virtual"),
         };
+        var mode = Mode(engine);
         var (native, index) = await Open(image, context, progress, cancellationToken);
-        if (_engine?.Serves(index) == true)
-            return await _engine.CallTree(native, index, Address(index, function), callers, Math.Clamp(depth, 1, 8), ClampLimit(maxNodes, 20_000), offset, maxChars,
-                progress, cancellationToken);
+        var choice = Choose(mode, native, index);
+        if (choice.Ida)
+            return await _engine!.CallTree(native, index, Address(index, function), callers, Math.Clamp(depth, 1, 8), ClampLimit(maxNodes, 20_000), offset, maxChars,
+                edges, choice, progress, cancellationToken);
         var fn = FunctionAt(index, Address(index, function));
         if (link != null)
         {
             await link.WarmUp(null, cancellationToken);
             var text = new StringBuilder();
             workspace.Read(() => link.AppendTree(text, native, fn, callers, Math.Clamp(depth, 1, 8), ClampLimit(maxNodes, 20_000), 0, true, cancellationToken, edges));
-            return pager.Page(text.ToString());
+            return choice.Line + "\n" + pager.Page(text.ToString());
         }
         var root = index.CallTree(fn, Math.Clamp(depth, 1, 8), callers, ClampLimit(maxNodes, 20_000), edges);
         var dynamic = callers || edges == CallEdgeFilter.Virtual ? new HashSet<CallTreeNode>() : NativeCallTools.AddDynamicCallees(index, root, cancellationToken);
@@ -363,7 +394,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             foreach (var child in node.Children) Walk(child, level + 1);
         }
         Walk(root, 0);
-        return pager.Page(sb.ToString(), offset, maxChars);
+        return choice.Line + "\n" + pager.Page(sb.ToString(), offset, maxChars);
     });
 
     [McpServerTool(Name = "search_native_strings", Title = "Search native strings", UseStructuredContent = true, OutputSchemaType = typeof(NativeStringList))]

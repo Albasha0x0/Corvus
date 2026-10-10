@@ -68,6 +68,13 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
                     (p.LastError != null ? $"; last error: {p.LastError}" : ""), null)
                 : new("IDA background analysis on load", false, "off: the first decompile_native on an image waits for IDA's auto-analysis",
                     $"start the server with --ida-prewarm (or {ServerOptions.IdaPrewarmVariable}=1)"));
+        capabilities.Add(new("native engine preference (list_functions, disassemble, get_cfg, find_xrefs, native_call_tree)", true,
+            options.Engine switch
+            {
+                EngineMode.Ours => "default ours: the built-in index; IDA is not consulted unless a call passes engine=ida",
+                EngineMode.Ida => "default ida: IDA's analysis, started or waited for by the call; engine=ours or auto per call",
+                _ => "default auto: IDA's functions, references and blocks once its analysis of an image is complete in this session, else the built-in index",
+            } + $"; --engine auto|ours|ida (or {ServerOptions.EngineVariable}) sets the default, each of those tools takes engine", null));
         if (code != null)
             capabilities.Add(code.IndexCache?.Status() is { } c
                 ? new("saved native code indexes", true,

@@ -94,6 +94,11 @@ internal static class ServerInstructions
            image or via load_pdb) it first loads the PDB's structs, enums, typedefs and prototypes into the database, once per PDB,
            through IDA's PDB loader or else the server's own PDB type reader; the first output line names the type source. --ida-prewarm or
            NDM_IDA_PREWARM=1 analyzes images in IDA in the background as they load (server_status shows the progress).
+           Engine preference: list_functions, disassemble, get_cfg, find_xrefs and native_call_tree take engine=auto|ours|ida
+           (server default --engine / NDM_ENGINE, auto). auto uses IDA's functions, xrefs and CFGs once IDA has finished analyzing
+           that image in this session (--ida-prewarm, decompile_native, an engine=ida call), else the built-in index; it never starts
+           IDA. ours never asks IDA; ida starts or waits for the analysis. With IDA our names still win and RTTI virtual-call edges
+           IDA lacks are added (marked ours); every result has an "Engine: ours|ida (why)" line.
         9. Crash dumps (user-mode .dmp): open_minidump (exception, faulting module+function and instruction, modules and whether the
            binaries exist locally, threads), dump_stack (x64 unwind data, x86 frame pointers; scanned frames marked heuristic),
            read_dump_memory. Load the crashed binaries first so frames get your names, PDB and Il2Cpp names; pass imageDirectories

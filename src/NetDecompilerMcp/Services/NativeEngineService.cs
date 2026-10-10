@@ -23,12 +23,92 @@ public sealed class NativeEngineService : IDisposable
     /// <param name="workspace">With <paramref name="options"/>.IdaPrewarm: native images it loads are analyzed in the background.</param>
     public NativeEngineService(IdaProviderOptions? idaOptions = null, NativeCodeService? code = null, AssemblyWorkspace? workspace = null,
         ServerOptions? options = null)
+        : this(new Lazy<INativeDecompilerProvider>(() => new IdaProvider(idaOptions)), idaOptions?.CacheRoot, code, workspace, options)
     {
-        _ida = new(() => new IdaProvider(idaOptions));
+    }
+
+    /// <summary>With another provider (tests); <paramref name="cacheRoot"/> is where its saved analyses are looked for.</summary>
+    internal NativeEngineService(INativeDecompilerProvider provider, string? cacheRoot, NativeCodeService? code = null, AssemblyWorkspace? workspace = null,
+        ServerOptions? options = null)
+        : this(new Lazy<INativeDecompilerProvider>(provider), cacheRoot, code, workspace, options)
+    {
+    }
+
+    private NativeEngineService(Lazy<INativeDecompilerProvider> provider, string? cacheRoot, NativeCodeService? code, AssemblyWorkspace? workspace,
+        ServerOptions? options)
+    {
+        _ida = provider;
+        _cacheRoot = cacheRoot;
         _code = code;
+        DefaultMode = options?.Engine ?? EngineMode.Auto;
         _prewarmEnabled = options?.IdaPrewarm == true;
         if (_prewarmEnabled && workspace != null) workspace.NativeLoaded += native => _ = PrewarmCore(native);
     }
+
+    // ---- engine preference of the native code tools (ServerOptions.Engine, per-call engine) ----
+
+    private readonly string? _cacheRoot;
+    private string? _savedRoot;
+
+    /// <summary>The engine the native code tools use when a call names none.</summary>
+    public EngineMode DefaultMode { get; }
+
+    /// <summary>
+    /// The image's engine session when its analysis is complete in this process and reflects the image's current patch
+    /// set, else null. Never opens, waits for or asks the engine anything (the auto engine's check).
+    /// </summary>
+    public INativeDecompilerSession? CompletedSession(LoadedNative native)
+    {
+        if (native.Released.IsCancellationRequested || !_holders.TryGetValue(native, out var h)) return null;
+        if (h.Opening is not { IsCompletedSuccessfully: true } opened || !opened.Result.IsOpen) return null;
+        var key = PatchKey(native);
+        if (h.SyncedKey != key) return null; // never synced, or patched since: syncing is a request
+        if (h.PatchedState == key)
+            return h.Patched is { IsCompletedSuccessfully: true } patched && patched.Result.IsOpen ? patched.Result : null;
+        return opened.Result;
+    }
+
+    /// <summary>
+    /// Whether the analysis cache holds a saved IDA database for the image's bytes (one file check; the provider is not
+    /// asked). Opening it loads the analysis without running auto-analysis again.
+    /// </summary>
+    public bool HasSavedAnalysis(LoadedNative native)
+    {
+        // looked up again at most every few seconds per image (a database appears when an analysis finishes)
+        var seen = _saved.GetOrCreateValue(native);
+        long now = Environment.TickCount64;
+        lock (seen)
+        {
+            if (seen.CheckedAt != 0 && now - seen.CheckedAt < SavedCheckInterval) return seen.Exists;
+            try
+            {
+                var root = _savedRoot ??= _cacheRoot ?? AnalysisCache.DefaultRoot;
+                seen.Exists = File.Exists(Path.Combine(root, IdaProvider.ProviderId, native.OriginalSha256, "ida-default.i64"));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { seen.Exists = false; }
+            seen.CheckedAt = now;
+            return seen.Exists;
+        }
+    }
+
+    private sealed class SavedCheck
+    {
+        public long CheckedAt;
+        public bool Exists;
+    }
+
+    private readonly ConditionalWeakTable<LoadedNative, SavedCheck> _saved = new();
+
+    /// <summary>Milliseconds a saved-analysis lookup is reused for an image.</summary>
+    internal long SavedCheckInterval { get; set; } = 5_000;
+
+    private static List<Native.Patching.NativePatch> OrderedPatches(LoadedNative native) => native.HasPatches ? native.Patches.Patches.OrderBy(p => p.Rva).ToList() : [];
+
+    private static string PatchKey(LoadedNative native) => PatchKey(OrderedPatches(native));
+
+    /// <summary>Identity of a patch set (in RVA order): what the database's patched bytes are compared by.</summary>
+    private static string PatchKey(List<Native.Patching.NativePatch> patches) =>
+        string.Join(";", patches.Select(p => $"{p.Rva:X}:{Convert.ToHexString(p.Replacement)}"));
 
     // ---- background analysis on load (ServerOptions.IdaPrewarm) ----
 
@@ -167,8 +247,8 @@ public sealed class NativeEngineService : IDisposable
         await holder.Sync.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var patches = native.HasPatches ? native.Patches.Patches.OrderBy(p => p.Rva).ToList() : [];
-            var key = string.Join(";", patches.Select(p => $"{p.Rva:X}:{Convert.ToHexString(p.Replacement)}"));
+            var patches = OrderedPatches(native);
+            var key = PatchKey(patches);
             if (holder.SyncedKey == key) return holder.PatchedState == key && holder.Patched is { } same ? await Wait(native, same, ct).ConfigureAwait(false) : session;
             if (PatchInDatabase || patches.Count == 0)
             {
