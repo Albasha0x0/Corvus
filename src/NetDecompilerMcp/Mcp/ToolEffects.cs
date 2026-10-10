@@ -14,8 +14,10 @@ namespace NetDecompilerMcp.Mcp;
 /// <item>Destructive: can replace or discard existing state: method bodies, names, bytes or edits in the workspace, or an
 /// existing file. False for tools that only add (new members, a newly loaded file, files in an empty directory).</item>
 /// <item>Idempotent: the same call again has no further effect.</item>
-/// <item>OpenWorld: reaches the network or launches a process. A reference pack download (any .NET tool can trigger one when
-/// an assembly targets a .NET version that is not installed; NDM_OFFLINE=1 turns it off) is not counted.</item>
+/// <item>OpenWorld: some argument value can make the call launch a process (IDA through idalib, Python, diec), reach the network
+/// or read another running process; so every tool with an engine parameter is open-world. Not counted: server-wide settings
+/// (--engine, --ida-prewarm) and a reference pack download (any .NET tool can trigger one when an assembly targets a .NET
+/// version that is not installed; NDM_OFFLINE=1 turns it off).</item>
 /// <item>LongRunning (not an MCP annotation): a call can run for more than ~10 s on large inputs: whole-assembly or whole-image
 /// work, an external engine, or the first use of a native image, which waits for its code index. Advertised as a
 /// description suffix, as _meta "net-decompiler/longRunning": true, and in server_status.</item>
@@ -114,12 +116,12 @@ public static class ToolEffects
         ["resolve_address"] = Reads(),
         ["search_bytes"] = Reads(),
         ["read_bytes"] = Reads(),
-        ["list_functions"] = Reads(longRunning: true),
-        ["disassemble"] = Reads(longRunning: true),
-        ["get_cfg"] = Reads(longRunning: true),
-        ["find_xrefs"] = Reads(longRunning: true),
-        ["native_call_tree"] = Reads(longRunning: true),
-        ["find_virtual_calls"] = Reads(longRunning: true, openWorld: true), // crossCheck runs IDA (idalib) in a worker process; its database is a private cache
+        ["list_functions"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
+        ["disassemble"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
+        ["get_cfg"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
+        ["find_xrefs"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
+        ["native_call_tree"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
+        ["find_virtual_calls"] = Reads(longRunning: true, openWorld: true), // crossCheck=true runs IDA
         ["search_native_strings"] = Reads(longRunning: true),
         ["get_call_arguments"] = Reads(longRunning: true),
         ["get_exception_info"] = Reads(longRunning: true),
@@ -155,7 +157,7 @@ public static class ToolEffects
         ["open_minidump"] = Reads(),
         ["dump_stack"] = Reads(),
         ["read_dump_memory"] = Reads(),
-        ["inspect_process"] = Reads(), // query and read handles to a running process only (docs/live-inspection.md); idempotent for the target
+        ["inspect_process"] = Reads(openWorld: true), // query and read handles to a running process only (docs/live-inspection.md); idempotent for the target
     };
 
     /// <summary>MCP's defaults for a tool the table does not list: may change, destroy and reach anything.</summary>

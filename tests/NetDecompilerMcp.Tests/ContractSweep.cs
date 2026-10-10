@@ -37,6 +37,12 @@ public static class ContractSweep
         ["export_native_patches"] = ["outputPath"],
     };
 
+    /// <summary>Parameters whose value can launch a process or reach the network; a tool with any of them is open-world.</summary>
+    public static readonly string[] OpenWorldParameters = ["engine", "crossCheck", "download", "server", "detectItEasy"];
+
+    /// <summary>Open-world whatever the arguments: server_status probes Python, inspect_process reads another process.</summary>
+    public static readonly string[] AlwaysOpenWorld = ["server_status", "inspect_process"];
+
 
     /// <summary>A parameter that names a file or directory the tool writes.</summary>
     public static bool IsOutputPath(string tool, string parameter) =>
@@ -513,7 +519,13 @@ public sealed class ContractSweepTests(Xunit.Abstractions.ITestOutputHelper outp
             foreach (var p in t.InputSchema.GetProperty("properties").EnumerateObject())
                 if (ContractSweep.IsOutputPath(t.Name, p.Name) && !(ContractSweep.FileWriters.TryGetValue(t.Name, out var o) && o.Contains(p.Name)))
                     problems.Add($"{t.Name}.{p.Name}: looks like an output path; add it to ContractSweep.FileWriters");
+            // One open-world rule: exactly the tools with a process- or network-reaching parameter, plus the fixed few.
+            bool reaching = ContractSweep.AlwaysOpenWorld.Contains(t.Name)
+                            || t.InputSchema.GetProperty("properties").EnumerateObject().Any(p => ContractSweep.OpenWorldParameters.Contains(p.Name));
+            if (reaching != e.OpenWorld) problems.Add($"{t.Name}: open-world is {e.OpenWorld} in ToolEffects.Table, but the rule says {reaching}");
         }
+        foreach (var name in new[] { "list_functions", "disassemble", "get_cfg", "find_xrefs", "native_call_tree", "decompile_native", "find_virtual_calls", "load_pdb" })
+            if (!table[name].OpenWorld) problems.Add($"{name}: can start IDA or reach the network but is not open-world");
         // The table is the only source: no [McpServerTool] attribute sets an annotation.
         var flags = typeof(ModelContextProtocol.Server.McpServerToolAttribute).GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
             .Where(f => f.FieldType == typeof(bool?)).ToList();
