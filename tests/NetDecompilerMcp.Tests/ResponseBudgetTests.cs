@@ -24,9 +24,12 @@ public class ResponseBudgetTests
         var store = new ResultStore();
         var limited = ResponseBudget.Enforce(TextResult(100_000), "decompile_type", options, store, null);
         Assert.True(limited.IsError);
-        var text = ((TextContentBlock)limited.Content.Single()).Text;
+        var text = ((TextContentBlock)limited.Content[0]).Text;
         Assert.StartsWith("Error (limit_exceeded) in decompile_type: the result is 100,000 characters", text);
         Assert.Contains("read_result id=r1", text);
+        var json = McpProtocolTests.ErrorJson(limited);
+        Assert.Equal("r1", json.GetProperty("details").GetProperty("resultId").GetString());
+        Assert.Equal(100_000, json.GetProperty("details").GetProperty("chars").GetInt64());
 
         var tools = new NetDecompilerMcp.Tools.SessionTools(null!, null!, options, store, new OutputPager(options));
         var page = tools.ReadResult("r1");

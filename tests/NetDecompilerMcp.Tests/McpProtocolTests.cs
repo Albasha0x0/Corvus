@@ -63,7 +63,51 @@ public abstract class McpProtocolTests : IAsyncLifetime
         var text = Text(result);
         Assert.True(expectError == (result.IsError == true), $"{tool} IsError={result.IsError}: {text}");
         if (!expectError) await AssertMatchesOutputSchema(_client, tool, result);
+        else ErrorJson(result);
         return text;
+    }
+
+    /// <summary>
+    /// Problems with an error result's shape: the first text block is the rendered error, a second block carries the same
+    /// error as JSON { code, retryable, message, next, partial, details } agreeing with the text; empty when it is well formed.
+    /// </summary>
+    internal static List<string> ErrorShapeProblems(CallToolResult result)
+    {
+        var problems = new List<string>();
+        var blocks = result.Content.OfType<TextContentBlock>().Where(b => !b.Text.StartsWith("[workspace]", StringComparison.Ordinal)).ToList();
+        if (result.IsError != true) problems.Add("not IsError");
+        if (result.StructuredContent != null) problems.Add("an error result carries structuredContent");
+        if (blocks.Count != 2) { problems.Add($"{blocks.Count} text blocks instead of the error text and its JSON"); return problems; }
+        var head = System.Text.RegularExpressions.Regex.Match(blocks[0].Text, @"^Error \(([a-z_]+)(, retryable)?\)( in \S+)?: ");
+        if (!head.Success) problems.Add($"first block is not 'Error (code) in tool: ...': {blocks[0].Text}");
+        if (!blocks[1].Text.StartsWith(ErrorJsonMarker, StringComparison.Ordinal)) { problems.Add("second block does not start with the JSON marker"); return problems; }
+        JsonElement json;
+        try { json = JsonDocument.Parse(blocks[1].Text[ErrorJsonMarker.Length..]).RootElement; }
+        catch (JsonException ex) { problems.Add($"error JSON does not parse: {ex.Message}"); return problems; }
+        if (json.ValueKind != JsonValueKind.Object) { problems.Add("error JSON is not an object"); return problems; }
+        string[] keys = ["code", "retryable", "message", "next", "partial", "details"];
+        var names = json.EnumerateObject().Select(p => p.Name).ToList();
+        if (!names.SequenceEqual(keys)) problems.Add($"error JSON members are [{string.Join(", ", names)}], expected [{string.Join(", ", keys)}]");
+        if (!json.TryGetProperty("code", out var code) || code.ValueKind != JsonValueKind.String) problems.Add("code is not a string");
+        else if (head.Success && code.GetString() != head.Groups[1].Value) problems.Add($"code {code} differs from the text's {head.Groups[1].Value}");
+        if (!json.TryGetProperty("retryable", out var retryable) || retryable.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) problems.Add("retryable is not a boolean");
+        else if (head.Success && retryable.GetBoolean() != head.Groups[2].Success) problems.Add("retryable differs from the text");
+        if (!json.TryGetProperty("message", out var message) || message.ValueKind != JsonValueKind.String || message.GetString()!.Length == 0) problems.Add("message is not a non-empty string");
+        else if (!blocks[0].Text.Contains(message.GetString()!, StringComparison.Ordinal)) problems.Add("message is not the text's message");
+        if (!json.TryGetProperty("next", out var next) || next.ValueKind is not (JsonValueKind.String or JsonValueKind.Null)) problems.Add("next is not a string or null");
+        else if ((next.ValueKind == JsonValueKind.String) != blocks[0].Text.Contains("\nNext: ", StringComparison.Ordinal)) problems.Add("next differs from the text's Next line");
+        if (json.TryGetProperty("details", out var details) && details.ValueKind is not (JsonValueKind.Object or JsonValueKind.Null)) problems.Add("details is not an object or null");
+        return problems;
+    }
+
+    internal const string ErrorJsonMarker = "\n\nerror (json): ";
+
+    /// <summary>The error JSON of a well-formed error result.</summary>
+    internal static JsonElement ErrorJson(CallToolResult result)
+    {
+        var problems = ErrorShapeProblems(result);
+        Assert.True(problems.Count == 0, string.Join("\n", problems));
+        return JsonDocument.Parse(result.Content.OfType<TextContentBlock>().Last().Text[ErrorJsonMarker.Length..]).RootElement.Clone();
     }
 
     private static readonly Dictionary<McpClient, Dictionary<string, JsonElement?>> Schemas = [];

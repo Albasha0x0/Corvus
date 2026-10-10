@@ -328,6 +328,7 @@ public static class ContractSweep
         {
             var code = System.Text.RegularExpressions.Regex.Match(text, @"^Error \(([a-z_]+)");
             if (!code.Success || code.Groups[1].Value == "internal") return Fail("internal", Clip(text));
+            if (McpProtocolTests.ErrorShapeProblems(result) is { Count: > 0 } shape) return Fail("bad error", $"{string.Join("; ", shape)}: {Clip(text)}");
             return new Result(c, null, code.Groups[1].Value, watch.Elapsed);
         }
         if (outputSchema is { } schema)
@@ -495,8 +496,9 @@ public sealed class ContractSweepTests(Xunit.Abstractions.ITestOutputHelper outp
     [Fact]
     public async Task BadArgumentsAreInvalidArgumentErrors()
     {
+        // The error text; the JSON block after it is checked by the sweep.
         async Task<string> Call(string tool, Dictionary<string, object?> args) =>
-            string.Join("\n", (await _client.CallToolAsync(tool, args)).Content.OfType<TextContentBlock>().Select(b => b.Text));
+            (await _client.CallToolAsync(tool, args)).Content.OfType<TextContentBlock>().First(b => !b.Text.StartsWith("[workspace]", StringComparison.Ordinal)).Text;
 
         Assert.Equal("Error (invalid_argument) in get_type_info: parameter 'type' must be a string, not a number.",
             await Call("get_type_info", new() { ["type"] = 42 }));
@@ -510,6 +512,16 @@ public sealed class ContractSweepTests(Xunit.Abstractions.ITestOutputHelper outp
         Assert.Equal("Error (invalid_argument) in load_assembly: a path is too long.\nNext: Pass a shorter path.",
             await Call("load_assembly", new() { ["path"] = new string('A', 100_000) }));
         Assert.Contains("none from offset", await Call("search_strings", new() { ["query"] = "LICENSE", ["offset"] = int.MaxValue }));
+
+        // The same errors as JSON.
+        var missing = McpProtocolTests.ErrorJson(await _client.CallToolAsync("get_type_info", new Dictionary<string, object?>()));
+        Assert.Equal("invalid_argument", missing.GetProperty("code").GetString());
+        Assert.False(missing.GetProperty("retryable").GetBoolean());
+        Assert.Equal("missing required parameter 'type'.", missing.GetProperty("message").GetString());
+        Assert.Equal("type", missing.GetProperty("details").GetProperty("parameter").GetString());
+        var tooLong = McpProtocolTests.ErrorJson(await _client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = new string('A', 100_000) }));
+        Assert.Equal("Pass a shorter path.", tooLong.GetProperty("next").GetString());
+        Assert.Equal(JsonValueKind.Null, tooLong.GetProperty("partial").ValueKind);
     }
 
     [Fact]

@@ -112,41 +112,25 @@ builder.Services
         }
         catch (NetDecompilerMcp.Core.ToolError ex)
         {
-            // Code, message and next step, with names made of invisible characters escaped as in results.
-            return new CallToolResult
-            {
-                IsError = true,
-                Content = [new TextContentBlock { Text = NetDecompilerMcp.Core.Format.EscapeInvisible(ex.Render(context.Params?.Name)) }],
-            };
+            // Code, message and next step (names made of invisible characters escaped as in results), then the same as JSON.
+            return ErrorResult.From(ex, context.Params?.Name);
         }
         catch (ArgumentException ex) when (ex.ParamName == "arguments" && System.Text.RegularExpressions.Regex.Match(ex.Message, "required parameter '([^']+)'") is { Success: true } m)
         {
             // Argument binding: a required parameter is missing.
-            return new CallToolResult
-            {
-                IsError = true,
-                Content = [new TextContentBlock { Text = new NetDecompilerMcp.Core.ToolError(NetDecompilerMcp.Core.ErrorCode.InvalidArgument,
-                    $"missing required parameter '{m.Groups[1].Value}'.").Render(context.Params?.Name) }],
-            };
+            return ErrorResult.From(new NetDecompilerMcp.Core.ToolError(NetDecompilerMcp.Core.ErrorCode.InvalidArgument,
+                $"missing required parameter '{m.Groups[1].Value}'.") { Details = new { parameter = m.Groups[1].Value } }, context.Params?.Name);
         }
         catch (Exception ex) when (ArgumentCheck.FileSystemError(ex) is { } error)
         {
             // A path argument System.IO rejected or could not reach.
-            return new CallToolResult
-            {
-                IsError = true,
-                Content = [new TextContentBlock { Text = NetDecompilerMcp.Core.Format.EscapeInvisible(error.Render(context.Params?.Name)) }],
-            };
+            return ErrorResult.From(error, context.Params?.Name);
         }
         catch (Exception ex) when (ex is not McpException && ex is not OperationCanceledException)
         {
             // Return unexpected exceptions as a descriptive tool error instead of a generic protocol error.
             context.Services?.GetService<ILogger<AssemblyWorkspace>>()?.LogError(ex, "Tool {Tool} failed", context.Params?.Name);
-            return new CallToolResult
-            {
-                IsError = true,
-                Content = [new TextContentBlock { Text = $"Error (internal) in {context.Params?.Name}: {ex.GetType().Name}: {ex.Message}" }],
-            };
+            return ErrorResult.Internal(ex, context.Params?.Name);
         }
     }));
 
