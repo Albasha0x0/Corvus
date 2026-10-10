@@ -8,22 +8,8 @@ namespace NetDecompilerMcp.Services.Simplify;
 public sealed record ExtendedInitializer(string Type, long Instructions, bool Completed, string? Stop);
 
 /// <summary>
-/// The extended tier for type initializers. A static constructor that builds a large table runs past the instruction
-/// budget while making steady progress. When the budget runs out inside an initializer run (the outermost static
-/// constructor the evaluator runs, and everything it calls), the run enters the tier: it gets one more window of the
-/// budget's size, observed (its writes are tracked from then on, so runs that end within the budget cost nothing
-/// extra), and each further window when the window just finished committed new state and did not return to an earlier
-/// state:
-/// <list type="bullet">
-/// <item>progress: at least one location per <see cref="ProgressRatio"/> instructions of the window got a value it did
-/// not hold (an array element, a static field, a field of an object; a collection or a builder that grew), counting
-/// each location once per window; a loop that only updates locals, or the same few locations, earns nothing;</item>
-/// <item>no cycle: a fingerprint of every location the run wrote (each location's value, combined so that equal states
-/// give equal fingerprints) differs from its value at the end of every earlier window.</item>
-/// </list>
-/// The tier is bounded by an absolute instruction ceiling and its own time limit. A run that entered it is accounted to
-/// it alone: the evaluation that triggered the initializer gets its budget back, the method's total budget and its time
-/// limit are not charged, and the run is reported.
+/// The extended tier for type initializers: a run that exhausts the instruction budget while committing new state gets
+/// further budget windows. Rules and limits: SimplifyManifest's "initializer tier" entry (docs/simplify.md).
 /// </summary>
 internal sealed partial class IlEvaluator
 {
@@ -166,8 +152,6 @@ internal sealed partial class IlEvaluator
 
     private EvaluationBailout TierExhausted() =>
         Bail(FallbackReason.InstructionBudget, $"the type initializer ran past the instruction budget in the extended tier for initializers that make progress, and stopped: {_tierStop}");
-
-    // ---- writes
 
     /// <summary>The elements of a range before a write to it, when the run is tracked.</summary>
     private object?[]? Before(ArrayObject array, int start, int count)

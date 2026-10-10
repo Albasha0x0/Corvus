@@ -81,8 +81,6 @@ internal sealed class VirtualCallResolver
         return r.Run(classes, options, sw);
     }
 
-    // ---- RTTI model ----
-
     private int BuildModel(MsvcRttiResult rtti)
     {
         var polymorphic = rtti.Classes.Where(c => c.Vtables.Count > 0).ToList();
@@ -174,7 +172,7 @@ internal sealed class VirtualCallResolver
     private static readonly string[] Conventions = ["__cdecl", "__stdcall", "__thiscall", "__fastcall", "__vectorcall", "__clrcall"];
 
     /// <summary>
-    /// The signature of a decorated function name ("public: class QWidget * __cdecl QLayoutItem::widget(void) const"), from its
+    /// The signature of a decorated function name ("public: class ns::B * __cdecl ns::A::get(void) const"), from its
     /// demangled text; null for other names.
     /// </summary>
     internal static DecoratedSignature? Signature(string decorated, MsvcDemangleOptions options)
@@ -245,7 +243,7 @@ internal sealed class VirtualCallResolver
         return parts;
     }
 
-    /// <summary>"ns::C" for a pointer or reference to a class ("class ns::C const *", "struct S &"), else null.</summary>
+    /// <summary>"ns::C" for a pointer or reference to a class ("class ns::C const *", "struct S &amp;"), else null.</summary>
     internal static string? PointerClass(string? type)
     {
         if (type == null) return null;
@@ -322,8 +320,6 @@ internal sealed class VirtualCallResolver
         }
         return null;
     }
-
-    // ---- run ----
 
     private (VirtualCallSet, CodeXref[]) Run(int classes, CodeIndexOptions options, Stopwatch sw)
     {
@@ -427,8 +423,6 @@ internal sealed class VirtualCallResolver
         return found;
     });
 
-    // ---- target sets ----
-
     private readonly record struct Resolution(VirtualCallStatus Status, VirtualCallReason Reason, VirtualReceiver Receiver, uint ClassTd, uint Vftable,
         List<uint> Targets, bool Incomplete, int Pure = 0);
 
@@ -518,8 +512,6 @@ internal sealed class VirtualCallResolver
         var status = targets.Count == 1 && !incomplete ? VirtualCallStatus.Exact : VirtualCallStatus.Possible;
         return new Resolution(status, VirtualCallReason.None, receiver, classTd, vftable, targets, incomplete);
     }
-
-    // ---- data flow ----
 
     private enum VKind : byte
     {
@@ -779,8 +771,6 @@ internal sealed class VirtualCallResolver
             }
             return true;
         }
-
-        // ---- transfer ----
 
         private int Reg(Register reg)
         {

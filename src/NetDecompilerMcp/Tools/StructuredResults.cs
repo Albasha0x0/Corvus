@@ -135,8 +135,6 @@ public sealed record ResourceEntry(
 
 public sealed record ResourceList(string Assembly, IReadOnlyList<ResourceEntry> Items, int Total, bool Truncated);
 
-// ---- native images ----
-
 public sealed record ImportEntry(
     [property: Description("VA of the IAT slot code calls through (dynamic: the pointer global or the GetProcAddress call).")] string Address,
     string Module,

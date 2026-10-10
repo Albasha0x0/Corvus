@@ -129,8 +129,6 @@ internal abstract class Node
     }
 }
 
-// ---- types ----
-
 internal abstract class TypeNode : Node
 {
     public Quals Quals;
@@ -364,8 +362,6 @@ internal sealed class ThunkType : FunctionType
     }
 }
 
-// ---- template arguments that are not types ----
-
 internal sealed class IntegerLiteral(ulong value, bool negative) : Node
 {
     public override void Output(Printer p, OutFlags f = OutFlags.None)
@@ -400,8 +396,6 @@ internal sealed class SymbolArgument : Node
         if (Offsets.Count > 0) p.Append("}");
     }
 }
-
-// ---- names ----
 
 internal abstract class Identifier : Node
 {
@@ -565,8 +559,6 @@ internal sealed class QualifiedName(List<Identifier> components) : Node
         p.Leave();
     }
 }
-
-// ---- symbols ----
 
 internal abstract class SymbolNode : Node
 {

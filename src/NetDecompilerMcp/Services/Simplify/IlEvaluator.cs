@@ -1033,8 +1033,6 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
 
     internal static string Describe(IMethod m) => $"{m.DeclaringType?.FullName}::{m.Name}({Core.Format.ParameterTypes(m.MethodSig)})";
 
-    // ---- type tests
-
     private bool IsInstance(object value, TypeSig type) => value is BoxedValue boxed ? boxed.Is(type)
         : value is ReflectionObject r ? r.Is(type.FullName)
         : value is InstanceObject o ? IsInstanceOf(o, type.FullName)
@@ -1056,8 +1054,6 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         "System.Text.Encoding" => value is Encoding,
         _ => throw Bail(FallbackReason.UnsupportedValue, $"type test against {type.FullName}"),
     };
-
-    // ---- static state
 
     /// <summary>Reads a static field; <paramref name="reader"/> is the method whose code reads it (null: a dynamic method or an intrinsic).</summary>
     private object? LoadStatic(IField field, MethodDef? reader = null)
@@ -1283,8 +1279,6 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
             throw Bail(FallbackReason.MutableStatic, "modifies an object held in a static field");
     }
 
-    // ---- memory
-
     private void Allocate(long bytes)
     {
         _allocated += bytes;
@@ -1445,8 +1439,6 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         _ => new(Kind.Ref),
     };
 
-    // ---- struct fields
-
     /// <summary>The struct and field index an ldfld / ldflda / stfld addresses: a pointer to a module struct, or (ldfld) a struct value.</summary>
     private (StructValue Struct, int Index, Slot Slot) FieldOf(object? target, object operand, bool viaPointerOnly)
     {
@@ -1465,8 +1457,6 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
         int k = layout.Fields.IndexOf(field);
         return (s, k, layout.Slots[k]);
     }
-
-    // ---- arrays
 
     private Type ElementClrType(TypeSig sig)
     {
@@ -1554,8 +1544,6 @@ internal sealed partial class IlEvaluator(ModuleDef module, EvaluationLimits lim
             default: throw Bail(FallbackReason.UnsupportedValue, "unsupported array");
         }
     }
-
-    // ---- calls
 
     private object? Invoke(IMethod method, Code op, object?[] args)
     {

@@ -11,9 +11,9 @@ public sealed class UnityTools
     [Description("One-call overview of a Unity game, in seconds and without loading it: engine version from each source (UnityPlayer / executable " +
                  "version resources, globalgamemanagers / mainData / level0 serialized-file header, data.unity3d bundle header) with their agreement " +
                  "and an Il2Cpp metadata-version cross-check; scripting backend (il2cpp / mono) with its evidence, metadata version and state " +
-                 "(readable by the built-in reader, encrypted, header_tampered, unsupported_version, missing), Mono runtime and .NET profile; markers " +
-                 "(anti-cheat: EAC, BattlEye, GameGuard, XIGNCODE3, ACE; obfuscators: Beebyte, de4dot-style markers, renamed identifiers; packer " +
-                 "sections; Burst, Addressables, mod loaders, middleware; Detect It Easy detections with detectItEasy=true); platform and architecture; " +
+                 "(readable by the built-in reader, encrypted, header_tampered, unsupported_version, missing), Mono runtime and .NET profile; toolchain " +
+                 "and middleware markers from file, assembly, section and identifier names, each with its category (Detect It Easy detections with " +
+                 "detectItEasy=true); platform and architecture; " +
                  "notable folders (Managed, il2cpp_data, StreamingAssets, aa Addressables catalogs, Plugins); and the next tool calls with their " +
                  "arguments (load_assembly the Managed folder or the metadata, or dump from memory with the reason). Reads directory listings, " +
                  "headers and version resources only. Not a Unity title: an unsupported error with reason not_a_unity_title and what was looked for.")]

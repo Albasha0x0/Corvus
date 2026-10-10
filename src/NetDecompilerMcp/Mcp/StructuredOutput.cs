@@ -5,7 +5,7 @@ namespace NetDecompilerMcp.Mcp;
 
 /// <summary>
 /// Structured content for tools that keep their readable text as the text block. Such a tool is declared with
-/// UseStructuredContent and OutputSchemaType (the record), returns its text as before, and hands the record to
+/// UseStructuredContent and OutputSchemaType (the record), returns its text, and hands the record to
 /// <see cref="With"/>; the call filter puts the record in structuredContent. Called directly (tests), the tool returns the
 /// same text and the record is dropped.
 /// </summary>

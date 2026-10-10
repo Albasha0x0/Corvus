@@ -462,8 +462,6 @@ public sealed class BuildMatcher
         return lo;
     }
 
-    // ---- similarity ----
-
     /// <summary>Similarity (0-1) of old print <paramref name="o"/> and new print <paramref name="n"/>, using the current matches for the call graph.</summary>
     public double Similarity(int o, int n) => Similarity(_o[o], _n[n], _byOld, _byNew);
 

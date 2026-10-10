@@ -16,7 +16,7 @@ public static class EngineLibraryNames
     /// <summary>
     /// Reads the session's library functions into the ida layer (replacing it) and applies it to the built index.
     /// Returns the number of names. IDA's placeholder names (unknown_libname_N, sub_, nullsub_, j_) are skipped, and so
-    /// are addresses with a user name (those were pushed into the database by us).
+    /// are addresses with a user name (this server pushed those into the database).
     /// </summary>
     public static async Task<int> ImportAsync(LoadedNative native, INativeDecompilerSession session, NativeCodeService? code, CancellationToken ct)
     {

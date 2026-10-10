@@ -53,8 +53,6 @@ public sealed class NativeCodeService
     public NativeAnnotations Annotations(LoadedNative native) =>
         native.Annotations(n => new NativeAnnotations(_store, n.FilePath, n.OriginalSha256, n.Image.ImageBase));
 
-    // ---- saved imported name layers ----
-
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<LoadedNative, object> RestoreDone = new();
     private static readonly NativeNameSource[] SavedSources = [NativeNameSource.Pdb, NativeNameSource.Il2Cpp];
     private int _layersRestored, _namesRestored, _layersSaved;

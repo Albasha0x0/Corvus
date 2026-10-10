@@ -170,8 +170,6 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         return new NativeCodeIndex(image, CodeSupport.DeclaredFunctionsOnly, note, null, functions, [], [], [], [], [], stats);
     }
 
-    // ---- queries ----
-
     public NativeFunction? FunctionByStart(uint start) => _byStart.GetValueOrDefault(start);
 
     /// <summary>The function whose code contains <paramref name="rva"/> (first owner where functions share code), or null.</summary>
@@ -479,8 +477,6 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         string module = imp.Module.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? imp.Module[..^4] : imp.Module;
         return imp.Name != null ? $"{module}!{imp.Name}" : $"{module}!#{imp.Ordinal}";
     }
-
-    // ---- build ----
 
     /// <summary>The union of code ranges, merged and sorted for containment tests.</summary>
     private sealed class CodeCover

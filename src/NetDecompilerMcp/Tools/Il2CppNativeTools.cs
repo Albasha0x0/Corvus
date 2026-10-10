@@ -52,7 +52,7 @@ public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeSer
             try { return workspace.Read(() => names.Apply(native, index, workspace.Scope(assembly), cancellationToken)); }
             catch (ToolError e) when (e.Code == ErrorCode.NotLoaded && assembly == null && Il2CppGame(native.FilePath) is { } game)
             {
-                // No dummy assemblies loaded: read the game's metadata with the built-in reader first.
+                // No dummy assemblies loaded: read the Il2Cpp metadata with the built-in reader first.
                 var loaded = (il2cppRaw ?? new Il2CppRawLoader(workspace)).Load(game, loadBinary: false,
                     m => progress.Report(new ProgressNotificationValue { Progress = 0, Message = $"Il2Cpp: {m}" }), cancellationToken);
                 read = Il2CppRawLoader.Describe(loaded) + Environment.NewLine + Environment.NewLine;

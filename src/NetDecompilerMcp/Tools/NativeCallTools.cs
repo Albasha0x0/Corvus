@@ -208,8 +208,6 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         return rows;
     }
 
-    // ---- late-bound imports ----
-
     private static string Where(NativeCodeIndex index, uint rva) =>
         index.FunctionAt(rva) is { } f ? $"{f.Name}+0x{rva - f.Start:X}" : NativeAddress.Va(index.Image, rva);
 

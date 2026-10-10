@@ -118,8 +118,8 @@ public static class PatchMigration
             }
             if (patch.IsStub)
             {
-                // A stub patch is a jump to a code cave plus the cave's stub bytes; neither maps byte-for-byte to the new
-                // build, so it is re-created there rather than migrated. Refuse cleanly with its own reason code.
+                // Without prepareStub: a stub patch maps neither its jump nor its stub byte-for-byte, so it must be
+                // re-created on the new build.
                 steps.Add(Refuse(patch, null, 0, null, "extended_patch", "a patch-site extension (relocation stub) must be re-applied on the new build with patch_asm/patch_bytes extend=true"));
                 continue;
             }
@@ -132,7 +132,6 @@ public static class PatchMigration
                 continue;
             }
 
-            // Read the new build's original (unpatched) bytes at the mapped address.
             var found = new byte[patch.Original.Length];
             int read = newIndex.Image.Read(newRva, found);
             if (read < found.Length)
@@ -141,8 +140,6 @@ public static class PatchMigration
                 continue;
             }
 
-            // Compare the expected pre-patch bytes with what is there. Raw patches require an exact match; patch_asm
-            // patches tolerate relocated / RIP-relative / branch-displacement bytes that legitimately moved.
             var (matches, mask) = patch.FromAsm
                 ? MaskedEqual(oldDecoder, patch.Rva, patch.Original, newDecoder, newRva, found)
                 : (patch.Original.AsSpan().SequenceEqual(found), null);
@@ -153,8 +150,6 @@ public static class PatchMigration
                 continue;
             }
 
-            // Produce the replacement: patch_asm re-assembles at the new address (new branch / RIP-relative targets);
-            // raw byte patches apply the recorded bytes verbatim.
             byte[] replacement;
             string? assembly = patch.Assembly;
             if (patch.FromAsm)
@@ -172,7 +167,6 @@ public static class PatchMigration
             }
             else replacement = (byte[])patch.Replacement.Clone();
 
-            // Prepare through the normal patch path; a safety or relocation failure refuses this patch.
             try { prepare(newRva, replacement, assembly); }
             catch (ToolError ex)
             {

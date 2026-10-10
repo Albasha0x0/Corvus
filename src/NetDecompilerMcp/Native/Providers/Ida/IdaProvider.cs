@@ -120,7 +120,6 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
 
     internal void Forget(IdaSession session) => _sessions.TryRemove(session, out _);
 
-    /// <summary>Starts a worker process (inside a job on Windows) and returns its connection; idalib is loaded on the first request.</summary>
     /// <summary>
     /// The symbol path for a worker: the directory of the PDB the server located first (IDA analyzes a copy of the image,
     /// so it cannot look next to the original), then the configured path (_NT_SYMBOL_PATH, else pdb.cfg, else IDA's
@@ -154,6 +153,7 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
         return null;
     }
 
+    /// <summary>Starts a worker process (inside a job on Windows) and returns its connection; idalib is loaded on the first request.</summary>
     internal WorkerConnection StartWorker(IdaInstallation ida, PythonInterpreter python, string? pdbPath = null)
     {
         var workerDir = Path.Combine(Cache.Root, "workers");

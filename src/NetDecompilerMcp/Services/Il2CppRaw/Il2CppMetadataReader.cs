@@ -12,13 +12,12 @@ namespace NetDecompilerMcp.Services;
 /// <summary>
 /// The built-in Il2Cpp reader: reads global-metadata.dat (versions 24 to 31) with the game's GameAssembly.dll through
 /// LibCpp2IL and produces what Il2CppDumper would: dummy assemblies (written to a folder) and the script.json /
-/// stringliteral.json data (<see cref="Il2CppGameModel"/>). A memory image of GameAssembly.dll (a process dump, the
-/// usual way past a packed or protected binary) is read with its sections at their RVAs. When the Unity version is
-/// not known from the player or the data folder, each sub-version of the metadata's version is tried and the first
-/// whose method pointers land in code is kept. Metadata that cannot be read is a typed error (encrypted or obfuscated
-/// header, unsupported version, a binary that does not belong to it); single items that cannot be read are listed in
-/// <see cref="Il2CppGameModel.Unreadables"/> with a reason. LibCpp2IL keeps one game in process-wide state, so reads
-/// are serialized.
+/// stringliteral.json data (<see cref="Il2CppGameModel"/>). A memory image of GameAssembly.dll (a process dump) is read
+/// with its sections at their RVAs. When the Unity version is not known from the player or the data folder, each
+/// sub-version of the metadata's version is tried and the first whose method pointers land in code is kept. Unreadable
+/// metadata is a typed error (encrypted or obfuscated header, unsupported version, mismatched binary); unreadable single
+/// items are listed in <see cref="Il2CppGameModel.Unreadables"/>. LibCpp2IL keeps one game in process-wide state, so
+/// reads are serialized.
 /// </summary>
 public static class Il2CppMetadataReader
 {

@@ -29,8 +29,6 @@ internal sealed class MsvcParser(string text)
 
     public int Position => pos;
 
-    // ---- cursor ----
-
     private char Peek(int k = 0) => pos + k < s.Length ? s[pos + k] : '\0';
 
     private char Next()
@@ -71,8 +69,6 @@ internal sealed class MsvcParser(string text)
     }
 
     private void Leave() => depth--;
-
-    // ---- symbols ----
 
     /// <summary>A complete symbol: "?name...", "??@md5@", or a type descriptor name ".?AV...".</summary>
     public SymbolNode ParseSymbol()
@@ -435,8 +431,6 @@ internal sealed class MsvcParser(string text)
         return null;
     }
 
-    // ---- names ----
-
     private QualifiedName ParseFullyQualifiedSymbolName()
     {
         var id = ParseUnqualifiedSymbolName(memorize: true);
@@ -677,8 +671,6 @@ internal sealed class MsvcParser(string text)
         ['I'] = "`managed vector copy constructor iterator'", ['J'] = "`local static thread guard'",
     };
 
-    // ---- template arguments ----
-
     private List<Node> ParseTemplateArguments()
     {
         var args = new List<Node>();
@@ -774,8 +766,6 @@ internal sealed class MsvcParser(string text)
         public override void Output(Printer p, OutFlags f = OutFlags.None) => name.Output(p, f);
     }
 
-    // ---- numbers ----
-
     /// <summary>"0".."9" encode 1..10; otherwise hex digits A..P terminated by '@'; a leading '?' negates.</summary>
     private (ulong Value, bool Negative) ParseNumber()
     {
@@ -809,8 +799,6 @@ internal sealed class MsvcParser(string text)
         if (negative) Fail("unexpected negative number");
         return value;
     }
-
-    // ---- types ----
 
     internal enum QualMode { Drop, Mangle, Result }
 
@@ -1072,8 +1060,6 @@ internal sealed class MsvcParser(string text)
         Fail($"unknown type '{c}'");
         return null!;
     }
-
-    // ---- string literals ----
 
     /// <summary>"??_C@_" kind length crc "@" bytes "@": the bytes are the first 32 of the literal (wide: big-endian pairs).</summary>
     private SymbolNode ParseStringLiteral()

@@ -179,16 +179,14 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
                  "nested helper calls of the same assembly) are run by a safe IL interpreter and replaced with the string literal. Calls outside the safe " +
                  "subset (I/O, reflection, exceptions, instance objects, native code, mutable statics) or over the depth / instruction budget are kept and reported. " +
                  "cfg: branches and switches on constant conditions are folded, also when the condition is computed through locals and blocks " +
-                 "(constant propagation; readonly statics and calls with constant arguments are evaluated), and stores to locals left unread are removed; " +
-                 "branch-to-branch chains collapsed, flattened control flow (a loop over a switch on a state " +
-                 "local, or on a value passed on the stack) normalized so each case flows into the next: every way into the dispatcher is run through it " +
-                 "per state, so transitions that compute the next state from the previous one (ConfuserEx) or pass it on the stack (.NET Reactor) go " +
-                 "straight to their case; a dispatcher whose state is not the same on every run is kept and reported (flattened-shape) while the rest of " +
-                 "the method is still simplified —, reads of locals through their address that are constant become the constant, empty try/finally and dead handlers " +
-                 "removed, unreachable code deleted. " +
+                 "(constant propagation; readonly statics, calls with constant arguments and constant reads through a local's address are " +
+                 "evaluated); dead stores, branch-to-branch chains, " +
+                 "empty try/finally, dead handlers and unreachable code are removed; flattened control flow (a loop over a switch on a state local or " +
+                 "a stack value, also with computed transitions) becomes sequential code; a dispatcher whose state differs between runs is kept and " +
+                 "reported (flattened-shape) while the rest of the method is still simplified. " +
                  "inline: call sites of forwarders (methods that only pass their arguments on to another method) call the real target; " +
                  "virtually dispatched wrappers and inaccessible targets are skipped; calls through static delegate fields (call proxies and string " +
-                 "delegates of ConfuserEx, SmartAssembly and others) call the delegate's target directly when the field's type initializer, run in the " +
+                 "delegates) call the delegate's target directly when the field's type initializer, run in the " +
                  "interpreter (reflection-based initializers with DynamicMethod included), always sets the same target; others are reported (delegate-target). " +
                  "Scope: a method, a type (nested types included), or omit symbol for the whole assembly. Each rewritten body is stack-verified or left unchanged; " +
                  "every call left alone and every method left unchanged is reported with a reason code (docs/simplify.md lists the evaluated instructions, " +

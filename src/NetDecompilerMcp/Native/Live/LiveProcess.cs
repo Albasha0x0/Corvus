@@ -161,8 +161,6 @@ public sealed class LiveProcess : IProcessMemory, IDisposable
     /// <summary>Whether the process is still running (it may exit while it is read).</summary>
     public bool IsRunning => !_disposed && LiveNative.GetExitCodeProcess(_process, out uint exit) && exit == LiveNative.STILL_ACTIVE;
 
-    // ---- modules ----
-
     private void ReadModules(CancellationToken ct)
     {
         var handles = new nint[1024];
@@ -234,8 +232,6 @@ public sealed class LiveProcess : IProcessMemory, IDisposable
 
     public DumpModule? ModuleAt(ulong address) => ProcessMemoryExtensions.ModuleAt(Modules, address);
 
-    // ---- memory ----
-
     public int ReadMemory(ulong address, Span<byte> destination)
     {
         if (destination.IsEmpty || _disposed) return 0;
@@ -296,8 +292,6 @@ public sealed class LiveProcess : IProcessMemory, IDisposable
 
     /// <summary>A mapped module is readable throughout as far as the stack walker is concerned; unreadable pages read as missing.</summary>
     public ulong ReadableExtent(ulong start, ulong size) => size;
-
-    // ---- threads ----
 
     /// <summary>The process's threads from the system thread snapshot (CreateToolhelp32Snapshot TH32CS_SNAPTHREAD), sorted by id.</summary>
     public IReadOnlyList<LiveThreadEntry> Threads(CancellationToken ct = default)

@@ -115,7 +115,6 @@ public sealed class LiveProcessService(MinidumpService dumps)
             MinidumpService.HostsClr(live, out var runtime);
             if (runtime == null && live.Modules.Any(m => m.FileName.Equals("GameAssembly.dll", StringComparison.OrdinalIgnoreCase))) runtime = "Il2Cpp (Unity)";
 
-            // modules
             var modules = new List<MinidumpService.ModuleSummary>();
             if (want.Contains("modules"))
                 foreach (var m in live.Modules.Skip(modulesOffset).Take(modulesLimit))
@@ -124,7 +123,6 @@ public sealed class LiveProcessService(MinidumpService dumps)
                     modules.Add(MinidumpService.ModuleRow(m, dirs, live.Arch));
                 }
 
-            // regions
             var regionRows = new List<RegionRow>();
             int regionCount = 0, regionsTotal = 0;
             if (want.Contains("regions"))
@@ -204,8 +202,6 @@ public sealed class LiveProcessService(MinidumpService dumps)
             Opt(live, t.StartAddress), startSymbol, ctx != null ? Hex(live, ctx.Ip) : null, ctx != null ? Hex(live, ctx.Sp) : null, location, ctx?.Format(),
             frameCount, frames, stop, heuristic, t.Error);
     }
-
-    // ---- selection ----
 
     /// <summary>A process id (decimal or 0x hex) or a process name (with or without .exe); a name must match one process.</summary>
     internal static (int Pid, string Name) Resolve(string process)
@@ -293,8 +289,6 @@ public sealed class LiveProcessService(MinidumpService dumps)
         if (set.Count == 0) throw new ToolError(ErrorCode.InvalidArgument, "sections is empty.", $"pass a comma-separated list of {string.Join(", ", Sections)}, or all");
         return set;
     }
-
-    // ---- formatting ----
 
     internal static IReadOnlyList<string> AccessList() =>
     [

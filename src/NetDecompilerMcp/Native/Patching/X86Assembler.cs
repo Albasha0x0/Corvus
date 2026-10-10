@@ -7,13 +7,11 @@ using IcedCode = Iced.Intel.Code;
 namespace NetDecompilerMcp.Native.Patching;
 
 /// <summary>
-/// A MASM/Intel-syntax assembler for x86 / x64, built on Iced's encoder. It accepts essentially the whole
-/// general-purpose / SSE / AVX instruction set in the form our <c>disassemble</c> tool prints it, so a line can be
-/// copied, edited and patched back. Rather than a hand-written per-mnemonic table it parses each operand (register,
-/// immediate or memory in any addressing form) and searches Iced's <see cref="IcedCode"/> table for the form whose
-/// operand kinds match, preferring the shortest encoding. The whole block is laid out with <see cref="BlockEncoder"/>
-/// at the patch address, so near-branch sizes, relative displacements and RIP-relative references are correct.
-/// Labels, numeric targets and caller-resolved symbols are valid branch targets; a <c>db</c> escape emits raw bytes.
+/// MASM/Intel-syntax x86 / x64 assembler on Iced's encoder, accepting the general-purpose / SSE / AVX forms the
+/// <c>disassemble</c> tool prints, so a listed line can be edited and patched back. Each operand (register, immediate,
+/// memory) is parsed and Iced's <see cref="IcedCode"/> table searched for a form whose operand kinds match, shortest
+/// encoding first. <see cref="BlockEncoder"/> lays the block out at the patch address (near-branch sizes, relative and
+/// RIP-relative displacements). Branch targets: labels, numbers, caller-resolved symbols; <c>db</c> emits raw bytes.
 /// </summary>
 public static class X86Assembler
 {
@@ -110,8 +108,6 @@ public static class X86Assembler
         }
     }
 
-    // ---- parsing one line ----
-
     private static Item ParseLine(int bitness, ulong startVa, int line, string text, Func<string, ulong?>? resolve)
     {
         // Leading prefixes: lock / rep* / bnd / notrack.
@@ -170,7 +166,7 @@ public static class X86Assembler
         // "imul reg, imm" is the two-operand shorthand for "imul reg, reg, imm" (destination also the source).
         if (mnemonic == Mnemonic.Imul && operands is [{ Class: OpClass.Reg }, { Class: OpClass.Imm }])
             operands = [operands[0], operands[0], operands[1]];
-        // xchg is commutative; our disassembler prints "xchg reg, [mem]" but the encoding is r/m first.
+        // xchg is commutative; the disassembler prints "xchg reg, [mem]" but the encoding is r/m first.
         if (mnemonic == Mnemonic.Xchg && operands is [{ Class: OpClass.Reg }, { Class: OpClass.Mem }])
             operands = [operands[1], operands[0]];
 
@@ -187,8 +183,6 @@ public static class X86Assembler
         if (rep || repe) instr.HasRepePrefix = true;
         if (repne || bnd) instr.HasRepnePrefix = true; // bnd shares the F2 prefix slot
     }
-
-    // ---- operand model ----
 
     private enum OpClass { Reg, Mem, Imm }
 
@@ -211,7 +205,6 @@ public static class X86Assembler
         if (t.StartsWith("offset ", StringComparison.OrdinalIgnoreCase))
             return ImmediateOperand(line, t[7..].Trim(), resolve) with { Symbol = true };
 
-        // Size specifier, e.g. "dword ptr".
         int? sizeBytes = null;
         foreach (var (word, bytes) in SizeWords)
             if (t.StartsWith(word, StringComparison.OrdinalIgnoreCase) && (t.Length == word.Length || !char.IsLetterOrDigit(t[word.Length])))
@@ -242,10 +235,8 @@ public static class X86Assembler
         if (sizeBytes != null)
             throw Error(line, $"a size specifier must be followed by a memory operand: '{text}'.");
 
-        // Register?
         if (TryRegister(t, out var reg)) return new Operand(OpClass.Reg, Reg: reg);
 
-        // Immediate (number or symbol).
         return ImmediateOperand(line, t, resolve);
     }
 
@@ -297,7 +288,6 @@ public static class X86Assembler
                 else throw Error(line, $"too many registers in '{t}'.");
                 continue;
             }
-            // Displacement: number or symbol.
             ulong value;
             var dt = term;
             bool dneg = sign < 0;
@@ -309,9 +299,7 @@ public static class X86Assembler
         }
 
         bool rip = bse == Register.RIP;
-        // In 64-bit, an absolute [addr] with no base/index and no segment is normally RIP-relative in encoding (the
-        // disassembler prints the absolute target for RIP-relative operands), but falls back to a true absolute
-        // [disp32] when the target is too far to reach RIP-relative from the patch address; this is decided in SetMem.
+        // x64 bare [addr] (the disassembler prints RIP-relative operands as absolute targets): SetMem picks the encoding.
         bool autoRip = false, absolute = false;
         if (!rip && bse == Register.None && index == Register.None)
         {
@@ -321,8 +309,6 @@ public static class X86Assembler
         return new Operand(OpClass.Mem, Base: rip ? Register.RIP : bse, Index: index, Scale: scale,
             Disp: disp, Rip: rip, Segment: segment, SizeBytes: sizeBytes, Absolute: absolute, AutoRip: autoRip, Symbol: symbol);
     }
-
-    // ---- code selection ----
 
     private static Instruction Select(int bitness, ulong startVa, int line, string mnemText, Mnemonic mnemonic, Operand[] operands)
     {
@@ -521,8 +507,6 @@ public static class X86Assembler
         catch (EncoderException) { bytes = []; return -1; }
     }
 
-    // ---- operand-kind classification ----
-
     private enum Role { Reg, Rm, Mem, Imm, Fixed, Unsupported }
     private enum RC { GPR, XMM, YMM, ZMM, MM, K, SEG, CR, DR, TR, BND, TMM, ST }
 
@@ -655,8 +639,6 @@ public static class X86Assembler
         switch (i) { case 0: instr.Op0Register = reg; break; case 1: instr.Op1Register = reg; break; case 2: instr.Op2Register = reg; break; case 3: instr.Op3Register = reg; break; default: instr.Op4Register = reg; break; }
     }
 
-    // ---- mnemonic / code tables ----
-
     private static Dictionary<Mnemonic, IcedCode[]>? _codesByMnemonic;
 
     private static IcedCode[] CodesFor(Mnemonic m)
@@ -766,8 +748,6 @@ public static class X86Assembler
             _ => null,
         };
     }
-
-    // ---- lexing helpers ----
 
     private static readonly (string Word, int Bytes)[] SizeWords =
     [

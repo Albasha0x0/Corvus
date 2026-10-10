@@ -7,13 +7,12 @@ using NetDecompilerMcp.Core;
 namespace NetDecompilerMcp.Services;
 
 /// <summary>
-/// Loads a raw Il2Cpp game (GameAssembly.dll + global-metadata.dat) without an external dumper: the built-in reader
-/// (<see cref="Il2CppMetadataReader"/>) writes the dummy assemblies and the model into a per-user cache folder,
-/// <c>root/&lt;key&gt;/DummyDll/*.dll</c> beside <c>il2cpp-model.bin</c> and the marker <see cref="MarkerFileName"/>
-/// naming the game files, and the dummy assemblies are loaded like an Il2CppDumper DummyDll folder. The key is the
-/// game files' paths, sizes and write times, so a second load of the same game reads the cache. The Il2Cpp tools find
-/// the model through the marker (<see cref="Il2CppDumpFiles.Locate"/>), as they find script.json beside a dump.
-/// At most <see cref="MaxEntries"/> games are kept; the least recently used entry that is not loaded is removed.
+/// Loads a raw Il2Cpp game (GameAssembly.dll + global-metadata.dat) without an external dumper:
+/// <see cref="Il2CppMetadataReader"/> writes <c>root/&lt;key&gt;/DummyDll/*.dll</c>, <c>il2cpp-model.bin</c> and the
+/// marker <see cref="MarkerFileName"/> into a per-user cache, and the dummy assemblies load like an Il2CppDumper
+/// DummyDll folder. The key is the game files' paths, sizes and write times. The Il2Cpp tools find the model through the marker
+/// (<see cref="Il2CppDumpFiles.Locate"/>). At most <see cref="MaxEntries"/> games are kept, evicting the least recently
+/// used entry that is not loaded.
 /// </summary>
 public sealed class Il2CppRawLoader(AssemblyWorkspace workspace)
 {

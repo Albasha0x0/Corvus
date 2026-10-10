@@ -27,25 +27,15 @@ public enum StubMode
 }
 
 /// <summary>
-/// Patch-site extension. When a patch needs more bytes than its site provides, the site is turned into a 5-byte near
-/// jump to a stub placed in slack space (a file-backed code cave in an executable section); the stub holds the new
-/// code and, unless the mode is <see cref="StubMode.Replace"/>, the site's displaced instructions re-encoded for the
-/// stub address (relative branches / calls and RIP-relative operands recomputed by the block encoder), and ends with a
-/// jump back to the instruction after the site. Leftover site bytes are padded with int3. The whole thing is one
-/// <see cref="NativePatch"/> (site region plus <see cref="NativeStub"/>), so undo, export and save treat it as a unit.
-///
-/// When no cave fits (or placement=section), the stub goes into a new executable section appended to the file: a new
-/// section header in a free table slot, the stub as the section's raw data past the end of file, and the section count,
-/// SizeOfImage and SizeOfCode updated (the PE checksum is recomputed on save). Undo removes the section and the file
-/// returns to its original length byte-for-byte. The stub is a jmp target, not an indirect-call target, so CFG / guard
-/// flags do not apply to it; on x64 it is given no unwind (.pdata) entry because it sets up no frame and is only entered
-/// and left by jmp — injected code that itself calls or faults and must unwind needs a RUNTIME_FUNCTION added by hand.
-///
-/// Refused (with a reason code in the message) when it would be unsafe: a branch targets inside the displaced range
-/// (code-index xrefs), a displaced instruction cannot be relocated, no slack space is found (placement=cave), no free
-/// section-header slot exists (no_header_space), the stub needs a base relocation that a new section is not given
-/// (stub_needs_reloc), the new section is out of a near jump's reach (unreachable_section), an x64 prologue described by
-/// unwind data would be split, or the architecture is not x86/x64.
+/// Patch-site extension for a patch larger than its site: the site becomes a 5-byte near jump (rest int3-padded) to a
+/// stub holding the new code, unless <see cref="StubMode.Replace"/> the site's displaced instructions re-encoded for the
+/// stub address, and a jump back to the instruction after the site. The stub goes in a file-backed code cave, else in
+/// a new section (<see cref="GrowSection"/>). One <see cref="NativePatch"/> holds site and <see cref="NativeStub"/>, so
+/// undo, export and save treat them as a unit. The stub gets no CFG flags (a jmp target, not an indirect-call target)
+/// and on x64 no .pdata entry (no frame, entered and left by jmp): injected code that calls or faults and must unwind
+/// needs a RUNTIME_FUNCTION added by hand. Refused with a reason code when a branch targets inside the displaced range,
+/// a displaced instruction cannot be relocated, no cave fits (placement=cave), an x64 unwind prologue would be split,
+/// the architecture is not x86/x64, or the section growth is refused.
 /// </summary>
 public static class PatchExtension
 {
@@ -192,7 +182,7 @@ public static class PatchExtension
     /// <summary>
     /// Places the stub in a new executable section appended to the file: a new section header in a free table slot, the
     /// stub bytes as the section's raw data past the end of file, and the header fields (section count, SizeOfImage,
-    /// SizeOfCode) updated. The site jumps to the new section and returns after it. Refused with a reason code when a
+    /// SizeOfCode) updated; the PE checksum is recomputed on save. Refused with a reason code when a
     /// header slot is unavailable (no_header_space), the stub would need a base relocation that is not added
     /// (stub_needs_reloc), or the jump cannot reach the new section (unreachable_section).
     /// </summary>
@@ -426,13 +416,10 @@ public static class PatchExtension
     {
         picked = caveRva;
         var image = index.Image;
-        // Fully file-backed and contiguous.
         if (!image.TryRvaToFileOffset(caveRva, out long start)) return false;
         if (!image.TryRvaToFileOffset(caveRva + (uint)size - 1, out long end) || end != start + size - 1) return false;
-        // Not inside a known function anywhere in the range.
         for (uint r = caveRva; r < caveRva + (uint)size; r = index.FunctionAt(r)?.End ?? (r + 1))
             if (index.FunctionAt(r) != null) return false;
-        // rel32 reachable from the site (jmp there) and from the stub (jmp back).
         return Rel32(image.ImageBase + siteRva, image.ImageBase + caveRva)
             && Rel32(image.ImageBase + caveRva, image.ImageBase + returnRva);
     }

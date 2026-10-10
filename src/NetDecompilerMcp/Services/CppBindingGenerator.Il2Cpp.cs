@@ -312,7 +312,7 @@ public sealed partial class CppBindingGenerator
         return expr;
     }
 
-    /// <summary>The method's token in the game's metadata: the dumper's [Token], else the assembly's own.</summary>
+    /// <summary>The method's token in the Il2Cpp metadata: the dumper's [Token], else the assembly's own.</summary>
     private static uint MetadataToken(MethodDef method) =>
         Il2CppService.GetAttributes(method).FirstOrDefault(a => a.Name == "TokenAttribute") is { } token &&
         token.Values.TryGetValue("Token", out var value) && Il2CppService.ParseNumber(value) is { } parsed

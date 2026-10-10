@@ -7,8 +7,8 @@ namespace NetDecompilerMcp.Services.Analysis;
 public sealed record MarkerFacts(IReadOnlyList<string> Tools, IReadOnlyList<string> Indicators, double UnreadableNameRatio);
 
 /// <summary>
-/// Detects toolchain marker types (as used by de4dot) and SuppressIldasmAttribute, plus heuristics: renamed
-/// identifiers, int -> string decoder methods, and methods missing an IL body.
+/// Detects toolchain marker types and SuppressIldasmAttribute, plus heuristics: renamed identifiers, int -> string
+/// decoder methods, and methods missing an IL body.
 /// </summary>
 public static class Markers
 {

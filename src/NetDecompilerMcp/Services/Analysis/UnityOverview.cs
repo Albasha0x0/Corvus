@@ -11,12 +11,11 @@ using NetDecompilerMcp.Native.Providers;
 namespace NetDecompilerMcp.Services.Analysis;
 
 /// <summary>
-/// One-call overview of a Unity title from its layout and file headers: engine version (version resources, serialized-file
-/// and bundle headers, the Il2Cpp metadata version as a cross-check), scripting backend with its evidence, toolchain and
-/// protection markers, platform and architecture, notable folders, and the next tool calls. Reads directory listings, PE
-/// headers, version resources and a few hundred header bytes per file (plus, for an Il2Cpp build, the metadata's string
-/// heap up to 16 MB and, for Mono, Assembly-CSharp's type names); nothing is analyzed in full and nothing is executed
-/// (Detect It Easy only when asked).
+/// Overview of a Unity build from its layout and file headers: engine version (version resources, serialized-file and
+/// bundle headers, cross-checked against the Il2Cpp metadata version), scripting backend with evidence, toolchain and
+/// protection markers, platform, architecture, notable folders and next tool calls. Reads only directory listings, PE
+/// headers, version resources and a few hundred header bytes per file (plus up to 16 MB of the Il2Cpp metadata string
+/// heap, or Assembly-CSharp's type names for Mono); nothing is executed except Detect It Easy, when asked.
 /// </summary>
 public static class UnityOverview
 {
@@ -144,8 +143,6 @@ public static class UnityOverview
             markers, folders, steps, notes, Math.Round(watch.Elapsed.TotalSeconds, 3));
     }
 
-    // ---- layout ---------------------------------------------------------------------------------------------------
-
     private sealed record Layout(string Game, string? Data, string? Exe, string Platform, string? UnityPlayer, List<string> Notes);
 
     private static Layout? Resolve(string full, CancellationToken ct)
@@ -227,8 +224,6 @@ public static class UnityOverview
 
     private static IEnumerable<string> Libs(string apk, string name) =>
         SafeList(() => Directory.EnumerateDirectories(Path.Combine(apk, "lib")).Take(16).ToList()).Select(d => Path.Combine(d, name));
-
-    // ---- engine version -------------------------------------------------------------------------------------------
 
     private static readonly Regex VersionPattern = new(@"^(\d{1,4})\.(\d{1,2})\.(\d{1,3})(?:([abfpx])(\d{1,3}))?", RegexOptions.CultureInvariant);
 
@@ -323,8 +318,6 @@ public static class UnityOverview
         bool inside = (major, minor).CompareTo((r.Major, r.Minor)) >= 0 && (major, minor).CompareTo((r.ToMajor, r.ToMinor)) <= 0;
         return engine with { MetadataRange = range, MetadataCheck = inside ? "consistent" : "inconsistent" };
     }
-
-    // ---- scripting backend ----------------------------------------------------------------------------------------
 
     private static BackendFacts Backend(Layout layout, List<MarkerFact> markers, List<string> notes, CancellationToken ct)
     {
@@ -526,8 +519,6 @@ public static class UnityOverview
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException) { return null; }
     }
 
-    // ---- markers --------------------------------------------------------------------------------------------------
-
     /// <summary>(category, name, file or folder names, matched case-insensitively in the game folder, the data folder and Plugins).</summary>
     private static readonly (string Category, string Name, string[] Files)[] LayoutSignatures =
     [
@@ -648,8 +639,6 @@ public static class UnityOverview
         _ => $"packer ({section})",
     };
 
-    // ---- Detect It Easy -------------------------------------------------------------------------------------------
-
     /// <summary>diec from NDM_DIE (the file or its folder) or PATH; null when absent.</summary>
     internal static string? FindDie()
     {
@@ -707,8 +696,6 @@ public static class UnityOverview
         }
     }
 
-    // ---- architecture, folders, app.info --------------------------------------------------------------------------
-
     private static (string Arch, string? Source) Architecture(Layout layout, BackendFacts backend)
     {
         foreach (var file in new[] { layout.Exe, layout.UnityPlayer, backend.NativeBinary }.Where(f => f != null))
@@ -764,8 +751,6 @@ public static class UnityOverview
         var lines = Encoding.UTF8.GetString(ReadHead(path, 1024)).Split('\n', StringSplitOptions.TrimEntries);
         return (lines.Length > 0 && lines[0].Length > 0 ? lines[0] : null, lines.Length > 1 && lines[1].Length > 0 ? lines[1] : null);
     }
-
-    // ---- next steps -----------------------------------------------------------------------------------------------
 
     private static List<NextStep> NextSteps(Layout layout, BackendFacts backend, List<MarkerFact> markers)
     {
@@ -828,8 +813,6 @@ public static class UnityOverview
         }
         return steps;
     }
-
-    // ---- helpers --------------------------------------------------------------------------------------------------
 
     /// <summary>Up to <paramref name="count"/> bytes from the start of a file; empty when unreadable.</summary>
     internal static byte[] ReadHead(string path, int count)

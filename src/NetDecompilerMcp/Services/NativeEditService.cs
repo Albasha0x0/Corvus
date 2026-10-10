@@ -18,8 +18,6 @@ namespace NetDecompilerMcp.Services;
 /// </summary>
 public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeService code)
 {
-    // ---- annotations ----
-
     public NativeAnnotations Annotations(LoadedNative native) => code.Annotations(native);
 
     public string Rename(LoadedNative native, NativeCodeIndex index, uint rva, string name, bool allowDuplicate)
@@ -55,8 +53,6 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
 
     private static string StaleNote(NativeAnnotations ann) => ann.StaleSiblingHashes.Count == 0 ? ""
         : $" (note: a sidecar of annotations exists for this path under {ann.StaleSiblingHashes.Count} other file hash(es); this file's current bytes are a separate, clean annotation set.)";
-
-    // ---- patching ----
 
     /// <summary>Plans a patch over code: validates the start boundary, the file mapping and the function end; returns the file offset and the NOP-padded length.</summary>
     private (long FileOffset, int PaddedLength, int Covered, string? Note) Plan(NativeCodeIndex index, uint rva, int newLength, bool force)
@@ -267,8 +263,6 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         });
     }
 
-    // ---- save ----
-
     public string Save(LoadedNative native, string outputPath, bool overwrite, bool stripSignature)
     {
         if (string.IsNullOrWhiteSpace(outputPath))
@@ -417,8 +411,6 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
             ? $"Relocations verified: the table re-parses ({entries.Count:N0} entries) and every patched range holds exactly its kept/added entries ({expectedTotal} across {checkedPatches} patch(es))."
             : "WARNING: relocations inconsistent with the patches: " + string.Join("; ", problems.Take(10)) + (problems.Count > 10 ? $" (+{problems.Count - 10} more)" : "");
     }
-
-    // ---- disassembly previews ----
 
     private static string Disasm(NativeCodeIndex index, uint rva, int length)
     {

@@ -48,8 +48,6 @@ public sealed partial class NativeCodeIndex
         return Convert.ToHexStringLower(h.GetHashAndReset());
     }
 
-    // ---- write ----
-
     /// <summary>Writes everything a loaded index needs (functions, ranges, cross-references, strings, exception metadata, analysis state).</summary>
     internal void WritePayload(PayloadWriter w)
     {
@@ -182,8 +180,6 @@ public sealed partial class NativeCodeIndex
         w.I32(s.Frames); w.I32(s.CSpecific); w.I32(s.Cxx3); w.I32(s.Cxx4); w.I32(s.GsOnly); w.I32(s.Seh3); w.I32(s.Seh4); w.I32(s.Unknown);
         w.I32(s.Children); w.I32(s.Fragments); w.I32(s.Rejected); w.I64(s.Elapsed.Ticks);
     }
-
-    // ---- read ----
 
     /// <summary>
     /// Rebuilds an index of <paramref name="image"/> from a payload <see cref="WritePayload"/> wrote for the same bytes and

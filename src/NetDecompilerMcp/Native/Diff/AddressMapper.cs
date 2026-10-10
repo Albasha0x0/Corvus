@@ -100,8 +100,6 @@ public sealed class AddressMapper(MatchResult match)
         return _alignments[oi] = (olds, news, map);
     }
 
-    // ---- data ----
-
     private MappedAddress Data(uint oldRva, CancellationToken ct)
     {
         var oldIndex = match.Old.Index;

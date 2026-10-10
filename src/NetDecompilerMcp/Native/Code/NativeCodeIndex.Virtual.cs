@@ -74,8 +74,6 @@ public sealed partial class NativeCodeIndex
         }
     }
 
-    // ---- persistence ----
-
     private void WriteVirtualCalls(PayloadWriter w)
     {
         var sites = VirtualCalls.Sites;

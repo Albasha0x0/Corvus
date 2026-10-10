@@ -3,7 +3,7 @@ using dnlib.DotNet;
 namespace NetDecompilerMcp.Native.Linking;
 
 /// <summary>
-/// The managed <-> native seams of a mixed-mode (C++/CLI) module: methods whose body is native code at their RVA
+/// The managed / native seams of a mixed-mode (C++/CLI) module: methods whose body is native code at their RVA
 /// (IJW: "pinvokeimpl native unmanaged" with no ImplMap; managed calls to them run the native function), and the
 /// VTableFixups slots the runtime fills with native-callable entry points of managed methods (native code calls a
 /// managed method through its slot, directly or from a "jmp [slot]" thunk; exported managed functions are such thunks).

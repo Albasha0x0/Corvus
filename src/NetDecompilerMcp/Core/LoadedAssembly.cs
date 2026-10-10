@@ -124,7 +124,7 @@ public sealed class LoadedAssembly : IDisposable
         }
     }
 
-    /// <summary>The original bytes, or the edited module serialized and cached per <see cref="Version"/>.</summary>
+    /// <summary><see cref="GetImage"/> without the report.</summary>
     public byte[] GetImageBytes() => GetImage().Bytes;
 
     /// <summary>
@@ -149,10 +149,7 @@ public sealed class LoadedAssembly : IDisposable
         }
     }
 
-    /// <summary>
-    /// What a save with no edits reports: the original is written as it is, so every listed member (invalid IL, bodies
-    /// that cannot be read, signatures that do not read back as stored) is kept byte-for-byte.
-    /// </summary>
+    /// <summary>What a save with no edits reports (see <see cref="FaithfulWriter.Survey"/>).</summary>
     public SaveReport SurveyOriginal()
     {
         lock (_sync)
@@ -255,8 +252,8 @@ public sealed class LoadedAssembly : IDisposable
 
     /// <summary>
     /// Decompiler view of <see cref="GetImageBytes"/>, rebuilt after edits. When the decompiler's reader cannot read the
-    /// image's metadata (toolchains leave out-of-range names and coded indexes that dnlib reads leniently), the view is a
-    /// copy written by dnlib instead: same tokens (PreserveAll), valid metadata. <see cref="DecompilerNote"/> says so.
+    /// image's metadata (<see cref="MetadataProbe"/>), the view is a copy written by dnlib instead: same tokens
+    /// (PreserveAll), valid metadata. <see cref="DecompilerNote"/> says so.
     /// </summary>
     public PEFile GetPEFile()
     {

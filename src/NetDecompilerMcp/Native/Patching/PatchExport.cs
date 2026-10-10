@@ -140,8 +140,6 @@ public static class PatchExport
         return runs;
     }
 
-    // ---- IDAPython ----
-
     private static (byte[], int) Ida(PatchExportSource s, bool checksum, bool grew, List<string> notes)
     {
         var entries = new List<(string Label, uint Rva, byte[] Original, byte[] Replacement)>();
@@ -245,8 +243,6 @@ public static class PatchExport
         return (Encoding.UTF8.GetBytes(sb.ToString()), entries.Count + segments.Count);
     }
 
-    // ---- IDA .dif ----
-
     private static (byte[], int) Dif(PatchExportSource s, List<(long Offset, int Length)> runs)
     {
         // As IDA writes it: a header line, a blank line, the file name, then "%016X: %02X %02X" per changed byte, LF line ends.
@@ -259,8 +255,6 @@ public static class PatchExport
                 sb.Append($"{offset + i:X16}: {s.Original[offset + i]:X2} {s.Output[offset + i]:X2}\n");
         return (Encoding.ASCII.GetBytes(sb.ToString()), lines);
     }
-
-    // ---- IPS / IPS32 ----
 
     private static (byte[], int) Ips(PatchExportSource s, List<(long Offset, int Length)> runs, bool ips32, List<string> notes)
     {
@@ -311,8 +305,6 @@ public static class PatchExport
         ms.Write(Encoding.ASCII.GetBytes(ips32 ? "EEOF" : "EOF"));
         return (ms.ToArray(), records.Count);
     }
-
-    // ---- JSON ----
 
     public const string JsonKind = "netdecompilermcp.native_patches";
 

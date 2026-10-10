@@ -71,10 +71,10 @@ public static class WorkflowPrompts
         """;
 
     [McpServerPrompt(Name = "analyze_native", Title = "Analyze a native binary")]
-    [Description("Load a native PE file (.exe/.dll/.sys) and produce an overview: what it is, how it is built and protected, what it talks to, and its main code areas.")]
+    [Description("Load a native PE file (.exe/.dll/.sys) and produce an overview: what it is, how it is built and hardened, what it talks to, and its main code areas.")]
     public static string AnalyzeNative(
         [Description("Absolute path to the native file.")] string path,
-        [Description("What you care about (optional), e.g. networking, anti-cheat, file formats.")] string? focus = null) => $"""
+        [Description("What you care about (optional), e.g. networking, file formats, plugin loading.")] string? focus = null) => $"""
         Use the net-decompiler native tools on {path}.
         1. load_assembly (path={path}), then get_pe_info: machine, subsystem, mitigations, PDB path, version resource, rich header (toolchain), signature, overlay, parse issues.
         2. list_imports grouped by DLL: name the capabilities they imply (files, registry, network, crypto, processes, UI). list_exports if it is a DLL.
@@ -116,7 +116,7 @@ public static class WorkflowPrompts
     [Description("Find the instruction that decides a behaviour, patch it in memory with a preview, and save a patched copy.")]
     public static string PatchNative(
         [Description("Native image id or path.")] string image,
-        [Description("The behaviour change wanted, e.g. 'skip the integrity check'.")] string goal) => $"""
+        [Description("The behaviour change wanted, e.g. 'skip the update check at startup'.")] string goal) => $"""
         Goal: {goal} in {image}.
         1. Locate the deciding function and branch (trace it as in trace_native_feature; get_cfg shows the branches; decompile_native shows the condition).
         2. Choose the smallest patch: invert or remove a conditional jump, make a function return a constant (patch_asm 'mov eax, 1' + 'ret'), or NOP a call.

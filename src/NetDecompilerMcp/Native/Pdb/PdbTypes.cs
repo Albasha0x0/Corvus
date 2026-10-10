@@ -121,8 +121,6 @@ public sealed class PdbTypes
 
     private void Skip(string reason) => _skipped[reason] = _skipped.GetValueOrDefault(reason) + 1;
 
-    // ---- leaf decoding ----
-
     private const ushort LF_MODIFIER = 0x1001, LF_POINTER = 0x1002, LF_PROCEDURE = 0x1008, LF_MFUNCTION = 0x1009, LF_ARGLIST = 0x1201,
         LF_FIELDLIST = 0x1203, LF_BITFIELD = 0x1205, LF_ARRAY = 0x1503, LF_CLASS = 0x1504, LF_STRUCTURE = 0x1505, LF_UNION = 0x1506,
         LF_ENUM = 0x1507, LF_INTERFACE = 0x1519, LF_CLASS2 = 0x1608, LF_STRUCTURE2 = 0x1609, LF_UNION2 = 0x160A, LF_INTERFACE2 = 0x160B,
@@ -225,8 +223,6 @@ public sealed class PdbTypes
         return new Aggregate(index, kind, name, unique, (property & 0x80) != 0, field, size, underlying);
     }
 
-    // ---- simple types ----
-
     private static string? SimpleName(uint kind) => kind switch
     {
         0x03 => "void",
@@ -268,8 +264,6 @@ public sealed class PdbTypes
         0x14 or 0x24 or 0x78 or 0x79 => 16,
         _ => -1,
     };
-
-    // ---- names ----
 
     private readonly Dictionary<uint, string> _identOf = [];
     private readonly HashSet<string> _idents = new(StringComparer.Ordinal);
@@ -338,8 +332,6 @@ public sealed class PdbTypes
         _identOf[a.Index] = id;
         return id;
     }
-
-    // ---- sizes and declarators ----
 
     private long SizeOf(uint index, int depth = 0)
     {
@@ -480,8 +472,6 @@ public sealed class PdbTypes
     }
 
     private static string IntOfSize(long size) => size switch { 1 => "unsigned char", 2 => "unsigned short", 8 => "unsigned __int64", _ => "unsigned int" };
-
-    // ---- aggregates ----
 
     private readonly HashSet<uint> _used = [];
     private readonly Queue<uint> _pending = new();
@@ -706,8 +696,6 @@ public sealed class PdbTypes
         }
         return sb.ToString();
     }
-
-    // ---- the whole PDB ----
 
     private PdbTypeDeclarations Write(PdbFile pdb, CancellationToken ct)
     {

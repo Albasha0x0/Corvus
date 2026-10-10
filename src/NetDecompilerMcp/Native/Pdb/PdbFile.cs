@@ -147,8 +147,6 @@ public sealed class PdbFile
         Guid = new Guid(info.AsSpan(12, 16));
     }
 
-    // ---- DBI stream ----
-
     private void ReadDbi(MsfFile msf, IReadOnlyList<NativeSection>? imageSections, List<PdbSymbol> symbols, CancellationToken ct)
     {
         long dbiSize = msf.StreamSize(DbiStream);
@@ -335,8 +333,6 @@ public sealed class PdbFile
         }
         return list;
     }
-
-    // ---- symbol records ----
 
     private void ReadSymbols(MsfFile msf, int stream, long start, long length, int module, List<PdbSymbol> symbols, CancellationToken ct)
     {

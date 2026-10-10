@@ -693,7 +693,7 @@ public sealed partial class CppBindingGenerator
         return name;
     }
 
-    /// <summary>The C++ names of a method's parameters: identifiers, not keywords, unique (obfuscated names repeat).</summary>
+    /// <summary>The C++ names of a method's parameters: identifiers, not keywords, unique (transformed metadata repeats names).</summary>
     private static List<string> ParameterNames(MethodDef method)
     {
         var names = new List<string>();
@@ -820,7 +820,7 @@ public sealed partial class CppBindingGenerator
         _ => null,
     };
 
-    /// <summary>Mono short parameter names, e.g. "String,Color" or "Int32&,Boolean" (GetMethodExact; comments).</summary>
+    /// <summary>Mono short parameter names, e.g. "String,Color" or "Int32&amp;,Boolean" (GetMethodExact; comments).</summary>
     private static string MonoParams(MethodDef m) =>
         string.Join(",", m.MethodSig.Params.Select(MonoName));
 

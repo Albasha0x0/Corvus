@@ -22,7 +22,7 @@ build migration) and a batch of usability and analysis-depth work on top of it.
   1.8 s instead of 54 s). Changed, damaged or older-format entries are rebuilt; bounded by size (8 GB) and age (30 days),
   least recently used first. `--index-cache <dir|off>`, `--index-cache-mb`, `--index-cache-days`; shown in `server_status`.
 - **Imported names survive restarts.** Names from `load_pdb` and `apply_il2cpp_names` are saved beside user renames and
-  reapplied when the same file loads again, also with the PDB moved or deleted (a real game: 434,680 names restored in 0.8 s).
+  reapplied when the same file loads again, also with the PDB moved or deleted (434,680 names on an Il2Cpp title restored in 0.8 s).
   `list_native_edits` lists each layer and whether it was restored; `clear=true` removes a layer.
 - **Engine preference** `engine=auto|ours|ida` (server default `--engine` / `NDM_ENGINE`): see above; `auto` never starts
   IDA and costs about 0.1 µs per call. With IDA, our names still win and RTTI virtual-call edges IDA lacks are added.
@@ -35,11 +35,11 @@ build migration) and a batch of usability and analysis-depth work on top of it.
   `find_virtual_calls` lists the sites; `crossCheck=true` compares with IDA (98-100% agreement on Qt6Widgets and
   steamclient). `native_call_tree calls=direct|virtual`.
 - **Built-in Il2Cpp metadata reader.** `load_assembly` on an Il2Cpp game folder or `global-metadata.dat` reads metadata
-  versions 24-31 through LibCpp2IL, also from a memory dump of GameAssembly.dll; no external dumper. On a real game every method,
+  versions 24-31 through LibCpp2IL, also from a memory dump of GameAssembly.dll; no external dumper. On a v31 title every method,
   RVA, vtable slot, field and field offset matches Il2CppDumper's output. Unreadable metadata is an error with a reason;
   unreadable items are listed by reason.
 - **`unity_overview`.** One call on a Unity title: engine version per source, Mono or Il2Cpp with evidence and metadata
-  state (readable, encrypted, header tampered), anti-cheat / obfuscator / packer / middleware markers (optional Detect
+  state (readable, encrypted, header tampered), toolchain and middleware markers (optional Detect
   It Easy), and the next tool calls. Under 0.2 s on the titles tested.
 - **`inspect_process`.** Read-only view of a running local process (Windows): modules, memory regions, threads and
   stacks, named through PE, PDB, Il2Cpp and user names. Opens only query and read handles, writes and suspends nothing,

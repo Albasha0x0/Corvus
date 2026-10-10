@@ -21,8 +21,6 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     private const string UseNamesDescription =
         "Match functions by names from exports, PDB, Il2Cpp and user annotations (tier 1). false matches on code alone.";
 
-    // ---- records ----
-
     public sealed record TierCount(
         [property: Description("1 name_or_bytes, 2 structure, 3 signature, 4 call_graph, 5 fuzzy.")] int Tier, string Name, int Pairs);
 
@@ -100,8 +98,6 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     public sealed record PatternHit(string Image, string Address, string Section, string? Function, string? FunctionAddress, uint? FunctionOffset);
 
     public sealed record PatternSearch(string Pattern, int Length, int Images, int Total, bool Truncated, IReadOnlyList<PatternHit> Hits, IReadOnlyList<string> Notes);
-
-    // ---- tools ----
 
     [McpServerTool(Name = "compare_native_images", Title = "Compare native builds", UseStructuredContent = true)]
     [Description("Match the functions of two builds of one native image (x86 / x64), e.g. before and after an application update. Tiers, each accepting a pair " +
@@ -355,8 +351,6 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         }
         return new PatternSearch(p.ToString(), p.Length, targets.Count, total, total > hits.Count, hits, notes);
     }
-
-    // ---- helpers ----
 
     private async Task<LoadedNative> Resolve(string image, CancellationToken ct) => await Task.Run(() =>
     {

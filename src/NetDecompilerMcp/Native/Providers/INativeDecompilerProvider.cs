@@ -180,8 +180,10 @@ public enum NativeFunctionFlags
     Library = 2,
 }
 
-/// <summary>A function as the engine sees it; <see cref="EndRva"/> is exclusive and covers the main chunk only.</summary>
-/// <summary><see cref="References"/>: code references to the start, when asked for.</summary>
+/// <summary>
+/// A function as the engine sees it; <see cref="EndRva"/> is exclusive and covers the main chunk only.
+/// <see cref="References"/>: code references to the start, when asked for.
+/// </summary>
 public sealed record NativeFunctionInfo(uint StartRva, uint EndRva, string Name, NativeFunctionFlags Flags, int? References = null);
 
 /// <summary>Pseudocode line (0-based) and the lowest instruction RVA it was generated from.</summary>

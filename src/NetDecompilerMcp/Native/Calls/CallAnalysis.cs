@@ -138,8 +138,6 @@ public sealed partial class CallAnalysis
         return Table.GetValue(index, i => new CallAnalysis(i));
     }
 
-    // ---- public queries ----
-
     /// <summary>Every call in <paramref name="f"/> (guard-check calls left out), in address order.</summary>
     public IReadOnlyList<CallSiteInfo> CallsIn(NativeFunction f, CancellationToken ct = default)
     {
@@ -208,8 +206,6 @@ public sealed partial class CallAnalysis
         }
         return result.Values.OrderBy(s => s.Rva).ToList();
     }
-
-    // ---- decoding ----
 
     internal FunctionCode Code(NativeFunction f, CancellationToken ct)
     {
@@ -315,8 +311,6 @@ public sealed partial class CallAnalysis
         return found;
     });
 
-    // ---- call targets ----
-
     internal readonly record struct Callee(string Name, CalleeKind Kind, NativeImport? Import, uint? Target, DynamicImport? Dynamic, string? Why);
 
     internal Callee ResolveCallee(FunctionCode code, int block, int index, ValueResolver resolver)
@@ -389,8 +383,6 @@ public sealed partial class CallAnalysis
     private static Callee FromDynamic(DynamicImport dyn) => new(dyn.FullName, CalleeKind.Dynamic, null, dyn.PointerGlobal, dyn, null);
 
     internal string Va(uint rva) => $"0x{Image.ImageBase + rva:X}";
-
-    // ---- arguments ----
 
     private static readonly Register[] IntRegs64 = [Register.RCX, Register.RDX, Register.R8, Register.R9];
 
@@ -547,8 +539,6 @@ public sealed partial class CallAnalysis
         var (kind, value, rva, text) = Format(v, p, resolver.Code);
         return new CallArgument(k, p?.Name, p?.TypeName, loc.Label, kind, value, rva, text, v.Why) { Raw = v };
     }
-
-    // ---- formatting ----
 
     /// <summary>The short name of the callee of the call at <paramref name="site"/> in <paramref name="code"/>.</summary>
     private string ResultName(FunctionCode code, uint site)

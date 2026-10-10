@@ -110,8 +110,6 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         public void Dispose() => (Memory as IDisposable)?.Dispose();
     }
 
-    // ---- ids ----
-
     /// <summary>
     /// Opens a dump by id (from an earlier open_minidump) or path; a path is registered under its file name (#2, #3...
     /// when another dump has the name).
@@ -182,8 +180,6 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         return dirs;
     }
 
-    // ---- module images ----
-
     internal ModuleCode Load(IProcessMemory dump, DumpModule module, IReadOnlyList<string> directories)
     {
         var local = DumpImages.Find(module, directories, dump.Arch);
@@ -227,8 +223,6 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         catch (TimeoutException) { return null; }
         catch (ToolError) { return null; }
     }
-
-    // ---- naming ----
 
     /// <summary>What is at an address of the dumped process.</summary>
     internal sealed record Location(
@@ -285,7 +279,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
             string source = sourced is { } sn ? sn.Source.ToString().ToLowerInvariant() : f.KnownName != null ? "export" : "discovered";
             found = (index.NameAt(f.Start) ?? f.Name, source, f.Start);
         }
-        // Il2Cpp dummy DLLs for the game's code
+        // Il2Cpp dummy DLLs for GameAssembly.dll
         if (found is not { Source: "user" } && module.FileName.StartsWith("GameAssembly", StringComparison.OrdinalIgnoreCase)
             && Il2CppName(rva) is { } il2cpp)
             found = il2cpp;

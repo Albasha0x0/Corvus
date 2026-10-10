@@ -14,8 +14,6 @@ public sealed partial class MinidumpService
     public const int MaxListLimit = 1000;
     public const int MaxReadLength = 64 * 1024;
 
-    // ---- records ----
-
     public sealed record SystemSummary(
         [property: Description("x64, x86, ARM64...")] string Architecture,
         string Os, uint MajorVersion, uint MinorVersion, uint BuildNumber,
@@ -110,8 +108,6 @@ public sealed partial class MinidumpService
         string? Location, string? Region, string? Protection,
         [property: Description("Hex dump: address, 16 bytes, ASCII.")] string Hex,
         string Bytes, string? Note);
-
-    // ---- open_minidump ----
 
     public async Task<DumpSummary> Summarize(string path, string? imageDirectories, int modulesOffset, int modulesLimit, int threadsOffset, int threadsLimit, CancellationToken ct)
     {
@@ -280,8 +276,6 @@ public sealed partial class MinidumpService
         return n;
     }
 
-    // ---- dump_stack ----
-
     public async Task<StackReport> Stack(string path, string? thread, bool exceptionContext, int maxFrames, int offset, int limit, string? imageDirectories, CancellationToken ct)
     {
         using var s = Open(path, imageDirectories);
@@ -359,8 +353,6 @@ public sealed partial class MinidumpService
             "pass a thread id (decimal or 0x hex), '#index', a thread name, or 'exception'");
     }
 
-    // ---- read_dump_memory ----
-
     public async Task<MemoryRead> ReadMemory(string path, string address, int length, bool imageFallback, CancellationToken ct)
     {
         using var s = Open(path, null);
@@ -411,8 +403,6 @@ public sealed partial class MinidumpService
             return whole.Base;
         return NativeAddress.Number(t) ?? throw new ToolError(ErrorCode.InvalidArgument, $"'{text}' is not an address.", "pass a hex address (0x7FF6...) or module+0xoffset");
     }
-
-    // ---- formatting ----
 
     internal static string Hex(IProcessMemory d, ulong v) => d.Is64Bit ? $"0x{v:X}" : $"0x{v & 0xFFFFFFFF:X}";
 

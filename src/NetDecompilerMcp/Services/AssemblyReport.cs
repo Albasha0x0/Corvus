@@ -132,7 +132,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         }
     }
 
-    /// <summary>Structural metadata problems (obfuscator-style) with their locations; nothing when there are none.</summary>
+    /// <summary>Structural metadata problems (as code transformers leave them) with their locations; nothing when there are none.</summary>
     private static void AppendMetadataIssues(StringBuilder sb, LoadedAssembly asm)
     {
         var issues = MetadataSurvey.Survey(asm.OriginalBytes).Concat(MetadataSurvey.ImplMapRows(asm.Module).Values).ToList();

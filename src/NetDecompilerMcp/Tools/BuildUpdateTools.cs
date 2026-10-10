@@ -30,8 +30,6 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
     private static readonly string[] Outcomes = ["carried", "would_carry", "already_present", "refused", "not_applicable", "ambiguous"];
     private const int MaxIl2CppItems = 200_000;
 
-    // ---- records ----
-
     public sealed record ReasonCount(string Reason, int Count);
 
     public sealed record UpdateCategory(
@@ -86,8 +84,6 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
 
     private sealed record Item(string Category, string Kind, uint? OldRva, uint? NewRva, string Value, string Outcome, string Reason, double Confidence, int? Tier, string Detail);
 
-    // ---- tool ----
-
     [McpServerTool(Name = "update_to_new_build", Title = "Update work to a new build", UseStructuredContent = true)]
     [Description("Carry everything done on an old build of a native image (x86 / x64) to its new build in one call, through one function match " +
                  "(compare_native_images): user names and comments (migrate_native_names rules), imported names (the PDB layer is re-imported only " +
@@ -134,7 +130,6 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         const int phases = 7;
         void Phase(int done, string message) => progress.Report(new ProgressNotificationValue { Progress = done, Total = phases, Message = message });
 
-        // ---- match ----
         Phase(0, "indexing both builds");
         var oldNative = await Resolve(oldImage, ct);
         var newNative = await Resolve(newImage, ct);
@@ -146,7 +141,6 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
             throw new ToolError(ErrorCode.Unsupported, $"{(oldIndex.Support != CodeSupport.Full ? oldNative.Id : newNative.Id)}: x86 or x64 code is needed on both builds.");
         if (oldIndex.Image.Arch != newIndex.Image.Arch)
             throw new ToolError(ErrorCode.Unsupported, $"{oldNative.Id} is {oldIndex.Image.Arch} and {newNative.Id} is {newIndex.Image.Arch}; builds for different architectures are not matched.");
-        // Match the clean builds: in-memory patches would otherwise hide a patched function's identity.
         var matchOld = await Task.Run(() => Original(oldNative, oldIndex, ct), ct);
         var matchNew = await Task.Run(() => Original(newNative, newIndex, ct), ct);
         Phase(1, "matching functions");
@@ -196,7 +190,6 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
                 sources.Count == 0 ? $"{oldNative.Id} has no user names or comments" : $"{sources.Count} user name(s) and comment(s) of {oldNative.Id}", null);
         }
 
-        // ---- PDB layer ----
         Phase(3, "imported names");
         if (included.Contains(Pdb)) await PdbLayer(oldNative, newNative, dryRun, items, categories, ct);
 
@@ -212,7 +205,6 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
             await Task.Run(() => Il2CppLayer(oldNative, newNative, sameMetadata ? (null, "") : newScope, newIndex, mapper, dryRun, items, categories, ct), ct);
         }
 
-        // ---- patches ----
         Phase(4, "patches");
         if (included.Contains(Patches))
         {
@@ -228,7 +220,6 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         categories[DotNet] = ("out_of_scope", "native images only: for .NET builds use compare_assemblies, find_counterpart, export_edits + apply_edits", null);
         Phase(6, "report");
 
-        // ---- report ----
         var oldImg = match.Old.Index.Image;
         var newImg = newIndex.Image;
         var categoryList = CategoryOrder.Select(c => Summarize(c, items, categories, included)).ToList();
@@ -242,8 +233,6 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
             match.Old.Functions.Length, match.New.Functions.Length, match.Pairs.Count, categoryList, mappingSummary,
             categoryFilter, outcomeFilter, offset, filtered.Count, offset + limit < filtered.Count, page, notes.Distinct().ToList(), Math.Round(sw.Elapsed.TotalSeconds, 2));
     });
-
-    // ---- categories ----
 
     private static HashSet<string> ParseInclude(string? include)
     {
@@ -302,8 +291,6 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         return sb.ToString();
     }
 
-    // ---- PDB ----
-
     private async Task PdbLayer(LoadedNative oldNative, LoadedNative newNative, bool dryRun, List<Item> items,
         Dictionary<string, (string Status, string Detail, int? Carried)> categories, CancellationToken ct)
     {
@@ -352,11 +339,9 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
 
     private static string Status(bool dryRun) => dryRun ? "previewed" : "applied";
 
-    // ---- Il2Cpp ----
-
     /// <summary>
     /// The Il2Cpp dummy assemblies of <paramref name="native"/>: the given ones, else the loaded dump made from this binary,
-    /// else the game's metadata beside it (built-in reader), else what apply_il2cpp_names used for it; null when none.
+    /// else the Il2Cpp metadata beside it (built-in reader), else what apply_il2cpp_names used for it; null when none.
     /// </summary>
     private (List<LoadedAssembly>? Scope, string Source) Il2CppScope(LoadedNative native, string? explicitScope, List<string> notes, CancellationToken ct)
     {
@@ -516,8 +501,6 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
 
     private const string CarriedOrigin = "carried by match from";
 
-    // ---- patches ----
-
     private async Task<List<(string Kind, uint OldRva, uint? NewRva, string Value)>> PatchStep(LoadedNative oldNative, LoadedNative newNative, NativeCodeIndex newIndex,
         MatchResult match, AddressMapper mapper, string? patchSet, StubPlacement placement, bool dryRun, List<Item> items,
         Dictionary<string, (string Status, string Detail, int? Carried)> categories, List<string> notes, CancellationToken ct)
@@ -639,8 +622,6 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         return p.FromAsm ? existing.Assembly == p.Assembly : existing.Replacement.AsSpan().SequenceEqual(p.Replacement);
     }
 
-    // ---- patterns ----
-
     private static void PatternStep(MatchResult match, List<(string Kind, uint OldRva, uint? NewRva, string Value)> targets, int maxPatterns, List<Item> items,
         Dictionary<string, (string Status, string Detail, int? Carried)> categories, List<string> notes, CancellationToken ct)
     {
@@ -722,8 +703,6 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
             _ => null,
         };
     }
-
-    // ---- helpers ----
 
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<LoadedNative, Tuple<string, NativeCodeIndex>> Originals = new();
 

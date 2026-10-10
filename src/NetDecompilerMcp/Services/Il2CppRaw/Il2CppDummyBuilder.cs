@@ -10,11 +10,10 @@ using LibCpp2IL.Metadata;
 namespace NetDecompilerMcp.Services;
 
 /// <summary>
-/// Builds Il2CppDumper-style dummy assemblies from the LibCpp2IL state: one module per metadata image with its types,
+/// Builds Il2CppDumper-format dummy assemblies from the LibCpp2IL state: one module per metadata image with its types,
 /// fields, methods, properties and events, the methods' native addresses as [Address(RVA, Offset, VA, Slot)], field
 /// offsets as [FieldOffset(Offset)] and metadata tokens as [Token(Token)] (attributes of an Il2CppDummyDll assembly),
-/// enum and constant values, and stub bodies that return a default value. What the existing Il2Cpp tools read from an
-/// Il2CppDumper DummyDll folder is here in the same form. Not built: the original custom attributes.
+/// enum and constant values, and stub bodies that return a default value. The original custom attributes are not built.
 /// </summary>
 internal sealed class Il2CppDummyBuilder
 {

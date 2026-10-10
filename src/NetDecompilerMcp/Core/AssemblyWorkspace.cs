@@ -202,7 +202,7 @@ public sealed class AssemblyWorkspace : IDisposable
                ?? _natives.FirstOrDefault(n => n.ManagedView?.Id.Equals(id, StringComparison.OrdinalIgnoreCase) == true);
     }
 
-    /// <summary>Finds a native image by id, file name or full path.</summary>
+    /// <summary><see cref="FindNative"/>, with a typed error when nothing matches.</summary>
     public LoadedNative GetNative(string identifier)
     {
         if (string.IsNullOrWhiteSpace(identifier))
@@ -604,7 +604,6 @@ public sealed class AssemblyWorkspace : IDisposable
             return new(null, file, null, null);
         }
         if (FindEmbedded(name, token) is { } embedded) return embedded;
-        // NuGet global packages folder.
         if (Frameworks.NuGetFile(name, version, netFramework, requesterFramework) is { } package && (token is not { Length: > 0 } || TokenMatches(package, token)))
             return new(null, package, null, null);
         // Windows Runtime component from an installed app package.

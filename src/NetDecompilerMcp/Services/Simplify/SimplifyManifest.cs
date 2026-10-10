@@ -191,7 +191,7 @@ public static class SimplifyManifest
                              "run is remembered. Other evaluations keep the defaults above"),
     ];
 
-    /// <summary>docs/simplify.md.</summary>
+    /// <summary>Renders docs/simplify.md.</summary>
     public static string Markdown()
     {
         var sb = new StringBuilder();

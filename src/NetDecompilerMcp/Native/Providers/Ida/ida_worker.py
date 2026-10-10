@@ -371,9 +371,7 @@ def op_set_comment(args):
 
 
 def op_sync_patches(args):
-    # Makes the database's patched bytes exactly items ([[rva, hex bytes]]): bytes patched before and not wanted now are
-    # reverted to their original values, wanted bytes patched; code in the touched ranges is decoded again and its
-    # functions reanalyzed. Reports the wanted bytes that could not be set (mismatches) or are not in the database (missing).
+    # INativeDecompilerProvider.SyncPatchesAsync; items: [[rva, hex bytes]].
     m = need_open()
     start = time.time()
     badaddr = m.idautils.ida_idaapi.BADADDR
@@ -763,10 +761,7 @@ PDB_CC_USER_WITH_DATA = 3  # pdb plugin: load the file named in the node ("File 
 
 
 def op_load_pdb(args):
-    # IDA's PDB plugin on an explicit file: its types, prototypes and names go into the database.
-    # trust_analysis: when IDA's own PDB load during auto-analysis succeeded, record the stamp without loading again.
-    # On success the stamp is recorded under stamp_key, the names stamp is dropped (the PDB's names replace pushed ones,
-    # so they are pushed again) and the database is saved.
+    # INativeDecompilerProvider.LoadPdbAsync, through IDA's PDB plugin.
     m = need_open()
     import ida_netnode
     import ida_typeinf as ti

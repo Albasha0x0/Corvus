@@ -119,8 +119,6 @@ public sealed partial class MinidumpFile : IProcessMemory, IDisposable
 
     public void Dispose() => _source.Dispose();
 
-    // ---- memory ----
-
     /// <summary>
     /// Copies captured memory starting at <paramref name="address"/>; stops at the first byte the dump does not hold
     /// and returns the number of bytes copied.
@@ -184,8 +182,6 @@ public sealed partial class MinidumpFile : IProcessMemory, IDisposable
 
     public DumpThread? ThreadById(uint id) => Threads.FirstOrDefault(t => t.Id == id);
 
-    // ---- contexts ----
-
     /// <summary>Reads a CONTEXT record for the dump's architecture; null when the location holds nothing.</summary>
     public DumpContext? ReadContext(DumpLocation location)
     {
@@ -193,8 +189,6 @@ public sealed partial class MinidumpFile : IProcessMemory, IDisposable
         var bytes = Block(location.Rva, (int)Math.Min(location.Size, 0x4D0u + 0x100));
         return DumpContext.Parse(Arch, bytes);
     }
-
-    // ---- helpers ----
 
     private void Issue(string area, string message, long? offset = null)
     {

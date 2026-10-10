@@ -45,8 +45,6 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
     private readonly ConditionalWeakTable<LoadedNative, Binding[]> _imports = new();
     private Dictionary<(LoadedNative, uint), List<(LoadedNative Importer, NativeImport Import)>>? _importers;
 
-    // ---- state ----
-
     /// <summary>The linker for the current set of loaded images; caches are dropped when that set changes.</summary>
     private NativeLinker Linker()
     {
@@ -123,8 +121,6 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
         await Task.WhenAny(all, Task.Delay(MaxWarmUp, ct));
         ct.ThrowIfCancellationRequested();
     }
-
-    // ---- imports ----
 
     /// <summary>Binds one import of <paramref name="importer"/>, following thunks in loaded providers.</summary>
     public Binding BindImport(LoadedNative importer, NativeImport import)
@@ -255,8 +251,6 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
         return (loaded, skipped);
     }
 
-    // ---- text ----
-
     /// <summary>"kernel32.dll!CreateFileW -> KERNELBASE.dll!CreateFileW at 0x180012340 [KERNELBASE.dll]", or the not-loaded / unresolved form.</summary>
     public static string Describe(Binding b)
     {
@@ -279,8 +273,6 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
     /// <summary>Name of a function in a tree: its name, address, and the image when it differs from <paramref name="home"/>.</summary>
     private static string FunctionLabel(LoadedNative native, NativeFunction f, LoadedNative? home) =>
         $"{f.Name}  {NativeAddress.Va(native.Image, f.Start)}" + (native != home ? $"  [{native.Id}]" : "");
-
-    // ---- cross-image call trees ----
 
     private sealed record TreeNode(LoadedNative Image, NativeFunction? Function, string Label)
     {

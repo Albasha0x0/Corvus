@@ -110,8 +110,6 @@ public sealed class StackWalker
         return new WalkResult(frames, stop, notes);
     }
 
-    // ---- x64 ----
-
     private (DumpContext? Next, string Method, bool Heuristic, string? Note) StepX64(DumpContext ctx, bool top)
     {
         ulong lookup = top ? ctx.Ip : ctx.Ip - 1;
@@ -356,8 +354,6 @@ public sealed class StackWalker
         return true;
     }
 
-    // ---- x86 ----
-
     private (DumpContext? Next, string Method, bool Heuristic, string? Note) StepX86(DumpContext ctx, bool top)
     {
         if (top)
@@ -392,8 +388,6 @@ public sealed class StackWalker
         return scanned != null ? (scanned, FrameMethod.Scan, true, "the EBP chain ends here (frame pointer omitted or not captured); scanned the stack")
             : (null, "", false, "no_return_address");
     }
-
-    // ---- scan ----
 
     /// <summary>The first stack slot at or above <paramref name="from"/> holding a plausible return address.</summary>
     private DumpContext? Scan(ulong from, ulong limit, DumpContext basis)

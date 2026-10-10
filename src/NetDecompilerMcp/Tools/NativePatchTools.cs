@@ -83,8 +83,6 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
             result.ChecksumUpdated, result.Content.Length, native.OriginalSha256, result.Notes);
     }
 
-    // ---- migration ----
-
     public sealed record MigrationPatchEntry(
         int Number,
         string OldAddress,

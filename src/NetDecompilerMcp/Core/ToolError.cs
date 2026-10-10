@@ -34,9 +34,8 @@ public enum ErrorCode
 }
 
 /// <summary>
-/// A user-facing error; as an McpException its message is returned verbatim to the client as a tool error result.
-/// <see cref="Code"/> classifies it and <see cref="Remediation"/> names the next step that can succeed.
-/// The client receives it as an IsError result (<see cref="Mcp.ErrorResult"/>): the rendered text, then the same error as JSON.
+/// A user-facing error, returned to the client as an IsError result (<see cref="Mcp.ErrorResult"/>): the rendered text,
+/// then the same error as JSON. <see cref="Code"/> classifies it; <see cref="Remediation"/> names the next step that can succeed.
 /// </summary>
 public sealed class ToolError : McpException
 {

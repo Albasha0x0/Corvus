@@ -23,7 +23,7 @@ public sealed class AnnotationDocument
 /// cache uses, a sibling folder), written atomically. A different file hash is a different sidecar, so a changed file
 /// starts clean; <see cref="FindOtherHashesForPath"/> reports when a sidecar already exists for the same path.
 /// Imported name layers (load_pdb, apply_il2cpp_names) live beside it, one compressed file per source
-/// (&lt;sha256&gt;.&lt;source&gt;.names, <see cref="SavedNameLayer"/>); the JSON sidecar format is unchanged.
+/// (&lt;sha256&gt;.&lt;source&gt;.names, <see cref="SavedNameLayer"/>).
 /// </summary>
 public sealed class AnnotationStore
 {

@@ -128,8 +128,8 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
         : ("content", "structural");
 
     /// <summary>
-    /// Shape: opcodes and literals. Skeleton: opcodes and string literals only. Control-flow code transformers (Dotfuscator,
-    /// ConfuserEx) plant random integer constants that change with every build, so only the skeleton survives a rebuild.
+    /// Shape: opcodes and literals. Skeleton: opcodes and string literals only. Control-flow transformers plant random integer
+    /// constants that change with every build, so only the skeleton survives a rebuild.
     /// </summary>
     /// <remarks>IlHash: <see cref="Services.IlHash"/> (null: no body or not valid IL). Structure: signature shape, size bucket,
     /// opcode histogram, call / field reference shape and exception region shape, for bodies too changed to share a shape.</remarks>

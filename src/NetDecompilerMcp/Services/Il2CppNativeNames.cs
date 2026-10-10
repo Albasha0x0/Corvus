@@ -67,7 +67,6 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
         bool Executable(uint rva) => rva < pe.SizeOfImage && pe.SectionAt(rva) is { IsExecutable: true };
         bool Mapped(uint rva) => rva < pe.SizeOfImage && pe.SectionAt(rva) != null;
 
-        // functions
         int functions = 0, notDiscovered = 0, shared = 0, sharedExtra = 0, unnamed = 0, outside = 0, userKept = 0;
         var script = image.Script;
         foreach (var start in image.Starts)
@@ -96,7 +95,6 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
         }
         if (outside > 0) notes.Add($"{outside} function start(s) are not in an executable section of {native.Id}");
 
-        // string literal slots
         uint[] literalSlots = [];
         string[] literalTexts = [];
         if (image.Dump is { } dump && dump.Files.HasLiterals)

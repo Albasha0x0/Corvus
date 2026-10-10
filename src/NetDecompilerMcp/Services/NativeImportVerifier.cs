@@ -32,7 +32,6 @@ public sealed class NativeImportVerifier
 
     public sealed record Result(List<Check> Checks, List<DynamicNativeLoad> DynamicLoads, bool DynamicTruncated, List<MetadataIssue> MetadataIssues);
 
-    /// <summary>Verdicts.</summary>
     public const string Verified = "verified", Contradicted = "contradicted", Unresolved = "unresolved", DynamicOnly = "dynamic_only", NotChecked = "not_checked";
 
     public static readonly string[] Statuses = [Verified, Contradicted, Unresolved, DynamicOnly, NotChecked];

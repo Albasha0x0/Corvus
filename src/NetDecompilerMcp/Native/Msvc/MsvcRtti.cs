@@ -185,8 +185,6 @@ public static class MsvcRtti
             FindVtables();
         }
 
-        // ---- memory ----
-
         private void LoadSections()
         {
             foreach (var s in sections)
@@ -279,8 +277,6 @@ public static class MsvcRtti
                 skipped.Add(new MsvcRttiSkip(rva, kind, reason));
         }
 
-        // ---- type descriptors ----
-
         private void FindTypeDescriptors()
         {
             ReadOnlySpan<byte> marker = ".?A"u8;
@@ -355,8 +351,6 @@ public static class MsvcRtti
             reason = "name longer than 4096 bytes";
             return null;
         }
-
-        // ---- locators and hierarchies ----
 
         private void FindLocators()
         {
@@ -526,8 +520,6 @@ public static class MsvcRtti
             return (td, contained, mdisp, pdisp, vdisp, attributes, pending);
         }
 
-        // ---- vftables ----
-
         private void FindVtables()
         {
             if (locators.Count == 0) return;
@@ -649,8 +641,6 @@ public static class MsvcRtti
                 slots.Add(target);
             }
         }
-
-        // ---- result ----
 
         public MsvcRttiResult Result(TimeSpan elapsed)
         {
