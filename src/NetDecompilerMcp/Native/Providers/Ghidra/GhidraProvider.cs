@@ -25,6 +25,8 @@ public sealed record GhidraProviderOptions
     public TimeSpan CancelGrace { get; init; } = TimeSpan.FromSeconds(10);
     /// <summary>Consecutive worker failures a session survives by restarting from the saved project.</summary>
     public int MaxRestarts { get; init; } = 3;
+    /// <summary>Memory cap of each worker tree in bytes (0: none); null: <see cref="EngineMemoryLimit.Variable"/>, else three quarters of the memory available.</summary>
+    public long? MemoryLimitBytes { get; init; }
     /// <summary>Decompiler processes per session.</summary>
     public int Decompilers { get; init; } = Math.Clamp(Environment.ProcessorCount / 2, 1, 4);
 }
@@ -155,6 +157,7 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
             WorkingDirectory = dirs.Temp,
             // Options a user set for their own Java programs must not reach the worker (a second -Xmx, an agent, a debugger).
             Environment = new Dictionary<string, string?> { ["JAVA_TOOL_OPTIONS"] = null, ["_JAVA_OPTIONS"] = null, ["JDK_JAVA_OPTIONS"] = null },
+            MemoryLimitBytes = EngineMemoryLimit.Resolve(_options.MemoryLimitBytes),
         };
         try
         {
@@ -168,7 +171,9 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         }
     }
 
-    internal static string? Remediation(ErrorCode code, string message) => code switch
+    internal static string? Remediation(ErrorCode code, string message) => message.Contains(EngineMemoryLimit.Variable, StringComparison.Ordinal)
+        ? $"Raise {EngineMemoryLimit.Variable} (MB; 0 turns the limit off) or lower {GhidraOptions.MaxMemoryVariable}, and retry."
+        : code switch
     {
         ErrorCode.Timeout => "Retry; a cancelled request leaves the session running. Raise the time limit for large functions or images.",
         ErrorCode.ProviderUnavailable => "Retry once (the session restarts Ghidra from the saved project); if it persists, run the provider probe and check the Ghidra install and the JDK.",

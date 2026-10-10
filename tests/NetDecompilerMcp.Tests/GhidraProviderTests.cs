@@ -39,6 +39,15 @@ public class GhidraProviderTests
     }
 
     [Fact]
+    public void A_worker_stopped_by_the_memory_cap_points_at_both_limits()
+    {
+        var fix = GhidraProvider.Remediation(ErrorCode.ProviderUnavailable, $"Ghidra worker exited after reaching its memory limit of 4096 MB ({EngineMemoryLimit.Variable})");
+        Assert.Contains(EngineMemoryLimit.Variable, fix);
+        Assert.Contains(GhidraOptions.MaxMemoryVariable, fix);
+        Assert.DoesNotContain(EngineMemoryLimit.Variable, GhidraProvider.Remediation(ErrorCode.ProviderUnavailable, "exited"));
+    }
+
+    [Fact]
     public void Pe_header_gives_arch_and_base_and_rejects_il_only()
     {
         var dll = Path.Combine(Environment.SystemDirectory, "kernel32.dll");
