@@ -253,42 +253,52 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager)
         int max = ClampLimit(limit, 10_000);
         offset = Math.Max(0, offset);
         var hits = new List<string>();
-        int total = 0, chars = 0;
-        // Sections are read in chunks (a section's virtual size can be far larger than its data); chunks overlap by the pattern length.
+        long total = 0;
+        int chars = 0;
+        void Hit(NativeSection s, uint rva, string label)
+        {
+            // Rows stop at the page size; the rest is reached with offset.
+            if (total++ < offset || hits.Count >= max || chars >= 50_000) return;
+            var row = $"{NativeAddress.Va(pe, rva)}  {s.Name}{(patterns.Count > 1 ? "  " + label : "")}" +
+                      (pe.TryRvaToFileOffset(rva, out var fo) ? $"  file 0x{fo:X}" : "  (zero fill, not in the file)");
+            hits.Add(row);
+            chars += row.Length + 1;
+        }
+        // The file-backed part of each section is read in 1 MB chunks overlapping by the pattern length; matches in the
+        // zero fill after it (which can be gigabytes) are counted, not scanned.
         int longest = patterns.Max(p => p.Bytes.Length);
         var data = new byte[(1 << 20) + longest];
         foreach (var s in pe.Sections)
         {
             if (section != null && !s.Name.Equals(section.Trim(), StringComparison.OrdinalIgnoreCase)) continue;
             uint size = (uint)Math.Min(s.MappedSize, Math.Max(0L, (long)pe.SizeOfImage - s.Rva));
-            for (uint at = 0; at < size; at += 1 << 20)
+            uint backed = (uint)pe.FileBackedLength(s.Rva, size);
+            for (uint at = 0; at < backed; at += 1 << 20)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 int read = pe.Read(s.Rva + at, data.AsSpan(0, (int)Math.Min((uint)data.Length, size - at)));
                 if (read <= 0) break;
                 var span = data.AsSpan(0, read);
-                int starts = Math.Min(read, 1 << 20);
+                int starts = (int)Math.Min(Math.Min(read, 1 << 20), backed - at);
                 foreach (var (bytes, mask, label) in patterns)
                     for (int i = 0; i < starts && i + bytes.Length <= span.Length; i++)
-                    {
-                        if (!Matches(span, i, bytes, mask)) continue;
-                        uint rva = s.Rva + at + (uint)i;
-                        // Rows stop at the page size; the rest is reached with offset.
-                        if (total++ >= offset && hits.Count < max && chars < 50_000)
-                        {
-                            var row = $"{NativeAddress.Va(pe, rva)}  {s.Name}{(patterns.Count > 1 ? "  " + label : "")}" +
-                                      (pe.TryRvaToFileOffset(rva, out var fo) ? $"  file 0x{fo:X}" : "  (zero fill, not in the file)");
-                            hits.Add(row);
-                            chars += row.Length + 1;
-                        }
-                    }
-                if (read < Math.Min(data.Length, size - at)) break;
+                        if (Matches(span, i, bytes, mask)) Hit(s, s.Rva + at + (uint)i, label);
+            }
+            foreach (var (bytes, mask, label) in patterns)
+            {
+                if (bytes.Where((b, i) => mask[i] && b != 0).Any() || (long)size - backed < bytes.Length) continue;
+                long zeroStarts = (long)size - backed - bytes.Length + 1;
+                long skip = Math.Clamp(offset - total, 0, zeroStarts);
+                total += skip;
+                long i = skip;
+                for (; i < zeroStarts && hits.Count < max && chars < 50_000; i++) Hit(s, s.Rva + backed + (uint)i, label);
+                total += zeroStarts - i;
             }
         }
         if (section != null && !pe.Sections.Any(s => s.Name.Equals(section.Trim(), StringComparison.OrdinalIgnoreCase)))
             throw new ToolError(ErrorCode.NotFound, $"No section '{section}'. Sections: {string.Join(", ", pe.Sections.Select(s => s.Name))}.");
         var more = offset + hits.Count < total ? $"\n[More: call again with offset={offset + hits.Count}]" : "";
-        return $"{Plural(total, "hit")}{(offset > 0 || hits.Count < total ? $" (showing {(hits.Count == 0 ? 0 : offset + 1)}-{offset + hits.Count})" : "")}\n" +
+        return $"{total} hit{(total == 1 ? "" : "s")}{(offset > 0 || hits.Count < total ? $" (showing {(hits.Count == 0 ? 0 : offset + 1)}-{offset + hits.Count})" : "")}\n" +
                string.Join("\n", hits) + more;
     }, cancellationToken);
 

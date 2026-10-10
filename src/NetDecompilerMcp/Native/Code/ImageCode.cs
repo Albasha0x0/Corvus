@@ -41,7 +41,7 @@ internal sealed class ImageCode
             if ((ulong)s.Rva + (ulong)length > image.SizeOfImage)
                 length = image.SizeOfImage - s.Rva;
             // Only the bytes the file backs: a raw size past the end of the file reads as zeros, which are not code.
-            length = RawBacked(image, s.Rva, length);
+            length = image.FileBackedLength(s.Rva, length);
             if (length <= 0) continue;
             // Overlapping section headers: the earlier section wins.
             if (regions.Count > 0 && s.Rva < regions[^1].End) continue;
@@ -61,21 +61,6 @@ internal sealed class ImageCode
         _regions = regions.ToArray();
         _regionStarts = _regions.Select(r => r.Rva).ToArray();
         TotalBytes = bitBase;
-    }
-
-    /// <summary>Length of the prefix of [rva, rva + length) whose bytes come from the file (binary search; the backed part is a prefix).</summary>
-    private static long RawBacked(INativeImage image, uint rva, long length)
-    {
-        if (length <= 0 || !image.TryRvaToFileOffset(rva, out _)) return 0;
-        if (image.TryRvaToFileOffset((uint)(rva + length - 1), out _)) return length;
-        long lo = 1, hi = length - 1; // lo bytes are backed, hi + 1 are not
-        while (lo < hi)
-        {
-            long mid = lo + (hi - lo + 1) / 2;
-            if (image.TryRvaToFileOffset((uint)(rva + mid - 1), out _)) lo = mid;
-            else hi = mid - 1;
-        }
-        return lo;
     }
 
     /// <summary>The code region containing <paramref name="rva"/>, or null.</summary>
