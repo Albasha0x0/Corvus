@@ -39,7 +39,7 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager)
         [Description(MaxCharsDescription)] int? maxChars = null,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
-        return pager.Page(pager.GetOrCreate($"peinfo|{native.Id}|{native.Image.Sha256}", () => PeInfo(native)), offset, maxChars);
+        return pager.Page(pager.GetOrCreate($"peinfo|{native.Id}|{native.Image.Sha256}|{PdbTools.Status(native)}",() => PeInfo(native)), offset, maxChars);
     }, cancellationToken);
 
     private static string PeInfo(LoadedNative native)
@@ -85,6 +85,7 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager)
         foreach (var d in pe.DebugEntries.Take(8))
             sb.AppendLine($"Debug: {PeFile.DebugTypeName(d.Type)}");
         if (pe.CodeView is { } cv) sb.AppendLine($"  PDB: {cv.PdbPath} ({cv.Format}, GUID {cv.Guid:D}, age {cv.Age})");
+        if (PdbTools.Status(native) is { } pdbStatus) sb.AppendLine("  " + pdbStatus);
         if (pe.LoadConfig is { } lc)
         {
             sb.Append($"Load config: version {lc.MajorVersion}.{lc.MinorVersion}, size {lc.Size}");

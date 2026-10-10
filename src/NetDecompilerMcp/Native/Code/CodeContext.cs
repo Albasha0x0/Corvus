@@ -16,6 +16,8 @@ public sealed record CodeIndexOptions
     public bool ScanPrologues { get; init; } = true;
     /// <summary>0 = one worker per processor.</summary>
     public int MaxParallelism { get; init; }
+    /// <summary>Function starts from debug symbols (PDB): roots like .pdata entries, kept when they are in code.</summary>
+    public IReadOnlyCollection<uint>? SymbolStarts { get; init; }
 }
 
 /// <summary>What the analysis knows about the image while it runs: shared, read-only during each pass.</summary>

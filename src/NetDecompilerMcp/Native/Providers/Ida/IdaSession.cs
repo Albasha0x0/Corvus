@@ -144,7 +144,7 @@ internal sealed class IdaSession : INativeDecompilerSession
     {
         var clock = Stopwatch.StartNew();
         _options.Progress?.Report(new NativeProviderProgress("start", clock.Elapsed));
-        var worker = _provider.StartWorker(_ida, _python);
+        var worker = _provider.StartWorker(_ida, _python, _options.Symbols == SymbolMode.Off ? null : _options.PdbPath);
         _worker = worker;
         worker.EventReceived += e =>
         {

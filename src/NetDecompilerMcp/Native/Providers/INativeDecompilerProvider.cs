@@ -99,6 +99,8 @@ public enum SymbolMode
 public sealed record NativeOpenOptions
 {
     public SymbolMode Symbols { get; init; } = SymbolMode.Default;
+    /// <summary>The image's PDB as located by the server (verified by GUID and age); the engine looks there first. Ignored with <see cref="SymbolMode.Off"/>.</summary>
+    public string? PdbPath { get; init; }
     /// <summary>Limit for engine start plus loading or auto-analysis.</summary>
     public TimeSpan OpenTimeout { get; init; } = TimeSpan.FromMinutes(20);
     /// <summary>Limit for each request after the open.</summary>

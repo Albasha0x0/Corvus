@@ -121,7 +121,40 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
     internal void Forget(IdaSession session) => _sessions.TryRemove(session, out _);
 
     /// <summary>Starts a worker process (inside a job on Windows) and returns its connection; idalib is loaded on the first request.</summary>
-    internal WorkerConnection StartWorker(IdaInstallation ida, PythonInterpreter python)
+    /// <summary>
+    /// The symbol path for a worker: the directory of the PDB the server located first (IDA analyzes a copy of the image,
+    /// so it cannot look next to the original), then the configured path (_NT_SYMBOL_PATH, else pdb.cfg, else IDA's
+    /// default). Null leaves IDA's configuration alone.
+    /// </summary>
+    internal static string? SymbolPathWith(string? pdbPath, string? idaDirectory = null)
+    {
+        if (string.IsNullOrEmpty(pdbPath) || Path.GetDirectoryName(pdbPath) is not { Length: > 0 } dir) return null;
+        var configured = Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH") is { Length: > 0 } env ? env
+            : ConfiguredSymbolPath(idaDirectory) ?? $"SRV*{Path.Combine(Path.GetTempPath(), "ida")}*https://msdl.microsoft.com/download/symbols";
+        return dir + ";" + configured;
+    }
+
+    /// <summary>The _NT_SYMBOL_PATH setting of IDA's cfg/pdb.cfg, when one is not commented out.</summary>
+    private static string? ConfiguredSymbolPath(string? idaDirectory)
+    {
+        if (idaDirectory == null) return null;
+        try
+        {
+            var cfg = Path.Combine(idaDirectory, "cfg", "pdb.cfg");
+            if (!File.Exists(cfg)) return null;
+            foreach (var line in File.ReadLines(cfg))
+            {
+                var t = line.Trim();
+                if (!t.StartsWith("_NT_SYMBOL_PATH", StringComparison.Ordinal)) continue;
+                int q1 = t.IndexOf('"'), q2 = t.LastIndexOf('"');
+                if (q1 >= 0 && q2 > q1) return t[(q1 + 1)..q2].Replace(@"\\", @"\");
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        return null;
+    }
+
+    internal WorkerConnection StartWorker(IdaInstallation ida, PythonInterpreter python, string? pdbPath = null)
     {
         var workerDir = Path.Combine(Cache.Root, "workers");
         var script = EmbeddedScript.Extract(WorkerResource, workerDir, "ida_worker", ".py");
@@ -131,6 +164,7 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
             ["IDA_IS_INTERACTIVE"] = null,
             ["TVHEADLESS"] = "1",
         };
+        if (SymbolPathWith(pdbPath, ida.Directory) is { } symbolPath) env["_NT_SYMBOL_PATH"] = symbolPath;
         if (!_options.UseUserPlugins) env["IDAUSR"] = PrivateUserDirectory();
         var start = new ChildProcessStart(python.Executable, ["-I", "-u", script])
         {

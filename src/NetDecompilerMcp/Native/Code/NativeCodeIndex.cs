@@ -132,7 +132,7 @@ public sealed class NativeCodeIndex : ICodeSymbols
         options ??= new CodeIndexOptions();
         var report = new ProgressGate(progress);
         var (support, note) = InstructionSets.For(image.Arch);
-        if (support != CodeSupport.Full) return DeclaredOnly(image, note, report);
+        if (support != CodeSupport.Full) return DeclaredOnly(image, note, report, options.SymbolStarts);
         return new Builder(image, options, report, ct).Run();
     }
 
@@ -140,7 +140,7 @@ public sealed class NativeCodeIndex : ICodeSymbols
         Task.Run(() => Build(image, options, progress, ct), ct);
 
     /// <summary>Instruction sets without a decoder: functions the image declares, no code analysis.</summary>
-    private static NativeCodeIndex DeclaredOnly(INativeImage image, string? note, ProgressGate report)
+    private static NativeCodeIndex DeclaredOnly(INativeImage image, string? note, ProgressGate report, IReadOnlyCollection<uint>? symbolStarts)
     {
         var sw = Stopwatch.StartNew();
         var sources = new Dictionary<uint, FunctionSource>();
@@ -149,6 +149,7 @@ public sealed class NativeCodeIndex : ICodeSymbols
         foreach (var e in image.Exports) if (e.ForwardedTo == null) Add(e.Rva, FunctionSource.Export);
         if (image.EntryPointRva != 0) Add(image.EntryPointRva, FunctionSource.EntryPoint);
         foreach (var t in image.TlsCallbackRvas) Add(t, FunctionSource.TlsCallback);
+        foreach (var t in symbolStarts ?? []) Add(t, FunctionSource.Symbol);
         var ends = image.RuntimeFunctions.GroupBy(r => r.BeginRva).ToDictionary(g => g.Key, g => g.Max(r => r.EndRva));
         var functions = sources.OrderBy(kv => kv.Key).Select((kv, i) => new NativeFunction
         {
