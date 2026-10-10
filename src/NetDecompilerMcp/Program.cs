@@ -82,13 +82,8 @@ builder.Services
         o.ServerInstructions = ServerInstructions.Text;
     })
     .WithStdioServerTransport()
-    // Serialize nulls explicitly: generated output schemas mark every property required, so omitted nulls fail validation.
-    .WithToolsFromAssembly(serializerOptions: new System.Text.Json.JsonSerializerOptions(McpJsonUtilities.DefaultOptions)
-    {
-        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never,
-    })
-    .WithResourcesFromAssembly()
-    .WithPromptsFromAssembly()
+    // Tools (annotations from Mcp/ToolEffects.cs), resources and prompts.
+    .WithCatalog()
     .WithCompleteHandler((context, _) =>
         ValueTask.FromResult(Completions.Complete(context.Services!.GetRequiredService<AssemblyWorkspace>(), context.Params!)))
     .WithRequestFilters(filters => filters.AddCallToolFilter(next => async (context, cancellationToken) =>
@@ -133,12 +128,6 @@ builder.Services
             return ErrorResult.Internal(ex, context.Params?.Name);
         }
     }));
-
-// Annotations come from one audited table (Mcp/ToolEffects.cs), applied once the tool collection is complete.
-builder.Services.PostConfigure<ModelContextProtocol.Server.McpServerOptions>(o =>
-{
-    if (o.ToolCollection is { } tools) ToolEffects.Apply(tools);
-});
 
 var host = builder.Build();
 // Resolve before preloading so preloaded assemblies are indexed and watched.

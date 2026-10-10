@@ -171,7 +171,7 @@ public sealed class SetupTests : IDisposable
         var tools = SelfTest.DeclaredTools().Count;
         Assert.True(tools > 50, $"{tools} declared tools");
         Assert.Matches($@"Server check: OK \(version [0-9.]+, {tools} tools", output.ToString());
-        Assert.Contains($"Tool catalog: matches this build ({tools} tools)", output.ToString());
+        Assert.Matches($@"Tool catalog: matches this build \({tools} tools\); digest t{tools}-[0-9a-f]{{12}}\.p\d+-[0-9a-f]{{8}}", output.ToString());
     }
 
     [Fact]

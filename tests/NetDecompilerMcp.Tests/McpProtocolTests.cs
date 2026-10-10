@@ -275,6 +275,23 @@ public abstract class McpProtocolTests : IAsyncLifetime
             }
             Assert.True(tools.Single(t => t.Name == "decompile_type").ProtocolTool.Annotations!.ReadOnlyHint);
             Assert.True(tools.Single(t => t.Name == "save_assembly").ProtocolTool.Annotations!.DestructiveHint);
+
+            // Stale-server check: the digest of what the client sees and server_status's agree (SetupTests: and this build's, in process).
+            var prompts = await _client.ListPromptsAsync();
+            var seen = NetDecompilerMcp.Mcp.Catalog.Digest(
+                tools.Select(t => JsonSerializer.SerializeToNode(t.ProtocolTool, McpJsonUtilities.DefaultOptions)),
+                prompts.Select(p => JsonSerializer.SerializeToNode(p.ProtocolPrompt, McpJsonUtilities.DefaultOptions)));
+            async Task<JsonElement> Status(string? expected) =>
+                JsonDocument.Parse((await _client.CallToolAsync("server_status", new Dictionary<string, object?> { ["expectedCatalogDigest"] = expected })).StructuredContent!.ToString()!).RootElement;
+            var status = await Status(seen);
+            Assert.Equal(seen, status.GetProperty("catalogDigest").GetString());
+            Assert.True(status.GetProperty("catalogMatches").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, status.GetProperty("catalogDifference").ValueKind);
+            Assert.Contains("export_project", status.GetProperty("longRunningTools").EnumerateArray().Select(e => e.GetString()));
+            var stale = await Status($"t{tools.Count - 2}-0123456789ab.p{prompts.Count}-{seen[^8..]}");
+            Assert.False(stale.GetProperty("catalogMatches").GetBoolean());
+            Assert.Equal($"tools: {tools.Count - 2} expected, this server has {tools.Count} (added 2 or more)", stale.GetProperty("catalogDifference").GetString());
+            Assert.Equal(JsonValueKind.Null, (await Status(null)).GetProperty("catalogMatches").ValueKind);
         }
 
         [Trait("Speed", "Slow")]

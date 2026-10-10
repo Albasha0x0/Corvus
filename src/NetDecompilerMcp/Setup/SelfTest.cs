@@ -6,7 +6,9 @@ namespace NetDecompilerMcp.Setup;
 /// <summary>Starts the server the way a client would and completes an MCP handshake and tools/list.</summary>
 internal static class SelfTest
 {
-    public sealed record Result(bool Ok, string Detail, IReadOnlyList<string>? Tools = null);
+    /// <summary><see cref="ToolList"/> and <see cref="PromptList"/>: the server's tools/list and prompts/list entries.</summary>
+    public sealed record Result(bool Ok, string Detail, IReadOnlyList<string>? Tools = null, IReadOnlyList<JsonNode>? ToolList = null,
+        IReadOnlyList<JsonNode>? PromptList = null);
 
     public static Result Run(ServerLaunch launch, TimeSpan timeout)
     {
@@ -51,7 +53,11 @@ internal static class SelfTest
                 var tools = Receive(p, 2, timeout - clock.Elapsed)?["result"]?["tools"]?.AsArray();
                 if (tools == null) return Fail("no reply to tools/list", stderr);
                 var names = tools.Select(t => t?["name"]?.GetValue<string>() ?? "").Where(n => n.Length > 0).ToList();
-                return new Result(true, $"version {version}, {tools.Count} tools, started in {clock.Elapsed.TotalSeconds:0.0} s", names);
+                // Older servers may have no prompts: an empty list then.
+                Send(p, new JsonObject { ["jsonrpc"] = "2.0", ["id"] = 3, ["method"] = "prompts/list" });
+                var prompts = Receive(p, 3, timeout - clock.Elapsed)?["result"]?["prompts"]?.AsArray();
+                return new Result(true, $"version {version}, {tools.Count} tools, started in {clock.Elapsed.TotalSeconds:0.0} s", names,
+                    [.. tools.OfType<JsonNode>()], [.. prompts?.OfType<JsonNode>() ?? []]);
             }
             catch (IOException ex) { return Fail(ex.Message, stderr); }
             finally
