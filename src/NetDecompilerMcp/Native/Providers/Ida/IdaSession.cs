@@ -50,6 +50,8 @@ internal sealed class IdaSession : INativeDecompilerSession
     internal int? WorkerProcessId => _worker is { IsAlive: true } w ? w.ProcessId : null;
     internal WorkerConnection? Worker => _worker;
     internal string DatabasePath => _databasePath;
+    /// <summary>Requests a restart would replay (journaled since the last save).</summary>
+    internal int UnsavedCount => _unsaved.Count;
 
     public async Task OpenAsync(string imagePath, string? sha256, CancellationToken cancellationToken)
     {
@@ -236,6 +238,11 @@ internal sealed class IdaSession : INativeDecompilerSession
                 _failures = 0;
                 if (journal) _unsaved.Add((op, args));
                 if (saves) _unsaved.Clear();
+                else if (_unsaved.Count >= _provider.Options.JournalSaveThreshold)
+                {
+                    await _worker.RequestAsync("save", new JsonObject(), _options.RequestTimeout, cancellationToken).ConfigureAwait(false);
+                    _unsaved.Clear();
+                }
                 return result;
             }
             catch (ToolError e) when (e.Code is ErrorCode.ProviderUnavailable or ErrorCode.Timeout)

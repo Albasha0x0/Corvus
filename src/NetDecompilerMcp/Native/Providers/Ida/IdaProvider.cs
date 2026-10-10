@@ -25,6 +25,8 @@ public sealed record IdaProviderOptions
     public int MaxRestarts { get; init; } = 3;
     /// <summary>Memory cap of each worker in bytes (0: none); null: <see cref="EngineMemoryLimit.Variable"/>, else three quarters of the memory available.</summary>
     public long? MemoryLimitBytes { get; init; }
+    /// <summary>Unsaved edits after which the database is saved, so a restart replays a bounded journal.</summary>
+    public int JournalSaveThreshold { get; init; } = 100;
 }
 
 /// <summary>

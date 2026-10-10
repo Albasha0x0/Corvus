@@ -360,6 +360,26 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     }
 
     [IdaFact]
+    public async Task A_long_journal_is_saved_instead_of_growing()
+    {
+        var dir = new TempDir();
+        _owned.Add(dir);
+        var provider = new IdaProvider(new IdaProviderOptions { CacheRoot = dir.Path, JournalSaveThreshold = 2 });
+        _owned.Add(provider);
+        var rva = ExportRva(System64, Export);
+        await using var s = (IdaSession)await provider.OpenAsync(System64, null, Offline);
+        await s.SetNameAsync(rva, "ndm_first");
+        Assert.Equal(1, s.UnsavedCount);
+        await s.SetCommentAsync(rva, "saved with the second edit");
+        Assert.Equal(0, s.UnsavedCount);
+        // nothing to replay: the restarted worker reads both from the saved database
+        Process.GetProcessById(s.WorkerProcessId!.Value).Kill();
+        await Task.Delay(300);
+        Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "ndm_first");
+        Assert.Equal("saved with the second edit", (await s.DisassembleAsync(rva)).Instructions[0].Comment);
+    }
+
+    [IdaFact]
     public async Task Database_is_keyed_by_the_IDA_build_and_rebuilt_when_made_from_other_input()
     {
         var provider = Isolated();
