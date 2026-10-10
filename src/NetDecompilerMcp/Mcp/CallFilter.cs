@@ -38,12 +38,15 @@ internal static partial class CallFilter
         Func<CancellationToken, ValueTask<CallToolResult>> next, CancellationToken cancellationToken)
     {
         var tool = request?.Name;
+        var deadline = services?.GetService<ServerOptions>() is { } serverOptions ? Deadline(tool, serverOptions) : null;
+        using var call = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        if (deadline is { } limit) call.CancelAfter(limit);
         try
         {
             if (inputSchema is { } schema) ArgumentCheck.Apply(schema, request?.Arguments, tool);
             var structured = StructuredOutput.Begin();
-            using var waits = AssemblyWorkspace.CancelWaitsWith(cancellationToken);
-            var result = await next(cancellationToken);
+            using var waits = AssemblyWorkspace.CancelWaitsWith(call.Token);
+            var result = await WithinDeadline(next(call.Token).AsTask(), call.Token, deadline, cancellationToken);
             // An error object never matches the tool's output schema, and clients validate whatever structuredContent is present.
             if (result.IsError == true) result.StructuredContent = null;
             // A tool that keeps its readable text hands its record over separately; bounded to the page size.
@@ -57,6 +60,14 @@ internal static partial class CallFilter
         catch (ToolError ex)
         {
             return ErrorResult.From(ex, tool);
+        }
+        catch (OperationCanceledException) when (call.IsCancellationRequested && !cancellationToken.IsCancellationRequested && deadline != null)
+        {
+            return DeadlineError(tool, deadline.Value, stillRunning: false);
+        }
+        catch (DeadlinePassedException ex)
+        {
+            return DeadlineError(tool, ex.Limit, stillRunning: true);
         }
         catch (ArgumentException ex) when (ex.ParamName == "arguments" && MissingParameter().Match(ex.Message) is { Success: true } m)
         {
@@ -76,6 +87,41 @@ internal static partial class CallFilter
             return ErrorResult.Internal(ex, tool);
         }
     }
+
+    /// <summary>Multiple of --timeout after which a call not marked long-running in <see cref="ToolEffects"/> ends.</summary>
+    public const int DeadlineFactor = 2;
+
+    /// <summary>How long a tool that ignores the deadline's cancellation is waited for before the call returns without it.</summary>
+    public static readonly TimeSpan DeadlineGrace = TimeSpan.FromSeconds(1);
+
+    /// <summary>The call deadline, or null for long-running tools (they keep their own limits).</summary>
+    public static TimeSpan? Deadline(string? tool, ServerOptions options) =>
+        tool != null && ToolEffects.Of(tool).LongRunning ? null : TimeSpan.FromSeconds((double)options.TimeoutSeconds * DeadlineFactor);
+
+    private sealed class DeadlinePassedException(TimeSpan limit) : Exception
+    {
+        public TimeSpan Limit { get; } = limit;
+    }
+
+    /// <summary>The tool's result; past the deadline plus <see cref="DeadlineGrace"/>, the call returns while the work finishes in the background.</summary>
+    private static async Task<CallToolResult> WithinDeadline(Task<CallToolResult> work, CancellationToken call, TimeSpan? deadline, CancellationToken client)
+    {
+        if (deadline is not { } limit) return await work;
+        var expired = new TaskCompletionSource();
+        using var registration = call.Register(() => expired.TrySetResult());
+        if (await Task.WhenAny(work, expired.Task) == work) return await work;
+        if (client.IsCancellationRequested || await Task.WhenAny(work, Task.Delay(DeadlineGrace, client)) == work) return await work;
+        _ = work.ContinueWith(t => t.Exception, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+        throw new DeadlinePassedException(limit);
+    }
+
+    private static CallToolResult DeadlineError(string? tool, TimeSpan limit, bool stillRunning) =>
+        ErrorResult.From(new ToolError(ErrorCode.Timeout,
+            $"the call did not finish within {limit.TotalSeconds:0} s ({DeadlineFactor}x --timeout){(stillRunning ? "; its work is still finishing in the background" : "")}.",
+            "narrow the call (one member instead of a type, a smaller limit or scope), or start the server with a larger --timeout")
+        {
+            Details = new { deadlineSeconds = limit.TotalSeconds, stillRunning },
+        }, tool);
 
     [GeneratedRegex("required parameter '([^']+)'")]
     private static partial Regex MissingParameter();

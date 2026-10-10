@@ -139,7 +139,7 @@ only `decompile_native` needs an external engine (IDA through idalib). Reliabili
 | Huge output | Paged (`offset` / `maxChars`); pages come from a cache. A result or error over the response limit is kept, and `read_result` pages through it. |
 | Files changing on disk | Watched: clean assemblies reload automatically; ones with unsaved edits are left alone and the agent is told. |
 | Slow first queries | Method bodies are indexed and the call graph is built in the background after loading, in small chunks that never block edits. |
-| Runaway work | Per-call timeout (default 180 s) and MCP cancellation. |
+| Runaway work | Each decompilation stops after `--timeout` (default 180 s; `export_project` 10×). A call to a tool not marked long-running ends with a retryable `timeout` error after twice `--timeout` (its partial result when the tool kept one). MCP cancellation stops a call in flight or waiting for the workspace lock. |
 | Vague names | A symbol resolver accepts many spellings and tokens; ambiguity and misses return candidates. |
 | Unexpected exceptions | Returned as tool errors; the server keeps running. |
 | Invalid patches | IL is stack-validated, C# is compiled (errors point at your line), and nothing changes on failure. Patched assemblies are executed in the tests to prove the IL is valid at runtime. |
@@ -516,7 +516,7 @@ Options go after the command in a client's configuration (`args`), e.g. to prelo
 | `--load <path>` | Assembly file or folder to load at startup (repeatable). The `NETDECOMP_LOAD` env var takes `;`-separated paths. |
 | `--search-dir <dir>` | Extra directory for resolving references (repeatable). |
 | `--max-output <chars>` | Page size for long results (default 60000). |
-| `--timeout <seconds>` | Per-call decompilation timeout (default 180; `export_project` gets 10×). |
+| `--timeout <seconds>` | Per-call decompilation timeout (default 180; `export_project` gets 10×). Calls to tools not marked long-running end after twice this. |
 | `--no-index` | Don't index method bodies and build the call graph in the background after loading. |
 | `--no-watch` | Don't watch loaded files or reload them when they change on disk. |
 | `--engine <auto\|ours\|ida>` | Default engine for the native function, cross-reference and CFG tools (default `auto`; `NDM_ENGINE`); see Engine preference above. |
