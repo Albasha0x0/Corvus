@@ -12,7 +12,7 @@ namespace NetDecompilerMcp.Tools;
 
 /// <summary>Native PE images: headers, imports, exports, addresses and bytes.</summary>
 [McpServerToolType]
-public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, NativeCodeService? code = null)
+public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, NativeCodeService? code = null, NativeLinkService? link = null)
 {
     public const string ImageDescription = "Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded.";
 
@@ -149,31 +149,59 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
 
     [McpServerTool(Name = "list_imports", Title = "List native imports", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("Functions a native image imports, per DLL (delay-loaded marked), with the IAT slot address code calls through. " +
-                 "API set names (api-ms-win-*) are shown with the DLL they resolve to on this system.")]
-    public Task<string> ListImports(
+                 "API set names (api-ms-win-*) are shown with the DLL they resolve to on this system. With bind=true each import is bound like the " +
+                 "loader does (DLL search order, API sets, forwarders, jump thunks in loaded providers) to its export: 'at VA [image]' when the provider " +
+                 "is loaded (disassemble / native_call_tree work on it), its path when not (load_assembly with that path, or with this image and " +
+                 "loadProviders=true), or the reason it does not resolve (dll_not_found, api_set_unmapped, missing_export, missing_ordinal, forwarder_broken).")]
+    public async Task<string> ListImports(
         [Description(ImageDescription)] string image,
         [Description("Only this DLL (name with or without .dll).")] string? module = null,
         [Description("Only functions whose name contains this text (case-insensitive).")] string? filter = null,
+        [Description("Bind each import to the export it reaches and summarize: bound / provider not loaded / unresolved by reason.")] bool bind = false,
         [Description("Index of the first row.")] int offset = 0,
         [Description("Max rows (default 500).")] int limit = 500,
-        CancellationToken cancellationToken = default) => OnImage(image, native =>
+        CancellationToken cancellationToken = default)
     {
-        var pe = native.Image;
-        var apiSets = ApiSets.Value;
-        var rows = new List<string>();
-        foreach (var mod in pe.ImportModules.Concat(pe.DelayImportModules))
+        if (bind && link != null) await link.WarmUp(null, cancellationToken);
+        return await OnImage(image, native =>
         {
-            if (module != null && !string.Equals(Path.GetFileNameWithoutExtension(mod.Name), Path.GetFileNameWithoutExtension(module.Trim()), StringComparison.OrdinalIgnoreCase)) continue;
-            var host = ApiSetSchema.IsApiSetName(mod.Name) ? apiSets?.Resolve(mod.Name, native.FilePath) : null;
-            foreach (var f in mod.Functions)
+            var pe = native.Image;
+            var apiSets = ApiSets.Value;
+            var rows = new List<string>();
+            var bindings = new List<NativeLinkService.Binding>();
+            var bySlot = bind && link != null
+                ? pe.Imports.Zip(link.BindAll(native, cancellationToken)).GroupBy(p => p.First.SlotRva).ToDictionary(g => g.Key, g => g.First().Second)
+                : null;
+            foreach (var mod in pe.ImportModules.Concat(pe.DelayImportModules))
             {
-                var name = f.Name ?? $"#{f.Ordinal}";
-                if (filter != null && !name.Contains(filter, StringComparison.OrdinalIgnoreCase)) continue;
-                rows.Add($"{NativeAddress.Va(pe, f.SlotRva)}  {mod.Name}{(host != null ? $" ({host})" : "")}!{name}{(f.IsDelayLoad ? "  [delay]" : "")}");
+                if (module != null && !string.Equals(Path.GetFileNameWithoutExtension(mod.Name), Path.GetFileNameWithoutExtension(module.Trim()), StringComparison.OrdinalIgnoreCase)) continue;
+                var host = ApiSetSchema.IsApiSetName(mod.Name) ? apiSets?.Resolve(mod.Name, native.FilePath) : null;
+                foreach (var f in mod.Functions)
+                {
+                    var name = f.Name ?? $"#{f.Ordinal}";
+                    if (filter != null && !name.Contains(filter, StringComparison.OrdinalIgnoreCase)) continue;
+                    var row = $"{NativeAddress.Va(pe, f.SlotRva)}  {mod.Name}{(host != null ? $" ({host})" : "")}!{name}{(f.IsDelayLoad ? "  [delay]" : "")}";
+                    if (bySlot != null && bySlot.TryGetValue(f.SlotRva, out var b))
+                    {
+                        b = link!.FollowThunks(b);
+                        bindings.Add(b);
+                        row += "  -> " + NativeLinkService.Describe(b);
+                    }
+                    rows.Add(row);
+                }
             }
-        }
-        return pager.PageRows(rows, offset, limit, "import");
-    }, cancellationToken);
+            var head = "";
+            if (bySlot != null)
+            {
+                var (bound, notLoaded, unresolved) = link!.Summary(bindings);
+                int files = bindings.Where(b => b.Status == NativeLinkService.NotLoaded).Select(b => b.FinalFile).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+                head = $"Bindings: {bound} bound to loaded images, {notLoaded} in {Plural(files, "image")} not loaded, {unresolved.Values.Sum()} unresolved" +
+                       (unresolved.Count > 0 ? $" ({string.Join(", ", unresolved.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Key} {kv.Value}"))})" : "") + "\n";
+            }
+            else if (bind) head = "Bindings: not available in this configuration\n";
+            return head + pager.PageRows(rows, offset, limit, "import");
+        }, cancellationToken);
+    }
 
     [McpServerTool(Name = "list_exports", Title = "List native exports", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("Functions and data a native image exports: ordinal, address (VA), name (with the demangled C++ form for MSVC names), and forwarders.")]
@@ -200,7 +228,8 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
 
     [McpServerTool(Name = "resolve_address", Title = "Resolve native address", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("What an address in a native image is: RVA, VA and file offset, the section and its permissions, the nearest export or import at or before it, " +
-                 "and, once the code index is built, its name and the name's source (user, pdb, il2cpp); after apply_il2cpp_names the managed method or metadata slot.")]
+                 "and, once the code index is built, its name and the name's source (user, pdb, il2cpp); after apply_il2cpp_names the managed method or metadata slot. " +
+                 "For an IAT slot, the export it is bound to (in a loaded image: its address and image); for an export, the loaded images importing it.")]
     public Task<string> ResolveAddress(
         [Description(ImageDescription)] string image,
         [Description(AddressDescription)] string address,
@@ -218,6 +247,9 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager, 
             : rva < pe.Optional.SizeOfHeaders ? "  in the PE headers" : "  in no section");
         var slot = pe.Imports.FirstOrDefault(i => i.SlotRva == rva);
         if (slot != null) sb.AppendLine($"  IAT slot of {slot.Module}!{slot.Name ?? "#" + slot.Ordinal}");
+        if (slot != null && link != null) sb.AppendLine($"  bound to {NativeLinkService.Describe(link.BindImport(native, slot))}");
+        if (link != null && link.ImportersOf(native, rva, cancellationToken) is { Count: > 0 } importers)
+            sb.AppendLine($"  imported by {string.Join(", ", importers.GroupBy(i => i.Importer.Id).Select(g => $"{g.Key} ({string.Join(", ", g.Select(i => NativeCodeIndex.ImportName(i.Import)).Distinct())})"))}; find_xrefs lists the call sites");
         var export = pe.Exports.Where(e => e.ForwardedTo == null && e.Rva <= rva).MaxBy(e => e.Rva);
         if (export != null) sb.AppendLine(export.Rva == rva ? $"  export {export.Name ?? "#" + export.Ordinal}" : $"  nearest export before it: {export.Name ?? "#" + export.Ordinal} + 0x{rva - export.Rva:X}");
         var function = FindRuntimeFunction(pe, rva);

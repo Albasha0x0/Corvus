@@ -160,7 +160,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["save_assembly"] = (new() { ["assembly"] = "TestFixture", ["outputPath"] = dir.File("saved.dll") }, "Wrote"),
         ["server_status"] = (new(), "\"catalogDigest\""),
         ["get_pe_info"] = (new() { ["image"] = NativeSample(dir) }, "seed.pdb"),
-        ["list_imports"] = (new() { ["image"] = NativeSample(dir) }, "KERNEL32.dll!ExitProcess"),
+        ["list_imports"] = (new() { ["image"] = NativeSample(dir), ["bind"] = true }, "KERNEL32.dll!ExitProcess"),
         ["list_exports"] = (new() { ["image"] = NativeSample(dir) }, "First"),
         ["resolve_address"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "export First"),
         ["search_bytes"] = (new() { ["image"] = NativeSample(dir), ["pattern"] = "ExitProcess", ["text"] = true }, "1 hit"),

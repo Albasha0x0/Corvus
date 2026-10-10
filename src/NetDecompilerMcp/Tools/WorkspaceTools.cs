@@ -12,7 +12,8 @@ using static NetDecompilerMcp.Tools.ToolSupport;
 namespace NetDecompilerMcp.Tools;
 
 [McpServerToolType]
-public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il2cpp, AssemblyReport report, IndexingService indexing, UnpackService unpacker)
+public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il2cpp, AssemblyReport report, IndexingService indexing, UnpackService unpacker,
+    NativeLinkService? link = null)
 {
     public sealed record AssemblyEntry(string Id, string Name, string Version, string Path, int Types, bool Il2CppDummy, IReadOnlyList<string> UnsavedEdits,
         bool ReadyToRun, string? Merged);
@@ -34,23 +35,27 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     [Description("Load a .NET assembly (.dll/.exe) or every assembly in a directory (e.g. an application folder, a Unity *_Data/Managed folder or an Il2CppDumper DummyDll folder). " +
                  "A native PE file (.exe/.dll/.sys without .NET metadata) given by path loads as a native image for the native tools (get_pe_info, list_imports, list_exports, list_functions, disassemble); " +
                  "folder loads take only .NET assemblies and list the native files they skipped. " +
-                 "Files are read into memory and never locked. The directory joins the reference search path. Loading the same path twice is a no-op.")]
+                 "Files are read into memory and never locked. The directory joins the reference search path. Loading the same path twice is a no-op. " +
+                 "loadProviders=true also loads the DLLs a file's imports bind to (one level, never their own dependencies; at most " +
+                 "16 per call), so native_call_tree, find_xrefs and the .NET call tools continue into them.")]
     public Task<string> LoadAssembly(
         [Description("Absolute path to an assembly file or a directory.")] string path,
         [Description("When path is a directory, also load assemblies in subdirectories.")] bool recursive = false,
+        [Description("For a file: also load the DLLs its imports bind to, one level deep (at most 16).")] bool loadProviders = false,
         RequestContext<CallToolRequestParams> context = null!, // bound by the SDK
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
     {
         if (!Directory.Exists(path))
         {
             var (loaded, native) = workspace.LoadAny(path);
+            var providers = loadProviders && link != null ? Providers(loaded, native) : "";
             if (native != null)
             {
                 var image = native.Image;
                 return $"Loaded native image {native.Id}: {image.MachineName} {(image.IsDll ? "DLL" : "executable")}, {image.SubsystemName}\n  {native.FilePath}\n  " +
                        $"{Plural(image.Sections.Count, "section")}, {Plural(image.Imports.Count, "import")}, {Plural(image.Exports.Count, "export")}" +
                        (image.RuntimeFunctions.Count > 0 ? $", {Plural(image.RuntimeFunctions.Count, "unwind entry")}" : "") +
-                       (image.Issues.Count > 0 ? $"\n  {Plural(image.Issues.Count, "parse issue")} (get_pe_info lists them)" : "");
+                       (image.Issues.Count > 0 ? $"\n  {Plural(image.Issues.Count, "parse issue")} (get_pe_info lists them)" : "") + providers;
             }
             return workspace.Read(() =>
             {
@@ -60,13 +65,27 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                 var types = MetadataUtil.CountedTypes(asm.Module);
                 return $"Loaded {asm.Id}: {asm.FullAssemblyName}\n  {asm.FilePath}\n  {types.Count} types, " +
                        $"{MetadataUtil.NamespaceCount(types)} namespaces" +
-                       (il2cpp.GetIndex(asm).Count > 0 ? "\n  Il2Cpp dummy DLL: method bodies are stubs; use get_il2cpp_info / find_method_by_address." : "");
+                       (il2cpp.GetIndex(asm).Count > 0 ? "\n  Il2Cpp dummy DLL: method bodies are stubs; use get_il2cpp_info / find_method_by_address." : "") + providers;
             });
         }
 
         var report = workspace.LoadDirectory(path, recursive, (done, total, file) => Report(progress, done, total, $"Loading {Path.GetFileName(file)}"));
         return FormatLoad(workspace, path, report);
     }, cancellationToken));
+
+    /// <summary>Loads the provider DLLs of a loaded file's imports (native) or P/Invoke declarations (.NET), one level.</summary>
+    private string Providers(LoadedAssembly? assembly, LoadedNative? native)
+    {
+        var bindings = workspace.Read(() => native != null ? link!.BindAll(native).ToList() : new List<NativeLinkService.Binding>());
+        var (loaded, skipped) = link!.LoadProviders(bindings, NativeLinkService.MaxProvidersPerCall);
+        var sb = new StringBuilder($"\n  providers: loaded {(loaded.Count > 0 ? string.Join(", ", loaded) : "none")}");
+        int already = bindings.Where(b => b.Status == NativeLinkService.Bound).Select(b => b.Target!.Id).Distinct().Count();
+        if (already > 0) sb.Append($"; {Plural(already, "provider")} already loaded");
+        if (skipped.Count > 0) sb.Append($"; not loaded ({skipped.Count}): {string.Join(", ", skipped.Take(20))}");
+        int unresolved = bindings.Count(b => b.Status == NativeLinkService.Unresolved);
+        if (unresolved > 0) sb.Append($"; {Plural(unresolved, "binding")} unresolved (list_imports bind=true / verify_native_imports say why)");
+        return sb.ToString();
+    }
 
     /// <summary>Folder load summary: loaded assemblies, skipped native and damaged files, Unity layout hints.</summary>
     internal static string FormatLoad(AssemblyWorkspace workspace, string path, AssemblyWorkspace.LoadReport report)

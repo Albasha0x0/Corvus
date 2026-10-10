@@ -14,7 +14,7 @@ namespace NetDecompilerMcp.Tools;
 
 /// <summary>Native code: functions, disassembly, control flow, cross-references, call trees and strings (x86 / x64).</summary>
 [McpServerToolType]
-public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeService code, OutputPager pager)
+public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeService code, OutputPager pager, NativeLinkService? link = null)
 {
     private const string IndexNote = "The first call on an image waits for its code index (built in the background after loading; seconds for a typical DLL, " +
                                      "under a minute for a 300 MB executable; progress is reported).";
@@ -118,7 +118,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        var (_, index) = await Open(image, context, progress, cancellationToken);
+        var (native, index) = await Open(image, context, progress, cancellationToken);
         if (index.Support == CodeSupport.DeclaredFunctionsOnly)
             throw new ToolError(ErrorCode.Unsupported, $"Instructions are not decoded for {index.Image.Arch} images.", "decompile_native disassembles through IDA");
         var rva = Address(index, address);
@@ -146,8 +146,21 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
             }
             return sb.ToString();
         });
-        return Coverage(index) + pager.Page(text, offset, maxChars);
+        return Coverage(index) + pager.Page(text + await BoundImports(native, index, fn, cancellationToken), offset, maxChars);
     });
+
+    /// <summary>Where the imports a function calls are bound (one line each), for the disassembly footer.</summary>
+    private async Task<string> BoundImports(LoadedNative native, NativeCodeIndex index, NativeFunction? fn, CancellationToken ct)
+    {
+        if (link == null || fn == null) return "";
+        var imports = index.Callees(fn).Select(c => c.Import).OfType<NativeImport>().Distinct().ToList();
+        if (imports.Count == 0) return "";
+        await link.WarmUp(null, ct);
+        var sb = new StringBuilder("; imports called, bound to:\n");
+        foreach (var import in imports.Take(200))
+            sb.AppendLine($";   {NativeCodeIndex.ImportName(import)} -> {NativeLinkService.Describe(link.BindImport(native, import))}");
+        return sb.ToString();
+    }
 
     private static string Line(DisasmLine l) => $"  {l.Address:X}  {l.Bytes,-24} {l.Text}{(l.Comment != null ? "  ; " + l.Comment : "")}";
 
@@ -181,7 +194,8 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
     [McpServerTool(Name = "find_xrefs", Title = "Native cross-references", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("Everything in a native image that references an address: calls (direct and through import slots and thunks), jumps, data reads " +
                  "and writes, address-taken uses, switch tables and relocated data pointers, each with the function it is in. For an import " +
-                 "(module!name) lists the call sites of that API. " + IndexNote)]
+                 "(module!name) lists the call sites of that API and what it is bound to; for an export, also the call sites in other loaded images " +
+                 "that import it ([image] prefix). " + IndexNote)]
     public Task<string> FindXrefs(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -190,7 +204,7 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        var (_, index) = await Open(image, context, progress, cancellationToken);
+        var (native, index) = await Open(image, context, progress, cancellationToken);
         var rva = Address(index, address);
         string Va(uint r) => NativeAddress.Va(index.Image, r);
         string Where(uint from) => index.FunctionAt(from) is { } f ? $"{f.Name}+0x{from - f.Start:X}" : "(no function)";
@@ -201,11 +215,22 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
         else
             rows.AddRange(index.RefsTo(rva).Select(x => $"{Va(x.From)}  {x.Kind,-10} {Where(x.From)}"));
         var target = index.NameAt(rva) ?? (index.StringAt(rva) is { } s ? index.CommentFor(rva) : null);
-        return $"References to {Va(rva)}{(target != null ? $" ({target})" : "")}:\n" + Coverage(index) + pager.PageRows(rows, offset, limit, "reference");
+        var header = $"References to {Va(rva)}{(target != null ? $" ({target})" : "")}:\n";
+        if (link != null)
+        {
+            // Other loaded images reach this address through their imports; an import slot shows what it is bound to.
+            await link.WarmUp(null, cancellationToken);
+            if (import != null) header += $"Bound to: {NativeLinkService.Describe(link.BindImport(native, import))}\n";
+            rows.AddRange(workspace.Read(() => link.ImportCallSites(native, rva, cancellationToken)));
+        }
+        return header + Coverage(index) + pager.PageRows(rows, offset, limit, "reference");
     });
 
     [McpServerTool(Name = "native_call_tree", Title = "Native call tree", ReadOnly = true, Idempotent = true, OpenWorld = false)]
-    [Description("Callers or callees of a native function, several levels deep (calls through thunks and import slots included; imports are leaves). " +
+    [Description("Callers or callees of a native function, several levels deep (calls through thunks and import slots included). Across images: " +
+                 "a call through module!import continues into the provider's function when that image is loaded (shown as module!import -> " +
+                 "PROVIDER.dll!export at VA [image], forwarders and jump thunks followed; otherwise the provider's path, or why it does not resolve), " +
+                 "and callers include call sites in other loaded images that import the function. " +
                  "Repeated subtrees and recursion are marked instead of expanded. " + IndexNote)]
     public Task<string> NativeCallTree(
         [Description(NativeTools.ImageDescription)] string image,
@@ -222,8 +247,15 @@ public sealed class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeServi
             "callees" or null or "" => false,
             _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown direction '{direction}'.", "use callers or callees"),
         };
-        var (_, index) = await Open(image, context, progress, cancellationToken);
+        var (native, index) = await Open(image, context, progress, cancellationToken);
         var fn = FunctionAt(index, Address(index, function));
+        if (link != null)
+        {
+            await link.WarmUp(null, cancellationToken);
+            var text = new StringBuilder();
+            workspace.Read(() => link.AppendTree(text, native, fn, callers, Math.Clamp(depth, 1, 8), ClampLimit(maxNodes, 20_000), 0, true, cancellationToken));
+            return pager.Page(text.ToString());
+        }
         var root = index.CallTree(fn, Math.Clamp(depth, 1, 8), callers, ClampLimit(maxNodes, 20_000));
         var sb = new StringBuilder();
         void Walk(CallTreeNode node, int level)

@@ -1,15 +1,17 @@
 using dnlib.DotNet;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native;
+using NetDecompilerMcp.Native.Linking;
 
 namespace NetDecompilerMcp.Services;
 
 /// <summary>
 /// Checks P/Invoke declarations ([DllImport] / ImplMap rows) against the exports of the native DLLs they bind to,
 /// with the Windows runtime's lookup rules: DLL search order, API set redirection, A/W suffixes, x86 stdcall
-/// decoration (_Name@N with N computed from the signature), ordinals and export forwarders.
+/// decoration (_Name@N with N computed from the signature), ordinals and export forwarders. DLL location and
+/// forwarders follow <see cref="NativeLinker"/>, which the cross-image navigation uses as well.
 /// </summary>
-public sealed class NativeImportVerifier(Func<string, INativeImage> open)
+public sealed class NativeImportVerifier
 {
     public sealed record Check(string Method, string Module, string EntryPoint, string CharSet, bool ExactSpelling, string CallingConvention,
         string Status, string? ResolvedFile, string? Export, string Detail);
@@ -18,11 +20,22 @@ public sealed class NativeImportVerifier(Func<string, INativeImage> open)
     public const string Verified = "verified", Decorated = "decorated", Forwarded = "forwarded", Ordinal = "ordinal",
         MissingExport = "missing_export", DllNotFound = "dll_not_found", NotChecked = "not_checked";
 
-    private const int MaxForwarderDepth = 8;
-    private readonly Dictionary<string, INativeImage?> _images = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<INativeImage, Dictionary<string, NativeExport>> _exportsByName = new(ReferenceEqualityComparer.Instance);
-    private ApiSetSchema? _apiSets;
-    private bool _apiSetsLoaded;
+    private readonly NativeLinker _linker;
+
+    public NativeImportVerifier(Func<string, INativeImage> open) => _linker = new NativeLinker(Cached(open));
+
+    /// <summary>Each file opened once per verifier; unreadable files are remembered as null.</summary>
+    private static Func<string, INativeImage?> Cached(Func<string, INativeImage> open)
+    {
+        var images = new Dictionary<string, INativeImage?>(StringComparer.OrdinalIgnoreCase);
+        return file =>
+        {
+            if (images.TryGetValue(file, out var image)) return image;
+            try { image = open(file); }
+            catch (Exception ex) when (ex is ToolError or IOException or UnauthorizedAccessException) { image = null; }
+            return images[file] = image;
+        };
+    }
 
     public List<Check> Verify(LoadedAssembly asm, CancellationToken ct)
     {
@@ -39,37 +52,45 @@ public sealed class NativeImportVerifier(Func<string, INativeImage> open)
     }
 
     /// <summary>32-bit when the module requires it (x86, or AnyCPU with "prefer 32-bit").</summary>
-    private static bool IsX86(ModuleDef module) =>
+    internal static bool IsX86(ModuleDef module) =>
         module.Machine == dnlib.PE.Machine.I386 && (module.Is32BitRequired || module.Is32BitPreferred);
+
+    /// <summary>The declaration's module, entry point, character set and calling convention as the runtime reads them.</summary>
+    internal static (string Module, string Entry, string CharSet, string CallConv) Describe(MethodDef method, ImplMap map) =>
+        (map.Module?.Name?.String ?? "",
+         map.Name?.String is { Length: > 0 } n ? n : method.Name.String,
+         map.IsCharSetUnicode || map.IsCharSetAuto ? "Unicode" : map.IsCharSetAnsi ? "Ansi" : "None",
+         map.IsCallConvCdecl ? "Cdecl" : map.IsCallConvStdcall ? "StdCall" : map.IsCallConvThiscall ? "ThisCall" : map.IsCallConvFastcall ? "FastCall" : "Winapi");
+
+    /// <summary>Why a module is not looked up as a DLL (resolved by the runtime itself), or null.</summary>
+    internal static string? RuntimeResolved(string module) =>
+        module.Length == 0 ? "the ImplMap row names no module"
+        : module is "QCall" or "__Internal" || module.StartsWith("libSystem.", StringComparison.Ordinal)
+            ? "resolved by the runtime itself (QCall, __Internal or a runtime native library)"
+        : null;
 
     private Check CheckOne(LoadedAssembly asm, MethodDef method, ImplMap map, bool x86)
     {
         string label = Format.MemberLabel(method);
-        string module = map.Module?.Name?.String ?? "";
-        string entry = map.Name?.String is { Length: > 0 } n ? n : method.Name.String;
-        string charSet = map.IsCharSetUnicode || map.IsCharSetAuto ? "Unicode" : map.IsCharSetAnsi ? "Ansi" : "None";
-        string callConv = map.IsCallConvCdecl ? "Cdecl" : map.IsCallConvStdcall ? "StdCall" : map.IsCallConvThiscall ? "ThisCall"
-            : map.IsCallConvFastcall ? "FastCall" : "Winapi";
+        var (module, entry, charSet, callConv) = Describe(method, map);
         Check Result(string status, string? file, string? export, string detail) =>
             new(label, module, entry, charSet, map.IsNoMangle, callConv, status, file, export, detail);
 
-        if (module.Length == 0) return Result(NotChecked, null, null, "the ImplMap row names no module");
-        if (module is "QCall" or "__Internal" || module.StartsWith("libSystem.", StringComparison.Ordinal))
-            return Result(NotChecked, null, null, "resolved by the runtime itself (QCall, __Internal or a runtime native library)");
+        if (RuntimeResolved(module) is { } why) return Result(NotChecked, null, null, why);
         if (!OperatingSystem.IsWindows()) return Result(NotChecked, null, null, "DLL lookup is checked on Windows hosts only");
 
-        var (file, searched) = Locate(module, asm.FilePath, x86);
+        var (file, searched) = _linker.Locate(module, asm.FilePath, x86, runtimeFolder: true);
         if (file == null)
             return IsRuntimeLibrary(module)
                 ? Result(NotChecked, null, null, "a .NET runtime native library that the runtime links in on this platform (no separate DLL)")
                 : Result(DllNotFound, null, null, "searched " + string.Join("; ", searched));
-        var image = Open(file);
+        var image = _linker.Open(file);
         if (image == null) return Result(DllNotFound, file, null, $"{file} is not a readable PE image");
 
         if (entry.StartsWith('#'))
         {
             if (!uint.TryParse(entry.AsSpan(1), out var ordinal)) return Result(MissingExport, file, null, $"'{entry}' is not an ordinal");
-            var byOrdinal = image.Exports.FirstOrDefault(e => e.Ordinal == ordinal);
+            var byOrdinal = _linker.ExportByOrdinal(image, ordinal);
             return byOrdinal != null
                 ? Result(Ordinal, file, byOrdinal.Name ?? entry, $"ordinal {ordinal}" + (byOrdinal.Name != null ? $" ({byOrdinal.Name})" : ""))
                 : Result(MissingExport, file, null, $"no export with ordinal {ordinal}");
@@ -77,21 +98,21 @@ public sealed class NativeImportVerifier(Func<string, INativeImage> open)
 
         foreach (var (candidate, exact) in Candidates(entry, charSet, map.IsNoMangle, x86 && callConv is "StdCall" or "Winapi" ? StackBytes(method) : null))
         {
-            if (!ByName(image).TryGetValue(candidate, out var export)) continue;
-            if (export.ForwardedTo is { } forward)
+            if (_linker.ExportNamed(image, candidate) is not { } export) continue;
+            if (export.ForwardedTo != null)
             {
-                var (target, chain) = Follow(forward, file, 0);
-                return target != null
-                    ? Result(Forwarded, file, candidate, $"forwarded: {chain}")
-                    : Result(MissingExport, file, candidate, $"forwarder does not resolve: {chain}");
+                var link = _linker.Bind(module, asm.FilePath, x86, candidate, null, "pinvoke", runtimeFolder: true);
+                return link.IsResolved
+                    ? Result(Forwarded, file, candidate, $"forwarded: {link.Chain}")
+                    : Result(MissingExport, file, candidate, $"forwarder does not resolve: {link.Chain}: {link.Detail}");
             }
             return Result(exact ? Verified : Decorated, file, candidate, exact ? "exported" : $"exported as {candidate}");
         }
-        return Result(MissingExport, file, null, NearMisses(image, entry));
+        return Result(MissingExport, file, null, NativeLinker.NearMisses(image, entry));
     }
 
     /// <summary>System.*.Native libraries: shipped as separate files on some platforms, linked into the runtime on others.</summary>
-    private static bool IsRuntimeLibrary(string module) =>
+    internal static bool IsRuntimeLibrary(string module) =>
         module.StartsWith("System.", StringComparison.Ordinal) && module.EndsWith(".Native", StringComparison.Ordinal);
 
     /// <summary>Export names the runtime tries, in order; Exact is false for suffixed or decorated forms.</summary>
@@ -144,102 +165,5 @@ public sealed class NativeImportVerifier(Func<string, INativeImage> open)
             default:
                 return null;
         }
-    }
-
-    /// <summary>The file the Windows loader would bind for a DllImport module name, and the places searched.</summary>
-    private (string? File, List<string> Searched) Locate(string module, string requester, bool x86)
-    {
-        var searched = new List<string>();
-        var name = module.Trim();
-        if (ApiSetSchema.IsApiSetName(name))
-        {
-            var host = ApiSets()?.Resolve(name, requester);
-            searched.Add(host != null ? $"API set {name} -> {host}" : $"API set {name} (not in this system's map)");
-            if (host == null) return (null, searched);
-            name = host;
-        }
-        if (!Path.HasExtension(name) || !name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) && !name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-            && !name.EndsWith(".drv", StringComparison.OrdinalIgnoreCase) && !name.EndsWith(".sys", StringComparison.OrdinalIgnoreCase))
-            name += ".dll";
-        if (Path.IsPathFullyQualified(name))
-        {
-            searched.Add(name);
-            return (File.Exists(name) ? name : null, searched);
-        }
-        string system = x86 && Environment.Is64BitOperatingSystem
-            ? Environment.GetFolderPath(Environment.SpecialFolder.SystemX86)
-            : Environment.GetFolderPath(Environment.SpecialFolder.System);
-        string[] dirs =
-        [
-            Path.GetDirectoryName(requester) ?? "",
-            system,
-            Environment.GetFolderPath(Environment.SpecialFolder.Windows),
-            // Runtime-shipped native libraries (e.g. System.IO.Compression.Native) live next to the runtime.
-            Path.GetDirectoryName(typeof(object).Assembly.Location) ?? "",
-        ];
-        foreach (var dir in dirs.Where(d => d.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase))
-        {
-            var candidate = Path.Combine(dir, name);
-            searched.Add(dir);
-            if (File.Exists(candidate)) return (candidate, searched);
-        }
-        return (null, searched);
-    }
-
-    private (string? Target, string Chain) Follow(string forward, string fromFile, int depth)
-    {
-        int dot = forward.LastIndexOf('.');
-        if (dot <= 0 || depth >= MaxForwarderDepth) return (null, forward);
-        var module = forward[..dot];
-        var name = forward[(dot + 1)..];
-        var (file, _) = Locate(module, fromFile, false);
-        if (file == null || Open(file) is not { } image) return (null, $"{forward} (module not found)");
-        if (name.StartsWith('#'))
-        {
-            bool found = uint.TryParse(name.AsSpan(1), out var ordinal) && image.Exports.Any(e => e.Ordinal == ordinal);
-            return (found ? file : null, forward);
-        }
-        if (!ByName(image).TryGetValue(name, out var export)) return (null, $"{forward} (no such export in {Path.GetFileName(file)})");
-        if (export.ForwardedTo is { } next)
-        {
-            var (target, chain) = Follow(next, file, depth + 1);
-            return (target, $"{forward} -> {chain}");
-        }
-        return (file, $"{Path.GetFileName(file)}!{name}");
-    }
-
-    private static string NearMisses(INativeImage image, string entry)
-    {
-        var close = image.Exports.Select(e => e.Name).OfType<string>()
-            .Where(n => n.Contains(entry, StringComparison.OrdinalIgnoreCase) || entry.Contains(n.TrimEnd('A', 'W'), StringComparison.OrdinalIgnoreCase) && n.Length > 3)
-            .Take(8).ToList();
-        return close.Count > 0 ? $"not exported; similar exports: {string.Join(", ", close)}" : $"not exported ({image.Exports.Count} exports checked)";
-    }
-
-    private Dictionary<string, NativeExport> ByName(INativeImage image)
-    {
-        if (_exportsByName.TryGetValue(image, out var map)) return map;
-        map = new Dictionary<string, NativeExport>(StringComparer.Ordinal);
-        foreach (var e in image.Exports)
-            if (e.Name != null) map.TryAdd(e.Name, e);
-        return _exportsByName[image] = map;
-    }
-
-    private INativeImage? Open(string file)
-    {
-        if (_images.TryGetValue(file, out var image)) return image;
-        try { image = open(file); }
-        catch (Exception ex) when (ex is ToolError or IOException or UnauthorizedAccessException) { image = null; }
-        return _images[file] = image;
-    }
-
-    private ApiSetSchema? ApiSets()
-    {
-        if (!_apiSetsLoaded)
-        {
-            _apiSets = ApiSetSchema.FromSystem(path => Open(path) ?? throw new ToolError(ErrorCode.MalformedInput, path));
-            _apiSetsLoaded = true;
-        }
-        return _apiSets;
     }
 }
