@@ -1,0 +1,34 @@
+name: Feature request
+description: A tool, parameter, file format or workflow the server should support.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you are trying to find out or change, and where the current tools stop.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: The result you would want, e.g. a tool call and its output.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Workarounds tried
+  - type: textarea
+    id: sample
+    attributes:
+      label: Sample
+      description: A public or synthetic file that shows the case, if there is one.
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Redaction
+      options:
+        - label: I removed proprietary code, paths and user names I may not share from everything above.
+          required: true

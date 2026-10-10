@@ -574,6 +574,11 @@ To add a tool, put the logic in a service, then add a `[McpServerTool]` method i
 `ToolSupport.Read`, `Write` or `Edit` and returns text. Throw `ToolError` for anything the agent should read and
 act on. `McpProtocolTests.ToolCases` must get an entry, or the coverage test fails.
 
+## Contributing and security
+
+Building, testing and adding a tool: [CONTRIBUTING.md](CONTRIBUTING.md). Security reports go through the repository's
+Security tab; the security boundary is described in [SECURITY.md](SECURITY.md).
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

@@ -1,0 +1,21 @@
+name: Documentation
+description: A wrong, missing or unclear statement in the README, docs, tool descriptions or the guide.
+labels: [documentation]
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Where
+      description: File and section, tool name, or guide topic.
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong or missing
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested text

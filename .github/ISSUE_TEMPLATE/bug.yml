@@ -1,0 +1,75 @@
+name: Bug report
+description: A tool gives a wrong result, an error it should not, or the server does not start or connect.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security problems go to the Security tab, not here (see SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `NetDecompilerMcp version`, or `informationalVersion` from server_status.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Install, update or client registration
+        - .NET decompile, search or navigation
+        - .NET editing or saving
+        - Containers or file inspection
+        - Il2Cpp or Unity
+        - Native analysis
+        - Native editing or saving
+        - Engine (IDA)
+        - Build comparison
+        - Crash dumps or live processes
+        - Protocol, errors or paging
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Operating system and MCP client
+      placeholder: Windows 11 x64, Claude Code 2.x
+    validations:
+      required: true
+  - type: textarea
+    id: call
+    attributes:
+      label: Tool call
+      description: The tool and its arguments, or the steps that lead to the problem.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: The result or error text (the `error (json):` line helps).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: Server status
+      description: For install, start or engine problems, the output of `NetDecompilerMcp status`, or the server_status result.
+      render: text
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Redaction
+      options:
+        - label: I removed proprietary code, paths, user names and memory contents I may not share from everything above.
+          required: true
