@@ -17,7 +17,8 @@ namespace NetDecompilerMcp.Services;
 /// Members are matched in tiers (full name and signature, matched type and name, normalized IL hash, body shape,
 /// structure, similarity). A tier pairs two members only when its key is unique among the unmatched members on both
 /// sides; a member whose key is shared at some tier and that no later tier pairs is reported as ambiguous with its
-/// candidates instead of being guessed.
+/// candidates instead of being guessed. Methods left over in every type are then paired across types (moved) by identical
+/// bodies, under the same rule.
 /// </summary>
 public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
 {
@@ -80,24 +81,32 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
         var ambiguous = new Dictionary<IMemberDef, Ambiguity>();
         var typeMap = MatchTypes(oldInfo, newInfo, out var typeScores, ambiguous, ct);
         var memberMap = new Dictionary<IMemberDef, Match>();
-        var changes = new List<TypeChange>();
-
+        // Member changes by old type: matched types, and removed types (methods moved out of them).
+        var members = new Dictionary<TypeDef, List<MemberChange>>();
         foreach (var (o, n) in typeMap)
         {
             ct.ThrowIfCancellationRequested();
-            var members = CompareMembers(oldInfo, newInfo, typeMap, o, n, memberMap, ambiguous);
+            members[o] = CompareMembers(oldInfo, newInfo, typeMap, o, n, memberMap, ambiguous);
+        }
+        foreach (var o in oldInfo.Types.Keys.Where(t => !typeMap.ContainsKey(t) && !ambiguous.ContainsKey(t)))
+            members[o] = [];
+        var mappedNew = typeMap.Values.ToHashSet();
+        var candidateNew = ambiguous.Where(a => a.Key is TypeDef).SelectMany(a => a.Value.Candidates).ToHashSet();
+        var addedTypes = newInfo.Types.Keys.Where(t => !mappedNew.Contains(t) && !candidateNew.Contains(t)).ToList();
+        MatchMoves(oldInfo, newInfo, typeMap, members, addedTypes, memberMap, ambiguous);
+
+        var changes = new List<TypeChange>();
+        foreach (var (o, n) in typeMap)
+        {
             bool renamed = o.FullName != n.FullName;
-            if (renamed || members.Count > 0)
-                changes.Add(new TypeChange(renamed ? "renamed" : "changed", o, n, typeScores.GetValueOrDefault(o, 1.0), members));
+            if (renamed || members[o].Count > 0)
+                changes.Add(new TypeChange(renamed ? "renamed" : "changed", o, n, typeScores.GetValueOrDefault(o, 1.0), members[o]));
         }
         foreach (var o in oldInfo.Types.Keys.Where(t => !typeMap.ContainsKey(t)))
             changes.Add(ambiguous.TryGetValue(o, out var a)
                 ? new TypeChange("ambiguous", o, null, 0, [], a.Candidates)
-                : new TypeChange("removed", o, null, 0, []));
-        var mappedNew = typeMap.Values.ToHashSet();
-        var candidateNew = ambiguous.Where(a => a.Key is TypeDef).SelectMany(a => a.Value.Candidates).ToHashSet();
-        foreach (var n in newInfo.Types.Keys.Where(t => !mappedNew.Contains(t) && !candidateNew.Contains(t)))
-            changes.Add(new TypeChange("added", null, n, 0, []));
+                : new TypeChange("removed", o, null, 0, members[o]));
+        changes.AddRange(addedTypes.Select(n => new TypeChange("added", null, n, 0, [])));
 
         var order = new Dictionary<string, int> { ["renamed"] = 0, ["changed"] = 1, ["ambiguous"] = 2, ["removed"] = 3, ["added"] = 4 };
         changes.Sort((a, b) => order[a.Change] != order[b.Change] ? order[a.Change] - order[b.Change]
@@ -533,6 +542,87 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
         return pairs;
     }
 
+    /// <summary>Every way a matched method changed: renamed, signature, body, metadata, Il2Cpp address.</summary>
+    private static List<ChangeDimension> MethodChanges(Info oldInfo, Info newInfo, MethodPrint om, MethodPrint nm, string how)
+    {
+        static string Body(MethodPrint p) => p.IlHash ?? (p.Size <= 2 ? "small" : "?" + p.Shape.ToString(CultureInfo.InvariantCulture));
+        var dimensions = new List<ChangeDimension>();
+        if (om.Method.Name != nm.Method.Name)
+            dimensions.Add(new("renamed", how));
+        if (om.Signature != nm.Signature)
+            dimensions.Add(new("signature", $"{om.Signature} -> {nm.Signature}"));
+        if (Body(om) != Body(nm))
+        {
+            // Bodies that are not valid IL (e.g. encrypted) cannot be compared.
+            bool oldBad = !oldInfo.Assembly.IsDirty && oldInfo.Assembly.BodyHealth.IsInvalid(om.Method);
+            bool newBad = !newInfo.Assembly.IsDirty && newInfo.Assembly.BodyHealth.IsInvalid(nm.Method);
+            dimensions.Add(new("body", oldBad || newBad
+                ? $"{(oldBad ? "old" : "")}{(oldBad && newBad ? " and " : "")}{(newBad ? "new" : "")} body not valid IL (encrypted?); not comparable"
+                : $"{om.Size} -> {nm.Size} instructions"));
+        }
+        if (MetadataDifference(om.Method, nm.Method) is { } metadata)
+            dimensions.Add(new("metadata", metadata));
+        var oldAddress = Il2CppService.CompactSummary(om.Method);
+        var newAddress = Il2CppService.CompactSummary(nm.Method);
+        if (oldAddress != null && newAddress != null && oldAddress != newAddress)
+            dimensions.Add(new("address", $"{oldAddress} -> {newAddress}"));
+        return dimensions;
+    }
+
+    /// <summary>
+    /// Methods moved to another type. After the per-type matching, the methods left over (removed from a matched type or
+    /// in a removed type; added to a matched type or in an added type) are paired across types by identical body (IL
+    /// hash), then by identical body but for numeric constants, with the signature in both keys. Unique-only, like the
+    /// per-type tiers; an old method listed as removed whose key is shared becomes ambiguous.
+    /// </summary>
+    private static void MatchMoves(Info oldInfo, Info newInfo, IReadOnlyDictionary<TypeDef, TypeDef> typeMap, Dictionary<TypeDef, List<MemberChange>> members,
+        List<TypeDef> addedTypes, Dictionary<IMemberDef, Match> memberMap, Dictionary<IMemberDef, Ambiguity> ambiguous)
+    {
+        var listed = members.Values.SelectMany(l => l).Where(c => c.Change == "removed" && c.Old is MethodDef).Select(c => (MethodDef)c.Old!).ToHashSet();
+        var olds = listed.Concat(members.Keys.Where(t => !typeMap.ContainsKey(t)).SelectMany(t => t.Methods)).Distinct().Select(m => oldInfo.Methods[m]).ToList();
+        var news = members.Values.SelectMany(l => l).Where(c => c.Change == "added" && c.New is MethodDef).Select(c => (MethodDef)c.New!)
+            .Concat(addedTypes.SelectMany(t => t.Methods)).Distinct().Select(m => newInfo.Methods[m]).ToList();
+        if (olds.Count == 0 || news.Count == 0) return;
+        var oldSig = olds.ToDictionary(p => p, p => NormalizedSignature(p.Method, t => typeMap.TryGetValue(t, out var nt) ? nt.FullName : t.FullName));
+        var newSig = news.ToDictionary(p => p, p => NormalizedSignature(p.Method, t => t.FullName));
+        var tiers = new List<Tier<MethodPrint>>
+        {
+            new("IL hash, other type", "identical body (moved)", p => p.Size > 2 && p.IlHash != null ? $"{oldSig[p]}|{p.IlHash}" : null,
+                p => p.Size > 2 && p.IlHash != null ? $"{newSig[p]}|{p.IlHash}" : null, (_, _) => "strong"),
+            // Without member references the skeleton is common among small bodies: substantial ones only.
+            new("body shape, other type", "identical body but for numeric constants (moved)", p => p.Size >= MinStructureSize ? $"{oldSig[p]}|{p.Skeleton}" : null,
+                p => p.Size >= MinStructureSize ? $"{newSig[p]}|{p.Skeleton}" : null, (_, _) => "structural"),
+        };
+        var ties = new Dictionary<MethodPrint, (string Tier, List<MethodPrint> Candidates)>();
+        var pairs = MatchInTiers(olds, news, tiers, ties);
+        var ownerOfNew = typeMap.ToDictionary(kv => kv.Value, kv => kv.Key);
+        void Unlist(MethodDef added)
+        {
+            if (added.DeclaringType is { } t && ownerOfNew.TryGetValue(t, out var owner))
+                members[owner].RemoveAll(c => c.Change == "added" && c.New == added);
+        }
+        foreach (var (op, np, how, tier, confidence) in pairs)
+        {
+            var (om, nm) = (op.Method, np.Method);
+            memberMap[om] = new Match(nm, how, tier, confidence);
+            var list = members[om.DeclaringType];
+            list.RemoveAll(c => c.Change == "removed" && c.Old == om);
+            Unlist(nm);
+            list.Add(MemberChange.Of(om, nm, [new("moved", $"to {nm.DeclaringType.FullName}"), .. MethodChanges(oldInfo, newInfo, op, np, how)]));
+        }
+        foreach (var op in olds)
+        {
+            if (!listed.Contains(op.Method) || !ties.TryGetValue(op, out var tie)) continue;
+            var candidates = tie.Candidates.Where(news.Contains).Select(c => (IMemberDef)c.Method).ToList();
+            if (candidates.Count == 0) continue;
+            ambiguous[op.Method] = new Ambiguity(tie.Tier, candidates);
+            var list = members[op.Method.DeclaringType];
+            list.RemoveAll(c => c.Change == "removed" && c.Old == op.Method);
+            list.Add(new MemberChange("ambiguous", op.Method, null, $"{candidates.Count} candidates share the {tie.Tier} key", candidates));
+            foreach (var c in candidates) Unlist((MethodDef)c);
+        }
+    }
+
     private static List<MemberChange> CompareMembers(Info oldInfo, Info newInfo, IReadOnlyDictionary<TypeDef, TypeDef> typeMap, TypeDef o, TypeDef n,
         Dictionary<IMemberDef, Match> memberMap, Dictionary<IMemberDef, Ambiguity> ambiguous)
     {
@@ -547,7 +637,6 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
         var newMethods = n.Methods.Select(m => newInfo.Methods[m]).ToList();
         var oldSig = oldMethods.ToDictionary(p => p, p => NormalizedSignature(p.Method, t => typeMap.TryGetValue(t, out var nt) ? nt.FullName : t.FullName));
         var newSig = newMethods.ToDictionary(p => p, p => NormalizedSignature(p.Method, t => t.FullName));
-        string Body(MethodPrint p) => p.IlHash ?? (p.Size <= 2 ? "small" : "?" + p.Shape.ToString(CultureInfo.InvariantCulture));
         // Identical content outranks an identical name: code transformers hand out names (a, b, c...) afresh at each build, so
         // the method called r() in the new build may be another method than the old r(). The first tier therefore wants the
         // body shape as well; the name and signature alone count after the content tiers.
@@ -585,26 +674,7 @@ public sealed partial class AssemblyComparer(AssemblyWorkspace workspace)
         foreach (var (om, nm, how, tier, confidence) in matched)
         {
             memberMap[om.Method] = new Match(nm.Method, how, tier, confidence);
-            var dimensions = new List<ChangeDimension>();
-            if (om.Method.Name != nm.Method.Name)
-                dimensions.Add(new("renamed", how));
-            if (om.Signature != nm.Signature)
-                dimensions.Add(new("signature", $"{om.Signature} -> {nm.Signature}"));
-            if (Body(om) != Body(nm))
-            {
-                // Bodies that are not valid IL (e.g. encrypted) cannot be compared.
-                bool oldBad = !oldInfo.Assembly.IsDirty && oldInfo.Assembly.BodyHealth.IsInvalid(om.Method);
-                bool newBad = !newInfo.Assembly.IsDirty && newInfo.Assembly.BodyHealth.IsInvalid(nm.Method);
-                dimensions.Add(new("body", oldBad || newBad
-                    ? $"{(oldBad ? "old" : "")}{(oldBad && newBad ? " and " : "")}{(newBad ? "new" : "")} body not valid IL (encrypted?); not comparable"
-                    : $"{om.Size} -> {nm.Size} instructions"));
-            }
-            if (MetadataDifference(om.Method, nm.Method) is { } metadata)
-                dimensions.Add(new("metadata", metadata));
-            var oldAddress = Il2CppService.CompactSummary(om.Method);
-            var newAddress = Il2CppService.CompactSummary(nm.Method);
-            if (oldAddress != null && newAddress != null && oldAddress != newAddress)
-                dimensions.Add(new("address", $"{oldAddress} -> {newAddress}"));
+            var dimensions = MethodChanges(oldInfo, newInfo, om, nm, how);
             if (dimensions.Count > 0) changes.Add(MemberChange.Of(om.Method, nm.Method, dimensions));
         }
         // Old methods left over after a tie: ambiguous, with the tied new methods that are still unpaired.

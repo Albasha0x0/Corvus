@@ -15,7 +15,7 @@ namespace NetDecompilerMcp.Tools;
 [McpServerToolType]
 public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer comparer, OutputPager pager)
 {
-    private static readonly string[] AllKinds = ["renamed", "signature", "body", "metadata", "type", "offset", "address", "added", "removed", "ambiguous"];
+    private static readonly string[] AllKinds = ["renamed", "moved", "signature", "body", "metadata", "type", "offset", "address", "added", "removed", "ambiguous"];
 
     private static readonly string[] Confidences = ["exact", "strong", "structural"];
 
@@ -67,7 +67,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         [Description("The old build (id, name or path).")] string oldAssembly,
         [Description("The new build (id, name or path).")] string newAssembly,
         [Description("Only types whose old or new full name starts with this.")] string? @namespace = null,
-        [Description("Member change kinds to include, comma-separated: renamed, signature, body, metadata, type, offset, address, added, removed, ambiguous, or all; " +
+        [Description("Member change kinds to include, comma-separated: renamed, moved (to another type), signature, body, metadata, type, offset, address, added, removed, ambiguous, or all; " +
                      "a member is listed when any of its changes is included. Default: all except address.")] string? changes = null,
         [Description("Also list the names of added and removed types (otherwise only counts).")] bool listAddedRemovedTypes = true,
         [Description("Also show compiler-generated types and members (closures, iterator / async state machines, backing fields, " +
@@ -128,14 +128,15 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         }
 
         var items = new List<ChangeItem>();
-        foreach (var t in types.Where(t => t.Change is "renamed" or "changed"))
+        // Removed types are listed here only for the methods that moved out of them.
+        foreach (var t in types.Where(t => t.Change is "renamed" or "changed" or "removed"))
         {
             var members = t.Members.Where(m => m.Dimensions.Any(d => kinds.Contains(d.Kind))).ToList();
-            if (t.Change == "changed" && members.Count == 0) continue;
+            if (t.Change != "renamed" && members.Count == 0) continue;
             sb.AppendLine();
             sb.AppendLine(t.Change == "renamed"
                 ? $"{t.Old!.FullName} -> {t.New!.FullName}  (renamed, match {t.Score:P0}; {Tier(AssemblyComparer.TypeTier(t.Old, t.New))})"
-                : t.Old!.FullName);
+                : t.Change == "removed" ? $"{t.Old!.FullName}  (removed)" : t.Old!.FullName);
             if (t.Change == "renamed") items.Add(TypeItem(t));
             foreach (var m in members)
             {
@@ -285,9 +286,12 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         return (m.Change switch
         {
             "renamed" => $"{kind} {Name(m.Old!)} -> {Name(m.New!)}  ({m.Detail}{TierOf(m.Old!)})",
+            "moved" => $"{kind} {Name(m.Old!)} -> {m.New!.DeclaringType.FullName}::{Name(m.New!)}  ({cmp.MemberMap[m.Old!].How}{TierOf(m.Old!)})",
             "added" => $"{kind} {Name(m.New!)}  {m.Detail}",
             "removed" => $"{kind} {Name(m.Old!)}  {m.Detail}",
-            "ambiguous" => $"{kind} {Name(m.Old!)}: {m.Detail}: {string.Join(" | ", m.Candidates!.Select(Name))}",
+            // Candidates in another type (a move) are named with their type.
+            "ambiguous" => $"{kind} {Name(m.Old!)}: {m.Detail}: {string.Join(" | ", m.Candidates!.Select(c =>
+                c.DeclaringType?.Name == m.Old!.DeclaringType?.Name ? Name(c) : $"{c.DeclaringType?.FullName}::{Name(c)}"))}",
             _ => $"{kind} {Name(member)}: {m.Detail}",
         }) + more;
     }

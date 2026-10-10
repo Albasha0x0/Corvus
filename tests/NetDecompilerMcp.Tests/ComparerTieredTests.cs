@@ -86,6 +86,59 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
+    public async Task CompareAndCounterpart_MethodsMovedToAnotherType()
+    {
+        const string before = """
+            public class Source
+            {
+                public int Keep(int x) { return x + 1; }
+                public string Helper(string s) { return s.Trim().ToUpperInvariant() + "!" + s.Length; }
+                public static int Compute(int a, int b) { int r = a * 17; for (int i = 0; i < b; i++) r ^= i * 3; return r + 99; }
+                public static int Dup(int a) { int r = a * 41; for (int i = 0; i < a; i++) r += i ^ 5; return r - 3; }
+            }
+            public class Target { public int T(int x) { return x * 2; } }
+            public class Gone { public static long Twice(long v) { long r = v; for (long i = 0; i < v; i++) r = r * 2 + 7; return r ^ 0x55; } }
+            """;
+        const string after = """
+            public class Source { public int Keep(int x) { return x + 1; } }
+            public class Target
+            {
+                public int T(int x) { return x * 2; }
+                public string Helper(string s) { return s.Trim().ToUpperInvariant() + "!" + s.Length; }
+                public static long Twice2(long v) { long r = v; for (long i = 0; i < v; i++) r = r * 2 + 7; return r ^ 0x55; }
+                public static int Dup(int a) { int r = a * 41; for (int i = 0; i < a; i++) r += i ^ 5; return r - 3; }
+            }
+            public static class Util
+            {
+                public static int Compute(int a, int b) { int r = a * 17; for (int i = 0; i < b; i++) r ^= i * 3; return r + 99; }
+                public static int Dup(int a) { int r = a * 41; for (int i = 0; i < a; i++) r += i ^ 5; return r - 3; }
+            }
+            """;
+        using var env = new Env(Write("mv1", before));
+        var newer = env.Workspace.Load(Write("mv2", after));
+        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager);
+
+        var text = await tools.CompareAssemblies(env.Fixture.Id, newer.Id);
+        output.WriteLine(text);
+        Assert.Contains("moved     method Helper(string) -> Target::Helper(string)  (identical body (moved); tier: IL hash, other type, strong)", text);
+        Assert.Contains("moved     method Compute(int, int) -> Util::Compute(int, int)", text);
+        Assert.Contains("Gone  (removed)", text);
+        Assert.Contains("moved     method Twice(long) -> Target::Twice2(long)", text);
+        Assert.Contains("+renamed: identical body (moved)", text);
+        Assert.Contains("ambiguous method Dup(int): 2 candidates share the IL hash, other type key: Target::Dup(int) | Util::Dup(int)", text);
+        Assert.DoesNotContain("removed   method Helper", text);
+        Assert.DoesNotContain("added     method Helper", text);
+        Assert.DoesNotContain("added     method Dup", text);
+        Assert.Matches(@"Members \(each change of a member counted\): \d+ renamed, 3 moved,", text);
+
+        var helper = await tools.FindCounterpart("Source::Helper", env.Fixture.Id, newer.Id);
+        Assert.Contains("-> Target::Helper(string)", helper);
+        Assert.Contains("tier: IL hash, other type, strong", helper);
+        Assert.Contains("changes: moved", helper);
+        Assert.Contains("-> ambiguous: 2 candidates share the IL hash, other type key", await tools.FindCounterpart("Source::Dup", env.Fixture.Id, newer.Id));
+    }
+
+    [Fact]
     public async Task Compare_StructuredResult_AndTokenMapExport()
     {
         using var env = new Env(Write("v1", V1));
@@ -156,7 +209,7 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("removed   event Gone", text);
         Assert.Contains("added     event Fresh", text);
         Assert.DoesNotContain("event Kept", text);
-        Assert.Matches(@"Members \(each change of a member counted\): \d+ renamed, 1 signature, 1 body, 1 metadata", text);
+        Assert.Matches(@"Members \(each change of a member counted\): \d+ renamed, 0 moved, 1 signature, 1 body, 1 metadata", text);
         // Filtering by a secondary change still lists the member with all of its changes.
         Assert.Contains("signature method Both(int)", await tools.CompareAssemblies(env.Fixture.Id, newer.Id, changes: "metadata"));
 
