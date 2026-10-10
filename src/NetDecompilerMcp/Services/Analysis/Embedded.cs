@@ -519,7 +519,7 @@ public static class Embedded
         }
         if (text[0] == '<')
         {
-            if (System.Text.RegularExpressions.Regex.Matches(text, @"<[A-Za-z_][\w.:\-]*(\s[^<>]*)?/?>").Count < 3) return false;
+            if (System.Text.RegularExpressions.Regex.Count(text, @"<[A-Za-z_][\w.:\-]*(\s[^<>]*)?/?>") < 3) return false;
             try
             {
                 using var xml = System.Xml.XmlReader.Create(new StringReader(text), new System.Xml.XmlReaderSettings { DtdProcessing = System.Xml.DtdProcessing.Prohibit, XmlResolver = null });

@@ -63,8 +63,8 @@ public class ToolDetailTests : IDisposable
             }
             """));
         using var env = new Env(path);
-        string Kind(string value) => Assert.Single(env.Search.SearchConstants(value, env.Workspace.Assemblies, 50, default).Items
-            .Where(h => h.Kind.StartsWith("array initializer", StringComparison.Ordinal))).Kind;
+        string Kind(string value) => Assert.Single(env.Search.SearchConstants(value, env.Workspace.Assemblies, 50, default).Items,
+            h => h.Kind.StartsWith("array initializer", StringComparison.Ordinal)).Kind;
         Assert.StartsWith("array initializer elements [3], [8] of byte[]", Kind("0x7B"));
         Assert.StartsWith("array initializer elements [0], [2] of short[]", Kind("-3"));
         Assert.StartsWith("array initializer element [1] of double[]", Kind("3.14"));

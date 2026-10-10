@@ -5,7 +5,7 @@ using ModelContextProtocol.Protocol;
 namespace NetDecompilerMcp.Tests;
 
 /// <summary>Over stdio, on a real library: results that would be huge come back bounded, and a cancelled call stops.</summary>
-public abstract class ResultBoundsTests(Xunit.Abstractions.ITestOutputHelper output) : IAsyncLifetime
+public abstract class ResultBoundsTests : IAsyncLifetime
 {
     private const int MaxOutput = 20_000;
     /// <summary>The largest page a caller can ask for with maxChars (see OutputPager.Page).</summary>
@@ -29,7 +29,7 @@ public abstract class ResultBoundsTests(Xunit.Abstractions.ITestOutputHelper out
 
     private static string Text(CallToolResult r) => string.Join("\n", r.Content.OfType<TextContentBlock>().Select(b => b.Text));
 
-    public sealed class Paging(Xunit.Abstractions.ITestOutputHelper output) : ResultBoundsTests(output)
+    public sealed class Paging(Xunit.Abstractions.ITestOutputHelper output) : ResultBoundsTests
     {
         /// <summary>Calls that ask for everything (no or extreme limits).</summary>
         private static IEnumerable<(string Tool, Dictionary<string, object?> Args)> Unbounded() =>
@@ -73,7 +73,7 @@ public abstract class ResultBoundsTests(Xunit.Abstractions.ITestOutputHelper out
         }
     }
 
-    public sealed class Cancellation(Xunit.Abstractions.ITestOutputHelper output) : ResultBoundsTests(output)
+    public sealed class Cancellation(Xunit.Abstractions.ITestOutputHelper output) : ResultBoundsTests
     {
         protected override string? ProtocolVersion => "2025-11-25";
 

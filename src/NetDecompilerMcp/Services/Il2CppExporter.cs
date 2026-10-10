@@ -13,6 +13,8 @@ namespace NetDecompilerMcp.Services;
 /// </summary>
 public sealed class Il2CppExporter(Il2CppService il2cpp)
 {
+    private static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
+
     public sealed record ExportResult(List<string> Files, int Methods, int Structs);
 
     private sealed record MethodEntry(ulong Rva, string Name, string Signature, string Prototype);
@@ -57,7 +59,7 @@ public sealed class Il2CppExporter(Il2CppService il2cpp)
             files.Add(Write(baseName + "_script.json", JsonSerializer.Serialize(new
             {
                 ScriptMethod = methods.Select(m => new { Address = m.Rva, m.Name, Signature = m.Prototype, ManagedSignature = m.Signature }),
-            }, new JsonSerializerOptions { WriteIndented = true })));
+            }, IndentedJson)));
         return new ExportResult(files, methods.Count, layout.Structs.Count);
     }
 

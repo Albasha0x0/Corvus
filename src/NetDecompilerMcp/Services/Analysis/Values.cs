@@ -16,6 +16,8 @@ public sealed record ExtractedValue(string Type, string Value, int Count, IReadO
 /// </summary>
 public static class Values
 {
+    private static readonly JsonSerializerOptions CamelJson = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
     public static readonly IReadOnlyList<string> Types =
         ["url", "domain", "ipv4", "ipv6", "email", "file_path", "named_pipe", "registry_key", "mutex", "user_agent", "crypto_key"];
 
@@ -247,5 +249,5 @@ public static class Values
     }
 
     public static string ToJson(IEnumerable<ExtractedValue> values) =>
-        JsonSerializer.Serialize(values, new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+        JsonSerializer.Serialize(values, CamelJson);
 }

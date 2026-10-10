@@ -16,6 +16,8 @@ namespace NetDecompilerMcp.Services;
 /// </summary>
 public sealed class Il2CppRawLoader(AssemblyWorkspace workspace)
 {
+    private static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
+
     public const string MarkerFileName = "il2cpp-source.json";
     public const string RootVariable = "NDM_IL2CPP_CACHE";
     public const string DummyFolder = "DummyDll";
@@ -108,7 +110,7 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace)
                 progress?.Invoke("saving the model");
                 model.Write(Path.Combine(staging, Il2CppGameModel.FileName));
                 var newMarker = new Marker(files.Binary, files.Metadata, Stamp(files.Binary), Stamp(files.Metadata), CacheFormat, ReaderVersion, DateTime.UtcNow);
-                File.WriteAllText(Path.Combine(staging, MarkerFileName), JsonSerializer.Serialize(newMarker, new JsonSerializerOptions { WriteIndented = true }));
+                File.WriteAllText(Path.Combine(staging, MarkerFileName), JsonSerializer.Serialize(newMarker, IndentedJson));
                 if (Directory.Exists(dir))
                 {
                     if (workspace.Read(() => workspace.Assemblies.Any(a => a.FilePath.StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))))

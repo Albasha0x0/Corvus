@@ -94,7 +94,7 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
-    public void ConcurrentWriters_NeverTearTheFile_AndTheLastWriterKeepsItsEntries()
+    public async Task ConcurrentWriters_NeverTearTheFile_AndTheLastWriterKeepsItsEntries()
     {
         var a = Open(new AnnotationStore(Root));
         var b = Open(new AnnotationStore(Root));
@@ -120,7 +120,7 @@ public class AnnotationStoreTests : IDisposable
         a.SetComment(0x1000, "last");
         SpinWait.SpinUntil(() => Volatile.Read(ref reads) > 0, TimeSpan.FromSeconds(10)); // the reader may start late on a busy pool
         stop.Cancel();
-        reader.Wait();
+        await reader;
 
         Assert.True(_notices.Count == 0, string.Join('\n', _notices));
         Assert.True(Volatile.Read(ref reads) > 0);

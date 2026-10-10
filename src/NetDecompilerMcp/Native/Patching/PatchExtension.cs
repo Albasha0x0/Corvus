@@ -325,11 +325,11 @@ public static class PatchExtension
     private static void RejectUnwindProlog(INativeImage image, uint siteRva, uint siteEnd)
     {
         if (image.Arch != NativeArch.X64) return;
+        Span<byte> head = stackalloc byte[2];
         foreach (var rf in image.RuntimeFunctions)
         {
             if (rf.BeginRva > siteRva) break;
             if (siteRva >= rf.EndRva || rf.UnwindInfoRva == 0) continue;
-            Span<byte> head = stackalloc byte[2];
             if (image.Read(rf.UnwindInfoRva, head) < 2) continue;
             uint prologEnd = rf.BeginRva + head[1]; // UNWIND_INFO.SizeOfProlog
             if (siteRva < prologEnd && siteEnd > rf.BeginRva)

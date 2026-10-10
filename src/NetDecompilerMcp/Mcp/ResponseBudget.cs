@@ -11,6 +11,8 @@ namespace NetDecompilerMcp.Mcp;
 /// </summary>
 internal static class ResponseBudget
 {
+    private static readonly JsonSerializerOptions IndentedJson = new(Catalog.ToolSerializerOptions) { WriteIndented = true };
+
     /// <summary>Room for paging headers/footers on top of the page size.</summary>
     public const int Slack = 16_000;
 
@@ -42,7 +44,7 @@ internal static class ResponseBudget
 
         var text = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(b => b.Text));
         if (text.Length == 0 && result.StructuredContent is { } s)
-            text = JsonSerializer.Serialize(s, new JsonSerializerOptions(Catalog.ToolSerializerOptions) { WriteIndented = true });
+            text = JsonSerializer.Serialize(s, IndentedJson);
         var id = store.Add(tool ?? "?", text);
         var error = new ToolError(ErrorCode.LimitExceeded,
             $"the result is {size:N0} characters, over the {budget:N0}-character response limit. It is kept as {id}.",

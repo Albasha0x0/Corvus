@@ -542,7 +542,7 @@ internal sealed class VirtualCallResolver
 
     private readonly record struct Val(VKind Kind, uint Id = 0, int Off = 0, int Slot = 0, VKind Base = VKind.Unknown)
     {
-        public static readonly Val Unknown = default;
+        public static Val Unknown => default;
         public bool IsPointer => Kind is VKind.Stack or VKind.This or VKind.Obj or VKind.Const or VKind.Typed;
         public bool IsObject => Kind is VKind.This or VKind.Obj;
         public Val Plus(long delta) => delta is >= int.MinValue and <= int.MaxValue && (long)Off + delta is >= int.MinValue and <= int.MaxValue

@@ -1,0 +1,49 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{cs,csproj,props,json,yml,md}]
+indent_style = space
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.{ps1,slnx}]
+end_of_line = crlf
+
+[*.cs]
+indent_size = 4
+
+# Analyzer rules turned off on purpose (warnings are errors; see Directory.Build.props).
+# Naming: tool and test names follow the MCP surface and the domain (Il2Cpp, IL, PE), not framework naming guidelines.
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA1711.severity = none
+dotnet_diagnostic.CA1716.severity = none
+dotnet_diagnostic.CA1720.severity = none
+# Micro-performance hints on code that is not hot: kept readable instead.
+dotnet_diagnostic.CA1822.severity = none
+dotnet_diagnostic.CA1848.severity = none
+dotnet_diagnostic.CA1826.severity = none
+dotnet_diagnostic.CA1859.severity = none
+dotnet_diagnostic.CA1860.severity = none
+dotnet_diagnostic.CA1861.severity = none
+dotnet_diagnostic.CA1873.severity = none
+# Design: generic statics are deliberate caches; the token sits before optional parameters so callers name only what they change.
+dotnet_diagnostic.CA1000.severity = none
+dotnet_diagnostic.CA1068.severity = none
+# Lock objects and cancellation sources owned for the process lifetime need no disposal.
+dotnet_diagnostic.CA1001.severity = none
+# SHA-1, MD5 and DES identify files and emulate target code; nothing here is a security boundary.
+dotnet_diagnostic.CA5350.severity = none
+dotnet_diagnostic.CA5351.severity = none
+
+[tests/**.cs]
+# Tests run with invariant globalization and own no finalizable state.
+dotnet_diagnostic.CA1305.severity = none
+dotnet_diagnostic.CA1310.severity = none
+dotnet_diagnostic.CA1816.severity = none
+dotnet_diagnostic.CA1869.severity = none

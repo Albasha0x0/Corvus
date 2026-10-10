@@ -192,7 +192,7 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
         // the most called function (ours): references by engine
         var top = Regex.Match(ours, @"^\s*(0x[0-9A-F]+)\s", RegexOptions.Multiline).Groups[1].Value;
         output.WriteLine(string.Join('\n', ours.Split('\n').Take(4)));
-        int Rows(string text) => Regex.Matches(text, @"^\s*0x[0-9A-F]+\s+\S+", RegexOptions.Multiline).Count;
+        int Rows(string text) => Regex.Count(text, @"^\s*0x[0-9A-F]+\s+\S+", RegexOptions.Multiline);
         var xOurs = await tools.FindXrefs(path, top, engine: "ours");
         var xIda = await tools.FindXrefs(path, top, engine: "ida");
         output.WriteLine($"references to {top}: ours {Rows(xOurs)}, ida {Rows(xIda)}");

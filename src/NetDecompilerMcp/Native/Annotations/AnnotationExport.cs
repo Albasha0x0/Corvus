@@ -9,6 +9,8 @@ namespace NetDecompilerMcp.Native.Annotations;
 /// is loaded.</summary>
 public static class AnnotationExport
 {
+    private static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
+
     public enum Format { Ida, Ghidra, Json }
 
     public static Format ParseFormat(string? format) => (format ?? "json").Trim().ToLowerInvariant() switch
@@ -75,7 +77,7 @@ public static class AnnotationExport
             names = ann.Names().Select(n => new { rva = n.Rva, name = n.Name }),
             comments = ann.Comments().Select(c => new { rva = c.Rva, comment = c.Comment }),
         };
-        return JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = true });
+        return JsonSerializer.Serialize(doc, IndentedJson);
     }
 
     private static string Py(string s) => "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "") + "\"";

@@ -108,7 +108,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         {
             if (threadId is { } tid)
             {
-                var info = new MinidumpExceptionInformation { ThreadId = tid, ExceptionPointers = (IntPtr)(long)pointers, ClientPointers = 1 };
+                var info = new MinidumpExceptionInformation { ThreadId = tid, ExceptionPointers = checked((IntPtr)(long)pointers), ClientPointers = 1 };
                 ok = MiniDumpWriteDump(process.Handle, (uint)process.Id, file, type, ref info, IntPtr.Zero, IntPtr.Zero);
             }
             else ok = MiniDumpWriteDump(process.Handle, (uint)process.Id, file, type, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);

@@ -102,7 +102,7 @@ internal sealed class PosixGroupProcess : ChildProcess
 
     public override void Kill()
     {
-        try { SysKill(-_process.Id, 9); } catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException) { }
+        try { _ = SysKill(-_process.Id, 9); } catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException) { }
         try { _process.Kill(entireProcessTree: true); } catch (Exception ex) when (ex is InvalidOperationException or Win32Exception) { }
     }
 
@@ -229,7 +229,7 @@ internal sealed class WindowsJobProcess : ChildProcess
             var commandLine = new StringBuilder(QuoteArgument(start.FileName));
             foreach (var a in start.Arguments) commandLine.Append(' ').Append(QuoteArgument(a));
             var flags = CreateSuspended | CreateNoWindow | CreateUnicodeEnvironment | ExtendedStartupInfoPresent;
-            if (!CreateProcessW(start.FileName, commandLine, IntPtr.Zero, IntPtr.Zero, true, flags,
+            if (!CreateProcessW(start.FileName, commandLine.Append('\0').ToString().ToCharArray(), IntPtr.Zero, IntPtr.Zero, true, flags,
                     BuildEnvironment(start.Environment), start.WorkingDirectory, ref si, out info))
                 throw new Win32Exception(Marshal.GetLastWin32Error(), $"CreateProcess failed for {start.FileName}");
 
@@ -388,7 +388,7 @@ internal sealed class WindowsJobProcess : ChildProcess
     private static extern void DeleteProcThreadAttributeList(IntPtr list);
 
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-    private static extern bool CreateProcessW(string application, StringBuilder commandLine, IntPtr processAttributes, IntPtr threadAttributes,
+    private static extern bool CreateProcessW(string application, char[] commandLine, IntPtr processAttributes, IntPtr threadAttributes,
         bool inheritHandles, uint flags, string environment, string? currentDirectory, ref STARTUPINFOEX startupInfo, out PROCESS_INFORMATION info);
 
     [DllImport("kernel32.dll", SetLastError = true)]

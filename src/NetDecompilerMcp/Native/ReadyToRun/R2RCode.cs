@@ -190,7 +190,7 @@ public static class R2RDisassembly
             result.Add((null, range, null));
             foreach (var l in lines)
             {
-                if (labels.ContainsKey(l.Rva)) result.Add((labels[l.Rva], null, null));
+                if (labels.TryGetValue(l.Rva, out var label)) result.Add((label, null, null));
                 // Re-decode so branch operands show the labels.
                 result.Add((null, null, labels.Count > 0 && l.Facts.BranchTarget is uint bt && labels.ContainsKey(bt) ? disassembler.DecodeOne(l.Rva, labels) ?? l : l));
             }

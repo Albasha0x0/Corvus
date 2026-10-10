@@ -144,7 +144,7 @@ public class PdbTests
         Assert.Equal(ErrorCode.Unsupported, Code(old));
     }
 
-    public static TheoryData<string> Tampers() => [.. TamperCases.Keys];
+    public static TheoryData<string> Tampers() => new(TamperCases.Keys);
 
     private static readonly Dictionary<string, Action<byte[], MsfBuilder.Layout>> TamperCases = new()
     {

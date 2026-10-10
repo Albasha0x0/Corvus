@@ -1031,7 +1031,7 @@ public sealed class NativePeTests
             var blob = new PeBlob(rva);
             uint block = blob.U32(callbacks & ~0xFFFu);
             blob.U32(12);
-            blob.U16((ushort)((is64 ? 0xA000 : 0x3000) | (callbacks & 0xFFF)));
+            blob.U16((ushort)((is64 ? 0xA000u : 0x3000u) | (callbacks & 0xFFF)));
             blob.U16(0);
             dirs[PeDirectory.BaseRelocation] = (block, 12);
             return blob.ToArray();
