@@ -53,6 +53,24 @@ public class NativeToolBoundsTests
     }
 
     [WindowsFact]
+    public async Task SearchBytesCountsWhatANaiveScanCounts()
+    {
+        using var h = new NativeToolHarness();
+        var pe = NetDecompilerMcp.Native.Pe.PeFile.Open(Kernel32);
+        byte?[] pattern = [0x48, 0x8B, null, 0x24];
+        long naive = 0;
+        foreach (var s in pe.Sections)
+        {
+            var data = new byte[Math.Min(s.MappedSize, pe.SizeOfImage - s.Rva)];
+            int n = pe.Read(s.Rva, data);
+            for (int i = 0; i + pattern.Length <= n; i++)
+                if (pattern.Select((b, k) => b == null || data[i + k] == b).All(x => x)) naive++;
+        }
+        var text = await h.Native.SearchBytes(Kernel32, "48 8B ?? 24", limit: 1);
+        Assert.StartsWith($"{naive} hits", text);
+    }
+
+    [WindowsFact]
     public async Task IndexRequestsOnAnUnloadedImageAreConflicts()
     {
         using var h = new NativeToolHarness(backgroundIndexing: false);

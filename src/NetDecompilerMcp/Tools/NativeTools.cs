@@ -281,8 +281,18 @@ public sealed class NativeTools(AssemblyWorkspace workspace, OutputPager pager)
                 var span = data.AsSpan(0, read);
                 int starts = (int)Math.Min(Math.Min(read, 1 << 20), backed - at);
                 foreach (var (bytes, mask, label) in patterns)
+                {
+                    // Candidates are found with a vectorized search for the fixed bytes the pattern starts with.
+                    int fixedPrefix = Array.IndexOf(mask, false) is var w and >= 0 ? w : mask.Length;
+                    var prefix = bytes.AsSpan(0, fixedPrefix);
                     for (int i = 0; i < starts && i + bytes.Length <= span.Length; i++)
-                        if (Matches(span, i, bytes, mask)) Hit(s, s.Rva + at + (uint)i, label);
+                    {
+                        int k = span[i..Math.Min(span.Length, starts + prefix.Length - 1)].IndexOf(prefix);
+                        if (k < 0) break;
+                        i += k;
+                        if (i < starts && i + bytes.Length <= span.Length && Matches(span, i, bytes, mask)) Hit(s, s.Rva + at + (uint)i, label);
+                    }
+                }
             }
             foreach (var (bytes, mask, label) in patterns)
             {

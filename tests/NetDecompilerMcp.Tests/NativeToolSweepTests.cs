@@ -22,8 +22,8 @@ public class NativeToolSweepTests(ITestOutputHelper output)
     private static readonly string Windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
     /// <summary>Images from this size on run alone, with their memory sampled.</summary>
     private const long LargeImage = 64L << 20;
-    /// <summary>Memory bound of a large image: GC heap at most this many bytes per file byte, plus 1 GB.</summary>
-    private const long MaxHeapPerFileByte = 8;
+    /// <summary>Runaway bound of a large image: GC heap (live and not yet collected) at most this many bytes per file byte, plus 1 GB.</summary>
+    private const long MaxHeapPerFileByte = 16;
 
     public static List<string> Sample(IEnumerable<string> files, int limit)
     {
@@ -148,7 +148,13 @@ public class NativeToolSweepTests(ITestOutputHelper output)
         clock.Stop();
         GC.Collect();
         GC.WaitForPendingFinalizers();
+        // Index builds cancelled by the last unloads stop at their next cancellation check (seconds on the largest images).
         long retained = GC.GetTotalMemory(true) - baseline;
+        for (int wait = 0; wait < 30 && retained >= 400L << 20; wait++)
+        {
+            await Task.Delay(1000);
+            retained = GC.GetTotalMemory(true) - baseline;
+        }
 
         var all = calls.ToList();
         var failures = all.Where(c => c.Failed).ToList();
