@@ -29,8 +29,8 @@ public static class NativeAddress
                     : throw new ToolError(ErrorCode.NotFound, $"File offset {t[(colon + 1)..]} is not inside any mapped part of {Path.GetFileName(image.Path)}."),
             };
         }
-        // Explicit numbers first; bare hex digits only after names, since "add" or "beef" can be function names.
-        bool explicitNumber = t.StartsWith("0x", StringComparison.OrdinalIgnoreCase) || t.StartsWith('#') || t.EndsWith('h') || t.EndsWith('H');
+        // Only 0x and # are numbers outright: "Bach" or "add" (trailing h, bare hex) can be names, so names go first.
+        bool explicitNumber = t.StartsWith("0x", StringComparison.OrdinalIgnoreCase) || t.StartsWith('#');
         if (explicitNumber && Number(t) is { } number) return FromNumber(image, number, t);
         if (names?.Invoke(t) is { } named) return named;
         int bang = t.IndexOf('!');
