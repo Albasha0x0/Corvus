@@ -3,13 +3,15 @@ using System.ComponentModel;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using dnlib.DotNet;
+using dnlib.DotNet.MD;
 
 namespace NetDecompilerMcp.Core;
 
 /// <summary>A structural problem of an assembly's metadata, with where it is.</summary>
 public sealed record MetadataIssue(
     [property: Description("Short code: duplicate_stream, unknown_stream, stream_out_of_range, unknown_tables, extra_data_flag, bad_metadata_root, " +
-                           "implmap_scope_out_of_range, implmap_name_out_of_range, implmap_member_out_of_range, moduleref_name_out_of_range.")] string Code,
+                           "implmap_scope_out_of_range, implmap_name_out_of_range, implmap_member_out_of_range, moduleref_name_out_of_range, " +
+                           "bad_table_index, bad_list_index, bad_coded_index, bad_heap_index, decompiler_reader.")] string Code,
     [property: Description("Stream, table and row (token) concerned.")] string Location,
     [property: Description("File offset of the structure, when known (hex).")] string? FileOffset,
     string Detail);
@@ -156,6 +158,183 @@ public static class MetadataSurvey
             if (issue != null) byRid[rid] = issue;
         }
         return byRid;
+    }
+
+    /// <summary>Every bad row found by <see cref="Rows"/> is counted; the first ones are kept.</summary>
+    public sealed record RowSweep(int Count, IReadOnlyList<MetadataIssue> Issues);
+
+    /// <summary>Columns whose null (0) value is a broken reference rather than "none".</summary>
+    private static readonly HashSet<string> Required = new(StringComparer.Ordinal)
+    {
+        "MemberRef.Class", "CustomAttribute.Parent", "CustomAttribute.Type", "InterfaceImpl.Class", "InterfaceImpl.Interface",
+        "NestedClass.NestedClass", "NestedClass.EnclosingClass", "MethodImpl.Class", "MethodImpl.MethodBody", "MethodImpl.MethodDeclaration",
+        "MethodSemantics.Method", "MethodSemantics.Association", "GenericParam.Owner", "GenericParamConstraint.Owner",
+        "GenericParamConstraint.Constraint", "MethodSpec.Method", "Constant.Parent", "FieldMarshal.Parent", "DeclSecurity.Parent",
+        "ClassLayout.Parent", "FieldLayout.Field", "FieldRVA.Field", "EventMap.Parent", "PropertyMap.Parent",
+    };
+
+    /// <summary>Columns that start a run of rows in another table (ECMA-335 II.22): 1..count+1, never decreasing.</summary>
+    private static readonly Dictionary<string, (Table Target, Table Pointer)> Lists = new(StringComparer.Ordinal)
+    {
+        ["TypeDef.FieldList"] = (Table.Field, Table.FieldPtr),
+        ["TypeDef.MethodList"] = (Table.Method, Table.MethodPtr),
+        ["Method.ParamList"] = (Table.Param, Table.ParamPtr),
+        ["EventMap.EventList"] = (Table.Event, Table.EventPtr),
+        ["PropertyMap.PropertyList"] = (Table.Property, Table.PropertyPtr),
+    };
+
+    /// <summary>
+    /// Sweeps every column of every row of the tables stream in use: table indexes and list starts past their table,
+    /// coded indexes with an undefined tag, a row past the target table or a null that is not allowed, #Strings and
+    /// #Blob offsets past their heap, blobs whose length prefix is invalid or runs past the heap, and #GUID indexes past
+    /// the heap. One issue per bad row (its first bad column), with the row's file offset. ImplMap rows are left to
+    /// <see cref="ImplMapRows"/>. When the decompiler's reader still refuses a row this sweep found nothing wrong with,
+    /// <see cref="MetadataProbe"/>'s finding is added. Never throws.
+    /// </summary>
+    public static RowSweep Rows(ModuleDefMD module, byte[] image, int max = 200)
+    {
+        var issues = new List<MetadataIssue>();
+        int count = 0;
+        var tokens = new HashSet<uint>();
+        try
+        {
+            var md = module.Metadata;
+            var t = md.TablesStream;
+            uint strings = md.StringsStream?.StreamLength ?? 0;
+            uint blobs = md.BlobStream?.StreamLength ?? 0;
+            uint guids = (md.GuidStream?.StreamLength ?? 0) / 16;
+            uint RowsOf(Table table) => t.Get(table)?.Rows ?? 0;
+            foreach (var table in t.MDTables)
+            {
+                if (table.Rows == 0 || table.Table == Table.ImplMap) continue;
+                var columns = table.Columns.Select(c => Classify(table, c)).ToList();
+                var previous = new uint[columns.Count];
+                for (uint rid = 1; rid <= table.Rows; rid++)
+                {
+                    (string Text, ColumnInfo Column, Check Check)? first = null;
+                    for (int i = 0; i < columns.Count; i++)
+                    {
+                        var (column, check) = columns[i];
+                        if (check == Check.None || !t.TryReadColumn(table, rid, column, out uint value)) continue;
+                        var problem = check switch
+                        {
+                            Check.Strings => value >= strings && value != 0 ? $"#Strings offset 0x{value:X} is past the heap (0x{strings:X} bytes)" : null,
+                            Check.Guid => value > guids ? $"#GUID index {value} is past the heap ({guids} GUIDs)" : null,
+                            Check.Blob => value == 0 ? null : value >= blobs ? $"#Blob offset 0x{value:X} is past the heap (0x{blobs:X} bytes)"
+                                : !md.BlobStream!.TryCreateReader(value, out _) ? $"#Blob entry at 0x{value:X} has an invalid length or runs past the heap" : null,
+                            Check.Index => TableIndex(table, column, value, RowsOf),
+                            Check.List => ListIndex(table, column, value, previous[i], RowsOf),
+                            _ => CodedIndex(table, column, value, RowsOf),
+                        };
+                        previous[i] = value;
+                        if (problem != null) first ??= (problem, column, check);
+                    }
+                    if (first is not { } bad) continue;
+                    uint token = ((uint)table.Table << 24) | rid;
+                    tokens.Add(token);
+                    if (count++ < max)
+                        issues.Add(new(bad.Check switch
+                            {
+                                Check.Strings or Check.Guid or Check.Blob => "bad_heap_index",
+                                Check.List => "bad_list_index",
+                                Check.Index => "bad_table_index",
+                                _ => "bad_coded_index",
+                            },
+                            $"{t.Name} {table.Name} row {rid} (token 0x{token:X8}), column {bad.Column.Name}",
+                            Hex((long)table.StartOffset + (rid - 1) * table.RowSize), bad.Text));
+                }
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            issues.Add(new("bad_metadata_root", "tables stream", null, $"row sweep stopped: {ex.Message}"));
+            count++;
+        }
+        if (Probe(image) is { } probe && !tokens.Any(token => probe.Contains($"0x{token:X8}", StringComparison.Ordinal)))
+        {
+            issues.Add(new("decompiler_reader", probe.Split(':')[0], null, $"the decompiler's metadata reader refuses it: {probe}"));
+            count++;
+        }
+        return new RowSweep(count, issues);
+    }
+
+    private enum Check { None, Strings, Guid, Blob, Index, List, Coded }
+
+    private static (ColumnInfo Column, Check Check) Classify(MDTable table, ColumnInfo c)
+    {
+        if (Lists.ContainsKey($"{table.Name}.{c.Name}")) return (c, Check.List);
+        return c.ColumnSize switch
+        {
+            ColumnSize.Strings => (c, Check.Strings),
+            ColumnSize.GUID => (c, Check.Guid),
+            ColumnSize.Blob => (c, Check.Blob),
+            ColumnSize.Byte or ColumnSize.Int16 or ColumnSize.UInt16 or ColumnSize.Int32 or ColumnSize.UInt32 => (c, Check.None),
+            _ when Enum.TryParse<Table>(c.ColumnSize.ToString(), out _) => (c, Check.Index),
+            _ when CodedOf(c.ColumnSize) != null => (c, Check.Coded),
+            _ => (c, Check.None),
+        };
+    }
+
+    private static string? TableIndex(MDTable table, ColumnInfo c, uint value, Func<Table, uint> rowsOf)
+    {
+        var target = Enum.Parse<Table>(c.ColumnSize.ToString());
+        if (value == 0) return Required.Contains($"{table.Name}.{c.Name}") ? $"null {target} reference where one is required" : null;
+        uint rows = rowsOf(target);
+        return value > rows ? $"{target} row {value} is past the table ({rows} rows)" : null;
+    }
+
+    private static string? ListIndex(MDTable table, ColumnInfo c, uint value, uint previous, Func<Table, uint> rowsOf)
+    {
+        var (target, pointer) = Lists[$"{table.Name}.{c.Name}"];
+        uint rows = rowsOf(pointer) is > 0 and var p ? p : rowsOf(target);
+        if (value == 0 || value > rows + 1) return $"list start {value} is outside {target} rows 1..{rows + 1}";
+        return value < previous ? $"list start {value} is below the previous row's ({previous}): the runs overlap" : null;
+    }
+
+    private static string? CodedIndex(MDTable table, ColumnInfo c, uint value, Func<Table, uint> rowsOf)
+    {
+        var coded = CodedOf(c.ColumnSize)!;
+        uint tag = value & ((1u << coded.Bits) - 1);
+        uint row = value >> coded.Bits;
+        // Row 0 is a null reference whatever the tag.
+        if (row == 0) return Required.Contains($"{table.Name}.{c.Name}") ? $"null {c.ColumnSize} reference where one is required" : null;
+        // CustomAttributeType defines only tags 2 (MethodDef) and 3 (MemberRef).
+        if (tag >= coded.TableTypes.Length || (c.ColumnSize == ColumnSize.CustomAttributeType && tag is not (2 or 3)))
+            return $"{c.ColumnSize} tag {tag} is not defined";
+        var target = coded.TableTypes[tag];
+        uint rows = rowsOf(target);
+        return row > rows ? $"{c.ColumnSize} names {target} row {row}, past the table ({rows} rows)" : null;
+    }
+
+    private static CodedToken? CodedOf(ColumnSize size) => size switch
+    {
+        ColumnSize.TypeDefOrRef => CodedToken.TypeDefOrRef,
+        ColumnSize.HasConstant => CodedToken.HasConstant,
+        ColumnSize.HasCustomAttribute => CodedToken.HasCustomAttribute,
+        ColumnSize.HasFieldMarshal => CodedToken.HasFieldMarshal,
+        ColumnSize.HasDeclSecurity => CodedToken.HasDeclSecurity,
+        ColumnSize.MemberRefParent => CodedToken.MemberRefParent,
+        ColumnSize.HasSemantic => CodedToken.HasSemantic,
+        ColumnSize.MethodDefOrRef => CodedToken.MethodDefOrRef,
+        ColumnSize.MemberForwarded => CodedToken.MemberForwarded,
+        ColumnSize.Implementation => CodedToken.Implementation,
+        ColumnSize.CustomAttributeType => CodedToken.CustomAttributeType,
+        ColumnSize.ResolutionScope => CodedToken.ResolutionScope,
+        ColumnSize.TypeOrMethodDef => CodedToken.TypeOrMethodDef,
+        ColumnSize.HasCustomDebugInformation => CodedToken.HasCustomDebugInformation,
+        _ => null,
+    };
+
+    /// <summary>The decompiler reader's first unreadable row (<see cref="MetadataProbe"/>), or why it refuses the metadata.</summary>
+    private static string? Probe(byte[] image)
+    {
+        try
+        {
+            using var pe = new PEReader(new MemoryStream(image, writable: false));
+            return pe.HasMetadata ? MetadataProbe.Problem(System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe)) : null;
+        }
+        catch (BadImageFormatException ex) { return $"metadata: {ex.Message}"; }
+        catch (InvalidOperationException ex) { return $"metadata: {ex.Message}"; }
     }
 
     internal static string Hex(long offset) => $"0x{offset:X}";

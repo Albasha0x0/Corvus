@@ -36,7 +36,9 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         IReadOnlyList<ReferenceStatus> References,
         [property: System.ComponentModel.Description("Assembly attributes (first 40).")] IReadOnlyList<string> Attributes,
         [property: System.ComponentModel.Description("Row counts of the non-empty metadata tables, in table order.")] IReadOnlyList<TableRows> Tables,
-        IReadOnlyList<HeapSize> Heaps);
+        IReadOnlyList<HeapSize> Heaps,
+        [property: System.ComponentModel.Description("Structural metadata problems: root and streams, every bad table, coded or heap index, P/Invoke rows.")] int MetadataIssueCount,
+        [property: System.ComponentModel.Description("The first 50 metadata problems.")] IReadOnlyList<MetadataIssue> MetadataIssues);
 
     /// <summary>Rows of a metadata table.</summary>
     public sealed record TableRows(string Table, uint Rows);
@@ -90,7 +92,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         var (tables, heaps) = Inventory(m);
         sb.AppendLine("Metadata tables (rows): " + string.Join(", ", tables.Select(t => $"{t.Table} {t.Rows}")));
         sb.AppendLine("Metadata heaps: " + string.Join(", ", heaps.Select(h => $"{h.Heap} {h.Bytes} bytes{(h.IndexBytes is { } w ? $" ({w}-byte indexes)" : "")}")));
-        AppendMetadataIssues(sb, asm);
+        var (issueCount, issues) = AppendMetadataIssues(sb, asm);
 
         sb.AppendLine("References:");
         var references = new List<ReferenceStatus>();
@@ -123,7 +125,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
             types.Count, types.Count(t => t.DeclaringType != null), MetadataUtil.NamespaceCount(types),
             m.GetTypes().Sum(t => t.Methods.Count), m.GetTypes().Sum(t => t.Fields.Count), m.Resources.Count,
             MetadataUtil.IsReferenceAssembly(m), addressed, health.Invalid, health.InvalidClauseCount, asm.Edits.Select(e => e.ToString()).ToList(), references,
-            attrs.Take(40).Select(Format.Attribute).ToList(), tables, heaps);
+            attrs.Take(40).Select(Format.Attribute).ToList(), tables, heaps, issueCount, issues.Take(50).ToList());
         return sb.ToString();
     }
 
@@ -167,12 +169,19 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
     }
 
     /// <summary>Structural metadata problems (as code transformers leave them) with their locations; nothing when there are none.</summary>
-    private static void AppendMetadataIssues(StringBuilder sb, LoadedAssembly asm)
+    private static (int Count, List<MetadataIssue> Issues) AppendMetadataIssues(StringBuilder sb, LoadedAssembly asm)
     {
-        var issues = MetadataSurvey.Survey(asm.OriginalBytes).Concat(MetadataSurvey.ImplMapRows(asm.Module).Values).ToList();
-        if (issues.Count == 0) return;
-        sb.AppendLine($"Metadata issues ({issues.Count}; the rest of the metadata is read leniently):");
+        var implMap = MetadataSurvey.ImplMapRows(asm.Module).Values.ToList();
+        var rows = MetadataSurvey.Rows(asm.Module, asm.OriginalBytes);
+        // ImplMapRows already names the bad ModuleRef rows that P/Invokes use, more specifically.
+        var named = implMap.Select(i => i.FileOffset).ToHashSet();
+        var swept = rows.Issues.Where(i => !named.Contains(i.FileOffset)).ToList();
+        var issues = MetadataSurvey.Survey(asm.OriginalBytes).Concat(implMap).Concat(swept).ToList();
+        int count = issues.Count + rows.Count - rows.Issues.Count;
+        if (count == 0) return (0, issues);
+        sb.AppendLine($"Metadata issues ({count}{(count > 20 ? ", first 20" : "")}; the rest of the metadata is read leniently):");
         foreach (var issue in issues.Take(20))
             sb.AppendLine($"  {issue.Code} at {issue.Location}{(issue.FileOffset != null ? $", file offset {issue.FileOffset}" : "")}: {issue.Detail}");
+        return (count, issues);
     }
 }

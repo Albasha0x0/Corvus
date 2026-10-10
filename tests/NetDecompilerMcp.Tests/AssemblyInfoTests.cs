@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
+using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Services;
 
 namespace NetDecompilerMcp.Tests;
@@ -50,6 +51,64 @@ public class AssemblyInfoTests
         Assert.Null(summary.Heaps.Single(h => h.Heap == "#US").IndexBytes);
         Assert.Contains($"Metadata tables (rows): Module 1, TypeRef {md.GetTableRowCount(TableIndex.TypeRef)}, TypeDef {md.GetTableRowCount(TableIndex.TypeDef)}", text);
         Assert.Contains($"Metadata heaps: #Strings {streams["#Strings"]} bytes (2-byte indexes), #US ", text);
+    }
+
+    /// <summary>No false positives on the fixture and on large runtime assemblies.</summary>
+    [Fact]
+    public void RowSweep_CleanAssemblies_HaveNoIssues()
+    {
+        var runtime = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        foreach (var path in new[] { Env.FixturePath, typeof(object).Assembly.Location, Path.Combine(runtime, "System.Linq.dll"),
+                     Path.Combine(runtime, "System.Text.Json.dll"), Path.Combine(runtime, "System.Private.Xml.dll") })
+        {
+            var bytes = File.ReadAllBytes(path);
+            using var module = dnlib.DotNet.ModuleDefMD.Load(bytes);
+            var sweep = MetadataSurvey.Rows(module, bytes);
+            Assert.True(sweep.Count == 0, $"{Path.GetFileName(path)}: {string.Join("; ", sweep.Issues.Take(5))}");
+        }
+    }
+
+    /// <summary>Rows broken the way obfuscators break them: each is reported with its column, reason and file offset; get_assembly_info lists them.</summary>
+    [Fact]
+    public void RowSweep_BadIndexes_ReportedWithReasonAndOffset()
+    {
+        var image = File.ReadAllBytes(Env.FixturePath);
+        var (typeDef, typeDefSize) = MetadataPatcher.Row(image, TableIndex.TypeDef, 2);
+        var (memberRef, memberRefSize) = MetadataPatcher.Row(image, TableIndex.MemberRef, 1);
+        var (attribute, attributeSize) = MetadataPatcher.Row(image, TableIndex.CustomAttribute, 1);
+        var (method, methodSize) = MetadataPatcher.Row(image, TableIndex.MethodDef, 1);
+        Assert.Equal((14, 6, 6, 14), (typeDefSize, memberRefSize, attributeSize, methodSize)); // 2-byte heap and table indexes
+        int listRow = Enumerable.Range(4, MetadataPatcher.RowCount(image, TableIndex.TypeDef) - 3)
+            .First(r => BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(MetadataPatcher.Row(image, TableIndex.TypeDef, r - 1).Offset + 12)) > 1);
+        int list = MetadataPatcher.Row(image, TableIndex.TypeDef, listRow).Offset;
+
+        BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(typeDef + 8), 3 | 1 << 2);   // Extends: TypeDefOrRef tag 3
+        BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(memberRef), 999 << 3 | 1);   // Class: TypeRef row 999
+        BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(attribute + 2), 0);         // Type: null
+        BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(method + 8), 0xFFF0);       // Name: past #Strings
+        BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(list + 12), 1);             // MethodList: below the previous row's
+
+        using var module = dnlib.DotNet.ModuleDefMD.Load(image);
+        var sweep = MetadataSurvey.Rows(module, image);
+        void Has(string code, string location, string detail, int offset) =>
+            Assert.True(sweep.Issues.Any(i => i.Code == code && i.Location.EndsWith(location, StringComparison.Ordinal)
+                && i.Detail.StartsWith(detail, StringComparison.Ordinal) && i.FileOffset == $"0x{offset:X}"), string.Join('\n', sweep.Issues));
+        Has("bad_coded_index", "TypeDef row 2 (token 0x02000002), column Extends", "TypeDefOrRef tag 3 is not defined", typeDef);
+        Has("bad_coded_index", "MemberRef row 1 (token 0x0A000001), column Class", "MemberRefParent names TypeRef row 999, past the table", memberRef);
+        Has("bad_coded_index", "CustomAttribute row 1 (token 0x0C000001), column Type", "null CustomAttributeType reference where one is required", attribute);
+        Has("bad_heap_index", "Method row 1 (token 0x06000001), column Name", "#Strings offset 0xFFF0 is past the heap", method);
+        Has("bad_list_index", $"TypeDef row {listRow} (token 0x{0x02000000 | listRow:X8}), column MethodList", "list start 1 is below the previous row's", list);
+        Assert.Equal(sweep.Issues.Count, sweep.Count);
+
+        using var dir = new TempDir();
+        var path = dir.File("Broken.dll");
+        File.WriteAllBytes(path, image);
+        using var env = new Env(path);
+        AssemblyReport.Summary summary = null!;
+        var text = env.Workspace.Read(() => env.Report.Build(env.Fixture, out summary));
+        Assert.Contains($"bad_coded_index at #~ TypeDef row 2 (token 0x02000002), column Extends, file offset 0x{typeDef:X}: TypeDefOrRef tag 3 is not defined", text);
+        Assert.True(summary.MetadataIssueCount >= 5);
+        Assert.Contains(summary.MetadataIssues, i => i.Code == "bad_list_index");
     }
 
     /// <summary>Stream sizes from the metadata root's stream headers (ECMA-335 II.24.2.1-2).</summary>
