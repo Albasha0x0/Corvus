@@ -412,10 +412,11 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         Regex? pattern = null;
         if (regex && !string.IsNullOrEmpty(query))
         {
-            try { pattern = new Regex(query, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)); }
+            try { pattern = new Regex(query, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit); }
             catch (ArgumentException ex) { throw new ToolError(ErrorCode.InvalidArgument, $"Invalid regex: {ex.Message}"); }
         }
         var (native, index) = await Open(image, context, progress, cancellationToken);
+        var timeouts = new RegexTimeouts();
         var rows = new List<string>();
         var items = new List<NativeStringEntry>();
         int pageStart = Math.Max(0, offset), pageEnd = pageStart + Math.Clamp(limit, 1, 5_000); // the page PageRows shows
@@ -423,7 +424,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         {
             cancellationToken.ThrowIfCancellationRequested();
             var text = index.ReadString(s, 400);
-            bool match = query == null || (pattern != null ? SafeMatch(pattern, text) : text.Contains(query, StringComparison.OrdinalIgnoreCase));
+            bool match = query == null || (pattern != null ? timeouts.IsMatch(pattern, text) : text.Contains(query, StringComparison.OrdinalIgnoreCase));
             if (!match) continue;
             var refs = index.RefsTo(s.Rva, 1);
             var first = refs.Count > 0 && index.FunctionAt(refs[0].From) is { } f ? f.Name : null;
@@ -437,7 +438,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var text = il2cpp.LiteralTexts[i];
-                if (query != null && !(pattern != null ? SafeMatch(pattern, text) : text.Contains(query, StringComparison.OrdinalIgnoreCase))) continue;
+                if (query != null && !(pattern != null ? timeouts.IsMatch(pattern, text) : text.Contains(query, StringComparison.OrdinalIgnoreCase))) continue;
                 uint slot = il2cpp.LiteralSlots[i];
                 var refs = index.RefsTo(slot, 1);
                 var first = refs.Count > 0 && index.FunctionAt(refs[0].From) is { } f ? f.Name : null;
@@ -445,15 +446,9 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
                          $"{index.CountRefsTo(slot)} refs{(first != null ? $", first in {first}" : "")}");
                 if (rows.Count - 1 >= pageStart && rows.Count - 1 < pageEnd) items.Add(new NativeStringEntry(NativeAddress.Va(index.Image, slot), "il2cpp", Format.Clip(text, 400), index.CountRefsTo(slot), first));
             }
-        return StructuredOutput.With(pager.PageRows(rows, offset, limit, "string"),
-            new NativeStringList(native.Id, items, pageStart, rows.Count, pageStart + items.Count < rows.Count));
+        return StructuredOutput.With(timeouts.Note("string") + pager.PageRows(rows, offset, limit, "string"),
+            new NativeStringList(native.Id, items, pageStart, rows.Count, pageStart + items.Count < rows.Count) { NotEvaluated = timeouts.Count });
     });
-
-    private static bool SafeMatch(Regex r, string text)
-    {
-        try { return r.IsMatch(text); }
-        catch (RegexMatchTimeoutException) { return false; }
-    }
 
     private static string Escape(string s) => s.Replace("\\", "\\\\").Replace("\r", "\\r").Replace("\n", "\\n").Replace("\t", "\\t").Replace("\"", "\\\"");
 }

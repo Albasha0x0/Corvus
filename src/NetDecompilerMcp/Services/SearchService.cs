@@ -25,9 +25,9 @@ public sealed class SearchService(ServerOptions? options = null)
     public sealed record IlMatch(LoadedAssembly Assembly, MethodDef Method, uint Offset, List<string> Instructions);
 
     public SearchResult<ResolvedSymbol> SearchSymbols(string query, bool regex, SymbolKind kind, IReadOnlyList<LoadedAssembly> scope,
-        string? namespaceFilter, int limit, CancellationToken ct)
+        string? namespaceFilter, int limit, CancellationToken ct, RegexTimeouts? timeouts = null)
     {
-        var matcher = CreateMatcher(query, regex);
+        var matcher = CreateMatcher(query, regex, timeouts);
         bool matchFullName = regex || query.Contains('.') || query.Contains(':') || query.Contains('/');
         var hits = ParallelCollect<(ResolvedSymbol Symbol, int Rank)>(scope, (asm, type, found) =>
         {
@@ -64,9 +64,10 @@ public sealed class SearchService(ServerOptions? options = null)
         : name.StartsWith(query, StringComparison.OrdinalIgnoreCase) ? 2
         : 3;
 
-    public SearchResult<StringHit> SearchStrings(string query, bool regex, IReadOnlyList<LoadedAssembly> scope, int limit, CancellationToken ct)
+    public SearchResult<StringHit> SearchStrings(string query, bool regex, IReadOnlyList<LoadedAssembly> scope, int limit, CancellationToken ct,
+        RegexTimeouts? timeouts = null)
     {
-        var matcher = CreateMatcher(query, regex);
+        var matcher = CreateMatcher(query, regex, timeouts);
         var hits = ParallelCollect<StringHit>(scope, (asm, type, found) =>
         {
             foreach (var f in type.Fields)
@@ -378,8 +379,8 @@ public sealed class SearchService(ServerOptions? options = null)
         _ => Format.Literal(i.Operand),
     };
 
-    /// <summary>Builds a predicate: substring (case-insensitive), wildcard (* ?) or regex.</summary>
-    public static Func<string, bool> CreateMatcher(string query, bool regex)
+    /// <summary>Builds a predicate: substring (case-insensitive), wildcard (* ?) or regex; regex timeouts are counted in <paramref name="timeouts"/>.</summary>
+    public static Func<string, bool> CreateMatcher(string query, bool regex, RegexTimeouts? timeouts = null)
     {
         if (string.IsNullOrEmpty(query))
             throw new ToolError(ErrorCode.InvalidArgument, "Query is empty.");
@@ -388,12 +389,9 @@ public sealed class SearchService(ServerOptions? options = null)
         if (!regex)
             return s => s.Contains(query, StringComparison.OrdinalIgnoreCase);
         Regex re;
-        try { re = new Regex(query, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)); }
+        try { re = new Regex(query, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit); }
         catch (ArgumentException ex) { throw new ToolError(ErrorCode.InvalidArgument, $"Invalid regex: {ex.Message}"); }
-        return s =>
-        {
-            try { return re.IsMatch(s); }
-            catch (RegexMatchTimeoutException) { return false; }
-        };
+        timeouts ??= new RegexTimeouts();
+        return s => timeouts.IsMatch(re, s);
     }
 }

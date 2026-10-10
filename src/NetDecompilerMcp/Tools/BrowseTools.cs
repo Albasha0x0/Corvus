@@ -68,7 +68,8 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
         [Description("Max results (default 300).")] int limit = 300,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
-        var matcher = filter == null ? null : SearchService.CreateMatcher(filter, regex);
+        var timeouts = new RegexTimeouts();
+        var matcher = filter == null ? null : SearchService.CreateMatcher(filter, regex, timeouts);
         var ns = @namespace == "<global>" ? "" : @namespace;
         bool showAssembly = workspace.Assemblies.Count > 1;
         var rows = new List<string>();
@@ -84,7 +85,8 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
                 rows.Add($"{Format.Token(t)}  {k,-12} {t.FullName}{(showAssembly ? $"  [{asm.Id}]" : "")}");
                 items.Add(new TypeEntry(asm.Id, Format.Token(t), k, t.FullName));
             }
-        return StructuredOutput.With(pager.PageRows(rows, offset, limit, "type"), Paged(items, offset, limit, (page, o, total, more) => new TypeList(page, o, total, more)));
+        return StructuredOutput.With(timeouts.Note("name") + pager.PageRows(rows, offset, limit, "type"),
+            Paged(items, offset, limit, (page, o, total, more) => new TypeList(page, o, total, more) { NotEvaluated = timeouts.Count }));
     }, cancellationToken);
 
     [McpServerTool(Name = "get_type_info", Title = "Type outline", UseStructuredContent = true, OutputSchemaType = typeof(TypeOutline))]

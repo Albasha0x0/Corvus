@@ -26,11 +26,12 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
     {
         limit = ClampLimit(limit);
         offset = Math.Clamp(offset, 0, int.MaxValue - limit);
-        var r = search.SearchSymbols(query, regex, SymbolResolver.ParseKind(kind), workspace.Scope(assembly), @namespace, offset + limit, cancellationToken);
+        var timeouts = new RegexTimeouts();
+        var r = search.SearchSymbols(query, regex, SymbolResolver.ParseKind(kind), workspace.Scope(assembly), @namespace, offset + limit, cancellationToken, timeouts);
         var page = r.Items.Skip(offset).ToList();
-        var result = new SymbolList(page.Select(s => BrowseTools.Match(s)).ToList(), offset, r.Total, offset + page.Count < r.Total);
-        if (r.Total == 0) return StructuredOutput.With($"No symbols match '{query}'.", result);
-        var sb = new StringBuilder($"{Plural(r.Total, "match")}" +
+        var result = new SymbolList(page.Select(s => BrowseTools.Match(s)).ToList(), offset, r.Total, offset + page.Count < r.Total) { NotEvaluated = timeouts.Count };
+        if (r.Total == 0) return StructuredOutput.With(timeouts.Note("name") + $"No symbols match '{query}'.", result);
+        var sb = new StringBuilder(timeouts.Note("name") + $"{Plural(r.Total, "match")}" +
                                    (offset >= r.Total ? $" (none from offset {offset})" : offset > 0 ? $" (showing {offset + 1}-{offset + page.Count})" : TruncationNote(page.Count, r.Total)) + ":\n");
         foreach (var s in page)
             sb.AppendLine($"  {s.Kind,-8} {s.Label}  [{s.Assembly.Id}] {Format.Token(s.Member)}");
@@ -54,18 +55,19 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
         limit = ClampLimit(limit);
         offset = Math.Clamp(offset, 0, int.MaxValue - limit); // offset + limit must not overflow
         var scope = workspace.Scope(assembly);
-        var r = search.SearchStrings(query, regex, scope, offset + limit, cancellationToken);
-        var literals = il2cppStrings.Search(SearchService.CreateMatcher(query, regex), scope, cancellationToken);
+        var timeouts = new RegexTimeouts();
+        var r = search.SearchStrings(query, regex, scope, offset + limit, cancellationToken, timeouts);
+        var literals = il2cppStrings.Search(SearchService.CreateMatcher(query, regex, timeouts), scope, cancellationToken);
         int total = r.Total + literals.Count;
         var shown = Math.Min(limit, Math.Max(0, total - offset));
         var items = new List<StringEntry>();
-        var result = new StringList(items, offset, total, offset + shown < total);
+        var result = new StringList(items, offset, total, offset + shown < total) { NotEvaluated = timeouts.Count };
         if (total == 0)
-            return StructuredOutput.With(SkippedBodiesNote(scope) + $"No string literals match '{query}'." + (il2cppStrings.DumpsFor(scope).Count == 0 && scope.Any(a => il2cpp.GetIndex(a).Count > 0)
+            return StructuredOutput.With(timeouts.Note("string") + SkippedBodiesNote(scope) + $"No string literals match '{query}'." + (il2cppStrings.DumpsFor(scope).Count == 0 && scope.Any(a => il2cpp.GetIndex(a).Count > 0)
                 ? $" Il2Cpp dummy DLLs have empty bodies: put the dump's {Il2CppDumpFiles.StringLiteralFileName} and {Il2CppDumpFiles.ScriptFileName} in the DummyDll folder or its parent to search the game's literals."
                 : ""), result);
 
-        var sb = new StringBuilder(Plural(total, "occurrence"));
+        var sb = new StringBuilder(timeouts.Note("string") + Plural(total, "occurrence"));
         if (literals.Count > 0) sb.Append($" ({r.Total} in IL and constants, {Plural(literals.Count, "Il2Cpp string literal")})");
         sb.Append(offset >= total ? $" (none from offset {offset})" : offset > 0 ? $" (showing {offset + 1}-{offset + shown})" : TruncationNote(shown, total)).AppendLine(":");
         foreach (var dump in literals.Select(l => l.Dump).Distinct())

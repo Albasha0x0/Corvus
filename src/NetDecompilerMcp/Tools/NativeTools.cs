@@ -461,7 +461,9 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         var rva = NativeAddress.Parse(pe, address);
         var buffer = new byte[Math.Clamp(length, 1, 65_536)];
         int read = pe.Read(rva, buffer);
-        var sb = new StringBuilder($"{NativeAddress.Describe(pe, rva)}, {Plural(read, "byte")}{(read < buffer.Length ? " (end of the mapped image)" : "")}\n");
+        var sb = new StringBuilder(NativeAddress.Describe(pe, rva) + ", " + (read < buffer.Length
+            ? $"{read:N0} of {buffer.Length:N0} bytes requested: incomplete, nothing is mapped at 0x{pe.ImageBase + rva + (uint)read:X}"
+            : Plural(read, "byte")) + (length > buffer.Length ? $" (length {length:N0} capped at {buffer.Length:N0})" : "") + "\n");
         for (int row = 0; row < read; row += 16)
         {
             int n = Math.Min(16, read - row);

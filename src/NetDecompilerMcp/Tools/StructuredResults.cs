@@ -37,7 +37,10 @@ public sealed record NamespaceList(IReadOnlyList<NamespaceEntry> Items, int Offs
 
 public sealed record TypeEntry(string Assembly, string Token, [property: Description("class, struct, interface, enum, delegate (with modifiers).")] string Kind, string FullName);
 
-public sealed record TypeList(IReadOnlyList<TypeEntry> Items, int Offset, int Total, bool Truncated);
+public sealed record TypeList(IReadOnlyList<TypeEntry> Items, int Offset, int Total, bool Truncated)
+{
+    [Description(SearchDoc.NotEvaluated)] public int NotEvaluated { get; init; }
+}
 
 public sealed record MemberEntry(
     string Token,
@@ -62,7 +65,10 @@ public sealed record TypeOutline(
 
 public sealed record SymbolMatch(string Kind, string Label, string Assembly, string Token, [property: Description("Declaration, when asked for.")] string? Signature);
 
-public sealed record SymbolList(IReadOnlyList<SymbolMatch> Items, int Offset, int Total, bool Truncated);
+public sealed record SymbolList(IReadOnlyList<SymbolMatch> Items, int Offset, int Total, bool Truncated)
+{
+    [Description(SearchDoc.NotEvaluated)] public int NotEvaluated { get; init; }
+}
 
 public sealed record OverrideList(SymbolRef Method, IReadOnlyList<SymbolMatch> Items, int Offset, int Total, bool Truncated);
 
@@ -74,7 +80,10 @@ public sealed record StringEntry(
     [property: Description("Il2Cpp: RVA of the literal's slot.")] string? SlotRva,
     [property: Description("Il2Cpp: functions loading it (methods by label, else RVAs), up to usesPerLiteral.")] IReadOnlyList<string>? LoadedBy);
 
-public sealed record StringList(IReadOnlyList<StringEntry> Items, int Offset, int Total, bool Truncated);
+public sealed record StringList(IReadOnlyList<StringEntry> Items, int Offset, int Total, bool Truncated)
+{
+    [Description(SearchDoc.NotEvaluated)] public int NotEvaluated { get; init; }
+}
 
 public sealed record ConstantEntry(SymbolRef Owner, int? IlOffset, [property: Description("Where it appears: ldc.i4, const field, enum member, attribute, array initializer.")] string Kind, string Value);
 
@@ -179,6 +188,11 @@ public sealed record XrefList(string Image, string Target, IReadOnlyList<XrefEnt
     [property: Description(EngineDoc.Engine)] string Engine,
     [property: Description(EngineDoc.Note)] string? EngineNote);
 
+internal static class SearchDoc
+{
+    public const string NotEvaluated = "Inputs the regex timed out on (1 s limit each), left out of the results: non-zero means they are incomplete.";
+}
+
 /// <summary>Descriptions of the engine fields of native code results.</summary>
 internal static class EngineDoc
 {
@@ -189,7 +203,10 @@ internal static class EngineDoc
 public sealed record NativeStringEntry(string Address, [property: Description("ascii, utf16 or il2cpp (a string literal slot).")] string Encoding,
     [property: Description("Text (clipped at 400 characters).")] string Text, int References, string? FirstFunction);
 
-public sealed record NativeStringList(string Image, IReadOnlyList<NativeStringEntry> Items, int Offset, int Total, bool Truncated);
+public sealed record NativeStringList(string Image, IReadOnlyList<NativeStringEntry> Items, int Offset, int Total, bool Truncated)
+{
+    [Description(SearchDoc.NotEvaluated)] public int NotEvaluated { get; init; }
+}
 
 public sealed record AddressInfo(
     string Image,
