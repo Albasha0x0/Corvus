@@ -13,7 +13,7 @@ public sealed record NativeAotSectionInfo(int Id, string Name, uint Rva, uint Si
 
 /// <summary>What a NativeAOT image reveals: runtime version, header, sections and the outcome of each recovery stage.</summary>
 public sealed record NativeAotSummary(string Runtime, string ReadyToRunVersion, int? DebugHeaderVersion, bool Dehydrated, uint HeaderRva,
-    int Modules, IReadOnlyList<NativeAotSectionInfo> Sections, IReadOnlyList<NativeAotStage> Stages);
+    int Modules, IReadOnlyList<NativeAotSectionInfo> Sections, IReadOnlyList<NativeAotStage> Stages, IReadOnlyDictionary<string, int> Counts);
 
 /// <summary>
 /// The NativeAOT view of a native image. <see cref="Open"/> only locates the module header; the recovery stages run on
@@ -29,12 +29,14 @@ public sealed class NativeAotImage
         DebugHeaderMajor = debugHeaderMajor;
         metadata = new(ReadMetadata);
         hydrated = new(() => HydratedImage.Create(image, Header));
+        names = new(() => NativeAotNameMaps.Read(this));
     }
 
     /// <summary>Largest blob read into memory.</summary>
     private const int MaxBlobBytes = 256 << 20;
     private readonly Lazy<(NativeAotMetadata? Metadata, NativeAotStage Stage)> metadata;
     private readonly Lazy<HydratedImage> hydrated;
+    private readonly Lazy<NativeAotNameMaps> names;
 
     public INativeImage Image { get; }
     /// <summary>The module analyzed (the first header found); <see cref="Headers"/> lists every module of a multi-module image.</summary>
@@ -66,6 +68,9 @@ public sealed class NativeAotImage
 
     /// <summary>The image with dehydrated data expanded and its pointer slots (see the "rehydration" stage).</summary>
     public HydratedImage Hydrated => hydrated.Value;
+
+    /// <summary>Method and type names from the stack-trace, type and invoke maps.</summary>
+    public NativeAotNameMaps Names => names.Value;
 
     /// <summary>The bytes of a module section, or null when it is empty, too large or not fully mapped.</summary>
     public byte[]? ReadSection(NativeAotSection? section)
@@ -107,8 +112,15 @@ public sealed class NativeAotImage
         };
         stages.Add(metadata.Value.Stage);
         stages.Add(Hydrated.Stage);
+        stages.AddRange(Names.Stages);
         var sections = Header.Sections.Select(s => new NativeAotSectionInfo(s.Id, s.Name, s.StartRva, s.Length)).ToList();
-        return new NativeAotSummary(Runtime, ReadyToRunVersion, DebugHeaderMajor, Header.IsDehydrated, Header.Rva, Headers.Count, sections, stages);
+        var counts = new Dictionary<string, int>
+        {
+            ["namedMethods"] = Names.Methods.Count,
+            ["namedCodeAddresses"] = Names.MethodAt.Count,
+            ["typeMapMethodTables"] = Names.TypeNames.Count,
+        };
+        return new NativeAotSummary(Runtime, ReadyToRunVersion, DebugHeaderMajor, Header.IsDehydrated, Header.Rva, Headers.Count, sections, stages, counts);
     }
 
     /// <summary>One line for container listings and notes.</summary>

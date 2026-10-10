@@ -87,4 +87,20 @@ public class NativeAotRealTests
         }
         Assert.InRange(h.PointerSlots.Count, 100_000, 400_000);
     }
+
+    [Theory]
+    [MemberData(nameof(Samples))]
+    public void NameMaps_NameMostFunctions(string sample)
+    {
+        var (_, aot) = Open(sample);
+        var names = aot.Names;
+        Assert.All(names.Stages, st => Assert.Equal(NativeAotStage.Complete, st.Status));
+        var starts = aot.Image.RuntimeFunctions.Select(f => f.BeginRva).ToHashSet();
+        int covered = names.MethodAt.Keys.Count(starts.Contains);
+        Assert.True(covered > 0.70 * starts.Count, $"{covered} of {starts.Count} function starts named");
+        Assert.Contains(names.Methods, m => m.Name.Short == "ILCompiler.Program::Main");
+        Assert.Contains(names.Methods, m => m.Name.Full == "System.String::Concat(string, string)");
+        Assert.InRange(names.TypeNames.Count, 2000, 5000);
+        Assert.Contains("System.String", names.TypeNames.Values);
+    }
 }
