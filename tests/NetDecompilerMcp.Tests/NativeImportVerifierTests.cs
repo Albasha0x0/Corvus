@@ -77,6 +77,88 @@ public class NativeImportVerifierTests
         Assert.Equal(NativeArch.X86, PeFile.Open(check.ResolvedFile!).Arch);
     }
 
+    /// <summary>A DLL next to the assembly exporting Foo (1), an unnamed ordinal (2), Fwd -> KERNEL32.HeapAlloc (3) and Other -> a missing DLL (4).</summary>
+    private static byte[] AppLocalDll()
+    {
+        var b = new PeBuilder();
+        var text = b.Add(".text", [0xC3, 0xC3], 0x60000020);
+        uint dir = 0, size = 0;
+        b.Add(".edata", rva =>
+        {
+            var blob = new PeBlob(rva);
+            dir = blob.Zero(40);
+            uint dll = blob.Ascii("applib.dll");
+            uint eat = blob.U32(text.Rva);
+            blob.U32(text.Rva + 1);
+            uint fwdSlot = blob.U32(0);
+            uint otherSlot = blob.U32(0);
+            uint foo = blob.Ascii("Foo"), fwd = blob.Ascii("Fwd"), other = blob.Ascii("Other");
+            uint fwdTarget = blob.Ascii("KERNEL32.HeapAlloc"), otherTarget = blob.Ascii("helper_missing_7c1.Thing");
+            blob.Align(4);
+            uint names = blob.U32(foo);
+            blob.U32(fwd);
+            blob.U32(other);
+            uint ordinals = blob.U16(0);
+            blob.U16(2);
+            blob.U16(3);
+            size = blob.Here - dir;
+            blob.Patch32(fwdSlot, fwdTarget);
+            blob.Patch32(otherSlot, otherTarget);
+            blob.Patch32(dir + 12, dll);
+            blob.Patch32(dir + 16, 1);
+            blob.Patch32(dir + 20, 4);
+            blob.Patch32(dir + 24, 3);
+            blob.Patch32(dir + 28, eat);
+            blob.Patch32(dir + 32, names);
+            blob.Patch32(dir + 36, ordinals);
+            return blob.ToArray();
+        });
+        b.Directories[PeDirectory.Export] = (dir, size);
+        b.Characteristics = 0x2022;
+        return b.Build();
+    }
+
+    /// <summary>On a host without Windows system DLLs: app-local DLLs are still checked with the PE reader; system DLLs are system_dll_not_on_host.</summary>
+    [Fact]
+    public void WithoutSystemDlls_AppLocalDllsAreStillChecked()
+    {
+        const string source = """
+            using System;
+            using System.Runtime.InteropServices;
+            public static class H
+            {
+                [DllImport("applib")] public static extern void Foo();
+                [DllImport("APPLIB.dll", EntryPoint = "#2")] public static extern void ByOrdinal();
+                [DllImport("applib.dll")] public static extern void Missing7c1();
+                [DllImport("applib.dll")] public static extern void Fwd();
+                [DllImport("applib.dll")] public static extern void Other();
+                [DllImport("kernel32.dll")] public static extern IntPtr GetCurrentProcess();
+                [DllImport("api-ms-win-core-processthreads-l1-1-0.dll")] public static extern uint GetCurrentThreadId();
+                [DllImport("no_such_library_8f3a.dll")] public static extern void MissingDll();
+            }
+            """;
+        using var env = new Env();
+        using var dir = new TempDir();
+        File.WriteAllBytes(dir.File("applib.dll"), AppLocalDll());
+        File.WriteAllBytes(dir.File("Host.dll"), Roslyn.Compile("Host", source, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)));
+        var asm = env.Workspace.Load(dir.File("Host.dll"));
+        var checks = env.Workspace.Read(() => new NativeImportVerifier(PeFile.Open, hostHasSystemDlls: false).Verify(asm, default))
+            .Checks.ToDictionary(c => c.Method.Split("::")[1].Split('(')[0]);
+        string Verdict(string method) => $"{checks[method].Status}/{checks[method].Reason}";
+
+        Assert.Equal("verified/exact", Verdict("Foo"));
+        Assert.Equal("applib.dll", Path.GetFileName(checks["Foo"].ResolvedFile), ignoreCase: true);
+        Assert.Equal("verified/ordinal", Verdict("ByOrdinal"));
+        Assert.Equal("contradicted/missing_export", Verdict("Missing7c1"));
+        Assert.Equal("unresolved/system_dll_not_on_host", Verdict("Fwd"));
+        Assert.Contains("KERNEL32.HeapAlloc", checks["Fwd"].Detail);
+        Assert.Equal("unresolved/forwarder_dll_not_found", Verdict("Other"));
+        Assert.Equal("unresolved/system_dll_not_on_host", Verdict("GetCurrentProcess"));
+        Assert.Equal("unresolved/system_dll_not_on_host", Verdict("GetCurrentThreadId"));
+        Assert.Equal("unresolved/dll_not_found", Verdict("MissingDll"));
+        Assert.True(NativeImportVerifier.IsSystemDll("USER32.DLL") && NativeImportVerifier.IsSystemDll("winspool.drv") && !NativeImportVerifier.IsSystemDll("applib.dll"));
+    }
+
     [Fact]
     public void StdcallStackBytesFollowX86ArgumentSizes()
     {

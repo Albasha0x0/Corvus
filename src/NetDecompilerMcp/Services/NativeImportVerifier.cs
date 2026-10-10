@@ -25,7 +25,7 @@ public sealed class NativeImportVerifier
         [property: Description("verified, contradicted, unresolved, dynamic_only or not_checked.")] string Status,
         [property: Description("Why: verified -> exact, suffixed (A/W), decorated (stdcall _Name@N), forwarded, ordinal; contradicted -> missing_export, " +
                                "missing_ordinal, bad_ordinal, exact_spelling, ordinal_points_elsewhere, forwarder_broken; unresolved -> dll_not_found, " +
-                               "api_set_unmapped, not_an_image, not_windows, forwarder_dll_not_found, malformed_metadata; dynamic_only -> " +
+                               "api_set_unmapped, not_an_image, system_dll_not_on_host, forwarder_dll_not_found, malformed_metadata; dynamic_only -> " +
                                "library_loaded_at_run_time, dll_import_resolver; not_checked -> runtime_internal, runtime_library.")] string Reason,
         string? ResolvedFile, string? Export, string Detail,
         [property: Description("Where malformed metadata was found (stream, table, row, token, file offset), else null.")] string? Location);
@@ -37,8 +37,40 @@ public sealed class NativeImportVerifier
     public static readonly string[] Statuses = [Verified, Contradicted, Unresolved, DynamicOnly, NotChecked];
 
     private readonly NativeLinker _linker;
+    private readonly bool _systemDlls;
 
-    public NativeImportVerifier(Func<string, INativeImage> open) => _linker = new NativeLinker(Cached(open));
+    public NativeImportVerifier(Func<string, INativeImage> open) : this(open, OperatingSystem.IsWindows()) { }
+
+    /// <param name="open">Opens a native image.</param>
+    /// <param name="hostHasSystemDlls">
+    /// False off Windows: only DLLs next to the assembly (and loaded images) are checked, and declarations bound to Windows
+    /// system DLLs are unresolved with reason system_dll_not_on_host.
+    /// </param>
+    public NativeImportVerifier(Func<string, INativeImage> open, bool hostHasSystemDlls)
+    {
+        _linker = new NativeLinker(Cached(open));
+        _systemDlls = hostHasSystemDlls;
+    }
+
+    /// <summary>DLLs that ship with Windows; API set contracts (api-ms-*, ext-ms-*) count as well.</summary>
+    private static readonly HashSet<string> SystemDlls = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "kernel32", "kernelbase", "ntdll", "user32", "gdi32", "gdiplus", "advapi32", "shell32", "shlwapi", "shcore", "ole32", "oleaut32",
+        "oleacc", "combase", "comctl32", "comdlg32", "ws2_32", "wsock32", "winmm", "version", "crypt32", "bcrypt", "ncrypt", "secur32",
+        "sspicli", "wintrust", "credui", "dbghelp", "psapi", "iphlpapi", "setupapi", "cfgmgr32", "wininet", "winhttp", "urlmon", "rpcrt4",
+        "userenv", "wtsapi32", "netapi32", "mpr", "imm32", "uxtheme", "dwmapi", "propsys", "powrprof", "hid", "winusb", "winspool",
+        "d3d9", "d3d11", "d3d12", "dxgi", "d2d1", "dwrite", "opengl32", "glu32", "msvcrt", "ucrtbase", "mscoree", "msi", "avrt", "mf",
+        "mfplat", "mfreadwrite", "dnsapi", "fwpuclnt", "authz", "wevtapi", "pdh", "tdh", "winscard", "xinput1_4", "xinput9_1_0",
+    };
+
+    internal static bool IsSystemDll(string module)
+    {
+        var name = Path.GetFileName(module.Trim());
+        if (ApiSetSchema.IsApiSetName(name)) return true;
+        foreach (var extension in new[] { ".dll", ".drv" })
+            if (name.EndsWith(extension, StringComparison.OrdinalIgnoreCase)) name = name[..^extension.Length];
+        return SystemDlls.Contains(name);
+    }
 
     /// <summary>Each file opened once per verifier; unreadable files are remembered as null.</summary>
     private static Func<string, INativeImage?> Cached(Func<string, INativeImage> open)
@@ -128,12 +160,15 @@ public sealed class NativeImportVerifier
             new(label, $"0x{method.MDToken.Raw:X8}", module, entry, charSet, map.IsNoMangle, callConv, status, reason, file, export, detail, null);
 
         if (RuntimeResolved(module) is { } why) return Result(NotChecked, "runtime_internal", null, null, why);
-        if (!OperatingSystem.IsWindows()) return Result(Unresolved, "not_windows", null, null, "DLL lookup is checked on Windows hosts only");
 
         var (file, searched) = _linker.Locate(module, asm.FilePath, x86, runtimeFolder: true);
+        if (!_systemDlls)
+            file = file != null && IsAppLocal(file, asm.FilePath, searched) ? file : AppLocalIgnoringCase(module, asm.FilePath);
         if (file == null)
             return IsRuntimeLibrary(module)
                 ? Result(NotChecked, "runtime_library", null, null, "a .NET runtime native library that the runtime links in on this platform (no separate DLL)")
+                : !_systemDlls && IsSystemDll(module)
+                    ? Result(Unresolved, "system_dll_not_on_host", null, null, $"a Windows system DLL, and this host has none to check against; searched {string.Join("; ", searched)}")
                 : Result(Unresolved, searched.Any(s => s.EndsWith("(not in this system's map)", StringComparison.Ordinal)) ? "api_set_unmapped" : "dll_not_found",
                     null, null, "searched " + string.Join("; ", searched));
         var image = _linker.Open(file);
@@ -159,6 +194,10 @@ public sealed class NativeImportVerifier
             if (_linker.ExportNamed(image, candidate) is not { } export) continue;
             if (export.ForwardedTo != null)
             {
+                int dot = export.ForwardedTo.LastIndexOf('.');
+                if (!_systemDlls && dot > 0 && IsSystemDll(export.ForwardedTo[..dot]))
+                    return Result(Unresolved, "system_dll_not_on_host", file, candidate,
+                        $"{candidate} is forwarded to {export.ForwardedTo}, a Windows system DLL this host does not have");
                 var link = _linker.Bind(module, asm.FilePath, x86, candidate, null, "pinvoke", runtimeFolder: true);
                 if (link.IsResolved) return Result(Verified, "forwarded", file, candidate, $"forwarded: {link.Chain}");
                 return link.Detail.Contains(": module not found", StringComparison.Ordinal)
@@ -173,6 +212,26 @@ public sealed class NativeImportVerifier
             return Result(Contradicted, "exact_spelling", file, null,
                 $"ExactSpelling=true, so only '{entry}' is looked up, but the DLL exports it as {other}; {NativeLinker.NearMisses(image, entry)}");
         return Result(Contradicted, "missing_export", file, null, NativeLinker.NearMisses(image, entry));
+    }
+
+    /// <summary>Found next to the assembly or among the loaded images, not in a host folder.</summary>
+    private static bool IsAppLocal(string file, string requester, List<string> searched) =>
+        searched.LastOrDefault() == "loaded images"
+        || string.Equals(Path.GetDirectoryName(Path.GetFullPath(file)), Path.GetDirectoryName(Path.GetFullPath(requester)), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The DLL next to the assembly matched without case, as the Windows loader matches it (for case-sensitive file systems).</summary>
+    private static string? AppLocalIgnoringCase(string module, string requester)
+    {
+        var name = Path.GetFileName(module.Trim());
+        if (name.Length == 0 || ApiSetSchema.IsApiSetName(name)) return null;
+        if (!Path.HasExtension(name)) name += ".dll";
+        try
+        {
+            return Path.GetDirectoryName(requester) is { Length: > 0 } dir
+                ? Directory.EnumerateFiles(dir).FirstOrDefault(f => string.Equals(Path.GetFileName(f), name, StringComparison.OrdinalIgnoreCase))
+                : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
     }
 
     /// <summary>System.*.Native libraries: shipped as separate files on some platforms, linked into the runtime on others.</summary>
