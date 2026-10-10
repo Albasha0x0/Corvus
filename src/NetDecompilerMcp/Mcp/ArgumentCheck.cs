@@ -10,12 +10,13 @@ namespace NetDecompilerMcp.Mcp;
 public static class ArgumentCheck
 {
     /// <summary>
-    /// Throws <see cref="ToolError"/> for an argument name the schema does not declare (with the closest declared names)
-    /// or an argument of the wrong JSON type. A null for an optional parameter that does not take null is removed, so the
+    /// Throws <see cref="ToolError"/> for an argument name the schema does not declare (with the closest declared names),
+    /// an argument of the wrong JSON type, or a string outside its parameter's "enum" (and the <see cref="ParameterDomains"/>
+    /// aliases of <paramref name="tool"/>). A null for an optional parameter that does not take null is removed, so the
     /// parameter's default applies (some clients send null for "not given").
     /// Integer parameters are all <see cref="int"/>, so integers outside its range are rejected here too.
     /// </summary>
-    public static void Apply(JsonElement inputSchema, IDictionary<string, JsonElement>? arguments)
+    public static void Apply(JsonElement inputSchema, IDictionary<string, JsonElement>? arguments, string? tool = null)
     {
         if (arguments == null || arguments.Count == 0) return;
         var properties = inputSchema.TryGetProperty("properties", out var p) && p.ValueKind == JsonValueKind.Object ? p : default;
@@ -35,12 +36,34 @@ public static class ArgumentCheck
                 arguments.Remove(name);
                 continue;
             }
-            if (types.Any(t => Matches(value, t))) continue;
+            if (types.Any(t => Matches(value, t)))
+            {
+                if (value.ValueKind == JsonValueKind.String && property.TryGetProperty("enum", out var allowed) && allowed.ValueKind == JsonValueKind.Array)
+                    CheckValue(tool, name, value.GetString()!, allowed);
+                continue;
+            }
             var detail = types.Contains("integer") && value.ValueKind == JsonValueKind.Number
                 ? $"a whole number from {int.MinValue} to {int.MaxValue}, not {value.GetRawText()}"
                 : $"{Describe(types)}, not {Kind(value)}";
             throw new ToolError(ErrorCode.InvalidArgument, $"parameter '{name}' must be {detail}.");
         }
+    }
+
+    /// <summary>Accepts a listed value or alias (any case, trimmed) and the empty string, which the tool reads as its default.</summary>
+    private static void CheckValue(string? tool, string name, string value, JsonElement allowed)
+    {
+        var text = value.Trim();
+        if (text.Length == 0) return;
+        var values = allowed.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String).Select(e => e.GetString()!).ToList();
+        if (values.Concat(ParameterDomains.Find(tool, name)?.Aliases ?? []).Any(v => v.Equals(text, StringComparison.OrdinalIgnoreCase))) return;
+        var suggestions = Suggest(text, values);
+        var shown = Format.EscapeInvisible(text.Length > 80 ? text[..80] + "..." : text);
+        var message = $"parameter '{name}' must be one of {string.Join(", ", values)}, not '{shown}'."
+                      + (suggestions.Count > 0 ? $" Did you mean {string.Join(" or ", suggestions.Select(s => $"'{s}'"))}?" : "");
+        throw new ToolError(ErrorCode.InvalidArgument, message, $"Pass one of: {string.Join(", ", values)}.")
+        {
+            Details = new { parameter = name, value = shown, allowed = values, suggestions },
+        };
     }
 
     /// <summary>The error for an argument name the tool does not declare: the closest declared names, or all of them.</summary>

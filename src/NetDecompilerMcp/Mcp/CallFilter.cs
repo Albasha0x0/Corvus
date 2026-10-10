@@ -40,7 +40,7 @@ internal static partial class CallFilter
         var tool = request?.Name;
         try
         {
-            if (inputSchema is { } schema) ArgumentCheck.Apply(schema, request?.Arguments);
+            if (inputSchema is { } schema) ArgumentCheck.Apply(schema, request?.Arguments, tool);
             var structured = StructuredOutput.Begin();
             var result = await next(cancellationToken);
             // An error object never matches the tool's output schema, and clients validate whatever structuredContent is present.

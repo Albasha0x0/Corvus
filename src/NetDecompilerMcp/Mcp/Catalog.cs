@@ -31,7 +31,7 @@ public static partial class Catalog
     private static readonly string[] ToolFields = ["name", "title", "description", "inputSchema", "outputSchema", "annotations", "_meta"];
     private static readonly string[] PromptFields = ["name", "title", "description", "arguments"];
 
-    /// <summary>Registers this build's tools, resources and prompts, with annotations from <see cref="ToolEffects"/>.</summary>
+    /// <summary>Registers this build's tools, resources and prompts, with annotations from <see cref="ToolEffects"/> and value sets from <see cref="ParameterDomains"/>.</summary>
     public static IMcpServerBuilder WithCatalog(this IMcpServerBuilder builder)
     {
         var assembly = typeof(Catalog).Assembly;
@@ -39,7 +39,9 @@ public static partial class Catalog
         // Applied once the tool collection is complete.
         builder.Services.PostConfigure<McpServerOptions>(o =>
         {
-            if (o.ToolCollection is { } tools) ToolEffects.Apply(tools);
+            if (o.ToolCollection is not { } tools) return;
+            ToolEffects.Apply(tools);
+            ParameterDomains.Apply(tools);
         });
         return builder;
     }

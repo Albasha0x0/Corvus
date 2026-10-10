@@ -232,7 +232,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["native_call_tree"] = (new() { ["image"] = NativeSample(dir), ["function"] = "First" }, "First"),
         ["find_virtual_calls"] = (new() { ["image"] = NativeSample(dir), ["status"] = "exact" }, "\"sites\":0"),
         ["search_native_strings"] = (new() { ["image"] = NativeSample(dir) }, "string"),
-        ["decompile_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["engine"] = "ghidra" }, "Error (invalid_argument) in decompile_native: Unknown engine"),
+        ["decompile_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["engine"] = "ghidra" }, "Error (invalid_argument) in decompile_native: parameter 'engine' must be one of auto, ida"),
         ["rename_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["name"] = "SweepFunc" }, "Named"),
         ["comment_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["text"] = "entry" }, "Commented"),
         ["export_native_annotations"] = (new() { ["image"] = NativeSample(dir), ["outputPath"] = dir.File("ann.py"), ["format"] = "ida" }, "Exported"),
@@ -499,7 +499,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         {
             Assert.Contains("not found", await Call("decompile_type", new() { ["type"] = "Nope.DoesNotExist" }, expectError: true));
             Assert.Contains("File not found", await Call("load_assembly", new() { ["path"] = @"C:\definitely\missing.dll" }, expectError: true));
-            Assert.Contains("Unknown kind", await Call("decompile_member", new() { ["member"] = "Charge", ["kind"] = "banana" }, expectError: true));
+            Assert.Contains("must be one of any, method", await Call("decompile_member", new() { ["member"] = "Charge", ["kind"] = "banana" }, expectError: true));
             Assert.Contains("ambiguous", await Call("find_references", new() { ["symbol"] = "Account::Charge" }, expectError: true));
             Assert.Contains("Invalid regex", await Call("search_symbols", new() { ["query"] = "(", ["regex"] = true }, expectError: true));
             Assert.Contains("compilation failed", await Call("patch_method_csharp", new() { ["method"] = "Shop::Buy", ["code"] = "return nope;" }, expectError: true));

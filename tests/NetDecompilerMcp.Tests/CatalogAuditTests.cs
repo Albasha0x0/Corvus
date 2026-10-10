@@ -15,7 +15,7 @@ public class CatalogAuditTests
     /// <summary>Largest input schema of one tool, compact UTF-8 JSON.</summary>
     private const int MaxInputSchemaBytes = 8 * 1024;
 
-    /// <summary>Model-facing catalog bytes (names, descriptions, input schemas); 139,944 when recorded. Raise only deliberately.</summary>
+    /// <summary>Model-facing catalog bytes (names, descriptions, input schemas); 141,680 when recorded. Raise only deliberately.</summary>
     private const int MaxModelFacingBytes = 150_000;
 
     private static readonly List<JsonNode> Tools = Catalog.OfThisBuild().Tools;
