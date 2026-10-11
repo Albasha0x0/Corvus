@@ -157,7 +157,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         foreach (var o in objects)
         {
             var name = (imports.TryGetValue(o.Rva, out var imp) ? Native.Code.NativeCodeIndex.ImportName(imp) : null) ?? index?.NameAt(o.Rva) ?? (o.Name.Length > 0 ? o.Name : NativeAddress.Va(image, o.Rva));
-            var text = o.Text ?? (index?.StringAt(o.Rva) is { } s ? index.ReadString(s, 400) : null);
+            var text = o.Text ?? (index?.StringAt(o.Rva) is { } s ? index.ReadString(s, 400) : index == null && !o.Function && !imports.ContainsKey(o.Rva) ? ImageString(image, o.Rva) : null);
             var kind = imports.ContainsKey(o.Rva) ? "import" : o.Function ? "function" : text != null ? "string" : "data";
             items.Add(new DecompileRef(NativeAddress.Va(image, o.Rva), kind == "import" ? name : NativeTools.DisplayName(name, image.Format), kind, text, o.Uses));
         }
@@ -173,6 +173,22 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
             _refs[key] = result;
         }
         return result;
+    }
+
+    /// <summary>A string literal at <paramref name="rva"/> read from the image (no code index yet): 4+ printable ASCII or UTF-16 characters, terminated; else null.</summary>
+    internal static string? ImageString(INativeImage image, uint rva)
+    {
+        if (image.SectionAt(rva) is not { } section || section.IsExecutable) return null;
+        var bytes = new byte[802];
+        int n = image.Read(rva, bytes);
+        static bool Printable(int c) => c is >= 0x20 and < 0x7F or 9 or 10 or 13;
+        int ascii = 0;
+        while (ascii < n && Printable(bytes[ascii])) ascii++;
+        if (ascii >= 4 && ascii < n && bytes[ascii] == 0) return Encoding.ASCII.GetString(bytes, 0, ascii);
+        int wide = 0;
+        while (2 * wide + 1 < n && bytes[2 * wide + 1] == 0 && Printable(bytes[2 * wide])) wide++;
+        if (wide >= 4 && 2 * wide + 1 < n && bytes[2 * wide] == 0 && bytes[2 * wide + 1] == 0) return Encoding.Unicode.GetString(bytes, 0, 2 * wide);
+        return null;
     }
 
     private static string Quote(string text) =>

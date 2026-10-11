@@ -183,6 +183,34 @@ public sealed class NativeGhidraEngineTests(ITestOutputHelper output) : IDisposa
         Assert.Contains("NdmHeader *base", decompiled);
     }
 
+    /// <summary>Before the built-in index exists, the refs footer reads Ghidra's data references' strings from the image.</summary>
+    [Trait("Speed", "Slow")]
+    [GhidraFact]
+    public async Task Refs_footer_labels_strings_without_the_built_in_index()
+    {
+        var rig = Setup(_dir.File("cache"));
+        // the function that looks up PAL_RegisterModule with dlsym
+        var text = await rig.Analysis.DecompileNative(NativeFormats.NativeFixtures.LinuxX64DbgShim, "rva:0x2D51A", engine: "ghidra", refs: true);
+        output.WriteLine(text[text.IndexOf("// refs:", StringComparison.Ordinal)..]);
+        Assert.Null(rig.Code.Ready(rig.Workspace.Read(() => rig.Workspace.Natives[0])));
+        Assert.Matches(@"//   string\s+0x[0-9A-F]+  ""PAL_RegisterModule""", text);
+    }
+
+    [Fact]
+    public void Image_strings_are_read_as_ascii_or_utf16()
+    {
+        var data = new byte[0x100];
+        System.Text.Encoding.ASCII.GetBytes("hello world\0").CopyTo(data, 0);
+        System.Text.Encoding.Unicode.GetBytes("wide\0").CopyTo(data, 0x40);
+        System.Text.Encoding.ASCII.GetBytes("ab\0").CopyTo(data, 0x80);
+        var image = CodeTestImage.Synthetic(NativeArch.X64, [0xC3], data);
+        uint at = CodeTestImage.SyntheticDataRva;
+        Assert.Equal("hello world", NativeAnalysisTools.ImageString(image, at));
+        Assert.Equal("wide", NativeAnalysisTools.ImageString(image, at + 0x40));
+        Assert.Null(NativeAnalysisTools.ImageString(image, at + 0x80));
+        Assert.Null(NativeAnalysisTools.ImageString(image, CodeTestImage.SyntheticCodeRva));
+    }
+
     [Trait("Speed", "Slow")]
     [GhidraFact]
     public async Task Call_tree_both_through_Ghidra_agrees_with_the_index()
