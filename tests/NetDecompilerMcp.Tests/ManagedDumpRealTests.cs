@@ -371,6 +371,24 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.Contains("System.InvalidOperationException: ndm-probe", summary.Exception.Description);
     }
 
+    /// <summary>A dbghelp dump without memory still lets the DAC list the GC segments; none of their memory is in it, so there is no heap to walk.</summary>
+    [Fact]
+    public async Task SelfWrittenDump_WithoutMemoryHasNoHeap()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var dir = new TempDir();
+        var (_, mini, full) = SelfDumps(dir);
+        var service = new MinidumpService();
+        var heap = (await service.Summarize(mini, null, 0, 50, 0, 50, default)).Managed!.Heap!;
+        Assert.False(heap.Walkable);
+        Assert.StartsWith("heap_not_captured", heap.Reason);
+        var error = await Assert.ThrowsAsync<ToolError>(() => service.Heap(mini, "stats", null, 0, 0, 50, MinidumpService.DefaultMaxHeapObjects, default));
+        Assert.StartsWith("heap_not_captured", error.Message);
+        Assert.Contains("full memory", error.Remediation);
+        Assert.True((await service.Summarize(full, null, 0, 50, 0, 50, default)).Managed!.Heap!.Walkable);
+        Assert.True((await service.Heap(full, "stats", null, 0, 0, 50, MinidumpService.DefaultMaxHeapObjects, default)).Walked > 0);
+    }
+
     private static string? DacLocatorVerify(string path) => Native.Dump.Managed.DacLocator.Verify(File.ReadAllBytes(path), path);
 
     private static void AssertSortedBySp(MinidumpService.StackReport stack)

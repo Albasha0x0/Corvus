@@ -8,6 +8,7 @@ namespace NetDecompilerMcp.Services;
 public sealed partial class MinidumpService
 {
     public const long DefaultMaxHeapObjects = 5_000_000;
+    private const string FullMemoryHint = "write the dump with full memory (procdump -ma, DOTNET_DbgMiniDumpType=4, MiniDumpWithFullMemory) to inspect the heap";
 
     public sealed record HeapTypeRow(
         string Type, long Count, ulong TotalSize,
@@ -59,7 +60,7 @@ public sealed partial class MinidumpService
             ManagedHeapState state;
             lock (decoder.Gate) state = decoder.Facts().Heap;
             if (!state.Walkable)
-                throw new ToolError(ErrorCode.Unsupported, $"{state.Reason}.", "write the dump with full memory (procdump -ma, DOTNET_DbgMiniDumpType=4) to inspect the heap");
+                throw new ToolError(ErrorCode.Unsupported, $"{state.Reason}.", FullMemoryHint);
         }
         return decoder;
     }
@@ -82,6 +83,8 @@ public sealed partial class MinidumpService
         lock (decoder.Gate)
         {
             var (rows, objects, matched, walked, stopped) = decoder.Walk(pattern, minSize, maxObjects, stats ? 0 : offset, stats ? 0 : limit, ct);
+            if (walked == 0)
+                throw new ToolError(ErrorCode.Unsupported, "heap_not_captured: no object of the GC heap is readable in this dump.", FullMemoryHint);
             if (stopped) notes.Add($"The walk stopped after {walked} objects (maxObjects): counts cover only that part of the heap.");
             ulong bytes = 0;
             foreach (var r in rows) bytes += r.TotalSize;

@@ -20,8 +20,11 @@ public sealed class ClrReads(ClrRuntime runtime)
     {
         var heap = Runtime.Heap;
         var segments = heap.Segments;
+        // The DAC lists segments from runtime globals even when the dump holds none of their memory: count captured ones only.
         ulong bytes = 0;
-        foreach (var s in segments) bytes += s.ObjectRange.Length;
+        var probe = new byte[8];
+        foreach (var s in segments)
+            if (s.ObjectRange.Length > 0 && Runtime.DataTarget.DataReader.Read(s.ObjectRange.Start, probe) == probe.Length) bytes += s.ObjectRange.Length;
         string? reason = !heap.CanWalkHeap ? "heap_not_walkable: the runtime reports the heap in an inconsistent state (a GC was running)"
             : segments.Length == 0 || bytes == 0 ? "heap_not_captured: the dump holds no GC heap memory (a stacks-only dump; write one with full or private read/write memory)"
             : null;
