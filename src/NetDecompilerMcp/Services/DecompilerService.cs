@@ -411,9 +411,9 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     /// <summary>
     /// A .NET Standard project gets its framework assemblies from the SDK, so references into .NET Framework or shared
     /// framework folders are dropped (their .NET Framework facades forward to mscorlib: CS1069); under .NET Standard 1.x a
-    /// contract outside the standard library (System.Collections.NonGeneric) becomes its package. For .NET Framework, a
-    /// file of the installed runtime that is a facade (System.ValueTuple forwards to the mscorlib of 4.7+) or older than
-    /// the version referenced (System.Numerics.Vectors) is replaced by its package's library, or dropped without one.
+    /// contract outside the standard library (System.Collections.NonGeneric) becomes its package. For .NET Framework, an
+    /// out-of-band library whose installed runtime copy is a facade (System.ValueTuple forwards to the mscorlib of 4.7+) or
+    /// older than the version referenced (System.Numerics.Vectors) is its package's library when one is found.
     /// </summary>
     private static void FixFrameworkFileReferences(string dir, string? framework, bool netFramework, IReadOnlyDictionary<string, Version?> referenced)
     {
@@ -437,15 +437,20 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
                 if (contract) packages.Add($"    <PackageReference Include=\"{name}\" Version=\"4.3.0\" />");
                 return "";
             }
-            if (!Frameworks.InNetFrameworkDirectory(file) || !(IsFacade(file) || OlderThan(file, referenced.GetValueOrDefault(name)))) return m.Value;
+            if (!OutOfBand.Contains(name) || !Frameworks.InNetFrameworkDirectory(file) || !(IsFacade(file) || OlderThan(file, referenced.GetValueOrDefault(name))))
+                return m.Value;
             return Frameworks.NetFrameworkPackageFile(name, framework) is { } package
                 ? m.Value.Replace(m.Groups[2].Value, System.Security.SecurityElement.Escape(Path.GetRelativePath(dir, package)))
-                : "";
+                : m.Value;
         });
         if (packages.Count > 0)
             fixedText = fixedText.Replace("</Project>", "  <ItemGroup>\n    <!-- .NET Standard 1.x contracts -->\n" + string.Join("\n", packages) + "\n  </ItemGroup>\n</Project>");
         if (fixedText != text) File.WriteAllText(project, fixedText);
     }
+
+    /// <summary>Libraries shipped as packages for .NET Framework, whose copies in the installed runtime are facades or older.</summary>
+    private static readonly HashSet<string> OutOfBand = new(StringComparer.OrdinalIgnoreCase)
+        { "System.ValueTuple", "System.Numerics.Vectors", "System.Buffers", "System.Memory", "System.Runtime.CompilerServices.Unsafe", "System.Threading.Tasks.Extensions" };
 
     /// <summary>The file's assembly version is below <paramref name="wanted"/>.</summary>
     private static bool OlderThan(string file, Version? wanted)
@@ -505,7 +510,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
                 else if (netFramework && Frameworks.IsNetFrameworkAssembly(refName))
                 {
                     // A version above the framework's (System.Numerics.Vectors 4.1.3 has Vector<T>, the framework's 4.0 does not) is its package.
-                    if (Frameworks.NetFrameworkFile(refName) is { } fx && OlderThan(fx, refVersion) && Frameworks.NetFrameworkPackageFile(refName, framework) is { } package)
+                    if (OutOfBand.Contains(refName) && Frameworks.NetFrameworkFile(refName) is { } fx && OlderThan(fx, refVersion) && Frameworks.NetFrameworkPackageFile(refName, framework) is { } package)
                         found = package;
                     else
                     {
