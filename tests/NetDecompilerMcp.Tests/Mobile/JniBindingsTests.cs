@@ -96,8 +96,9 @@ public class JniBindingsTests
     public void ExportsTablesAndUnboundMethodsArePaired()
     {
         using var dir = new TempDir();
+        var plain = new ElfWriter { Text = new byte[0x20], SoName = "libplain.so", Symbols = [new("plain_function", ElfWriter.TextRva, 4)] }.Build();
         var path = AndroidSamples.Save(dir, "jni.apk", AndroidSamples.Apk(30, ("classes.dex", Dex()), ("lib/arm64-v8a/libnative.so", Library()),
-            ("lib/x86_64/libnative.so", Library())));
+            ("lib/arm64-v8a/libplain.so", plain), ("lib/x86_64/libnative.so", Library())));
         var jni = new JniBindings(new DexService());
         var r = jni.List(path, null, null, null, 0, 100, default);
         string Row(JniBinding b) => $"{b.Kind} {b.JavaMethod} {b.Symbol} {b.Address} {b.Confidence}";
@@ -106,6 +107,8 @@ public class JniBindingsTests
         var lib = Assert.Single(r.Libraries);
         Assert.Equal(("lib/arm64-v8a/libnative.so", 5, true, 2, 2), (lib.Library, lib.JavaExports, lib.HasJniOnLoad, lib.RegisterNativesTables, lib.RegisteredMethods));
         Assert.Contains(r.Notes, n => n.Contains("abi=all"));
+        // a library without JNI content is counted, not listed (.NET for Android ships hundreds of them)
+        Assert.Contains(r.Notes, n => n.StartsWith("1 of 2 libraries have no Java_ export"));
         Assert.Contains($"static_export {Native}->hello()Ljava/lang/String; Java_com_example_jni_Native_hello 0x1020 ", rows);
         Assert.Contains($"static_export {Native}->add(II)I Java_com_example_jni_Native_add__II 0x1024 ", rows);
         Assert.Contains($"static_export {Native}->add(JJ)J Java_com_example_jni_Native_add__JJ 0x1028 ", rows);

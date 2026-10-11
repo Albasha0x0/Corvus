@@ -23,7 +23,7 @@ public sealed record JniBinding(
 public sealed record JniLibrary(string Library, string Abi, int JavaExports, bool HasJniOnLoad, int RegisterNativesTables, int RegisteredMethods);
 
 public sealed record JniBindingList(IReadOnlyList<JniBinding> Items, int Offset, int Total, bool Truncated,
-    [property: Description("The libraries read, with their Java_ exports, JNI_OnLoad and RegisterNatives tables.")] IReadOnlyList<JniLibrary> Libraries,
+    [property: Description("The libraries read that have Java_ exports, JNI_OnLoad or RegisterNatives tables, with their counts.")] IReadOnlyList<JniLibrary> Libraries,
     IReadOnlyList<string> Notes);
 
 /// <summary>
@@ -142,7 +142,11 @@ public sealed partial class JniBindings(DexService dex)
         }
         var all = filtered.ToList();
         var page = all.Skip(offset).Take(limit).ToList();
-        return new JniBindingList(page, offset, all.Count, offset + page.Count < all.Count, libraries, notes);
+        // .NET for Android ships hundreds of libaot-*.so per ABI: only libraries with JNI content are listed.
+        var listed = libraries.Where(l => l.JavaExports > 0 || l.HasJniOnLoad || l.RegisterNativesTables > 0).ToList();
+        if (listed.Count < libraries.Count)
+            notes.Add($"{libraries.Count - listed.Count} of {libraries.Count} libraries have no Java_ export, JNI_OnLoad or RegisterNatives table and are not listed.");
+        return new JniBindingList(page, offset, all.Count, offset + page.Count < all.Count, listed, notes);
     }
 
     private static string Va(INativeImage image, uint rva) => $"0x{image.ImageBase + rva:X}";
