@@ -163,6 +163,20 @@ public sealed class ManagedDumpTests
         }
     }
 
+    /// <summary>A 64-bit tool's dump of a 32-bit process: the reason names the WoW64 dump, not a DAC that failed to load.</summary>
+    [Fact]
+    public async Task Wow64DumpOfA32BitRuntimeSaysHowToWriteADecodableDump()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var (pe, _, _, _) = Image();
+        var builder = Dump(pe, module: @"C:\Windows\Microsoft.NET\Framework\v4.0.30319\clr.dll");
+        builder.Modules.Add(new MinidumpBuilder.Module(0x7FFA_0000_0000, 0x10000, 0, @"C:\Windows\System32\wow64cpu.dll"));
+        using var decoder = await ClrDecoder.Open(MinidumpFile.FromBytes(builder.Build()), _ => null, [], new DacRequest(), default);
+        Assert.NotNull(decoder);
+        Assert.Equal("bitness_mismatch", decoder.Dac.Status);
+        Assert.Contains("WoW64", decoder.Dac.Detail);
+    }
+
     [Fact]
     public async Task NoProcessRuntimeMeansNoDecoder()
     {

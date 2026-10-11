@@ -75,6 +75,10 @@ public sealed class ClrDecoder : IDisposable
         }
         if (!OperatingSystem.IsWindows())
             return Fail("host_unsupported", "the DAC of a Windows dump is a Windows DLL: decode .NET frames with this server on Windows");
+        // ClrMD reads a 32-bit runtime only from a 32-bit dump; a WoW64 process holds no other runtime.
+        if (Wow64.IsWow64(dump))
+            return Fail("bitness_mismatch", "a 64-bit dump of a 32-bit (WoW64) process: its 32-bit runtime is decoded only from a dump written by a 32-bit tool " +
+                                            "(procdump without -64, or a 32-bit MiniDumpWriteDump); frames stay identified as managed");
         var hostArch = RuntimeInformation.ProcessArchitecture;
         var dumpArch = dump.Arch switch { NativeArch.X86 => Architecture.X86, NativeArch.Arm64 => Architecture.Arm64, NativeArch.Arm => Architecture.Arm, _ => Architecture.X64 };
         string? helper = null;
