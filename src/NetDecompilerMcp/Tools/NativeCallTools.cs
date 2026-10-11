@@ -124,6 +124,10 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         }
         else
         {
+            // Mach-O symbols carry the C underscore: dlsym is _dlsym
+            if (index.Image.Format == ImageFormat.MachO && !callee!.Trim().StartsWith('_') && !callee.Contains('!') && !KnownCallee(index, callee.Trim())
+                && KnownCallee(index, "_" + callee.Trim()))
+                callee = "_" + callee.Trim();
             sites = CallsTo(index, analysis, callee!.Trim(), maxSites, ct);
             scope = $"calls to {callee.Trim()}";
             if (sites.Count == 0 && !KnownCallee(index, callee.Trim()))

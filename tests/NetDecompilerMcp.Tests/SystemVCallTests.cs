@@ -157,6 +157,18 @@ public class SystemVCallTests
     }
 
     [Fact]
+    public async Task A_callee_named_without_the_mach_o_underscore_is_found()
+    {
+        using var dir = new TempDir();
+        var options = new ServerOptions { BackgroundIndexing = false };
+        using var ws = new AssemblyWorkspace(options);
+        var code = new NativeCodeService(ws, options, null, new AnnotationStore(dir.File("ann")));
+        var report = await new NativeCallTools(ws, code).GetCallArguments(NativeFixtures.OsxX64DbgShim, callee: "dlsym");
+        Assert.True(report.Total > 0);
+        Assert.Equal("calls to _dlsym", report.Scope);
+    }
+
+    [Fact]
     public async Task The_dossier_reads_system_v_argument_registers()
     {
         using var dir = new TempDir();
