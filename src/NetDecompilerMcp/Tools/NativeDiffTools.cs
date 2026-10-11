@@ -86,10 +86,10 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 
     public sealed record CodePatternResult(
         string Image, string Address,
-        [property: Description("IDA-style pattern, ?? for bytes that change between builds; empty when none could be made.")] string Pattern,
+        [property: Description("The pattern in the format asked (default IDA style, ?? for bytes that change between builds); empty when none could be made.")] string Pattern,
         int Length, int FixedBytes, bool Unique,
         [property: Description("Occurrences in the image's executable sections.")] int Hits,
-        [property: Description("address: the pattern starts at the address; reference: at (or shortly before) an instruction referencing it.")] string Anchor,
+        [property: Description("address: the pattern starts at the address; reference: at (or shortly before) an instruction referencing it; xrefs; range.")] string Anchor,
         [property: Description("Where the pattern starts.")] string PatternAddress,
         [property: Description("Reference anchor: offset of the referencing instruction from the pattern start.")] int? ReferenceOffset,
         [property: Description("Reference anchor: offset of the address operand from the pattern start.")] int? OperandOffset,
@@ -404,35 +404,96 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
                  "relocated or in-image addresses as ?? (IDA style '48 8B 05 ?? ?? ?? ??'), extended an instruction at a time until it occurs once in the " +
                  "image's executable sections. When the code at the address is not unique (anchor auto) or anchor=reference, the pattern starts at or shortly " +
                  "before an instruction that references the address, with the operand's offset and how to recover the address from a hit. " +
-                 "anchor=xrefs makes a unique signature at each instruction that references the address (shortest first; the engine's references " +
-                 "are added when the engine is IDA or Ghidra), so a new build that changed one site still has others. " +
-                 "search_code_pattern finds it again in another build.")]
+                 "anchor=xrefs: a unique signature at each referencing instruction (shortest first; with engine IDA or Ghidra its references too), " +
+                 "so a rebuild that changed one site keeps others. anchor=range: [address, end), unique or not. search_code_pattern finds it in another build.")]
     public async Task<CodePatternResult> MakeCodePattern(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
-        [Description("auto (default): at the address, else at a reference to it; address; reference; xrefs: one at each reference.")] string? anchor = null,
+        [Description("auto (default): the address, else a reference to it; address; reference; xrefs: one per reference; range.")] string? anchor = null,
         [Description("Longest pattern in bytes (default 64, 8-512).")] int maxBytes = 64,
         [Description("anchor=xrefs: most signatures (default 8, 1-32).")] int maxPatterns = 8,
         [Description("anchor=xrefs: " + NativeCodeTools.EngineDescription)] string? engine = null,
+        [Description("Syntax: ida (default), x64dbg, mask (\\x48\\x00 x?) or bitmask (0x48, 0x00 0b01).")] string? format = null,
+        [Description("anchor=range: exclusive end, an address or +length.")] string? end = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default)
     {
         var a = (anchor ?? "auto").Trim().ToLowerInvariant();
-        if (a is not ("auto" or "address" or "reference" or "xrefs"))
-            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown anchor '{anchor}'.", "use auto, address, reference or xrefs");
+        if (a is not ("auto" or "address" or "reference" or "xrefs" or "range"))
+            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown anchor '{anchor}'.", "use auto, address, reference, xrefs or range");
         if (maxPatterns is < 1 or > 32) throw new ToolError(ErrorCode.InvalidArgument, $"maxPatterns must be 1-32, not {maxPatterns}.");
+        var fmt = PatternFormat(format);
+        if ((a == "range") == string.IsNullOrWhiteSpace(end))
+            throw new ToolError(ErrorCode.InvalidArgument, a == "range" ? "anchor=range needs end." : "end applies to anchor=range only.", "pass anchor=range end=<address or +length>");
         var mode = EngineModes.Resolve(engine, engines?.DefaultMode ?? EngineMode.Auto);
         var (native, index) = await Open(image, context, cancellationToken);
         uint rva = NativeCodeTools.Address(index, address);
-        if (a == "xrefs") return await XrefPatterns(native, index, rva, maxBytes, maxPatterns, mode, !string.IsNullOrWhiteSpace(engine), cancellationToken);
+        if (a == "range") return await RangePattern(native, index, rva, end!, fmt, cancellationToken);
+        if (a == "xrefs") return await XrefPatterns(native, index, rva, maxBytes, maxPatterns, mode, !string.IsNullOrWhiteSpace(engine), fmt, cancellationToken);
         var made = await Task.Run(() => CodePatterns.Make(index, rva, maxBytes, allowReference: a != "address", referenceOnly: a == "reference", cancellationToken), cancellationToken);
-        return new CodePatternResult(native.Id, Va(index, rva), made.Pattern.ToString(), made.Pattern.Length, made.Pattern.FixedBytes, made.Unique, made.Hits,
+        return new CodePatternResult(native.Id, Va(index, rva), FormatPattern(made.Pattern, fmt), made.Pattern.Length, made.Pattern.FixedBytes, made.Unique, made.Hits,
             made.Anchor, Va(index, made.Start), made.ReferenceOffset, made.OperandOffset, made.OperandSize, made.OperandKind, made.InstructionEnd, made.Note, null, null);
     }
 
+    /// <summary>Longest anchor=range pattern; a function rarely needs more.</summary>
+    private const int MaxRangeBytes = 4096;
+
+    /// <summary>make_code_pattern anchor=range: every whole instruction in [rva, end) with the usual wildcards; not grown, so not necessarily unique.</summary>
+    private static Task<CodePatternResult> RangePattern(LoadedNative native, NativeCodeIndex index, uint rva, string end, string fmt, CancellationToken ct)
+    {
+        var e = end.Trim();
+        uint stop;
+        if (e.StartsWith('+'))
+        {
+            var digits = e[1..];
+            bool hex = digits.StartsWith("0x", StringComparison.OrdinalIgnoreCase);
+            if (!uint.TryParse(hex ? digits[2..] : digits, hex ? System.Globalization.NumberStyles.AllowHexSpecifier : System.Globalization.NumberStyles.None, null, out var length) || length == 0)
+                throw new ToolError(ErrorCode.InvalidArgument, $"'{end}' is not a length.", "pass end=+0x20 or an end address");
+            stop = rva + Math.Min(length, MaxRangeBytes + 1u);
+        }
+        else stop = NativeCodeTools.Address(index, e);
+        if (stop <= rva) throw new ToolError(ErrorCode.InvalidArgument, $"end {Va(index, stop)} is not after {Va(index, rva)}.");
+        if (stop - rva > MaxRangeBytes) throw new ToolError(ErrorCode.LimitExceeded, $"The range is longer than {MaxRangeBytes} bytes.", "split the range");
+        return Task.Run(() =>
+        {
+            var insns = new List<MaskedInsn>();
+            new MaskedDecoder(index.Image).Decode(rva, stop, insns);
+            var bytes = new List<byte>();
+            var mask = new List<bool>();
+            foreach (var insn in insns.TakeWhile(i => i.End <= stop))
+                for (int i = 0; i < insn.Length; i++) { bytes.Add(insn.Bytes[i]); mask.Add(!insn.IsWild(i)); }
+            uint covered = rva + (uint)bytes.Count;
+            var pattern = new BytePattern([.. bytes], [.. mask]);
+            int hits = 0;
+            if (pattern.FixedBytes > 0) CodePatterns.Find(CodePatterns.CodeSections(index.Image), pattern, 0, out hits, ct);
+            var note = (covered < stop ? $"stops at {Va(index, covered)}: the rest does not decode or an instruction crosses the end; " : "") +
+                       $"{hits} hit(s) in executable sections";
+            return new CodePatternResult(native.Id, Va(index, rva), FormatPattern(pattern, fmt), pattern.Length, pattern.FixedBytes, hits == 1, hits, "range",
+                Va(index, rva), null, null, null, null, null, note, null, null);
+        }, ct);
+    }
+
+    private static string PatternFormat(string? format) => (format ?? "").Trim().ToLowerInvariant() switch
+    {
+        "" or "ida" => "ida",
+        "x64dbg" => "x64dbg",
+        "mask" => "mask",
+        "bitmask" => "bitmask",
+        _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown format '{format}'.", "use ida, x64dbg, mask or bitmask"),
+    };
+
+    /// <summary>A pattern in a signature tool's syntax; ida and x64dbg both read "??" as one wildcard byte.</summary>
+    internal static string FormatPattern(BytePattern p, string format) => format switch
+    {
+        "mask" => string.Concat(Enumerable.Range(0, p.Length).Select(i => $"\\x{(p.Mask[i] ? p.Bytes[i] : 0):X2}")) + " " + string.Concat(p.Mask.Select(m => m ? 'x' : '?')),
+        // bit i of the mask is byte i, so the string reads last byte first
+        "bitmask" => string.Join(", ", Enumerable.Range(0, p.Length).Select(i => $"0x{(p.Mask[i] ? p.Bytes[i] : 0):X2}")) + " 0b" + string.Concat(p.Mask.Reverse().Select(m => m ? '1' : '0')),
+        _ => p.ToString(),
+    };
+
     /// <summary>make_code_pattern anchor=xrefs: a signature per referencing instruction, the engine's references added.</summary>
     private async Task<CodePatternResult> XrefPatterns(LoadedNative native, NativeCodeIndex index, uint rva, int maxBytes, int maxPatterns, EngineMode mode, bool named,
-        CancellationToken ct)
+        string fmt, CancellationToken ct)
     {
         var choice = NativeEngineCode.Choose(mode, named, engines, native, index);
         var ours = index.RefsTo(rva, 256).Select(x => x.From).ToHashSet();
@@ -446,14 +507,14 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         }
         var made = await Task.Run(() => CodePatterns.MakeAtReferences(index, rva, maxBytes, maxPatterns, extra, ct), ct);
         var refs = made.Select(p => p.Start + (uint)(p.ReferenceOffset ?? 0)).ToList();
-        var list = made.Zip(refs).Select(t => new ReferencePattern(t.First.Pattern.ToString(), t.First.Pattern.Length, t.First.Pattern.FixedBytes, Va(index, t.First.Start),
+        var list = made.Zip(refs).Select(t => new ReferencePattern(FormatPattern(t.First.Pattern, fmt), t.First.Pattern.Length, t.First.Pattern.FixedBytes, Va(index, t.First.Start),
             Va(index, t.Second), index.FunctionAt(t.Second) is { } f ? Name(index, f) : null, t.First.OperandOffset, t.First.OperandSize, t.First.OperandKind,
             t.First.InstructionEnd, t.First.Note, ours.Contains(t.Second) ? "ours" : choice.Engine)).ToList();
         var note = $"{list.Count} unique signature(s) from {ours.Count + extra.Count} reference(s) ({ours.Count} built-in, {extra.Count} {choice.Engine}-only); {choice.Line}";
         if (made.FirstOrDefault() is not { } best)
             return new CodePatternResult(native.Id, Va(index, rva), "", 0, 0, false, 0, "xrefs", Va(index, rva), null, null, null, null, null,
                 "no instruction that references the address yields a unique pattern; " + note, list, choice.Engine);
-        return new CodePatternResult(native.Id, Va(index, rva), best.Pattern.ToString(), best.Pattern.Length, best.Pattern.FixedBytes, best.Unique, best.Hits,
+        return new CodePatternResult(native.Id, Va(index, rva), FormatPattern(best.Pattern, fmt), best.Pattern.Length, best.Pattern.FixedBytes, best.Unique, best.Hits,
             "xrefs", Va(index, best.Start), best.ReferenceOffset, best.OperandOffset, best.OperandSize, best.OperandKind, best.InstructionEnd,
             best.Note + "; " + note, list, choice.Engine);
     }

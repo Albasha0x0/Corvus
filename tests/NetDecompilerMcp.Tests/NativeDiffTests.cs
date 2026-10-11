@@ -1,5 +1,6 @@
 using System.Text;
 using Iced.Intel;
+using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native;
 using NetDecompilerMcp.Native.Annotations;
 using NetDecompilerMcp.Native.Code;
@@ -275,6 +276,36 @@ public class NativeDiffTests
         Assert.Equal("Renamed", code.Annotations(newNative).NameAt(first));
         Assert.Equal("Renamed", (await code.Index(newNative, null, default)).NameAt(first));
         Assert.Equal("same_name", Assert.Single((await tools.MigrateNativeNames(v1, v2)).Entries).Reason);
+    }
+
+    [Fact]
+    public async Task Code_pattern_formats_and_a_range_pattern()
+    {
+        using var dir = new TempDir();
+        using var env = new Env();
+        var code = new NetDecompilerMcp.Services.NativeCodeService(env.Workspace, env.Options, null, new AnnotationStore(dir.File("ann")));
+        var tools = new NetDecompilerMcp.Tools.NativeDiffTools(env.Workspace, code);
+        var path = dir.File("a.dll");
+        File.WriteAllBytes(path, NativePeTests.KitchenSink(is64: true));
+        var ida = await tools.MakeCodePattern(path, "First", anchor: "address");
+        var tokens = ida.Pattern.Split(' ');
+        Assert.Equal(ida.Pattern, (await tools.MakeCodePattern(path, "First", anchor: "address", format: "x64dbg")).Pattern);
+        var mask = (await tools.MakeCodePattern(path, "First", anchor: "address", format: "mask")).Pattern;
+        Assert.Equal(string.Concat(tokens.Select(t => t == "??" ? "\\x00" : "\\x" + t)) + " " + string.Concat(tokens.Select(t => t == "??" ? '?' : 'x')), mask);
+        var bits = (await tools.MakeCodePattern(path, "First", anchor: "address", format: "bitmask")).Pattern;
+        Assert.Equal(string.Join(", ", tokens.Select(t => t == "??" ? "0x00" : "0x" + t)) + " 0b" + string.Concat(tokens.Reverse().Select(t => t == "??" ? '0' : '1')), bits);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.MakeCodePattern(path, "First", format: "yara"))).Code);
+
+        // range: the instructions inside [start, end) only, unique or not
+        var range = await tools.MakeCodePattern(path, "First", anchor: "range", end: "+0x4");
+        Assert.Equal("range", range.Anchor);
+        Assert.InRange(range.Length, 1, 4);
+        Assert.Equal(range.Hits == 1, range.Unique);
+        Assert.Equal(tokens.Take(range.Length), range.Pattern.Split(' ').Take(tokens.Length));
+        var e = await Assert.ThrowsAsync<ToolError>(() => tools.MakeCodePattern(path, "First", anchor: "range"));
+        Assert.Equal(ErrorCode.InvalidArgument, e.Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.MakeCodePattern(path, "First", end: "+4"))).Code);
+        Assert.Equal(ErrorCode.LimitExceeded, (await Assert.ThrowsAsync<ToolError>(() => tools.MakeCodePattern(path, "First", anchor: "range", end: "+0x10000"))).Code);
     }
 
     [Fact]

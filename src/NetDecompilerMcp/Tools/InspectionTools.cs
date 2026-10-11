@@ -12,9 +12,9 @@ public sealed class InspectionTools(InspectionService inspection)
 
     [McpServerTool(Name = "summarize_file", Title = "Summarize file", UseStructuredContent = true)]
     [Description("Summary of a file or loaded assembly, without executing it: file hashes, type and entropy; per managed assembly its identity " +
-                 "(name, version, MVID, target framework, GUI/console/library, architecture, ReadyToRun, merged), signature (strong name, " +
-                 "Authenticode signer with a digest check and chain), toolchain markers and heuristics, container wrapping (embedded assemblies, " +
-                 "decoded embedded content, high-entropy sections), features with ATT&CK techniques, a summary of extracted values, and " +
+                 "(name, version, MVID, framework, GUI/console/library, architecture, ReadyToRun, merged), signature (strong name, " +
+                 "Authenticode signer, digest check, chain), toolchain markers, container wrapping (embedded assemblies, " +
+                 "decoded content, high-entropy sections), features with ATT&CK techniques, extracted values, and " +
                  "entry points (Main, module initializer, native exports, installer / service / AppDomainManager / COM hooks). Containers " +
                  "(single-file bundles, packages, APKs, zips, Costura hosts) are opened: the app's own assembly in full, up to 7 more in brief " +
                  "(framework libraries last, translations skipped); an apphost launcher's .dll next to it is summarized as the app. For a NativeAOT " +

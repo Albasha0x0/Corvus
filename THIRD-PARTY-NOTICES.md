@@ -43,7 +43,7 @@ evaluation op, the analysis edits: code, functions, data items and undefined ran
 upserts, stack member deletion and the pseudocode object references of `decompile_native refs=true`) are adapted from
 [mrexodia/ida-pro-mcp](https://github.com/mrexodia/ida-pro-mcp); the Ghidra worker's `EditOps.java` follows the same
 operations on Ghidra's listing, and `search_instructions` (`src/NetDecompilerMcp/Tools/NativeCodeTools.Search.cs`) follows
-the query shape of its `insn_query` and `search_text`.
+the query shape of its `insn_query` and `search_text`. The output formats of `make_code_pattern` follow its signature maker.
 
 ```
 MIT License
