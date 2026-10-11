@@ -28,6 +28,19 @@ public static class Containers
 
     private static readonly Regex CosturaName = new(@"^costura(?:32|64)?\.(?<name>.+?)(?<compressed>\.compressed)?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
+    /// <summary>The simple name of the assembly in a PE image, or null.</summary>
+    private static string? AssemblyNameOf(byte[] pe)
+    {
+        try
+        {
+            using var reader = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(pe, writable: false));
+            var md = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(reader);
+            var name = md.IsAssembly ? md.GetString(md.GetAssemblyDefinition().Name) : null;
+            return string.IsNullOrWhiteSpace(name) || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ? null : name;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException) { return null; }
+    }
+
     /// <summary>Returns Kind "none" with notes when the data is not a known container.</summary>
     public static ContainerContents Open(byte[] data, string name, AnalysisLimits limits, CancellationToken ct)
     {
@@ -36,8 +49,10 @@ public static class Containers
         if (kind == "zip") return OpenZip(data, name, limits, ct);
         if (kind is "wasm" or "webcil")
         {
+            // Named by the assembly, not the fingerprinted file (App.3tcu7b1rf6.wasm), so references to it resolve in the output folder.
             if (Webcil.ToPe(data) is { } pe32)
-                return new ContainerContents("Webcil", [new ExtractedItem(Path.ChangeExtension(Path.GetFileName(name), ".dll"), pe32, "Webcil (Blazor WebAssembly) converted to PE")], []);
+                return new ContainerContents("Webcil", [new ExtractedItem((AssemblyNameOf(pe32) ?? Path.GetFileNameWithoutExtension(name)) + ".dll", pe32,
+                    "Webcil (Blazor WebAssembly) converted to PE")], []);
             return new ContainerContents("none", [], [kind == "wasm" ? "A WebAssembly module without a .NET assembly (Webcil) in it." : "Unreadable Webcil data."]);
         }
         if (kind.StartsWith("xalz", StringComparison.Ordinal))

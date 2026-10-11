@@ -71,7 +71,7 @@ public sealed class WebcilTests : IDisposable
         var contents = Containers.Open(wasm, file, AnalysisLimits.Default, default);
         Assert.Equal("Webcil", contents.Kind);
         var pe = Assert.Single(contents.Items);
-        Assert.Equal("TestFixture.abc123.dll", pe.Name);
+        Assert.Equal("TestFixture.dll", pe.Name); // the assembly name, not the fingerprinted file name, so references resolve
         Assert.Equal(".NET assembly", Blob.Identify(pe.Bytes));
         var dll = Path.Combine(_dir.Path, "TestFixture.dll");
         File.WriteAllBytes(dll, pe.Bytes);
