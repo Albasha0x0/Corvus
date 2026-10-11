@@ -157,8 +157,7 @@ internal sealed class NativeFeatureScan(NativeCodeIndex index, CancellationToken
             if (pattern.StartsWith("entropy>", StringComparison.Ordinal)
                 && double.TryParse(pattern.AsSpan(8), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var min))
             {
-                // resources hold compressed images and data by design
-                if (s.Name.Equals(".rsrc", StringComparison.OrdinalIgnoreCase)) continue;
+                if (DenseByDesign(s.Name)) continue;
                 int size = (int)Math.Min(Math.Min(s.RawSize, s.MappedSize), 64u << 20);
                 if (size < MinEntropyBytes) continue;
                 double h = Entropy(s.Rva, size);
@@ -173,6 +172,14 @@ internal sealed class NativeFeatureScan(NativeCodeIndex index, CancellationToken
                 hit($"section {s.Name} is writable and executable", 1);
         }
     }
+
+    /// <summary>
+    /// Sections whose high entropy says nothing about packing: resources (compressed images), ELF hash tables and symbol data,
+    /// .gnu_debugdata (xz-compressed symbols), Mach-O link edit data.
+    /// </summary>
+    internal static bool DenseByDesign(string name) =>
+        name.Equals(".rsrc", StringComparison.OrdinalIgnoreCase) || name is ".gnu.hash" or ".hash" or ".gnu_debugdata" or ".dynsym" or ".symtab"
+        || name.StartsWith(".note", StringComparison.Ordinal) || name.StartsWith("__LINKEDIT", StringComparison.Ordinal);
 
     private double Entropy(uint rva, int size)
     {

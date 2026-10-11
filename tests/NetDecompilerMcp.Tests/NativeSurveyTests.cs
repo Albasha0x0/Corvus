@@ -22,6 +22,16 @@ public class NativeSurveyTests(ITestOutputHelper output)
 
     private static Instruction CallSlot(uint rva) => Instruction.Create(Iced.Intel.Code.Call_rm64, new MemoryOperand(Register.RIP, (long)(Base64 + rva), 8));
 
+    [Theory]
+    [InlineData(".gnu.hash", true)]
+    [InlineData(".gnu_debugdata", true)]
+    [InlineData(".rsrc", true)]
+    [InlineData("__LINKEDIT", true)]
+    [InlineData(".text", false)]
+    [InlineData("UPX1", false)]
+    public void Hash_tables_and_compressed_symbols_are_not_packing_evidence(string section, bool skipped) =>
+        Assert.Equal(skipped, NativeFeatureScan.DenseByDesign(section));
+
     [Fact]
     public void Native_rules_match_imports_arguments_and_strings()
     {
