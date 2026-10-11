@@ -26,6 +26,9 @@ public class NativeAotRealTests
         new("win-arm64", "10.0.11", "16.0", ".NET 10", 5, false),
         new("win-x86", "10.0.11", "16.0", ".NET 10", 5, false),
         new("linux-arm", "10.0.11", "16.0", ".NET 10", 5, true),
+        new("linux-x64", "10.0.11", "16.0", ".NET 10", 5, true),
+        new("linux-arm64", "10.0.11", "16.0", ".NET 10", 5, true),
+        new("osx-arm64", "10.0.11", "16.0", ".NET 10", 5, true),
     ];
 
     public static readonly TheoryData<string> Samples = new(All.Select(s => s.ToString()));
@@ -60,6 +63,11 @@ public class NativeAotRealTests
         Assert.NotNull(aot.Header.Section(SectionId.FrozenObjectRegion));
 
         if (s.IsPe) Assert.Equal("NativeAOT executable", Blob.Identify(File.ReadAllBytes(s.Path)));
+        else
+        {
+            Assert.True(NativeAotLocator.HasMarkers(aot.Image));
+            Assert.Equal("NativeAOT executable", Containers.Open(File.ReadAllBytes(s.Path), "ilc", AnalysisLimits.Default, default).Kind);
+        }
     }
 
     /// <summary>32-bit images: 4-byte MethodTable pointers, frozen objects with 4-byte headers, ARM code pointers without the Thumb bit.</summary>
@@ -119,7 +127,7 @@ public class NativeAotRealTests
         var starts = aot.UnwindStarts();
         int covered = names.MethodAt.Keys.Count(starts.Contains);
         if (aot.Image.Arch == NativeArch.X86) Assert.Empty(starts); // x86 PE has no unwind table: no coverage to measure
-        else Assert.True(covered > 0.70 * starts.Count, $"{covered} of {starts.Count} function starts named");
+        else Assert.True(covered > 0.65 * starts.Count, $"{covered} of {starts.Count} function starts named"); // the rest: runtime and C library code
         Assert.InRange(names.MethodAt.Count, 20_000, 40_000);
         Assert.Contains(names.Methods, m => m.Name.Short == "ILCompiler.Program::Main");
         Assert.Contains(names.Methods, m => m.Name.Full == "System.String::Concat(string, string)");

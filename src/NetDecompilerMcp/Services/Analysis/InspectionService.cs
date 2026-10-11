@@ -337,8 +337,13 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
 
     private static NativeAotSummary? NativeAotFacts(byte[] bytes, CancellationToken ct)
     {
-        if (Blob.Identify(bytes) != "NativeAOT executable") return null;
-        try { return NativeAotImage.Open(Native.Pe.PeFile.FromBytes(bytes), ct)?.Summary(); }
+        var kind = Blob.Identify(bytes);
+        if (kind is not ("NativeAOT executable" or "elf" or "mach-o")) return null;
+        try
+        {
+            var image = Native.NativeImageLoader.FromBytes(bytes);
+            return kind == "NativeAOT executable" || NativeAotLocator.HasMarkers(image) ? NativeAotImage.Open(image, ct)?.Summary() : null;
+        }
         catch (ToolError) { return null; }
     }
 

@@ -14,7 +14,7 @@ namespace NetDecompilerMcp.Tools;
 public sealed partial class NativeTools
 {
     [McpServerTool(Name = "get_nativeaot_info", Title = "NativeAOT metadata", UseStructuredContent = true, OutputSchemaType = typeof(NativeAotInfo))]
-    [Description("What a NativeAOT image's own metadata recovers, read without executing it (.NET 7-10). view=summary: runtime and ReadyToRun version, " +
+    [Description("What a NativeAOT image's own metadata recovers, read without executing it (.NET 7-10; PE, ELF and Mach-O, 64- and 32-bit). view=summary: runtime and ReadyToRun version, " +
                  "dehydration, module header, each recovery stage with its status (complete / partial / absent / unsupported), counts and the share of " +
                  "function starts named. view=sections: the module sections. view=types: MethodTables with name, name origin (typemap / composition / " +
                  "vtable / element / generated), kind and base. view=type: one MethodTable by name or address with flags, base chain, interfaces and " +
@@ -62,7 +62,7 @@ public sealed partial class NativeTools
         var starts = aot.UnwindStarts();
         int namedStarts = aot.Names.MethodAt.Keys.Count(starts.Contains);
         var coverage = new Dictionary<string, int> { ["functionStarts"] = starts.Count, ["functionStartsNamed"] = namedStarts };
-        if (starts.Count > 0) sb.AppendLine($"Names: {namedStarts} of {starts.Count} unwind-table function starts ({100.0 * namedStarts / starts.Count:0.0} %) have a metadata name");
+        if (starts.Count > 0) sb.AppendLine($"Names: {namedStarts} of {starts.Count} declared function starts ({100.0 * namedStarts / starts.Count:0.0} %) have a metadata name");
         if (index != null)
         {
             int functions = index.Functions.Count, named = index.Functions.Count(f => index.Sourced.NameAt(f.Start) is { Source: NativeNameSource.NativeAot });

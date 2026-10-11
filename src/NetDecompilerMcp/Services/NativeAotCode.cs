@@ -10,7 +10,7 @@ namespace NetDecompilerMcp.Services;
 /// Disassembly comments from NativeAOT metadata (x64): string literal loads (an instruction addressing a frozen String
 /// object) and virtual calls through a MethodTable's vtable, "mov r, [obj]; call [r + 24 + 8k]", or the slot loaded into a
 /// register first and called directly or through the CFG dispatch helper (target in rax); tracked linearly within a block.
-/// The receiver's type is known when obj is this of an instance method (rcx before it is overwritten, or a callee-saved
+/// The receiver's type is known when obj is this of an instance method (rcx, rdi in ELF and Mach-O, before it is overwritten, or a callee-saved
 /// register copied from it once and never written again); slot k then names the method in the type's vtable, which a
 /// derived type may override.
 /// </summary>
@@ -18,7 +18,16 @@ public static class NativeAotCode
 {
     /// <summary>Offset of vtable slot 0 in an x64 MethodTable (.NET 7–10).</summary>
     private const int VtableOffset = 24;
-    private static readonly Register[] Volatile = [Register.RAX, Register.RCX, Register.RDX, Register.R8, Register.R9, Register.R10, Register.R11];
+
+    /// <summary>The calling convention's this register, the registers a call clobbers and the callee-saved ones.</summary>
+    private sealed record Abi(Register This, Register[] Volatile, Register[] Saved)
+    {
+        public static readonly Abi Windows = new(Register.RCX, [Register.RAX, Register.RCX, Register.RDX, Register.R8, Register.R9, Register.R10, Register.R11],
+            [Register.RBX, Register.RSI, Register.RDI, Register.RBP, Register.R12, Register.R13, Register.R14, Register.R15]);
+        /// <summary>ELF and Mach-O images.</summary>
+        public static readonly Abi SystemV = new(Register.RDI, [Register.RAX, Register.RCX, Register.RDX, Register.RSI, Register.RDI, Register.R8, Register.R9, Register.R10, Register.R11],
+            [Register.RBX, Register.RBP, Register.R12, Register.R13, Register.R14, Register.R15]);
+    }
 
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<NativeAotImage, Lookup> Lookups = new();
 
@@ -43,16 +52,17 @@ public static class NativeAotCode
 
         var instructions = Decode(image, index.Ranges(fn), ct);
         ulong entry = image.ImageBase + fn.Start;
-        var thisHolders = owner != null ? ThisHolders(instructions, entry) : [];
+        var abi = image.Format == ImageFormat.Pe ? Abi.Windows : Abi.SystemV;
+        var thisHolders = owner != null ? ThisHolders(instructions, entry, abi) : [];
         var info = new InstructionInfoFactory();
-        bool rcxIsThis = false;
+        bool thisLive = false;
         var tables = new Dictionary<Register, NativeAotMethodTable?>(); // register -> the MethodTable it holds (null: of an unknown type)
         var slots = new Dictionary<Register, (NativeAotMethodTable? Table, int Slot)>(); // register -> the vtable slot it was loaded from
         foreach (var ins in instructions)
         {
             ct.ThrowIfCancellationRequested();
             uint rva = (uint)(ins.IP - image.ImageBase);
-            if (ins.IP == entry) rcxIsThis = owner != null;
+            if (ins.IP == entry) thisLive = owner != null;
             if (ins.IsIPRelativeMemoryOperand && ins.IPRelativeMemoryAddress - image.ImageBase is var target and < uint.MaxValue
                 && strings.TryGetValue((uint)target, out var text))
                 comments[rva] = Il2CppNativeNames.Quote(text);
@@ -75,7 +85,7 @@ public static class NativeAotCode
                 if (ins.MemoryDisplacement64 == 0) loaded = ins.Op0Register;
                 else if (slot != null && tables.TryGetValue(ins.MemoryBase, out slotTable)) slotted = ins.Op0Register;
             }
-            bool fromThis = loaded != Register.None && (ins.MemoryBase == Register.RCX && rcxIsThis || thisHolders.Contains(ins.MemoryBase));
+            bool fromThis = loaded != Register.None && (ins.MemoryBase == abi.This && thisLive || thisHolders.Contains(ins.MemoryBase));
 
             foreach (var used in info.GetInfo(ins).GetUsedRegisters())
                 if (used.Access is OpAccess.Write or OpAccess.ReadWrite or OpAccess.CondWrite or OpAccess.ReadCondWrite)
@@ -83,20 +93,20 @@ public static class NativeAotCode
                     var full = used.Register.GetFullRegister();
                     tables.Remove(full);
                     slots.Remove(full);
-                    if (full == Register.RCX) rcxIsThis = false;
+                    if (full == abi.This) thisLive = false;
                 }
             if (loaded != Register.None) tables[loaded] = fromThis ? owner : null;
             if (slotted != Register.None) slots[slotted] = (slotTable, slot!.Value);
             if (ins.FlowControl is FlowControl.Call or FlowControl.IndirectCall)
             {
-                foreach (var r in Volatile) { tables.Remove(r); slots.Remove(r); }
-                rcxIsThis = false;
+                foreach (var r in abi.Volatile) { tables.Remove(r); slots.Remove(r); }
+                thisLive = false;
             }
             else if (ins.FlowControl != FlowControl.Next)
             {
                 tables.Clear(); // another path may reach the next instruction
                 slots.Clear();
-                rcxIsThis = false;
+                thisLive = false;
             }
         }
         return comments;
@@ -140,10 +150,10 @@ public static class NativeAotCode
     }
 
     /// <summary>
-    /// Callee-saved registers that hold this for the whole function: copied from rcx while rcx is still this (before any
-    /// call, branch or write to rcx) and never written otherwise (pops in epilogues aside).
+    /// Callee-saved registers that hold this for the whole function: copied from the this register while it holds this (before any
+    /// call, branch or write to it) and never written otherwise (pops in epilogues aside).
     /// </summary>
-    private static HashSet<Register> ThisHolders(List<Instruction> instructions, ulong entry)
+    private static HashSet<Register> ThisHolders(List<Instruction> instructions, ulong entry, Abi abi)
     {
         var holders = new HashSet<Register>();
         var info = new InstructionInfoFactory();
@@ -153,14 +163,14 @@ public static class NativeAotCode
         foreach (var ins in instructions.SkipWhile(i => i.IP != entry))
         {
             if (!rcx) break;
-            if (ins.Mnemonic == Mnemonic.Mov && ins.Op0Kind == OpKind.Register && ins.Op1Kind == OpKind.Register && ins.Op1Register == Register.RCX
-                && ins.Op0Register is Register.RBX or Register.RSI or Register.RDI or Register.RBP or Register.R12 or Register.R13 or Register.R14 or Register.R15)
+            if (ins.Mnemonic == Mnemonic.Mov && ins.Op0Kind == OpKind.Register && ins.Op1Kind == OpKind.Register && ins.Op1Register == abi.This
+                && abi.Saved.Contains(ins.Op0Register))
             {
                 copies.Add(ins.Op0Register);
                 copyAt.Add(ins.IP);
                 continue;
             }
-            if (ins.FlowControl != FlowControl.Next || info.GetInfo(ins).GetUsedRegisters().Any(u => u.Register.GetFullRegister() == Register.RCX && u.Access is not OpAccess.Read))
+            if (ins.FlowControl != FlowControl.Next || info.GetInfo(ins).GetUsedRegisters().Any(u => u.Register.GetFullRegister() == abi.This && u.Access is not OpAccess.Read))
                 rcx = false;
         }
         var written = new HashSet<Register>();

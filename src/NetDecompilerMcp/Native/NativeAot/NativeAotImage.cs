@@ -87,11 +87,11 @@ public sealed class NativeAotImage
 
     public uint CodeAddress(uint target) => CodeAddress(Image, target);
 
-    /// <summary>Function starts from the image's unwind tables (.pdata, .eh_frame, .ARM.exidx, compact unwind); empty for x86 PE.</summary>
+    /// <summary>Function starts from the image's unwind tables (.pdata, .eh_frame, .ARM.exidx, compact unwind) and Mach-O function starts; empty for x86 PE.</summary>
     public HashSet<uint> UnwindStarts() =>
     [
         .. Image.RuntimeFunctions.Select(f => CodeAddress(f.BeginRva)),
-        .. Image.DeclaredFunctions.Where(d => d.Source == DeclaredSource.Unwind).Select(d => CodeAddress(d.Rva)),
+        .. Image.DeclaredFunctions.Where(d => d.Source is DeclaredSource.Unwind or DeclaredSource.FunctionStarts).Select(d => CodeAddress(d.Rva)),
     ];
 
     /// <summary>The bytes of a module section, or null when it is empty, too large or not fully mapped.</summary>

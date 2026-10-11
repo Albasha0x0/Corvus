@@ -3,10 +3,11 @@ using System.Buffers.Binary;
 namespace NetDecompilerMcp.Native.NativeAot;
 
 /// <summary>
-/// Finds NativeAOT module headers without symbols: a scan of the initialized non-executable sections for "RTR\0" at
-/// 4-byte alignment whose shape is a NativeAOT header (row size 2 pointers + 8, row type 1, 1–127 rows with distinct
-/// ids, starts and ends inside the image) and, when the image has base relocations, a relocation at every row start.
-/// Several headers (multi-module images) are all returned.
+/// Finds NativeAOT module headers in PE, ELF and Mach-O images: through the module list or symbols the image has, else a
+/// scan of the initialized non-executable sections for "RTR\0" at 4-byte alignment whose shape is a NativeAOT header
+/// (row size 2 pointers + 8, row type 1, 1–127 rows with distinct ids, starts and ends inside the image) and, when the
+/// image has relocations (PE base relocations, ELF RELATIVE, Mach-O rebases), one at every row start. Several headers
+/// (multi-module images) are all returned.
 /// </summary>
 public static class NativeAotLocator
 {
@@ -22,7 +23,55 @@ public static class NativeAotLocator
         return (int)Math.Min(size, Array.MaxLength);
     }
 
+    /// <summary>
+    /// Cheap signs of a NativeAOT image without reading its header: the sections the compiler names (.managed / hydrated in
+    /// PE, __managedcode / __modules / .hydrated in ELF and Mach-O) or the DotNetRuntimeDebugHeader export or symbol.
+    /// </summary>
+    public static bool HasMarkers(INativeImage image) =>
+        image.Sections.Any(s => SectionName(s.Name) is ".managed" or "hydrated" or ".hydrated" or "__managedcode" or "__modules")
+        || DebugHeaderRva(image) != null;
+
+    /// <summary>A Mach-O section name without its segment ("__DATA,__modules" → "__modules").</summary>
+    private static string SectionName(string name) => name[(name.IndexOf(',') + 1)..];
+
+    /// <summary>Whether <paramref name="name"/> is the C symbol <paramref name="plain"/>; Mach-O prefixes C names with '_'.</summary>
+    private static bool IsSymbol(string? name, string plain) =>
+        name != null && (name == plain || name.Length == plain.Length + 1 && name[0] == '_' && name.AsSpan(1).SequenceEqual(plain));
+
+    /// <summary>
+    /// The module headers: those the image lists (the __modules section of ELF and Mach-O images, a pointer per module, or
+    /// __ReadyToRunHeader symbols), else those a scan finds.
+    /// </summary>
     public static IReadOnlyList<NativeAotHeader> Find(INativeImage image, CancellationToken ct = default)
+    {
+        var listed = Listed(image);
+        return listed.Count > 0 ? listed : Scan(image, ct);
+    }
+
+    private static List<NativeAotHeader> Listed(INativeImage image)
+    {
+        var found = new List<NativeAotHeader>();
+        void Add(uint rva)
+        {
+            if (found.TrueForAll(h => h.Rva != rva) && TryRead(image, rva) is { } header) found.Add(header);
+        }
+        int pointer = image.Is64Bit ? 8 : 4;
+        foreach (var section in image.Sections.Where(s => SectionName(s.Name) == "__modules"))
+        {
+            var bytes = new byte[Math.Min(section.MappedSize, 4096)];
+            int n = image.Read(section.Rva, bytes);
+            for (int at = 0; at + pointer <= n; at += pointer)
+            {
+                ulong va = pointer == 8 ? BinaryPrimitives.ReadUInt64LittleEndian(bytes.AsSpan(at)) : BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(at));
+                if (ToRva(image, va, image.SizeOfImage - 1, out uint rva)) Add(rva);
+            }
+        }
+        foreach (var symbol in image.Symbols)
+            if (IsSymbol(symbol.Name, "__ReadyToRunHeader")) Add(symbol.Rva);
+        return found;
+    }
+
+    private static List<NativeAotHeader> Scan(INativeImage image, CancellationToken ct)
     {
         var found = new List<NativeAotHeader>();
         foreach (var section in image.Sections)
@@ -81,17 +130,20 @@ public static class NativeAotLocator
     }
 
     /// <summary>
-    /// The major version of the exported DotNetRuntimeDebugHeader ("DNDH" cookie, u16 major), or null when the image has
-    /// no such export.
+    /// The major version of the DotNetRuntimeDebugHeader export or symbol ("DNDH" cookie, u16 major), or null when the
+    /// image has none.
     /// </summary>
     public static int? DebugHeaderMajor(INativeImage image)
     {
-        var export = image.Exports.FirstOrDefault(e => e.Name == "DotNetRuntimeDebugHeader" && e.ForwardedTo == null);
-        if (export == null) return null;
+        if (DebugHeaderRva(image) is not { } rva) return null;
         Span<byte> b = stackalloc byte[6];
-        if (image.Read(export.Rva, b) != b.Length || !b[..4].SequenceEqual("DNDH"u8)) return null;
+        if (image.Read(rva, b) != b.Length || !b[..4].SequenceEqual("DNDH"u8)) return null;
         return BinaryPrimitives.ReadUInt16LittleEndian(b[4..]);
     }
+
+    private static uint? DebugHeaderRva(INativeImage image) =>
+        image.Exports.FirstOrDefault(e => IsSymbol(e.Name, "DotNetRuntimeDebugHeader") && e.ForwardedTo == null)?.Rva
+        ?? image.Symbols.FirstOrDefault(s => IsSymbol(s.Name, "DotNetRuntimeDebugHeader"))?.Rva;
 
     private static bool ToRva(INativeImage image, ulong va, uint maxRva, out uint rva)
     {

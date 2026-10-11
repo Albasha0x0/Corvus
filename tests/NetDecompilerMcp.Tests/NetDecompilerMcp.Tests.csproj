@@ -46,12 +46,15 @@
     <PackageDownload Include="OggVorbisEncoder" Version="[1.2.2]" />
   </ItemGroup>
 
-  <!-- NativeAOT-compiled production binaries (tools/ilc.exe of the ILCompiler runtime packs) for the slow NativeAOT tests. -->
+  <!-- NativeAOT-compiled production binaries (tools/ilc of the ILCompiler runtime packs: PE, ELF, Mach-O) for the slow NativeAOT tests. -->
   <ItemGroup Condition="'$(NDM_ALL_TESTS)' == '1'">
     <PackageDownload Include="runtime.win-x64.Microsoft.DotNet.ILCompiler" Version="[8.0.30];[9.0.19];[10.0.11]" />
     <PackageDownload Include="runtime.win-arm64.Microsoft.DotNet.ILCompiler" Version="[10.0.11]" />
     <PackageDownload Include="runtime.win-x86.Microsoft.DotNet.ILCompiler" Version="[10.0.11]" />
     <PackageDownload Include="runtime.linux-arm.Microsoft.DotNet.ILCompiler" Version="[10.0.11]" />
+    <PackageDownload Include="runtime.linux-x64.Microsoft.DotNet.ILCompiler" Version="[10.0.11]" />
+    <PackageDownload Include="runtime.linux-arm64.Microsoft.DotNet.ILCompiler" Version="[10.0.11]" />
+    <PackageDownload Include="runtime.osx-arm64.Microsoft.DotNet.ILCompiler" Version="[10.0.11]" />
   </ItemGroup>
 
   <!-- Native images in ELF, Mach-O, ARM64 and ARM PE form for the native format readers and code analysis (runtimes/<rid>/native). -->

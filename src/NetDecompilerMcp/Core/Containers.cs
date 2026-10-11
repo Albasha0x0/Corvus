@@ -51,7 +51,7 @@ public static class Containers
             var bundle = OpenBundle(data, limits, ct);
             if (bundle != null) return bundle;
             if (pe.IsNativeAot(data))
-                return new ContainerContents("NativeAOT executable", [], [NativeAotNote(data)]);
+                return new ContainerContents("NativeAOT executable", [], [NativeAotNote(() => Native.NativeAot.NativeAotImage.Open(Native.Pe.PeFile.FromBytes(data))?.Describe())]);
         }
         if (pe != null && pe.IsDotNet(data))
         {
@@ -63,14 +63,26 @@ public static class Containers
         {
             var bundle = OpenBundle(data, limits, ct);
             if (bundle != null) return bundle;
+            if (NativeAotImageOf(data) is { } aot) return new ContainerContents("NativeAOT executable", [], [NativeAotNote(aot.Describe)]);
         }
         return Carve(data, name, pe != null ? "native PE" : kind, limits, ct);
     }
 
-    private static string NativeAotNote(byte[] data)
+    /// <summary>The NativeAOT view of an ELF or Mach-O image that carries NativeAOT markers, or null.</summary>
+    private static Native.NativeAot.NativeAotImage? NativeAotImageOf(byte[] data)
+    {
+        try
+        {
+            var image = Native.NativeImageLoader.FromBytes(data);
+            return Native.NativeAot.NativeAotLocator.HasMarkers(image) ? Native.NativeAot.NativeAotImage.Open(image) : null;
+        }
+        catch (ToolError) { return null; }
+    }
+
+    private static string NativeAotNote(Func<string?> describe)
     {
         string? found = null;
-        try { found = Native.NativeAot.NativeAotImage.Open(Native.Pe.PeFile.FromBytes(data))?.Describe(); }
+        try { found = describe(); }
         catch (ToolError) { } // an unreadable header only loses the version detail
         return $"NativeAOT{(found != null ? $" ({found})" : "")}: the managed code was compiled to native code, so there is no IL to decompile. " +
                "load_assembly opens it as a native image whose method, MethodTable and string names, recovered from its own metadata, apply " +

@@ -55,6 +55,14 @@ public static class NativeImageLoader
         };
     }
 
+    /// <summary>The PE, ELF or Mach-O image in <paramref name="bytes"/>; anything else fails as "not a PE file".</summary>
+    public static INativeImage FromBytes(ReadOnlySpan<byte> bytes, string path = "") => Detect(bytes) switch
+    {
+        NativeFileKind.Elf => Elf.ElfFile.FromBytes(bytes, path),
+        NativeFileKind.MachO or NativeFileKind.MachOFat => MachO.MachOFile.FromBytes(bytes, path),
+        _ => PeFile.FromBytes(bytes, path),
+    };
+
     /// <summary>The container format of the file at <paramref name="path"/>; Unknown when it cannot be read.</summary>
     public static NativeFileKind DetectFile(string path)
     {
