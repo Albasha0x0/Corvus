@@ -71,7 +71,7 @@ public sealed class FunctionDossierTests : IDisposable
             [("KERNEL32.dll", ["CreateFileW"])], Code, Strings));
         return path;
 
-        static Dictionary<string, uint> Strings(PeBlob blob)
+        static Dictionary<string, uint> Strings(PeBlob blob, List<uint> relocations)
         {
             blob.Align(2);
             uint name = blob.Utf16("config.ini\0");

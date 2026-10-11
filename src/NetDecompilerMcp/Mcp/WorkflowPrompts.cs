@@ -120,10 +120,11 @@ public static class WorkflowPrompts
         [Description("The behaviour to find, e.g. 'license check', 'save file encryption', 'update download'.")] string feature,
         [Description("Native image id or path.")] string image) => $"""
         Find where "{feature}" is implemented in {image} with the net-decompiler native tools.
-        - Seeds: search_native_strings for related text, list_imports for the APIs such a feature needs (find_xrefs 'module!Function' lists every call site),
-          search_bytes for known constants or magic values, list_cpp_classes for related class names.
-        - From each seed, find_xrefs to the referencing functions, then native_call_tree (callers) up to an entry point, export, vftable slot or thread start,
-          and (callees) down to the APIs that do the work. Read the deciding functions with decompile_native (or disassemble; get_cfg for branch structure).
+        - Start with trace_native_feature for each word or API the feature implies (one call per query; regex=true for spelling variants): it ranks the
+          functions holding the matching strings, names, imports, exports and classes, and names the hubs that reach several of them.
+        - Read the top functions with analyze_native_function (callers, callees with arguments, data, flow), then decompile_native on the deciding ones
+          (functions=[...] for several at once). search_bytes finds known constants or magic values the trace cannot.
+        - Follow the chain: find_call_paths to='native:{image}!<function>' from the roots, trace_native_values for where a deciding value comes from.
         - rename_native and comment_native the functions you have understood, so later calls and decompile_native show the names.
         Report the chain from trigger to effect with addresses, the deciding condition, and what remains unknown.
         {Evidence}

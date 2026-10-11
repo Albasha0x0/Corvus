@@ -19,9 +19,9 @@ internal static class LinkedImages
     /// <param name="exports">Name and either a code offset into <paramref name="code"/> or a forwarder ("module.name").</param>
     /// <param name="imports">Module and names ("#n" imports by ordinal).</param>
     /// <param name="code">Code bytes, given the slot RVA of each "module!name" import (and of each item <paramref name="data"/> adds).</param>
-    /// <param name="data">Adds read-only data (strings) and returns their RVAs by name.</param>
+    /// <param name="data">Adds read-only data (strings, pointer tables) and returns their RVAs by name; pointers it lists are relocated.</param>
     public static byte[] Build(string dllName, (string Name, object Target)[] exports, (string Module, string[] Names)[] imports,
-        Func<Dictionary<string, uint>, byte[]> code, Func<PeBlob, Dictionary<string, uint>>? data = null)
+        Func<Dictionary<string, uint>, byte[]> code, Func<PeBlob, List<uint>, Dictionary<string, uint>>? data = null)
     {
         var blob = new PeBlob(Data);
         var slots = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
@@ -52,8 +52,9 @@ internal static class LinkedImages
             blob.Patch32(d + 16, iat);
         }
 
+        var relocations = new List<uint>();
         if (data != null)
-            foreach (var (k, v) in data(blob)) slots[k] = v;
+            foreach (var (k, v) in data(blob, relocations)) slots[k] = v;
 
         uint exportDir = 0, exportSize = 0;
         if (exports.Length > 0)
@@ -86,6 +87,21 @@ internal static class LinkedImages
         var text = b.Add(".text", code(slots), 0x60000020);
         b.EntryPoint = text.Rva;
         b.Add(".rdata", blob.ToArray());
+        if (relocations.Count > 0)
+            b.Add(".reloc", rva =>
+            {
+                var r = new PeBlob(rva);
+                foreach (var page in relocations.GroupBy(x => x & ~0xFFFu))
+                {
+                    uint block = r.U32(page.Key);
+                    uint size = r.U32(0);
+                    foreach (var x in page) r.U16((ushort)(0xA000 | (x & 0xFFF)));
+                    r.Align(4);
+                    r.Patch32(size, r.Here - block);
+                }
+                b.Directories[PeDirectory.BaseRelocation] = (rva, (uint)r.Length);
+                return r.ToArray();
+            }, 0x42000040);
         if (imports.Length > 0) b.Directories[PeDirectory.Import] = (descriptors, 20u * (uint)(imports.Length + 1));
         if (exports.Length > 0) b.Directories[PeDirectory.Export] = (exportDir, exportSize);
         return b.Build();

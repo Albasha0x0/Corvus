@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
-143 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+144 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -13,7 +13,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [containers](#containers) | yes | 7: file inspection, containers and wrapped apps, Unity overview |
 | [edit](#edit) | yes | 15: .NET edits, edit history and saving |
 | [il2cpp](#il2cpp) | yes | 5: Il2Cpp metadata, addresses, symbols and bindings |
-| [native](#native) | yes | 26: native PE analysis, symbols and decompilation |
+| [native](#native) | yes | 27: native PE analysis, symbols and decompilation |
 | [native-edit](#native-edit) | yes | 9: native names, comments, patches and saving |
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
@@ -1196,6 +1196,25 @@ Everything known about one native function, in sections, each bounded by maxItem
 | `maxChars` | integer |  |  | Max characters in this page (default from server config, ~60000). |
 
 Structured output: `image`, `address`, `name`, `size`, `end`, `sections`, `next`.
+
+### trace_native_feature
+
+**Trace a native feature** (read-only, idempotent, long-running)
+
+Finds the native code behind a behaviour from a text: seeds are the strings (ASCII, UTF-16), function and data names, imports (static and GetProcAddress), exports and RTTI classes matching query; their references (inside a string too, and through one table of pointers to it; import calls with their decoded arguments; a class's vftable users and methods) are grouped by function and ranked (distinct seeds, decoded API calls, exported, minus library and very large functions). Hubs are callers within callerDepth that reach several ranked functions. A seed that fails records its error; the trace goes on. Pages of functions reuse the computed trace. x86 / x64 / ARM64 (call arguments on x86 / x64).
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
+| `query` | string | yes |  | Text to find (case-insensitive substring), or a regex with regex=true. |
+| `regex` | boolean |  | `false` | Treat query as a regular expression. |
+| `kinds` | string |  |  | Comma-separated seed kinds (default all): strings, names, imports, exports, classes. |
+| `maxSeeds` | integer |  | `50` | Matches followed (default 50, 1-500); the rest are counted. |
+| `callerDepth` | integer |  | `1` | Caller levels searched for hubs (default 1, 0-3). |
+| `offset` | integer |  | `0` | Index of the first function. |
+| `limit` | integer |  | `50` | Functions per page (default 50, max 500). |
+
+Structured output: `image`, `query`, `seeds`, `totalSeeds`, `functions`, `totalFunctions`, `offset`, `truncated`, `hubs`, `notes`.
 
 ### get_exception_info
 

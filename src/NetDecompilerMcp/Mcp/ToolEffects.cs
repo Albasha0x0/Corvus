@@ -154,6 +154,7 @@ public static class ToolEffects
         ["trace_native_values"] = Reads(longRunning: true),
         ["resolve_call_targets"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
         ["analyze_native_function"] = Reads(longRunning: true, openWorld: true), // pseudocode=true runs IDA or Ghidra
+        ["trace_native_feature"] = Reads(longRunning: true),
         ["get_exception_info"] = Reads(longRunning: true),
         ["list_cpp_classes"] = Reads(),
         ["get_native_type"] = Reads(longRunning: true, openWorld: true), // source=engine runs IDA
