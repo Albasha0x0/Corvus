@@ -534,10 +534,11 @@ with `NDM_ALL_TESTS=1`):
 The generated C, C++ and Python are compiled or parsed with clang (`C:\Program Files\LLVM\bin`) and python when
 they are installed.
 
-CI (`.github/workflows/ci.yml`) runs the tests on Windows, Linux and macOS. The tests publish hello-world apps and
+CI (`.github/workflows/ci.yml`) is a smoke lane: it runs the quick set on Windows, Linux and macOS; the full suite and the real-app runner run locally before a push. The tests publish hello-world apps and
 download runtime / crossgen2 packs and NuGet packages at test time; CI keeps them in one package folder, cached per OS,
 SDK version and project files. Real-data tests have no data there and report as skipped. Pushing a `v*` tag runs
-`release.yml`, which attaches self-contained single-file builds for win-x64, linux-x64 and osx-arm64 to a GitHub release.
+`release.yml`, which attaches self-contained builds for win-x64, win-arm64, linux-x64, linux-arm64, linux-musl-x64,
+linux-musl-arm64, osx-x64 and osx-arm64, plus a `SHA256SUMS` manifest the installers and `update` verify, to a GitHub release.
 
 ## Server options
 
