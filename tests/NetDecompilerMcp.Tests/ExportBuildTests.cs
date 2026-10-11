@@ -195,6 +195,34 @@ public class ExportBuildTests
         Assert.True(failures == NetDecompilerMcp.Services.AstCleanup.Failures, NetDecompilerMcp.Services.AstCleanup.LastError); // no cleanup step failed
     }
 
+    /// <summary>
+    /// A .NET Framework project with an image in its .resx failed under dotnet build (MSB3822, MSB3823; WinForms apps with
+    /// icons): such projects now compile resources preserialized, on 4.6.2 or later.
+    /// </summary>
+    [Fact]
+    public void NetFrameworkExportWithBinaryResources_UsesPreserializedResources()
+    {
+        using var dir = new TempDir();
+        var resources = new MemoryStream();
+        using (var writer = new System.Resources.ResourceWriter(resources))
+        {
+            writer.AddResource("Title", "text");
+            writer.AddResource("Icon", new byte[] { 1, 2, 3 });
+        }
+        var compilation = CSharpCompilation.Create("Forms",
+            [CSharpSyntaxTree.ParseText("[assembly: System.Runtime.Versioning.TargetFramework(\".NETFramework,Version=v4.5.2\")] public class Form1 { }")],
+            Roslyn.PlatformReferences, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var path = dir.File("Forms.dll");
+        using (var file = File.Create(path))
+            Assert.True(compilation.Emit(file, manifestResources: [new ResourceDescription("Form1.resources", () => new MemoryStream(resources.ToArray()), true)]).Success);
+        using var env = new Env(path);
+        var project = File.ReadAllText(env.Decompiler.ExportProject(env.Fixture, dir.File("out"), null, default).ProjectFile!);
+        Assert.Contains("<GenerateResourceUsePreserializedResources>True</GenerateResourceUsePreserializedResources>", project);
+        Assert.Contains("<PackageReference Include=\"System.Resources.Extensions\"", project);
+        Assert.Contains("<TargetFramework>net462</TargetFramework>", project);
+        Assert.Contains("was net452", project);
+    }
+
     /// <summary>Each assembly listed in NDM_EXPORT_LIST builds after export; errors go to "&lt;list&gt;.report.txt".</summary>
     [Fact]
     public void ExportList_Builds()

@@ -324,6 +324,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         ThrowInFailedBodies(dir);
         UseUnionWindowsMetadata(dir);
         KeepIdentity(asm, dir);
+        UsePreserializedResources(dir);
         var files = Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).ToList();
         var failed = exporter.Errors.Select(e => FirstLine(e.Message)).ToList();
         return new ExportResult(dir, files.Count, files.FirstOrDefault(f => f.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)), failed);
@@ -419,6 +420,31 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         int at = text.IndexOf("</PropertyGroup>", StringComparison.Ordinal);
         if (at < 0) return;
         text = text.Insert(at, string.Concat(settings.Select(x => "  " + x + "\n")) + "  ");
+        File.WriteAllText(project, text);
+    }
+
+    /// <summary>
+    /// dotnet build compiles .resx entries that are not strings (images, icons, byte arrays) for .NET Framework only as
+    /// preserialized resources read by System.Resources.Extensions (MSB3822, MSB3823), which needs 4.6.2 or later.
+    /// </summary>
+    private static void UsePreserializedResources(string dir)
+    {
+        var project = Directory.GetFiles(dir, "*.csproj").FirstOrDefault();
+        if (project == null) return;
+        var text = File.ReadAllText(project);
+        var tfm = System.Text.RegularExpressions.Regex.Match(text, @"<TargetFramework>net([1-4])(\d)(\d?)</TargetFramework>");
+        if (!tfm.Success || text.Contains("<GenerateResourceUsePreserializedResources>", StringComparison.Ordinal)) return;
+        var nonString = new System.Text.RegularExpressions.Regex(@"<data\s[^>]*\b(?:type|mimetype)=""");
+        if (!Directory.EnumerateFiles(dir, "*.resx", SearchOption.AllDirectories).Any(f => nonString.IsMatch(File.ReadAllText(f)))) return;
+        var settings = "    <GenerateResourceUsePreserializedResources>True</GenerateResourceUsePreserializedResources>\n";
+        var version = tfm.Groups[1].Value + tfm.Groups[2].Value + (tfm.Groups[3].Value.Length > 0 ? tfm.Groups[3].Value : "0");
+        if (int.Parse(version, System.Globalization.CultureInfo.InvariantCulture) < 462)
+        {
+            text = text.Replace(tfm.Value, "<TargetFramework>net462</TargetFramework>");
+            settings += $"    <!-- was net{tfm.Value[20..^18]}: binary resources need System.Resources.Extensions, which supports net462 and later -->\n";
+        }
+        text = text.Replace("</Project>", $"  <PropertyGroup>\n{settings}  </PropertyGroup>\n  <ItemGroup>\n" +
+                                          "    <PackageReference Include=\"System.Resources.Extensions\" Version=\"8.0.0\" />\n  </ItemGroup>\n</Project>");
         File.WriteAllText(project, text);
     }
 
