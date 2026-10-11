@@ -119,7 +119,7 @@ public static class ServerHost
         return host;
     }
 
-    private static void Preload(AssemblyWorkspace workspace, ILogger log, ServerOptions options)
+    internal static void Preload(AssemblyWorkspace workspace, ILogger log, ServerOptions options)
     {
         foreach (var path in options.Preload)
         {
@@ -132,7 +132,7 @@ public static class ServerHost
                 }
                 else
                 {
-                    workspace.Load(path);
+                    workspace.LoadAny(path, null); // a native PE, ELF or Mach-O loads as a native image, as with load_assembly
                 }
             }
             catch (Exception ex)

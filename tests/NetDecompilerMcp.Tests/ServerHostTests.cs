@@ -13,6 +13,19 @@ namespace NetDecompilerMcp.Tests;
 public class ServerHostTests
 {
     [Fact]
+    public void Preload_LoadsNativeImagesToo()
+    {
+        using var dir = new TempDir();
+        var options = new ServerOptions();
+        options.Preload.Add(McpProtocolTests.NativeSample(dir));
+        options.Preload.Add(Env.FixturePath);
+        var workspace = new AssemblyWorkspace();
+        ServerHost.Preload(workspace, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, options);
+        Assert.Single(workspace.Natives);
+        Assert.Single(workspace.Assemblies);
+    }
+
+    [Fact]
     public async Task StreamTransport_ServesTheCatalogAndTools()
     {
         var options = new ServerOptions { BackgroundIndexing = false, WatchFiles = false };
