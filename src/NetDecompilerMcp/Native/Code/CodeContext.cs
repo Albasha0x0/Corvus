@@ -295,7 +295,7 @@ internal sealed class CodeContext
         }
         if (count == 0 || count > Options.MaxSwitchEntries) { reason = $"table of {count} entries (limit {Options.MaxSwitchEntries})"; return null; }
         int size = m.EntrySize;
-        var raw = new byte[count * size];
+        var raw = new byte[m.Direct ? 0 : count * size];
         if (Read(m.TableRva, raw) < raw.Length) { reason = "table outside the image"; return null; }
         var targets = new List<uint>((int)count);
         var entries = new uint[count];
@@ -303,8 +303,8 @@ internal sealed class CodeContext
         bool aligned = Image.Arch == NativeArch.Arm64;
         for (int i = 0; i < count; i++)
         {
-            var e = raw.AsSpan(i * size, size);
-            long entry = size switch
+            var e = m.Direct ? default : raw.AsSpan(i * size, size);
+            long entry = m.Direct ? i : size switch
             {
                 1 => m.Signed ? (sbyte)e[0] : e[0],
                 2 => m.Signed ? BinaryPrimitives.ReadInt16LittleEndian(e) : BinaryPrimitives.ReadUInt16LittleEndian(e),
@@ -322,6 +322,8 @@ internal sealed class CodeContext
             else if (m.Base is { } b) target = (uint)(b + (entry << m.Shift));
             else if (m.RelativeToTable) target = (uint)(m.TableRva + (int)entry);
             else target = (uint)entry;
+            // ARM32 entries may carry the Thumb bit
+            if (Image.Arch == NativeArch.Arm) target &= ~1u;
             if (!Code.IsCode(target)) { reason = $"entry {i} ({target:X}) is not in executable code"; return null; }
             if (aligned && (target & 3) != 0) { reason = $"entry {i} ({target:X}) is not an instruction address"; return null; }
             if (m.BaseAssumed && !ownRanges!.Any(r => target >= r.Begin && target < r.End)) { reason = $"entry {i} ({target:X}) is outside the function"; return null; }
@@ -334,7 +336,8 @@ internal sealed class CodeContext
             DefaultValues = defaultValues,
             Default = m.Default,
             Bias = m.Bias,
-            Kind = m.Absolute ? SwitchTableKind.Absolute : m.Base != null ? SwitchTableKind.BaseRelative : m.RelativeToTable ? SwitchTableKind.TableRelative : SwitchTableKind.Rva,
+            Kind = m.Direct ? SwitchTableKind.Indexed : m.Absolute ? SwitchTableKind.Absolute : m.Base != null ? SwitchTableKind.BaseRelative
+                : m.RelativeToTable ? SwitchTableKind.TableRelative : SwitchTableKind.Rva,
             Base = m.Base,
             Shift = m.Shift,
             ValuesExact = !m.BoundByMask && !m.BaseAssumed,

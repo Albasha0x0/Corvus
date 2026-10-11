@@ -34,6 +34,12 @@ internal sealed class Arm32Decoder : ICodeDecoder
     private uint _expected = uint.MaxValue;
     private int _itFirst, _itMask, _itLeft, _itIndex;
 
+    // the current linear run, for switch dispatch and bound matching
+    private const int RingSize = 64;
+    private readonly ArmInstruction[] _ring = new ArmInstruction[RingSize];
+    private readonly uint[] _ringRva = new uint[RingSize];
+    private int _ringHead, _ringCount;
+    private IndexBound _runBound;
 
     // callee-saved r4-r11 holding one address in the whole function (hoisted PIC bases)
     private const int FirstSaved = 4, LastSaved = 11;
@@ -86,6 +92,8 @@ internal sealed class Arm32Decoder : ICodeDecoder
         Array.Clear(_kind);
         for (int r = FirstSaved; r <= LastSaved; r++)
             if (_savedState[r] == 1) Set(r, Known.Address, _saved[r]);
+        _ringCount = 0;
+        _runBound = incoming;
         _itLeft = 0;
         _expected = uint.MaxValue;
     }
@@ -149,6 +157,10 @@ internal sealed class Arm32Decoder : ICodeDecoder
             _itLeft = Arm32Decode.ItCount(_itMask);
             _itIndex = 0;
         }
+        _ring[_ringHead] = _last;
+        _ringRva[_ringHead] = rva;
+        _ringHead = (_ringHead + 1) % RingSize;
+        if (_ringCount < RingSize) _ringCount++;
 
         insn = new Insn { Rva = rva, Length = length };
         bool conditional = _last.IsConditional;
@@ -193,6 +205,7 @@ internal sealed class Arm32Decoder : ICodeDecoder
         insn = new Insn { Rva = rva, Length = length, Flow = FlowKind.Invalid };
         _last.Flow = ArmFlow.Invalid;
         Array.Clear(_kind);
+        _ringCount = 0;
         _itLeft = 0;
     }
 
@@ -461,11 +474,265 @@ internal sealed class Arm32Decoder : ICodeDecoder
 
     // ---------------------------------------------------------------- switches
 
-    public void ConditionalBounds(out IndexBound taken, out IndexBound fallThrough) => taken = fallThrough = IndexBound.None;
+    /// <summary>Instruction <paramref name="k"/> steps back in the current run (0 = the last one).</summary>
+    private ref ArmInstruction Back(int k) => ref _ring[(_ringHead - 1 - k + RingSize * 2) % RingSize];
 
+    private uint BackRva(int k) => _ringRva[(_ringHead - 1 - k + RingSize * 2) % RingSize];
+
+    private static bool IsCall(in ArmInstruction i) => i.Flow is ArmFlow.Call or ArmFlow.IndirectCall;
+
+    /// <summary>Step of the nearest instruction at or before step <paramref name="k"/> that writes <paramref name="reg"/>, or -1 (also at a call).</summary>
+    private int Writer(int k, int reg)
+    {
+        for (; k < _ringCount; k++)
+        {
+            ref var x = ref Back(k);
+            if (IsCall(in x)) return -1;
+            if ((x.Writes & (1 << reg)) != 0) return k;
+        }
+        return -1;
+    }
+
+    /// <summary>The address <paramref name="reg"/> holds before step <paramref name="k"/>, formed in the run (ADR, ADD / SUB, MOV, MOVW / MOVT, PC-relative ADD of a literal).</summary>
+    private uint? Constant(int k, int reg, int depth = 0)
+    {
+        if (reg == Pc) return null;
+        int w = Writer(k, reg);
+        if (w < 0) return reg is >= FirstSaved and <= LastSaved && _savedState[reg] == 1 ? _saved[reg] : null;
+        if (depth > 6) return null;
+        var x = Back(w);
+        uint? Value(int operand)
+        {
+            var op = x.Operands[operand];
+            return op.Kind switch
+            {
+                ArmOperandKind.Immediate => (uint)op.Value,
+                ArmOperandKind.Register when op.Reg == Pc => PcValue(in x, literal: false),
+                ArmOperandKind.Register => Constant(w + 1, op.Reg, depth + 1),
+                _ => null,
+            };
+        }
+        switch (x.Mnemonic)
+        {
+            case "adr": return (uint)x.Op(1).Value;
+            case "mov" when x.OperandCount == 2: return Value(1);
+            case "movw": return (uint)x.Op(1).Value;
+            case "movt": return Constant(w + 1, reg, depth + 1) is { } low ? (low & 0xFFFF) | (uint)x.Op(1).Value << 16 : null;
+            case "add" or "addw" or "sub" or "subw":
+            {
+                uint? a = x.OperandCount == 2 ? Constant(w + 1, x.Op(0).Reg, depth + 1) : Value(1);
+                uint? b = Value(x.OperandCount == 2 ? 1 : 2);
+                if (a == null || b == null) return null;
+                return x.Mnemonic.StartsWith("add", StringComparison.Ordinal) ? a + b : a - b;
+            }
+            case "ldr" when Memory(in x) is { } m && x.Operands[m].Reg == Pc && x.Operands[m].Index == ArmOperand.NoReg:
+            {
+                uint at = x.Operands[m].Subtract ? PcValue(in x, true) - (uint)x.Operands[m].Value : PcValue(in x, true) + (uint)x.Operands[m].Value;
+                return TryRva(at, out uint rva) && _image.Read(rva, _scratch) == 4 ? BinaryPrimitives.ReadUInt32LittleEndian(_scratch) : null;
+            }
+        }
+        return null;
+    }
+
+    private static bool IsCompare(in ArmInstruction i) => i.Mnemonic is "cmp" or "cmn" or "tst" or "teq" || i.WritesFlags;
+
+    /// <summary>"cmp reg, #imm" (or against a register set by mov #imm) at step <paramref name="k"/>.</summary>
+    private bool Compare(int k, out int reg, out ulong imm)
+    {
+        reg = -1;
+        imm = 0;
+        ref var x = ref Back(k);
+        if (x.Mnemonic != "cmp" || x.OperandCount != 2 || x.Op(0).Kind != ArmOperandKind.Register) return false;
+        reg = x.Op(0).Reg;
+        var second = x.Op(1);
+        if (second.Kind == ArmOperandKind.Immediate) { imm = (ulong)second.Value; return true; }
+        if (second.Kind != ArmOperandKind.Register) return false;
+        int w = Writer(k + 1, second.Reg);
+        if (w < 0) return false;
+        ref var set = ref Back(w);
+        if (set.Mnemonic is not ("mov" or "movw") || set.OperandCount != 2 || set.Op(1).Kind != ArmOperandKind.Immediate) return false;
+        imm = (ulong)set.Op(1).Value;
+        return true;
+    }
+
+    /// <summary>The constant <paramref name="reg"/> was reduced by just before step <paramref name="k"/> (sub / add #imm), following copies.</summary>
+    private long BiasBefore(int k, int reg)
+    {
+        for (int n = 0; k < _ringCount && n < 8; k++, n++)
+        {
+            ref var x = ref Back(k);
+            if ((x.Writes & (1 << reg)) == 0) continue;
+            int last = x.OperandCount - 1;
+            if (x.Mnemonic is "sub" or "subw" or "add" or "addw" && last >= 1 && x.Op(last).Kind == ArmOperandKind.Immediate)
+                return x.Mnemonic.StartsWith("sub", StringComparison.Ordinal) ? x.Op(last).Value : -x.Op(last).Value;
+            if (x.Mnemonic == "mov" && x.OperandCount == 2 && x.Op(1).Kind == ArmOperandKind.Register) { reg = x.Op(1).Reg; continue; }
+            return 0;
+        }
+        return 0;
+    }
+
+    private const uint Hs = 2, Lo = 3, Hi = 8, Ls = 9;
+
+    private static uint? Condition(in ArmInstruction i) =>
+        i.Flow == ArmFlow.Jump && i.Mnemonic == "b" && i.IsConditional ? i.Cond : null;
+
+    public void ConditionalBounds(out IndexBound taken, out IndexBound fallThrough)
+    {
+        taken = fallThrough = IndexBound.None;
+        if (_ringCount < 2 || Condition(in Back(0)) is not { } cc) return;
+        int k = 1;
+        while (k < _ringCount && !IsCompare(in Back(k))) k++;
+        if (k >= _ringCount || !Compare(k, out int reg, out ulong imm) || imm >= uint.MaxValue) return;
+        for (int j = k - 1; j > 0; j--) if ((Back(j).Writes & (1 << reg)) != 0) return;
+        uint? target = Back(0).HasTarget && TryRva(Back(0).Target, out uint t) ? t : null;
+        uint next = BackRva(0) + Back(0).Length;
+        long bias = BiasBefore(k + 1, reg);
+        taken = new(0, 0, Bias: bias, FlagsReg: reg + 1, FlagsImm: imm);
+        switch (cc)
+        {
+            case Hi: fallThrough = new(reg + 1, (uint)imm + 1, Default: target, Bias: bias); break;
+            case Hs: fallThrough = new(reg + 1, (uint)imm, Default: target, Bias: bias); break;
+            case Ls: taken = taken with { Reg = reg + 1, Count = (uint)imm + 1, Default = next }; break;
+            case Lo: taken = taken with { Reg = reg + 1, Count = (uint)imm, Default = next }; break;
+        }
+    }
+
+    /// <summary>
+    /// The jump table dispatch ending at the last instruction: TBB / TBH [rn, rm] (targets pc + 2 × entry); a load into
+    /// PC from [table, index, lsl #2] (absolute entries); ADD PC of a base and an entry loaded from such a table
+    /// (base-relative entries); ADD PC, PC, index, lsl #2 (a run of branches); BX / MOV PC of a loaded entry. The index is
+    /// bounded by cmp + b.hi / b.hs on the path, by the dispatch's own LS / LO condition, an and-mask or a bound carried
+    /// into the run.
+    /// </summary>
     public SwitchMatch? MatchSwitch(out string reason)
     {
         reason = SwitchMatch.NoDispatch;
+        if (_ringCount == 0) return null;
+        ref var j = ref Back(0);
+        uint jumpRva = BackRva(0);
+        if (j.Mnemonic is "tbb" or "tbh")
+        {
+            var op = j.Op(0);
+            uint? table = op.Reg == Pc ? j.Address + 4 : Constant(1, op.Reg);
+            if (table is not { } tv || !TryRva(tv, out uint tableRva)) { reason = "table base register is not known"; return null; }
+            var m = Bound(0, op.Index, j.Mnemonic == "tbb" ? 1 : 2, tableRva, out reason);
+            return m == null ? null : m with { Base = jumpRva + 4, Shift = 1, Signed = false };
+        }
+        if (j.Loads && j.WritesPc && j.Mnemonic == "ldr")
+        {
+            if (TableLoad(0, out uint table, out int index) is not true) { reason = "jump through a pointer loaded from memory (a function pointer or vtable slot)"; return null; }
+            var m = Bound(0, index, 4, table, out reason);
+            return m == null ? null : m with { Absolute = true };
+        }
+        if (j.Mnemonic == "add" && j.WritesPc)
+        {
+            // add pc, pc, index, lsl #2: a run of branches right after the dispatch
+            if (j.OperandCount == 3 && j.Op(1).Kind == ArmOperandKind.Register && j.Op(1).Reg == Pc && j.Op(2).Kind == ArmOperandKind.ShiftedRegister
+                && j.Op(2).Shift == ArmShift.Lsl && j.Op(2).Amount == 2 && j.Op(2).ShiftReg == ArmOperand.NoReg)
+            {
+                uint first = PcValue(in j, literal: false) - _imageBase;
+                var m = Bound(0, j.Op(2).Reg, 4, first, out reason);
+                return m == null ? null : m with { Base = first, Shift = 2, Direct = true };
+            }
+            int a = j.OperandCount == 2 ? Pc : j.Op(1).Kind == ArmOperandKind.Register ? j.Op(1).Reg : -1;
+            int b = j.Op(j.OperandCount == 2 ? 1 : 2) is { Kind: ArmOperandKind.Register } rb ? rb.Reg : -1;
+            if (a < 0 || b < 0) return null;
+            foreach (var (baseReg, entryReg) in new[] { (a, b), (b, a) })
+            {
+                if (entryReg == Pc) continue;
+                int lw = Writer(1, entryReg);
+                if (lw < 0 || TableLoad(lw, out uint table, out int index) is not true) continue;
+                uint? baseVa = baseReg == Pc ? PcValue(in j, literal: false) : Constant(1, baseReg);
+                if (baseVa is not { } bv || !TryRva(bv, out uint baseRva)) continue;
+                var m = Bound(lw, index, 4, table, out reason);
+                return m == null ? null : m with { Base = baseRva, Shift = 0, Signed = true };
+            }
+            return null;
+        }
+        if (j.Mnemonic is "bx" or "mov" && j.OperandCount is 1 or 2)
+        {
+            int r = j.Op(j.OperandCount - 1).Reg;
+            int lw = Writer(1, r);
+            if (lw < 0) return null;
+            if (TableLoad(lw, out uint table, out int index) is true)
+            {
+                var m = Bound(lw, index, 4, table, out reason);
+                return m == null ? null : m with { Absolute = true };
+            }
+            // adr rB, run; add rT, rB, index, lsl #2; mov pc, rT: a run of branches
+            var x = Back(lw);
+            if (x.Mnemonic != "add" || x.OperandCount != 3 || x.Op(1).Kind != ArmOperandKind.Register || x.Op(2).Kind != ArmOperandKind.ShiftedRegister
+                || x.Op(2).Shift != ArmShift.Lsl || x.Op(2).Amount != 2 || x.Op(2).ShiftReg != ArmOperand.NoReg) return null;
+            uint? runVa = x.Op(1).Reg == Pc ? PcValue(in x, literal: false) : Constant(lw + 1, x.Op(1).Reg);
+            if (runVa is not { } rv || !TryRva(rv & ~1u, out uint first)) return null;
+            var direct = Bound(lw, x.Op(2).Reg, 4, first, out reason);
+            return direct == null ? null : direct with { Base = first, Shift = 2, Direct = true };
+        }
+        return null;
+    }
+
+    /// <summary>The word load at step <paramref name="k"/> reads [table, index, lsl #2] with the table address known.</summary>
+    private bool? TableLoad(int k, out uint tableRva, out int index)
+    {
+        tableRva = 0;
+        index = -1;
+        ref var x = ref Back(k);
+        if (x.Mnemonic != "ldr" || Memory(in x) is not { } m) return null;
+        var op = x.Operands[m];
+        if (op.Index == ArmOperand.NoReg || op.Subtract || op.Indexing != ArmIndexing.Offset || !(op.Shift == ArmShift.Lsl && op.Amount == 2)) return false;
+        uint? table = op.Reg == Pc ? PcValue(in x, literal: false) : Constant(k + 1, op.Reg);
+        if (table is not { } t || !TryRva(t, out tableRva)) return false;
+        index = op.Index;
+        return true;
+    }
+
+    /// <summary>
+    /// The bound of <paramref name="index"/> searched back from step <paramref name="from"/> (the dispatch's own condition
+    /// first): a SwitchMatch for the table, or null with the reason.
+    /// </summary>
+    private SwitchMatch? Bound(int from, int index, int entrySize, uint tableRva, out string reason)
+    {
+        reason = "switch index bound not found";
+        SwitchMatch Match(uint count) => new(tableRva, entrySize, false, false, count, null, 0, false);
+        ref var dispatch = ref Back(0);
+        uint? pending = dispatch.IsConditional && (uint)dispatch.Cond is Ls or Lo ? dispatch.Cond : null;
+        uint? pendingDefault = pending != null ? BackRva(0) + dispatch.Length : null;
+        bool own = pending != null;
+        int current = index;
+        for (int k = from + 1; k < _ringCount; k++)
+        {
+            ref var x = ref Back(k);
+            if (IsCall(in x)) return null;
+            if (!own && Condition(in x) is { } cc)
+            {
+                if (pending == null)
+                {
+                    pending = cc;
+                    pendingDefault = x.HasTarget && TryRva(x.Target, out uint d) ? d : null;
+                }
+                continue;
+            }
+            if (pending is { } p && IsCompare(in x))
+            {
+                if (Compare(k, out int reg, out ulong imm) && reg == current && imm < uint.MaxValue)
+                {
+                    uint? count = p switch { Hi or Ls => (uint)imm + 1, Hs or Lo => (uint)imm, _ => null };
+                    if (count != null) return Match(count.Value) with { Default = pendingDefault, Bias = BiasBefore(k + 1, current) };
+                }
+                pending = null;
+                own = false;
+            }
+            if ((x.Writes & (1 << current)) == 0) continue;
+            if (x.Mnemonic == "and" && x.OperandCount == 3 && x.Op(2).Kind == ArmOperandKind.Immediate && x.Op(2).Value is var mask and >= 0 and < 1 << 20 && (mask & (mask + 1)) == 0)
+                return Match((uint)mask + 1) with { BoundByMask = true };
+            if (x.Mnemonic is "uxtb" && x.OperandCount == 2) return Match(256) with { BoundByMask = true };
+            if (x.Mnemonic == "mov" && x.OperandCount == 2 && x.Op(1).Kind == ArmOperandKind.Register) { current = x.Op(1).Reg; continue; }
+            return null;
+        }
+        if (_runBound.Reg == current + 1)
+            return Match(_runBound.Count) with { Default = _runBound.Default, Bias = _runBound.Bias };
+        if (pending is Hi or Hs && _runBound.FlagsReg == current + 1 && _runBound.FlagsImm < uint.MaxValue)
+            return Match(pending == Hi ? (uint)_runBound.FlagsImm + 1 : (uint)_runBound.FlagsImm) with { Default = pendingDefault, Bias = _runBound.Bias };
         return null;
     }
 

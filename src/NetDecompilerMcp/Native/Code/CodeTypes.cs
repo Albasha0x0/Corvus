@@ -253,8 +253,10 @@ public enum SwitchTableKind : byte
     Rva,
     /// <summary>The target's offset from the table.</summary>
     TableRelative,
-    /// <summary>ARM64: the target's offset from a base address, scaled (base + entry * 4).</summary>
+    /// <summary>ARM: the target's offset from a base address, scaled (base + (entry &lt;&lt; shift)).</summary>
     BaseRelative,
+    /// <summary>ARM32: no table; the index selects one of a run of branches after the dispatch (base + index * 4).</summary>
+    Indexed,
 }
 
 /// <summary>

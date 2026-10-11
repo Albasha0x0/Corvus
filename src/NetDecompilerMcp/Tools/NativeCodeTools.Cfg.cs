@@ -31,7 +31,7 @@ public sealed record CfgSuccessor([property: Description("VA.")] string To, [pro
 public sealed record CfgSwitch(
     [property: Description("The indirect jump (VA).")] string Jump,
     [property: Description("Jump table (VA); null when the engine does not say.")] string? Table,
-    [property: Description("absolute, rva, table_relative or base_relative (ARM64: base + entry << shift) entries.")] string? TableKind,
+    [property: Description("absolute, rva, table_relative, base_relative (ARM: base + entry << shift) or indexed (ARM32 branch run: base + index * 4).")] string? TableKind,
     int? EntrySize,
     int? Entries,
     [property: Description("Byte index table in front of the jump table (VA).")] string? IndexTable,
@@ -59,6 +59,7 @@ internal sealed record SwitchView(uint Jump, uint? Table, string? TableKind, int
             SwitchTableKind.Absolute => "absolute",
             SwitchTableKind.TableRelative => "table_relative",
             SwitchTableKind.BaseRelative => "base_relative",
+            SwitchTableKind.Indexed => "indexed",
             _ => "rva",
         }, t.EntrySize, t.EntryCount, t.IndexTableRva, t.IndexTableRva != null ? t.IndexEntryCount : null, t.Bias, t.Default, t.DefaultValues, t.ValuesExact,
         [.. t.Cases.Select(c => (c.Target, c.Values))]) { Base = t.Base, Shift = t.Shift };
