@@ -5,7 +5,7 @@ namespace NetDecompilerMcp.Native.Code;
 
 /// <summary>
 /// The instruction state (ARM or Thumb) of code in a 32-bit ARM image. Facts come from the image (bit 0 of ELF function
-/// symbols, $a / $t mapping symbols; Windows images are Thumb only) and from analysis (BL keeps the state, BLX switches
+/// symbols, $a / $t mapping symbols; Windows images are Thumb only, Go functions ARM) and from analysis (BL keeps the state, BLX switches
 /// it, bit 0 of code pointers in data). A function start without a fact is sniffed: words decoding as A32 with
 /// the always condition (three of four, or every word up to an early return) read as ARM, anything else as Thumb. Also the
 /// per-image relocation facts the decoder needs (MOVW / MOVT relocations, GOT slots of exported functions). Thread-safe.
@@ -21,7 +21,11 @@ internal sealed class Arm32Modes
     public Arm32Modes(INativeImage image)
     {
         _image = image;
-        _allThumb = image.Format == ImageFormat.Pe;
+        // the Go compiler emits A32 only, Windows on ARM included
+        var go = Go.GoFunctionTable.Of(image);
+        _allThumb = image.Format == ImageFormat.Pe && go == null;
+        if (go != null)
+            foreach (var f in go.Functions) _facts.TryAdd(f.Rva, false);
         var mapping = new List<(uint, char)>();
         if (image is Elf.ElfFile elf)
         {

@@ -129,6 +129,26 @@ public sealed class GoFunctionTableTests
     }
 
     [Fact]
+    public void Windows_arm_go_functions_are_arm_state()
+    {
+        // Go emits A32 even on Windows, whose other ARM code is Thumb only: bx lr per function
+        const int Count = 4;
+        var text = new byte[Count * 0x20];
+        for (int i = 0; i < Count; i++) BinaryPrimitives.WriteUInt32LittleEndian(text.AsSpan(i * 0x20), 0xE12FFF1E);
+        var probe = CodeTestImage.Synthetic(NativeArch.Arm, text);
+        var data = new byte[0x2400];
+        Pclntab(GoTableVersion.Go118, 4, probe.ImageBase + CodeTestImage.SyntheticCodeRva, Count).CopyTo(data, 0x400);
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.Arm, text, data));
+        var dis = index.CreateDisassembler();
+        for (int i = 0; i < Count; i++)
+        {
+            uint start = CodeTestImage.SyntheticCodeRva + (uint)(i * 0x20);
+            var f = index.FunctionByStart(start)!;
+            Assert.Equal((false, 1, FunctionFlags.None), (dis.ThumbAt(start), f.InstructionCount, f.Flags & FunctionFlags.InvalidCode));
+        }
+    }
+
+    [Fact]
     public void MachO_arm64_table_in_constant_data_names_functions()
     {
         const int Count = 8;
