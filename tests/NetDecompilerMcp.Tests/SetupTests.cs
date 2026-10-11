@@ -176,7 +176,7 @@ public sealed class SetupTests : IDisposable
         var text = output.ToString();
         Assert.True(code == 1, text);
         Assert.Contains("registered with a missing program: C:/gone/NetDecompilerMcp.exe", text);
-        Assert.Contains("must be auto, ours or ida", text);
+        Assert.Contains("must be auto, ours, ida or ghidra", text);
         var tools = SelfTest.DeclaredTools().Count;
         Assert.True(tools > 50, $"{tools} declared tools");
         Assert.Matches($@"Cursor\s+registered \(version [0-9.]+, {tools} tools", text);

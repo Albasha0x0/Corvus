@@ -42,11 +42,15 @@ public abstract class McpProtocolTests : IAsyncLifetime
             Command = "dotnet",
             Arguments = [ServerDll, .. args],
             WorkingDirectory = workingDirectory,
-            // Keep the annotation sidecars out of the real per-user folder during tests; a server with its own working
-            // directory (the contract sweep) also gets its own sidecars, so its renames never reach a server running beside it.
+            // Annotation sidecars and edit journals stay out of the real per-user folder, one folder per server so one test's
+            // renames or unsaved-edit journal never reach another test's server; a working directory keeps its own folder
+            // (a restart there finds the first server's sidecars).
             EnvironmentVariables = new Dictionary<string, string?>
             {
-                ["NDM_ANNOTATIONS_DIR"] = workingDirectory != null ? Path.Combine(workingDirectory, ".ndm-annotations") : AnnotationsDir,            },
+                ["NDM_ANNOTATIONS_DIR"] = workingDirectory != null
+                    ? Path.Combine(workingDirectory, ".ndm-annotations")
+                    : Path.Combine(AnnotationsDir, Guid.NewGuid().ToString("N")),
+            },
             // The SDK waits this long for the server to exit before it closes the server's input, then ends it; the
             // server exits on end of input (ServerExitsWhenItsInputCloses), so waiting longer only delays each test.
             ShutdownTimeout = TimeSpan.FromMilliseconds(200),
@@ -240,18 +244,18 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["native_call_tree"] = (new() { ["image"] = NativeSample(dir), ["function"] = "First" }, "First"),
         ["find_virtual_calls"] = (new() { ["image"] = NativeSample(dir), ["status"] = "exact" }, "\"sites\":0"),
         ["search_native_strings"] = (new() { ["image"] = NativeSample(dir) }, "string"),
-        ["decompile_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["engine"] = "ghidra" }, "Error (invalid_argument) in decompile_native: parameter 'engine' must be one of auto, ida"),
-        ["set_native_type"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["type"] = "int f(void)", ["engine"] = "ghidra" },
+        ["decompile_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["engine"] = "bogus" }, "Error (invalid_argument) in decompile_native: parameter 'engine' must be one of auto, ida"),
+        ["set_native_type"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["type"] = "int f(void)", ["engine"] = "bogus" },
             "Error (invalid_argument) in set_native_type: parameter 'engine' must be one of auto, ida"),
-        ["set_native_local"] = (new() { ["image"] = NativeSample(dir), ["function"] = "First", ["local"] = "v1", ["newName"] = "count", ["engine"] = "ghidra" },
+        ["set_native_local"] = (new() { ["image"] = NativeSample(dir), ["function"] = "First", ["local"] = "v1", ["newName"] = "count", ["engine"] = "bogus" },
             "Error (invalid_argument) in set_native_local: parameter 'engine' must be one of auto, ida"),
-        ["set_native_stack_var"] = (new() { ["image"] = NativeSample(dir), ["function"] = "First", ["variable"] = "var_8", ["type"] = "int", ["engine"] = "ghidra" },
+        ["set_native_stack_var"] = (new() { ["image"] = NativeSample(dir), ["function"] = "First", ["variable"] = "var_8", ["type"] = "int", ["engine"] = "bogus" },
             "Error (invalid_argument) in set_native_stack_var: parameter 'engine' must be one of auto, ida"),
-        ["get_native_frame"] = (new() { ["image"] = NativeSample(dir), ["function"] = "First", ["engine"] = "ghidra" },
+        ["get_native_frame"] = (new() { ["image"] = NativeSample(dir), ["function"] = "First", ["engine"] = "bogus" },
             "Error (invalid_argument) in get_native_frame: parameter 'engine' must be one of auto, ida"),
-        ["declare_native_types"] = (new() { ["image"] = NativeSample(dir), ["declarations"] = "struct S { int a; };", ["engine"] = "ghidra" },
+        ["declare_native_types"] = (new() { ["image"] = NativeSample(dir), ["declarations"] = "struct S { int a; };", ["engine"] = "bogus" },
             "Error (invalid_argument) in declare_native_types: parameter 'engine' must be one of auto, ida"),
-        ["list_native_types"] = (new() { ["image"] = NativeSample(dir), ["engine"] = "ghidra" }, "Error (invalid_argument) in list_native_types: parameter 'engine' must be one of auto, ida"),
+        ["list_native_types"] = (new() { ["image"] = NativeSample(dir), ["engine"] = "bogus" }, "Error (invalid_argument) in list_native_types: parameter 'engine' must be one of auto, ida"),
         ["ida_python"] = (new() { ["image"] = NativeSample(dir), ["code"] = "1 + 1" }, "Error (unsupported) in ida_python: ida_python is disabled"),
         ["rename_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["name"] = "SweepFunc" }, "Named"),
         ["comment_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["text"] = "entry" }, "Commented"),
