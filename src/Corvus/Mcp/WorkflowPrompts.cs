@@ -12,7 +12,7 @@ public static class WorkflowPrompts
     public static string AnalyzeAssembly(
         [Description("Path to an assembly file or folder.")] string path,
         [Description("What you care about (optional), e.g. networking, persistence, licensing.")] string? focus = null) => $"""
-        Use the net-decompiler tools to analyze {path}.
+        Use the corvus tools to analyze {path}.
         1. load_assembly (path={path}; it can be a folder). Then get_assembly_info on the main assembly (for a Unity build: Assembly-CSharp).
         2. list_namespaces, then list_types per interesting namespace. Note Il2Cpp dummy DLLs (bodies are stubs) if reported.
         3. Identify entry points and core systems: managers/singletons, networking, persistence, UI, the main loop. Use search_symbols and get_type_info (cheaper than decompiling).
@@ -26,7 +26,7 @@ public static class WorkflowPrompts
     public static string FindFeature(
         [Description("The behaviour to find, e.g. 'license check', 'update download', 'settings file encryption'.")] string feature,
         [Description("Assembly id to focus on (optional).")] string? assembly = null) => $"""
-        Find where "{feature}" is implemented{(assembly is null ? "" : $" in {assembly}")} using the net-decompiler tools.
+        Find where "{feature}" is implemented{(assembly is null ? "" : $" in {assembly}")} using the corvus tools.
         - Start broad: search_strings for UI/log text related to it, search_symbols for likely names (use wildcards), search_constants for known magic numbers.
         - For each candidate, get_type_info / decompile_member, then follow the flow with find_references (callers) and find_callees (callees).
         - For virtual/interface methods, use find_overrides; for transformed names, rely on strings, constants and search_il patterns.
@@ -105,7 +105,7 @@ public static class WorkflowPrompts
     public static string AnalyzeNative(
         [Description("Absolute path to the native file.")] string path,
         [Description("What you care about (optional), e.g. networking, file formats, plugin loading.")] string? focus = null) => $"""
-        Use the net-decompiler native tools on {path}.
+        Use the corvus native tools on {path}.
         1. load_assembly (path={path}), then summarize_file assembly=<image id> for triage (top functions with roles, top strings, import groups, roots),
            and get_pe_info: machine, subsystem, mitigations, PDB path, version resource, rich header (toolchain), signature, overlay, parse issues.
         2. list_imports grouped by DLL: name the capabilities they imply (files, registry, network, crypto, processes, UI). list_exports if it is a DLL.
@@ -121,7 +121,7 @@ public static class WorkflowPrompts
     public static string TraceNativeFeature(
         [Description("The behaviour to find, e.g. 'license check', 'save file encryption', 'update download'.")] string feature,
         [Description("Native image id or path.")] string image) => $"""
-        Find where "{feature}" is implemented in {image} with the net-decompiler native tools.
+        Find where "{feature}" is implemented in {image} with the corvus native tools.
         - Start with trace_native_feature for each word or API the feature implies (one call per query; regex=true for spelling variants): it ranks the
           functions holding the matching strings, names, imports, exports and classes, and names the hubs that reach several of them.
         - Read the top functions with analyze_native_function (callers, callees with arguments, data, flow), then decompile_native on the deciding ones
@@ -166,7 +166,7 @@ public static class WorkflowPrompts
         [Description("The old build: a file or folder.")] string oldPath,
         [Description("The new build: a file or folder.")] string newPath,
         [Description("What matters most (optional), e.g. 'networking' or 'the license check'.")] string? focus = null) => $"""
-        Compare {oldPath} (old) with {newPath} (new) with the net-decompiler tools.
+        Compare {oldPath} (old) with {newPath} (new) with the corvus tools.
         1. load_assembly both paths; note the ids each side gets (the new side's ids carry #2 when the names repeat).
         2. .NET: compare_assemblies oldAssembly=<old id> newAssembly=<new id> for every pair; native: compare_native_images oldImage=<old id> newImage=<new id>.
         3. For the 5-10 most relevant changed members, find_counterpart with diff=true; for changed native functions, diff_function (view=asm, or pseudocode with IDA).
@@ -182,7 +182,7 @@ public static class WorkflowPrompts
         [Description("A .dmp file, an open dump id, or a folder of dumps (optional).")] string? dump = null,
         [Description("Crash text (optional): a log excerpt, exception text, Report.wer or event text.")] string? crashText = null,
         [Description("The crashed program's binaries (';'-separated ids or paths; optional).")] string? images = null) => $"""
-        Triage this crash with the net-decompiler tools.{(string.IsNullOrWhiteSpace(images) ? "" : $" Load the binaries first: {images}.")}
+        Triage this crash with the corvus tools.{(string.IsNullOrWhiteSpace(images) ? "" : $" Load the binaries first: {images}.")}
         - A folder of dumps ({dump ?? "none given"}): bucket_minidumps, then triage the representative of the largest bucket.
         - A dump: open_minidump (exception, managed section; downloadDac=true only when the user agrees to a download), dump_stack on the faulting thread,
           then for the top frames that are not runtime or raising machinery: decompile_native or find_method_by_address for native and Il2Cpp code,

@@ -97,7 +97,7 @@ public sealed partial class DevRelay : IAsyncDisposable
         try { _active = Start(RelayBuild.From(RelayBuilds.ReadMarker(_options.Target))); }
         catch (Exception ex) when (IsStartFailure(ex))
         {
-            _log.WriteLine($"net-decompiler relay: cannot start the server from {_options.Target}: {ex.Message}");
+            _log.WriteLine($"corvus relay: cannot start the server from {_options.Target}: {ex.Message}");
             return 1;
         }
         var watch = WatchAsync(_stop.Token);
@@ -607,7 +607,7 @@ public sealed partial class DevRelay : IAsyncDisposable
                 _force = false;
                 _notices.Add(text);
             }
-            lock (_log) _log.WriteLine("net-decompiler relay: " + text);
+            lock (_log) _log.WriteLine("corvus relay: " + text);
             outcome = (false, text);
         }
         finally

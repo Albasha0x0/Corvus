@@ -22,7 +22,7 @@ public sealed class ClientCatalogTests : IDisposable
     {
         var (code, output) = _home.Run("install", "--no-check", "--client", "devin,command-code,grok-build,omp,pi");
         Assert.True(code == 0, output);
-        JsonNode Entry(string id) => ReadJson(Client(id).Target.Path)["mcpServers"]!["net-decompiler"]!;
+        JsonNode Entry(string id) => ReadJson(Client(id).Target.Path)["mcpServers"]!["corvus"]!;
 
         var devin = Entry("devin");
         Assert.Equal(SetupHome.Launch.Command, devin["command"]!.GetValue<string>());
@@ -36,7 +36,7 @@ public sealed class ClientCatalogTests : IDisposable
         Assert.Equal("stdio", Entry("pi")["type"]!.GetValue<string>());
         Assert.Equal(_home.Path(".pi", "agent", "mcp.json"), Client("pi").Target.Path);
         var grok = File.ReadAllText(_home.Path(".grok", "config.toml"));
-        Assert.Contains("[mcp_servers.net-decompiler]\ncommand = " + JsonSerializer.Serialize(SetupHome.Launch.Command), grok);
+        Assert.Contains("[mcp_servers.corvus]\ncommand = " + JsonSerializer.Serialize(SetupHome.Launch.Command), grok);
         Assert.Equal(_home.Path("gh", "config.toml"), Client("grok-build", new() { ["GROK_HOME"] = _home.Path("gh") }).Target.Path);
     }
 
@@ -64,27 +64,27 @@ public sealed class ClientCatalogTests : IDisposable
     [Fact]
     public void DisabledEntries_AreDetected_AndKeptDisabledOnRefresh()
     {
-        _home.Write("""{ "mcpServers": { "net-decompiler": { "command": "old", "disabled": true } } }""", ".cursor", "mcp.json");
-        _home.Write("""{ "mcpServers": { "net-decompiler": { "transport": "stdio", "command": "old", "enabled": false } } }""", ".commandcode", "mcp.json");
-        _home.Write("""{ "disabledServers": ["net-decompiler"], "mcpServers": { "net-decompiler": { "command": "old" } } }""", ".omp", "agent", "mcp.json");
-        _home.Write("disabled_mcp_servers = [\"other\", 'net-decompiler']\n\n[mcp_servers.net-decompiler]\ncommand = \"old\"\n", ".grok", "config.toml");
-        _home.Write("[mcp_servers.net-decompiler]\ncommand = \"old\"\nenabled = false\n", ".codex", "config.toml");
+        _home.Write("""{ "mcpServers": { "corvus": { "command": "old", "disabled": true } } }""", ".cursor", "mcp.json");
+        _home.Write("""{ "mcpServers": { "corvus": { "transport": "stdio", "command": "old", "enabled": false } } }""", ".commandcode", "mcp.json");
+        _home.Write("""{ "disabledServers": ["corvus"], "mcpServers": { "corvus": { "command": "old" } } }""", ".omp", "agent", "mcp.json");
+        _home.Write("disabled_mcp_servers = [\"other\", 'corvus']\n\n[mcp_servers.corvus]\ncommand = \"old\"\n", ".grok", "config.toml");
+        _home.Write("[mcp_servers.corvus]\ncommand = \"old\"\nenabled = false\n", ".codex", "config.toml");
         foreach (var id in new[] { "cursor", "command-code", "omp", "grok-build", "codex" })
-            Assert.True(Client(id).Target.Current("net-decompiler")!.Disabled, id);
+            Assert.True(Client(id).Target.Current("corvus")!.Disabled, id);
 
         // An allowlist turns an OMP entry back on; the denylist wins over it.
-        _home.Write("""{ "enabledServers": ["net-decompiler"], "mcpServers": { "net-decompiler": { "command": "old", "enabled": false } } }""", ".omp", "agent", "mcp.json");
-        Assert.False(Client("omp").Target.Current("net-decompiler")!.Disabled);
-        _home.Write("""{ "mcpServers": { "net-decompiler": { "command": "old", "disabled": true } } }""", ".omp", "agent", "mcp.json");
+        _home.Write("""{ "enabledServers": ["corvus"], "mcpServers": { "corvus": { "command": "old", "enabled": false } } }""", ".omp", "agent", "mcp.json");
+        Assert.False(Client("omp").Target.Current("corvus")!.Disabled);
+        _home.Write("""{ "mcpServers": { "corvus": { "command": "old", "disabled": true } } }""", ".omp", "agent", "mcp.json");
 
         var (code, output) = _home.Run("install", "--no-check");
         Assert.True(code == 0, output);
         Assert.Contains("kept disabled", output);
-        Assert.True(ReadJson(_home.Path(".cursor", "mcp.json"))["mcpServers"]!["net-decompiler"]!["disabled"]!.GetValue<bool>());
-        Assert.False(ReadJson(_home.Path(".commandcode", "mcp.json"))["mcpServers"]!["net-decompiler"]!["enabled"]!.GetValue<bool>());
+        Assert.True(ReadJson(_home.Path(".cursor", "mcp.json"))["mcpServers"]!["corvus"]!["disabled"]!.GetValue<bool>());
+        Assert.False(ReadJson(_home.Path(".commandcode", "mcp.json"))["mcpServers"]!["corvus"]!["enabled"]!.GetValue<bool>());
         Assert.Contains("enabled = false", File.ReadAllText(_home.Path(".codex", "config.toml")));
         Assert.All(new[] { "cursor", "command-code", "grok-build", "codex" }, id =>
-            Assert.Equal(SetupHome.Launch.Command, Client(id).Target.Current("net-decompiler")!.Command));
+            Assert.Equal(SetupHome.Launch.Command, Client(id).Target.Current("corvus")!.Command));
     }
 
     [Fact]

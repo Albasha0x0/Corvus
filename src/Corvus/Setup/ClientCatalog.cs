@@ -13,7 +13,14 @@ internal sealed record McpClient(string Id, string Name, string[] Aliases, Confi
 /// <summary>User-level configuration locations and entry formats of supported MCP clients.</summary>
 internal static class ClientCatalog
 {
-    public const string ServerName = "net-decompiler";
+    public const string ServerName = "corvus";
+
+    // Migration only: the registration name before the rename; install renames such entries, uninstall removes them.
+    public const string LegacyServerName = "net-decompiler";
+
+    /// <summary>A legacy entry's environment key under its current name: NDM_X became CORVUS_X, NETDECOMP_LOAD CORVUS_LOAD.</summary>
+    public static string MigratedEnvKey(string key) =>
+        key.StartsWith("NDM_", StringComparison.Ordinal) ? "CORVUS_" + key[4..] : key == "NETDECOMP_LOAD" ? "CORVUS_LOAD" : key;
 
     private static JsonArray Strings(IEnumerable<string> items) => new([.. items.Select(i => (JsonNode)JsonValue.Create(i)!)]);
 

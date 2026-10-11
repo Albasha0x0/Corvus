@@ -157,23 +157,62 @@ internal static class SetupCli
             output.WriteLine($"--dev-reload: {target} does not exist; publish first (./publish.ps1).");
             return null;
         }
+        var (relayed, error) = RelayLaunch(env, launch, target, dryRun);
+        if (error != null) output.WriteLine($"--dev-reload: {error}");
+        return relayed;
+    }
+
+    /// <summary>The relay for <paramref name="target"/>, run from a staged copy of <paramref name="launch"/>'s program; else why not.</summary>
+    private static (ServerLaunch? Launch, string? Error) RelayLaunch(SetupEnvironment env, ServerLaunch launch, string target, bool dryRun)
+    {
         var state = env.Variable("CORVUS_RELAY_DIR") is { Length: > 0 } dir ? dir : Installation.DataRoot(env) is { } root ? Path.Combine(root, "relay") : null;
-        if (state == null)
-        {
-            output.WriteLine("--dev-reload: no per-user data folder; set CORVUS_RELAY_DIR.");
-            return null;
-        }
-        bool dotnet = launch.Args.Count > 0 && Path.GetFileName(launch.Args[0]).Equals("corvus.dll", StringComparison.OrdinalIgnoreCase);
+        if (state == null) return (null, "no per-user data folder; set CORVUS_RELAY_DIR.");
+        bool dotnet = launch.Args.Count > 0 && Corvus.Relay.RelayBuilds.IsProgramDll(launch.Args[0]);
         var program = dotnet ? launch.Args[0] : launch.Command;
         string staged;
         try { staged = Corvus.Relay.RelayBuilds.StageHost(program, state, dryRun); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            output.WriteLine($"--dev-reload: cannot copy {program} to {state}: {ex.Message}");
-            return null;
-        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return (null, $"cannot copy {program} to {state}: {ex.Message}"); }
         string[] relay = [Corvus.Relay.RelayCli.Command, "--target", target];
-        return dotnet ? new ServerLaunch(launch.Command, [staged, .. relay]) : new ServerLaunch(staged, relay);
+        return (dotnet ? new ServerLaunch(launch.Command, [staged, .. relay]) : new ServerLaunch(staged, relay), null);
+    }
+
+    /// <summary>
+    /// Migration only: moves each entry under the name used before the rename to ours, run by this program with the
+    /// entry's arguments and env (a relay entry stays a relay, staged from this program, for the same publish folder).
+    /// Returns the clients' rows; they are done and left out of the plan.
+    /// </summary>
+    private static List<ClientReport> RenameLegacy(TextWriter text, SetupEnvironment env, IEnumerable<McpClient> clients, ServerLaunch launch, bool dryRun)
+    {
+        var rows = new List<ClientReport>();
+        foreach (var client in clients)
+        {
+            if (client.Target.Current(ClientCatalog.LegacyServerName) is not { } old) continue;
+            var row = new ClientReport
+            {
+                Id = client.Id, Name = client.Name, Detected = client.Present, ConfigPath = client.Target.Path, Registered = old,
+                Action = SetupAction.Rename, Client = client,
+            };
+            rows.Add(row);
+            var entryLaunch = launch;
+            if (Corvus.Relay.RelayCli.TargetOf(old.Args) is { } target)
+            {
+                var (relayed, error) = RelayLaunch(env, launch, target, dryRun);
+                if (relayed != null) entryLaunch = relayed;
+                else row.Message = $"relay not kept ({error}); ";
+            }
+            if (dryRun) row.Message += $"would rename from {ClientCatalog.LegacyServerName}";
+            else
+            {
+                ConfigChange result;
+                try { result = client.Target.Rename(ClientCatalog.LegacyServerName, ClientCatalog.ServerName, entryLaunch); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { result = new ConfigChange(false, $"left unchanged: {ex.Message}"); }
+                row.Message += result.Message;
+                if (!result.Changed) row.Action = SetupAction.Blocked;
+            }
+            var mark = dryRun ? SetupAction.Rename : row.Action == SetupAction.Blocked ? " !! " : " ok ";
+            text.WriteLine($"  {mark,-10} {row.Name,-20} {SetupPlan.Short(env, row.ConfigPath)}  {row.Message}");
+        }
+        return rows;
     }
 
     private static LaunchReport Describe(ServerLaunch launch) => new(launch.Command, launch.Args);
@@ -211,9 +250,12 @@ internal static class SetupCli
 
         // Named clients replace detection: only they are touched.
         var candidates = named.Count > 0 ? named : all;
-        report.Clients.AddRange(SetupPlan.Build(candidates, launch, named, refreshOnly));
+        // Entries under the old name are renamed after the plan; one without ours becomes ours, so it is not planned.
+        var legacy = candidates.Where(c => c.Target.Current(ClientCatalog.LegacyServerName) != null).ToList();
+        report.Clients.AddRange(SetupPlan.Build([.. candidates.Where(c => !legacy.Contains(c) || c.Target.Current(ClientCatalog.ServerName) != null)],
+            launch, named, refreshOnly));
         var rows = SetupPlan.Shown(report.Clients).ToList();
-        if (rows.Count == 0)
+        if (rows.Count == 0 && legacy.Count == 0)
         {
             text.WriteLine("No supported MCP client found. Install one, then run: NetDecompilerMcp install");
             text.WriteLine("For any other client, add the output of: NetDecompilerMcp config");
@@ -228,7 +270,9 @@ internal static class SetupCli
             SetupPlan.Write(text, env, rows);
             if (dryRun)
             {
-                Skills(text, env, report, rows, a.Has("--skill"), dryRun: true);
+                var renames = RenameLegacy(text, env, legacy, launch, dryRun: true);
+                report.Clients.AddRange(renames);
+                Skills(text, env, report, [.. rows, .. renames], a.Has("--skill"), dryRun: true);
                 if (pending.Any(r => r.NeedsConsent)) text.WriteLine("New clients are added after confirmation, or with --yes / --all-detected.");
                 text.WriteLine("Dry run: nothing was written.");
                 return Finish(0);
@@ -269,7 +313,11 @@ internal static class SetupCli
             var mark = row.Action == SetupAction.Blocked ? "!! " : row.Action == SetupAction.Skip ? "-- " : "ok ";
             text.WriteLine($"  {mark} {row.Name,-20} {row.Message,-20} {SetupPlan.Short(env, row.ConfigPath)}");
         }
-        Skills(text, env, report, rows, a.Has("--skill"), dryRun: false);
+        var renamed = RenameLegacy(text, env, legacy, launch, dryRun: false);
+        report.Clients.AddRange(renamed);
+        failed += renamed.Count(r => r.Action == SetupAction.Blocked);
+        changed += renamed.Count(r => r.Action == SetupAction.Rename);
+        Skills(text, env, report, [.. rows, .. renamed], a.Has("--skill"), dryRun: false);
         foreach (var note in report.Notes) text.WriteLine(note);
         if (changed > 0) text.WriteLine("Restart the clients above (or reload their MCP servers) to load it.");
         report.Applied = changed > 0;
@@ -283,7 +331,7 @@ internal static class SetupCli
     /// </summary>
     private static void Skills(TextWriter text, SetupEnvironment env, SetupReport report, IEnumerable<ClientReport> rows, bool add, bool dryRun)
     {
-        var clients = rows.Where(r => r.Action is SetupAction.Add or SetupAction.Refresh or SetupAction.Unchanged).Select(r => r.Id).ToList();
+        var clients = rows.Where(r => r.Action is SetupAction.Add or SetupAction.Refresh or SetupAction.Unchanged or SetupAction.Rename).Select(r => r.Id).ToList();
         var folders = Skill.FoldersOf(env, clients);
         if (add && folders.Count == 0)
             report.Notes.Add($"--skill: none of these clients reads skills ({string.Join(", ", Skill.Targets(env).Select(t => t.Client).Distinct())} do).");
@@ -306,6 +354,26 @@ internal static class SetupCli
             report.Skills.Add(new SkillReport(folder, served, state, message));
             text.WriteLine($"  skill      {string.Join(", ", served),-20} {SetupPlan.Short(env, folder)}  {message}");
         }
+
+        // Migration only: a skill written before the rename is written under the current name and the old folder removed.
+        foreach (var (legacy, current) in Skill.LegacyFolders(env))
+        {
+            string message;
+            if (dryRun) message = $"would replace {SetupPlan.Short(env, legacy)}";
+            else
+            {
+                try
+                {
+                    var written = Skill.Write(current);
+                    if (Skill.StateOf(current) == Skill.Aligned) Skill.Remove(legacy);
+                    message = Skill.StateOf(current) == Skill.Aligned ? $"replaces {SetupPlan.Short(env, legacy)}" : written.Message;
+                    report.Applied = true;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { message = $"left unchanged: {ex.Message}"; }
+            }
+            report.Skills.Add(new SkillReport(current, [], Skill.Stale, message));
+            text.WriteLine($"  skill      {"",-20} {SetupPlan.Short(env, current)}  {message}");
+        }
     }
 
     private static int Uninstall(TextWriter output, SetupEnvironment env, SetupArgs a)
@@ -321,29 +389,37 @@ internal static class SetupCli
         if (Named(output, all, a.Clients) is not { } named) return 2;
         var text = json ? TextWriter.Null : output;
         var report = new SetupReport { Command = "uninstall", Launch = Describe(Installation.Launch()), DryRun = dryRun };
+        // Entries under the name used before the rename go too.
+        string[] names = [ClientCatalog.ServerName, ClientCatalog.LegacyServerName];
         foreach (var client in named.Count > 0 ? named : all)
         {
-            if (client.Target.Current(ClientCatalog.ServerName) is not { } current) continue;
-            var row = new ClientReport
+            foreach (var name in names)
             {
-                Id = client.Id, Name = client.Name, Detected = client.Present, ConfigPath = client.Target.Path, Registered = current,
-                Action = SetupAction.Remove, Client = client,
-            };
-            report.Clients.Add(row);
-            if (dryRun)
-            {
-                text.WriteLine($"  remove    {client.Name,-20} {SetupPlan.Short(env, client.Target.Path)}");
-                continue;
+                if (client.Target.Current(name) is not { } current) continue;
+                var row = new ClientReport
+                {
+                    Id = client.Id, Name = client.Name, Detected = client.Present, ConfigPath = client.Target.Path, Registered = current,
+                    Action = SetupAction.Remove, Client = client,
+                };
+                report.Clients.Add(row);
+                var label = name == ClientCatalog.ServerName ? client.Name : $"{client.Name} ({name})";
+                if (dryRun)
+                {
+                    text.WriteLine($"  remove    {label,-20} {SetupPlan.Short(env, client.Target.Path)}");
+                    continue;
+                }
+                var result = client.Target.Uninstall(name);
+                row.Message = result.Message;
+                report.Applied |= result.Changed;
+                text.WriteLine($"  {label,-20} {result.Message,-20} {SetupPlan.Short(env, client.Target.Path)}");
             }
-            var result = client.Target.Uninstall(ClientCatalog.ServerName);
-            row.Message = result.Message;
-            report.Applied |= result.Changed;
-            text.WriteLine($"  {client.Name,-20} {result.Message,-20} {SetupPlan.Short(env, client.Target.Path)}");
         }
 
         // A shared skill folder stays while a client not named here still has the server registered.
-        List<string> stillRegistered = named.Count == 0 ? [] : [.. all.Where(c => !named.Contains(c) && c.Target.Current(ClientCatalog.ServerName) != null).Select(c => c.Id)];
-        foreach (var (folder, served) in Skill.FoldersOf(env, (named.Count > 0 ? named : all).Select(c => c.Id)))
+        List<string> stillRegistered = named.Count == 0 ? []
+            : [.. all.Where(c => !named.Contains(c) && names.Any(n => c.Target.Current(n) != null)).Select(c => c.Id)];
+        foreach (var (folder, served) in Skill.FoldersOf(env, (named.Count > 0 ? named : all).Select(c => c.Id))
+                     .SelectMany(f => new[] { f, (Skill.LegacyOf(f.Folder), f.Clients) }))
         {
             var state = Skill.StateOf(folder);
             if (state is Skill.Missing or Skill.Foreign) continue;
@@ -412,7 +488,9 @@ internal static class SetupCli
         {
             foreach (var client in named.Count > 0 ? named : all)
             {
-                var current = client.Target.Current(ClientCatalog.ServerName);
+                // An entry under the name used before the rename is checked as the registration until install renames it.
+                var legacy = client.Target.Current(ClientCatalog.ServerName) == null ? client.Target.Current(ClientCatalog.LegacyServerName) : null;
+                var current = client.Target.Current(ClientCatalog.ServerName) ?? legacy;
                 if (named.Count == 0 && !client.Present && current == null && !File.Exists(client.Target.Path)) continue;
                 var row = new ClientReport
                 {
@@ -420,6 +498,7 @@ internal static class SetupCli
                     Action = null, Client = client,
                 };
                 Doctor.Check(row, env, launch, tests);
+                if (legacy != null) Doctor.MarkLegacy(row);
                 if (named.Count == 0 && row.State == Doctor.NotRegistered && !client.Present) continue;
                 report.Clients.Add(row);
                 text.WriteLine($"  {client.Name,-20} {row.Message}");

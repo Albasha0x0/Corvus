@@ -28,19 +28,19 @@ public sealed class JsoncEditorTests : IDisposable
     {
         var text = "// Zed settings\n{\n  \"ui_font_size\": 16, // trailing comment\n  /* block */\n  \"theme\": \"One Dark\"\n}\n";
         var target = Target(text, ["context_servers"], l => new JsonObject { ["command"] = l.Command, ["args"] = new JsonArray(), ["env"] = new JsonObject() });
-        var change = target.Install("net-decompiler", Launch);
+        var change = target.Install("corvus", Launch);
         Assert.Equal("registered", change.Message);
         var after = File.ReadAllText(target.Path);
-        Assert.StartsWith("// Zed settings\n{\n  \"ui_font_size\": 16, // trailing comment\n  /* block */\n  \"theme\": \"One Dark\",\n  \"context_servers\": {\n    \"net-decompiler\": {\n", after);
-        Assert.Equal(Launch.Command, Lenient(target.Path)["context_servers"]!["net-decompiler"]!["command"]!.GetValue<string>());
-        Assert.True(target.Preview("net-decompiler", Launch).PreservesComments);
-        Assert.Equal("already registered", target.Install("net-decompiler", Launch).Message);
+        Assert.StartsWith("// Zed settings\n{\n  \"ui_font_size\": 16, // trailing comment\n  /* block */\n  \"theme\": \"One Dark\",\n  \"context_servers\": {\n    \"corvus\": {\n", after);
+        Assert.Equal(Launch.Command, Lenient(target.Path)["context_servers"]!["corvus"]!["command"]!.GetValue<string>());
+        Assert.True(target.Preview("corvus", Launch).PreservesComments);
+        Assert.Equal("already registered", target.Install("corvus", Launch).Message);
 
-        Assert.Equal("removed", target.Uninstall("net-decompiler").Message);
+        Assert.Equal("removed", target.Uninstall("corvus").Message);
         var removed = File.ReadAllText(target.Path);
         Assert.Contains("// trailing comment", removed);
         Assert.Contains("/* block */", removed);
-        Assert.Null(Lenient(target.Path)["context_servers"]!["net-decompiler"]);
+        Assert.Null(Lenient(target.Path)["context_servers"]!["corvus"]);
     }
 
     [Fact]
@@ -48,13 +48,13 @@ public sealed class JsoncEditorTests : IDisposable
     {
         var text = "{\r\n\t// servers\r\n\t\"servers\": {\r\n\t\t\"other\": { \"command\": \"x\" }, /* keep */\r\n\t},\r\n}\r\n";
         var target = Target(text, ["servers"], l => new JsonObject { ["type"] = "stdio", ["command"] = l.Command, ["args"] = new JsonArray() }, bom: true);
-        Assert.Equal("registered", target.Install("net-decompiler", Launch).Message);
+        Assert.Equal("registered", target.Install("corvus", Launch).Message);
         var bytes = File.ReadAllBytes(target.Path);
         Assert.Equal([0xEF, 0xBB, 0xBF], bytes[..3]);
         var after = File.ReadAllText(target.Path);
         Assert.DoesNotContain("\n", after.Replace("\r\n", ""));
         Assert.Contains("\t// servers\r\n", after);
-        Assert.Contains("\"other\": { \"command\": \"x\" }, /* keep */\r\n\t\t\"net-decompiler\": {\r\n\t\t\t\"type\": \"stdio\",", after);
+        Assert.Contains("\"other\": { \"command\": \"x\" }, /* keep */\r\n\t\t\"corvus\": {\r\n\t\t\t\"type\": \"stdio\",", after);
         Assert.EndsWith("\t},\r\n}\r\n", after);
         Assert.Equal("x", Lenient(target.Path)["servers"]!["other"]!["command"]!.GetValue<string>());
     }
@@ -65,7 +65,7 @@ public sealed class JsoncEditorTests : IDisposable
         var text = """
             {
                 "mcpServers": {
-                    "net-decompiler": {
+                    "corvus": {
                         "command": "C:/old.exe", // old build
                         "args": ["--load", "x"], /* my args */
                         "env": { "A": "1" }
@@ -75,7 +75,7 @@ public sealed class JsoncEditorTests : IDisposable
 
             """.Replace("\r\n", "\n");
         var target = Target(text, entry: l => new JsonObject { ["command"] = l.Command, ["args"] = new JsonArray(), ["disabled"] = false });
-        Assert.Equal("registered", target.Install("net-decompiler", Launch).Message);
+        Assert.Equal("registered", target.Install("corvus", Launch).Message);
         var expected = text
             .Replace("\"C:/old.exe\"", JsonSerializer.Serialize(Launch.Command))
             .Replace("\"env\": { \"A\": \"1\" }", "\"env\": { \"A\": \"1\" },\n            \"disabled\": false");
@@ -87,14 +87,14 @@ public sealed class JsoncEditorTests : IDisposable
     {
         var text = "{\n    \"mcpServers\": {\n        \"other\": {\"command\": \"x\"}\n    },\n    \"z\": 1\n}";
         var target = Target(text);
-        target.Install("net-decompiler", Launch);
+        target.Install("corvus", Launch);
         var after = File.ReadAllText(target.Path);
         JsonDocument.Parse(after).Dispose();
-        Assert.StartsWith("{\n    \"mcpServers\": {\n        \"other\": {\"command\": \"x\"},\n        \"net-decompiler\": {\n            \"command\": ", after);
+        Assert.StartsWith("{\n    \"mcpServers\": {\n        \"other\": {\"command\": \"x\"},\n        \"corvus\": {\n            \"command\": ", after);
         Assert.EndsWith("    },\n    \"z\": 1\n}", after);
 
         // Removing the last entry also removes the comma before it.
-        target.Uninstall("net-decompiler");
+        target.Uninstall("corvus");
         Assert.Equal(text, File.ReadAllText(target.Path));
     }
 
@@ -110,10 +110,10 @@ public sealed class JsoncEditorTests : IDisposable
     {
         var target = Target(text);
         var model = JsonNode.Parse(text, documentOptions: LenientOptions)!.AsObject();
-        Assert.Equal("registered", target.Install("net-decompiler", Launch).Message);
+        Assert.Equal("registered", target.Install("corvus", Launch).Message);
         var servers = model["mcpServers"] as JsonObject ?? new JsonObject();
         model["mcpServers"] = servers.DeepClone();
-        model["mcpServers"]!["net-decompiler"] = new JsonObject { ["command"] = Launch.Command, ["args"] = new JsonArray() };
+        model["mcpServers"]!["corvus"] = new JsonObject { ["command"] = Launch.Command, ["args"] = new JsonArray() };
         Assert.True(JsonNode.DeepEquals(model, Lenient(target.Path)), File.ReadAllText(target.Path));
         if (!text.Contains("//", StringComparison.Ordinal)) JsonDocument.Parse(File.ReadAllText(target.Path)).Dispose();
         if (text.Contains("only a comment", StringComparison.Ordinal)) Assert.Contains("only a comment", File.ReadAllText(target.Path));
@@ -124,11 +124,11 @@ public sealed class JsoncEditorTests : IDisposable
     {
         // The container is not an object: replaced by one, as before, and the lost comment is reported.
         var target = Target("{\n  // note\n  \"mcpServers\": []\n}\n");
-        Assert.False(target.Preview("net-decompiler", Launch).PreservesComments);
-        var change = target.Install("net-decompiler", Launch);
+        Assert.False(target.Preview("corvus", Launch).PreservesComments);
+        var change = target.Install("corvus", Launch);
         Assert.Contains("comments were not kept", change.Message);
-        Assert.Equal(Launch.Command, Lenient(target.Path)["mcpServers"]!["net-decompiler"]!["command"]!.GetValue<string>());
-        Assert.True(File.Exists(target.Path + ".netdecompiler.bak"));
+        Assert.Equal(Launch.Command, Lenient(target.Path)["mcpServers"]!["corvus"]!["command"]!.GetValue<string>());
+        Assert.True(File.Exists(target.Path + ".corvus.bak"));
     }
 
     [Fact]
@@ -147,7 +147,7 @@ public sealed class JsoncEditorTests : IDisposable
 
             """;
         string[] comments = ["// header", "/* before */", "// theme", "// first server", "/* after keep */", "// end"];
-        string[] names = ["net-decompiler", "s1", "s-2", "s 3"];
+        string[] names = ["corvus", "s1", "s-2", "s 3"];
         var random = new Random(1234);
         for (int round = 0; round < 40; round++)
         {

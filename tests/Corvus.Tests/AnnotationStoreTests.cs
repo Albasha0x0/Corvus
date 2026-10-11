@@ -452,7 +452,7 @@ public class AnnotationStoreTests : IDisposable
         Assert.True(Corvus.Services.NativeCodeScanner.Sections(image).Max(s => s.Rva + s.VirtualSize) > Start + 2 * PerSide);
         await using var server = await ModelContextProtocol.Client.McpClient.CreateAsync(new ModelContextProtocol.Client.StdioClientTransport(new()
         {
-            Name = "net-decompiler",
+            Name = "corvus",
             Command = "dotnet",
             Arguments = [typeof(Corvus.Core.AssemblyWorkspace).Assembly.Location],
             EnvironmentVariables = new Dictionary<string, string?> { ["CORVUS_ANNOTATIONS_DIR"] = Root },

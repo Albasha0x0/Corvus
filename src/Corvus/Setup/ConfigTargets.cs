@@ -20,7 +20,7 @@ internal sealed record RegisteredEntry(string Command, IReadOnlyList<string> Arg
 /// <summary>Plan actions; the strings appear in --json output.</summary>
 internal static class SetupAction
 {
-    public const string Add = "add", Refresh = "refresh", Unchanged = "unchanged", Skip = "skip", Blocked = "blocked", Remove = "remove";
+    public const string Add = "add", Refresh = "refresh", Unchanged = "unchanged", Skip = "skip", Blocked = "blocked", Remove = "remove", Rename = "rename";
 }
 
 /// <summary>
@@ -42,7 +42,14 @@ internal abstract class ConfigTarget(string path)
     public abstract ConfigChange Install(string name, ServerLaunch launch);
     public abstract ConfigChange Uninstall(string name);
 
-    protected const string BackupSuffix = ".netdecompiler.bak";
+    /// <summary>
+    /// Moves the entry under <paramref name="from"/> to <paramref name="to"/>, started by <paramref name="launch"/> with the
+    /// entry's own arguments, env (keys renamed by <see cref="ClientCatalog.MigratedEnvKey"/>) and other keys; when
+    /// <paramref name="to"/> is already registered the old entry is only removed.
+    /// </summary>
+    public abstract ConfigChange Rename(string from, string to, ServerLaunch launch);
+
+    protected const string BackupSuffix = ".corvus.bak";
 
     /// <summary>Where the first pre-install copy is (or would be) kept; null for a file that does not exist yet.</summary>
     protected string? BackupPath() => File.Exists(Path) ? Path + BackupSuffix : null;
@@ -62,7 +69,7 @@ internal abstract class ConfigTarget(string path)
     /// </summary>
     public static List<string> MergeArgs(IEnumerable<string> user, IReadOnlyList<string> ours)
     {
-        var kept = Corvus.Relay.RelayCli.WithoutRelayPrefix(user).Where(a => ours.Contains(a) || !System.IO.Path.GetFileName(a).Equals("corvus.dll", StringComparison.OrdinalIgnoreCase)).ToList();
+        var kept = Corvus.Relay.RelayCli.WithoutRelayPrefix(user).Where(a => ours.Contains(a) || !Corvus.Relay.RelayBuilds.IsProgramDll(a)).ToList();
         return kept.Take(ours.Count).SequenceEqual(ours) ? kept : [.. ours, .. kept];
     }
 
@@ -289,6 +296,42 @@ internal sealed class JsonTarget(string path, string[] container, Func<ServerLau
         Backup();
         return Write(Render(text, hadComments, name, null, root).Text, "removed", bom);
     }
+
+    public override ConfigChange Rename(string from, string to, ServerLaunch launch)
+    {
+        var (root, hadComments, error, text, bom) = Load();
+        if (root == null) return new ConfigChange(false, $"left unchanged: {error}");
+        var servers = Servers(root, false);
+        if (servers?[from] is not JsonObject old) return new ConfigChange(false, "not registered");
+        bool keepOurs = servers[to] != null;
+        if (!keepOurs)
+        {
+            var entry = Merge(WithMigratedEnv(old), launch);
+            servers[to] = entry;
+            text = Render(text, hadComments, to, entry, root).Text;
+        }
+        servers.Remove(from);
+        text = Render(text, hadComments, from, null, root).Text;
+        Backup();
+        return Write(text, keepOurs ? $"removed the {from} entry ({to} is registered)" : $"renamed from {from}", bom);
+    }
+
+    /// <summary>A copy of the entry with its env keys (env or environment) under their current names.</summary>
+    public static JsonObject WithMigratedEnv(JsonObject entry)
+    {
+        var copy = (JsonObject)entry.DeepClone();
+        foreach (var key in new[] { "env", "environment" })
+            if (copy[key] is JsonObject env)
+            {
+                var renamed = new JsonObject();
+                // A key set under both names keeps the value of the current one.
+                foreach (var (name, value) in env)
+                    if (ClientCatalog.MigratedEnvKey(name) is var current && (current == name || !env.ContainsKey(current)) && !renamed.ContainsKey(current))
+                        renamed[current] = value?.DeepClone();
+                copy[key] = renamed;
+            }
+        return copy;
+    }
 }
 
 /// <summary>Codex's and Grok Build's config.toml: one [mcp_servers.NAME] table, edited as text so the rest of the file is untouched.</summary>
@@ -494,6 +537,41 @@ internal sealed partial class CodexTomlTarget(string path) : ConfigTarget(path)
         Backup();
         return Write(string.Join("\n", Remove(lines, name)) + "\n", "removed");
     }
+
+    [GeneratedRegex(@"(?<=^\s*|[{,]\s*)(?<q>""?)(?<k>[A-Za-z0-9_]+)\k<q>(?=\s*=)")]
+    private static partial Regex EnvKey();
+
+    /// <summary>The line with its env keys (a key line or an inline env table) under their current names.</summary>
+    private static string MigrateEnvKeys(string line) =>
+        EnvKey().Replace(line, m => m.Groups["q"].Value + ClientCatalog.MigratedEnvKey(m.Groups["k"].Value) + m.Groups["q"].Value);
+
+    public override ConfigChange Rename(string from, string to, ServerLaunch launch)
+    {
+        List<string> lines;
+        try { lines = Lines(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return new ConfigChange(false, $"left unchanged: {ex.Message}"); }
+        var blocks = Blocks(lines, from);
+        if (blocks.Count == 0) return new ConfigChange(false, "not registered");
+        bool keepOurs = Blocks(lines, to).Count > 0;
+        if (keepOurs) lines = Remove(lines, from);
+        else
+        {
+            foreach (var (start, end) in blocks)
+            {
+                var header = ServerHeader().Match(lines[start]);
+                var sub = header.Groups["sub"];
+                bool envTable = sub.Success && sub.Value.Trim().TrimStart('.').Trim() == "env";
+                var n = header.Groups["n"];
+                lines[start] = lines[start][..n.Index] + to + lines[start][(n.Index + n.Length)..];
+                for (int i = start + 1; i < end; i++)
+                    if (envTable ? KeyValue().IsMatch(lines[i]) : !sub.Success && InlineEnv().IsMatch(lines[i])) lines[i] = MigrateEnvKeys(lines[i]);
+            }
+            if (Installed(lines, to, launch) is { } text) lines = [.. text.Split('\n')];
+            while (lines.Count > 0 && lines[^1].Trim().Length == 0) lines.RemoveAt(lines.Count - 1);
+        }
+        Backup();
+        return Write(string.Join("\n", lines) + "\n", keepOurs ? $"removed the {from} entry ({to} is registered)" : $"renamed from {from}");
+    }
 }
 
 /// <summary>
@@ -526,6 +604,24 @@ internal sealed class ClaudeCliTarget(string cli, JsonTarget file) : ConfigTarge
         if (Registered(name) == null) return new ConfigChange(false, "not registered");
         if (Run(["mcp", "remove", "--scope", "user", name]) && Registered(name) == null) return new ConfigChange(true, "removed");
         return file.Uninstall(name);
+    }
+
+    public override ConfigChange Rename(string from, string to, ServerLaunch launch)
+    {
+        if (file.Existing(from) is not { } old) return new ConfigChange(false, "not registered");
+        if (file.Existing(to) != null)
+        {
+            var removed = Uninstall(from);
+            return removed.Changed ? new ConfigChange(true, $"removed the {from} entry ({to} is registered)") : removed;
+        }
+        var entry = file.Merge(JsonTarget.WithMigratedEnv(old), launch);
+        if (Run(["mcp", "add-json", "--scope", "user", to, entry.ToJsonString()]) && Registered(to) is { } now && now.Equals(launch.Command, StringComparison.OrdinalIgnoreCase)
+            && Run(["mcp", "remove", "--scope", "user", from]) && Registered(from) == null)
+            return new ConfigChange(true, $"renamed from {from}");
+        // Whatever the CLI managed, the file ends with ours under the new name and nothing under the old one.
+        var put = file.Put(to, _ => entry);
+        var dropped = file.Uninstall(from);
+        return put.Changed || dropped.Changed ? new ConfigChange(true, $"renamed from {from}") : put;
     }
 
     private bool Run(string[] args)
@@ -561,4 +657,5 @@ internal sealed class InvalidTarget(string path, string reason) : ConfigTarget(p
     public override TargetPreview Preview(string name, ServerLaunch launch) => new(SetupAction.Blocked, reason, null, null, false, null);
     public override ConfigChange Install(string name, ServerLaunch launch) => new(false, $"left unchanged: {reason}");
     public override ConfigChange Uninstall(string name) => new(false, "not registered");
+    public override ConfigChange Rename(string from, string to, ServerLaunch launch) => new(false, $"left unchanged: {reason}");
 }

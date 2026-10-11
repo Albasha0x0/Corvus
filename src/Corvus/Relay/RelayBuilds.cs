@@ -25,6 +25,16 @@ public static class RelayBuilds
 
     public static string ProgramName => OperatingSystem.IsWindows() ? "corvus.exe" : "corvus";
 
+    /// <summary>The server's main assembly, which a dotnet launch names.</summary>
+    public const string ProgramDll = "corvus.dll";
+
+    // Migration only: the main assembly before the rename, still named by registrations made then.
+    private const string LegacyProgramDll = "NetDecompilerMcp.dll";
+
+    /// <summary>Whether <paramref name="arg"/> names the server's main assembly, of this build or one from before the rename.</summary>
+    public static bool IsProgramDll(string arg) =>
+        Path.GetFileName(arg) is var name && (name.Equals(ProgramDll, StringComparison.OrdinalIgnoreCase) || name.Equals(LegacyProgramDll, StringComparison.OrdinalIgnoreCase));
+
     /// <summary>The marker's text, or null when there is none or it cannot be read (being written or replaced).</summary>
     public static string? ReadMarker(string directory)
     {
@@ -64,7 +74,7 @@ public static class RelayBuilds
         {
             CopyTree(target, dir, skip: name => name == MarkerName || name.Contains(AsideInfix, StringComparison.Ordinal));
             if (ReadMarker(target) != marker) throw new IOException($"{target} changed while it was copied (a publish is running).");
-            if (!File.Exists(Path.Combine(dir, ProgramName)) && !File.Exists(Path.Combine(dir, "corvus.dll")))
+            if (!File.Exists(Path.Combine(dir, ProgramName)) && !File.Exists(Path.Combine(dir, ProgramDll)))
                 throw new IOException($"{target} holds no {ProgramName}.");
             return dir;
         }
@@ -92,7 +102,7 @@ public static class RelayBuilds
     {
         var exe = Path.Combine(directory, ProgramName);
         if (File.Exists(exe)) return ChildProcess.Start(new ChildProcessStart(exe, serverArgs));
-        return ChildProcess.Start(new ChildProcessStart(DotnetHost(), [Path.Combine(directory, "corvus.dll"), .. serverArgs]));
+        return ChildProcess.Start(new ChildProcessStart(DotnetHost(), [Path.Combine(directory, ProgramDll), .. serverArgs]));
     }
 
     /// <summary>
@@ -102,7 +112,7 @@ public static class RelayBuilds
     public static string StageHost(string program, string state, bool dryRun)
     {
         var source = Path.GetDirectoryName(Path.GetFullPath(program))!;
-        var main = Path.Combine(source, "corvus.dll");
+        var main = Path.Combine(source, ProgramDll);
         var hash = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(File.Exists(main) ? main : program)))[..12];
         var version = typeof(RelayBuilds).Assembly.GetName().Version?.ToString(3) ?? "0";
         var dir = Path.Combine(state, "host", $"{version}-{hash}");

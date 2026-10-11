@@ -12,7 +12,8 @@ internal static class Doctor
 {
     public const string Healthy = "healthy", NotRegistered = "not_registered", OtherCopy = "other_copy", MissingProgram = "missing_program",
         Disabled = "disabled", StaleCatalog = "stale_catalog", StartFailed = "start_failed", SlowStart = "slow_start",
-        MissingEngine = "missing_engine", ConfigUnreadable = "config_unreadable", MissingTarget = "missing_target", UnsupportedTarget = "unsupported_target";
+        MissingEngine = "missing_engine", ConfigUnreadable = "config_unreadable", MissingTarget = "missing_target", UnsupportedTarget = "unsupported_target",
+        LegacyName = "legacy_name";
 
     /// <summary>States that make a client fail; the others are informational.</summary>
     public static bool Fails(string? state) => state is MissingProgram or StaleCatalog or StartFailed or SlowStart or ConfigUnreadable;
@@ -55,11 +56,22 @@ internal static class Doctor
         else if (own && server.MatchesThisBuild != true)
             Set(row, StaleCatalog, $"registered, but its tool catalog differs from this build: {string.Join("; ", server.Differences)}", "NetDecompilerMcp install");
         else if (entry.Disabled)
-            Set(row, Disabled, "registered (disabled: the client does not start it)", $"Turn net-decompiler on in {client.Name}'s settings.");
+            Set(row, Disabled, "registered (disabled: the client does not start it)", $"Turn {ClientCatalog.ServerName} on in {client.Name}'s settings.");
         else if (!own)
             Set(row, OtherCopy, $"registered with another copy: {entry.Command} (version {server.Version})", $"NetDecompilerMcp install --client {client.Id} to use this copy.");
         else
             Set(row, Healthy, $"registered ({server.Detail})", null);
+    }
+
+    /// <summary>
+    /// A registration found under the name used before the rename: a working one is legacy_name, a failing one keeps its
+    /// state; both say that install renames it.
+    /// </summary>
+    public static void MarkLegacy(ClientReport row)
+    {
+        var note = $"registered as {ClientCatalog.LegacyServerName}, the name before the rename; corvus install renames it";
+        if (Fails(row.State)) row.Message += $" ({note})";
+        else Set(row, LegacyName, $"{note} ({row.Message})", "corvus install");
     }
 
     /// <summary>Starts the server once per distinct (command, args, env) in <paramref name="tests"/>.</summary>

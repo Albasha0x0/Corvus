@@ -97,7 +97,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
         try { script = JsonSerializer.Deserialize<Script>(File.ReadAllText(full), Json); }
         catch (JsonException ex) { throw new ToolError(ErrorCode.MalformedInput, $"{full} is not a valid edit script: {ex.Message}"); }
         if (script == null || script.Format != ScriptFormat || script.Edits == null)
-            throw new ToolError(ErrorCode.MalformedInput, $"{full} is not a net-decompiler edit script (expected format '{ScriptFormat}').");
+            throw new ToolError(ErrorCode.MalformedInput, $"{full} is not a corvus edit script (expected format '{ScriptFormat}').");
         return script;
     }
 

@@ -1,9 +1,9 @@
 ---
-name: net-decompiler
-description: "Reverse engineering of compiled .NET assemblies and native PE, ELF and Mach-O binaries with the net-decompiler MCP server or its NetDecompilerMcp command line: decompile, search, follow calls, compare builds, read crash dumps, patch and save a copy. Use when an answer depends on what a compiled program does (an .exe or .dll, a Unity or Il2Cpp game build, a package without source, a crash dump, two builds of one app). Skip it when the source code is at hand."
+name: corvus
+description: "Reverse engineering of compiled .NET assemblies and native PE, ELF and Mach-O binaries with the corvus MCP server or its NetDecompilerMcp command line: decompile, search, follow calls, compare builds, read crash dumps, patch and save a copy. Use when an answer depends on what a compiled program does (an .exe or .dll, a Unity or Il2Cpp game build, a package without source, a crash dump, two builds of one app). Skip it when the source code is at hand."
 ---
 
-# net-decompiler
+# corvus
 
 <!-- Generated from src/Corvus/Mcp/Guide.cs; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->
 
@@ -20,7 +20,7 @@ More: the guide prompt or corvus://guide/{topic} (dotnet, native, il2cpp, contai
 
 ## Connect only when needed
 
-If the net-decompiler tools are available, use them. If they are not:
+If the corvus tools are available, use them. If they are not:
 
 1. `NetDecompilerMcp status --client <id>` says whether this client has the server registered and whether it starts.
 2. `NetDecompilerMcp install --client <id> --yes` registers it; then restart the client and call `server_status`.

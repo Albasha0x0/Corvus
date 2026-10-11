@@ -39,7 +39,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
     {
         var transport = new StdioClientTransport(new StdioClientTransportOptions
         {
-            Name = "net-decompiler",
+            Name = "corvus",
             Command = "dotnet",
             Arguments = [ServerDll, .. args],
             WorkingDirectory = workingDirectory,
@@ -482,7 +482,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         [Fact]
         public async Task ServerAdvertisesCapabilitiesAndInstructions()
         {
-            Assert.Equal("net-decompiler", _client.ServerInfo.Name);
+            Assert.Equal("corvus", _client.ServerInfo.Name);
             Assert.Contains("load_assembly", _client.ServerInstructions);
             Assert.NotNull(_client.ServerCapabilities.Tools);
             Assert.NotNull(_client.ServerCapabilities.Resources);

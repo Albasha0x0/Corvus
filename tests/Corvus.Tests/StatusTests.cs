@@ -15,8 +15,8 @@ public sealed class StatusTests : IDisposable
 
     private void Registrations()
     {
-        _home.Write($$"""{ "mcpServers": { "net-decompiler": { "command": {{Q(Gone)}} } } }""", ".cursor", "mcp.json");
-        _home.Write("""{ "mcpServers": { "net-decompiler": { "command": "ndm-test-no-such-tool", "args": ["x"] } } }""", ".kiro", "settings", "mcp.json");
+        _home.Write($$"""{ "mcpServers": { "corvus": { "command": {{Q(Gone)}} } } }""", ".cursor", "mcp.json");
+        _home.Write("""{ "mcpServers": { "corvus": { "command": "ndm-test-no-such-tool", "args": ["x"] } } }""", ".kiro", "settings", "mcp.json");
         Directory.CreateDirectory(_home.Path(".lmstudio"));
     }
 

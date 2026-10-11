@@ -16,7 +16,7 @@ try
 }
 catch (Exception ex)
 {
-    Console.Error.WriteLine($"net-decompiler: {ex.Message}");
+    Console.Error.WriteLine($"corvus: {ex.Message}");
     return 2;
 }
 

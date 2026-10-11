@@ -33,7 +33,7 @@ internal static class Installation
     {
         var process = Environment.ProcessPath ?? ExeName;
         if (Path.GetFileNameWithoutExtension(process).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
-            return new ServerLaunch(process, [Path.Combine(AppContext.BaseDirectory, "corvus.dll")]);
+            return new ServerLaunch(process, [Path.Combine(AppContext.BaseDirectory, Corvus.Relay.RelayBuilds.ProgramDll)]);
         if (Root() is { } root && File.Exists(Path.Combine(root, "current", ExeName)))
             return new ServerLaunch(Path.Combine(root, "current", ExeName), []);
         return new ServerLaunch(process, []);

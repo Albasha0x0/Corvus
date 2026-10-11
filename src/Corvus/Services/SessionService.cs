@@ -162,7 +162,7 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
         try { doc = JsonSerializer.Deserialize<Document>(File.ReadAllBytes(full), Json); }
         catch (JsonException ex) { throw new ToolError(ErrorCode.MalformedInput, $"{full} is not a valid session file: {ex.Message}"); }
         if (doc == null || doc.Format != Format || doc.Files == null)
-            throw new ToolError(ErrorCode.MalformedInput, $"{full} is not a net-decompiler session file (expected format '{Format}').");
+            throw new ToolError(ErrorCode.MalformedInput, $"{full} is not a corvus session file (expected format '{Format}').");
         if (doc.Files.Count > MaxFiles) throw new ToolError(ErrorCode.LimitExceeded, $"{full} lists {doc.Files.Count:N0} files; the limit is {MaxFiles:N0}.");
         return doc with { DotNet = doc.DotNet ?? [], Native = doc.Native ?? [], SearchDirectories = doc.SearchDirectories ?? [] };
     }

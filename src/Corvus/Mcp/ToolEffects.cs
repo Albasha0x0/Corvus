@@ -20,7 +20,7 @@ namespace Corvus.Mcp;
 /// version that is not installed; CORVUS_OFFLINE=1 turns it off).</item>
 /// <item>LongRunning (not an MCP annotation): a call can run for more than ~10 s on large inputs: whole-assembly or whole-image
 /// work, an external engine, or the first use of a native image, which waits for its code index. Advertised as a
-/// description suffix, as _meta "net-decompiler/longRunning": true, and in server_status.</item>
+/// description suffix, as _meta "corvus/longRunning": true, and in server_status.</item>
 /// </list>
 /// </summary>
 public static class ToolEffects
@@ -32,7 +32,7 @@ public static class ToolEffects
     private static Effects Changes(bool destructive, bool idempotent, bool longRunning = false, bool openWorld = false) =>
         new(false, destructive, idempotent, openWorld, longRunning);
 
-    public const string LongRunningMetaKey = "net-decompiler/longRunning";
+    public const string LongRunningMetaKey = "corvus/longRunning";
     public const string LongRunningSuffix = " [Long-running: can exceed 10 s.]";
 
     /// <summary>Every tool, by name.</summary>

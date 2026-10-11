@@ -6,13 +6,26 @@ namespace Corvus.Setup;
 
 /// <summary>
 /// The optional agent skill, generated from the server's own guidance (<see cref="Guide"/>), so it never describes tools
-/// the server lacks. The repository keeps a copy in skills/net-decompiler (checked by a test); install --skill writes it
+/// the server lacks. The repository keeps a copy in skills/corvus (checked by a test); install --skill writes it
 /// for clients that read skills, with a marker file, and only marked folders are refreshed or removed.
 /// </summary>
 internal static class Skill
 {
-    public const string Name = "net-decompiler";
-    public const string Marker = ".netdecompiler-skill";
+    public const string Name = "corvus";
+    public const string Marker = ".corvus-skill";
+
+    // Migration only: the folder name and marker of skills written before the rename; install replaces them, uninstall removes them.
+    private const string LegacyName = "net-decompiler", LegacyMarker = ".netdecompiler-skill";
+
+    /// <summary>The folder a skill written before the rename has beside <paramref name="folder"/>.</summary>
+    public static string LegacyOf(string folder) => Path.Combine(Path.GetDirectoryName(folder)!, LegacyName);
+
+    private static string MarkerOf(string folder) => Path.GetFileName(folder) == LegacyName ? LegacyMarker : Marker;
+
+    /// <summary>Folders holding a skill written before the rename, each with where ours goes instead.</summary>
+    public static List<(string Legacy, string Current)> LegacyFolders(SetupEnvironment env) =>
+        [.. Targets(env).Select(t => t.Folder).Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(f => (LegacyOf(f), f)).Where(p => File.Exists(Path.Combine(p.Item1, LegacyMarker)))];
 
     /// <summary>Folder states: written by this build, by another build, absent, or a folder of the same name not written by us.</summary>
     public const string Aligned = "aligned", Stale = "stale", Missing = "missing", Foreign = "foreign";
@@ -29,7 +42,7 @@ internal static class Skill
     private const string Generated = "<!-- Generated from src/Corvus/Mcp/Guide.cs; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->";
 
     public const string Description =
-        "Reverse engineering of compiled .NET assemblies and native PE, ELF and Mach-O binaries with the net-decompiler MCP server " +
+        "Reverse engineering of compiled .NET assemblies and native PE, ELF and Mach-O binaries with the corvus MCP server " +
         "or its NetDecompilerMcp command line: decompile, search, follow calls, compare builds, read crash dumps, patch and save a copy. " +
         "Use when an answer depends on what a compiled program does (an .exe or .dll, a Unity or Il2Cpp game build, a package without " +
         "source, a crash dump, two builds of one app). Skip it when the source code is at hand.";
@@ -45,7 +58,7 @@ internal static class Skill
         sb.Append("""
             ## Connect only when needed
 
-            If the net-decompiler tools are available, use them. If they are not:
+            If the corvus tools are available, use them. If they are not:
 
             1. `NetDecompilerMcp status --client <id>` says whether this client has the server registered and whether it starts.
             2. `NetDecompilerMcp install --client <id> --yes` registers it; then restart the client and call `server_status`.
@@ -113,7 +126,8 @@ internal static class Skill
     public static string StateOf(string folder)
     {
         if (!Directory.Exists(folder)) return Missing;
-        if (!File.Exists(Path.Combine(folder, Marker))) return Foreign;
+        if (!File.Exists(Path.Combine(folder, MarkerOf(folder)))) return Foreign;
+        if (MarkerOf(folder) == LegacyMarker) return Stale;
         return Files().All(f => File.Exists(Path.Combine(folder, f.Key)) && File.ReadAllText(Path.Combine(folder, f.Key)).ReplaceLineEndings("\n") == f.Value)
             ? Aligned : Stale;
     }
@@ -142,7 +156,7 @@ internal static class Skill
     {
         var state = StateOf(folder);
         if (state == Missing) return new ConfigChange(false, "not installed");
-        if (state == Foreign) return new ConfigChange(false, $"kept: no {Marker}");
+        if (state == Foreign) return new ConfigChange(false, $"kept: no {MarkerOf(folder)}");
         Directory.Delete(folder, recursive: true);
         return new ConfigChange(true, "removed");
     }

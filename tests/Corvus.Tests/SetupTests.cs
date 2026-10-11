@@ -56,25 +56,25 @@ public sealed class SetupTests : IDisposable
         Assert.True(code == 0, output);
 
         var cursor = ReadJson(Home(".cursor", "mcp.json"));
-        Assert.Equal(Launch.Command, cursor["mcpServers"]!["net-decompiler"]!["command"]!.GetValue<string>());
+        Assert.Equal(Launch.Command, cursor["mcpServers"]!["corvus"]!["command"]!.GetValue<string>());
         Assert.Equal("x", cursor["mcpServers"]!["other"]!["command"]!.GetValue<string>());
         Assert.Equal("dark", cursor["theme"]!.GetValue<string>());
 
         var toml = File.ReadAllText(Home(".codex", "config.toml"));
         Assert.Contains("[mcp_servers.other]\ncommand = \"y\"", toml);
         Assert.Contains("[profiles.fast]\nmodel = \"mini\"", toml);
-        Assert.Contains("[mcp_servers.net-decompiler]\ncommand = " + System.Text.Json.JsonSerializer.Serialize(Launch.Command), toml);
+        Assert.Contains("[mcp_servers.corvus]\ncommand = " + System.Text.Json.JsonSerializer.Serialize(Launch.Command), toml);
 
         var claude = ReadJson(Home(".claude.json"));
-        Assert.Equal("stdio", claude["mcpServers"]!["net-decompiler"]!["type"]!.GetValue<string>());
+        Assert.Equal("stdio", claude["mcpServers"]!["corvus"]!["type"]!.GetValue<string>());
         Assert.Equal(3, claude["numStartups"]!.GetValue<int>());
 
         var zedSettings = ReadJson(Path.Combine(zed, "settings.json"));
         Assert.Equal(16, zedSettings["ui_font_size"]!.GetValue<int>());
-        Assert.Equal(Launch.Command, zedSettings["context_servers"]!["net-decompiler"]!["command"]!.GetValue<string>());
+        Assert.Equal(Launch.Command, zedSettings["context_servers"]!["corvus"]!["command"]!.GetValue<string>());
         Assert.DoesNotContain("comments were not kept", output);
         Assert.StartsWith("// Zed settings\n{\n  \"ui_font_size\": 16, // trailing comment\n", File.ReadAllText(Path.Combine(zed, "settings.json")));
-        Assert.True(File.Exists(Path.Combine(zed, "settings.json.netdecompiler.bak")));
+        Assert.True(File.Exists(Path.Combine(zed, "settings.json.corvus.bak")));
 
         // Clients that are not installed get no files.
         Assert.False(Directory.Exists(Home(".kiro")));
@@ -103,7 +103,7 @@ public sealed class SetupTests : IDisposable
         Assert.Equal(0, code);
         Assert.Contains("removed", output);
         var cursor = ReadJson(Home(".cursor", "mcp.json"));
-        Assert.Null(cursor["mcpServers"]!["net-decompiler"]);
+        Assert.Null(cursor["mcpServers"]!["corvus"]);
         Assert.NotNull(cursor["mcpServers"]!["other"]);
         Assert.Equal("[mcp_servers.other]\ncommand = \"y\"\n", File.ReadAllText(Home(".codex", "config.toml")));
     }
@@ -124,9 +124,9 @@ public sealed class SetupTests : IDisposable
     {
         var (code, output) = Run("install", "--no-check", "kiro", "VS Code");
         Assert.True(code == 0, output);
-        Assert.Equal(Launch.Command, ReadJson(Home(".kiro", "settings", "mcp.json"))["mcpServers"]!["net-decompiler"]!["command"]!.GetValue<string>());
+        Assert.Equal(Launch.Command, ReadJson(Home(".kiro", "settings", "mcp.json"))["mcpServers"]!["corvus"]!["command"]!.GetValue<string>());
         var vscode = Path.Combine(_env.AppSupport("Code"), "User", "mcp.json");
-        Assert.Equal("stdio", ReadJson(vscode)["servers"]!["net-decompiler"]!["type"]!.GetValue<string>());
+        Assert.Equal("stdio", ReadJson(vscode)["servers"]!["corvus"]!["type"]!.GetValue<string>());
 
         (code, output) = Run("install", "--no-check", "notepad");
         Assert.Equal(2, code);
@@ -137,15 +137,15 @@ public sealed class SetupTests : IDisposable
     public void ClientFormats_FollowEachClientsSchema()
     {
         Run("install", "--no-check", "opencode", "copilot", "roo-code", "crush");
-        var opencode = ReadJson(Home(".config", "opencode", "opencode.json"))["mcp"]!["net-decompiler"]!;
+        var opencode = ReadJson(Home(".config", "opencode", "opencode.json"))["mcp"]!["corvus"]!;
         Assert.Equal("local", opencode["type"]!.GetValue<string>());
         Assert.Equal(Launch.Command, opencode["command"]![0]!.GetValue<string>());
-        var copilot = ReadJson(Home(".copilot", "mcp-config.json"))["mcpServers"]!["net-decompiler"]!;
+        var copilot = ReadJson(Home(".copilot", "mcp-config.json"))["mcpServers"]!["corvus"]!;
         Assert.Equal("*", copilot["tools"]![0]!.GetValue<string>());
         var roo = ClientCatalog.All(_env).Single(c => c.Id == "roo-code").Target.Path;
-        Assert.False(ReadJson(roo)["mcpServers"]!["net-decompiler"]!["disabled"]!.GetValue<bool>());
+        Assert.False(ReadJson(roo)["mcpServers"]!["corvus"]!["disabled"]!.GetValue<bool>());
         var crush = ClientCatalog.All(_env).Single(c => c.Id == "crush").Target.Path;
-        Assert.Equal("stdio", ReadJson(crush)["mcp"]!["net-decompiler"]!["type"]!.GetValue<string>());
+        Assert.Equal("stdio", ReadJson(crush)["mcp"]!["corvus"]!["type"]!.GetValue<string>());
     }
 
     [Fact]
@@ -153,10 +153,10 @@ public sealed class SetupTests : IDisposable
     {
         var launch = new ServerLaunch(@"C:\Users\O""Brien\ndm\corvus.exe", ["--load", @"D:\App\Managed"]);
         var target = new CodexTomlTarget(Home("config.toml"));
-        Assert.True(target.Install("net-decompiler", launch).Changed);
-        Assert.Equal(launch.Command, target.Registered("net-decompiler"));
+        Assert.True(target.Install("corvus", launch).Changed);
+        Assert.Equal(launch.Command, target.Registered("corvus"));
         Assert.Contains("args = [\"--load\", \"D:\\\\App\\\\Managed\"]", File.ReadAllText(Home("config.toml")));
-        Assert.False(target.Install("net-decompiler", launch).Changed);
+        Assert.False(target.Install("corvus", launch).Changed);
     }
 
     [Trait("Speed", "Slow")]
@@ -167,10 +167,10 @@ public sealed class SetupTests : IDisposable
         var dll = typeof(Corvus.Core.AssemblyWorkspace).Assembly.Location;
         var server = new ServerLaunch("dotnet", [dll]);
         var q = System.Text.Json.JsonSerializer.Serialize(dll);
-        home.Write($$"""{ "mcpServers": { "net-decompiler": { "command": "dotnet", "args": [{{q}}] } } }""", ".cursor", "mcp.json");
+        home.Write($$"""{ "mcpServers": { "corvus": { "command": "dotnet", "args": [{{q}}] } } }""", ".cursor", "mcp.json");
         // The entry's env reaches the server: an invalid engine makes it exit.
-        home.Write($$"""{ "mcpServers": { "net-decompiler": { "command": "dotnet", "args": [{{q}}], "env": { "CORVUS_ENGINE": "nonsense" } } } }""", ".kiro", "settings", "mcp.json");
-        home.Write("""{ "mcpServers": { "net-decompiler": { "command": "C:/gone/corvus.exe" } } }""", ".lmstudio", "mcp.json");
+        home.Write($$"""{ "mcpServers": { "corvus": { "command": "dotnet", "args": [{{q}}], "env": { "CORVUS_ENGINE": "nonsense" } } } }""", ".kiro", "settings", "mcp.json");
+        home.Write("""{ "mcpServers": { "corvus": { "command": "C:/gone/corvus.exe" } } }""", ".lmstudio", "mcp.json");
         var output = new StringWriter();
         var code = SetupCli.TryRun(["status"], output, home.Env(), server);
         var text = output.ToString();
@@ -199,14 +199,14 @@ public sealed class SetupTests : IDisposable
         var client = ClientCatalog.All(env).Single(c => c.Id == "claude-code");
         Assert.IsType<ClaudeCliTarget>(client.Target);
         Assert.True(client.Present);
-        Assert.Equal("registered", client.Target.Install("net-decompiler", Launch).Message);
-        Assert.Equal(Launch.Command, client.Target.Registered("net-decompiler"));
-        Assert.Equal("already registered", client.Target.Install("net-decompiler", Launch).Message);
-        Assert.Equal("removed", client.Target.Uninstall("net-decompiler").Message);
+        Assert.Equal("registered", client.Target.Install("corvus", Launch).Message);
+        Assert.Equal(Launch.Command, client.Target.Registered("corvus"));
+        Assert.Equal("already registered", client.Target.Install("corvus", Launch).Message);
+        Assert.Equal("removed", client.Target.Uninstall("corvus").Message);
 
-        File.WriteAllText(Home(".claude.json"), """{ "mcpServers": { "net-decompiler": { "command": "C:/old/x.exe", "args": ["--load", "x"], "env": { "A": "1" } } } }""");
-        Assert.Equal("registered", client.Target.Install("net-decompiler", Launch).Message);
-        var entry = ReadJson(Home(".claude.json"))["mcpServers"]!["net-decompiler"]!;
+        File.WriteAllText(Home(".claude.json"), """{ "mcpServers": { "corvus": { "command": "C:/old/x.exe", "args": ["--load", "x"], "env": { "A": "1" } } } }""");
+        Assert.Equal("registered", client.Target.Install("corvus", Launch).Message);
+        var entry = ReadJson(Home(".claude.json"))["mcpServers"]!["corvus"]!;
         Assert.Equal(Launch.Command, entry["command"]!.GetValue<string>());
         Assert.Equal("x", entry["args"]![1]!.GetValue<string>());
         Assert.Equal("1", entry["env"]!["A"]!.GetValue<string>());
@@ -230,8 +230,8 @@ public sealed class SetupTests : IDisposable
             Variable = name => name == "CORVUS_RELAY_DIR" ? state : null,
         };
         Directory.CreateDirectory(Home(".cursor"));
-        File.WriteAllText(Home(".cursor", "mcp.json"), """{ "mcpServers": { "net-decompiler": { "command": "old", "args": ["--load", "x"] } } }""");
-        JsonNode Entry() => ReadJson(Home(".cursor", "mcp.json"))["mcpServers"]!["net-decompiler"]!;
+        File.WriteAllText(Home(".cursor", "mcp.json"), """{ "mcpServers": { "corvus": { "command": "old", "args": ["--load", "x"] } } }""");
+        JsonNode Entry() => ReadJson(Home(".cursor", "mcp.json"))["mcpServers"]!["corvus"]!;
         string[] Args() => [.. Entry()["args"]!.AsArray().Select(a => a!.GetValue<string>())];
 
         var output = new StringWriter();
@@ -267,10 +267,10 @@ public sealed class SetupTests : IDisposable
     {
         Directory.CreateDirectory(Home(".cursor"));
         File.WriteAllText(Home(".cursor", "mcp.json"), """
-            { "mcpServers": { "net-decompiler": { "command": "C:/old/corvus.exe", "args": ["--load", "x"],
+            { "mcpServers": { "corvus": { "command": "C:/old/corvus.exe", "args": ["--load", "x"],
               "env": { "CORVUS_IDA_DIR": "C:/ida" }, "timeout": 30 } } }
             """);
-        JsonNode Entry() => ReadJson(Home(".cursor", "mcp.json"))["mcpServers"]!["net-decompiler"]!;
+        JsonNode Entry() => ReadJson(Home(".cursor", "mcp.json"))["mcpServers"]!["corvus"]!;
         void AssertKept(params string[] args)
         {
             var e = Entry();
@@ -295,9 +295,9 @@ public sealed class SetupTests : IDisposable
 
         // Our keys are added only where absent.
         var target = new JsonTarget(Home("cline.json"), ["mcpServers"], l => new JsonObject { ["command"] = l.Command, ["args"] = new JsonArray(), ["disabled"] = false });
-        File.WriteAllText(target.Path, """{ "mcpServers": { "net-decompiler": { "command": "a", "disabled": true } } }""");
-        Assert.True(target.Install("net-decompiler", Launch).Changed);
-        var cline = ReadJson(target.Path)["mcpServers"]!["net-decompiler"]!;
+        File.WriteAllText(target.Path, """{ "mcpServers": { "corvus": { "command": "a", "disabled": true } } }""");
+        Assert.True(target.Install("corvus", Launch).Changed);
+        var cline = ReadJson(target.Path)["mcpServers"]!["corvus"]!;
         Assert.True(cline["disabled"]!.GetValue<bool>());
         Assert.Empty(cline["args"]!.AsArray());
     }
@@ -307,12 +307,12 @@ public sealed class SetupTests : IDisposable
     {
         Directory.CreateDirectory(Home(".config", "opencode"));
         File.WriteAllText(Home(".config", "opencode", "opencode.json"), """
-            { "mcp": { "net-decompiler": { "type": "local", "command": ["C:/old/corvus.exe", "--load", "x"], "enabled": false,
+            { "mcp": { "corvus": { "type": "local", "command": ["C:/old/corvus.exe", "--load", "x"], "enabled": false,
               "environment": { "A": "1" } } } }
             """);
         Assert.Equal(0, Run("install", "--no-check", "opencode").Code);
         Assert.Equal(0, Run("install", "--no-check", "opencode").Code);
-        var entry = ReadJson(Home(".config", "opencode", "opencode.json"))["mcp"]!["net-decompiler"]!;
+        var entry = ReadJson(Home(".config", "opencode", "opencode.json"))["mcp"]!["corvus"]!;
         Assert.Equal([Launch.Command, "--load", "x"], entry["command"]!.AsArray().Select(a => a!.GetValue<string>()));
         Assert.False(entry["enabled"]!.GetValue<bool>());
         Assert.Equal("1", entry["environment"]!["A"]!.GetValue<string>());
@@ -325,12 +325,12 @@ public sealed class SetupTests : IDisposable
         var before = """
             model = "o4"
 
-            [mcp_servers.net-decompiler]
+            [mcp_servers.corvus]
             command = 'C:\old\corvus.exe'
             args = ["--load", "x"]  # my build
             startup_timeout_sec = 30
 
-            [mcp_servers.net-decompiler.env]
+            [mcp_servers.corvus.env]
             CORVUS_IDA_DIR = "C:/ida"
 
             [profiles.fast]
@@ -348,14 +348,14 @@ public sealed class SetupTests : IDisposable
         Assert.Equal(0, SetupCli.TryRun(["install", "--no-check", "codex"], new StringWriter(), _env, DotnetLaunch));
         var toml = File.ReadAllText(Home(".codex", "config.toml"));
         Assert.Contains("command = \"dotnet\"\nargs = [" + System.Text.Json.JsonSerializer.Serialize(DotnetLaunch.Args[0]) + ", \"--load\", \"x\"]\nstartup_timeout_sec = 30", toml);
-        Assert.Contains("[mcp_servers.net-decompiler.env]\nCORVUS_IDA_DIR = \"C:/ida\"", toml);
+        Assert.Contains("[mcp_servers.corvus.env]\nCORVUS_IDA_DIR = \"C:/ida\"", toml);
         Assert.Equal(0, Run("install", "--no-check", "codex").Code);
         Assert.Contains("args = [\"--load\", \"x\"]\nstartup_timeout_sec = 30", File.ReadAllText(Home(".codex", "config.toml")));
 
         // A table without command or args gets both.
-        File.WriteAllText(Home(".codex", "config.toml"), "[mcp_servers.net-decompiler]\nstartup_timeout_sec = 30\n");
+        File.WriteAllText(Home(".codex", "config.toml"), "[mcp_servers.corvus]\nstartup_timeout_sec = 30\n");
         Assert.Equal(0, Run("install", "--no-check", "codex").Code);
-        Assert.Equal("[mcp_servers.net-decompiler]\ncommand = " + System.Text.Json.JsonSerializer.Serialize(Launch.Command) + "\nargs = []\nstartup_timeout_sec = 30\n",
+        Assert.Equal("[mcp_servers.corvus]\ncommand = " + System.Text.Json.JsonSerializer.Serialize(Launch.Command) + "\nargs = []\nstartup_timeout_sec = 30\n",
             File.ReadAllText(Home(".codex", "config.toml")));
     }
 

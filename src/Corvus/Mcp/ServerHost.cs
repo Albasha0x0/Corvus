@@ -81,7 +81,7 @@ public static class ServerHost
             {
                 o.ServerInfo = new Implementation
                 {
-                    Name = "net-decompiler",
+                    Name = "corvus",
                     Title = ".NET Decompiler",
                     Version = typeof(ServerOptions).Assembly.GetName().Version?.ToString(3) ?? "1.0.0",
                 };

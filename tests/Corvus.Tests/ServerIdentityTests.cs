@@ -20,11 +20,11 @@ public class ServerIdentityTests
         Assert.Equal("script", ServerIdentity.ClassifyInstall(Path.Combine(versioned, "corvus.exe")));
         Assert.Equal("script", ServerIdentity.ClassifyInstall(Path.Combine(dir.Path, "current", "corvus.exe")));
         var home = Path.Combine(dir.Path, "home");
-        Assert.Equal("dotnet-tool", ServerIdentity.ClassifyInstall(Path.Combine(home, ".dotnet", "tools", ".store", "netdecompilermcp", "1.2.0", "x.exe")));
-        Assert.Equal("dnx", ServerIdentity.ClassifyInstall(Path.Combine(home, ".nuget", "packages", "netdecompilermcp", "1.2.0", "tools", "x.exe")));
+        Assert.Equal("dotnet-tool", ServerIdentity.ClassifyInstall(Path.Combine(home, ".dotnet", "tools", ".store", "corvusre", "1.2.0", "x.exe")));
+        Assert.Equal("dnx", ServerIdentity.ClassifyInstall(Path.Combine(home, ".nuget", "packages", "corvusre", "1.2.0", "tools", "x.exe")));
         Assert.Equal("winget", ServerIdentity.ClassifyInstall(Path.Combine(home, "AppData", "Local", "Microsoft", "WinGet", "Packages", "P", "x.exe")));
-        Assert.Equal("scoop", ServerIdentity.ClassifyInstall(Path.Combine(home, "scoop", "apps", "netdecompilermcp", "current", "x.exe")));
-        Assert.Equal("homebrew", ServerIdentity.ClassifyInstall(Path.Combine(dir.Path, "opt", "homebrew", "Caskroom", "net-decompiler-mcp", "1.2.0", "x")));
+        Assert.Equal("scoop", ServerIdentity.ClassifyInstall(Path.Combine(home, "scoop", "apps", "corvus", "current", "x.exe")));
+        Assert.Equal("homebrew", ServerIdentity.ClassifyInstall(Path.Combine(dir.Path, "opt", "homebrew", "Caskroom", "corvus", "1.2.0", "x")));
         Assert.Equal("source", ServerIdentity.ClassifyInstall(Path.Combine(dir.Path, "bin", "Debug", "net10.0", "corvus.dll")));
     }
 

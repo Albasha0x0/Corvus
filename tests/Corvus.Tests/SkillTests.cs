@@ -37,7 +37,7 @@ public sealed class SkillTests : IDisposable
                 f => Path.GetRelativePath(folder, f).Replace('\\', '/'), f => File.ReadAllText(f).ReplaceLineEndings("\n"))
             : [];
         Assert.True(actual.Count == expected.Count && expected.All(e => actual.TryGetValue(e.Key, out var text) && text == e.Value),
-            "skills/net-decompiler is out of date: run the tests once with CORVUS_UPDATE_DOCS=1");
+            "skills/corvus is out of date: run the tests once with CORVUS_UPDATE_DOCS=1");
     }
 
     [Fact]

@@ -66,7 +66,7 @@ public sealed class SetupPlanTests : IDisposable
     /// <summary>Cursor registered with an old copy; Codex and Kiro detected and not registered.</summary>
     private void ExistingAndNew()
     {
-        _home.Write($$"""{ "mcpServers": { "net-decompiler": { "command": {{System.Text.Json.JsonSerializer.Serialize(Old)}}, "args": ["--load", "x"] } } }""", ".cursor", "mcp.json");
+        _home.Write($$"""{ "mcpServers": { "corvus": { "command": {{System.Text.Json.JsonSerializer.Serialize(Old)}}, "args": ["--load", "x"] } } }""", ".cursor", "mcp.json");
         Directory.CreateDirectory(_home.Path(".codex"));
         Directory.CreateDirectory(_home.Path(".kiro"));
     }
@@ -77,7 +77,7 @@ public sealed class SetupPlanTests : IDisposable
         ExistingAndNew();
         var (code, output) = _home.Run("install", "--no-check");
         Assert.True(code == 0, output);
-        var cursor = ReadJson(_home.Path(".cursor", "mcp.json"))["mcpServers"]!["net-decompiler"]!;
+        var cursor = ReadJson(_home.Path(".cursor", "mcp.json"))["mcpServers"]!["corvus"]!;
         Assert.Equal(SetupHome.Launch.Command, cursor["command"]!.GetValue<string>());
         Assert.Equal(["--load", "x"], cursor["args"]!.AsArray().Select(a => a!.GetValue<string>()));
         Assert.False(File.Exists(_home.Path(".codex", "config.toml")));
@@ -120,7 +120,7 @@ public sealed class SetupPlanTests : IDisposable
         Assert.Equal(Old, cursor["registered"]!["command"]!.GetValue<string>());
         Assert.Equal(Old, cursor["before"]!["command"]!.GetValue<string>());
         Assert.Equal(SetupHome.Launch.Command, cursor["after"]!["command"]!.GetValue<string>());
-        Assert.EndsWith("mcp.json.netdecompiler.bak", cursor["backupPath"]!.GetValue<string>());
+        Assert.EndsWith("mcp.json.corvus.bak", cursor["backupPath"]!.GetValue<string>());
         var codex = Client("codex");
         Assert.Equal("add", codex["action"]!.GetValue<string>());
         Assert.True(codex["needsConsent"]!.GetValue<bool>());
@@ -147,7 +147,7 @@ public sealed class SetupPlanTests : IDisposable
         Assert.Equal(["Register with these 2 new clients?"], questions);
         Assert.Matches(@"add \(new\)\s+Kiro", output);
         Assert.False(File.Exists(_home.Path(".codex", "config.toml")));
-        Assert.Equal(SetupHome.Launch.Command, ReadJson(_home.Path(".cursor", "mcp.json"))["mcpServers"]!["net-decompiler"]!["command"]!.GetValue<string>());
+        Assert.Equal(SetupHome.Launch.Command, ReadJson(_home.Path(".cursor", "mcp.json"))["mcpServers"]!["corvus"]!["command"]!.GetValue<string>());
 
         (code, output) = _home.Run(_home.Env(interactive: true, confirm: q => { questions.Add(q); return true; }), "install", "--no-check");
         Assert.True(code == 0, output);
@@ -181,7 +181,7 @@ public sealed class SetupPlanTests : IDisposable
         Assert.True(code == 0, output);
         Assert.Contains("update adds no clients", output);
         Assert.False(File.Exists(_home.Path(".codex", "config.toml")));
-        Assert.Equal(SetupHome.Launch.Command, ReadJson(_home.Path(".cursor", "mcp.json"))["mcpServers"]!["net-decompiler"]!["command"]!.GetValue<string>());
+        Assert.Equal(SetupHome.Launch.Command, ReadJson(_home.Path(".cursor", "mcp.json"))["mcpServers"]!["corvus"]!["command"]!.GetValue<string>());
     }
 
     [Fact]
@@ -215,7 +215,7 @@ public sealed class SetupPlanTests : IDisposable
         Assert.True(code == 0, output);
         Assert.True(File.Exists(_home.Path(".codex", "config.toml")));
         Assert.False(File.Exists(_home.Path(".kiro", "settings", "mcp.json")));
-        Assert.Equal(Old, ReadJson(_home.Path(".cursor", "mcp.json"))["mcpServers"]!["net-decompiler"]!["command"]!.GetValue<string>());
+        Assert.Equal(Old, ReadJson(_home.Path(".cursor", "mcp.json"))["mcpServers"]!["corvus"]!["command"]!.GetValue<string>());
     }
 
     [Fact]

@@ -18,11 +18,11 @@ public static class RelayCli
         try { options = Parse(args.Skip(1).ToList()); }
         catch (ArgumentException ex)
         {
-            Console.Error.WriteLine($"net-decompiler relay: {ex.Message}");
+            Console.Error.WriteLine($"corvus relay: {ex.Message}");
             return 2;
         }
         if (RelayBuilds.IsInside(AppContext.BaseDirectory, options.Target))
-            Console.Error.WriteLine($"net-decompiler relay: running from inside {options.Target}; publish.ps1 renames these files aside while they run, " +
+            Console.Error.WriteLine($"corvus relay: running from inside {options.Target}; publish.ps1 renames these files aside while they run, " +
                                     "other publish tools may fail on them. A staged copy avoids that: NetDecompilerMcp install --dev-reload <publishDir>.");
         var relay = new DevRelay(options, Console.OpenStandardInput(), Console.OpenStandardOutput(), Console.Error);
         return relay.RunAsync().GetAwaiter().GetResult();
@@ -75,14 +75,25 @@ public static class RelayCli
             ? dir
             : Native.Providers.DataFolder.Combine("relay");
 
+    /// <summary>The publish folder (--target) of a registration's relay arguments; null when they start the server.</summary>
+    public static string? TargetOf(IEnumerable<string> args)
+    {
+        var list = args.ToList();
+        int start = list.Count > 1 && RelayBuilds.IsProgramDll(list[0]) ? 1 : 0;
+        if (list.Count <= start || list[start] != Command) return null;
+        for (int i = start + 1; i + 1 < list.Count && ValueOptions.Contains(list[i]); i += 2)
+            if (list[i] == "--target") return list[i + 1];
+        return null;
+    }
+
     /// <summary>
     /// A registration's arguments without the relay command and its own options (what remains is the server's); the
-    /// command may follow the corvus.dll of a dotnet launch.
+    /// command may follow the main assembly of a dotnet launch.
     /// </summary>
     public static List<string> WithoutRelayPrefix(IEnumerable<string> args)
     {
         var list = args.ToList();
-        int start = list.Count > 1 && Path.GetFileName(list[0]).Equals("corvus.dll", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        int start = list.Count > 1 && RelayBuilds.IsProgramDll(list[0]) ? 1 : 0;
         if (list.Count <= start || list[start] != Command) return list;
         int i = start + 1;
         while (i < list.Count && ValueOptions.Contains(list[i])) i += 2;
