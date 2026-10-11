@@ -397,6 +397,6 @@ public sealed class NativeTypeInfoIdaTests(ITestOutputHelper output) : IDisposab
         Assert.Equal("pair", Assert.Single(report.Paths).Path);
         // auto reads the engine once its analysis is complete, for names the other sources lack
         Assert.Contains("[ida:SampleTyped, ida]", await tools.GetNativeType(image, "SampleTyped"));
-        Assert.Contains("ida:SampleTyped", await tools.GetNativeType(image, "dmTyp", source: "engine"));
+        Assert.Contains("ida:SampleTyped", await tools.GetNativeType(image, "mpleTyp", source: "engine"));
     }
 }
