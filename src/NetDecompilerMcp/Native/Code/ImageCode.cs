@@ -61,6 +61,29 @@ internal sealed class ImageCode
         _regions = regions.ToArray();
         _regionStarts = _regions.Select(r => r.Rva).ToArray();
         TotalBytes = bitBase;
+        // a hybrid image's code of the other instruction set (x64 in ARM64X, ARM64 / ARM64EC in an x64 image) is not this decoder's code
+        if (image is Pe.PeFile pe && Pe.PeHybrid.Of(pe) is { } hybrid)
+        {
+            bool arm = image.Arch == NativeArch.Arm64;
+            _foreign = [.. hybrid.CodeRanges.Where(r => r.Length > 0 && (arm ? r.Arch == "x64" : r.Arch is "ARM64" or "ARM64EC"))
+                .Select(r => (r.Rva, r.Rva + r.Length)).OrderBy(r => r.Item1)];
+        }
+    }
+
+    private readonly (uint Start, uint End)[] _foreign = [];
+
+    private bool Foreign(uint rva)
+    {
+        var f = _foreign;
+        int lo = 0, hi = f.Length - 1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) >>> 1;
+            if (rva < f[mid].Start) hi = mid - 1;
+            else if (rva >= f[mid].End) lo = mid + 1;
+            else return true;
+        }
+        return false;
     }
 
     /// <summary>The code region containing <paramref name="rva"/>, or null.</summary>
@@ -73,10 +96,10 @@ internal sealed class ImageCode
         return rva - r.Rva < (uint)r.Bytes.Length ? r : null;
     }
 
-    public bool IsCode(uint rva) => RegionAt(rva) != null;
+    public bool IsCode(uint rva) => RegionAt(rva) != null && (_foreign.Length == 0 || !Foreign(rva));
 
     /// <summary>Dense bit index of a code byte, or -1.</summary>
-    public long BitIndex(uint rva) => RegionAt(rva) is { } r ? r.BitBase + (rva - r.Rva) : -1;
+    public long BitIndex(uint rva) => RegionAt(rva) is { } r && (_foreign.Length == 0 || !Foreign(rva)) ? r.BitBase + (rva - r.Rva) : -1;
 }
 
 /// <summary>A fixed-size bit set over the dense code byte index of <see cref="ImageCode"/>.</summary>

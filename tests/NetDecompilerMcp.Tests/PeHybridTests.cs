@@ -81,6 +81,16 @@ public sealed class PeHybridTests
     }
 
     [Fact]
+    public void Code_of_the_other_instruction_set_is_not_decoded()
+    {
+        var arm = new Native.Code.ImageCode(PeFile.FromBytes(Hybrid(0xAA64), "hybrid.dll"));
+        Assert.Equal((true, true, false), (arm.IsCode(0x1000), arm.IsCode(0x1040), arm.IsCode(0x10C0)));
+        Assert.Equal(-1, arm.BitIndex(0x10C0));
+        var x64 = new Native.Code.ImageCode(PeFile.FromBytes(Hybrid(0x8664), "ec.dll"));
+        Assert.Equal((false, false, true), (x64.IsCode(0x1000), x64.IsCode(0x1040), x64.IsCode(0x10C0)));
+    }
+
+    [Fact]
     public async Task Get_pe_info_names_the_hybrid()
     {
         using var dir = new TempDir();
