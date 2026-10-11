@@ -122,7 +122,7 @@ public sealed partial class CSharpPatcher
     /// References are imported with their internals, so a non-public top-level type defined under the same full name in two
     /// of them (System.SR is in most runtime libraries) is ambiguous (CS0433). The copy that counts is the target's own,
     /// else the one of the assembly the target references by that name, else the only public one; the other non-public
-    /// copies are renamed out of reach in their reference copies.
+    /// copies (all of them when none is public and none is used) are renamed out of reach in their reference copies.
     /// </summary>
     private static void HideClashingTypes(LoadedAssembly asm, List<(string Name, byte[] Image, string Path)> images, List<MetadataReference> references,
         IReadOnlySet<string> clashing)
@@ -139,8 +139,9 @@ public sealed partial class CSharpPatcher
             int? winner = owners[0] == 0 ? 0
                 : usedFrom.TryGetValue(name, out var from) && owners.FirstOrDefault(i => string.Equals(images[i].Name, from, StringComparison.OrdinalIgnoreCase), -1) is var used and >= 0 ? used
                 : owners.Where(Public).ToList() is [var onlyPublic] ? onlyPublic : null;
-            if (winner == null) continue;
-            foreach (int i in owners.Where(i => i != winner && !Public(i)))
+            if (winner == null && owners.Any(Public)) continue;
+            // The target's own type wins over referenced ones, public or not, as when it was compiled (CS0436).
+            foreach (int i in owners.Where(i => i != winner && (winner == 0 || !Public(i))))
                 (hide.TryGetValue(i, out var set) ? set : hide[i] = new HashSet<string>(StringComparer.Ordinal)).Add(name);
         }
         foreach (var (i, names) in hide)

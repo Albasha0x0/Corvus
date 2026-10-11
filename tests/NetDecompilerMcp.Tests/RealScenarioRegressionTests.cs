@@ -407,6 +407,23 @@ public sealed class RealScenarioRegressionTests
     }
 
     /// <summary>
+    /// The CS0433 retry read [NonVersionable] as a type named NonVersionable, so an attribute the target and mscorlib both define
+    /// kept failing (System.Collections.Immutable 1.3.1); a public framework type the target defines again was never hidden
+    /// (Lazy&lt;T&gt; of NUnit 3 for .NET 3.5, compiled against mscorlib 4).
+    /// </summary>
+    [Trait("Speed", "Slow")]
+    [Fact]
+    public void CSharpPatchesBindAttributesAndRedefinedFrameworkTypesToTheTarget()
+    {
+        using (var env = new Env(RealPackages.Lib("System.Collections.Immutable", "1.3.1", "netstandard1.0", "System.Collections.Immutable.dll")))
+            Assert.Contains("compiled OK", env.Edit(() => env.Edits.PatchMethodCSharp(env.One("System.Collections.Immutable.ImmutableArray`1::IndexOf(T, int, int)"),
+                "return -1;", dryRun: true, default)));
+        using (var env = new Env(RealPackages.Lib("NUnit", "3.14.0", "net35", "nunit.framework.dll")))
+            Assert.Contains("compiled OK", env.Edit(() => env.Edits.PatchMethodCSharp(env.One("NUnit.Framework.Constraints.Constraint::ToString()"),
+                "return \"x\";", dryRun: true, default)));
+    }
+
+    /// <summary>
     /// The decompiled types were made public in the compiled copy, so an internal type deriving from or exposing another
     /// internal type of the target failed every C# patch with CS0060 or CS0053 (Newtonsoft.Json's JSON path classes).
     /// </summary>

@@ -38,6 +38,7 @@
     <PackageDownload Include="BouncyCastle.Cryptography" Version="[2.6.2]" />
     <PackageDownload Include="Newtonsoft.Json" Version="[12.0.2];[13.0.1];[13.0.4]" />
     <PackageDownload Include="NLog" Version="[6.1.4]" />
+    <PackageDownload Include="NUnit" Version="[3.14.0]" />
     <PackageDownload Include="System.Text.Json" Version="[10.0.1]" />
     <PackageDownload Include="System.IO.Pipelines" Version="[10.0.1]" />
     <PackageDownload Include="System.Collections.Immutable" Version="[1.3.1]" />

@@ -104,7 +104,11 @@ public sealed partial class CSharpPatcher
             int lt = text.IndexOf('<');
             if (lt >= 0) text = text[..lt];
             text = text[(text.LastIndexOfAny(['.', ':']) + 1)..].Trim().TrimStart('@');
-            if (text.Length > 0) names.Add(text);
+            if (text.Length == 0) continue;
+            names.Add(text);
+            // [DisallowNull] names DisallowNullAttribute
+            if (d.Location.SourceTree.GetRoot().FindNode(d.Location.SourceSpan).AncestorsAndSelf().Any(n => n is AttributeSyntax) && !text.EndsWith("Attribute", StringComparison.Ordinal))
+                names.Add(text + "Attribute");
         }
         return names;
     }
