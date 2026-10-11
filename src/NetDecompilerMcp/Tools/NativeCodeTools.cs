@@ -227,8 +227,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
 
     [McpServerTool(Name = "get_cfg", Title = "Native control-flow graph", UseStructuredContent = true, OutputSchemaType = typeof(CfgReport))]
     [Description("Basic blocks of the native function containing an address: each block's range, instruction count, how it ends (return, jump, " +
-                 "switch, tail call, noreturn call...) and its successors; resolved switch tables with their cases (switched values per target, the " +
-                 "default from the bound check, the index bias, table kind and byte index table); indirect jumps whose targets are unknown, with the reason. " + IndexNote)]
+                 "switch, tail call, noreturn call...) and its successors; switch tables with values per target, default and bias; unresolved indirect jumps with the reason. " + IndexNote)]
     public Task<string> GetCfg(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,

@@ -36,9 +36,8 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     [Description("Overview of a native image. PE: machine, kind, subsystem, image base, entry point, timestamps, linker, sections (with flags and entropy), " +
                  "security mitigations (ASLR, DEP, CFG, SafeSEH, GS cookie, CET...), import/export counts, TLS callbacks, debug info (PDB path and GUID), " +
                  "load config, version resource, manifest, rich header (toolchain), checksum, overlay, Authenticode signature, and anything malformed. " +
-                 "ELF: program headers, soname, interpreter, Android NDK note, build id, relocations, binding, PIE / NX / RELRO / stack protector. " +
-                 "Mach-O: slice, segments, libraries, rpaths, platform and versions, fixups, function starts, code signature (identifier, team, cdhash, " +
-                 "entitlements), FairPlay encryption.")]
+                 "ELF: program headers, soname, NDK note, build id, relocations, hardening. Mach-O: slice, segments, libraries, fixups, code signature, " +
+                 "entitlements, FairPlay encryption.")]
     public Task<string> GetPeInfo(
         [Description(ImageDescription)] string image,
         [Description(OffsetDescription)] int offset = 0,
@@ -180,7 +179,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
 
     [McpServerTool(Name = "list_imports", Title = "List native imports", UseStructuredContent = true, OutputSchemaType = typeof(ImportList))]
     [Description("Functions a native image imports, per DLL (delay-loaded marked), with the IAT slot address code calls through; " +
-                 "ELF / Mach-O: per library (ELF version library, or * for an unversioned symbol), the GOT / pointer slot, lazy binding marked, Itanium names demangled. " +
+                 "ELF / Mach-O: per library (* for unversioned ELF symbols), lazy binding marked. " +
                  "API set names (api-ms-win-*) are shown with the DLL they resolve to on this system. With bind=true each import is bound like the " +
                  "loader does (DLL search order, API sets, forwarders, jump thunks in loaded providers) to its export: 'at VA [image]' when the provider " +
                  "is loaded (disassemble / native_call_tree work on it), its path when not (load_assembly with that path, or with this image and " +

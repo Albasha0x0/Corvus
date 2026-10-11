@@ -38,8 +38,8 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
 
     [McpServerTool(Name = "load_assembly", Title = "Load assembly")]
     [Description("Load a .NET assembly (.dll/.exe) or every assembly in a directory (e.g. an application folder, a Unity *_Data/Managed folder or an Il2CppDumper DummyDll folder). " +
-                 "A native file given by path (PE .exe/.dll/.sys without .NET metadata, ELF .so / executable, Mach-O .dylib / executable) loads as a native image for the native tools (get_pe_info, list_imports, list_exports, list_functions, disassemble); " +
-                 "a universal (fat) Mach-O loads one slice (slice=, default arm64e, arm64, x86_64, then the first) with id name[slice]; " +
+                 "A native PE (without .NET metadata), ELF or Mach-O file given by path loads as a native image for the native tools (get_pe_info, list_imports, list_exports, list_functions, disassemble); " +
+                 "a universal Mach-O loads one slice (slice=) as name[slice]; " +
                  "folder loads take only .NET assemblies and list the native files they skipped. " +
                  "An Il2Cpp game (its folder, or its global-metadata.dat with GameAssembly.dll beside it or in the game folder; also a memory dump of GameAssembly.dll) is read by the built-in metadata reader (versions 24-31, no external dumper): " +
                  "dummy assemblies with method addresses, field offsets and tokens, plus string literals, generic instantiations and metadata slots for the Il2Cpp tools, cached per user (NDM_IL2CPP_CACHE); " +

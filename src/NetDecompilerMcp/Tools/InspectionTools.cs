@@ -19,8 +19,7 @@ public sealed class InspectionTools(InspectionService inspection)
                  "(single-file bundles, packages, APKs, zips, Costura hosts) are opened: the app's own assembly in full, up to 7 more in brief " +
                  "(framework libraries last, translations skipped); an apphost launcher's .dll next to it is summarized as the app. For a NativeAOT " +
                  "executable, nativeAot gives the runtime version, module sections, recovery stages and counts of named methods, MethodTables and " +
-                 "frozen strings. For an ELF or Mach-O image (a universal file's default slice), nativeImage gives the format, machine, kind, slices, " +
-                 "build id, libraries, counts, platform (Android NDK note, Apple build version), code signature and entitlements, and FairPlay encryption. " +
+                 "frozen strings. ELF / Mach-O: nativeImage gives format, slices, build id, libraries, platform, code signature, entitlements and FairPlay encryption. " +
                  "highlights lists the notable findings.")]
     public Task<InspectionService.FileSummary> SummarizeFile(
         [Description("Any file: assembly, single-file bundle, .nupkg, .apk, zip, native executable. Pass this or assembly.")] string? path = null,

@@ -65,7 +65,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
 
     [McpServerTool(Name = "get_call_arguments", Title = "Native call arguments", UseStructuredContent = true)]
     [Description("Call sites of a native image (x86 / x64 / ARM64) with their argument values, recovered by backward constant propagation in the calling " +
-                 "function under the platform conventions (x64 rcx, rdx, r8, r9 / xmm0-3, then [rsp+20h+8*i]; x86 pushed / stored stack slots; ARM64 x0-x7 within the call's block): " +
+                 "function under the platform conventions (x64 rcx, rdx, r8, r9 / xmm0-3, then [rsp+20h+8*i]; x86 pushed / stored stack slots; ARM64 x0-x7): " +
                  "immediates, string literals, named addresses, results of earlier calls, globals; merges of different values are unknown. " +
                  "Known Win32 / CRT APIs give parameter names and decoded constants (GENERIC_READ, PAGE_EXECUTE_READWRITE, HKEY_LOCAL_MACHINE, printf formats). " +
                  "Pass address (a call instruction, or any address in a function for all its calls) and/or callee (an API or function name: all calls to it).")]
