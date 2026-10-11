@@ -1417,38 +1417,45 @@ Native names, comments, patches and saving.
 
 ### rename_native
 
-**Name a native address** (destructive, idempotent, long-running)
+**Name a native address** (destructive, idempotent, open-world, long-running)
 
-Give a name to a native address (a function start, or any address): the name shows up in list_functions, disassemble (labels and call targets), find_xrefs and native_call_tree, and is saved to a per-user sidecar keyed by the file's SHA-256, so it survives reloads and restarts. Names are C-identifier-like (<=255 chars) and unique unless allowDuplicate=true. An empty name clears it.
+Name a native address: shown by list_functions, disassemble, find_xrefs and native_call_tree, pushed to the engines, and kept in a per-user sidecar keyed by the file's SHA-256. C-identifier-like (<=255 chars), unique unless allowDuplicate. Empty clears. items: many in one sidecar write and one engine push, each reported.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
-| `address` | string | yes |  | Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them). |
-| `name` | string | yes |  | The new name; empty to clear the name at this address. |
+| `address` | string |  |  | Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them). |
+| `name` | string |  |  | The new name; empty to clear the name at this address. |
 | `allowDuplicate` | boolean |  | `false` | Allow a name already used at another address. |
+| `items` | string |  |  | Lines 'address = name', or JSON [{address, name}]. |
+| `dryRun` | boolean |  | `false` | Check only; record nothing. |
+| `stopOnError` | boolean |  | `false` | Stop at the first failing item. |
+| `engine` | string |  |  | Engine to push the change to now (default: one with this image open; else at its next use): auto, ida or ghidra. Values: auto, ida, ghidra. |
 
 ### comment_native
 
 **Comment a native address** (destructive, idempotent, open-world, long-running)
 
-Comment a native address, saved to the per-user sidecar keyed by the file's SHA-256 and pushed into the engine's database. scope: line (repeatable: also shown where the address is referenced), eol, pre or plate (engine comment kinds; Ghidra's decompiler shows pre), pseudocode (the decompiler statement made from the address, or the nearest before it), function (the containing function's) or auto (default: function at a function start, else line and pseudocode). append adds a line to the comment there (dedupe skips a line it already has). An empty text clears it.
+Comment a native address (kept, pushed to engines). scope: line (repeatable: also where the address is referenced), eol, pre or plate (engine kinds; Ghidra's decompiler shows pre), pseudocode (on the statement made from the address), function, or auto (function at a function start, else line and pseudocode). append adds a line (dedupe skips one it has). Empty clears. items: many in one sidecar write and one engine push, each reported.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
-| `address` | string | yes |  | Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them). |
-| `text` | string | yes |  | The comment text; empty to clear it. |
+| `address` | string |  |  | Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them). |
+| `text` | string |  |  | The comment text; empty to clear it. |
 | `scope` | string |  |  | auto, line, eol, pre, plate, pseudocode or function. Values: auto, line, eol, pre, plate, pseudocode, function. |
 | `append` | boolean |  | `false` | Add text as a new line of the existing comment. |
 | `dedupe` | boolean |  | `true` | With append: skip a line the comment already has (default true). |
-| `engine` | string |  |  | Engine to push pseudocode comments to now (default: one with this image open; else at its next use): auto, ida or ghidra. Values: auto, ida, ghidra. |
+| `items` | string |  |  | Lines 'address = text', or JSON [{address, text, scope?, append?}]. |
+| `dryRun` | boolean |  | `false` | Check only; record nothing. |
+| `stopOnError` | boolean |  | `false` | Stop at the first failing item. |
+| `engine` | string |  |  | Engine to push the change to now (default: one with this image open; else at its next use): auto, ida or ghidra. Values: auto, ida, ghidra. |
 
 ### export_native_annotations
 
 **Export native annotations** (destructive, idempotent, long-running)
 
-Write the image's names and comments as an IDAPython script (ida), a Ghidra script (ghidra) or JSON; the IDA script and JSON also carry the user's engine types (declarations, prototypes, global types, stack variables, locals). Scripts apply by RVA, rebased to the database's image base. header: a C header of declared types, function prototypes by name and externs of typed globals.
+Write the image's names and comments as an IDAPython script (ida), a Ghidra script (ghidra) or JSON; the IDA script and JSON also carry the user's engine types. Scripts apply by RVA, rebased to the database's image base. header: a C header of declared types, prototypes by name and externs of typed globals.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1461,7 +1468,7 @@ Write the image's names and comments as an IDAPython script (ida), a Ghidra scri
 
 **Patch native bytes** (destructive, long-running)
 
-Replace bytes at a native address with a hex string, in memory. The patch is recorded as an undoable edit and every read path (disassemble, strings, search_bytes, read_bytes) then sees the patched bytes. Over code, trailing bytes of a partly overwritten instruction are padded with NOPs; the patch is refused if it would start mid-instruction, run past the function end or hit zero-fill/header bytes, unless force=true. Base relocations under the patch are planned (see relocations). dryRun shows the before/after disassembly and the relocation changes without recording it.
+Replace bytes at a native address with a hex string, in memory. The patch is recorded as an undoable edit and every read path (disassemble, strings, search_bytes, read_bytes) then sees the patched bytes. Over code, trailing bytes of a partly overwritten instruction are padded with NOPs; refused mid-instruction, past the function end or on zero-fill/header bytes unless force=true. Relocations under the patch are planned (see relocations). dryRun previews without recording.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1479,7 +1486,7 @@ Replace bytes at a native address with a hex string, in memory. The patch is rec
 
 **Assemble and patch native code** (destructive, long-running)
 
-Assemble x86/x64 instructions (multi-line; labels, numeric and symbol branch targets; a 'db <hex>' escape) and write them at a native address, in memory. Branch displacements and RIP-relative references are computed for the target address. Same safety rules and NOP padding as patch_bytes; the patch is recorded as an undoable edit. Absolute addresses (x86 [addr] operands, 'offset name' / symbol immediates, x64 imm64 addresses) get base relocations and overwritten ones are neutralized (see relocations). dryRun shows the before/after disassembly and the relocation changes without recording it.
+Assemble x86/x64 instructions (multi-line; labels, numeric and symbol branch targets; a 'db <hex>' escape) and write them at a native address, in memory. Branch displacements and RIP-relative references are computed for the target address. Same safety rules and NOP padding as patch_bytes; the patch is recorded as an undoable edit. Absolute addresses (x86 [addr] operands, 'offset name' / symbol immediates, x64 imm64 addresses) get base relocations and overwritten ones are neutralized (see relocations). dryRun previews.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1518,7 +1525,7 @@ Undo one in-memory byte patch of a native image — the last by default, or any 
 
 **Save patched native image** (destructive, idempotent, long-running)
 
-Write the patched native image to a file. Everything not patched is byte-for-byte identical to the original; the PE checksum is recomputed when the original had one; a signed file becomes unsigned (pass stripSignature=true to remove the certificate table). Writes atomically, never overwrites without overwrite=true (the original, also through a link, is backed up to .bak; one changed on disk since load is refused), and verifies the written file before it replaces the target by re-parsing and comparing every byte outside the patched ranges (and the relocation entries the patches rewrote), then re-parses the relocation table and checks that every patched range holds exactly its kept/added entries.
+Write the patched native image to a file: unpatched bytes identical, PE checksum recomputed when present, a signed file becomes unsigned (stripSignature removes the certificate table). Atomic; overwrite=true backs the original up to .bak and refuses one changed on disk; the written file is re-parsed and every byte outside the patches and every relocation entry checked before it replaces the target.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1820,10 +1827,11 @@ Rename and/or retype a local variable or argument in the pseudocode of a native 
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
 | `function` | string | yes |  | The function: Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them). |
-| `local` | string | yes |  | The variable: its name in the pseudocode, or stack:<offset> (hex). |
+| `local` | string |  |  | The variable: its name in the pseudocode, or stack:<offset> (hex). |
 | `newName` | string |  |  | New name (a C identifier). |
 | `type` | string |  |  | New C type, e.g. 'unsigned int', 'Packet *', 'char[16]'. |
 | `clear` | boolean |  | `false` | Drop the user's name and type of the variable (no newName or type). |
+| `items` | string |  |  | Instead of local: several variables of the function, lines 'local = newName', or a JSON array of {local, newName?, type?, clear?}; one engine request, each reported. |
 | `engine` | string |  |  | Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra), ida or ghidra. Values: auto, ida, ghidra. |
 
 ### set_native_stack_var

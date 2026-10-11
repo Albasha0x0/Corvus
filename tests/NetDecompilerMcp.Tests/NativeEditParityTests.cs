@@ -134,6 +134,41 @@ public sealed class NativeEditParityTests(ITestOutputHelper output) : IDisposabl
     }
 
     [IdaFact]
+    public Task Batch_renames_comments_and_locals_reach_IDA_in_one_push() => BatchEdits("ida");
+
+    [GhidraFact]
+    public Task Batch_renames_comments_and_locals_reach_Ghidra_in_one_push() => BatchEdits("ghidra");
+
+    private async Task BatchEdits(string engine)
+    {
+        var rig = Setup(engine + "-b");
+        var path = Image();
+        var session = await rig.Session(engine);
+        var callees = (await session.GetXrefsFromAsync(rig.Start, wholeFunction: true)).Where(x => x.Kind == NativeXrefKind.Call).Select(x => x.ToRva).Distinct()
+            .Where(t => rig.Native.Image.SectionAt(t) is { IsExecutable: true }).Take(2).ToList();
+        Assert.True(callees.Count >= 1, "no direct callee");
+        var items = string.Join("\n", callees.Select((c, i) => $"{Rva(c)} = ndm_callee_{i}"));
+        var renamed = await rig.Edits.RenameNative(path, items: items, engine: engine);
+        output.WriteLine(renamed);
+        Assert.StartsWith($"{callees.Count} name item(s): {callees.Count} ok, 0 failed", renamed);
+        var lines = (await session.DecompileAsync(rig.Start)).LineAddresses.Where(l => l.Rva > rig.Start).ToList();
+        var commented = await rig.Edits.CommentNative(path, items: $"{Rva(lines[lines.Count / 3].Rva)} = ndm batch one\n{Rva(lines[2 * lines.Count / 3].Rva)} = ndm batch two", scope: "pseudocode", engine: engine);
+        output.WriteLine(commented);
+        var text = await rig.Analysis.DecompileNative(path, Function, engine: engine);
+        output.WriteLine(text);
+        Assert.Contains("ndm_callee_0", text);
+        Assert.Contains("ndm batch one", text);
+        Assert.Contains("ndm batch two", text);
+
+        var frame = await session.GetFrameAsync(rig.Start);
+        var locals = frame.Locals.Where(l => l.Name.Length > 0 && !l.IsArgument && !l.UserName).Take(2).Select(l => l.Name).ToList();
+        var edited = await rig.Types.SetNativeLocal(path, Function, items: $"{locals[0]} = ndm_l0\n{locals[1]} = ndm_l1\nno_such_local = x", engine: engine);
+        output.WriteLine(edited);
+        Assert.StartsWith("2 of 3 local edit(s) applied", edited);
+        Assert.Equal(2, rig.Code.Annotations(rig.Native).UserTypes.Locals.Values.Sum(l => l.Count));
+    }
+
+    [IdaFact]
     public Task Local_and_stack_edits_clear_in_IDA() => LocalAndStackEditsClear("ida");
 
     [GhidraFact]

@@ -451,10 +451,12 @@ final class TypeOps {
             JsonArray s = e.getAsJsonArray();
             items.add(FrameOps.applyStack(w, s.get(0).getAsLong(), s.get(1).getAsInt(), text(s.get(2)), text(s.get(3))));
         }
-        for (JsonElement e : Worker.array(a, "locals")) {
-            JsonArray l = e.getAsJsonArray();
+        JsonArray locals = Worker.array(a, "locals");
+        String[] pins = locals.size() > 1 ? FrameOps.pins(w, r, locals) : new String[locals.size()];
+        for (int i = 0; i < locals.size(); i++) {
+            JsonArray l = locals.get(i).getAsJsonArray();
             items.add(FrameOps.applyLocal(w, r, l.get(0).getAsLong(), l.get(1).getAsString(), l.get(2).isJsonNull() ? null : l.get(2).getAsInt(),
-                text(l.get(3)), text(l.get(4))));
+                text(l.get(3)), text(l.get(4)), pins[i]));
         }
         EditOps.after(w, r, items);
         w.setStamp(a);

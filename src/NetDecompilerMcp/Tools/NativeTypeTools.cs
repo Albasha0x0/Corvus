@@ -183,15 +183,22 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     public Task<string> SetNativeLocal(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("The function: " + NativeTools.AddressDescription)] string function,
-        [Description("The variable: its name in the pseudocode, or stack:<offset> (hex).")] string local,
+        [Description("The variable: its name in the pseudocode, or stack:<offset> (hex).")] string? local = null,
         [Description("New name (a C identifier).")] string? newName = null,
         [Description("New C type, e.g. 'unsigned int', 'Packet *', 'char[16]'.")] string? type = null,
         [Description("Drop the user's name and type of the variable (no newName or type).")] bool clear = false,
+        [Description("Instead of local: several variables of the function, lines 'local = newName', or a JSON array of {local, newName?, type?, clear?}; one engine request, each reported.")] string? items = null,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        var request = LocalRequest(local, newName, type, clear);
+        if (items != null)
+        {
+            if (local != null || newName != null || type != null || clear)
+                throw new ToolError(ErrorCode.InvalidArgument, "Pass items, or local with newName/type/clear, not both.");
+            return await SetLocals(image, function, items, engine, progress, cancellationToken);
+        }
+        var request = LocalRequest(local ?? throw new ToolError(ErrorCode.InvalidArgument, "Pass local, or items."), newName, type, clear);
         var (native, rva, session) = await Open(image, function, engine, progress, cancellationToken);
         var edits = LocalEdits(native, rva, [request]);
         var result = await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch([], [], [], edits), (r, layer) => RecordLocals(r, layer, edits), cancellationToken);
@@ -200,6 +207,45 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         return $"Local {done.Resolved} of the function at {Va(native, done.Rva)}{(done.Stack is { } k ? $" (stack 0x{k:X})" : "")} " +
                (done.Kind == "local_clear" ? $"is cleared; now {done.Text}" : $"is now: {done.Text}");
     });
+
+    /// <summary>set_native_local items: the requests that parse in one engine request; every outcome and refusal reported.</summary>
+    private async Task<string> SetLocals(string image, string function, string items, string? engine, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    {
+        var requests = new List<LocalChange>();
+        var problems = new List<string>();
+        var text = items.Trim();
+        if (text.StartsWith('['))
+        {
+            System.Text.Json.JsonElement root;
+            try { root = System.Text.Json.JsonDocument.Parse(text).RootElement; }
+            catch (System.Text.Json.JsonException e) { throw new ToolError(ErrorCode.InvalidArgument, $"items is not valid JSON: {e.Message}"); }
+            foreach (var o in root.EnumerateArray())
+            {
+                string? Str(string key) => o.ValueKind == System.Text.Json.JsonValueKind.Object && o.TryGetProperty(key, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String ? v.GetString() : null;
+                bool clear = o.ValueKind == System.Text.Json.JsonValueKind.Object && o.TryGetProperty("clear", out var c) && c.ValueKind == System.Text.Json.JsonValueKind.True;
+                try { requests.Add(LocalRequest(Str("local") ?? "", Str("newName") ?? Str("name"), Str("type"), clear)); }
+                catch (ToolError e) { problems.Add($"{o}: {e.Message}"); }
+            }
+        }
+        else
+            foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                int eq = line.IndexOf('=', StringComparison.Ordinal);
+                try { requests.Add(eq > 0 ? LocalRequest(line[..eq].Trim(), line[(eq + 1)..].Trim(), null, false) : throw new ToolError(ErrorCode.InvalidArgument, "not 'local = newName'")); }
+                catch (ToolError e) { problems.Add($"'{line}': {e.Message}"); }
+            }
+        if (requests.Count + problems.Count > MaxTypeItems) throw new ToolError(ErrorCode.InvalidArgument, $"At most {MaxTypeItems} items per call.", "split the items");
+        var (native, rva, session) = await Open(image, function, engine, progress, ct);
+        var edits = LocalEdits(native, rva, requests);
+        var result = edits.Count == 0 ? null
+            : await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch([], [], [], edits), (r, layer) => RecordLocals(r, layer, edits), ct);
+        var outcomes = result?.Items ?? [];
+        var sb = new System.Text.StringBuilder($"{outcomes.Count(i => i.Applied)} of {outcomes.Count + problems.Count} local edit(s) applied\n");
+        foreach (var i in outcomes)
+            sb.AppendLine($"  {i.Resolved ?? i.Target}  " + (!i.Applied ? "not applied: " + i.Error : i.Kind == "local_clear" ? "cleared; now " + i.Text : i.Text));
+        foreach (var p in problems) sb.AppendLine($"  not applied: {p}");
+        return sb.ToString();
+    }
 
     /// <summary>One local to change: its target (name or stack offset), the new name and type, or a clear.</summary>
     internal sealed record LocalChange(string Target, int? Stack, string? Name, string? Type, bool Clear);

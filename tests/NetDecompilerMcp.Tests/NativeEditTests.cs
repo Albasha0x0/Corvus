@@ -452,6 +452,65 @@ public class NativeEditTests(ITestOutputHelper output)
         Assert.Equal((null, null), (ann.CommentAt(inside), ann.CommentKindAt(inside)));
     }
 
+    private static ulong Revision(Harness h) =>
+        System.Text.Json.JsonDocument.Parse(File.ReadAllText(Directory.GetFiles(h.Store.Root, "*.json").Single())).RootElement.GetProperty("revision").GetUInt64();
+
+    [Fact]
+    public async Task RenameNative_Items_DryRun_StopOnError_PerItemResults_AndOneSidecarWrite()
+    {
+        using var h = new Harness();
+        var (native, index) = await h.Open();
+        uint e = native.Image.EntryPointRva;
+        var tools = new NativeEditTools(h.Env.Workspace, h.Code, h.Edits);
+        var ann = h.Code.Annotations(native);
+        await tools.RenameNative(h.Path, $"rva:0x{e + 6:X}", "Taken");
+        var before = Revision(h);
+
+        var items = $"rva:0x{e:X} = Start\nrva:0x{e + 1:X} = 9bad\nrva:0x{e + 2:X} = Taken\nrva:0x{e + 3:X} = Third\nnowhere = X";
+        var dry = await tools.RenameNative(h.Path, items: items, dryRun: true);
+        _output.WriteLine(dry);
+        Assert.StartsWith("Dry run: 5 name item(s): 2 ok, 3 failed; nothing recorded", dry);
+        Assert.Contains("-> Start", dry);
+        Assert.Null(ann.NameAt(e));
+        Assert.Equal(before, Revision(h));
+
+        var stopped = await tools.RenameNative(h.Path, items: items, stopOnError: true);
+        Assert.StartsWith("5 name item(s): 1 ok, 1 failed, stopped after item 2", stopped);
+        Assert.Equal(("Start", null), (ann.NameAt(e), ann.NameAt(e + 3)));
+        Assert.Equal(before + 1, Revision(h));
+
+        // JSON form, the same name twice in one batch, and a clear
+        var json = await tools.RenameNative(h.Path, items: $$"""[{"address":"rva:0x{{e + 3:X}}","name":"Twin"},{"address":"rva:0x{{e + 4:X}}","name":"Twin"},{"address":"rva:0x{{e:X}}","name":""}]""");
+        _output.WriteLine(json);
+        Assert.StartsWith("3 name item(s): 2 ok, 1 failed", json);
+        Assert.Equal(("Twin", null, null), (ann.NameAt(e + 3), ann.NameAt(e + 4), ann.NameAt(e)));
+        Assert.Equal(before + 2, Revision(h));
+        Assert.Equal("Twin", index.NameAt(e + 3));
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.RenameNative(h.Path, $"rva:0x{e:X}", "A", items: items))).Code);
+    }
+
+    [Fact]
+    public async Task CommentNative_Items_ApplyPerItemScopes_InOneSidecarWrite()
+    {
+        using var h = new Harness();
+        var (native, _) = await h.Open();
+        uint e = native.Image.EntryPointRva;
+        var tools = new NativeEditTools(h.Env.Workspace, h.Code, h.Edits);
+        var ann = h.Code.Annotations(native);
+        await tools.CommentNative(h.Path, $"rva:0x{e + 1:X}", "first", scope: "line");
+        var before = Revision(h);
+        var result = await tools.CommentNative(h.Path, items:
+            $$"""[{"address":"rva:0x{{e + 1:X}}","text":"second","append":true},{"address":"rva:0x{{e + 2:X}}","text":"a = b","scope":"eol"},{"address":"rva:0x{{e + 3:X}}","text":"x","scope":"nowhere"}]""",
+            scope: "line");
+        _output.WriteLine(result);
+        Assert.StartsWith("3 comment item(s): 2 ok, 1 failed", result);
+        Assert.Equal(("first\nsecond", "a = b", "eol"), (ann.CommentAt(e + 1), ann.CommentAt(e + 2), ann.CommentKindAt(e + 2)));
+        Assert.Equal(before + 1, Revision(h));
+        // lines keep a '=' in the text
+        await tools.CommentNative(h.Path, items: $"rva:0x{e + 4:X} = x == y", scope: "line");
+        Assert.Equal("x == y", ann.CommentAt(e + 4));
+    }
+
     [Fact]
     public async Task Rename_FlowsIntoListFunctionsAndDisassemble()
     {

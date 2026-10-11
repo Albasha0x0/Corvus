@@ -1998,62 +1998,82 @@ def put_comment_kind(m, f, ea, comment, kind):
     return True
 
 
-def pseudo_anchor(cf, ea):
-    # the address whose ctree item holds the comment: ea itself, else the nearest lower address that generated code
+def pseudo_anchors(cf, ea):
+    # the statements made from ea, else from the nearest lower address that generated code (innermost first)
     eamap = cf.get_eamap()
-    if ea in eamap:
-        return eamap[ea][0].ea
-    lower = [k for k in eamap.keys() if k <= ea]
-    return eamap[max(lower)][0].ea if lower else None
+    key = ea if ea in eamap else max([k for k in eamap.keys() if k <= ea], default=None)
+    if key is None:
+        return []
+    out = []
+    for insn in eamap[key]:
+        if insn.ea not in out:
+            out.append(insn.ea)
+    return out
 
 
-def drop_user_cmts(m, func_ea, ea):
-    # removes the user comments on ea whatever their placement
+def comment_shown(m, cf, text):
+    first = text.split("\n")[0].strip()
+    return any(first in m.ida_lines.tag_remove(sl.line) for sl in cf.get_pseudocode())
+
+
+def placement_key(rva):
+    return "pc:%X" % rva
+
+
+def drop_placement(m, func_ea, rva):
+    # removes the comment placed for rva (its statement and placement are kept in USER_NODE)
     hr = m.ida_hexrays
+    node = user_node(True)
+    kept = node.hashstr_buf(placement_key(rva))
+    if kept is None:
+        return
+    node.hashdel(placement_key(rva))
+    ea, itp = (int(x) for x in kept.split(":"))
     cmts = hr.restore_user_cmts(func_ea)
     if cmts is None:
         return
-    for key in [k for k in cmts.keys() if k.ea == ea]:
+    for key in [k for k in cmts.keys() if k.ea == ea and k.itp == itp]:
         cmts.erase(cmts.find(key))
     hr.save_user_cmts(func_ea, cmts)
 
 
 def set_pseudo_comment(m, rva, text):
-    # [rva, applied, anchor rva, error]: the comment goes on the first placement (ITP_SEMI..) that does not leave it orphaned
+    # [rva, applied, anchor rva, error]: each statement made from the address and placement (ITP_SEMI..) in turn until the
+    # comment is neither orphaned nor hidden; the placement is kept so a later change replaces exactly that comment
     hr = m.ida_hexrays
     ea = _state["base"] + rva
     f = m.ida_funcs.get_func(ea)
     if f is None:
         return [rva, False, None, "no function contains rva 0x%X" % rva]
-    cf, why = decompile_function(m, f.start_ea)
-    if cf is None:
-        return [rva, False, None, why]
-    target = pseudo_anchor(cf, ea)
-    if target is None:
-        return [rva, False, None, "no pseudocode is generated at or before rva 0x%X" % rva]
-    drop_user_cmts(m, f.start_ea, target)
+    drop_placement(m, f.start_ea, rva)
     hr.mark_cfunc_dirty(f.start_ea, False)
-    if not text:
-        return [rva, True, rva_of(target), None]
     cf, why = decompile_function(m, f.start_ea)
     if cf is None:
         return [rva, False, None, why]
-    if cf.has_orphan_cmts():
-        cf.del_orphan_cmts()
-        cf.save_user_cmts()
+    anchors = pseudo_anchors(cf, ea)
+    if not anchors:
+        return [rva, False, None, "no pseudocode is generated at or before rva 0x%X" % rva]
+    if not text:
+        return [rva, True, rva_of(anchors[0]), None]
+    cmts = cf.user_cmts
     tl = hr.treeloc_t()
-    tl.ea = target
-    for itp in range(hr.ITP_SEMI, hr.ITP_COLON):
-        tl.itp = itp
-        cf.set_user_cmt(tl, text)
-        cf.save_user_cmts()
-        cf.refresh_func_ctext()
-        if not cf.has_orphan_cmts():
-            hr.mark_cfunc_dirty(f.start_ea, False)
-            return [rva, True, rva_of(target), None]
-        cf.del_orphan_cmts()
-        cf.save_user_cmts()
-    return [rva, False, rva_of(target), "Hex-Rays found no place for a comment at rva 0x%X" % rva_of(target)]
+    for target in anchors:
+        tl.ea = target
+        for itp in range(hr.ITP_SEMI, hr.ITP_COLON):
+            tl.itp = itp
+            if cmts is not None and cmts.find(tl) != cmts.end():
+                continue  # another comment holds this place
+            cf.set_user_cmt(tl, text)
+            cf.refresh_func_ctext()
+            if not cf.has_orphan_cmts() and comment_shown(m, cf, text):
+                cf.save_user_cmts()
+                user_node(True).hashset_buf(placement_key(rva), "%d:%d" % (target, itp))
+                hr.mark_cfunc_dirty(f.start_ea, False)
+                return [rva, True, rva_of(target), None]
+            cf.set_user_cmt(tl, "")
+            cf.refresh_func_ctext()
+    hr.mark_cfunc_dirty(f.start_ea, False)
+    return [rva, False, rva_of(anchors[0]), "Hex-Rays found no place for a comment at rva 0x%X" % rva_of(anchors[0])]
 
 
 def op_pseudo_comments(args):

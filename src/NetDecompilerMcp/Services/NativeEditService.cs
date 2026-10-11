@@ -51,6 +51,23 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
             : $"Commented {NativeAddress.Va(index.Image, rva)}.{StaleNote(ann)}";
     }
 
+    /// <summary>Records names (null or empty: cleared) with one sidecar write and shows them in the code index; refused as a whole on a duplicate.</summary>
+    public void ApplyNames(LoadedNative native, NativeCodeIndex index, IReadOnlyList<(uint Rva, string? Name)> names, bool allowDuplicate)
+    {
+        var ann = Annotations(native);
+        workspace.Write(() =>
+        {
+            ann.Apply(names, [], [], allowDuplicate);
+            foreach (var (rva, _) in names)
+            {
+                var now = ann.NameAt(rva);
+                code.Ready(native)?.SetUserName(rva, now);
+                index.SetUserName(rva, now);
+            }
+            return 0;
+        });
+    }
+
     /// <summary>A comment change at an address: <see cref="Line"/> the disassembly / function comment, <see cref="Pseudo"/> the decompiler comment; null leaves one, "" removes it.</summary>
     public sealed record CommentChange(uint Rva, string? Line, string? Pseudo)
     {

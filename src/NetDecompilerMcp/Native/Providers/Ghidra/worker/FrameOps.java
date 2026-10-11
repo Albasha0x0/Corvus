@@ -205,8 +205,47 @@ final class FrameOps {
         return null;
     }
 
-    /** Renames and/or retypes a decompiler local or parameter; the decompiler's view after the edit is the check. */
+    /** A symbol's identity that survives renames of the others: its storage and first use. */
+    private static String pin(HighSymbol s) {
+        return s.getStorage() + "@" + s.getPCAddress();
+    }
+
+    /**
+     * The pins of the variables that locals [[function, local, stack, name, type]] name, taken before any edit: Ghidra
+     * renumbers its default names (iVar2 becomes iVar1) once another local is named. Null where not found.
+     */
+    static String[] pins(Worker w, Worker.Request r, JsonArray locals) throws Exception {
+        String[] out = new String[locals.size()];
+        java.util.Map<Function, HighFunction> seen = new java.util.HashMap<>();
+        w.decompilers.flush();
+        for (int i = 0; i < locals.size(); i++) {
+            JsonArray l = locals.get(i).getAsJsonArray();
+            Function f = w.program.getFunctionManager().getFunctionContaining(w.space().getAddress(w.base + l.get(0).getAsLong()));
+            if (f == null) continue;
+            HighFunction hf = seen.get(f);
+            if (hf == null && !seen.containsKey(f)) {
+                try {
+                    hf = high(w, f, r);
+                }
+                catch (Worker.WorkerError e) {
+                    hf = null;
+                }
+                seen.put(f, hf);
+            }
+            if (hf == null) continue;
+            HighSymbol s = find(hf, low(f.getStackFrame()), l.get(1).getAsString(), l.get(2).isJsonNull() ? null : l.get(2).getAsInt(),
+                l.get(3).isJsonNull() ? null : l.get(3).getAsString());
+            if (s != null) out[i] = pin(s);
+        }
+        return out;
+    }
+
     static JsonArray applyLocal(Worker w, Worker.Request r, long rva, String local, Integer stack, String name, String type) throws Exception {
+        return applyLocal(w, r, rva, local, stack, name, type, null);
+    }
+
+    /** Renames and/or retypes a decompiler local or parameter (found by its pin when given); the decompiler's view after the edit is the check. */
+    static JsonArray applyLocal(Worker w, Worker.Request r, long rva, String local, Integer stack, String name, String type, String pinned) throws Exception {
         Function f = w.program.getFunctionManager().getFunctionContaining(w.space().getAddress(w.base + rva));
         if (f == null) return item("local", rva, local, false, "no function contains rva 0x" + Long.toHexString(rva).toUpperCase(), null, stack, null);
         rva = w.rva(f.getEntryPoint());
@@ -219,7 +258,13 @@ final class FrameOps {
         catch (Worker.WorkerError e) {
             return item("local", rva, local, false, e.getMessage(), null, stack, null);
         }
-        HighSymbol s = find(hf, low, local, stack, name);
+        HighSymbol s = null;
+        if (pinned != null)
+            for (Iterator<HighSymbol> it = hf.getLocalSymbolMap().getSymbols(); it.hasNext() && s == null;) {
+                HighSymbol x = it.next();
+                if (pin(x).equals(pinned)) s = x;
+            }
+        if (s == null) s = find(hf, low, local, stack, name);
         if (s == null) {
             StringBuilder known = new StringBuilder();
             hf.getLocalSymbolMap().getSymbols().forEachRemaining(x -> known.append(known.length() > 0 ? ", " : "").append(x.getName()));

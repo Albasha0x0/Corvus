@@ -177,7 +177,7 @@ public static class ToolEffects
         ["migrate_native_names"] = Changes(destructive: false, idempotent: true, longRunning: true), // never replaces a name; saved to the sidecar
 
         // Native annotations and edits (names and comments are saved to a per-user sidecar file)
-        ["rename_native"] = Changes(destructive: true, idempotent: true, longRunning: true),
+        ["rename_native"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true),
         ["comment_native"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true),
         ["export_native_annotations"] = Changes(destructive: true, idempotent: true, longRunning: true), // overwrite=true replaces the file at outputPath
 
