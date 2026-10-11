@@ -171,7 +171,7 @@ internal sealed class X86Decoder : ICodeDecoder
         {
             var kind = i.GetOpKind(k);
             if (kind == OpKind.Memory) hasMemory = true;
-            else if (kind is OpKind.Immediate32 or OpKind.Immediate64) hasImmediate = true;
+            else if (kind is OpKind.Immediate32 or OpKind.Immediate64 or OpKind.Immediate32to64) hasImmediate = true;
         }
         if (hasMemory) ResolveMemory(in i, ref insn);
         if (hasImmediate) ResolveImmediate(in i, ref insn);
@@ -312,15 +312,17 @@ internal sealed class X86Decoder : ICodeDecoder
         for (int k = 0; k < i.OpCount; k++)
         {
             var kind = i.GetOpKind(k);
-            if (kind is not (OpKind.Immediate32 or OpKind.Immediate64)) continue;
-            if (kind == OpKind.Immediate32 && _is64) continue;
+            if (kind is not (OpKind.Immediate32 or OpKind.Immediate64 or OpKind.Immediate32to64)) continue;
+            if (kind == OpKind.Immediate32 && _is64 && (HasRelocations || i.Mnemonic != Mnemonic.Mov)) continue;
             if (!TryRva(i.GetImmediate(k), out uint target)) return;
             if (HasRelocations)
             {
                 var offsets = _decoder.GetConstantOffsets(in i);
                 if (!offsets.HasImmediate || !IsRelocated(insn.Rva + offsets.ImmediateOffset)) return;
             }
-            else if (_is64 || i.Mnemonic is not (Mnemonic.Push or Mnemonic.Mov) || _image.SectionAt(target) == null)
+            // without relocations the image loads at its base: x86 push / mov and x64 mov of an address in a section
+            // (a fixed-address ELF executable writes function pointers as "mov edi, offset main")
+            else if (i.Mnemonic is not (Mnemonic.Push or Mnemonic.Mov) || (_is64 && i.Mnemonic != Mnemonic.Mov) || _image.SectionAt(target) == null)
                 return;
             insn.HasImm = true;
             insn.ImmTarget = target;

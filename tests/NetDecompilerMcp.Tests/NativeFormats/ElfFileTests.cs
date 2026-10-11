@@ -13,6 +13,27 @@ public sealed class ElfFileTests(ITestOutputHelper output)
     private static ElfFile Parse(ElfWriter w) => ElfFile.FromBytes(w.Build(), "sample.so");
 
     [Fact]
+    public void FixedAddressExecutable_FunctionPointersInMovImmediatesAreFunctions()
+    {
+        // entry: mov rdi, offset f1 ; mov esi, offset f2 ; ret   (f1 and f2 are reached only through those immediates)
+        const ulong Base = 0x400000;
+        uint f1 = ElfWriter.TextRva + 0x20, f2 = ElfWriter.TextRva + 0x30;
+        var text = new byte[0x40];
+        Array.Fill(text, (byte)0xCC);
+        byte[] entry = [0x48, 0xC7, 0xC7, 0, 0, 0, 0, 0xBE, 0, 0, 0, 0, 0xC3];
+        BinaryPrimitives.WriteUInt32LittleEndian(entry.AsSpan(3), (uint)(Base + f1));
+        BinaryPrimitives.WriteUInt32LittleEndian(entry.AsSpan(8), (uint)(Base + f2));
+        entry.CopyTo(text, 0);
+        new byte[] { 0xB8, 0x2A, 0, 0, 0, 0xC3 }.CopyTo(text, (int)(f1 - ElfWriter.TextRva));
+        new byte[] { 0x8D, 0x47, 0x01, 0xC3 }.CopyTo(text, (int)(f2 - ElfWriter.TextRva));
+        var w = new ElfWriter { Machine = ElfWriter.EmX64, Type = 2, Base = Base, Entry = ElfWriter.TextRva, Text = text, Hash = ElfWriter.HashKind.None };
+        var index = NetDecompilerMcp.Native.Code.NativeCodeIndex.Build(ElfFile.FromBytes(w.Build(), "fixed"));
+        foreach (var f in new[] { f1, f2 })
+            Assert.True(index.FunctionByStart(f) is { } found && found.Sources.HasFlag(NetDecompilerMcp.Native.Code.FunctionSource.CodeAddress),
+                $"0x{f:X}: {string.Join(", ", index.Functions.Select(x => $"0x{x.Start:X}"))}");
+    }
+
+    [Fact]
     public void SharedObject_ImageModel()
     {
         var w = SampleElf();
