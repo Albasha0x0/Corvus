@@ -125,4 +125,28 @@ public sealed class NativeQueryEngineTests(ITestOutputHelper output) : IDisposab
         Assert.Matches(@"(?m)^\s*0x[0-9A-F]+  Call\s+\S+\+0x[0-9A-F]+  -> 0x[0-9A-F]+", from);
         Assert.DoesNotMatch(@"(?m)^\s*0x[0-9A-F]+  (Call|Jump|Code)\s", await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ghidra", direction: "from", kind: "data"));
     }
+
+    [IdaFact]
+    public async Task Decompile_refs_lists_the_ctree_objects_through_IDA()
+    {
+        var rig = Setup();
+        var report = await NativeQuerySurfaceTests.Structured<NativeAnalysisTools.DecompileReport>(() => rig.Analysis.DecompileNative(rig.Native.Id, Function, engine: "ida", refs: true));
+        var text = await rig.Analysis.DecompileNative(rig.Native.Id, Function, engine: "ida", refs: true);
+        output.WriteLine(text[text.IndexOf("// refs:", StringComparison.Ordinal)..]);
+        Assert.Matches(@"// refs: .*import", text);
+        Assert.DoesNotContain("(from ida's references)", text);
+        var refs = report.Items[0].Refs!;
+        Assert.Contains(refs, r => r.Kind == "import" && r.Name.EndsWith("!RtlImageNtHeaderEx", StringComparison.Ordinal));
+        Assert.All(refs, r => Assert.True(r.Uses >= 1));
+    }
+
+    [GhidraFact]
+    public async Task Decompile_refs_come_from_the_function_references_through_Ghidra()
+    {
+        var rig = Setup();
+        var text = await rig.Analysis.DecompileNative(rig.Native.Id, Function, engine: "ghidra", refs: true);
+        output.WriteLine(text[text.IndexOf("// refs:", StringComparison.Ordinal)..]);
+        Assert.Matches(@"// refs: .*import.* \(from ghidra's references\)", text);
+        Assert.Contains("!RtlImageNtHeaderEx", text);
+    }
 }

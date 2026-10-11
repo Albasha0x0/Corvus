@@ -192,6 +192,29 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         Assert.Contains("Matching (name '/^f/'): 1", text);
     }
 
+    [Fact]
+    public async Task Decompile_refs_footer_lists_what_the_function_references_on_the_first_page()
+    {
+        var rig = await Setup();
+        var slot = rig.Native.Image.Imports[0].SlotRva;
+        rig.Provider.From.Add(new NativeXref(rig.First, rig.Second, NativeXrefKind.Call, rig.First));
+        rig.Provider.From.Add(new NativeXref(rig.First, slot, NativeXrefKind.Read, rig.First));
+        rig.Provider.From.Add(new NativeXref(rig.First, slot, NativeXrefKind.Read, rig.First));
+        var plain = await rig.Analysis.DecompileNative(rig.Native.Id, "First");
+        Assert.DoesNotContain("// refs:", plain);
+        var report = await Structured<NativeAnalysisTools.DecompileReport>(() => rig.Analysis.DecompileNative(rig.Native.Id, "First", refs: true));
+        var text = await rig.Analysis.DecompileNative(rig.Native.Id, "First", refs: true);
+        Assert.Contains("// refs: 1 function, 1 import (from ida's references)", text);
+        Assert.Matches(@"//   function  0x[0-9A-F]+  Second", text);
+        Assert.Matches(@"//   import    0x[0-9A-F]+  \S+!ExitProcess  x2", text);
+        var refs = report.Items[0].Refs!;
+        Assert.Equal(["function", "import"], refs.Select(r => r.Kind));
+        Assert.Equal(2, refs[1].Uses);
+        // later pages carry no footer; batches refuse refs
+        Assert.DoesNotContain("// refs:", await rig.Analysis.DecompileNative(rig.Native.Id, "First", refs: true, offset: 5));
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Analysis.DecompileNative(rig.Native.Id, functions: ["First"], refs: true))).Code);
+    }
+
     internal sealed class FakeProvider : INativeDecompilerProvider
     {
         public List<(uint Start, uint End, string Name)> Functions { get; set; } = [];

@@ -1330,6 +1330,7 @@ C pseudocode of the native function containing an address, through IDA (idalib; 
 | `functions` | string[] |  |  | Several functions instead of address: addresses or names, in the order wanted. |
 | `perFunctionSeconds` | integer |  | `60` | With functions: seconds per function (default 60, 1-600). |
 | `maxFunctions` | integer |  | `32` | With functions: functions decompiled (default 32, 1-200); the rest are skipped with a follow-up call. |
+| `refs` | boolean |  | `false` | With address: list the globals, functions, strings and imports the pseudocode names after the first page. |
 
 Structured output: `image`, `engine`, `items`, `total`, `succeeded`, `failed`, `skipped`, `next`.
 

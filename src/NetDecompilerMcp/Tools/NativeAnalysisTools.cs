@@ -29,7 +29,16 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         string? ErrorCode,
         string? Error,
         int Lines,
-        int Chars);
+        int Chars)
+    {
+        [Description("refs=true: the globals, functions, strings and imports the pseudocode names, in first-use order.")]
+        public IReadOnlyList<DecompileRef>? Refs { get; init; }
+    }
+
+    public sealed record DecompileRef(string Address, string Name,
+        [property: Description("function, import, string or data.")] string Kind,
+        [property: Description("A string's text.")] string? Text,
+        [property: Description("Uses in the pseudocode (IDA) or references from the function (other engines).")] int Uses);
 
     public sealed record DecompileReport(
         string Image,
@@ -61,6 +70,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         [Description("Several functions instead of address: addresses or names, in the order wanted.")] string[]? functions = null,
         [Description("With functions: seconds per function (default 60, 1-600).")] int perFunctionSeconds = 60,
         [Description("With functions: functions decompiled (default 32, 1-200); the rest are skipped with a follow-up call.")] int maxFunctions = 32,
+        [Description("With address: list the globals, functions, strings and imports the pseudocode names after the first page.")] bool refs = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -79,6 +89,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         var pushed = await Push(native!, session, cancellationToken);
         if (batch)
         {
+            if (refs) throw new ToolError(ErrorCode.InvalidArgument, "refs applies to one function (address), not functions.", "drop refs, or decompile one address");
             var (text, report) = await Batch(native!, session, functions!, addresses, Math.Clamp(perFunctionSeconds, 1, 600), Math.Clamp(maxFunctions, 1, 200), cancellationToken);
             return StructuredOutput.With((pushed != null ? $"// {pushed}\n" : "") + pager.Page(text, offset, maxChars), report);
         }
@@ -99,11 +110,67 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         }
         var known = code?.Ready(native!)?.FunctionAt(rva);
         uint? functionStart = decompiled?.StartRva ?? known?.Start;
+        (string Text, List<DecompileRef> Items)? objects = refs
+            ? await References(native!, session, TextKey(native!, session, rva, addresses) + "|refs", functionStart ?? rva, cancellationToken)
+            : null;
         var item = new DecompileItem(address!, NativeAddress.Va(native!.Image, rva), functionStart is { } fs ? NativeAddress.Va(native.Image, fs) : null,
-            (decompiled?.Name ?? known?.Name) is { } shown ? NativeTools.DisplayName(shown, native.Image.Format) : null, "ok", null, null, single.Count(c => c == '\n'), single.Length);
-        return StructuredOutput.With(header + (pushed != null ? $"// {pushed}\n" : "") + pager.Page(single, offset, maxChars),
+            (decompiled?.Name ?? known?.Name) is { } shown ? NativeTools.DisplayName(shown, native.Image.Format) : null, "ok", null, null, single.Count(c => c == '\n'), single.Length)
+            { Refs = objects?.Items };
+        return StructuredOutput.With(header + (pushed != null ? $"// {pushed}\n" : "") + pager.Page(single, offset, maxChars) + (offset == 0 && objects != null ? objects.Value.Text : ""),
             new DecompileReport(native.Id, session.ProviderId, [item], 1, 1, 0, 0, null));
     });
+
+    /// <summary>Most objects the refs footer lists.</summary>
+    private const int MaxRefs = 200;
+
+    private readonly Dictionary<string, (string, List<DecompileRef>)> _refs = [];
+
+    /// <summary>
+    /// The refs footer of a function and its rows, cached under the pseudocode's key: IDA lists the ctree's objects; other
+    /// engines the targets of the function's references (calls and data, not jumps inside it).
+    /// </summary>
+    private async Task<(string Text, List<DecompileRef> Items)> References(LoadedNative native, INativeDecompilerSession session, string key, uint start, CancellationToken ct)
+    {
+        lock (_refs) if (_refs.TryGetValue(key, out var cached)) return cached;
+        var index = code?.Ready(native);
+        var image = native.Image;
+        var imports = image.Imports.GroupBy(i => i.SlotRva).ToDictionary(g => g.Key, g => g.First());
+        var objects = await NativeEngineQueries.DecompileRefs(session, start, ct);
+        if (objects == null)
+        {
+            var functions = (await session.ListFunctionsAsync(ct)).GroupBy(f => f.StartRva).ToDictionary(g => g.Key, g => g.First());
+            var self = functions.GetValueOrDefault(start);
+            objects = (await session.GetXrefsFromAsync(start, wholeFunction: true, ct))
+                .Where(x => self == null || x.ToRva < start || x.ToRva >= self.EndRva)
+                .Where(x => x.Kind is not (NativeXrefKind.Jump or NativeXrefKind.Code) || functions.ContainsKey(x.ToRva))
+                .GroupBy(x => x.ToRva).OrderBy(g => g.Min(x => x.FromRva))
+                .Select(g => new NativeEngineQueries.PseudocodeObject(g.Key, functions.GetValueOrDefault(g.Key)?.Name ?? "", null, g.Count(), functions.ContainsKey(g.Key)))
+                .ToList();
+        }
+        var items = new List<DecompileRef>();
+        foreach (var o in objects)
+        {
+            var name = (imports.TryGetValue(o.Rva, out var imp) ? Native.Code.NativeCodeIndex.ImportName(imp) : null) ?? index?.NameAt(o.Rva) ?? (o.Name.Length > 0 ? o.Name : NativeAddress.Va(image, o.Rva));
+            var text = o.Text ?? (index?.StringAt(o.Rva) is { } s ? index.ReadString(s, 400) : null);
+            var kind = imports.ContainsKey(o.Rva) ? "import" : o.Function ? "function" : text != null ? "string" : "data";
+            items.Add(new DecompileRef(NativeAddress.Va(image, o.Rva), kind == "import" ? name : NativeTools.DisplayName(name, image.Format), kind, text, o.Uses));
+        }
+        var sb = new StringBuilder($"// refs: {(items.Count == 0 ? "none" : string.Join(", ", items.GroupBy(i => i.Kind).Select(g => Plural(g.Count(), g.Key))))}" +
+                                   (session is Native.Providers.Ida.IdaSession ? "" : $" (from {session.ProviderId}'s references)") + "\n");
+        foreach (var i in items.Take(MaxRefs))
+            sb.AppendLine($"//   {i.Kind,-8}  {i.Address}  {(i.Text != null ? Quote(i.Text) : i.Name)}{(i.Uses > 1 ? $"  x{i.Uses}" : "")}");
+        if (items.Count > MaxRefs) sb.AppendLine($"//   ... {items.Count - MaxRefs} more (structured refs has all)");
+        var result = (sb.ToString(), items);
+        lock (_refs)
+        {
+            if (_refs.Count >= 256) _refs.Clear(); // a bounded cache: footers are cheap to rebuild
+            _refs[key] = result;
+        }
+        return result;
+    }
+
+    private static string Quote(string text) =>
+        "\"" + Format.Clip(text.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t"), 120) + "\"";
 
     /// <summary>Pushes names, recovered and user types into the session (each once per change); what was pushed, for the header.</summary>
     private async Task<string?> Push(LoadedNative native, INativeDecompilerSession session, CancellationToken ct)

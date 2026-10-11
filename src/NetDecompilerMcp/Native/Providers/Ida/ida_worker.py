@@ -2310,6 +2310,61 @@ def op_value_slice(args):
 OPS["value_slice"] = op_value_slice
 
 
+# ---- query surface: pseudocode references ----
+
+_STR_CODECS = {0: "utf-8", 1: "utf-16-le", 2: "utf-32-le"}
+
+
+def ref_string(m, ea):
+    # the text of a string literal item at ea, else None
+    import ida_bytes
+    if not ida_bytes.is_strlit(ida_bytes.get_flags(ea)):
+        return None
+    strtype = m.ida_nalt.get_str_type(ea)
+    if strtype is None or strtype < 0:
+        strtype = m.ida_nalt.STRTYPE_C
+    raw = ida_bytes.get_strlit_contents(ea, -1, strtype)
+    if not raw:
+        return None
+    return raw.decode(_STR_CODECS.get(strtype & 3, "utf-8"), errors="replace")[:400]
+
+
+def op_decompile_refs(args):
+    # objects the pseudocode of the function at rva names (globals, functions, strings, imports), in first-use order:
+    # rows [rva, name, string or null, uses, function start (bool)]
+    m = need_open()
+    f = func_at(m, ea_of(args))
+    cf, why = decompile_function(m, f.start_ea)
+    if cf is None:
+        raise WorkerError("failed", why)
+    hr = m.ida_hexrays
+    order, uses = [], {}
+
+    class Objects(hr.ctree_visitor_t):
+        def __init__(self):
+            hr.ctree_visitor_t.__init__(self, hr.CV_FAST)
+
+        def visit_expr(self, e):
+            if e.op == hr.cot_obj and e.obj_ea != m.idautils.ida_idaapi.BADADDR:
+                if e.obj_ea not in uses:
+                    order.append(e.obj_ea)
+                uses[e.obj_ea] = uses.get(e.obj_ea, 0) + 1
+            return 0
+
+    Objects().apply_to(cf.body, None)
+    rows = []
+    for ea in order:
+        rva = rva_of(ea)
+        if rva is None:
+            continue
+        callee = m.ida_funcs.get_func(ea)
+        rows.append([rva, m.ida_name.get_ea_name(ea) or "", ref_string(m, ea), uses[ea], bool(callee and callee.start_ea == ea)])
+    return {"start": rva_of(f.start_ea), "refs": rows}
+
+
+OPS["decompile_refs"] = op_decompile_refs
+
+
 def watch_parent(parent):
     # POSIX has no job object: exit when the server dies, even while a request runs (stdin EOF is only seen between requests)
     try:
