@@ -344,6 +344,27 @@ public sealed class MinidumpTests
         Assert.Equal("hang | synth32!Leaf > synth32!Mid > synth32!Top", Assert.Single((await service.Bucket(dir.Path, false, null, 3, null, false, true, 10, null, 0, 10, null, default)).Buckets).Signature);
     }
 
+    /// <summary>A module name two modules share (a WoW64 process's two ntdll.dll) is ambiguous alone and with an offset alike.</summary>
+    [Fact]
+    public async Task ModuleNamesSharedByTwoModulesAreAmbiguousInEveryForm()
+    {
+        using var dir = new TempDir();
+        var d = new MinidumpBuilder();
+        d.Modules.Add(new MinidumpBuilder.Module(0x7700_0000, 0x10000, 0, @"C:\Windows\SysWOW64\ntdll.dll"));
+        d.Modules.Add(new MinidumpBuilder.Module(0x7FFE_0000_0000, 0x10000, 0, @"C:\Windows\System32\ntdll.dll"));
+        d.Threads.Add(new MinidumpBuilder.Thread(1, 0x1000, MinidumpBuilder.ContextX64(0x7FFE_0000_1000, 0x1000)));
+        var path = dir.File("two.dmp");
+        File.WriteAllBytes(path, d.Build());
+        var service = new MinidumpService();
+        foreach (var address in new[] { "ntdll", "ntdll.dll", "ntdll+0x10" })
+        {
+            var error = await Assert.ThrowsAsync<ToolError>(() => service.ReadMemory(path, address, 8, true, default));
+            Assert.Equal(ErrorCode.Ambiguous, error.Code);
+            Assert.Contains("0x77000000", error.Message);
+            Assert.Contains("0x7FFE00000000", error.Message);
+        }
+    }
+
     /// <summary>Frames without a name (JIT code, unknown places) are left out of a signature, so a dump that holds less memory lands in the same bucket.</summary>
     [Fact]
     public async Task UnnamedFramesDoNotSplitABucket()

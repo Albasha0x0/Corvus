@@ -449,15 +449,22 @@ public sealed partial class MinidumpService
         if (plus > 0)
         {
             string name = t[..plus].Trim();
-            var module = d.Modules.Where(m => m.FileName.Equals(name, StringComparison.OrdinalIgnoreCase) || ModuleLabel(m).Equals(name, StringComparison.OrdinalIgnoreCase)).ToList();
-            if (module.Count == 0) throw new ToolError(ErrorCode.NotFound, $"no module '{name}' in the dump.", "open_minidump lists the modules");
-            if (module.Count > 1) throw new ToolError(ErrorCode.Ambiguous, $"{module.Count} modules are named '{name}'.", "pass the absolute address");
+            var module = Named(d, name) ?? throw new ToolError(ErrorCode.NotFound, $"no module '{name}' in the dump.", "open_minidump lists the modules");
             var off = NativeAddress.Number(t[(plus + 1)..].Trim()) ?? throw new ToolError(ErrorCode.InvalidArgument, $"'{t[(plus + 1)..]}' is not a hex offset.");
-            return module[0].Base + off;
+            return module.Base + off;
         }
-        if (d.Modules.FirstOrDefault(m => m.FileName.Equals(t, StringComparison.OrdinalIgnoreCase) || ModuleLabel(m).Equals(t, StringComparison.OrdinalIgnoreCase)) is { } whole)
-            return whole.Base;
+        if (Named(d, t) is { } whole) return whole.Base;
         return NativeAddress.Number(t) ?? throw new ToolError(ErrorCode.InvalidArgument, $"'{text}' is not an address.", "pass a hex address (0x7FF6...) or module+0xoffset");
+    }
+
+    /// <summary>The one module of that name (file name or debugger label), or null; two (a WoW64 process's ntdll.dll) are ambiguous.</summary>
+    private static DumpModule? Named(MinidumpFile d, string name)
+    {
+        var modules = d.Modules.Where(m => m.FileName.Equals(name, StringComparison.OrdinalIgnoreCase) || ModuleLabel(m).Equals(name, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (modules.Count > 1)
+            throw new ToolError(ErrorCode.Ambiguous, $"{modules.Count} modules are named '{name}': {string.Join(", ", modules.Select(m => $"{Hex(d, m.Base)} ({m.Path})"))}.",
+                "pass the absolute address (a base above plus the offset)");
+        return modules.FirstOrDefault();
     }
 
     internal static string Hex(IProcessMemory d, ulong v) => d.Is64Bit ? $"0x{v:X}" : $"0x{v & 0xFFFFFFFF:X}";
