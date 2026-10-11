@@ -110,6 +110,22 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         int? InstructionEnd, string Note,
         [property: Description("ours (a reference the built-in index has) or ida (one only IDA has).")] string Source);
 
+    public sealed record FunctionDiffRow(
+        [property: Description("= same, ~ same instruction shape with other operands, - only in the old build, + only in the new, … unchanged rows skipped.")] string Op,
+        string? OldAddress, string? NewAddress, string? OldText, string? NewText);
+
+    public sealed record FunctionDiffReport(
+        string OldImage, string NewImage, string OldFunction, string NewFunction, string? OldAddress, string? NewAddress,
+        [property: Description("Function-match tier (1 best .. 5 fuzzy); null when not matched.")] int? Tier,
+        string? Basis, double? Score,
+        [property: Description("asm or pseudocode.")] string View,
+        [property: Description("What differs, or why there is no diff (function_not_matched, ambiguous, not_in_a_function).")] string Summary,
+        int Same, int Changed, int Removed, int Added,
+        [property: Description("asm: the aligned rows of the changed regions with context.")] IReadOnlyList<FunctionDiffRow> Rows,
+        [property: Description("pseudocode: a unified diff of the normalized pseudocode.")] string? Unified,
+        [property: Description("Candidate counterparts when ambiguous.")] IReadOnlyList<MatchCandidate> Candidates,
+        bool Truncated, IReadOnlyList<string> Notes);
+
     public sealed record PatternHit(string Image, string Address, string Section, string? Function, string? FunctionAddress, uint? FunctionOffset);
 
     public sealed record PatternSearch(string Pattern, int Length, int Images, int Total, bool Truncated, IReadOnlyList<PatternHit> Hits, IReadOnlyList<string> Notes);
@@ -208,6 +224,94 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         var newFn = mapped.NewRva is { } nr ? n.FunctionAt(nr) : mapped.Pair is { } p ? match.New.Functions[p.New].Function : null;
         return new AddressMapping(oldNative.Id, newNative.Id, Va(o, rva), mapped.NewRva is { } at ? Va(n, at) : null, mapped.Confidence, mapped.Reason, mapped.Detail,
             oldFn != null ? Name(o, oldFn) : null, newFn != null ? Name(n, newFn) : null, mapped.Pair?.Tier, mapped.Candidates.Select(c => Va(n, c)).ToList());
+    }
+
+    [McpServerTool(Name = "diff_function", Title = "Diff a function between builds", UseStructuredContent = true)]
+    [Description("What changed in one function between two builds. The function containing the address is paired through compare_native_images. " +
+                 "view=asm (default): both instruction lists aligned, each row = (same), ~ (same shape, other operands), - or +; operands are " +
+                 "build-independent: branch targets as labels of the aligned old instruction, calls to matched functions by the new build's name on " +
+                 "both sides, strings by text, other data by the new address it maps to, so moved code and relocations do not show as changes. Only " +
+                 "changed regions with context rows are returned. view=pseudocode: a unified diff of both functions' pseudocode (IDA) with addresses " +
+                 "replaced the same way. An unmatched function returns the reason and candidates.")]
+    public async Task<FunctionDiffReport> DiffFunction(
+        [Description(OldDescription)] string oldImage,
+        [Description(NewDescription)] string newImage,
+        [Description("An address in the function: " + NativeTools.AddressDescription)] string address,
+        [Description("Which build the address is in: old (default) or new.")] string? side = null,
+        [Description("asm (default) or pseudocode (needs IDA).")] string? view = null,
+        [Description("Unchanged rows (asm) or lines (pseudocode) shown around each change (default 4, 0-50).")] int context = 4,
+        [Description("Most rows or diff lines returned (default 300, max 5000).")] int maxLines = 300,
+        [Description(UseNamesDescription)] bool useNames = true,
+        [Description("view=pseudocode: " + NativeCodeTools.EngineDescription)] string? engine = null,
+        RequestContext<CallToolRequestParams> request = null!,
+        CancellationToken cancellationToken = default)
+    {
+        var s = (side ?? "old").Trim().ToLowerInvariant();
+        if (s is not ("old" or "new")) throw new ToolError(ErrorCode.InvalidArgument, $"side must be old or new, not '{side}'.");
+        var v = (view ?? "asm").Trim().ToLowerInvariant();
+        if (v is not ("asm" or "pseudocode")) throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "use asm or pseudocode");
+        if (context is < 0 or > 50) throw new ToolError(ErrorCode.InvalidArgument, $"context must be 0-50, not {context}.");
+        maxLines = ClampLimit(maxLines, 5000);
+        var (oldNative, newNative, match) = await Match(oldImage, newImage, useNames, 0.7, request, cancellationToken);
+        var o = match.Old.Index;
+        var n = match.New.Index;
+        bool fromOld = s == "old";
+        var index = fromOld ? o : n;
+        uint rva = NativeCodeTools.Address(index, address);
+        var notes = Notes(match);
+        FunctionDiffReport Empty(string summary, string oldName, string newName, string? oldVa, string? newVa, IReadOnlyList<MatchCandidate> candidates) =>
+            new(oldNative.Id, newNative.Id, oldName, newName, oldVa, newVa, null, null, null, v, summary, 0, 0, 0, 0, [], null, candidates, false, notes);
+        if (index.FunctionAt(rva) is not { } fn || !(fromOld ? match.Old : match.New).ByStart.TryGetValue(fn.Start, out var fi))
+            return Empty("not_in_a_function: the address is in no function the matcher compared", "", "", null, null, []);
+        var pair = fromOld ? match.ByOld[fi] : match.ByNew[fi];
+        if (pair == null)
+        {
+            var amb = match.Ambiguous.GetValueOrDefault((fromOld, fi));
+            var other = fromOld ? n : o;
+            var otherPrints = fromOld ? match.New.Functions : match.Old.Functions;
+            var candidates = amb?.Candidates.Take(8).Select(c => new MatchCandidate(Va(other, otherPrints[c.Index].Start), Name(other, otherPrints[c.Index].Function),
+                Math.Round(c.Score, 3))).ToList() ?? [];
+            string label = Name(index, fn);
+            return Empty(amb != null ? $"ambiguous: {amb.Reason}; candidates listed" : "function_not_matched: no counterpart in the other build",
+                fromOld ? label : "", fromOld ? "" : label, fromOld ? Va(o, fn.Start) : null, fromOld ? null : Va(n, fn.Start), candidates);
+        }
+        var (a, b) = (match.Old.Functions[pair.Old], match.New.Functions[pair.New]);
+        var differ = new FunctionDiff(match);
+        string? unified = null;
+        List<FunctionDiffRow> rows = [];
+        int same = 0, changed = 0, removed = 0, added = 0;
+        bool truncated = false;
+        if (v == "asm")
+        {
+            var d = await Task.Run(() => differ.Diff(pair, context, maxLines, cancellationToken), cancellationToken);
+            rows = d.Rows.Select(r => new FunctionDiffRow(r.Op, r.OldRva is { } x ? Va(o, x) : null, r.NewRva is { } y ? Va(n, y) : null, r.OldText, r.NewText)).ToList();
+            (same, changed, removed, added, truncated) = (d.Same, d.Changed, d.Removed, d.Added, d.Truncated);
+            notes.AddRange(d.Notes);
+        }
+        else
+        {
+            if (engines == null) throw new ToolError(ErrorCode.ProviderUnavailable, "No decompiler engine is configured.", "use view=asm");
+            async Task<string> Pseudocode(LoadedNative native, uint start)
+            {
+                var session = await engines.Session(native, engine, null, cancellationToken);
+                if (!session.DecompilerAvailable)
+                    throw new ToolError(ErrorCode.ProviderUnavailable, $"The {session.ProviderId} decompiler is not available for {session.Arch} code here.", "use view=asm");
+                return (await session.DecompileAsync(start, cancellationToken)).Text;
+            }
+            var before = differ.NormalizePseudocode(await Pseudocode(oldNative, a.Start), true, cancellationToken);
+            var after = differ.NormalizePseudocode(await Pseudocode(newNative, b.Start), false, cancellationToken);
+            var lines = TextDiff.Unified(before, after, $"{oldNative.Id} {Name(o, a.Function)}", $"{newNative.Id} {Name(n, b.Function)}", context)
+                .ReplaceLineEndings("\n").TrimEnd('\n').Split('\n');
+            truncated = lines.Length > maxLines;
+            unified = string.Join("\n", lines.Take(maxLines)) + (truncated ? $"\n… cut at {maxLines} of {lines.Length} lines" : "");
+            added = lines.Count(l => l.StartsWith('+') && !l.StartsWith("+++", StringComparison.Ordinal));
+            removed = lines.Count(l => l.StartsWith('-') && !l.StartsWith("---", StringComparison.Ordinal));
+        }
+        var summary = v == "asm"
+            ? changed + removed + added == 0 ? "identical after masking addresses" : $"{changed} changed, {removed} removed, {added} added of {a.Instructions} -> {b.Instructions} instructions"
+            : removed + added == 0 ? "the same pseudocode after normalizing addresses" : $"{removed} line(s) removed, {added} added";
+        return new FunctionDiffReport(oldNative.Id, newNative.Id, Name(o, a.Function), Name(n, b.Function), Va(o, a.Start), Va(n, b.Start), pair.Tier, pair.Basis,
+            Math.Round(pair.Score, 3), v, summary, same, changed, removed, added, rows, unified, [], truncated, notes);
     }
 
     [McpServerTool(Name = "migrate_native_names", Title = "Carry names to a new build", UseStructuredContent = true)]

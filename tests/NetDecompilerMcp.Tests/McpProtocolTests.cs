@@ -276,6 +276,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
             : (new() { ["assembly"] = "TestFixture", ["address"] = "0x1000" }, "Error (unsupported) in find_r2r_method"),
         ["compare_native_images"] = (new() { ["oldImage"] = NativeSample(dir), ["newImage"] = NativeSampleV2(dir) }, "\"basis\":\"name\""),
         ["map_address_between_builds"] = (new() { ["oldImage"] = NativeSample(dir), ["newImage"] = NativeSampleV2(dir), ["address"] = "First" }, "\"reason\":\"function_start\""),
+        ["diff_function"] = (new() { ["oldImage"] = NativeSample(dir), ["newImage"] = NativeSampleV2(dir), ["address"] = "First" }, "\"view\":\"asm\""),
         ["migrate_native_names"] = (new() { ["oldImage"] = NativeSample(dir), ["newImage"] = NativeSampleV2(dir), ["dryRun"] = true }, "\"dryRun\":true"),
         ["make_code_pattern"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "\"anchor\""),
         ["update_to_new_build"] = (new() { ["oldImage"] = NativeSample(dir), ["newImage"] = NativeSampleV2(dir), ["include"] = "names,pdb,patches" }, "\"dryRun\":true"),

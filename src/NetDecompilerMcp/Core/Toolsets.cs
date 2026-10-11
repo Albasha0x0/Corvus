@@ -38,7 +38,7 @@ public static class Toolsets
             ["rename_native", "comment_native", "export_native_annotations", "patch_bytes", "patch_asm", "list_native_edits", "undo_native_edit",
              "save_native", "export_native_patches"]),
         new("builds", true, "build-to-build comparison and carrying work to a new build",
-            ["compare_assemblies", "find_counterpart", "compare_native_images", "map_address_between_builds", "make_code_pattern", "search_code_pattern",
+            ["compare_assemblies", "find_counterpart", "compare_native_images", "diff_function", "map_address_between_builds", "make_code_pattern", "search_code_pattern",
              "migrate_native_names", "migrate_native_patches", "update_to_new_build"]),
         new("notes", true, "analyst notes kept per binary across sessions", ["record_note", "update_note", "list_notes"]),
         new("engine", false, "edits inside the decompiler engine's database: types, locals, frames, declarations, scripting",

@@ -117,6 +117,42 @@ public class NativeDiffTests
     }
 
     [Fact]
+    public void Function_diff_shows_logic_changes_not_moved_addresses()
+    {
+        var (_, _, m) = Pair.Value;
+        var diff = new FunctionDiff(m);
+
+        // main gains a call to the new X; its calls to A, B and C moved but name the same matched functions
+        var main = diff.Diff(MatchOf("main")!, context: 8, maxRows: 100, default);
+        var added = Assert.Single(main.Rows, r => r.Op == "+");
+        Assert.StartsWith("call", added.NewText);
+        Assert.Contains("new:", added.NewText);
+        Assert.Equal((0, 0, 1), (main.Changed, main.Removed, main.Added));
+        Assert.Equal(3, main.Rows.Count(r => r is { Op: "=", OldText: var t } && t!.StartsWith("call", StringComparison.Ordinal)));
+
+        // C: inc ebx became add ebx, 2; the loop branch keeps its aligned label and the call to D its matched name
+        var c = diff.Diff(MatchOf("C")!, context: 8, maxRows: 100, default);
+        Assert.Equal((1, 1), (c.Removed, c.Added));
+        Assert.Contains(c.Rows, r => r is { Op: "-", OldText: "inc    ebx" });
+        Assert.Contains(c.Rows, r => r is { Op: "+", NewText: "add    ebx, 2" });
+        Assert.Contains(c.Rows, r => r is { Op: "=" } && r.OldText!.StartsWith("jl", StringComparison.Ordinal) && r.OldText.EndsWith("L2", StringComparison.Ordinal));
+
+        // A reads a global that moved, B a string that moved: no change after masking
+        foreach (var name in new[] { "A", "B", "D" })
+        {
+            var same = diff.Diff(MatchOf(name)!, context: 4, maxRows: 100, default);
+            Assert.True(same.Changed + same.Removed + same.Added == 0, $"{name}: {string.Join(" | ", same.Rows.Select(r => $"{r.Op} {r.OldText} / {r.NewText}"))}");
+            Assert.True(same.Rows.Count <= 1); // one … row
+        }
+        Assert.Contains("\"hello build\"", string.Join("\n", diff.Diff(MatchOf("B")!, context: 0, maxRows: 100, default).Rows.Select(r => r.OldText)) +
+            diff.Name(m.Old.Index, Pair.Value.Old.Text, old: true, default));
+
+        var cut = diff.Diff(MatchOf("C")!, context: 8, maxRows: 2, default);
+        Assert.True(cut.Truncated);
+        Assert.Equal(2, cut.Rows.Count);
+    }
+
+    [Fact]
     public void Maps_instructions_strings_and_data_between_builds()
     {
         var (o, n, m) = Pair.Value;

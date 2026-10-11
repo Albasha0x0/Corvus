@@ -473,4 +473,25 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         Assert.All(ida.References!, r => Assert.True(r.OperandKind != null, r.Note));
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => diff.MakeCodePattern(path, target, anchor: "xrefs", maxPatterns: 0))).Code);
     }
+
+    [Trait("Speed", "Slow")]
+    [IdaFact]
+    public async Task Function_diff_pseudocode_shows_the_changed_constant()
+    {
+        var (workspace, code, _, _, engines) = Setup();
+        code.SymbolStarts = (_, _) => [0x1000u, 0x1040u];
+        var oldPath = _dir.File("old.dll");
+        var newPath = _dir.File("new.dll");
+        File.WriteAllBytes(oldPath, NativePatchMigrationTests.X64Image(0x1000, 0x2000, 0x1040, 1));
+        File.WriteAllBytes(newPath, NativePatchMigrationTests.X64Image(0x1000, 0x2000, 0x1040, 7));
+        var tools = new NativeDiffTools(workspace, code, engines);
+        var report = await tools.DiffFunction(oldPath, newPath, "rva:0x1040", view: "pseudocode", context: 1);
+        output.WriteLine(report.Unified);
+        Assert.Equal("pseudocode", report.View);
+        Assert.True(report.Removed >= 1 && report.Added >= 1, report.Summary);
+        Assert.Matches(@"(?m)^-.*(35|0x23)", report.Unified!);
+        Assert.Matches(@"(?m)^\+.*(41|0x29)", report.Unified!);
+        var asm = await tools.DiffFunction(oldPath, newPath, "rva:0x1040");
+        Assert.Equal(1, asm.Changed);
+    }
 }
