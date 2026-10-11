@@ -46,19 +46,25 @@ public enum TraceNodeKind : byte
 /// <param name="Depth">Function boundaries crossed from the seed.</param>
 /// <param name="Parent">The node it was reached from (-1 for the seed).</param>
 public sealed record TraceNode(int Id, TraceNodeKind Kind, uint Address, NativeFunction? Function, string? Location, string Text, ulong? Value,
-    uint? ValueRva, string? Decoded, int Depth, string Derivation, int Parent, bool Backward);
+    uint? ValueRva, string? Decoded, int Depth, string Derivation, int Parent, bool Backward)
+{
+    /// <summary>Index into <see cref="ValueTraceGraph.Images"/> of the image the addresses are in (0: the seed's).</summary>
+    public int Image { get; init; }
+}
 
-/// <summary>Data flows <see cref="From"/> to <see cref="To"/>.</summary>
-public sealed record TraceEdge(int From, int To, string Kind, uint Site);
+/// <summary>Data flows <see cref="From"/> to <see cref="To"/>; <see cref="Image"/> is the image of <see cref="Site"/>.</summary>
+public sealed record TraceEdge(int From, int To, string Kind, uint Site, int Image = 0);
 
 /// <summary>Something a budget left unexplored at <see cref="Node"/>, with the exact call that continues there.</summary>
 public sealed record TraceFrontier(int Node, string Reason, string Detail, string Next);
 
 /// <summary>A distinct terminal value (backward) or API the value reaches (forward).</summary>
-public sealed record TraceValue(string Text, TraceNodeKind Kind, uint? Rva, int Node);
+public sealed record TraceValue(string Text, TraceNodeKind Kind, uint? Rva, int Node, int Image = 0);
 
+/// <param name="Images">The images the graph spans: the seed's first, then loaded images it crossed into through imports and exports.</param>
 public sealed record ValueTraceGraph(TraceSeed Seed, ValueTraceOptions Options, string Engine, IReadOnlyList<TraceNode> Nodes, IReadOnlyList<TraceEdge> Edges,
-    IReadOnlyList<TraceFrontier> Frontier, IReadOnlyList<TraceValue> Values, int Functions, int Steps, IReadOnlyList<string> Notes);
+    IReadOnlyList<TraceFrontier> Frontier, IReadOnlyList<TraceValue> Values, int Functions, int Steps, IReadOnlyList<string> Notes,
+    IReadOnlyList<(INativeImage Image, string Id)> Images);
 
 /// <summary>What the trace driver needs from an instruction set's analysis besides its per-function slices.</summary>
 internal interface ITraceHost
@@ -78,6 +84,19 @@ internal interface ITraceHost
     ulong? ConstantAfter(NativeFunction f, uint address, string location, CancellationToken ct);
 }
 
+/// <summary>Other loaded images a trace continues into: the code an import binds to, and the call sites that reach a function through imports.</summary>
+internal interface ITraceLinks
+{
+    /// <summary>Identifies the set of loaded images (part of the graph cache key).</summary>
+    string Key { get; }
+    /// <summary>The image id of <paramref name="host"/> ("provlib.dll").</summary>
+    string ImageOf(ITraceHost host);
+    /// <summary>The function the import whose slot is <paramref name="slot"/> binds to in a loaded image of the same instruction set, or null.</summary>
+    (ITraceHost Host, NativeFunction Function)? Provider(ITraceHost host, uint slot);
+    /// <summary>Calls in other loaded images that reach <paramref name="f"/> through an import.</summary>
+    IReadOnlyList<(ITraceHost Host, uint Site, NativeFunction Caller)> Importers(ITraceHost host, NativeFunction f);
+}
+
 /// <summary>
 /// Interprocedural value tracing composed from per-function slices (<see cref="IFunctionSliceProvider"/>): backward from a
 /// use to the values that reach it (merges, loops, parameters bound to every caller's argument, callee return values,
@@ -87,8 +106,8 @@ internal interface ITraceHost
 /// </summary>
 public sealed class ValueTrace
 {
-    private readonly ITraceHost _a;
-    private readonly IFunctionSliceProvider _p;
+    private readonly List<(ITraceHost Host, IFunctionSliceProvider Slices)> _hosts = [];
+    private readonly ITraceLinks? _links;
     private readonly TraceSeed _seed;
     private readonly ValueTraceOptions _o;
     private readonly CancellationToken _ct;
@@ -96,54 +115,86 @@ public sealed class ValueTrace
     private readonly List<TraceEdge> _edges = [];
     private readonly List<TraceFrontier> _frontier = [];
     private readonly List<string> _notes = [];
-    private readonly HashSet<uint> _functions = [];
+    private readonly HashSet<(int, uint)> _functions = [];
     private readonly Dictionary<string, int> _expanded = [];
     private readonly Queue<Expansion> _queue = new();
     private int _steps;
     private bool _nodesFull;
+    /// <summary>The image being expanded (index into <see cref="_hosts"/>).</summary>
+    private int _cur;
 
     private enum Step : byte { Callers, Returns, Writers, IntoCallee, ResultUses, Readers }
 
     /// <summary>A boundary node to continue from: <see cref="Key"/> identifies it across the graph (recursion, repeats).</summary>
     private sealed record Expansion(Step Step, int Node, NativeFunction? Function, int Depth, bool Backward, string Key, string? Location, int Index,
-        uint Rva, ApiParam? Param, ApiReturn? Returns);
-
-    private ValueTrace(ITraceHost a, IFunctionSliceProvider p, TraceSeed seed, ValueTraceOptions o, CancellationToken ct)
+        uint Rva, ApiParam? Param, ApiReturn? Returns)
     {
-        _a = a;
-        _p = p;
+        /// <summary>The image <see cref="Function"/> is in; -1: the image being expanded when queued.</summary>
+        public int Host { get; init; } = -1;
+        /// <summary>The image <see cref="Rva"/> is in when it is a call site in another image than <see cref="Host"/>, else -1.</summary>
+        public int SiteHost { get; init; } = -1;
+    }
+
+    private ValueTrace(ITraceHost a, IFunctionSliceProvider p, TraceSeed seed, ValueTraceOptions o, ITraceLinks? links, CancellationToken ct)
+    {
+        _hosts.Add((a, p));
+        _links = links;
         _seed = seed;
         _o = o;
         _ct = ct;
     }
 
-    private NativeCodeIndex Index => _a.Index;
-    private string Va(uint rva) => _a.Va(rva);
+    private ITraceHost Host => _hosts[_cur].Host;
+    private IFunctionSliceProvider Slices => _hosts[_cur].Slices;
+    private NativeCodeIndex Index => Host.Index;
+    private string Va(uint rva) => Host.Va(rva);
+
+    /// <summary>The index of another image's host, added on first use (its own built-in slices).</summary>
+    private int HostIndex(ITraceHost h)
+    {
+        int i = _hosts.FindIndex(x => ReferenceEquals(x.Host, h));
+        if (i >= 0) return i;
+        _hosts.Add((h, h.Slices));
+        return _hosts.Count - 1;
+    }
+
+    /// <summary>The trace call for an image ("trace_native_values image=x.dll" outside the seed's image).</summary>
+    private string ToolAt(int host) => host == 0 ? "trace_native_values" : $"trace_native_values image={_links!.ImageOf(_hosts[host].Host)}";
+
+    private string Tool => ToolAt(_cur);
+
+    /// <summary>The function in another loaded image that the import call or argument <paramref name="n"/> reaches, or null.</summary>
+    private (int Host, NativeFunction Function)? Provider(SliceNode n) =>
+        n.CallKind == CalleeKind.Import && n.Rva != 0 && _links?.Provider(Host, n.Rva) is { } p ? (HostIndex(p.Host), p.Function) : null;
 
     /// <summary>Builds the graph (cached per index: the same seed and options return the same graph until names change).</summary>
+    /// <param name="links">Loaded images the trace may continue into through imports and exports.</param>
     internal static ValueTraceGraph Build(ITraceHost analysis, TraceSeed seed, ValueTraceOptions options, IFunctionSliceProvider? provider = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default, ITraceLinks? links = null)
     {
         provider ??= analysis.Slices;
-        var key = $"{provider.Engine}|{seed.Kind}|{seed.Address}|{seed.Location}|{seed.Param?.Name}|{options}|{analysis.Index.Sourced.Version}";
-        return analysis.Traces.GetOrAdd(key, () => new ValueTrace(analysis, provider, seed, options, ct).Run());
+        var key = $"{provider.Engine}|{seed.Kind}|{seed.Address}|{seed.Location}|{seed.Param?.Name}|{options}|{analysis.Index.Sourced.Version}|{links?.Key}";
+        return analysis.Traces.GetOrAdd(key, () => new ValueTrace(analysis, provider, seed, options, links, ct).Run());
     }
 
     private ValueTraceGraph Run()
     {
         var seedNode = AddNode(TraceNodeKind.Seed, _seed.Address, _seed.Function, _seed.Location, _seed.Description, null, null, null, 0, "", -1, true);
-        if (_seed.Function != null) _functions.Add(_seed.Function.Start);
+        if (_seed.Function != null) _functions.Add((0, _seed.Function.Start));
         if (_o.Direction != TraceDirection.Forward) StartBackward(seedNode);
         if (_o.Direction != TraceDirection.Backward) StartForward(seedNode);
         while (_queue.Count > 0)
         {
             _ct.ThrowIfCancellationRequested();
             var e = _queue.Dequeue();
+            _cur = e.Host;
             if (_nodesFull) { Frontier(e, "nodes", $"the node budget ({_o.MaxNodes}) is used"); continue; }
             if (_steps > _o.MaxSteps) { Frontier(e, "steps", $"the step budget ({_o.MaxSteps}) is used"); continue; }
             Expand(e);
         }
-        return new ValueTraceGraph(_seed, _o, _p.Engine, _nodes, _edges, _frontier, Values(), _functions.Count, _steps, _notes);
+        _cur = 0;
+        return new ValueTraceGraph(_seed, _o, Slices.Engine, _nodes, _edges, _frontier, Values(), _functions.Count, _steps, _notes,
+            _hosts.Select((h, i) => (h.Host.Index.Image, i == 0 ? "" : _links!.ImageOf(h.Host))).ToList());
     }
 
     private void StartBackward(int seedNode)
@@ -181,7 +232,7 @@ public sealed class ValueTrace
             case TraceSeedKind.Argument when f != null && _seed.Location != null:
             {
                 // the value in the argument's location at the call: its uses start with the call
-                var atCall = _a.AtCall(f, _seed.Address, _seed.Location, _ct);
+                var atCall = Host.AtCall(f, _seed.Address, _seed.Location, _ct);
                 Materialize(Slice(f, new SliceSeed(SliceSeedKind.Location, _seed.Address, atCall), forward: true), 0, seedNode, false, "copy", _seed.Address, _seed.Param, _seed.Returns);
                 return;
             }
@@ -201,8 +252,8 @@ public sealed class ValueTrace
 
     private FunctionSlice Slice(NativeFunction f, SliceSeed seed, bool forward)
     {
-        _functions.Add(f.Start);
-        var s = forward ? _p.Forward(f, seed, _ct) : _p.Backward(f, seed, _ct);
+        _functions.Add((_cur, f.Start));
+        var s = forward ? Slices.Forward(f, seed, _ct) : Slices.Backward(f, seed, _ct);
         _steps += s.Steps;
         if (s.Note != null && _notes.Count < 20) _notes.Add($"{f.Name}: {s.Note}");
         if (s.Truncated && s.Note == null && _notes.Count < 20) _notes.Add($"{f.Name}: slice cut at {OursSliceProvider.MaxSliceNodes} nodes");
@@ -213,7 +264,7 @@ public sealed class ValueTrace
         int depth, string derivation, int parent, bool backward)
     {
         int id = _nodes.Count;
-        _nodes.Add(new TraceNode(id, kind, address, f, location, text, value, valueRva, decoded, depth, derivation, parent, backward));
+        _nodes.Add(new TraceNode(id, kind, address, f, location, text, value, valueRva, decoded, depth, derivation, parent, backward) { Image = _cur });
         if (_nodes.Count >= _o.MaxNodes) _nodesFull = true;
         return id;
     }
@@ -222,7 +273,7 @@ public sealed class ValueTrace
     /// Adds a slice's nodes and edges. Backward: the slice's root feeds <paramref name="attach"/> through an edge of
     /// <paramref name="link"/>. Forward: the slice's origin is <paramref name="attach"/>. Boundary nodes are queued.
     /// </summary>
-    private void Materialize(FunctionSlice s, int depth, int attach, bool backward, string link, uint site, ApiParam? param, ApiReturn? returns)
+    private void Materialize(FunctionSlice s, int depth, int attach, bool backward, string link, uint site, ApiParam? param, ApiReturn? returns, int siteHost = -1)
     {
         var map = new int[s.Nodes.Count];
         Array.Fill(map, -1);
@@ -243,10 +294,10 @@ public sealed class ValueTrace
             int from = i == s.Root ? attach : parent[i] >= 0 ? map[parent[i]] : attach;
             map[i] = Convert(s.Nodes[i], s.Function, depth, from < 0 ? attach : from, backward, param, returns);
         }
-        if (backward && map[s.Root] >= 0) _edges.Add(new TraceEdge(map[s.Root], attach, link, site));
+        if (backward && map[s.Root] >= 0) _edges.Add(new TraceEdge(map[s.Root], attach, link, site, siteHost >= 0 ? siteHost : _cur));
         foreach (var e in s.Edges)
             if (map[e.From] >= 0 && map[e.To] >= 0)
-                _edges.Add(new TraceEdge(map[e.From], map[e.To], e.Kind.ToString().ToLowerInvariant(), 0));
+                _edges.Add(new TraceEdge(map[e.From], map[e.To], e.Kind.ToString().ToLowerInvariant(), 0, _cur));
         for (int i = 0; i < s.Nodes.Count; i++)
             if (map[i] >= 0 && (i != s.Root || backward)) Boundary(s.Nodes[i], map[i], s.Function, depth, backward, param, returns);
     }
@@ -268,7 +319,7 @@ public sealed class ValueTrace
             }
             case SliceNodeKind.Address:
             {
-                var (kind, _, rva, text) = _a.FormatAddress(n.Rva, param);
+                var (kind, _, rva, text) = Host.FormatAddress(n.Rva, param);
                 var nodeKind = kind switch
                 {
                     ArgKind.String => TraceNodeKind.String,
@@ -286,7 +337,7 @@ public sealed class ValueTrace
             case SliceNodeKind.Parameter: return Add(TraceNodeKind.Parameter, $"{n.Text} of {f.Name}");
             case SliceNodeKind.CallResult:
             {
-                if (n.CallKind is CalleeKind.Import or CalleeKind.Dynamic)
+                if (n.CallKind is CalleeKind.Import or CalleeKind.Dynamic && Provider(n) == null)
                 {
                     var r = ApiSignatures.FindReturn(n.Callee);
                     return Add(TraceNodeKind.ApiResult, n.Text, decoded: r == null ? null : r.Enum != null ? $"{r.Meaning}: {string.Join(" | ", r.Enum.Entries.Take(6).Select(e => e.Name))}{(r.Enum.Entries.Count > 6 ? " | ..." : "")}" : r.Meaning);
@@ -299,7 +350,7 @@ public sealed class ValueTrace
                 var sig = n.Target == null ? ApiSignatures.Find(n.Callee) : null;
                 var p = sig != null && n.Index >= 0 && n.Index < sig.Params.Count ? sig.Params[n.Index] : null;
                 string? decoded = SeedConstant is { } v && !n.Derived && p != null ? CallAnalysis.FormatNumber(v, p) : null;
-                return Add(n.Target != null ? TraceNodeKind.Argument : TraceNodeKind.Sink, n.Text + (p != null ? $" ({p.TypeName})" : ""), decoded: decoded);
+                return Add(n.Target != null || Provider(n) != null ? TraceNodeKind.Argument : TraceNodeKind.Sink, n.Text + (p != null ? $" ({p.TypeName})" : ""), decoded: decoded);
             }
             case SliceNodeKind.Store: return Add(TraceNodeKind.Store, n.Text, rva: n.Rva);
             case SliceNodeKind.FieldStore: return Add(TraceNodeKind.FieldStore, n.Text);
@@ -327,7 +378,7 @@ public sealed class ValueTrace
             if (_seedConstantDone) return _seedConstant;
             _seedConstantDone = true;
             if (_seed.Function == null || _seed.Kind != TraceSeedKind.Location || _seed.Location == null) return null;
-            _seedConstant = _a.ConstantAfter(_seed.Function, _seed.Address, _seed.Location, _ct);
+            _seedConstant = _hosts[0].Host.ConstantAfter(_seed.Function, _seed.Address, _seed.Location, _ct);
             return _seedConstant;
         }
     }
@@ -342,6 +393,10 @@ public sealed class ValueTrace
             case SliceNodeKind.CallResult when backward && n.Target is { } t && Index.FunctionByStart(t) is { } callee:
                 Enqueue(new Expansion(Step.Returns, node, callee, depth, true, $"returns:{callee.Start}", null, -1, n.Site, param, null));
                 break;
+            case SliceNodeKind.CallResult when backward && Provider(n) is { } provider:
+                Enqueue(new Expansion(Step.Returns, node, provider.Function, depth, true, $"returns:{provider.Function.Start}", null, -1, n.Site, param, null)
+                    { Host = provider.Host, SiteHost = _cur });
+                break;
             case SliceNodeKind.CallResult when backward && n.CallKind is CalleeKind.Indirect or CalleeKind.VirtualPossible:
                 _nodes[node] = Get(node) with { Derivation = Get(node).Derivation + " (callee not resolved: resolve_call_targets address=" + Va(n.Site) + ")" };
                 break;
@@ -350,6 +405,10 @@ public sealed class ValueTrace
                 break;
             case SliceNodeKind.Argument when !backward && n.Target is { } t && Index.FunctionByStart(t) is { } callee:
                 Enqueue(new Expansion(Step.IntoCallee, node, callee, depth, false, $"callee:{callee.Start}:{n.Location}", n.Location, n.Index, n.Site, null, null));
+                break;
+            case SliceNodeKind.Argument when !backward && n.Target == null && Provider(n) is { } provider:
+                Enqueue(new Expansion(Step.IntoCallee, node, provider.Function, depth, false, $"callee:{provider.Function.Start}:{n.Location}", n.Location, n.Index,
+                    n.Site, null, null) { Host = provider.Host, SiteHost = _cur });
                 break;
             case SliceNodeKind.Return when !backward:
                 Enqueue(new Expansion(Step.ResultUses, node, f, depth, false, $"results:{f.Start}", n.Location, -1, 0, null, returns));
@@ -362,13 +421,15 @@ public sealed class ValueTrace
 
     private void Enqueue(Expansion e)
     {
-        if (_expanded.TryGetValue(e.Key, out int earlier))
+        if (e.Host < 0) e = e with { Host = _cur };
+        var key = $"{e.Host}:{e.Key}";
+        if (_expanded.TryGetValue(key, out int earlier))
         {
             // reached again (recursion, or a second path to the same boundary): link instead of expanding twice
-            if (earlier != e.Node) _edges.Add(new TraceEdge(earlier, e.Node, "loop", 0));
+            if (earlier != e.Node) _edges.Add(new TraceEdge(earlier, e.Node, "loop", 0, _cur));
             return;
         }
-        _expanded[e.Key] = e.Node;
+        _expanded[key] = e.Node;
         if (e.Depth >= _o.MaxDepth && e.Step is not (Step.Writers or Step.Readers) || e.Depth > _o.MaxDepth)
         {
             Frontier(e, "depth", $"maxDepth={_o.MaxDepth} reached");
@@ -384,11 +445,21 @@ public sealed class ValueTrace
     /// <summary>The call that continues from an expansion.</summary>
     private string Next(Expansion e)
     {
-        const string T = "trace_native_values";
+        int home = _cur;
+        _cur = e.Host < 0 ? _cur : e.Host;
+        try { return NextHere(e); }
+        finally { _cur = home; }
+    }
+
+    private string NextHere(Expansion e)
+    {
+        var T = Tool;
         switch (e.Step)
         {
             case Step.Callers:
                 return $"{T} address={Va(e.Function!.Start)} {(e.Index >= 0 ? $"argument={e.Index + 1}" : $"location={e.Location}")}";
+            case Step.Returns when e.SiteHost >= 0:
+                return $"{ToolAt(e.SiteHost)} address={_hosts[e.SiteHost].Host.Va(e.Rva)} location=result";
             case Step.Returns:
                 return $"{T} address={Va(e.Rva)} location=result";
             case Step.Writers or Step.Readers:
@@ -411,10 +482,10 @@ public sealed class ValueTrace
         var n = Get(node);
         return n.Kind == TraceNodeKind.Seed
             ? $"trace_native_values with a larger maxNodes (now {_o.MaxNodes})"
-            : $"trace_native_values address={Va(n.Address)}{(n.Location != null ? $" location={n.Location}" : "")}{Direction(backward)}";
+            : $"{ToolAt(n.Image)} address={_hosts[n.Image].Host.Va(n.Address)}{(n.Location != null ? $" location={n.Location}" : "")}{Direction(backward)}";
     }
 
-    private bool CanEnter(NativeFunction f) => _functions.Contains(f.Start) || _functions.Count < _o.MaxFunctions;
+    private bool CanEnter(NativeFunction f) => _functions.Contains((_cur, f.Start)) || _functions.Count < _o.MaxFunctions;
 
     private void Expand(Expansion e)
     {
@@ -423,7 +494,8 @@ public sealed class ValueTrace
             case Step.Callers: Callers(e); break;
             case Step.Returns:
                 if (!CanEnter(e.Function!)) { Frontier(e, "functions", $"maxFunctions={_o.MaxFunctions} reached"); break; }
-                Materialize(Slice(e.Function!, new SliceSeed(SliceSeedKind.Returns, e.Function!.Start, _a.ReturnLocation), false), e.Depth + 1, e.Node, true, "return", e.Rva, e.Param, null);
+                Materialize(Slice(e.Function!, new SliceSeed(SliceSeedKind.Returns, e.Function!.Start, Host.ReturnLocation), false), e.Depth + 1, e.Node, true, "return",
+                    e.Rva, e.Param, null, e.SiteHost);
                 break;
             case Step.Writers: Writers(e); break;
             case Step.IntoCallee:
@@ -432,7 +504,7 @@ public sealed class ValueTrace
                 var slice = Slice(e.Function!, new SliceSeed(SliceSeedKind.Parameter, e.Function!.Start, e.Location), true);
                 int origin = AddNode(TraceNodeKind.Parameter, e.Function!.Start, e.Function, e.Location,
                     $"{(e.Index >= 0 ? $"parameter {e.Index + 1}" : e.Location)} of {e.Function!.Name}", null, null, null, e.Depth + 1, "", e.Node, false);
-                _edges.Add(new TraceEdge(e.Node, origin, "parameter", e.Rva));
+                _edges.Add(new TraceEdge(e.Node, origin, "parameter", e.Rva, e.SiteHost >= 0 ? e.SiteHost : _cur));
                 Materialize(slice, e.Depth + 1, origin, false, "parameter", e.Rva, null, null);
                 break;
             }
@@ -441,39 +513,51 @@ public sealed class ValueTrace
         }
     }
 
+    /// <summary>The call sites of <paramref name="f"/>: in its image, then in other loaded images through their imports.</summary>
+    private List<(int Host, uint Site, NativeFunction Caller)> CallSites(NativeFunction f, bool resultUses)
+    {
+        var sites = Index.Callers(f).DistinctBy(c => c.From).Where(c => c.Caller != null && (!resultUses || c.Kind != XrefKind.TailCall))
+            .Select(c => (_cur, c.From, c.Caller!)).ToList();
+        if (_links != null)
+            foreach (var (h, site, caller) in _links.Importers(Host, f)) sites.Add((HostIndex(h), site, caller));
+        return sites;
+    }
+
     private void Callers(Expansion e)
     {
         var f = e.Function!;
-        var sites = Index.Callers(f).DistinctBy(c => c.From).Where(c => c.Caller != null).ToList();
+        var sites = CallSites(f, false);
         if (sites.Count == 0)
         {
             _nodes[e.Node] = Get(e.Node) with { Derivation = AppendNote(Get(e.Node).Derivation, "no known callers (an export, a callback or a pointer call)") };
             return;
         }
-        int taken = 0;
-        foreach (var c in sites)
+        int taken = 0, home = _cur;
+        var position = e.Index >= 0 ? $"argument={e.Index + 1}" : $"location={e.Location}";
+        foreach (var (h, site, caller) in sites)
         {
             if (taken >= _o.MaxCallers)
             {
                 _frontier.Add(new TraceFrontier(e.Node, "callers", $"{sites.Count - taken} more of {sites.Count} call sites",
-                    $"trace_native_values address={Va(f.Start)} {(e.Index >= 0 ? $"argument={e.Index + 1}" : $"location={e.Location}")} maxCallers={Math.Min(256, sites.Count)}"));
+                    $"{Tool} address={Va(f.Start)} {position} maxCallers={Math.Min(256, sites.Count)}"));
                 break;
             }
             if (_nodesFull) { _frontier.Add(new TraceFrontier(e.Node, "nodes", $"{sites.Count - taken} call sites not bound", Next(e))); break; }
             taken++;
-            var caller = c.Caller!;
-            var argNext = $"trace_native_values address={Va(c.From)} {(e.Index >= 0 ? $"argument={e.Index + 1}" : $"location={e.Location}")}";
-            if (!CanEnter(caller)) { _frontier.Add(new TraceFrontier(e.Node, "functions", $"call site {Where(c.From)}: maxFunctions={_o.MaxFunctions} reached", argNext)); continue; }
-            Materialize(Slice(caller, new SliceSeed(SliceSeedKind.Argument, c.From, e.Location), false), e.Depth + 1, e.Node, true, "argument", c.From, e.Param, null);
+            _cur = h;
+            if (!CanEnter(caller))
+                _frontier.Add(new TraceFrontier(e.Node, "functions", $"call site {Where(site)}: maxFunctions={_o.MaxFunctions} reached", $"{Tool} address={Va(site)} {position}"));
+            else Materialize(Slice(caller, new SliceSeed(SliceSeedKind.Argument, site, e.Location), false), e.Depth + 1, e.Node, true, "argument", site, e.Param, null);
+            _cur = home;
         }
     }
 
     private void ResultUses(Expansion e)
     {
         var f = e.Function!;
-        var sites = Index.Callers(f).DistinctBy(c => c.From).Where(c => c.Caller != null && c.Kind != XrefKind.TailCall).ToList();
-        int taken = 0;
-        foreach (var c in sites)
+        var sites = CallSites(f, true);
+        int taken = 0, home = _cur;
+        foreach (var (h, site, caller) in sites)
         {
             if (taken >= _o.MaxCallers)
             {
@@ -482,16 +566,18 @@ public sealed class ValueTrace
             }
             if (_nodesFull) { _frontier.Add(new TraceFrontier(e.Node, "nodes", $"{sites.Count - taken} call sites not followed", Next(e))); break; }
             taken++;
-            if (!CanEnter(c.Caller!))
+            _cur = h;
+            if (!CanEnter(caller))
+                _frontier.Add(new TraceFrontier(e.Node, "functions", $"call site {Where(site)}: maxFunctions={_o.MaxFunctions} reached",
+                    $"{Tool} address={Va(site)} location=result direction=forward"));
+            else
             {
-                _frontier.Add(new TraceFrontier(e.Node, "functions", $"call site {Where(c.From)}: maxFunctions={_o.MaxFunctions} reached",
-                    $"trace_native_values address={Va(c.From)} location=result direction=forward"));
-                continue;
+                var slice = Slice(caller, new SliceSeed(SliceSeedKind.Result, site, e.Location), true);
+                int origin = AddNode(TraceNodeKind.CallResult, site, caller, e.Location, $"result of {f.Name} at {Where(site)}", null, null, null, e.Depth + 1, "", e.Node, false);
+                _edges.Add(new TraceEdge(e.Node, origin, "return", site, _cur));
+                Materialize(slice, e.Depth + 1, origin, false, "return", site, null, e.Returns);
             }
-            var slice = Slice(c.Caller!, new SliceSeed(SliceSeedKind.Result, c.From, e.Location), true);
-            int origin = AddNode(TraceNodeKind.CallResult, c.From, c.Caller, e.Location, $"result of {f.Name} at {Where(c.From)}", null, null, null, e.Depth + 1, "", e.Node, false);
-            _edges.Add(new TraceEdge(e.Node, origin, "return", c.From));
-            Materialize(slice, e.Depth + 1, origin, false, "return", c.From, null, e.Returns);
+            _cur = home;
         }
     }
 
@@ -502,7 +588,7 @@ public sealed class ValueTrace
         if (Initial(g, writers.Count == 0) is { } init)
         {
             int id = AddNode(init.Kind, g, null, null, init.Text, init.Value, init.Rva, null, e.Depth, $"initial contents of {Va(g)} in the image", e.Node, true);
-            _edges.Add(new TraceEdge(id, e.Node, "store", g));
+            _edges.Add(new TraceEdge(id, e.Node, "store", g, _cur));
         }
         if (writers.Count == 0)
         {
@@ -515,7 +601,7 @@ public sealed class ValueTrace
             if (taken >= _o.MaxWriters)
             {
                 _frontier.Add(new TraceFrontier(e.Node, "writers", $"{writers.Count - taken} more of {writers.Count} writers",
-                    $"trace_native_values address={Va(g)} maxWriters={Math.Min(256, writers.Count)}"));
+                    $"{Tool} address={Va(g)} maxWriters={Math.Min(256, writers.Count)}"));
                 break;
             }
             if (_nodesFull) { _frontier.Add(new TraceFrontier(e.Node, "nodes", $"{writers.Count - taken} writers not followed", Next(e))); break; }
@@ -523,7 +609,7 @@ public sealed class ValueTrace
             if (Index.FunctionAt(w.From) is not { } fn)
             {
                 int id = AddNode(TraceNodeKind.Unknown, w.From, null, null, $"written at {Va(w.From)} outside any known function", null, null, null, e.Depth + 1, "", e.Node, true);
-                _edges.Add(new TraceEdge(id, e.Node, "store", w.From));
+                _edges.Add(new TraceEdge(id, e.Node, "store", w.From, _cur));
                 continue;
             }
             if (!CanEnter(fn)) { _frontier.Add(new TraceFrontier(e.Node, "functions", $"writer {Where(w.From)}: maxFunctions={_o.MaxFunctions} reached", Next(e))); continue; }
@@ -541,7 +627,7 @@ public sealed class ValueTrace
             if (taken >= _o.MaxWriters)
             {
                 _frontier.Add(new TraceFrontier(e.Node, "readers", $"{readers.Count - taken} more of {readers.Count} readers",
-                    $"trace_native_values address={Va(g)} direction=forward maxWriters={Math.Min(256, readers.Count)}"));
+                    $"{Tool} address={Va(g)} direction=forward maxWriters={Math.Min(256, readers.Count)}"));
                 break;
             }
             if (_nodesFull) { _frontier.Add(new TraceFrontier(e.Node, "nodes", $"{readers.Count - taken} readers not followed", Next(e))); break; }
@@ -550,7 +636,7 @@ public sealed class ValueTrace
             if (!CanEnter(fn)) { _frontier.Add(new TraceFrontier(e.Node, "functions", $"reader {Where(r.From)}: maxFunctions={_o.MaxFunctions} reached", Next(e))); continue; }
             var slice = Slice(fn, new SliceSeed(SliceSeedKind.Loaded, r.From), true);
             int origin = AddNode(TraceNodeKind.Global, r.From, fn, null, $"read of [{Index.NameAt(g) ?? Va(g)}] at {Where(r.From)}", null, g, null, e.Depth + 1, "", e.Node, false);
-            _edges.Add(new TraceEdge(e.Node, origin, "load", r.From));
+            _edges.Add(new TraceEdge(e.Node, origin, "load", r.From, _cur));
             Materialize(slice, e.Depth + 1, origin, false, "load", r.From, null, e.Returns);
         }
     }
@@ -558,14 +644,14 @@ public sealed class ValueTrace
     /// <summary>A global's initial contents: a relocated pointer, or a number when nonzero (or when nothing writes it).</summary>
     private (TraceNodeKind Kind, string Text, ulong? Value, uint? Rva)? Initial(uint g, bool always)
     {
-        int size = _a.Is64 ? 8 : 4;
+        int size = Host.Is64 ? 8 : 4;
         Span<byte> b = stackalloc byte[8];
         b.Clear();
         if (Index.Image.Read(g, b[..size]) != size) return null;
         ulong v = BinaryPrimitives.ReadUInt64LittleEndian(b);
-        if (_a.IsRelocated(g) && FunctionCode.TryRva(Index.Image, _a.Is64, v, out uint target))
+        if (Host.IsRelocated(g) && FunctionCode.TryRva(Index.Image, Host.Is64, v, out uint target))
         {
-            var (kind, _, _, text) = _a.FormatAddress(target, null);
+            var (kind, _, _, text) = Host.FormatAddress(target, null);
             return (Index.FunctionByStart(target) != null ? TraceNodeKind.Function : kind == ArgKind.String ? TraceNodeKind.String : TraceNodeKind.Address, $"{text} (initial contents)", null, target);
         }
         if (v == 0 && !always) return null;
@@ -589,7 +675,7 @@ public sealed class ValueTrace
             bool forwardSink = !n.Backward && n.Kind == TraceNodeKind.Sink;
             if (!backwardValue && !forwardSink) continue;
             var text = n.Decoded != null && n.Kind == TraceNodeKind.Sink ? $"{n.Text} = {n.Decoded}" : n.Text;
-            if (seen.Add(n.Kind + text)) result.Add(new TraceValue(text, n.Kind, n.ValueRva, n.Id));
+            if (seen.Add(n.Kind + text)) result.Add(new TraceValue(text, n.Kind, n.ValueRva, n.Id, n.Image));
         }
         return result;
     }

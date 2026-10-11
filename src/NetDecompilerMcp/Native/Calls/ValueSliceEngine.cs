@@ -161,7 +161,7 @@ internal sealed class EngineSliceProvider(ITraceHost host, INativeDecompilerSess
         if (_arm?.CallAt(site, default) is { } call)
         {
             uint? target = call.Kind is CalleeKind.Function or CalleeKind.VirtualExact ? call.Target : null;
-            return new SliceNode(SliceNodeKind.CallResult, site, $"result of {call.Callee}", why) { Site = site, Callee = call.Callee, CallKind = call.Kind, Target = target };
+            return new SliceNode(SliceNodeKind.CallResult, site, $"result of {call.Callee}", why) { Site = site, Callee = call.Callee, CallKind = call.Kind, Target = target, Rva = call.Import?.SlotRva ?? 0 };
         }
         uint? t = n.Target is { } x && host.Index.FunctionByStart(x) != null ? x : null;
         return new SliceNode(SliceNodeKind.CallResult, site, n.Callee != null ? $"result of {n.Callee}" : $"result of the call at {host.Va(site)}", why)
@@ -180,6 +180,6 @@ internal sealed class EngineSliceProvider(ITraceHost host, INativeDecompilerSess
         var sig = CallAnalysis.SignatureOf(callee);
         var name = sig != null && n.Index >= 0 && n.Index < sig.Params.Count ? $" {sig.Params[n.Index].Name}" : "";
         return new SliceNode(SliceNodeKind.Argument, site, $"argument {n.Index + 1}{name} of {callee.Name}", why)
-            { Site = site, Location = entry, Index = n.Index, Callee = callee.Name, CallKind = callee.Kind, Target = target, Derived = n.Derived };
+            { Site = site, Location = entry, Index = n.Index, Callee = callee.Name, CallKind = callee.Kind, Target = target, Derived = n.Derived, Rva = callee.Import?.SlotRva ?? 0 };
     }
 }

@@ -276,7 +276,7 @@ internal sealed class Arm64SliceProvider(Arm64Trace host) : IFunctionSliceProvid
                 return new SliceNode(SliceNodeKind.CallResult, site, $"result of the call at {host.Va(site)}", why) { Site = site };
             var text = c.Kind == CalleeKind.Indirect ? $"result of the call at {host.Va(site)}" : $"result of {c.Callee}";
             uint? target = c.Kind == CalleeKind.Function ? c.Target : null;
-            return new SliceNode(SliceNodeKind.CallResult, site, text, why) { Site = site, Callee = c.Callee, CallKind = c.Kind, Target = target };
+            return new SliceNode(SliceNodeKind.CallResult, site, text, why) { Site = site, Callee = c.Callee, CallKind = c.Kind, Target = target, Rva = c.Import?.SlotRva ?? 0 };
         }
     }
 }
@@ -542,7 +542,7 @@ internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
             Use(new SliceNode(SliceNodeKind.Argument, s.Rva, $"argument {index + 1}{name} of {calleeName}", Step(l.Path, s))
             {
                 Site = s.Rva, Location = A64Function.Name(entry, null), Index = index, Callee = calleeName, CallKind = call?.Kind ?? CalleeKind.Indirect,
-                Target = target, Derived = l.Derived,
+                Target = target, Derived = l.Derived, Rva = call?.Import?.SlotRva ?? 0,
             });
         }
     }

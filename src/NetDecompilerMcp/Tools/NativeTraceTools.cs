@@ -16,7 +16,8 @@ namespace NetDecompilerMcp.Tools;
 
 /// <summary>Interprocedural value tracing in native code (x86 / x64 / ARM64).</summary>
 [McpServerToolType]
-public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEngineService? engines = null, NativeNamePush? names = null)
+public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEngineService? engines = null, NativeNamePush? names = null,
+    NativeLinkService? link = null)
 {
     [Description("What the trace starts from.")]
     public sealed record TraceSeedRecord(
@@ -34,6 +35,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
                                "the image), sink (argument of an API or unresolved callee), store, field_store, return, compare, switch, dereference, call_target.")]
         string Kind,
         [property: Description("VA of the defining or using instruction (the function for parameters, the global for initial contents).")] string Address,
+        [property: Description("The loaded image Address is in when it is not the seed's (reached through an import or export).")] string? Image,
         [property: Description("Function and offset of Address.")] string? Function,
         [property: Description("Register or slot, when the node has one.")] string? Location,
         [property: Description("The value or use as text (quoted strings, names, decoded constants).")] string Text,
@@ -83,15 +85,14 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
                                         "op1 / op2 (an operand of the instruction) or result (the value the call at address returns)";
 
     [McpServerTool(Name = "trace_native_values", Title = "Native value trace", UseStructuredContent = true, OutputSchemaType = typeof(ValueTraceReport))]
-    [Description("Traces a value through native code (x86 / x64 / ARM64) across functions. Backward (where does it come from): constants, strings, function " +
-                 "pointers, API results, through copies, stack slots, merges (every path's value) and loops; an incoming parameter is bound to every " +
-                 "caller's argument, a call result to the callee's return values, a writable global to its writers and initial contents. Forward " +
-                 "(where does it go): API arguments (named, constants decoded), callees' parameters, stores to globals and their readers, returns into " +
-                 "callers' uses, compares, switch indexes, dereferences. The seed: address plus location (" + LocationHelp + "), or argument (of a call, " +
-                 "or a function's parameter at its start), or a writable global alone. Budgets cap depth, functions, nodes, callers and writers; " +
-                 "what they leave out is listed as frontier entries with the exact follow-up call. Pages (offset / limit) reuse the built graph. " +
-                 "With engine=ida or ghidra each function's slice comes from that engine's decompiler IR (Hex-Rays microcode, p-code); seeds it cannot " +
-                 "place fall back to the built-in slice of that function, and the result counts both.")]
+    [Description("Traces a value through native code (x86 / x64 / ARM64) across functions. Backward (where it comes from): constants, strings, function " +
+                 "pointers, API results, through copies, stack slots, merges (every path's value) and loops; a parameter binds to every caller's " +
+                 "argument, a call result to the callee's returns, a writable global to its writers and initial contents. Forward (where it goes): " +
+                 "API arguments (constants decoded), callees' parameters, globals and their readers, returns into callers, compares, switch indexes, " +
+                 "dereferences. Seed: address plus location or argument (of a call, or a parameter at a function start), or a writable global. " +
+                 "Loaded images are crossed through imports and exports. Budgets cap depth, functions, nodes, callers and writers; what they leave " +
+                 "out is a frontier entry with the follow-up call. Pages reuse the built graph. engine=ida or ghidra takes each function's slice " +
+                 "from that decompiler's IR (microcode, p-code), falling back to the built-in slice where it cannot place the seed.")]
     public Task<string> TraceNativeValues(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("An instruction, a call, a function start (with argument) or a writable global. " + NativeTools.AddressDescription)] string address,
@@ -133,15 +134,17 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
                 throw new ToolError(ErrorCode.Unsupported, $"The {session.ProviderId} decompiler is not available for {session.Arch} code here.", "use engine=ours");
             if (names != null) await names.EnsureAsync(native, session, cancellationToken);
         }
+        if (link != null && workspace.Read(() => workspace.Natives.Count) > 1) await link.WarmUp(null, cancellationToken);
         return await Task.Run(() =>
         {
+            var links = link != null ? new NativeTraceLinks(workspace, link, code) : null;
             ITraceHost host = Arm64Trace.Supports(index) ? Arm64Trace.For(index) : CallAnalysis.For(index);
             var seed = host is Arm64Trace arm ? Arm64Seed(arm, address, location, argument, cancellationToken)
                 : Seed(CallAnalysis.For(index), address, location, argument, cancellationToken);
             var options = new ValueTraceOptions(dir, Math.Clamp(maxDepth, 0, 8), Math.Clamp(maxFunctions, 1, 256), Math.Clamp(maxNodes, 1, 5000),
                 Math.Clamp(maxCallers, 1, 256), Math.Clamp(maxWriters, 1, 256), followGlobals);
             var provider = session != null ? new EngineSliceProvider(host, session) : null;
-            var graph = ValueTrace.Build(host, seed, options, provider, cancellationToken);
+            var graph = ValueTrace.Build(host, seed, options, provider, cancellationToken, links is { Any: true } ? links : null);
             var report = Report(index, graph, offset, limit);
             if (provider != null && provider.EngineSlices + provider.Fallbacks > 0)
                 report = report with
@@ -345,7 +348,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
 
     private static ValueTraceReport Report(NativeCodeIndex index, ValueTraceGraph g, int offset, int limit)
     {
-        string Va(uint r) => NativeAddress.Va(index.Image, r);
+        string Va(uint r, int image = 0) => NativeAddress.Va(g.Images[image].Image, r);
         string? Where(TraceNode n) => n.Function is { } f ? $"{f.Name}+0x{n.Address - f.Start:X}" : null;
         int start = Math.Clamp(offset, 0, g.Nodes.Count);
         var page = g.Nodes.Skip(start).Take(Math.Clamp(limit, 1, 1000)).ToList();
@@ -354,10 +357,11 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         return new ValueTraceReport(Path.GetFileName(index.Image.Path), g.Engine,
             new TraceSeedRecord(s.Kind.ToString().ToLowerInvariant(), Va(s.Address), s.Function is { } sf ? $"{sf.Name}+0x{s.Address - sf.Start:X}" : null, s.Location, s.Description),
             g.Options.Direction.ToString().ToLowerInvariant(),
-            g.Values.Select(v => new TraceValueRecord(v.Text, Kind(v.Kind), v.Rva is { } r ? Va(r) : null, v.Node)).ToList(),
-            page.Select(n => new TraceNodeRecord(n.Id, Kind(n.Kind), Va(n.Address), Where(n), n.Location, n.Text, n.Value is { } v ? $"0x{v:X}" : null,
-                n.ValueRva is { } r ? Va(r) : null, n.Decoded, n.Depth, n.Parent, n.Backward ? "backward" : "forward", n.Derivation)).ToList(),
-            g.Edges.Where(e => ids.Contains(e.From) || ids.Contains(e.To)).Select(e => new TraceEdgeRecord(e.From, e.To, e.Kind, e.Site != 0 ? Va(e.Site) : null)).ToList(),
+            g.Values.Select(v => new TraceValueRecord(v.Text, Kind(v.Kind), v.Rva is { } r ? Va(r, v.Image) : null, v.Node)).ToList(),
+            page.Select(n => new TraceNodeRecord(n.Id, Kind(n.Kind), Va(n.Address, n.Image), n.Image == 0 ? null : g.Images[n.Image].Id, Where(n), n.Location, n.Text,
+                n.Value is { } v ? $"0x{v:X}" : null, n.ValueRva is { } r ? Va(r, n.Image) : null, n.Decoded, n.Depth, n.Parent, n.Backward ? "backward" : "forward",
+                n.Derivation)).ToList(),
+            g.Edges.Where(e => ids.Contains(e.From) || ids.Contains(e.To)).Select(e => new TraceEdgeRecord(e.From, e.To, e.Kind, e.Site != 0 ? Va(e.Site, e.Image) : null)).ToList(),
             g.Frontier.Select(f => new TraceFrontierRecord(f.Node, f.Reason, f.Detail, f.Next)).ToList(),
             g.Nodes.Count, g.Edges.Count, g.Functions, start, start + page.Count < g.Nodes.Count, g.Notes);
     }
@@ -384,7 +388,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
             var arrow = node.Kind == TraceNodeKind.Seed ? "" : node.Backward ? "<- " : "-> ";
             sb.Append(' ', 2 * Indent(node) + 2).Append('#').Append(n.Id).Append(' ').Append(arrow).Append(n.Kind).Append(": ").Append(Format.Clip(n.Text, 200));
             if (n.Decoded != null && !n.Text.Contains(n.Decoded, StringComparison.Ordinal)) sb.Append(" [").Append(n.Decoded).Append(']');
-            if (n.Function != null && node.Kind != TraceNodeKind.Seed) sb.Append("  @").Append(n.Function);
+            if (n.Function != null && node.Kind != TraceNodeKind.Seed) sb.Append("  @").Append(n.Image != null ? $"[{n.Image}] " : "").Append(n.Function);
             sb.AppendLine();
         }
         if (r.Frontier.Count > 0)

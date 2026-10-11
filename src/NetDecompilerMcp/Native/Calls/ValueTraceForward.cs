@@ -327,7 +327,8 @@ internal sealed class ForwardSlicer(OursSliceProvider provider, FunctionCode cod
             uint? target = c.Kind is CalleeKind.Function or CalleeKind.VirtualExact ? c.Target : null;
             var name = sig != null && index >= 0 && index < sig.Params.Count ? $" {sig.Params[index].Name}" : "";
             Use(new SliceNode(SliceNodeKind.Argument, d.Rva, $"argument {(index >= 0 ? (index + 1).ToString() : provider.LocationName(entry))}{name} of {c.Name}",
-                Step(l.Path, in d)) { Site = d.Rva, Location = provider.LocationName(entry), Index = index, Callee = c.Name, CallKind = c.Kind, Target = target, Derived = l.Derived });
+                Step(l.Path, in d)) { Site = d.Rva, Location = provider.LocationName(entry), Index = index, Callee = c.Name, CallKind = c.Kind, Target = target, Derived = l.Derived,
+                    Rva = c.Import?.SlotRva ?? 0 });
         }
     }
 

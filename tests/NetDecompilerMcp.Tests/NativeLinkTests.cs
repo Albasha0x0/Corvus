@@ -115,6 +115,7 @@ internal static class LinkedImages
         public Code CallImport(string slot) => Indirect(0x15, slots[slot]);
         public Code JumpImport(string slot) => Indirect(0x25, slots[slot]);
         public Code Ret() { _bytes.Add(0xC3); return this; }
+        public Code Raw(params byte[] bytes) { _bytes.AddRange(bytes); return this; }
         public Code Pad(int to) { while (_bytes.Count < to) _bytes.Add(0xCC); return this; }
 
         private Code Indirect(byte modrm, uint target)

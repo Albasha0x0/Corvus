@@ -202,7 +202,7 @@ internal sealed class OursSliceProvider(CallAnalysis analysis) : IFunctionSliceP
         uint? target = c.Kind is CalleeKind.Function or CalleeKind.VirtualExact ? c.Target : null;
         var text = c.Kind is CalleeKind.Indirect or CalleeKind.VirtualPossible ? $"result of the call at {analysis.Va(site)}" : $"result of {c.Name}";
         return new SliceNode(SliceNodeKind.CallResult, site, text, string.IsNullOrEmpty(why) ? c.Why ?? "" : why)
-            { Site = site, Callee = c.Name, CallKind = c.Kind, Target = target };
+            { Site = site, Callee = c.Name, CallKind = c.Kind, Target = target, Rva = c.Import?.SlotRva ?? 0 };
     }
 
     // Locations as text, and the calling convention.
