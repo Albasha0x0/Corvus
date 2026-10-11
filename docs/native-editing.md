@@ -30,7 +30,7 @@ Services/NativeEditService.cs).
 - A patch is recorded as a `NativePatch` (RVA, file offset, original bytes, replacement bytes) on the image's
   `NativePatchSet`, over a one-time snapshot of the original file bytes.
 - **Every read path sees the patched bytes.** After a patch is added or undone, the patched bytes are produced by
-  overlaying every replacement on the snapshot, a new `PeFile` is parsed from them, and it **replaces** the one the
+  overlaying every replacement on the snapshot, a new image (`PeFile`, `ElfFile` or `MachOFile`) is parsed from them, and it **replaces** the one the
   workspace holds (`LoadedNative.ReplaceImage`). Cached analysis (the code index, engine sessions) is discarded and
   rebuilds lazily against the patched image, so `disassemble`, `read_bytes`, `search_bytes`, string scanning and the
   code index all observe the patch. The patch set and annotations survive the swap (they are separate from the
@@ -76,6 +76,12 @@ Services/NativeEditService.cs).
     `patch_bytes` or `db` for these.
 - `dryRun` shows the before/after disassembly and the relocation changes without recording the patch.
   `list_native_edits` / `undo_native_edit` manage the recorded patches.
+- **ELF and Mach-O.** The same overlay, undo and `save_native` apply. Bytes the loader rewrites (ELF dynamic
+  relocations, Mach-O rebases and binds, import slots) would not keep a patch: such a range is refused with
+  `relocated_range` unless `force=true`. FairPlay-encrypted bytes hold ciphertext and are refused (`encrypted_range`).
+  A Mach-O code signature no longer matches once a byte changes: the patch result and the save say so (re-sign with
+  `codesign -f -s -`). A universal Mach-O is patched per slice; `save_native` writes the whole file with that slice
+  replaced and checks every byte outside it. Relocation planning, `extend` stubs and `export_native_patches` are PE only.
 
 ## Relocations
 
