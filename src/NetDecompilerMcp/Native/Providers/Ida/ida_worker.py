@@ -1572,8 +1572,9 @@ def op_python(args):
     saved = sys.stdout, sys.stderr
     value = error = None
     def stop_hook(frame, event, arg):
-        if cancelled():
-            sys.setprofile(None)
+        # Never raise inside the worker's own callbacks (the Hex-Rays stop hook): a C caller swallows the error and
+        # Python drops the profiler with it, leaving the script unchecked until the cancel grace kills the worker.
+        if frame.f_code.co_filename != __file__ and cancelled():
             raise stopped_error()
 
     try:
