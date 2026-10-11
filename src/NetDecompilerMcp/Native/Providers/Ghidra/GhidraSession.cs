@@ -247,7 +247,20 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         ListFunctionsAsync(false, cancellationToken);
 
     public async Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(bool withReferences, CancellationToken cancellationToken = default) =>
-        await WorkerRows.FunctionsPaged(start => CallAsync("functions", WorkerRows.Args(("refs", withReferences), ("start", start)), cancellationToken)).ConfigureAwait(false);
+        NameThunks(await WorkerRows.FunctionsPaged(start => CallAsync("functions", WorkerRows.Args(("refs", withReferences), ("start", start)), cancellationToken)).ConfigureAwait(false));
+
+    /// <summary>
+    /// Ghidra gives a thunk the name of the function it jumps to; a thunk sharing its name with a function is called
+    /// thunk_name (Ghidra's own form for unnamed targets), so call sites in it do not read as sites in the target.
+    /// </summary>
+    internal static List<NativeFunctionInfo> NameThunks(List<NativeFunctionInfo> functions)
+    {
+        var bodies = functions.Where(f => (f.Flags & NativeFunctionFlags.Thunk) == 0).Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
+        for (int i = 0; i < functions.Count; i++)
+            if ((functions[i].Flags & NativeFunctionFlags.Thunk) != 0 && bodies.Contains(functions[i].Name))
+                functions[i] = functions[i] with { Name = "thunk_" + functions[i].Name };
+        return functions;
+    }
 
     public Task<DecompiledFunction> DecompileAsync(uint rva, CancellationToken cancellationToken = default) =>
         DecompileWithinAsync(rva, null, cancellationToken);

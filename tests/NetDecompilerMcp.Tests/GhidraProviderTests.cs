@@ -10,6 +10,15 @@ namespace NetDecompilerMcp.Tests;
 public class GhidraProviderTests
 {
     [Fact]
+    public void A_thunk_named_as_its_target_is_called_thunk_name()
+    {
+        var named = GhidraSession.NameThunks([
+            new(0x1000, 0x1005, "CheckLicense", NativeFunctionFlags.Thunk), new(0x2000, 0x2100, "CheckLicense", NativeFunctionFlags.None),
+            new(0x3000, 0x3006, "CreateFileW", NativeFunctionFlags.Thunk), new(0x4000, 0x4005, "thunk_FUN_00405000", NativeFunctionFlags.Thunk)]);
+        Assert.Equal(["thunk_CheckLicense", "CheckLicense", "CreateFileW", "thunk_FUN_00405000"], named.Select(f => f.Name));
+    }
+
+    [Fact]
     public async Task Missing_install_is_unavailable_with_remediation()
     {
         using var tmp = new TempDir();
