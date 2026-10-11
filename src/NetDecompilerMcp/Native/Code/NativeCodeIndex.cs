@@ -688,7 +688,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             var chunks = AttachExceptionChunks(ref starts, ref results);
             var index = Assemble(starts, results);
             index.Apply(chunks);
-            if (options.ResolveVirtualCalls && image.Arch is NativeArch.X86 or NativeArch.X64)
+            if (options.ResolveVirtualCalls && ResolvesVirtualCalls(image))
             {
                 report.Report("resolving virtual calls", 0, 0);
                 index.ResolveVirtualCalls(options, ct);

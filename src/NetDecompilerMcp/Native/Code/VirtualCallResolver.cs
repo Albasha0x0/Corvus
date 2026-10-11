@@ -66,7 +66,7 @@ internal sealed class VirtualCallResolver
         _image = index.Image;
         _is64 = _image.Arch == NativeArch.X64;
         _systemV = _is64 && Calls.X64Abi.Of(_image).IsSystemV;
-        _ptr = _is64 ? 8 : 4;
+        _ptr = _image.Is64Bit ? 8 : 4;
         _maxTargets = Math.Max(1, options.MaxVirtualTargets);
         _ct = ct;
     }
@@ -82,6 +82,41 @@ internal sealed class VirtualCallResolver
         if (classes == 0)
             return (new VirtualCallSet([], VirtualCallStats.None with { Elapsed = sw.Elapsed }, ["no RTTI classes with vftables: virtual calls are not resolved"]), []);
         return r.Run(classes, options, sw);
+    }
+
+    /// <summary>
+    /// The sites an instruction-set-specific scan found (ARM: <see cref="Calls.ArmVirtualCalls"/>), resolved through the class model:
+    /// a call through this of a virtual method like the x86 flow; other receivers are unresolved.
+    /// </summary>
+    public static (VirtualCallSet Set, CodeXref[] Edges) ResolveShapes(NativeCodeIndex index, CodeContext ctx, CodeIndexOptions options, MsvcRttiResult rtti,
+        Func<IReadOnlyList<VirtualShape>> find, CancellationToken ct)
+    {
+        var sw = Stopwatch.StartNew();
+        var r = new VirtualCallResolver(index, ctx, options, ct);
+        int classes = r.BuildModel(rtti);
+        if (classes == 0)
+            return (new VirtualCallSet([], VirtualCallStats.None with { Elapsed = sw.Elapsed }, ["no RTTI classes with vftables: virtual calls are not resolved"]), []);
+        var sites = new List<VirtualCallSite>();
+        var edges = new List<CodeXref>();
+        int pure = 0;
+        foreach (var group in find().GroupBy(s => s.Rva))
+        {
+            var s = group.First();
+            var res = s.ThisReceiver ? r.FromThis(s.Function, s.VfptrOffset, s.Slot)
+                : new Resolution(VirtualCallStatus.Unresolved, VirtualCallReason.ReceiverUnknown, VirtualReceiver.Unknown, 0, 0, [], false);
+            pure += res.Pure;
+            sites.Add(new VirtualCallSite(s.Rva, s.Function, s.Slot, s.VfptrOffset, res.Status, res.Reason, res.Receiver, res.ClassTd, res.Vftable, res.Targets.Count,
+                s.Tail, res.Incomplete));
+            if (res.Status == VirtualCallStatus.Unresolved) continue;
+            var kind = res.Status == VirtualCallStatus.Exact ? XrefKind.VirtualExact : XrefKind.VirtualPossible;
+            foreach (var t in res.Targets.Distinct()) edges.Add(new CodeXref(s.Rva, t, kind));
+        }
+        sites.Sort((a, b) => a.Rva.CompareTo(b.Rva));
+        edges.Sort((a, b) => a.From != b.From ? a.From.CompareTo(b.From) : a.To.CompareTo(b.To));
+        var stats = new VirtualCallStats(sites.Count, sites.Count(s => s.Status == VirtualCallStatus.Exact), sites.Count(s => s.Status == VirtualCallStatus.Possible),
+            sites.Count(s => s.Status == VirtualCallStatus.Unresolved), edges.Count, classes, sites.Select(s => s.Function).Distinct().Count(), 0, pure,
+            sites.Count(s => s.Incomplete), sw.Elapsed);
+        return (new VirtualCallSet([.. sites], stats, []), [.. edges]);
     }
 
     private int BuildModel(MsvcRttiResult rtti)
@@ -130,7 +165,7 @@ internal sealed class VirtualCallResolver
         _classes = polymorphic;
         var byName = new Dictionary<string, int>(StringComparer.Ordinal);
         for (int i = 0; i < polymorphic.Count; i++) byName.TryAdd(polymorphic[i].Name, i);
-        var demangle = new MsvcDemangleOptions { X86 = !_is64 };
+        var demangle = new MsvcDemangleOptions { X86 = _image.Arch == NativeArch.X86 };
         int ClassOf(string? type) => PointerClass(type) is { } n && byName.TryGetValue(n, out int i) ? i : -1;
         foreach (var f in _index.Functions)
         {

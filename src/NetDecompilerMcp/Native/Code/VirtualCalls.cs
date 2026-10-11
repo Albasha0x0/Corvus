@@ -131,6 +131,12 @@ public sealed class VirtualCallSet
     };
 }
 
+/// <summary>
+/// A virtual call an instruction-set-specific scan found: through [[object + <see cref="VfptrOffset"/>] + <see cref="Slot"/> *
+/// pointer size], the object this of <see cref="Function"/> when <see cref="ThisReceiver"/>.
+/// </summary>
+public readonly record struct VirtualShape(uint Rva, uint Function, int VfptrOffset, int Slot, bool ThisReceiver, bool Tail);
+
 /// <summary>Which call edges a call graph query follows.</summary>
 public enum CallEdgeFilter
 {

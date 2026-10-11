@@ -58,14 +58,19 @@ public sealed partial class NativeCodeIndex
         VirtualCalls = set;
     }
 
+    /// <summary>x86 / x64 through the data flow, ARM64 and ARM32 through their call shapes.</summary>
+    internal static bool ResolvesVirtualCalls(INativeImage image) => image.Arch is NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64 or NativeArch.Arm;
+
     /// <summary>Runs RTTI analysis and the virtual call resolution over a built index; failures become a note, not an exception.</summary>
     private void ResolveVirtualCalls(CodeIndexOptions options, CancellationToken ct)
     {
-        if (_ctx == null || !options.ResolveVirtualCalls || Image.Arch is not (NativeArch.X86 or NativeArch.X64)) return;
+        if (_ctx == null || !options.ResolveVirtualCalls || !ResolvesVirtualCalls(Image)) return;
         try
         {
             var rtti = Itanium.CppRtti.Analyze(Image, ct);
-            var (set, edges) = VirtualCallResolver.Resolve(this, _ctx, options, rtti, ct);
+            var (set, edges) = Image.Arch is NativeArch.X86 or NativeArch.X64
+                ? VirtualCallResolver.Resolve(this, _ctx, options, rtti, ct)
+                : VirtualCallResolver.ResolveShapes(this, _ctx, options, rtti, () => Calls.ArmVirtualCalls.Find(this, ct), ct);
             SetVirtualCalls(set, edges);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

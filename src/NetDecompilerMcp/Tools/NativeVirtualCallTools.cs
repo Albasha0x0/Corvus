@@ -49,7 +49,7 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         [property: Description("Coverage notes.")] IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "find_virtual_calls", Title = "Native virtual calls", UseStructuredContent = true, OutputSchemaType = typeof(VirtualCallReport))]
-    [Description("Virtual call sites of an MSVC-built native image (x86 / x64), resolved through RTTI: calls through a vftable slot, also through stack " +
+    [Description("Virtual call sites resolved through RTTI (MSVC or Itanium; ARM: calls through this): calls through a vftable slot, also through stack " +
                  "spills, this adjustments and the CFG dispatch. The receiver's class comes from a vftable stored into the object (constructors, " +
                  "or a constructor called on it), from this of a virtual method, or from decorated names (this of member functions, class pointers " +
                  "passed as parameters or returned); the slot's implementations in that class and its derived classes (RTTI hierarchy) give the " +
