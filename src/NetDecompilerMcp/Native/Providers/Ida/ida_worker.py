@@ -1172,7 +1172,8 @@ def parse_decls_reporting(text):
                 lines.append((fmt or b"").replace(b"%s", arg or b"").decode("utf-8", "replace"))
                 return 0
 
-            errors = kernel.parse_decls(None, text.encode("utf-8"), printer, ti.PT_SIL | ti.PT_EMPTY | ti.PT_TYP)
+            # the kernel takes HTI flags, not PT ones (PT_EMPTY is HTI_PAK2): HTI_EXT prints the "// struct tag" lines, packing stays the default
+            errors = kernel.parse_decls(None, text.encode("utf-8"), printer, ti.HTI_EXT)
             names = []
             for line in lines:
                 for prefix in ("// struct tag: '", "// typedef: "):

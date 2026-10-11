@@ -184,6 +184,12 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         output.WriteLine(detail);
         Assert.Contains("+0x4  data  char[16]  16", detail);
         Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.ListNativeTypes(Image, name: "NoSuchNdmType"))).Code);
+        // declared with the database's packing, as a replay declares it: the pointer is 8-aligned
+        await rig.Types.DeclareNativeTypes(Image, "struct NdmAligned { short tag; void *next; };");
+        var aligned = await rig.Types.ListNativeTypes(Image, name: "NdmAligned");
+        output.WriteLine(aligned);
+        Assert.Contains("struct NdmAligned, 16 bytes", aligned);
+        Assert.Contains("+0x8  next  void *  8", aligned);
 
         // the declared type is usable, and a recovered type of the same name does not replace it
         var data = rig.Native.Image.Sections.First(s => !s.IsExecutable && s.Name == ".data");
