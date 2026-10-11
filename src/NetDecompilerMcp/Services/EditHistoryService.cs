@@ -27,7 +27,14 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
     /// An edit script. Sha256 (of the file the edits were made on) and Identity (its assembly full name) bind it to a
     /// build; scripts written before they were recorded have neither and are accepted with a warning.
     /// </summary>
-    public sealed record Script(string Format, string Assembly, string? Mvid, string? Sha256, string? Identity, DateTime Created, List<ScriptEdit> Edits);
+    public sealed record Script(string Format, string Assembly, string? Mvid, string? Sha256, string? Identity, DateTime Created, List<ScriptEdit> Edits)
+    {
+        /// <summary><see cref="ArityLabels"/> when generic methods are labeled Method<T>(...); absent in older scripts.</summary>
+        public int Labels { get; init; }
+    }
+
+    /// <summary>Script labels name generic methods with their arity (Format.MemberLabel).</summary>
+    public const int ArityLabels = 2;
 
     /// <summary>How apply_edits treats a script made for another build.</summary>
     public enum TargetBuild
@@ -61,7 +68,8 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
     {
         var original = asm.GetOriginalView(workspace.DnlibContext).Module;
         return new Script(ScriptFormat, asm.AssemblyName, original.Mvid?.ToString(), asm.OriginalSha256, original.Assembly?.FullName ?? original.Name,
-            DateTime.UtcNow, asm.Edits.Select(e => new ScriptEdit(e.Kind, e.Args.ToDictionary(kv => kv.Key, kv => kv.Value), e.Description)).ToList());
+            DateTime.UtcNow, asm.Edits.Select(e => new ScriptEdit(e.Kind, e.Args.ToDictionary(kv => kv.Key, kv => kv.Value), e.Description)).ToList())
+        { Labels = ArityLabels };
     }
 
     /// <summary>A script as JSON text (the export_edits file).</summary>
@@ -127,7 +135,8 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
                     "(symbols re-resolved by name; load the source build too so renamed targets are followed); try it with dryRun=true first");
             buildCheck = $"different build, carried over (targetBuild=other): {mismatch}";
         }
-        var records = script.Edits.Select(e => new EditRecord(e.Kind, e.Args, e.Description, [])).ToList();
+        bool legacy = script.Labels < ArityLabels;
+        var records = script.Edits.Select(e => new EditRecord(e.Kind, e.Args, e.Description, []) { LegacyLabels = legacy }).ToList();
 
         // On another build, renamed targets are located via the script's source build when it is loaded.
         var originalBuild = sameImage ? null : workspace.Assemblies.FirstOrDefault(a => a != asm && a.Module.Mvid?.ToString() == script.Mvid);
@@ -144,7 +153,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
                     old = new ResolvedSymbol(originalBuild, byToken);
                 else
                 {
-                    try { old = SymbolResolver.ResolveOne(workspace, originalBuild.Id, record.Arg(key)!, SymbolResolver.ParseKind(record.Arg(key + "Kind"))); }
+                    try { old = SymbolResolver.ResolveOne(workspace, originalBuild.Id, record.Arg(key)!, SymbolResolver.ParseKind(record.Arg(key + "Kind")), legacyLabels: record.LegacyLabels); }
                     catch (ToolError) { return null; }
                 }
                 // Matched against the source build as loaded: the script's own edits (stubs, patches, renames) may have

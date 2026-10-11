@@ -540,7 +540,7 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
             return new ResolvedSymbol(asm, def);
         try
         {
-            return SymbolResolver.ResolveOne(workspace, asm.Id, Required(record, key), SymbolResolver.ParseKind(record.Arg(key + "Kind")));
+            return SymbolResolver.ResolveOne(workspace, asm.Id, Required(record, key), SymbolResolver.ParseKind(record.Arg(key + "Kind")), legacyLabels: record.LegacyLabels);
         }
         catch (ToolError) when (Remap?.Invoke(record, key) is { } renamed)
         {

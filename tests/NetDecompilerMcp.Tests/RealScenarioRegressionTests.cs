@@ -387,6 +387,53 @@ public sealed class RealScenarioRegressionTests
     }
 
     /// <summary>
+    /// Member labels left out generic arity, so JsonConvert::DeserializeObject&lt;T&gt;(string) and DeserializeObject(string)
+    /// had one label: diff_edits could not resolve an edit of either, and a replay on another build was ambiguous or
+    /// reported the target as renamed to itself. Scripts saved before labels carried the arity still replay.
+    /// </summary>
+    [Fact]
+    public void GenericOverloadsHaveTheirOwnLabelsInDiffsAndReplays()
+    {
+        using var dir = new TempDir();
+        using var env = new Env(RealPackages.Lib("newtonsoft.json", "13.0.4", "netstandard2.0", "Newtonsoft.Json.dll"));
+        const string plain = "Newtonsoft.Json.JsonConvert::DeserializeObject(string)", generic = "Newtonsoft.Json.JsonConvert::DeserializeObject<T>(string)";
+        var plainSym = SymbolResolver.ResolveOne(env.Workspace, null, plain);
+        var genericSym = SymbolResolver.ResolveOne(env.Workspace, null, generic);
+        Assert.Equal((plain, generic), (plainSym.Label, genericSym.Label));
+        Assert.Same(genericSym.Member, SymbolResolver.ResolveOne(env.Workspace, null, "Newtonsoft.Json.JsonConvert::DeserializeObject``1(string)").Member);
+
+        env.Edit(() => env.Edits.StubMethod(plainSym, "null"));
+        env.Edit(() => env.Edits.Rename(genericSym, "DeserializeAs"));
+        var diff = env.Workspace.Read(() => env.History.Diff(env.Fixture, null, default));
+        Assert.DoesNotContain("could not resolve", diff);
+        Assert.Contains("current " + plain, diff);
+        Assert.Contains("current Newtonsoft.Json.JsonConvert::DeserializeAs<T>(string)", diff);
+
+        var script = dir.File("edits.json");
+        env.Workspace.Read(() => env.History.Export(env.Fixture, script));
+        using (var alone = new Env(RealPackages.Lib("newtonsoft.json", "13.0.1", "netstandard2.0", "Newtonsoft.Json.dll")))
+        {
+            var report = alone.Edit(() => alone.History.Apply(script, null, dryRun: false, stopOnError: true, default, NetDecompilerMcp.Services.EditHistoryService.TargetBuild.Other));
+            Assert.Contains("2 applied, 0 failed", report);
+            Assert.DoesNotContain("target renamed", report);
+            Assert.Single(SymbolResolver.Resolve(alone.Workspace, null, "Newtonsoft.Json.JsonConvert::DeserializeAs<T>(string)"));
+        }
+
+        // A script from before arity labels: the bare label is resolved through the source build's recorded token.
+        var legacy = dir.File("legacy.json");
+        var json = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(script))!.AsObject();
+        foreach (var arg in json["edits"]!.AsArray().SelectMany(e => e!["args"]!.AsObject()).Where(a => a.Value?.ToString().Contains("<T>(") == true).ToList())
+            arg.Value!.ReplaceWith(arg.Value.ToString().Replace("<T>(", "("));
+        Assert.Contains("DeserializeObject(string)", json.ToJsonString());
+        Assert.True(json.Remove("labels"));
+        File.WriteAllText(legacy, json.ToJsonString());
+        var other = env.Workspace.Load(RealPackages.Lib("newtonsoft.json", "13.0.1", "netstandard2.0", "Newtonsoft.Json.dll"));
+        var replay = env.Edit(() => env.History.Apply(legacy, other.Id, dryRun: false, stopOnError: true, default, NetDecompilerMcp.Services.EditHistoryService.TargetBuild.Other));
+        Assert.Contains("2 applied, 0 failed", replay);
+        Assert.Single(SymbolResolver.Resolve(env.Workspace, other.Id, "Newtonsoft.Json.JsonConvert::DeserializeAs<T>(string)"));
+    }
+
+    /// <summary>
     /// apply_edits onto a transformed rebuild matched targets against the source build as edited: after the script's
     /// own stub, that body no longer resembled its counterpart (now renamed), so the replay failed and rolled back.
     /// </summary>

@@ -119,7 +119,7 @@ public sealed class Il2CppNavigationTests(ITestOutputHelper output) : IDisposabl
             Assert.Contains("System.Collections.Generic.List<int>$$Add  RVA 0x1200 (0x100 bytes); code shared by 2 methods", await tools.GetIl2CppInfo(query));
         var instance = await tools.GetIl2CppInfo("NativeThing::Shared<System.Int32>");
         Assert.Contains("Fixture.Native.NativeThing$$Shared<int>  RVA 0x1200 (0x100 bytes); code shared by 2 methods; MethodInfo slot RVA 0x5018", instance);
-        Assert.Contains("definition: Fixture.Native.NativeThing::Shared(T)  [TestFixture]", instance);
+        Assert.Contains("definition: Fixture.Native.NativeThing::Shared<T>(T)  [TestFixture]", instance);
         Assert.Contains("metadata slot Fixture.Native.NativeThing_var: RVA 0x5008", await tools.GetIl2CppInfo("Fixture.Native.NativeThing_var"));
         Assert.Contains("RVA 0x5010; its code: RVA 0x1000", await tools.GetIl2CppInfo("Method$Fixture.Native.NativeThing.First()"));
         await Assert.ThrowsAsync<ToolError>(() => tools.GetIl2CppInfo("List<long>::Add"));

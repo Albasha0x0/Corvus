@@ -79,6 +79,19 @@ public class SymbolResolverTests : IDisposable
     public void GenericMethodNameWithTypeArguments() =>
         Assert.Equal("Pick", _env.One("Shop::Pick<T>").Member.Name);
 
+    /// <summary>Every method label (generic ones as Method&lt;T&gt;(...)) resolves back to the methods that carry it.</summary>
+    [Fact]
+    public void MethodLabelsRoundTrip()
+    {
+        var methods = _env.Fixture.Module.GetTypes().SelectMany(t => t.Methods).ToList();
+        Assert.Contains(methods, m => m.HasGenericParameters && Format.MemberLabel(m).Contains("<T>(", StringComparison.Ordinal));
+        foreach (var group in methods.GroupBy(m => Format.MemberLabel(m)))
+        {
+            var resolved = SymbolResolver.Resolve(_env.Workspace, _env.Fixture.Id, group.Key, SymbolKind.Method).Select(r => r.Member).ToHashSet();
+            Assert.True(resolved.SetEquals(group), group.Key);
+        }
+    }
+
     [Fact]
     public void NotFoundGivesSuggestions()
     {

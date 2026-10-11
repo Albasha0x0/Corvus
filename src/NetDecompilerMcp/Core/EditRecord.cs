@@ -10,4 +10,7 @@ namespace NetDecompilerMcp.Core;
 public sealed record EditRecord(string Kind, IReadOnlyDictionary<string, string?> Args, string Description, IReadOnlyList<string> Touched)
 {
     public string? Arg(string name) => Args.TryGetValue(name, out var v) ? v : null;
+
+    /// <summary>Read from a script whose labels predate generic arity (Method<T>(...)); see <see cref="SymbolResolver.Resolve"/>.</summary>
+    public bool LegacyLabels { get; init; }
 }

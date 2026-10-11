@@ -212,18 +212,33 @@ public static class Format
         return $"{prefix}event {TypeName(e.EventType)} {e.Name}";
     }
 
-    /// <summary>"Ns.Type::Method(int, string)" — unambiguous label for search/xref output.</summary>
+    /// <summary>"Ns.Type::Method(int, string)", "Ns.Type::Method&lt;T&gt;(string)" for a generic method — unambiguous label for search/xref output.</summary>
     public static string MemberLabel(IMemberRef m) => m switch
     {
         TypeDef t => t.FullName,
-        MethodDef md => $"{md.DeclaringType?.FullName}::{md.Name}({ParameterTypes(md.MethodSig)})",
+        MethodDef md => $"{md.DeclaringType?.FullName}::{md.Name}{GenericParameters(md)}({ParameterTypes(md.MethodSig)})",
         MemberRef { IsFieldRef: true } fr => $"{fr.DeclaringType?.FullName}::{fr.Name}",
-        IMethod im => $"{im.DeclaringType?.FullName}::{im.Name}({ParameterTypes(im.MethodSig)})",
+        IMethod im => $"{im.DeclaringType?.FullName}::{im.Name}{GenericParameters(im)}({ParameterTypes(im.MethodSig)})",
         IField f => $"{f.DeclaringType?.FullName}::{f.Name}",
         PropertyDef p => $"{p.DeclaringType?.FullName}::{p.Name}",
         EventDef e => $"{e.DeclaringType?.FullName}::{e.Name}",
         _ => m.FullName,
     };
+
+    /// <summary>
+    /// "&lt;T, U&gt;" for a generic method, so it differs from a non-generic overload with the same parameters. The method's own
+    /// names when they are plain identifiers (the resolver counts commas), else T or T1..Tn.
+    /// </summary>
+    public static string GenericParameters(IMethod m)
+    {
+        int n = (int)(m.MethodSig?.GenParamCount ?? 0);
+        if (n == 0) return "";
+        var def = m as MethodDef ?? (m as MethodSpec)?.Method as MethodDef;
+        var names = def?.GenericParameters.Count == n ? def.GenericParameters.Select(g => g.Name.String).ToList() : null;
+        if (names == null || names.Any(x => x.Length == 0 || !x.All(c => char.IsLetterOrDigit(c) || c == '_')))
+            names = n == 1 ? ["T"] : Enumerable.Range(1, n).Select(i => "T" + i.ToString(System.Globalization.CultureInfo.InvariantCulture)).ToList();
+        return "<" + string.Join(", ", names) + ">";
+    }
 
     public static string Literal(object? value) => value switch
     {

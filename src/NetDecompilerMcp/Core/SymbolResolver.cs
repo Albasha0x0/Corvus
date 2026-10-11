@@ -31,7 +31,7 @@ public sealed record NativeSymbol(string Image, string Export)
 /// <summary>
 /// Resolves loosely written symbol strings to exact definitions. Accepted forms:
 ///   Ns.Type | Ns.Outer+Inner | Ns.Outer/Inner | Ns.Outer.Inner | Type (short name) | List`1 | List&lt;T&gt;
-///   Ns.Type::Member | Ns.Type.Member | Ns.Type::Method(int, string) | Ns.Type::.ctor | Ns.Type::ctor
+///   Ns.Type::Member | Ns.Type.Member | Ns.Type::Method(int, string) | Ns.Type::Method<T>(string) (generic arity; Method``1 too) | Ns.Type::.ctor | Ns.Type::ctor
 ///   0x06001234 (metadata token; scope it with the assembly parameter when several are loaded)
 /// </summary>
 public static partial class SymbolResolver
@@ -40,7 +40,9 @@ public static partial class SymbolResolver
     /// Also match types that are only referenced (not defined) by loaded code, read from their defining file.
     /// Used by tools that search for usages, overrides or derived types.
     /// </param>
-    public static IReadOnlyList<ResolvedSymbol> Resolve(AssemblyWorkspace ws, string? assembly, string symbol, SymbolKind kind = SymbolKind.Any, bool referenced = false)
+    /// <param name="legacyLabels">The symbol is a label saved before labels carried generic arity: Method(int) also means Method<T>(int).</param>
+    public static IReadOnlyList<ResolvedSymbol> Resolve(AssemblyWorkspace ws, string? assembly, string symbol, SymbolKind kind = SymbolKind.Any, bool referenced = false,
+        bool legacyLabels = false)
     {
         if (string.IsNullOrWhiteSpace(symbol))
             throw new ToolError(ErrorCode.InvalidArgument, "Symbol is empty.");
@@ -84,7 +86,7 @@ public static partial class SymbolResolver
             // Bare member name: search every type in scope; exact-case matches win over case-insensitive ones.
             foreach (var a in scope)
                 foreach (var t in a.Module.GetTypes())
-                    results.AddRange(FindMembers(new ResolvedSymbol(a, t), query, signature, kind).Where(r => r.Member is not TypeDef));
+                    results.AddRange(FindMembers(new ResolvedSymbol(a, t), query, signature, kind, legacyLabels).Where(r => r.Member is not TypeDef));
             if (results.Any(r => r.Member.Name == query))
                 return results.Where(r => r.Member.Name == query).ToList();
             if (results.Count > 0)
@@ -104,14 +106,15 @@ public static partial class SymbolResolver
             return Finish(results, symbol, scope, typePart, null);
 
         foreach (var t in types)
-            results.AddRange(FindMembers(t, memberPart!, signature, kind));
+            results.AddRange(FindMembers(t, memberPart!, signature, kind, legacyLabels));
         return Finish(results, symbol, scope, typePart, (types, memberPart!));
     }
 
     /// <summary>Resolves to exactly one symbol, or throws with the candidate list.</summary>
-    public static ResolvedSymbol ResolveOne(AssemblyWorkspace ws, string? assembly, string symbol, SymbolKind kind = SymbolKind.Any, bool referenced = false)
+    public static ResolvedSymbol ResolveOne(AssemblyWorkspace ws, string? assembly, string symbol, SymbolKind kind = SymbolKind.Any, bool referenced = false,
+        bool legacyLabels = false)
     {
-        var all = Resolve(ws, assembly, symbol, kind, referenced);
+        var all = Resolve(ws, assembly, symbol, kind, referenced, legacyLabels);
         if (all.Count == 1)
             return all[0];
         throw new ToolError(ErrorCode.Ambiguous, $"'{symbol}' is ambiguous ({all.Count} matches). Pass a parameter signature like Method(int, string), " +
@@ -210,12 +213,21 @@ public static partial class SymbolResolver
     private static IEnumerable<IMemberDef> Members(TypeDef t) =>
         t.Methods.Cast<IMemberDef>().Concat(t.Fields).Concat(t.Properties).Concat(t.Events).Concat(t.NestedTypes);
 
-    private static IEnumerable<ResolvedSymbol> FindMembers(ResolvedSymbol typeSym, string memberQuery, string? signature, SymbolKind kind)
+    private static IEnumerable<ResolvedSymbol> FindMembers(ResolvedSymbol typeSym, string memberQuery, string? signature, SymbolKind kind, bool legacyLabels)
     {
         var type = (TypeDef)typeSym.Member;
         var name = memberQuery.Trim();
-        int lt = name.IndexOf('<');
-        if (lt > 0) name = name[..lt];
+        int? arity = null;
+        int ticks = name.IndexOf("``", StringComparison.Ordinal);
+        if (ticks > 0 && int.TryParse(name.AsSpan(ticks + 2), NumberStyles.None, CultureInfo.InvariantCulture, out int n))
+            (name, arity) = (name[..ticks], n);
+        // "Method<T, U>" (labels, C#) names the generic method of that arity; only a trailing group counts, so
+        // "<Run>b__0" and "IEnumerable<T>.GetEnumerator" keep their brackets.
+        if (TrailingGenericGroup(name) is int lt)
+        {
+            arity ??= name[lt..].Count(c => c == ',') + 1;
+            name = name[..lt];
+        }
         if (name is "ctor" or "#ctor" or ".ctor") name = ".ctor";
         if (name is "cctor" or "#cctor" or ".cctor") name = ".cctor";
 
@@ -241,13 +253,34 @@ public static partial class SymbolResolver
         if (kind != SymbolKind.Field && hits.Any(h => h is EventDef))
             hits = hits.Where(h => h is not FieldDef).ToList();
 
+        if (arity is { } a)
+            hits = hits.Where(m => m is not MethodDef md || Arity(md) == a).ToList();
         if (signature != null)
         {
             var wanted = NormalizeSignature(signature);
             hits = hits.Where(m => m is not MethodDef md || SignatureMatches(md, wanted)).ToList();
+            // A label names a generic method with "<T>", so Method(int) is the non-generic one when both exist; without
+            // that overload (or in a legacy label) it matches any arity.
+            if (arity == null && !legacyLabels && hits.Any(m => m is MethodDef md && Arity(md) == 0) && hits.Any(m => m is MethodDef md && Arity(md) > 0))
+                hits = hits.Where(m => m is not MethodDef md || Arity(md) == 0).ToList();
         }
         return hits.Select(m => new ResolvedSymbol(typeSym.Assembly, m));
     }
+
+    /// <summary>Start of a trailing "&lt;...&gt;" after the name's first character, or null.</summary>
+    private static int? TrailingGenericGroup(string name)
+    {
+        if (!name.EndsWith('>')) return null;
+        int depth = 0;
+        for (int i = name.Length - 1; i > 0; i--)
+        {
+            if (name[i] == '>') depth++;
+            else if (name[i] == '<' && --depth == 0) return name[i - 1] == '.' ? null : i;
+        }
+        return null;
+    }
+
+    private static int Arity(MethodDef m) => m.MethodSig?.GenParamCount is { } n ? (int)n : 0;
 
     private static string NormalizeSignature(string s) =>
         new string(s.Where(c => !char.IsWhiteSpace(c)).ToArray()).ToLowerInvariant();
