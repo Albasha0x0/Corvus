@@ -96,6 +96,15 @@ internal static class Arm64CallTargets
         var resolver = new Arm64Resolver(a, code) { Budget = 3000 };
         var v = resolver.Before(A64Loc.Reg(reg), b, i);
         string hint = $"trace_native_values address={a.Va(s.Rva)} location=x{reg}";
+        var dynamic = v.Kind switch
+        {
+            A64Kind.Result => a.Calls.DynamicImports(ct).BySite.GetValueOrDefault(v.Rva),
+            A64Kind.Global => a.Calls.DynamicImports(ct).ByGlobal.GetValueOrDefault(v.Rva),
+            _ => null,
+        };
+        if (dynamic != null)
+            return Site("register", "resolved", [new CallTarget(dynamic.PointerGlobal ?? dynamic.CallSite, dynamic.FullName, "getprocaddress", "exact",
+                $"resolved by name at {a.Va(dynamic.CallSite)}; {dynamic.How}")]);
         switch (v.Kind)
         {
             case A64Kind.Addr when index.FunctionByStart(v.Rva) != null:

@@ -168,6 +168,65 @@ public class NativeArm64Tests
         Assert.Equal(Native.Calls.CalleeKind.Import, sites[1].Kind);
     }
 
+    /// <summary>
+    /// malloc(0x40) with x0 set before a branch; pow(1.5, 2.0) and powf(1.0f, 3.0f) in d / s registers (fmov immediates and
+    /// fmov from a general register); dlsym(dlopen("libm.so.6", 2), "cos") called through x8.
+    /// </summary>
+    [Fact]
+    public void Arm64_arguments_cross_blocks_floating_point_and_late_bound_targets()
+    {
+        uint malloc = Data + 0x10, pow = Data + 0x18, powf = Data + 0x20, dlopen = Data + 0x28, dlsym = Data + 0x30, lib = Data + 0x100, cos = Data + 0x110,
+            sin = Data + 0x118;
+        var a = new A64(Code);
+        uint skip = 0, resolve = 0;
+        A64 Got(uint slot) => a.Word(A64.Adrp(a.Here, slot, 16, Base)).Word(A64.LdrX(17, 16, slot & 0xFFF)).Word(A64.Blr(17));
+        a.Word(A64.StpFpLrPre).Word(A64.MovFpSp);
+        a.Word(A64.MovW(0, 0x40)).Later(at => A64.Cbz(at, skip, 1)).Word(A64.Nop);
+        skip = a.Here;
+        Got(malloc);
+        a.Word(0x1E6F1000 /* fmov d0, #1.5 */).Word(0x1E601001 /* fmov d1, #2.0 */);
+        Got(pow);
+        a.Word(0x1E2E1000 /* fmov s0, #1.0 */).Word(0x52A80808 /* mov w8, #0x40400000 */).Word(0x1E270101 /* fmov s1, w8 */);
+        Got(powf);
+        a.Word(A64.Adrp(a.Here, lib, 0, Base)).Word(A64.AddImm(0, 0, lib & 0xFFF)).Word(A64.MovW(1, 2));
+        Got(dlopen);
+        a.Word(A64.Adrp(a.Here, cos, 1, Base)).Word(A64.AddImm(1, 1, cos & 0xFFF));
+        Got(dlsym);
+        a.Word(0xAA0003E8 /* mov x8, x0 */).Word(0x1E6E1000 /* fmov d0, #1.0 */);
+        uint late = a.Here;
+        a.Word(A64.Blr(8));
+        // resolve("sin")(): the name reaches dlsym through the wrapper's parameter
+        a.Word(A64.Adrp(a.Here, sin, 0, Base)).Word(A64.AddImm(0, 0, sin & 0xFFF)).Later(at => A64.Bl(at, resolve));
+        uint wrapped = a.Here;
+        a.Word(A64.Blr(0));
+        a.Word(A64.LdpFpLrPost).Word(A64.Ret);
+        resolve = a.Here;
+        a.Word(A64.StpFpLrPre).Word(A64.MovFpSp).Word(0xAA0003E1 /* mov x1, x0 */).Word(A64.MovW(0, 0));
+        Got(dlsym);
+        a.Word(A64.LdpFpLrPost).Word(A64.Ret);
+        var data = new byte[0x200];
+        Encoding.ASCII.GetBytes("libm.so.6\0").CopyTo(data, lib - Data);
+        Encoding.ASCII.GetBytes("cos\0").CopyTo(data, cos - Data);
+        Encoding.ASCII.GetBytes("sin\0").CopyTo(data, sin - Data);
+        var image = CodeTestImage.Synthetic(NativeArch.Arm64, a.Bytes(), data, entry: Code,
+            imports: [Import("malloc", malloc), Import("pow", pow), Import("powf", powf), Import("dlopen", dlopen), Import("dlsym", dlsym)]);
+        var index = NativeCodeIndex.Build(image);
+        var sites = Native.Calls.Arm64CallSites.For(index).CallsIn(index.FunctionByStart(Code)!);
+        Assert.Equal("malloc(64)", sites[0].Display);
+        Assert.Equal(0x40UL, sites[0].Arguments[0].Value);
+        Assert.Equal("pow(1.5, 2)", sites[1].Display);
+        Assert.Equal(["d0", "d1"], sites[1].Arguments.Select(x => x.Location));
+        Assert.Equal("powf(1f, 3f)", sites[2].Display);
+        Assert.Equal(["s0", "s1"], sites[2].Arguments.Select(x => x.Location));
+        var call = sites.Single(s => s.Rva == late);
+        Assert.Equal(("libm.so.6!cos", Native.Calls.CalleeKind.Dynamic), (call.Callee, call.Kind));
+        Assert.Equal("cos(1)", call.Display);
+        var target = Native.Calls.Arm64CallTargets.At(Native.Calls.Arm64Trace.For(index), late, deep: false)!;
+        Assert.Equal(("resolved", "libm.so.6!cos", "getprocaddress"), (target.Status, target.Targets.Single().Name, target.Targets.Single().Basis));
+        var viaWrapper = sites.Single(s => s.Rva == wrapped);
+        Assert.Equal(("?!sin", Native.Calls.CalleeKind.Dynamic), (viaWrapper.Callee, viaWrapper.Kind));
+    }
+
     [Fact]
     public void Relocated_words_and_zero_fill_are_not_code()
     {

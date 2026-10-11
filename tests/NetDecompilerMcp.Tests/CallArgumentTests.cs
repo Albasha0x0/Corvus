@@ -204,6 +204,52 @@ public class CallArgumentTests(ITestOutputHelper output)
         Assert.Contains(set.CallsByFunction[userFn.Start], c => c.Import == fls);
     }
 
+    /// <summary>resolve(name) returns GetProcAddress(GetModuleHandleW(L"kernel32.dll"), name); main: resolve("FlsAlloc")(0).</summary>
+    [Fact]
+    public void A_name_passed_to_a_resolver_wrapper_names_the_register_call()
+    {
+        const uint GetProcAddress = Data, GetModuleHandleW = Data + 8;
+        Instruction Mem(Iced.Intel.Code code, uint rva) => Instruction.Create(code, new MemoryOperand(Register.RIP, (long)(Base64 + rva), 8));
+        Label resolve = default, late = default;
+        var code = Assemble(64, a =>
+        {
+            resolve = a.CreateLabel();
+            late = a.CreateLabel();
+            a.sub(rsp, 0x28);
+            a.AddInstruction(Rip(Iced.Intel.Code.Lea_r64_m, Register.RCX, Data + 0x140));
+            a.call(resolve);
+            a.xor(ecx, ecx);
+            a.Label(ref late);
+            a.call(rax);
+            a.add(rsp, 0x28);
+            a.ret();
+            a.Label(ref resolve);
+            a.push(rbx);
+            a.sub(rsp, 0x20);
+            a.mov(rbx, rcx);
+            a.AddInstruction(Rip(Iced.Intel.Code.Lea_r64_m, Register.RCX, Data + 0x100));
+            a.AddInstruction(Mem(Iced.Intel.Code.Call_rm64, GetModuleHandleW));
+            a.mov(rcx, rax);
+            a.mov(rdx, rbx);
+            a.AddInstruction(Mem(Iced.Intel.Code.Call_rm64, GetProcAddress));
+            a.add(rsp, 0x20);
+            a.pop(rbx);
+            a.ret();
+        });
+        var data = new byte[0x200];
+        Encoding.Unicode.GetBytes("kernel32.dll\0").CopyTo(data, 0x100);
+        Encoding.ASCII.GetBytes("FlsAlloc\0").CopyTo(data, 0x140);
+        var image = CodeTestImage.Synthetic(NativeArch.X64, code, data, [Import("GetProcAddress", GetProcAddress), Import("GetModuleHandleW", GetModuleHandleW)], entry: Code);
+        var index = NativeCodeIndex.Build(image);
+        var analysis = CallAnalysis.For(index);
+        var fls = Assert.Single(analysis.DynamicImports().Find("kernel32!FlsAlloc"));
+        Assert.Contains("passed to", fls.How);
+        var call = analysis.CallsIn(index.FunctionByStart(Code)!).Single(c => c.Kind == CalleeKind.Dynamic);
+        Assert.Equal("kernel32!FlsAlloc", call.Callee);
+        var target = CallTargets.At(analysis, call.Rva, deep: false)!;
+        Assert.Equal(("resolved", "getprocaddress"), (target.Status, target.Targets.Single().Basis));
+    }
+
     [Fact]
     public void Flags_and_enumerations_decode_by_mask()
     {

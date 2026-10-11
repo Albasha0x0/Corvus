@@ -60,7 +60,8 @@ public sealed partial class CallAnalysis
 {
     private const int MaxDynamicSites = 5000;
     private static readonly string[] ModuleApis = ["LoadLibraryA", "LoadLibraryW", "LoadLibraryExA", "LoadLibraryExW", "GetModuleHandleA", "GetModuleHandleW",
-        "GetModuleHandleExA", "GetModuleHandleExW"];
+        "GetModuleHandleExA", "GetModuleHandleExW", "dlopen"];
+    private static readonly string[] ResolverApis = ["GetProcAddress", "dlsym", "dlvsym"];
 
     private DynamicImportSet? _dynamic;
     private readonly object _dynamicGate = new();
@@ -74,7 +75,7 @@ public sealed partial class CallAnalysis
         if (_dynamic == null && !Monitor.IsEntered(_dynamicGate)) DynamicImports(ct);
     }
 
-    /// <summary>The late-bound imports (computed once; the call sites of GetProcAddress, LoadLibrary* and GetModuleHandle*).</summary>
+    /// <summary>The late-bound imports (computed once; the call sites of GetProcAddress, dlsym, LoadLibrary*, GetModuleHandle* and dlopen).</summary>
     public DynamicImportSet DynamicImports(CancellationToken ct = default)
     {
         if (_dynamic != null) return _dynamic;
@@ -87,6 +88,7 @@ public sealed partial class CallAnalysis
             {
                 var set = BuildDynamic(ct);
                 _sites.Clear();
+                _slices?.Clear();
                 _dynamic = set;
                 return set;
             }
@@ -109,21 +111,29 @@ public sealed partial class CallAnalysis
 
         var imports = new List<DynamicImport>();
         int sites = 0, unresolved = 0;
-        foreach (var gpa in Image.Imports.Where(i => i.Name == "GetProcAddress"))
+        foreach (var gpa in Image.Imports.Where(i => i.Name != null && ResolverApis.Contains(i.Name)))
             foreach (var s in CallsTo(gpa, MaxDynamicSites, ct))
             {
                 sites++;
                 if (s.Arguments.Count < 2) { unresolved++; continue; }
                 var nameArg = s.Arguments[1];
                 string name, how;
-                if (nameArg.Kind == ArgKind.String) { name = Unquote(nameArg.Text); how = "name: string literal"; }
-                else if (nameArg.Kind == ArgKind.Immediate && nameArg.Value is < 0x10000 and > 0) { name = $"#{nameArg.Value}"; how = "name: ordinal"; }
-                else { unresolved++; continue; }
                 var code = Code(s.Caller, ct);
                 var (module, moduleHow, medium) = ModuleOf(code, s.Arguments[0].Raw, ct, 0);
-                how += module != null ? $"; module: {moduleHow}" : "; module: not traced";
-                var global = StoreOfResult(code, s.Rva);
-                imports.Add(new DynamicImport(module, name, s.Rva, s.Caller, how, module == null ? "low" : medium ? "medium" : "high", global, []));
+                var moduleText = module != null ? $"; module: {moduleHow}" : "; module: not traced";
+                var confidence = module == null ? "low" : medium ? "medium" : "high";
+                if (nameArg.Kind == ArgKind.String) { name = Unquote(nameArg.Text); how = "name: string literal"; }
+                else if (gpa.Name == "GetProcAddress" && nameArg.Kind == ArgKind.Immediate && nameArg.Value is < 0x10000 and > 0) { name = $"#{nameArg.Value}"; how = "name: ordinal"; }
+                else
+                {
+                    var wrapped = Wrapped(s, ct);
+                    if (wrapped.Count == 0) { unresolved++; continue; }
+                    foreach (var (site, caller, passed) in wrapped)
+                        imports.Add(new DynamicImport(module, passed, site, caller, $"name: string literal passed to {s.Caller.Name}, which returns {gpa.Name}'s result" + moduleText,
+                            confidence, StoreOfResult(Code(caller, ct), site), []));
+                    continue;
+                }
+                imports.Add(new DynamicImport(module, name, s.Rva, s.Caller, how + moduleText, confidence, StoreOfResult(code, s.Rva), []));
             }
 
         // pointer globals with one store: the calls through them are calls to the import
@@ -194,7 +204,7 @@ public sealed partial class CallAnalysis
                 if (p >= site.Arguments.Count) break;
                 var a = site.Arguments[p];
                 if (a.Kind == ArgKind.String) return (Unquote(a.Text), $"{api}({a.Text}) at {Va(v.Site)}", false);
-                if (a.Kind == ArgKind.Immediate && a.Value == 0 && api.StartsWith("GetModuleHandle", StringComparison.Ordinal))
+                if (a.Kind == ArgKind.Immediate && a.Value == 0 && (api.StartsWith("GetModuleHandle", StringComparison.Ordinal) || api == "dlopen"))
                     return (Path.GetFileName(Image.Path), $"{api}(NULL) at {Va(v.Site)}: this image", false);
                 break;
             }
@@ -249,6 +259,28 @@ public sealed partial class CallAnalysis
             }
         }
         return (null, "", false);
+    }
+
+    /// <summary>
+    /// A wrapper (resolve(name) { return GetProcAddress(h, name); }): the name is a parameter and the result is returned; each
+    /// call of the wrapper with a constant name, as (that call, its function, the name).
+    /// </summary>
+    private List<(uint Site, NativeFunction Caller, string Name)> Wrapped(CallSiteInfo s, CancellationToken ct)
+    {
+        var result = new List<(uint, NativeFunction, string)>();
+        var root = Slices.Backward(s.Caller, new SliceSeed(SliceSeedKind.Argument, s.Rva, Slices.LocationName(Slices.ParameterEntry(1))), ct);
+        if (root.Nodes.Count <= root.Root || root.Nodes[root.Root] is not { Kind: SliceNodeKind.Parameter, Index: >= 0 and var k }) return result;
+        if (!Slices.Forward(s.Caller, new SliceSeed(SliceSeedKind.Result, s.Rva, Is64 ? "rax" : "eax"), ct).Nodes.Any(n => n.Kind == SliceNodeKind.Return)) return result;
+        var entry = Slices.EntryToCall(Slices.ParameterEntry(k), tail: false);
+        foreach (var c in Index.Callers(s.Caller).Where(c => c.Kind == XrefKind.Call && c.Caller != null).DistinctBy(c => c.From).Take(256))
+        {
+            var code = Code(c.Caller!, ct);
+            var (b, i) = code.Position(c.From);
+            if (b < 0) continue;
+            var v = new ValueResolver(this, code) { Budget = 1500 }.ValueBefore(entry, b, i);
+            if (v.Kind == VKind.Addr && ReadText(v.Rva, wide: false) is { Length: > 0 } name) result.Add((c.From, c.Caller!, name));
+        }
+        return result;
     }
 
     private static bool ModuleLike(string text) =>

@@ -19,7 +19,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         [property: Description("0-based position.")] int Index,
         [property: Description("Parameter name from the API signature; null for callees without one.")] string? Name,
         [property: Description("Parameter type (str, int, ptr, an enumeration or flags name...); null without a signature.")] string? Type,
-        [property: Description("Where it is passed: rcx, rdx, r8, r9, xmm0-3, [rsp+20h], [esp+4h], ecx.")] string Location,
+        [property: Description("Where it is passed: rcx, rdx, r8, r9, xmm0-3, [rsp+20h], [esp+4h], ecx; ARM64 x0-x7, s0-s7 / d0-d7, stack.")] string Location,
         [property: Description("immediate, string, address, name, result (of an earlier call), global (contents of a variable) or unknown.")] string Kind,
         [property: Description("The value as shown in the call: decoded flags, quoted string, name, ? when unknown.")] string Text,
         [property: Description("The number for immediates (hex).")] string? Value,
@@ -31,7 +31,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         [property: Description("VA of the call instruction.")] string Address,
         [property: Description("The calling function.")] string Function,
         [property: Description("Callee: module!name for imports and late-bound imports, a function name, or the pointer for indirect calls.")] string Callee,
-        [property: Description("import, function, dynamic (GetProcAddress pointer), virtual_exact (a virtual call with one implementation, resolved through RTTI), " +
+        [property: Description("import, function, dynamic (GetProcAddress / dlsym pointer), virtual_exact (a virtual call with one implementation, resolved through RTTI), " +
                                "virtual_possible (one of several implementations, listed in Callee) or indirect.")] string CalleeKind,
         [property: Description("A jump to the callee (tail call) rather than a call.")] bool TailCall,
         [property: Description("The callee's signature is known (parameter names, count and constant decoding); otherwise the arguments are the registers / stack slots set just before the call.")] bool SignatureKnown,

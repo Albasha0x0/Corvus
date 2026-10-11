@@ -62,6 +62,9 @@ internal sealed class Arm64Trace : ITraceHost
     public string ParameterLocation(int index) => A64Function.Name(A64Function.ParameterEntry(index), null);
     public ValueTraceCache Traces => LazyInitializer.EnsureInitialized(ref _traces, () => new ValueTraceCache());
     public IFunctionSliceProvider Slices => LazyInitializer.EnsureInitialized(ref _slices, () => new Arm64SliceProvider(this));
+
+    /// <summary>Drops the memoized slices once the late-bound imports their callees are named by are known.</summary>
+    public void ClearSlices() => _slices?.Clear();
     public Arm64CallSites Calls => Arm64CallSites.For(Index);
 
     public string Va(uint rva) => NativeAddress.Va(Index.Image, rva);
@@ -127,6 +130,9 @@ internal sealed class Arm64SliceProvider(Arm64Trace host) : IFunctionSliceProvid
     public string Engine => OursSliceProvider.EngineName;
 
     public FunctionSlice Backward(NativeFunction function, SliceSeed seed, CancellationToken ct) => Cached(function, seed, false, ct);
+
+    /// <summary>Drops the memoized slices (the late-bound imports they name callees by became known).</summary>
+    public void Clear() => _cache.Clear();
 
     public FunctionSlice Forward(NativeFunction function, SliceSeed seed, CancellationToken ct) => Cached(function, seed, true, ct);
 

@@ -26,6 +26,9 @@ internal sealed class OursSliceProvider(CallAnalysis analysis) : IFunctionSliceP
 
     public FunctionSlice Backward(NativeFunction function, SliceSeed seed, CancellationToken ct) => Cached(function, seed, false, ct);
 
+    /// <summary>Drops the memoized slices (the late-bound imports they name callees by became known).</summary>
+    public void Clear() => _cache.Clear();
+
     public FunctionSlice Forward(NativeFunction function, SliceSeed seed, CancellationToken ct) => Cached(function, seed, true, ct);
 
     private FunctionSlice Cached(NativeFunction f, SliceSeed seed, bool forward, CancellationToken ct)

@@ -236,6 +236,10 @@ public static class ApiSignatures
         GetProcAddress(hmodule hModule, procname lpProcName)
         FreeLibrary(hmodule hLibModule)
         LdrLoadDll(ptr DllPath, ptr DllCharacteristics, ptr DllName, ptr DllHandle)
+        cdecl dlopen(astr filename, int flags)
+        cdecl dlsym(hmodule handle, procname symbol)
+        cdecl dlvsym(hmodule handle, procname symbol, astr version)
+        cdecl dlclose(hmodule handle)
 
         CreateProcess%(str lpApplicationName, str lpCommandLine, ptr lpProcessAttributes, ptr lpThreadAttributes, bool bInheritHandles, ProcessCreation dwCreationFlags, ptr lpEnvironment, str lpCurrentDirectory, ptr lpStartupInfo, ptr lpProcessInformation)
         CreateProcessAsUser%(handle hToken, str lpApplicationName, str lpCommandLine, ptr lpProcessAttributes, ptr lpThreadAttributes, bool bInheritHandles, ProcessCreation dwCreationFlags, ptr lpEnvironment, str lpCurrentDirectory, ptr lpStartupInfo, ptr lpProcessInformation)
@@ -455,8 +459,8 @@ public static class ApiSignatures
         returns NtStatus "an NTSTATUS": NtAllocateVirtualMemory NtProtectVirtualMemory NtQueryInformationProcess NtSetInformationThread NtQuerySystemInformation NtCreateFile NtOpenFile NtReadFile NtWriteFile NtClose LdrLoadDll LdrGetProcedureAddress BCryptOpenAlgorithmProvider BCryptGenRandom
         returns - "a handle; INVALID_HANDLE_VALUE (-1) on failure": CreateFile% CreateFile2 CreateNamedPipe% FindFirstFile% FindFirstFileEx% CreateToolhelp32Snapshot CreateMailslot%
         returns - "a handle; NULL on failure": OpenProcess OpenThread CreateThread CreateRemoteThread CreateEvent% CreateMutex% CreateMutexEx% CreateSemaphore% OpenEvent% OpenMutex% CreateFileMapping% OpenFileMapping% OpenSCManager% OpenService% CreateService% InternetOpen% InternetOpenUrl% InternetConnect% HttpOpenRequest% WinHttpOpen WinHttpConnect WinHttpOpenRequest HeapCreate
-        returns - "a module handle; NULL on failure": LoadLibrary% LoadLibraryEx% GetModuleHandle%
-        returns - "a function address; NULL on failure": GetProcAddress
+        returns - "a module handle; NULL on failure": LoadLibrary% LoadLibraryEx% GetModuleHandle% dlopen
+        returns - "a function address; NULL on failure": GetProcAddress dlsym dlvsym
         returns - "an address; NULL on failure": VirtualAlloc VirtualAllocEx HeapAlloc HeapReAlloc LocalAlloc GlobalAlloc MapViewOfFile malloc calloc realloc
         returns - "nonzero on success, zero on failure (GetLastError)": ReadFile WriteFile CloseHandle DeleteFile% CopyFile% MoveFile% MoveFileEx% CreateDirectory% RemoveDirectory% SetFileAttributes% VirtualProtect VirtualProtectEx VirtualFree VirtualFreeEx WriteProcessMemory ReadProcessMemory HeapFree FreeLibrary CreateProcess% CreateProcessAsUser% TerminateProcess SetThreadContext DeviceIoControl StartService% ControlService CryptAcquireContext% CryptCreateHash CryptDeriveKey InternetReadFile HttpSendRequest% WinHttpSendRequest CheckRemoteDebuggerPresent UnmapViewOfFile
         """;
