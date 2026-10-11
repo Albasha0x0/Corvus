@@ -31,6 +31,8 @@ internal sealed class FunctionDiscovery
     private readonly HashSet<uint> _codeTables = [];
     private readonly SortedSet<uint> _pendingSwitches = [];
     private readonly HashSet<uint> _rejected = [];
+    private readonly SortedSet<uint> _sortedStarts = [];
+    private readonly HashSet<uint> _farJumps = [];
     private readonly Dictionary<uint, uint?> _thunkCache = [];
     private readonly CancellationToken _ct;
     private readonly Action<long>? _progress;
@@ -88,7 +90,7 @@ internal sealed class FunctionDiscovery
             Drain();
             foreach (var t in _addressCandidates.ToList()) TryCandidate(t, FunctionSource.CodeAddress);
             Drain();
-            if (_ctx.Options.ScanPrologues && _x86Peek != null) ScanGaps(image.Arch == NativeArch.X86);
+            if (_ctx.Options.ScanPrologues && _x86Peek != null) ScanGaps(image.Arch == NativeArch.X86 && image.Format == ImageFormat.Pe);
             if (_functions.Count != before) continue;
             // pointers stored inside code sections last: by now the functions owning switch tables there are
             // decoded, so case labels are covered
@@ -137,6 +139,7 @@ internal sealed class FunctionDiscovery
         if (_functions.TryGetValue(rva, out var existing)) { _functions[rva] = existing | source; return; }
         if (_functions.Count >= _ctx.Options.MaxFunctions) { FunctionsTruncated = true; return; }
         _functions[rva] = source;
+        _sortedStarts.Add(rva);
         _ctx.FunctionStarts.Add(rva);
         if (ThunkSlot(rva) is { } slot)
         {
@@ -175,10 +178,22 @@ internal sealed class FunctionDiscovery
 
     private void Drain()
     {
-        while (_roots.Count > 0)
+        while (true)
         {
-            Heartbeat();
-            Explore(_roots.Dequeue());
+            while (_roots.Count > 0)
+            {
+                Heartbeat();
+                Explore(_roots.Dequeue());
+            }
+            if (_farJumps.Count == 0) return;
+            // targets of far jumps that no function's code reached meanwhile: tail calls (a jump back from a function's
+            // cold part lands in code its function already covers)
+            foreach (uint t in _farJumps.ToList())
+            {
+                long bit = _ctx.Code.BitIndex(t);
+                if (bit >= 0 && !_covered[bit]) Add(t, FunctionSource.TailJump, strong: true);
+            }
+            _farJumps.Clear();
         }
     }
 
@@ -260,6 +275,11 @@ internal sealed class FunctionDiscovery
                 if (!insn.HasTarget || !_ctx.Code.IsCode(insn.Target)) return false;
                 // a function that is only a jump (adjustor / ICF thunk), a jump to an import thunk, an x86 jump to a standard
                 // prologue, an ARM32 jump that changes state, is computed (a veneer) or reaches a bx pc stub: tail calls to functions
+                if (own == null && !_functions.ContainsKey(insn.Target) && IsFarJump(in insn, root))
+                {
+                    _farJumps.Add(insn.Target);
+                    return false;
+                }
                 if (insn.Rva == root && insn.Target != root || ThunkSlot(insn.Target) != null || (_x86Dec is { Is64: false } && StartsWithPrologue(insn.Target))
                     || _dec is Arm32Decoder arm && (arm.LastSwitchesState || arm.LastIsComputed || arm.IsStateSwitchStub(insn.Target)))
                     Add(insn.Target, FunctionSource.TailJump, strong: true);
@@ -318,6 +338,22 @@ internal sealed class FunctionDiscovery
         }
     }
 
+    /// <summary>Jumps longer than this leave an ELF function without unwind ranges: tail calls.</summary>
+    private const uint FarJump = 0x10000;
+
+    /// <summary>
+    /// ELF: an unconditional jump far from the jump (and from the function's start) or past another function's start is a
+    /// tail call (a static executable's _start jumping to __libc_start_main 650 KB away); a function's blocks stay together.
+    /// </summary>
+    private bool IsFarJump(in Insn insn, uint root)
+    {
+        if (_ctx.Image.Format != ImageFormat.Elf) return false;
+        uint t = insn.Target;
+        if (t > insn.Rva ? t - insn.Rva > FarJump : t < root && root - t > FarJump) return true;
+        // a jump over the start of another known function leaves this one
+        return t > insn.Rva + 1 && _sortedStarts.GetViewBetween(insn.Rva + 1, t - 1).Count > 0;
+    }
+
     private void Branch(uint target, uint root, List<(uint Begin, uint End)>? own, IndexBound bound)
     {
         if (target != root && _functions.ContainsKey(target)) return;
@@ -367,6 +403,17 @@ internal sealed class FunctionDiscovery
             }
             result.Add(target);
         }
+        if (!inCode)
+            foreach (var (_, t) in _ctx.UnrelocatedPointers())
+            {
+                uint target = t;
+                if (_ctx.ArmModes is { } modes && (target & 1) != 0)
+                {
+                    target &= ~1u;
+                    modes.Hint(target, true);
+                }
+                result.Add(target);
+            }
         return result;
     }
 
@@ -445,16 +492,17 @@ internal sealed class FunctionDiscovery
 
     /// <summary>
     /// Instructions legal in compiled code but rare enough that a weak candidate containing them is more likely
-    /// data: pusha / popa, one-byte xchg with eax, ret with an odd or large byte count.
+    /// data: pusha / popa, one-byte xchg with eax (PE), ret with an odd or large byte count.
     /// </summary>
-    private static bool UnlikelyInNewFunction(in Iced.Intel.Instruction x)
+    private static bool UnlikelyInNewFunction(in Iced.Intel.Instruction x, bool pe)
     {
         switch (x.Mnemonic)
         {
             case Iced.Intel.Mnemonic.Pusha or Iced.Intel.Mnemonic.Pushad or Iced.Intel.Mnemonic.Popa or Iced.Intel.Mnemonic.Popad:
                 return true;
             case Iced.Intel.Mnemonic.Xchg:
-                return x.Length == 1 && x.Op0Register != x.Op1Register;
+                // GCC -Os uses the one-byte form for a move it does not need to keep
+                return pe && x.Length == 1 && x.Op0Register != x.Op1Register;
             case Iced.Intel.Mnemonic.Ret:
                 return x.Op0Kind == Iced.Intel.OpKind.Immediate16 && (x.Immediate16 % 4 != 0 || x.Immediate16 > 0x200);
         }
@@ -495,7 +543,7 @@ internal sealed class FunctionDiscovery
                 if (_covered[bit]) return false;
                 if (++count > VerifyLimit) return false;
                 if (!_peek.Decode(a, out var insn) || insn.Flow is FlowKind.Invalid || _peek.LastIsImplausible() || _peek.LastHasImplausibleDisplacement(a)
-                    || (_x86Peek != null && UnlikelyInNewFunction(in _x86Peek.Last))) return false;
+                    || (_x86Peek != null && UnlikelyInNewFunction(in _x86Peek.Last, _ctx.Image.Format == ImageFormat.Pe))) return false;
                 // int3 ends code only as padding after a call that does not return
                 if (insn.Flow == FlowKind.Trap && _x86Peek?.Last.Mnemonic == Iced.Intel.Mnemonic.Int3 && previous is not (FlowKind.Call or FlowKind.IndirectCall)) return false;
                 previous = insn.Flow;
@@ -526,7 +574,7 @@ internal sealed class FunctionDiscovery
                         break;
                     case FlowKind.Jump:
                         if (!insn.HasTarget || !_ctx.Code.IsCode(insn.Target)) return false;
-                        if (!_functions.ContainsKey(insn.Target)) work.Push(insn.Target);
+                        if (!_functions.ContainsKey(insn.Target) && !IsFarJump(in insn, root)) work.Push(insn.Target);
                         goto endRun;
                     case FlowKind.ConditionalJump:
                         if (!insn.HasTarget || !_ctx.Code.IsCode(insn.Target)) return false;
@@ -553,11 +601,12 @@ internal sealed class FunctionDiscovery
     /// <summary>
     /// Code nothing references (dead code, functions reached only through metadata such as C++ unwind funclets):
     /// in each gap between known code, skips alignment padding and accepts a function that verifies where
-    /// x86: a standard prologue starts (right after known code or padding, or 16-byte aligned);
-    /// x64: anything starts right after known code and its int3 padding.
+    /// x86 PE: a standard prologue starts (right after known code or padding, or 16-byte aligned);
+    /// x64 PE: anything starts right after known code and its int3 padding; ELF and Mach-O: right after known code and its nop padding.
     /// </summary>
     private void ScanGaps(bool prologues)
     {
+        bool nopPadding = _ctx.Image.Format != ImageFormat.Pe;
         foreach (var region in _ctx.Code.Regions)
         {
             var bytes = region.Bytes;
@@ -572,7 +621,14 @@ internal sealed class FunctionDiscovery
                 if (!prologues)
                 {
                     if (bytes[p] == 0xCC) { afterCode |= sawCode; sawCode = false; p++; continue; }
-                    if (afterCode && TryCandidate(region.Rva + (uint)p, FunctionSource.CodeGap)) { Drain(); continue; }
+                    // ELF and Mach-O pad with nops (or nothing) instead of int3
+                    if (nopPadding)
+                    {
+                        if (sawCode) afterCode = true;
+                        sawCode = false;
+                        if (PaddingLength(bytes, p, bytes.Length) is var nops and > 0) { p += nops; continue; }
+                    }
+                    if (afterCode && !InsideDeclared(region.Rva + (uint)p) && TryCandidate(region.Rva + (uint)p, FunctionSource.CodeGap)) { Drain(); continue; }
                     afterCode = sawCode = false;
                     p++;
                     continue;
@@ -590,6 +646,26 @@ internal sealed class FunctionDiscovery
         }
     }
 
+    private (uint Start, uint End)[]? _declared;
+
+    /// <summary>Inside, not at the start of, a function whose extent the image declares (unwind sizes, the Go function table).</summary>
+    private bool InsideDeclared(uint rva)
+    {
+        if (_declared == null)
+        {
+            var list = _ctx.Image.DeclaredFunctions.Where(d => d.Size is > 0).Select(d => (d.Rva, d.Rva + d.Size!.Value)).ToList();
+            if (Go.GoFunctionTable.Of(_ctx.Image) is { } go) list.AddRange(go.Functions.Where(f => f.Size > 0).Select(f => (f.Rva, f.Rva + f.Size)));
+            list.Sort();
+            _declared = [.. list];
+        }
+        int lo = 0, hi = _declared.Length - 1, best = -1;
+        while (lo <= hi) { int mid = (lo + hi) >>> 1; if (_declared[mid].Start <= rva) { best = mid; lo = mid + 1; } else hi = mid - 1; }
+        // extents may nest (an unwind entry inside a Go function): look back over a few
+        for (int i = best; i >= 0 && i > best - 8; i--)
+            if (rva > _declared[i].Start && rva < _declared[i].End) return true;
+        return false;
+    }
+
     /// <summary>Length of alignment padding at <paramref name="p"/>: int3 / nop runs, zero bytes, MSVC multi-byte nops.</summary>
     private static int PaddingLength(byte[] b, int p, int end)
     {
@@ -602,7 +678,18 @@ internal sealed class FunctionDiscovery
         if (s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0x49, 0x00])) return 3;                         // lea ecx, [ecx+0]
         if (s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0x40, 0x00])) return 3;                         // lea eax, [eax+0]
         if (s.StartsWith((ReadOnlySpan<byte>)[0x0F, 0x1F])) return s.Length >= 3 ? NopLength(s) : 0; // nop r/m
-        return 0;
+        // GNU as i386 fill: lea esi, [esi+0] / lea edi, [edi+0] in 3, 4, 6 and 7 bytes
+        if (s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0xB4, 0x26, 0, 0, 0, 0]) || s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0xBC, 0x27, 0, 0, 0, 0])) return 7;
+        if (s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0xB6, 0, 0, 0, 0]) || s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0xBF, 0, 0, 0, 0])) return 6;
+        if (s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0x74, 0x26, 0x00]) || s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0x7C, 0x27, 0x00])) return 4;
+        if (s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0x76, 0x00]) || s.StartsWith((ReadOnlySpan<byte>)[0x8D, 0x7F, 0x00])) return 3;
+        // GCC / Clang: 66 90, and 66 / cs prefixes before nop r/m
+        int prefixes = 0;
+        while (prefixes < s.Length && prefixes < 6 && s[prefixes] is 0x66 or 0x2E) prefixes++;
+        if (prefixes == 0 || prefixes >= s.Length) return 0;
+        if (s[prefixes] == 0x90) return prefixes + 1;
+        var rest = s[prefixes..];
+        return rest.Length >= 3 && rest[0] == 0x0F && rest[1] == 0x1F && NopLength(rest) is var n and > 0 ? prefixes + n : 0;
     }
 
     private static int NopLength(ReadOnlySpan<byte> s)

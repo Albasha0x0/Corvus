@@ -24,6 +24,8 @@ internal sealed class X86Decoder : ICodeDecoder
     private readonly uint _sizeOfImage;
     private readonly uint[] _relocs;
     private readonly bool _is64;
+    // not PE: user code ends crash paths with hlt (musl a_crash, glibc _start), and i386 code is position independent
+    private readonly bool _hltEnds;
     private readonly Reader _reader = new();
     private readonly Decoder _decoder;
     private readonly InstructionInfoFactory _info = new();
@@ -43,6 +45,8 @@ internal sealed class X86Decoder : ICodeDecoder
         _sizeOfImage = image.SizeOfImage;
         _relocs = sortedRelocations;
         _is64 = image.Arch == NativeArch.X64;
+        _hltEnds = image.Format != ImageFormat.Pe;
+        if (_hltEnds && !_is64) _pic = new uint[8];
         _decoder = Decoder.Create(_is64 ? 64 : 32, _reader, _imageBase, DecoderOptions.None);
     }
 
@@ -175,6 +179,46 @@ internal sealed class X86Decoder : ICodeDecoder
         }
         if (hasMemory) ResolveMemory(in i, ref insn);
         if (hasImmediate) ResolveImmediate(in i, ref insn);
+        if (_pic != null) TrackPic(in i, in insn);
+    }
+
+    // i386 position-independent code outside PE: register -> the RVA it holds after "call __x86.get_pc_thunk.reg; add reg, imm" (0 = unknown)
+    private readonly uint[]? _pic;
+    private readonly Dictionary<uint, int> _pcThunks = [];
+
+    /// <summary>Starts a function: register values known from its own get_pc_thunk calls only.</summary>
+    public void BeginFunction()
+    {
+        if (_pic != null) Array.Clear(_pic);
+    }
+
+    private static int Gpr32(Register r) => r >= Register.EAX && r <= Register.EDI ? r - Register.EAX : -1;
+
+    private void TrackPic(in Instruction i, in Insn insn)
+    {
+        var pic = _pic!;
+        if (insn.Flow is FlowKind.Call or FlowKind.IndirectCall)
+        {
+            pic[0] = pic[1] = pic[2] = 0; // eax, ecx, edx do not survive a call
+            if (insn.Flow == FlowKind.Call && insn.HasTarget && PcThunkRegister(insn.Target) is var r and >= 0) pic[r] = insn.Next;
+            return;
+        }
+        if (i.Op0Kind != OpKind.Register || Gpr32(i.Op0Register) is not (var reg and >= 0)) return;
+        if (i.Mnemonic == Mnemonic.Add && i.Op1Kind is OpKind.Immediate32 or OpKind.Immediate8to32 && pic[reg] != 0) pic[reg] += (uint)i.GetImmediate(1);
+        else if (WritesRegister(in i, i.Op0Register)) pic[reg] = 0;
+    }
+
+    /// <summary>The register a get_pc_thunk at <paramref name="rva"/> loads ("mov reg, [esp]; ret"), or -1.</summary>
+    private int PcThunkRegister(uint rva)
+    {
+        if (_pcThunks.TryGetValue(rva, out int r)) return r;
+        r = -1;
+        if (_code?.RegionAt(rva) is { } region && rva - region.Rva + 4 <= region.Bytes.Length)
+        {
+            var b = region.Bytes.AsSpan((int)(rva - region.Rva), 4);
+            if (b[0] == 0x8B && (b[1] & 0xC7) == 0x04 && b[2] == 0x24 && b[3] == 0xC3) r = (b[1] >> 3) & 7;
+        }
+        return _pcThunks[rva] = r;
     }
 
     /// <summary>
@@ -198,8 +242,9 @@ internal sealed class X86Decoder : ICodeDecoder
         // "00 00": add [eax], al
         if (i.Code == Iced.Intel.Code.Add_rm8_r8 && i.Op0Kind == OpKind.Memory && i.MemoryBase is Register.EAX or Register.RAX
             && i.MemoryIndex == Register.None && i.MemoryDisplacement64 == 0 && i.Op1Register == Register.AL) return true;
+        if (i.Mnemonic == Mnemonic.Hlt) return !_hltEnds;
         return i.Mnemonic is Mnemonic.In or Mnemonic.Out or Mnemonic.Insb or Mnemonic.Insw or Mnemonic.Insd
-            or Mnemonic.Outsb or Mnemonic.Outsw or Mnemonic.Outsd or Mnemonic.Hlt or Mnemonic.Cli or Mnemonic.Sti
+            or Mnemonic.Outsb or Mnemonic.Outsw or Mnemonic.Outsd or Mnemonic.Cli or Mnemonic.Sti
             or Mnemonic.Arpl or Mnemonic.Bound or Mnemonic.Les
             or Mnemonic.Lds or Mnemonic.Lss or Mnemonic.Lfs or Mnemonic.Lgs or Mnemonic.Into or Mnemonic.Aaa
             or Mnemonic.Aas or Mnemonic.Daa or Mnemonic.Das or Mnemonic.Aam or Mnemonic.Aad or Mnemonic.Salc
@@ -223,6 +268,8 @@ internal sealed class X86Decoder : ICodeDecoder
         if (disp is > -0x10000 and < 0x10000) return false;
         if (disp is >= 0x7FFE0000 and < 0x7FFF0000) return false;
         if (_is64 && disp >= 0 && disp < _sizeOfImage) return false;
+        // i386 position-independent code addresses the image from the GOT pointer
+        if (_hltEnds && !_is64 && i.MemoryBase != Register.None && Math.Abs(disp) < _sizeOfImage) return false;
         var offsets = _decoder.GetConstantOffsets(in i);
         return !(offsets.HasDisplacement && IsRelocated(rva + offsets.DisplacementOffset));
     }
@@ -270,6 +317,11 @@ internal sealed class X86Decoder : ICodeDecoder
         {
             if (!TryRva(i.IPRelativeMemoryAddress, out target)) return;
             insn.MemRip = true;
+        }
+        else if (_pic != null && i.MemoryIndex == Register.None && Gpr32(i.MemoryBase) is var b and >= 0 && _pic[b] != 0)
+        {
+            target = _pic[b] + (uint)i.MemoryDisplacement64;
+            if (target >= _sizeOfImage) return;
         }
         else
         {

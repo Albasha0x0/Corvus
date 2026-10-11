@@ -113,6 +113,55 @@ internal sealed class CodeContext
         return [.. ranges];
     }
 
+    private (uint Slot, uint Target)[]? _unrelocatedPointers;
+
+    /// <summary>
+    /// An image without relocations (fixed-address executables): aligned pointer-sized values in its data sections that
+    /// point into code and stand in runs of at least two (function tables, operation structures); ARM32 targets keep their
+    /// Thumb bit. Empty when the image has relocations: those name its pointers exactly.
+    /// </summary>
+    public (uint Slot, uint Target)[] UnrelocatedPointers()
+    {
+        if (_unrelocatedPointers != null) return _unrelocatedPointers;
+        var result = new List<(uint, uint)>();
+        if (Relocations.Length == 0)
+        {
+            int size = PointerSize;
+            var buffer = new byte[1 << 16];
+            foreach (var s in Image.Sections)
+            {
+                if (s.IsExecutable || s.Rva == 0 || s.Rva >= Image.SizeOfImage) continue;
+                long length = Image.FileBackedLength(s.Rva, Math.Min(s.MappedSize, Image.SizeOfImage - s.Rva));
+                uint start = (s.Rva + (uint)size - 1) & ~((uint)size - 1);
+                uint previous = 0, previousTarget = 0;
+                bool previousAdded = false;
+                for (uint at = start; at + size <= s.Rva + length; at += (uint)buffer.Length)
+                {
+                    int n = Read(at, buffer.AsSpan(0, (int)Math.Min(buffer.Length, s.Rva + length - at))) / size * size;
+                    for (int p = 0; p < n; p += size)
+                    {
+                        ulong va = size == 8 ? BinaryPrimitives.ReadUInt64LittleEndian(buffer.AsSpan(p)) : BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(p));
+                        if (va < Image.ImageBase || va - Image.ImageBase >= Image.SizeOfImage) continue;
+                        uint target = (uint)(va - Image.ImageBase);
+                        if (!Code.IsCode(target)) continue;
+                        uint slot = at + (uint)p;
+                        if (previous != 0 && slot - previous == size)
+                        {
+                            if (!previousAdded) result.Add((previous, previousTarget));
+                            result.Add((slot, target));
+                            previousAdded = true;
+                        }
+                        else previousAdded = false;
+                        previous = slot;
+                        previousTarget = target;
+                    }
+                    if (n < size) break;
+                }
+            }
+        }
+        return _unrelocatedPointers = [.. result];
+    }
+
     /// <summary>The file name alone marks a kernel-mode image (a driver, or the kernel): the one input besides the bytes.</summary>
     public static bool KernelModeByName(string path) =>
         path.EndsWith(".sys", StringComparison.OrdinalIgnoreCase) || System.IO.Path.GetFileName(path).Equals("ntoskrnl.exe", StringComparison.OrdinalIgnoreCase);
