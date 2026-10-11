@@ -747,10 +747,14 @@ public abstract class McpProtocolTests : IAsyncLifetime
                 server.StandardInput.Write(string.Concat(batch.Select(m => JsonSerializer.Serialize(m) + "\n")));
                 server.StandardInput.Flush();
             }
-            async Task Until(Func<JsonElement, bool> match)
+            // limited: an answer the server owes within the call limit; otherwise until the server ends its output.
+            async Task Until(Func<JsonElement, bool> match, bool limited = true)
             {
                 for (var waited = System.Diagnostics.Stopwatch.StartNew(); !messages.Any(match); await Task.Delay(20))
-                    if (waited.Elapsed > ContractSweep.CallLimit) throw new TimeoutException($"no such message in {ContractSweep.CallLimit.TotalSeconds:0} s");
+                {
+                    if (limited && waited.Elapsed > ContractSweep.CallLimit) throw new TimeoutException($"no such message in {ContractSweep.CallLimit.TotalSeconds:0} s");
+                    if (reader.IsCompleted && !messages.Any(match)) throw new InvalidOperationException("the server ended its output");
+                }
             }
             static bool Is(JsonElement m, int id) => m.TryGetProperty("id", out var i) && i.ValueKind == JsonValueKind.Number && i.GetInt32() == id;
             static bool Progress(JsonElement m) => m.TryGetProperty("method", out var method) && method.GetString() == "notifications/progress";
@@ -759,7 +763,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
             try
             {
                 Send(new { jsonrpc = "2.0", id = 1, method = "initialize", @params = new { protocolVersion = "2025-06-18", capabilities = new { }, clientInfo = new { name = "test", version = "1" } } });
-                await Until(m => Is(m, 1));
+                await Until(m => Is(m, 1), limited: false); // the start loads two assemblies: not what this test times
                 Send(new { jsonrpc = "2.0", method = "notifications/initialized" });
                 // The call and its cancellation in one write: the server reads the cancellation right after starting the call,
                 // seconds before the export could end, however late this process gets to run.
