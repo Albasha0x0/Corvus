@@ -311,6 +311,24 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         return WorkerRows.CallTargets(await CallAsync("virtual_targets", args, cancellationToken).ConfigureAwait(false));
     }
 
+    public async Task<UserTypeResult> ApplyUserTypesAsync(NativeUserTypeBatch batch, string? stampKey = null, string? stamp = null, bool save = false,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        return WorkerRows.UserTypes(await CallAsync("apply_user_types", WorkerRows.UserTypeArgs(batch, stampKey, stamp, save), cancellationToken,
+            journal: !save, saves: save).ConfigureAwait(false));
+    }
+
+    public async Task<NativeFrame> GetFrameAsync(uint rva, CancellationToken cancellationToken = default) =>
+        WorkerRows.Frame(await CallAsync("frame", WorkerRows.Args(("rva", rva)), cancellationToken).ConfigureAwait(false));
+
+    public async Task<NativeTypeList> ListTypesAsync(string? filter, string? kind, int offset, int limit, CancellationToken cancellationToken = default) =>
+        WorkerRows.TypeList(await CallAsync("types", WorkerRows.Args(("filter", filter), ("kind", kind), ("offset", offset), ("limit", limit)), cancellationToken)
+            .ConfigureAwait(false));
+
+    public async Task<NativeTypeDetail> GetTypeAsync(string name, CancellationToken cancellationToken = default) =>
+        WorkerRows.TypeDetail(await CallAsync("type", WorkerRows.Args(("name", name)), cancellationToken).ConfigureAwait(false), name);
+
     public async Task<PdbLoadResult> LoadPdbAsync(string pdbPath, string stampKey, string stamp, bool trustAnalysisLoad, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(pdbPath);

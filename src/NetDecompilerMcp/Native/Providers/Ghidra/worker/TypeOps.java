@@ -27,15 +27,21 @@ import ghidra.app.util.cparser.C.CParser;
 import ghidra.app.util.cparser.C.CParserUtils;
 import ghidra.framework.options.Options;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.data.Array;
 import ghidra.program.model.data.CategoryPath;
+import ghidra.program.model.data.Composite;
 import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.DataTypeComponent;
 import ghidra.program.model.data.DataTypeConflictHandler;
 import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.data.DataUtilities;
+import ghidra.program.model.data.FunctionDefinition;
 import ghidra.program.model.data.FunctionDefinitionDataType;
 import ghidra.program.model.data.PointerDataType;
 import ghidra.program.model.data.Structure;
 import ghidra.program.model.data.StructureDataType;
+import ghidra.program.model.data.TypeDef;
+import ghidra.program.model.data.Union;
 import ghidra.program.model.data.VoidDataType;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionManager;
@@ -45,6 +51,7 @@ import ghidra.program.model.listing.Program;
 import ghidra.program.model.listing.Variable;
 import ghidra.program.model.listing.Function.FunctionUpdateType;
 import ghidra.program.model.symbol.SourceType;
+import ghidra.util.data.DataTypeParser;
 
 /** Types in the program's data type manager; callers run the writes inside {@link Worker#write}. */
 final class TypeOps {
@@ -389,6 +396,231 @@ final class TypeOps {
         String s = sb.toString().replaceAll("^_+|_+$", "");
         if (s.isEmpty()) return "";
         return Character.isDigit(s.charAt(0)) ? "_" + s : s;
+    }
+
+    /** A C type ("int[4]", "struct Packet *", "Handler *[8]") parsed against the program's types; null when it does not parse. */
+    static DataType parseType(Worker w, String text) {
+        String t = text.trim();
+        while (t.endsWith(";")) t = t.substring(0, t.length() - 1).trim();
+        t = t.replaceAll("\\b(struct|union|enum|class)\\s+", "");
+        DataTypeManager dtm = w.program.getDataTypeManager();
+        try {
+            return new DataTypeParser(dtm, dtm, null, DataTypeParser.AllowedDataTypes.FIXED_LENGTH).parse(t);
+        }
+        catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * The user's types. Args: decls [C text], types [[rva, prototype or type; "" clears]], stack [[function, offset,
+     * name, type]], locals [[function, local, stack offset or null, name, type]], stamp_key, stamp. Declarations
+     * without errors are kept and applied again after recovered types; typed addresses are left alone by them.
+     */
+    static JsonObject applyUserTypes(Worker w, Worker.Request r) throws Exception {
+        long start = System.nanoTime();
+        JsonObject a = r.args;
+        int errors = 0;
+        JsonArray messages = new JsonArray(), declared = new JsonArray(), items = new JsonArray();
+        Options stamps = w.program.getOptions(Worker.STAMPS);
+        JsonArray decls = Worker.array(a, "decls");
+        if (!decls.isEmpty()) {
+            StringBuilder kept = new StringBuilder(stamps.getString(USER_DECLS, ""));
+            for (JsonElement e : decls) {
+                String d = e.getAsString().trim();
+                if (d.isEmpty()) continue;
+                Parsed p = parseDeclarations(w, d);
+                errors += p.errors;
+                for (String m : p.messages)
+                    if (messages.size() < 50) messages.add(m);
+                for (String n : p.names)
+                    if (!declared.contains(new com.google.gson.JsonPrimitive(n))) declared.add(n);
+                if (p.errors == 0 && kept.indexOf(d) < 0) kept.append(d).append('\n');
+            }
+            stamps.setString(USER_DECLS, kept.toString());
+        }
+        Set<Long> user = userTyped(w);
+        for (JsonElement e : Worker.array(a, "types")) {
+            JsonArray t = e.getAsJsonArray();
+            items.add(applyUserType(w, r, t.get(0).getAsLong(), t.get(1).isJsonNull() ? "" : t.get(1).getAsString().trim(), user));
+        }
+        setUserTyped(w, user);
+        for (JsonElement e : Worker.array(a, "stack")) {
+            JsonArray s = e.getAsJsonArray();
+            items.add(FrameOps.applyStack(w, s.get(0).getAsLong(), s.get(1).getAsInt(), text(s.get(2)), text(s.get(3))));
+        }
+        for (JsonElement e : Worker.array(a, "locals")) {
+            JsonArray l = e.getAsJsonArray();
+            items.add(FrameOps.applyLocal(w, r, l.get(0).getAsLong(), l.get(1).getAsString(), l.get(2).isJsonNull() ? null : l.get(2).getAsInt(),
+                text(l.get(3)), text(l.get(4))));
+        }
+        w.setStamp(a);
+        JsonObject o = new JsonObject();
+        o.addProperty("decl_errors", errors);
+        o.add("decl_messages", messages);
+        o.add("declared", declared);
+        o.add("items", items);
+        o.addProperty("seconds", Math.round((System.nanoTime() - start) / 1e6) / 1000.0);
+        return o;
+    }
+
+    private static String text(JsonElement e) {
+        return e == null || e.isJsonNull() || e.getAsString().isBlank() ? null : e.getAsString().trim();
+    }
+
+    /** A prototype at a function start or a type at a global; an empty declaration clears the user type. */
+    private static JsonArray applyUserType(Worker w, Worker.Request r, long rva, String decl, Set<Long> user) {
+        Address a = w.space().getAddress(w.base + rva);
+        if (!w.program.getMemory().contains(a)) return FrameOps.item("type", rva, decl, false, "rva 0x" + hex(rva) + " is not in the image", null, null, null);
+        Function f = w.program.getFunctionManager().getFunctionContaining(a);
+        boolean function = f != null && f.getEntryPoint().equals(a);
+        if (f != null && !function && w.program.getListing().getInstructionAt(a) != null)
+            return FrameOps.item("type", rva, decl, false, "rva 0x" + hex(rva) + " is inside the function at rva 0x" + hex(w.rva(f.getEntryPoint())) +
+                ": pass the function's start", null, null, null);
+        if (decl.isEmpty()) {
+            if (function) f.setSignatureSource(SourceType.ANALYSIS);
+            else if (w.program.getListing().getDefinedDataAt(a) != null) w.program.getListing().clearCodeUnits(a, a, false);
+            user.remove(rva);
+            return FrameOps.item("type", rva, "", true, null, null, null, null);
+        }
+        if (function) {
+            FunctionDefinitionDataType sig = prototype(w.program, decl);
+            if (sig == null)
+                return FrameOps.item("type", rva, decl, false, "rva 0x" + hex(rva) + " starts a function: give a prototype such as 'int __fastcall f(int a)' " +
+                    "(types it names must be declared first)", null, null, null);
+            String error = applyPrototype(w, a, sig, SourceType.USER_DEFINED, r);
+            if (error != null) return FrameOps.item("type", rva, decl, false, error, null, null, null);
+            user.add(rva);
+            return FrameOps.item("type", rva, decl, true, null, null, null, w.program.getFunctionManager().getFunctionAt(a).getPrototypeString(false, true));
+        }
+        DataType dt = parseType(w, decl);
+        if (dt == null) return FrameOps.item("type", rva, decl, false, "the type does not parse (types it names must be declared first)", null, null, null);
+        try {
+            var data = DataUtilities.createData(w.program, a, dt, -1, DataUtilities.ClearDataMode.CLEAR_ALL_CONFLICT_DATA);
+            user.add(rva);
+            return FrameOps.item("type", rva, decl, true, null, null, null, data.getDataType().getDisplayName());
+        }
+        catch (Exception e) {
+            return FrameOps.item("type", rva, decl, false, "Ghidra did not apply the type at rva 0x" + hex(rva) + ": " + e.getMessage(), null, null, null);
+        }
+    }
+
+    private static String hex(Long v) {
+        return v == null ? "?" : Long.toHexString(v).toUpperCase();
+    }
+
+    /** struct, union, enum, typedef or func; null for pointers, arrays and built-in types. */
+    static String kind(DataType dt) {
+        if (dt instanceof Structure) return "struct";
+        if (dt instanceof Union) return "union";
+        if (dt instanceof ghidra.program.model.data.Enum) return "enum";
+        if (dt instanceof TypeDef) return "typedef";
+        if (dt instanceof FunctionDefinition) return "func";
+        return null;
+    }
+
+    private static long size(DataType dt) {
+        return dt.isNotYetDefined() || dt.getLength() <= 0 ? -1 : dt.getLength();
+    }
+
+    private static int memberCount(DataType dt) {
+        if (dt instanceof Composite c) return c.getNumDefinedComponents();
+        if (dt instanceof ghidra.program.model.data.Enum e) return e.getCount();
+        return 0;
+    }
+
+    /** Named types whose name contains filter (case-insensitive), of kind when given, by name: rows [name, kind, size, members]. */
+    static JsonElement listTypes(Worker w, Worker.Request r) throws Exception {
+        String filter = text(r.args.get("filter"));
+        String wanted = filter == null ? null : filter.toLowerCase();
+        String kind = text(r.args.get("kind"));
+        int offset = Math.max(0, r.args.has("offset") ? r.args.get("offset").getAsInt() : 0);
+        int limit = Math.max(1, r.args.has("limit") ? r.args.get("limit").getAsInt() : 200);
+        List<DataType> all = new ArrayList<>();
+        w.program.getDataTypeManager().getAllDataTypes(all);
+        List<DataType> rows = new ArrayList<>();
+        for (DataType dt : all) {
+            r.monitor.checkCancelled();
+            String k = kind(dt);
+            if (k == null || (kind != null && !k.equals(kind)) || (wanted != null && !dt.getName().toLowerCase().contains(wanted))) continue;
+            rows.add(dt);
+        }
+        rows.sort((x, y) -> {
+            int c = x.getName().compareToIgnoreCase(y.getName());
+            return c != 0 ? c : x.getPathName().compareTo(y.getPathName());
+        });
+        JsonArray page = new JsonArray();
+        for (int i = offset; i < Math.min(rows.size(), offset + limit); i++) {
+            DataType dt = rows.get(i);
+            JsonArray row = new JsonArray();
+            row.add(dt.getName());
+            row.add(kind(dt));
+            row.add(size(dt));
+            row.add(memberCount(dt));
+            page.add(row);
+        }
+        JsonObject o = new JsonObject();
+        o.addProperty("total", rows.size());
+        o.add("rows", page);
+        return o;
+    }
+
+    /** One named type (by name, or by its category path): a C declaration and, for a struct or union, members [offset, name, type, size]. */
+    static JsonElement getType(Worker w, Worker.Request r) {
+        String name = r.args.get("name").getAsString().trim();
+        DataTypeManager dtm = w.program.getDataTypeManager();
+        DataType found = null;
+        if (name.startsWith("/")) found = dtm.getDataType(name);
+        if (found == null) {
+            List<DataType> list = new ArrayList<>();
+            dtm.findDataTypes(name, list);
+            for (DataType d : list)
+                if (kind(d) != null) {
+                    found = d;
+                    break;
+                }
+        }
+        if (found == null || kind(found) == null) throw new Worker.WorkerError("not_found", "no type named " + name);
+        JsonArray members = new JsonArray();
+        StringBuilder decl = new StringBuilder();
+        if (found instanceof Composite c) {
+            decl.append(found instanceof Union ? "union " : "struct ").append(found.getName()).append(" {\n");
+            for (DataTypeComponent m : c.getDefinedComponents()) {
+                String field = m.getFieldName() != null ? m.getFieldName() : m.getDefaultFieldName();
+                decl.append("    ").append(declarator(m.getDataType(), field)).append(";  // +0x").append(Integer.toHexString(m.getOffset()).toUpperCase()).append('\n');
+                JsonArray row = new JsonArray();
+                row.add(m.getOffset());
+                row.add(field);
+                row.add(m.getDataType().getDisplayName());
+                row.add(m.getLength());
+                members.add(row);
+            }
+            decl.append("};");
+        }
+        else if (found instanceof ghidra.program.model.data.Enum e) {
+            decl.append("enum ").append(e.getName()).append(" {\n");
+            for (String n : e.getNames()) decl.append("    ").append(n).append(" = 0x").append(Long.toHexString(e.getValue(n)).toUpperCase()).append(",\n");
+            decl.append("};");
+        }
+        else if (found instanceof TypeDef t) decl.append("typedef ").append(declarator(t.getDataType(), t.getName())).append(';');
+        else if (found instanceof FunctionDefinition f) decl.append(f.getPrototypeString(true)).append(';');
+        JsonObject o = new JsonObject();
+        o.addProperty("name", found.getName());
+        o.addProperty("kind", kind(found));
+        o.addProperty("size", size(found));
+        o.addProperty("decl", decl.toString());
+        o.add("members", members);
+        return o;
+    }
+
+    /** "type name" in C, arrays as name[n]. */
+    private static String declarator(DataType dt, String name) {
+        StringBuilder dims = new StringBuilder();
+        while (dt instanceof Array a) {
+            dims.append('[').append(a.getNumElements()).append(']');
+            dt = a.getDataType();
+        }
+        return dt.getDisplayName() + " " + name + dims;
     }
 
     /**

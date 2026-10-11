@@ -19,7 +19,7 @@ namespace NetDecompilerMcp.Tools;
 public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineService engines, NativeUserTypePush userTypes, NativeCodeService? code = null,
     NativeNamePush? names = null, NativeTypePush? types = null)
 {
-    private const string EngineDescription = "Engine: auto (default) or ida.";
+    private const string EngineDescription = "Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra), ida or ghidra.";
 
     private const string KeptNote = " Saved per file hash with the image's annotations: re-applied to a new database, exported by export_native_annotations " +
                                     "and carried by migrate_native_names and update_to_new_build.";
@@ -39,10 +39,10 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     }
 
     [McpServerTool(Name = "get_native_frame", Title = "Native stack frame and locals")]
-    [Description("The stack frame of a native function as IDA has it (members with offsets, names, types and sizes: locals, arguments, return " +
-                 "address and saved registers) and its Hex-Rays locals (name, type, register or stack offset, argument, user-named / user-typed). " +
-                 "Offsets count from the frame's lowest address; the base-relative offset IDA's var_/arg_ names use is in brackets. " +
-                 "set_native_stack_var and set_native_local edit them.")]
+    [Description("The stack frame of a native function as the engine has it (members with offsets, names, types and sizes: locals, arguments, return " +
+                 "address and saved registers; Ghidra counts saved registers among the locals) and its decompiler locals (name, type, register or stack " +
+                 "offset, argument, user-named / user-typed). Offsets count from the frame's lowest address; the offset from the return address " +
+                 "(IDA's var_/arg_ names use it) is in brackets. set_native_stack_var and set_native_local edit them.")]
     public Task<string> GetNativeFrame(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("The function: " + NativeTools.AddressDescription)] string function,
@@ -72,7 +72,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     });
 
     [McpServerTool(Name = "set_native_stack_var", Title = "Rename or retype a stack variable")]
-    [Description("Rename and/or retype a member of a native function's stack frame in IDA, named as get_native_frame lists it (var_28) or by " +
+    [Description("Rename and/or retype a member of a native function's stack frame in the engine, named as get_native_frame lists it (var_28) or by " +
                  "frame offset (0x20 or +0x20, from the frame's lowest address); a type at an offset with no member creates one. The return address " +
                  "and saved registers are refused. Stack variables the decompiler has not renamed take the member's name." + KeptNote)]
     public Task<string> SetNativeStackVar(
@@ -107,7 +107,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
 
     [McpServerTool(Name = "set_native_type", Title = "Set a native prototype or global type")]
     [Description("Set the type of a native function (its prototype, e.g. 'int __fastcall Parse(Packet *p, int len)') or of a global (e.g. " +
-                 "'Config', 'char[64]', 'Handler *[8]') in the decompiler engine (IDA). Named types must exist there (the PDB, RTTI and Il2Cpp types " +
+                 "'Config', 'char[64]', 'Handler *[8]') in the decompiler engine (IDA or Ghidra). Named types must exist there (the PDB, RTTI and Il2Cpp types " +
                  "decompile_native pushes, or declare_native_types). User types win over recovered ones. An empty type clears it." + KeptNote)]
     public Task<string> SetNativeType(
         [Description(NativeTools.ImageDescription)] string image,
@@ -126,7 +126,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     });
 
     [McpServerTool(Name = "set_native_local", Title = "Rename or retype a decompiler local")]
-    [Description("Rename and/or retype a local variable or argument in the pseudocode of a native function (IDA Hex-Rays): name it as " +
+    [Description("Rename and/or retype a local variable or argument in the pseudocode of a native function (IDA Hex-Rays or Ghidra's decompiler): name it as " +
                  "decompile_native shows it (v3, a1), or by stack offset as stack:0x28. Later edits may name it by its new name; it stays one edit. " +
                  "The decompiler can refuse a type that does not fit the variable (reported)." + KeptNote)]
     public Task<string> SetNativeLocal(
@@ -154,7 +154,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     });
 
     [McpServerTool(Name = "declare_native_types", Title = "Declare C types in the engine")]
-    [Description("Declare C types (structs, unions, enums, typedefs, function pointer types) in the decompiler engine (IDA) from C declarations, " +
+    [Description("Declare C types (structs, unions, enums, typedefs, function pointer types) in the decompiler engine (IDA or Ghidra) from C declarations, " +
                  "e.g. 'struct Packet { int length; char data[256]; };'. A type of the same name is replaced, and user declarations win over the " +
                  "recovered PDB, RTTI and Il2Cpp types of that name. Declarations with errors are reported with the engine's messages and not saved. " +
                  "Use the types with set_native_type, set_native_local and set_native_stack_var." + KeptNote)]
@@ -178,8 +178,8 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     });
 
     [McpServerTool(Name = "list_native_types", Title = "Browse the engine's types")]
-    [Description("The named types of the decompiler engine's database (IDA local types: from the PDB, RTTI classes, Il2Cpp, IDA's type " +
-                 "libraries and declare_native_types), filtered by name and kind, with size and member count; name= shows one type as a C " +
+    [Description("The named types of the decompiler engine's database (IDA local types, Ghidra data types: from the PDB, RTTI classes, Il2Cpp, the " +
+                 "engine's type libraries and declare_native_types), filtered by name and kind, with size and member count; name= shows one type as a C " +
                  "declaration with its members' offsets.")]
     public Task<string> ListNativeTypes(
         [Description(NativeTools.ImageDescription)] string image,

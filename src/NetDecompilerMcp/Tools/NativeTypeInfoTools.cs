@@ -32,7 +32,7 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
     [McpServerTool(Name = "get_native_type", Title = "Native type layout", UseStructuredContent = true, OutputSchemaType = typeof(NativeTypeReport))]
     [Description("A native type's layout from the image's sources: PDB type records (structs, classes, unions, enums, typedefs, pointers, arrays, " +
                  "function types; fields with offset, size and bit fields, bases, padding), MSVC RTTI (bases, vftables with named slot targets; merged " +
-                 "with the PDB's class), Il2Cpp layouts (after apply_il2cpp_names) and the engine's types (IDA; source=engine opens it, auto reads it " +
+                 "with the PDB's class), Il2Cpp layouts (after apply_il2cpp_names) and the engine's types (IDA or Ghidra; source=engine opens it, auto reads it " +
                  "when already analyzed, for names the others lack). By name (exact, case-insensitive, then substring candidates; several definitions " +
                  "are an ambiguous error listing ids), id (drill-down) or typed address (in a PDB global: the field path, g_Game.players[3].pos.y; also " +
                  "vftables and Il2Cpp metadata slots). at=0x48 names the field at an offset (all union members; 0x48.0x10 reads through a pointer); " +
@@ -48,7 +48,7 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
         [Description("table (default) or c (C declaration).")] string? format = null,
         [Description("Index of the first row (field, enumerator, slot, candidate).")] int offset = 0,
         [Description("Max rows (default 200, max 5000).")] int limit = 200,
-        [Description("Engine for source=engine: auto (default) or ida.")] string? engine = null,
+        [Description("Engine for source=engine: auto (default), ida or ghidra.")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

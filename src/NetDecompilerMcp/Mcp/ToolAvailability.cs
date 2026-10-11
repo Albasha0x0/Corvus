@@ -14,17 +14,17 @@ public static class ToolAvailability
     public static readonly IReadOnlyDictionary<string, string[]> EngineOnly = new Dictionary<string, string[]>(StringComparer.Ordinal)
     {
         ["decompile_native"] = ["ida", "ghidra"],
-        ["set_native_type"] = ["ida"],
-        ["set_native_local"] = ["ida"],
-        ["set_native_stack_var"] = ["ida"],
-        ["get_native_frame"] = ["ida"],
-        ["declare_native_types"] = ["ida"],
-        ["list_native_types"] = ["ida"],
+        ["set_native_type"] = ["ida", "ghidra"],
+        ["set_native_local"] = ["ida", "ghidra"],
+        ["set_native_stack_var"] = ["ida", "ghidra"],
+        ["get_native_frame"] = ["ida", "ghidra"],
+        ["declare_native_types"] = ["ida", "ghidra"],
+        ["list_native_types"] = ["ida", "ghidra"],
         ["ida_python"] = ["ida"],
     };
 
     /// <summary>Modes that run an engine although the tool has no engine parameter: (tool, mode, provider ids that can serve it).</summary>
-    public static readonly IReadOnlyList<(string Tool, string Mode, string[] Providers)> EngineModes = [("find_virtual_calls", "crossCheck=true", ["ida", "ghidra"]), ("get_native_type", "source=engine", ["ida"])];
+    public static readonly IReadOnlyList<(string Tool, string Mode, string[] Providers)> EngineModes = [("find_virtual_calls", "crossCheck=true", ["ida", "ghidra"]), ("get_native_type", "source=engine", ["ida", "ghidra"])];
 
     public static readonly IReadOnlyList<string> WindowsOnly = ["inspect_process"];
 

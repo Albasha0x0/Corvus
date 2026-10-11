@@ -91,7 +91,7 @@ public static class Guide
             patch larger than its site: extend=true moves it into a code cave or a new section; unsafe sites are refused with a reason),
             list_native_edits, undo_native_edit, save_native to a new file (checksum recomputed, an invalidated signature reported).
             export_native_annotations writes IDA / Ghidra scripts; export_native_patches writes IDAPython, IDA .dif, IPS or JSON.
-            Engine edits (IDA): set_native_type (prototypes), set_native_local (Hex-Rays locals), get_native_frame and
+            Engine edits (IDA or Ghidra): set_native_type (prototypes), set_native_local (decompiler locals), get_native_frame and
             set_native_stack_var (stack frames), declare_native_types and list_native_types (C declarations kept per image);
             ida_python runs IDAPython in the image's IDA worker, off unless --ida-scripting.
             Notes: record_note anchors a finding, question, hypothesis or todo to '<image>@<address>', '<assembly>:<symbol>', a file or
@@ -122,7 +122,7 @@ public static class Guide
             members through IDA: Type::member), native_call_tree, get_call_arguments (recovered arguments as data),
             trace_native_values (where a value comes from or goes, across callers, callees and globals), resolve_call_targets
             (targets of indirect calls with their basis; scope=image lists the unresolved ones), search_native_strings, search_bytes (?? wildcards), read_bytes, resolve_address, list_cpp_classes (RTTI classes, bases,
-            vftables), get_native_type (a type's layout from the PDB, RTTI, Il2Cpp or IDA by name, id or typed address; at=0x48 names a field), get_exception_info (MSVC try / catch, SEH scopes, funclets), find_virtual_calls (obj->vfunc() sites resolved
+            vftables), get_native_type (a type's layout from the PDB, RTTI, Il2Cpp or the engine by name, id or typed address; at=0x48 names a field), get_exception_info (MSVC try / catch, SEH scopes, funclets), find_virtual_calls (obj->vfunc() sites resolved
             through RTTI; crossCheck=true compares with IDA or Ghidra), decompile_native (C pseudocode through IDA or Ghidra when installed).
             Addresses: hex VA or RVA, rva:/va:/off: prefixes, export names, module!import, sub_<rva>.
             Symbols: a matching local PDB is read with the code index; load_pdb loads one by path or downloads it (download=true);

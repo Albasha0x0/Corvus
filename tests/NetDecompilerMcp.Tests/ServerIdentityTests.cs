@@ -66,7 +66,8 @@ public class ServerIdentityTests
         var noGhidra = new ProviderAvailability("ghidra", false, "Ghidra not found", "set NDM_GHIDRA_DIR", new Dictionary<string, string>());
         var rows = ToolAvailability.Of(all, [noIda, noGhidra], idaScripting: false, isWindows: false);
         Assert.Contains(rows, r => r is { Tool: "decompile_native", Mode: null, Reason: "ida: IDA not found; ghidra: Ghidra not found", Remediation: "set IDADIR; or set NDM_GHIDRA_DIR" });
-        Assert.Contains(rows, r => r is { Tool: "set_native_type", Mode: null, Reason: "IDA not found", Remediation: "set IDADIR" });
+        Assert.Contains(rows, r => r is { Tool: "ida_python", Mode: null, Reason: "IDA not found", Remediation: "set IDADIR" });
+        Assert.Contains(rows, r => r is { Tool: "set_native_type", Mode: null, Reason: "ida: IDA not found; ghidra: Ghidra not found" });
         Assert.Contains(rows, r => r is { Tool: "disassemble", Mode: "engine=ida" });
         Assert.Contains(rows, r => r is { Tool: "disassemble", Mode: "engine=ghidra", Reason: "Ghidra not found" });
         Assert.Contains(rows, r => r is { Tool: "find_virtual_calls", Mode: "crossCheck=true" });

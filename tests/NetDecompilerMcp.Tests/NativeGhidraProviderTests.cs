@@ -392,6 +392,74 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
         Assert.Single((await s.GetCallTargetsAsync([0x10], [], 60)).Failed);
     }
 
+    [GhidraFact]
+    public async Task User_types_frames_locals_and_the_type_list()
+    {
+        var path = shared.Copy(NativeIdaProviderTests.System64);
+        var exportRva = NativeIdaProviderTests.ExportRva(path, Export);
+        await using var s = await Isolated().OpenAsync(path, null, Offline);
+        var frame = await s.GetFrameAsync(exportRva + 1);
+        output.WriteLine($"frame of {frame.Name}: {frame.LocalSize} bytes, return address +0x{frame.ReturnAddressOffset:X}\n" +
+                         string.Join("\n", frame.Members.Select(m => $"  +0x{m.Offset:X} {m.Name} {m.Type} {m.Size} {m.Kind}")) + "\n" +
+                         string.Join("\n", frame.Locals.Select(l => $"  {l.Name} {l.Type} {l.Location} {l.Stack} arg={l.IsArgument}")));
+        Assert.Equal(exportRva, frame.StartRva);
+        Assert.Null(frame.DecompilerError);
+        Assert.Contains(frame.Members, m => m.Kind == "special" && m.Offset == frame.ReturnAddressOffset);
+        Assert.Contains(frame.Locals, l => l.IsArgument);
+
+        // declarations: errors with the parser's message, the names made, the types listed and shown
+        var declared = await s.ApplyUserTypesAsync(new NativeUserTypeBatch(["struct NdmPacket { int length; char data[16]; };", "struct NdmBad { int };"], [], [], []),
+            "user_types", "u1");
+        Assert.Equal(1, declared.DeclarationErrors);
+        Assert.Contains("NdmPacket", declared.DeclaredTypes);
+        Assert.Contains(declared.DeclarationMessages, m => m.StartsWith("struct NdmBad", StringComparison.Ordinal));
+        Assert.Equal("u1", await s.GetStampAsync("user_types"));
+        var list = await s.ListTypesAsync("ndmpacket", "struct", 0, 10);
+        Assert.Equal(1, list.Total);
+        Assert.Equal(new NativeTypeEntry("NdmPacket", "struct", 20, 2), list.Types[0]);
+        Assert.True((await s.ListTypesAsync(null, null, 0, 5)).Total > 5);
+        var type = await s.GetTypeAsync("NdmPacket");
+        output.WriteLine(type.Declaration);
+        Assert.Contains("char data[16];", type.Declaration);
+        Assert.Equal(new NativeTypeMember(4, "data", "char[16]", 16), type.Members[1]);
+        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => s.GetTypeAsync("NdmNoSuchType"))).Code);
+
+        // a decompiler local by its name, then the prototype, a global, a stack member
+        var arg = frame.Locals.First(l => l.IsArgument);
+        var local = await s.ApplyUserTypesAsync(new NativeUserTypeBatch([], [], [], [new NativeLocalEdit(exportRva, arg.Name, arg.Stack, "ndm_image", "NdmPacket *")]));
+        var edit = Assert.Single(local.Items);
+        Assert.True(edit.Applied, edit.Error);
+        Assert.Equal(arg.Name, edit.Resolved);
+        Assert.Equal("NdmPacket * ndm_image", edit.Text);
+        Assert.Contains("NdmPacket *ndm_image", (await s.DecompileAsync(exportRva)).Text);
+
+        var global = RdataRva(path) + 0x80;
+        var typed = await s.ApplyUserTypesAsync(new NativeUserTypeBatch([],
+            [new NativePrototype(exportRva, "int __fastcall NdmUserProto(NdmPacket *packet, ulonglong size, uint *header, int *sum)"),
+             new NativePrototype(global, "NdmPacket"), new NativePrototype(exportRva + 2, "int")], [], []));
+        foreach (var i in typed.Items) output.WriteLine($"{i.Kind} 0x{i.Rva:X} {i.Target}: {i.Applied} {i.Error} {i.Text}");
+        Assert.True(typed.Items[0].Applied, typed.Items[0].Error);
+        Assert.Contains("NdmPacket * packet", typed.Items[0].Text);
+        Assert.Equal((true, "NdmPacket"), (typed.Items[1].Applied, typed.Items[1].Text));
+        Assert.Contains("inside the function", typed.Items[2].Error);
+        Assert.Contains("NdmPacket *packet", (await s.DecompileAsync(exportRva)).Text);
+        // recovered prototypes leave the user's alone
+        var recovered = await s.ApplyTypesAsync(new NativeTypeBatch(null, [new NativePrototype(exportRva, "int __fastcall Other(int a);")], [], [], 8));
+        Assert.Equal((0, 0), (recovered.Typed, recovered.TypeFailures));
+        Assert.Contains("NdmPacket *packet", (await s.DecompileAsync(exportRva)).Text);
+
+        var slot = frame.Members.First(m => m.Kind == "local");
+        var stack = await s.ApplyUserTypesAsync(new NativeUserTypeBatch([], [], [new NativeStackVarEdit(exportRva, slot.Offset, "ndm_slot", null),
+            new NativeStackVarEdit(exportRva, frame.ReturnAddressOffset, "ndm_ret", "int")], []));
+        Assert.True(stack.Items[0].Applied, stack.Items[0].Error);
+        Assert.EndsWith(" ndm_slot", stack.Items[0].Text);
+        Assert.Contains("return address", stack.Items[1].Error);
+        Assert.Contains((await s.GetFrameAsync(exportRva)).Members, m => m.Offset == slot.Offset && m.Name == "ndm_slot");
+
+        var cleared = await s.ApplyUserTypesAsync(new NativeUserTypeBatch([], [new NativePrototype(global, "")], [], []));
+        Assert.True(cleared.Items[0].Applied);
+    }
+
     /// <summary>The RVA of the image's .rdata section.</summary>
     private static uint RdataRva(string path)
     {

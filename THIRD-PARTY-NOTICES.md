@@ -96,4 +96,5 @@ concerned say so in their headers.
   Copyright 2023 cyberkaida: a decompiler timeout reported as its own error, distinct from a decompilation failure
   (`CodeOps.java`); C declarations parsed with `CParser` into the program's data type manager with the replace
   handler, and types parsed against the program's manager so pointer sizes follow its data organization
-  (`TypeOps.java`).
+  (`TypeOps.java`); decompiler variables renamed and retyped through `HighFunctionDBUtil.updateDBVariable`
+  (`FrameOps.java`).

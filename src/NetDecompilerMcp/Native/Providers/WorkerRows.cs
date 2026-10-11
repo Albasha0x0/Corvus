@@ -158,6 +158,50 @@ internal static class WorkerRows
         return new NativeCallTargets(targets, r.GetProperty("decompiled").GetInt32(), failed, r.GetProperty("skipped").GetInt32(), r.GetProperty("decompiler").GetBoolean());
     }
 
+    /// <summary>apply_user_types arguments: decls, types [[rva, declaration]], stack [[function, offset, name, type]], locals [[function, local, stack, name, type]].</summary>
+    public static JsonObject UserTypeArgs(NativeUserTypeBatch batch, string? stampKey, string? stamp, bool save)
+    {
+        var types = new JsonArray();
+        foreach (var t in batch.Types) types.Add(new JsonArray(t.Rva, t.Declaration));
+        var stack = new JsonArray();
+        foreach (var s in batch.StackVars) stack.Add(new JsonArray(s.Function, s.Offset, s.Name, s.Type));
+        var locals = new JsonArray();
+        foreach (var l in batch.Locals) locals.Add(new JsonArray(l.Function, l.Local, l.Stack, l.Name, l.Type));
+        return Args(("decls", new JsonArray(batch.Declarations.Select(d => (JsonNode)d).ToArray())), ("types", types), ("stack", stack),
+            ("locals", locals), ("stamp_key", stampKey), ("stamp", stamp), ("save", save));
+    }
+
+    /// <summary>Items [kind, rva, target, applied, error, resolved, stack, text] with the declaration outcome.</summary>
+    public static UserTypeResult UserTypes(JsonElement r)
+    {
+        var items = r.GetProperty("items").EnumerateArray().Select(i => new NativeUserTypeOutcome(i[0].GetString() ?? "", i[1].GetUInt32(), i[2].GetString() ?? "",
+            i[3].GetBoolean(), Text(i[4]), Text(i[5]), i[6].ValueKind == JsonValueKind.Number ? i[6].GetInt32() : null, Text(i[7]))).ToList();
+        return new UserTypeResult(r.GetProperty("decl_errors").GetInt32(), r.GetProperty("decl_messages").EnumerateArray().Select(m => m.GetString() ?? "").ToList(),
+            r.GetProperty("declared").EnumerateArray().Select(m => m.GetString() ?? "").ToList(), items, TimeSpan.FromSeconds(r.GetProperty("seconds").GetDouble()));
+    }
+
+    /// <summary>[name, kind, size, members] rows and the total.</summary>
+    public static NativeTypeList TypeList(JsonElement r) =>
+        new(r.GetProperty("total").GetInt32(), r.GetProperty("rows").EnumerateArray()
+            .Select(x => new NativeTypeEntry(x[0].GetString() ?? "", x[1].GetString() ?? "", x[2].GetInt64(), x[3].GetInt32())).ToList());
+
+    public static NativeTypeDetail TypeDetail(JsonElement r, string name) =>
+        new(r.GetProperty("name").GetString() ?? name, r.GetProperty("kind").GetString() ?? "", r.GetProperty("size").GetInt64(),
+            r.GetProperty("decl").GetString() ?? "", r.GetProperty("members").EnumerateArray()
+                .Select(x => new NativeTypeMember(x[0].GetInt64(), x[1].GetString() ?? "", x[2].GetString() ?? "", x[3].GetInt64())).ToList());
+
+    /// <summary>Frame members [offset, name, type, size, kind] and locals [name, type, location, stack, argument, user name, user type].</summary>
+    public static NativeFrame Frame(JsonElement r)
+    {
+        var members = r.GetProperty("members").EnumerateArray()
+            .Select(x => new NativeFrameMember(x[0].GetInt32(), x[1].GetString() ?? "", x[2].GetString() ?? "", x[3].GetInt32(), x[4].GetString() ?? "local")).ToList();
+        var locals = r.GetProperty("locals").EnumerateArray()
+            .Select(x => new NativeLocal(x[0].GetString() ?? "", x[1].GetString() ?? "", x[2].GetString() ?? "", x[3].ValueKind == JsonValueKind.Number ? x[3].GetInt32() : null,
+                x[4].GetBoolean(), x[5].GetBoolean(), x[6].GetBoolean())).ToList();
+        return new NativeFrame(r.GetProperty("start").GetUInt32(), r.GetProperty("name").GetString() ?? "", r.GetProperty("frame_size").GetInt32(),
+            r.GetProperty("saved_regs").GetInt32(), r.GetProperty("retaddr").GetInt32(), members, locals, Text(r.GetProperty("decompile_error")));
+    }
+
     public static PdbLoadResult PdbLoad(JsonElement r) =>
         new(r.GetProperty("loaded").GetBoolean(), r.GetProperty("from_analysis").GetBoolean(), r.GetProperty("plugin").GetBoolean(),
             r.GetProperty("types_before").GetInt32(), r.GetProperty("types_after").GetInt32(), TimeSpan.FromSeconds(r.GetProperty("seconds").GetDouble()));

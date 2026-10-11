@@ -235,6 +235,10 @@ public class Worker implements GhidraLaunchable {
             case "apply_types": return saving(r, write("apply types", () -> TypeOps.applyTypes(this, r)));
             case "load_pdb": return loadPdb(r);
             case "virtual_targets": return read(() -> CallOps.virtualTargets(this, r));
+            case "apply_user_types": return saving(r, write("apply user types", () -> TypeOps.applyUserTypes(this, r)));
+            case "frame": return read(() -> FrameOps.frame(this, r));
+            case "types": return read(() -> TypeOps.listTypes(this, r));
+            case "type": return read(() -> TypeOps.getType(this, r));
             case "get_stamp": return read(() -> getStamp(r));
             case "save": return save(r);
             case "close": return close(r);

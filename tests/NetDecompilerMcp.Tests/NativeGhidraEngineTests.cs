@@ -43,7 +43,7 @@ public sealed class NativeGhidraEngineTests(ITestOutputHelper output) : IDisposa
         var pager = new OutputPager(options);
         var names = new NativeNamePush(code);
         return new Rig(workspace, code, new NativeCodeTools(workspace, code, pager, null, engines, names),
-            new NativeAnalysisTools(workspace, engines, pager, names, code, new NativeTypePush()), engines, new PdbService(code));
+            new NativeAnalysisTools(workspace, engines, pager, names, code, new NativeTypePush(), new NativeUserTypePush(code)), engines, new PdbService(code));
     }
 
     private string Sample()
@@ -128,6 +128,31 @@ public sealed class NativeGhidraEngineTests(ITestOutputHelper output) : IDisposa
         Assert.Equal("ghidra", session.ProviderId);
         Assert.Equal(NativePdbTypes.RouteGhidra, NativePdbTypes.Current(session)!.Route);
         Assert.Contains("(already in the database)", (await rig.Analysis.DecompileNative(native.Id, $"rva:0x{scoreRva:X}")).Split('\n')[0]);
+    }
+
+    [GhidraFact]
+    public async Task Type_tools_edit_Ghidras_project_and_keep_the_edits_for_a_new_one()
+    {
+        var rig = Setup(_dir.File("cache"));
+        var path = Sample();
+        var user = new NativeUserTypePush(rig.Code);
+        var types = new NativeTypeTools(rig.Workspace, rig.Engines, user, rig.Code, new NativeNamePush(rig.Code), new NativeTypePush());
+        Assert.Contains("Declared 1 type(s): NdmHeader", await types.DeclareNativeTypes(path, "struct NdmHeader { unsigned short magic; int size; };", engine: "ghidra"));
+        var set = await types.SetNativeType(path, Export, "int __fastcall CheckSumMappedFile(NdmHeader *base, ulonglong length, uint *header, uint *sum)", engine: "ghidra");
+        output.WriteLine(set);
+        Assert.Contains("NdmHeader * base", set);
+        Assert.Contains("struct NdmHeader, 8 bytes", await types.ListNativeTypes(path, name: "NdmHeader", engine: "ghidra"));
+        var frame = await types.GetNativeFrame(path, Export, engine: "ghidra");
+        output.WriteLine(frame);
+        Assert.Contains("base  NdmHeader *", frame);
+        Assert.Contains("NdmHeader *base", await rig.Analysis.DecompileNative(path, Export, engine: "ghidra"));
+        // ida is the only other engine; an unknown one fails before the image is opened
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => types.ListNativeTypes(path, engine: "binja"))).Code);
+
+        // the edits are kept with the image's annotations: a new project (another cache) gets them again
+        var again = Setup(_dir.File("cache-new"));
+        var decompiled = await again.Analysis.DecompileNative(path, Export, engine: "ghidra");
+        Assert.Contains("NdmHeader *base", decompiled);
     }
 
     /// <summary>Where IDA is installed too: function starts and call references of the same image from both engines agree.</summary>
