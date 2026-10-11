@@ -28,6 +28,15 @@ public sealed partial class NativeCodeTools
     [GeneratedRegex(@"^(?<type>[A-Za-z_][\w:<>]*?)\s*\+\s*(?<offset>(?:0x)?[0-9A-Fa-f]+h?)$")]
     private static partial Regex FieldByOffset();
 
+    /// <summary>The next step after a struct-member miss: the type's members when the type exists, else a search for its engine name.</summary>
+    internal static string FieldMissRemediation(string type, bool typeExists)
+    {
+        var shortName = type.Contains("::", StringComparison.Ordinal) ? type[(type.LastIndexOf("::", StringComparison.Ordinal) + 2)..] : type;
+        return typeExists
+            ? $"list_native_types name={type} lists its members with offsets; pass Type::member or Type+offset"
+            : $"list_native_types filter={shortName} kind=struct finds the type's name in the engine (C++ names may use __ for ::), then list_native_types name=<it> lists its members";
+    }
+
     private static bool IsAddress(NativeCodeIndex index, string text)
     {
         try { Address(index, text); return true; }
@@ -52,7 +61,13 @@ public sealed partial class NativeCodeTools
         if (userTypes != null) await userTypes.EnsureAsync(native, session, ct);
         // C++ names were pushed as identifiers (A::B as A__B)
         IReadOnlyList<string> candidates = field.Type.Contains("::", StringComparison.Ordinal) ? [field.Type, field.Type.Replace("::", "__", StringComparison.Ordinal)] : [field.Type];
-        var r = await session.GetFieldXrefsAsync(candidates, field.Member, field.Offset, [], 60, ct);
+        NativeFieldXrefs r;
+        try { r = await session.GetFieldXrefsAsync(candidates, field.Member, field.Offset, [], 60, ct); }
+        catch (ToolError e) when (e.Code == ErrorCode.NotFound)
+        {
+            // the engine's generic next step (list the functions) does not apply to a type or member miss
+            throw new ToolError(ErrorCode.NotFound, e.Message, FieldMissRemediation(field.Type, e.Message.Contains("has no member", StringComparison.Ordinal)));
+        }
         var index = await code.Index(native, null, ct);
         string Where(NativeFieldAccess a) => a.FunctionRva is { } f
             ? $"{index.Sourced.NameAt(f)?.Name ?? index.FunctionByStart(f)?.KnownName ?? $"sub_{f:X}"}+0x{a.Rva - f:X}"

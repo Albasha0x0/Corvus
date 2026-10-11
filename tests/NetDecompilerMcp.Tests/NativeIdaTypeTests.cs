@@ -210,7 +210,14 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         Assert.Matches(@"0x[0-9A-F]+  (read|address|write)  CheckSumMappedFile\+0x[0-9A-F]+", text);
         // by offset: the member covering it
         Assert.Contains("_IMAGE_NT_HEADERS64::OptionalHeader", await rig.CodeTools.FindXrefs(Image, "_IMAGE_NT_HEADERS64+0x20", engine: "ida"));
-        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => rig.CodeTools.FindXrefs(Image, "_IMAGE_NT_HEADERS64::NoSuchMember", engine: "ida"))).Code);
+        // a miss points at the engine's types, not at the function list
+        var member = await Assert.ThrowsAsync<ToolError>(() => rig.CodeTools.FindXrefs(Image, "_IMAGE_NT_HEADERS64::NoSuchMember", engine: "ida"));
+        Assert.Equal(ErrorCode.NotFound, member.Code);
+        Assert.Contains("OptionalHeader", member.Message);
+        Assert.Equal("list_native_types name=_IMAGE_NT_HEADERS64 lists its members with offsets; pass Type::member or Type+offset", member.Remediation);
+        var type = await Assert.ThrowsAsync<ToolError>(() => rig.CodeTools.FindXrefs(Image, "std::NoSuchType::member", engine: "ida"));
+        Assert.Equal(ErrorCode.NotFound, type.Code);
+        Assert.StartsWith("list_native_types filter=NoSuchType kind=struct", type.Remediation);
         Assert.Equal(ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => rig.CodeTools.FindXrefs(Image, "_IMAGE_NT_HEADERS64::Signature", engine: "ours"))).Code);
         // an ordinary name still resolves as an address
         Assert.Contains("References to", await rig.CodeTools.FindXrefs(Image, Function));
