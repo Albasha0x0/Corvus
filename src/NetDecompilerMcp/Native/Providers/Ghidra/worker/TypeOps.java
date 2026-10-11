@@ -1,0 +1,436 @@
+// Type creation follows ReVa (cyberkaida, Apache License 2.0): C declarations through CParser resolved into the
+// program's data type manager with the replace handler, prototypes through Ghidra's signature parsing, and types
+// parsed against the program's manager so pointer sizes follow its data organization. See THIRD-PARTY-NOTICES.md.
+package ndm.ghidra;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
+
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+
+import ghidra.app.cmd.function.ApplyFunctionSignatureCmd;
+import ghidra.app.cmd.function.CreateFunctionCmd;
+import ghidra.app.cmd.function.FunctionRenameOption;
+import ghidra.app.plugin.core.analysis.AutoAnalysisManager;
+import ghidra.app.plugin.core.analysis.PdbUniversalAnalyzer;
+import ghidra.app.util.bin.format.pdb.PdbParserConstants;
+import ghidra.app.util.cparser.C.CParser;
+import ghidra.app.util.cparser.C.CParserUtils;
+import ghidra.framework.options.Options;
+import ghidra.program.model.address.Address;
+import ghidra.program.model.data.CategoryPath;
+import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.DataTypeConflictHandler;
+import ghidra.program.model.data.DataTypeManager;
+import ghidra.program.model.data.DataUtilities;
+import ghidra.program.model.data.FunctionDefinitionDataType;
+import ghidra.program.model.data.PointerDataType;
+import ghidra.program.model.data.Structure;
+import ghidra.program.model.data.StructureDataType;
+import ghidra.program.model.data.VoidDataType;
+import ghidra.program.model.listing.Function;
+import ghidra.program.model.listing.FunctionManager;
+import ghidra.program.model.listing.Parameter;
+import ghidra.program.model.listing.ParameterImpl;
+import ghidra.program.model.listing.Program;
+import ghidra.program.model.listing.Variable;
+import ghidra.program.model.listing.Function.FunctionUpdateType;
+import ghidra.program.model.symbol.SourceType;
+
+/** Types in the program's data type manager; callers run the writes inside {@link Worker#write}. */
+final class TypeOps {
+    /** Program option: the RVAs the user typed (hex, comma separated); recovered types leave them alone. */
+    static final String USER_TYPED = "ndm_user_typed";
+    /** Program option: the user's declarations, applied again after recovered types so they win. */
+    static final String USER_DECLS = "ndm_user_decls";
+    /** Where class and vftable types the server builds are kept. */
+    static final CategoryPath CLASSES = new CategoryPath("/ndm/classes");
+    private static final CategoryPath SLOTS = new CategoryPath("/ndm/slots");
+
+    private TypeOps() {
+    }
+
+    /** Declarations parsed: errors with the parser's messages, and the names of the types made. */
+    static final class Parsed {
+        int errors;
+        final List<String> messages = new ArrayList<>();
+        final List<String> names = new ArrayList<>();
+    }
+
+    /**
+     * Parses C declarations into the program's data type manager, one top-level declaration at a time so an error
+     * costs that declaration only; a type of the same name is replaced.
+     */
+    static Parsed parseDeclarations(Worker w, String text) {
+        Parsed result = new Parsed();
+        CParser parser = new CParser(w.program.getDataTypeManager(), true, null);
+        for (String statement : statements(text)) {
+            Set<String> before = known(parser);
+            try {
+                parser.parse(statement);
+            }
+            catch (Throwable e) { // ParseException, TokenMgrError and the parser's runtime errors
+                if (e instanceof VirtualMachineError) throw (VirtualMachineError) e;
+                result.errors++;
+                if (result.messages.size() < 50) result.messages.add(clip(statement, 60) + ": " + firstLine(e.getMessage()));
+                continue;
+            }
+            for (String name : known(parser))
+                if (!before.contains(name) && !result.names.contains(name)) result.names.add(name);
+        }
+        return result;
+    }
+
+    private static Set<String> known(CParser parser) {
+        Set<String> names = new HashSet<>(parser.getComposites().keySet());
+        names.addAll(parser.getTypes().keySet());
+        names.addAll(parser.getEnums().keySet());
+        return names;
+    }
+
+    /** Top-level declarations ending in ';' at bracket depth 0; comments and preprocessor lines are dropped. */
+    static List<String> statements(String text) {
+        List<String> out = new ArrayList<>();
+        StringBuilder cur = new StringBuilder();
+        int depth = 0;
+        boolean lineStart = true;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '/' && i + 1 < text.length() && text.charAt(i + 1) == '/') {
+                while (i < text.length() && text.charAt(i) != '\n') i++;
+                lineStart = true;
+                cur.append('\n');
+                continue;
+            }
+            if (c == '/' && i + 1 < text.length() && text.charAt(i + 1) == '*') {
+                int end = text.indexOf("*/", i + 2);
+                i = end < 0 ? text.length() : end + 1;
+                cur.append(' ');
+                continue;
+            }
+            if (c == '#' && lineStart) {
+                while (i < text.length() && text.charAt(i) != '\n') i++;
+                continue;
+            }
+            if (c == '"' || c == '\'') {
+                int j = i + 1;
+                while (j < text.length() && text.charAt(j) != c) j += text.charAt(j) == '\\' ? 2 : 1;
+                cur.append(text, i, Math.min(text.length(), j + 1));
+                i = j;
+                lineStart = false;
+                continue;
+            }
+            cur.append(c);
+            if (c == '\n') lineStart = true;
+            else if (!Character.isWhitespace(c)) lineStart = false;
+            if (c == '{' || c == '(' || c == '[') depth++;
+            else if (c == '}' || c == ')' || c == ']') depth = Math.max(0, depth - 1);
+            else if (c == ';' && depth == 0) {
+                String s = cur.toString().trim();
+                if (s.length() > 1) out.add(s);
+                cur.setLength(0);
+            }
+        }
+        if (!cur.toString().isBlank()) out.add(cur.toString().trim());
+        return out;
+    }
+
+    static String firstLine(String s) {
+        if (s == null) return "parse error";
+        int nl = s.indexOf('\n');
+        return clip(nl < 0 ? s : s.substring(0, nl), 200);
+    }
+
+    static String clip(String s, int n) {
+        s = s.replaceAll("\\s+", " ").trim();
+        return s.length() <= n ? s : s.substring(0, n) + "...";
+    }
+
+    static Set<Long> userTyped(Worker w) {
+        Set<Long> set = new TreeSet<>();
+        String text = w.program.getOptions(Worker.STAMPS).getString(USER_TYPED, "");
+        if (text != null && !text.isEmpty())
+            for (String part : text.split(",")) set.add(Long.parseLong(part, 16));
+        return set;
+    }
+
+    static void setUserTyped(Worker w, Set<Long> set) {
+        StringBuilder sb = new StringBuilder();
+        for (long rva : set) {
+            if (sb.length() > 0) sb.append(',');
+            sb.append(Long.toHexString(rva));
+        }
+        w.program.getOptions(Worker.STAMPS).setString(USER_TYPED, sb.toString());
+    }
+
+    /** The user's declarations again, so they win over recovered types of the same name. */
+    static void reapplyUserDeclarations(Worker w) {
+        String kept = w.program.getOptions(Worker.STAMPS).getString(USER_DECLS, "");
+        if (kept != null && !kept.isEmpty()) parseDeclarations(w, kept);
+    }
+
+    /** A C prototype ("int __fastcall f(Foo *p)") as a function definition, parsed against the program's types; null when it does not parse. */
+    static FunctionDefinitionDataType prototype(Program program, String text) {
+        String t = text.trim();
+        while (t.endsWith(";")) t = t.substring(0, t.length() - 1).trim();
+        try {
+            return CParserUtils.parseSignature((ghidra.app.services.DataTypeManagerService) null, program, t, false);
+        }
+        catch (Throwable e) {
+            if (e instanceof VirtualMachineError) throw (VirtualMachineError) e;
+            return null;
+        }
+    }
+
+    /** Applies a prototype to the function at the address (created when none starts there), keeping its name. */
+    static String applyPrototype(Worker w, Address a, FunctionDefinitionDataType sig, SourceType source, Worker.Request r) {
+        FunctionManager fm = w.program.getFunctionManager();
+        if (fm.getFunctionAt(a) == null && !new CreateFunctionCmd(a).applyTo(w.program, r.monitor))
+            return "no function could be created there";
+        ApplyFunctionSignatureCmd cmd = new ApplyFunctionSignatureCmd(a, sig, source, false, false, DataTypeConflictHandler.DEFAULT_HANDLER,
+            FunctionRenameOption.NO_CHANGE);
+        return cmd.applyTo(w.program, r.monitor) ? null : (cmd.getStatusMsg() == null ? "Ghidra did not apply the prototype" : cmd.getStatusMsg());
+    }
+
+    /**
+     * Recovered types (PDB, RTTI classes, Il2Cpp). Args: decls (C text), prototypes [[rva, declaration]], classes
+     * {ptr, classes [{name, vftables [[offset, rva, [slots]]], bases [[name, offset]]}], methods [[rva, class]]},
+     * stamp_key, stamp. Builds a &lt;class&gt;_vftable struct per vftable (slots typed from their targets' signatures),
+     * a &lt;class&gt; struct (vftable pointers and base subobjects at their offsets), types the vftables and gives the
+     * methods a first argument this of the class's pointer type. Addresses the user typed are left alone.
+     */
+    static JsonObject applyTypes(Worker w, Worker.Request r) {
+        long start = System.nanoTime();
+        JsonObject a = r.args;
+        int declErrors = 0, typed = 0, typeFailures = 0;
+        JsonArray failures = new JsonArray();
+        Set<Long> user = userTyped(w);
+        if (a.has("decls") && !a.get("decls").isJsonNull() && !a.get("decls").getAsString().isBlank())
+            declErrors += parseDeclarations(w, a.get("decls").getAsString()).errors;
+        for (JsonElement e : Worker.array(a, "prototypes")) {
+            JsonArray p = e.getAsJsonArray();
+            long rva = p.get(0).getAsLong();
+            if (user.contains(rva)) continue;
+            String decl = p.get(1).getAsString();
+            FunctionDefinitionDataType sig = prototype(w.program, decl);
+            String error = sig == null ? "does not parse" : applyPrototype(w, w.space().getAddress(w.base + rva), sig, SourceType.IMPORTED, r);
+            if (error == null) typed++;
+            else {
+                typeFailures++;
+                if (failures.size() < 20) failures.add("rva 0x" + Long.toHexString(rva).toUpperCase() + ": " + decl);
+            }
+        }
+        Counts counts = new Counts();
+        if (a.has("classes") && a.get("classes").isJsonObject()) classes(w, a.getAsJsonObject("classes"), user, counts);
+        if (a.has("decls") || a.has("classes")) reapplyUserDeclarations(w);
+        w.setStamp(a);
+        JsonObject o = new JsonObject();
+        o.addProperty("decl_errors", declErrors);
+        o.addProperty("typed", typed);
+        o.addProperty("type_failures", typeFailures);
+        o.add("failures", failures);
+        o.addProperty("structs", counts.structs);
+        o.addProperty("vftables_typed", counts.vftables);
+        o.addProperty("methods_typed", counts.methods);
+        JsonObject skips = new JsonObject();
+        for (Map.Entry<String, Integer> s : counts.skips.entrySet()) skips.addProperty(s.getKey(), s.getValue());
+        o.add("method_skips", skips);
+        o.addProperty("seconds", Math.round((System.nanoTime() - start) / 1e6) / 1000.0);
+        return o;
+    }
+
+    private static final class Counts {
+        int structs, vftables, methods;
+        final Map<String, Integer> skips = new TreeMap<>();
+
+        void skip(String reason) {
+            skips.merge(reason, 1, Integer::sum);
+        }
+    }
+
+    private static void classes(Worker w, JsonObject model, Set<Long> user, Counts counts) {
+        DataTypeManager dtm = w.program.getDataTypeManager();
+        int ptr = model.has("ptr") ? model.get("ptr").getAsInt() : w.program.getDefaultPointerSize();
+        List<JsonObject> classes = new ArrayList<>();
+        for (JsonElement e : Worker.array(model, "classes")) classes.add(e.getAsJsonObject());
+        // empty structs first, so pointers to every class and vftable resolve
+        Map<String, DataType> byName = new HashMap<>();
+        for (JsonObject c : classes) {
+            String name = c.get("name").getAsString();
+            byName.put(name, existingOrEmpty(dtm, name));
+        }
+        FunctionManager fm = w.program.getFunctionManager();
+        for (JsonElement e : Worker.array(model, "methods")) {
+            JsonArray m = e.getAsJsonArray();
+            long rva = m.get(0).getAsLong();
+            DataType cls = byName.get(m.get(1).getAsString());
+            Function f = fm.getFunctionAt(w.space().getAddress(w.base + rva));
+            if (cls == null) {
+                counts.skip("no_class_type");
+                continue;
+            }
+            if (f == null || f.isThunk() || f.isExternal()) {
+                counts.skip("not_own_function");
+                continue;
+            }
+            // a type set on purpose (PDB, user, a pushed prototype) is kept
+            if (user.contains(rva) || f.getSignatureSource() == SourceType.USER_DEFINED || f.getSignatureSource() == SourceType.IMPORTED) {
+                counts.skip("typed");
+                continue;
+            }
+            if (setThis(w, f, new PointerDataType(cls, ptr, dtm))) counts.methods++;
+            else counts.skip("rejected");
+        }
+        for (JsonObject c : classes) {
+            String name = c.get("name").getAsString();
+            TreeMap<Integer, DataType> vftables = new TreeMap<>();
+            for (JsonElement e : Worker.array(c, "vftables")) {
+                JsonArray v = e.getAsJsonArray();
+                int offset = v.get(0).getAsInt();
+                long vrva = v.get(1).getAsLong();
+                String vname = offset == 0 ? name + "_vftable" : name + "_vftable_" + Integer.toHexString(offset).toUpperCase();
+                StructureDataType s = new StructureDataType(CLASSES, vname, 0, dtm);
+                Set<String> used = new HashSet<>();
+                JsonArray slots = v.get(2).getAsJsonArray();
+                for (int i = 0; i < slots.size(); i++) {
+                    Function target = fm.getFunctionAt(w.space().getAddress(w.base + slots.get(i).getAsLong()));
+                    String member = target != null ? identifier(target.getName()) : "";
+                    if (member.isEmpty() || member.length() > 120 || !used.add(member)) member = "slot_" + i;
+                    used.add(member);
+                    DataType slotType = target != null
+                        ? new PointerDataType(new FunctionDefinitionDataType(SLOTS, vname + "_" + member, target.getSignature(), dtm), ptr, dtm)
+                        : new PointerDataType(VoidDataType.dataType, ptr, dtm);
+                    s.add(slotType, ptr, member, null);
+                }
+                if (slots.isEmpty()) continue;
+                DataType vt = dtm.resolve(s, DataTypeConflictHandler.REPLACE_HANDLER);
+                counts.structs++;
+                vftables.put(offset, vt);
+                if (!user.contains(vrva)) {
+                    try {
+                        DataUtilities.createData(w.program, w.space().getAddress(w.base + vrva), vt, -1, DataUtilities.ClearDataMode.CLEAR_ALL_CONFLICT_DATA);
+                        counts.vftables++;
+                    }
+                    catch (Exception ex) {
+                        // code or other data in the way: the struct still describes the class
+                    }
+                }
+            }
+            // vftable pointers, then base subobjects at their offsets (a base holds its own vftable pointer)
+            TreeMap<Integer, Object[]> members = new TreeMap<>();
+            for (Map.Entry<Integer, DataType> v : vftables.entrySet())
+                members.put(v.getKey(), new Object[] { v.getKey() == 0 ? "__vftable" : "__vftable_" + Integer.toHexString(v.getKey()).toUpperCase(),
+                    new PointerDataType(v.getValue(), ptr, dtm) });
+            for (JsonElement e : Worker.array(c, "bases")) {
+                JsonArray b = e.getAsJsonArray();
+                DataType base = byName.get(b.get(0).getAsString());
+                int offset = b.get(1).getAsInt();
+                if (base == null || offset < 0 || base.isNotYetDefined() || base.getLength() <= 0) continue;
+                members.put(offset, new Object[] { "__base_" + b.get(0).getAsString(), base });
+            }
+            int end = 0;
+            List<Object[]> clean = new ArrayList<>();
+            for (Map.Entry<Integer, Object[]> m : members.entrySet()) {
+                if (m.getKey() < end) continue;
+                DataType t = (DataType) m.getValue()[1];
+                clean.add(new Object[] { m.getKey(), m.getValue()[0], t });
+                end = m.getKey() + Math.max(1, t.getLength());
+            }
+            if (clean.isEmpty()) continue;
+            StructureDataType s = new StructureDataType(CLASSES, name, end, dtm);
+            for (Object[] m : clean) {
+                DataType t = (DataType) m[2];
+                s.replaceAtOffset((Integer) m[0], t, t.getLength(), (String) m[1], null);
+            }
+            byName.put(name, dtm.resolve(s, DataTypeConflictHandler.REPLACE_HANDLER));
+            counts.structs++;
+        }
+    }
+
+    /** The named type when it exists, else an empty struct of that name in the class category. */
+    private static DataType existingOrEmpty(DataTypeManager dtm, String name) {
+        DataType found = dtm.getDataType(CLASSES, name);
+        if (found != null) return found;
+        List<DataType> list = new ArrayList<>();
+        dtm.findDataTypes(name, list);
+        for (DataType d : list)
+            if (d instanceof Structure) return d;
+        return dtm.resolve(new StructureDataType(CLASSES, name, 0, dtm), DataTypeConflictHandler.KEEP_HANDLER);
+    }
+
+    /** The first parameter becomes this, of the given type; one is added to a function without parameters. */
+    private static boolean setThis(Worker w, Function f, DataType type) {
+        try {
+            List<Variable> params = new ArrayList<>();
+            Parameter[] existing = f.getParameters();
+            params.add(new ParameterImpl("this", type, w.program));
+            for (int i = 1; i < existing.length; i++) params.add(new ParameterImpl(existing[i].getName(), existing[i].getDataType(), w.program));
+            f.replaceParameters(params, FunctionUpdateType.DYNAMIC_STORAGE_FORMAL_PARAMS, true, SourceType.ANALYSIS);
+            return true;
+        }
+        catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** A C identifier from a symbol name (other characters become _). */
+    static String identifier(String text) {
+        StringBuilder sb = new StringBuilder();
+        for (char c : text.toCharArray()) sb.append(c < 128 && (Character.isLetterOrDigit(c) || c == '_') ? c : '_');
+        String s = sb.toString().replaceAll("^_+|_+$", "");
+        if (s.isEmpty()) return "";
+        return Character.isDigit(s.charAt(0)) ? "_" + s : s;
+    }
+
+    /**
+     * Loads a PDB through Ghidra's PDB applicator (types, symbols, then function internals), unless trust_analysis and
+     * the auto-analysis loaded one already. On success the names and user-types stamps are dropped (the PDB's names and
+     * prototypes replace pushed ones), the stamp is recorded and the program saved by the caller.
+     */
+    static JsonObject loadPdb(Worker w, Worker.Request r) throws Exception {
+        long start = System.nanoTime();
+        String path = r.args.get("path").getAsString();
+        File file = new File(path);
+        if (!file.isFile()) throw new Worker.WorkerError("not_found", "no PDB file at " + path);
+        DataTypeManager dtm = w.program.getDataTypeManager();
+        int before = dtm.getDataTypeCount(true);
+        Options info = w.program.getOptions(Program.PROGRAM_INFO);
+        boolean analysis = info.getBoolean(PdbParserConstants.PDB_LOADED, false);
+        JsonObject o = new JsonObject();
+        o.addProperty("plugin", true);
+        o.addProperty("types_before", before);
+        boolean loaded, fromAnalysis = false;
+        if (r.args.has("trust_analysis") && r.args.get("trust_analysis").getAsBoolean() && analysis) {
+            loaded = fromAnalysis = true;
+        }
+        else {
+            // the analyzer runs inside an analysis session (the applicator keeps its state there) and skips a program marked loaded
+            info.setBoolean(PdbParserConstants.PDB_LOADED, false);
+            PdbUniversalAnalyzer.setPdbFileOption(w.program, file);
+            AutoAnalysisManager mgr = AutoAnalysisManager.getAnalysisManager(w.program);
+            mgr.scheduleOneTimeAnalysis(new PdbUniversalAnalyzer(), w.program.getMemory());
+            mgr.startAnalysis(r.monitor);
+            loaded = info.getBoolean(PdbParserConstants.PDB_LOADED, false);
+        }
+        o.addProperty("loaded", loaded);
+        o.addProperty("from_analysis", fromAnalysis);
+        o.addProperty("types_after", dtm.getDataTypeCount(true));
+        if (loaded) {
+            Options stamps = w.program.getOptions(Worker.STAMPS);
+            stamps.removeOption("names");
+            stamps.removeOption("user_types"); // the PDB's prototypes may replace the user's: push them again
+            w.setStamp(r.args);
+        }
+        o.addProperty("seconds", Math.round((System.nanoTime() - start) / 1e6) / 1000.0);
+        return o;
+    }
+}

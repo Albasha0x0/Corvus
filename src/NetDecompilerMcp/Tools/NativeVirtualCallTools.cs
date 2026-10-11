@@ -54,14 +54,15 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
                  "passed as parameters or returned); the slot's implementations in that class and its derived classes (RTTI hierarchy) give the " +
                  "targets: one is exact, several are possible (pure virtual stubs left out); the rest are unresolved, with the reason. The edges are " +
                  "part of the call graph (native_call_tree, find_xrefs, get_call_arguments, disassemble comments). crossCheck=true compares a sample " +
-                 "with IDA (Hex-Rays with the RTTI class types pushed, IDA's code references) and reports the agreement rate.")]
+                 "with a decompiler engine (IDA when installed, else Ghidra; its decompiler with the RTTI class types pushed, and its code references) " +
+                 "and reports the agreement rate; the report names the engine.")]
     public Task<VirtualCallReport> FindVirtualCalls(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Only sites in the function containing this address or named so. " + NativeTools.AddressDescription)] string? function = null,
         [Description("Only sites with this status: exact, possible or unresolved.")] string? status = null,
         [Description("Index of the first site.")] int offset = 0,
         [Description("Max sites (default 100, max 1000).")] int limit = 100,
-        [Description("Compare a sample of the sites with IDA's view of them (runs IDA; minutes on a large image the first time).")] bool crossCheck = false,
+        [Description("Compare a sample of the sites with the engine's view of them (runs IDA or Ghidra; minutes on a large image the first time).")] bool crossCheck = false,
         [Description("Cross-check: functions to sample (default 100; as many again with only unresolved sites, halved).")] int sampleFunctions = 100,
         [Description("Cross-check: time budget in seconds (default 300).")] int seconds = 300,
         RequestContext<CallToolRequestParams> context = null!,
@@ -127,7 +128,7 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         VirtualCallCheck.Report? check = null;
         if (crossCheck)
         {
-            if (engines == null) throw new ToolError(ErrorCode.ProviderUnavailable, "No native engine is configured.", "install IDA (idalib) to cross-check");
+            if (engines == null) throw new ToolError(ErrorCode.ProviderUnavailable, "No native engine is configured.", "install IDA (idalib) or Ghidra to cross-check");
             if (set.Sites.Count == 0)
                 notes.Add("cross-check skipped: no virtual call sites");
             else

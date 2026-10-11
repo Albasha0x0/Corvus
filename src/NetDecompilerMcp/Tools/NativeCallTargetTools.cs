@@ -21,7 +21,7 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
         [property: Description("VA of the target (the import slot for imports, the pointer global for late-bound imports).")] string Address,
         string Name,
         [property: Description("How it was found: direct_branch, import_slot, thunk_import, constant_pointer, getprocaddress, rtti_vftable_exact, rtti_vftable_possible, " +
-                               "global_writers, initial_contents, pointer_table, caller_argument, ida_xref, hexrays_direct.")] string Basis,
+                               "global_writers, initial_contents, pointer_table, caller_argument, ida_xref, hexrays_direct, ghidra_xref, ghidra_direct.")] string Basis,
         [property: Description("exact, possible, or candidate (from an incomplete set, or only another engine's view).")] string Confidence,
         string Evidence);
 
@@ -41,7 +41,7 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
     public sealed record CallTargetsReport(
         [property: Description("Image id.")] string Image,
         [property: Description("site, function or image.")] string Scope,
-        [property: Description("Engines whose views are merged: ours, or ours+ida.")] string Engine,
+        [property: Description("Engines whose views are merged: ours, ours+ida or ours+ghidra.")] string Engine,
         [property: Description("Sites matching the filter.")] int Total,
         [property: Description("Sites per status, before the filter.")] IReadOnlyDictionary<string, int> ByStatus,
         [property: Description("Sites per mechanism, before the filter.")] IReadOnlyDictionary<string, int> ByMechanism,
@@ -56,7 +56,7 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
                  "thunks, constant pointers (also through the CFG dispatch), GetProcAddress pointers, RTTI virtual calls, the writers and initial contents " +
                  "of a global function pointer, relocated pointer tables (complete when an index bound is found), and with deep=true the function " +
                  "pointers callers pass in. Several targets are listed, never collapsed; unresolved sites carry the reason and the trace_native_values " +
-                 "call to follow. engine=ida merges IDA's references and Hex-Rays targets for the sites returned (a disagreement is ambiguous).")]
+                 "call to follow. engine=ida or ghidra merges that engine's references and decompiler targets for the sites returned (a disagreement is ambiguous).")]
     public Task<string> ResolveCallTargets(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("A call instruction, or an address in a function (its sites). " + NativeTools.AddressDescription)] string? address = null,
@@ -115,11 +115,12 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
                 progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), cancellationToken);
             var functions = page.Select(s => s.Function.Start).Distinct().ToList();
             var rows = await session.GetCallTargetsAsync(functions, page.Select(s => s.Rva).ToList(), 120, cancellationToken);
-            page = page.Select(s => Merge(index, s, rows.Targets.Where(t => t.Site == s.Rva).ToList())).ToList();
+            page = page.Select(s => Merge(index, s, rows.Targets.Where(t => t.Site == s.Rva).ToList(), choice.Engine)).ToList();
             engineText = "ours+" + choice.Engine;
-            if (!rows.DecompilerAvailable) notes.Add("the IDA decompiler is not available: only IDA's code references are merged");
-            if (rows.Failed.Count > 0) notes.Add($"IDA could not decompile {rows.Failed.Count} functions");
-            if (rows.Skipped > 0) notes.Add($"IDA had no time for {rows.Skipped} functions");
+            var display = NativeEngineService.DisplayName(choice.Engine);
+            if (!rows.DecompilerAvailable) notes.Add($"the {display} decompiler is not available: only {display}'s code references are merged");
+            if (rows.Failed.Count > 0) notes.Add($"{display} could not decompile {rows.Failed.Count} functions");
+            if (rows.Skipped > 0) notes.Add($"{display} had no time for {rows.Skipped} functions");
         }
         notes.Add(choice.Line);
         if (start + page.Count < filtered.Count) notes.Add($"{filtered.Count - start - page.Count} more: offset={start + page.Count}");
@@ -147,9 +148,12 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
         _ => true,
     };
 
-    /// <summary>Adds IDA's view of a site: targets ours lacks are candidates; disjoint target sets make the site ambiguous.</summary>
-    internal static CallTargetSite Merge(Native.Code.NativeCodeIndex index, CallTargetSite s, IReadOnlyList<NativeCallTarget> rows)
+    /// <summary>Adds an engine's view of a site: targets ours lacks are candidates; disjoint target sets make the site ambiguous.</summary>
+    internal static CallTargetSite Merge(Native.Code.NativeCodeIndex index, CallTargetSite s, IReadOnlyList<NativeCallTarget> rows, string engine = "ida")
     {
+        bool ida = engine == "ida";
+        var display = NativeEngineService.DisplayName(engine);
+        var decompiler = ida ? "Hex-Rays" : display + "'s decompiler";
         if (rows.Count == 0) return s;
         var ours = s.Targets.Select(t => t.Address).ToHashSet();
         var added = new List<CallTarget>();
@@ -159,10 +163,10 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
             if (r.Kind is "xref" or "direct" && r.Target is { } t)
             {
                 if (!ours.Contains(t) && added.All(a => a.Address != t))
-                    added.Add(new CallTarget(t, index.NameAt(t) ?? $"sub_{t:X}", r.Kind == "xref" ? "ida_xref" : "hexrays_direct", "candidate",
-                        r.Kind == "xref" ? "IDA code reference" : "Hex-Rays resolved the call"));
+                    added.Add(new CallTarget(t, index.NameAt(t) ?? $"sub_{t:X}", r.Kind == "xref" ? engine + "_xref" : ida ? "hexrays_direct" : engine + "_direct", "candidate",
+                        r.Kind == "xref" ? display + " code reference" : decompiler + " resolved the call"));
             }
-            else if (r.Kind == "vftable") notes.Add($"Hex-Rays: through {r.TypeName}+0x{r.MemberOffset:X}");
+            else if (r.Kind == "vftable") notes.Add($"{decompiler}: through {r.TypeName}+0x{r.MemberOffset:X}");
         }
         bool idaAgrees = rows.Any(r => r.Target is { } t && ours.Contains(t));
         var status = s.Status;

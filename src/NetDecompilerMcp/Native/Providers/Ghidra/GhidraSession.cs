@@ -287,4 +287,35 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
 
     public async Task<string?> GetStampAsync(string key, CancellationToken cancellationToken = default) =>
         WorkerRows.Stamp(await CallAsync("get_stamp", WorkerRows.Args(("key", key)), cancellationToken).ConfigureAwait(false));
+
+    // Journaled: a worker restarted from the saved project gets the same patch set again (the operation is idempotent).
+    public async Task<PatchSyncResult> SyncPatchesAsync(IReadOnlyList<NativeByteRange> wanted, CancellationToken cancellationToken = default) =>
+        WorkerRows.PatchSync(await CallAsync("sync_patches", WorkerRows.Args(("items", WorkerRows.ByteRanges(wanted))), cancellationToken, journal: true)
+            .ConfigureAwait(false));
+
+    public async Task<TypeBatchResult> ApplyTypesAsync(NativeTypeBatch batch, string? stampKey = null, string? stamp = null, bool save = false,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        return WorkerRows.TypeBatch(await CallAsync("apply_types", WorkerRows.TypeBatchArgs(batch, stampKey, stamp, save), cancellationToken,
+            journal: !save, saves: save).ConfigureAwait(false));
+    }
+
+    public async Task<NativeCallTargets> GetCallTargetsAsync(IReadOnlyList<uint> functions, IReadOnlyList<uint> sites, double seconds,
+        CancellationToken cancellationToken = default)
+    {
+        // the budget stays under the request timeout so a slow decompilation ends the batch instead of the request
+        double budget = Math.Clamp(seconds, 1, Math.Max(1, Options.RequestTimeout.TotalSeconds * 0.6));
+        var args = WorkerRows.Args(("functions", new JsonArray(functions.Select(f => (JsonNode)f).ToArray())),
+            ("sites", new JsonArray(sites.Select(s => (JsonNode)s).ToArray())), ("seconds", budget));
+        return WorkerRows.CallTargets(await CallAsync("virtual_targets", args, cancellationToken).ConfigureAwait(false));
+    }
+
+    public async Task<PdbLoadResult> LoadPdbAsync(string pdbPath, string stampKey, string stamp, bool trustAnalysisLoad, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(pdbPath);
+        // a large PDB takes minutes: the open's limit, not a single request's
+        return WorkerRows.PdbLoad(await CallAsync("load_pdb", WorkerRows.Args(("path", pdbPath), ("stamp_key", stampKey), ("stamp", stamp),
+            ("trust_analysis", trustAnalysisLoad)), cancellationToken, saves: true, timeout: Options.OpenTimeout).ConfigureAwait(false));
+    }
 }

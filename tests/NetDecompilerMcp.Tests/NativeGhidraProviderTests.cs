@@ -301,6 +301,105 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
     }
 
     [GhidraFact]
+    public async Task Patches_sync_into_the_project_and_revert_exactly()
+    {
+        var path = shared.Copy(NativeIdaProviderTests.System64);
+        var rva = NativeIdaProviderTests.ExportRva(path, Export);
+        await using var s = await Isolated().OpenAsync(path, null, Offline);
+        var original = (await s.DisassembleRangeAsync(rva, 1)).Instructions[0];
+        var bodyEnd = (await s.ListFunctionsAsync()).Single(f => f.StartRva == rva).EndRva;
+        Assert.True(bodyEnd > rva + 1);
+
+        var clock = Stopwatch.StartNew();
+        var r = await s.SyncPatchesAsync([new NativeByteRange(rva, [0xC3])]);
+        output.WriteLine($"patch: {r} in {clock.ElapsedMilliseconds} ms");
+        Assert.True(r.Complete);
+        Assert.Equal((1, 0, 1), (r.Patched, r.Reverted, r.Ranges));
+        Assert.True(r.Functions >= 1);
+        var patched = (await s.DisassembleRangeAsync(rva, 1)).Instructions[0];
+        Assert.Equal([0xC3], patched.Bytes);
+        Assert.Contains("RET", patched.Text, StringComparison.OrdinalIgnoreCase);
+        // the body was recomputed: the function ends at the ret
+        Assert.Equal(rva + 1, (await s.ListFunctionsAsync()).Single(f => f.StartRva == rva).EndRva);
+        var same = await s.SyncPatchesAsync([new NativeByteRange(rva, [0xC3])]);
+        Assert.Equal((0, 0), (same.Patched, same.Reverted));
+
+        // a byte outside the image is missing; the others still take
+        var outside = await s.SyncPatchesAsync([new NativeByteRange(rva, [0xC3]), new NativeByteRange(0x7FFF_FF00, [0x90])]);
+        Assert.Equal((1, false), (outside.Missing, outside.Complete));
+        Assert.Contains(0x7FFF_FF00u, outside.Problems);
+
+        // the empty set restores the file's bytes and the function's body
+        var reverted = await s.SyncPatchesAsync([]);
+        Assert.Equal((0, 1), (reverted.Patched, reverted.Reverted));
+        Assert.Equal(original.Bytes, (await s.DisassembleRangeAsync(rva, 1)).Instructions[0].Bytes);
+        Assert.Equal(bodyEnd, (await s.ListFunctionsAsync()).Single(f => f.StartRva == rva).EndRva);
+    }
+
+    [GhidraFact]
+    public async Task Recovered_types_classes_and_prototypes_reach_the_pseudocode()
+    {
+        var path = shared.Copy(NativeIdaProviderTests.System64);
+        var exportRva = NativeIdaProviderTests.ExportRva(path, Export);
+        await using var s = await Isolated().OpenAsync(path, null, Offline);
+        var functions = await s.ListFunctionsAsync();
+        // functions Ghidra named itself carry no prototype from a type library
+        var plain = functions.Where(f => f.Name.StartsWith("FUN_", StringComparison.Ordinal) && !f.Flags.HasFlag(NativeFunctionFlags.Thunk)).Take(2).ToList();
+        Assert.Equal(2, plain.Count);
+        var vftable = RdataRva(path) + 0x40;
+        var batch = new NativeTypeBatch(
+            "struct NdmPoint { int x; int y; };\ntypedef struct NdmPoint *PNdmPoint;\nstruct NdmBroken { int };\n",
+            [new NativePrototype(exportRva, "int __fastcall NdmProto(PNdmPoint point, int count);")],
+            [new NativeClassType("NdmBase", [new NativeVftableType(0, vftable, [plain[0].StartRva, plain[1].StartRva])], []),
+             new NativeClassType("NdmDerived", [], [new NativeBaseType("NdmBase", 0)])],
+            [new NativeMethodOwner(plain[0].StartRva, "NdmBase"), new NativeMethodOwner(exportRva, "NdmMissing")], 8);
+        var r = await s.ApplyTypesAsync(batch, "types", "t1");
+        output.WriteLine($"{r.DeclarationErrors} declaration errors, {r.Typed} typed, {r.Structs} structs, {r.VftablesTyped} vftables, {r.MethodsTyped} methods, " +
+                         $"skips {string.Join(", ", r.MethodSkips.Select(k => $"{k.Key} {k.Value}"))}, failures {string.Join("; ", r.Failures)}");
+        Assert.Equal(1, r.DeclarationErrors);
+        Assert.Equal((1, 0), (r.Typed, r.TypeFailures));
+        Assert.Equal(3, r.Structs); // NdmBase_vftable, NdmBase, NdmDerived
+        Assert.Equal(1, r.VftablesTyped);
+        Assert.Equal(1, r.MethodsTyped);
+        Assert.Equal(1, r.MethodSkips["no_class_type"]);
+        Assert.Equal("t1", await s.GetStampAsync("types"));
+
+        var proto = await s.DecompileAsync(exportRva);
+        output.WriteLine(proto.Text.Split('\n').FirstOrDefault(l => l.Contains('(')));
+        Assert.Contains("PNdmPoint point", proto.Text);
+        Assert.Contains(Export, proto.Text); // the prototype does not rename
+        Assert.Contains("NdmBase *this", (await s.DecompileAsync(plain[0].StartRva)).Text);
+        // a failed prototype is counted, not thrown
+        var bad = await s.ApplyTypesAsync(new NativeTypeBatch(null, [new NativePrototype(exportRva, "int f(NoSuchType x);")], [], [], 8));
+        Assert.Equal(1, bad.TypeFailures);
+    }
+
+    [GhidraFact]
+    public async Task Call_targets_name_the_references_and_the_decompiler_view()
+    {
+        var path = shared.Sample;
+        var exportRva = NativeIdaProviderTests.ExportRva(path, Export);
+        await using var s = await Provider.OpenAsync(path, null, Offline);
+        var starts = (await s.ListFunctionsAsync()).Select(f => f.StartRva).ToHashSet();
+        var calls = (await s.GetXrefsFromAsync(exportRva, wholeFunction: true)).Where(x => x.Kind == NativeXrefKind.Call && starts.Contains(x.ToRva)).ToList();
+        Assert.NotEmpty(calls);
+        var t = await s.GetCallTargetsAsync([exportRva], calls.Select(c => c.FromRva).ToList(), 60);
+        output.WriteLine(string.Join("\n", t.Targets));
+        Assert.True(t.DecompilerAvailable);
+        Assert.Equal(1, t.Decompiled);
+        Assert.Contains(t.Targets, x => x.Kind == "xref" && x.Target == calls[0].ToRva && x.Site == calls[0].FromRva);
+        Assert.Contains(t.Targets, x => x.Kind == "direct" && x.Target == calls[0].ToRva);
+        Assert.Single((await s.GetCallTargetsAsync([0x10], [], 60)).Failed);
+    }
+
+    /// <summary>The RVA of the image's .rdata section.</summary>
+    private static uint RdataRva(string path)
+    {
+        using var pe = new PEReader(File.OpenRead(path));
+        return (uint)pe.PEHeaders.SectionHeaders.First(h => h.Name == ".rdata").VirtualAddress;
+    }
+
+    [GhidraFact]
     public async Task Managed_assembly_is_unsupported()
     {
         var e = await Assert.ThrowsAsync<ToolError>(() => Provider.OpenAsync(Env.FixturePath, null, Offline));

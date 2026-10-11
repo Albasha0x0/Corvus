@@ -367,9 +367,9 @@ public class VirtualCallTests(ITestOutputHelper output)
 
     // ---- cross-check against IDA ----
 
-    private static (AssemblyWorkspace Workspace, NativeVirtualCallTools Tools, NativeEngineService Engines) Rig(TempDir dir)
+    private static (AssemblyWorkspace Workspace, NativeVirtualCallTools Tools, NativeEngineService Engines) Rig(TempDir dir, EngineMode engine = EngineMode.Auto)
     {
-        var options = new ServerOptions { TimeoutSeconds = 600, BackgroundIndexing = false };
+        var options = new ServerOptions { TimeoutSeconds = 600, BackgroundIndexing = false, Engine = engine };
         var workspace = new AssemblyWorkspace(options);
         var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(dir.File("annotations")));
         var engines = new NativeEngineService(new IdaProviderOptions { CacheRoot = dir.File("cache") }, code, workspace, options);
@@ -387,6 +387,23 @@ public class VirtualCallTests(ITestOutputHelper output)
         var report = await tools.FindVirtualCalls(image.Path, crossCheck: true, sampleFunctions: 50, seconds: 300);
         var c = report.CrossCheck!;
         output.WriteLine(System.Text.Json.JsonSerializer.Serialize(c));
+        Assert.True(c.FunctionsDecompiled > 0);
+        Assert.True(c.Agree + c.Compatible > 0);
+        Assert.Equal(0, c.Disagree);
+    }
+
+    [Trait("Speed", "Slow")]
+    [GhidraFact]
+    public async Task Cross_check_with_Ghidra_agrees_on_the_compiled_sample()
+    {
+        using var dir = new TempDir();
+        if (Compile(dir, "x64", "") is not var (image, _)) return;
+        var (_, tools, engines) = Rig(dir, EngineMode.Ghidra);
+        using var _e = engines;
+        var report = await tools.FindVirtualCalls(image.Path, crossCheck: true, sampleFunctions: 50, seconds: 300);
+        var c = report.CrossCheck!;
+        output.WriteLine(System.Text.Json.JsonSerializer.Serialize(c));
+        Assert.Equal("ghidra", c.Engine);
         Assert.True(c.FunctionsDecompiled > 0);
         Assert.True(c.Agree + c.Compatible > 0);
         Assert.Equal(0, c.Disagree);

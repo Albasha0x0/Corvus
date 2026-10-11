@@ -123,7 +123,7 @@ public static class Guide
             trace_native_values (where a value comes from or goes, across callers, callees and globals), resolve_call_targets
             (targets of indirect calls with their basis; scope=image lists the unresolved ones), search_native_strings, search_bytes (?? wildcards), read_bytes, resolve_address, list_cpp_classes (RTTI classes, bases,
             vftables), get_native_type (a type's layout from the PDB, RTTI, Il2Cpp or IDA by name, id or typed address; at=0x48 names a field), get_exception_info (MSVC try / catch, SEH scopes, funclets), find_virtual_calls (obj->vfunc() sites resolved
-            through RTTI; crossCheck=true compares with IDA), decompile_native (C pseudocode through IDA or Ghidra when installed).
+            through RTTI; crossCheck=true compares with IDA or Ghidra), decompile_native (C pseudocode through IDA or Ghidra when installed).
             Addresses: hex VA or RVA, rva:/va:/off: prefixes, export names, module!import, sub_<rva>.
             Symbols: a matching local PDB is read with the code index; load_pdb loads one by path or downloads it (download=true);
             search_pdb_symbols lists its symbols. Names from load_pdb and apply_il2cpp_names are saved per file SHA-256 and reapplied

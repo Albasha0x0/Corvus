@@ -231,6 +231,10 @@ public class Worker implements GhidraLaunchable {
             case "set_name": return write("set name", () -> NameOps.setName(this, r));
             case "set_comment": return write("set comment", () -> NameOps.setComment(this, r));
             case "apply_names": return applyNames(r);
+            case "sync_patches": return write("sync patches", () -> PatchOps.sync(this, r));
+            case "apply_types": return saving(r, write("apply types", () -> TypeOps.applyTypes(this, r)));
+            case "load_pdb": return loadPdb(r);
+            case "virtual_targets": return read(() -> CallOps.virtualTargets(this, r));
             case "get_stamp": return read(() -> getStamp(r));
             case "save": return save(r);
             case "close": return close(r);
@@ -317,7 +321,7 @@ public class Worker implements GhidraLaunchable {
         return o;
     }
 
-    private static boolean decompilerPresent() {
+    static boolean decompilerPresent() {
         try {
             Application.getOSFile(System.getProperty("os.name").toLowerCase().startsWith("windows") ? "decompile.exe" : "decompile");
             return true;
@@ -505,8 +509,19 @@ public class Worker implements GhidraLaunchable {
     }
 
     private JsonElement applyNames(Request r) throws Exception {
-        JsonObject result = write("apply names", () -> NameOps.applyNames(this, r));
+        return saving(r, write("apply names", () -> NameOps.applyNames(this, r)));
+    }
+
+    /** Saves the program after a write when the request asks for it (save: true). */
+    private JsonElement saving(Request r, JsonElement result) throws Exception {
         if (r.args.has("save") && r.args.get("save").getAsBoolean()) saveProgram(r.monitor);
+        return result;
+    }
+
+    /** A PDB that loaded is saved with the program at once: loading it again costs minutes. */
+    private JsonElement loadPdb(Request r) throws Exception {
+        JsonObject result = write("load PDB", () -> TypeOps.loadPdb(this, r));
+        if (result.get("loaded").getAsBoolean()) saveProgram(r.monitor);
         return result;
     }
 

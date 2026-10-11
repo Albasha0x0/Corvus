@@ -85,26 +85,32 @@ final class CodeOps {
     }
 
     /** Pseudocode built from the decompiler's lines, each with the lowest address among its tokens. */
-    static JsonElement decompile(Worker w, Worker.Request r) throws Exception {
-        Function f = functionAt(w, w.addr(r.args, "rva"));
-        int timeout = r.args.has("timeout") ? r.args.get("timeout").getAsInt() : w.decompileTimeout;
+    /** A pooled decompilation of the function within timeout seconds; a timeout or failure is a WorkerError. */
+    static DecompileResults results(Worker w, Function f, int timeout, Worker.Monitor monitor) throws Exception {
         long deadline = System.nanoTime() + timeout * 1_000_000_000L;
         DecompInterface d = w.decompilers.acquire(deadline);
         DecompileResults res;
         try {
             int left = (int) Math.max(1, (deadline - System.nanoTime()) / 1_000_000_000L);
-            res = d.decompileFunction(f, left, r.monitor);
+            res = d.decompileFunction(f, left, monitor);
         }
         finally {
             w.decompilers.release(d);
         }
-        r.monitor.checkCancelled();
+        monitor.checkCancelled();
         if (res == null || !res.decompileCompleted() || res.getCCodeMarkup() == null) {
             String message = res == null ? "no result" : res.getErrorMessage();
             if (res != null && res.isTimedOut())
                 throw new Worker.WorkerError("timeout", "decompiling " + f.getName() + " did not finish within " + timeout + " s");
             throw new Worker.WorkerError("failed", "decompiling " + f.getName() + " failed: " + (message == null ? "" : message.trim()));
         }
+        return res;
+    }
+
+    static JsonElement decompile(Worker w, Worker.Request r) throws Exception {
+        Function f = functionAt(w, w.addr(r.args, "rva"));
+        int timeout = r.args.has("timeout") ? r.args.get("timeout").getAsInt() : w.decompileTimeout;
+        DecompileResults res = results(w, f, timeout, r.monitor);
         List<ClangLine> lines = DecompilerUtils.toLines(res.getCCodeMarkup());
         StringBuilder text = new StringBuilder();
         JsonArray addresses = new JsonArray();

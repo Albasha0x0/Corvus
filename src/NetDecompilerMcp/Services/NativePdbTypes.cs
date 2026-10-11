@@ -7,7 +7,7 @@ namespace NetDecompilerMcp.Services;
 
 /// <summary>
 /// Brings an image's PDB types (structs, classes, unions, enums, typedefs, function prototypes) into its engine
-/// database: through the engine's own PDB loader (IDA's pdb plugin), else, when that loader is not available or does
+/// database: through the engine's own PDB loader (IDA's pdb plugin, Ghidra's PDB applicator), else, when that loader is not available or does
 /// not take the file, as C declarations written from the PDB's type stream (<see cref="PdbTypes"/>). The PDB's
 /// identity (GUID, age, file size) and the route are recorded as a stamp in the database and saved with it, so a
 /// database that already has this PDB's types is not loaded again (in this or a later session); a different PDB for
@@ -17,7 +17,7 @@ namespace NetDecompilerMcp.Services;
 public sealed class NativePdbTypes
 {
     public const string StampKey = "pdb";
-    public const string RouteIda = "ida_pdb_loader", RouteOwn = "own_tpi_reader";
+    public const string RouteIda = "ida_pdb_loader", RouteGhidra = "ghidra_pdb_loader", RouteOwn = "own_tpi_reader";
 
     /// <summary>Use the own declarations even when the engine's loader is available (tests).</summary>
     internal bool PreferOwnReader { get; set; }
@@ -33,9 +33,9 @@ public sealed class NativePdbTypes
     }
 
     /// <summary>
-    /// The PDB types in a session's database. <see cref="Route"/>: ida_pdb_loader or own_tpi_reader, null when they
+    /// The PDB types in a session's database. <see cref="Route"/>: ida_pdb_loader, ghidra_pdb_loader or own_tpi_reader, null when they
     /// could not be applied (<see cref="Error"/>); <see cref="AlreadyInDatabase"/>: recorded earlier;
-    /// <see cref="FromAnalysis"/>: IDA loaded the PDB itself during auto-analysis; <see cref="FallbackReason"/>: why the
+    /// <see cref="FromAnalysis"/>: the engine loaded the PDB itself during auto-analysis; <see cref="FallbackReason"/>: why the
     /// engine's loader was not used.
     /// </summary>
     public sealed record PdbTypeSource(string PdbPath, string Identity, string? Route, bool AlreadyInDatabase, bool FromAnalysis, int TypesAdded,
@@ -132,14 +132,15 @@ public sealed class NativePdbTypes
         string? fallback = null;
         if (!PreferOwnReader)
         {
-            // IDA searched the PDB's directory first when it analyzed a new database: a PDB it loaded then (it loads only matching ones) is this one
+            // the engine was given the PDB's path when it analyzed a new database: a PDB it loaded then (only matching ones) is this one
             bool trust = !session.ReusedDatabase && matches && string.Equals(openedWith, path, StringComparison.OrdinalIgnoreCase);
-            var loaded = await session.LoadPdbAsync(path, StampKey, identity + "|" + RouteIda, trust, ct).ConfigureAwait(false);
+            var route = session.ProviderId == "ghidra" ? RouteGhidra : RouteIda;
+            var loaded = await session.LoadPdbAsync(path, StampKey, identity + "|" + route, trust, ct).ConfigureAwait(false);
             if (loaded.Loaded)
             {
                 NativeNamePush.Forget(session);
                 NativeUserTypePush.Forget(session);
-                return new PdbTypeSource(path, identity, RouteIda, false, loaded.FromAnalysis, Math.Max(0, loaded.TypesAfter - loaded.TypesBefore), null, null, null, null,
+                return new PdbTypeSource(path, identity, route, false, loaded.FromAnalysis, Math.Max(0, loaded.TypesAfter - loaded.TypesBefore), null, null, null, null,
                     clock.Elapsed);
             }
             fallback = loaded.LoaderAvailable ? "the engine's PDB loader did not take the file" : $"the {session.ProviderId} engine's PDB loader is not available";
@@ -185,7 +186,7 @@ public sealed class NativePdbTypes
         if (r == null) return null;
         var file = Path.GetFileName(r.PdbPath);
         if (r.Route == null) return $"types: the PDB {file} could not be applied ({r.Error}); pseudocode uses the engine's own types";
-        var how = r.Route == RouteIda ? "IDA's PDB loader" : "the server's PDB type reader";
+        var how = r.Route switch { RouteIda => "IDA's PDB loader", RouteGhidra => "Ghidra's PDB loader", _ => "the server's PDB type reader" };
         if (r.AlreadyInDatabase) return $"types: PDB {file} via {how} (already in the database)";
         if (r.FromAnalysis) return $"types: PDB {file} via {how} (loaded during auto-analysis)";
         if (r.Own is { } own)

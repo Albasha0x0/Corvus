@@ -94,4 +94,6 @@ concerned say so in their headers.
   ```
 - [cyberkaida/reverse-engineering-assistant](https://github.com/cyberkaida/reverse-engineering-assistant) (ReVa),
   Copyright 2023 cyberkaida: a decompiler timeout reported as its own error, distinct from a decompilation failure
-  (`CodeOps.java`).
+  (`CodeOps.java`); C declarations parsed with `CParser` into the program's data type manager with the replace
+  handler, and types parsed against the program's manager so pointer sizes follow its data organization
+  (`TypeOps.java`).
