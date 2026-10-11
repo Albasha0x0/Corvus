@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text;
+using System.Text.RegularExpressions;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -109,6 +110,8 @@ public sealed partial class NativeCodeTools
         var values = new Dictionary<uint, string>();
         foreach (var d in data?.Items ?? [])
         {
+            // alignment and int3 / nop / zero fill between functions are no globals
+            if (d.Label == null && image.SectionAt(d.Rva) is { IsExecutable: true } && (d.Type == "align" || d.Value is { } v && CodePadding().IsMatch(v))) continue;
             Add(d.Rva, d.Label, engine!, d.Type, d.Size);
             if (d.Value != null) values[d.Rva] = d.Value;
         }
@@ -116,4 +119,8 @@ public sealed partial class NativeCodeTools
         return found.Select(kv => new GlobalEntry(NativeAddress.Va(image, kv.Key), index.NameAt(kv.Key) ?? kv.Value.Name ?? $"data_{kv.Key:X}", kv.Value.Type,
             kv.Value.Size, image.SectionAt(kv.Key)?.Name, [.. kv.Value.Sources]) { Value = values.GetValueOrDefault(kv.Key) }).ToList();
     }
+
+    /// <summary>An engine's text of a fill: "db 5 dup(0CCh)", "db 3200h dup(90h)", "db 2 dup(0)".</summary>
+    [GeneratedRegex(@"^db\s+[0-9A-F]+h?\s+dup\((?:0CCh|90h|0)\)$", RegexOptions.IgnoreCase)]
+    private static partial Regex CodePadding();
 }

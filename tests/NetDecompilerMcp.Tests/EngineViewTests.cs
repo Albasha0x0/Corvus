@@ -75,7 +75,9 @@ public sealed class EngineViewTests : IDisposable
         Assert.Contains("Engine: ours", ours);
         Assert.DoesNotContain("g_engine_table", ours);
         var text = await rig.Tools.ListGlobals(rig.Image, engine: "ghidra");
-        Assert.Contains("(3 defined by Ghidra, the first 2 read)", text);
+        Assert.Contains("(5 defined by Ghidra, the first 4 read)", text);
+        Assert.DoesNotContain("dup(0CCh)", text);
+        Assert.DoesNotContain("align 10h", text);
         Assert.Contains("Engine: ghidra", text);
         Assert.Matches(@"0x[0-9A-F]+3000  g_engine_table  pointer  8 bytes  \S+  \(ghidra\)  = 180001000h", text);
         Assert.Matches(@"0x[0-9A-F]+3010  data_3010  string  6 bytes  \S+  \(ghidra\)  = ""hello""", text);
@@ -204,8 +206,10 @@ public sealed class EngineViewTests : IDisposable
         public bool IsOpen => true;
 
         public Task<EngineDataList> ListDataAsync(int max, CancellationToken cancellationToken = default) =>
-            Task.FromResult(new EngineDataList(3, [new EngineDataItem(0x3000, 8, "pointer", "g_engine_table", "180001000h", false),
-                new EngineDataItem(0x3010, 6, "string", null, "\"hello\"", true)]));
+            Task.FromResult(new EngineDataList(5, [new EngineDataItem(0x3000, 8, "pointer", "g_engine_table", "180001000h", false),
+                new EngineDataItem(0x3010, 6, "string", null, "\"hello\"", true),
+                // padding in the code section: no globals
+                new EngineDataItem(0x1001, 5, "byte[5]", null, "db 5 dup(0CCh)", false), new EngineDataItem(0x1006, 10, "align", null, "align 10h", false)]));
 
         public Task<EngineFunctionRecord> GetFunctionRecordAsync(uint rva, CancellationToken cancellationToken = default) =>
             Task.FromResult(new EngineFunctionRecord(rva, "First", "Ns", "int __fastcall First(int a)", "__fastcall", "user", [(rva, rva + 0x10)], null, null,
