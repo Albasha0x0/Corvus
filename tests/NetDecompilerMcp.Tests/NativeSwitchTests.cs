@@ -152,6 +152,52 @@ public class NativeSwitchTests
         Assert.Equal("switch index bound not found", unresolved.Reason);
     }
 
+    [Theory]
+    [InlineData(0)] // lea rcx, [rip+table]; jmp [rcx + rdx*8]
+    [InlineData(1)] // lea rcx, [rip+table]; mov rcx, [rcx + rdx*8]; jmp rcx
+    [InlineData(2)] // jmp [table + rdx*8] (fixed address)
+    public void X64_absolute_eight_byte_tables(int form)
+    {
+        // a fixed-address ELF executable: no relocations, addresses fit a 32-bit displacement
+        const ulong Base = 0x400000;
+        Label dflt = default;
+        var labels = new Label[3];
+        uint tableRva = NativeFormats.ElfWriter.DataRva + 0x20;
+        var a = new Assembler(64);
+        dflt = a.CreateLabel();
+        for (int i = 0; i < 3; i++) labels[i] = a.CreateLabel();
+        a.lea(rdx, __[rcx - 2]);
+        a.cmp(rdx, 2);
+        a.ja(dflt);
+        var lea = Instruction.Create(Iced.Intel.Code.Lea_r64_m, Register.RCX, new MemoryOperand(Register.RIP, (long)(Base + tableRva), 8));
+        switch (form)
+        {
+            case 0: a.AddInstruction(lea); a.jmp(__qword_ptr[rcx + rdx * 8]); break;
+            case 1: a.AddInstruction(lea); a.mov(rcx, __qword_ptr[rcx + rdx * 8]); a.jmp(rcx); break;
+            default: a.jmp(__qword_ptr[rdx * 8 + (int)(Base + tableRva)]); break;
+        }
+        for (int i = 0; i < 3; i++) { a.Label(ref labels[i]); a.mov(eax, i); a.ret(); }
+        a.Label(ref dflt);
+        a.xor(eax, eax);
+        a.ret();
+        var stream = new MemoryStream();
+        var result = a.Assemble(new StreamCodeWriter(stream), Base + NativeFormats.ElfWriter.TextRva, BlockEncoderOptions.ReturnNewInstructionOffsets);
+        uint Rva(Label l) => (uint)(result.GetLabelRIP(l) - Base);
+        var data = new byte[0x100];
+        for (int i = 0; i < 3; i++) BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan(0x20 + i * 8), Base + Rva(labels[i]));
+        var w = new NativeFormats.ElfWriter
+        {
+            Machine = NativeFormats.ElfWriter.EmX64, Type = 2, Base = Base, Entry = NativeFormats.ElfWriter.TextRva, Text = stream.ToArray(), Data = data,
+            Hash = NativeFormats.ElfWriter.HashKind.None,
+        };
+        var index = NativeCodeIndex.Build(Native.Elf.ElfFile.FromBytes(w.Build(), "fixed"));
+        var sw = Assert.Single(index.GetGraph(index.FunctionByStart(NativeFormats.ElfWriter.TextRva)!).Switches);
+        Assert.Equal(SwitchTableKind.Absolute, sw.Kind);
+        Assert.Equal(8, sw.EntrySize);
+        Assert.Equal(Rva(dflt), sw.Default);
+        Assert.Equal([2L, 3, 4], sw.Cases.SelectMany(c => c.Values));
+    }
+
     [Fact]
     public void X86_absolute_and_x64_table_relative_kinds()
     {

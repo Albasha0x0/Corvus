@@ -487,11 +487,14 @@ internal sealed class X86Decoder : ICodeDecoder
         Register index;
         uint table;
         bool absolute = false, relative = false, baseAssumed = false;
+        int entrySize = _is64 ? 8 : 4;
         int k;
         if (jmp.Op0Kind == OpKind.Memory)
         {
-            if (_is64 || jmp.MemoryBase != Register.None || jmp.MemoryIndex == Register.None || jmp.MemoryIndexScale != 4) return null;
-            if (!TryRva(jmp.MemoryDisplacement64, out table)) return null;
+            // "jmp [table + index*4]"; x64: a fixed-address image's "jmp [table + index*8]", or Go's "lea rB, [rip+table]; jmp [rB + index*8]"
+            if (jmp.MemoryIndex == Register.None || jmp.MemoryIndexScale != entrySize) return null;
+            if (jmp.MemoryBase == Register.None ? !TryRva(jmp.MemoryDisplacement64, out table)
+                : !_is64 || jmp.MemoryDisplacement64 != 0 || BaseOf(1, jmp.MemoryBase.GetFullRegister(), out table) != BaseKind.Table) return null;
             index = jmp.MemoryIndex.GetFullRegister();
             absolute = true;
             k = 1;
@@ -531,9 +534,17 @@ internal sealed class X86Decoder : ICodeDecoder
                 index = load.MemoryIndex.GetFullRegister();
                 k = l + 1;
             }
-            else if (!_is64 && w.Mnemonic == Mnemonic.Mov && w.Op1Kind == OpKind.Memory && w.MemoryBase == Register.None
-                     && w.MemoryIndex != Register.None && w.MemoryIndexScale == 4 && TryRva(w.MemoryDisplacement64, out table))
+            else if (w.Mnemonic == Mnemonic.Mov && w.Op1Kind == OpKind.Memory && w.MemoryBase == Register.None
+                     && w.MemoryIndex != Register.None && w.MemoryIndexScale == entrySize && TryRva(w.MemoryDisplacement64, out table))
             {
+                index = w.MemoryIndex.GetFullRegister();
+                absolute = true;
+                k++;
+            }
+            else if (_is64 && w.Mnemonic == Mnemonic.Mov && w.Op1Kind == OpKind.Memory && w.MemoryBase != Register.None && w.MemoryDisplacement64 == 0
+                     && w.MemoryIndex != Register.None && w.MemoryIndexScale == 8 && BaseOf(k + 1, w.MemoryBase.GetFullRegister(), out table) == BaseKind.Table)
+            {
+                // lea rB, [rip+table]; mov rT, [rB + index*8]; jmp rT (absolute 8-byte entries, as Go writes them)
                 index = w.MemoryIndex.GetFullRegister();
                 absolute = true;
                 k++;
@@ -544,8 +555,8 @@ internal sealed class X86Decoder : ICodeDecoder
 
         if (!TryFindBound(k, index, ref baseAssumed, out uint count, out uint? indexTable, out reason, out var bound)) return null;
         var match = indexTable is { } it
-            ? new SwitchMatch(table, 4, absolute, relative, 0, it, count, baseAssumed)
-            : new SwitchMatch(table, 4, absolute, relative, count, null, 0, baseAssumed);
+            ? new SwitchMatch(table, absolute ? entrySize : 4, absolute, relative, 0, it, count, baseAssumed)
+            : new SwitchMatch(table, absolute ? entrySize : 4, absolute, relative, count, null, 0, baseAssumed);
         return match with { Default = bound.Default, Bias = bound.Bias, BoundByMask = bound.Mask };
     }
 
