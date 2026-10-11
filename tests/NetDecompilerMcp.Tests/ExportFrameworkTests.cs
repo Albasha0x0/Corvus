@@ -108,6 +108,17 @@ public sealed class ExportFrameworkTests : IDisposable
         Assert.DoesNotContain("<Reference Include=\"System.Numerics.Vectors\" />", project);
     }
 
+    /// <summary>A portable library the SDK project writer refuses (Profile328) failed as an internal error.</summary>
+    [Trait("Speed", "Slow")]
+    [Fact]
+    public void PortableProfilesWithoutAnSdkFrameworkAreUnsupported()
+    {
+        using var env = new Env(RealPackages.Lib("Newtonsoft.Json", "12.0.2", "portable-net40+sl5+win8+wp8+wpa81", "Newtonsoft.Json.dll"));
+        var error = Assert.Throws<ToolError>(() => env.Decompiler.ExportProject(env.Fixture, _dir.File("out"), null, default));
+        Assert.Equal(ErrorCode.Unsupported, error.Code);
+        Assert.Contains("Profile328", error.Message);
+    }
+
     /// <summary>App uses Mid only; Mid exposes a type of Base, which the project then needs too (CS0012).</summary>
     [Fact]
     public void DependenciesOfReferencedLibrariesAreReferenced()

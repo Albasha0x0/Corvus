@@ -321,6 +321,11 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         {
             exporter.DecompileProject(asm.GetPEFile(), dir, cts.Token);
         }
+        catch (NotSupportedException ex)
+        {
+            throw new ToolError(ErrorCode.Unsupported, $"{asm.Id} targets {Frameworks.TargetFrameworkOf(asm.Module) ?? "a framework"} that an SDK-style project cannot express " +
+                $"(portable profiles such as Profile328): {ex.Message}", "decompile_type writes the types as source; a build of the same library for .NET Standard or .NET Framework exports");
+        }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             var written = Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(dir, f)).ToList();
