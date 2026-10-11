@@ -6,7 +6,8 @@ namespace NetDecompilerMcp.Native.Code;
 /// One operand. Fields an engine does not supply are null. <see cref="Target"/> is the RVA of a branch target or of a
 /// memory operand's effective address when it is absolute or RIP-relative and inside the image.
 /// </summary>
-/// <param name="Kind">register, immediate, memory, near_branch or far_branch.</param>
+/// <param name="Kind">register, immediate, memory, near_branch or far_branch; ARM64 also pc_relative (adr / adrp / literal address), shift, extend,
+/// condition, enum, system_register and register_list.</param>
 public sealed record InspectedOperand(int Index, string Kind, string Text)
 {
     /// <summary>Bytes the operand reads or writes (register width, memory access size, immediate size).</summary>
@@ -25,6 +26,10 @@ public sealed record InspectedOperand(int Index, string Kind, string Text)
     public long? Displacement { get; init; }
     public bool RipRelative { get; init; }
     public uint? Target { get; init; }
+    /// <summary>ARM64 memory index extend or shift (lsl #3, uxtw #2, sxtw).</summary>
+    public string? Extend { get; init; }
+    /// <summary>ARM64 base register writeback: pre or post.</summary>
+    public string? Writeback { get; init; }
 }
 
 /// <summary>A memory access the instruction makes (explicit operands and implicit ones: push, pop, string instructions).</summary>
@@ -33,10 +38,10 @@ public sealed record MemoryUse(string? Segment, string? Base, string? Index, int
 /// <summary>The decoded facts of one instruction. Lists an engine does not supply are null, never empty.</summary>
 public sealed record InspectedInstruction(uint Rva, int Length, string Bytes, string Text, string? Comment, string Mnemonic, IReadOnlyList<InspectedOperand> Operands)
 {
-    /// <summary>legacy, vex, evex, xop, 3dnow or mvex.</summary>
+    /// <summary>legacy, vex, evex, xop, 3dnow or mvex; ARM64: a64.</summary>
     public string? Encoding { get; init; }
     public IReadOnlyList<string>? Prefixes { get; init; }
-    /// <summary>CPUID feature sets the instruction needs.</summary>
+    /// <summary>CPUID feature sets the instruction needs (ARM64: the architecture feature, lse, pauth, ...).</summary>
     public IReadOnlyList<string>? Cpuid { get; init; }
     public bool Privileged { get; init; }
     public IReadOnlyList<string>? RegistersRead { get; init; }
@@ -54,9 +59,13 @@ public sealed record InspectedInstruction(uint Rva, int Length, string Bytes, st
     public uint? BranchTarget { get; init; }
     /// <summary>The next instruction when control can continue there (null after jmp, ret, traps).</summary>
     public uint? Fallthrough { get; init; }
+    /// <summary>ARM64: the other instruction of an ADRP pair (the adrp, or the add / load / store completing it).</summary>
+    public uint? PairRva { get; init; }
+    /// <summary>ARM64: the address an ADRP pair, an adr or a literal load forms.</summary>
+    public uint? FormedAddress { get; init; }
 }
 
-/// <summary>Decodes one x86 / x64 instruction with Iced into <see cref="InspectedInstruction"/>: operands, register and memory use, flags, flow.</summary>
+/// <summary>Decodes one x86 / x64 instruction with Iced (ARM64: <see cref="Arm64Inspector"/>) into <see cref="InspectedInstruction"/>: operands, register and memory use, flags, flow.</summary>
 public static class InstructionInspector
 {
     // Iced formatters are not thread-safe: one per thread.
@@ -77,10 +86,11 @@ public static class InstructionInspector
 
     /// <summary>
     /// The instruction at <paramref name="rva"/> (any mapped address), text and comment named through the index; null
-    /// when nothing is mapped there.
+    /// when nothing is mapped there. ARM64 decodes from <paramref name="runStart"/> (the block start) so ADRP pairs resolve.
     /// </summary>
-    public static InspectedInstruction? Inspect(NativeCodeIndex index, uint rva, NativeDisassembler? disassembler = null)
+    public static InspectedInstruction? Inspect(NativeCodeIndex index, uint rva, NativeDisassembler? disassembler = null, uint? runStart = null)
     {
+        if (index.Image.Arch == NativeArch.Arm64) return Arm64Inspector.Inspect(index, rva, disassembler, runStart);
         var image = index.Image;
         var line = (disassembler ?? index.CreateDisassembler()).DecodeOne(rva);
         if (line == null) return null;

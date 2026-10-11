@@ -29,7 +29,7 @@ public sealed record InstructionItem(
     string? Note);
 
 public sealed record InstructionDataItem(
-    [property: Description("string, iat_slot, jump_table, index_table, pointer, pe_directory, headers or section.")] string Kind,
+    [property: Description("string, iat_slot, jump_table, index_table, pointer, pe_directory, headers, section, data_in_code or literal.")] string Kind,
     string Start,
     [property: Description("Exclusive.")] string End,
     string Text);
@@ -59,11 +59,13 @@ public sealed record InstructionEntry(
     [property: Description("A call with its recovered arguments: CreateFileW(L\"a.ini\", GENERIC_READ, ...).")] string? Call,
     InstructionSwitch? Switch,
     string? Name,
-    string? UserComment);
+    string? UserComment,
+    [property: Description("ARM64: the other instruction of the ADRP pair (the adrp, or the add / load / store completing it).")] string? Pair = null,
+    [property: Description("ARM64: the address the ADRP pair, adr or literal load forms.")] string? FormedAddress = null);
 
 public sealed record OperandEntry(
     int Index,
-    [property: Description("register, immediate, memory, near_branch or far_branch.")] string Kind,
+    [property: Description("register, immediate, memory, near_branch or far_branch; ARM64 also pc_relative, shift, extend, condition, enum, system_register, register_list.")] string Kind,
     string Text,
     [property: Description("Bytes accessed.")] int? Size,
     [property: Description("read, write, read_write, cond_read, cond_write, read_cond_write or none.")] string? Access,
@@ -75,11 +77,13 @@ public sealed record OperandEntry(
     string? Base,
     string? IndexRegister,
     int? Scale,
-    [property: Description("Signed hex; RIP-relative: from the next instruction.")] string? Displacement,
+    [property: Description("Signed hex; RIP-relative: from the next instruction; ARM64 pc-relative: from the instruction (adrp: its page).")] string? Displacement,
     bool RipRelative,
     [property: Description("Branch target or effective address (absolute or RIP-relative) inside the image, as a VA.")] string? Target,
     string? TargetName,
-    [property: Description("The data item or function at the target, with its read / write reference counts for data.")] string? TargetItem);
+    [property: Description("The data item or function at the target, with its read / write reference counts for data.")] string? TargetItem,
+    [property: Description("ARM64: the memory index extend or shift (lsl #3, uxtw #2), or the kind of a shift / extend operand.")] string? Extend = null,
+    [property: Description("ARM64: base register writeback, pre or post.")] string? Writeback = null);
 
 public sealed record InstructionFlow(
     [property: Description("next, call, indirect_call, jump, indirect_jump, conditional_jump, return, trap or invalid.")] string Kind,
@@ -97,22 +101,21 @@ public sealed partial class NativeCodeTools
     private const int MaxInspectCount = 64;
 
     [McpServerTool(Name = "inspect_instruction", Title = "Inspect native instructions", UseStructuredContent = true, OutputSchemaType = typeof(InstructionReport))]
-    [Description("What is at an address of a native image (x86 / x64), instruction by instruction: decoded (an instruction start in a known function), " +
-                 "mid_instruction (with the instruction covering it), data (string, IAT slot, switch table, relocated pointer, PE directory; with its " +
-                 "start and end), not_in_function, unmapped (bss, zero-filled at load), outside_image or invalid. For an instruction: bytes, prefixes, " +
-                 "encoding, CPUID features; each operand's kind, size and access, registers with their full register, memory operands as base, index, " +
-                 "scale and displacement with the effective address named; registers and flags read and written, memory accesses, stack pointer change; " +
-                 "flow with branch target and fallthrough; references from and to; a call's recovered arguments; a switch's table. count > 1 walks " +
-                 "forward from the address (from the covering instruction when it is mid-instruction), skipping data items. With IDA (the only engine " +
-                 "for ARM64 and ARM): IDA's items, operands with base, index, scale and displacement, access, flow and references; fields IDA does not " +
-                 "supply are null. " + IndexNote)]
+    [Description("What is at an address of a native image (x86 / x64 / ARM64), instruction by instruction: decoded (an instruction start in a known function), " +
+                 "mid_instruction (with the covering instruction), data (string, IAT / GOT slot, switch table, relocated pointer, PE directory, ARM64 " +
+                 "literal or data in code; with its start and end), not_in_function, unmapped (bss), outside_image or invalid. For an instruction: bytes, " +
+                 "prefixes, encoding, CPUID / ARM64 features; each operand's kind, size and access, registers with their full register, memory as base, " +
+                 "index, scale or extend, displacement and pre / post-index writeback, with the effective address named; registers and flags read and " +
+                 "written, memory accesses, stack pointer change; flow with target and fallthrough; the ARM64 ADRP pair and the address it forms; " +
+                 "references from and to; a call's arguments; a switch's table. count > 1 walks forward, skipping data items. With IDA (ARM32 and " +
+                 "other instruction sets): IDA's items, operands, access, flow and references; fields IDA does not supply are null. " + IndexNote)]
     public Task<string> InspectInstruction(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
         [Description("Instructions to inspect from the address (1-64, default 1).")] int count = 1,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
-        [Description("Engine: auto (default: the built-in decoder for x86 / x64, IDA for other instruction sets when it is installed), ours or ida.")]
+        [Description("Engine: auto (default: the built-in decoder for x86 / x64 / ARM64, IDA for other instruction sets when it is installed), ours or ida.")]
         string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -122,8 +125,7 @@ public sealed partial class NativeCodeTools
         var rva = Address(index, address);
         int n = Math.Clamp(count, 1, MaxInspectCount);
         bool undecoded = index.Support == CodeSupport.DeclaredFunctionsOnly;
-        // the built-in inspector reads x86 / x64 operands; other decoded instruction sets go to IDA too
-        bool operands = !undecoded && index.Image.Arch is NativeArch.X86 or NativeArch.X64;
+        bool operands = !undecoded && index.Image.Arch is NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64;
         var origin = mode.Named ? $"engine={EngineModes.Name(mode.Mode)}" : $"server default {EngineModes.Name(mode.Mode)}";
         var choice = mode.Mode switch
         {
@@ -132,10 +134,8 @@ public sealed partial class NativeCodeTools
             // instruction details come from IDA only
             EngineMode.Auto when engines != null && engines.UnavailabilityOf("ida") == null => new EngineChoice("ida", undecoded
                 ? $"{origin}: the built-in analysis does not decode {index.Image.Arch} instructions"
-                : $"{origin}: the built-in inspector reads x86 / x64 operands"),
-            _ when undecoded => throw NativeEngineCode.Unsupported(index, engines),
-            _ => throw new ToolError(ErrorCode.Unsupported, $"The built-in inspector reads x86 / x64 operands; {index.Image.Arch} instructions are inspected through IDA.",
-                "install IDA Pro 9 or newer with idalib (or set NDM_IDA_DIR); disassemble and get_cfg decode this code without it"),
+                : $"{origin}: the built-in inspector reads x86 / x64 / ARM64 operands"),
+            _ => throw NativeEngineCode.Unsupported(index, engines),
         };
         var (text, report) = choice.External
             ? await InspectWithEngine(native, index, rva, n, choice, progress, cancellationToken)
@@ -148,7 +148,7 @@ public sealed partial class NativeCodeTools
         var image = index.Image;
         var classifier = new AddressClassifier(index);
         var disassembler = index.CreateDisassembler();
-        var calls = CallAnalysis.For(index);
+        var calls = NativeCallTools.Sites(index);
         var items = new List<InstructionItem>();
         var notes = new List<string>();
         var sb = new StringBuilder();
@@ -238,7 +238,7 @@ public sealed partial class NativeCodeTools
     }
 
     private static void AppendItem(StringBuilder sb, List<InstructionItem> items, NativeCodeIndex index, AddressClassifier classifier, NativeDisassembler disassembler,
-        CallAnalysis calls, AddressClass c, CancellationToken ct)
+        ICallSites? calls, AddressClass c, CancellationToken ct)
     {
         var image = index.Image;
         string Va(uint r) => NativeAddress.Va(image, r);
@@ -264,12 +264,12 @@ public sealed partial class NativeCodeTools
                 sb.AppendLine($"  covered by {containing}  {covering.Bytes}  {covering.Text}; use address={containing}");
         }
         else if (c.Status is AddressStatus.Decoded or AddressStatus.NotInFunction or AddressStatus.Invalid
-                 && InstructionInspector.Inspect(index, c.Rva, disassembler) is { } insn)
+                 && InstructionInspector.Inspect(index, c.Rva, disassembler, c.Block) is { } insn)
             entry = Describe(sb, index, classifier, calls, c, insn, ct);
         items.Add(new InstructionItem(c.StatusName, Va(c.Rva), $"0x{c.Rva:X}", function, c.Block is { } b ? Va(b) : null, containing, c.Section?.Name, data, entry, c.Note));
     }
 
-    private static InstructionEntry Describe(StringBuilder sb, NativeCodeIndex index, AddressClassifier classifier, CallAnalysis calls, AddressClass c,
+    private static InstructionEntry Describe(StringBuilder sb, NativeCodeIndex index, AddressClassifier classifier, ICallSites? calls, AddressClass c,
         InspectedInstruction insn, CancellationToken ct)
     {
         var image = index.Image;
@@ -290,6 +290,11 @@ public sealed partial class NativeCodeTools
             sb.AppendLine($"  flags read {List(insn.FlagsRead)}; written {List(insn.FlagsWritten)}; undefined {List(insn.FlagsUndefined)}");
         if (insn.StackPointerDelta is { } delta and not 0) sb.AppendLine($"  stack pointer {(delta > 0 ? "+" : "")}{delta}");
         var flow = Flow(sb, index, insn);
+        string? pair = insn.PairRva is { } pr ? Va(pr) : null;
+        string? formed = insn.FormedAddress is { } fa ? Va(fa) : null;
+        if (formed != null)
+            sb.AppendLine($"  forms {formed}{(index.NameAt(insn.FormedAddress!.Value) is { } fn ? " " + fn : "")}" + (pair != null ? $" with the instruction at {pair} (adrp pair)" : ""));
+        else if (pair != null) sb.AppendLine($"  adrp pair with {pair}");
 
         string? Name(uint r) => index.NameAt(r) ?? (index.StringAt(r) != null ? index.CommentFor(r) : null);
         var from = index.RefsFrom(c.Rva, c.Rva + (uint)insn.Length).Select(x => new InstructionReference(Va(x.From), Va(x.To), x.Kind.ToString(), Name(x.To))).ToList();
@@ -300,7 +305,7 @@ public sealed partial class NativeCodeTools
         if (toCount > 0) sb.AppendLine($"  references to: {toCount} (" + string.Join("; ", to.Select(r => $"{r.Kind} from {r.Name}")) + (toCount > to.Count ? "; ..." : "") + ")");
 
         string? call = null;
-        if (c.Function != null && insn.Flow is "call" or "indirect_call" or "jump" or "indirect_jump" && calls.CallAt(c.Rva, ct) is { } site)
+        if (c.Function != null && insn.Flow is "call" or "indirect_call" or "jump" or "indirect_jump" && calls?.CallAt(c.Rva, ct) is { } site)
         {
             call = site.Display;
             sb.AppendLine($"  call {call} [{site.Kind.ToString().ToLowerInvariant()}{(site.Guessed ? ", arguments guessed" : "")}]");
@@ -318,7 +323,7 @@ public sealed partial class NativeCodeTools
         if (comment is { } cm) sb.AppendLine($"  comment ({cm.Source.Id()}): {cm.Text}");
         return new InstructionEntry(insn.Bytes, insn.Length, insn.Text, insn.Comment, insn.Mnemonic, insn.Encoding, insn.Prefixes, insn.Cpuid, insn.Privileged, operands,
             insn.RegistersRead, insn.RegistersWritten, insn.MemoryAccesses, insn.FlagsRead, insn.FlagsWritten, insn.FlagsUndefined, insn.StackPointerDelta, flow,
-            from, toCount, to, call, sw, named?.Name, comment?.Text);
+            from, toCount, to, call, sw, named?.Name, comment?.Text, pair, formed);
     }
 
     private static List<OperandEntry> Operands(StringBuilder sb, NativeCodeIndex index, AddressClassifier? classifier, InspectedInstruction insn, CancellationToken ct)
@@ -341,10 +346,11 @@ public sealed partial class NativeCodeTools
             if (o.Kind == "immediate" && o.Value is { } v) facts.Add($"0x{v:X}" + (o.SignedValue < 0 ? $" ({o.SignedValue})" : ""));
             if (o.Base != null || o.IndexRegister != null || o.RipRelative || o.Displacement is not null and not 0)
             {
-                if (o.RipRelative) facts.Add("rip-relative");
+                if (o.RipRelative) facts.Add(o.Kind is "pc_relative" or "near_branch" ? "pc-relative" : "rip-relative");
                 if (o.Base != null) facts.Add($"base {o.Base}");
-                if (o.IndexRegister != null) facts.Add($"index {o.IndexRegister}, scale {o.Scale}");
-                if (o.Displacement is { } d and not 0) facts.Add($"displacement {Signed(d)}");
+                if (o.IndexRegister != null) facts.Add($"index {o.IndexRegister}" + (o.Extend != null ? $" {o.Extend}" : $", scale {o.Scale}"));
+                if (o.Displacement is { } d and not 0 && o.Kind != "near_branch") facts.Add($"displacement {Signed(d)}");
+                if (o.Writeback != null) facts.Add($"{o.Writeback}-index writeback");
             }
             line.Append($" ({string.Join(", ", facts)})");
             if (o.Target is { } target)
@@ -352,7 +358,7 @@ public sealed partial class NativeCodeTools
             sb.AppendLine(line.ToString());
             operands.Add(new OperandEntry(o.Index, o.Kind, o.Text, o.Size, o.Access, o.Register, o.FullRegister, o.Value is { } value ? $"0x{value:X}" : null,
                 o.SignedValue, o.Segment, o.Base, o.IndexRegister, o.Scale, o.Displacement is { } disp ? Signed(disp) : null, o.RipRelative,
-                o.Target is { } tt ? Va(tt) : null, targetName, targetItem));
+                o.Target is { } tt ? Va(tt) : null, targetName, targetItem, o.Extend, o.Writeback));
         }
         return operands;
     }

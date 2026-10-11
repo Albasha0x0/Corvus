@@ -22,7 +22,7 @@ public enum AddressStatus
 }
 
 /// <summary>A data item covering an address; End is exclusive.</summary>
-/// <param name="Kind">string, iat_slot, jump_table, index_table, pointer, pe_directory, headers or section.</param>
+/// <param name="Kind">string, iat_slot, jump_table, index_table, pointer, pe_directory, headers or section; ARM64 also data_in_code and literal.</param>
 public sealed record DataItem(string Kind, uint Start, uint End, string Text);
 
 /// <summary>
@@ -102,6 +102,10 @@ public sealed class AddressClassifier
             return new(rva, AddressStatus.Data, null, null, null, 0, false, item, section, null);
         if (section is { IsExecutable: true })
         {
+            // fixed 4-byte instructions: an unaligned address is inside the word that starts at the boundary below it
+            if (_image.Arch == NativeArch.Arm64 && (rva & 3) != 0 && DecodeLength(rva & ~3u) > 0)
+                return new(rva, AddressStatus.MidInstruction, null, null, rva & ~3u, 4, false, null, section,
+                    $"ARM64 instructions start on 4-byte boundaries; the instruction at 0x{_image.ImageBase + (rva & ~3u):X} covers it");
             int length = DecodeLength(rva);
             return length > 0
                 ? new(rva, AddressStatus.NotInFunction, null, null, rva, length, false, null, section, "no known function contains it: unowned code or data")
@@ -192,6 +196,7 @@ public sealed class AddressClassifier
             return new DataItem("string", str.Rva, str.Rva + bytes, _index.CommentFor(str.Rva) ?? "");
         }
         if (TableCovering(rva, ct) is { } table) return table;
+        if (_image.Arch == NativeArch.Arm64 && section is { IsExecutable: true } && Arm64DataAt(rva) is { } inCode) return inCode;
         if (Floor(_relocations, rva) is { } r && rva < _relocations[r] + (uint)_pointerSize && !InFunctionCode(_relocations[r]))
         {
             uint at = _relocations[r];
@@ -208,6 +213,40 @@ public sealed class AddressClassifier
     }
 
     private bool InFunctionCode(uint rva) => _index.FunctionAt(rva) != null;
+
+    /// <summary>ARM64 data inside code: declared data-in-code ranges, and literal pool entries a pc-relative load reads.</summary>
+    private DataItem? Arm64DataAt(uint rva)
+    {
+        foreach (var (start, end) in _index.DataInCode)
+        {
+            if (start > rva) break;
+            if (rva < end) return new DataItem("data_in_code", start, end, "data in code (literal pool, jump table or constants the image declares)");
+        }
+        foreach (var x in _index.RefsToRange(rva > 15 ? rva - 15 : 0, rva + 1))
+        {
+            if (x.Kind != XrefKind.Read || _image.SectionAt(x.From) is not { IsExecutable: true } || LiteralSize(x.From) is not { } size || rva >= x.To + (uint)size) continue;
+            return new DataItem("literal", x.To, x.To + (uint)size, $"literal pool entry ({size} bytes) loaded at 0x{_image.ImageBase + x.From:X}");
+        }
+        return null;
+    }
+
+    /// <summary>The bytes a pc-relative literal load at <paramref name="from"/> reads, or null when it is no literal load.</summary>
+    private int? LiteralSize(uint from)
+    {
+        Span<byte> word = stackalloc byte[4];
+        if (_image.Read(from, word) != 4) return null;
+        var i = AsmArm64.Arm64Instruction.Decode(BitConverter.ToUInt32(word));
+        if ((i.Flags & AsmArm64.Arm64InstructionFlags.HasLabel) == 0 || i.Mnemonic is not (AsmArm64.Arm64Mnemonic.LDR or AsmArm64.Arm64Mnemonic.LDRSW)) return null;
+        if (i.Mnemonic == AsmArm64.Arm64Mnemonic.LDRSW) return 4;
+        if (i.GetOperand(0) is not { Kind: AsmArm64.Arm64OperandKind.Register } op) return null;
+        var r = ((AsmArm64.Arm64RegisterOperand)op).Value;
+        return r.Kind switch
+        {
+            AsmArm64.Arm64RegisterKind.W => 4,
+            AsmArm64.Arm64RegisterKind.X => 8,
+            _ => r.VKind switch { AsmArm64.Arm64RegisterVKind.S => 4, AsmArm64.Arm64RegisterVKind.D => 8, _ => 16 },
+        };
+    }
 
     private static string DirectoryText(PeDataDirectory d) => d.Index switch
     {

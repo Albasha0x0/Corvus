@@ -387,6 +387,12 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         return d.DecodeMapped(rva, out var insn) ? NativeDisassembler.Facts(in insn) : null;
     }
 
+    /// <summary>A decoder over this index's code (relocations, import slots, data in code), or null without one. One per caller.</summary>
+    internal ICodeDecoder? NewDecoder() => _ctx?.NewDecoder(computeAccess: true);
+
+    /// <summary>Sorted byte ranges inside code that hold data (Mach-O data in code, ELF $d mapping symbols).</summary>
+    internal (uint Start, uint End)[] DataInCode => _ctx?.DataInCode ?? [];
+
     /// <summary>A disassembler that names targets through this index. Not thread-safe; create one per caller.</summary>
     public NativeDisassembler CreateDisassembler()
     {
