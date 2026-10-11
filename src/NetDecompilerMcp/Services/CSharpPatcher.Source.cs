@@ -110,7 +110,23 @@ public sealed partial class CSharpPatcher
             if (d.Location.SourceTree.GetRoot().FindNode(d.Location.SourceSpan).AncestorsAndSelf().Any(n => n is AttributeSyntax) && !text.EndsWith("Attribute", StringComparison.Ordinal))
                 names.Add(text + "Attribute");
         }
+        foreach (var d in diagnostics.Where(d => d.Id == "CS0104"))
+            if (AmbiguousPair().Match(d.GetMessage(System.Globalization.CultureInfo.InvariantCulture)) is { Success: true } m)
+                names.Add(AmbiguousPrefix + MetadataName(m.Groups[1].Value) + "|" + MetadataName(m.Groups[2].Value));
         return names;
+    }
+
+    /// <summary>Marks a CS0104 pair "A|B" (metadata full names) among the clashing names; see <see cref="HideClashingTypes"/>.</summary>
+    internal const string AmbiguousPrefix = "ambiguous:";
+
+    [GeneratedRegex(@"between '([^']+)' and '([^']+)'")]
+    private static partial Regex AmbiguousPair();
+
+    /// <summary>"System.Func&lt;T, TResult&gt;" as System.Func`2.</summary>
+    private static string MetadataName(string display)
+    {
+        int lt = display.IndexOf('<');
+        return lt < 0 ? display : display[..lt] + "`" + (display[lt..].Count(c => c == ',') + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private static byte[] WriteImage(ModuleDef module)

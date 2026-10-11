@@ -407,6 +407,18 @@ public sealed class RealScenarioRegressionTests
     }
 
     /// <summary>
+    /// A .NET 2.0 library with its own Func&lt;T, TResult&gt; compiled against mscorlib 4 made every patch of a type using it fail
+    /// with CS0104 (ambiguous with System.Func); the target's own type is the one its code meant.
+    /// </summary>
+    [Fact]
+    public void CSharpPatchesPreferTheTargetsOwnTypeOverANewerFrameworkTypeOfTheSameName()
+    {
+        using var env = new Env(RealPackages.Lib("Newtonsoft.Json", "13.0.1", "net20", "Newtonsoft.Json.dll"));
+        Assert.Contains("compiled OK", env.Edit(() => env.Edits.PatchMethodCSharp(env.One("Newtonsoft.Json.Utilities.ThreadSafeStore`2::Get"),
+            "return _creator(key);", dryRun: true, default)));
+    }
+
+    /// <summary>
     /// Two references with an internal System.SR, neither public nor used by the target: none was hidden, so SR in code of
     /// namespace App.Sub (usings inside it) was ambiguous instead of the target's App.SR (System.Web.SR in System.Web.Security).
     /// </summary>

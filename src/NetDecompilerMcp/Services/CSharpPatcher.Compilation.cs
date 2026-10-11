@@ -127,7 +127,8 @@ public sealed partial class CSharpPatcher
     private static void HideClashingTypes(LoadedAssembly asm, List<(string Name, byte[] Image, string Path)> images, List<MetadataReference> references,
         IReadOnlySet<string> clashing)
     {
-        var defined = images.Select(i => TopLevelTypes(i.Image).Where(t => clashing.Contains(Format.StripArity(t.Name))).ToList()).ToList();
+        var all = images.Select(i => TopLevelTypes(i.Image)).ToList();
+        var defined = all.Select(types => types.Where(t => clashing.Contains(Format.StripArity(t.Name))).ToList()).ToList();
         var usedFrom = asm.Module.GetTypeRefs().Where(t => t.ResolutionScope is AssemblyRef)
             .GroupBy(t => t.FullName).ToDictionary(g => g.Key, g => ((AssemblyRef)g.First().ResolutionScope).Name.String);
         var hide = new Dictionary<int, HashSet<string>>();
@@ -142,7 +143,18 @@ public sealed partial class CSharpPatcher
             if (winner == null && owners.Any(Public)) continue;
             // The target's own type wins over referenced ones, public or not, as when it was compiled (CS0436).
             foreach (int i in owners.Where(i => i != winner && (winner == 0 || !Public(i))))
-                (hide.TryGetValue(i, out var set) ? set : hide[i] = new HashSet<string>(StringComparer.Ordinal)).Add(name);
+                Hide(i, name);
+        }
+        // CS0104 between a type of the target and one of a reference (System.Func, Lazy, Tuple in a library that predates them
+        // and defines its own, compiled now against a newer framework): the target's type is the one its code meant.
+        var own = all[0].Select(t => t.FullName).ToHashSet(StringComparer.Ordinal);
+        foreach (var pair in clashing.Where(c => c.StartsWith(AmbiguousPrefix, StringComparison.Ordinal)))
+        {
+            var names = pair[AmbiguousPrefix.Length..].Split('|');
+            if (names.Length != 2 || own.Contains(names[0]) == own.Contains(names[1])) continue;
+            var other = own.Contains(names[0]) ? names[1] : names[0];
+            for (int i = 1; i < images.Count; i++)
+                if (all[i].Any(t => t.FullName == other)) Hide(i, other);
         }
         foreach (var (i, names) in hide)
             if (WithTypesRenamed(images[i].Image, names) is { } renamed)
@@ -150,6 +162,8 @@ public sealed partial class CSharpPatcher
                 images[i] = (images[i].Name, renamed, images[i].Path);
                 references[i] = Reference(renamed);
             }
+
+        void Hide(int image, string name) => (hide.TryGetValue(image, out var set) ? set : hide[image] = new HashSet<string>(StringComparer.Ordinal)).Add(name);
     }
 
     private static List<(string FullName, string Name, bool IsPublic)> TopLevelTypes(byte[] image)
