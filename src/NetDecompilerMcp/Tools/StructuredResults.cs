@@ -200,7 +200,7 @@ internal static class EngineDoc
     public const string Note = "Why that engine answered (the engine parameter or server default, and for auto whether IDA's analysis of the image was complete).";
 }
 
-public sealed record NativeStringEntry(string Address, [property: Description("ascii, utf16 or il2cpp (a string literal slot).")] string Encoding,
+public sealed record NativeStringEntry(string Address, [property: Description("ascii, utf16, il2cpp (a string literal slot) or nativeaot (a frozen String object).")] string Encoding,
     [property: Description("Text (clipped at 400 characters).")] string Text, int References, string? FirstFunction);
 
 public sealed record NativeStringList(string Image, IReadOnlyList<NativeStringEntry> Items, int Offset, int Total, bool Truncated)

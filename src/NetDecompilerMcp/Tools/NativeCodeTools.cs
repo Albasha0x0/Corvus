@@ -410,7 +410,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
 
     [McpServerTool(Name = "search_native_strings", Title = "Search native strings", UseStructuredContent = true, OutputSchemaType = typeof(NativeStringList))]
     [Description("Strings (ASCII and UTF-16) a native image's code or data references, with the address, the number of references and the first " +
-                 "referencing function; filter by substring or regex. After apply_il2cpp_names also the Il2Cpp string literals, by the slot code loads them from. " + IndexNote)]
+                 "referencing function; filter by substring or regex. After apply_il2cpp_names also the Il2Cpp string literals, by the slot code loads them from; " +
+                 "in a NativeAOT image the string literals (frozen String objects), by the object code loads. " + IndexNote)]
     public Task<string> SearchNativeStrings(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Text to find (case-insensitive substring), or a regex with regex=true; omit to list all.")] string? query = null,
@@ -431,9 +432,13 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         var rows = new List<string>();
         var items = new List<NativeStringEntry>();
         int pageStart = Math.Max(0, offset), pageEnd = pageStart + Math.Clamp(limit, 1, 5_000); // the page PageRows shows
+        // NativeAOT string literals are frozen String objects; code loads the object, so they are listed by it rather than by their characters.
+        var frozen = NativeAotNames.View(native, cancellationToken)?.Frozen.Objects.Where(o => o.Text != null).ToList() ?? [];
+        var frozenChars = frozen.Select(o => o.Rva + 12).ToHashSet();
         foreach (var s in index.Strings)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (frozenChars.Contains(s.Rva)) continue;
             var text = index.ReadString(s, 400);
             bool match = query == null || (pattern != null ? timeouts.IsMatch(pattern, text) : text.Contains(query, StringComparison.OrdinalIgnoreCase));
             if (!match) continue;
@@ -457,6 +462,16 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
                          $"{index.CountRefsTo(slot)} refs{(first != null ? $", first in {first}" : "")}");
                 if (rows.Count - 1 >= pageStart && rows.Count - 1 < pageEnd) items.Add(new NativeStringEntry(NativeAddress.Va(index.Image, slot), "il2cpp", Format.Clip(text, 400), index.CountRefsTo(slot), first));
             }
+        foreach (var o in frozen)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (query != null && !(pattern != null ? timeouts.IsMatch(pattern, o.Text!) : o.Text!.Contains(query, StringComparison.OrdinalIgnoreCase))) continue;
+            var refs = index.RefsTo(o.Rva, 1);
+            var first = refs.Count > 0 && index.FunctionAt(refs[0].From) is { } f ? f.Name : null;
+            rows.Add($"{NativeAddress.Va(index.Image, o.Rva)}  nativeaot \"{Format.Clip(Escape(o.Text!), 200)}\"  {index.NameAt(o.Rva) ?? "frozen string"}, " +
+                     $"{index.CountRefsTo(o.Rva)} refs{(first != null ? $", first in {first}" : "")}");
+            if (rows.Count - 1 >= pageStart && rows.Count - 1 < pageEnd) items.Add(new NativeStringEntry(NativeAddress.Va(index.Image, o.Rva), "nativeaot", Format.Clip(o.Text!, 400), index.CountRefsTo(o.Rva), first));
+        }
         return StructuredOutput.With(timeouts.Note("string") + pager.PageRows(rows, offset, limit, "string"),
             new NativeStringList(native.Id, items, pageStart, rows.Count, pageStart + items.Count < rows.Count) { NotEvaluated = timeouts.Count });
     });

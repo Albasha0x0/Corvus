@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native.Annotations;
 using NetDecompilerMcp.Native.Code;
 using NetDecompilerMcp.Native.Pe;
@@ -98,8 +99,7 @@ public class NativeAotNamesTests(ITestOutputHelper output)
     public async Task AutoApply_OnIndexBuild_SavedAndRestored()
     {
         using var dir = new TempDir();
-        var path = dir.File("app.exe");
-        File.WriteAllBytes(path, ((PeFile)T.Build(16).Aot.Image).FileBytes.ToArray());
+        var (path, _) = WriteImage(dir);
         var store = dir.File("ann");
 
         using (var env = new Env())
@@ -138,6 +138,35 @@ public class NativeAotNamesTests(ITestOutputHelper output)
         Assert.Null(NativeAotNames.View(native));
     }
 
+    /// <summary>The synthetic image with Dog::Speak loading the frozen string "hi" (lea rcx, [rip+string]; ret), written to <paramref name="dir"/>.</summary>
+    internal static (string Path, T.World World) WriteImage(TempDir dir, string name = "app.exe")
+    {
+        var w = T.Build(16);
+        var pe = (PeFile)w.Aot.Image;
+        var bytes = pe.FileBytes.ToArray();
+        Assert.True(pe.TryRvaToFileOffset(T.SpeakCode, out long at));
+        byte[] lea = [0x48, 0x8D, 0x0D, 0, 0, 0, 0, 0xC3];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(lea.AsSpan(3), (int)(w.Text + 8 - (T.SpeakCode + 7)));
+        lea.CopyTo(bytes, at);
+        var path = dir.File(name);
+        File.WriteAllBytes(path, bytes);
+        return (path, w);
+    }
+
+    [Fact]
+    public async Task SearchNativeStrings_ListsFrozenStringsByTheObject()
+    {
+        using var env = new Env();
+        using var dir = new TempDir();
+        var code = new NativeCodeService(env.Workspace, env.Options, null, new AnnotationStore(dir.File("ann")));
+        var tools = new NetDecompilerMcp.Tools.NativeCodeTools(env.Workspace, code, new OutputPager(env.Options));
+        var (path, _) = WriteImage(dir);
+        var text = await tools.SearchNativeStrings(path, "hi");
+        output.WriteLine(text);
+        Assert.Contains("nativeaot \"hi\"  str_0, 1 refs, first in Sample_Zoo_Dog__Speak", text);
+        Assert.DoesNotContain("L\"hi\"", text);
+    }
+
     /// <summary>The production ilc binaries: most functions named right after load; logged as named / all index functions and / .pdata starts.</summary>
     [Theory]
     [Trait("Speed", "Slow")]
@@ -158,5 +187,10 @@ public class NativeAotNamesTests(ITestOutputHelper output)
         Assert.True(pdataNamed > 0.75 * pdata.Count, $"{pdataNamed} of {pdata.Count}");
         Assert.Contains(index.Sourced.AddressesOf("ILCompiler_Program__Main"), a => a.Source == NativeNameSource.NativeAot);
         Assert.NotEmpty(index.Sourced.AddressesOf("MT_System_String"));
+        var strings = NativeAotNames.View(native)!.Frozen.Objects.Where(o => o.Text != null).ToList();
+        int referenced = strings.Count(o => index.CountRefsTo(o.Rva) > 0);
+        output.WriteLine($"  {referenced} of {strings.Count} frozen strings referenced by code");
+        if (sample.StartsWith("win-x64", StringComparison.Ordinal)) // the ARM64 index records no adrp/add data references yet
+            Assert.True(referenced > strings.Count / 2, $"{referenced} of {strings.Count} frozen strings referenced");
     }
 }
