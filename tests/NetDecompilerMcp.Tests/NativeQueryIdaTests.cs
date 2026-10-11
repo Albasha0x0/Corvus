@@ -66,4 +66,25 @@ public sealed class NativeQueryIdaTests(ITestOutputHelper output) : IDisposable
         Assert.StartsWith("Frame of Widget::Run at ", frame);
         Assert.Contains("(symbol ?Run@Widget@@QEAAXXZ)", frame);
     }
+
+    [IdaFact]
+    public async Task Find_xrefs_from_a_function_through_IDA_by_kind()
+    {
+        var rig = Setup();
+        var from = await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ida", direction: "from");
+        output.WriteLine(string.Join('\n', from.Split('\n').Take(12)));
+        Assert.Contains($"References from 0x", from);
+        Assert.Contains("(the whole function) (via IDA)", from);
+        Assert.Matches(@"(?m)^\s*0x[0-9A-F]+  Call\s+\S+\+0x[0-9A-F]+  -> 0x[0-9A-F]+", from);
+        var code = await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ida", direction: "from", kind: "code");
+        var data = await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ida", direction: "from", kind: "data");
+        Assert.DoesNotMatch(@"(?m)^\s*0x[0-9A-F]+  (Read|Write|Offset)\s", code);
+        Assert.DoesNotMatch(@"(?m)^\s*0x[0-9A-F]+  (Call|Jump|Code)\s", data);
+        // every row is in one of the two
+        static int Rows(string text) => System.Text.RegularExpressions.Regex.Count(text, @"(?m)^\s*0x[0-9A-F]+  \S");
+        Assert.Equal(Rows(from), Rows(code) + Rows(data));
+        var both = await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ida", direction: "both");
+        Assert.Contains("References to ", both);
+        Assert.Contains("References from ", both);
+    }
 }

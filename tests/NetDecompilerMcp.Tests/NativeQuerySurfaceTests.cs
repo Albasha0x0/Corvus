@@ -40,6 +40,14 @@ public sealed class NativeQuerySurfaceTests : IDisposable
             new NativeTypeTools(workspace, engines, new NativeUserTypePush(code), code), new NativeCodeTools(workspace, code, pager, null, engines), first, second);
     }
 
+    /// <summary>The structured record a tool call hands to the call filter.</summary>
+    internal static async Task<T> Structured<T>(Func<Task<string>> call)
+    {
+        var collector = Mcp.StructuredOutput.Begin();
+        await call();
+        return Assert.IsType<T>(collector.Value);
+    }
+
     [Theory]
     [InlineData("?Run@Widget@@QEAAXXZ", "Widget::Run")]
     [InlineData("_ZN6Widget3RunEv", "Widget::Run()")]
@@ -65,9 +73,78 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         Assert.StartsWith("Frame of Second at ", await rig.Types.GetNativeFrame(rig.Native.Id, "Second"));
     }
 
+    /// <summary>Code tools over a small image whose 0x1000 reads the slot 0x5040 and calls 0x1100 (see <see cref="Il2CppNativeNamesTests.GameAssembly"/>).</summary>
+    private async Task<(NativeCodeTools Tools, string Image)> CodeImage()
+    {
+        var rig = await Setup();
+        var path = _dir.File("calls.dll");
+        File.WriteAllBytes(path, Il2CppNativeNamesTests.GameAssembly());
+        var id = rig.Workspace.LoadAny(path).Native!.Id;
+        return (rig.CodeTools, id);
+    }
+
+    [Fact]
+    public async Task Find_xrefs_lists_references_from_a_function_and_filters_by_kind()
+    {
+        var (tools, image) = await CodeImage();
+        var to = await tools.FindXrefs(image, "rva:0x1100", engine: "ours");
+        Assert.Contains("References to ", to);
+        Assert.Contains("Call", to);
+        Assert.DoesNotContain("->", to);
+
+        var from = await tools.FindXrefs(image, "rva:0x1000", engine: "ours", direction: "from");
+        Assert.Contains("References from 0x180001000", from);
+        Assert.Contains("(the whole function,", from);
+        Assert.Matches(@"0x18000100[0-9A-F]  Call\s+sub_1000\+0x[0-9A-F]+  -> 0x180001100 \(sub_1100\)", from);
+        Assert.Matches(@"Read\s+sub_1000\+0x0  -> 0x180005040", from);
+        var items = (await Structured<XrefList>(() => tools.FindXrefs(image, "rva:0x1000", engine: "ours", direction: "from"))).Items;
+        Assert.Contains(items, i => i.Kind == "Call" && i.Target == "0x180001100");
+
+        var data = await tools.FindXrefs(image, "rva:0x1000", engine: "ours", direction: "from", kind: "data");
+        Assert.DoesNotContain("sub_1100)", data);
+        Assert.Contains("data only", data);
+        var code = (await Structured<XrefList>(() => tools.FindXrefs(image, "rva:0x1000", engine: "ours", direction: "from", kind: "code"))).Items;
+        Assert.Equal(["Call"], code.Select(i => i.Kind).Distinct());
+
+        // one instruction: only its own references
+        var call = await tools.FindXrefs(image, "rva:0x1007", engine: "ours", direction: "from");
+        Assert.Contains("-> 0x180001100", call);
+        Assert.DoesNotContain("0x180005040", call);
+
+        var both = await tools.FindXrefs(image, "rva:0x1100", engine: "ours", direction: "both");
+        Assert.Contains("References to 0x180001100", both);
+        Assert.Contains("References from 0x180001100", both);
+        Assert.Contains("-> 0x180001200", both);
+
+        var bad = await Assert.ThrowsAsync<ToolError>(() => tools.FindXrefs(image, "rva:0x1000", direction: "sideways"));
+        Assert.Equal(ErrorCode.InvalidArgument, bad.Code);
+        bad = await Assert.ThrowsAsync<ToolError>(() => tools.FindXrefs(image, "rva:0x1000", kind: "calls"));
+        Assert.Equal(ErrorCode.InvalidArgument, bad.Code);
+    }
+
+    [Fact]
+    public async Task Find_xrefs_from_through_an_engine_asks_for_the_whole_function_at_its_start()
+    {
+        var rig = await Setup();
+        rig.Provider.From.Add(new NativeXref(rig.First, rig.Second, NativeXrefKind.Call, rig.First));
+        rig.Provider.From.Add(new NativeXref(rig.First, rig.Second + 0x100, NativeXrefKind.Read, rig.First));
+        var text = await rig.CodeTools.FindXrefs(rig.Native.Id, "First", engine: "ida", direction: "from");
+        Assert.Contains((rig.First, true), rig.Provider.FromAsked);
+        Assert.Contains("(the whole function) (via IDA)", text);
+        Assert.Matches(@"Call\s+First\+0x0  -> 0x[0-9A-F]+ \(Second\)", text);
+        Assert.Contains("Read", text);
+        var data = await rig.CodeTools.FindXrefs(rig.Native.Id, "First", engine: "ida", direction: "from", kind: "data");
+        Assert.DoesNotContain("(Second)", data);
+        Assert.Contains("Read", data);
+        await rig.CodeTools.FindXrefs(rig.Native.Id, $"rva:0x{rig.Second + 1:X}", engine: "ida", direction: "from");
+        Assert.Contains((rig.Second + 1, false), rig.Provider.FromAsked);
+    }
+
     internal sealed class FakeProvider : INativeDecompilerProvider
     {
         public List<(uint Start, uint End, string Name)> Functions { get; set; } = [];
+        public List<NativeXref> From { get; } = [];
+        public List<(uint Rva, bool Whole)> FromAsked { get; } = [];
         public string Id => IdaProvider.ProviderId;
         public string DisplayName => "fake engine";
         public ProviderAvailability CheckAvailability() => ProviderAvailability.Ok(Id, new Dictionary<string, string>());
@@ -113,8 +190,11 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         public Task<PatchSyncResult> SyncPatchesAsync(IReadOnlyList<NativeByteRange> wanted, CancellationToken cancellationToken = default) =>
             Task.FromResult(new PatchSyncResult(wanted.Count, 0, 0, 0, 0, 0, [], TimeSpan.Zero));
         public Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<NativeXref>>([]);
-        public Task<IReadOnlyList<NativeXref>> GetXrefsFromAsync(uint rva, bool wholeFunction = false, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<NativeXref>>([]);
+        public Task<IReadOnlyList<NativeXref>> GetXrefsFromAsync(uint rva, bool wholeFunction = false, CancellationToken cancellationToken = default)
+        {
+            provider.FromAsked.Add((rva, wholeFunction));
+            return Task.FromResult<IReadOnlyList<NativeXref>>(provider.From.Where(x => wholeFunction ? provider.At(x.FromRva).Start == rva : x.FromRva == rva).ToList());
+        }
         public Task<string> SetNameAsync(uint rva, string name, CancellationToken cancellationToken = default) => Task.FromResult(name);
         public Task<string> SetCommentAsync(uint rva, string text, bool repeatable = false, CancellationToken cancellationToken = default) => Task.FromResult(text);
 

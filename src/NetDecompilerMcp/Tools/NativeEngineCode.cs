@@ -267,7 +267,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
     /// find_xrefs rows in the tool's format, the header lines and the target as shown: the engine's references, plus the
     /// virtual call sites the built-in index resolved through RTTI that the engine has no reference from (marked "ours").
     /// </summary>
-    public async Task<(string Header, List<string> Rows, string Target)> Xrefs(LoadedNative native, NativeCodeIndex index, uint rva,
+    public async Task<(string Title, List<string> Rows, string Target)> Xrefs(LoadedNative native, NativeCodeIndex index, uint rva,
         EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
         var session = await Session(native, choice, progress, ct);
@@ -285,7 +285,36 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
         }
         var name = functions.ByStart.TryGetValue(rva, out var t) ? Name(index, rva, t.Name) : index.NameAt(rva);
         var target = $"{Va(index, rva)}{(name != null ? $" ({name})" : "")}";
-        return ($"References to {target} {Via(choice.Engine)}:\n{choice.Line}\n", rows.OrderBy(r => r.From).Select(r => r.Row).ToList(), target);
+        return ($"References to {target} {Via(choice.Engine)}:\n", rows.OrderBy(r => r.From).Select(r => r.Row).ToList(), target);
+    }
+
+    /// <summary>
+    /// find_xrefs direction=from: the engine's references from the item at <paramref name="rva"/> or, at a function start, from
+    /// the whole function, plus the RTTI-resolved virtual calls the built-in index has from there; rows end "-> target (name)".
+    /// </summary>
+    public async Task<(string Title, List<string> Rows, string Target)> XrefsFrom(LoadedNative native, NativeCodeIndex index, uint rva,
+        EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    {
+        var session = await Session(native, choice, progress, ct);
+        var functions = await LoadFunctions(session, references: false, ct);
+        bool whole = functions.ByStart.TryGetValue(rva, out var self);
+        var xrefs = await session.GetXrefsFromAsync(rva, whole, ct);
+        string Where(uint from, uint? function) => (function ?? functions.At(from)?.StartRva) is { } f && functions.ByStart.TryGetValue(f, out var info)
+            ? $"{Name(index, f, info.Name)}+0x{from - f:X}" : "(no function)";
+        string To(uint to) => Va(index, to) + ((functions.ByStart.TryGetValue(to, out var t) ? Name(index, to, t.Name) : index.NameAt(to)) is { } n ? $" ({n})" : "");
+        var rows = xrefs.Select(x => (From: x.FromRva, To: x.ToRva, Row: $"{Va(index, x.FromRva)}  {x.Kind,-10} {Where(x.FromRva, x.FromFunctionRva)}  -> {To(x.ToRva)}")).ToList();
+        if (Decoded(index))
+        {
+            var seen = xrefs.Select(x => (x.FromRva, x.ToRva)).ToHashSet();
+            uint end = whole ? self!.EndRva : rva + 1;
+            foreach (var v in index.VirtualEdgesFrom(rva, end))
+                if (seen.Add((v.From, v.To)))
+                    rows.Add((v.From, v.To, $"{Va(index, v.From)}  {v.Kind,-10} {Where(v.From, null)}  -> {To(v.To)}  (ours: virtual call resolved through RTTI)"));
+        }
+        var name = whole ? Name(index, rva, self!.Name) : index.NameAt(rva);
+        var target = $"{Va(index, rva)}{(name != null ? $" ({name})" : "")}";
+        return ($"References from {target}{(whole ? " (the whole function)" : "")} {Via(choice.Engine)}:\n",
+            rows.OrderBy(r => r.From).ThenBy(r => r.To).Select(r => r.Row).ToList(), target);
     }
 
     /// <summary>

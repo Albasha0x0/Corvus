@@ -184,7 +184,11 @@ public sealed record XrefEntry(
     [property: Description("VA of the referencing instruction or data.")] string? Address,
     [property: Description("Call, Jump, Read, Write, Address, CallReg, Resolve, DynCall, ...")] string? Kind,
     [property: Description("function+offset containing it.")] string? Function,
-    [property: Description("Recovered call arguments, the import it goes through, or the whole row when it has no address.")] string? Detail);
+    [property: Description("Recovered call arguments, the import it goes through, or the whole row when it has no address.")] string? Detail)
+{
+    [Description("direction=from: VA of the referenced target; null for a reference to the address.")]
+    public string? Target { get; init; }
+}
 
 public sealed record XrefList(string Image, string Target, IReadOnlyList<XrefEntry> Items, int Offset, int Total, bool Truncated,
     [property: Description("An import slot: the export it is bound to.")] string? BoundTo,

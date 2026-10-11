@@ -249,80 +249,6 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         return StructuredOutput.With(choice.Line + "\n" + pager.Page(text, offset, maxChars), report);
     });
 
-    [McpServerTool(Name = "find_xrefs", Title = "Native cross-references", UseStructuredContent = true, OutputSchemaType = typeof(XrefList))]
-    [Description("Everything in a native image that references an address: calls (direct and through import slots and thunks), jumps, data reads " +
-                 "and writes, address-taken uses, switch tables and relocated data pointers, each with the function it is in; for a virtual method, the " +
-                 "virtual call sites that reach it (VirtualExact: the only implementation; VirtualPossible: one of several; resolved through MSVC RTTI). For an import " +
-                 "(module!name) lists the call sites of that API (x86 calls through a register loaded from the slot included) and what it is bound to; " +
-                 "for an export, also the call sites in other loaded images that import it ([image] prefix). Call rows show the recovered arguments. " +
-                 "A late-bound import (module!name resolved by GetProcAddress) lists where it is resolved and the calls through its pointer. " +
-                 "A struct member (Type::member, Type.member or Type+0x18, from the engine's types: PDB, RTTI classes, Il2Cpp, declare_native_types) " +
-                 "lists its uses through IDA: operands typed as the member, and reads, writes and address-of in the pseudocode of the functions " +
-                 "whose prototype names the type (methods with a typed this). " + IndexNote)]
-    public Task<string> FindXrefs(
-        [Description(NativeTools.ImageDescription)] string image,
-        [Description(NativeTools.AddressDescription + " Or a struct member: Type::member, Type.member, Type+0xOFFSET.")] string address,
-        [Description("Index of the first row.")] int offset = 0,
-        [Description("Max rows (default 500).")] int limit = 500,
-        [Description(EngineDescription + " With an engine, the references are the engine's, plus the RTTI-resolved virtual call sites it has none for (marked ours).")]
-        string? engine = null,
-        RequestContext<CallToolRequestParams> context = null!,
-        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
-    {
-        var mode = Mode(engine);
-        var (native, index) = await Open(image, context, progress, cancellationToken);
-        if (FieldTarget(address) is { } field && !IsAddress(index, address))
-            return await FieldXrefs(native, field, mode.Mode, offset, limit, progress, cancellationToken);
-        var choice = Choose(mode, native, index);
-        if (choice.External)
-        {
-            var via = await _engine!.Xrefs(native, index, Address(index, address), choice, progress, cancellationToken);
-            return StructuredOutput.With(via.Header + pager.PageRows(via.Rows, offset, limit, "reference"),
-                Xrefs(native.Id, via.Target, via.Rows, offset, limit, null, choice));
-        }
-        // a late-bound import (GetProcAddress) by name: its resolution and the calls through its pointer
-        var dynamicRows = NativeCallTools.DynamicXrefRows(index, address, cancellationToken);
-        uint rva;
-        try { rva = Address(index, address); }
-        catch (ToolError) when (dynamicRows != null)
-        {
-            return StructuredOutput.With($"References to {address.Trim()} (late-bound import):\n{choice.Line}\n" + Coverage(index) +
-                                         pager.PageRows(dynamicRows, offset, limit, "reference"),
-                Xrefs(native.Id, $"{address.Trim()} (late-bound import)", dynamicRows, offset, limit, null, choice));
-        }
-        string Va(uint r) => NativeAddress.Va(index.Image, r);
-        string Where(uint from) => index.FunctionAt(from) is { } f ? $"{f.Name}+0x{from - f.Start:X}" : "(no function)";
-        var rows = new List<string>();
-        var import = index.Image.Imports.FirstOrDefault(i => i.SlotRva == rva);
-        if (import != null)
-            rows.AddRange(NativeCallTools.ImportRows(index, import, Where, cancellationToken));
-        else
-        {
-            // virtual call sites that may reach the address (RTTI resolution) among the instruction references, by source
-            var refs = index.RefsTo(rva).Concat(index.VirtualEdgesTo(rva)).OrderBy(x => x.From).ToList();
-            var refRows = NativeCallTools.WithArguments(index, refs.Select(x => (x.From, x.Kind.ToString(), x.Kind is XrefKind.Call or XrefKind.TailCall || x.IsVirtualCall)),
-                Where, cancellationToken);
-            var graphs = new Dictionary<uint, FunctionGraph?>();
-            for (int i = 0; i < refs.Count && i < refRows.Count; i++)
-                if (refs[i].Kind == XrefKind.SwitchCase && CaseText(index, refs[i].From, rva, graphs, cancellationToken) is { } values)
-                    refRows[i] += "  " + values;
-            rows.AddRange(refRows);
-        }
-        if (dynamicRows != null) rows.AddRange(dynamicRows);
-        var target = index.NameAt(rva) ?? NativeCallTools.PointerName(index, rva, cancellationToken) ?? (index.StringAt(rva) is { } s ? index.CommentFor(rva) : null);
-        var header = $"References to {Va(rva)}{(target != null ? $" ({target})" : "")}:\n";
-        string? boundTo = null;
-        if (link != null)
-        {
-            // Other loaded images reach this address through their imports; an import slot shows what it is bound to.
-            await link.WarmUp(null, cancellationToken);
-            if (import != null) header += $"Bound to: {boundTo = NativeLinkService.Describe(link.BindImport(native, import))}\n";
-            rows.AddRange(workspace.Read(() => link.ImportCallSites(native, rva, cancellationToken)));
-        }
-        return StructuredOutput.With(header + choice.Line + "\n" + Coverage(index) + pager.PageRows(rows, offset, limit, "reference"),
-            Xrefs(native.Id, $"{Va(rva)}{(target != null ? $" ({target})" : "")}", rows, offset, limit, boundTo, choice));
-    });
-
     /// <summary>"case 3, 4" (or "default ...") for a switch case reference from the jump at <paramref name="jump"/> to <paramref name="target"/>.</summary>
     private static string? CaseText(NativeCodeIndex index, uint jump, uint target, Dictionary<uint, FunctionGraph?> graphs, CancellationToken ct)
     {
@@ -342,6 +268,10 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             XrefRow().Match(row) is { Success: true } m
                 ? new XrefEntry(m.Groups["image"].Success ? m.Groups["image"].Value : null, m.Groups["va"].Value, m.Groups["kind"].Value, m.Groups["where"].Value,
                     m.Groups["rest"].Value.Length > 0 ? m.Groups["rest"].Value : null)
+                {
+                    // direction=from rows end "-> target"
+                    Target = m.Groups["rest"].Value.StartsWith("-> ", StringComparison.Ordinal) ? m.Groups["rest"].Value[3..].Split(' ')[0] : null,
+                }
                 : new XrefEntry(null, null, null, null, row)).ToList(), o, total, more, boundTo, choice.Engine, choice.Note));
 
     [GeneratedRegex(@"^(?:\[(?<image>[^\]]+)\] )?(?<va>0x[0-9A-F]+)\s+(?<kind>\S+)\s+(?<where>\(no function\)|\S+)\s*(?<rest>.*)$")]

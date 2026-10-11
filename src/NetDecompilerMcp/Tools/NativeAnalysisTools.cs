@@ -42,16 +42,14 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         [property: Description("The call that decompiles the skipped items, when there are any.")] string? Next);
 
     [McpServerTool(Name = "decompile_native", Title = "Decompile native function", UseStructuredContent = true, OutputSchemaType = typeof(DecompileReport))]
-    [Description("C pseudocode of the native function containing an address, through IDA (idalib; Hex-Rays) or Ghidra (its decompiler, through a " +
-                 "Java worker). The first call on an image runs the engine's auto-analysis (seconds for a small DLL, minutes for a large game executable; " +
-                 "progress is reported) and keeps the database per file hash, so later calls and later sessions are fast. The header names the engine. " +
-                 "Lines are annotated with the address they come from. Names and comments in effect " +
-                 "(rename_native / comment_native, apply_il2cpp_names, PDB names) are pushed into the database first, once per change, and saved with it. " +
-                 "When the image has a PDB (found next to it or in the symbol cache, or loaded with load_pdb), its structs, enums, typedefs and " +
-                 "prototypes are loaded into the database through the engine's PDB loader (the server's own PDB type reader when that loader is not " +
-                 "available), once per PDB; the first line says which type source applies. The user's types (declare_native_types, set_native_type, set_native_local, set_native_stack_var) are applied last " +
-                 "and win over recovered ones. functions decompiles several in one request: inputs are deduplicated by function, each gets " +
-                 "perFunctionSeconds, and a failure, a timeout or the budget affects only its own item; the others are kept.")]
+    [Description("C pseudocode of the native function containing an address, through IDA (idalib; Hex-Rays) or Ghidra (its decompiler, in a Java " +
+                 "worker). The first call on an image runs the engine's auto-analysis (seconds for a small DLL, minutes for a large executable; " +
+                 "progress is reported); the database is kept per file hash, so later calls and sessions are fast. Names and comments in effect " +
+                 "(rename_native, comment_native, apply_il2cpp_names, PDB names) are pushed first, once per change. A PDB (beside the image, in " +
+                 "the symbol cache, or from load_pdb) has its types and prototypes loaded once through the engine's PDB loader (else the server's " +
+                 "reader); the first line names the type source. User types (declare_native_types, set_native_type, set_native_local, " +
+                 "set_native_stack_var) apply last and win. functions decompiles several in one request: deduplicated by function, each within " +
+                 "perFunctionSeconds; a failure or timeout affects only its own item.")]
     public Task<string> DecompileNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription + " Required unless functions is given.")] string? address = null,
