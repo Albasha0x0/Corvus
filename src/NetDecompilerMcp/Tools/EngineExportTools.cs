@@ -18,30 +18,32 @@ public sealed class EngineExportTools(AssemblyWorkspace workspace, NativeEngineS
     public sealed record DatabaseExport(string Image, string Engine, [property: Description("The file written.")] string Path, long Bytes, string Note);
 
     [McpServerTool(Name = "export_engine_database", Title = "Export the engine database", UseStructuredContent = true)]
-    [Description("Write a native image's IDA database (analysis plus the names, comments and types pushed from here) as a compressed .i64 copy " +
-                 "for the IDA GUI; the worker keeps its own. force=true replaces an existing file. Ghidra projects are not exported.")]
+    [Description("Write a native image's engine database (analysis plus the names, comments and types pushed from here) for the engine's GUI: " +
+                 "IDA a compressed .i64 copy, Ghidra a packed .gzf archive (File > Open in a project). The worker keeps its own. force=true " +
+                 "replaces an existing file.")]
     public Task<DatabaseExport> ExportEngineDatabase(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("The .i64 file to write.")] string outputPath,
+        [Description("The .i64 (IDA) or .gzf (Ghidra) file to write.")] string outputPath,
         [Description("Replace outputPath if it exists.")] bool force = false,
-        [Description("Engine: auto (default) or ida.")] string? engine = null,
+        [Description("Engine: auto (default: IDA, or the extension's engine), ida or ghidra.")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        var id = string.IsNullOrWhiteSpace(engine) || engine.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase) ? "ida" : engine.Trim().ToLowerInvariant();
-        if (id == "ghidra")
-            throw new ToolError(ErrorCode.Unsupported, "Ghidra projects are not exported.", "export_native_annotations format=ghidra writes a script with the names and comments");
-        if (id != "ida") throw new ToolError(ErrorCode.InvalidArgument, $"Unknown engine '{engine}'.", "omit engine or pass engine=ida");
         var full = SafeFile.FullPath(outputPath);
-        if (Path.GetExtension(full).Length == 0) full += ".i64";
-        if (!Path.GetExtension(full).Equals(".i64", StringComparison.OrdinalIgnoreCase))
-            throw new ToolError(ErrorCode.InvalidArgument, $"{full} is not an .i64 file.", "name the output file *.i64");
+        bool auto = string.IsNullOrWhiteSpace(engine) || engine.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase);
+        var id = !auto ? engine!.Trim().ToLowerInvariant() : Path.GetExtension(full).Equals(".gzf", StringComparison.OrdinalIgnoreCase) ? "ghidra" : "ida";
+        if (id is not ("ida" or "ghidra")) throw new ToolError(ErrorCode.InvalidArgument, $"Unknown engine '{engine}'.", "omit engine or pass engine=ida or ghidra");
+        var extension = id == "ghidra" ? ".gzf" : ".i64";
+        if (Path.GetExtension(full).Length == 0) full += extension;
+        if (!Path.GetExtension(full).Equals(extension, StringComparison.OrdinalIgnoreCase))
+            throw new ToolError(ErrorCode.InvalidArgument, $"{full} is not a {extension} file.", $"name the output file *{extension} for {NativeEngineService.DisplayName(id)}");
         if (File.Exists(full) && !force)
             throw new ToolError(ErrorCode.Conflict, $"{full} already exists. Pass force=true to replace it.");
         engines.Provider(id);
         var (native, _) = await Task.Run(() => NativeAnalysisTools.Resolve(workspace, nativeCode, image, "rva:0"), cancellationToken);
         var session = await engines.Session(native, id, new Progress<NativeProviderProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), cancellationToken);
+        if (session is Native.Providers.Ghidra.GhidraSession ghidra) return await ExportGhidra(native, ghidra, full, cancellationToken);
         if (session is not IdaSession ida) throw new ToolError(ErrorCode.Unsupported, $"The {session.ProviderId} engine does not export its database.");
         // the database as the other engine tools leave it
         if (names != null) await names.EnsureAsync(native, ida, cancellationToken);
@@ -55,4 +57,20 @@ public sealed class EngineExportTools(AssemblyWorkspace workspace, NativeEngineS
         return new DatabaseExport(native.Id, id, r.GetProperty("path").GetString() ?? full, r.GetProperty("size").GetInt64(),
             "open it in IDA; the server's own database is unchanged and stays in its analysis cache");
     });
+
+    /// <summary>The Ghidra program, with everything pushed, packed outside the worker's project.</summary>
+    private async Task<DatabaseExport> ExportGhidra(LoadedNative native, Native.Providers.Ghidra.GhidraSession ghidra, string full, CancellationToken ct)
+    {
+        if (names != null) await names.EnsureAsync(native, ghidra, ct);
+        if (types != null) await types.EnsureAsync(native, ghidra, ct);
+        if (userTypes != null) await userTypes.EnsureAsync(native, ghidra, ct);
+        var project = Path.GetFullPath(ghidra.ProjectDirectory).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        if (full.StartsWith(project, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+            throw new ToolError(ErrorCode.InvalidArgument, $"{full} is inside the worker's own project.", "pick a path outside it");
+        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+        if (File.Exists(full)) File.Delete(full);
+        var (path, bytes) = await ghidra.ExportPackedAsync(full, ct);
+        return new DatabaseExport(native.Id, "ghidra", path, bytes,
+            "open it in Ghidra (File > Open File System or Import into a project); the server's own project is unchanged and stays in its analysis cache");
+    }
 }

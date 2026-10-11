@@ -286,6 +286,7 @@ public class Worker implements GhidraLaunchable {
             case "namespaces": return read(() -> InfoOps.namespaces(this, r));
             case "script": return ScriptOps.run(this, r);
             case "field_xrefs": return read(() -> FieldOps.fieldXrefs(this, r));
+            case "export_gzf": return InfoOps.exportPacked(this, r);
             default: throw new WorkerError("invalid_argument", "unknown op '" + r.op + "'");
         }
     }

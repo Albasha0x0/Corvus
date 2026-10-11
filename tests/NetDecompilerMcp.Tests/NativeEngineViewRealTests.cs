@@ -130,6 +130,20 @@ public sealed class NativeGhidraViewTests(ITestOutputHelper output, GhidraCacheF
     }
 
     [GhidraFact]
+    public async Task The_program_exports_as_a_packed_archive_outside_the_project()
+    {
+        await using var s = await Open();
+        using var dir = new TempDir();
+        var projectFiles = Directory.GetFiles(s.ProjectDirectory, "*", SearchOption.AllDirectories).Length;
+        var (path, bytes) = await s.ExportPackedAsync(dir.File("copy.gzf"));
+        output.WriteLine($"{path}: {bytes:N0} bytes");
+        Assert.Equal(dir.File("copy.gzf"), path);
+        Assert.True(bytes > 10_000 && new FileInfo(path).Length == bytes);
+        Assert.Equal(projectFiles, Directory.GetFiles(s.ProjectDirectory, "*", SearchOption.AllDirectories).Length);
+        Assert.NotEmpty(await s.ListFunctionsAsync());
+    }
+
+    [GhidraFact]
     public async Task Function_record_has_prototype_convention_storage_and_thunk_target()
     {
         await using var s = await Open();

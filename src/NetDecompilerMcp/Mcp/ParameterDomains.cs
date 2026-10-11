@@ -92,7 +92,7 @@ public static class ParameterDomains
             ["source"] = Of(["auto", "pdb", "rtti", "il2cpp", "engine"]), ["format"] = Of(["table", "c"]), ["engine"] = DecompilerEngine,
         },
         ["ida_python"] = new Dictionary<string, Domain> { ["engine"] = IdaEngine },
-        ["export_engine_database"] = new Dictionary<string, Domain> { ["engine"] = IdaEngine },
+        ["export_engine_database"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["ghidra_script"] = new Dictionary<string, Domain> { ["engine"] = Of(["auto", "ghidra"]) },
         ["find_virtual_calls"] = new Dictionary<string, Domain> { ["status"] = Of(["exact", "possible", "unresolved"]) },
         ["trace_native_values"] = new Dictionary<string, Domain> { ["direction"] = Of(["backward", "forward", "both"], "back", "fwd"), ["engine"] = Engine },

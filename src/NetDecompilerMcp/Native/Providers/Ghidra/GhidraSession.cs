@@ -454,4 +454,11 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         return new NativeScriptResult(null, WorkerRows.Text(r.GetProperty("stdout")) ?? "", WorkerRows.Text(r.GetProperty("stderr")) ?? "",
             WorkerRows.Text(r.GetProperty("error")));
     }
+
+    /// <summary>Saves the program and writes it to <paramref name="path"/> as a packed Ghidra archive (.gzf); returns the path and size.</summary>
+    internal async Task<(string Path, long Bytes)> ExportPackedAsync(string path, CancellationToken cancellationToken = default)
+    {
+        var r = await CallAsync("export_gzf", WorkerRows.Args(("path", path)), cancellationToken, saves: true, timeout: Options.OpenTimeout).ConfigureAwait(false);
+        return (r.GetProperty("path").GetString() ?? path, r.GetProperty("size").GetInt64());
+    }
 }

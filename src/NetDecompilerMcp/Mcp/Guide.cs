@@ -106,7 +106,7 @@ public static class Guide
             offset, stack variable, enum member, struct offset);
             ida_python runs IDAPython in the image's IDA worker, off unless --ida-scripting; ghidra_script runs a Java GhidraScript in the
             Ghidra worker (one transaction, rolled back on failure, saved after), off unless --ghidra-scripting; export_engine_database
-            writes the IDA database as an .i64 for the GUI.
+            writes the IDA database as an .i64, or the Ghidra program as a .gzf, for the engine's GUI.
             Notes: record_note anchors a finding, question, hypothesis or todo to '<image>@<address>', '<assembly>:<symbol>', a file or
             a dump; notes persist per user by file SHA-256 / module MVID. update_note changes one in part (expectedRevision; a conflict
             returns the current note); list_notes filters by status, kind, anchor, tag and text. decompile_member and decompile_native

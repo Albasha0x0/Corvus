@@ -288,7 +288,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["set_native_operand"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["operand"] = 0, ["display"] = "hex", ["engine"] = "bogus" },
             "Error (invalid_argument) in set_native_operand: parameter 'engine' must be one of auto, ida"),
         ["ida_python"] = (new() { ["image"] = NativeSample(dir), ["code"] = "1 + 1" }, "Error (unsupported) in ida_python: ida_python is disabled"),
-        ["export_engine_database"] = (new() { ["image"] = NativeSample(dir), ["outputPath"] = dir.File("db.i64"), ["engine"] = "ghidra" }, "Error (unsupported) in export_engine_database"),
+        ["export_engine_database"] = (new() { ["image"] = NativeSample(dir), ["outputPath"] = dir.File("db.i64"), ["engine"] = "ghidra" }, "Error (invalid_argument) in export_engine_database"),
         ["ghidra_script"] = (new() { ["image"] = NativeSample(dir), ["code"] = "println(\"x\");" }, "Error (unsupported) in ghidra_script: ghidra_script is disabled"),
         ["rename_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["name"] = "SweepFunc" }, "Named"),
         ["comment_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["text"] = "entry" }, "Commented"),
