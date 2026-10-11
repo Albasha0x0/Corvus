@@ -478,7 +478,8 @@ as the original. What makes that work:
   installed app packages.
 - **Wrapped dependencies:** assemblies inside the exported one (Costura) are written to `lib\` and referenced.
 - **Project settings the build needs:** `StartupObject` from the entry point, public signing with the original public
-  key (friend assemblies that grant internals by key keep doing so).
+  key (friend assemblies that grant internals by key keep doing so), preserialized resources for a .NET Framework
+  project whose `.resx` holds images or other non-string data (`dotnet build` requires them; 4.6.2 or later).
 - **Output the decompiler engine gets wrong, rewritten** (also in `decompile_type` / `decompile_member`): span-slicing
   `ref` temporaries, `scoped` locals, initialized `stackalloc`, base constructor calls in bodies, constructor
   parameters in field initializers, nested locals of one name, struct enumerators disposed by pattern, trimmed
@@ -489,7 +490,7 @@ as the original. What makes that work:
 - A method the engine cannot decompile at all keeps the engine's explanation and throws `NotSupportedException`.
 
 **Dependencies that are not on the machine** (an assembly missing from a partial dump) do not stop decompilation: a
-stand-in is rebuilt from how the loaded code uses it: every type it references with its kind (struct, enum,
+stand-in is rebuilt from how the loaded code uses it: every type it references or forwards to it with its kind (struct, enum,
 interface, delegate, exception, attribute), every member with its exact signature, properties and events, the virtual
 members the code overrides, and what generic constraints require. The decompiler then reads the rest against real
 types (no "unknown result type" guesses, properties instead of accessor calls), `get_assembly_info` lists the reference
