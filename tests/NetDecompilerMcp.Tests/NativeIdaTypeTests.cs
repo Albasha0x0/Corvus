@@ -271,7 +271,7 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         Assert.True(new FileInfo(r.Path).Length > 1000 && r.Bytes == new FileInfo(r.Path).Length);
         Assert.Equal(ErrorCode.Conflict, (await Assert.ThrowsAsync<ToolError>(() => export.ExportEngineDatabase(Image, r.Path))).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => export.ExportEngineDatabase(Image, _dir.File("x.idb")))).Code);
-        Assert.Equal(ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => export.ExportEngineDatabase(Image, _dir.File("y.i64"), engine: "ghidra"))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => export.ExportEngineDatabase(Image, _dir.File("y.i64"), engine: "ghidra"))).Code); // Ghidra writes .gzf
 
         // the worker still saves to its own database, not to the copy
         var session = await rig.Session();
