@@ -8,9 +8,11 @@ namespace NetDecompilerMcp.Services;
 
 /// <summary>
 /// Disassembly comments from NativeAOT metadata (x64): string literal loads (an instruction addressing a frozen String
-/// object) and virtual calls through a MethodTable's vtable, "mov r, [obj]; call [r + 24 + 8k]". The receiver's type is
-/// known when obj is this of an instance method (rcx before it is overwritten, or a callee-saved register copied from it
-/// once and never written again); slot k then names the method in the type's vtable, which a derived type may override.
+/// object) and virtual calls through a MethodTable's vtable, "mov r, [obj]; call [r + 24 + 8k]", or the slot loaded into a
+/// register first and called directly or through the CFG dispatch helper (target in rax); tracked linearly within a block.
+/// The receiver's type is known when obj is this of an instance method (rcx before it is overwritten, or a callee-saved
+/// register copied from it once and never written again); slot k then names the method in the type's vtable, which a
+/// derived type may override.
 /// </summary>
 public static class NativeAotCode
 {
