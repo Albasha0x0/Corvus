@@ -34,7 +34,8 @@ public abstract class McpProtocolTests : IAsyncLifetime
     internal static Task<McpClient> StartServerInAsync(string? workingDirectory, params string[] args) => StartServerAsync(workingDirectory, null, args);
 
     /// <summary>As above, with a client that speaks <paramref name="protocolVersion"/> (null: the SDK's newest).</summary>
-    internal static async Task<McpClient> StartServerAsync(string? workingDirectory, string? protocolVersion, string[] args)
+    internal static async Task<McpClient> StartServerAsync(string? workingDirectory, string? protocolVersion, string[] args,
+        IReadOnlyDictionary<string, string?>? environment = null)
     {
         var transport = new StdioClientTransport(new StdioClientTransportOptions
         {
@@ -52,7 +53,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
                     : Path.Combine(AnnotationsDir, Guid.NewGuid().ToString("N")),
                 // the dump bucketing cache is private: outside the working directory the contract sweep watches
                 [NetDecompilerMcp.Services.MinidumpService.BucketCacheVariable] = Path.Combine(AnnotationsDir, ".ndm-dumpbuckets"),
-            },
+            }.Concat(environment ?? new Dictionary<string, string?>()).ToDictionary(),
             // The SDK waits this long for the server to exit before it closes the server's input, then ends it; the
             // server exits on end of input (ServerExitsWhenItsInputCloses), so waiting longer only delays each test.
             ShutdownTimeout = TimeSpan.FromMilliseconds(200),

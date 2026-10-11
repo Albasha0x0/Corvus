@@ -64,7 +64,14 @@ public static class ContractSweep
     {
         var cwd = dir.File("cwd");
         Directory.CreateDirectory(cwd);
-        return McpProtocolTests.StartServerInAsync(cwd, "--load", Env.FixturePath, "--load", Env.ConsumerPath);
+        // No engine is found, whatever this machine has installed: a call that would open an IDA or Ghidra database (minutes
+        // under load) answers provider_unavailable at once; the engines' own tests cover them.
+        var noEngines = new Dictionary<string, string?>
+        {
+            [NetDecompilerMcp.Native.Providers.Ida.IdaInstallation.DirectoryVariable] = dir.File("no-ida"),
+            [NetDecompilerMcp.Native.Providers.Ghidra.GhidraOptions.DirectoryVariable] = dir.File("no-ghidra"),
+        };
+        return McpProtocolTests.StartServerAsync(cwd, null, ["--load", Env.FixturePath, "--load", Env.ConsumerPath], noEngines);
     }
 
     private static JsonElement Json(string json) => JsonDocument.Parse(json).RootElement.Clone();
