@@ -23,9 +23,9 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Python source (or pass file).")] string? code = null,
         [Description("Clear the globals earlier calls left.")] bool reset = false,
-        [Description("Engine: auto (default) or ida.")] string? engine = null,
+        [Description("Default auto.")] string? engine = null,
         [Description("A .py file to run instead of code.")] string? file = null,
-        [Description("Characters kept of the result, stdout and stderr each (default 20000, 100-200000).")] int maxOutput = 20_000,
+        [Description("Characters kept of the result, stdout and stderr each (100-200000).")] int maxOutput = 20_000,
         [Description("Save the database after the script.")] bool persist = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -73,15 +73,14 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
     private const int MaxScriptBytes = 1 << 20;
 
     [McpServerTool(Name = "ghidra_script", Title = "Run a Ghidra script on a native image")]
-    [Description("Run Java in the Ghidra worker that holds a native image's program: a GhidraScript class, or the body of its run() with imports " +
-                 "first (currentProgram, println, the FlatProgramAPI). One transaction, committed only when the script returns, then saved; stdout " +
-                 "is println's output. Disabled unless the server runs with --ghidra-scripting or NDM_GHIDRA_SCRIPTING=1: the code runs with the " +
-                 "server's rights. Changes are not in the annotation sidecar.")]
+    [Description("Run Java in the Ghidra worker holding a native image's program: a GhidraScript class, or run()'s body with imports first " +
+                 "(currentProgram, println, FlatProgramAPI). One transaction, committed when the script returns, then saved. Off unless the server " +
+                 "runs with --ghidra-scripting (NDM_GHIDRA_SCRIPTING=1): the code has the server's rights. Changes are not in the annotation sidecar.")]
     public Task<string> GhidraScript(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Java source: a class extending GhidraScript, or statements for run().")] string code,
-        [Description("Seconds before the script is cancelled (default 120, 1-3600).")] int timeout = 120,
-        [Description("Engine: auto (default) or ghidra.")] string? engine = null,
+        [Description("Seconds before the script is cancelled (1-3600).")] int timeout = 120,
+        [Description("Default auto.")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

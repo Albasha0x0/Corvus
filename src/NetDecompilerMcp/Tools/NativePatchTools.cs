@@ -38,15 +38,13 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
     }, ct);
 
     [McpServerTool(Name = "export_native_patches", Title = "Export native patches", UseStructuredContent = true)]
-    [Description("Write the image's in-memory byte patches for other tools: format=ida an IDAPython script (applies each patch at its RVA rebased to the " +
-                 "database's image base, only where the original bytes are found, and prints a summary), dif IDA's .dif (file offsets, 'orig new' per " +
-                 "changed byte), ips (file offsets below 16 MB) or ips32, json the full patch set (original bytes, assembly text, relocation edits, file " +
-                 "hash; migrate_native_patches reads it). Relocation-table entry rewrites and the recomputed PE checksum are exported too, so a .dif or " +
-                 "IPS applied to the original file gives exactly the bytes save_native writes.")]
+    [Description("Write the image's in-memory byte patches for other tools: ida an IDAPython script (each patch at its rebased RVA, only where " +
+                 "the original bytes are found), dif IDA's .dif, ips (file offsets below 16 MB) or ips32, json the full patch set (migrate_native_patches " +
+                 "reads it). Relocation edits and the PE checksum are included, so a .dif or IPS applied to the original gives save_native's bytes.")]
     public async Task<PatchExportReport> ExportNativePatches(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Output file path.")] string outputPath,
-        [Description("ida, dif, ips, ips32 or json (default json).")] string? format = null,
+        [Description("Default json.")] string? format = null,
         [Description("Replace outputPath if it exists.")] bool overwrite = false,
         CancellationToken cancellationToken = default)
     {
@@ -90,21 +88,18 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
         [property: Description("What was not covered (functions that did not decode, capped work).")] IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "migrate_native_patches", Title = "Migrate patches to a new build", UseStructuredContent = true)]
-    [Description("Carry byte patches from an old build to a new build. Each patch's old address is found in the new build through the build matcher " +
-                 "(compare_native_images: function match + instruction alignment). A patch is reapplied only where the new build's ORIGINAL bytes at the " +
-                 "mapped address match what the patch expected — exact for raw patch_bytes, ignoring relocated / RIP-relative / branch-displacement bytes for " +
-                 "patch_asm patches (whose replacement is re-assembled at the new address). Survivors go through the normal patch path (safety checks and " +
-                 "relocations). Every patch is reported applied or refused with a reason code and evidence. Source: the old build's in-memory patches " +
-                 "(default) or an exported json (patchSet). dryRun shows everything without changing the new build. The same image as old and new with " +
-                 "patchSet replays a patch set on the build it was made for (an export, or the journal of a session that ended without saving).")]
+    [Description("Carry byte patches from an old build to a new one through the build matcher (compare_native_images). A patch is reapplied " +
+                 "only where the new build's original bytes at the mapped address match what it expected (patch_asm patches ignore relocated and " +
+                 "displacement bytes and are re-assembled there), through the normal patch path; each is reported applied or refused with a reason " +
+                 "code. The same image as old and new with patchSet replays a patch set on its own build (an export, or an unsaved session's journal).")]
     public async Task<MigrationPatchReport> MigrateNativePatches(
-        [Description("The old build: native image id or path (its in-memory patches are the source unless patchSet is given).")] string oldImage,
-        [Description("The new build: native image id or path. Load both builds; the second gets an id like name#2.")] string newImage,
-        [Description("A patch set exported by export_native_patches (format=json): a file path or the JSON text. Omit to use the old build's in-memory patches.")] string? patchSet = null,
-        [Description(DryRunDescription + " Default true: preview before changing the new build.")] bool dryRun = true,
-        [Description("Match functions by names (exports, PDB, Il2Cpp, user); false matches on code alone.")] bool useNames = true,
+        [Description("The old build: native image id or path (its in-memory patches are the source unless patchSet).")] string oldImage,
+        [Description("The new build: native image id or path (load both; the second gets an id like name#2).")] string newImage,
+        [Description("A JSON patch set (export_native_patches format=json): path or text.")] string? patchSet = null,
+        [Description(DryRunDescription)] bool dryRun = true,
+        [Description("Match functions by export, PDB, Il2Cpp and user names first; false: code only.")] bool useNames = true,
         [Description("Entries to skip in the report.")] int offset = 0,
-        [Description("Entries to return (default 200, max 5000).")] int limit = 200,
+        [Description("Entries to return (max 5000).")] int limit = 200,
         CancellationToken cancellationToken = default)
     {
         var oldNative = await Resolve(oldImage, cancellationToken);

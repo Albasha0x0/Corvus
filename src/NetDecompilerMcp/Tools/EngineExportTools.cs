@@ -20,12 +20,12 @@ public sealed class EngineExportTools(AssemblyWorkspace workspace, NativeEngineS
     [McpServerTool(Name = "export_engine_database", Title = "Export the engine database", UseStructuredContent = true)]
     [Description("Write a native image's engine database (analysis plus the names, comments and types pushed from here) for the engine's GUI: " +
                  "IDA a compressed .i64 copy, Ghidra a packed .gzf archive; Ghidra's own types also as a .h header " +
-                 "or .gdt archive. The worker keeps its own. force=true replaces an existing file.")]
+                 "or .gdt archive. The worker keeps its own.")]
     public Task<DatabaseExport> ExportEngineDatabase(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("The .i64 (IDA), .gzf, .h or .gdt (Ghidra) file to write.")] string outputPath,
         [Description("Replace outputPath if it exists.")] bool force = false,
-        [Description("Engine: auto (default: IDA, or the extension's engine), ida or ghidra.")] string? engine = null,
+        [Description("Default: the extension's engine, else IDA.")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

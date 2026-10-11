@@ -20,13 +20,13 @@ public sealed class NativeEngineControlTools(AssemblyWorkspace workspace, Native
                  "Ghidra analysis the open's budget cut short. options= sets analyzers for this run only; analyzers=true lists them with their values.")]
     public Task<string> ReanalyzeNative(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("auto, ida or ghidra.")] string? engine = null,
+        [Description("Default: the engine with this image open, else IDA, else Ghidra.")] string? engine = null,
         [Description("List the analyzer options and values instead of running.")] bool analyzers = false,
         [Description("With analyzers: name filter.")] string? filter = null,
-        [Description("name=value per option, e.g. AF_FLIRT=false or 'Decompiler Parameter ID=true'.")] string[]? options = null,
+        [Description("name=value per option (AF_FLIRT=false, 'Decompiler Parameter ID=true').")] string[]? options = null,
         [Description("Range start (default: the whole image).")] string? start = null,
         [Description("Range end (exclusive).")] string? end = null,
-        [Description("Time budget (default 600, max 3600); what is left runs on the next run.")] int seconds = 600,
+        [Description("Seconds (max 3600); what is left runs on the next run.")] int seconds = 600,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

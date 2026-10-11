@@ -132,23 +132,20 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     public sealed record PatternSearch(string Pattern, int Length, int Images, int Total, bool Truncated, IReadOnlyList<PatternHit> Hits, IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "compare_native_images", Title = "Compare native builds", UseStructuredContent = true)]
-    [Description("Match the functions of two builds of one native image (x86 / x64 / ARM64), e.g. before and after an application update. Tiers, each accepting a pair " +
-                 "only when unique on both sides: 1 same name (export, PDB, Il2Cpp, user), same import thunk, or identical bytes with addresses masked; " +
-                 "2 same canonical control-flow graph and instruction shapes; 3 same imports, strings and constants; 4 call-graph propagation from matched " +
-                 "pairs (callees in the same position, mutually best callers / callees, callers and callees in common, the same slot of matched " +
-                 "function-pointer tables such as vtables, identical code between matched neighbors that moved alike) to a fixed point; 5 fuzzy similarity (instruction mix, graph, size, " +
-                 "references, matched neighbors) above minScore with a margin over the runner-up. Returns per-tier counts and one paged list (view): pairs " +
-                 "with tier, score and what changed; changed pairs; unmatched functions with the reason; ambiguous functions with their candidates. " +
+    [Description("Match the functions of two builds of one native image (x86 / x64 / ARM64). Tiers, each accepting a pair only when unique on " +
+                 "both sides: 1 same name, import thunk or identical bytes (addresses masked); 2 same control-flow graph and instruction shapes; 3 same " +
+                 "imports, strings and constants; 4 call-graph propagation from matched pairs (callees, callers, vtable slots, moved neighbours) to a " +
+                 "fixed point; 5 fuzzy similarity above minScore with a margin over the runner-up. Returns per-tier counts and one paged list (view). " +
                  "The first call waits for both code indexes; results are cached until names change.")]
     public async Task<NativeComparison> CompareNativeImages(
         [Description(OldDescription)] string oldImage,
         [Description(NewDescription)] string newImage,
-        [Description("List to return: pairs (default), changed (pairs whose code differs), unmatched, ambiguous.")] string? view = null,
+        [Description("pairs (default), changed (pairs whose code differs), unmatched or ambiguous (with candidates).")] string? view = null,
         [Description("Only pairs of this tier (1-5); 0 for all.")] int tier = 0,
         [Description(UseNamesDescription)] bool useNames = true,
-        [Description("Least similarity for a fuzzy match (0-1, default 0.7).")] double minScore = 0.7,
+        [Description("Least similarity for a fuzzy match (0-1).")] double minScore = 0.7,
         [Description("Items to skip.")] int offset = 0,
-        [Description("Items to return (default 100, max 2000).")] int limit = 100,
+        [Description("Items to return (max 2000).")] int limit = 100,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default)
     {
@@ -204,10 +201,9 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "map_address_between_builds", Title = "Map an address to a new build", UseStructuredContent = true)]
-    [Description("Where an address of the old build is in the new build: a function start goes to the matched function (compare_native_images), " +
-                 "an address inside a function to the corresponding instruction after aligning both instruction sequences, a string literal to the same " +
-                 "string, other data by following the old build's references through matched instructions. Returns the new address with a confidence " +
-                 "and the reason, or null with why (and nearby candidates).")]
+    [Description("Where an address of the old build is in the new build: a function start to the matched function, an address inside one " +
+                 "to the aligned instruction, a string to the same string, other data through the references of matched instructions. Returns the " +
+                 "new address with confidence and reason, or null with why and nearby candidates.")]
     public async Task<AddressMapping> MapAddressBetweenBuilds(
         [Description(OldDescription)] string oldImage,
         [Description(NewDescription)] string newImage,
@@ -228,20 +224,18 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "diff_function", Title = "Diff a function between builds", UseStructuredContent = true)]
-    [Description("What changed in one function between two builds. The function containing the address is paired through compare_native_images. " +
-                 "view=asm (default): both instruction lists aligned, each row = (same), ~ (same shape, other operands), - or +; operands are " +
-                 "build-independent: branch targets as labels of the aligned old instruction, calls to matched functions by the new build's name on " +
-                 "both sides, strings by text, other data by the new address it maps to, so moved code and relocations do not show as changes. Only " +
-                 "changed regions with context rows are returned. view=pseudocode: a unified diff of both functions' pseudocode (IDA) with addresses " +
-                 "replaced the same way. An unmatched function returns the reason and candidates.")]
+    [Description("What changed in one function between two builds (paired through compare_native_images). view=asm: both instruction lists " +
+                 "aligned, rows = (same), ~ (other operands), - or +, with build-independent operands (branch labels, matched callee names, string " +
+                 "text, mapped data) so moved code and relocations do not show; only changed regions with context. view=pseudocode: a unified diff " +
+                 "of both functions' pseudocode, addresses replaced the same way. An unmatched function returns the reason and candidates.")]
     public async Task<FunctionDiffReport> DiffFunction(
         [Description(OldDescription)] string oldImage,
         [Description(NewDescription)] string newImage,
         [Description("An address in the function: " + NativeTools.AddressDescription)] string address,
-        [Description("Which build the address is in: old (default) or new.")] string? side = null,
-        [Description("asm (default) or pseudocode (needs IDA).")] string? view = null,
-        [Description("Unchanged rows (asm) or lines (pseudocode) shown around each change (default 4, 0-50).")] int context = 4,
-        [Description("Most rows or diff lines returned (default 300, max 5000).")] int maxLines = 300,
+        [Description("Which build the address is in (default old).")] string? side = null,
+        [Description("asm (default) or pseudocode (needs an engine).")] string? view = null,
+        [Description("Unchanged rows or lines around each change (0-50).")] int context = 4,
+        [Description("Most rows or lines returned (max 5000).")] int maxLines = 300,
         [Description(UseNamesDescription)] bool useNames = true,
         [Description("view=pseudocode: " + NativeCodeTools.EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> request = null!,
@@ -316,23 +310,20 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "migrate_native_names", Title = "Carry names to a new build", UseStructuredContent = true)]
-    [Description("Copy names and comments from the old build to the new build's user annotations through the function matches of compare_native_images " +
-                 "and map_address_between_builds: function names to the matched function, names and comments inside functions to the aligned instruction, " +
-                 "data names to the same string or the data the matched instructions reference. Sources: the old build's user annotations (default; with " +
-                 "its engine types: declarations as they are, prototypes and global types by mapped address, locals and stack variables by matched function), " +
-                 "and optionally its pdb and il2cpp names (made identifiers). Never replaces a user name, comment or type of the new build; every skipped " +
-                 "item has a reason code. dryRun shows exactly what would change.")]
+    [Description("Copy names and comments from the old build to the new build's user annotations through the function matches and address " +
+                 "mapping (map_address_between_builds). Sources: the old build's user annotations with its engine types, optionally its pdb and " +
+                 "il2cpp names. Never replaces a user name, comment or type of the new build; every skipped item has a reason code.")]
     public async Task<MigrationReport> MigrateNativeNames(
         [Description(OldDescription)] string oldImage,
         [Description(NewDescription)] string newImage,
         [Description(DryRunDescription)] bool dryRun = false,
-        [Description("Weakest match tier accepted for function addresses: 1 (names and identical bytes only) to 5 (all, default).")] int minTier = 5,
-        [Description("Least mapping confidence accepted, 0-1 (default 0: any mapped address).")] double minScore = 0,
-        [Description("Comma-separated layers of the old build to copy: user (default), pdb, il2cpp.")] string? sources = null,
-        [Description("Copy comments too (default true).")] bool comments = true,
+        [Description("Weakest match tier accepted: 1 (names and identical bytes) to 5 (all).")] int minTier = 5,
+        [Description("Least mapping confidence accepted (0-1).")] double minScore = 0,
+        [Description("Comma-separated layers to copy: user (default), pdb, il2cpp.")] string? sources = null,
+        [Description("Copy comments too.")] bool comments = true,
         [Description(UseNamesDescription)] bool useNames = true,
         [Description("Entries to skip in the report.")] int offset = 0,
-        [Description("Entries to return (default 200, max 5000).")] int limit = 200,
+        [Description("Entries to return (max 5000).")] int limit = 200,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default)
     {
@@ -402,18 +393,17 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "make_code_pattern", Title = "Make a code pattern", UseStructuredContent = true)]
-    [Description("A byte pattern for an address that survives rebuilds: instruction bytes with branch displacements, RIP-relative displacements and " +
-                 "relocated or in-image addresses as ?? (IDA style '48 8B 05 ?? ?? ?? ??'), extended an instruction at a time until it occurs once in the " +
-                 "image's executable sections. When the code at the address is not unique (anchor auto) or anchor=reference, the pattern starts at or shortly " +
-                 "before an instruction that references the address, with the operand's offset and how to recover the address from a hit. " +
-                 "anchor=xrefs: a unique signature at each referencing instruction (shortest first; with engine IDA or Ghidra its references too), " +
-                 "so a rebuild that changed one site keeps others. anchor=range: [address, end), unique or not. search_code_pattern finds it in another build.")]
+    [Description("A byte pattern for an address that survives rebuilds: instruction bytes with displacements and relocated addresses as ?? " +
+                 "('48 8B 05 ?? ?? ?? ??'), extended until it is unique in the executable sections. anchor=reference (or auto when the code is not " +
+                 "unique): the pattern starts at an instruction referencing the address, with the operand offset to recover it from a hit. " +
+                 "anchor=xrefs: a signature at each referencing instruction, so a rebuild that changed one site keeps others. anchor=range: " +
+                 "[address, end), unique or not. search_code_pattern finds it in another build.")]
     public async Task<CodePatternResult> MakeCodePattern(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
-        [Description("auto (default): the address, else a reference to it; address; reference; xrefs: one per reference; range.")] string? anchor = null,
-        [Description("Longest pattern in bytes (default 64, 8-512).")] int maxBytes = 64,
-        [Description("anchor=xrefs: most signatures (default 8, 1-32).")] int maxPatterns = 8,
+        [Description("auto (default): the address, else a reference to it; xrefs: one per reference.")] string? anchor = null,
+        [Description("Longest pattern in bytes (8-512).")] int maxBytes = 64,
+        [Description("anchor=xrefs: most signatures (1-32).")] int maxPatterns = 8,
         [Description("anchor=xrefs: " + NativeCodeTools.EngineDescription)] string? engine = null,
         [Description("Syntax: ida (default), x64dbg, mask (\\x48\\x00 x?) or bitmask (0x48, 0x00 0b01).")] string? format = null,
         [Description("anchor=range: exclusive end, an address or +length.")] string? end = null,
@@ -522,13 +512,13 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "search_code_pattern", Title = "Search a code pattern", UseStructuredContent = true)]
-    [Description("Find a byte pattern with ?? wildcards (as make_code_pattern or search_bytes write it) in the executable sections of every loaded native image, " +
-                 "or of the given images, with the function containing each hit and the offset into it.")]
+    [Description("Find a byte pattern with ?? wildcards (as make_code_pattern writes it) in the executable sections of the loaded native " +
+                 "images, with the function and offset of each hit.")]
     public async Task<PatternSearch> SearchCodePattern(
-        [Description("Hex bytes with ?? wildcards, e.g. '48 8B 05 ?? ?? ?? ?? E8'.")] string pattern,
+        [Description("Hex bytes with ?? wildcards.")] string pattern,
         [Description("Comma-separated image ids or paths; omit for every loaded native image.")] string? images = null,
         [Description("Search every section, not only executable ones.")] bool allSections = false,
-        [Description("Max hits (default 200, max 5000).")] int limit = 200,
+        [Description("Max hits (max 5000).")] int limit = 200,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default)
     {

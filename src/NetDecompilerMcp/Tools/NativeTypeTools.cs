@@ -38,10 +38,9 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     }
 
     [McpServerTool(Name = "get_native_frame", Title = "Native stack frame and locals")]
-    [Description("A native function's stack frame as the engine has it (members: offset, name, type, size; locals, arguments, return address, " +
-                 "saved registers, which Ghidra counts as locals) and its decompiler locals (name, type, register or stack offset, argument, user " +
-                 "name / type). Offsets count from the frame's lowest address; brackets give the offset from the return address (IDA's var_/arg_). " +
-                 "set_native_stack_var and set_native_local edit them.")]
+    [Description("A native function's stack frame as the engine has it (members: offset, name, type, size; Ghidra counts saved registers as " +
+                 "locals) and its decompiler locals (name, type, register or stack offset, user edits). Offsets count from the frame's lowest " +
+                 "address; brackets give the offset from the return address (IDA's var_/arg_).")]
     public Task<string> GetNativeFrame(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("The function: " + NativeTools.AddressDescription)] string function,
@@ -72,17 +71,16 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     });
 
     [McpServerTool(Name = "set_native_stack_var", Title = "Rename, retype or delete a stack variable")]
-    [Description("Rename and/or retype a member of a native function's stack frame, named as get_native_frame lists it (var_28) or by frame " +
-                 "offset (0x20, from the frame's lowest address); a type at an empty offset creates one; delete=true removes it; clear=true drops the " +
-                 "user's edit, restoring the engine's member. The return address and saved registers are refused." + KeptNote)]
+    [Description("Rename and/or retype a stack frame member, by its get_native_frame name (var_28) or frame offset (0x20, from the lowest " +
+                 "address); a type at an empty offset creates one. The return address and saved registers are refused." + KeptNote)]
     public Task<string> SetNativeStackVar(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("The function: " + NativeTools.AddressDescription)] string function,
         [Description("The member: its name, or its frame offset (hex).")] string variable,
         [Description("New name (a C identifier).")] string? newName = null,
-        [Description("New C type, e.g. 'int', 'char[16]', 'Packet'.")] string? type = null,
-        [Description("Delete the member instead (no newName or type).")] bool delete = false,
-        [Description("Drop the user's edit of the member (no newName or type).")] bool clear = false,
+        [Description("New C type.")] string? type = null,
+        [Description("Delete the member.")] bool delete = false,
+        [Description("Drop the user's edit, restoring the engine's member.")] bool clear = false,
         [Description(DecompileDiff.Description)] string? showDecompile = null,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
@@ -131,18 +129,16 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     private static string Va(LoadedNative native, uint rva) => NativeAddress.Va(native.Image, rva);
 
     [McpServerTool(Name = "set_native_type", Title = "Set a native prototype or global type")]
-    [Description("Set the type of a native function (its prototype, e.g. 'int __fastcall Parse(Packet *p, int len)') or of a global (e.g. " +
-                 "'Config', 'char[64]', 'Handler *[8]') in the decompiler engine (IDA or Ghidra). Named types must exist there (the PDB, RTTI and Il2Cpp types " +
-                 "decompile_native pushes, or declare_native_types). User types win over recovered ones. An empty type clears it. A prototype's " +
-                 "name renames the function in every engine unless rename=false. items applies many, one 'address = type' per line. guess=true " +
-                 "reports the engine's guess at address without applying it." + KeptNote)]
+    [Description("Set the prototype of a native function ('int __fastcall Parse(Packet *p, int len)') or the type of a global ('Handler *[8]') " +
+                 "in the engine. Named types must exist there (pushed PDB, RTTI and Il2Cpp types, or declare_native_types). User types win over " +
+                 "recovered ones; empty clears. A prototype's name renames the function unless rename=false." + KeptNote)]
     public Task<string> SetNativeType(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("A function start or a global: " + NativeTools.AddressDescription)] string? address = null,
         [Description("C prototype for a function, C type for a global; empty to clear the user type.")] string? type = null,
-        [Description("Instead of address and type: lines 'address = type', e.g. '0x140010000 = Config'.")] string? items = null,
-        [Description("Name the function as its prototype does (default true).")] bool rename = true,
-        [Description("Report the engine's guess for address (no type).")] bool guess = false,
+        [Description("Instead of address and type: lines 'address = type'.")] string? items = null,
+        [Description("Name the function as its prototype does.")] bool rename = true,
+        [Description("Report the engine's guess at address without applying it.")] bool guess = false,
         [Description(DecompileDiff.Description)] string? showDecompile = null,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
@@ -243,15 +239,14 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
 
     [McpServerTool(Name = "set_native_local", Title = "Rename or retype a decompiler local")]
     [Description("Rename and/or retype a local or argument in a native function's pseudocode, named as decompile_native shows it (v3, a1) or " +
-                 "as stack:0x28. Later edits may use its new name (one edit); its first name again, or clear=true, drops the edit. A type that does " +
-                 "not fit is refused (reported)." + KeptNote)]
+                 "stack:0x28. Later edits may use its new name; its first name again, or clear, drops the edit. A type that does not fit is refused." + KeptNote)]
     public Task<string> SetNativeLocal(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("The function: " + NativeTools.AddressDescription)] string function,
         [Description("The variable: its name in the pseudocode, or stack:<offset> (hex).")] string? local = null,
         [Description("New name (a C identifier).")] string? newName = null,
-        [Description("New C type, e.g. 'unsigned int', 'Packet *', 'char[16]'.")] string? type = null,
-        [Description("Drop the user's name and type of the variable (no newName or type).")] bool clear = false,
+        [Description("New C type.")] string? type = null,
+        [Description("Drop the user's name and type of the variable.")] bool clear = false,
         [Description("Instead of local: lines 'local = newName', or JSON [{local, newName?, type?, clear?}].")] string? items = null,
         [Description(DecompileDiff.Description)] string? showDecompile = null,
         [Description(EngineDescription)] string? engine = null,
@@ -389,11 +384,9 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     }
 
     [McpServerTool(Name = "declare_native_types", Title = "Declare C types in the engine")]
-    [Description("Declare C types (structs, unions, enums, typedefs, function types) in the engine (IDA or Ghidra), e.g. 'struct P { int len; " +
-                 "char tag[4]; };'. A type of the same name is replaced; declarations win over recovered PDB, RTTI and Il2Cpp types. Errors come " +
-                 "with the engine's messages and are not saved. typeName with members upserts or removes enum members (creating the enum), with " +
-                 "fields struct or union members. delete or rename edits a named type; declaring the name again undoes that. Edits survive " +
-                 "recovered types and redeclarations." + KeptNote)]
+    [Description("Declare C types (structs, unions, enums, typedefs, function types) in the engine; a type of the same name is replaced, and " +
+                 "declarations win over recovered types. Errors carry the engine's messages and are not saved. typeName with members upserts or " +
+                 "removes enum members, with fields struct or union members; delete or rename edits a named type." + KeptNote)]
     public Task<string> DeclareNativeTypes(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("C declarations; types they name must exist or be declared too.")] string? declarations = null,
@@ -546,17 +539,15 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     }
 
     [McpServerTool(Name = "define_native", Title = "Redefine code or data in the engine")]
-    [Description("Change the engine's analysis (IDA or Ghidra) at an address. kind=code decodes instructions (up to end, else following the flow); " +
-                 "function makes a function (with end: its extent; on an existing function: moves its end); undefine turns items back into unknown " +
-                 "bytes (up to end, else the item there; at a function start the whole function); data makes a data item of type: byte, word, dword, " +
-                 "qword, float, double, string (C string, ends at end or its terminator), string16 (UTF-16) or a C type ('Packet', 'char[16]'), each " +
-                 "with an optional [count] such as dword[8]. Data and undefine replace a user type set on a global there." + KeptNote)]
+    [Description("Change the engine's analysis at an address. code decodes instructions (to end, else following the flow); function makes " +
+                 "a function (with end: its extent; on one: moves its end); undefine makes unknown bytes (to end, else the item; at a function start " +
+                 "the function); data makes a data item of type. Data and undefine replace a user type on a global there." + KeptNote)]
     public Task<string> DefineNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Start: " + NativeTools.AddressDescription)] string address,
-        [Description("code, function, undefine or data.")] string kind,
+        [Description("What to make.")] string kind,
         [Description("Exclusive end address (same forms as address).")] string? end = null,
-        [Description("kind=data: byte, word, dword, qword, float, double, string, string16 or a C type, optionally with [count].")] string? type = null,
+        [Description("kind=data: byte, word, dword, qword, float, double, string, string16 (UTF-16) or a C type, with an optional [count] (dword[8]).")] string? type = null,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -585,15 +576,14 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     });
 
     [McpServerTool(Name = "set_native_operand", Title = "Set how an operand displays")]
-    [Description("Set how an instruction operand displays in the engine's disassembly and, where the decompiler follows it, the pseudocode: hex, dec, " +
-                 "oct, bin, char, offset (the constant as an address), stack (a stack variable), enum (type: the enum, a member of the constant's value; " +
-                 "declare_native_types declares enums and members), struct (type: 'Packet' or 'Packet+0x10' for a pointer into it; IDA only) or " +
-                 "default (the engine's own). Ghidra shows numbers and enum members as equates." + KeptNote)]
+    [Description("Set how an instruction operand displays in the engine's disassembly and, where the decompiler follows it, the pseudocode: " +
+                 "offset (the constant as an address), stack (a stack variable), enum (type: the enum; a member of the constant's value), struct " +
+                 "(type: 'Packet' or 'Packet+0x10'; IDA only) or default (the engine's). Ghidra shows numbers and enum members as equates." + KeptNote)]
     public Task<string> SetNativeOperand(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("The instruction: " + NativeTools.AddressDescription)] string address,
         [Description("Operand index, 0 for the first.")] int operand,
-        [Description("hex, dec, oct, bin, char, offset, stack, enum, struct or default.")] string display,
+        [Description("How to display it (see the description).")] string display,
         [Description("display=enum or struct: the type's name (struct: optionally +delta).")] string? type = null,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
@@ -615,18 +605,17 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     });
 
     [McpServerTool(Name = "list_native_types", Title = "Browse the engine's types")]
-    [Description("The named types of the decompiler engine's database (from the PDB, RTTI, Il2Cpp, the " +
-                 "engine's type libraries and declare_native_types) with size and member count; members=true adds each type's first members. " +
-                 "name= shows one type as a C declaration with its members' offsets.")]
+    [Description("The named types of the engine's database (PDB, RTTI, Il2Cpp, type libraries, declare_native_types) with size and member " +
+                 "count; name= shows one type as a C declaration with member offsets.")]
     public Task<string> ListNativeTypes(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Name filter: " + NameFilter.Description + ".")] string? filter = null,
-        [Description("struct, union, udt (either), enum, typedef, func or ptr.")] string? kind = null,
+        [Description("udt: struct or union.")] string? kind = null,
         [Description("Show this one type in full instead of a list.")] string? name = null,
         [Description("Index of the first row.")] int offset = 0,
-        [Description("Max rows (default 200, max 5000).")] int limit = 200,
+        [Description("Max rows (max 5000).")] int limit = 200,
         [Description(EngineDescription)] string? engine = null,
-        [Description("Order: the engine's (default), name or size.")] string? sort = null,
+        [Description("Default: the engine's order.")] string? sort = null,
         [Description("Reverse the order.")] bool descending = false,
         [Description("List each type's first 32 members (enums: name = value).")] bool members = false,
         [Description("Add the types each one refers to.")] bool related = false,

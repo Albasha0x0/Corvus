@@ -86,32 +86,27 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
 
     [McpServerTool(Name = "update_to_new_build", Title = "Update work to a new build", UseStructuredContent = true)]
     [Description("Carry everything done on an old build of a native image (x86 / x64 / ARM64) to its new build in one call, through one function match " +
-                 "(compare_native_images): user names, comments and engine types (migrate_native_names rules), imported names (the PDB layer is re-imported only " +
-                 "from the new build's own matching PDB, else not_applicable pdb_mismatch; the Il2Cpp layer is re-applied from the new build's own " +
-                 "metadata, else the old names are mapped through the function match and saved as a layer marked carried by match), byte patches " +
-                 "(migrate_native_patches rules; stub extensions and grown-file patches are re-created at the mapped site through the extend path after " +
-                 "the displaced original instructions are verified), code patterns (made at every carried name and patch site on the old build, " +
-                 "searched in the new build for drift — still_unique, now_ambiguous, not_found, points_elsewhere — and made again on the new build), " +
-                 "and for Il2Cpp titles the method -> RVA mapping by metadata identity cross-checked with the matcher, and notes (record_note) at mapped " +
-                 "addresses. dryRun (default true) previews " +
-                 "everything and changes nothing; dryRun=false applies in the order names, imported layers, patches; a re-run reports already_present. " +
-                 "Returns a summary, per-category counts with reason codes, and a paged item list (filter by category / outcome). .NET assemblies are " +
-                 "out of scope (compare_assemblies, find_counterpart, export_edits + apply_edits).")]
+                 "(compare_native_images): user names, comments and engine types (migrate_native_names rules); the PDB layer (re-imported only from the " +
+                 "new build's matching PDB) and the Il2Cpp layer (re-applied from the new build's metadata, else mapped through the match); byte patches " +
+                 "(migrate_native_patches rules; stubs re-created after the displaced instructions are verified); code patterns at every carried site, " +
+                 "checked for drift; for Il2Cpp the method -> RVA mapping by metadata identity; and notes. dryRun=false applies names, layers, then patches; " +
+                 "a re-run reports already_present. Returns a summary, per-category counts with reason codes and a paged item list. .NET assemblies: " +
+                 "compare_assemblies, find_counterpart, export_edits + apply_edits.")]
     public Task<UpdateReport> UpdateToNewBuild(
-        [Description("The old build: native image id or path (its names, layers and in-memory patches are the source).")] string oldImage,
-        [Description("The new build: native image id or path. Load both builds; the second gets an id like name#2.")] string newImage,
-        [Description("Preview only (default true): report what would carry over without changing the new build.")] bool dryRun = true,
-        [Description("Comma-separated categories: names, pdb, il2cpp (names layer and method mapping), patches, patterns, notes; all (default).")] string? include = null,
-        [Description("Patches from a json patch set (export_native_patches format=json: a path or the JSON text) instead of the old build's in-memory patches.")] string? patchSet = null,
-        [Description("Where re-created patch stubs go: auto (a cave, else a new section; default), cave, section.")] string? stubPlacement = null,
-        [Description("The old build's Il2Cpp dummy assemblies (comma-separated ids); omit to find them (the dump made from this binary, the game's metadata beside it, or what apply_il2cpp_names used).")] string? oldIl2Cpp = null,
+        [Description("The old build: native image id or path (the source of names, layers and patches).")] string oldImage,
+        [Description("The new build: native image id or path (load both; the second gets an id like name#2).")] string newImage,
+        [Description("Report what would carry over without changing the new build.")] bool dryRun = true,
+        [Description("Comma-separated: names, pdb, il2cpp (names layer and method mapping), patches, patterns, notes; default all.")] string? include = null,
+        [Description("A JSON patch set (export_native_patches format=json; path or text) instead of the old build's in-memory patches.")] string? patchSet = null,
+        [Description("Where re-created patch stubs go: auto (default: a cave, else a new section), cave or section.")] string? stubPlacement = null,
+        [Description("The old build's Il2Cpp dummy assemblies (comma-separated ids); omit to find them (a dump of this binary, the metadata beside it, or what apply_il2cpp_names used).")] string? oldIl2Cpp = null,
         [Description("The new build's Il2Cpp dummy assemblies (comma-separated ids); omit to find them the same way.")] string? newIl2Cpp = null,
-        [Description("Match functions by names (exports, PDB, Il2Cpp, user); false matches on code alone.")] bool useNames = true,
-        [Description("Most items (names and patch sites) to make code patterns for (default 100, 0-1000).")] int maxPatterns = 100,
-        [Description("Only items of this category: names, pdb, il2cpp_names, patches, patterns, il2cpp_mapping, notes.")] string? category = null,
-        [Description("Only items with this outcome: carried, would_carry, already_present, refused, not_applicable, ambiguous.")] string? outcome = null,
+        [Description("Match functions by export, PDB, Il2Cpp and user names first; false: code only.")] bool useNames = true,
+        [Description("Most sites (names and patches) to make code patterns for (0-1000).")] int maxPatterns = 100,
+        [Description("Only items of this category.")] string? category = null,
+        [Description("Only items with this outcome.")] string? outcome = null,
         [Description("Items to skip.")] int offset = 0,
-        [Description("Items to return (default 100, max 2000).")] int limit = 100,
+        [Description("Items to return (max 2000).")] int limit = 100,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

@@ -54,25 +54,23 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     });
 
     private const string RelocationsDescription =
-        "Base relocations under the patch: auto (default) keeps entries where the new bytes still hold an address, neutralizes the rest and " +
-        "adds entries for new absolute addresses in a free slot of the page's block; keep leaves them; neutralize neutralizes all. Reported; " +
-        "undo restores them. Ignored with extend=true.";
+        "PE base relocations under the patch: auto (default) keeps entries whose new bytes still hold an address, neutralizes the rest and adds entries " +
+        "for new absolute addresses; keep leaves them; neutralize clears all. Undo restores them; ignored with extend.";
 
     private const string ExtendDescription =
-        "Place the new code in a stub (a code cave or a new section, see placement): the site becomes a near jump to it and control returns " +
-        "after the site. For code larger than the site, or to keep the site intact. Refused with a reason code when unsafe (branch_target_in_site, " +
-        "displaced_absolute_reloc, unwind_data, no_space, no_space_at_site, no_header_space, stub_needs_reloc, unreachable_section, arm64_unsupported). One undoable edit; PE only.";
+        "Put the new code in a stub (see placement); the site becomes a jump to it and control returns after the site. For code larger than " +
+        "the site, or to keep it intact. Refused with a reason code when unsafe; PE only.";
 
-    private const string StubModeDescription =
-        "With extend=true: replace (default; the new code instead of the displaced instructions), before (new code, then them) or after.";
+    private const string StubModeDescription = "With extend: replace (default; the new code instead of the displaced instructions), before (new code, then them) or after.";
 
     private const string PlacementDescription =
-        "With extend=true: auto (default; a code cave if one fits, else a new executable section), cave (no_space when none fits) or " +
-        "section (always new; header fields and checksum updated, undo restores the file byte-for-byte).";
+        "With extend: auto (default; a code cave if one fits, else a new section), cave or section (headers and checksum updated; undo restores the file).";
+
+    private const string ForceDescription = "Override the safety checks (mid-instruction, past function end, header bytes, no free relocation slot).";
 
     [McpServerTool(Name = "rename_native", Title = "Name a native address")]
-    [Description("Name a native address: shown by list_functions, disassemble, find_xrefs and native_call_tree, pushed to the engines, and kept in " +
-                 "a per-user sidecar keyed by the file's SHA-256. C-identifier-like (<=255 chars), unique unless allowDuplicate. Empty clears. " + BatchNote)]
+    [Description("Name a native address: used by every native tool, pushed to the engines and kept per file SHA-256. C-identifier-like " +
+                 "(<=255 chars), unique unless allowDuplicate. Empty clears. " + BatchNote)]
     public Task<string> RenameNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string? address = null,
@@ -214,9 +212,9 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string? address = null,
         [Description("The comment text; empty to clear it.")] string? text = null,
-        [Description("auto, line, eol, pre, plate, pseudocode or function.")] string? scope = null,
+        [Description("See the description; default auto.")] string? scope = null,
         [Description("Add text as a new line of the existing comment.")] bool append = false,
-        [Description("With append: skip a line the comment already has (default true).")] bool dedupe = true,
+        [Description("With append: skip a line already there.")] bool dedupe = true,
         [Description("Lines 'address = text', or JSON [{address, text, scope?, append?}].")] string? items = null,
         [Description("Check only; record nothing.")] bool dryRun = false,
         [Description("Stop at the first failing item.")] bool stopOnError = false,
@@ -362,13 +360,13 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "export_native_annotations", Title = "Export native annotations")]
-    [Description("Write the image's names and comments as an IDAPython script (ida), a Ghidra script (ghidra) or JSON, over the NativeAOT and Il2Cpp names; the IDA script and JSON " +
-                 "also carry the user's engine types. Scripts apply by RVA, rebased to the database's image base. header: a C header of declared " +
-                 "types, prototypes by name and externs of typed globals.")]
+    [Description("Write the image's names and comments (with the NativeAOT and Il2Cpp names) as an IDAPython script, a Ghidra script or JSON; the IDA " +
+                 "script and JSON carry the user's engine types too. Scripts apply by rebased RVA. header: a C header of declared types, prototypes " +
+                 "and typed globals.")]
     public Task<string> ExportNativeAnnotations(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Output file path.")] string outputPath,
-        [Description("ida, ghidra, json (default) or header.")] string? format = null,
+        [Description("Default json.")] string? format = null,
         [Description("Replace outputPath if it exists.")] bool overwrite = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -387,18 +385,16 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     });
 
     [McpServerTool(Name = "patch_bytes", Title = "Patch native bytes")]
-    [Description("Replace bytes at an address of a native image with a hex string, in memory. The patch is recorded as an undoable edit and every read path " +
-                 "(disassemble, strings, search_bytes, read_bytes) then sees the patched bytes. Over code, trailing bytes of a partly overwritten " +
-                 "instruction are padded with NOPs; refused mid-instruction, past the function end or on zero-fill/header bytes unless force=true. " +
-                 "PE: relocations under the patch are planned (see relocations). ELF / Mach-O: loader-rewritten bytes need force, encrypted ones are refused, " +
-                 "signatures become invalid. dryRun previews without recording.")]
+    [Description("Replace bytes at a native address in memory, as an undoable edit that every read path then sees. A partly overwritten " +
+                 "instruction is padded with NOPs; mid-instruction, past the function end or on header / zero-fill bytes needs force. ELF / Mach-O: " +
+                 "loader-rewritten bytes need force, encrypted ones are refused, signatures become invalid.")]
     public Task<string> PatchBytes(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
-        [Description("Replacement bytes as hex (e.g. '90 90' or '9090' or '0x90,0x90').")] string? hex = null,
+        [Description("Replacement bytes as hex ('90 90', '9090' or '0x90,0x90').")] string? hex = null,
         [Description("Instead of hex: a number of type (range-checked); ptr: or a name.")] string? value = null,
         [Description("With value: i8-i64, u8-u64, f32, f64 or ptr; a be suffix for big-endian.")] string? type = null,
-        [Description("Override the safety checks (mid-instruction, past function end, header bytes, a new address with no free relocation slot).")] bool force = false,
+        [Description(ForceDescription)] bool force = false,
         [Description("Preview only; do not record the patch.")] bool dryRun = false,
         [Description(RelocationsDescription)] string? relocations = null,
         [Description(ExtendDescription)] bool extend = false,
@@ -426,15 +422,14 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     });
 
     [McpServerTool(Name = "patch_asm", Title = "Assemble and patch native code")]
-    [Description("Assemble x86/x64 instructions (multi-line; labels, numeric and symbol branch targets; a 'db <hex>' escape) and write them at an " +
-                 "address of a native image, in memory. Branch displacements and RIP-relative references are computed for the target address. Same safety rules " +
-                 "and NOP padding as patch_bytes; the patch is recorded as an undoable edit. PE: absolute addresses ([addr], 'offset name', imm64) " +
-                 "get base relocations, overwritten ones are neutralized (see relocations). dryRun previews.")]
+    [Description("Assemble x86/x64 instructions (multi-line; labels, numeric and symbol branch targets; 'db <hex>') and write them at a native " +
+                 "address in memory, branches and RIP-relative references computed for that address. Same safety rules, NOP padding and undo as " +
+                 "patch_bytes; PE absolute addresses ([addr], 'offset name', imm64) get base relocations.")]
     public Task<string> PatchAsm(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
-        [Description("Assembly, one instruction per line (e.g. 'jmp target' with a 'target:' label, or 'mov eax, 1\\nret').")] string assembly,
-        [Description("Override the safety checks (mid-instruction, past function end, header bytes, a new address with no free relocation slot).")] bool force = false,
+        [Description("Assembly, one instruction per line.")] string assembly,
+        [Description(ForceDescription)] bool force = false,
         [Description("Preview only; do not record the patch.")] bool dryRun = false,
         [Description(RelocationsDescription)] string? relocations = null,
         [Description(ExtendDescription)] bool extend = false,
@@ -465,9 +460,9 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     });
 
     [McpServerTool(Name = "list_native_edits", Title = "List native byte patches")]
-    [Description("The in-memory byte patches of a native image, numbered; undo_native_edit reverts by number and save_native writes them to a file. " +
-                 "Then the names by source: the user's (rename_native / comment_native) and each imported layer (pdb, il2cpp, ida) with counts, origin, " +
-                 "source file and identity, and whether it was saved or restored from the saved copy when the image loaded (with the import time).")]
+    [Description("The in-memory byte patches of a native image, numbered (undo_native_edit, save_native). Then the names by source: the user's " +
+                 "(rename_native / comment_native) and each imported layer (pdb, il2cpp, ida) with counts, origin, identity and whether it was " +
+                 "saved or restored when the image loaded.")]
     public Task<string> ListNativeEdits(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Instead: the names and comments (user and layers) whose text matches: " + NameFilter.Description + ".")] string? search = null,
@@ -491,7 +486,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     [Description("Undo one in-memory byte patch of a native image — the last by default, or any earlier one by number (from list_native_edits).")]
     public Task<string> UndoNativeEdit(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Patch number (1-based, from list_native_edits). Omit to undo the last.")] int? number = null,
+        [Description("Patch number (1-based, from list_native_edits); omit for the last.")] int? number = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -500,9 +495,8 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     });
 
     [McpServerTool(Name = "save_native", Title = "Save patched native image")]
-    [Description("Write the patched native image to a file: unpatched bytes identical, PE checksum recomputed when present, a signed file becomes " +
-                 "unsigned (stripSignature removes the certificate table). Atomic; overwrite=true backs the original up to .bak and refuses one changed " +
-                 "on disk; the written file is re-parsed and every byte outside the patches and every relocation entry checked before it replaces the target.")]
+    [Description("Write the patched native image to a new file: unpatched bytes identical, PE checksum recomputed, a signature invalidated " +
+                 "(stripSignature removes it). Atomic and verified before it replaces the target; overwrite=true keeps a .bak and refuses a file changed on disk.")]
     public Task<string> SaveNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Output file path.")] string outputPath,

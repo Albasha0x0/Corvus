@@ -60,7 +60,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
                  "compiler, analysis complete or partial, warnings, counts, entry points, hashes, blocks, database, worker, unsaved edits). Starts no engine.")]
     public async Task<string> GetEngineStatus(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("auto (default: both), ida or ghidra.")] string? engine = null,
+        [Description("Default auto: both.")] string? engine = null,
         CancellationToken cancellationToken = default)
     {
         if (engines == null) throw new ToolError(ErrorCode.ProviderUnavailable, "No analysis engine is set up in this server.");
