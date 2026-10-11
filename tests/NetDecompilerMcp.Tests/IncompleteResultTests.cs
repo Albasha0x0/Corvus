@@ -30,12 +30,16 @@ public class IncompleteResultTests
     [Fact]
     public void MatcherCountsTimeouts()
     {
+        // Short inputs under the default limit: on a busy machine even they can take 50 ms.
+        var quickTimeouts = new RegexTimeouts();
+        var quick = SearchService.CreateMatcher(Catastrophic, regex: true, quickTimeouts);
+        Assert.True(quick("aaaa"));
+        Assert.False(quick("b"));
+        Assert.Equal("", quickTimeouts.Note("string"));
+
         using var limit = RegexTimeouts.UseLimit(TimeSpan.FromMilliseconds(50));
         var timeouts = new RegexTimeouts();
         var match = SearchService.CreateMatcher(Catastrophic, regex: true, timeouts);
-        Assert.True(match("aaaa"));
-        Assert.False(match("b"));
-        Assert.Equal("", timeouts.Note("string"));
         Assert.False(match(Slow));
         Assert.Equal(1, timeouts.Count);
         Assert.StartsWith("Incomplete: the regex timed out on 1 string (50 ms limit each)", timeouts.Note("string"));
