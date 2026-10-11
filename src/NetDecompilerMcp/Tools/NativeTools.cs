@@ -287,7 +287,10 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     [McpServerTool(Name = "resolve_address", Title = "Resolve native address", UseStructuredContent = true, OutputSchemaType = typeof(AddressInfo))]
     [Description("What an address in a native image is: RVA, VA and file offset, the section and its permissions, the nearest export or import at or before it, " +
                  "and, once the code index is built, its name and the name's source (user, pdb, il2cpp); after apply_il2cpp_names the managed method or metadata slot. " +
-                 "For an IAT slot, the export it is bound to (in a loaded image: its address and image); for an export, the loaded images importing it.")]
+                 "For an IAT slot, the export it is bound to (in a loaded image: its address and image); for an export, the loaded images importing it. " +
+                 "With the code index built: the containing function and offset; whether the address is an instruction start, inside an instruction " +
+                 "(with the instruction covering it) or in a data item (string, IAT slot, switch table, relocated pointer; with its extent); the comment; " +
+                 "and the references to it by kind.")]
     public Task<string> ResolveAddress(
         [Description(ImageDescription)] string image,
         [Description(AddressDescription)] string address,
@@ -315,13 +318,60 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         if (export != null) sb.AppendLine(export.Rva == rva ? $"  export {export.Name ?? "#" + export.Ordinal}" : $"  nearest export before it: {export.Name ?? "#" + export.Ordinal} + 0x{rva - export.Rva:X}");
         var function = FindRuntimeFunction(pe, rva);
         if (function != null) sb.AppendLine($"  inside the unwind range 0x{pe.ImageBase + function.BeginRva:X}-0x{pe.ImageBase + function.EndRva:X}");
+        var facets = index != null ? CodeFacets(sb, index, rva, cancellationToken) : null;
         var text = sb.ToString();
         return StructuredOutput.With(text, new AddressInfo(native.Id, $"0x{rva:X}", NativeAddress.Va(pe, rva),
             pe.TryRvaToFileOffset(rva, out var fileOffset) ? $"0x{fileOffset:X}" : null, section?.Name, section != null ? Access(section.Access) : null,
             named?.Name, named?.Source.Id(), slot != null ? $"{slot.Module}!{slot.Name ?? "#" + slot.Ordinal}" : null, boundTo,
             export == null ? null : export.Rva == rva ? export.Name ?? "#" + export.Ordinal : $"{export.Name ?? "#" + export.Ordinal}+0x{rva - export.Rva:X}",
-            text.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList()));
+            text.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList())
+        {
+            Function = facets?.Function, Status = facets?.Status, ContainingInstruction = facets?.ContainingInstruction, DataItem = facets?.DataItem,
+            Comment = facets?.Comment, ReferencesTo = facets?.References,
+        });
     }, cancellationToken);
+
+    private sealed record Facets(string? Function, string? Status, string? ContainingInstruction, string? DataItem, string? Comment, IReadOnlyDictionary<string, int>? References);
+
+    /// <summary>resolve_address lines from the code index: function, instruction boundary or data item, comment, references by kind.</summary>
+    private static Facets CodeFacets(StringBuilder sb, NativeCodeIndex index, uint rva, CancellationToken ct)
+    {
+        string Va(uint r) => NativeAddress.Va(index.Image, r);
+        string? function = index.FunctionAt(rva) is { } f ? (rva == f.Start ? f.Name : $"{f.Name}+0x{rva - f.Start:X}") : null;
+        if (function != null) sb.AppendLine($"  in function {function}");
+        string? status = null, containing = null, item = null;
+        if (index.Support == CodeSupport.Full)
+        {
+            var c = new AddressClassifier(index).Classify(rva, ct);
+            status = c.StatusName;
+            switch (c.Status)
+            {
+                case AddressStatus.Decoded:
+                    sb.AppendLine("  an instruction start" + (c.Overlapping ? " (overlapping code: another decoding covers it)" : ""));
+                    break;
+                case AddressStatus.MidInstruction:
+                    containing = Va(c.InstructionStart!.Value);
+                    var text = index.CreateDisassembler().DecodeOne(c.InstructionStart.Value)?.Text;
+                    sb.AppendLine($"  inside the instruction at {containing}{(text != null ? $" ({text})" : "")}: not an instruction boundary");
+                    break;
+                case AddressStatus.Data when c.Item is { Kind: not "section" } d:
+                    item = $"{d.Kind}: {d.Text}";
+                    sb.AppendLine($"  {d.Kind.Replace('_', ' ')} {Va(d.Start)}-{Va(d.End)}" + (d.Start != rva ? $" (+0x{rva - d.Start:X} into it)" : "") + $": {d.Text}");
+                    break;
+                case AddressStatus.NotInFunction:
+                    sb.AppendLine("  executable, but no known function contains it");
+                    break;
+                case AddressStatus.Unmapped when c.Section != null:
+                    sb.AppendLine("  " + c.Note);
+                    break;
+            }
+        }
+        if (index.Sourced.CommentAt(rva) is { } comment) sb.AppendLine($"  comment ({comment.Source.Id()}): {comment.Text}");
+        var refs = index.RefsTo(rva).Concat(index.VirtualEdgesTo(rva)).GroupBy(x => x.Kind).OrderByDescending(g => g.Count())
+            .ToDictionary(g => g.Key.ToString(), g => g.Count());
+        if (refs.Count > 0) sb.AppendLine($"  referenced {Plural(refs.Values.Sum(), "time")}: {string.Join(", ", refs.Select(r => $"{r.Value} {r.Key}"))}; find_xrefs lists them");
+        return new Facets(function, status, containing, item, index.Sourced.CommentAt(rva)?.Text, refs.Count > 0 ? refs : null);
+    }
 
     private static RuntimeFunction? FindRuntimeFunction(INativeImage pe, uint rva)
     {

@@ -220,7 +220,15 @@ public sealed record AddressInfo(
     [property: Description("An IAT slot: module!name.")] string? Import,
     string? BoundTo,
     [property: Description("The export at the address, or the nearest before it as name+0xN.")] string? Export,
-    [property: Description("Everything the text says, line by line.")] IReadOnlyList<string> Lines);
+    [property: Description("Everything the text says, line by line.")] IReadOnlyList<string> Lines)
+{
+    [Description("Containing function as name+0xN (code index built).")] public string? Function { get; init; }
+    [Description("decoded, mid_instruction, data, not_in_function, unmapped, outside_image or invalid (x86 / x64, code index built).")] public string? Status { get; init; }
+    [Description("mid_instruction: the instruction covering the address.")] public string? ContainingInstruction { get; init; }
+    [Description("The data item covering the address, as kind: text.")] public string? DataItem { get; init; }
+    public string? Comment { get; init; }
+    [Description("Cross-references to the address by kind.")] public IReadOnlyDictionary<string, int>? ReferencesTo { get; init; }
+}
 
 public sealed record SectionEntry(string Name, string Rva, string VirtualSize, string RawOffset, string RawSize, string Access, double Entropy, IReadOnlyList<string> Characteristics);
 
