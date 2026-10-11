@@ -34,8 +34,11 @@ internal static partial class CallFilter
         catch (OperationCanceledException)
         {
             log?.LogDebug("Tool {Tool} cancelled after {Ms} ms", tool, (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+            CallTrace.For(services?.GetService<ServerOptions>())?.Record(tool, request?.Arguments, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, "cancelled", null);
             throw;
         }
+        CallTrace.For(services?.GetService<ServerOptions>())?.Record(tool, request?.Arguments, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            result.IsError == true ? ErrorCodeOf(result).Replace("error ", "") : null, result);
         // Tool, time and outcome only: arguments can hold paths and code.
         log?.LogDebug("Tool {Tool} {Status} in {Ms} ms", tool, result.IsError == true ? ErrorCodeOf(result) : "ok",
             (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);

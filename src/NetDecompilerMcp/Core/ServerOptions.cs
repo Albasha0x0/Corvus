@@ -22,6 +22,7 @@ namespace NetDecompilerMcp.Core;
 ///   --log-level &lt;l&gt;     stderr log level: trace, debug (adds one line per tool call), information (default), warning, error or none
 ///   --toolsets &lt;list&gt;   register only these tool families (see <see cref="Core.Toolsets"/>; default all): core, or names such as core,dumps
 ///   --tools-file &lt;path|readonly|triage&gt;  register only the tools a whitelist names, after --toolsets (NDM_TOOLS_FILE)
+///   --trace &lt;file&gt;      append one JSON line per tool call (tool, arguments, ms, error, size) to this file (NDM_TRACE)
 ///   --allow-device-changes  allow the Android device tools that install or uninstall apps (NDM_ALLOW_DEVICE_CHANGES=1)
 /// The NETDECOMP_LOAD environment variable (';'-separated paths) is also honored; NDM_PREWARM sets --prewarm (NDM_IDA_PREWARM=1: ida); NDM_ENGINE sets --engine;
 /// NDM_CODE_INDEX_CACHE, NDM_CODE_INDEX_CACHE_MB and NDM_CODE_INDEX_CACHE_DAYS set the code index cache defaults; NDM_LOG_LEVEL sets --log-level;
@@ -91,7 +92,7 @@ public sealed class ServerOptions
     public static readonly IReadOnlySet<string> ValueOptions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "--load", "--search-dir", "--max-output", "--timeout", "--binding-style", "--binding-project", "--prewarm", "--engine",
-        "--index-cache", "--index-cache-mb", "--index-cache-days", "--log-level", Core.Toolsets.Option, Core.Toolsets.ToolsFileOption,
+        "--index-cache", "--index-cache-mb", "--index-cache-days", "--log-level", Core.Toolsets.Option, Core.Toolsets.ToolsFileOption, TraceOption,
     };
 
     public static ServerOptions Parse(string[] args)
@@ -105,7 +106,7 @@ public sealed class ServerOptions
             : Environment.GetEnvironmentVariable(IdaPrewarmVariable)?.Trim() is "1" or "true" or "on" ? "ida" : null;
         string? logLevel = Environment.GetEnvironmentVariable(LogLevelVariable) is { Length: > 0 } levelFromEnv ? levelFromEnv : null;
         string? toolsets = Environment.GetEnvironmentVariable(Core.Toolsets.Variable) is { Length: > 0 } setsFromEnv ? setsFromEnv : null;
-        string? toolsFile = null;
+        string? toolsFile = null, trace = null;
         for (int i = 0; i < args.Length; i++)
         {
             string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"Missing value after {args[i]}");
@@ -132,6 +133,7 @@ public sealed class ServerOptions
                 case "--log-level": logLevel = Next(); break;
                 case Core.Toolsets.Option: toolsets = Next(); break;
                 case Core.Toolsets.ToolsFileOption: toolsFile = Next(); break;
+                case TraceOption: trace = Next(); break;
                 case "--index-cache-days": cacheDays = int.TryParse(Next(), out var days) && days > 0 ? days : throw new ArgumentException("--index-cache-days must be a positive number"); break;
                 default: throw new ArgumentException($"Unknown argument '{args[i]}'");
             }
@@ -150,7 +152,7 @@ public sealed class ServerOptions
         if (logLevel != null)
             o.LogLevel = ParseLogLevel(logLevel) ?? throw new ArgumentException($"--log-level (or {LogLevelVariable}) must be trace, debug, information, warning, error or none, not '{logLevel.Trim()}'");
         if (toolsets != null) o.Toolsets = Core.Toolsets.Parse(toolsets);
-        o.ParseProductOptions(toolsFile);
+        o.ParseProductOptions(toolsFile, trace);
         if (prewarm != null)
             o.Prewarm = EngineModes.TryParse(prewarm) is { } p && p != EngineMode.Ours ? p
                 : prewarm.Trim().ToLowerInvariant() is "off" or "0" or "none" ? null
@@ -170,11 +172,31 @@ public sealed class ServerOptions
     /// <summary>Tools a --tools-file whitelist names (null: no whitelist); applied after <see cref="Toolsets"/>, session tools always kept.</summary>
     public IReadOnlySet<string>? ToolAllowList { get; set; }
 
+    /// <summary>JSONL file that gets one line per tools/call (tool, arguments, ms, error, size); null: off.</summary>
+    public string? TracePath { get; set; }
+
+    public const string TraceOption = "--trace";
+    public const string TraceVariable = "NDM_TRACE";
+
+    /// <summary>Engine database files a trace must never be written into.</summary>
+    private static readonly string[] DatabaseExtensions = [".i64", ".idb", ".id0", ".id1", ".id2", ".nam", ".til", ".gpr", ".gzf", ".rep"];
+
+    /// <summary>The full path of a trace file; an engine database path is an <see cref="ArgumentException"/>.</summary>
+    public static string TraceFile(string path)
+    {
+        var full = Path.GetFullPath(path.Trim());
+        if (DatabaseExtensions.Contains(Path.GetExtension(full), StringComparer.OrdinalIgnoreCase))
+            throw new ArgumentException($"{TraceOption} (or {TraceVariable}): the trace goes to a file of its own, not an engine database ('{full}')");
+        return full;
+    }
+
     /// <summary>The command line value wins over the environment.</summary>
-    private void ParseProductOptions(string? toolsFile)
+    private void ParseProductOptions(string? toolsFile, string? trace)
     {
         toolsFile ??= Environment.GetEnvironmentVariable(Core.Toolsets.ToolsFileVariable) is { Length: > 0 } fileFromEnv ? fileFromEnv : null;
         if (toolsFile != null) ToolAllowList = Core.Toolsets.LoadToolList(toolsFile);
+        trace ??= Environment.GetEnvironmentVariable(TraceVariable) is { Length: > 0 } traceFromEnv ? traceFromEnv : null;
+        if (trace != null) TracePath = TraceFile(trace);
     }
 
     private static LogLevel? ParseLogLevel(string text) => text.Trim().ToLowerInvariant() switch
