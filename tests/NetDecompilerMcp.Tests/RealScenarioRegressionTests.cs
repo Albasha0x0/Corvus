@@ -275,6 +275,19 @@ public sealed class RealScenarioRegressionTests
     }
 
     /// <summary>
+    /// A netstandard library's closure has the runtime's System.Private.CoreLib (through a framework dependency) and the
+    /// System.Memory package, which define the same types: every C# patch using spans failed with CS0433 (System.Text.Json).
+    /// </summary>
+    [Fact]
+    public void CSharpPatchesOfANetStandardLibraryCompileAgainstOneCopyOfTheSpanTypes()
+    {
+        using var env = new Env(RealPackages.Lib("system.text.json", "10.0.1", "netstandard2.0", "System.Text.Json.dll"));
+        var result = env.Edit(() => env.Edits.PatchMethodCSharp(env.One("System.Text.Json.JsonDocument::Dispose"),
+            "var span = MemoryExtensions.AsSpan(new byte[2]); span[0] = 1;", dryRun: true, default));
+        Assert.Contains("compiled OK", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// References are imported with their internals, and a global-namespace type bound before the decompiled file's
     /// usings: an internal global 'Exception' in a .NET Framework assembly took every 'catch (Exception)' (CS0155; Greenshot).
     /// </summary>

@@ -119,24 +119,40 @@ public sealed partial class CSharpPatcher
     /// Roslyn takes the core library to be the one assembly without references that defines System.Object, and finds
     /// none when there are two. A .NET target's closure has System.Private.CoreLib, while netstandard (and mscorlib)
     /// resolve to reference assemblies that define every type themselves, for the decompiler's sake. For compiling,
-    /// such duplicates are replaced by the facade of the same name next to the core library, or dropped.
+    /// such duplicates are replaced by the facade of the same name next to the core library, or dropped. Out-of-band
+    /// packages in a System.Private.CoreLib closure (System.Memory for a netstandard library) define types the core
+    /// library defines too (CS0433), so they are replaced by the runtime's own assemblies of the same name.
     /// </summary>
     private static List<MetadataReference> SingleCoreLibrary(List<MetadataReference> references, List<(string Name, byte[] Image, string Path)> images)
     {
         var cores = Enumerable.Range(0, images.Count).Where(i => IsCoreLibrary(images[i].Image)).ToList();
-        if (cores.Count < 2) return references;
+        if (cores.Count == 0) return references;
         string[] preference = ["System.Private.CoreLib", "mscorlib", "System.Runtime", "netstandard"];
         int Rank(int i) => Array.FindIndex(preference, n => string.Equals(n, images[i].Name, StringComparison.OrdinalIgnoreCase)) is var r and >= 0 ? r : preference.Length;
         int keep = cores.OrderBy(Rank).First();
         var dir = Path.GetDirectoryName(images[keep].Path);
-        var result = new List<MetadataReference>(references);
-        foreach (int i in cores.Where(i => i != keep).OrderByDescending(i => i))
+        if (dir == null) return references;
+
+        byte[]? Sibling(string name)
         {
-            var facade = dir == null ? null : Path.Combine(dir, images[i].Name + ".dll");
-            byte[]? bytes = null;
-            try { if (facade != null && File.Exists(facade)) bytes = File.ReadAllBytes(facade); }
-            catch (IOException) { }
-            if (bytes != null && !IsCoreLibrary(bytes)) result[i] = MetadataReference.CreateFromImage(bytes);
+            var file = Path.Combine(dir, name + ".dll");
+            try { return File.Exists(file) ? File.ReadAllBytes(file) : null; }
+            catch (IOException) { return null; }
+        }
+
+        var replaced = new Dictionary<int, byte[]?>();
+        foreach (int i in cores.Where(i => i != keep))
+            replaced[i] = Sibling(images[i].Name) is { } facade && !IsCoreLibrary(facade) ? facade : null;
+        if (string.Equals(images[keep].Name, "System.Private.CoreLib", StringComparison.OrdinalIgnoreCase))
+            for (int i = 1; i < images.Count; i++) // 0 is the target
+                if (i != keep && !replaced.ContainsKey(i) && !string.Equals(Path.GetDirectoryName(images[i].Path), dir, StringComparison.OrdinalIgnoreCase)
+                    && Sibling(images[i].Name) is { } runtime)
+                    replaced[i] = runtime;
+        if (replaced.Count == 0) return references;
+        var result = new List<MetadataReference>(references);
+        foreach (var (i, bytes) in replaced.OrderByDescending(r => r.Key))
+        {
+            if (bytes != null) result[i] = MetadataReference.CreateFromImage(bytes);
             else result.RemoveAt(i);
         }
         return result;
