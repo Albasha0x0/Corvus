@@ -77,6 +77,19 @@ public sealed class PackerDetectionTests
         Assert.Empty(PackerDetection.OfFile("o.dll", ordinary.Build()));
     }
 
+    /// <summary>A raw size past the end of the file: the entropy is the file's bytes, not gigabytes of zero fill read and counted.</summary>
+    [Fact]
+    public void Entropy_covers_the_bytes_in_the_file_only()
+    {
+        var b = new PeBuilder();
+        var text = b.Add(".text", Noise(0x4000), 0x60000020, virtualSize: 0x7FFF0000);
+        text.RawOffset = 0x400;
+        text.RawSize = 0x7FFF0000;
+        var noisy = Assert.Single(PackerDetection.OfFile("huge.dll", b.Build()));
+        Assert.Contains("code section .text has entropy 7.9", noisy.Evidence);
+        Assert.Contains("over 16,384 bytes", noisy.Evidence);
+    }
+
     [Fact]
     public async Task Get_pe_info_and_summarize_file_report_it()
     {

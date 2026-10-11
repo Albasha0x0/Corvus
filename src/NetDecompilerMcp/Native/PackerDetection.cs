@@ -119,7 +119,8 @@ public static class PackerDetection
                 yield return new PackerFinding("unknown packer", "suspicious", $"code section {s.Name} is {s.VirtualSize:N0} bytes in memory and empty on disk (filled at run time)");
                 continue;
             }
-            uint size = Math.Min(s.RawSize, s.MappedSize);
+            // Only bytes from the file: a raw size past its end would count up to 4 GB of zero fill.
+            uint size = (uint)image.FileBackedLength(s.Rva, Math.Min(s.RawSize, s.MappedSize));
             if (size < 0x1000) continue;
             double entropy = Entropy(image, s.Rva, size, buffer);
             if (entropy >= HighEntropy)
