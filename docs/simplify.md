@@ -1,6 +1,6 @@
 # simplify_methods: engine contract
 
-Generated from `SimplifyManifest` (src/NetDecompilerMcp/Services/Simplify/SimplifyManifest.cs); a test keeps the two in sync.
+Generated from `SimplifyManifest` (src/Corvus/Services/Simplify/SimplifyManifest.cs); a test keeps the two in sync.
 
 The engine rewrites copies of method bodies and keeps a rewrite only when the result passes the stack verifier. Every
 evaluation that leaves the supported subset stops at that point and leaves the code as it was; every skipped rewrite and

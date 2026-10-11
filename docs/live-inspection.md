@@ -1,6 +1,6 @@
 # Live process inspection (read-only)
 
-Tool: `inspect_process` (src/NetDecompilerMcp/Tools/LiveProcessTools.cs, Services/LiveProcessService.cs,
+Tool: `inspect_process` (src/Corvus/Tools/LiveProcessTools.cs, Services/LiveProcessService.cs,
 Native/Live/LiveProcess.cs, Native/Live/LiveNative.cs). Windows only; elsewhere it fails with `provider_unavailable`.
 
 It reports a running local process's modules, memory regions, threads and call stacks, with every address named the

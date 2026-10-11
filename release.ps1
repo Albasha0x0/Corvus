@@ -17,7 +17,7 @@ $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $Version = $Version.TrimStart('v')
 $tag = "v$Version"
-$project = Join-Path $root 'src/NetDecompilerMcp/NetDecompilerMcp.csproj'
+$project = Join-Path $root 'src/Corvus/Corvus.csproj'
 $notes = Join-Path $root 'docs/release-notes.md'
 $workflow = Join-Path $root '.github/workflows/release.yml'
 
@@ -59,9 +59,9 @@ if (-not $VerifyOnly) {
 
         # Generated docs and the skill can name the version; regenerate, then run the full suite on the result.
         $env:NDM_UPDATE_DOCS = '1'
-        try { Run 'dotnet' @('test', (Join-Path $root 'tests/NetDecompilerMcp.Tests'), '--nologo') }
+        try { Run 'dotnet' @('test', (Join-Path $root 'tests/Corvus.Tests'), '--nologo') }
         finally { Remove-Item Env:NDM_UPDATE_DOCS }
-        if (-not $SkipTests) { Run 'dotnet' @('test', (Join-Path $root 'tests/NetDecompilerMcp.Tests'), '--nologo', '-p:NDM_ALL_TESTS=1') }
+        if (-not $SkipTests) { Run 'dotnet' @('test', (Join-Path $root 'tests/Corvus.Tests'), '--nologo', '-p:NDM_ALL_TESTS=1') }
 
         Run 'git' @('add', '-A')
         Run 'git' @('commit', '-m', "release: $Version")

@@ -1,0 +1,104 @@
+using Iced.Intel;
+
+namespace Corvus.Native.Calls;
+
+/// <summary>
+/// The x64 calling convention of an image: Microsoft x64 on PE (rcx, rdx, r8, r9 or xmm0-3 by position, stack arguments
+/// above a 0x20-byte home area), System V on ELF and Mach-O (rdi, rsi, rdx, rcx, r8, r9 and xmm0-7 counted separately,
+/// stack arguments from [rsp] at the call).
+/// </summary>
+internal sealed class X64Abi
+{
+    public static readonly X64Abi Microsoft = new(false, [Register.RCX, Register.RDX, Register.R8, Register.R9], 4, 0x20,
+        [Register.RAX, Register.RCX, Register.RDX, Register.R8, Register.R9, Register.R10, Register.R11], 6);
+
+    public static readonly X64Abi SystemV = new(true, [Register.RDI, Register.RSI, Register.RDX, Register.RCX, Register.R8, Register.R9], 8, 0,
+        [Register.RAX, Register.RCX, Register.RDX, Register.RSI, Register.RDI, Register.R8, Register.R9, Register.R10, Register.R11], 32);
+
+    private X64Abi(bool systemV, Register[] intArgs, int floatArgs, int homeArea, Register[] volatileInts, int volatileVectors)
+    {
+        IsSystemV = systemV;
+        IntArgs = intArgs;
+        FloatArgs = floatArgs;
+        HomeArea = homeArea;
+        VolatileInts = volatileInts;
+        _volatileVectors = volatileVectors;
+        foreach (var r in volatileInts) VolatileMask |= 1UL << FunctionCode.Bit(r);
+    }
+
+    /// <summary>System V on ELF and Mach-O, Microsoft on PE.</summary>
+    public static X64Abi Of(INativeImage image) => image.Format == ImageFormat.Pe ? Microsoft : SystemV;
+
+    public bool IsSystemV { get; }
+    /// <summary>Integer argument registers in order (full registers).</summary>
+    public Register[] IntArgs { get; }
+    /// <summary>xmm argument registers.</summary>
+    public int FloatArgs { get; }
+    /// <summary>Bytes between the return address and the first stack argument (the Microsoft home area).</summary>
+    public int HomeArea { get; }
+    public Register[] VolatileInts { get; }
+    /// <summary>Volatile general registers as <see cref="FunctionCode.Bit"/> bits.</summary>
+    public ulong VolatileMask { get; }
+    private readonly int _volatileVectors;
+
+    public string Name => IsSystemV ? "System V" : "Microsoft x64";
+
+    /// <summary>Clobbered by a call: the volatile general registers, xmm0-5 (Microsoft) or every vector register (System V).</summary>
+    public bool IsVolatile(Register full) => VolatileInts.Contains(full) || full >= Register.ZMM0 && full < Register.ZMM0 + _volatileVectors;
+
+    /// <summary>
+    /// Where each parameter is passed at a call (before the return address is pushed): Microsoft by position, System V by
+    /// class with the rest on the stack in order. Floating-point parameters from <paramref name="variadicFrom"/> on go in
+    /// integer registers under Microsoft (System V passes them in xmm registers).
+    /// </summary>
+    public List<(Loc Loc, string Label)> Assign(IReadOnlyList<bool> isFloat, int variadicFrom, bool tail)
+    {
+        var result = new List<(Loc, string)>(isFloat.Count);
+        int ints = 0, floats = 0, stack = 0, shift = tail ? 8 : 0;
+        for (int k = 0; k < isFloat.Count; k++)
+        {
+            Register reg = Register.None;
+            if (!IsSystemV)
+            {
+                if (k < 4) reg = isFloat[k] && k < variadicFrom ? Register.XMM0 + k : IntArgs[k];
+            }
+            else if (isFloat[k]) { if (floats < FloatArgs) reg = Register.XMM0 + floats++; }
+            else if (ints < IntArgs.Length) reg = IntArgs[ints++];
+            if (reg != Register.None)
+            {
+                result.Add((Loc.Of(reg), reg.ToString().ToLowerInvariant()));
+                continue;
+            }
+            int slot = (IsSystemV ? stack++ * 8 : HomeArea + 8 * (k - 4)) + shift;
+            result.Add((Loc.Stack(slot), $"[rsp+{slot:X}h]"));
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// The 0-based parameter position of an entry location: an integer register's position, an xmm register's number, a
+    /// stack argument after the register ones; -1 for none.
+    /// </summary>
+    public int ParameterIndex(Loc entry)
+    {
+        if (entry.Kind == LocKind.Stack)
+        {
+            int first = 8 + HomeArea;
+            if (entry.Slot < first || (entry.Slot - first) % 8 != 0) return -1;
+            return (entry.Slot - first) / 8 + IntArgs.Length;
+        }
+        if (entry.Kind != LocKind.Register) return -1;
+        int i = Array.IndexOf(IntArgs, entry.Reg);
+        if (i >= 0) return i;
+        return entry.Reg >= Register.ZMM0 && entry.Reg < Register.ZMM0 + FloatArgs ? entry.Reg - Register.ZMM0 : -1;
+    }
+
+    /// <summary>The entry location of parameter <paramref name="index"/> (an integer one unless <paramref name="isFloat"/>).</summary>
+    public Loc ParameterEntry(int index, bool isFloat = false)
+    {
+        if (isFloat && index < FloatArgs) return Loc.Of(Register.ZMM0 + index);
+        if (!isFloat && index < IntArgs.Length) return Loc.Of(IntArgs[index]);
+        int regs = isFloat ? FloatArgs : IntArgs.Length;
+        return Loc.Stack(8 + HomeArea + 8 * (index - regs));
+    }
+}

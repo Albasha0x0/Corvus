@@ -1,6 +1,6 @@
 # Guide: native
 
-<!-- Generated from src/NetDecompilerMcp/Mcp/Guide.cs; run the tests with NDM_UPDATE_DOCS=1 to update. -->
+<!-- Generated from src/Corvus/Mcp/Guide.cs; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
 Native files (PE .exe/.dll/.sys without .NET metadata, ELF, Mach-O; x86, x64, ARM64 and 32-bit ARM / Thumb): load_assembly the file, or pass its path as image.
 Overview: get_pe_info (headers, mitigations, PDB, version, rich header, signature, anything malformed; capability groups;

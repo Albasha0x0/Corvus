@@ -23,7 +23,7 @@ While the repository is private, set `GITHUB_TOKEN` to a token with read access 
 The installer checks the download against the release's `SHA256SUMS`, shows which MCP clients it will register with,
 and asks once. **Restart your client**, then paste this prompt:
 
-> Use net-decompiler to load the NetDecompilerMcp.dll of its own installation (`%LOCALAPPDATA%\NetDecompilerMcp\current`
+> Use net-decompiler to load the corvus.dll of its own installation (`%LOCALAPPDATA%\NetDecompilerMcp\current`
 > on Windows, `~/.local/share/net-decompiler-mcp/current` elsewhere) and explain how its `install` command decides
 > which MCP clients to register. Cite the methods you read.
 
@@ -142,7 +142,7 @@ a plain `install` switches the registration back. publish.ps1 renames files of a
 
 ## What it covers
 
-**MCP features:** 155 tools (each with a title and read-only / destructive / idempotent / open-world annotations from one audited table, `src/NetDecompilerMcp/Mcp/ToolEffects.cs`),
+**MCP features:** 155 tools (each with a title and read-only / destructive / idempotent / open-world annotations from one audited table, `src/Corvus/Mcp/ToolEffects.cs`),
 resources and resource templates (subscribers get an update notice after each workspace change), 13 prompts, argument completion, progress notifications, structured output for the list,
 search and info tools, typed errors (`Error (<code>) in <tool>: ...` with a `Next:` step and a JSON copy; codes and format in [docs/errors.md](docs/errors.md)), strict arguments
 (an undeclared parameter is `invalid_argument` naming the closest declared ones; closed value sets such as `engine`, `kind`
@@ -523,7 +523,7 @@ $env:NDM_ALL_TESTS=1; dotnet test   # everything (about 2 min; or dotnet test -p
                                # file inspection (features, typed strings, embedded-content decoding, Authenticode, fuzzed inputs),
                                # invalid-IL detection, reference binding across side-by-side builds,
                                # simplify_methods over generated IL (fuzz) and over real libraries (sweep)
-./publish.ps1                  # -> publish/NetDecompilerMcp.exe (needs the .NET 10 runtime)
+./publish.ps1                  # -> publish/corvus.exe (needs the .NET 10 runtime)
 ./publish.ps1 -SelfContained   # no runtime needed
 ```
 
@@ -663,7 +663,7 @@ then read against the nearest installed version.
 ## Layout
 
 ```
-src/NetDecompilerMcp/
+src/Corvus/
   Core/      workspace (loading, locking, reference resolution), symbol resolver, formatting, paging
   Services/  decompiler, search, references, fast IL reader, call graph, assembly comparer, Il2Cpp (+ IDA/Ghidra/C
              export, Il2CppDumper script.json / stringliteral.json reader, string literals and native code references, metadata ↔ native navigation), C++ binding generator, resources, assembly report, edits and edit history, IL assembler,
@@ -675,7 +675,7 @@ src/NetDecompilerMcp/
 tests/
   TestFixture/            sample assembly covering every feature (inheritance, async, resources, stand-in Il2Cpp attributes)
   TestFixture.Consumer/   second assembly that uses the first (cross-assembly and virtual-dispatch references)
-  NetDecompilerMcp.Tests/ service, patching, concurrency, protocol and real-assembly tests
+  Corvus.Tests/ service, patching, concurrency, protocol and real-assembly tests
 ```
 
 To add a tool, put the logic in a service, then add a `[McpServerTool]` method in `Tools/` that wraps it in

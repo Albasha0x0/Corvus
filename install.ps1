@@ -20,7 +20,7 @@ $ProgressPreference = 'SilentlyContinue'
 $repo = if ($env:NDM_REPO) { $env:NDM_REPO } else { 'Albasha0x0/NetDecompilerMcp' }
 $root = Join-Path $env:LOCALAPPDATA 'NetDecompilerMcp'
 $current = Join-Path $root 'current'
-$exe = Join-Path $current 'NetDecompilerMcp.exe'
+$exe = Join-Path $current 'corvus.exe'
 if (-not $Version) { $Version = $env:NDM_VERSION }
 if ($Version) { $Version = $Version.TrimStart('v') }
 
@@ -88,7 +88,7 @@ try {
     if ($DryRun) {
         # A staged copy outside the install root plans the registration for the program that would be installed.
         Expand-Archive $archive $dryStaging -Force
-        $staged = Join-Path $dryStaging 'NetDecompilerMcp.exe'
+        $staged = Join-Path $dryStaging 'corvus.exe'
         $version = (& $staged version).Trim()
         if ($LASTEXITCODE -ne 0 -or -not $version) { throw 'The downloaded build does not run on this machine.' }
         Write-Host "Release: $release ($asset, NetDecompilerMcp $version)"
@@ -109,7 +109,7 @@ try {
     $staging = Join-Path $versions ('.new-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
     New-Item -ItemType Directory -Force $staging | Out-Null
     Expand-Archive $archive $staging -Force
-    $version = (& (Join-Path $staging 'NetDecompilerMcp.exe') version).Trim()
+    $version = (& (Join-Path $staging 'corvus.exe') version).Trim()
     if ($LASTEXITCODE -ne 0 -or -not $version) { throw 'The downloaded build does not run on this machine.' }
 
     $target = Join-Path $versions $version

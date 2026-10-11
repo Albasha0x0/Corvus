@@ -1,6 +1,6 @@
 # Guide: edits
 
-<!-- Generated from src/NetDecompilerMcp/Mcp/Guide.cs; run the tests with NDM_UPDATE_DOCS=1 to update. -->
+<!-- Generated from src/Corvus/Mcp/Guide.cs; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
 Editing and saving (in memory until saved; dryRun=true previews).
 .NET: rename_symbol, rename_namespace, stub_method (always return X), patch_method_csharp (C# body; lambdas, async, LINQ),

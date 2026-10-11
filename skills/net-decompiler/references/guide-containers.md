@@ -1,6 +1,6 @@
 # Guide: containers
 
-<!-- Generated from src/NetDecompilerMcp/Mcp/Guide.cs; run the tests with NDM_UPDATE_DOCS=1 to update. -->
+<!-- Generated from src/Corvus/Mcp/Guide.cs; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
 Files, containers and wrapped apps (nothing is executed).
 summarize_file reports signature, markers, container wrapping, features, typed strings and entry points of a file in one call;

@@ -1,0 +1,722 @@
+using System.IO.Compression;
+using System.Resources;
+using System.Text;
+using System.Text.Json;
+using dnlib.DotNet;
+using dnlib.DotNet.Emit;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using ModelContextProtocol.Client;
+using ModelContextProtocol.Protocol;
+using Corvus.Core;
+using Corvus.Services;
+using Corvus.Services.Analysis;
+
+namespace Corvus.Tests;
+
+/// <summary>summarize_file, survey_features, extract_strings and extract_embedded over fixtures built at test time.</summary>
+public class InspectionTests : IDisposable
+{
+    private readonly TempDir _dir = new();
+    private readonly AssemblyWorkspace _workspace = new(new ServerOptions());
+    private InspectionService Inspection => new(_workspace);
+
+    public void Dispose()
+    {
+        _workspace.Dispose();
+        _dir.Dispose();
+    }
+
+    private string Save(string name, byte[] bytes)
+    {
+        var path = _dir.File(name);
+        File.WriteAllBytes(path, bytes);
+        return path;
+    }
+
+    /// <summary>Compiles C# against the running framework's assemblies.</summary>
+    internal static byte[] Compile(string name, string source)
+    {
+        return Roslyn.Compile(name, source,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable));
+    }
+
+    /// <summary>Everyday framework APIs: files, HTTP, the registry, processes.</summary>
+    private static byte[] EverydayApis() => Compile("EverydayApis", """
+        using System;
+        using System.Diagnostics;
+        using System.IO;
+        using System.Net.Http;
+        using System.Threading.Tasks;
+        using Microsoft.Win32;
+
+        public static class Everyday
+        {
+            public static string ReadSettings() => File.ReadAllText(@"C:\ProgramData\Everyday\settings.ini");
+            public static void Backdate(string path) => File.SetCreationTime(path, new DateTime(2001, 1, 1));
+
+            public static async Task<string> Fetch()
+            {
+                using var client = new HttpClient();
+                return await client.GetStringAsync("https://example.com/path");
+            }
+
+            public static async Task<byte[]> Download()
+            {
+                using var client = new HttpClient();
+                return await client.GetByteArrayAsync("https://example.com/files/update.bin");
+            }
+
+            public static object? ReadMode()
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(@"Software\Everyday");
+                return key?.GetValue("Mode");
+            }
+
+            public static void WriteMode()
+            {
+                using var key = Registry.CurrentUser.CreateSubKey(@"Software\Everyday");
+                key.SetValue("Mode", 1);
+            }
+
+            public static void OpenEditor() => Process.Start("notepad.exe", "readme.txt");
+        }
+        """);
+
+    private const string SecretText = "Quarterly notes, not for sharing.\nStaging server: https://files.example.net/build2\nEnd of file.\n";
+
+    private static byte[] Gzip(byte[] data)
+    {
+        using var ms = new MemoryStream();
+        using (var z = new GZipStream(ms, CompressionLevel.Optimal)) z.Write(data);
+        return ms.ToArray();
+    }
+
+    private static byte[] Xor(byte[] data, byte[] key) => [.. data.Select((b, i) => (byte)(b ^ key[i % key.Length]))];
+
+    private static byte[] Ascii(string s) => Encoding.ASCII.GetBytes(s);
+
+    /// <summary>A .resources container with a byte[] entry and a string entry.</summary>
+    private static byte[] ResourcesFile(byte[] blob, string text)
+    {
+        using var ms = new MemoryStream();
+        using (var writer = new ResourceWriter(ms))
+        {
+            writer.AddResource("blob", blob);
+            writer.AddResource("note", text);
+            writer.Generate();
+        }
+        return ms.ToArray();
+    }
+
+    /// <summary>One text file embedded with every encoding chain the finder decodes, plus a raw XOR it cannot.</summary>
+    private static byte[] EncodedFixture()
+    {
+        var text = Encoding.UTF8.GetBytes(SecretText);
+        var gz = Gzip(text);
+        var xor1 = Xor(gz, [0x5A]);
+        var xor3 = Xor(gz, [0xC0, 0xFF, 0xEE]);
+        return ContainerFixtures.Module("Encoded", m =>
+        {
+            m.Resources.Add(new EmbeddedResource("notes.b64", Ascii(Convert.ToBase64String(text))));
+            m.Resources.Add(new EmbeddedResource("notes.hex", Ascii(Convert.ToHexString(text))));
+            m.Resources.Add(new EmbeddedResource("notes.gz.b64", Gzip(Ascii(Convert.ToBase64String(text)))));
+            m.Resources.Add(new EmbeddedResource("notes.xor1", xor1));
+            m.Resources.Add(new EmbeddedResource("notes.xor3", xor3));
+            m.Resources.Add(new EmbeddedResource("notes.b64xor", Ascii(Convert.ToBase64String(xor1))));
+            m.Resources.Add(new EmbeddedResource("notes.plainxor", Xor(text, [0x5A])));
+            m.Resources.Add(new EmbeddedResource("Encoded.Strings.resources", ResourcesFile(xor1, Convert.ToHexString(text))));
+
+            // Static array initializer: <PrivateImplementationDetails>::data, a FieldRVA of a fixed-size struct.
+            var details = new TypeDefUser("", "<PrivateImplementationDetails>", m.CorLibTypes.Object.TypeDefOrRef) { Attributes = TypeAttributes.NotPublic | TypeAttributes.Sealed };
+            var valueType = new TypeRefUser(m, "System", "ValueType", m.CorLibTypes.AssemblyRef);
+            var size = new TypeDefUser("", $"__StaticArrayInitTypeSize={xor1.Length}", valueType)
+            {
+                Attributes = TypeAttributes.NestedPrivate | TypeAttributes.ExplicitLayout | TypeAttributes.Sealed,
+                ClassLayout = new ClassLayoutUser(1, (uint)xor1.Length),
+            };
+            details.NestedTypes.Add(size);
+            var field = new FieldDefUser("data", new FieldSig(new ValueTypeSig(size)),
+                FieldAttributes.Assembly | FieldAttributes.Static | FieldAttributes.InitOnly | FieldAttributes.HasFieldRVA) { InitialValue = xor1 };
+            details.Fields.Add(field);
+            m.Types.Add(details);
+
+            // String literals and a method referencing the array.
+            var holder = new TypeDefUser("Encoded", "Holder", m.CorLibTypes.Object.TypeDefOrRef) { Attributes = TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed };
+            var method = new MethodDefUser("Strings", MethodSig.CreateStatic(m.CorLibTypes.Void), MethodAttributes.Public | MethodAttributes.Static);
+            method.Body = new CilBody();
+            foreach (var literal in new[] { Convert.ToBase64String(text), Convert.ToHexString(text) })
+            {
+                method.Body.Instructions.Add(OpCodes.Ldstr.ToInstruction(literal));
+                method.Body.Instructions.Add(OpCodes.Pop.ToInstruction());
+            }
+            method.Body.Instructions.Add(OpCodes.Ldtoken.ToInstruction(field));
+            method.Body.Instructions.Add(OpCodes.Pop.ToInstruction());
+            method.Body.Instructions.Add(OpCodes.Ret.ToInstruction());
+            holder.Methods.Add(method);
+            m.Types.Add(holder);
+        });
+    }
+
+    /// <summary>Strings that are typed values, and lookalikes that are not.</summary>
+    private static byte[] StringsFixture() => Compile("Strings", """
+        public static class Strings
+        {
+            public static string[] Indicators() => new[]
+            {
+                "192.0.2.1",
+                "https://example.com/path",
+                @"C:\Users\Public\Documents\report.txt",
+            };
+
+            public static string[] Lookalikes() => new[]
+            {
+                "http://www.w3.org/2001/XMLSchema",
+                "http://schemas.microsoft.com/winfx/2006/xaml/presentation",
+                "readme.txt",
+                "settings.json",
+                "app.config",
+                "4.0.0.0",
+            };
+        }
+        """);
+
+    /// <summary>Marker types and attributes that toolchains inject (as de4dot knows them).</summary>
+    private static byte[] MarkedFixture() => ContainerFixtures.Module("Marked", m =>
+    {
+        foreach (var (ns, name) in new[]
+                 {
+                     ("", "ConfusedByAttribute"),
+                     ("SmartAssembly.Attributes", "PoweredByAttribute"),
+                     ("Xenocode.Client.Attributes.AssemblyAttributes", "ProcessedByXenocode"),
+                     ("Vendor", "ObfuscatedByGoliath"),
+                 })
+            m.Types.Add(new TypeDefUser(ns, name, m.CorLibTypes.Object.TypeDefOrRef));
+        var suppress = new TypeRefUser(m, "System.Runtime.CompilerServices", "SuppressIldasmAttribute", m.CorLibTypes.AssemblyRef);
+        m.Assembly.CustomAttributes.Add(new CustomAttribute(new MemberRefUser(m, ".ctor", MethodSig.CreateInstance(m.CorLibTypes.Void), suppress)));
+    });
+
+    /// <summary>A DLL from the newest version of a package in the NuGet cache (the newest target framework folder).</summary>
+    private static string CachedDll(string package, string dll)
+    {
+        var folder = Path.GetDirectoryName(ContainerFixtures.NuGetPackage(package))!;
+        var found = Directory.EnumerateFiles(Path.Combine(folder, "lib"), dll, SearchOption.AllDirectories).OrderByDescending(p => p, StringComparer.Ordinal).FirstOrDefault();
+        Assert.True(found != null, $"{dll} not found in {folder}");
+        return found!;
+    }
+
+    /// <summary>
+    /// API rules match each distinct API once (every call was tested per rule: seconds on a large assembly); the count is
+    /// every call, the locations the first in scan order, and a parameter list still tells overloads apart.
+    /// </summary>
+    [Fact]
+    public void Features_CountEveryCallAndListTheFirstInScanOrder()
+    {
+        var source = "using System.Diagnostics; using System.Net.Sockets; public static class Calls {\n" +
+                     string.Concat(Enumerable.Range(0, 7).Select(i => $"public static void M{i}() {{ Process.Start(\"a{i}\"); }}\n")) +
+                     "public static object Tcp() => new TcpClient(\"h\", 1); public static object Plain() => new TcpClient(); }";
+        var report = Inspection.SurveyFeatures(null, Save("Calls.dll", Compile("Calls", source)), null, default);
+        var start = report.Features.Single(f => f.Name == "create processes").Evidence.Single(e => e.Feature == "api:System.Diagnostics.Process::Start");
+        Assert.Equal(7, start.Count);
+        Assert.Equal(Enumerable.Range(0, 5).Select(i => $"Calls::M{i}()"), start.Locations.Select(l => l[..l.IndexOf(" @", StringComparison.Ordinal)]));
+        var tcp = report.Features.Single(f => f.Name == "use raw TCP / UDP sockets").Evidence.Single();
+        Assert.Equal(("api:System.Net.Sockets.TcpClient::.ctor(System.String,System.Int32)", 1), (tcp.Feature, tcp.Count));
+        Assert.StartsWith("Calls::Tcp()", Assert.Single(tcp.Locations));
+    }
+
+    [Fact]
+    public void Features_OfEverydayFrameworkApis()
+    {
+        var report = Inspection.SurveyFeatures(null, Save("EverydayApis.dll", EverydayApis()), null, default);
+        var byName = report.Features.ToDictionary(c => c.Name);
+
+        Assert.Equal("T1071.001", byName["send HTTP requests"].Attack);
+        Assert.Contains(byName["send HTTP requests"].Evidence, e => e.Feature == "api:System.Net.Http.HttpClient::*Async");
+        Assert.Equal("T1105", byName["download files"].Attack);
+        Assert.Equal("T1012", byName["query the registry"].Attack);
+        Assert.Equal("T1112", byName["modify the registry"].Attack);
+        Assert.Contains(byName["create processes"].Evidence, e => e.Feature == "api:System.Diagnostics.Process::Start" && e.Locations.Any(l => l.Contains("Everyday::OpenEditor")));
+        Assert.Equal("T1070.006", byName["change file timestamps"].Attack); // File.SetCreationTime
+
+        // Benign file, process and registry use must not match the stronger features.
+        Assert.DoesNotContain("run the Windows command shell", byName.Keys);
+        Assert.DoesNotContain("persist through a Run registry key", byName.Keys);
+        Assert.True(report.MethodsScanned > 5);
+
+        var registry = Inspection.SurveyFeatures(null, _dir.File("EverydayApis.dll"), "registry", default);
+        Assert.Equal(["modify the registry", "query the registry"], registry.Features.Select(c => c.Name).Order());
+        Assert.Equal(["download files"], Inspection.SurveyFeatures(null, _dir.File("EverydayApis.dll"), "T1105", default).Features.Select(c => c.Name));
+    }
+
+    [Fact]
+    public async Task Features_TakeANativeImageAsImage()
+    {
+        var path = McpProtocolTests.NativeSample(_dir);
+        var native = _workspace.LoadAny(path).Native!;
+        var options = new ServerOptions { BackgroundIndexing = false };
+        var code = new NativeCodeService(_workspace, options, null, new Corvus.Native.Annotations.AnnotationStore(_dir.File("ann")));
+        var tools = new Corvus.Tools.InspectionTools(new InspectionService(_workspace, code), _workspace, code);
+        var byImage = await tools.SurveyFeatures(image: native.Id);
+        var byAssembly = await tools.SurveyFeatures(assembly: native.Id);
+        Assert.Equal(byAssembly.Features.Select(f => f.Name), byImage.Features.Select(f => f.Name));
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => { _ = tools.SurveyFeatures(assembly: native.Id, image: native.Id); }).Code);
+    }
+
+    [Fact]
+    public void Features_OfALoadedAssemblyMatchTheFile()
+    {
+        var path = Save("EverydayApis.dll", EverydayApis());
+        var loaded = _workspace.Load(path);
+        var fromFile = Inspection.SurveyFeatures(null, path, null, default).Features.Select(c => c.Name);
+        var fromWorkspace = Inspection.SurveyFeatures(loaded.Id, null, null, default).Features.Select(c => c.Name);
+        Assert.Equal(fromFile.Order(), fromWorkspace.Order());
+    }
+
+    [Fact]
+    public void Embedded_EncodedCopiesOfATextFile_AreDecodedWithTheirChain()
+    {
+        var report = Inspection.ExtractEmbedded(null, Save("Encoded.dll", EncodedFixture()), false, null, false, default);
+        var original = Encoding.UTF8.GetBytes(SecretText);
+        var texts = report.Contents.Where(p => p.Kind == "text").ToList();
+        Assert.All(texts, p => Assert.Equal(original, p.Bytes));
+
+        var found = string.Join("\n", report.Contents.Select(p => $"{p.Source} [{p.Kind}] {string.Join(" > ", p.Encoding)}"));
+        string Chain(string source)
+        {
+            var matches = texts.Where(p => p.Source.StartsWith(source, StringComparison.Ordinal)).ToList();
+            Assert.True(matches.Count == 1, $"{matches.Count} text item(s) from {source}; found:\n{found}");
+            return string.Join(" > ", matches[0].Encoding);
+        }
+        Assert.Equal("base64", Chain("resource 'notes.b64'"));
+        Assert.Equal("hex", Chain("resource 'notes.hex'"));
+        Assert.Equal("gzip > base64", Chain("resource 'notes.gz.b64'"));
+        Assert.Equal("xor key 5a > gzip", Chain("resource 'notes.xor1'"));
+        Assert.Equal("xor key c0ffee > gzip", Chain("resource 'notes.xor3'"));
+        Assert.Equal("base64 > xor key 5a > gzip", Chain("resource 'notes.b64xor'"));
+        Assert.Equal("xor key 5a > gzip", Chain("resource 'Encoded.Strings.resources:blob'"));
+        Assert.Equal("hex", Chain("resource 'Encoded.Strings.resources:note'"));
+        Assert.Equal("xor key 5a > gzip", Chain("static data <PrivateImplementationDetails>::data (used in Encoded.Holder::Strings()"));
+        Assert.Equal("base64", Chain("string Encoded.Holder::Strings() @IL_0000"));
+        Assert.Equal("hex", Chain("string Encoded.Holder::Strings() @IL_0006"));
+        Assert.Equal(11, texts.Count);
+
+        // Raw XOR over text has no known header to recover the key from.
+        Assert.DoesNotContain(report.Contents, p => p.Source.StartsWith("resource 'notes.plainxor'", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Embedded_SaveWritesDefangedFiles_AndValuesComeFromDecodedText()
+    {
+        var path = Save("Encoded.dll", EncodedFixture());
+        var saved = Inspection.ExtractEmbedded(null, path, true, _dir.File("embedded"), false, default);
+        Assert.NotNull(saved.OutputDirectory);
+        Assert.All(saved.Contents, p => Assert.StartsWith(saved.OutputDirectory!, p.SavedTo));
+        Assert.All(saved.Contents.Where(p => p.Kind == "text"), p => Assert.Equal(SecretText, File.ReadAllText(p.SavedTo!)));
+        Assert.All(saved.Contents, p => Assert.Matches(@"^embedded_\d\d\.\w+$", Path.GetFileName(p.SavedTo!)));
+
+        var byDefault = Inspection.ExtractEmbedded(null, path, true, null, false, default);
+        try { Assert.Equal("netdecomp-embedded", Path.GetFileName(Path.GetDirectoryName(byDefault.OutputDirectory!))); }
+        finally { Directory.Delete(byDefault.OutputDirectory!, recursive: true); }
+
+        var url = Assert.Single(Inspection.ExtractStrings(null, path, ["url"], null, null, false, default).Values);
+        Assert.Equal("https://files.example.net/build2", url.Value);
+        Assert.Contains(url.Locations, l => l.Contains("(decoded: "));
+    }
+
+    [Fact]
+    public void Embedded_XorText_RecoversSingleByteKeys_WhenAskedTo()
+    {
+        var path = Save("Encoded.dll", EncodedFixture());
+        Assert.DoesNotContain(Inspection.ExtractEmbedded(null, path, false, null, false, default).Contents,
+            p => p.Source.StartsWith("resource 'notes.plainxor'", StringComparison.Ordinal)); // off by default
+
+        var on = Inspection.ExtractEmbedded(null, path, false, null, false, default, xorText: true);
+        var recovered = Assert.Single(on.Contents, p => p.Source.StartsWith("resource 'notes.plainxor'", StringComparison.Ordinal));
+        Assert.Equal("text", recovered.Kind);
+        Assert.Equal(["xor key 5a (brute-forced)"], recovered.Encoding);
+        Assert.Equal(Encoding.UTF8.GetBytes(SecretText), recovered.Bytes);
+        // Default results are unchanged.
+        var off = Inspection.ExtractEmbedded(null, path, false, null, false, default);
+        Assert.Equal(off.Contents.Select(p => (p.Source, string.Join(">", p.Encoding))).Order(),
+            on.Contents.Where(p => p != recovered).Select(p => (p.Source, string.Join(">", p.Encoding))).Order());
+    }
+
+    [Trait("Speed", "Slow")]
+    [Fact]
+    public void Embedded_XorText_RejectsReadableAndRandomData()
+    {
+        var random = new byte[2048];
+        new Random(7).NextBytes(random);
+        var fixture = ContainerFixtures.Module("NotXor", m =>
+        {
+            m.Resources.Add(new EmbeddedResource("utf16.txt", Encoding.Unicode.GetBytes(SecretText)));                 // UTF-16, not XORed
+            m.Resources.Add(new EmbeddedResource("readme.txt", Encoding.UTF8.GetBytes(SecretText + SecretText)));       // readable already
+            m.Resources.Add(new EmbeddedResource("random.bin", random));
+            m.Resources.Add(new EmbeddedResource("table.bin", [.. Enumerable.Range(0, 512).SelectMany(i => BitConverter.GetBytes(i * 7))]));
+        });
+        var report = Inspection.ExtractEmbedded(null, Save("NotXor.dll", fixture), false, null, false, default, xorText: true);
+        Assert.DoesNotContain(report.Contents, p => p.Encoding.Any(e => e.Contains("brute-forced")));
+        Assert.Contains(report.Contents, p => p.Source == "resource 'random.bin'" && p.Kind.StartsWith("high-entropy"));
+
+        // Real resources and tables (codec, opcode) must not yield false decodes.
+        foreach (var real in new[]
+                 {
+                     Env.FixturePath, CachedDll("Microsoft.CodeAnalysis.Common", "Microsoft.CodeAnalysis.dll"),
+                     RealPackages.Lib("OggVorbisEncoder", "1.2.2", "net6.0", "OggVorbisEncoder.dll"),
+                     RealPackages.Lib("Iced", "1.21.0", "netstandard2.1", "Iced.dll"),
+                 })
+            Assert.DoesNotContain(Inspection.ExtractEmbedded(null, real, false, null, false, default, xorText: true).Contents,
+                p => p.Encoding.Any(e => e.Contains("brute-forced")));
+    }
+
+    [Fact]
+    public void Embedded_XorText_RecoversStructuredConfiguration()
+    {
+        const string Json = "{\"servers\":[\"https://update.example-cdn.net/api/v2/status\",\"https://backup.example.org/sync.php\"],\"interval\":300,\"jitter\":0.2,\"channel\":\"q3-rollout\",\"install\":{\"path\":\"%APPDATA%\\\\svc\",\"autorun\":true}}";
+        const string Urls = "https://a.example.net/x.bin\nhttps://b.example.org/files/build2.dat\nhttp://10.20.30.40:8080/up\n";
+        const string Ini = "[server]\nhost=relay.example.com\nport=4433\nkey=6f1e2d3c4b5a\nretry=5\n";
+        var fixture = ContainerFixtures.Module("Configs", m =>
+        {
+            m.Resources.Add(new EmbeddedResource("config.bin", Xor(Encoding.UTF8.GetBytes(Json), [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77])));
+            m.Resources.Add(new EmbeddedResource("urls.bin", Xor(Encoding.UTF8.GetBytes(Urls), [0xA5, 0x5A, 0x3C])));
+            m.Resources.Add(new EmbeddedResource("ini.bin", Xor(Encoding.UTF8.GetBytes(Ini), [0x7E])));
+        });
+        var report = Inspection.ExtractEmbedded(null, Save("Configs.dll", fixture), false, null, false, default, xorText: true);
+        EmbeddedContent Found(string resource)
+        {
+            var hit = report.Contents.FirstOrDefault(p => p.Source == $"resource '{resource}'");
+            Assert.True(hit != null, string.Join(" | ", report.Contents.Select(c => $"{c.Source} [{string.Join(">", c.Encoding)}] {c.Kind}")));
+            return hit!;
+        }
+        Assert.Equal(Json, Encoding.UTF8.GetString(Found("config.bin").Bytes));
+        Assert.Equal(["xor key 11223344556677 (brute-forced)"], Found("config.bin").Encoding);
+        Assert.Equal(Urls, Encoding.UTF8.GetString(Found("urls.bin").Bytes));
+        Assert.Equal(Ini, Encoding.UTF8.GetString(Found("ini.bin").Bytes));
+    }
+
+    [Fact]
+    public void Embedded_XorText_RecoversMultiByteKeys_Utf16_AndOtherScripts()
+    {
+        const string Arabic = "ملاحظات ربع سنوية، ليست للمشاركة. خادم التجهيز جاهز الآن والنهاية قريبة.\n";
+        var text = SecretText + SecretText;
+        var fixture = ContainerFixtures.Module("MultiXor", m =>
+        {
+            m.Resources.Add(new EmbeddedResource("key4.bin", Xor(Encoding.UTF8.GetBytes(text), [0x13, 0x37, 0xC0, 0xDE])));
+            m.Resources.Add(new EmbeddedResource("utf16.bin", Xor(Encoding.Unicode.GetBytes(text), [0x5A, 0xA5, 0x3C])));
+            m.Resources.Add(new EmbeddedResource("arabic.bin", Xor(Encoding.UTF8.GetBytes(Arabic + Arabic + Arabic), [0x21, 0x42, 0x63, 0x84, 0xA5])));
+        });
+        var report = Inspection.ExtractEmbedded(null, Save("MultiXor.dll", fixture), false, null, false, default, xorText: true);
+        EmbeddedContent Found(string resource)
+        {
+            var hit = report.Contents.FirstOrDefault(p => p.Source == $"resource '{resource}'");
+            Assert.True(hit != null, string.Join(" | ", report.Contents.Select(c => $"{c.Source} [{string.Join(">", c.Encoding)}] {c.Kind}")));
+            return hit!;
+        }
+
+        var key4 = Found("key4.bin");
+        Assert.Equal(["xor key 1337c0de (brute-forced)"], key4.Encoding);
+        Assert.Equal(text, Encoding.UTF8.GetString(key4.Bytes));
+
+        var utf16 = Found("utf16.bin");
+        Assert.Equal(["xor key 5aa53c (brute-forced, UTF-16 text)"], utf16.Encoding);
+        Assert.Equal(text, Encoding.UTF8.GetString(utf16.Bytes)); // returned as UTF-8
+
+        var arabic = Found("arabic.bin");
+        Assert.Equal(["xor key 21426384a5 (brute-forced)"], arabic.Encoding);
+        Assert.Equal(Arabic + Arabic + Arabic, Encoding.UTF8.GetString(arabic.Bytes));
+    }
+
+    [Fact]
+    public void Values_ClassifiedByType_AndLookalikesLeftOut()
+    {
+        var report = Inspection.ExtractStrings(null, Save("Strings.dll", StringsFixture()), null, null, null, false, default);
+        var found = report.Values.Select(i => (i.Type, i.Value)).ToList();
+
+        Assert.Contains(("ipv4", "192.0.2.1"), found);
+        Assert.Contains(("url", "https://example.com/path"), found);
+        Assert.Contains(("domain", "example.com"), found);
+        Assert.Contains(("file_path", @"C:\Users\Public\Documents\report.txt"), found);
+        Assert.Equal(4, found.Count);
+
+        Assert.DoesNotContain(found, f => f.Value.Contains("w3.org") || f.Value.Contains("schemas.microsoft.com"));
+        Assert.DoesNotContain(found, f => f.Value is "readme.txt" or "settings.json" or "app.config" or "4.0.0.0");
+    }
+
+    [Fact]
+    public void Values_OfEverydayApis_KnowWhereTheyGo_AndExport()
+    {
+        var path = Save("EverydayApis.dll", EverydayApis());
+        var report = Inspection.ExtractStrings(null, path, null, null, null, false, default);
+        var url = Assert.Single(report.Values, i => i.Type == "url" && i.Value == "https://example.com/path");
+        Assert.Contains("System.Net.Http.HttpClient::GetStringAsync", url.PassedTo);
+        Assert.Contains(report.Values, i => i.Type == "file_path" && i.Value == @"C:\ProgramData\Everyday\settings.ini");
+        Assert.Contains(report.Values, i => i.Type == "registry_key" && i.Value == @"Software\Everyday");
+
+        var filtered = Inspection.ExtractStrings(null, path, ["url", "domain"], null, null, false, default);
+        Assert.All(filtered.Values, i => Assert.Contains(i.Type, new[] { "url", "domain" }));
+
+        var csv = Inspection.ExtractStrings(null, path, null, _dir.File("strings.csv"), null, false, default);
+        Assert.StartsWith("type,value,count,", File.ReadAllText(csv.SavedTo!));
+        var json = Inspection.ExtractStrings(null, path, null, _dir.File("strings.json"), null, false, default);
+        Assert.Equal(json.Total, JsonDocument.Parse(File.ReadAllText(json.SavedTo!)).RootElement.GetArrayLength());
+        Assert.Contains("exists", Assert.Throws<ToolError>(() => Inspection.ExtractStrings(null, path, null, _dir.File("strings.json"), null, false, default)).Message);
+        Assert.Contains("Unknown value type", Assert.Throws<ToolError>(() => Inspection.ExtractStrings(null, path, ["phone"], null, null, false, default)).Message);
+    }
+
+    [Fact]
+    public void Certificates_MicrosoftSignedRoslyn_AndUnsignedDnlib()
+    {
+        foreach (var (package, dll) in new[] { ("Microsoft.CodeAnalysis.CSharp", "Microsoft.CodeAnalysis.CSharp.dll"), ("Microsoft.CodeAnalysis.Common", "Microsoft.CodeAnalysis.dll") })
+        {
+            var sig = Certificates.Read(File.ReadAllBytes(CachedDll(package, dll)));
+            Assert.True(sig.Present, dll);
+            Assert.Null(sig.Problem);
+            Assert.Contains("O=Microsoft Corporation", sig.Signer);
+            Assert.True(sig.DigestMatches, dll);
+            Assert.True(sig.SignatureValid, dll);
+            Assert.Equal("SHA256", sig.DigestAlgorithm);
+            Assert.NotNull(sig.Chain); // trusted or not depends on the machine's root store
+        }
+
+        var dnlib = Certificates.Read(File.ReadAllBytes(CachedDll("dnlib", "dnlib.dll")));
+        Assert.False(dnlib.Present);
+        Assert.Null(dnlib.Signer);
+    }
+
+    [Trait("Speed", "Slow")]
+    [Fact]
+    public void Certificates_InSummary_WithStrongNames_AndModifiedCopies()
+    {
+        var roslyn = File.ReadAllBytes(CachedDll("Microsoft.CodeAnalysis.Common", "Microsoft.CodeAnalysis.dll"));
+        var signed = Inspection.Summarize(null, Save("Microsoft.CodeAnalysis.dll", roslyn), default);
+        var one = Assert.Single(signed.Assemblies);
+        Assert.True(one.Signature.StrongNamed);
+        Assert.Equal("31bf3856ad364e35", one.Signature.PublicKeyToken);
+        Assert.True(one.Signature.Certificate.DigestMatches);
+        Assert.Contains(signed.Highlights, h => h.Contains("Authenticode-signed by") && h.Contains("Microsoft Corporation"));
+
+        var unsigned = Assert.Single(Inspection.Summarize(null, CachedDll("dnlib", "dnlib.dll"), default).Assemblies);
+        Assert.False(unsigned.Signature.Certificate.Present);
+        Assert.DoesNotContain(unsigned.Highlights, h => h.Contains("Authenticode"));
+
+        // One changed byte: the signature verifies but the digest no longer matches.
+        var modified = roslyn.ToArray();
+        modified[modified.Length / 2] ^= 0xFF;
+        var t = Certificates.Read(modified);
+        Assert.False(t.DigestMatches);
+        Assert.True(t.SignatureValid);
+        Assert.Contains(Inspection.Summarize(null, Save("modified.dll", modified), default).Highlights, h => h.Contains("modified after signing"));
+
+        // Truncated inside the certificate table.
+        var cut = Certificates.Read(roslyn[..(roslyn.Length - 100)]);
+        Assert.True(cut.Present);
+        Assert.Contains("outside the file", cut.Problem);
+    }
+
+    [Fact]
+    public void Markers_AreNamed_PlainAssembliesGiveNothing()
+    {
+        var marked = Assert.Single(Inspection.Summarize(null, Save("Marked.dll", MarkedFixture()), default).Assemblies).Markers;
+        Assert.Equal(["Confuser / ConfuserEx", "SmartAssembly", "Goliath.NET", "Xenocode"], marked.Tools);
+        Assert.Contains(marked.Indicators, i => i.StartsWith("SuppressIldasmAttribute"));
+
+        foreach (var plain in new[] { Save("Plain.dll", ContainerFixtures.Module("Plain")), Env.FixturePath })
+        {
+            var facts = Assert.Single(Inspection.Summarize(null, plain, default).Assemblies).Markers;
+            Assert.Empty(facts.Tools);
+            Assert.Empty(facts.Indicators);
+        }
+    }
+
+    [Fact]
+    public void Summary_OfAnAssemblyAndOfAContainer()
+    {
+        var path = Save("EverydayApis.dll", EverydayApis());
+        var report = Inspection.Summarize(null, path, default);
+        Assert.Equal(".NET assembly", report.File.Type);
+        Assert.Equal(Blob.Sha256(File.ReadAllBytes(path)), report.File.Sha256);
+        var one = Assert.Single(report.Assemblies);
+        Assert.Equal("EverydayApis", one.Identity.Name);
+        Assert.Equal("library", one.Identity.Kind);
+        Assert.Contains(one.Features, c => c.Name == "download files");
+        Assert.True(one.Values.ByType["url"] >= 2);
+        Assert.Contains(report.Highlights, h => h.StartsWith("Can download files (T1105"));
+
+        var zip = Save("bundle.zip", ContainerFixtures.Zip(("app/EverydayApis.dll", File.ReadAllBytes(path)), ("lib/Encoded.dll", EncodedFixture())));
+        var container = Inspection.Summarize(null, zip, default);
+        Assert.Equal("zip archive", container.Container);
+        Assert.Equal(["app/EverydayApis.dll", "lib/Encoded.dll"], container.Assemblies.Select(a => a.Path).Order());
+        Assert.Contains(container.Highlights, h => h.StartsWith("[lib/Encoded.dll] Embedded text"));
+    }
+
+    [Fact]
+    public void Summary_Messages()
+    {
+        var many = Save("many.zip", ContainerFixtures.Zip([.. Enumerable.Range(0, 26).Select(i => ($"lib/A{i}.dll", ContainerFixtures.Module($"A{i}")))]));
+        var capped = Inspection.Summarize(null, many, default);
+        Assert.Equal(8, capped.Assemblies.Count);
+        Assert.Contains(capped.Notes, n => n.StartsWith("Summarized 8 of 26 assemblies (the app's own first, framework libraries last; the first in full, the others in brief)"));
+        Assert.All(capped.Assemblies.Skip(1), a => Assert.Empty(a.Highlights)); // brief entries: highlights only at file level
+
+        var empty = Inspection.Summarize(null, Save("notes.txt", "just some text"u8.ToArray()), default);
+        Assert.Contains("No managed assemblies inside: nothing to summarize beyond the file facts.", empty.Notes);
+
+        var encoded = Inspection.Summarize(null, Save("Encoded.dll", EncodedFixture()), default);
+        Assert.Contains("Embedded content: 11 item(s), 5 listed. extract_embedded lists everything.", Assert.Single(encoded.Assemblies).Notes);
+        Assert.Equal(5, encoded.Highlights.Count(h => h.StartsWith("Embedded text", StringComparison.Ordinal)));
+
+        var everyday = Inspection.Summarize(null, Save("EverydayApis.dll", EverydayApis()), default);
+        Assert.Contains(everyday.Highlights, h => h.StartsWith("Network values: ", StringComparison.Ordinal) && h.Contains(" url"));
+    }
+
+    [Fact]
+    public void BadArguments()
+    {
+        var path = Save("EverydayApis.dll", EverydayApis());
+        Assert.Contains("Pass either", Assert.Throws<ToolError>(() => Inspection.Summarize(null, null, default)).Message);
+        Assert.Contains("Pass either", Assert.Throws<ToolError>(() => Inspection.SurveyFeatures("x", path, null, default)).Message);
+        Assert.Contains("not a .NET assembly (zip)",
+            Assert.Throws<ToolError>(() => Inspection.SurveyFeatures(null, Save("a.zip", ContainerFixtures.Zip(("a.dll", [1, 2]))), null, default)).Message);
+        Assert.Contains("Unknown format", Assert.Throws<ToolError>(() => Inspection.ExtractStrings(null, path, null, null, "xml", false, default)).Message);
+    }
+
+    private static readonly int FuzzCases = int.TryParse(Environment.GetEnvironmentVariable("NDM_FUZZ_CASES"), out var n) ? n : 30;
+
+    /// <summary>Fixtures cut short and with random bytes changed: every analysis either works or throws ToolError.</summary>
+    [Trait("Speed", "Slow")]
+    [Fact]
+    public void TruncatedAndFuzzedAssemblies_FailCleanly()
+    {
+        var inputs = new Dictionary<string, byte[]>
+        {
+            ["everyday"] = EverydayApis(),
+            ["encoded"] = EncodedFixture(),
+            ["marked"] = MarkedFixture(),
+            ["test fixture"] = File.ReadAllBytes(Env.FixturePath),
+        };
+        var random = new Random(4321);
+        var failures = new List<string>();
+        foreach (var (name, bytes) in inputs)
+        {
+            var cases = new List<(string, byte[])>();
+            foreach (var cut in new[] { 2, 64, 0x200, bytes.Length / 4, bytes.Length / 2, bytes.Length - 1 })
+                cases.Add(($"{name} cut at {cut}", bytes[..cut]));
+            for (int i = 0; i < FuzzCases; i++)
+            {
+                var mutated = bytes.ToArray();
+                for (int k = 0; k < 1 + i % 8; k++)
+                {
+                    // Half the mutations target headers and metadata tables.
+                    int at = random.Next(2) == 0 ? random.Next(Math.Min(8192, mutated.Length)) : random.Next(mutated.Length);
+                    mutated[at] = (byte)random.Next(256);
+                }
+                cases.Add(($"{name} fuzz #{i}", mutated));
+            }
+            foreach (var (label, data) in cases)
+            {
+                var path = Save("fuzz.dll", data);
+                foreach (var (tool, run) in new (string, Action)[]
+                         {
+                             ("summarize_file", () => Inspection.Summarize(null, path, default)),
+                             ("survey_features", () => Inspection.SurveyFeatures(null, path, null, default)),
+                             ("extract_strings", () => Inspection.ExtractStrings(null, path, null, null, null, false, default)),
+                             ("extract_embedded", () => Inspection.ExtractEmbedded(null, path, false, null, false, default)),
+                         })
+                {
+                    try { run(); }
+                    catch (ToolError) { /* a clear error for corrupt input */ }
+                    catch (Exception ex) { failures.Add($"{tool} on {label}: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}"); }
+                }
+            }
+        }
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));
+    }
+
+    /// <summary>Fuzzes the security directory, WIN_CERTIFICATE header and PKCS#7 blob of a signed file.</summary>
+    [Trait("Speed", "Slow")]
+    [Fact]
+    public void DamagedSignatures_AreReportedNotThrown()
+    {
+        var signed = File.ReadAllBytes(CachedDll("Microsoft.CodeAnalysis.Common", "Microsoft.CodeAnalysis.dll"));
+        var pe = PeImage.TryParse(signed)!;
+        var (offset, size) = pe.Directory(signed, 4);
+        int entry = pe.DirectoryEntryOffset(4);
+        var random = new Random(99);
+        var failures = new List<string>();
+        for (int i = 0; i < FuzzCases * 10; i++)
+        {
+            var damaged = signed.ToArray();
+            for (int k = 0; k < 1 + i % 6; k++)
+            {
+                int at = (i % 5) switch
+                {
+                    0 => entry + random.Next(8),                         // the security directory entry (offset / size)
+                    1 => (int)offset + random.Next(8),                   // WIN_CERTIFICATE length / revision / type
+                    _ => (int)offset + 8 + random.Next((int)size - 8),   // the PKCS#7 SignedData
+                };
+                damaged[at] = (byte)random.Next(256);
+            }
+            try { Certificates.Read(damaged); }
+            catch (Exception ex) { failures.Add($"case {i}: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}"); }
+        }
+        Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)));
+    }
+
+    /// <summary>Corrupt inputs give tool errors and the server keeps serving.</summary>
+    [Trait("Speed", "Slow")]
+    [Fact]
+    public async Task CorruptInputs_GiveClearErrorsOverMcp()
+    {
+        await using var client = await McpProtocolTests.StartServerAsync("--no-index");
+        var good = File.ReadAllBytes(Env.FixturePath);
+        var corruptMetadata = good.ToArray();
+        int bsjb = corruptMetadata.AsSpan().IndexOf("BSJB"u8);
+        corruptMetadata.AsSpan(bsjb, 4).Clear(); // the metadata root signature
+        var inputs = new Dictionary<string, (string Path, string Error)>
+        {
+            ["missing"] = (_dir.File("missing.dll"), "File not found"),
+            ["truncated"] = (Save("truncated.dll", good[..(good.Length / 3)]), "unreadable .NET metadata"),
+            ["corrupt metadata"] = (Save("corrupt.dll", corruptMetadata), "unreadable .NET metadata"),
+        };
+
+        foreach (var tool in new[] { "summarize_file", "survey_features", "extract_strings", "extract_embedded" })
+            foreach (var (label, (path, error)) in inputs)
+            {
+                var r = await client.CallToolAsync(tool, new Dictionary<string, object?> { ["path"] = path });
+                if (tool == "summarize_file" && label != "missing")
+                {
+                    // summarize_file reports file facts with the damage as a highlight.
+                    Assert.NotEqual(true, r.IsError);
+                    Assert.Contains("The .NET metadata is damaged: ", string.Join("\n", r.Content.OfType<TextContentBlock>().Select(c => c.Text)));
+                    continue;
+                }
+                var text = string.Join("\n", r.Content.OfType<TextContentBlock>().Select(c => c.Text));
+                Assert.True(r.IsError == true, $"{tool} / {label}: {text}");
+                Assert.Contains(error, text);
+            }
+
+        // Not .NET at all.
+        var notes = Save("notes.txt", "just some text"u8.ToArray());
+        foreach (var tool in new[] { "survey_features", "extract_strings", "extract_embedded" })
+        {
+            var r = await client.CallToolAsync(tool, new Dictionary<string, object?> { ["path"] = notes });
+            Assert.True(r.IsError == true, tool);
+            Assert.Contains("is not a .NET assembly (text)", string.Join("\n", r.Content.OfType<TextContentBlock>().Select(c => c.Text)));
+        }
+
+        var ok = await client.CallToolAsync("survey_features", new Dictionary<string, object?> { ["path"] = Save("EverydayApis.dll", EverydayApis()) });
+        Assert.NotEqual(true, ok.IsError);
+        Assert.Contains("download files", ok.StructuredContent!.ToString());
+
+        // Results with null fields must still validate against the advertised output schema.
+        var everyday = _dir.File("EverydayApis.dll");
+        foreach (var tool in new[] { "summarize_file", "survey_features", "extract_strings", "extract_embedded" })
+        {
+            var r = await client.CallToolAsync(tool, new Dictionary<string, object?> { ["path"] = everyday });
+            Assert.NotEqual(true, r.IsError);
+            await McpProtocolTests.AssertMatchesOutputSchema(client, tool, r);
+        }
+        var nulls = await client.CallToolAsync("summarize_file", new Dictionary<string, object?> { ["path"] = everyday });
+        Assert.Contains("\"merged\":null", nulls.StructuredContent!.ToString());
+    }
+}

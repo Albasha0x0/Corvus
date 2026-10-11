@@ -1,0 +1,164 @@
+namespace Corvus.Core;
+
+/// <summary>
+/// Tool families. A server registers every tool unless started with --toolsets / NDM_TOOLSETS, which lets a client with
+/// a small context see a smaller catalog with full schemas. Every tool is in exactly one family; session is always on.
+/// </summary>
+public static class Toolsets
+{
+    public const string Option = "--toolsets";
+    public const string Variable = "NDM_TOOLSETS";
+    public const string Session = "session";
+
+    /// <summary>InCore: part of the core profile (--toolsets core).</summary>
+    public sealed record Family(string Name, bool InCore, string Description, string[] Tools);
+
+    public static readonly IReadOnlyList<Family> Families =
+    [
+        new(Session, true, "workspace and server state",
+            ["load_assembly", "unload_assembly", "reload_assembly", "add_search_directory", "list_assemblies", "server_status", "read_result",
+             "save_session", "load_session"]),
+        new("dotnet", true, ".NET browse, decompile, search, navigate, resources, ReadyToRun, project export",
+            ["list_namespaces", "list_types", "get_type_info", "get_assembly_info", "get_attributes", "get_type_hierarchy", "resolve_symbol",
+             "decompile_type", "decompile_member", "decompile_assembly_attributes", "get_il", "search_symbols", "search_strings", "search_constants",
+             "search_il", "find_references", "find_callees", "find_overrides", "get_call_tree", "find_call_paths", "list_resources", "get_resource",
+             "export_project", "get_r2r_code", "find_r2r_method"]),
+        new("containers", true, "file inspection, containers and wrapped apps, Unity overview",
+            ["summarize_file", "survey_features", "extract_strings", "extract_embedded", "search_container", "unpack_container", "unity_overview"]),
+        new("edit", true, ".NET edits, edit history and saving",
+            ["rename_symbol", "rename_namespace", "stub_method", "patch_method_csharp", "patch_method_il", "add_members_csharp", "add_types_csharp",
+             "simplify_methods", "list_edits", "diff_edits", "undo_edit", "revert_edits", "export_edits", "apply_edits", "save_assembly"]),
+        new("il2cpp", true, "Il2Cpp metadata, addresses, symbols and bindings",
+            ["get_il2cpp_info", "find_method_by_address", "export_il2cpp_symbols", "generate_cpp_binding", "apply_il2cpp_names"]),
+        new("native", true, "native PE analysis, symbols and decompilation",
+            ["get_pe_info", "get_engine_status", "list_imports", "list_exports", "resolve_address", "search_bytes", "read_bytes", "convert_number", "list_functions", "list_globals", "disassemble", "inspect_instruction",
+             "search_instructions", "get_cfg",
+             "find_xrefs", "native_call_tree", "find_virtual_calls", "search_native_strings", "get_call_arguments", "trace_native_values", "resolve_call_targets", "analyze_native_function", "trace_native_feature", "get_exception_info",
+             "list_cpp_classes", "get_native_type", "decompile_native", "search_decompiled", "verify_native_imports", "load_pdb", "search_pdb_symbols", "get_nativeaot_info"]),
+        new("native-edit", true, "native names, comments, patches and saving",
+            ["rename_native", "comment_native", "export_native_annotations", "patch_bytes", "patch_asm", "list_native_edits", "undo_native_edit",
+             "save_native", "export_native_patches"]),
+        new("builds", true, "build-to-build comparison and carrying work to a new build",
+            ["compare_assemblies", "find_counterpart", "compare_native_images", "diff_function", "map_address_between_builds", "make_code_pattern", "search_code_pattern",
+             "migrate_native_names", "migrate_native_patches", "update_to_new_build"]),
+        new("notes", true, "analyst notes kept per binary across sessions", ["record_note", "update_note", "list_notes"]),
+        new("engine", false, "edits inside the decompiler engine's database: types, locals, frames, declarations, scripting",
+            ["set_native_type", "set_native_local", "set_native_stack_var", "get_native_frame", "declare_native_types", "list_native_types", "define_native", "reanalyze_native",
+             "set_native_operand", "ida_python", "ghidra_script", "export_engine_database"]),
+        new("android", false, "Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices",
+            ["get_android_manifest", "list_android_resources", "get_android_resource", "list_dex_classes", "get_dex_class", "disassemble_dex", "decompile_java",
+             "search_dex", "find_dex_references", "map_java_dotnet", "list_jni_bindings", "list_android_devices", "get_android_device_info", "list_android_packages",
+             "get_android_package_info", "pull_android_package", "pull_android_file", "read_android_log", "install_android_package", "uninstall_android_package"]),
+        new("dumps", false, "crash dumps and crash text", ["open_minidump", "dump_stack", "dump_heap", "dump_object", "read_dump_memory", "symbolize_stack_text", "bucket_minidumps"]),
+        new("live", false, "read-only inspection of a running process", ["inspect_process"]),
+    ];
+
+    private static readonly Dictionary<string, string> FamilyByTool =
+        Families.SelectMany(f => f.Tools.Select(t => (Tool: t, f.Name))).ToDictionary(x => x.Tool, x => x.Name, StringComparer.Ordinal);
+
+    public static IReadOnlySet<string> All { get; } = Families.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>What a server registers without --toolsets: every family.</summary>
+    public static IReadOnlySet<string> Default => All;
+
+    /// <summary>The reduced profile for small-context clients: .NET and native core, without engine edits, dumps and live processes.</summary>
+    public static IReadOnlySet<string> CoreProfile { get; } = Families.Where(f => f.InCore).Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>The family of a tool, or null for a tool no family lists.</summary>
+    public static string? FamilyOf(string tool) => FamilyByTool.GetValueOrDefault(tool);
+
+    /// <summary>Whether a server started with <paramref name="enabled"/> registers <paramref name="tool"/>; a tool no family lists is kept.</summary>
+    public static bool Registers(IReadOnlySet<string> enabled, string tool) => FamilyOf(tool) is not { } family || enabled.Contains(family);
+
+    /// <summary>
+    /// Family names separated by commas or spaces; "all" (also "default") and "core" stand for those sets, session is always added.
+    /// An unknown name is an <see cref="ArgumentException"/> naming the families.
+    /// </summary>
+    public static IReadOnlySet<string> Parse(string text)
+    {
+        var result = new HashSet<string>(StringComparer.Ordinal) { Session };
+        foreach (var raw in text.Split([',', ' ', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var name = raw.ToLowerInvariant();
+            if (name is "all" or "default") result.UnionWith(All);
+            else if (name == "core") result.UnionWith(CoreProfile);
+            else if (All.Contains(name)) result.Add(name);
+            else throw new ArgumentException($"{Option} (or {Variable}): unknown toolset '{raw}'; use all, core or {string.Join(", ", All)}");
+        }
+        return result;
+    }
+
+    public const string ToolsFileOption = "--tools-file";
+    public const string ToolsFileVariable = "NDM_TOOLS_FILE";
+
+    /// <summary>
+    /// Tool lists a --tools-file value names instead of a file. readonly: the analysis tools that change nothing loaded and write
+    /// no file (no device or live-process tools); triage: a first look at a binary, small enough for a small model.
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string[]> ToolLists = new Dictionary<string, string[]>(StringComparer.Ordinal)
+    {
+        ["readonly"] =
+        [
+            "list_namespaces", "list_types", "get_type_info", "get_assembly_info", "get_attributes", "get_type_hierarchy", "resolve_symbol", "decompile_type",
+            "decompile_member", "decompile_assembly_attributes", "get_il", "search_symbols", "search_strings", "search_constants", "search_il", "find_references",
+            "find_callees", "find_overrides", "get_call_tree", "find_call_paths", "list_resources", "get_r2r_code", "find_r2r_method",
+            "summarize_file", "survey_features", "search_container", "unity_overview", "list_edits", "diff_edits",
+            "get_il2cpp_info", "find_method_by_address", "generate_cpp_binding",
+            "get_pe_info", "get_engine_status", "get_nativeaot_info", "list_imports", "list_exports", "resolve_address", "search_bytes", "read_bytes", "convert_number",
+            "list_functions", "list_globals", "disassemble", "search_instructions",
+            "inspect_instruction", "get_cfg", "find_xrefs", "native_call_tree", "find_virtual_calls", "search_native_strings", "get_call_arguments",
+            "trace_native_values", "resolve_call_targets", "analyze_native_function", "trace_native_feature", "get_exception_info", "list_cpp_classes",
+            "get_native_type", "decompile_native", "search_decompiled", "verify_native_imports", "search_pdb_symbols", "list_native_edits", "get_native_frame", "list_native_types",
+            "compare_native_images", "find_counterpart", "map_address_between_builds", "diff_function", "make_code_pattern", "search_code_pattern",
+            "get_android_manifest", "list_android_resources", "list_dex_classes", "get_dex_class", "disassemble_dex", "map_java_dotnet", "decompile_java",
+            "search_dex", "find_dex_references", "list_jni_bindings",
+            "open_minidump", "dump_stack", "dump_heap", "dump_object", "read_dump_memory", "symbolize_stack_text", "bucket_minidumps", "list_notes",
+        ],
+        ["triage"] =
+        [
+            "summarize_file", "survey_features", "get_type_info", "search_symbols", "search_strings", "decompile_member", "find_references",
+            "get_pe_info", "list_imports", "list_functions", "search_native_strings", "find_xrefs", "disassemble", "decompile_native", "analyze_native_function",
+        ],
+    };
+
+    /// <summary>
+    /// A --tools-file whitelist: a list name of <see cref="ToolLists"/>, or a file of tool names (one or more per line, '#' starts a comment).
+    /// Applied after the toolsets; the session tools stay. An unknown name is an <see cref="ArgumentException"/>.
+    /// </summary>
+    public static IReadOnlySet<string> LoadToolList(string pathOrName)
+    {
+        var value = pathOrName.Trim();
+        if (ToolLists.TryGetValue(value.ToLowerInvariant(), out var named)) return named.ToHashSet(StringComparer.Ordinal);
+        if (!File.Exists(value))
+            throw new ArgumentException($"{ToolsFileOption} (or {ToolsFileVariable}): no file '{value}' and no list of that name; use {string.Join(", ", ToolLists.Keys)} or a file of tool names");
+        return ParseToolList(File.ReadAllText(value), value);
+    }
+
+    public static IReadOnlySet<string> ParseToolList(string text, string source)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        var unknown = new List<string>();
+        foreach (var line in text.Split('\n'))
+        {
+            var content = line.Split('#')[0];
+            foreach (var name in content.Split([',', ' ', '\t', ';', '\r'], StringSplitOptions.RemoveEmptyEntries))
+                if (FamilyByTool.ContainsKey(name)) names.Add(name);
+                else unknown.Add(name);
+        }
+        if (unknown.Count > 0) throw new ArgumentException($"{ToolsFileOption} {source}: unknown tool(s) {string.Join(", ", unknown.Distinct())}");
+        return names;
+    }
+
+    /// <summary>Whether a server with these toolsets and whitelist (null: none) registers <paramref name="tool"/>.</summary>
+    public static bool Registers(IReadOnlySet<string> enabled, IReadOnlySet<string>? allowed, string tool) =>
+        Registers(enabled, tool) && (allowed == null || allowed.Contains(tool) || FamilyOf(tool) == Session);
+
+    /// <summary>The shortest spelling of a set, for a client's args: "all", "core" plus extra names, or the names in table order.</summary>
+    public static string Format(IReadOnlySet<string> enabled)
+    {
+        if (enabled.IsSupersetOf(All)) return "all";
+        bool withCore = enabled.IsSupersetOf(CoreProfile);
+        var names = Families.Where(f => f.Name != Session && enabled.Contains(f.Name) && !(withCore && f.InCore)).Select(f => f.Name);
+        return string.Join(",", withCore ? names.Prepend("core") : names);
+    }
+}

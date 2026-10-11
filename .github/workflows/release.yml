@@ -50,7 +50,7 @@ jobs:
       - name: Publish
         shell: bash
         run: >
-          dotnet publish src/NetDecompilerMcp/NetDecompilerMcp.csproj -c Release -r ${{ matrix.rid }}
+          dotnet publish src/Corvus/Corvus.csproj -c Release -r ${{ matrix.rid }}
           --self-contained true -p:Version=${GITHUB_REF_NAME#v} -o out
 
       - name: Smoke test

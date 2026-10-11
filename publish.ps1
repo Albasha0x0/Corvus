@@ -1,11 +1,11 @@
 # Builds a framework-dependent release into ./publish (requires the .NET 10 runtime on the target machine).
-# Usage:  ./publish.ps1            -> ./publish/NetDecompilerMcp.exe
+# Usage:  ./publish.ps1            -> ./publish/corvus.exe
 #         ./publish.ps1 -SelfContained   -> single-folder build that does not need .NET installed
 param([switch]$SelfContained)
 
 $ErrorActionPreference = 'Stop'
 $out = Join-Path $PSScriptRoot 'publish'
-$project = Join-Path $PSScriptRoot 'src/NetDecompilerMcp/NetDecompilerMcp.csproj'
+$project = Join-Path $PSScriptRoot 'src/Corvus/Corvus.csproj'
 $marker = Join-Path $out '.build-complete'
 
 # A development relay (NetDecompilerMcp relay) starts a new server only once the marker is back; it is written last.

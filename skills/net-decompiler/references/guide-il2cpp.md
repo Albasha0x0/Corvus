@@ -1,6 +1,6 @@
 # Guide: il2cpp
 
-<!-- Generated from src/NetDecompilerMcp/Mcp/Guide.cs; run the tests with NDM_UPDATE_DOCS=1 to update. -->
+<!-- Generated from src/Corvus/Mcp/Guide.cs; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
 Il2Cpp games.
 No external dumper is needed: load_assembly the game folder or its global-metadata.dat (GameAssembly.dll beside it; a memory

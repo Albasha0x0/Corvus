@@ -1,6 +1,6 @@
 # save_assembly: saving contract
 
-Generated from `SaveManifest` (src/NetDecompilerMcp/Core/SaveReport.cs); a test keeps the two in sync.
+Generated from `SaveManifest` (src/Corvus/Core/SaveReport.cs); a test keeps the two in sync.
 
 ## What is written
 

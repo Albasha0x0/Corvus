@@ -4,7 +4,7 @@ NetDecompilerMcp includes material derived from the following projects.
 
 ## dotnet/runtime
 
-The NativeAOT reader (`src/NetDecompilerMcp/Native/NativeAot`) ports the NativeFormat metadata record schema
+The NativeAOT reader (`src/Corvus/Native/NativeAot`) ports the NativeFormat metadata record schema
 (`src/coreclr/tools/Common/Internal/Metadata/NativeFormat/Generator/SchemaDef.cs` and the generated readers) and
 follows the format definitions of the NativeAOT compiler and runtime (module headers, dehydrated data, MethodTable
 layout, stack-trace and reflection maps) of https://github.com/dotnet/runtime.
@@ -37,14 +37,14 @@ SOFTWARE.
 
 ## ida-pro-mcp
 
-Parts of the IDA worker (`src/NetDecompilerMcp/Native/Providers/Ida/ida_worker.py`: type text parsing, user type,
+Parts of the IDA worker (`src/Corvus/Native/Providers/Ida/ida_worker.py`: type text parsing, user type,
 local variable and stack frame edits, struct member references, declaration parsing with messages, the Python
 evaluation op, the analysis edits: code, functions, data items and undefined ranges, operand display formats, enum member
 upserts, stack member deletion, the pseudocode object references of `decompile_native refs=true`, request cancellation and
 deadlines: per-request deadlines that long loops check for partial results, IDA's cancel flag cleared around each request,
 and the profile hook that stops a script) are adapted from
 [mrexodia/ida-pro-mcp](https://github.com/mrexodia/ida-pro-mcp); the Ghidra worker's `EditOps.java` follows the same
-operations on Ghidra's listing, and `search_instructions` (`src/NetDecompilerMcp/Tools/NativeCodeTools.Search.cs`) follows
+operations on Ghidra's listing, and `search_instructions` (`src/Corvus/Tools/NativeCodeTools.Search.cs`) follows
 the query shape of its `insn_query` and `search_text`. The IDA marked positions the server keeps for notes (`set_marks`) use its bookmark slot handling. The output formats of `make_code_pattern` follow its signature maker, and the function roles of the `summarize_file` triage and the `analyze_native_function` component view follow its `survey_binary` and `analyze_component`.
 
 ```
@@ -73,7 +73,7 @@ SOFTWARE.
 
 ## Ghidra servers
 
-Parts of the Ghidra worker (`src/NetDecompilerMcp/Native/Providers/Ghidra/worker/*.java`) follow designs or adapt code
+Parts of the Ghidra worker (`src/Corvus/Native/Providers/Ghidra/worker/*.java`) follow designs or adapt code
 from these Apache License 2.0 projects (https://www.apache.org/licenses/LICENSE-2.0).
 
 - [clearbluejar/pyghidra-mcp](https://github.com/clearbluejar/pyghidra-mcp), Copyright clearbluejar and contributors:
@@ -122,7 +122,7 @@ from these Apache License 2.0 projects (https://www.apache.org/licenses/LICENSE-
 
 ## AsmArm64
 
-The ARM64 decoder and disassembly (`src/NetDecompilerMcp/Native/Code/Arm64Decoder.cs`, `NativeDisassembler.cs`) use
+The ARM64 decoder and disassembly (`src/Corvus/Native/Code/Arm64Decoder.cs`, `NativeDisassembler.cs`) use
 the [xoofx/AsmArm64](https://github.com/xoofx/AsmArm64) library, which ships with the published server.
 
 ```

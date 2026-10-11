@@ -18,15 +18,15 @@ found through an environment variable with a neutral name.
 
 ## Adding or changing a tool
 
-A tool is a method with `[McpServerTool]` in `src/NetDecompilerMcp/Tools`. Its `[Description]` texts become the MCP
+A tool is a method with `[McpServerTool]` in `src/Corvus/Tools`. Its `[Description]` texts become the MCP
 tool description: keep them accurate, tight and under 2,048 characters (clients cut longer ones). Then:
 
-1. `src/NetDecompilerMcp/Mcp/ToolEffects.cs`: add the tool's effects (read-only, destructive, idempotent, open-world,
+1. `src/Corvus/Mcp/ToolEffects.cs`: add the tool's effects (read-only, destructive, idempotent, open-world,
    long-running). Annotations come only from this table.
-2. `src/NetDecompilerMcp/Mcp/ParameterDomains.cs`: add the value set of every closed string parameter; an `engine`
+2. `src/Corvus/Mcp/ParameterDomains.cs`: add the value set of every closed string parameter; an `engine`
    parameter always needs one.
-3. `src/NetDecompilerMcp/Core/Toolsets.cs`: put the tool in exactly one family.
-4. `src/NetDecompilerMcp/Mcp/Guide.cs`: name the tool in the core or in a topic, so the guide covers it.
+3. `src/Corvus/Core/Toolsets.cs`: put the tool in exactly one family.
+4. `src/Corvus/Mcp/Guide.cs`: name the tool in the core or in a topic, so the guide covers it.
 5. `README.md`: add it to a tool table and update the tool count.
 6. Tests: the tool's own tests, and a case in `McpProtocolTests.ToolCases` so it is called over stdio.
 

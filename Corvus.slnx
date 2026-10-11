@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Corvus/Corvus.csproj" />
+    <Project Path="src/Corvus.Clr32/Corvus.Clr32.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Corvus.Tests/Corvus.Tests.csproj" />
+    <Project Path="tests/TestFixture.Consumer/TestFixture.Consumer.csproj" />
+    <Project Path="tests/TestFixture.FakeTools/TestFixture.FakeTools.csproj" />
+    <Project Path="tests/TestFixture/TestFixture.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,102 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- dotnet test runs the quick set; NDM_ALL_TESTS=1 (environment or -p:) also runs the tests marked Speed=Slow. -->
+  <PropertyGroup Condition="'$(NDM_ALL_TESTS)' != '1'">
+    <RunSettingsFilePath>$(MSBuildThisFileDirectory)quick.runsettings</RunSettingsFilePath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(NDM_ALL_TESTS)' == '1'">
+    <RunSettingsFilePath>$(MSBuildThisFileDirectory)full.runsettings</RunSettingsFilePath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Also a real library the tests export (restores AsmResolver and AsmResolver.PE.File with it); the native PE sweep uses it as an oracle. -->
+    <PackageReference Include="AsmResolver.PE" Version="6.0.0-beta.5" />
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <!-- ELF / Mach-O oracle for the native format readers. -->
+    <PackageReference Include="LibObjectFile" Version="2.3.1" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="NativeFormats\ItaniumCorpus.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Real libraries the tests decompile, compare and export (downloaded on restore, not referenced). -->
+  <ItemGroup>
+    <PackageDownload Include="BouncyCastle.Cryptography" Version="[2.6.2]" />
+    <PackageDownload Include="Newtonsoft.Json" Version="[12.0.2];[13.0.1];[13.0.4]" />
+    <PackageDownload Include="NLog" Version="[6.1.4]" />
+    <PackageDownload Include="NUnit" Version="[3.14.0]" />
+    <PackageDownload Include="System.Text.Json" Version="[10.0.1]" />
+    <PackageDownload Include="System.IO.Pipelines" Version="[10.0.1]" />
+    <PackageDownload Include="System.Collections.Immutable" Version="[1.3.1]" />
+    <PackageDownload Include="System.Numerics.Vectors" Version="[4.5.0]" />
+    <PackageDownload Include="System.Runtime.CompilerServices.Unsafe" Version="[6.0.0]" />
+    <PackageDownload Include="SharpCompress" Version="[0.48.1]" />
+    <PackageDownload Include="ZstdSharp.Port" Version="[0.8.8]" />
+    <PackageDownload Include="Iced" Version="[1.21.0]" />
+    <PackageDownload Include="OggVorbisEncoder" Version="[1.2.2]" />
+  </ItemGroup>
+
+  <!-- NativeAOT-compiled production binaries (tools/ilc of the ILCompiler runtime packs: PE, ELF, Mach-O) for the slow NativeAOT tests. -->
+  <ItemGroup Condition="'$(NDM_ALL_TESTS)' == '1'">
+    <PackageDownload Include="runtime.win-x64.Microsoft.DotNet.ILCompiler" Version="[8.0.30];[9.0.19];[10.0.11]" />
+    <PackageDownload Include="runtime.win-arm64.Microsoft.DotNet.ILCompiler" Version="[10.0.11]" />
+    <PackageDownload Include="runtime.win-x86.Microsoft.DotNet.ILCompiler" Version="[10.0.11]" />
+    <PackageDownload Include="runtime.linux-arm.Microsoft.DotNet.ILCompiler" Version="[10.0.11]" />
+    <PackageDownload Include="runtime.linux-x64.Microsoft.DotNet.ILCompiler" Version="[10.0.11]" />
+    <PackageDownload Include="runtime.linux-arm64.Microsoft.DotNet.ILCompiler" Version="[10.0.11]" />
+    <PackageDownload Include="runtime.osx-arm64.Microsoft.DotNet.ILCompiler" Version="[10.0.11]" />
+  </ItemGroup>
+
+  <!-- Native images in ELF, Mach-O, ARM64 and ARM PE form for the native format readers and code analysis (runtimes/<rid>/native). -->
+  <ItemGroup>
+    <PackageDownload Include="Microsoft.Diagnostics.DbgShim.linux-arm64" Version="[9.0.621003]" />
+    <PackageDownload Include="Microsoft.Diagnostics.DbgShim.linux-musl-arm64" Version="[9.0.621003]" />
+    <PackageDownload Include="Microsoft.Diagnostics.DbgShim.linux-arm" Version="[9.0.621003]" />
+    <PackageDownload Include="Microsoft.Diagnostics.DbgShim.linux-x64" Version="[9.0.621003]" />
+    <PackageDownload Include="Microsoft.Diagnostics.DbgShim.osx-x64" Version="[9.0.621003]" />
+    <PackageDownload Include="Microsoft.Diagnostics.DbgShim.osx-arm64" Version="[9.0.621003]" />
+    <PackageDownload Include="Microsoft.Diagnostics.DbgShim.win-arm64" Version="[9.0.621003]" />
+    <PackageDownload Include="Microsoft.Diagnostics.DbgShim.win-arm" Version="[9.0.553101]" />
+    <PackageDownload Include="Microsoft.NETCore.App.Host.osx-arm64" Version="[10.0.11]" />
+    <PackageDownload Include="SkiaSharp.NativeAssets.macOS" Version="[2.88.9]" />
+  </ItemGroup>
+  <!-- Large runtime packs for the slow native format tests only. -->
+  <ItemGroup Condition="'$(NDM_ALL_TESTS)' == '1'">
+    <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-arm64" Version="[10.0.11]" />
+    <PackageDownload Include="Microsoft.NETCore.App.Runtime.osx-arm64" Version="[10.0.11]" />
+    <PackageDownload Include="SkiaSharp.NativeAssets.Linux" Version="[3.119.4]" />
+    <PackageDownload Include="Microsoft.Android.Runtime.35.android-arm64" Version="[35.0.105]" />
+    <PackageDownload Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="[1.0.3]" />
+    <PackageDownload Include="Microsoft.Android.Runtime.35.android-arm" Version="[35.0.105]" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Corvus\Corvus.csproj" />
+    <ProjectReference Include="..\TestFixture\TestFixture.csproj" />
+    <ProjectReference Include="..\TestFixture.Consumer\TestFixture.Consumer.csproj" />
+    <ProjectReference Include="..\TestFixture.FakeTools\TestFixture.FakeTools.csproj" />
+  </ItemGroup>
+
+  <!-- Programs the tests compile with external toolchains (pipeline round trip, NativeAOT samples): data, not part of this project. -->
+  <ItemGroup>
+    <Compile Remove="PipelineSamples\**" />
+    <None Include="PipelineSamples\**" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Remove="NativeAotSample\**" />
+    <None Include="NativeAotSample\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

@@ -1,6 +1,6 @@
 # Guide: dumps
 
-<!-- Generated from src/NetDecompilerMcp/Mcp/Guide.cs; run the tests with NDM_UPDATE_DOCS=1 to update. -->
+<!-- Generated from src/Corvus/Mcp/Guide.cs; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
 Crash dumps and live processes.
 open_minidump (user-mode .dmp: exception, faulting module+function and instruction, modules and whether the binaries exist

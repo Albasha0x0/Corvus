@@ -95,7 +95,7 @@ jobs:
         shell: bash
         run: |
           rid=$(dotnet --info | grep -m1 'RID:' | awk '{print $2}')
-          dotnet publish src/NetDecompilerMcp/NetDecompilerMcp.csproj -c Release -r "$rid" --self-contained true -p:Version=9.9.9 -o out
+          dotnet publish src/Corvus/Corvus.csproj -c Release -r "$rid" --self-contained true -p:Version=9.9.9 -o out
           if [ "$RUNNER_OS" = Windows ]; then pwsh -c 'Compress-Archive -Path out/* -DestinationPath package.zip'; package=package.zip; asset="NetDecompilerMcp-$rid.zip"
           else tar -czf package.tar.gz -C out .; package=package.tar.gz; asset="NetDecompilerMcp-$rid.tar.gz"; fi
           # Manifests under the release asset name: the real one and one that must be rejected.
@@ -125,7 +125,7 @@ jobs:
           if (Test-Path "$HOME\.cursor\mcp.json") { throw 'registered without consent' }
           & $install -Yes -Client cursor
           Remove-Item Env:NDM_SHA256SUMS
-          $exe = "$env:LOCALAPPDATA\NetDecompilerMcp\current\NetDecompilerMcp.exe"
+          $exe = "$env:LOCALAPPDATA\NetDecompilerMcp\current\corvus.exe"
           $entry = (Get-Content "$HOME\.cursor\mcp.json" -Raw | ConvertFrom-Json).mcpServers.'net-decompiler'
           if ($entry.command -ne $exe) { throw "Cursor entry: $($entry.command)" }
           & $exe status

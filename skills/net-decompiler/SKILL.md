@@ -5,7 +5,7 @@ description: "Reverse engineering of compiled .NET assemblies and native PE, ELF
 
 # net-decompiler
 
-<!-- Generated from src/NetDecompilerMcp/Mcp/Guide.cs; run the tests with NDM_UPDATE_DOCS=1 to update. -->
+<!-- Generated from src/Corvus/Mcp/Guide.cs; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
 ## Server guidance
 
