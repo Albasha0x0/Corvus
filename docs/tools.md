@@ -2186,7 +2186,7 @@ The other side of a Java / .NET bridge, ready for decompile_member or get_dex_cl
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `symbol` | string | yes |  | A Java class descriptor, Java method id (Lpkg/C;->onCreate(Landroid/os/Bundle;)V), or a .NET type or member. |
+| `symbol` | string | yes |  | A Java class (Lpkg/C; or pkg.C), Java method id (Lpkg/C;->onCreate(Landroid/os/Bundle;)V), or a .NET type or member. |
 | `path` | string |  |  | The .apk / .aab whose assemblies to read (without loading them); optional when they are loaded. |
 
 Structured output: `query`, `direction`, `items`, `notes`.

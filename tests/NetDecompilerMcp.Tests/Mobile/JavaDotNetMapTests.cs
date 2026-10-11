@@ -128,6 +128,9 @@ public sealed class JavaDotNetMapTests : IDisposable
         Assert.Equal(("Android.App.Activity::OnCreate(Bundle)", "register_attribute"), (bound.DotNet, bound.Basis));
         Assert.Equal(("MyApp.MainActivity", "component_name"), map.Map("com/example/app/Main", apk, default).Items.Select(i => (i.DotNet, i.Basis)).Single());
         Assert.Equal("MyApp.Outer+Inner", map.Map($"L{AndroidSamples.LinkPackage}/Outer_Inner;", apk, default).Items.Single().DotNet);
+        // the dotted form the manifest prints
+        Assert.Equal(("MyApp.MainActivity", "Lcom/example/app/Main;"), map.Map("com.example.app.Main", apk, default).Items.Select(i => (i.DotNet, i.Java)).Single());
+        Assert.Equal("MyApp.LinkActivity", map.Map(AndroidSamples.LinkPackage + ".LinkActivity", apk, default).Items.Single().DotNet);
         Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => map.Map("Lcom/example/app/Helper;", apk, default)).Code);
     }
 

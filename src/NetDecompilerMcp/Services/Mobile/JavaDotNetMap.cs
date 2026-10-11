@@ -52,7 +52,13 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
     {
         symbol = symbol.Trim();
         var index = Build(path, ct);
-        bool java = symbol.StartsWith('L') && (symbol.EndsWith(';') || symbol.Contains(";->", StringComparison.Ordinal)) || symbol.Contains('/', StringComparison.Ordinal);
+        bool java = symbol.StartsWith('L') && (symbol.EndsWith(';') || symbol.Contains(";->", StringComparison.Ordinal)) || symbol.Contains('/', StringComparison.Ordinal)
+                    || symbol.Contains("->", StringComparison.Ordinal);
+        var sep = symbol.IndexOf("::", StringComparison.Ordinal);
+        var typeName = (sep > 0 ? symbol[..sep] : symbol).Replace('+', '/');
+        var type = java ? null : FindType(index, typeName);
+        // The manifest's dotted Java name (com.example.app.MainActivity) when no .NET type has that name.
+        if (type == null && sep < 0 && index.ByJava.ContainsKey(symbol.Replace('.', '/'))) java = true;
         var items = new List<JavaDotNetPair>();
         if (java)
         {
@@ -76,11 +82,7 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
             }
             return new JavaDotNetResult(symbol, "java_to_dotnet", items, index.Notes);
         }
-        var sep = symbol.IndexOf("::", StringComparison.Ordinal);
-        var typeName = (sep > 0 ? symbol[..sep] : symbol).Replace('+', '/');
-        var type = index.ByName.GetValueOrDefault(typeName)
-                   ?? index.ByName.Values.Where(t => t.Name == typeName || t.FullName.EndsWith("." + typeName, StringComparison.Ordinal)).Take(2).ToList() switch { [var one] => one, _ => null }
-                   ?? throw new ToolError(ErrorCode.NotFound, $"no type {typeName} among the assemblies of {Describe(path)}.");
+        if (type == null) throw new ToolError(ErrorCode.NotFound, $"no type {typeName} among the assemblies of {Describe(path)}.");
         if (!index.ByType.TryGetValue(type, out var bound) && DotNetToUnity(index, type, sep > 0 ? symbol[(sep + 2)..] : null, path, ct) is { Count: > 0 } calls)
             return new JavaDotNetResult(symbol, "dotnet_to_java", calls, index.Notes);
         if (bound.Java == null)
@@ -110,6 +112,10 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
         return index.ByJava.Where(p => p.Value.Basis != "register_attribute" || !IsBinding(p.Value.Type))
             .ToDictionary(p => p.Key.Replace('/', '.'), p => $"{TypeLabel(p.Value.Type)} ({p.Value.Source.Label}, {p.Value.Basis})", StringComparer.Ordinal);
     }
+
+    private static TypeDef? FindType(Index index, string name) =>
+        index.ByName.GetValueOrDefault(name)
+        ?? index.ByName.Values.Where(t => t.Name == name || t.FullName.EndsWith("." + name, StringComparison.Ordinal)).Take(2).ToList() switch { [var one] => one, _ => null };
 
     private static string Describe(string? path) => path ?? "the loaded assemblies";
 

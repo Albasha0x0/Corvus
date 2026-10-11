@@ -117,7 +117,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
                  "Java class or member through AndroidJavaClass / AndroidJavaObject, AndroidJavaProxy or AndroidJNI, and back, with a confidence. " +
                  "Reads the loaded assemblies, and the package's with path.")]
     public Task<JavaDotNetResult> MapJavaDotNet(
-        [Description("A Java class descriptor, Java method id (Lpkg/C;->onCreate(Landroid/os/Bundle;)V), or a .NET type or member.")] string symbol,
+        [Description("A Java class (Lpkg/C; or pkg.C), Java method id (Lpkg/C;->onCreate(Landroid/os/Bundle;)V), or a .NET type or member.")] string symbol,
         [Description("The .apk / .aab whose assemblies to read (without loading them); optional when they are loaded.")] string? path = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => map.Map(symbol, path, cancellationToken), cancellationToken);
