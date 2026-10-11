@@ -275,6 +275,24 @@ public sealed class RealScenarioRegressionTests
     }
 
     /// <summary>
+    /// A missing strong-named dependency is replaced by a stand-in without a public key, which the target's reference
+    /// (name, version and token) did not bind to: C# patches using its types failed with CS0012 (Microsoft.CodeAnalysis.CSharp).
+    /// </summary>
+    [Fact]
+    public void CSharpPatchesBindToTheStandInOfAStrongNamedDependency()
+    {
+        using var dir = new TempDir();
+        var options = new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(Microsoft.CodeAnalysis.OutputKind.DynamicallyLinkedLibrary)
+            .WithCryptoPublicKey([.. typeof(object).Assembly.GetName().GetPublicKey()!]).WithPublicSign(true);
+        var lib = Roslyn.Compile("Lib", "namespace Lib { public class Node { public int Size; } }", options);
+        File.WriteAllBytes(dir.File("App.dll"), ReferenceResolutionTests.Compile("App",
+            "namespace App { public class Leaf : Lib.Node { } public class C { public int Run(Lib.Node n) { return n.Size; } } }", lib)); // Lib.dll is missing
+        using var env = new Env(dir.File("App.dll"));
+        var result = env.Edit(() => env.Edits.PatchMethodCSharp(env.One("App.C::Run"), "return new Leaf().Size + 1;", dryRun: true, default));
+        Assert.Contains("compiled OK", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// The reference copy of the target got [InternalsVisibleTo] through an assembly reference to the core library; for
     /// the core library itself (System.Private.CoreLib, a Unity mscorlib) that left Roslyn without one (CS0518).
     /// </summary>

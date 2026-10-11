@@ -33,6 +33,7 @@ public sealed partial class CSharpPatcher
         var references = new List<MetadataReference>();
         var images = new List<(string Name, byte[] Image, string Path)>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var stubbed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         // References of each module resolve from its own folder first.
         var queue = new Queue<(ModuleDef Module, bool Owned, string Path)>();
 
@@ -61,6 +62,7 @@ public sealed partial class CSharpPatcher
                     continue;
                 }
                 if (target == null) { seen.Add(name); missing.Add(name); continue; }
+                if (target.Stub != null) stubbed.Add(name);
                 try
                 {
                     // Embedded (Costura) assemblies resolve their references from the host's folder.
@@ -75,7 +77,51 @@ public sealed partial class CSharpPatcher
             }
             if (owned) module.Dispose();
         }
+        // A stand-in has no public key, so a reference naming one by its token does not bind to it (CS0012).
+        for (int i = 0; i < images.Count && stubbed.Count > 0; i++)
+            if (WithoutTokens(images[i].Image, stubbed) is { } image)
+                references[i] = MetadataReference.CreateFromImage(image);
         return SingleCoreLibrary(references, images);
+    }
+
+    /// <summary>The image with the public key tokens of its references to <paramref name="names"/> removed; null when it has none.</summary>
+    private static byte[]? WithoutTokens(byte[] image, HashSet<string> names)
+    {
+        var key = string.Join(",", names.Order(StringComparer.OrdinalIgnoreCase));
+        lock (TokenFreeImages)
+        {
+            if (TokenFreeImages.TryGetValue(image, out var cached) && cached.Names == key) return cached.Image;
+            var result = RewriteWithoutTokens(image, names);
+            TokenFreeImages.AddOrUpdate(image, new TokenFreeImage(key, result));
+            return result;
+        }
+    }
+
+    private sealed record TokenFreeImage(string Names, byte[]? Image);
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], TokenFreeImage> TokenFreeImages = new();
+
+    private static byte[]? RewriteWithoutTokens(byte[] image, HashSet<string> names)
+    {
+        try
+        {
+            using (var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(image, writable: false)))
+            {
+                var md = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+                if (!md.AssemblyReferences.Select(md.GetAssemblyReference).Any(r => !r.PublicKeyOrToken.IsNil && names.Contains(md.GetString(r.Name))))
+                    return null;
+            }
+            using var module = ModuleDefMD.Load(image);
+            foreach (var r in module.GetAssemblyRefs().Where(r => names.Contains(r.Name)))
+                r.PublicKeyOrToken = new PublicKeyToken(Array.Empty<byte>());
+            using var ms = new MemoryStream();
+            FaithfulWriter.WritePlain(module, ms);
+            return ms.ToArray();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return null; // compile against it as it is
+        }
     }
 
     /// <summary>Name suffix of the assembly a patch is compiled into (it references the target).</summary>
