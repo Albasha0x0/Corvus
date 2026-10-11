@@ -59,13 +59,13 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         var index = await code.Index(native, new Progress<CodeIndexProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = p.Done, Total = p.Total > 0 ? p.Total : null, Message = $"indexing {native.Id}: {p.Phase}" })), ct);
         if (Sites(index) == null)
-            throw new ToolError(ErrorCode.Unsupported, $"Call arguments are recovered for x86, x64 and ARM64 code, not {index.Image.Arch}.", "decompile_native shows calls through IDA");
+            throw new ToolError(ErrorCode.Unsupported, $"Call arguments are recovered for x86, x64, ARM64 and ARM32 code, not {index.Image.Arch}.", "decompile_native shows calls through IDA");
         return index;
     }
 
     [McpServerTool(Name = "get_call_arguments", Title = "Native call arguments", UseStructuredContent = true)]
-    [Description("Call sites of a native image (x86 / x64 / ARM64) with their argument values, recovered by backward constant propagation in the calling " +
-                 "function under the platform conventions (x64 rcx, rdx, r8, r9 / xmm0-3, then [rsp+20h+8*i]; x86 pushed / stored stack slots; ARM64 x0-x7): " +
+    [Description("Call sites of a native image (x86 / x64 / ARM) with their argument values, recovered by backward constant propagation in the calling " +
+                 "function under the platform conventions (x64 rcx, rdx, r8, r9 / xmm0-3, then [rsp+20h+8*i]; x86 pushed / stored stack slots; ARM x0-x7 / r0-r3): " +
                  "immediates, string literals, named addresses, results of earlier calls, globals; merges of different values are unknown. " +
                  "Known Win32 / CRT APIs give parameter names and decoded constants (GENERIC_READ, PAGE_EXECUTE_READWRITE, HKEY_LOCAL_MACHINE, printf formats). " +
                  "Pass address (a call instruction, or any address in a function for all its calls) and/or callee (an API or function name: all calls to it).")]
@@ -86,7 +86,8 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
 
     /// <summary>The call sites of an index: the x86 / x64 analysis or the ARM64 one; null for other instruction sets.</summary>
     internal static ICallSites? Sites(NativeCodeIndex index) =>
-        CallAnalysis.Supports(index) ? new X86Sites(CallAnalysis.For(index)) : Arm64CallSites.Supports(index) ? Arm64CallSites.For(index) : null;
+        CallAnalysis.Supports(index) ? new X86Sites(CallAnalysis.For(index)) : Arm64CallSites.Supports(index) ? Arm64CallSites.For(index)
+            : Arm32CallSites.Supports(index) ? Arm32CallSites.For(index) : null;
 
     private sealed class X86Sites(CallAnalysis analysis) : ICallSites
     {

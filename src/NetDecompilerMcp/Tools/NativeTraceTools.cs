@@ -85,7 +85,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
                                         "op1 / op2 (an operand of the instruction) or result (the value the call at address returns)";
 
     [McpServerTool(Name = "trace_native_values", Title = "Native value trace", UseStructuredContent = true, OutputSchemaType = typeof(ValueTraceReport))]
-    [Description("Traces a value through native code (x86 / x64 / ARM64) across functions. Backward (where it comes from): constants, strings, function " +
+    [Description("Traces a value through native code (x86 / x64 / ARM) across functions. Backward (where it comes from): constants, strings, function " +
                  "pointers, API results, through copies, stack slots, merges (every path's value) and loops; a parameter binds to every caller's " +
                  "argument, a call result to the callee's returns, a writable global to its writers and initial contents. Forward (where it goes): " +
                  "API arguments (constants decoded), callees' parameters, globals and their readers, returns into callers, compares, switch indexes, " +
@@ -138,8 +138,9 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         return await Task.Run(() =>
         {
             var links = link != null ? new NativeTraceLinks(workspace, link, code) : null;
-            ITraceHost host = Arm64Trace.Supports(index) ? Arm64Trace.For(index) : CallAnalysis.For(index);
+            ITraceHost host = Arm64Trace.Supports(index) ? Arm64Trace.For(index) : Arm32Trace.Supports(index) ? Arm32Trace.For(index) : CallAnalysis.For(index);
             var seed = host is Arm64Trace arm ? Arm64Seed(arm, address, location, argument, cancellationToken)
+                : host is Arm32Trace arm32 ? Arm32Trace.Seed(arm32, address, NativeCodeTools.Address(index, address), location, argument, cancellationToken)
                 : Seed(CallAnalysis.For(index), address, location, argument, cancellationToken);
             var options = new ValueTraceOptions(dir, Math.Clamp(maxDepth, 0, 8), Math.Clamp(maxFunctions, 1, 256), Math.Clamp(maxNodes, 1, 5000),
                 Math.Clamp(maxCallers, 1, 256), Math.Clamp(maxWriters, 1, 256), followGlobals);
@@ -173,8 +174,8 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         {
             Progress = (float)waited.Elapsed.TotalSeconds, Message = $"indexing {native.Id}: {p.Phase}",
         })), ct);
-        if (!CallAnalysis.Supports(index) && !Arm64Trace.Supports(index))
-            throw new ToolError(ErrorCode.Unsupported, $"Values are traced in x86 / x64 / ARM64 code, not {index.Image.Arch}.", "decompile_native shows the code through IDA");
+        if (!CallAnalysis.Supports(index) && !Arm64Trace.Supports(index) && !Arm32Trace.Supports(index))
+            throw new ToolError(ErrorCode.Unsupported, $"Values are traced in x86 / x64 / ARM code, not {index.Image.Arch}.", "decompile_native shows the code through IDA");
         return (native, index);
     }
 
