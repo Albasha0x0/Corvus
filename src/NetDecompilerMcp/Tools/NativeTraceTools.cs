@@ -348,7 +348,8 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
     private static ValueTraceReport Report(NativeCodeIndex index, ValueTraceGraph g, int offset, int limit)
     {
         string Va(uint r, int image = 0) => NativeAddress.Va(g.Images[image].Image, r);
-        string? Where(TraceNode n) => n.Function is { } f ? $"{f.Name}+0x{n.Address - f.Start:X}" : null;
+        // a node without an instruction of its own (address 0) is in its function, at no offset
+        string? Where(TraceNode n) => n.Function is { } f ? n.Address >= f.Start ? $"{f.Name}+0x{n.Address - f.Start:X}" : f.Name : null;
         int start = Math.Clamp(offset, 0, g.Nodes.Count);
         var page = g.Nodes.Skip(start).Take(Math.Clamp(limit, 1, 1000)).ToList();
         var ids = page.Select(n => n.Id).ToHashSet();

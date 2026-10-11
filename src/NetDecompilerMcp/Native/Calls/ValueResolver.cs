@@ -298,8 +298,9 @@ internal sealed class ValueResolver
         }
         if (values.Count == 0) return new Val(VKind.Cycle, 0, 0, 0, "loop");
         if (values.Count == 1 && !loop) return values[0] with { Why = values[0].Why + $" (same on {b.Predecessors.Count} paths)" };
-        if (loop) values.Add(new Val(VKind.Cycle, 0, 0, 0, $"carried around the loop at {Va(b.Start)}"));
-        return new Val(VKind.Merge, (ulong)b.Predecessors.Count, cut ? 1u : 0, 0, $"{b.Predecessors.Count} paths join at {Va(b.Start)}", [.. values]);
+        // the join's block start locates the merge and the loop (a value of their own has no defining instruction)
+        if (loop) values.Add(new Val(VKind.Cycle, 0, 0, 0, $"carried around the loop at {Va(b.Start)}") { At = b.Start });
+        return new Val(VKind.Merge, (ulong)b.Predecessors.Count, cut ? 1u : 0, 0, $"{b.Predecessors.Count} paths join at {Va(b.Start)}", [.. values]) { At = b.Start };
     }
 
     private Val Merge(Loc loc, Code.BasicBlock b)

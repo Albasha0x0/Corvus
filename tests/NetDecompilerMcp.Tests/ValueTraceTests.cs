@@ -134,7 +134,9 @@ public class ValueTraceTests
     {
         var (a, at) = Sample();
         var g = Trace(a, Va(at["create"]), argument: "2");
-        Assert.Contains(g.Nodes, n => n.Kind == TraceNodeKind.Merge);
+        // the merge sits at its join block, inside its function
+        var merge = Assert.Single(g.Nodes, n => n.Kind == TraceNodeKind.Merge);
+        Assert.True(merge.Function != null && merge.Address >= merge.Function.Start && merge.Address < merge.Function.End, $"merge at 0x{merge.Address:X}");
         var values = g.Values.Select(v => v.Text).ToList();
         Assert.Contains("0x80000000 = GENERIC_READ", values);
         Assert.Contains("0xC0000000 = GENERIC_READ|GENERIC_WRITE", values);
