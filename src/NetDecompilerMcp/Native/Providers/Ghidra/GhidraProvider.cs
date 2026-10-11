@@ -31,6 +31,8 @@ public sealed record GhidraProviderOptions
     public TimeSpan CancelGrace { get; init; } = TimeSpan.FromSeconds(10);
     /// <summary>Consecutive worker failures a session survives by restarting from the saved project.</summary>
     public int MaxRestarts { get; init; } = 3;
+    /// <summary>Unsaved edits after which the project is saved, so a restart replays a bounded journal.</summary>
+    public int JournalSaveThreshold { get; init; } = 50;
     /// <summary>Memory cap of each worker tree in bytes (0: none); null: <see cref="EngineMemoryLimit.Variable"/>, else three quarters of the memory available.</summary>
     public long? MemoryLimitBytes { get; init; }
     /// <summary>Decompiler processes per session.</summary>

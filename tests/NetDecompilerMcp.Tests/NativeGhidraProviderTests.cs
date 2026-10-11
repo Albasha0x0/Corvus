@@ -197,6 +197,16 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
             Assert.Equal("", await s.SetCommentAsync(rva, ""));
             Assert.StartsWith("FUN_", await s.SetNameAsync(rva, ""), StringComparison.Ordinal);
         }
+        // The journal is bounded: reaching the threshold saves the project.
+        Assert.Equal(50, new GhidraProviderOptions().JournalSaveThreshold);
+        using (var bounded = new GhidraProvider(provider.Options with { JournalSaveThreshold = 2 }))
+        await using (var s = (GhidraSession)await bounded.OpenAsync(path, null, Offline))
+        {
+            await s.SetNameAsync(rva, "ndm_bounded");
+            Assert.Equal(1, s.UnsavedCount);
+            await s.SetCommentAsync(rva, "bounded");
+            Assert.Equal(0, s.UnsavedCount);
+        }
     }
 
     [GhidraFact]

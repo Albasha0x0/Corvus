@@ -27,6 +27,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     protected override TimeSpan ShutdownGrace => provider.Options.ShutdownGrace;
     protected override int MaxRestarts => provider.Options.MaxRestarts;
     protected override bool ConcurrentRequests => true;
+    protected override int JournalSaveThreshold => provider.Options.JournalSaveThreshold;
     internal string ProjectDirectory => _projectDirectory;
     /// <summary>False when the first analysis ran out of time; the saved project then holds what was analyzed.</summary>
     public bool AnalysisComplete { get; private set; }
