@@ -1,5 +1,7 @@
 package ndm.ghidra;
 
+import java.util.TreeMap;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
@@ -15,6 +17,8 @@ import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.DataIterator;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Parameter;
+import ghidra.program.model.listing.GhidraClass;
+import ghidra.program.model.listing.Library;
 import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.symbol.Namespace;
 import ghidra.program.model.symbol.SourceType;
@@ -164,6 +168,43 @@ final class InfoOps {
         Parameter ret = f.getReturn();
         o.addProperty("return_storage", ret == null ? null : ret.getVariableStorage().toString());
         o.addProperty("varargs", f.hasVarArgs());
+        return o;
+    }
+
+    /** Non-global namespaces by qualified name (namespaces): rows [name, kind, functions directly in it, vftable rva or null]. */
+    static JsonElement namespaces(Worker w, Worker.Request r) throws Exception {
+        TreeMap<String, Object[]> found = new TreeMap<>(); // name -> {kind, functions, vftable}
+        SymbolTable st = w.program.getSymbolTable();
+        for (Symbol s : st.getAllSymbols(true)) {
+            r.monitor.checkCancelled();
+            Namespace parent = s.getParentNamespace();
+            for (Namespace ns = parent; ns != null && !ns.isGlobal(); ns = ns.getParentNamespace()) {
+                if (ns instanceof Function) continue;
+                Object[] e = found.computeIfAbsent(ns.getName(true), k -> new Object[] { null, 0, null });
+                e[0] = ns instanceof GhidraClass ? "class" : ns instanceof Library ? "library" : "namespace";
+            }
+            String name = s.getName();
+            if (parent != null && !parent.isGlobal() && (name.equals("vftable") || name.equals("vtable") || name.startsWith("vftable_")) && !s.isExternal()) {
+                Object[] e = found.get(parent.getName(true));
+                if (e != null && e[2] == null) e[2] = w.rva(s.getAddress());
+            }
+        }
+        for (Function f : w.program.getFunctionManager().getFunctions(true)) {
+            Namespace ns = f.getParentNamespace();
+            if (ns != null && !ns.isGlobal() && found.get(ns.getName(true)) instanceof Object[] e) e[1] = (Integer) e[1] + 1;
+        }
+        JsonArray rows = new JsonArray();
+        for (var e : found.entrySet()) {
+            JsonArray row = new JsonArray();
+            row.add(e.getKey());
+            row.add((String) e.getValue()[0]);
+            row.add((Integer) e.getValue()[1]);
+            if (e.getValue()[2] instanceof Long rva) row.add(rva);
+            else row.add(JsonNull.INSTANCE);
+            rows.add(row);
+        }
+        JsonObject o = new JsonObject();
+        o.add("rows", rows);
         return o;
     }
 

@@ -221,6 +221,10 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     Task<EngineFunctionRecord> GetFunctionRecordAsync(uint rva, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not describe functions.");
 
+    /// <summary>The engine's non-global namespaces (classes, plain namespaces, external libraries), sorted by qualified name.</summary>
+    Task<IReadOnlyList<EngineNamespace>> ListNamespacesAsync(CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not list namespaces.");
+
     /// <summary>References to <paramref name="rva"/> (ordinary flow excluded).</summary>
     Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default);
 
@@ -633,3 +637,8 @@ public sealed record EngineParameter(string Name, string Type, string Storage);
 public sealed record EngineFunctionRecord(uint Start, string Name, string? Namespace, string? Prototype, string? CallingConvention, string? SignatureSource,
     IReadOnlyList<(uint Start, uint End)> Ranges, uint? ThunkTarget, string? ThunkTargetName, bool External, bool NoReturn, bool Library, int? StackPurge,
     IReadOnlyList<EngineParameter> Parameters, string? ReturnType, string? ReturnStorage, bool VarArgs);
+/// <summary>
+/// A namespace of the engine: qualified name, kind (class, namespace or library), the functions directly in it, and the
+/// vftable (vtable) labeled in it, when one is.
+/// </summary>
+public sealed record EngineNamespace(string Name, string Kind, int Functions, uint? Vftable);

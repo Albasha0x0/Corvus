@@ -62,6 +62,23 @@ public sealed class NativeGhidraViewTests(ITestOutputHelper output, GhidraCacheF
     }
 
     [GhidraFact]
+    public async Task Namespaces_list_cpp_classes_with_functions_and_vftables_and_the_libraries()
+    {
+        var dll = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "msvcp_win.dll");
+        if (!File.Exists(dll)) return;
+        await using var s = await shared.Provider.OpenAsync(shared.Copy(dll), null, Offline);
+        var list = await s.ListNamespacesAsync();
+        var classes = list.Where(n => n.Kind == "class").ToList();
+        output.WriteLine($"{classes.Count} classes, {list.Count(n => n.Kind == "library")} libraries; " +
+                         string.Join("; ", classes.Where(c => c.Vftable != null).Take(6).Select(c => $"{c.Name} {c.Functions} 0x{c.Vftable:X}")));
+        Assert.True(classes.Count > 10);
+        Assert.Contains(classes, c => c.Name.StartsWith("std::", StringComparison.Ordinal) && c.Functions > 0);
+        Assert.Contains(classes, c => c.Vftable != null);
+        Assert.Contains(list, n => n.Kind == "library");
+        Assert.Equal(list.Select(n => n.Name).Order(StringComparer.Ordinal), list.Select(n => n.Name));
+    }
+
+    [GhidraFact]
     public async Task Function_record_has_prototype_convention_storage_and_thunk_target()
     {
         await using var s = await Open();

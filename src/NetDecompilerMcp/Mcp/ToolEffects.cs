@@ -160,7 +160,7 @@ public static class ToolEffects
         ["analyze_native_function"] = Reads(longRunning: true, openWorld: true), // pseudocode=true runs IDA or Ghidra
         ["trace_native_feature"] = Reads(longRunning: true),
         ["get_exception_info"] = Reads(longRunning: true),
-        ["list_cpp_classes"] = Reads(),
+        ["list_cpp_classes"] = Reads(openWorld: true), // engine=ghidra runs Ghidra
         ["get_native_type"] = Reads(longRunning: true, openWorld: true), // source=engine runs IDA
         ["decompile_native"] = Reads(longRunning: true, openWorld: true), // runs IDA (idalib) in a worker process; its database is a private cache
         ["verify_native_imports"] = Reads(),

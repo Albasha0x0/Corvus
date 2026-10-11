@@ -331,14 +331,46 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
 
     [McpServerTool(Name = "list_cpp_classes", Title = "C++ classes from RTTI")]
     [Description("C++ classes of an MSVC-built native image recovered from RTTI: demangled class names, base classes (with offsets, virtual and multiple " +
-                 "inheritance), and vftables with their slot targets. Every structure is cross-checked; rejected candidates are counted with the reason.")]
-    public Task<string> ListCppClasses(
+                 "inheritance), and vftables with their slot targets. Every structure is cross-checked; rejected candidates are counted with the reason. " +
+                 "engine=ghidra lists Ghidra's class namespaces instead (also PDB and Itanium classes), with function counts and vftables.")]
+    public async Task<string> ListCppClasses(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Only classes whose name contains this text (case-insensitive).")] string? filter = null,
         [Description("Include each vftable's slot addresses.")] bool slots = false,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
-        CancellationToken cancellationToken = default) => Task.Run(() =>
+        [Description("auto or ours (default: RTTI), or ghidra.")] string? engine = null,
+        [Description("engine=ghidra: plain namespaces and libraries too.")] bool namespaces = false,
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default)
+    {
+        var mode = EngineModes.Resolve(engine, EngineMode.Auto);
+        if (mode == EngineMode.Ida)
+            throw new ToolError(ErrorCode.Unsupported, "IDA has no class namespaces to list.", "use engine=ours for RTTI classes or engine=ghidra");
+        if (mode == EngineMode.Ghidra)
+            return await OrderedProgress.Run(context, progress => EngineClasses(image, filter, namespaces, offset, maxChars, progress, cancellationToken));
+        return await Task.Run(() => RttiClasses(image, filter, slots, offset, maxChars, cancellationToken), cancellationToken);
+    }
+
+    /// <summary>Ghidra's class namespaces (and with <paramref name="all"/> its other namespaces), sorted by name.</summary>
+    private async Task<string> EngineClasses(string image, string? filter, bool all, int offset, int? maxChars, IProgress<ProgressNotificationValue> progress,
+        CancellationToken ct)
+    {
+        var native = await Task.Run(() => ResolveImage(workspace, image), ct);
+        var session = await engines.Session(native, Native.Providers.Ghidra.GhidraProvider.ProviderId, new Progress<NativeProviderProgress>(p =>
+            progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = $"Ghidra {p.Stage}" })), ct);
+        if (names != null) await names.EnsureAsync(native, session, ct);
+        var list = await session.ListNamespacesAsync(ct);
+        var shown = list.Where(n => (all || n.Kind == "class") && (filter == null || n.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))).ToList();
+        var sb = new StringBuilder($"{native.Id}: {Plural(list.Count(n => n.Kind == "class"), "class")} in Ghidra's namespaces" +
+                                   (all ? $", {Plural(list.Count(n => n.Kind == "namespace"), "namespace")}, {Plural(list.Count(n => n.Kind == "library"), "library")}" : "") +
+                                   (filter != null ? $"; {shown.Count} match '{filter}'" : "") + "\nEngine: ghidra\n");
+        foreach (var n in shown)
+            sb.AppendLine($"{n.Kind} {n.Name}  ({Plural(n.Functions, "function")})" + (n.Vftable is { } v ? $"  vftable {NativeAddress.Va(native.Image, v)}" : ""));
+        return pager.Page(sb.ToString(), offset, maxChars);
+    }
+
+    private string RttiClasses(string image, string? filter, bool slots, int offset, int? maxChars, CancellationToken cancellationToken)
     {
         var (native, _) = Resolve(image, "rva:0");
         var result = native.GetAnalysis(n => MsvcRtti.Analyze(n.Image, ct: cancellationToken));
@@ -368,7 +400,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
             foreach (var issue in c.Issues) sb.AppendLine($"  issue: {issue}");
         }
         return pager.Page(sb.ToString(), offset, maxChars);
-    }, cancellationToken);
+    }
 
     public sealed record VerdictCount(string Status, string Reason, int Count);
 

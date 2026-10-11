@@ -367,6 +367,11 @@ internal static class WorkerRows
             S(r, "return_type"), S(r, "return_storage"), B(r, "varargs"));
     }
 
+    /// <summary>namespaces: rows [name, kind, functions, vftable rva or null].</summary>
+    public static List<EngineNamespace> Namespaces(JsonElement r) =>
+        r.GetProperty("rows").EnumerateArray().Select(x => new EngineNamespace(x[0].GetString() ?? "", x[1].GetString() ?? "", x[2].GetInt32(),
+            x[3].ValueKind == JsonValueKind.Number ? x[3].GetUInt32() : null)).ToList();
+
     /// <summary>defined_strings: rows [rva, size, type, text].</summary>
     public static List<EngineString> Strings(JsonElement r) =>
         r.GetProperty("rows").EnumerateArray().Select(x => new EngineString(x[0].GetUInt32(), x[1].GetInt64(), x[2].GetString() ?? "", x[3].GetString() ?? "")).ToList();

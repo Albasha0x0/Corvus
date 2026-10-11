@@ -1308,9 +1308,9 @@ MSVC exception handling of the native function containing an address: the handle
 
 ### list_cpp_classes
 
-**C++ classes from RTTI** (read-only, idempotent)
+**C++ classes from RTTI** (read-only, idempotent, open-world)
 
-C++ classes of an MSVC-built native image recovered from RTTI: demangled class names, base classes (with offsets, virtual and multiple inheritance), and vftables with their slot targets. Every structure is cross-checked; rejected candidates are counted with the reason.
+C++ classes of an MSVC-built native image recovered from RTTI: demangled class names, base classes (with offsets, virtual and multiple inheritance), and vftables with their slot targets. Every structure is cross-checked; rejected candidates are counted with the reason. engine=ghidra lists Ghidra's class namespaces instead (also PDB and Itanium classes), with function counts and vftables.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1319,6 +1319,8 @@ C++ classes of an MSVC-built native image recovered from RTTI: demangled class n
 | `slots` | boolean |  | `false` | Include each vftable's slot addresses. |
 | `offset` | integer |  | `0` | Character offset for paging long output (use the value from the truncation footer). |
 | `maxChars` | integer |  |  | Max characters in this page (default from server config, ~60000). |
+| `engine` | string |  |  | auto or ours (default: RTTI), or ghidra. Values: auto, ours, ghidra. |
+| `namespaces` | boolean |  | `false` | engine=ghidra: plain namespaces and libraries too. |
 
 ### get_native_type
 

@@ -115,6 +115,23 @@ public sealed class EngineViewTests : IDisposable
         Assert.Contains("ghidra: prototype: int __fastcall First(int a)", await dossiers.AnalyzeNativeFunction(rig.Image, "First"));
     }
 
+    [Fact]
+    public async Task Cpp_classes_from_ghidra_list_its_class_namespaces_and_on_request_the_others()
+    {
+        var rig = Setup();
+        await Loaded(rig);
+        var tools = new NativeAnalysisTools(rig.Workspace, rig.Engines, new OutputPager(new ServerOptions()));
+        Assert.Contains("0 classes with RTTI", await tools.ListCppClasses(rig.Image));
+        var classes = await tools.ListCppClasses(rig.Image, engine: "ghidra");
+        Assert.Contains("1 class in Ghidra's namespaces", classes);
+        Assert.Matches(@"class std::exception  \(3 functions\)  vftable 0x[0-9A-F]+3000", classes);
+        Assert.DoesNotContain("KERNEL32", classes);
+        var all = await tools.ListCppClasses(rig.Image, engine: "ghidra", namespaces: true, filter: "std");
+        Assert.Contains("namespace std  (2 functions)", all);
+        Assert.Contains("2 match 'std'", all);
+        Assert.Equal(Core.ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => tools.ListCppClasses(rig.Image, engine: "ida"))).Code);
+    }
+
     /// <summary>A Ghidra-like engine whose sessions answer the read views from fixed data.</summary>
     internal sealed class ViewProvider : INativeDecompilerProvider
     {
@@ -160,6 +177,10 @@ public sealed class EngineViewTests : IDisposable
         public Task<EngineFunctionRecord> GetFunctionRecordAsync(uint rva, CancellationToken cancellationToken = default) =>
             Task.FromResult(new EngineFunctionRecord(rva, "First", "Ns", "int __fastcall First(int a)", "__fastcall", "user", [(rva, rva + 0x10)], null, null,
                 false, false, false, 0, [new EngineParameter("a", "int", "ECX:4")], "int", "EAX:4", false));
+
+        public Task<IReadOnlyList<EngineNamespace>> ListNamespacesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<EngineNamespace>>([new EngineNamespace("KERNEL32.DLL", "library", 0, null), new EngineNamespace("std", "namespace", 2, null),
+                new EngineNamespace("std::exception", "class", 3, 0x3000)]);
 
         public Task<IReadOnlyList<EngineString>> ListStringsAsync(int max, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<EngineString>>([new EngineString(0x3020, 12, "utf8", "only in the engine"), new EngineString(0x3040, 8, "unicode", "zzz")]);
