@@ -98,6 +98,9 @@ concerned say so in their headers.
   handler, and types parsed against the program's manager so pointer sizes follow its data organization
   (`TypeOps.java`); decompiler variables renamed and retyped through `HighFunctionDBUtil.updateDBVariable`
   (`FrameOps.java`).
+- [morluto/rea](https://github.com/morluto/rea) (REA), Copyright (c) 2026 morluto, MIT License (text as for
+  ida-pro-mcp above): value flow read from the decompiler's high p-code through `Varnode.getDef()`, with parameters
+  by `HighParam.getSlot()` (`SliceOps.java`, which adds the forward direction through `getDescendants()`).
 
 ## AsmArm64
 

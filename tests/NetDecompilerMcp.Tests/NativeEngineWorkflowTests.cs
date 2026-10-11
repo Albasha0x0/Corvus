@@ -77,6 +77,25 @@ public sealed class NativeEngineWorkflowTests(ITestOutputHelper output) : IDispo
         Assert.Contains("== callees (", text);
     }
 
+    private async Task TraceThrough(string engine)
+    {
+        var rig = Setup();
+        var path = Sample();
+        var trace = new NativeTraceTools(rig.Workspace, rig.Code, rig.Engines, new NativeNamePush(rig.Code));
+        var text = await trace.TraceNativeValues(path, "MapFileAndCheckSumW", argument: "1", direction: "forward", maxDepth: 1, engine: engine);
+        output.WriteLine(string.Join('\n', text.Split('\n').Take(25)));
+        Assert.StartsWith($"Engine: {engine} (engine={engine}: ", text);
+        Assert.Contains($"engine {engine}", text);
+        Assert.Matches($@"Note: {engine} answered [1-9]\d* slices?; ", text);
+        Assert.Contains("argument", text);
+    }
+
+    [IdaFact]
+    public Task Trace_through_IDA_microcode() => TraceThrough("ida");
+
+    [GhidraFact]
+    public Task Trace_through_Ghidra_pcode() => TraceThrough("ghidra");
+
     [IdaFact]
     public Task Batch_decompile_through_IDA() => BatchDecompiles("ida");
 

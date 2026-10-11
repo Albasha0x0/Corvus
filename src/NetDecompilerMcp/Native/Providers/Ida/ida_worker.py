@@ -1614,6 +1614,418 @@ def op_decompile_many(args):
 OPS["decompile_many"] = op_decompile_many
 
 
+class _Slicer:
+    # Value slices over Hex-Rays microcode at MMAT_LVARS (cfunc.mba): a local's definitions backward (the one before the
+    # use in its block, else all of them), its uses forward. Reply shape shared with the Ghidra worker's value_slice.
+    COPIES = ("m_mov", "m_xdu", "m_xds", "m_low")
+    JUMPS = ("m_jcnd", "m_jnz", "m_jz", "m_jae", "m_jb", "m_ja", "m_jbe", "m_jg", "m_jge", "m_jl", "m_jle",
+             "m_setnz", "m_setz", "m_setae", "m_setb", "m_seta", "m_setbe", "m_setg", "m_setge", "m_setl", "m_setle")
+
+    def __init__(self, m, cf, max_nodes):
+        self.m, self.hr, self.mba = m, m.ida_hexrays, cf.mba
+        hr = self.hr
+        self.copies = {getattr(hr, n) for n in self.COPIES}
+        self.jumps = {getattr(hr, n) for n in self.JUMPS}
+        self.calls = {hr.m_call, hr.m_icall}
+        self.max = max(1, min(int(max_nodes), 2000))
+        self.nodes, self.edges = [], []
+        self.truncated = False
+        self.variable = None
+        self.lvars = self.mba.vars
+        self.args = list(self.mba.argidx)
+        self.insns = []  # (block, position, top-level instruction)
+        for b in range(self.mba.qty):
+            ins, i = self.mba.get_mblock(b).head, 0
+            while ins:
+                self.insns.append((b, i, ins))
+                ins, i = ins.next, i + 1
+        self.used = {}
+
+    def node(self, kind, ea, text, why, **extra):
+        if len(self.nodes) >= self.max:
+            self.truncated = True
+            return -1
+        n = {"kind": kind, "rva": (rva_of(ea) or 0) if ea is not None else 0, "text": text, "why": why}
+        n.update({k: v for k, v in extra.items() if v is not None})
+        self.nodes.append(n)
+        return len(self.nodes) - 1
+
+    def edge(self, a, b, kind):
+        if a >= 0 and b >= 0:
+            self.edges.append([a, b, kind])
+
+    def result(self):
+        return {"nodes": self.nodes, "edges": self.edges, "truncated": self.truncated, "note": None, "variable": self.variable}
+
+    def name(self, idx):
+        return self.lvars[idx].name if 0 <= idx < self.lvars.size() else "v%d" % idx
+
+    def target(self, value):
+        # an image address the constant names, as an RVA
+        m = self.m
+        return rva_of(value) if m.ida_bytes.is_loaded(value) and m.ida_segment.getseg(value) is not None else None
+
+    def nested(self, ins):
+        # ins and the instructions nested in its operands
+        yield ins
+        for op in (ins.l, ins.r, ins.d):
+            yield from self.nested_mop(op)
+
+    def nested_mop(self, op):
+        hr = self.hr
+        if op.t == hr.mop_d:
+            yield from self.nested(op.d)
+        elif op.t == hr.mop_f:
+            for a in op.f.args:
+                yield from self.nested_mop(a)
+
+    def call_at(self, ea):
+        for b, i, top in self.insns:
+            for ins in self.nested(top):
+                if ins.ea == ea and ins.opcode in self.calls:
+                    return b, i, top, ins
+        return None
+
+    def top_at(self, ea):
+        for b, i, top in self.insns:
+            if top.ea == ea:
+                return b, i, top
+        return None
+
+    def defs(self, idx):
+        hr = self.hr
+        return [(b, i, ins) for b, i, ins in self.insns if ins.d.t == hr.mop_l and ins.d.l.idx == idx and ins.opcode not in self.calls]
+
+    # backward
+
+    def back_mop(self, op, at, stack, depth=0):
+        hr = self.hr
+        if len(self.nodes) >= self.max:
+            self.truncated = True
+            return -1
+        if depth > 48:
+            return self.node("unknown", None, "?", "derivation deeper than 48 steps")
+        t = op.t
+        if t == hr.mop_n:
+            v = op.nnn.value
+            tg = self.target(v) if op.size >= 4 else None
+            if tg is not None and v:
+                return self.node("address", None, "0x%X" % v, "constant", target=tg)
+            return self.node("constant", None, "0x%X" % v, "constant", value=v)
+        if t == hr.mop_a:
+            inner = op.a
+            if inner.t == hr.mop_v and rva_of(inner.g) is not None:
+                return self.node("address", None, "&0x%X" % inner.g, "address", target=rva_of(inner.g))
+            if inner.t in (hr.mop_l, hr.mop_S):
+                return self.node("stack_address", None, "&" + inner.dstr(), "address of a local")
+            return self.node("unknown", None, "?", "address of " + inner.dstr())
+        if t == hr.mop_v:
+            return self.node("global", op.g, "[0x%X]" % op.g, "global variable", target=rva_of(op.g))
+        if t == hr.mop_l:
+            return self.back_lvar(op.l.idx, at, stack, depth)
+        if t == hr.mop_d:
+            return self.back_insn(op.d, at, stack, depth)
+        return self.node("unknown", None, "?", op.dstr())
+
+    def back_lvar(self, idx, at, stack, depth):
+        if idx in stack:
+            return self.node("loop", None, "loop-carried value", "%s depends on itself" % self.name(idx))
+        defs = self.defs(idx)
+        before = [d for d in defs if at is not None and d[0] == at[0] and d[1] < at[1]]
+        reaching = [max(before, key=lambda d: d[1])] if before else defs
+        alts = [("def", d) for d in reaching]
+        if not before and idx in self.args:
+            alts.insert(0, ("param", self.args.index(idx)))
+        if not alts:
+            return self.node("unknown", None, "?", "no definition of " + self.name(idx))
+        stack = stack | {idx}
+
+        def one(alt):
+            if alt[0] == "param":
+                return self.node("parameter", self.mba.entry_ea, "parameter %d" % (alt[1] + 1), self.name(idx), index=alt[1])
+            b, i, ins = alt[1]
+            return self.back_def(ins, (b, i), stack, depth + 1)
+
+        if len(alts) == 1:
+            return one(alts[0])
+        merge = self.node("merge", None, "%d values" % len(alts), self.name(idx) + " has several definitions", derived=len(alts) > 8 or None)
+        for alt in alts[:8]:
+            c = one(alt)
+            self.edge(c, merge, "loop" if c >= 0 and self.nodes[c]["kind"] == "loop" else "merge")
+        return merge
+
+    def back_def(self, ins, at, stack, depth):
+        if ins.opcode in self.copies:
+            c = self.back_mop(ins.l, at, stack, depth)
+            if c >= 0 and not self.nodes[c].get("rva"):
+                self.nodes[c]["rva"] = rva_of(ins.ea) or 0
+                self.nodes[c]["why"] = ins.dstr()
+            return c
+        return self.back_insn(ins, at, stack, depth)
+
+    def back_insn(self, ins, at, stack, depth):
+        hr = self.hr
+        op = ins.opcode
+        if op in self.copies:
+            return self.back_mop(ins.l, at, stack, depth + 1)
+        if op in self.calls:
+            return self.node("call_result", ins.ea, "result of the call", ins.dstr(), site=rva_of(ins.ea))
+        if op == hr.m_ldx:
+            g = self.fixed(ins.r)
+            if g is not None:
+                return self.node("global", ins.ea, "[0x%X]" % g, ins.dstr(), target=rva_of(g))
+            base, off = ins.r, 0
+            if base.t == hr.mop_d and base.d.opcode == hr.m_add and base.d.r.t == hr.mop_n:
+                base, off = base.d.l, base.d.r.nnn.value
+            f = self.node("field", ins.ea, "field +0x%X" % off, ins.dstr(), value=off)
+            self.edge(self.back_mop(base, at, stack, depth + 1), f, "field")
+            return f
+        if op in (hr.m_add, hr.m_sub, hr.m_or, hr.m_and, hr.m_xor) and ins.l.t == hr.mop_n and ins.r.t == hr.mop_n:
+            a, b = ins.l.nnn.value, ins.r.nnn.value
+            v = {hr.m_add: a + b, hr.m_sub: a - b, hr.m_or: a | b, hr.m_and: a & b}.get(op, a ^ b) & ((1 << (8 * max(1, ins.d.size))) - 1)
+            return self.node("constant", ins.ea, "0x%X" % v, ins.dstr(), value=v)
+        return self.node("unknown", ins.ea, "?", "computed: " + ins.dstr())
+
+    def fixed(self, op):
+        # a pointer that is a fixed address
+        hr = self.hr
+        if op.t == hr.mop_a and op.a.t == hr.mop_v:
+            return op.a.g
+        if op.t == hr.mop_n and self.target(op.nnn.value) is not None:
+            return op.nnn.value
+        if op.t == hr.mop_d and op.d.opcode in self.copies:
+            return self.fixed(op.d.l)
+        return None
+
+    # forward
+
+    def holds(self, op, idx):
+        # "direct" when op is the local (through copies), "derived" when computed from it, else None
+        hr = self.hr
+        if op.t == hr.mop_l:
+            return "direct" if op.l.idx == idx else None
+        if op.t == hr.mop_d:
+            ins = op.d
+            if ins.opcode in self.calls or ins.opcode == hr.m_ldx:
+                return None
+            if ins.opcode in self.copies:
+                return self.holds(ins.l, idx)
+            if self.holds(ins.l, idx) or self.holds(ins.r, idx):
+                return "derived"
+        return None
+
+    def use(self, origin, kind, ins, text, path, derived, **extra):
+        key = (kind, ins.ea, extra.get("index"))
+        if key in self.used:
+            return
+        n = self.node(kind, ins.ea, text, path + ins.dstr(), site=rva_of(ins.ea), derived=bool(derived) or None, **extra)
+        if n >= 0:
+            self.used[key] = n
+            self.edge(origin, n, "use")
+
+    def callee(self, call):
+        hr, m = self.hr, self.m
+        if call.opcode == hr.m_call and call.l.t == hr.mop_v:
+            return m.ida_funcs.get_func_name(call.l.g) or m.ida_name.get_name(call.l.g) or "0x%X" % call.l.g, rva_of(call.l.g)
+        return None, None
+
+    def forward(self, idx, origin):
+        hr = self.hr
+        work, seen = [(idx, False, "")], set()
+        while work and not self.truncated:
+            v, derived, path = work.pop(0)
+            if v in seen:
+                continue
+            seen.add(v)
+            for b, i, top in self.insns:
+                for ins in self.nested(top):
+                    op = ins.opcode
+                    if op in self.calls and ins.d.t == hr.mop_f:
+                        name, tg = self.callee(ins)
+                        for k, a in enumerate(ins.d.f.args):
+                            h = self.holds(a, v)
+                            if h:
+                                self.use(origin, "argument", ins, "argument %d%s" % (k + 1, " of " + name if name else ""), path, derived or h == "derived",
+                                         index=k, callee=name, target=tg)
+                        if op == hr.m_icall and self.holds(ins.r, v):
+                            self.use(origin, "call_target", ins, "called", path, derived)
+                    elif op == hr.m_stx:
+                        if self.holds(ins.l, v):
+                            g = self.fixed(ins.d)
+                            if g is not None:
+                                self.use(origin, "store", ins, "stored to [0x%X]" % g, path, derived, target=rva_of(g))
+                            else:
+                                self.use(origin, "field_store", ins, "stored through a pointer", path, derived)
+                        if self.holds(ins.d, v):
+                            self.use(origin, "dereference", ins, "points to the store", path, derived)
+                    elif op == hr.m_ldx and self.holds(ins.r, v):
+                        self.use(origin, "dereference", ins, "points to the load", path, derived)
+                    elif op in self.jumps:
+                        side = ins.r if self.holds(ins.l, v) else ins.l if self.holds(ins.r, v) else None
+                        if side is not None:
+                            value = side.nnn.value if side.t == hr.mop_n else None
+                            self.use(origin, "compare", ins, ins.dstr(), path, derived, value=value)
+                    elif op in (hr.m_jtbl, hr.m_ijmp) and (self.holds(ins.l, v) or self.holds(ins.d, v)):
+                        self.use(origin, "switch", ins, "selects the jump target", path, derived)
+                # assignments of top-level instructions carry the value on
+                if top.opcode in self.calls or top.opcode in (hr.m_stx, hr.m_ldx) or top.opcode in self.jumps:
+                    continue
+                h = self.holds(top.l, v) or self.holds(top.r, v)
+                if not h:
+                    continue
+                d = derived or h == "derived" or top.opcode not in self.copies
+                if top.d.t == hr.mop_l:
+                    nxt = top.d.l.idx
+                    if nxt == self.mba.retvaridx:
+                        self.use(origin, "return", top, "returned", path, d)
+                    else:
+                        work.append((nxt, d, path + top.dstr() + " -> "))
+                elif top.d.t == hr.mop_v:
+                    self.use(origin, "store", top, "stored to [0x%X]" % top.d.g, path, d, target=rva_of(top.d.g))
+
+    def locals_in(self, op, out):
+        hr = self.hr
+        if op.t == hr.mop_l:
+            out.add(op.l.idx)
+        elif op.t == hr.mop_d:
+            for o in (op.d.l, op.d.r, op.d.d):
+                self.locals_in(o, out)
+        elif op.t == hr.mop_f:
+            for a in op.f.args:
+                self.locals_in(a, out)
+
+    def lvar_of_register(self, ea, name):
+        # the local the register holds at ea: one living in it that the instruction uses, the only local it uses,
+        # a call result read just after the call (the result register), or the latest definition of one living in it
+        import ida_idp
+        hr = self.hr
+        reg = ida_idp.str2reg(name)
+        if reg is None or reg < 0:
+            return None
+        mreg = hr.reg2mreg(reg)
+        cands = {i for i in range(self.lvars.size()) if self.lvars[i].location.is_reg1() and self.lvars[i].location.reg1() == mreg}
+        used = set()
+        for b, i, top in self.insns:
+            if top.ea == ea:
+                for op in (top.l, top.r) if top.d.t == hr.mop_l else (top.l, top.r, top.d):
+                    self.locals_in(op, used)
+        if used & cands:
+            return min(used & cands)
+        if len(used) == 1:
+            return next(iter(used))
+        if mreg == hr.reg2mreg(ida_idp.str2reg("rax" if self.m.ida_ida.inf_is_64bit() else "eax")):
+            prior = [top for b, i, top in self.insns if top.ea < ea and top.d.t == hr.mop_l and top.l.t == hr.mop_d and top.l.d.opcode in self.calls]
+            if prior:
+                last = max(prior, key=lambda t: t.ea)
+                if last.d.l.idx in used or not used:
+                    return last.d.l.idx
+        best = None
+        for c in cands:
+            for b, i, ins in self.defs(c):
+                if ins.ea <= ea and (best is None or ins.ea > best[0]):
+                    best = (ins.ea, c)
+        return best[1] if best else (min(cands) if cands else None)
+
+
+def op_value_slice(args):
+    # per-function value slice from Hex-Rays microcode (see _Slicer)
+    m = need_open()
+    if not hexrays_ready(m):
+        raise WorkerError("unsupported", "the Hex-Rays decompiler is not available: not installed or not licensed")
+    hr = m.ida_hexrays
+    f = func_at(m, ea_of(args, "function"))
+    failure = hr.hexrays_failure_t()
+    try:
+        cf = hr.decompile(f.start_ea, failure, hr.DECOMP_NO_WAIT)
+    except hr.DecompilationFailure as e:
+        raise WorkerError("failed", "decompilation failed: %s" % (str(e).strip() or failure.desc()))
+    if cf is None:
+        raise WorkerError("failed", "decompilation failed: %s" % failure.desc())
+    s = _Slicer(m, cf, args.get("max_nodes") or 256)
+    seed, ea, index = args.get("seed"), ea_of(args), int(args.get("index", -1))
+    forward = args.get("direction") == "forward"
+    if seed == "argument":
+        found = s.call_at(ea)
+        if found is None:
+            raise WorkerError("not_found", "no call at rva 0x%X in the microcode" % rva_of(ea))
+        b, i, top, call = found
+        callargs = list(call.d.f.args) if call.d.t == hr.mop_f else []
+        if not 0 <= index < len(callargs):
+            raise WorkerError("not_found", "the call passes %d arguments, not %d" % (len(callargs), index + 1))
+        arg = callargs[index]
+        if forward:
+            origin = s.node("origin", ea, "argument %d at the call" % (index + 1), "")
+            name, tg = s.callee(call)
+            s.use(origin, "argument", call, "argument %d%s" % (index + 1, " of " + name if name else ""), "", False, index=index, callee=name, target=tg)
+            if arg.t == hr.mop_l:
+                s.variable = s.name(arg.l.idx)
+                s.forward(arg.l.idx, origin)
+        else:
+            if arg.t == hr.mop_l:
+                s.variable = s.name(arg.l.idx)
+            s.back_mop(arg, (b, i), frozenset())
+    elif seed == "parameter":
+        if not 0 <= index < len(s.args):
+            raise WorkerError("not_found", "the function has %d parameters, not %d" % (len(s.args), index + 1))
+        idx = s.args[index]
+        s.variable = s.name(idx)
+        if forward:
+            s.forward(idx, s.node("origin", f.start_ea, s.name(idx) + " at entry", ""))
+        else:
+            s.node("parameter", f.start_ea, "parameter %d" % (index + 1), s.name(idx), index=index)
+    elif seed == "result":
+        if not forward:
+            s.node("call_result", ea, "result of the call", "", site=rva_of(ea))
+        else:
+            origin = s.node("origin", ea, "result of the call", "")
+            found = s.call_at(ea)
+            if found is not None and found[2].d.t == hr.mop_l:
+                s.variable = s.name(found[2].d.l.idx)
+                s.forward(found[2].d.l.idx, origin)
+    elif seed == "returns":
+        r = s.mba.retvaridx
+        if r < 0:
+            s.node("unknown", f.start_ea, "?", "the function returns nothing")
+        else:
+            s.variable = s.name(r)
+            s.back_lvar(r, None, frozenset(), 0)
+    elif seed == "stored":
+        top = s.top_at(ea)
+        if top is None or not (top[2].opcode == hr.m_stx or top[2].opcode in s.copies and top[2].d.t == hr.mop_v):
+            raise WorkerError("not_found", "no store at rva 0x%X in the microcode" % rva_of(ea))
+        s.back_mop(top[2].l, (top[0], top[1]), frozenset())
+    elif seed == "loaded":
+        top = s.top_at(ea)
+        if top is None or top[2].d.t != hr.mop_l:
+            raise WorkerError("not_found", "no load into a local at rva 0x%X in the microcode" % rva_of(ea))
+        idx = top[2].d.l.idx
+        s.variable = s.name(idx)
+        s.forward(idx, s.node("origin", ea, "loaded value", ""))
+    elif seed == "location":
+        result = (args.get("register") or "").lower() in ("rax", "eax") and not forward
+        call = next((c for b, i, top in s.insns for c in s.nested(top)
+                     if c.opcode in s.calls and c.ea + m.ida_bytes.get_item_size(c.ea) == ea), None) if result else None
+        if call is not None:
+            # the result register read right after the call holds its result, whatever local the microcode folded it into
+            s.node("call_result", call.ea, "result of the call", call.dstr(), site=rva_of(call.ea))
+            return s.result()
+        idx = s.lvar_of_register(ea, args.get("register") or "")
+        if idx is None:
+            raise WorkerError("not_found", "no decompiler local lives in %s at rva 0x%X" % (args.get("register"), rva_of(ea)))
+        s.variable = s.name(idx)
+        if forward:
+            s.forward(idx, s.node("origin", ea, "%s (%s) at the instruction" % (args.get("register"), s.name(idx)), ""))
+        else:
+            top = s.top_at(ea)
+            s.back_lvar(idx, (top[0], top[1]) if top else None, frozenset(), 0)
+    else:
+        raise WorkerError("invalid_argument", "unknown seed '%s'" % seed)
+    return s.result()
+
+
+OPS["value_slice"] = op_value_slice
+
+
 def watch_parent(parent):
     # POSIX has no job object: exit when the server dies, even while a request runs (stdin EOF is only seen between requests)
     try:

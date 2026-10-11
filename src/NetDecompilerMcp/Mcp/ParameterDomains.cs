@@ -85,7 +85,7 @@ public static class ParameterDomains
         },
         ["ida_python"] = new Dictionary<string, Domain> { ["engine"] = IdaEngine },
         ["find_virtual_calls"] = new Dictionary<string, Domain> { ["status"] = Of(["exact", "possible", "unresolved"]) },
-        ["trace_native_values"] = new Dictionary<string, Domain> { ["direction"] = Of(["backward", "forward", "both"], "back", "fwd") },
+        ["trace_native_values"] = new Dictionary<string, Domain> { ["direction"] = Of(["backward", "forward", "both"], "back", "fwd"), ["engine"] = Engine },
         ["resolve_call_targets"] = new Dictionary<string, Domain>
         {
             ["scope"] = Of(["site", "function", "image"]),

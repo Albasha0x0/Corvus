@@ -11,7 +11,8 @@ Code: list_functions, disassemble, inspect_instruction (operands, registers, fla
 addresses classified), get_cfg, find_xrefs (every call site of an import: 'kernel32!CreateFileW'; struct
 members through IDA: Type::member), native_call_tree, find_call_paths to='native:<image>!<function>' (ranked call chains
 from roots, from='native:...' or managed callers through P/Invoke), get_call_arguments (recovered arguments as data),
-trace_native_values (where a value comes from or goes, across callers, callees and globals), resolve_call_targets
+trace_native_values (where a value comes from or goes, across callers, callees and globals;
+engine=ida|ghidra slices each function in the decompiler's IR), resolve_call_targets
 (targets of indirect calls with their basis; scope=image lists the unresolved ones), analyze_native_function (one
 function in sections: identity, signature, frame, callers, callees, data, flow; params and pseudocode on request),
 trace_native_feature (strings, names, imports, exports and classes matching a text, to ranked functions and hubs), search_native_strings, search_bytes (?? wildcards), read_bytes, resolve_address, list_cpp_classes (RTTI classes, bases,

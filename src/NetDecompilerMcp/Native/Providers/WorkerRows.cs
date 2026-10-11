@@ -47,6 +47,30 @@ internal static class WorkerRows
         return list;
     }
 
+    public static JsonObject SliceArgs(EngineSliceRequest r) => Args(("function", r.Function), ("seed", r.Seed), ("rva", r.Rva),
+        ("direction", r.Forward ? "forward" : "backward"), ("register", r.Register), ("index", r.Index), ("max_nodes", r.MaxNodes), ("seconds", r.Seconds));
+
+    /// <summary>"nodes" of {kind, rva, text, why, value?, target?, site?, index?, callee?, derived?}, "edges" of [from, to, kind], truncated, note, variable.</summary>
+    public static EngineSlice Slice(JsonElement r)
+    {
+        static string? Str(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        static uint? U32(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetUInt32(out var u) ? u : null;
+        var nodes = new List<EngineSliceNode>();
+        foreach (var n in r.GetProperty("nodes").EnumerateArray())
+            nodes.Add(new EngineSliceNode(Str(n, "kind") ?? "unknown", U32(n, "rva") ?? 0, Str(n, "text") ?? "", Str(n, "why") ?? "")
+            {
+                Value = n.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.Number
+                    ? v.TryGetUInt64(out var u) ? u : v.TryGetInt64(out var s) ? unchecked((ulong)s) : null : null,
+                Target = U32(n, "target"),
+                Site = U32(n, "site"),
+                Index = n.TryGetProperty("index", out var i) && i.ValueKind == JsonValueKind.Number ? i.GetInt32() : -1,
+                Callee = Str(n, "callee"),
+                Derived = n.TryGetProperty("derived", out var d) && d.ValueKind == JsonValueKind.True,
+            });
+        var edges = r.GetProperty("edges").EnumerateArray().Select(e => (e[0].GetInt32(), e[1].GetInt32(), e[2].GetString() ?? "copy")).ToList();
+        return new EngineSlice(nodes, edges, r.TryGetProperty("truncated", out var t) && t.ValueKind == JsonValueKind.True, Str(r, "note"), Str(r, "variable"));
+    }
+
     /// <summary>[rva, hex bytes, text, comment or null] rows under "insns".</summary>
     public static List<DisassembledInstruction> Instructions(JsonElement r) =>
         r.GetProperty("insns").EnumerateArray()

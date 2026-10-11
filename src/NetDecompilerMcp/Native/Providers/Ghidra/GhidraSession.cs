@@ -271,6 +271,15 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     public async Task<FunctionDisassembly> DisassembleRangeAsync(uint rva, int count, CancellationToken cancellationToken = default) =>
         WorkerRows.Range(rva, await CallAsync("disasm_range", WorkerRows.Args(("rva", rva), ("count", Math.Clamp(count, 1, 200_000))), cancellationToken).ConfigureAwait(false));
 
+    public async Task<EngineSlice> ValueSliceAsync(EngineSliceRequest request, CancellationToken cancellationToken = default)
+    {
+        if (!DecompilerAvailable)
+            throw new ToolError(ErrorCode.Unsupported, $"Ghidra's native decompiler is not built for {GhidraInstallation.PlatformName} in {ghidra.Directory}.",
+                ghidra.DecompilerRemediation);
+        return WorkerRows.Slice(await CallAsync("value_slice", WorkerRows.SliceArgs(request), cancellationToken,
+            timeout: TimeSpan.FromSeconds(request.Seconds + 30)).ConfigureAwait(false));
+    }
+
     public async Task<IReadOnlyList<EngineInstructionItem>> InspectAsync(uint rva, int count, CancellationToken cancellationToken = default) =>
         EngineInstructions.Parse(await CallAsync("insn", WorkerRows.Args(("rva", rva), ("count", Math.Clamp(count, 1, 64))), cancellationToken).ConfigureAwait(false));
 

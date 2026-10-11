@@ -109,6 +109,10 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     Task<IReadOnlyList<EngineInstructionItem>> InspectAsync(uint rva, int count, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not inspect instructions.");
 
+    /// <summary>The per-function value slice the engine's decompiler IR gives for <paramref name="request"/> (see <see cref="EngineSliceRequest"/>).</summary>
+    Task<EngineSlice> ValueSliceAsync(EngineSliceRequest request, CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not slice values.");
+
     /// <summary>Basic blocks of the function containing <paramref name="rva"/>, as the engine splits them.</summary>
     Task<NativeBlockGraph> GetBlocksAsync(uint rva, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not report basic blocks.");
@@ -271,6 +275,32 @@ public sealed record NativeFunctionInfo(uint StartRva, uint EndRva, string Name,
 public sealed record PseudocodeLineAddress(int Line, uint Rva);
 
 public sealed record DecompiledFunction(uint StartRva, string Name, string Text, IReadOnlyList<PseudocodeLineAddress> LineAddresses);
+
+/// <summary>
+/// A per-function slice asked of an engine. Seed: location (a register's value before <see cref="Rva"/> backward, from
+/// its definition there forward), argument (<see cref="Index"/> of the call at Rva), parameter (Index of the function),
+/// result (of the call at Rva), returns (the function's returned values), stored (the value the instruction at Rva
+/// stores), loaded (the value the instruction at Rva loads). Registers use the engine's names ("rcx", "x0").
+/// </summary>
+public sealed record EngineSliceRequest(uint Function, string Seed, uint Rva, bool Forward, string? Register = null, int Index = -1, int MaxNodes = 256,
+    double Seconds = 30);
+
+/// <summary>
+/// One node of an engine slice. Kind: constant, address, global, stack_address, unknown, merge, loop, field, parameter,
+/// call_result; forward: origin, argument, store, field_store, return, compare, switch, dereference, call_target.
+/// </summary>
+public sealed record EngineSliceNode(string Kind, uint Rva, string Text, string Why)
+{
+    public ulong? Value { get; init; }
+    public uint? Target { get; init; }
+    public uint? Site { get; init; }
+    public int Index { get; init; } = -1;
+    public string? Callee { get; init; }
+    public bool Derived { get; init; }
+}
+
+/// <summary>An engine's slice: nodes (the root first), edges (from the value's source to its use: copy, merge, loop, field, use), the variable it followed.</summary>
+public sealed record EngineSlice(IReadOnlyList<EngineSliceNode> Nodes, IReadOnlyList<(int From, int To, string Kind)> Edges, bool Truncated, string? Note, string? Variable);
 
 public enum DecompileStatus : byte { Ok, Error, Skipped }
 

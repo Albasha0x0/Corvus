@@ -151,7 +151,7 @@ public static class ToolEffects
         ["find_virtual_calls"] = Reads(longRunning: true, openWorld: true), // crossCheck=true runs IDA
         ["search_native_strings"] = Reads(longRunning: true),
         ["get_call_arguments"] = Reads(longRunning: true),
-        ["trace_native_values"] = Reads(longRunning: true),
+        ["trace_native_values"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
         ["resolve_call_targets"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
         ["analyze_native_function"] = Reads(longRunning: true, openWorld: true), // pseudocode=true runs IDA or Ghidra
         ["trace_native_feature"] = Reads(longRunning: true),

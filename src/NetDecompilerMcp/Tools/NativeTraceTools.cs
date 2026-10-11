@@ -9,13 +9,14 @@ using NetDecompilerMcp.Mcp;
 using NetDecompilerMcp.Native;
 using NetDecompilerMcp.Native.Calls;
 using NetDecompilerMcp.Native.Code;
+using NetDecompilerMcp.Native.Providers;
 using NetDecompilerMcp.Services;
 
 namespace NetDecompilerMcp.Tools;
 
 /// <summary>Interprocedural value tracing in native code (x86 / x64 / ARM64).</summary>
 [McpServerToolType]
-public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeService code)
+public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEngineService? engines = null, NativeNamePush? names = null)
 {
     [Description("What the trace starts from.")]
     public sealed record TraceSeedRecord(
@@ -88,7 +89,9 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
                  "(where does it go): API arguments (named, constants decoded), callees' parameters, stores to globals and their readers, returns into " +
                  "callers' uses, compares, switch indexes, dereferences. The seed: address plus location (" + LocationHelp + "), or argument (of a call, " +
                  "or a function's parameter at its start), or a writable global alone. Budgets cap depth, functions, nodes, callers and writers; " +
-                 "what they leave out is listed as frontier entries with the exact follow-up call. Pages (offset / limit) reuse the built graph.")]
+                 "what they leave out is listed as frontier entries with the exact follow-up call. Pages (offset / limit) reuse the built graph. " +
+                 "With engine=ida or ghidra each function's slice comes from that engine's decompiler IR (Hex-Rays microcode, p-code); seeds it cannot " +
+                 "place fall back to the built-in slice of that function, and the result counts both.")]
     public Task<string> TraceNativeValues(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("An instruction, a call, a function start (with argument) or a writable global. " + NativeTools.AddressDescription)] string address,
@@ -104,9 +107,12 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         [Description("Follow writable globals into their writers / readers (default true).")] bool followGlobals = true,
         [Description("Index of the first node.")] int offset = 0,
         [Description("Max nodes per page (default 200, max 1000).")] int limit = 200,
+        [Description("Per-function slices: ours (the built-in analysis), ida or ghidra (that engine's decompiler; started when needed), or auto " +
+                     "(default: an engine whose analysis of the image is complete in this session, else ours).")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        var mode = EngineModes.Resolve(engine, engines?.DefaultMode ?? EngineMode.Auto);
         var dir = (direction?.Trim().ToLowerInvariant()) switch
         {
             null or "" or "backward" or "back" => TraceDirection.Backward,
@@ -114,7 +120,19 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
             "both" => TraceDirection.Both,
             _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown direction '{direction}'.", "use backward, forward or both"),
         };
-        var (_, index) = await OpenIndex(workspace, code, image, progress, cancellationToken);
+        var (native, index) = await OpenIndex(workspace, code, image, progress, cancellationToken);
+        var choice = NativeEngineCode.Choose(mode, !string.IsNullOrWhiteSpace(engine), engines, native, index);
+        INativeDecompilerSession? session = null;
+        if (choice.External)
+        {
+            session = await engines!.Session(native, choice.Engine, new Progress<NativeProviderProgress>(p => progress.Report(new ProgressNotificationValue
+            {
+                Progress = (float)p.Elapsed.TotalSeconds, Message = $"{NativeEngineService.DisplayName(choice.Engine)} {p.Stage}",
+            })), cancellationToken);
+            if (!session.DecompilerAvailable)
+                throw new ToolError(ErrorCode.Unsupported, $"The {session.ProviderId} decompiler is not available for {session.Arch} code here.", "use engine=ours");
+            if (names != null) await names.EnsureAsync(native, session, cancellationToken);
+        }
         return await Task.Run(() =>
         {
             ITraceHost host = Arm64Trace.Supports(index) ? Arm64Trace.For(index) : CallAnalysis.For(index);
@@ -122,9 +140,16 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
                 : Seed(CallAnalysis.For(index), address, location, argument, cancellationToken);
             var options = new ValueTraceOptions(dir, Math.Clamp(maxDepth, 0, 8), Math.Clamp(maxFunctions, 1, 256), Math.Clamp(maxNodes, 1, 5000),
                 Math.Clamp(maxCallers, 1, 256), Math.Clamp(maxWriters, 1, 256), followGlobals);
-            var graph = ValueTrace.Build(host, seed, options, ct: cancellationToken);
+            var provider = session != null ? new EngineSliceProvider(host, session) : null;
+            var graph = ValueTrace.Build(host, seed, options, provider, cancellationToken);
             var report = Report(index, graph, offset, limit);
-            return StructuredOutput.With(Text(index, graph, report), report);
+            if (provider != null && provider.EngineSlices + provider.Fallbacks > 0)
+                report = report with
+                {
+                    Notes = [.. report.Notes, $"{provider.Engine} answered {ToolSupport.Plural(provider.EngineSlices, "slice")}; " +
+                                              $"{ToolSupport.Plural(provider.Fallbacks, "slice")} fell back to the built-in analysis"],
+                };
+            return StructuredOutput.With(choice.Line + "\n" + Text(index, graph, report), report);
         }, cancellationToken);
     });
 

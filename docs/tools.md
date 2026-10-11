@@ -1137,9 +1137,9 @@ Structured output: `image`, `scope`, `total`, `offset`, `calls`, `notes`.
 
 ### trace_native_values
 
-**Native value trace** (read-only, idempotent, long-running)
+**Native value trace** (read-only, idempotent, open-world, long-running)
 
-Traces a value through native code (x86 / x64 / ARM64) across functions. Backward (where does it come from): constants, strings, function pointers, API results, through copies, stack slots, merges (every path's value) and loops; an incoming parameter is bound to every caller's argument, a call result to the callee's return values, a writable global to its writers and initial contents. Forward (where does it go): API arguments (named, constants decoded), callees' parameters, stores to globals and their readers, returns into callers' uses, compares, switch indexes, dereferences. The seed: address plus location (a register (rdx, ecx, xmm1; ARM64 x1, w2), a stack or frame slot ([rsp+28h], [ebp-8]; ARM64 [sp+10h], [x29-8]), op1 / op2 (an operand of the instruction) or result (the value the call at address returns)), or argument (of a call, or a function's parameter at its start), or a writable global alone. Budgets cap depth, functions, nodes, callers and writers; what they leave out is listed as frontier entries with the exact follow-up call. Pages (offset / limit) reuse the built graph.
+Traces a value through native code (x86 / x64 / ARM64) across functions. Backward (where does it come from): constants, strings, function pointers, API results, through copies, stack slots, merges (every path's value) and loops; an incoming parameter is bound to every caller's argument, a call result to the callee's return values, a writable global to its writers and initial contents. Forward (where does it go): API arguments (named, constants decoded), callees' parameters, stores to globals and their readers, returns into callers' uses, compares, switch indexes, dereferences. The seed: address plus location (a register (rdx, ecx, xmm1; ARM64 x1, w2), a stack or frame slot ([rsp+28h], [ebp-8]; ARM64 [sp+10h], [x29-8]), op1 / op2 (an operand of the instruction) or result (the value the call at address returns)), or argument (of a call, or a function's parameter at its start), or a writable global alone. Budgets cap depth, functions, nodes, callers and writers; what they leave out is listed as frontier entries with the exact follow-up call. Pages (offset / limit) reuse the built graph. With engine=ida or ghidra each function's slice comes from that engine's decompiler IR (Hex-Rays microcode, p-code); seeds it cannot place fall back to the built-in slice of that function, and the result counts both.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1156,6 +1156,7 @@ Traces a value through native code (x86 / x64 / ARM64) across functions. Backwar
 | `followGlobals` | boolean |  | `true` | Follow writable globals into their writers / readers (default true). |
 | `offset` | integer |  | `0` | Index of the first node. |
 | `limit` | integer |  | `200` | Max nodes per page (default 200, max 1000). |
+| `engine` | string |  |  | Per-function slices: ours (the built-in analysis), ida or ghidra (that engine's decompiler; started when needed), or auto (default: an engine whose analysis of the image is complete in this session, else ours). Values: auto, ours, ida, ghidra. |
 
 Structured output: `image`, `engine`, `seed`, `direction`, `values`, `nodes`, `edges`, `frontier`, `totalNodes`, `totalEdges`, `functions`, `offset`, `truncated`, `notes`.
 
