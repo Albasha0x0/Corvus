@@ -76,6 +76,39 @@ public static class NativeAotNames
         return built.FunctionStarts;
     }
 
+    /// <summary>
+    /// Lines describing <paramref name="rva"/> through the image's NativeAOT metadata: the MethodTable, frozen object or named
+    /// method body there, else the module section it is in. Empty for other images.
+    /// </summary>
+    public static List<string> Describe(LoadedNative native, uint rva, CancellationToken ct = default)
+    {
+        var lines = new List<string>();
+        if (View(native, ct) is not { } aot) return lines;
+        if (aot.Types.ByRva.TryGetValue(rva, out var mt))
+            lines.Add($"NativeAOT MethodTable of {mt.Name} ({mt.Kind}, name from {mt.NameOrigin}); get_nativeaot_info view=type shows its vtable");
+        var objects = aot.Frozen.Objects;
+        int lo = 0, hi = objects.Count - 1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) >>> 1;
+            var o = objects[mid];
+            if (rva < o.Rva - 8) hi = mid - 1;
+            else if (rva >= o.Rva - 8 + o.Size) lo = mid + 1;
+            else
+            {
+                string what = o.Text != null ? $"String {Il2CppNativeNames.Quote(o.Text)}" : $"{o.TypeName} ({o.Size} bytes)";
+                lines.Add(rva == o.Rva ? $"NativeAOT frozen {what}" : $"inside the NativeAOT frozen {what} at rva 0x{o.Rva:X} (+0x{rva - o.Rva:X})");
+                break;
+            }
+        }
+        foreach (var m in aot.Names.Methods.Where(m => m.Rva == rva).Take(Il2CppNativeNames.SharedListed))
+            lines.Add($"NativeAOT method {m.Name.Full} (from the {(m.Origin == "invoke" ? "reflection invoke map" : "stack-trace map")}{(m.Hidden ? ", hidden from stack traces" : "")})");
+        if (rva == aot.Header.Rva) lines.Add($"NativeAOT module header, ReadyToRun {aot.ReadyToRunVersion} ({aot.Runtime})");
+        else if (lines.Count == 0 && aot.Header.Sections.FirstOrDefault(s => s.HasEnd && rva >= s.StartRva && rva < s.EndRva) is { } section)
+            lines.Add($"in NativeAOT module section {section.Name} (+0x{rva - section.StartRva:X})");
+        return lines;
+    }
+
     /// <summary>Names every method body, vtable slot, MethodTable and frozen object of <paramref name="aot"/>.</summary>
     public static Built Build(NativeAotImage aot, CancellationToken ct = default)
     {

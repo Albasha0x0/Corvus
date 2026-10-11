@@ -89,6 +89,7 @@ public class NativeAotHeaderTests
         Assert.Equal("NativeAOT executable", contents.Kind);
         Assert.Contains(".NET 9, ReadyToRun 10.0", Assert.Single(contents.Notes));
         Assert.Contains("method names present", contents.Notes[0]);
+        Assert.Contains("apply automatically (list_functions, disassemble, decompile_native); get_nativeaot_info", contents.Notes[0]);
     }
 
     [Fact]

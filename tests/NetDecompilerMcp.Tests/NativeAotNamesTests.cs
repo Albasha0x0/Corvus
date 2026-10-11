@@ -210,6 +210,30 @@ public class NativeAotNamesTests(ITestOutputHelper output)
         Assert.Equal(ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => tools.GetNativeAotInfo(plain))).Code);
     }
 
+    [Fact]
+    public async Task ResolveAddress_DescribesMethodTablesFrozenObjectsMethodsAndSections()
+    {
+        using var env = new Env();
+        using var dir = new TempDir();
+        var code = new NativeCodeService(env.Workspace, env.Options, null, new AnnotationStore(dir.File("ann")));
+        var tools = new NetDecompilerMcp.Tools.NativeTools(env.Workspace, new OutputPager(env.Options), code);
+        var (path, w) = WriteImage(dir);
+        var native = env.Workspace.LoadAny(path).Native!;
+        await code.Index(native, null, default);
+        string Hex(uint rva) => $"0x{rva:X}";
+
+        var mt = await tools.ResolveAddress(native.Id, Hex(w.Dog));
+        Assert.Contains("name MT_Sample_Zoo_Dog (nativeaot)", mt);
+        Assert.Contains("NativeAOT MethodTable of Sample.Zoo.Dog (class, name from vtable)", mt);
+        Assert.Contains("NativeAOT frozen String \"hi\"", await tools.ResolveAddress(native.Id, "str_0"));
+        Assert.Contains($"inside the NativeAOT frozen String \"hi\" at rva {Hex(w.Text + 8)} (+0x4)", await tools.ResolveAddress(native.Id, Hex(w.Text + 12)));
+        Assert.Contains("inside the NativeAOT frozen Sample.Zoo.Dog (32 bytes)", await tools.ResolveAddress(native.Id, Hex(w.Frozen)));
+        Assert.Contains("NativeAOT method Sample.Zoo.Dog::Speak", await tools.ResolveAddress(native.Id, "Sample_Zoo_Dog__Speak"));
+        Assert.Contains("NativeAOT module header, ReadyToRun 16.0", await tools.ResolveAddress(native.Id, "__ReadyToRunHeader"));
+        Assert.Contains("in NativeAOT module section EmbeddedMetadata (+0x4)",
+            await tools.ResolveAddress(native.Id, Hex(w.Aot.Header.Blob(Native.NativeAot.BlobId.EmbeddedMetadata)!.StartRva + 4)));
+    }
+
     /// <summary>The production ilc binaries: most functions named right after load; logged as named / all index functions and / .pdata starts.</summary>
     [Theory]
     [Trait("Speed", "Slow")]

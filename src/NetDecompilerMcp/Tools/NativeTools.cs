@@ -286,7 +286,8 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
 
     [McpServerTool(Name = "resolve_address", Title = "Resolve native address", UseStructuredContent = true, OutputSchemaType = typeof(AddressInfo))]
     [Description("What an address in a native image is: RVA, VA and file offset, the section and its permissions, the nearest export or import at or before it, " +
-                 "and, once the code index is built, its name and the name's source (user, pdb, il2cpp); after apply_il2cpp_names the managed method or metadata slot. " +
+                 "and, once the code index is built, its name and the name's source (user, pdb, nativeaot, il2cpp); after apply_il2cpp_names the managed method or metadata slot; " +
+                 "in a NativeAOT image the MethodTable, frozen object or method body there, or its module section. " +
                  "For an IAT slot, the export it is bound to (in a loaded image: its address and image); for an export, the loaded images importing it. " +
                  "With the code index built: the containing function and offset; whether the address is an instruction start, inside an instruction " +
                  "(with the instruction covering it) or in a data item (string, IAT slot, switch table, relocated pointer; with its extent); the comment; " +
@@ -304,6 +305,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         if (named is { } n) sb.AppendLine($"  name {n.Name} ({n.Source.Id()})");
         foreach (var line in Il2CppNativeNames.Describe(native, index, rva)) sb.AppendLine("  " + line);
         if (NativeTypeCatalog.DescribeTypedData(native, rva) is { } typed) sb.AppendLine("  " + typed);
+        foreach (var line in NativeAotNames.Describe(native, rva, cancellationToken)) sb.AppendLine("  " + line);
         var section = pe.SectionAt(rva);
         sb.AppendLine(section != null
             ? $"  section {section.Name} ({Access(section.Access)}), +0x{rva - section.Rva:X} into it"

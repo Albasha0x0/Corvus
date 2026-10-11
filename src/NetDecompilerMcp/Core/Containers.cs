@@ -68,8 +68,8 @@ public static class Containers
         try { found = Native.NativeAot.NativeAotImage.Open(Native.Pe.PeFile.FromBytes(data))?.Describe(); }
         catch (ToolError) { } // an unreadable header only loses the version detail
         return $"NativeAOT{(found != null ? $" ({found})" : "")}: the managed code was compiled to native code, so there is no IL to decompile. " +
-               "summarize_file reports the recovered runtime version and NativeAOT metadata; load_assembly opens it as a native image " +
-               "for list_functions, disassemble and decompile_native.";
+               "load_assembly opens it as a native image whose method, MethodTable and string names, recovered from its own metadata, apply " +
+               "automatically (list_functions, disassemble, decompile_native); get_nativeaot_info lists the recovered types, methods and strings.";
     }
 
     private static ContainerContents? OpenBundle(byte[] data, AnalysisLimits limits, CancellationToken ct)
