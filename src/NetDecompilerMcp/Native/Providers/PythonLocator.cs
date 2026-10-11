@@ -111,13 +111,14 @@ public static class PythonLocator
         using (child)
         {
             child.StandardInput.Dispose();
-            var stdout = Task.Run(() => ReadAll(child.StandardOutput));
-            var stderr = Task.Run(() => ReadAll(child.StandardError));
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            string stdout = "", stderr = "";
+            Thread[] readers = [ChildProcess.StartReader(() => stdout = ReadAll(child.StandardOutput)), ChildProcess.StartReader(() => stderr = ReadAll(child.StandardError))];
             var exited = child.Exited.Wait(timeout);
-            if (!exited) child.Kill();
-            Task.WaitAll([stdout, stderr], TimeSpan.FromSeconds(2));
-            return new CaptureResult(child.ExitCode, stdout.IsCompletedSuccessfully ? stdout.Result : "",
-                stderr.IsCompletedSuccessfully ? stderr.Result : "", !exited, null);
+            // A tree still holding the output at the deadline is stopped, which ends it.
+            if (!exited || !ChildProcess.JoinReaders(readers, watch, timeout)) child.Kill();
+            ChildProcess.JoinReaders(readers, System.Diagnostics.Stopwatch.StartNew(), TimeSpan.FromSeconds(2));
+            return new CaptureResult(child.ExitCode, stdout, stderr, !exited, null);
         }
     }
 

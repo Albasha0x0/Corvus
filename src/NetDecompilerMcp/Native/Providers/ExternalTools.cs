@@ -235,7 +235,10 @@ public static partial class ExternalTools
         {
             child.StandardInput.Dispose();
             bool truncated = false;
-            var stdout = Task.Run(() =>
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            byte[] stdout = [];
+            string stderr = "";
+            Thread[] readers = [ChildProcess.StartReader(() =>
             {
                 var buffer = new MemoryStream();
                 var chunk = new byte[64 * 1024];
@@ -250,9 +253,8 @@ public static partial class ExternalTools
                     }
                 }
                 catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
-                return buffer.ToArray();
-            }, CancellationToken.None);
-            var stderr = Task.Run(() =>
+                stdout = buffer.ToArray();
+            }), ChildProcess.StartReader(() =>
             {
                 try
                 {
@@ -262,17 +264,22 @@ public static partial class ExternalTools
                     int n;
                     while ((n = r.Read(block, 0, block.Length)) > 0)
                         if (text.Length < 256 * 1024) text.Append(block, 0, n);
-                    return text.ToString();
+                    stderr = text.ToString();
                 }
-                catch (Exception ex) when (ex is IOException or ObjectDisposedException) { return ""; }
-            }, CancellationToken.None);
-            int index = Task.WaitAny([child.Exited, Task.Delay(timeout, CancellationToken.None), Task.Delay(Timeout.Infinite, ct)]);
-            bool timedOut = index == 1;
-            if (index != 0) child.Kill();
-            Task.WaitAll([stdout, stderr], TimeSpan.FromSeconds(5));
+                catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+            })];
+            bool exited, timedOut;
+            try
+            {
+                exited = child.Exited.Wait(timeout, ct);
+                timedOut = !exited;
+            }
+            catch (OperationCanceledException) { exited = timedOut = false; }
+            // A tree still holding the output at the deadline is stopped, which ends it.
+            if (!exited || !ChildProcess.JoinReaders(readers, watch, timeout)) child.Kill();
+            ChildProcess.JoinReaders(readers, System.Diagnostics.Stopwatch.StartNew(), TimeSpan.FromSeconds(5));
             ct.ThrowIfCancellationRequested();
-            return new RunResult(child.ExitCode, stdout.IsCompletedSuccessfully ? stdout.Result : [], stderr.IsCompletedSuccessfully ? stderr.Result : "",
-                timedOut, truncated, null);
+            return new RunResult(child.ExitCode, stdout, stderr, timedOut, truncated, null);
         }
     }
 

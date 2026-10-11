@@ -44,6 +44,22 @@ public abstract class ChildProcess : IDisposable
     public static ChildProcess Start(ChildProcessStart start) =>
         OperatingSystem.IsWindows() ? WindowsJobProcess.Launch(start) : PosixGroupProcess.Launch(start);
 
+    /// <summary>Runs an output reader on a thread of its own: a reader waiting for a starved pool loses the output.</summary>
+    public static Thread StartReader(Action read)
+    {
+        var thread = new Thread(() => read()) { IsBackground = true, Name = "child output" };
+        thread.Start();
+        return thread;
+    }
+
+    /// <summary>
+    /// Waits for the readers to reach the end of the output, which comes once the whole tree has closed it; true when they did
+    /// before <paramref name="timeout"/> measured from <paramref name="started"/>.
+    /// </summary>
+    public static bool JoinReaders(IEnumerable<Thread> readers, Stopwatch started, TimeSpan timeout) =>
+        readers.All(t => t.Join(timeout == Timeout.InfiniteTimeSpan ? Timeout.InfiniteTimeSpan
+            : timeout - started.Elapsed is var left && left > TimeSpan.Zero ? left : TimeSpan.Zero));
+
     /// <summary>Windows command-line quoting of one argument (CommandLineToArgvW rules).</summary>
     public static string QuoteArgument(string arg)
     {
@@ -124,9 +140,10 @@ internal sealed class WindowsJobProcess : ChildProcess
     private readonly int _id;
     private readonly FileStream _stdin, _stdout, _stderr;
     private readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private readonly RegisteredWaitHandle _wait;
     private readonly ProcessWaitHandle _waitHandle;
     private int _disposed;
+    /// <summary>The exit thread and Dispose; the last to finish closes the process handle, never closed under a pending wait.</summary>
+    private int _handleUsers = 2;
 
     private readonly long? _memoryLimit;
     private readonly SafeFileHandle? _port;
@@ -144,7 +161,13 @@ internal sealed class WindowsJobProcess : ChildProcess
         _stdout = new FileStream(stdout, FileAccess.Read, 1);
         _stderr = new FileStream(stderr, FileAccess.Read, 1);
         _waitHandle = new ProcessWaitHandle(process);
-        _wait = ThreadPool.RegisterWaitForSingleObject(_waitHandle, (_, _) => _exited.TrySetResult(), null, Timeout.Infinite, executeOnlyOnce: true);
+        // A thread of its own, not a pool wait: a starved pool would report the exit seconds late.
+        new Thread(() =>
+        {
+            _waitHandle.WaitOne();
+            _exited.TrySetResult();
+            ReleaseHandles();
+        }) { IsBackground = true, Name = "child exit " + id }.Start();
     }
 
     public override int Id => _id;
@@ -199,9 +222,14 @@ internal sealed class WindowsJobProcess : ChildProcess
         {
             try { s.Dispose(); } catch (IOException) { }
         }
-        // Termination is asynchronous; observe the exit before the wait registration goes away.
+        // Termination is asynchronous; observe the exit before Dispose returns.
         if (_waitHandle.WaitOne(2000)) _exited.TrySetResult();
-        _wait.Unregister(null);
+        ReleaseHandles();
+    }
+
+    private void ReleaseHandles()
+    {
+        if (Interlocked.Decrement(ref _handleUsers) != 0) return;
         _waitHandle.Dispose();
         _processHandle.Dispose();
     }
