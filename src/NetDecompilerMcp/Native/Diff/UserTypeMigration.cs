@@ -4,7 +4,7 @@ using NetDecompilerMcp.Native.Providers;
 namespace NetDecompilerMcp.Native.Diff;
 
 /// <summary>
-/// One user type of the old build and what happens to it: <see cref="Kind"/> declarations, enum_member, analysis, operand, type, local or stack_var;
+/// One user type of the old build and what happens to it: <see cref="Kind"/> declarations, type_edit, enum_member, analysis, operand, type, local or stack_var;
 /// <see cref="Apply"/> adds it to a layer of the new build (null when skipped).
 /// </summary>
 public sealed record UserTypeStep(string Kind, uint? OldRva, uint? NewRva, string Value, bool Set, string Reason, int? Tier, double Confidence, string Detail,
@@ -25,6 +25,15 @@ public static class UserTypeMigration
             steps.Add(target.Declarations.Contains(d, StringComparer.Ordinal)
                 ? new("declarations", null, null, value, false, "same_declarations", null, 1, "the new build already has these declarations", null)
                 : new("declarations", null, null, value, true, "copied", null, 1, "declarations have no address", l => l.WithDeclarations(d)));
+        }
+
+        foreach (var r in old.TypeEdits)
+        {
+            var value = r.NewName != null ? $"{r.Name} renamed to {r.NewName}" : $"{r.Name} deleted";
+            var existing = target.TypeEdits.FirstOrDefault(e => e.Name == r.Name);
+            steps.Add(existing == r ? new("type_edit", null, null, value, false, "same_type_edit", null, 1, "the new build already has this type edit", null)
+                : existing != null ? new("type_edit", null, null, value, false, "user_type_edit_exists", null, 1, "the new build has its own edit of this type", null)
+                : new("type_edit", null, null, value, true, "copied", null, 1, "type edits have no address", l => l.WithTypeEdit(r)));
         }
 
         foreach (var e in old.ToBatch().EnumMembers)

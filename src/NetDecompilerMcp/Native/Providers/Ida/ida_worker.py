@@ -1400,6 +1400,7 @@ def reapply_user_decls():
     if blob:
         import idc
         idc.parse_decls(blob.decode("utf-8", "replace"), idc.PT_SILENT | idc.PT_REPLACE)
+    reapply_user_type_edits()
     reapply_user_enums()
 
 
@@ -1779,8 +1780,10 @@ DATA_SIZES = {"byte": 1, "word": 2, "dword": 4, "qword": 8, "float": 4, "double"
 
 
 def apply_edits_before(m, ti, args):
-    # enums: [[enum, member, value or null]]; analysis: [[rva, kind, end or null, type or null]] in the order made
-    items = [apply_enum_member(m, ti, e[0], e[1], e[2]) for e in args.get("enums") or []]
+    # type_edits (when given, the whole kept list): [[name, new name or null]]; enums: [[enum, member, value or null]];
+    # analysis: [[rva, kind, end or null, type or null]] in the order made
+    items = apply_type_edits(m, ti, args["type_edits"]) if args.get("type_edits") is not None else []
+    items += [apply_enum_member(m, ti, e[0], e[1], e[2]) for e in args.get("enums") or []]
     items += apply_clears(m, ti, args)
     return items + [apply_analysis(m, ti, a[0], a[1], a[2], a[3]) for a in args.get("analysis") or []]
 
@@ -2046,6 +2049,68 @@ def apply_analysis(m, ti, rva, kind, end, typ):
         ok, error = make_data(m, ti, ea, end_ea, typ)
         return item(True, None, item_text(m, ea)) if ok else item(False, error)
     return item(False, "unknown analysis edit %r" % kind)
+
+
+# ---- type renames and deletions (apply_user_types) ----
+
+def user_type_edits():
+    # blob 'R' of USER_NODE: [[name, new name or null]], applied again after declarations
+    n = user_node(False)
+    blob = n.getblob(0, "R") if n is not None else None
+    return json.loads(blob.decode("utf-8")) if blob else []
+
+
+def apply_type_edits(m, ti, edits):
+    # the kept list becomes the edits that applied
+    items = [edit_type(m, ti, name, new_name) for name, new_name in edits]
+    kept = [e for e, i in zip(edits, items) if i[3]]
+    user_node(True).setblob(json.dumps(kept).encode("utf-8"), 0, "R")
+    return items
+
+
+def reapply_user_type_edits():
+    edits = user_type_edits()
+    if edits:
+        import ida_typeinf as ti
+        m = ida()
+        for name, new_name in edits:
+            edit_type(m, ti, name, new_name)
+
+
+def edit_type(m, ti, name, new_name):
+    # renames or (new_name None) deletes a named type; a type already gone is no change, and a rename onto an existing
+    # type deletes the old one (a declaration made it again)
+    def item(applied, error, text):
+        return ["type_edit", 0, name, applied, error, None, None, text]
+
+    t = ti.tinfo_t()
+    if not t.get_named_type(None, name):
+        return item(True, None, "no type %s" % name)
+    if new_name is not None and not ti.tinfo_t().get_named_type(None, new_name):
+        code = t.rename_type(new_name)
+        if code != ti.TERR_OK:
+            return item(False, "IDA did not rename %s: %s" % (name, ti.tinfo_errstr(code)), None)
+        rekey_kept_members(name, new_name)
+        return item(True, None, "renamed %s to %s" % (name, new_name))
+    if not ti.del_named_type(None, name, ti.NTF_TYPE):
+        return item(False, "IDA did not delete %s" % name, None)
+    if new_name is None:
+        rekey_kept_members(name, None)
+    return item(True, None, "deleted %s" % name if new_name is None else "%s exists; deleted %s" % (new_name, name))
+
+
+def rekey_kept_members(name, new_name):
+    # the kept enum member edits of a renamed type follow it; a deleted type's are dropped
+    prefix = name + "::"
+    edits = user_enums()
+    if any(k.startswith(prefix) for k in edits):
+        moved = {}
+        for k, v in edits.items():
+            if not k.startswith(prefix):
+                moved[k] = v
+            elif new_name is not None:
+                moved[new_name + "::" + k[len(prefix):]] = v
+        user_node(True).setblob(json.dumps(moved).encode("utf-8"), 0, "E")
 
 
 # ---- clearing user edits, pseudocode comments, type guesses ----

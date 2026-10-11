@@ -1829,7 +1829,7 @@ Edits inside the decompiler engine's database: types, locals, frames, declaratio
 
 **Set a native prototype or global type** (destructive, idempotent, open-world, long-running)
 
-Set the type of a native function (its prototype, e.g. 'int __fastcall Parse(Packet *p, int len)') or of a global (e.g. 'Config', 'char[64]', 'Handler *[8]') in the decompiler engine (IDA or Ghidra). Named types must exist there (the PDB, RTTI and Il2Cpp types decompile_native pushes, or declare_native_types). User types win over recovered ones. An empty type clears it. A prototype's name renames the function in every engine unless rename=false. items applies many, one 'address = type' per line. guess=true reports the engine's guess at address without applying it. Kept with the image's annotations: replayed into a new database, exported and carried to new builds.
+Set the type of a native function (its prototype, e.g. 'int __fastcall Parse(Packet *p, int len)') or of a global (e.g. 'Config', 'char[64]', 'Handler *[8]') in the decompiler engine (IDA or Ghidra). Named types must exist there (the PDB, RTTI and Il2Cpp types decompile_native pushes, or declare_native_types). User types win over recovered ones. An empty type clears it. A prototype's name renames the function in every engine unless rename=false. items applies many, one 'address = type' per line. guess=true reports the engine's guess at address without applying it. Kept with the image's annotations: replayed into new databases, exported, carried to new builds.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1846,7 +1846,7 @@ Set the type of a native function (its prototype, e.g. 'int __fastcall Parse(Pac
 
 **Rename or retype a decompiler local** (destructive, idempotent, open-world, long-running)
 
-Rename and/or retype a local or argument in a native function's pseudocode, named as decompile_native shows it (v3, a1) or as stack:0x28. Later edits may use its new name (one edit); its first name again, or clear=true, drops the edit. A type that does not fit is refused (reported). Kept with the image's annotations: replayed into a new database, exported and carried to new builds.
+Rename and/or retype a local or argument in a native function's pseudocode, named as decompile_native shows it (v3, a1) or as stack:0x28. Later edits may use its new name (one edit); its first name again, or clear=true, drops the edit. A type that does not fit is refused (reported). Kept with the image's annotations: replayed into new databases, exported, carried to new builds.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1864,7 +1864,7 @@ Rename and/or retype a local or argument in a native function's pseudocode, name
 
 **Rename, retype or delete a stack variable** (destructive, idempotent, open-world, long-running)
 
-Rename and/or retype a member of a native function's stack frame, named as get_native_frame lists it (var_28) or by frame offset (0x20, from the frame's lowest address); a type at an empty offset creates one; delete=true removes it; clear=true drops the user's edit, restoring the engine's member. The return address and saved registers are refused. Kept with the image's annotations: replayed into a new database, exported and carried to new builds.
+Rename and/or retype a member of a native function's stack frame, named as get_native_frame lists it (var_28) or by frame offset (0x20, from the frame's lowest address); a type at an empty offset creates one; delete=true removes it; clear=true drops the user's edit, restoring the engine's member. The return address and saved registers are refused. Kept with the image's annotations: replayed into new databases, exported, carried to new builds.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1894,7 +1894,7 @@ A native function's stack frame as the engine has it (members: offset, name, typ
 
 **Declare C types in the engine** (destructive, idempotent, open-world, long-running)
 
-Declare C types (structs, unions, enums, typedefs, function pointer types) in the decompiler engine (IDA or Ghidra) from C declarations, e.g. 'struct Packet { int length; char data[256]; };'. A type of the same name is replaced, and user declarations win over the recovered PDB, RTTI and Il2Cpp types of that name. Declarations with errors are reported with the engine's messages and not saved. Use the types with set_native_type, set_native_local and set_native_stack_var. enumName with members adds, changes or removes members of an enum (created when missing; also a recovered one), kept over later declarations. Kept with the image's annotations: replayed into a new database, exported and carried to new builds.
+Declare C types (structs, unions, enums, typedefs, function types) in the engine (IDA or Ghidra), e.g. 'struct P { int len; char tag[4]; };'. A type of the same name is replaced; declarations win over recovered PDB, RTTI and Il2Cpp types. Errors come with the engine's messages and are not saved. enumName with members upserts or removes enum members (creating the enum). delete or rename edits a named type; declaring the name again undoes that. Edits survive recovered types and redeclarations. Kept with the image's annotations: replayed into new databases, exported, carried to new builds.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1902,6 +1902,8 @@ Declare C types (structs, unions, enums, typedefs, function pointer types) in th
 | `declarations` | string |  |  | C declarations, several allowed; types they name must exist or be declared in the same text. |
 | `enumName` | string |  |  | An enum whose members to upsert. |
 | `members` | string |  |  | With enumName: 'NAME=value' pairs separated by commas or lines (hex or decimal); 'NAME=' removes the member. |
+| `delete` | string |  |  | A type to delete. |
+| `rename` | string |  |  | 'Old=New' renames a type; the kept edits naming it follow. |
 | `engine` | string |  |  | Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra), ida or ghidra. Values: auto, ida, ghidra. |
 
 ### list_native_types
@@ -1927,7 +1929,7 @@ The named types of the decompiler engine's database (IDA local types, Ghidra dat
 
 **Redefine code or data in the engine** (destructive, idempotent, open-world, long-running)
 
-Change the engine's analysis (IDA or Ghidra) at an address. kind=code decodes instructions (up to end, else following the flow); function makes a function (with end: its extent; on an existing function: moves its end); undefine turns items back into unknown bytes (up to end, else the item there; at a function start the whole function); data makes a data item of type: byte, word, dword, qword, float, double, string (C string, ends at end or its terminator), string16 (UTF-16) or a C type ('Packet', 'char[16]'), each with an optional [count] such as dword[8]. Data and undefine replace a user type set on a global there. Kept with the image's annotations: replayed into a new database, exported and carried to new builds.
+Change the engine's analysis (IDA or Ghidra) at an address. kind=code decodes instructions (up to end, else following the flow); function makes a function (with end: its extent; on an existing function: moves its end); undefine turns items back into unknown bytes (up to end, else the item there; at a function start the whole function); data makes a data item of type: byte, word, dword, qword, float, double, string (C string, ends at end or its terminator), string16 (UTF-16) or a C type ('Packet', 'char[16]'), each with an optional [count] such as dword[8]. Data and undefine replace a user type set on a global there. Kept with the image's annotations: replayed into new databases, exported, carried to new builds.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1942,7 +1944,7 @@ Change the engine's analysis (IDA or Ghidra) at an address. kind=code decodes in
 
 **Set how an operand displays** (destructive, idempotent, open-world, long-running)
 
-Set how an instruction operand displays in the engine's disassembly and, where the decompiler follows it, the pseudocode: hex, dec, oct, bin, char, offset (the constant as an address), stack (a stack variable), enum (type: the enum, a member of the constant's value; declare_native_types declares enums and members), struct (type: 'Packet' or 'Packet+0x10' for a pointer into it; IDA only) or default (the engine's own). Ghidra shows numbers and enum members as equates. Kept with the image's annotations: replayed into a new database, exported and carried to new builds.
+Set how an instruction operand displays in the engine's disassembly and, where the decompiler follows it, the pseudocode: hex, dec, oct, bin, char, offset (the constant as an address), stack (a stack variable), enum (type: the enum, a member of the constant's value; declare_native_types declares enums and members), struct (type: 'Packet' or 'Packet+0x10' for a pointer into it; IDA only) or default (the engine's own). Ghidra shows numbers and enum members as equates. Kept with the image's annotations: replayed into new databases, exported, carried to new builds.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

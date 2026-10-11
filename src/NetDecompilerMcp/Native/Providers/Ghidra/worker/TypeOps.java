@@ -187,6 +187,7 @@ final class TypeOps {
     static void reapplyUserDeclarations(Worker w) {
         String kept = w.program.getOptions(Worker.STAMPS).getString(USER_DECLS, "");
         if (kept != null && !kept.isEmpty()) parseDeclarations(w, kept);
+        TypeEditOps.reapply(w);
         EditOps.reapplyEnums(w);
     }
 

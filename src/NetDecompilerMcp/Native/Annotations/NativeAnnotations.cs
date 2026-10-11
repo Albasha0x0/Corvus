@@ -87,7 +87,8 @@ public sealed class NativeAnnotations
         var enums = new Dictionary<(string, string), NativeEnumMemberEdit>();
         foreach (var e in doc.EnumMembers ?? [])
             if (e.Enum.Length > 0 && e.Member.Length > 0) enums[(e.Enum, e.Member)] = new NativeEnumMemberEdit(e.Enum, e.Member, e.Value);
-        return new UserTypeLayer(doc.Declarations?.Where(d => !string.IsNullOrWhiteSpace(d)).ToList() ?? [], types, locals, stack, analysis, operands, enums);
+        var typeEdits = (doc.TypeEdits ?? []).Where(e => e.Name.Length > 0).Select(e => new NativeTypeEdit(e.Name, e.NewName)).ToList();
+        return new UserTypeLayer(doc.Declarations?.Where(d => !string.IsNullOrWhiteSpace(d)).ToList() ?? [], types, locals, stack, analysis, operands, enums, typeEdits);
     }
 
     private static string OperandKey(AnnotationDocument.OperandEntry o) => FormattableString.Invariant($"{o.Rva}:{o.Operand}");
@@ -355,6 +356,7 @@ public sealed class NativeAnnotations
         if (u.EnumMembers.Count > 0)
             doc.EnumMembers = u.EnumMembers.Values.OrderBy(e => e.Enum, StringComparer.Ordinal).ThenBy(e => e.Member, StringComparer.Ordinal)
                 .Select(e => new AnnotationDocument.EnumMemberEntry { Enum = e.Enum, Member = e.Member, Value = e.Value }).ToList();
+        if (u.TypeEdits.Count > 0) doc.TypeEdits = u.TypeEdits.Select(e => new AnnotationDocument.TypeEditEntry { Name = e.Name, NewName = e.NewName }).ToList();
         if (u.Analysis.Count > 0) doc.Analysis = u.Analysis.Select(Entry).ToList();
         if (u.Operands.Count > 0)
             doc.Operands = u.Operands.OrderBy(o => o.Key).Select(o => new AnnotationDocument.OperandEntry
@@ -400,8 +402,9 @@ public sealed class NativeAnnotations
     // ---- merge ----
 
     private const int NameSection = 0, CommentSection = 1, TypeSection = 2, LocalSection = 3, StackSection = 4, DeclarationSection = 5, AnalysisSection = 6,
-        OperandSection = 7, EnumSection = 8, PseudoSection = 9, KindSection = 10;
-    private static readonly string[] SectionLabels = ["name", "comment", "type", "locals", "stack members", "declaration", "analysis edit", "operand", "enum member", "pseudocode comment", "comment kind"];
+        OperandSection = 7, EnumSection = 8, PseudoSection = 9, KindSection = 10, TypeEditSection = 11;
+    private static readonly string[] SectionLabels = ["name", "comment", "type", "locals", "stack members", "declaration", "analysis edit", "operand", "enum member", "pseudocode comment", "comment kind",
+        "type edit"];
 
     /// <summary>The sidecar as one comparable text value per key in each section (lists as their JSON).</summary>
     private sealed class Snapshot
@@ -438,6 +441,7 @@ public sealed class NativeAnnotations
         foreach (var e in doc.EnumMembers ?? []) s.Sections[EnumSection][EnumKey(e)] = JsonSerializer.Serialize(e);
         foreach (var (k, v) in doc.PseudoComments ?? []) s.Sections[PseudoSection][k] = v;
         foreach (var (k, v) in doc.CommentKinds ?? []) s.Sections[KindSection][k] = v;
+        foreach (var e in doc.TypeEdits ?? []) s.Sections[TypeEditSection][e.Name] = JsonSerializer.Serialize(e);
         return s;
     }
 
@@ -462,6 +466,8 @@ public sealed class NativeAnnotations
             doc.Operands = s.Sections[OperandSection].Values.Select(v => JsonSerializer.Deserialize<AnnotationDocument.OperandEntry>(v)!).ToList();
         if (s.Sections[EnumSection].Count > 0)
             doc.EnumMembers = s.Sections[EnumSection].Values.Select(v => JsonSerializer.Deserialize<AnnotationDocument.EnumMemberEntry>(v)!).ToList();
+        if (s.Sections[TypeEditSection].Count > 0)
+            doc.TypeEdits = s.Sections[TypeEditSection].Values.Select(v => JsonSerializer.Deserialize<AnnotationDocument.TypeEditEntry>(v)!).ToList();
         return doc;
     }
 
@@ -506,6 +512,7 @@ public sealed class NativeAnnotations
         Reorder(merged.Sections[DeclarationSection], disk.Sections[DeclarationSection].Keys.Concat(mine.Sections[DeclarationSection].Keys));
         // Analysis edits: ours in our order (an edit made again moved to the end), then theirs.
         Reorder(merged.Sections[AnalysisSection], mine.Sections[AnalysisSection].Keys.Concat(disk.Sections[AnalysisSection].Keys));
+        Reorder(merged.Sections[TypeEditSection], mine.Sections[TypeEditSection].Keys.Concat(disk.Sections[TypeEditSection].Keys));
         return (merged, conflicts);
     }
 

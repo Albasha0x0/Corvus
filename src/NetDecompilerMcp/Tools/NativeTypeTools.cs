@@ -21,7 +21,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
 {
     private const string EngineDescription = "Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra), ida or ghidra.";
 
-    private const string KeptNote = " Kept with the image's annotations: replayed into a new database, exported and carried to new builds.";
+    private const string KeptNote = " Kept with the image's annotations: replayed into new databases, exported, carried to new builds.";
 
     /// <summary>The image, an address in it and its engine session, with names and recovered types pushed first so user types apply on top.</summary>
     private async Task<(LoadedNative Native, uint Rva, INativeDecompilerSession Session)> Open(string image, string address, string? engine,
@@ -389,31 +389,42 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     }
 
     [McpServerTool(Name = "declare_native_types", Title = "Declare C types in the engine")]
-    [Description("Declare C types (structs, unions, enums, typedefs, function pointer types) in the decompiler engine (IDA or Ghidra) from C declarations, " +
-                 "e.g. 'struct Packet { int length; char data[256]; };'. A type of the same name is replaced, and user declarations win over the " +
-                 "recovered PDB, RTTI and Il2Cpp types of that name. Declarations with errors are reported with the engine's messages and not saved. " +
-                 "Use the types with set_native_type, set_native_local and set_native_stack_var. enumName with members adds, changes or removes " +
-                 "members of an enum (created when missing; also a recovered one), kept over later declarations." + KeptNote)]
+    [Description("Declare C types (structs, unions, enums, typedefs, function types) in the engine (IDA or Ghidra), e.g. 'struct P { int len; " +
+                 "char tag[4]; };'. A type of the same name is replaced; declarations win over recovered PDB, RTTI and Il2Cpp types. Errors come " +
+                 "with the engine's messages and are not saved. enumName with members upserts or removes enum members (creating the enum). delete " +
+                 "or rename edits a named type; declaring the name again undoes that. Edits survive recovered types and redeclarations." + KeptNote)]
     public Task<string> DeclareNativeTypes(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("C declarations, several allowed; types they name must exist or be declared in the same text.")] string? declarations = null,
         [Description("An enum whose members to upsert.")] string? enumName = null,
         [Description("With enumName: 'NAME=value' pairs separated by commas or lines (hex or decimal); 'NAME=' removes the member.")] string? members = null,
+        [Description("A type to delete.")] string? delete = null,
+        [Description("'Old=New' renames a type; the kept edits naming it follow.")] string? rename = null,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var text = (declarations ?? "").Trim();
         var enumMembers = EnumMembers(enumName, members);
+        var typeEdit = TypeEditRequest(delete, rename);
+        if (typeEdit != null)
+        {
+            if (text.Length > 0 || enumMembers.Count > 0) throw new ToolError(ErrorCode.InvalidArgument, "delete and rename go alone.", "make the other changes in another call");
+            return await EditType(image, typeEdit, engine, progress, cancellationToken);
+        }
         if (text.Length == 0 && enumMembers.Count == 0)
             throw new ToolError(ErrorCode.InvalidArgument, "No declarations or enum members given.", "pass C declarations such as 'struct S { int a; };', or enumName and members");
         var (native, _, session) = await Open(image, "rva:0", engine, progress, cancellationToken);
+        var edits = userTypes.Layer(native).TypeEdits;
         var result = await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch(text.Length > 0 ? [text] : [], [], [], []) { EnumMembers = enumMembers },
-            (r, layer) => r.DeclarationErrors > 0 ? null : r.Items.Where(i => i.Applied).Aggregate(text.Length > 0 ? layer.WithDeclarations(text) : layer,
+            (r, layer) => r.DeclarationErrors > 0 ? null : r.Items.Where(i => i.Applied).Aggregate(text.Length > 0 ? layer.WithDeclarations(text, r.DeclaredTypes) : layer,
                 (l, i) => enumMembers.FirstOrDefault(e => $"{e.Enum}::{e.Member}" == i.Target) is { } e ? l.WithEnumMember(e) : l), cancellationToken);
         if (result.DeclarationErrors > 0)
             throw new ToolError(ErrorCode.InvalidArgument, $"{result.DeclarationErrors} error(s) in the declarations" +
                 (result.DeclarationMessages.Count > 0 ? ": " + string.Join("; ", result.DeclarationMessages) : "."), "fix the declarations and declare them again");
+        // a declared name drops the kept rename or deletion of it, in the engine too
+        if (userTypes.Layer(native).TypeEdits is var kept && kept.Count != edits.Count)
+            await userTypes.ApplyAsync(native, session, NativeUserTypeBatch.Empty with { TypeEdits = kept }, (_, _) => null, cancellationToken);
         var sb = new System.Text.StringBuilder();
         if (text.Length > 0)
             sb.AppendLine(result.DeclaredTypes.Count == 0 ? "Declared (the engine reported no type names)."
@@ -423,6 +434,41 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             throw new ToolError(ErrorCode.InvalidArgument, "No enum member was applied:\n" + sb, "check the enum's name and the member names");
         return sb.ToString().TrimEnd();
     });
+
+    /// <summary>declare_native_types delete=Name or rename='Old=New' as a type edit; null for neither.</summary>
+    internal static NativeTypeEdit? TypeEditRequest(string? delete, string? rename)
+    {
+        var d = (delete ?? "").Trim();
+        var r = (rename ?? "").Trim();
+        if (d.Length > 0 && r.Length > 0) throw new ToolError(ErrorCode.InvalidArgument, "Pass delete or rename, not both.");
+        if (d.Length > 0) return Identifier(d) ? new NativeTypeEdit(d, null) : throw new ToolError(ErrorCode.InvalidArgument, $"'{d}' is not a type name.");
+        if (r.Length == 0) return null;
+        int eq = r.IndexOf('=', StringComparison.Ordinal);
+        var (from, to) = eq < 0 ? ("", "") : (r[..eq].Trim(), r[(eq + 1)..].Trim());
+        if (!Identifier(from) || !Identifier(to) || from == to)
+            throw new ToolError(ErrorCode.InvalidArgument, $"'{r}' is not 'Old=New' with two different type names.", "e.g. rename='Packet=NetPacket'");
+        return new NativeTypeEdit(from, to);
+    }
+
+    /// <summary>A type renamed or deleted: the old name must exist and a new one must not; the engine gets the whole kept list.</summary>
+    private async Task<string> EditType(string image, NativeTypeEdit edit, string? engine, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    {
+        var (native, _, session) = await Open(image, "rva:0", engine, progress, ct);
+        await session.GetTypeAsync(edit.Name, ct);
+        if (edit.NewName is { } to)
+        {
+            bool taken;
+            try { taken = (await session.GetTypeAsync(to, ct)).Name == to; }
+            catch (ToolError e) when (e.Code == ErrorCode.NotFound) { taken = false; }
+            if (taken) throw new ToolError(ErrorCode.InvalidArgument, $"A type named {to} exists.", $"delete it first (delete={to}), or pick another name");
+        }
+        var result = await userTypes.ApplyAsync(native, session, NativeUserTypeBatch.Empty with { TypeEdits = userTypes.Layer(native).WithTypeEdit(edit).TypeEdits },
+            (r, layer) => r.Items.LastOrDefault(i => i.Kind == "type_edit" && i.Target == edit.Name) is { Applied: true } ? layer.WithTypeEdit(edit) : null, ct);
+        var done = result.Items.LastOrDefault(i => i.Kind == "type_edit" && i.Target == edit.Name)
+            ?? throw new ToolError(ErrorCode.Failed, "The engine did not report the edit.");
+        if (!done.Applied) throw new ToolError(ErrorCode.InvalidArgument, done.Error ?? "The engine did not apply the edit.");
+        return edit.NewName == null ? $"Deleted type {edit.Name}." : $"Renamed type {edit.Name} to {edit.NewName}; the kept edits that named it now name {edit.NewName}.";
+    }
 
     /// <summary>"A=1, B=0x10, C=" for an enum: members to set, an empty value removing one.</summary>
     internal static List<NativeEnumMemberEdit> EnumMembers(string? enumName, string? members)

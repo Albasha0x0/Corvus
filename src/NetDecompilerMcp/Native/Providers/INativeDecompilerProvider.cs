@@ -504,6 +504,9 @@ public sealed record NativeStackVarEdit(uint Function, int Offset, string? Name,
 /// <summary>Member <see cref="Member"/> of enum <see cref="Enum"/> (created when missing) gets <see cref="Value"/>; a null value removes the member.</summary>
 public sealed record NativeEnumMemberEdit(string Enum, string Member, long? Value);
 
+/// <summary>Named type <see cref="Name"/> is renamed to <see cref="NewName"/>, or deleted when that is null.</summary>
+public sealed record NativeTypeEdit(string Name, string? NewName);
+
 /// <summary>
 /// A change to the engine's analysis at <see cref="Rva"/>: <see cref="Kind"/> code (instructions from there), function (a
 /// function there, ending at <see cref="End"/> when given), undefine (the items in [Rva, End), or the item at Rva, back to
@@ -526,7 +529,7 @@ public sealed record NativeOperandEdit(uint Rva, int Operand, string Display, st
 }
 
 /// <summary>
-/// User types, applied in this order: C declarations; enum members; analysis edits in the order made; types of functions
+/// User types, applied in this order: C declarations; type renames and deletions; enum members; analysis edits in the order made; types of functions
 /// (prototypes) and globals by RVA, an empty one clearing it; stack frame members; decompiler locals; stack member
 /// deletions; operand display formats.
 /// </summary>
@@ -536,12 +539,14 @@ public sealed record NativeUserTypeBatch(IReadOnlyList<string> Declarations, IRe
     public static readonly NativeUserTypeBatch Empty = new([], [], [], []);
 
     public IReadOnlyList<NativeEnumMemberEdit> EnumMembers { get; init; } = [];
+    /// <summary>Null leaves the engine's kept type edits alone; a list replaces them and is applied in order (an edit whose type is gone does nothing).</summary>
+    public IReadOnlyList<NativeTypeEdit>? TypeEdits { get; init; }
     public IReadOnlyList<NativeAnalysisEdit> Analysis { get; init; } = [];
     public IReadOnlyList<NativeOperandEdit> Operands { get; init; } = [];
 }
 
 /// <summary>
-/// One item of a user type batch: <see cref="Kind"/> type, stack, stack_delete, stack_clear, local, local_clear, enum (at RVA 0), analysis or operand
+/// One item of a user type batch: <see cref="Kind"/> type, stack, stack_delete, stack_clear, local, local_clear, enum or type_edit (at RVA 0), analysis or operand
 /// (with the operand index as <see cref="Stack"/>), at <see cref="Rva"/> (the address or function);
 /// <see cref="Target"/> as asked; for a local the name it had before (<see cref="Resolved"/>) and its stack offset;
 /// <see cref="Text"/>: the type or name now in effect.

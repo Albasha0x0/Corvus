@@ -76,14 +76,25 @@ public sealed class AnnotationDocument
         [JsonPropertyName("type"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Type { get; set; }
     }
 
-    /// <summary>Holds what format 3 added; older builds must leave such a file alone.</summary>
-    /// <summary>Holds what format 4 added (pseudocode comments, comment kinds); older builds must leave such a file alone.</summary>
-    public bool HasFormat4 => PseudoComments is { Count: > 0 } || CommentKinds is { Count: > 0 };
+    /// <summary>Format 4: type renames and deletions in the order made.</summary>
+    [JsonPropertyName("typeEdits"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<TypeEditEntry>? TypeEdits { get; set; }
 
+    public sealed class TypeEditEntry
+    {
+        [JsonPropertyName("name")] public string Name { get; set; } = "";
+        /// <summary>Null: the type is deleted.</summary>
+        [JsonPropertyName("newName"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? NewName { get; set; }
+    }
+
+    /// <summary>Holds what format 4 added (pseudocode comments, comment kinds, type edits); older builds must leave such a file alone.</summary>
+    public bool HasFormat4 => PseudoComments is { Count: > 0 } || CommentKinds is { Count: > 0 } || TypeEdits is { Count: > 0 };
+
+    /// <summary>Holds what format 3 added; older builds must leave such a file alone.</summary>
     public bool HasFormat3 => Analysis is { Count: > 0 } || Operands is { Count: > 0 } || EnumMembers is { Count: > 0 }
                               || StackVars?.Values.Any(l => l.Any(s => s.Delete)) == true;
 
-    public bool HasUserTypes => Declarations is { Count: > 0 } || Types is { Count: > 0 } || Locals is { Count: > 0 } || StackVars is { Count: > 0 } || HasFormat3;
+    public bool HasUserTypes => Declarations is { Count: > 0 } || Types is { Count: > 0 } || Locals is { Count: > 0 } || StackVars is { Count: > 0 } || HasFormat3
+                                || TypeEdits is { Count: > 0 };
 
     public bool IsEmpty => Names.Count == 0 && Comments.Count == 0 && !HasUserTypes && !HasFormat4;
 }

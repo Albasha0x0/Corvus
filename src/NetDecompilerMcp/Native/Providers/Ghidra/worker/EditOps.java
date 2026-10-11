@@ -54,10 +54,11 @@ final class EditOps {
     static final String USER_ENUMS = "ndm_user_enums";
 
     /**
-     * Edits applied after the declarations and before the types: enums [[enum, member, value or null]], then analysis
+     * Edits applied after the declarations and before the types: type edits, enums [[enum, member, value or null]], then analysis
      * [[rva, kind, end or null, type or null]] in the order made.
      */
     static void before(Worker w, Worker.Request r, JsonArray items) throws Exception {
+        TypeEditOps.apply(w, r, items);
         for (JsonElement e : Worker.array(r.args, "enums")) {
             JsonArray m = e.getAsJsonArray();
             Long value = m.get(2).isJsonNull() ? null : m.get(2).getAsLong();

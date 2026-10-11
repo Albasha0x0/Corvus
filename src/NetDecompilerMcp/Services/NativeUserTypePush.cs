@@ -28,6 +28,9 @@ public sealed class NativeUserTypePush(NativeCodeService code)
         public int Scripts;
     }
 
+    /// <summary>The image's user types as kept.</summary>
+    public UserTypeLayer Layer(LoadedNative native) => code.Annotations(native).UserTypes;
+
     /// <summary>Brings the session's user types up to date; null when nothing changed.</summary>
     public async Task<PushResult?> EnsureAsync(LoadedNative native, INativeDecompilerSession session, CancellationToken ct)
     {

@@ -55,6 +55,7 @@ public static class AnnotationExport
             sb.Append(IdaTypeHelpers);
             foreach (var d in types.Declarations) sb.AppendLine($"ndm_declare({Py(d)})");
             var batch = types.ToBatch();
+            foreach (var r in types.TypeEdits) sb.AppendLine($"ndm_type_edit({Py(r.Name)}, {PyOrNone(r.NewName)})");
             foreach (var e in batch.EnumMembers)
                 sb.AppendLine($"ndm_enum({Py(e.Enum)}, {Py(e.Member)}, {(e.Value is { } v ? v.ToString(System.Globalization.CultureInfo.InvariantCulture) : "None")})");
             foreach (var a in types.Analysis)
@@ -144,6 +145,12 @@ public static class AnnotationExport
             else:
                 ok = ndm_data(ea, stop, text or "")
             if not ok: ndm_failed.append('%s 0x%X' % (kind, rva))
+        def ndm_type_edit(name, new_name):
+            t = ida_typeinf.tinfo_t()
+            if not t.get_named_type(None, name): return
+            if new_name is None or ida_typeinf.tinfo_t().get_named_type(None, new_name): ok = ida_typeinf.del_named_type(None, name, ida_typeinf.NTF_TYPE)
+            else: ok = t.rename_type(new_name) == 0
+            if not ok: ndm_failed.append('type %s' % name)
         def ndm_enum(enum, member, value):
             t = ida_typeinf.tinfo_t()
             if not t.get_named_type(None, enum):
@@ -230,7 +237,7 @@ public static class AnnotationExport
         sb.AppendLine("// Ghidra script: apply names and comments exported from NetDecompilerMcp.");
         sb.AppendLine($"// Source: {ann.FilePath}  sha256 {ann.Sha256}");
         sb.AppendLine("// @category NetDecompilerMcp");
-        if (ann.UserTypes.Count > 0) sb.AppendLine($"// {ann.UserTypes.Count} user type(s) (declarations, enum members, analysis edits, prototypes, locals, stack variables, operand formats) are in the IDA and JSON exports only.");
+        if (ann.UserTypes.Count > 0) sb.AppendLine($"// {ann.UserTypes.Count} user type(s) (declarations, type edits, enum members, analysis edits, prototypes, locals, stack variables, operand formats) are in the IDA and JSON exports only.");
         sb.AppendLine("import ghidra.app.script.GhidraScript;");
         sb.AppendLine("import ghidra.program.model.address.Address;");
         sb.AppendLine("import ghidra.program.model.symbol.SourceType;");
@@ -268,6 +275,7 @@ public static class AnnotationExport
             analysis = ann.UserTypes.Analysis.Select(a => new { rva = a.Rva, kind = a.Kind, end = a.End, type = a.Type }),
             operands = ann.UserTypes.Operands.OrderBy(o => o.Key).Select(o => new { rva = o.Value.Rva, operand = o.Value.Operand, display = o.Value.Display, detail = o.Value.Detail }),
             enumMembers = ann.UserTypes.ToBatch().EnumMembers.Select(e => new { @enum = e.Enum, member = e.Member, value = e.Value }),
+            typeEdits = ann.UserTypes.TypeEdits.Select(e => new { name = e.Name, newName = e.NewName }),
         };
         return JsonSerializer.Serialize(doc, IndentedJson);
     }

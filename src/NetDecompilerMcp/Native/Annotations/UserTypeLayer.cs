@@ -1,13 +1,14 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using NetDecompilerMcp.Native.Providers;
 
 namespace NetDecompilerMcp.Native.Annotations;
 
 /// <summary>
-/// The user's engine types of one image: C declarations, enum members, analysis edits (code, functions, data, undefined
-/// ranges), types of functions and globals by RVA, stack frame members and decompiler locals by function, operand display
-/// formats. Immutable; every change makes a new layer.
+/// The user's engine types of one image: C declarations, type renames and deletions, enum members, analysis edits (code,
+/// functions, data, undefined ranges), types of functions and globals by RVA, stack frame members and decompiler locals by
+/// function, operand display formats. Immutable; every change makes a new layer.
 /// </summary>
 public sealed class UserTypeLayer
 {
@@ -25,10 +26,13 @@ public sealed class UserTypeLayer
     public IReadOnlyDictionary<(uint Rva, int Operand), NativeOperandEdit> Operands { get; }
     /// <summary>Enum members added, changed or (a null value) removed, by enum and member.</summary>
     public IReadOnlyDictionary<(string Enum, string Member), NativeEnumMemberEdit> EnumMembers { get; }
+    /// <summary>Type renames and deletions in the order made, one per name.</summary>
+    public IReadOnlyList<NativeTypeEdit> TypeEdits { get; }
 
     public UserTypeLayer(IReadOnlyList<string> declarations, IReadOnlyDictionary<uint, string> types, IReadOnlyDictionary<uint, IReadOnlyList<NativeLocalEdit>> locals,
         IReadOnlyDictionary<uint, IReadOnlyList<NativeStackVarEdit>> stackVars, IReadOnlyList<NativeAnalysisEdit>? analysis = null,
-        IReadOnlyDictionary<(uint, int), NativeOperandEdit>? operands = null, IReadOnlyDictionary<(string, string), NativeEnumMemberEdit>? enumMembers = null)
+        IReadOnlyDictionary<(uint, int), NativeOperandEdit>? operands = null, IReadOnlyDictionary<(string, string), NativeEnumMemberEdit>? enumMembers = null,
+        IReadOnlyList<NativeTypeEdit>? typeEdits = null)
     {
         Declarations = declarations;
         Types = types;
@@ -37,19 +41,21 @@ public sealed class UserTypeLayer
         Analysis = analysis ?? [];
         Operands = operands ?? new Dictionary<(uint, int), NativeOperandEdit>();
         EnumMembers = enumMembers ?? new Dictionary<(string, string), NativeEnumMemberEdit>();
+        TypeEdits = typeEdits ?? [];
     }
 
     private UserTypeLayer With(IReadOnlyList<string>? declarations = null, IReadOnlyDictionary<uint, string>? types = null,
         IReadOnlyDictionary<uint, IReadOnlyList<NativeLocalEdit>>? locals = null, IReadOnlyDictionary<uint, IReadOnlyList<NativeStackVarEdit>>? stackVars = null,
         IReadOnlyList<NativeAnalysisEdit>? analysis = null, IReadOnlyDictionary<(uint, int), NativeOperandEdit>? operands = null,
-        IReadOnlyDictionary<(string, string), NativeEnumMemberEdit>? enumMembers = null) =>
-        new(declarations ?? Declarations, types ?? Types, locals ?? Locals, stackVars ?? StackVars, analysis ?? Analysis, operands ?? Operands, enumMembers ?? EnumMembers);
+        IReadOnlyDictionary<(string, string), NativeEnumMemberEdit>? enumMembers = null, IReadOnlyList<NativeTypeEdit>? typeEdits = null) =>
+        new(declarations ?? Declarations, types ?? Types, locals ?? Locals, stackVars ?? StackVars, analysis ?? Analysis, operands ?? Operands, enumMembers ?? EnumMembers,
+            typeEdits ?? TypeEdits);
 
     public bool IsEmpty => Declarations.Count == 0 && Types.Count == 0 && Locals.Count == 0 && StackVars.Count == 0 && Analysis.Count == 0 && Operands.Count == 0
-                           && EnumMembers.Count == 0;
+                           && EnumMembers.Count == 0 && TypeEdits.Count == 0;
 
-    /// <summary>Declaration blocks, enum members, analysis edits, types, locals, stack members and operand formats.</summary>
-    public int Count => Declarations.Count + EnumMembers.Count + Analysis.Count + Types.Count + Locals.Values.Sum(l => l.Count) + StackVars.Values.Sum(s => s.Count)
+    /// <summary>Declaration blocks, type edits, enum members, analysis edits, types, locals, stack members and operand formats.</summary>
+    public int Count => Declarations.Count + TypeEdits.Count + EnumMembers.Count + Analysis.Count + Types.Count + Locals.Values.Sum(l => l.Count) + StackVars.Values.Sum(s => s.Count)
                         + Operands.Count;
 
     /// <summary>Everything, in the order an engine applies it.</summary>
@@ -58,6 +64,7 @@ public sealed class UserTypeLayer
         StackVars.OrderBy(s => s.Key).SelectMany(s => s.Value).ToList(),
         Locals.OrderBy(l => l.Key).SelectMany(l => l.Value).ToList())
     {
+        TypeEdits = TypeEdits,
         EnumMembers = EnumMembers.OrderBy(e => e.Key, KeyOrder).Select(e => e.Value).ToList(),
         Analysis = Analysis,
         Operands = Operands.OrderBy(o => o.Key).Select(o => o.Value).ToList(),
@@ -77,6 +84,7 @@ public sealed class UserTypeLayer
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         void Add(string s) => hash.AppendData(Encoding.UTF8.GetBytes(s + "\0"));
         foreach (var d in Declarations) Add("D" + d);
+        foreach (var r in TypeEdits) Add($"R{r.Name}:{r.NewName}");
         foreach (var e in EnumMembers.OrderBy(e => e.Key, KeyOrder).Select(e => e.Value)) Add(FormattableString.Invariant($"E{e.Enum}:{e.Member}:{e.Value}"));
         foreach (var a in Analysis) Add(FormattableString.Invariant($"A{a.Rva:X}:{a.Kind}:{a.End:X}:{a.Type}"));
         foreach (var (rva, type) in Types.OrderBy(t => t.Key)) Add(FormattableString.Invariant($"T{rva:X}:{type}"));
@@ -109,12 +117,40 @@ public sealed class UserTypeLayer
         return With(types: types);
     }
 
-    /// <summary>With a declaration block added (an identical block is kept once).</summary>
-    public UserTypeLayer WithDeclarations(string block)
+    /// <summary>With a declaration block added (an identical block is kept once); a rename or deletion of a type it declares is dropped.</summary>
+    public UserTypeLayer WithDeclarations(string block, IEnumerable<string>? declared = null)
     {
         var text = block.Trim();
-        if (text.Length == 0 || Declarations.Contains(text, StringComparer.Ordinal)) return this;
-        return With(declarations: [.. Declarations, text]);
+        var names = declared?.ToHashSet(StringComparer.Ordinal) ?? [];
+        var edits = TypeEdits.Any(e => names.Contains(e.Name)) ? TypeEdits.Where(e => !names.Contains(e.Name)).ToList() : null;
+        if (text.Length == 0 || Declarations.Contains(text, StringComparer.Ordinal)) return edits == null ? this : With(typeEdits: edits);
+        return With(declarations: [.. Declarations, text], typeEdits: edits);
+    }
+
+    /// <summary>
+    /// With a type renamed or deleted, replacing an earlier edit of the same name. A rename renames the type in the other
+    /// edits (declarations, types, locals, stack members, data, operands, enum members); a deletion drops its enum members.
+    /// </summary>
+    public UserTypeLayer WithTypeEdit(NativeTypeEdit edit)
+    {
+        var layer = edit.NewName is { } to ? Renamed(edit.Name, to)
+            : With(enumMembers: EnumMembers.Where(e => e.Key.Enum != edit.Name).ToDictionary(e => e.Key, e => e.Value));
+        return layer.With(typeEdits: layer.TypeEdits.Where(e => e.Name != edit.Name).Append(edit).ToList());
+    }
+
+    private UserTypeLayer Renamed(string from, string to)
+    {
+        var word = new Regex($@"(?<![\w$]){Regex.Escape(from)}(?![\w$])", RegexOptions.CultureInvariant);
+        string R(string text) => word.Replace(text, to);
+        string? N(string? text) => text == null ? null : R(text);
+        return With(declarations: Declarations.Select(R).Distinct(StringComparer.Ordinal).ToList(),
+            types: Types.ToDictionary(t => t.Key, t => R(t.Value)),
+            locals: Locals.ToDictionary(l => l.Key, l => (IReadOnlyList<NativeLocalEdit>)[.. l.Value.Select(e => e with { Type = N(e.Type) })]),
+            stackVars: StackVars.ToDictionary(s => s.Key, s => (IReadOnlyList<NativeStackVarEdit>)[.. s.Value.Select(e => e with { Type = N(e.Type) })]),
+            analysis: Analysis.Select(a => a with { Type = N(a.Type) }).ToList(),
+            operands: Operands.ToDictionary(o => o.Key, o => o.Value.Display is "enum" or "struct" ? o.Value with { Detail = N(o.Value.Detail) } : o.Value),
+            enumMembers: EnumMembers.Values.Select(e => e.Enum == from ? e with { Enum = to } : e).ToDictionary(e => (e.Enum, e.Member)),
+            typeEdits: TypeEdits.Select(e => e.NewName == from ? e with { NewName = to } : e).ToList());
     }
 
     /// <summary>
