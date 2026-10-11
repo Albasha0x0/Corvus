@@ -13,7 +13,7 @@ using NetDecompilerMcp.Services;
 
 namespace NetDecompilerMcp.Tools;
 
-/// <summary>Interprocedural value tracing in native code (x86 / x64).</summary>
+/// <summary>Interprocedural value tracing in native code (x86 / x64 / ARM64).</summary>
 [McpServerToolType]
 public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeService code)
 {
@@ -78,11 +78,11 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         [property: Description("More nodes follow (call again with offset).")] bool Truncated,
         IReadOnlyList<string> Notes);
 
-    private const string LocationHelp = "a register (rdx, ecx, xmm1), a stack or frame slot ([rsp+28h], [ebp-8]), op1 / op2 (an operand of the instruction) or " +
-                                        "result (the value the call at address returns)";
+    private const string LocationHelp = "a register (rdx, ecx, xmm1; ARM64 x1, w2), a stack or frame slot ([rsp+28h], [ebp-8]; ARM64 [sp+10h], [x29-8]), " +
+                                        "op1 / op2 (an operand of the instruction) or result (the value the call at address returns)";
 
     [McpServerTool(Name = "trace_native_values", Title = "Native value trace", UseStructuredContent = true, OutputSchemaType = typeof(ValueTraceReport))]
-    [Description("Traces a value through native code (x86 / x64) across functions. Backward (where does it come from): constants, strings, function " +
+    [Description("Traces a value through native code (x86 / x64 / ARM64) across functions. Backward (where does it come from): constants, strings, function " +
                  "pointers, API results, through copies, stack slots, merges (every path's value) and loops; an incoming parameter is bound to every " +
                  "caller's argument, a call result to the callee's return values, a writable global to its writers and initial contents. Forward " +
                  "(where does it go): API arguments (named, constants decoded), callees' parameters, stores to globals and their readers, returns into " +
@@ -117,17 +117,18 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         var (_, index) = await OpenIndex(workspace, code, image, progress, cancellationToken);
         return await Task.Run(() =>
         {
-            var analysis = CallAnalysis.For(index);
-            var seed = Seed(analysis, address, location, argument, cancellationToken);
+            ITraceHost host = Arm64Trace.Supports(index) ? Arm64Trace.For(index) : CallAnalysis.For(index);
+            var seed = host is Arm64Trace arm ? Arm64Seed(arm, address, location, argument, cancellationToken)
+                : Seed(CallAnalysis.For(index), address, location, argument, cancellationToken);
             var options = new ValueTraceOptions(dir, Math.Clamp(maxDepth, 0, 8), Math.Clamp(maxFunctions, 1, 256), Math.Clamp(maxNodes, 1, 5000),
                 Math.Clamp(maxCallers, 1, 256), Math.Clamp(maxWriters, 1, 256), followGlobals);
-            var graph = ValueTrace.Build(analysis, seed, options, ct: cancellationToken);
+            var graph = ValueTrace.Build(host, seed, options, ct: cancellationToken);
             var report = Report(index, graph, offset, limit);
             return StructuredOutput.With(Text(index, graph, report), report);
         }, cancellationToken);
     });
 
-    /// <summary>Loads the image if given by path and waits for its code index (x86 / x64 only).</summary>
+    /// <summary>Loads the image if given by path and waits for its code index (x86 / x64 / ARM64).</summary>
     internal static async Task<(LoadedNative Native, NativeCodeIndex Index)> OpenIndex(AssemblyWorkspace workspace, NativeCodeService code, string image, IProgress<ProgressNotificationValue> progress,
         CancellationToken ct)
     {
@@ -144,8 +145,8 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         {
             Progress = (float)waited.Elapsed.TotalSeconds, Message = $"indexing {native.Id}: {p.Phase}",
         })), ct);
-        if (!CallAnalysis.Supports(index))
-            throw new ToolError(ErrorCode.Unsupported, $"Values are traced in x86 / x64 code, not {index.Image.Arch}.", "decompile_native shows the code through IDA");
+        if (!CallAnalysis.Supports(index) && !Arm64Trace.Supports(index))
+            throw new ToolError(ErrorCode.Unsupported, $"Values are traced in x86 / x64 / ARM64 code, not {index.Image.Arch}.", "decompile_native shows the code through IDA");
         return (native, index);
     }
 
@@ -222,6 +223,71 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
                      ?? throw new ToolError(ErrorCode.InvalidArgument, $"Unknown location '{location}'.", "use " + LocationHelp);
         var name = slices.LocationName(parsed);
         return new TraceSeed(TraceSeedKind.Location, rva, fn, name, $"{name} at {Va(rva)} ({Where(rva)}: {d.I})");
+    }
+
+    /// <summary>The ARM64 seed: registers x0-x30 (w views), stack slots relative to sp or x29 at the instruction, AAPCS64 argument positions.</summary>
+    internal static TraceSeed Arm64Seed(Arm64Trace a, string address, string? location, string? argument, CancellationToken ct)
+    {
+        var index = a.Index;
+        var rva = NativeCodeTools.Address(index, address);
+        string Va(uint r) => NativeAddress.Va(index.Image, r);
+        string Where(uint r) => index.FunctionAt(r) is { } f ? $"{f.Name}+0x{r - f.Start:X}" : Va(r);
+        var fn = index.FunctionAt(rva);
+        if (!string.IsNullOrWhiteSpace(argument))
+        {
+            if (fn == null) throw new ToolError(ErrorCode.NotFound, $"No function contains {Va(rva)}.", "argument needs a call instruction or a function start");
+            if (a.CallAt(rva, ct) is { } call)
+            {
+                var sig = call.Signature;
+                int k = ArgumentIndex(argument, sig, call.Callee);
+                var entry = A64Function.Name(A64Function.ParameterEntry(k), null);
+                var p = sig != null && k < sig.Params.Count ? sig.Params[k] : null;
+                return new TraceSeed(TraceSeedKind.Argument, rva, fn, entry, $"argument {k + 1}{(p != null ? " " + p.Name : "")} ({entry}) of {call.Callee} at {Va(rva)} ({Where(rva)})", p);
+            }
+            if (fn.Start == rva)
+            {
+                int k = ArgumentIndex(argument, null, fn.Name);
+                var entry = A64Function.Name(A64Function.ParameterEntry(k), null);
+                return new TraceSeed(TraceSeedKind.Parameter, rva, fn, entry, $"parameter {k + 1} ({entry}) of {fn.Name}");
+            }
+            throw new ToolError(ErrorCode.InvalidArgument, $"{Va(rva)} ({Where(rva)}) is neither a call nor a function start.",
+                "pass a call instruction or a function start with argument, or use location at other instructions");
+        }
+        if (string.IsNullOrWhiteSpace(location))
+        {
+            if (fn == null && index.Image.SectionAt(rva) is { } section && (section.Access & SectionAccess.Write) != 0)
+                return new TraceSeed(TraceSeedKind.Global, rva, null, null, $"global [{index.NameAt(rva) ?? Va(rva)}]");
+            throw new ToolError(ErrorCode.InvalidArgument, "Pass location (" + LocationHelp + ") or argument; address alone is for a writable global.",
+                "for example location=x0, or argument=1 at a call");
+        }
+        if (fn == null) throw new ToolError(ErrorCode.NotFound, $"No function contains {Va(rva)}.", "list_functions shows the functions; a writable global needs no location");
+        var code = a.Code(fn, ct);
+        var (block, at) = code.Position(rva);
+        if (block < 0)
+            throw new ToolError(ErrorCode.InvalidArgument, $"{Va(rva)} is not the start of an instruction of {fn.Name}.", "disassemble shows the instruction addresses");
+        var step = code.Blocks[block][at];
+        var loc = location.Trim();
+        if (loc.Equals("result", StringComparison.OrdinalIgnoreCase))
+        {
+            var call = a.CallAt(rva, ct) ?? throw new ToolError(ErrorCode.InvalidArgument, $"{Va(rva)} is not a call: location=result needs one.");
+            return new TraceSeed(TraceSeedKind.Result, rva, fn, null, $"result of {call.Callee} at {Va(rva)} ({Where(rva)})", Returns: ApiSignatures.FindReturn(call.Callee));
+        }
+        if (loc.Length == 3 && loc.StartsWith("op", StringComparison.OrdinalIgnoreCase) && char.IsAsciiDigit(loc[2]))
+        {
+            int k = loc[2] - '1';
+            var x = step.I;
+            if (k < 0 || k >= x.OperandCount) throw new ToolError(ErrorCode.InvalidArgument, $"{step.Text} has {x.OperandCount} operands.", "op1 is the first operand");
+            if (A64Function.Gpr(x, k) is var r and >= 0 and < 31) loc = $"x{r}";
+            else if (x.GetOperand(k).Kind == AsmArm64.Arm64OperandKind.Memory && step.Facts.HasMem && index.Image.SectionAt(step.Facts.MemTarget) is { } s && (s.Access & SectionAccess.Write) != 0)
+                return new TraceSeed(TraceSeedKind.Global, step.Facts.MemTarget, null, null, $"global [{index.NameAt(step.Facts.MemTarget) ?? Va(step.Facts.MemTarget)}] ({step.Text} at {Where(rva)})");
+            else if (x.GetOperand(k).Kind == AsmArm64.Arm64OperandKind.Memory && A64Function.Memory(step) is { Slot: { } slot }) loc = A64Function.Name(A64Loc.Slot(slot), step);
+            else
+                throw new ToolError(ErrorCode.InvalidArgument, $"Operand {k + 1} of {step.Text} is not a register, stack slot or writable global.",
+                    "trace the base register of a memory operand instead (location=<register>)");
+        }
+        var parsed = A64Function.Parse(loc, step) ?? throw new ToolError(ErrorCode.InvalidArgument, $"Unknown location '{location}'.", "use " + LocationHelp);
+        var name = A64Function.Name(parsed, step);
+        return new TraceSeed(TraceSeedKind.Location, rva, fn, name, $"{name} at {Va(rva)} ({Where(rva)}: {step.Text})");
     }
 
     /// <summary>A 0-based argument index from a 1-based position or an API parameter name.</summary>

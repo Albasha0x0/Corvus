@@ -84,7 +84,7 @@ public sealed record CallSiteInfo(uint Rva, NativeFunction Caller, string Callee
 /// (<see cref="ApiSignatures"/>) give parameter names, counts and constant decoding; other callees get the
 /// registers and slots set just before the call. One instance per code index (<see cref="For"/>), thread-safe.
 /// </summary>
-public sealed partial class CallAnalysis
+public sealed partial class CallAnalysis : ITraceHost
 {
     private static readonly ConditionalWeakTable<NativeCodeIndex, CallAnalysis> Table = new();
     private const int MaxInstructionsPerFunction = 50_000;
@@ -252,6 +252,30 @@ public sealed partial class CallAnalysis
 
     /// <summary>Value-trace graphs built on this image.</summary>
     public ValueTraceCache Traces => LazyInitializer.EnsureInitialized(ref _traces, () => new ValueTraceCache());
+
+    IFunctionSliceProvider ITraceHost.Slices => Slices;
+    string ITraceHost.ReturnLocation => "rax";
+    string ITraceHost.Va(uint rva) => Va(rva);
+    bool ITraceHost.IsRelocated(uint rva) => IsRelocated(rva);
+    (ArgKind Kind, ulong? Value, uint? Rva, string Text) ITraceHost.FormatAddress(uint rva, ApiParam? p) => FormatAddress(rva, p);
+
+    string ITraceHost.AtCall(NativeFunction f, uint site, string entry, CancellationToken ct)
+    {
+        var code = Code(f, ct);
+        var (b, i) = code.Position(site);
+        bool tail = b >= 0 && SiteKindOf(code, in code.Blocks[b][i]) == 2;
+        return OursSliceProvider.ParseLocation(entry, Is64) is { } loc ? Slices.LocationName(Slices.EntryToCall(loc, tail)) : entry;
+    }
+
+    ulong? ITraceHost.ConstantAfter(NativeFunction f, uint address, string location, CancellationToken ct)
+    {
+        var code = Code(f, ct);
+        var (b, i) = code.Position(address);
+        if (b < 0 || OursSliceProvider.ParseLocation(location, Is64) is not { } loc) return null;
+        // just after the instruction: what it defines, else what it sees
+        var v = new ValueResolver(this, code) { Budget = 2000 }.ValueBefore(loc, b, i + 1);
+        return v.Kind == VKind.Const ? v.Num : null;
+    }
 
     /// <summary>A base relocation applies at <paramref name="rva"/> (a pointer the loader fixes up).</summary>
     internal bool IsRelocated(uint rva) => Array.BinarySearch(_relocs, rva) >= 0;

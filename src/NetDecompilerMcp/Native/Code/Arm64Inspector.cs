@@ -267,7 +267,7 @@ internal static class Arm64Inspector
     }
 
     /// <summary>Load, store or atomic read-modify-write: how the instruction's memory operand is accessed.</summary>
-    private static string MemoryAccess(in Arm64Instruction i)
+    internal static string MemoryAccess(in Arm64Instruction i)
     {
         var m = i.Mnemonic.ToString();
         if (m.StartsWith("PRF", StringComparison.Ordinal)) return "none";
@@ -285,7 +285,7 @@ internal static class Arm64Inspector
     }
 
     /// <summary>Bytes the memory operand accesses: the transfer register's width (byte / halfword / signed forms by mnemonic), twice for pairs.</summary>
-    private static int AccessSize(in Arm64Instruction i)
+    internal static int AccessSize(in Arm64Instruction i)
     {
         var m = i.Mnemonic.ToString();
         int fromReg = 0, regs = 0;

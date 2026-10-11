@@ -60,6 +60,24 @@ public sealed record TraceValue(string Text, TraceNodeKind Kind, uint? Rva, int 
 public sealed record ValueTraceGraph(TraceSeed Seed, ValueTraceOptions Options, string Engine, IReadOnlyList<TraceNode> Nodes, IReadOnlyList<TraceEdge> Edges,
     IReadOnlyList<TraceFrontier> Frontier, IReadOnlyList<TraceValue> Values, int Functions, int Steps, IReadOnlyList<string> Notes);
 
+/// <summary>What the trace driver needs from an instruction set's analysis besides its per-function slices.</summary>
+internal interface ITraceHost
+{
+    NativeCodeIndex Index { get; }
+    bool Is64 { get; }
+    ValueTraceCache Traces { get; }
+    IFunctionSliceProvider Slices { get; }
+    /// <summary>Where functions return their integer result ("rax", "x0").</summary>
+    string ReturnLocation { get; }
+    string Va(uint rva);
+    bool IsRelocated(uint rva);
+    (ArgKind Kind, ulong? Value, uint? Rva, string Text) FormatAddress(uint rva, ApiParam? p);
+    /// <summary>Where the callee-entry location <paramref name="entry"/> is at the call or tail jump <paramref name="site"/>.</summary>
+    string AtCall(NativeFunction f, uint site, string entry, CancellationToken ct);
+    /// <summary>The constant <paramref name="location"/> holds just after the instruction at <paramref name="address"/>, or null.</summary>
+    ulong? ConstantAfter(NativeFunction f, uint address, string location, CancellationToken ct);
+}
+
 /// <summary>
 /// Interprocedural value tracing composed from per-function slices (<see cref="IFunctionSliceProvider"/>): backward from a
 /// use to the values that reach it (merges, loops, parameters bound to every caller's argument, callee return values,
@@ -69,7 +87,7 @@ public sealed record ValueTraceGraph(TraceSeed Seed, ValueTraceOptions Options, 
 /// </summary>
 public sealed class ValueTrace
 {
-    private readonly CallAnalysis _a;
+    private readonly ITraceHost _a;
     private readonly IFunctionSliceProvider _p;
     private readonly TraceSeed _seed;
     private readonly ValueTraceOptions _o;
@@ -90,7 +108,7 @@ public sealed class ValueTrace
     private sealed record Expansion(Step Step, int Node, NativeFunction? Function, int Depth, bool Backward, string Key, string? Location, int Index,
         uint Rva, ApiParam? Param, ApiReturn? Returns);
 
-    private ValueTrace(CallAnalysis a, IFunctionSliceProvider p, TraceSeed seed, ValueTraceOptions o, CancellationToken ct)
+    private ValueTrace(ITraceHost a, IFunctionSliceProvider p, TraceSeed seed, ValueTraceOptions o, CancellationToken ct)
     {
         _a = a;
         _p = p;
@@ -103,7 +121,7 @@ public sealed class ValueTrace
     private string Va(uint rva) => _a.Va(rva);
 
     /// <summary>Builds the graph (cached per index: the same seed and options return the same graph until names change).</summary>
-    public static ValueTraceGraph Build(CallAnalysis analysis, TraceSeed seed, ValueTraceOptions options, IFunctionSliceProvider? provider = null,
+    internal static ValueTraceGraph Build(ITraceHost analysis, TraceSeed seed, ValueTraceOptions options, IFunctionSliceProvider? provider = null,
         CancellationToken ct = default)
     {
         provider ??= analysis.Slices;
@@ -163,9 +181,7 @@ public sealed class ValueTrace
             case TraceSeedKind.Argument when f != null && _seed.Location != null:
             {
                 // the value in the argument's location at the call: its uses start with the call
-                var site = _a.Code(f, _ct).Position(_seed.Address);
-                bool tail = site.Block >= 0 && _a.SiteKindOf(_a.Code(f, _ct), in _a.Code(f, _ct).Blocks[site.Block][site.Index]) == 2;
-                var atCall = OursSliceProvider.ParseLocation(_seed.Location, _a.Is64) is { } entry ? _a.Slices.LocationName(_a.Slices.EntryToCall(entry, tail)) : _seed.Location;
+                var atCall = _a.AtCall(f, _seed.Address, _seed.Location, _ct);
                 Materialize(Slice(f, new SliceSeed(SliceSeedKind.Location, _seed.Address, atCall), forward: true), 0, seedNode, false, "copy", _seed.Address, _seed.Param, _seed.Returns);
                 return;
             }
@@ -310,13 +326,8 @@ public sealed class ValueTrace
         {
             if (_seedConstantDone) return _seedConstant;
             _seedConstantDone = true;
-            if (_seed.Function == null || _seed.Kind != TraceSeedKind.Location) return null;
-            var code = _a.Code(_seed.Function, _ct);
-            var (b, i) = code.Position(_seed.Address);
-            if (b < 0 || OursSliceProvider.ParseLocation(_seed.Location, _a.Is64) is not { } loc) return null;
-            // just after the seed instruction: what it defines, else what it sees
-            var v = new ValueResolver(_a, code) { Budget = 2000 }.ValueBefore(loc, b, i + 1);
-            _seedConstant = v.Kind == VKind.Const ? v.Num : null;
+            if (_seed.Function == null || _seed.Kind != TraceSeedKind.Location || _seed.Location == null) return null;
+            _seedConstant = _a.ConstantAfter(_seed.Function, _seed.Address, _seed.Location, _ct);
             return _seedConstant;
         }
     }
@@ -412,7 +423,7 @@ public sealed class ValueTrace
             case Step.Callers: Callers(e); break;
             case Step.Returns:
                 if (!CanEnter(e.Function!)) { Frontier(e, "functions", $"maxFunctions={_o.MaxFunctions} reached"); break; }
-                Materialize(Slice(e.Function!, new SliceSeed(SliceSeedKind.Returns, e.Function!.Start, "rax"), false), e.Depth + 1, e.Node, true, "return", e.Rva, e.Param, null);
+                Materialize(Slice(e.Function!, new SliceSeed(SliceSeedKind.Returns, e.Function!.Start, _a.ReturnLocation), false), e.Depth + 1, e.Node, true, "return", e.Rva, e.Param, null);
                 break;
             case Step.Writers: Writers(e); break;
             case Step.IntoCallee:
@@ -550,9 +561,9 @@ public sealed class ValueTrace
         int size = _a.Is64 ? 8 : 4;
         Span<byte> b = stackalloc byte[8];
         b.Clear();
-        if (_a.Image.Read(g, b[..size]) != size) return null;
+        if (Index.Image.Read(g, b[..size]) != size) return null;
         ulong v = BinaryPrimitives.ReadUInt64LittleEndian(b);
-        if (_a.IsRelocated(g) && FunctionCode.TryRva(_a.Image, _a.Is64, v, out uint target))
+        if (_a.IsRelocated(g) && FunctionCode.TryRva(Index.Image, _a.Is64, v, out uint target))
         {
             var (kind, _, _, text) = _a.FormatAddress(target, null);
             return (Index.FunctionByStart(target) != null ? TraceNodeKind.Function : kind == ArgKind.String ? TraceNodeKind.String : TraceNodeKind.Address, $"{text} (initial contents)", null, target);

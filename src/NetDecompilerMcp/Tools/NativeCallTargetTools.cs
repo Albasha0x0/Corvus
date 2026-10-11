@@ -52,8 +52,8 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
         IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "resolve_call_targets", Title = "Native call targets", UseStructuredContent = true, OutputSchemaType = typeof(CallTargetsReport))]
-    [Description("Targets of call and tail-jump sites in native code (x86 / x64), each with its basis and confidence: direct branches, import slots and " +
-                 "thunks, constant pointers (also through the CFG dispatch), GetProcAddress pointers, RTTI virtual calls, the writers and initial contents " +
+    [Description("Targets of call and tail-jump sites in native code (x86 / x64 / ARM64), each with its basis and confidence: direct branches, import and GOT " +
+                 "slots, thunks, constant pointers (also through the CFG dispatch), GetProcAddress pointers, RTTI virtual calls, the writers and initial contents " +
                  "of a global function pointer, relocated pointer tables (complete when an index bound is found), and with deep=true the function " +
                  "pointers callers pass in. Several targets are listed, never collapsed; unresolved sites carry the reason and the trace_native_values " +
                  "call to follow. engine=ida or ghidra merges that engine's references and decompiler targets for the sites returned (a disagreement is ambiguous).")]
@@ -84,7 +84,9 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
         var mode = (EngineModes.Resolve(engine, engines?.DefaultMode ?? EngineMode.Auto), !string.IsNullOrWhiteSpace(engine));
         var (native, index) = await NativeTraceTools.OpenIndex(workspace, code, image, progress, cancellationToken);
         var choice = NativeEngineCode.Choose(mode.Item1, mode.Item2, engines, native, index);
-        var analysis = CallAnalysis.For(index);
+        var arm = Arm64Trace.Supports(index) ? Arm64Trace.For(index) : null;
+        var analysis = arm == null ? CallAnalysis.For(index) : null;
+        List<CallTargetSite> Image() => arm != null ? Arm64CallTargets.Image(arm, deep, cancellationToken) : CallTargets.Image(analysis!, deep, cancellationToken);
         string Va(uint r) => NativeAddress.Va(index.Image, r);
 
         var (sites, scopeText) = await Task.Run(() =>
@@ -92,15 +94,16 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
             if (string.IsNullOrWhiteSpace(address))
             {
                 if (wantedScope is "site" or "function") throw new ToolError(ErrorCode.InvalidArgument, $"scope={wantedScope} needs address.");
-                return (CallTargets.Image(analysis, deep, cancellationToken), "image (indirect sites)");
+                return (Image(), "image (indirect sites)");
             }
             var rva = NativeCodeTools.Address(index, address);
             var fn = index.FunctionAt(rva) ?? throw new ToolError(ErrorCode.NotFound, $"No function contains {Va(rva)}.", "list_functions shows the functions");
-            var one = wantedScope is null or "site" ? CallTargets.At(analysis, rva, deep, cancellationToken) : null;
+            var one = wantedScope is null or "site" ? arm != null ? Arm64CallTargets.At(arm, rva, deep, cancellationToken) : CallTargets.At(analysis!, rva, deep, cancellationToken) : null;
             if (wantedScope == "site" && one == null)
                 throw new ToolError(ErrorCode.InvalidArgument, $"{Va(rva)} is not a call or tail jump.", "scope=function lists the sites of its function");
-            if (wantedScope == "image") return (CallTargets.Image(analysis, deep, cancellationToken), "image (indirect sites)");
-            return one != null ? ([one], $"site {Va(rva)}") : (CallTargets.In(analysis, fn, deep, cancellationToken), $"function {fn.Name}");
+            if (wantedScope == "image") return (Image(), "image (indirect sites)");
+            return one != null ? ([one], $"site {Va(rva)}")
+                : (arm != null ? Arm64CallTargets.In(arm, fn, deep, cancellationToken) : CallTargets.In(analysis!, fn, deep, cancellationToken), $"function {fn.Name}");
         }, cancellationToken);
 
         var notes = new List<string>();
