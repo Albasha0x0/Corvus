@@ -31,7 +31,7 @@ public static class Toolsets
         new("il2cpp", true, "Il2Cpp metadata, addresses, symbols and bindings",
             ["get_il2cpp_info", "find_method_by_address", "export_il2cpp_symbols", "generate_cpp_binding", "apply_il2cpp_names"]),
         new("native", true, "native PE analysis, symbols and decompilation",
-            ["get_pe_info", "list_imports", "list_exports", "resolve_address", "search_bytes", "read_bytes", "list_functions", "disassemble", "inspect_instruction",
+            ["get_pe_info", "list_imports", "list_exports", "resolve_address", "search_bytes", "read_bytes", "list_functions", "list_globals", "disassemble", "inspect_instruction",
              "search_instructions", "get_cfg",
              "find_xrefs", "native_call_tree", "find_virtual_calls", "search_native_strings", "get_call_arguments", "trace_native_values", "resolve_call_targets", "analyze_native_function", "trace_native_feature", "get_exception_info",
              "list_cpp_classes", "get_native_type", "decompile_native", "verify_native_imports", "load_pdb", "search_pdb_symbols", "get_nativeaot_info"]),

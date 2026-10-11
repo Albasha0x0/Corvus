@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
-147 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+148 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -13,7 +13,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [containers](#containers) | yes | 7: file inspection, containers and wrapped apps, Unity overview |
 | [edit](#edit) | yes | 15: .NET edits, edit history and saving |
 | [il2cpp](#il2cpp) | yes | 5: Il2Cpp metadata, addresses, symbols and bindings |
-| [native](#native) | yes | 28: native PE analysis, symbols and decompilation |
+| [native](#native) | yes | 29: native PE analysis, symbols and decompilation |
 | [native-edit](#native-edit) | yes | 9: native names, comments, patches and saving |
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
@@ -1001,6 +1001,22 @@ Functions of a native image (x86 / x64 / ARM64): address, size, name (export nam
 | `engine` | string |  |  | Where functions, references and control flow come from: auto (default: an engine's analysis when one of this image is complete in this session, IDA's before Ghidra's, else the built-in index; never starts an engine), ours (the built-in index only), ida or ghidra (that engine's analysis, started or waited for when needed). The server default is set with --engine or NDM_ENGINE. Values: auto, ours, ida, ghidra. |
 
 Structured output: `image`, `functions`, `items`, `offset`, `total`, `truncated`, `coverage`, `engine`, `engineNote`.
+
+### list_globals
+
+**List native globals** (read-only, idempotent, long-running)
+
+Named data items of a native image, outside functions and code sections, from every name source: PDB data symbols with type and size, the user's names and global types (rename_native, set_native_type, define_native data), Il2Cpp, NativeAOT and IDA names, data exports and symbol-table objects. Filter by name or section; paged. get_native_type read=true reads one's fields.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
+| `filter` | string |  |  | Only globals whose name contains this text (case-insensitive). |
+| `section` | string |  |  | Only this section, e.g. .data. |
+| `offset` | integer |  | `0` | Index of the first row. |
+| `limit` | integer |  | `300` | Max rows (default 300). |
+
+Structured output: `image`, `items`, `offset`, `total`, `truncated`.
 
 ### disassemble
 

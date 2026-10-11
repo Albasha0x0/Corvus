@@ -162,6 +162,31 @@ public sealed class NativeTypeInfoTests : IDisposable
     }
 
     [Fact]
+    public async Task List_globals_merges_pdb_data_user_names_and_user_types()
+    {
+        var tools = new NativeCodeTools(_env.Workspace, _code, _env.Pager);
+        await tools.ListGlobals(_image); // loads the image and its PDB
+        var native = _env.Workspace.Read(() => _env.Workspace.Natives[0]);
+        _code.Annotations(native).SetName(0x3150, "ndm_flag");
+        _code.Annotations(native).ChangeUserTypes(l => l.WithType(0x3150, "int").WithAnalysis(new(0x3160, "data", null, "dword[2]")));
+        var collector = StructuredOutput.Begin();
+        var text = await tools.ListGlobals(_image);
+        _output.WriteLine(text);
+        var list = Assert.IsType<GlobalList>(collector.Value);
+        var game = Assert.Single(list.Items, g => g.Name == "g_Game");
+        Assert.Equal(("0x140003010", "Game", 0x108L, ".data", "pdb"), (game.Address, game.Type, game.Size, game.Section, string.Join(",", game.Sources)));
+        var flag = Assert.Single(list.Items, g => g.Address == "0x140003150");
+        Assert.Equal(("ndm_flag", "int", "user"), (flag.Name, flag.Type, string.Join(",", flag.Sources)));
+        Assert.Contains(list.Items, g => g.Address == "0x140003160" && g.Type == "dword[2]");
+        // code is not a global
+        Assert.DoesNotContain(list.Items, g => g.Section == ".text");
+
+        var filtered = StructuredOutput.Begin();
+        await tools.ListGlobals(_image, filter: "ndm", section: ".DATA");
+        Assert.Equal(["ndm_flag"], Assert.IsType<GlobalList>(filtered.Value).Items.Select(g => g.Name));
+    }
+
+    [Fact]
     public async Task Typed_address_inside_a_global_gives_the_field_path()
     {
         var (text, r) = await Get(address: $"0x{0x140000000 + PdbTypeFixture.GameRva + 0xD8:X}");
