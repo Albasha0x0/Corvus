@@ -29,7 +29,7 @@ public static class NativeAotNames
     private const int MaxSlotDepth = 64;
 
     /// <summary>What a build of the layer named.</summary>
-    public sealed record Report(int Functions, int FoldedFunctions, int VtableSlots, int MethodTables, int FrozenStrings, int FrozenObjects, int Suffixed, TimeSpan Elapsed);
+    public sealed record Report(int Functions, int FoldedFunctions, int VtableSlots, int InterfaceSlots, int MethodTables, int FrozenStrings, int FrozenObjects, int Suffixed, TimeSpan Elapsed);
 
     /// <summary>The layer's contents: names and comments by RVA, the function starts it contributes, and counts.</summary>
     public sealed record Built(Dictionary<uint, string> Names, Dictionary<uint, string> Comments, uint[] FunctionStarts, Report Report);
@@ -156,7 +156,38 @@ public static class NativeAotNames
         }
 
         var types = aot.Types.ByRva;
-        int slots = VtableSlots(types, maps, Code, Add, starts, ct);
+        int slots = VtableSlots(types, maps, Code, Add, starts, ct), interfaceSlots = 0;
+
+        // Interface implementations no map named (often in the sealed vtable): after the interface method, learned from the
+        // named implementations of the same interface slot ("IEnumerator slot 0" -> MoveNext), else after the slot.
+        var implementations = types.Values.Where(t => t.DispatchMap != 0).OrderBy(t => t.NameOrigin == "generated" ? 1 : 0).ThenBy(t => t.Rva)
+            .Select(t => (Type: t, Impls: aot.Types.Implementations(t))).ToList();
+        string Interface(uint rva) => rva != 0 && types.TryGetValue(rva, out var i) ? i.Name : "interface";
+        var votes = new Dictionary<(string, int), Dictionary<string, int>>();
+        foreach (var (_, impls) in implementations)
+            foreach (var impl in impls)
+                if (maps.MethodAt.TryGetValue(impl.Code, out var named))
+                {
+                    var key = (Interface(impl.Interface).Split('<')[0], impl.InterfaceSlot);
+                    var method = named.Name.Name[(named.Name.Name.LastIndexOf('.') + 1)..]; // explicit implementations: "Ns.IFoo.Bar" -> "Bar"
+                    if (!votes.TryGetValue(key, out var counts)) votes[key] = counts = new(StringComparer.Ordinal);
+                    counts[method] = counts.GetValueOrDefault(method) + 1;
+                }
+        foreach (var (mt, impls) in implementations)
+        {
+            ct.ThrowIfCancellationRequested();
+            foreach (var impl in impls)
+            {
+                if (impl.Code == 0 || names.ContainsKey(impl.Code) || !Code(impl.Code)) continue;
+                string iface = Interface(impl.Interface);
+                string? method = votes.TryGetValue((iface.Split('<')[0], impl.InterfaceSlot), out var counts)
+                    ? counts.OrderByDescending(c => c.Value).ThenBy(c => c.Key, StringComparer.Ordinal).First().Key : null;
+                Add(impl.Code, NativeName.Identifier($"{mt.Name}$${method ?? $"{Short(iface)}_slot{impl.InterfaceSlot}"}"),
+                    $"{mt.Name} implementation of {iface} slot {impl.InterfaceSlot}{(method != null ? $" ({method})" : "")}, vtable slot {impl.ImplSlot}");
+                starts.Add(impl.Code);
+                interfaceSlots++;
+            }
+        }
 
         int methodTables = 0;
         foreach (var mt in types.Values.OrderBy(t => t.Rva))
@@ -178,7 +209,15 @@ public static class NativeAotNames
         Add(aot.Header.Rva, "__ReadyToRunHeader", $"NativeAOT module header, ReadyToRun {aot.ReadyToRunVersion} ({aot.Runtime})");
 
         return new Built(names, comments, starts.Distinct().Order().ToArray(),
-            new Report(functions, folded, slots, methodTables, strings, objects, suffixed, watch.Elapsed));
+            new Report(functions, folded, slots, interfaceSlots, methodTables, strings, objects, suffixed, watch.Elapsed));
+    }
+
+    /// <summary>A type name without its namespace and generic arguments: "System.Collections.Generic.IList&lt;int&gt;" -> "IList".</summary>
+    private static string Short(string type)
+    {
+        int lt = type.IndexOf('<');
+        var plain = lt > 0 ? type[..lt] : type;
+        return plain[(Math.Max(plain.LastIndexOf('.'), plain.LastIndexOf('+')) + 1)..];
     }
 
     /// <summary>

@@ -9,12 +9,15 @@ namespace NetDecompilerMcp.Tests;
 public class NativeAotTypeTests
 {
     internal const uint SpeakCode = B.TextRva + 0x10, ToStringCode = B.TextRva + 0x60, EqualsCode = B.TextRva + 0x70, HashCode = B.TextRva + 0x80;
+    /// <summary>Dog's implementation of the interface's slot 1, reached only through its sealed vtable.</summary>
+    internal const uint SealedCode = B.TextRva + 0x90;
+    private const uint HasDispatchMap = 0x40000, HasSealedVTable = 0x400000;
     private const uint KindCanonical = 0, KindGenericDefinition = 3;
     private const uint IsGeneric = 0x02000000, IsGeneric7 = 0x400;
 
     /// <summary>Writes a 64-bit MethodTable of <paramref name="layout"/> into .data; returns its RVA.</summary>
     private static uint Mt(B b, MethodTableLayout layout, E element, uint kind, uint baseSize, uint related, uint[] vtable, uint[] interfaces,
-        ushort componentSize = 0, uint genericDefinition = 0, uint genericArgument = 0)
+        ushort componentSize = 0, uint genericDefinition = 0, uint genericArgument = 0, uint dispatchMap = 0, uint sealedVTable = 0)
     {
         var d = b.Data;
         d.Align(8);
@@ -26,7 +29,7 @@ public class NativeAotTypeTests
         }
         else
         {
-            uint flags = ((uint)element << 26) | (kind << 16) | (generic ? IsGeneric : 0);
+            uint flags = ((uint)element << 26) | (kind << 16) | (generic ? IsGeneric : 0) | (dispatchMap != 0 ? HasDispatchMap : 0) | (sealedVTable != 0 ? HasSealedVTable : 0);
             if (componentSize != 0) flags |= 0x80000000 | componentSize;
             d.U32(flags);
         }
@@ -40,6 +43,8 @@ public class NativeAotTypeTests
         foreach (var i in interfaces) b.Pointer(d, i);
         d.U32(0); // type manager indirection
         d.U32(0); // writable data
+        if (dispatchMap != 0) d.U32(dispatchMap - d.Here);
+        if (sealedVTable != 0) d.U32(sealedVTable - d.Here);
         if (generic && layout != MethodTableLayout.Net7)
         {
             uint def = d.Here;
@@ -67,7 +72,17 @@ public class NativeAotTypeTests
 
         uint obj = Mt(b, layout, E.Class, KindCanonical, 0x18, 0, [ToStringCode, EqualsCode, HashCode], []);
         uint speaker = Mt(b, layout, E.Interface, KindCanonical, 0, 0, [], []);
-        uint dog = Mt(b, layout, E.Class, KindCanonical, 0x20, obj, [SpeakCode, EqualsCode, HashCode], [speaker]);
+        // Dog's dispatch map (.NET 8+): the interface's slot 0 is vtable slot 0 (Speak), slot 1 is slot 3, the sealed vtable's first.
+        uint dogMap = 0, dogSealed = 0;
+        if (layout != MethodTableLayout.Net7)
+        {
+            b.Data.Align(4);
+            dogMap = b.Data.Here;
+            foreach (var v in new ushort[] { 2, 0, 0, 0, 0, 0, 0, 0, 1, 3 }) b.Data.U16(v);
+            dogSealed = b.Data.Here;
+            b.Data.U32(SealedCode - dogSealed);
+        }
+        uint dog = Mt(b, layout, E.Class, KindCanonical, 0x20, obj, [SpeakCode, EqualsCode, HashCode], [speaker], dispatchMap: dogMap, sealedVTable: dogSealed);
         uint dogArray = Mt(b, layout, E.SzArray, KindCanonical, 0x18, dog, [ToStringCode, EqualsCode, HashCode], [], componentSize: 8);
         // .NET 9+: a generic definition's BaseSize is its arity; .NET 8: its component size.
         uint boxDef = Mt(b, layout, E.Class, KindGenericDefinition, 1, 0, [], [], componentSize: (ushort)(layout == MethodTableLayout.Net8 ? 1 : 0));
@@ -147,6 +162,10 @@ public class NativeAotTypeTests
         Assert.Equal((ushort)8, types[w.DogArray].ComponentSize);
         Assert.False(types.ContainsKey(w.Frozen) || types.ContainsKey(w.Text) || types.ContainsKey(w.LookAlike));
         Assert.Equal(7, types.Count);
+        var impls = w.Aot.Types.Implementations(types[w.Dog]);
+        Assert.Equal([new NativeAotInterfaceImpl(w.Speaker, 0, 0, SpeakCode), new NativeAotInterfaceImpl(w.Speaker, 1, 3, SealedCode)], impls);
+        Assert.Equal(SealedCode, w.Aot.Types.SlotCode(types[w.Dog], 3));
+        Assert.Equal(0u, w.Aot.Types.SlotCode(types[w.Dog], 4));
         var summary = w.Aot.Summary();
         Assert.Equal((7, 6), (summary.Counts["methodTables"], summary.Counts["namedMethodTables"]));
         Assert.Equal((2, 1), (summary.Counts["frozenObjects"], summary.Counts["frozenStrings"]));

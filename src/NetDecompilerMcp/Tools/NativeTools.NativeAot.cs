@@ -18,7 +18,7 @@ public sealed partial class NativeTools
                  "dehydration, module header, each recovery stage with its status (complete / partial / absent / unsupported), counts and the share of " +
                  "function starts named. view=sections: the module sections. view=types: MethodTables with name, name origin (typemap / composition / " +
                  "vtable / element / generated), kind and base. view=type: one MethodTable by name or address with flags, base chain, interfaces and " +
-                 "vtable slots with their code. view=methods: named method bodies (origin stacktrace / invoke). view=strings: frozen string literals with " +
+                 "vtable slots and dispatch-map interface implementations with their code. view=methods: named method bodies (origin stacktrace / invoke). view=strings: frozen string literals with " +
                  "their references. query filters types / methods / strings by substring. The names also apply automatically as the nativeaot name layer.")]
     public Task<string> GetNativeAotInfo(
         [Description(ImageDescription)] string image,
@@ -179,6 +179,17 @@ public sealed partial class NativeTools
             sb.AppendLine($"    [{k}] {Code(target)}{(inherited ? "  (inherited)" : "")}");
             slots.Add(new NativeAotRow(target == 0 ? "null" : NativeAddress.Va(image, target), Code(target), "slot", $"slot {k}{(inherited ? ", inherited" : "")}"));
         }
+        var impls = types.Implementations(mt);
+        if (impls.Count > 0)
+        {
+            sb.AppendLine($"  interface methods implemented here ({impls.Count}, from the dispatch map):");
+            foreach (var impl in impls)
+            {
+                sb.AppendLine($"    {Name(impl.Interface)} slot {impl.InterfaceSlot} -> [{impl.ImplSlot}{(impl.ImplSlot >= mt.Vtable.Count ? ", sealed" : "")}] {Code(impl.Code)}");
+                slots.Add(new NativeAotRow(impl.Code == 0 ? "null" : NativeAddress.Va(image, impl.Code), Code(impl.Code), "interface",
+                    $"{Name(impl.Interface)} slot {impl.InterfaceSlot}, vtable slot {impl.ImplSlot}"));
+            }
+        }
         return StructuredOutput.With(pager.Page(sb.ToString(), offset), new NativeAotInfo(native.Id, "type", null, null, slots, 0, slots.Count, false));
     }
 
@@ -187,7 +198,7 @@ public sealed partial class NativeTools
 }
 
 /// <summary>One row of a get_nativeaot_info list view.</summary>
-public sealed record NativeAotRow(string Address, string Name, [property: Description("section, MethodTable kind, method origin (stacktrace / invoke), string or slot.")] string Kind,
+public sealed record NativeAotRow(string Address, string Name, [property: Description("section, MethodTable kind, method origin (stacktrace / invoke), string, slot or interface.")] string Kind,
     string? Detail);
 
 public sealed record NativeAotInfo(string Image, string View,

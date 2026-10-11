@@ -24,9 +24,16 @@ public sealed record NativeAotMethodTable(uint Rva, uint Flags, ushort Component
     public IReadOnlyList<uint> GenericArguments { get; init; } = [];
     public bool HasFinalizer { get; init; }
     public bool HasDispatchMap { get; init; }
+    /// <summary>The interface dispatch map (.NET 8+), 0 when none or unreadable.</summary>
+    public uint DispatchMap { get; init; }
+    /// <summary>The sealed vtable: 32-bit relative pointers to the code of slots past <see cref="Vtable"/> (.NET 8+), 0 when none.</summary>
+    public uint SealedVTable { get; init; }
     public string Name { get; init; } = "";
     public string NameOrigin { get; init; } = "generated";
 }
+
+/// <summary>An interface method a type implements: the interface's MethodTable (0 when out of range), its slot, and the implementing slot and code.</summary>
+public sealed record NativeAotInterfaceImpl(uint Interface, int InterfaceSlot, int ImplSlot, uint Code);
 
 /// <summary>
 /// Discovers and names the MethodTables of a NativeAOT module. Seeds: TypeMap and CommonFixupsTable targets and the
@@ -52,6 +59,43 @@ public sealed class NativeAotTypes
         : reader == null ? null
         : others.GetOrAdd(rva, r => reader.TryRead(r, out var read) ? read with { Name = $"MT_{r:X}" } : null);
 
+    /// <summary>
+    /// The code of vtable slot <paramref name="slot"/>: from the vtable, or past its end from the sealed vtable
+    /// (VirtualMethodSlotHelper numbering); 0 when unknown.
+    /// </summary>
+    public uint SlotCode(NativeAotMethodTable mt, int slot)
+    {
+        if (slot < 0) return 0;
+        if (slot < mt.Vtable.Count) return mt.Vtable[slot];
+        int sealedSlot = slot - mt.Vtable.Count;
+        if (mt.SealedVTable == 0 || hydrated == null || sealedSlot >= MaxSlots) return 0;
+        return hydrated.RelativeAt(mt.SealedVTable + 4 * (uint)sealedSlot) is { } code && hydrated.Image.SectionAt(code) is { IsExecutable: true } ? code : 0;
+    }
+
+    /// <summary>
+    /// The instance interface methods <paramref name="mt"/> implements itself, from its dispatch map (InterfaceDispatchMapNode.cs:
+    /// four u16 entry counts, then u16 triples interface index, interface slot, implementation slot). Default, static and
+    /// inherited implementations are not listed.
+    /// </summary>
+    public IReadOnlyList<NativeAotInterfaceImpl> Implementations(NativeAotMethodTable mt)
+    {
+        var result = new List<NativeAotInterfaceImpl>();
+        if (mt.DispatchMap == 0 || hydrated == null) return result;
+        Span<byte> b = stackalloc byte[6];
+        if (hydrated.Read(mt.DispatchMap, b[..2]) != 2) return result;
+        int count = BinaryPrimitives.ReadUInt16LittleEndian(b);
+        for (int i = 0; i < count; i++)
+        {
+            if (hydrated.Read(mt.DispatchMap + 8 + 6 * (uint)i, b) != 6) break;
+            int index = BinaryPrimitives.ReadUInt16LittleEndian(b), interfaceSlot = BinaryPrimitives.ReadUInt16LittleEndian(b[2..]),
+                implSlot = BinaryPrimitives.ReadUInt16LittleEndian(b[4..]);
+            result.Add(new NativeAotInterfaceImpl(index < mt.Interfaces.Count ? mt.Interfaces[index] : 0, interfaceSlot, implSlot, SlotCode(mt, implSlot)));
+        }
+        return result;
+    }
+
+    private HydratedImage? hydrated;
+
     public static NativeAotTypes Read(NativeAotImage aot, CancellationToken ct = default)
     {
         var types = new NativeAotTypes();
@@ -61,6 +105,7 @@ public sealed class NativeAotTypes
             return types;
         }
         var reader = types.reader = new Reader(aot);
+        types.hydrated = aot.Hydrated;
         var found = reader.Crawl(ct);
         var named = new Namer(aot, found).NameAll();
         types.ByRva = named;
@@ -279,10 +324,18 @@ public sealed class NativeAotTypes
         private NativeAotMethodTable Tail(NativeAotMethodTable mt, uint at, uint kind)
         {
             at += 8; // TypeManager indirection, writable data
-            if (mt.HasDispatchMap) at += 4;
+            if (mt.HasDispatchMap)
+            {
+                mt = mt with { DispatchMap = image.RelativeAt(at) is { } map && IsData(map) ? map : 0 };
+                at += 4;
+            }
             if (mt.HasFinalizer) at += 4;
             if ((mt.Flags & masks.OptionalFields) != 0) at += 4;
-            if ((mt.Flags & masks.HasSealedVTable) != 0) at += 4;
+            if ((mt.Flags & masks.HasSealedVTable) != 0)
+            {
+                mt = mt with { SealedVTable = image.RelativeAt(at) is { } sealedSlots && IsData(sealedSlots) ? sealedSlots : 0 };
+                at += 4;
+            }
             if ((mt.Flags & masks.IsGeneric) == 0 || kind == masks.KindGenericDefinition) return mt;
             uint definition = image.RelativeAt(at) ?? 0;
             if (definition == 0 || !IsData(definition)) return mt;

@@ -89,8 +89,10 @@ public class NativeAotNamesTests(ITestOutputHelper output)
         Assert.Equal(("str_0", "\"hi\""), (n[w.Text + 8], built.Comments[w.Text + 8]));
         Assert.Equal("frozen_0", n[w.Frozen + 8]);
         Assert.Equal("__ReadyToRunHeader", n[w.Aot.Header.Rva]);
-        Assert.Equal([T.SpeakCode, T.ToStringCode, T.EqualsCode, T.HashCode], built.FunctionStarts);
-        Assert.Equal((1, 3, 7, 1, 1), (built.Report.Functions, built.Report.VtableSlots, built.Report.MethodTables, built.Report.FrozenStrings, built.Report.FrozenObjects));
+        Assert.Equal($"Sample_Zoo_Dog__MT_{w.Speaker:X}_slot1", n[T.SealedCode]);
+        Assert.Equal($"Sample.Zoo.Dog implementation of MT_{w.Speaker:X} slot 1, vtable slot 3", built.Comments[T.SealedCode]);
+        Assert.Equal([T.SpeakCode, T.ToStringCode, T.EqualsCode, T.HashCode, T.SealedCode], built.FunctionStarts);
+        Assert.Equal((1, 3, 1, 7, 1, 1), (built.Report.Functions, built.Report.VtableSlots, built.Report.InterfaceSlots, built.Report.MethodTables, built.Report.FrozenStrings, built.Report.FrozenObjects));
         Assert.Equal(n.Count, n.Values.Distinct().Count());
     }
 
@@ -196,7 +198,7 @@ public class NativeAotNamesTests(ITestOutputHelper output)
         Assert.Contains("NativeAOT, .NET 10, ReadyToRun 16.0", summary);
         Assert.Contains("method tables: complete", summary);
         Assert.Contains("nativeaot name layer:", summary);
-        Assert.Contains("list_functions: 4 of 5 functions carry a nativeaot name", summary);
+        Assert.Contains("list_functions: 5 of 6 functions carry a nativeaot name", summary);
 
         Assert.Contains("FrozenObjectRegion  [section]", await tools.GetNativeAotInfo(native.Id, "sections"));
         var types = await tools.GetNativeAotInfo(native.Id, "types", "zoo.dog");
@@ -211,6 +213,8 @@ public class NativeAotNamesTests(ITestOutputHelper output)
         Assert.Contains("[0] 0x140001010 Sample_Zoo_Dog__Speak", dog);
         Assert.Contains("[2] 0x140001080 System_Object__vslot2  (inherited)", dog);
         Assert.Contains($"interfaces (1): MT_{w.Speaker:X}", dog);
+        Assert.Contains("interface methods implemented here (2, from the dispatch map):", dog);
+        Assert.Contains($"MT_{w.Speaker:X} slot 1 -> [3, sealed] 0x140001090 Sample_Zoo_Dog__MT_{w.Speaker:X}_slot1", dog);
 
         Assert.Contains("Sample.Zoo.Dog::Speak", await tools.GetNativeAotInfo(native.Id, "methods", "speak"));
         Assert.Contains("hi  [string]  1 refs", await tools.GetNativeAotInfo(native.Id, "strings", "h"));

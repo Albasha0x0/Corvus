@@ -124,6 +124,22 @@ public class NativeAotRealTests
         Assert.Equal((NativeAotElementType.Class, (ushort)2), (str.ElementType, str.ComponentSize));
     }
 
+    /// <summary>Dispatch maps: interface slots resolve to code, IEnumerator's slot 0 to MoveNext bodies.</summary>
+    [Theory]
+    [MemberData(nameof(Samples))]
+    public void DispatchMaps_ResolveInterfaceSlots(string sample)
+    {
+        var (_, aot) = Open(sample);
+        var types = aot.Types;
+        var impls = types.ByRva.Values.Where(t => t.DispatchMap != 0).SelectMany(t => types.Implementations(t).Select(i => (Type: t, Impl: i))).ToList();
+        Assert.InRange(impls.Count, 20_000, 40_000);
+        Assert.True(impls.Count(i => i.Impl.Code != 0) > 0.9 * impls.Count);
+        Assert.True(impls.Count(i => i.Impl.ImplSlot >= i.Type.Vtable.Count) > impls.Count / 2, "most implementations are in sealed vtables");
+        var moveNext = impls.Where(i => i.Impl.InterfaceSlot == 0 && types.At(i.Impl.Interface)?.Name == "System.Collections.IEnumerator"
+                                        && aot.Names.MethodAt.ContainsKey(i.Impl.Code)).Select(i => aot.Names.MethodAt[i.Impl.Code].Name.Name).ToList();
+        Assert.True(moveNext.Count > 50 && moveNext.Count(n => n.EndsWith("MoveNext", StringComparison.Ordinal)) > 0.95 * moveNext.Count);
+    }
+
     [Theory]
     [MemberData(nameof(Samples))]
     public void FrozenRegion_WalkedToTheEnd(string sample)
