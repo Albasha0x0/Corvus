@@ -468,6 +468,24 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
     }
 
     [GhidraFact]
+    public async Task An_extension_from_the_extension_directory_loads_from_the_private_settings()
+    {
+        var ghidra = GhidraInstallation.Locate(null, out _, out _)!;
+        var dir = new TempDir();
+        _owned.Add(dir);
+        GhidraExtensionTests.ExtensionZip(dir.File("ext"), "NdmProbe", ghidra.Version);
+        var provider = new GhidraProvider(new GhidraProviderOptions { CacheRoot = dir.File("cache"), ExtensionsDirectory = dir.File("ext") });
+        _owned.Add(provider);
+        Assert.Equal("NdmProbe", provider.CheckAvailability().Details["extensions"]);
+        var userFiles = UserGhidraFiles();
+        var a = await provider.ProbeAsync();
+        Assert.True(a.IsAvailable, a.Reason);
+        Assert.Equal("NdmProbe", a.Details["extensions_loaded"]);
+        Assert.True(File.Exists(Path.Combine(GhidraExtensions.InstallDirectory(provider.Directories, ghidra), "NdmProbe", "lib", "NdmProbe.jar")));
+        Assert.Equal(userFiles.Keys.Order(), UserGhidraFiles().Keys.Order());
+    }
+
+    [GhidraFact]
     public async Task Managed_assembly_is_unsupported()
     {
         var e = await Assert.ThrowsAsync<ToolError>(() => Provider.OpenAsync(Env.FixturePath, null, Offline));

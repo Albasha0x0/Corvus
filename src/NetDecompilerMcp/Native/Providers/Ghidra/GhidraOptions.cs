@@ -27,6 +27,8 @@ public static class GhidraOptions
     public const string ProfileVariable = "NDM_GHIDRA_ANALYSIS";
     /// <summary>Extra analyzer options, "Name=value;Name=value", applied after the profile's.</summary>
     public const string OptionsVariable = "NDM_GHIDRA_OPTIONS";
+    /// <summary>A directory of Ghidra extensions (zips or unpacked) installed into the workers' private settings (see <see cref="GhidraExtensions"/>).</summary>
+    public const string ExtensionsVariable = "NDM_GHIDRA_EXTENSIONS";
 
     /// <summary>Bumped when the worker protocol or what the worker stores in a project changes; part of the profile key.</summary>
     public const int ProtocolVersion = 1;
@@ -112,11 +114,11 @@ public static class GhidraOptions
     }
 
     /// <summary>
-    /// Names the project of one image under one configuration: Ghidra version and revision, protocol, loader arguments
-    /// and analyzer options. A change to any of them analyzes again into a new project. 16 hex digits.
+    /// Names the project of one image under one configuration: Ghidra version and revision, protocol, loader arguments,
+    /// analyzer options and extensions. A change to any of them analyzes again into a new project. 16 hex digits.
     /// </summary>
     public static string ProfileKey(GhidraInstallation ghidra, GhidraAnalysisProfile profile, IEnumerable<KeyValuePair<string, string>> loaderArguments,
-        IEnumerable<KeyValuePair<string, string>> analyzerOptions)
+        IEnumerable<KeyValuePair<string, string>> analyzerOptions, IEnumerable<GhidraExtension>? extensions = null)
     {
         var sb = new StringBuilder();
         sb.Append("ghidra=").Append(ghidra.Version).Append('@').Append(ghidra.Revision).Append('\n');
@@ -124,6 +126,7 @@ public static class GhidraOptions
         sb.Append("profile=").Append(profile).Append('\n');
         foreach (var (k, v) in loaderArguments) sb.Append("loader ").Append(k).Append('=').Append(v).Append('\n');
         foreach (var (k, v) in analyzerOptions) sb.Append("option ").Append(k).Append('=').Append(v).Append('\n');
+        foreach (var e in (extensions ?? []).OrderBy(e => e.Name, StringComparer.Ordinal)) sb.Append("extension ").Append(e.Name).Append('=').Append(e.Hash).Append('\n');
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString())))[..16];
     }
 }

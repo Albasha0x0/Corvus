@@ -547,8 +547,15 @@ Options go after the command in a client's configuration (`args`), e.g. to prelo
 
 Logs go to stderr; stdout is reserved for the protocol.
 
-Each IDA worker is capped at three quarters of the memory available to the server (Windows Job Object; `NDM_ENGINE_MEMORY_MB`
+Each IDA or Ghidra worker is capped at three quarters of the memory available to the server (Windows Job Object; `NDM_ENGINE_MEMORY_MB`
 sets the limit in MB, `0` removes it). A worker that reaches it fails its request with the limit named and restarts on the next one.
+
+Ghidra (12.0 or newer) is found through `NDM_GHIDRA_DIR` (else `GHIDRA_INSTALL_DIR`) and a JDK through `NDM_GHIDRA_JAVA` (else
+`JAVA_HOME`, else `PATH`); the worker is compiled from its embedded sources on first use. `NDM_GHIDRA_ANALYSIS` picks the
+analysis profile (`standard`, `full` or `minimal`), `NDM_GHIDRA_MAXMEM` the JVM heap, `NDM_GHIDRA_OPTIONS` extra analyzer
+options (`Name=value;...`), and `NDM_GHIDRA_EXTENSIONS` a directory of Ghidra extension zips built for that Ghidra (a NativeAOT
+analyzer, for example), installed into the workers' private settings; nothing is downloaded. Projects are kept per file hash
+and configuration, so a changed profile or extension set analyzes again once.
 
 Code that targets a .NET version not installed on the machine is read against that version's reference pack, which
 is downloaded once from nuget.org into the local app data folder. Set `NDM_OFFLINE=1` to never download; such code is

@@ -322,6 +322,7 @@ public class Worker implements GhidraLaunchable {
         o.addProperty("java", System.getProperty("java.version"));
         o.addProperty("decompiler", decompilerPresent());
         o.addProperty("pid", ProcessHandle.current().pid());
+        o.add("extensions", extensions());
         return o;
     }
 
@@ -495,10 +496,23 @@ public class Worker implements GhidraLaunchable {
         o.addProperty("analysis_complete", complete);
         o.addProperty("decompiler", decompilerPresent());
         o.addProperty("seconds", Math.round(seconds * 1000) / 1000.0);
+        o.add("extensions", extensions());
         JsonArray w = new JsonArray();
         for (String s : warnings) w.add(s);
         o.add("warnings", w);
         return o;
+    }
+
+    /** Names of the extension modules Ghidra loaded (modules under its extension installation directories). */
+    private static JsonArray extensions() {
+        JsonArray names = new JsonArray();
+        var layout = Application.getApplicationLayout();
+        for (var module : layout.getModules().values()) {
+            var parent = module.getModuleRoot().getParentFile();
+            for (var dir : layout.getExtensionInstallationDirs())
+                if (parent != null && parent.equals(dir)) names.add(module.getName());
+        }
+        return names;
     }
 
     private JsonElement rebase(Request r) throws Exception {

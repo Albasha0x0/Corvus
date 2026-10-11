@@ -47,7 +47,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         if (header.IsElf && header.ImageBase is { } elfBase)
             _loaderArguments.Add(new(GhidraOptions.ElfImageBaseArgument, elfBase.ToString("x", CultureInfo.InvariantCulture)));
         _analyzerOptions = GhidraOptions.AnalyzerOptions(profile, Options.Symbols, provider.ExtraOptions);
-        var key = GhidraOptions.ProfileKey(ghidra, profile, _loaderArguments, _analyzerOptions);
+        var key = GhidraOptions.ProfileKey(ghidra, profile, _loaderArguments, _analyzerOptions, provider.Extensions);
         _projectDirectory = Path.Combine(Entry.Directory, "p-" + key);
     }
 
@@ -206,7 +206,12 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         AnalysisComplete = info.GetProperty("analysis_complete").GetBoolean();
         Language = info.GetProperty("language").GetString() ?? "";
         FunctionCount = info.GetProperty("functions").GetInt32();
-        Warnings = info.GetProperty("warnings").EnumerateArray().Select(w => w.GetString() ?? "").ToList();
+        var warnings = info.GetProperty("warnings").EnumerateArray().Select(w => w.GetString() ?? "").ToList();
+        // an extension Ghidra did not load is a warning, not a failure: the analysis runs without it
+        var loaded = info.TryGetProperty("extensions", out var e) ? e.EnumerateArray().Select(x => x.GetString() ?? "").ToHashSet(StringComparer.OrdinalIgnoreCase) : [];
+        foreach (var x in provider.Extensions.Where(x => !loaded.Contains(x.Name)))
+            warnings.Add($"the extension {x.Name} ({x.Source}) was not loaded by Ghidra {ghidra.Version}");
+        Warnings = warnings;
         if (Arch == NativeArch.Unknown) Arch = ArchOf(Language);
         Options.Progress?.Report(new NativeProviderProgress("ready", clock.Elapsed));
     }

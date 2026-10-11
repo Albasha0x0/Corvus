@@ -17,6 +17,8 @@ public sealed record GhidraProviderOptions
     public string? MaxMemory { get; init; }
     /// <summary>Extra analyzer options "Name=value;..."; null: NDM_GHIDRA_OPTIONS.</summary>
     public string? ExtraOptions { get; init; }
+    /// <summary>Directory of Ghidra extensions to install for the workers; null: NDM_GHIDRA_EXTENSIONS.</summary>
+    public string? ExtensionsDirectory { get; init; }
     /// <summary>Time the worker gets to save and exit on close before it is killed.</summary>
     public TimeSpan ShutdownGrace { get; init; } = TimeSpan.FromSeconds(30);
     /// <summary>Time for the JVM to start and initialize Ghidra.</summary>
@@ -57,6 +59,9 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
     internal GhidraAnalysisProfile Profile => _options.Profile ?? GhidraOptions.Profile(Environment.GetEnvironmentVariable(GhidraOptions.ProfileVariable));
     internal string? ExtraOptions => _options.ExtraOptions ?? Environment.GetEnvironmentVariable(GhidraOptions.OptionsVariable);
 
+    /// <summary>The extensions the workers load (read with the static checks).</summary>
+    internal IReadOnlyList<GhidraExtension> Extensions { get; private set; } = [];
+
     public ProviderAvailability CheckAvailability() => Static().Result;
 
     private (ProviderAvailability Result, GhidraInstallation? Ghidra, JavaRuntime? Java) Static()
@@ -90,6 +95,8 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         {
             details["profile"] = Profile.ToString().ToLowerInvariant();
             GhidraOptions.ParseExtra(ExtraOptions);
+            Extensions = GhidraExtensions.Configured(_options.ExtensionsDirectory ?? Environment.GetEnvironmentVariable(GhidraOptions.ExtensionsVariable));
+            if (Extensions.Count > 0) details["extensions"] = string.Join(", ", Extensions.Select(e => e.Name));
         }
         catch (ToolError e)
         {
@@ -109,6 +116,8 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
             await worker.WaitReadyAsync(_options.StartTimeout, cancellationToken).ConfigureAwait(false);
             var hello = await worker.RequestAsync("hello", null, TimeSpan.FromMinutes(1), cancellationToken).ConfigureAwait(false);
             if (hello.TryGetProperty("version", out var v) && v.GetString() is { } version) details["version"] = version;
+            if (hello.TryGetProperty("extensions", out var x) && x.GetArrayLength() > 0)
+                details["extensions_loaded"] = string.Join(", ", x.EnumerateArray().Select(n => n.GetString()));
             await worker.ShutdownAsync("close", null, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
             return ProviderAvailability.Ok(Id, details);
         }
@@ -157,6 +166,15 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
             throw new ToolError(ErrorCode.IoError, $"Creating {dirs.Root} failed: {ex.Message}", $"Check that the analysis cache is writable ({AnalysisCache.RootVariable} selects another).");
         }
         var jars = await WorkerBuild.EnsureAsync(ghidra, java, dirs.Workers, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            lock (ExtensionInstall) GhidraExtensions.Install(Extensions, GhidraExtensions.InstallDirectory(dirs, ghidra));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            throw new ToolError(ErrorCode.IoError, $"Installing the Ghidra extensions into {dirs.Settings} failed: {ex.Message}",
+                $"Check the extensions in {GhidraOptions.ExtensionsVariable} and that the analysis cache is writable.");
+        }
         var vmArgs = await Task.Run(() => GhidraLaunch.VmArgs(ghidra, java), cancellationToken).ConfigureAwait(false);
         var memory = GhidraOptions.MaxMemory(_options.MaxMemory ?? Environment.GetEnvironmentVariable(GhidraOptions.MaxMemoryVariable), imageBytes);
         var start = new ChildProcessStart(java.Java, GhidraLaunch.Arguments(ghidra, vmArgs, memory, dirs, jars.Boot, jars.Worker))
@@ -177,6 +195,8 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
                 $"Check the JDK or set {GhidraOptions.JavaVariable}.");
         }
     }
+
+    private static readonly object ExtensionInstall = new();
 
     internal static string? Remediation(ErrorCode code, string message) => message.Contains(EngineMemoryLimit.Variable, StringComparison.Ordinal)
         ? $"Raise {EngineMemoryLimit.Variable} (MB; 0 turns the limit off) or lower {GhidraOptions.MaxMemoryVariable}, and retry."
