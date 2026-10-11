@@ -14,18 +14,16 @@ namespace NetDecompilerMcp.Tools;
 public sealed partial class NativeTools
 {
     [McpServerTool(Name = "get_nativeaot_info", Title = "NativeAOT metadata", UseStructuredContent = true, OutputSchemaType = typeof(NativeAotInfo))]
-    [Description("What a NativeAOT image's own metadata recovers, (.NET 7-10; PE, ELF, Mach-O; 32/64-bit). view=summary: runtime and ReadyToRun version, " +
-                 "dehydration, header, each stage's status, counts and the share of " +
-                 "function starts named. view=sections: module sections. view=types: MethodTables with name, name origin, " +
-                 "kind and base. view=type: one MethodTable (name or address): flags, bases, interfaces, " +
-                 "vtable and interface slots. view=methods: named method bodies. view=strings: frozen strings with " +
-                 "their references. view=statics: statics bases with their types and known fields. query filters the lists by substring. Its names apply on load as the nativeaot layer.")]
+    [Description("What a NativeAOT image's own metadata recovers (.NET 7-10; PE, ELF, Mach-O). view=summary: versions, header, each recovery " +
+                 "stage's status and counts. sections: module sections. types: MethodTables (name, origin, kind, base). type: one MethodTable's " +
+                 "flags, bases, interfaces and slots. methods: named method bodies. strings: frozen strings with references. statics: statics " +
+                 "bases with known fields. Its names apply on load as the nativeaot layer.")]
     public Task<string> GetNativeAotInfo(
         [Description(ImageDescription)] string image,
-        [Description("summary (default), sections, types, type, methods, strings or statics.")] string? view = null,
-        [Description("view=type: a type name ('System.String', 'MT_System_String') or the MethodTable's address; other list views: substring filter.")] string? query = null,
+        [Description("What to show (default summary).")] string? view = null,
+        [Description("view=type: a type name or MethodTable address; list views: substring filter.")] string? query = null,
         [Description("First row for the list views; character offset for summary and type.")] int offset = 0,
-        [Description("Max rows for the list views (default 200).")] int limit = 200,
+        [Description("Max rows for the list views.")] int limit = 200,
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
         var aot = NativeAotNames.View(native, cancellationToken)

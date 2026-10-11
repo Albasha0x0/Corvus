@@ -36,27 +36,24 @@ public sealed class NativeTypeInfoTools(AssemblyWorkspace workspace, NativeCodeS
     }
 
     [McpServerTool(Name = "get_native_type", Title = "Native type layout", UseStructuredContent = true, OutputSchemaType = typeof(NativeTypeReport))]
-    [Description("A native type's layout from the image's sources: PDB type records (structs, classes, unions, enums, typedefs, pointers, arrays, " +
-                 "function types; fields with offset, size and bit fields, bases, padding), MSVC RTTI (bases, vftables with named slot targets; merged " +
-                 "with the PDB's class), Il2Cpp layouts (after apply_il2cpp_names) and the engine's types (IDA or Ghidra; source=engine opens it, auto reads it " +
-                 "when already analyzed, for names the others lack). By name (exact, case-insensitive, then substring candidates; several definitions " +
-                 "are an ambiguous error listing ids), id (drill-down) or typed address (in a PDB global: the field path, g_Game.players[3].pos.y; also " +
-                 "vftables and Il2Cpp metadata slots). at=0x48 names the field at an offset (all union members; 0x48.0x10 reads through a pointer); " +
-                 "depth inlines by-value members; enums sorted by value. read=true adds each field's value from the image's bytes (integers, floats, " +
-                 "pointers with their target's name, strings, enumerators, bit fields): at a typed address, or with name or id at address; no engine needed.")]
+    [Description("A native type's layout (fields with offset, size and bit fields, bases, padding; enums by value) from the PDB, MSVC RTTI (bases, " +
+                 "vftables with named slots), Il2Cpp layouts (after apply_il2cpp_names) or the engine's types (source=engine opens IDA or Ghidra; auto " +
+                 "reads an analyzed one for names the others lack). By name (exact, case-insensitive, then substring candidates), id, or typed address " +
+                 "(a PDB global gives the field path, e.g. g.players[3].pos.y; also vftables and Il2Cpp metadata slots). read=true adds each field's " +
+                 "value from the image's bytes (pointers named, strings, enumerators, bit fields); no engine needed.")]
     public Task<string> GetNativeType(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Type name (Packet, ns::Widget, Ns.Type for Il2Cpp).")] string? name = null,
-        [Description("Type id from a result (pdb:0x1A2B, rtti:0x140012000, il2cpp:Ns.Type, ida:Name).")] string? id = null,
+        [Description("Type id from a result (pdb:0x1A2B, rtti:0x140012000, il2cpp:Ns.Type).")] string? id = null,
         [Description("A typed address: " + NativeTools.AddressDescription)] string? address = null,
-        [Description("Hex offset of a field to name: 0x48; 0x48.0x10 reads through the pointer at 0x48.")] string? at = null,
-        [Description("Levels of by-value members to inline (0-4, default 0).")] int depth = 0,
-        [Description("auto (default), pdb, rtti, il2cpp or engine.")] string? source = null,
-        [Description("table (default) or c (C declaration).")] string? format = null,
+        [Description("Hex offset of a field to name (all union members); 0x48.0x10 reads through the pointer at 0x48.")] string? at = null,
+        [Description("Levels of by-value members to inline (0-4).")] int depth = 0,
+        [Description("Type source (default auto).")] string? source = null,
+        [Description("table (default) or c (a C declaration).")] string? format = null,
         [Description("Index of the first row (field, enumerator, slot, candidate).")] int offset = 0,
-        [Description("Max rows (default 200, max 5000).")] int limit = 200,
-        [Description("Engine for source=engine: auto (default), ida or ghidra.")] string? engine = null,
-        [Description("Read the fields' values from the image's bytes at address (with name or id: the type read there).")] bool read = false,
+        [Description("Max rows (max 5000).")] int limit = 200,
+        [Description("Engine for source=engine (default auto).")] string? engine = null,
+        [Description("Add the field values at address (with name or id: that type read there).")] bool read = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

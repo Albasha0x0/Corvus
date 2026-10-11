@@ -39,25 +39,20 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs, Outpu
     }
 
     [McpServerTool(Name = "load_pdb", Title = "Load native debug symbols")]
-    [Description("Load the PDB (MSF 7.0) of a native image: function and data names with addresses (publics, global and static data, procedures of every " +
-                 "module, thunks), checked against the image's CodeView GUID and age. Searched: the path given (file or directory), the image's directory, " +
-                 "the path recorded in the image, _NT_SYMBOL_PATH caches and directories, the Visual Studio / WinDbg / IDA caches and C:\\symbols. " +
-                 "download=true (off by default) fetches it from a symbol server (server, else those in _NT_SYMBOL_PATH, else Microsoft's) into a per-user cache. " +
-                 "Names show up as source 'pdb' in list_functions, disassemble and cross-references; user names (rename_native) are kept. Functions the PDB " +
-                 "names that discovery missed become function starts (the index rebuilds in the background). A matching local PDB is also read " +
-                 "automatically when the index is first built. The next decompile_native loads the PDB's types (structs, enums, prototypes) into " +
-                 "the IDA database. The names of a load_pdb are saved with the image's annotations (PDB path, GUID and age, " +
-                 "names, function starts) and reapplied automatically when the same file is loaded again, even when the PDB has moved; clear=true " +
-                 "removes the PDB names and the saved copy.")]
+    [Description("Load the PDB of a native image: function and data names (publics, globals, procedures, thunks), checked against the image's GUID " +
+                 "and age. Searched: path, the image's folder, its recorded path, _NT_SYMBOL_PATH, the Visual Studio / WinDbg / IDA caches and " +
+                 "C:\\symbols; download=true fetches it from a symbol server into a per-user cache. Names show as source 'pdb' everywhere (user " +
+                 "names win); missed functions become function starts; decompile_native loads its types. A matching local PDB is read automatically " +
+                 "anyway. The names are saved with the image's annotations and reapplied when the file loads again; clear=true removes them.")]
     public Task<string> LoadPdb(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("PDB file, or a directory (or symbol store) to look in first.")] string? path = null,
-        [Description("Download from a symbol server when no local PDB matches (network; off by default).")] bool download = false,
+        [Description("Download from a symbol server when no local PDB matches (network).")] bool download = false,
         [Description("Symbol server URL for download (default: _NT_SYMBOL_PATH servers, else https://msdl.microsoft.com/download/symbols).")] string? server = null,
         [Description("Use the PDB at path even when its GUID or age differs from the image (names may be wrong).")] bool force = false,
-        [Description("Download time limit in seconds (default 120).")] int timeoutSeconds = 120,
-        [Description("Download size limit in MB (default 2048).")] int maxMegabytes = 2048,
-        [Description("Remove the image's PDB names and their saved copy instead of loading (a matching local PDB is not read again in this session).")] bool clear = false,
+        [Description("Download time limit in seconds.")] int timeoutSeconds = 120,
+        [Description("Download size limit in MB.")] int maxMegabytes = 2048,
+        [Description("Remove the PDB names and their saved copy instead (not read again this session).")] bool clear = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -120,15 +115,14 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs, Outpu
     }
 
     [McpServerTool(Name = "search_pdb_symbols", Title = "Search native debug symbols")]
-    [Description("Symbols of the PDB loaded for a native image (load_pdb, or found automatically): address, kind (function, data, public, thunk), size, " +
-                 "name, the full signature undecorated from the public name, and the module (object file). query matches names case-insensitively; " +
-                 "empty lists all.")]
+    [Description("Symbols of the PDB loaded for a native image (load_pdb, or found automatically): address, kind, size, name, the signature " +
+                 "undecorated from the public name, and the object file.")]
     public Task<string> SearchPdbSymbols(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Text the name (or decorated name) contains; empty for all.")] string? query = null,
-        [Description("Only this kind: function, data, public, or all (default).")] string? kind = null,
+        [Description("Name or decorated name substring (case-insensitive); empty for all.")] string? query = null,
+        [Description("Only this kind (default all).")] string? kind = null,
         [Description("Index of the first row.")] int offset = 0,
-        [Description("Max rows (default 200).")] int limit = 200,
+        [Description("Max rows.")] int limit = 200,
         CancellationToken cancellationToken = default) => Task.Run(async () =>
     {
         var native = await Native(image, cancellationToken);

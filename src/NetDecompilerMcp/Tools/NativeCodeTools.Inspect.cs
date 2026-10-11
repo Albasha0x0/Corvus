@@ -101,21 +101,18 @@ public sealed partial class NativeCodeTools
     private const int MaxInspectCount = 64;
 
     [McpServerTool(Name = "inspect_instruction", Title = "Inspect native instructions", UseStructuredContent = true, OutputSchemaType = typeof(InstructionReport))]
-    [Description("What is at an address of a native image (x86 / x64 / ARM), instruction by instruction: decoded (an instruction start in a known function), " +
-                 "mid_instruction (with the covering instruction), data (string, IAT / GOT slot, switch table, relocated pointer, PE directory, ARM " +
-                 "literal or data in code; with its start and end), not_in_function, unmapped (bss), outside_image or invalid. For an instruction: bytes, " +
-                 "prefixes, encoding, CPUID / ARM64 features; each operand's kind, size and access, registers with their full register, memory as base, " +
-                 "index, scale or extend, displacement and pre / post-index writeback, with the effective address named; registers and flags read and " +
-                 "written, memory accesses, stack pointer change; flow with target and fallthrough; the ARM address-forming pair and the address; " +
-                 "references from and to; a call's arguments; a switch's table. count > 1 walks forward, skipping data items. With IDA or Ghidra " +
-                 "(other instruction sets): the engine's items, operands, access, flow and references; fields it does not supply are null. " + IndexNote)]
+    [Description("What is at an address of a native image, instruction by instruction: decoded, mid_instruction (with the covering one), data " +
+                 "(string, IAT / GOT slot, switch table, pointer, literal; with its extent), not_in_function, unmapped, outside_image or invalid. " +
+                 "For an instruction: bytes, prefixes, encoding, CPU features; operands (kind, size, access, registers, memory parts, effective " +
+                 "address named); registers and flags read and written; memory accesses; stack change; flow; references from and to; a call's " +
+                 "arguments; a switch's table. count > 1 walks forward. Other instruction sets through IDA or Ghidra (fields they lack are null). " + IndexNote)]
     public Task<string> InspectInstruction(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
-        [Description("Instructions to inspect from the address (1-64, default 1).")] int count = 1,
+        [Description("Instructions to inspect (1-64).")] int count = 1,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
-        [Description("Engine: auto (default: the built-in decoder for x86 / x64 / ARM, else IDA, else Ghidra when installed), ours, ida or ghidra.")]
+        [Description("auto (default): the built-in decoder for x86 / x64 / ARM, else IDA, else Ghidra.")]
         string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>

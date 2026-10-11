@@ -23,24 +23,22 @@ public sealed partial class NativeCodeTools
     };
 
     [McpServerTool(Name = "find_xrefs", Title = "Native cross-references", UseStructuredContent = true, OutputSchemaType = typeof(XrefList))]
-    [Description("What references an address in a native image: calls (direct, through import slots and thunks), jumps, data reads and writes, " +
-                 "address-taken uses, switch tables and relocated pointers, each with its function; for a virtual method, the virtual call sites " +
-                 "reaching it (VirtualExact: the only implementation; VirtualPossible: one of several). An import (module!name): its call " +
-                 "sites (x86 calls through a register loaded from the slot too) and its binding; an export: also call sites in other loaded images " +
-                 "([image] prefix). Call rows show recovered arguments. A late-bound import (GetProcAddress): where it is resolved and calls through " +
-                 "its pointer. direction=from: what the address references (a function start: the whole function), rows ending '-> target'. " +
-                 "A struct member (Type::member, Type+0x18) lists its uses through IDA or Ghidra: typed operands, reads, writes and address-of in the " +
-                 "pseudocode of functions whose prototype names the type (scope=all: every function; call again to continue). " + IndexNote)]
+    [Description("What references an address in a native image: calls (also through import slots and thunks), jumps, data reads and writes, " +
+                 "address-taken uses, switch tables and relocated pointers, each with its function and, for calls, the recovered arguments; for a " +
+                 "virtual method, the RTTI virtual call sites reaching it (VirtualExact / VirtualPossible). An import (module!name): its call sites " +
+                 "and binding; an export: also call sites in other loaded images; a GetProcAddress import: where it is resolved and its calls. " +
+                 "direction=from: what the address (or whole function) references. A struct member (Type::member, Type+0x18): its uses in the " +
+                 "pseudocode of functions whose prototype names the type, through IDA or Ghidra (scope=all: every function). " + IndexNote)]
     public Task<string> FindXrefs(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription + " Or a struct member: Type::member, Type.member, Type+0xOFFSET.")] string address,
         [Description("Index of the first row.")] int offset = 0,
-        [Description("Max rows (default 500).")] int limit = 500,
-        [Description(EngineDescription + " An engine's references get the RTTI-resolved virtual calls it lacks (marked ours).")]
+        [Description("Max rows.")] int limit = 500,
+        [Description(EngineDescription + " Adds the RTTI virtual calls an engine lacks.")]
         string? engine = null,
         [Description("to (default), from or both.")] string? direction = null,
-        [Description("any (default), code (calls, jumps) or data (reads, writes, pointers, address-taken).")] string? kind = null,
-        [Description("Struct member: typed (default) or all.")] string? scope = null,
+        [Description("any (default); code: calls, jumps; data: reads, writes, pointers, address-taken.")] string? kind = null,
+        [Description("Struct member: typed (default) or all (every function; call again to continue).")] string? scope = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

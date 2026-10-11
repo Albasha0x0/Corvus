@@ -49,23 +49,20 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         [property: Description("Coverage notes.")] IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "find_virtual_calls", Title = "Native virtual calls", UseStructuredContent = true, OutputSchemaType = typeof(VirtualCallReport))]
-    [Description("Virtual call sites resolved through RTTI (MSVC or Itanium; ARM: calls through this): calls through a vftable slot, also through stack " +
-                 "spills, this adjustments and the CFG dispatch. The receiver's class comes from a vftable stored into the object (also by a " +
-                 "constructor called on it), this of a virtual method, or decorated names (this of members, class pointers passed or returned); the " +
-                 "slot's implementations in it and its derived classes are the targets: one is exact, several possible (pure virtual stubs left " +
-                 "out), the rest unresolved with the reason. The edges are " +
-                 "part of the call graph (native_call_tree, find_xrefs, get_call_arguments, disassemble comments). crossCheck=true compares a sample " +
-                 "with a decompiler engine (IDA when installed, else Ghidra; its pseudocode with the RTTI class types pushed, and its references) " +
-                 "and reports the agreement rate.")]
+    [Description("Virtual call sites resolved through RTTI (MSVC or Itanium): calls through a vftable slot, also through stack spills, this " +
+                 "adjustments and CFG dispatch. The receiver's class comes from a vftable stored into the object (also by its constructor), this of " +
+                 "a virtual method, or decorated names; the slot's implementations in it and its derived classes are the targets: one is exact, " +
+                 "several possible, else unresolved with the reason. The edges feed the call graph tools. crossCheck=true compares a sample with " +
+                 "IDA (else Ghidra) and reports the agreement rate.")]
     public async Task<string> FindVirtualCalls(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Only sites in the function containing this address or named so. " + NativeTools.AddressDescription)] string? function = null,
-        [Description("Only sites with this status: exact, possible or unresolved.")] string? status = null,
+        [Description("Only sites in this function: " + NativeTools.AddressDescription)] string? function = null,
+        [Description("Only sites with this status.")] string? status = null,
         [Description("Index of the first site.")] int offset = 0,
-        [Description("Max sites (default 100, max 1000).")] int limit = 100,
-        [Description("Compare a sample of the sites with the engine's view of them (runs IDA or Ghidra; minutes on a large image the first time).")] bool crossCheck = false,
-        [Description("Cross-check: functions to sample (default 100; as many again with only unresolved sites, halved).")] int sampleFunctions = 100,
-        [Description("Cross-check: time budget in seconds (default 300).")] int seconds = 300,
+        [Description("Max sites (max 1000).")] int limit = 100,
+        [Description("Compare a sample with the engine's view (runs IDA or Ghidra; minutes on a large image the first time).")] bool crossCheck = false,
+        [Description("Cross-check: functions to sample.")] int sampleFunctions = 100,
+        [Description("Cross-check: time budget in seconds.")] int seconds = 300,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default)
     {

@@ -40,21 +40,19 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
         int TotalFunctions, int Offset, bool Truncated, IReadOnlyList<FeatureHubRecord> Hubs, IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "trace_native_feature", Title = "Trace a native feature", UseStructuredContent = true, OutputSchemaType = typeof(FeatureReport))]
-    [Description("Finds the native code behind a behaviour from a text or value: seeds are the strings (ASCII, UTF-16), function and data names, imports " +
-                 "(static and late-bound), exports, RTTI classes and, for a number, constants in code matching query (\"quoted\": exact); their references " +
-                 "(string interiors, one pointer table, import calls and the calls constants feed, with decoded arguments, a class's vftable users) are " +
-                 "grouped by function and ranked (distinct seeds, decoded API calls, exported, minus library and very large functions). Hubs are callers " +
-                 "within callerDepth reaching several ranked functions. An open IDA / Ghidra session adds its strings, its references where the index has " +
-                 "none, and the matching pseudocode lines of the top functions. A failing seed records its error. Pages reuse the computed trace.")]
+    [Description("Finds the native code behind a behaviour from a text or value: strings, function and data names, imports (also late-bound), " +
+                 "exports, RTTI classes and, for a number, constants matching query (\"quoted\": exact) are followed to their references (with " +
+                 "decoded API arguments), grouped by function and ranked; hubs are callers within callerDepth reaching several of them. An open " +
+                 "IDA / Ghidra session adds its strings, references and matching pseudocode lines. Pages reuse the computed trace.")]
     public Task<string> TraceNativeFeature(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Text to find (case-insensitive substring), or a regex with regex=true.")] string query,
+        [Description("Case-insensitive substring, or a regex with regex=true.")] string query,
         [Description("Treat query as a regular expression.")] bool regex = false,
-        [Description("Comma-separated seed kinds (default all): strings, names, imports, exports, classes, constants.")] string? kinds = null,
-        [Description("Matches followed (default 50, 1-500); the rest are counted.")] int maxSeeds = 50,
-        [Description("Caller levels searched for hubs (default 1, 0-3).")] int callerDepth = 1,
+        [Description("Seed kinds, comma-separated: strings, names, imports, exports, classes, constants (default all).")] string? kinds = null,
+        [Description("Matches followed (1-500); the rest are counted.")] int maxSeeds = 50,
+        [Description("Caller levels searched for hubs (0-3).")] int callerDepth = 1,
         [Description("Index of the first function.")] int offset = 0,
-        [Description("Functions per page (default 50, max 500).")] int limit = 50,
+        [Description("Functions per page (max 500).")] int limit = 50,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

@@ -51,26 +51,23 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         [property: Description("The call that decompiles the skipped items, when there are any.")] string? Next);
 
     [McpServerTool(Name = "decompile_native", Title = "Decompile native function", UseStructuredContent = true, OutputSchemaType = typeof(DecompileReport))]
-    [Description("C pseudocode of the native function containing an address, through IDA (Hex-Rays) or Ghidra. The first call on an image runs the engine's auto-analysis (seconds to " +
-                 "minutes, with progress) and keeps the database per file hash. Names and comments in effect " +
-                 "(rename_native, comment_native, Il2Cpp, PDB) are pushed first, once per change. A PDB (beside the image, in " +
-                 "the symbol cache, or from load_pdb) has its types and prototypes loaded once through the engine's PDB loader (else the server's " +
-                 "reader); the first line names the type source. User types (declare_native_types, set_native_type, set_native_local, " +
-                 "set_native_stack_var) apply last and win. functions decompiles several in one request: deduplicated, each within " +
-                 "perFunctionSeconds; a failure affects only its item.")]
+    [Description("C pseudocode of the native function containing an address, through IDA (Hex-Rays) or Ghidra. The first call on an image runs the " +
+                 "engine's auto-analysis (seconds to minutes) and keeps the database per file hash. Names, comments, PDB types and prototypes " +
+                 "are pushed first (the first line names the type source); user types apply last and win. functions= decompiles several in one " +
+                 "request, each within perFunctionSeconds; a failure affects only its item.")]
     public Task<string> DecompileNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription + " Required unless functions is given.")] string? address = null,
-        [Description("auto (default: an engine open on this image, else IDA, else Ghidra; or the server's --engine), ida or ghidra.")] string? engine = null,
+        [Description("auto (default): an engine open on this image, else IDA, else Ghidra (or the server's --engine).")] string? engine = null,
         [Description("Prefix each line with the address it was generated from.")] bool addresses = false,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
         [Description("Several functions instead of address: addresses or names, in the order wanted.")] string[]? functions = null,
-        [Description("With functions: seconds per function (default 60, 1-600).")] int perFunctionSeconds = 60,
-        [Description("With functions: functions decompiled (default 32, 1-200); the rest are skipped with a follow-up call.")] int maxFunctions = 32,
-        [Description("With address: a footer on the first page listing the globals, functions, strings and imports used.")] bool refs = false,
-        [Description("Seconds for this call's engine requests (1-600; default NDM_ENGINE_REQUEST_TIMEOUT); Ghidra's decompiler retries once with 4x.")] int? timeoutSeconds = null,
-        [Description("Instead of address: the functions calling this one, by the engine's references, as with functions.")] string? callersOf = null,
+        [Description("With functions: seconds per function (1-600).")] int perFunctionSeconds = 60,
+        [Description("With functions: most decompiled (1-200); the rest get a follow-up call.")] int maxFunctions = 32,
+        [Description("With address: a footer listing the globals, functions, strings and imports used.")] bool refs = false,
+        [Description("Seconds per engine request (1-600; default NDM_ENGINE_REQUEST_TIMEOUT); Ghidra retries once with 4x.")] int? timeoutSeconds = null,
+        [Description("Instead of address: decompile the functions calling this one (engine references).")] string? callersOf = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -368,12 +365,12 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
     }
 
     [McpServerTool(Name = "list_cpp_classes", Title = "C++ classes from RTTI")]
-    [Description("C++ classes recovered from RTTI (MSVC on PE, Itanium on ELF / Mach-O): demangled class names, base classes (with offsets, virtual and multiple " +
-                 "inheritance), and vftables with their slot targets. Structures are cross-checked; rejects are counted with the reason. " +
-                 "engine=ghidra lists Ghidra's class namespaces instead (also PDB classes), ida its C++ structs, with function counts and vftables.")]
+    [Description("C++ classes recovered from RTTI (MSVC on PE, Itanium on ELF / Mach-O): demangled names, base classes (offsets, virtual and multiple " +
+                 "inheritance) and vftables with slot targets; rejects are counted with the reason. engine=ghidra lists Ghidra's class namespaces " +
+                 "instead (PDB classes too), ida its C++ structs.")]
     public async Task<string> ListCppClasses(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Only classes whose name contains this text (case-insensitive).")] string? filter = null,
+        [Description("Name substring (case-insensitive).")] string? filter = null,
         [Description("Include each vftable's slot addresses.")] bool slots = false,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
@@ -485,19 +482,16 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
 
     [McpServerTool(Name = "verify_native_imports", Title = "Verify P/Invoke imports", UseStructuredContent = true)]
     [Description("Check a .NET assembly's P/Invoke declarations ([DllImport]) against the exports of the libraries they bind to, with the " +
-                 "runtime's lookup rules: DLL search order (app folder, system folder for the assembly's bitness), API set redirection, A/W suffixes, " +
-                 "x86 stdcall decoration (_Name@N), ordinals and forwarder chains; for Linux / macOS / Android / iOS targets (platform=, or detected from " +
-                 "deps.json and the libraries shipped) .so / .dylib probing along the RID chain, ELF / Mach-O exports and __Internal in an Il2Cpp game binary. " +
-                 "Verdict per declaration, with a reason: verified (exact, suffixed, decorated, forwarded, ordinal, versioned, internal), contradicted (missing_export, " +
-                 "missing_ordinal, exact_spelling, ordinal_points_elsewhere, forwarder_broken, arch_mismatch, mangled_only), unresolved (dll_not_found with the places " +
-                 "searched, system_dll_not_on_host, wrong_platform, malformed_metadata with its location), dynamic_only (the assembly loads the library itself: " +
-                 "NativeLibrary.Load/GetExport, LoadLibrary/GetProcAddress, a DllImportResolver), not_checked (runtime-internal). Run-time loading found in the IL " +
-                 "is listed; a missing static import does not rule out dynamic loading. Malformed metadata is reported with locations.")]
+                 "runtime's lookup rules: DLL search order, API sets, A/W suffixes, stdcall decoration, ordinals and forwarders; for Linux / macOS / " +
+                 "Android / iOS targets (platform=, or detected) .so / .dylib probing along the RID chain and __Internal in an Il2Cpp binary. Verdict " +
+                 "per declaration with a reason code: verified, contradicted (e.g. missing_export, arch_mismatch), unresolved (e.g. dll_not_found " +
+                 "with the places searched), dynamic_only (the assembly loads the library itself), not_checked (runtime-internal). Run-time loading " +
+                 "found in the IL is listed too.")]
     public Task<NativeImportReport> VerifyNativeImports(
         [Description(AssemblyDescription)] string assembly,
-        [Description("Only declarations with this status (verified, contradicted, unresolved, dynamic_only, not_checked) or reason (e.g. missing_export).")] string? status = null,
+        [Description("Only declarations with this status or reason code (e.g. contradicted, missing_export).")] string? status = null,
         [Description("Index of the first row.")] int offset = 0,
-        [Description("Max rows (default 500, max 5000).")] int limit = 500,
+        [Description("Max rows (max 5000).")] int limit = 500,
         [Description("Target platform (default auto).")] string? platform = null,
         CancellationToken cancellationToken = default) => Task.Run(() => workspace.Read(() =>
     {

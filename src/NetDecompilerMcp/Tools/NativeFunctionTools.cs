@@ -65,21 +65,19 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
     private const int MaxBatch = 16;
 
     [McpServerTool(Name = "analyze_native_function", Title = "Native function dossier", UseStructuredContent = true, OutputSchemaType = typeof(FunctionDossier))]
-    [Description("Everything known about one native function, in sections bounded by maxItems with totals: identity (name and source, ranges, " +
-                 "flags, demangled and Il2Cpp names, PDB and user prototypes, vftable slots, an open engine's record), signature (ret n, parameters read " +
-                 "at entry in registers and on the stack, this class, result use), frame (unwind data, stack, saved registers, frame pointer, address-taken " +
-                 "locals, EH), callers (edge kinds, importers in other images, roots, callback-only reachability), callees (targets, basis, arguments; " +
-                 "unresolved with the reason), data (strings, globals read and written, import slots), flow (blocks, loops, switches, complexity, " +
-                 "unresolved jumps, noreturn and tail calls), annotations. Optional: constants, params (values callers pass) and pseudocode (IDA or " +
-                 "Ghidra). Several addresses: a dossier each, or with component=true a component view. A failing section reports its error.")]
+    [Description("Everything known about one native function, in sections bounded by maxItems with totals: identity (names, sources, ranges, flags, " +
+                 "prototypes, vftable slots), signature (parameters read at entry, this class, result use), frame (unwind, saved registers, " +
+                 "address-taken locals, EH), callers (edge kinds, other images, roots), callees (targets, basis, arguments), data (strings, globals, " +
+                 "import slots), flow (blocks, loops, switches, complexity), annotations. Optional: constants, params (values callers pass), " +
+                 "pseudocode. Several addresses: a dossier each, or with component=true how they work together.")]
     public Task<string> AnalyzeNativeFunction(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("An address inside the function, or up to 16 comma-separated. " + NativeTools.AddressDescription)] string address,
+        [Description("An address inside the function, or up to 16 comma-separated: " + NativeTools.AddressDescription)] string address,
         [Description("Comma-separated section names (default all but constants, params and pseudocode).")] string? sections = null,
-        [Description("Facts per section (default 40, 1-500).")] int maxItems = 40,
+        [Description("Facts per section (1-500).")] int maxItems = 40,
         [Description("Add the pseudocode section.")] bool pseudocode = false,
-        [Description("With several addresses: how they work together (internal calls, shared data and strings, interface or internal).")] bool component = false,
-        [Description("Pseudocode engine: auto (default), ida or ghidra.")] string? engine = null,
+        [Description("With several addresses: one component view (internal calls, shared data, interface).")] bool component = false,
+        [Description("Pseudocode engine (default auto).")] string? engine = null,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
         RequestContext<CallToolRequestParams> context = null!,

@@ -86,30 +86,28 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
 
     [McpServerTool(Name = "trace_native_values", Title = "Native value trace", UseStructuredContent = true, OutputSchemaType = typeof(ValueTraceReport))]
     [Description("Traces a value through native code (x86 / x64 / ARM) across functions. Backward (where it comes from): constants, strings, function " +
-                 "pointers, API results, through copies, stack slots, merges (every path's value) and loops; a parameter binds to every caller's " +
-                 "argument, a call result to the callee's returns, a writable global to its writers and initial contents. Forward (where it goes): " +
-                 "API arguments (constants decoded), callees' parameters, globals and their readers, returns into callers, compares, switch indexes, " +
-                 "dereferences. Seed: address plus location or argument (of a call, or a parameter at a function start), or a writable global. " +
-                 "Loaded images are crossed through imports and exports, struct fields through parameter types (PDB, RTTI, set_native_type). Budgets cap depth, functions, nodes, callers and writers; what they leave " +
-                 "out is a frontier entry with the follow-up call. Pages reuse the built graph. engine=ida or ghidra takes each function's slice " +
-                 "from that decompiler's IR (microcode, p-code), falling back to the built-in slice where it cannot place the seed.")]
+                 "pointers, API results, through copies, stack slots, merges and loops; parameters bind to every caller's argument, call results to " +
+                 "the callee's returns, writable globals to their writers and initial contents. Forward (where it goes): API arguments (decoded), " +
+                 "callees' parameters, globals and their readers, returns, compares, switch indexes, dereferences. Crosses loaded images through " +
+                 "imports and exports, struct fields through parameter types. What the budgets leave out is a frontier entry with the follow-up call; " +
+                 "pages reuse the built graph.")]
     public Task<string> TraceNativeValues(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("An instruction, a call, a function start (with argument) or a writable global. " + NativeTools.AddressDescription)] string address,
         [Description("The value at address: " + LocationHelp + ".")] string? location = null,
-        [Description("An argument of the call at address, or a parameter of the function starting at address: its 1-based position or its API parameter name (dwDesiredAccess).")]
+        [Description("An argument of the call at address, or a parameter of the function starting there: 1-based position or API parameter name.")]
         string? argument = null,
         [Description("backward (default: the values that reach it), forward (its uses) or both.")] string? direction = null,
-        [Description("Function boundaries to cross (default 3, 0-8).")] int maxDepth = 3,
-        [Description("Functions to slice (default 32, 1-256).")] int maxFunctions = 32,
-        [Description("Nodes in the graph (default 500, 1-5000).")] int maxNodes = 500,
-        [Description("Call sites bound per parameter or return (default 16, 1-256).")] int maxCallers = 16,
-        [Description("Writers (backward) or readers (forward) followed per global (default 16, 1-256).")] int maxWriters = 16,
-        [Description("Follow writable globals into their writers / readers (default true).")] bool followGlobals = true,
+        [Description("Function boundaries to cross (0-8).")] int maxDepth = 3,
+        [Description("Functions to slice (1-256).")] int maxFunctions = 32,
+        [Description("Nodes in the graph (1-5000).")] int maxNodes = 500,
+        [Description("Call sites bound per parameter or return (1-256).")] int maxCallers = 16,
+        [Description("Writers (backward) or readers (forward) per global (1-256).")] int maxWriters = 16,
+        [Description("Follow writable globals into their writers / readers.")] bool followGlobals = true,
         [Description("Index of the first node.")] int offset = 0,
-        [Description("Max nodes per page (default 200, max 1000).")] int limit = 200,
-        [Description("Per-function slices: ours (the built-in analysis), ida or ghidra (that engine's decompiler; started when needed), or auto " +
-                     "(default: an engine whose analysis of the image is complete in this session, else ours).")] string? engine = null,
+        [Description("Nodes per page (max 1000).")] int limit = 200,
+        [Description("Per-function slices: ours (built-in), ida or ghidra (that decompiler's IR, started when needed; built-in where it cannot " +
+                     "place the seed), or auto (default: an engine whose analysis is complete in this session, else ours).")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

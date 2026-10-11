@@ -50,10 +50,10 @@ public sealed class NativeSearchDecompiledTools(AssemblyWorkspace workspace, Nat
         [Description("Regex.")] string pattern,
         [Description("auto, ida or ghidra.")] string? engine = null,
         [Description("Function name filter: " + NameFilter.Description + ".")] string? filter = null,
-        [Description("Default 500, max 20000.")] int maxFunctions = 500,
-        [Description("Default 60, max 600.")] int seconds = 60,
+        [Description("Max 20000.")] int maxFunctions = 500,
+        [Description("Max 600.")] int seconds = 60,
         [Description("From the previous result.")] int cursor = 0,
-        [Description("Max hits (default 100, max 2000).")] int limit = 100,
+        [Description("Max hits (max 2000).")] int limit = 100,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

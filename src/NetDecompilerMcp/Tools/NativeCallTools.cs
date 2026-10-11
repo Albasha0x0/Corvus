@@ -64,17 +64,15 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "get_call_arguments", Title = "Native call arguments", UseStructuredContent = true)]
-    [Description("Call sites of a native image (x86 / x64 / ARM) with their argument values, recovered by backward constant propagation in the calling " +
-                 "function under the platform conventions (x64 Microsoft on PE, System V on ELF / Mach-O; x86 pushed / stored stack slots; ARM x0-x7 / r0-r3): " +
-                 "immediates, strings, named addresses, results of earlier calls, globals; merges of different values are unknown. " +
-                 "Known Win32 / CRT / libc APIs give parameter names and decoded constants (GENERIC_READ, printf formats). " +
-                 "Pass address (a call instruction, or any address in a function for all its calls) and/or callee (an API or function name: all calls to it).")]
+    [Description("Call sites of a native image (x86 / x64 / ARM) with their argument values, recovered by constant propagation in the caller under " +
+                 "the platform calling convention: immediates, strings, named addresses, earlier call results, globals (differing merges are " +
+                 "unknown). Known Win32 / CRT / libc APIs give parameter names and decoded constants. Pass address and/or callee.")]
     public Task<CallArgumentsReport> GetCallArguments(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("A call instruction, or an address in a function (all calls in it). " + NativeTools.AddressDescription)] string? address = null,
-        [Description("Only calls to this callee: API name (CreateFileW), module!name, or function name; without address, every call to it in the image.")] string? callee = null,
+        [Description("A call instruction, or an address in a function (all calls in it): " + NativeTools.AddressDescription)] string? address = null,
+        [Description("Only calls to this API, module!name or function; without address, every call to it in the image.")] string? callee = null,
         [Description("Index of the first call site.")] int offset = 0,
-        [Description("Max call sites (default 100, max 1000).")] int limit = 100,
+        [Description("Max call sites (max 1000).")] int limit = 100,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

@@ -37,16 +37,15 @@ public sealed partial class NativeCodeTools
     private const int MaxEngineData = 300_000;
 
     [McpServerTool(Name = "list_globals", Title = "List native globals", UseStructuredContent = true, OutputSchemaType = typeof(GlobalList))]
-    [Description("Named data items of a native image, outside functions and code sections, from every name source: PDB data symbols with type " +
-                 "and size, the user's names and global types (rename_native, set_native_type, define_native data), Il2Cpp, NativeAOT and " +
-                 "IDA names, data exports and symbol-table objects; with an engine also its defined data (unnamed too) with type and value. " +
-                 "Filter by name or section; paged. get_native_type read=true reads one's fields.")]
+    [Description("Named data items of a native image outside code, from every name source (PDB with type and size, user names and types, Il2Cpp, " +
+                 "NativeAOT, exports, symbol tables); with an engine also its defined data with type and value. get_native_type read=true reads " +
+                 "one's fields.")]
     public Task<string> ListGlobals(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Only globals whose name contains this text (case-insensitive).")] string? filter = null,
+        [Description("Name substring (case-insensitive).")] string? filter = null,
         [Description("Only this section, e.g. .data.")] string? section = null,
         [Description("Index of the first row.")] int offset = 0,
-        [Description("Max rows (default 300).")] int limit = 300,
+        [Description("Max rows.")] int limit = 300,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>

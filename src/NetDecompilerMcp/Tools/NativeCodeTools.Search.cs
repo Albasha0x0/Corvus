@@ -17,12 +17,11 @@ namespace NetDecompilerMcp.Tools;
 public sealed partial class NativeCodeTools
 {
     [McpServerTool(Name = "search_instructions", Title = "Search native instructions")]
-    [Description("Find instructions by mnemonic, operand text, whole-line text (regular expressions, case-insensitive) and an operand value " +
-                 "(an immediate, displacement or target, hex or decimal) in every function, one function, or an address range; paged, within " +
-                 "a scan budget whose end the result names (continue with start=). Each match shows its address, function+offset and text. " + IndexNote)]
+    [Description("Find instructions by mnemonic, operand or whole-line regex (case-insensitive) and an operand value (immediate, displacement or " +
+                 "target) in every function, one function, or an address range; a scan budget's end is named in the result (continue with start=). " + IndexNote)]
     public Task<string> SearchInstructions(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Mnemonic regex, e.g. '^(call|jmp)$' or 'cmov'.")] string? mnemonic = null,
+        [Description("Mnemonic regex, e.g. '^(call|jmp)$'.")] string? mnemonic = null,
         [Description("Operand text regex, e.g. 'rsp\\+|fs:'.")] string? operands = null,
         [Description("Regex over the whole instruction text.")] string? text = null,
         [Description("An operand value: 0x10B, 267, or an address.")] string? value = null,
@@ -30,8 +29,8 @@ public sealed partial class NativeCodeTools
         [Description("Range start (with end, or alone: to the end of its section).")] string? start = null,
         [Description("Range end (exclusive).")] string? end = null,
         [Description("Index of the first match to return.")] int offset = 0,
-        [Description("Max matches (default 100, max 2000).")] int limit = 100,
-        [Description("Max instructions scanned (default 500000, max 5000000).")] int maxInstructions = 500_000,
+        [Description("Max matches (max 2000).")] int limit = 100,
+        [Description("Max instructions scanned (max 5000000).")] int maxInstructions = 500_000,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>

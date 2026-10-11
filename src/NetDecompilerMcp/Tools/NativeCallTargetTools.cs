@@ -52,20 +52,20 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
         IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "resolve_call_targets", Title = "Native call targets", UseStructuredContent = true, OutputSchemaType = typeof(CallTargetsReport))]
-    [Description("Targets of call and tail-jump sites in native code (x86 / x64 / ARM), each with its basis and confidence: direct branches, import and GOT " +
-                 "slots, thunks, constant pointers (also through the CFG dispatch), GetProcAddress pointers, RTTI virtual calls, NativeAOT interface dispatch cells, the writers and initial contents " +
-                 "of a global function pointer, relocated pointer tables (complete when an index bound is found), and with deep=true the function " +
-                 "pointers callers pass in. Several targets are listed, never collapsed; unresolved sites carry the reason and the trace_native_values " +
-                 "call to follow. engine=ida or ghidra merges that engine's references and decompiler targets for the sites returned (a disagreement is ambiguous).")]
+    [Description("Targets of call and tail-jump sites in native code (x86 / x64 / ARM), each with its basis and confidence: direct branches, import and " +
+                 "GOT slots, thunks, constant pointers (also through CFG dispatch), GetProcAddress pointers, RTTI virtual calls, NativeAOT dispatch cells, " +
+                 "global function pointers' writers, relocated pointer tables, and with deep=true pointers callers pass in. Several targets are listed, " +
+                 "never collapsed; unresolved sites carry the reason and the trace_native_values call to follow. engine=ida or ghidra merges that " +
+                 "engine's targets (a disagreement is ambiguous).")]
     public Task<string> ResolveCallTargets(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("A call instruction, or an address in a function (its sites). " + NativeTools.AddressDescription)] string? address = null,
-        [Description("site, function or image (every indirect site); default: site at a call, else function, image without address.")] string? scope = null,
-        [Description("all (default), resolved, possible, ambiguous, unresolved or indirect (all but direct branches).")] string? status = null,
+        [Description("A call instruction, or an address in a function (its sites): " + NativeTools.AddressDescription)] string? address = null,
+        [Description("Default: site at a call, else function; image (every indirect site) without address.")] string? scope = null,
+        [Description("Default all; indirect: all but direct branches.")] string? status = null,
         [Description("Trace pointers that arrive as parameters back into the callers (slower).")] bool deep = false,
         [Description(NativeCodeTools.EngineDescription)] string? engine = null,
         [Description("Index of the first site.")] int offset = 0,
-        [Description("Max sites (default 100, max 1000).")] int limit = 100,
+        [Description("Max sites (max 1000).")] int limit = 100,
         [Description(NativeTools.EngineTimeoutDescription)] int? timeoutSeconds = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
