@@ -198,7 +198,7 @@ public sealed class NativeAotTypes
             {
                 if (section.IsExecutable) continue;
                 ct.ThrowIfCancellationRequested();
-                var bytes = new byte[section.MappedSize];
+                var bytes = new byte[NativeAotLocator.FileBytes(image.Image, section)];
                 int n = image.Read(section.Rva, bytes);
                 for (int at = 0; at + 48 <= n; at += 8)
                 {

@@ -1,5 +1,7 @@
+using System.Buffers.Binary;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native.NativeAot;
+using NetDecompilerMcp.Native.Pe;
 using NetDecompilerMcp.Services.Analysis;
 
 namespace NetDecompilerMcp.Tests;
@@ -71,6 +73,24 @@ public class NativeAotHeaderTests
     {
         var f = NativeAotFormats.For((ushort)major);
         Assert.Equal((runtime, exact, layout), (f.Runtime, f.Exact, f.Layout));
+    }
+
+    [Fact]
+    public void Locator_AndCrawlers_SurviveSectionSizesBeyondTheFile()
+    {
+        var bytes = Sample().Build();
+        int pe = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(0x3C));
+        int table = pe + 24 + BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(pe + 20));
+        for (int at = table; bytes[at] != 0; at += 40)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(at + 8), 0xFFFFFF00); // VirtualSize
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(at + 16), 0xFFFFFF00); // SizeOfRawData
+        }
+        PeFile image;
+        try { image = PeFile.FromBytes(bytes); }
+        catch (ToolError) { return; } // refused at load: nothing for the locator to read
+        NativeAotLocator.Find(image);
+        NativeAotImage.Open(image);
     }
 
     [Fact]

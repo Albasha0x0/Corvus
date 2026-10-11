@@ -71,7 +71,8 @@ public sealed class NativeAotFrozen
 
     private static string String(HydratedImage image, uint rva, uint length)
     {
-        var bytes = new byte[length * 2];
+        // The length comes from the object; a string cannot hold more characters than the file has bytes.
+        var bytes = new byte[(int)Math.Min(length * 2L, image.Image.FileSize > 0 ? image.Image.FileSize : Array.MaxLength)];
         int n = image.Read(rva, bytes);
         return Encoding.Unicode.GetString(bytes, 0, n & ~1);
     }

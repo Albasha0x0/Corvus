@@ -14,6 +14,14 @@ public static class NativeAotLocator
     private const int MaxRows = 127;
     private static readonly byte[] SignatureBytes = "RTR\0"u8.ToArray();
 
+    /// <summary>How many bytes of <paramref name="section"/> the file holds: header sizes can claim more than the file has.</summary>
+    internal static int FileBytes(INativeImage image, NativeSection section)
+    {
+        long size = Math.Min(section.RawSize, section.MappedSize);
+        if (image.FileSize > 0) size = Math.Min(size, Math.Max(0, image.FileSize - section.RawOffset));
+        return (int)Math.Min(size, Array.MaxLength);
+    }
+
     public static IReadOnlyList<NativeAotHeader> Find(INativeImage image, CancellationToken ct = default)
     {
         var found = new List<NativeAotHeader>();
@@ -21,7 +29,7 @@ public static class NativeAotLocator
         {
             if (section.IsExecutable || section.RawSize == 0) continue;
             ct.ThrowIfCancellationRequested();
-            var bytes = new byte[Math.Min(section.RawSize, section.MappedSize)];
+            var bytes = new byte[FileBytes(image, section)];
             int n = image.Read(section.Rva, bytes);
             var span = bytes.AsSpan(0, n);
             for (int at = 0; ;)
