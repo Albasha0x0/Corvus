@@ -119,11 +119,15 @@ public sealed class EngineControlRealTests(ITestOutputHelper output) : IDisposab
         var id = rig.Native.Id;
         var clock = Stopwatch.StartNew();
 
-        // search_decompiled: hits, then the cursor continues where the first call stopped
+        // search_decompiled: hits, then the cursor continues where the first call stopped. The engine opens first: the
+        // search's time budget would otherwise go to the analysis, all of it on a busy machine.
+        await rig.Engines.Session(rig.Native, engine, null, default);
+        output.WriteLine($"{engine} opened in {clock.Elapsed.TotalSeconds:0.0} s");
+        clock.Restart();
         var collector = StructuredOutput.Begin();
         var first = await rig.Search.SearchDecompiled(id, @"\breturn\b", engine: engine, limit: 5);
         var report = Assert.IsType<NativeSearchDecompiledTools.SearchDecompiledReport>(collector.Value);
-        output.WriteLine($"{engine} search ({clock.Elapsed.TotalSeconds:0.0} s with the analysis):\n{string.Join('\n', first.Split('\n').Take(6))}");
+        output.WriteLine($"{engine} search ({clock.Elapsed.TotalSeconds:0.0} s):\n{string.Join('\n', first.Split('\n').Take(6))}");
         Assert.Equal(engine, report.Engine);
         Assert.InRange(report.Hits.Count, 5, 400);
         Assert.Equal("hits", report.StoppedBy);
