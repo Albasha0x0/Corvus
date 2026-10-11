@@ -3,6 +3,7 @@ using dnlib.DotNet;
 using dnlib.DotNet.MD;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native;
+using NetDecompilerMcp.Native.Itanium;
 using NetDecompilerMcp.Native.Linking;
 
 namespace NetDecompilerMcp.Services;
@@ -14,7 +15,9 @@ namespace NetDecompilerMcp.Services;
 /// forwarders follow <see cref="NativeLinker"/>, which the cross-image navigation uses as well. Each declaration gets
 /// a verdict (verified / contradicted / unresolved / dynamic_only / not_checked) with a reason code; run-time loading
 /// found in the IL (<see cref="DynamicNativeLoads"/>) turns unresolved declarations into dynamic_only, and malformed
-/// ImplMap / ModuleRef rows are reported with their location instead of being read as empty names.
+/// ImplMap / ModuleRef rows are reported with their location instead of being read as empty names. Off Windows targets
+/// (the platform the app ships for, see <see cref="UnixProbing"/>) .so / .dylib libraries are probed as .NET does and
+/// matched against ELF dynamic symbols and Mach-O exports; __Internal binds to an Il2Cpp game's own binary.
 /// </summary>
 public sealed class NativeImportVerifier
 {
@@ -23,14 +26,17 @@ public sealed class NativeImportVerifier
         [property: Description("Metadata token of the method.")] string Token,
         string Module, string EntryPoint, string CharSet, bool ExactSpelling, string CallingConvention,
         [property: Description("verified, contradicted, unresolved, dynamic_only or not_checked.")] string Status,
-        [property: Description("Why: verified -> exact, suffixed (A/W), decorated (stdcall _Name@N), forwarded, ordinal; contradicted -> missing_export, " +
-                               "missing_ordinal, bad_ordinal, exact_spelling, ordinal_points_elsewhere, forwarder_broken; unresolved -> dll_not_found, " +
-                               "api_set_unmapped, not_an_image, system_dll_not_on_host, forwarder_dll_not_found, malformed_metadata; dynamic_only -> " +
+        [property: Description("Why: verified -> exact, suffixed (A/W), decorated (stdcall _Name@N), forwarded, ordinal, versioned, internal; contradicted -> missing_export, " +
+                               "missing_ordinal, bad_ordinal, exact_spelling, ordinal_points_elsewhere, forwarder_broken, arch_mismatch, mangled_only; unresolved -> dll_not_found, " +
+                               "api_set_unmapped, not_an_image, system_dll_not_on_host, forwarder_dll_not_found, forwarded_unverified, wrong_platform, malformed_metadata; dynamic_only -> " +
                                "library_loaded_at_run_time, dll_import_resolver; not_checked -> runtime_internal, runtime_library.")] string Reason,
         string? ResolvedFile, string? Export, string Detail,
         [property: Description("Where malformed metadata was found (stream, table, row, token, file offset), else null.")] string? Location);
 
-    public sealed record Result(List<Check> Checks, List<DynamicNativeLoad> DynamicLoads, bool DynamicTruncated, List<MetadataIssue> MetadataIssues);
+    public sealed record Result(List<Check> Checks, List<DynamicNativeLoad> DynamicLoads, bool DynamicTruncated, List<MetadataIssue> MetadataIssues)
+    {
+        public TargetPlatform Platform { get; init; } = new("windows", null, "default");
+    }
 
     public const string Verified = "verified", Contradicted = "contradicted", Unresolved = "unresolved", DynamicOnly = "dynamic_only", NotChecked = "not_checked";
 
@@ -38,6 +44,7 @@ public sealed class NativeImportVerifier
 
     private readonly NativeLinker _linker;
     private readonly bool _systemDlls;
+    private readonly Func<string, INativeImage?> _open;
 
     public NativeImportVerifier(Func<string, INativeImage> open) : this(open, OperatingSystem.IsWindows()) { }
 
@@ -48,7 +55,8 @@ public sealed class NativeImportVerifier
     /// </param>
     public NativeImportVerifier(Func<string, INativeImage> open, bool hostHasSystemDlls)
     {
-        _linker = new NativeLinker(Cached(open));
+        _open = Cached(open);
+        _linker = new NativeLinker(_open);
         _systemDlls = hostHasSystemDlls;
     }
 
@@ -85,8 +93,12 @@ public sealed class NativeImportVerifier
         };
     }
 
-    public Result Verify(LoadedAssembly asm, CancellationToken ct)
+    /// <param name="platform">auto, windows, linux, osx, android or ios (see <see cref="UnixProbing.Detect"/>).</param>
+    public Result Verify(LoadedAssembly asm, CancellationToken ct, string? platform = null)
     {
+        var appDirectory = Path.GetDirectoryName(Path.GetFullPath(asm.FilePath))!;
+        var game = Il2CppGame(appDirectory);
+        var target = UnixProbing.Detect(appDirectory, platform, game?.Platform);
         var issues = MetadataSurvey.Survey(asm.OriginalBytes).ToList();
         var rowIssues = MetadataSurvey.ImplMapRows(asm.Module);
         issues.AddRange(rowIssues.Values);
@@ -102,12 +114,102 @@ public sealed class NativeImportVerifier
             {
                 ct.ThrowIfCancellationRequested();
                 if (method.ImplMap is not { } map) continue;
-                var check = rowIssues.TryGetValue(map.Rid, out var issue)
-                    ? Malformed(method, map, issue)
-                    : CheckOne(asm, method, map, x86);
+                var check = rowIssues.TryGetValue(map.Rid, out var issue) ? Malformed(method, map, issue)
+                    : target.IsWindows ? CheckOne(asm, method, map, x86)
+                    : CheckUnix(method, map, appDirectory, target, game);
                 checks.Add(Dynamic(check, resolvers, loadedLibraries));
             }
-        return new Result(checks, dynamic, truncated, issues);
+        return new Result(checks, dynamic, truncated, issues) { Platform = target };
+    }
+
+    /// <summary>An Il2Cpp game whose dummy assemblies are in <paramref name="directory"/>: its binary (for __Internal), platform and library folders.</summary>
+    private sealed record GameBinary(string File, TargetPlatform Platform, List<string> Folders);
+
+    private GameBinary? Il2CppGame(string directory)
+    {
+        if (Il2CppDumpFiles.Locate(directory)?.GameAssembly is not { } binary || _open(binary) is not { } image) return null;
+        var folder = Path.GetDirectoryName(binary)!;
+        string arch = image.Arch switch { NativeArch.Arm64 => "arm64", NativeArch.Arm => "arm", NativeArch.X64 => "x64", NativeArch.X86 => "x86", _ => "" };
+        string os = image.Format switch
+        {
+            ImageFormat.Elf => Path.GetFileName(binary) == "libil2cpp.so" ? "android" : "linux",
+            ImageFormat.MachO => Path.GetFileName(binary) == "UnityFramework" ? "ios" : "osx",
+            _ => "windows",
+        };
+        var folders = new List<string> { folder };
+        // iOS: UnityFramework.framework sits in the app's Frameworks folder beside the other frameworks.
+        if (os == "ios" && Path.GetDirectoryName(folder) is { } frameworks) folders.Add(frameworks);
+        return new GameBinary(binary, new TargetPlatform(os, arch.Length > 0 ? $"{os}-{arch}" : null, $"Il2Cpp game binary {Path.GetFileName(binary)}"), folders);
+    }
+
+    /// <summary>A declaration checked against .so / .dylib libraries with the .NET probing rules of a Unix target.</summary>
+    private Check CheckUnix(MethodDef method, ImplMap map, string appDirectory, TargetPlatform target, GameBinary? game)
+    {
+        string label = Format.MemberLabel(method);
+        var (module, entry, charSet, callConv) = Describe(method, map);
+        Check Result(string status, string reason, string? file, string? export, string detail) =>
+            new(label, $"0x{method.MDToken.Raw:X8}", module, entry, charSet, map.IsNoMangle, callConv, status, reason, file, export, detail, null);
+
+        if (module == "__Internal" && game != null && _open(game.File) is { } own)
+        {
+            var name = own.Format == ImageFormat.MachO ? "_" + entry : entry;
+            return own.Exports.Any(e => e.Name == name) || own.Symbols.Any(s => s.Name == name && s.Kind == ImageSymbolKind.Function)
+                ? Result(Verified, "internal", game.File, name, $"__Internal: defined in {Path.GetFileName(game.File)}, the game binary it is linked into")
+                : Result(Contradicted, "missing_export", game.File, null, $"__Internal: {Path.GetFileName(game.File)} does not define it; {NativeLinker.NearMisses(own, name)}");
+        }
+        if (RuntimeResolved(module) is { } why) return Result(NotChecked, "runtime_internal", null, null, why);
+        if (IsRuntimeLibrary(module))
+            return Result(NotChecked, "runtime_library", null, null, "a .NET runtime native library that ships with the runtime on this platform");
+
+        var (file, searched, other) = UnixProbing.Locate(module, appDirectory, target, game?.Folders);
+        var tried = string.Join(", ", UnixProbing.ProbeNames(module, target));
+        if (file == null)
+            return other.Count > 0
+                ? Result(Unresolved, "wrong_platform", null, null, $"shipped only for other platforms ({string.Join("; ", other.Take(6))}), not for {target.Rid ?? target.Os}")
+                : UnixProbing.IsSystemLibrary(module)
+                    ? Result(Unresolved, "system_dll_not_on_host", null, null, $"a {target.Os} system library, not shipped with the app; probed {tried}")
+                : Result(Unresolved, "dll_not_found", null, null, $"probed {tried} in {string.Join("; ", searched)}");
+        if (_open(file) is not { } image || image.Format == ImageFormat.Pe)
+            return Result(Unresolved, "not_an_image", file, null, $"{file} is not a readable ELF or Mach-O library");
+        if (target.Arch is { } arch && image.Arch != arch)
+            return Result(Contradicted, "arch_mismatch", file, null, $"the library is {image.MachineName}, the app targets {target.Rid}");
+
+        bool apple = image.Format == ImageFormat.MachO;
+        var symbol = apple ? "_" + entry : entry;
+        if (_linker.ExportNamed(image, symbol) is { } export)
+        {
+            if (export.ForwardedTo is { } forwarded)
+            {
+                int bang = forwarded.IndexOf('!');
+                var library = Path.GetFileName(forwarded[..Math.Max(0, bang)]);
+                var target2 = forwarded[(bang + 1)..];
+                var (reexporter, _, _) = UnixProbing.Locate(library, Path.GetDirectoryName(file)!, target, [appDirectory]);
+                if (reexporter != null && _open(reexporter) is { } next && _linker.ExportNamed(next, target2) is { ForwardedTo: null })
+                    return Result(Verified, "forwarded", file, symbol, $"re-exported from {forwarded}");
+                return Result(Unresolved, "forwarded_unverified", file, symbol, $"re-exported from {forwarded}, which " + (reexporter == null ? "the app does not ship" : "does not export it"));
+            }
+            var version = apple ? null : image.Symbols.FirstOrDefault(s => s.Name == entry && s.Version != null)?.Version;
+            return version != null
+                ? Result(Verified, "versioned", file, symbol, $"exported with version {version}")
+                : Result(Verified, "exact", file, symbol, "exported");
+        }
+        // A C++ function exported under its mangled name only: the declaration must name the mangled form.
+        foreach (var e in image.Exports)
+            if (e.Name != null && ItaniumDemangler.IsMangled(e.Name, apple) && ItaniumDemangler.Demangle(e.Name, apple) is { } demangled
+                && FunctionName(demangled) is var function && (function == entry || function.EndsWith("::" + entry, StringComparison.Ordinal)))
+                return Result(Contradicted, "mangled_only", file, e.Name, $"exported only as the C++ name {e.Name} ({demangled}); EntryPoint must spell the mangled name");
+        var detail = NativeLinker.NearMisses(image, symbol);
+        if (ItaniumDemangler.Demangle(entry) is { } readable) detail += $"; the entry point is the C++ name {readable}";
+        return Result(Contradicted, "missing_export", file, null, detail);
+    }
+
+    /// <summary>The qualified function name of a demangled signature: "ns::f(int)" -> "ns::f".</summary>
+    private static string FunctionName(string demangled)
+    {
+        int paren = demangled.IndexOf('(');
+        var head = paren > 0 ? demangled[..paren] : demangled;
+        int space = head.LastIndexOf(' ');
+        return space >= 0 && !head.Contains('<') ? head[(space + 1)..] : head;
     }
 
     /// <summary>An unresolved or contradicted verdict reconsidered in the light of run-time loading.</summary>

@@ -7,8 +7,8 @@ namespace NetDecompilerMcp.Services;
 
 /// <summary>
 /// Il2Cpp games inside app packages: .apk, split sets (.xapk / .apks / .apkm: a zip of a base APK and config.&lt;abi&gt;.apk
-/// splits), .aab (base/ module) and .ipa (Payload/*.app). Only what the reader needs is extracted (the game binary of one
-/// ABI, global-metadata.dat and the Unity version files) into a per-user cache keyed by the package's SHA-256, laid out as
+/// splits), .aab (base/ module) and .ipa (Payload/*.app). Only what the tools need is extracted (the native libraries of
+/// one ABI, global-metadata.dat and the Unity version files) into a per-user cache keyed by the package's SHA-256, laid out as
 /// the extracted package would be, so <see cref="Il2CppGameFiles.Find"/> reads it.
 /// </summary>
 public static class Il2CppPackages
@@ -19,6 +19,7 @@ public static class Il2CppPackages
     /// <summary>The Unity version is in the first bytes of data.unity3d; the rest (often hundreds of MB) is not needed.</summary>
     private const int VersionHeaderBytes = 1 << 16;
     private const long MaxEntryBytes = 2L << 30;
+    private const int ExtractFormat = 2; // bump when what is extracted changes
 
     private static readonly string[] Extensions = [".apk", ".xapk", ".apks", ".apkm", ".aab", ".ipa"];
 
@@ -42,7 +43,7 @@ public static class Il2CppPackages
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { throw new ToolError(ErrorCode.IoError, $"Cannot read {full}: {ex.Message}"); }
         var abi = slice != null ? Il2CppGameFiles.AndroidAbi(slice) : null;
         var root = Path.Combine(Path.GetFullPath(cacheRoot ?? Il2CppRawLoader.DefaultRoot), FolderName);
-        var dir = Path.Combine(root, sha[..16] + (abi != null ? "-" + abi : ""));
+        var dir = Path.Combine(root, $"{sha[..16]}-{ExtractFormat}" + (abi != null ? "-" + abi : ""));
         if (File.Exists(Path.Combine(dir, MarkerFileName)))
         {
             Touch(dir);
@@ -140,7 +141,7 @@ public static class Il2CppPackages
         }
     }
 
-    /// <summary>Android: lib/&lt;abi&gt;/libil2cpp.so of one ABI, the metadata and the version files under assets/bin/Data.</summary>
+    /// <summary>Android: lib/&lt;abi&gt;/*.so of one ABI (the one with libil2cpp.so), the metadata and the version files under assets/bin/Data.</summary>
     private static List<(Item, int)> AndroidFiles(List<Item> items, string? abi)
     {
         const string data = "assets/bin/Data/";
@@ -154,7 +155,13 @@ public static class Il2CppPackages
             throw new ToolError(ErrorCode.NotFound, $"The package has no lib/{abi}/libil2cpp.so" + (libraries.Count > 0 ? $"; ABIs: {string.Join(", ", libraries.Keys)}" : "") + ".",
                 libraries.Count > 0 ? $"pass slice={libraries.Keys.First()}" : "the package holds no Il2Cpp library");
         var wanted = new List<(Item, int)> { (metadata, 0) };
-        if (chosen != null) wanted.Add((chosen, 0));
+        if (chosen != null)
+        {
+            // The ABI's other libraries too: P/Invoke declarations of the dummy assemblies bind to them.
+            var folder = chosen.Path[..(chosen.Path.LastIndexOf('/') + 1)];
+            wanted.AddRange(items.Where(i => i.Path.StartsWith(folder, StringComparison.Ordinal) && i.Path.EndsWith(".so", StringComparison.Ordinal) && i.Path.LastIndexOf('/') == folder.Length - 1)
+                .GroupBy(i => i.Path).Select(g => (g.First(), 0)));
+        }
         Version(items, data, wanted);
         return wanted;
     }

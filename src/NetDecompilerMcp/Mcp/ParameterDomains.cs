@@ -50,6 +50,7 @@ public static class ParameterDomains
         ["apply_edits"] = new Dictionary<string, Domain> { ["targetBuild"] = Of(["same", "other"]) },
         ["load_session"] = new Dictionary<string, Domain> { ["targetBuild"] = Of(["same", "other"]) },
         ["extract_strings"] = new Dictionary<string, Domain> { ["format"] = Of(["json", "csv"]) },
+        ["verify_native_imports"] = new Dictionary<string, Domain> { ["platform"] = Of(["auto", "windows", "linux", "osx", "android", "ios"], "macos") },
         ["load_assembly"] = new Dictionary<string, Domain>
         {
             ["slice"] = Of(["arm64e", "arm64", "x86_64", "x86_64h", "arm64_32", "armv7", "armv7s", "armv7k", "i386", "arm64-v8a", "armeabi-v7a", "x86"],

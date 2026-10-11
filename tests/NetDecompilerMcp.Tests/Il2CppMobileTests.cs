@@ -192,7 +192,7 @@ public sealed class Il2CppMobileTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(lib64, File.ReadAllBytes(files.Binary));
         Assert.Equal(MetadataBytes, File.ReadAllBytes(files.Metadata));
         Assert.Equal(0x10000, new FileInfo(Path.Combine(files.DataDirectory!, "data.unity3d")).Length); // the version header only
-        Assert.False(File.Exists(Path.Combine(root, "lib", "arm64-v8a", "libunity.so")));
+        Assert.True(File.Exists(Path.Combine(root, "lib", "arm64-v8a", "libunity.so"))); // the ABI's other libraries, for P/Invoke checks
         Assert.False(Directory.Exists(Path.Combine(root, "lib", "armeabi-v7a")));
         Assert.Equal(root, Il2CppPackages.Extract(apkPath, null, cache)); // cached
         var v7 = Il2CppPackages.Extract(apkPath, "armeabi-v7a", cache)!;
@@ -343,6 +343,13 @@ public sealed class Il2CppMobileTests(ITestOutputHelper output) : IDisposable
         }
         output.WriteLine($"  find_method_by_address round trips{(thumb ? " (Thumb pointers)" : "")}: {trips}/{tried}");
         Assert.Equal(tried, trips);
+
+        // P/Invoke declarations the dummy assemblies keep, checked against the game's own libraries.
+        var verifier = new NativeImportVerifier(p => NetDecompilerMcp.Native.NativeImageLoader.Open(p), hostHasSystemDlls: false);
+        var verdicts = ws.Read(() => ws.Assemblies.Select(a => verifier.Verify(a, default)).ToList());
+        output.WriteLine($"  verify_native_imports ({verdicts.FirstOrDefault()?.Platform.Rid}): {verdicts.Sum(v => v.Checks.Count)} declarations " + string.Join(", ", verdicts.SelectMany(v => v.Checks)
+            .GroupBy(c => $"{c.Status}/{c.Reason}").OrderByDescending(g => g.Count()).Select(g => $"{g.Key} {g.Count()}")));
+        Assert.All(verdicts, v => Assert.NotEqual("windows", v.Platform.Os));
 
         var root = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(native.FilePath)!)!)!;
         var overview = NetDecompilerMcp.Services.Analysis.UnityOverview.Inspect(root, false, default);

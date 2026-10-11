@@ -1245,7 +1245,7 @@ C pseudocode of the native function containing an address, through IDA (idalib; 
 
 **Verify P/Invoke imports** (read-only, idempotent)
 
-Check a .NET assembly's P/Invoke declarations ([DllImport]) against the exports of the DLLs they bind to on this machine, with the runtime's lookup rules: DLL search order (app folder, system folder for the assembly's bitness), API set redirection, A/W suffixes, x86 stdcall decoration (_Name@N computed from the signature), ordinals and forwarder chains. Verdict per declaration, with a reason: verified (exact, suffixed, decorated, forwarded, ordinal), contradicted (DLL found but missing_export, missing_ordinal, exact_spelling, ordinal_points_elsewhere, forwarder_broken), unresolved (dll_not_found with the places searched, system_dll_not_on_host on Linux / macOS, where only DLLs next to the assembly are checked, malformed_metadata with its location), dynamic_only (the assembly loads the library itself: NativeLibrary.Load/GetExport, LoadLibrary/GetProcAddress, a DllImportResolver), not_checked (runtime-internal). Run-time loading found in the IL is listed; a missing static import does not rule out dynamic loading. Malformed metadata (duplicate or bogus streams, unknown tables, rows pointing out of range) is reported with locations.
+Check a .NET assembly's P/Invoke declarations ([DllImport]) against the exports of the libraries they bind to, with the runtime's lookup rules: DLL search order (app folder, system folder for the assembly's bitness), API set redirection, A/W suffixes, x86 stdcall decoration (_Name@N), ordinals and forwarder chains; for Linux / macOS / Android / iOS targets (platform=, or detected from deps.json and the libraries shipped) .so / .dylib probing along the RID chain, ELF / Mach-O exports and __Internal in an Il2Cpp game binary. Verdict per declaration, with a reason: verified (exact, suffixed, decorated, forwarded, ordinal, versioned, internal), contradicted (missing_export, missing_ordinal, exact_spelling, ordinal_points_elsewhere, forwarder_broken, arch_mismatch, mangled_only), unresolved (dll_not_found with the places searched, system_dll_not_on_host, wrong_platform, malformed_metadata with its location), dynamic_only (the assembly loads the library itself: NativeLibrary.Load/GetExport, LoadLibrary/GetProcAddress, a DllImportResolver), not_checked (runtime-internal). Run-time loading found in the IL is listed; a missing static import does not rule out dynamic loading. Malformed metadata is reported with locations.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1253,6 +1253,7 @@ Check a .NET assembly's P/Invoke declarations ([DllImport]) against the exports 
 | `status` | string |  |  | Only declarations with this status (verified, contradicted, unresolved, dynamic_only, not_checked) or reason (e.g. missing_export). |
 | `offset` | integer |  | `0` | Index of the first row. |
 | `limit` | integer |  | `500` | Max rows (default 500, max 5000). |
+| `platform` | string |  |  | Target platform (default auto). Values: auto, windows, linux, osx, android, ios. |
 
 Structured output: `assembly`, `declarations`, `counts`, `filter`, `offset`, `total`, `truncated`, `items`, `dynamicLoads`, `dynamicLoadsTotal`, `metadataIssues`, `notes`.
 
