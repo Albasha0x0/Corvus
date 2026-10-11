@@ -130,6 +130,20 @@ public sealed class AabTests : IDisposable
     }
 
     [Fact]
+    public void Summary_ReportsTheBundlesJarSignature()
+    {
+        (string, byte[])[] entries = [("BundleConfig.pb", [0]), ("base/manifest/AndroidManifest.xml", Manifest()), ("base/dex/classes.dex", AndroidSamples.Dex())];
+        var signed = AndroidSamples.Save(_dir, "signed.aab", ApkTestSigner.Zip(ApkTestSigner.SignV1(entries, ApkTestSigner.Rsa("CN=Upload Key"), apkSigned: null)));
+        var facts = AndroidPackageService.Facts(signed, File.ReadAllBytes(signed), default)!;
+        Assert.StartsWith("verified (v1 verified; ", facts.Signature);
+        Assert.Contains("signed at upload", facts.Signature);
+        Assert.StartsWith("v1 signer 1: CN=Upload Key", facts.Signers.Single());
+
+        var unsigned = AndroidSamples.Save(_dir, "unsigned.aab", ApkTestSigner.Zip(entries));
+        Assert.StartsWith("unsigned (", AndroidPackageService.Facts(unsigned, File.ReadAllBytes(unsigned), default)!.Signature);
+    }
+
+    [Fact]
     public void DamagedProtobuf_NeverThrows()
     {
         var manifest = Manifest();

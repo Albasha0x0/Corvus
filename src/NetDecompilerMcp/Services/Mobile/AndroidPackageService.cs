@@ -13,7 +13,7 @@ public sealed record AndroidResourceList(IReadOnlyList<ResourceRow> Items, int O
 public sealed record AndroidPackageFacts(string Kind, string Package, string? VersionName, string? VersionCode, int? MinSdk, int? TargetSdk,
     [property: Description("Runtimes found in the package, each with its evidence.")] IReadOnlyList<AndroidRuntimeFamily> Runtimes,
     IReadOnlyList<string> Abis, int DexFiles, long DexBytes, int Permissions, int Components, int ExportedComponents,
-    [property: Description("APK signature verdict (verified, mismatch, unsigned, unsupported_algorithm) and schemes (v4 from the .idsig beside the file).")] string? Signature,
+    [property: Description("Signature verdict (verified, mismatch, unsigned, unsupported_algorithm) and schemes (v4 from the .idsig beside the file); an .aab has v1 only.")] string? Signature,
     [property: Description("One line per signer: scheme, certificate, SDK range, verdict with reasons, rotation lineage with capabilities.")] IReadOnlyList<string> Signers,
     IReadOnlyList<string> SplitApks, IReadOnlyList<string> Highlights);
 
@@ -190,12 +190,16 @@ public sealed class AndroidPackageService(OutputPager pager, JavaDotNetMap? dotn
             var dex = p.DexFiles;
             string? signature = null;
             IReadOnlyList<string> signers = [];
-            if (p.Kind == "apk")
+            if (p.Kind is "apk" or "aab")
             {
-                var report = ApkSigning.Verify(bytes, Idsig(path));
-                signature = $"{report.Verdict} ({string.Join(", ", report.Schemes.Select(s => $"{s.Scheme} {s.Verdict}"))})";
+                bool bundle = p.Kind == "aab";
+                var report = ApkSigning.Verify(bytes, bundle ? null : Idsig(path));
+                var schemes = report.Schemes.Select(s => $"{s.Scheme} {s.Verdict}").ToList();
+                if (bundle) schemes.Add("an app bundle is signed at upload with a JAR (v1) signature; the store signs the APKs it generates");
+                signature = $"{report.Verdict} ({string.Join(bundle ? "; " : ", ", schemes)})";
                 signers = Signers(report);
-                if (report.Verdict != ApkSigning.Verified) highlights.Add($"APK signature: {signature}.");
+                if (report.Verdict != ApkSigning.Verified && !(bundle && report.Verdict == ApkSigning.Unsigned))
+                    highlights.Add($"{(bundle ? "Bundle" : "APK")} signature: {signature}.");
                 if (report.Schemes.SelectMany(s => s.Signers).SelectMany(s => s.Certificates).Any(c => c.Subject.Contains("CN=Android Debug", StringComparison.Ordinal)))
                     highlights.Add("Signed with the Android debug certificate.");
             }
