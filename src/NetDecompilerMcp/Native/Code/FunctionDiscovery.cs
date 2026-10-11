@@ -67,6 +67,9 @@ internal sealed class FunctionDiscovery
                 if (_ctx.Code.IsCode(t)) Add(t, FunctionSource.Symbol, strong: true);
         foreach (var d in image.DeclaredFunctions)
             if (_ctx.Code.IsCode(d.Rva)) Add(d.Rva, Source(d.Source), strong: true);
+        if (Go.GoFunctionTable.Of(image) is { } go)
+            foreach (var f in go.Functions)
+                if (_ctx.Code.IsCode(f.Rva)) Add(f.Rva, FunctionSource.GoTable, strong: true);
         var exports = image.Exports.Where(e => e.ForwardedTo == null && _ctx.Code.IsCode(e.Rva)).ToList();
         foreach (var e in exports)
             if (ExportKind(e.Name) == true) Add(e.Rva, FunctionSource.Export, strong: true);

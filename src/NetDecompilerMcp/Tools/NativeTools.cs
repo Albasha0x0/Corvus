@@ -113,6 +113,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         sb.AppendLine($"Exports: {Plural(pe.Exports.Count, "entry")}" +
                       (pe.ExportDirectory is { } ed ? $" (name {ed.DllName ?? "none"}, {Plural(pe.Exports.Count(e => e.ForwardedTo != null), "forwarder")})" : "") + " (list_exports)");
         if (pe.RuntimeFunctions.Count > 0) sb.AppendLine($"Exception directory: {Plural(pe.RuntimeFunctions.Count, "function range")}");
+        GoLine(sb, pe);
         if (pe.TlsCallbackRvas.Count > 0)
             sb.AppendLine($"TLS callbacks (run before the entry point): {string.Join(", ", pe.TlsCallbackRvas.Take(16).Select(r => NativeAddress.Va(pe, r)))}");
         foreach (var d in pe.DebugEntries.Take(8))

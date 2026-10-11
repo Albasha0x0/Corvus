@@ -178,9 +178,13 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         foreach (var t in image.TlsCallbackRvas) Add(t, FunctionSource.TlsCallback);
         foreach (var t in symbolStarts ?? []) Add(t, FunctionSource.Symbol);
         foreach (var d in image.DeclaredFunctions) Add(d.Rva, FunctionDiscovery.Source(d.Source));
+        var go = Go.GoFunctionTable.Of(image);
+        foreach (var g in go?.Functions ?? []) Add(g.Rva, FunctionSource.GoTable);
         var ends = image.RuntimeFunctions.GroupBy(r => r.BeginRva).ToDictionary(g => g.Key, g => g.Max(r => r.EndRva));
         foreach (var d in image.DeclaredFunctions)
             if (d.Size is { } size && !ends.ContainsKey(d.Rva)) ends[d.Rva] = d.Rva + size;
+        foreach (var g in go?.Functions ?? [])
+            if (g.Size > 0) ends.TryAdd(g.Rva, g.Rva + g.Size);
         var functions = sources.OrderBy(kv => kv.Key).Select((kv, i) => new NativeFunction
         {
             Start = kv.Key, Sources = kv.Value, Index = i,
@@ -194,7 +198,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         return new NativeCodeIndex(image, CodeSupport.DeclaredFunctionsOnly, note, null, functions, [], [], [], [], [], stats);
     }
 
-    /// <summary>Names the image gives function starts: exports, then function symbols (ELF .dynsym / .symtab, Mach-O nlist).</summary>
+    /// <summary>Names the image gives function starts: exports, function symbols (ELF .dynsym / .symtab, Mach-O nlist), then the Go function table.</summary>
     private static Dictionary<uint, string> FunctionNames(INativeImage image)
     {
         var names = new Dictionary<uint, string>();
@@ -202,6 +206,8 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             if (e.ForwardedTo == null && e.Name != null) names.TryAdd(e.Rva, e.Name);
         foreach (var s in image.Symbols)
             if (s.Kind == ImageSymbolKind.Function && s.Name.Length > 0) names.TryAdd(s.Rva, s.Name);
+        foreach (var g in Go.GoFunctionTable.Of(image)?.Functions ?? [])
+            if (g.Name != null) names.TryAdd(g.Rva, g.Name);
         return names;
     }
 

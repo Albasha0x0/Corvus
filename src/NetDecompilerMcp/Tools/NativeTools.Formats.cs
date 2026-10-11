@@ -45,6 +45,7 @@ public sealed partial class NativeTools
         if (image.DeclaredFunctions.Count > 0)
             sb.AppendLine($"Declared function starts: {image.DeclaredFunctions.Count} (" +
                           string.Join(", ", image.DeclaredFunctions.GroupBy(d => d.Source).Select(g => $"{SourceName(g.Key)} {g.Count()}")) + ")");
+        GoLine(sb, image);
         sb.AppendLine($"Relocated pointers: {image.RelocationRvas.Count}");
         if (image.BuildId is { } id) sb.AppendLine($"Build id: {id}");
         foreach (var e in image.EncryptedRanges)
@@ -55,6 +56,12 @@ public sealed partial class NativeTools
             foreach (var issue in image.Issues.Take(50))
                 sb.AppendLine($"  {issue.Area}: {issue.Message}" + (issue.FileOffset is { } fo ? $" (file 0x{fo:X})" : ""));
         }
+    }
+
+    private static void GoLine(StringBuilder sb, INativeImage image)
+    {
+        if (Native.Go.GoFunctionTable.Of(image) is { } go)
+            sb.AppendLine($"Go function table: {Plural(go.Functions.Count, "function")} with names ({go.VersionText} layout) at rva 0x{go.Rva:X}");
     }
 
     private static string SourceName(DeclaredSource s) => s switch

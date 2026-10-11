@@ -77,6 +77,8 @@ public enum FunctionSource : uint
     FunctionStarts = 8192,
     /// <summary>An initializer or finalizer array entry (.init_array, __mod_init_func).</summary>
     Initializer = 16384,
+    /// <summary>The Go runtime's function table (pclntab).</summary>
+    GoTable = 32768,
 }
 
 [Flags]
