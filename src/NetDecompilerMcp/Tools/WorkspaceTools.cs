@@ -173,17 +173,17 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                  "ReadyToRun (precompiled native code next to the IL), merged (ILMerge / ILRepack output, with the original module count), " +
                  "and unsaved edits (paged: filter, offset, limit — total has the full count); plus the reference search directories. Pass path instead to list the managed assemblies inside a " +
                  "container file (single-file bundle, .nupkg, .apk / .aab, Costura host, zip) without extracting or loading them " +
-                 "(only the container is listed then, not the workspace); unpack_container extracts and loads them.")]
+                 "(only the container is listed then, not the workspace, paged the same way); unpack_container extracts and loads them.")]
     public Task<WorkspaceState> ListAssemblies(
         [Description("Optional: a container file whose managed assemblies to list (a plain assembly lists itself).")] string? path = null,
-        [Description("Only loaded assemblies whose id, name or path contains this text (case-insensitive).")] string? filter = null,
-        [Description("Index of the first loaded assembly to return.")] int offset = 0,
-        [Description("Max loaded assemblies to return (default 100; total has the full count).")] int limit = 100,
+        [Description("Only assemblies whose id, name or path contains this text (case-insensitive; in a container, its path).")] string? filter = null,
+        [Description("Index of the first assembly to return.")] int offset = 0,
+        [Description("Max assemblies to return (default 100; total has the full count).")] int limit = 100,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
-        var container = path == null ? null : unpacker.List(path, AnalysisLimits.Default, cancellationToken);
+        var container = path == null ? null : unpacker.List(path, AnalysisLimits.Default, cancellationToken, filter, offset, limit);
         if (container != null) // container listing only; the workspace is omitted
-            return new WorkspaceState([], [], indexing.Status, container);
+            return new WorkspaceState([], [], indexing.Status, container) { Total = container.Total };
         return workspace.Read(() =>
         {
             var matching = workspace.Assemblies.Where(a => filter == null || a.Id.Contains(filter, StringComparison.OrdinalIgnoreCase)

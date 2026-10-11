@@ -26,7 +26,11 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     public sealed record ContainedAssembly(string Path, string? Name, string? Version, long Size, string Sha256, string Origin, bool ReadyToRun,
         string? Merged);
 
-    public sealed record ContainerListing(string Source, string Container, List<ContainedAssembly> Assemblies, List<string> Notes);
+    public sealed record ContainerListing(string Source, string Container, List<ContainedAssembly> Assemblies, List<string> Notes)
+    {
+        /// <summary>Assemblies in the container that match the filter; Assemblies holds one page.</summary>
+        public int Total { get; init; }
+    }
 
     private sealed record Found(string Relative, byte[] Bytes, string Kind, string Sha256, string Origin);
 
@@ -84,18 +88,21 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
     /// <summary>
     /// Lists managed assemblies without writing anything. Throws <see cref="ToolError"/> when the container is corrupt.
     /// </summary>
-    public ContainerListing List(string path, AnalysisLimits limits, CancellationToken ct)
+    public ContainerListing List(string path, AnalysisLimits limits, CancellationToken ct, string? filter = null, int offset = 0, int limit = MaxListed)
     {
         var managed = Managed(path, limits, ct);
-        var assemblies = managed.Assemblies;
-        if (assemblies.Count > MaxListed)
+        var assemblies = filter == null ? managed.Assemblies
+            : managed.Assemblies.Where(a => a.Path.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+        int total = assemblies.Count, take = Math.Clamp(limit, 1, MaxListed);
+        offset = Math.Max(0, offset);
+        if (offset > 0 || total > take)
         {
-            managed.Notes.Add($"{assemblies.Count} assemblies; {MaxListed} listed (the app's first, translations last). search_container finds " +
-                              "types and members in all of them; unpack_container extracts them.");
-            assemblies = assemblies.OrderBy(a => ListOrder(a.Origin, a.Path, true)).Take(MaxListed).ToList();
+            assemblies = assemblies.OrderBy(a => ListOrder(a.Origin, a.Path, true)).Skip(offset).Take(take).ToList();
+            managed.Notes.Add($"{total} assemblies; {assemblies.Count} listed{(offset > 0 ? $" from {offset}" : "")} (the app's first, translations last; " +
+                              "offset and limit page through them). search_container finds types and members in all of them; unpack_container extracts them.");
         }
         return new ContainerListing(managed.Source, managed.Container,
-            assemblies.Select(a => Describe(a.Path, a.Bytes, a.Sha256, a.Origin)).ToList(), managed.Notes);
+            assemblies.Select(a => Describe(a.Path, a.Bytes, a.Sha256, a.Origin)).ToList(), managed.Notes) { Total = total };
     }
 
     public sealed record ContainerSymbol(string Path, string Assembly, string Name, string Kind);

@@ -73,14 +73,14 @@ Add a directory for resolving referenced assemblies that are not loaded (an appl
 
 **List loaded assemblies** (read-only, idempotent)
 
-Loaded assemblies with their ids (use the id in other tools), versions, paths, whether they are Il2Cpp dummy DLLs, ReadyToRun (precompiled native code next to the IL), merged (ILMerge / ILRepack output, with the original module count), and unsaved edits (paged: filter, offset, limit — total has the full count); plus the reference search directories. Pass path instead to list the managed assemblies inside a container file (single-file bundle, .nupkg, .apk / .aab, Costura host, zip) without extracting or loading them (only the container is listed then, not the workspace); unpack_container extracts and loads them.
+Loaded assemblies with their ids (use the id in other tools), versions, paths, whether they are Il2Cpp dummy DLLs, ReadyToRun (precompiled native code next to the IL), merged (ILMerge / ILRepack output, with the original module count), and unsaved edits (paged: filter, offset, limit — total has the full count); plus the reference search directories. Pass path instead to list the managed assemblies inside a container file (single-file bundle, .nupkg, .apk / .aab, Costura host, zip) without extracting or loading them (only the container is listed then, not the workspace, paged the same way); unpack_container extracts and loads them.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string |  |  | Optional: a container file whose managed assemblies to list (a plain assembly lists itself). |
-| `filter` | string |  |  | Only loaded assemblies whose id, name or path contains this text (case-insensitive). |
-| `offset` | integer |  | `0` | Index of the first loaded assembly to return. |
-| `limit` | integer |  | `100` | Max loaded assemblies to return (default 100; total has the full count). |
+| `filter` | string |  |  | Only assemblies whose id, name or path contains this text (case-insensitive; in a container, its path). |
+| `offset` | integer |  | `0` | Index of the first assembly to return. |
+| `limit` | integer |  | `100` | Max assemblies to return (default 100; total has the full count). |
 
 Structured output: `assemblies`, `searchDirectories`, `backgroundIndexing`, `container`, `total`, `nativeImages`.
 

@@ -102,6 +102,14 @@ public class InspectionEdgeTests : IDisposable
         Assert.Equal(UnpackService.MaxListed, listing.Assemblies.Count);
         Assert.DoesNotContain(listing.Assemblies, a => a.Path.Contains(".resources")); // translations last, past the cut
         Assert.Contains(listing.Notes, n => n.StartsWith("140 assemblies; 100 listed"));
+        Assert.Equal(140, listing.Total);
+        // list_assemblies path= ignored offset, limit and filter, so entries past the first 100 could not be listed.
+        var rest = new UnpackService(_workspace).List(zip, AnalysisLimits.Default, default, offset: 100, limit: 50);
+        Assert.Equal(40, rest.Assemblies.Count);
+        Assert.Equal(10, rest.Assemblies.Count(a => a.Path.Contains(".resources")));
+        var few = new UnpackService(_workspace).List(zip, AnalysisLimits.Default, default, filter: "A12", limit: 3);
+        Assert.Equal(["lib/A120.dll", "lib/A121.dll", "lib/A122.dll"], few.Assemblies.Select(a => a.Path));
+        Assert.Equal(10, few.Total);
         var unpacked = new UnpackService(_workspace).Unpack(zip, _dir.File("big-out"), false, AnalysisLimits.Default, default);
         Assert.Equal(UnpackService.MaxListed, unpacked.Files.Count);
         Assert.Contains(unpacked.Notes, n => n.StartsWith("140 files written to"));
