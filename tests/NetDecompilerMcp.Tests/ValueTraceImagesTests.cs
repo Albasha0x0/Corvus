@@ -1,4 +1,6 @@
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Native.Calls;
+using NetDecompilerMcp.Native.Code;
 using NetDecompilerMcp.Native.Annotations;
 using NetDecompilerMcp.Services;
 using NetDecompilerMcp.Tools;
@@ -57,6 +59,80 @@ public sealed class ValueTraceImagesTests : IDisposable
         var text = await tools.TraceNativeValues("provlib.dll", "0x180001004", argument: "1");
         NativeLinkTests.Has(text, "Values reached (1): 0x1234");
         NativeLinkTests.Has(text, "@[app.dll] Main+0x");
+    }
+
+    /// <summary>
+    /// fields.dll: Main calls Set(?, 0x77); Set(Widget *w, int v) stores v to w+0x10; Read(Widget *w) passes w+0x10 to
+    /// KERNEL32!Sleep. The parameter types are the user's (set_native_type).
+    /// </summary>
+    private (NativeTraceTools Tools, AssemblyWorkspace Workspace) Fields()
+    {
+        var path = _dir.File("fields.dll");
+        File.WriteAllBytes(path, LinkedImages.Build("fields.dll", [("Main", 0), ("Set", 0x20), ("Read", 0x40)], [("KERNEL32.dll", ["Sleep"])],
+            slots => new LinkedImages.Code(slots).Raw(Frame).Raw(0xBA, 0x77, 0, 0, 0).Raw(0xE8, 0x12, 0, 0, 0).Raw(Unframe).Ret().Pad(0x20)
+                .Raw(0x89, 0x51, 0x10).Ret().Pad(0x40)
+                .Raw(Frame).Raw(0x8B, 0x49, 0x10).CallImport("KERNEL32.dll!Sleep").Raw(Unframe).Ret().ToArray()));
+        var options = new ServerOptions { BackgroundIndexing = false };
+        var ws = new AssemblyWorkspace(options);
+        var native = ws.LoadAny(path).Native!;
+        var code = new NativeCodeService(ws, options, null, new AnnotationStore(_dir.File("ann")));
+        code.Annotations(native).ChangeUserTypes(l => l.WithType(LinkedImages.Text + 0x20, "void Set(struct Widget *w, int v)")
+            .WithType(LinkedImages.Text + 0x40, "void __fastcall Read(Widget *w)"));
+        return (new NativeTraceTools(ws, code), ws);
+    }
+
+    [Fact]
+    public async Task Backward_field_load_finds_the_stores_to_that_field_of_the_type()
+    {
+        var (tools, ws) = Fields();
+        using var _ = ws;
+        var text = await tools.TraceNativeValues("fields.dll", "0x180001047", argument: "1");
+        NativeLinkTests.Has(text, "Values reached (1): 0x77");
+        NativeLinkTests.Has(text, "field +0x10: Widget+0x10");
+        NativeLinkTests.Has(text, "@Set+0x0");
+    }
+
+    [Fact]
+    public async Task Forward_field_store_reaches_the_loads_of_that_field_of_the_type()
+    {
+        var (tools, ws) = Fields();
+        using var _ = ws;
+        var text = await tools.TraceNativeValues("fields.dll", "0x180001004", location: "rdx", direction: "forward");
+        NativeLinkTests.Has(text, "stored to [rcx+10h]: Widget+0x10");
+        NativeLinkTests.Has(text, "read of Widget+0x10 at Read+0x4");
+        NativeLinkTests.Has(text, "-> sink: argument 1 dwMilliseconds of KERNEL32!Sleep");
+    }
+
+    [Fact]
+    public async Task Pdb_procedure_types_name_parameter_pointees_and_members()
+    {
+        var options = new ServerOptions { BackgroundIndexing = false };
+        using var ws = new AssemblyWorkspace(options);
+        var native = ws.LoadAny(PdbTypeFixture.Image(_dir)).Native!;
+        var code = new NativeCodeService(ws, options, null, new AnnotationStore(_dir.File("ann")));
+        _ = new PdbService(code);
+        var index = await code.Index(native, null, default);
+        var host = CallAnalysis.For(index);
+        var types = new NativeTraceTypes(ws, code);
+        var helper = index.FunctionByStart(0x1040)!;
+        Assert.Equal("Player", types.ParameterType(host, helper, "rcx"));
+        Assert.Null(types.ParameterType(host, helper, "rdx"));
+        Assert.Equal("next", types.Member(host, "Player", 0x38));
+        Assert.Contains(types.Holders(host, "Player"), h => h.Function.Start == 0x1040 && h.Location == "rcx");
+    }
+
+    [Fact]
+    public void Rtti_vftable_slots_hold_their_class_as_this()
+    {
+        var (image, vftables) = VirtualCallTests.Synthetic();
+        var native = new LoadedNative("synthetic", "synthetic", image);
+        var index = NativeCodeIndex.Build(image);
+        var host = CallAnalysis.For(index);
+        var types = new NativeTraceTypes(_ => native, _ => UserTypeLayer.Empty, "rtti");
+        var holders = types.Holders(host, "Circle");
+        Assert.NotEmpty(holders);
+        Assert.All(holders, h => Assert.Equal("rcx", h.Location));
+        Assert.Equal("Circle", types.ParameterType(host, holders[0].Function, "rcx"));
     }
 
     [Fact]

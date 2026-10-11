@@ -59,6 +59,7 @@ internal sealed class Arm64Trace : ITraceHost
     public NativeCodeIndex Index { get; }
     public bool Is64 => true;
     public string ReturnLocation => "x0";
+    public string ParameterLocation(int index) => A64Function.Name(A64Function.ParameterEntry(index), null);
     public ValueTraceCache Traces => LazyInitializer.EnsureInitialized(ref _traces, () => new ValueTraceCache());
     public IFunctionSliceProvider Slices => LazyInitializer.EnsureInitialized(ref _slices, () => new Arm64SliceProvider(this));
     public Arm64CallSites Calls => Arm64CallSites.For(Index);
@@ -451,7 +452,8 @@ internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
         {
             var a = m.Accessor;
             Live? pointer = null;
-            if (a.BaseRegister.Kind == Arm64RegisterKind.X && live.TryGetValue(A64Loc.Reg(a.BaseRegister.Index), out var bl)) pointer = bl;
+            bool field = false;
+            if (a.BaseRegister.Kind == Arm64RegisterKind.X && live.TryGetValue(A64Loc.Reg(a.BaseRegister.Index), out var bl)) (pointer, field) = (bl, !a.HasIndexRegister);
             bool indexed = a.HasIndexRegister && live.TryGetValue(A64Loc.Reg(a.IndexRegister.Index), out var il) && (pointer = il) != null;
             if (pointer is { } p && !s.Facts.HasMem)
             {
@@ -463,7 +465,8 @@ internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
                         { Derived = p.Derived, Value = (ulong)table.Targets.Count });
                 }
                 else Use(new SliceNode(store ? SliceNodeKind.FieldStore : SliceNodeKind.Dereference, s.Rva,
-                    $"{(store ? "points to the store" : "points to the load")} {text}", Step(p.Path, s)) { Derived = p.Derived });
+                    $"{(store ? "points to the store" : "points to the load")} {text}", Step(p.Path, s))
+                    { Derived = p.Derived, Offset = field ? Displacement(m) : null });
             }
         }
         // loads from a live stack slot carry it into the destination
@@ -486,7 +489,12 @@ internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
             else if (s.Facts.HasMem && host.ImportAt(s.Facts.MemTarget) == null && IsWritable(s.Facts.MemTarget))
                 Use(new SliceNode(SliceNodeKind.Store, s.Rva, $"stored to [{host.Index.NameAt(s.Facts.MemTarget) ?? host.Va(s.Facts.MemTarget)}]", next.Path)
                     { Rva = s.Facts.MemTarget, Derived = next.Derived });
-            else if (!s.Facts.HasMem) Use(new SliceNode(SliceNodeKind.FieldStore, s.Rva, $"stored to {MemoryText(s)}", next.Path) { Derived = next.Derived });
+            else if (!s.Facts.HasMem)
+            {
+                bool plain = !st.Accessor.HasIndexRegister && st.Accessor.BaseRegister.Kind == Arm64RegisterKind.X;
+                Use(new SliceNode(SliceNodeKind.FieldStore, s.Rva, $"stored to {MemoryText(s)}", next.Path)
+                    { Derived = next.Derived, Offset = plain ? Displacement(st) : null, Base = plain ? $"x{st.Accessor.BaseRegister.Index}" : null });
+            }
         }
         else if (store && mem is { Slot: { } over }) live.Remove(A64Loc.Slot(over));
 
@@ -507,6 +515,9 @@ internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
     }
 
     private bool IsWritable(uint rva) => host.Index.Image.SectionAt(rva) is { } s && (s.Access & SectionAccess.Write) != 0;
+
+    private static long Displacement((int Operand, Arm64MemoryAccessorAny Accessor, bool Post, int? Slot) m) =>
+        m.Post || !m.Accessor.HasImmediate ? 0 : m.Accessor.Immediate;
 
     private static string MemoryText(A64Step s)
     {

@@ -90,7 +90,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
                  "argument, a call result to the callee's returns, a writable global to its writers and initial contents. Forward (where it goes): " +
                  "API arguments (constants decoded), callees' parameters, globals and their readers, returns into callers, compares, switch indexes, " +
                  "dereferences. Seed: address plus location or argument (of a call, or a parameter at a function start), or a writable global. " +
-                 "Loaded images are crossed through imports and exports. Budgets cap depth, functions, nodes, callers and writers; what they leave " +
+                 "Loaded images are crossed through imports and exports, struct fields through parameter types (PDB, RTTI, set_native_type). Budgets cap depth, functions, nodes, callers and writers; what they leave " +
                  "out is a frontier entry with the follow-up call. Pages reuse the built graph. engine=ida or ghidra takes each function's slice " +
                  "from that decompiler's IR (microcode, p-code), falling back to the built-in slice where it cannot place the seed.")]
     public Task<string> TraceNativeValues(
@@ -144,7 +144,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
             var options = new ValueTraceOptions(dir, Math.Clamp(maxDepth, 0, 8), Math.Clamp(maxFunctions, 1, 256), Math.Clamp(maxNodes, 1, 5000),
                 Math.Clamp(maxCallers, 1, 256), Math.Clamp(maxWriters, 1, 256), followGlobals);
             var provider = session != null ? new EngineSliceProvider(host, session) : null;
-            var graph = ValueTrace.Build(host, seed, options, provider, cancellationToken, links is { Any: true } ? links : null);
+            var graph = ValueTrace.Build(host, seed, options, provider, cancellationToken, links is { Any: true } ? links : null, new NativeTraceTypes(workspace, code));
             var report = Report(index, graph, offset, limit);
             if (provider != null && provider.EngineSlices + provider.Fallbacks > 0)
                 report = report with

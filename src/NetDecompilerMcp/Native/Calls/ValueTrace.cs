@@ -82,6 +82,21 @@ internal interface ITraceHost
     string AtCall(NativeFunction f, uint site, string entry, CancellationToken ct);
     /// <summary>The constant <paramref name="location"/> holds just after the instruction at <paramref name="address"/>, or null.</summary>
     ulong? ConstantAfter(NativeFunction f, uint address, string location, CancellationToken ct);
+    /// <summary>The entry location of the 0-based integer parameter <paramref name="index"/> ("rcx", "[esp+4h]", "x2").</summary>
+    string ParameterLocation(int index);
+}
+
+/// <summary>Pointer types of function parameters (PDB prototypes, RTTI classes, the user's types): a value stored into a field is read back where the same type is.</summary>
+internal interface ITraceTypes
+{
+    /// <summary>Identifies the type sources (part of the graph cache key).</summary>
+    string Key { get; }
+    /// <summary>The struct or class the parameter at entry location <paramref name="location"/> of <paramref name="f"/> points to, or null.</summary>
+    string? ParameterType(ITraceHost host, NativeFunction f, string location);
+    /// <summary>Functions with a parameter pointing to <paramref name="type"/>, with that parameter's entry location.</summary>
+    IReadOnlyList<(NativeFunction Function, string Location)> Holders(ITraceHost host, string type);
+    /// <summary>The member of <paramref name="type"/> at <paramref name="offset"/>, or null.</summary>
+    string? Member(ITraceHost host, string type, long offset);
 }
 
 /// <summary>Other loaded images a trace continues into: the code an import binds to, and the call sites that reach a function through imports.</summary>
@@ -108,6 +123,7 @@ public sealed class ValueTrace
 {
     private readonly List<(ITraceHost Host, IFunctionSliceProvider Slices)> _hosts = [];
     private readonly ITraceLinks? _links;
+    private readonly ITraceTypes? _types;
     private readonly TraceSeed _seed;
     private readonly ValueTraceOptions _o;
     private readonly CancellationToken _ct;
@@ -123,7 +139,7 @@ public sealed class ValueTrace
     /// <summary>The image being expanded (index into <see cref="_hosts"/>).</summary>
     private int _cur;
 
-    private enum Step : byte { Callers, Returns, Writers, IntoCallee, ResultUses, Readers }
+    private enum Step : byte { Callers, Returns, Writers, IntoCallee, ResultUses, Readers, FieldWriters, FieldReaders }
 
     /// <summary>A boundary node to continue from: <see cref="Key"/> identifies it across the graph (recursion, repeats).</summary>
     private sealed record Expansion(Step Step, int Node, NativeFunction? Function, int Depth, bool Backward, string Key, string? Location, int Index,
@@ -133,12 +149,15 @@ public sealed class ValueTrace
         public int Host { get; init; } = -1;
         /// <summary>The image <see cref="Rva"/> is in when it is a call site in another image than <see cref="Host"/>, else -1.</summary>
         public int SiteHost { get; init; } = -1;
+        /// <summary>Field steps: the field's offset in the type named by <see cref="Location"/>.</summary>
+        public long Offset { get; init; }
     }
 
-    private ValueTrace(ITraceHost a, IFunctionSliceProvider p, TraceSeed seed, ValueTraceOptions o, ITraceLinks? links, CancellationToken ct)
+    private ValueTrace(ITraceHost a, IFunctionSliceProvider p, TraceSeed seed, ValueTraceOptions o, ITraceLinks? links, ITraceTypes? types, CancellationToken ct)
     {
         _hosts.Add((a, p));
         _links = links;
+        _types = types;
         _seed = seed;
         _o = o;
         _ct = ct;
@@ -169,12 +188,13 @@ public sealed class ValueTrace
 
     /// <summary>Builds the graph (cached per index: the same seed and options return the same graph until names change).</summary>
     /// <param name="links">Loaded images the trace may continue into through imports and exports.</param>
+    /// <param name="types">Parameter types: a value stored into a field is followed to where that field of the type is read, and back.</param>
     internal static ValueTraceGraph Build(ITraceHost analysis, TraceSeed seed, ValueTraceOptions options, IFunctionSliceProvider? provider = null,
-        CancellationToken ct = default, ITraceLinks? links = null)
+        CancellationToken ct = default, ITraceLinks? links = null, ITraceTypes? types = null)
     {
         provider ??= analysis.Slices;
-        var key = $"{provider.Engine}|{seed.Kind}|{seed.Address}|{seed.Location}|{seed.Param?.Name}|{options}|{analysis.Index.Sourced.Version}|{links?.Key}";
-        return analysis.Traces.GetOrAdd(key, () => new ValueTrace(analysis, provider, seed, options, links, ct).Run());
+        var key = $"{provider.Engine}|{seed.Kind}|{seed.Address}|{seed.Location}|{seed.Param?.Name}|{options}|{analysis.Index.Sourced.Version}|{links?.Key}|{types?.Key}";
+        return analysis.Traces.GetOrAdd(key, () => new ValueTrace(analysis, provider, seed, options, links, types, ct).Run());
     }
 
     private ValueTraceGraph Run()
@@ -300,6 +320,39 @@ public sealed class ValueTrace
                 _edges.Add(new TraceEdge(map[e.From], map[e.To], e.Kind.ToString().ToLowerInvariant(), 0, _cur));
         for (int i = 0; i < s.Nodes.Count; i++)
             if (map[i] >= 0 && (i != s.Root || backward)) Boundary(s.Nodes[i], map[i], s.Function, depth, backward, param, returns);
+        if (_types != null)
+            for (int i = 0; i < s.Nodes.Count; i++)
+                if (map[i] >= 0) TypedField(s, i, map[i], depth, backward, param, returns);
+    }
+
+    /// <summary>
+    /// A load from or a store to a field of a parameter whose type is known: the other functions holding that type are
+    /// searched for the field's writers (backward) or readers (forward).
+    /// </summary>
+    private void TypedField(FunctionSlice s, int i, int node, int depth, bool backward, ApiParam? param, ApiReturn? returns)
+    {
+        var n = s.Nodes[i];
+        string? location = null;
+        long offset;
+        if (backward && n.Kind == SliceNodeKind.Field)
+        {
+            foreach (var e in s.Edges)
+                if (e.To == i && e.Kind == SliceEdgeKind.Field && s.Nodes[e.From] is { Kind: SliceNodeKind.Parameter } b) location = b.Location;
+            offset = (long)n.Value;
+        }
+        else if (!backward && n.Kind == SliceNodeKind.FieldStore && n.Base != null && n.Offset is { } stored)
+        {
+            var root = Slices.Backward(s.Function, new SliceSeed(SliceSeedKind.Location, n.Address, n.Base), _ct);
+            _steps += root.Steps;
+            if (root.Nodes.Count > root.Root && root.Nodes[root.Root] is { Kind: SliceNodeKind.Parameter } b) location = b.Location;
+            offset = stored;
+        }
+        else return;
+        if (location == null || _types!.ParameterType(Host, s.Function, location) is not { } type) return;
+        var member = _types.Member(Host, type, offset);
+        _nodes[node] = Get(node) with { Text = $"{Get(node).Text}: {type}+0x{offset:X}{(member != null ? $" ({member})" : "")}" };
+        Enqueue(new Expansion(backward ? Step.FieldWriters : Step.FieldReaders, node, s.Function, depth, backward,
+            $"{(backward ? "fieldwriters" : "fieldreaders")}:{type}:{offset}", type, -1, 0, param, returns) { Offset = offset });
     }
 
     private TraceNode Get(int id) => _nodes[id];
@@ -430,7 +483,7 @@ public sealed class ValueTrace
             return;
         }
         _expanded[key] = e.Node;
-        if (e.Depth >= _o.MaxDepth && e.Step is not (Step.Writers or Step.Readers) || e.Depth > _o.MaxDepth)
+        if (e.Depth >= _o.MaxDepth && e.Step is not (Step.Writers or Step.Readers or Step.FieldWriters or Step.FieldReaders) || e.Depth > _o.MaxDepth)
         {
             Frontier(e, "depth", $"maxDepth={_o.MaxDepth} reached");
             return;
@@ -464,6 +517,9 @@ public sealed class ValueTrace
                 return $"{T} address={Va(e.Rva)} location=result";
             case Step.Writers or Step.Readers:
                 return $"{T} address={Va(e.Rva)}{Direction(e.Backward)}";
+            case Step.FieldWriters or Step.FieldReaders:
+                return $"this trace with maxDepth={Math.Min(8, _o.MaxDepth + 1)} and maxWriters={Math.Min(256, 2 * _o.MaxWriters)} " +
+                       $"({e.Location}+0x{e.Offset:X} {(e.Backward ? "writers" : "readers")})";
             case Step.IntoCallee:
                 return $"{T} address={Va(e.Function!.Start)} {(e.Index >= 0 ? $"argument={e.Index + 1}" : $"location={e.Location}")} direction=forward";
             default:
@@ -510,7 +566,49 @@ public sealed class ValueTrace
             }
             case Step.ResultUses: ResultUses(e); break;
             case Step.Readers: Readers(e); break;
+            case Step.FieldWriters or Step.FieldReaders: Fields(e); break;
         }
+    }
+
+    /// <summary>The writers (backward) or readers (forward) of a field: stores through and loads from the parameters of that type.</summary>
+    private void Fields(Expansion e)
+    {
+        var holders = _types!.Holders(Host, e.Location!);
+        var what = e.Backward ? "writers" : "readers";
+        int taken = 0, found = 0;
+        foreach (var (g, location) in holders)
+        {
+            if (taken >= _o.MaxWriters)
+            {
+                _frontier.Add(new TraceFrontier(e.Node, what, $"{holders.Count - taken} more of {holders.Count} functions holding {e.Location}", Next(e)));
+                break;
+            }
+            if (_nodesFull) { _frontier.Add(new TraceFrontier(e.Node, "nodes", $"{holders.Count - taken} functions holding {e.Location} not searched", Next(e))); break; }
+            taken++;
+            if (!CanEnter(g)) { _frontier.Add(new TraceFrontier(e.Node, "functions", $"{Where(g.Start)}: maxFunctions={_o.MaxFunctions} reached", Next(e))); continue; }
+            var uses = Slice(g, new SliceSeed(SliceSeedKind.Parameter, g.Start, location), true);
+            var kind = e.Backward ? SliceNodeKind.FieldStore : SliceNodeKind.Dereference;
+            foreach (var u in uses.Nodes.Where(u => u.Kind == kind && u.Base == null && u.Offset == e.Offset && !u.Derived).ToList())
+            {
+                found++;
+                if (e.Backward)
+                {
+                    Materialize(Slice(g, new SliceSeed(SliceSeedKind.Stored, u.Address), false), e.Depth + 1, e.Node, true, "store", u.Address, e.Param, null);
+                    continue;
+                }
+                var slice = Slice(g, new SliceSeed(SliceSeedKind.Loaded, u.Address), true);
+                int origin = AddNode(TraceNodeKind.Field, u.Address, g, null, $"read of {e.Location}+0x{e.Offset:X} at {Where(u.Address)}", (ulong)e.Offset, null, null,
+                    e.Depth + 1, "", e.Node, false);
+                _edges.Add(new TraceEdge(e.Node, origin, "load", u.Address, _cur));
+                Materialize(slice, e.Depth + 1, origin, false, "load", u.Address, null, e.Returns);
+            }
+        }
+        if (found == 0)
+            _nodes[e.Node] = Get(e.Node) with
+            {
+                Derivation = AppendNote(Get(e.Node).Derivation, $"no {(e.Backward ? "store to" : "load from")} {e.Location}+0x{e.Offset:X} through a parameter " +
+                                                              $"of that type in the {taken} functions holding it"),
+            };
     }
 
     /// <summary>The call sites of <paramref name="f"/>: in its image, then in other loaded images through their imports.</summary>

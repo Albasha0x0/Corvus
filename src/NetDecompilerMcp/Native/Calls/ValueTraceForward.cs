@@ -193,8 +193,10 @@ internal sealed class ForwardSlicer(OursSliceProvider provider, FunctionCode cod
                 else if (x.MemoryBase != Register.None && live.TryGetValue(Loc.Of(x.MemoryBase), out var b) || x.MemoryIndex != Register.None && live.TryGetValue(Loc.Of(x.MemoryIndex), out b))
                 {
                     var text = MemoryText(in x);
+                    bool field = x.MemoryIndex == Register.None && live.ContainsKey(Loc.Of(x.MemoryBase));
                     Use(new SliceNode(Writes(access) ? SliceNodeKind.FieldStore : SliceNodeKind.Dereference, d.Rva,
-                        $"{(Writes(access) ? "points to the store" : "points to the load")} {text}", Step(b.Path, in d)) { Derived = b.Derived });
+                        $"{(Writes(access) ? "points to the store" : "points to the load")} {text}", Step(b.Path, in d))
+                        { Derived = b.Derived, Offset = field ? Displacement(in x) : null });
                 }
             }
         }
@@ -236,7 +238,11 @@ internal sealed class ForwardSlicer(OursSliceProvider provider, FunctionCode cod
                 else if (kind == OpKind.Memory && d.HasMem && _a.ImportAtSlot(d.MemRva) == null && IsWritable(d.MemRva))
                     Use(new SliceNode(SliceNodeKind.Store, d.Rva, $"stored to [{_a.Index.NameAt(d.MemRva) ?? _a.Va(d.MemRva)}]", next.Path) { Rva = d.MemRva, Derived = next.Derived });
                 else if (kind == OpKind.Memory && !d.HasMem && x.MemoryBase.GetFullRegister() is not (Register.RSP or Register.RBP))
-                    Use(new SliceNode(SliceNodeKind.FieldStore, d.Rva, $"stored to {MemoryText(in x)}", next.Path) { Derived = next.Derived });
+                    Use(new SliceNode(SliceNodeKind.FieldStore, d.Rva, $"stored to {MemoryText(in x)}", next.Path)
+                    {
+                        Derived = next.Derived, Offset = x.MemoryIndex == Register.None && x.MemoryBase != Register.None ? Displacement(in x) : null,
+                        Base = x.MemoryIndex == Register.None && x.MemoryBase != Register.None ? provider.LocationName(Loc.Of(x.MemoryBase)) : null,
+                    });
             }
             else if (dest is { } dl) live.Remove(dl);
         }
@@ -261,6 +267,8 @@ internal sealed class ForwardSlicer(OursSliceProvider provider, FunctionCode cod
 
     private static bool IsImmediate(OpKind k) => k is OpKind.Immediate8 or OpKind.Immediate8to16 or OpKind.Immediate8to32 or OpKind.Immediate8to64
         or OpKind.Immediate16 or OpKind.Immediate32 or OpKind.Immediate32to64 or OpKind.Immediate64;
+
+    private long Displacement(in Instruction x) => _a.Is64 ? (long)x.MemoryDisplacement64 : (int)(uint)x.MemoryDisplacement64;
 
     private static string MemoryText(in Instruction x)
     {

@@ -255,6 +255,7 @@ public sealed partial class CallAnalysis : ITraceHost
 
     IFunctionSliceProvider ITraceHost.Slices => Slices;
     string ITraceHost.ReturnLocation => "rax";
+    string ITraceHost.ParameterLocation(int index) => Slices.LocationName(Slices.ParameterEntry(index));
     string ITraceHost.Va(uint rva) => Va(rva);
     bool ITraceHost.IsRelocated(uint rva) => IsRelocated(rva);
     (ArgKind Kind, ulong? Value, uint? Rva, string Text) ITraceHost.FormatAddress(uint rva, ApiParam? p) => FormatAddress(rva, p);
