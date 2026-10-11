@@ -15,6 +15,7 @@ namespace NetDecompilerMcp.Core;
 ///   --prewarm &lt;e&gt;        start an engine's analysis of each native image in the background right after it loads (one at a time):
 ///                         ida, ghidra or auto (the preferred engine installed); --ida-prewarm is --prewarm ida
 ///   --ida-scripting       allow ida_python (arbitrary Python in the IDA worker; NDM_IDA_SCRIPTING=1)
+///   --ghidra-scripting    allow ghidra_script (arbitrary Java in the Ghidra worker; NDM_GHIDRA_SCRIPTING=1)
 ///   --engine &lt;e&gt;         where native functions, xrefs and CFGs come from by default: auto (an engine's analysis when it is complete, else ours), ours, ida or ghidra
 ///   --index-cache &lt;dir|off&gt;  directory of saved native code indexes (default &lt;LocalAppData&gt;/NetDecompilerMcp/code-index), or off
 ///   --index-cache-mb &lt;n&gt;  size limit of the code index cache in MB (default 8192)
@@ -63,6 +64,12 @@ public sealed class ServerOptions
     public bool IdaScripting { get; set; }
 
     public const string IdaScriptingVariable = "NDM_IDA_SCRIPTING";
+
+    /// <summary>Allow ghidra_script: arbitrary Java in the Ghidra worker, with the server's rights (default off).</summary>
+    public bool GhidraScripting { get; set; }
+
+    public const string GhidraScriptingOption = "--ghidra-scripting";
+    public const string GhidraScriptingVariable = "NDM_GHIDRA_SCRIPTING";
 
     /// <summary>Allow the device tools that change a connected Android device (install, uninstall); default off.</summary>
     public bool AllowDeviceChanges { get; set; }
@@ -142,6 +149,7 @@ public sealed class ServerOptions
                 case "--ida-prewarm": prewarm = "ida"; break;
                 case "--prewarm": prewarm = Next(); break;
                 case "--ida-scripting": o.IdaScripting = true; break;
+                case GhidraScriptingOption: o.GhidraScripting = true; break;
                 case AllowDeviceChangesOption: o.AllowDeviceChanges = true; break;
                 case "--engine": engine = Next(); break;
                 case "--index-cache": cacheRoot = Next(); break;
@@ -174,6 +182,7 @@ public sealed class ServerOptions
                 : prewarm.Trim().ToLowerInvariant() is "off" or "0" or "none" ? null
                 : throw new ArgumentException($"--prewarm (or {PrewarmVariable}) must be ida, ghidra, auto or off, not '{prewarm.Trim()}'");
         if (Environment.GetEnvironmentVariable(IdaScriptingVariable)?.Trim() is "1" or "true" or "on") o.IdaScripting = true;
+        if (Environment.GetEnvironmentVariable(GhidraScriptingVariable)?.Trim() is "1" or "true" or "on") o.GhidraScripting = true;
         if (Environment.GetEnvironmentVariable(AllowDeviceChangesVariable)?.Trim() is "1" or "true" or "on") o.AllowDeviceChanges = true;
         o.EngineRequestTimeoutSeconds = Seconds(EngineRequestTimeoutVariable, o.EngineRequestTimeoutSeconds);
         o.EngineOpenTimeoutSeconds = Seconds(EngineOpenTimeoutVariable, o.EngineOpenTimeoutSeconds);

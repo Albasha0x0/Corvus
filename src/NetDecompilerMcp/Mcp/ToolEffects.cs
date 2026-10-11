@@ -193,6 +193,7 @@ public static class ToolEffects
         ["set_native_operand"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true),
         ["ida_python"] = Changes(destructive: true, idempotent: false, longRunning: true, openWorld: true), // arbitrary code; off unless --ida-scripting
         ["export_engine_database"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true), // starts IDA; force=true replaces outputPath
+        ["ghidra_script"] = Changes(destructive: true, idempotent: false, longRunning: true, openWorld: true), // arbitrary code; off unless --ghidra-scripting
         ["patch_bytes"] = Changes(destructive: true, idempotent: false, longRunning: true),
         ["patch_asm"] = Changes(destructive: true, idempotent: false, longRunning: true),
         ["list_native_edits"] = Reads(longRunning: true),

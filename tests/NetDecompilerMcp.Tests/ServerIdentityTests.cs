@@ -77,7 +77,7 @@ public class ServerIdentityTests
         var ida = noIda with { IsAvailable = true, Reason = null };
         var ghidra = noGhidra with { IsAvailable = true, Reason = null };
         var withIda = ToolAvailability.Of(all, [ida, ghidra], idaScripting: false, isWindows: true);
-        Assert.Equal(["ida_python"], withIda.Where(r => !ToolAvailability.ExternalProgramTools.Contains(r.Tool)).Select(r => r.Tool));
+        Assert.Equal(["ida_python", "ghidra_script"], withIda.Where(r => !ToolAvailability.ExternalProgramTools.Contains(r.Tool)).Select(r => r.Tool));
         Assert.DoesNotContain(ToolAvailability.Of(all, [ida, ghidra], idaScripting: true, isWindows: true), r => r.Tool == "ida_python");
         // Ghidra alone serves decompile_native and the engine=ghidra modes
         var ghidraOnly = ToolAvailability.Of(all, [noIda, ghidra], idaScripting: false, isWindows: true);

@@ -87,7 +87,9 @@ concerned say so in their headers.
   database's, as Ghidra's own decompiler actions do (`FrameOps.java`).
 - [bethington/ghidra-mcp](https://github.com/bethington/ghidra-mcp): a `BundleHost` acquired before analysis in a
   custom headless host, and the program saved before it and the project are released on shutdown (`Worker.java`);
-  a decompilation that times out retried once with a longer limit inside the same request (`CodeOps.java`).
+  a decompilation that times out retried once with a longer limit inside the same request (`CodeOps.java`);
+  inline scripts: a run() body wrapped into a GhidraScript class with its import lines moved to the top, the class name
+  taken from `public class`, and the script's directory enabled on the bundle host (`ScriptOps.java`).
   Its NOTICE file reads:
 
   ```
@@ -108,6 +110,9 @@ concerned say so in their headers.
   handler, and types parsed against the program's manager so pointer sizes follow its data organization
   (`TypeOps.java`); decompiler variables renamed and retyped through `HighFunctionDBUtil.updateDBVariable`
   (`FrameOps.java`).
+- [jtang613/GhidrAssistMCP](https://github.com/jtang613/GhidrAssistMCP), Copyright (c) 2025 Jason Tang, MIT License (text as
+  for ida-pro-mcp above): a Java script run through `GhidraScriptUtil.getProvider` and `getScriptInstance`, then
+  `execute` with a `GhidraState` and `ScriptControls` whose writers capture its output (`ScriptOps.java`).
 - [morluto/rea](https://github.com/morluto/rea) (REA), Copyright (c) 2026 morluto, MIT License (text as for
   ida-pro-mcp above): value flow read from the decompiler's high p-code through `Varnode.getDef()`, with parameters
   by `HighParam.getSlot()` (`SliceOps.java`, which adds the forward direction through `getDescendants()`).

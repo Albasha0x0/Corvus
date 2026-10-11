@@ -71,4 +71,41 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
 
     /// <summary>Largest script file=; a bigger one is data, not a script.</summary>
     private const int MaxScriptBytes = 1 << 20;
+
+    [McpServerTool(Name = "ghidra_script", Title = "Run a Ghidra script on a native image")]
+    [Description("Run Java in the Ghidra worker that holds a native image's program: a GhidraScript class, or the body of its run() with imports " +
+                 "first (currentProgram, println, the FlatProgramAPI). One transaction, committed only when the script returns, then saved; stdout " +
+                 "is println's output. Disabled unless the server runs with --ghidra-scripting or NDM_GHIDRA_SCRIPTING=1: the code runs with the " +
+                 "server's rights. Changes are not in the annotation sidecar.")]
+    public Task<string> GhidraScript(
+        [Description(NativeTools.ImageDescription)] string image,
+        [Description("Java source: a class extending GhidraScript, or statements for run().")] string code,
+        [Description("Seconds before the script is cancelled (default 120, 1-3600).")] int timeout = 120,
+        [Description("Engine: auto (default) or ghidra.")] string? engine = null,
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
+    {
+        if (!options.GhidraScripting)
+            throw new ToolError(ErrorCode.Unsupported, "ghidra_script is disabled on this server.",
+                $"start the server with {ServerOptions.GhidraScriptingOption} or set {ServerOptions.GhidraScriptingVariable}=1 to allow scripts");
+        var id = string.IsNullOrWhiteSpace(engine) || engine.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase) ? "ghidra" : engine.Trim();
+        if (!id.Equals("ghidra", StringComparison.OrdinalIgnoreCase))
+            throw new ToolError(ErrorCode.InvalidArgument, $"ghidra_script runs in Ghidra, not in '{id}'.", "omit engine or pass engine=ghidra");
+        engines.Provider("ghidra");
+        var (native, _) = await Task.Run(() => NativeAnalysisTools.Resolve(workspace, nativeCode, image, "rva:0"), cancellationToken);
+        var session = await engines.Session(native, "ghidra", new Progress<NativeProviderProgress>(p =>
+            progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), cancellationToken);
+        if (names != null) await names.EnsureAsync(native, session, cancellationToken);
+        if (types != null) await types.EnsureAsync(native, session, cancellationToken);
+        if (userTypes != null) await userTypes.EnsureAsync(native, session, cancellationToken);
+        var r = session is Native.Providers.Ghidra.GhidraSession ghidra
+            ? await ghidra.RunJavaAsync(code ?? "", Math.Clamp(timeout, 1, 3600), cancellationToken)
+            : await session.RunScriptAsync(code ?? "", false, cancellationToken);
+        NativeUserTypePush.Touch(session);
+        var sb = new StringBuilder();
+        if (r.Error != null) sb.Append("Error (changes rolled back):\n").Append(r.Error.TrimEnd()).Append('\n');
+        if (r.Stdout.Length > 0) sb.Append("stdout:\n").Append(r.Stdout.TrimEnd()).Append('\n');
+        if (r.Stderr.Length > 0) sb.Append("stderr:\n").Append(r.Stderr.TrimEnd()).Append('\n');
+        return sb.Length == 0 ? "Done (no output); changes committed and saved." : sb.ToString();
+    });
 }

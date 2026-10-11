@@ -152,6 +152,19 @@ public sealed class EngineViewTests : IDisposable
         Assert.Matches(@"callees \(1\):\r?\n  0x[0-9A-F]+  -> \S+  0x[0-9A-F]+  \[call, direct\]", engine);
     }
 
+    [Fact]
+    public void Ghidra_scripting_is_off_unless_the_option_allows_it()
+    {
+        Assert.False(ServerOptions.Parse([]).GhidraScripting);
+        Assert.True(ServerOptions.Parse(["--ghidra-scripting"]).GhidraScripting);
+        var ghidra = ProviderAvailability.Ok("ghidra", new Dictionary<string, string>());
+        var registered = new HashSet<string> { "ghidra_script" };
+        var off = Assert.Single(Mcp.ToolAvailability.Of(registered, [ghidra], idaScripting: false, isWindows: true));
+        Assert.Equal("ghidra_script", off.Tool);
+        Assert.Contains("--ghidra-scripting", off.Remediation);
+        Assert.Empty(Mcp.ToolAvailability.Of(registered, [ghidra], idaScripting: false, isWindows: true, ghidraScripting: true));
+    }
+
     /// <summary>A Ghidra-like engine whose sessions answer the read views from fixed data.</summary>
     internal sealed class ViewProvider : INativeDecompilerProvider
     {

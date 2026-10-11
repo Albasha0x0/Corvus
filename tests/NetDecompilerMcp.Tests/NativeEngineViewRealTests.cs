@@ -79,6 +79,33 @@ public sealed class NativeGhidraViewTests(ITestOutputHelper output, GhidraCacheF
     }
 
     [GhidraFact]
+    public async Task Scripts_print_commit_and_save_and_a_failing_one_rolls_back()
+    {
+        await using var s = await Open();
+        var label = "ndm_script_" + Guid.NewGuid().ToString("N")[..8];
+        string Body(string action) => "import ghidra.program.model.symbol.SourceType;\n" +
+            $"var a = currentProgram.getImageBase().add(0x{NativeIdaProviderTests.ExportRva(shared.Sample, Export):X});\n" + action;
+        var ok = await s.RunJavaAsync(Body($"createLabel(a, \"{label}\", false, SourceType.USER_DEFINED);\nprintln(\"functions \" + currentProgram.getFunctionManager().getFunctionCount());"), 120);
+        output.WriteLine($"stdout: {ok.Stdout}\nstderr: {ok.Stderr}\nerror: {ok.Error}");
+        Assert.Null(ok.Error);
+        Assert.Contains($"functions {s.FunctionCount}", ok.Stdout);
+        Assert.Equal(0, s.UnsavedCount);
+        var find = Body($"println(\"labels \" + currentProgram.getSymbolTable().getSymbols(\"{label}\").hasNext());");
+        Assert.Contains("labels true", (await s.RunJavaAsync(find, 60)).Stdout);
+
+        var failed = await s.RunJavaAsync(Body($"createLabel(a, \"{label}_x\", false, SourceType.USER_DEFINED);\nthrow new IllegalStateException(\"stop\");"), 60);
+        Assert.Contains("IllegalStateException: stop", failed.Error);
+        Assert.Contains("labels false", (await s.RunJavaAsync(find.Replace(label, label + "_x"), 60)).Stdout);
+
+        var broken = await s.RunJavaAsync("int x = ;", 60);
+        Assert.StartsWith("compile:", broken.Error);
+        var slow = await s.RunJavaAsync("while (true) { monitor.checkCancelled(); Thread.sleep(50); }", 2);
+        Assert.Contains("cancelled or ran past", slow.Error);
+        var cleanup = await s.RunJavaAsync(Body($"for (var x : currentProgram.getSymbolTable().getSymbols(\"{label}\")) x.delete();"), 60);
+        Assert.Null(cleanup.Error);
+    }
+
+    [GhidraFact]
     public async Task Function_record_has_prototype_convention_storage_and_thunk_target()
     {
         await using var s = await Open();

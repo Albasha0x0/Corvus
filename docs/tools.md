@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
-151 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+152 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -17,7 +17,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [native-edit](#native-edit) | yes | 9: native names, comments, patches and saving |
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
-| [engine](#engine) | no | 10: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
+| [engine](#engine) | no | 11: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
 | [android](#android) | no | 19: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
 | [dumps](#dumps) | no | 7: crash dumps and crash text |
 | [live](#live) | no | 1: read-only inspection of a running process |
@@ -1968,6 +1968,19 @@ Run Python in the IDA worker holding a native image's database (idalib): IDAPyth
 | `file` | string |  |  | A .py file to run instead of code. |
 | `maxOutput` | integer |  | `20000` | Characters kept of the result, stdout and stderr each (default 20000, 100-200000). |
 | `persist` | boolean |  | `false` | Save the database after the script. |
+
+### ghidra_script
+
+**Run a Ghidra script on a native image** (destructive, open-world, long-running)
+
+Run Java in the Ghidra worker that holds a native image's program: a GhidraScript class, or the body of its run() with imports first (currentProgram, println, the FlatProgramAPI). One transaction, committed only when the script returns, then saved; stdout is println's output. Disabled unless the server runs with --ghidra-scripting or NDM_GHIDRA_SCRIPTING=1: the code runs with the server's rights. Changes are not in the annotation sidecar.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
+| `code` | string | yes |  | Java source: a class extending GhidraScript, or statements for run(). |
+| `timeout` | integer |  | `120` | Seconds before the script is cancelled (default 120, 1-3600). |
+| `engine` | string |  |  | Engine: auto (default) or ghidra. Values: auto, ghidra. |
 
 ### export_engine_database
 

@@ -427,4 +427,21 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
 
     public async Task<IReadOnlyList<EngineNamespace>> ListNamespacesAsync(CancellationToken cancellationToken = default) =>
         WorkerRows.Namespaces(await CallAsync("namespaces", new JsonObject(), cancellationToken).ConfigureAwait(false));
+
+    /// <summary>Java (a GhidraScript class or a run() body) within the request limit; see <see cref="RunJavaAsync"/>.</summary>
+    public Task<NativeScriptResult> RunScriptAsync(string code, bool reset = false, CancellationToken cancellationToken = default) =>
+        RunJavaAsync(code, Options.RequestTimeout.TotalSeconds, cancellationToken);
+
+    /// <summary>
+    /// Runs a script in one transaction within <paramref name="seconds"/>, committed only when it returns normally, and saves
+    /// the program after it: the script is not journaled (a restart could not replay it), its committed changes are on disk.
+    /// </summary>
+    internal async Task<NativeScriptResult> RunJavaAsync(string code, double seconds, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(code);
+        var r = await CallAsync("script", WorkerRows.Args(("code", code), ("timeout", seconds)), cancellationToken, saves: true,
+            timeout: TimeSpan.FromSeconds(seconds + 30)).ConfigureAwait(false);
+        return new NativeScriptResult(null, WorkerRows.Text(r.GetProperty("stdout")) ?? "", WorkerRows.Text(r.GetProperty("stderr")) ?? "",
+            WorkerRows.Text(r.GetProperty("error")));
+    }
 }

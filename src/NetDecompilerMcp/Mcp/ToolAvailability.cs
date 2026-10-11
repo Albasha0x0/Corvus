@@ -23,6 +23,7 @@ public static class ToolAvailability
         ["define_native"] = ["ida", "ghidra"],
         ["set_native_operand"] = ["ida", "ghidra"],
         ["ida_python"] = ["ida"],
+        ["ghidra_script"] = ["ghidra"],
     };
 
     /// <summary>Modes that run an engine although the tool has no engine parameter: (tool, mode, provider ids that can serve it).</summary>
@@ -63,7 +64,7 @@ public static class ToolAvailability
 
     /// <summary>What does not work here among <paramref name="registered"/> tools, given the engines' static availability.</summary>
     public static List<Unavailable> Of(IReadOnlySet<string> registered, IReadOnlyList<ProviderAvailability> engines, bool idaScripting, bool isWindows,
-        bool allowDeviceChanges = false)
+        bool allowDeviceChanges = false, bool ghidraScripting = false)
     {
         var result = new List<Unavailable>();
         ProviderAvailability? Missing(string provider) => engines.FirstOrDefault(e => e.ProviderId == provider && !e.IsAvailable)
@@ -83,6 +84,9 @@ public static class ToolAvailability
             if (AllMissing(providers) is { } m) result.Add(new(tool, null, m.Reason, m.Remediation));
             else if (tool == "ida_python" && !idaScripting)
                 result.Add(new(tool, null, "off: it runs arbitrary Python with the server's rights", $"start the server with --ida-scripting (or {Core.ServerOptions.IdaScriptingVariable}=1)"));
+            else if (tool == "ghidra_script" && !ghidraScripting)
+                result.Add(new(tool, null, "off: it runs arbitrary Java with the server's rights",
+                    $"start the server with {Core.ServerOptions.GhidraScriptingOption} (or {Core.ServerOptions.GhidraScriptingVariable}=1)"));
         }
         // Engine values of the engine parameters, e.g. engine=ida on disassemble.
         foreach (var tool in registered.Where(t => !EngineOnly.ContainsKey(t)).Order(StringComparer.Ordinal))
