@@ -54,8 +54,8 @@ public class DocsTests
         var sb = new StringBuilder();
         sb.Append("# Tools\n\n<!-- Generated from the tool catalog by DocsTests; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->\n\n");
         sb.Append($"{tools.Count} tools in {Toolsets.Families.Count} toolsets. A server registers every tool unless it is started with ");
-        sb.Append("`--toolsets` (README, \"Server options\"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same ");
-        sb.Append("reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).\n\n");
+        sb.Append("`--toolsets` (README, \"Server options\"). From a terminal, `corvus describe <tool>` prints the same ");
+        sb.Append("reference and `corvus <tool> name=value ...` calls a tool ([cli.md](cli.md)).\n\n");
         sb.Append("Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** ");
         sb.Append("tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.\n\n");
         sb.Append("| Toolset | In `core` | Tools |\n|---|---|---|\n");

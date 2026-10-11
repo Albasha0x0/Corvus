@@ -13,22 +13,22 @@ own sandboxed IL interpreter (no I/O, reflection or native code; such calls are 
 **Do I need IDA or Ghidra?**
 No. Decompilation, search, cross-references and patching of .NET code, and native analysis (PE, ELF, Mach-O
 disassembly, functions, cross-references, CFGs, RTTI, PDBs, patching) are built in. IDA (with idalib) or Ghidra adds
-C pseudocode for native code (`decompile_native`) and the engine type and frame edits. `NetDecompilerMcp status
+C pseudocode for native code (`decompile_native`) and the engine type and frame edits. `corvus status
 --engine all` shows what is available.
 
 **Which clients are supported?**
 The ones in the table of [installation.md](installation.md#clients); `install` finds the installed ones. Any other MCP
-client works with the output of `NetDecompilerMcp config`.
+client works with the output of `corvus config`.
 
 **How do I update?**
-`NetDecompilerMcp update` installs the latest release and refreshes existing registrations; client settings need no
+`corvus update` installs the latest release and refreshes existing registrations; client settings need no
 change. `--version X` pins or rolls back.
 
 **The tools do not show up. What now?**
-Restart the client, then run `NetDecompilerMcp status`. [troubleshooting.md](troubleshooting.md) goes by symptom.
+Restart the client, then run `corvus status`. [troubleshooting.md](troubleshooting.md) goes by symptom.
 
 **Can I use it without an agent?**
-Yes. Every tool runs from a terminal: `NetDecompilerMcp decompile_member --load app.dll member=Ns.Type::Method`, and
+Yes. Every tool runs from a terminal: `corvus decompile_member --load app.dll member=Ns.Type::Method`, and
 `batch` runs several calls in one session ([cli.md](cli.md)).
 
 **Can I install without internet access on the target machine?**
@@ -45,7 +45,7 @@ skills; it helps an agent check the registration and use the command line when t
 
 **Where is my data, and how do I remove it?**
 Saved names, comments, notes, code-index and engine caches, symbols and reference packs live under
-`%LOCALAPPDATA%\NetDecompilerMcp` on Windows and the local application data folder elsewhere. `uninstall` keeps them;
+`%LOCALAPPDATA%\Corvus` on Windows and the local application data folder elsewhere. `uninstall` keeps them;
 `uninstall --purge-data` deletes them.
 
 **May I use it on any program?**

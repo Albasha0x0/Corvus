@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Report vulnerabilities privately through the repository's **Security** tab ("Report a vulnerability"). Do not open a
-public issue for a security problem. Include the version (`NetDecompilerMcp version`), the operating system, the MCP
+public issue for a security problem. Include the version (`corvus version`), the operating system, the MCP
 client, and the smallest input or tool call that shows the problem.
 
 Before attaching anything, remove what you may not share: proprietary binaries, crash dumps (they hold process memory),
@@ -28,10 +28,10 @@ The server analyzes files; it does not run them.
   that worker and is off unless the server is started with `--ida-scripting`.
 - **Network.** The server reaches the network only to download a .NET reference pack from nuget.org when analyzed code
   targets an uninstalled .NET version (`CORVUS_OFFLINE=1` turns this off), when `load_pdb` is called with
-  `download=true`, and when `NetDecompilerMcp update` fetches a release from GitHub.
+  `download=true`, and when `corvus update` fetches a release from GitHub.
 - **Files written.** Tools write only to paths given in the call (saved assemblies and images keep a `.bak` of an
   original they replace, and never overwrite without `overwrite=true`), plus per-user caches and annotation files.
-  `NetDecompilerMcp install` writes only the client configuration files it lists, each with a `.netdecompiler.bak`
+  `corvus install` writes only the client configuration files it lists, each with a `.corvus.bak`
   copy of the previous version.
 
 ## Untrusted content in results

@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Start with `NetDecompilerMcp status` (alias `doctor`): it is read-only, starts each client's registration with that
+Start with `corvus status` (alias `doctor`): it is read-only, starts each client's registration with that
 entry's own args and env, and names a state and a fix per client. `--client <id>` narrows it to one client and
 `--json` prints the report. The sections below go by symptom.
 
@@ -9,18 +9,18 @@ entry's own args and env, and names a state and a fix per client. `--client <id>
 | Cause | Check | Fix |
 |---|---|---|
 | The client has not been restarted since `install`. | `status --client <id>` says `registered`. | Restart the client or reload its MCP servers. |
-| The client has no registration. | `status --client <id>` says `not_registered`. | `NetDecompilerMcp install --client <id>` |
-| The entry is turned off in the client. | `status` says `disabled`. | Turn `net-decompiler` on in the client's settings; install keeps an entry off on purpose. |
-| The configuration file cannot be read (a syntax error, an unknown format). | `status` says `config_unreadable`. | Fix the file, or move it away and run `install`; a backup is kept as `<file>.netdecompiler.bak`. |
-| The registered program is gone (moved or deleted). | `status` says `missing_program`. | `NetDecompilerMcp install --client <id>` |
+| The client has no registration. | `status --client <id>` says `not_registered`. | `corvus install --client <id>` |
+| The entry is turned off in the client. | `status` says `disabled`. | Turn `corvus` on in the client's settings; install keeps an entry off on purpose. |
+| The configuration file cannot be read (a syntax error, an unknown format). | `status` says `config_unreadable`. | Fix the file, or move it away and run `install`; a backup is kept as `<file>.corvus.bak`. |
+| The registered program is gone (moved or deleted). | `status` says `missing_program`. | `corvus install --client <id>` |
 | The server does not start with the registered args or env. | `status` says `start_failed` and shows the error. | Run the registered command by hand; fix or remove the args and env that fail. |
-| The client is not one install knows. | `NetDecompilerMcp help` lists the client ids. | Add the output of `NetDecompilerMcp config` to the client's MCP settings. |
+| The client is not one install knows. | `corvus help` lists the client ids. | Add the output of `corvus config` to the client's MCP settings. |
 | The client lists only some tools. | `server_status` names the toolsets. | Remove `--toolsets` from the entry's args, or add the family you need. |
 
 ## The client runs another copy or an old version
 
 - `status` says `other_copy`: the client is registered with a different program than the one you ran.
-  `NetDecompilerMcp install --client <id>` points it at this copy.
+  `corvus install --client <id>` points it at this copy.
 - `status` says `stale_catalog`: the registered program is this copy, but the running server's tool catalog differs
   from this build. Restart the client; a server started before an update keeps running the old build.
 - In a session, `server_status expectedCatalogDigest=<digest>` compares the running server with a known build, and
@@ -34,7 +34,7 @@ entry's args also delays the start: load it from the session instead.
 
 ## A tool says IDA, Python or Ghidra is not available
 
-`NetDecompilerMcp status --engine all` (with `--deep` it also starts IDA's worker) names what is missing and how to
+`corvus status --engine all` (with `--deep` it also starts IDA's worker) names what is missing and how to
 fix it:
 
 - IDA: install IDA 9 with idalib, or point `CORVUS_IDA_DIR` at its folder.
@@ -73,7 +73,7 @@ archive against the release's `SHA256SUMS` first.
 ## The install script or update cannot find the release
 
 While the repository is private, downloads need a token with read access: set `GITHUB_TOKEN` (for example
-`GITHUB_TOKEN=$(gh auth token)`) and run the script or `NetDecompilerMcp update` again.
+`GITHUB_TOKEN=$(gh auth token)`) and run the script or `corvus update` again.
 
 ## The install script stops with a checksum error
 
@@ -83,6 +83,6 @@ persists, report it. An offline install verifies a local archive only when `CORV
 
 ## Reporting a problem
 
-Include `NetDecompilerMcp version`, the OS, the client, the tool and its arguments, and the `status --json` output
+Include `corvus version`, the OS, the client, the tool and its arguments, and the `status --json` output
 with paths you do not want to share removed. Security problems go through the repository's Security tab
 ([SECURITY.md](../SECURITY.md)).

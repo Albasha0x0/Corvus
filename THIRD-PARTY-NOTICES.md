@@ -1,6 +1,6 @@
 # Third-party notices
 
-NetDecompilerMcp includes material derived from the following projects.
+Corvus includes material derived from the following projects.
 
 ## dotnet/runtime
 

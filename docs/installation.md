@@ -1,6 +1,6 @@
 # Installation
 
-NetDecompilerMcp is one self-contained program: an MCP server over stdio, the setup commands that register it with MCP
+Corvus is one self-contained program: an MCP server over stdio, the setup commands that register it with MCP
 clients, and a command line that runs every tool ([cli.md](cli.md)). No .NET installation, admin rights or network port
 are needed.
 
@@ -9,13 +9,13 @@ are needed.
 **Windows** (PowerShell):
 
 ```powershell
-irm https://raw.githubusercontent.com/Albasha0x0/NetDecompilerMcp/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1 | iex
 ```
 
 **Linux / macOS:**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Albasha0x0/NetDecompilerMcp/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh
 ```
 
 While the repository is private, the scripts and `update` need a GitHub token with read access in `GITHUB_TOKEN`
@@ -25,12 +25,12 @@ Then restart your MCP client. The script:
 
 1. Downloads the latest release for your system (Windows, Linux glibc / musl, macOS; x64 and arm64) and checks it
    against the release's `SHA256SUMS`; a missing manifest or a mismatch stops the install.
-2. Unpacks it into a per-user folder (`%LOCALAPPDATA%\NetDecompilerMcp` on Windows, `~/.local/share/net-decompiler-mcp`
-   elsewhere) as `versions/<version>/`, points `current` at it and puts `NetDecompilerMcp` on PATH.
+2. Unpacks it into a per-user folder (`%LOCALAPPDATA%\Corvus` on Windows, `~/.local/share/Corvus`
+   elsewhere) as `versions/<version>/`, points `current` at it and puts `corvus` on PATH.
 3. Starts the server once and checks that it answers (MCP handshake and tool list).
-4. Runs `NetDecompilerMcp install`: existing registrations are refreshed, and detected clients without one are listed
-   with each file that would change and registered after one confirmation (Enter = yes). Releases before 1.2.0 get
-   the plain `install` without the setup options, and a dry run of them cannot show a registration plan.
+4. Runs `corvus install`: existing registrations are refreshed, and detected clients without one are listed
+   with each file that would change and registered after one confirmation (Enter = yes). The scripts install
+   1.2.0 and later, the releases published as Corvus.
 
 | Script option (PowerShell / sh) | Environment | Effect |
 |---|---|---|
@@ -38,7 +38,7 @@ Then restart your MCP client. The script:
 | `-DryRun` / `--dry-run` | | Show the release, the checksum source, the install folder and every client file it would change; change nothing. |
 | `-Yes` / `--yes` | `CORVUS_YES=1` | Register new clients without asking (needed when there is no terminal). |
 | `-Client a,b` / `--client a,b` | | Register only these clients (ids from the table below). |
-| `-Uninstall` / `--uninstall` | | Run `NetDecompilerMcp uninstall`; add `-PurgeData` / `--purge-data` to delete your data too. |
+| `-Uninstall` / `--uninstall` | | Run `corvus uninstall`; add `-PurgeData` / `--purge-data` to delete your data too. |
 | | `CORVUS_REPO` | Download from another repository (`owner/name`). |
 | | `GITHUB_TOKEN` | Token for a private repository. |
 | | `CORVUS_HOME` | Install folder (sh only). |
@@ -51,16 +51,33 @@ with sh. Piped into `sh`, the confirmation is read from the terminal.
 with `CORVUS_ARCHIVE=<archive>` and `CORVUS_SHA256SUMS=<manifest>`.
 
 **From source.** `./publish.ps1` (add `-SelfContained` for a build that needs no .NET), then
-`publish/NetDecompilerMcp install`.
+`publish/corvus install`.
+
+**Upgrading from NetDecompilerMcp (1.1.0 and earlier).** The project was renamed; nothing needs to be done by hand:
+
+- `NetDecompilerMcp update` reaches the first Corvus release, which moves the program from the old folder
+  (`%LOCALAPPDATA%\NetDecompilerMcp`, `~/.local/share/net-decompiler-mcp`) to the one above and puts `corvus` on PATH
+  instead. Running the install script above does the same for an old install.
+- Every client entry named `net-decompiler` becomes `corvus`, pointing at the new program with its own arguments and
+  env; `NDM_*` variables in those entries become `CORVUS_*`. A development relay entry stays a relay for the same
+  publish folder. Skill folders written by `install --skill` move from `net-decompiler` to `corvus`.
+- On first start the data (annotations, notes, caches, code indexes, engine databases, symbols, relay state) moves
+  from the old data folder to the new one; an entry in use is copied and the original kept. Engine databases and
+  files saved before the rename (sessions, edit scripts, patch sets, notes) are still read.
+- Environment variables are only read under their new names: rename `NDM_*` and `NETDECOMP_LOAD` you set yourself
+  to `CORVUS_*` and `CORVUS_LOAD`.
+
+If `update` cannot reach the release (a private repository: the old program loses the token on GitHub's redirect to
+the renamed repository), run the install script above with `GITHUB_TOKEN` set; it takes over the old install.
 
 ## Registering with clients
 
-`NetDecompilerMcp install [client...]` registers the program it is run from (an installed copy registers its stable
+`corvus install [client...]` registers the program it is run from (an installed copy registers its stable
 `current` path, so updates need no client changes):
 
-- Existing `net-decompiler` entries keep your arguments (for example `--load`), env and other keys; only the command is
+- Existing `corvus` entries keep your arguments (for example `--load`), env and other keys; only the command is
   re-pointed. Only the entry's text changes, so comments and formatting elsewhere in the file are kept. Each changed
-  file is backed up once as `<file>.netdecompiler.bak`; a file that cannot be parsed is left untouched and reported.
+  file is backed up once as `<file>.corvus.bak`; a file that cannot be parsed is left untouched and reported.
 - Clients without an entry are added after confirmation, or with `--yes` / `--all-detected`.
 - An entry the client has turned off (`disabled`, `enabled: false`, a disable list) is reported and kept off.
 
@@ -76,7 +93,7 @@ with `CORVUS_ARCHIVE=<archive>` and `CORVUS_SHA256SUMS=<manifest>`.
 | `--command PATH` | Register this program instead of the running one. |
 | `--dev-reload DIR` | Development: register the reload relay (README, "Development reload"). |
 
-Any other client: add the output of `NetDecompilerMcp config` to its MCP settings; `NetDecompilerMcp config <client>`
+Any other client: add the output of `corvus config` to its MCP settings; `corvus config <client>`
 prints the entry for a listed client.
 
 ### Clients
@@ -120,20 +137,20 @@ supported on that system.
 ## The agent skill
 
 `install --skill` also writes a skill (`SKILL.md` and one reference file per guide topic) for clients that read skills:
-Claude Code (`~/.claude/skills/net-decompiler`, or under `CLAUDE_CONFIG_DIR`), Codex, Gemini CLI, Cursor, GitHub
-Copilot CLI and OpenCode (`~/.agents/skills/net-decompiler`), and Antigravity (`~/.gemini/config/skills/net-decompiler`).
+Claude Code (`~/.claude/skills/corvus`, or under `CLAUDE_CONFIG_DIR`), Codex, Gemini CLI, Cursor, GitHub
+Copilot CLI and OpenCode (`~/.agents/skills/corvus`), and Antigravity (`~/.gemini/config/skills/corvus`).
 It is generated from the server's own guidance, so it describes only tools the server has, and it tells an agent how to
 check the registration and how to use the command line when the tools are not connected. The skill does not include the
 server: install the program first.
 
 The skill is optional; the server already sends its guidance to every client. Folders written by install carry a
-`.netdecompiler-skill` marker: every later `install` and `update` keeps them current, `status` reports them as
+`.corvus-skill` marker: every later `install` and `update` keeps them current, `status` reports them as
 `aligned` or `stale`, and `uninstall` removes them. A folder of the same name without the marker is never touched. The
-repository holds the same files in `skills/net-decompiler`.
+repository holds the same files in `skills/corvus`.
 
 ## Checking an installation
 
-`NetDecompilerMcp status` (alias `doctor`) is read-only. It starts each client's registered command with that entry's
+`corvus status` (alias `doctor`) is read-only. It starts each client's registered command with that entry's
 own args and env, compares the tool catalog with this build's, checks the engines (IDA, Python, Ghidra) and reports
 installed skills. `--client X`, `--engine ida|python|ghidra|all` (`--deep` starts IDA's worker) and `--target PATH`
 narrow it, and only what is in scope can fail; `--json` prints the report. Exit codes: 0 healthy, 1 a failure in scope,
@@ -141,15 +158,15 @@ narrow it, and only what is in scope can fail; `--json` prints the report. Exit 
 
 ## Update
 
-`NetDecompilerMcp update` installs the latest release of an installed copy (checked against `SHA256SUMS`) and refreshes
+`corvus update` installs the latest release of an installed copy (checked against `SHA256SUMS`) and refreshes
 existing registrations and skills; it never adds clients. `--version X` installs release X, also an older one;
 `--dry-run` shows the release, asset and checksum manifest it would use.
 
 ## Uninstall
 
-`NetDecompilerMcp uninstall` removes the registration from every client (or the named ones), removes skill folders it
+`corvus uninstall` removes the registration from every client (or the named ones), removes skill folders it
 wrote, and deletes the program files (`--keep-files` keeps them). Your data is kept: annotations, code-index and
-analysis caches, downloaded symbols and reference packs under `%LOCALAPPDATA%\NetDecompilerMcp` (Windows) or the local
+analysis caches, downloaded symbols and reference packs under `%LOCALAPPDATA%\Corvus` (Windows) or the local
 application data folder. `--purge-data` deletes it as well; `--dry-run` lists what would be removed.
 
 ## Environment variables

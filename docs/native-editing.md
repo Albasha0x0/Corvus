@@ -9,7 +9,7 @@ Services/NativeEditService.cs).
 - The authoritative in-memory copy is `NativeAnnotations` (per image, keyed by RVA). It is created on first use
   and loaded from a **sidecar** JSON file.
 - The sidecar lives under the same per-user root as the analysis cache, a sibling folder:
-  `<LocalAppData>/NetDecompilerMcp/annotations/<sha256>.json` (override with `CORVUS_ANNOTATIONS_DIR`). One file per
+  `<LocalAppData>/Corvus/annotations/<sha256>.json` (override with `CORVUS_ANNOTATIONS_DIR`). One file per
   image **SHA-256**, written atomically (temp file + move).
 - The key is the file's hash **as first loaded** (`LoadedNative.OriginalSha256`); it stays stable even after the
   image is patched in memory, so a session's names and a file's identity do not drift.
@@ -152,7 +152,7 @@ rewrites (2-byte edits in `.reloc`) and the recomputed PE checksum when the orig
   by up to 4 unchanged bytes are merged into one record; records are at most 0xFFFE bytes. A record that would start
   at 0x454F46 (whose offset bytes read `EOF`) starts one byte earlier. Offsets past 16 MB are refused with a pointer to
   `ips32` (`IPS32`, 4-byte offsets, `EEOF`; 0x45454F46 moved the same way).
-- `json`: kind `netdecompilermcp.native_patches`, the image (path, SHA-256 of the original, arch, preferred base, file
+- `json`: kind `corvus.native_patches`, the image (path, SHA-256 of the original, arch, preferred base, file
   size, SHA-256 of the patched output), every patch (RVA, file offset, original / replacement hex, description, origin
   `asm` / `bytes`, the assembly text, relocation edits and changes) and the checksum change. migrate_native_patches
   reads it.

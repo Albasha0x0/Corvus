@@ -34,7 +34,7 @@ These fail when a change misses one of its follow-up steps (CONTRIBUTING.md list
 ## Generated documents
 
 `docs/errors.md`, `docs/simplify.md`, `docs/saving.md`, `docs/tools.md`, the client table of `docs/installation.md`
-and the skill in `skills/net-decompiler` are generated from the code and compared by tests. After changing their
+and the skill in `skills/corvus` are generated from the code and compared by tests. After changing their
 sources, regenerate them and commit the result:
 
 ```sh

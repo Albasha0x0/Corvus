@@ -35,7 +35,7 @@ coverage, toolsets) fail when one of these steps is missing. The catalog size ce
 raised only deliberately, with the new figure recorded there.
 
 `docs/simplify.md`, `docs/errors.md`, `docs/saving.md`, `docs/tools.md`, the client table of `docs/installation.md`
-and `skills/net-decompiler` are generated from the code (`SimplifyManifest`, the error codes, `SaveManifest`, the tool
+and `skills/corvus` are generated from the code (`SimplifyManifest`, the error codes, `SaveManifest`, the tool
 catalog, the client catalog, the guide) and checked by tests: after changing their sources, run the tests once with
 `CORVUS_UPDATE_DOCS=1` and commit the regenerated files. The testing policy is `docs/testing.md`.
 

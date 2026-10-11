@@ -59,7 +59,7 @@ public partial class DocFactsTests
             Assert.True(cli.Contains($"| `{command}", StringComparison.Ordinal), $"docs/cli.md has no row for {command}");
         var install = Read("docs/installation.md");
         foreach (var command in SetupCli.Words.Where(w => w is not ("help" or "version" or "doctor")))
-            Assert.True(install.Contains($"NetDecompilerMcp {command}", StringComparison.Ordinal), $"docs/installation.md does not describe {command}");
+            Assert.True(install.Contains($"corvus {command}", StringComparison.Ordinal), $"docs/installation.md does not describe {command}");
         // Rows of the command table name real commands.
         var section = cli[cli.IndexOf("## Commands", StringComparison.Ordinal)..];
         section = section[..section.IndexOf("\n## ", 3, StringComparison.Ordinal)];
@@ -183,8 +183,8 @@ public partial class DocFactsTests
     [GeneratedRegex(@"^#+ (.+)$", RegexOptions.Multiline)]
     private static partial Regex Heading();
 
-    /// <summary>A command line: NetDecompilerMcp [call] word, then its arguments up to the end of the line, a backtick or a comment.</summary>
-    [GeneratedRegex(@"NetDecompilerMcp (?:call )?([a-z][a-z0-9_-]*)([^`\n#|]*)")]
+    /// <summary>A command line: corvus [call] word, then its arguments up to the end of the line, a backtick or a comment.</summary>
+    [GeneratedRegex(@"corvus (?:call )?([a-z][a-z0-9_-]*)([^`\n#|]*)")]
     private static partial Regex CliCall();
 
     [GeneratedRegex(@"(?:^|\s)([A-Za-z_][A-Za-z0-9_]*):?=")]

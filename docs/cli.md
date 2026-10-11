@@ -10,7 +10,7 @@ The full tool reference is [tools.md](tools.md); setup commands (`install`, `sta
 
 | Command | What it does |
 |---|---|
-| `<tool> [name=value ...]` | Call a tool: `NetDecompilerMcp decompile_member --load app.dll member=Ns.Type::Method`. |
+| `<tool> [name=value ...]` | Call a tool: `corvus decompile_member --load app.dll member=Ns.Type::Method`. |
 | `call <tool> [name=value ...]` | The same, with the tool name after `call`. |
 | `tools [filter]` | The tools by toolset, with their effect (read-only, edit, destructive; long-running) and first sentence. `--json` prints a table. |
 | `describe <tool\|prompt>` | Description, parameters (type, required, default, values), annotations, structured output and an example call. `help <name>` is the same. `--json` prints the catalog entry. |
@@ -21,7 +21,7 @@ The full tool reference is [tools.md](tools.md); setup commands (`install`, `sta
 | `read <uri>` | One resource, e.g. `corvus://guide/native`. |
 | `completion <bash\|zsh\|pwsh>` | A shell completion script for commands, tools and parameter names. |
 
-Tool names are accepted in snake case or kebab case (`decompile-member`). `NetDecompilerMcp help` lists the setup
+Tool names are accepted in snake case or kebab case (`decompile-member`). `corvus help` lists the setup
 commands and these.
 
 ## Arguments
@@ -43,7 +43,7 @@ names. Quote values that hold spaces or shell characters: `member='Ns.Type::Meth
 Every server option applies to the session (README, "Server options"). The ones used most:
 
 - `--load PATH` preloads a file or folder (repeatable), so one line loads and calls:
-  `NetDecompilerMcp get_type_info --load app.dll type=Ns.Type`.
+  `corvus get_type_info --load app.dll type=Ns.Type`.
 - `--no-index` skips background indexing, which a single call rarely needs.
 - `--max-output N` restores paging. Without it the command line prints whole results: paging is for agents.
 - `--timeout S`, `--engine E`, `--toolsets T`, `--log-level L` as for the server. Logs go to stderr at `warning` unless
@@ -91,11 +91,11 @@ The exit code is the first failed step's.
 ## Examples
 
 ```sh
-NetDecompilerMcp tools native
-NetDecompilerMcp describe find_references
-NetDecompilerMcp search_strings --load app.dll query=password --json
-NetDecompilerMcp list_types --load app.dll namespace=Ns --structured | jq '.items[].fullName'
-NetDecompilerMcp patch_method_csharp --load app.dll method=Ns.Type::Check code=@check.cs dryRun=true
-NetDecompilerMcp prompt getting_started | some-agent-cli
-source <(NetDecompilerMcp completion bash)
+corvus tools native
+corvus describe find_references
+corvus search_strings --load app.dll query=password --json
+corvus list_types --load app.dll namespace=Ns --structured | jq '.items[].fullName'
+corvus patch_method_csharp --load app.dll method=Ns.Type::Check code=@check.cs dryRun=true
+corvus prompt getting_started | some-agent-cli
+source <(corvus completion bash)
 ```

@@ -1,4 +1,4 @@
-# NetDecompilerMcp
+# Corvus
 
 Ask your coding agent how a compiled program works: it reads the code of .NET assemblies and native PE, ELF and Mach-O
 binaries, follows calls, compares builds, and can patch and save a copy. Nothing is executed and nothing is uploaded.
@@ -8,13 +8,13 @@ binaries, follows calls, compares builds, and can patch and save a copy. Nothing
 **Windows** (PowerShell):
 
 ```powershell
-irm https://raw.githubusercontent.com/Albasha0x0/NetDecompilerMcp/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1 | iex
 ```
 
 **Linux / macOS:**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Albasha0x0/NetDecompilerMcp/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh
 ```
 
 While the repository is private, set `GITHUB_TOKEN` to a token with read access first (for example
@@ -23,8 +23,8 @@ While the repository is private, set `GITHUB_TOKEN` to a token with read access 
 The installer checks the download against the release's `SHA256SUMS`, shows which MCP clients it will register with,
 and asks once. **Restart your client**, then paste this prompt:
 
-> Use net-decompiler to load the corvus.dll of its own installation (`%LOCALAPPDATA%\NetDecompilerMcp\current`
-> on Windows, `~/.local/share/net-decompiler-mcp/current` elsewhere) and explain how its `install` command decides
+> Use Corvus to load the corvus.dll of its own installation (`%LOCALAPPDATA%\Corvus\current`
+> on Windows, `~/.local/share/Corvus/current` elsewhere) and explain how its `install` command decides
 > which MCP clients to register. Cite the methods you read.
 
 Expected result: the agent calls `load_assembly`, finds the setup code with `search_symbols`, reads it with
@@ -34,12 +34,12 @@ for confirmation, named clients are added), citing `SetupPlan.Build` and `SetupC
 From a terminal, without an agent ([docs/cli.md](docs/cli.md)):
 
 ```sh
-NetDecompilerMcp tools
-NetDecompilerMcp decompile_member --load app.dll member=Ns.Type::Method
-NetDecompilerMcp batch steps.jsonl
+corvus tools
+corvus decompile_member --load app.dll member=Ns.Type::Method
+corvus batch steps.jsonl
 ```
 
-Questions: [docs/faq.md](docs/faq.md). Something not working: `NetDecompilerMcp status`, then
+Questions: [docs/faq.md](docs/faq.md). Something not working: `corvus status`, then
 [docs/troubleshooting.md](docs/troubleshooting.md).
 
 **Documentation:** [installation](docs/installation.md) (clients, options, skill, update, uninstall) ·
@@ -71,13 +71,13 @@ configure, no admin rights, no .NET needed (the download is self-contained).
 **Windows** (PowerShell):
 
 ```powershell
-irm https://raw.githubusercontent.com/Albasha0x0/NetDecompilerMcp/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1 | iex
 ```
 
 **Linux / macOS:**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Albasha0x0/NetDecompilerMcp/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh
 ```
 
 Options: `--version X` (a release to pin or roll back to), `--dry-run` (show the release, the checksum source, the
@@ -90,13 +90,13 @@ terminal.
 Then restart your MCP client. What the installer does:
 
 1. Downloads the latest release for your system (Windows, Linux glibc / musl, macOS; x64 and arm64) into a per-user
-   folder (`%LOCALAPPDATA%\NetDecompilerMcp`, `~/.local/share/net-decompiler-mcp`) and puts `NetDecompilerMcp` on PATH.
+   folder (`%LOCALAPPDATA%\Corvus`, `~/.local/share/Corvus`) and puts `corvus` on PATH.
    The download is checked against the release's `SHA256SUMS` (as is every `update`); a missing manifest or a
    mismatch stops the install. A local archive given in `CORVUS_ARCHIVE` is checked only when `CORVUS_SHA256SUMS` names a manifest.
 2. Starts the server once and checks it answers (MCP handshake and tool list).
-3. Registers it as `net-decompiler` with the installed clients it finds, keeping their other settings (each changed
-   file is backed up once as `<file>.netdecompiler.bak`; a file it cannot parse is left untouched and reported). An
-   existing `net-decompiler` entry keeps your arguments (e.g. `--load`), env and other keys; only its command is updated.
+3. Registers it as `corvus` with the installed clients it finds, keeping their other settings (each changed
+   file is backed up once as `<file>.corvus.bak`; a file it cannot parse is left untouched and reported). An
+   existing `corvus` entry keeps your arguments (e.g. `--load`), env and other keys; only its command is updated.
    Only the entry's text changes, so comments and formatting elsewhere in the file are kept.
    Clients without an entry are listed first, with each file it would change, and registered after one keypress
    (Enter = yes). Without a terminal they are registered only with `--yes` (or `CORVUS_YES=1`) or `--all-detected`.
@@ -104,20 +104,20 @@ Then restart your MCP client. What the installer does:
 Supported clients: Claude Code, Claude Desktop, Cursor, Windsurf, VS Code, VS Code Insiders, VSCodium, Cline, Roo Code,
 Kilo Code, Visual Studio, Codex, Gemini CLI, Qwen Code, GitHub Copilot CLI, OpenCode, Crush, Zed, LM Studio,
 Amazon Q, Kiro, Antigravity, Devin, Command Code, Grok Build, OMP and Pi. Any other client: add the output of
-`NetDecompilerMcp config`. Client folders moved with `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_CLI_HOME`,
+`corvus config`. Client folders moved with `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_CLI_HOME`,
 `QWEN_HOME`, `COPILOT_HOME`, `OPENCODE_CONFIG`, `OPENCODE_CONFIG_DIR`, `GROK_HOME`, `PI_CONFIG_DIR`, `OMP_PROFILE`,
 `PI_CODING_AGENT_DIR` or `XDG_CONFIG_HOME` are followed. An entry the client has turned off (`disabled`,
 `enabled: false`, a disable list) is reported and kept off.
 
 | Command | What it does |
 |---|---|
-| `NetDecompilerMcp status` | Read-only check (alias `doctor`): which clients have it registered and with which copy, each registration started with its own args and env, the tool catalog against this build, and the engines (IDA, Python, Ghidra). `--client X`, `--engine ida\|python\|ghidra\|all` (`--deep` starts IDA's worker) and `--target PATH` narrow it, and only what is in scope can fail; `--json` prints the report. Exit codes: 0 healthy, 1 a failure in scope, 2 usage error. |
-| `NetDecompilerMcp install [client...]` | Register again, e.g. after installing a new client; names (or `--client a,b`) register clients not detected. `--dry-run` prints the plan and writes nothing, `--json` prints the plan and result as JSON, `--yes` / `--all-detected` add new clients without asking, `--strict` writes nothing when a client's file cannot be read, `--dev-reload DIR` registers the development relay (below). |
-| `NetDecompilerMcp update` | Install the latest release and refresh existing registrations (it never adds clients); client settings point at a stable path and need no change. `--version X` installs release X, also an older one; `--dry-run` shows what it would install. |
-| `NetDecompilerMcp config [client]` | Print the configuration for a client, or the generic `mcpServers` JSON. |
-| `NetDecompilerMcp uninstall` | Remove it from every client and delete the program files (`--keep-files` keeps them). Your annotations, caches and symbols are kept; `--purge-data` deletes them too; `--dry-run` lists what it would remove. |
+| `corvus status` | Read-only check (alias `doctor`): which clients have it registered and with which copy, each registration started with its own args and env, the tool catalog against this build, and the engines (IDA, Python, Ghidra). `--client X`, `--engine ida\|python\|ghidra\|all` (`--deep` starts IDA's worker) and `--target PATH` narrow it, and only what is in scope can fail; `--json` prints the report. Exit codes: 0 healthy, 1 a failure in scope, 2 usage error. |
+| `corvus install [client...]` | Register again, e.g. after installing a new client; names (or `--client a,b`) register clients not detected. `--dry-run` prints the plan and writes nothing, `--json` prints the plan and result as JSON, `--yes` / `--all-detected` add new clients without asking, `--strict` writes nothing when a client's file cannot be read, `--dev-reload DIR` registers the development relay (below). |
+| `corvus update` | Install the latest release and refresh existing registrations (it never adds clients); client settings point at a stable path and need no change. `--version X` installs release X, also an older one; `--dry-run` shows what it would install. |
+| `corvus config [client]` | Print the configuration for a client, or the generic `mcpServers` JSON. |
+| `corvus uninstall` | Remove it from every client and delete the program files (`--keep-files` keeps them). Your annotations, caches and symbols are kept; `--purge-data` deletes them too; `--dry-run` lists what it would remove. |
 
-From source instead: `./publish.ps1`, then `publish/NetDecompilerMcp install`.
+From source instead: `./publish.ps1`, then `publish/corvus install`.
 
 `install --skill` also writes an optional agent skill, generated from the server's own guidance, for clients that read
 skills (Claude Code, Codex, Gemini CLI, Cursor, GitHub Copilot CLI, OpenCode, Antigravity); later installs and updates keep
@@ -125,9 +125,9 @@ it current and `uninstall` removes it ([docs/installation.md](docs/installation.
 
 ### Development reload
 
-For work on the server itself: `publish/NetDecompilerMcp install --dev-reload publish` registers a relay instead of the
+For work on the server itself: `publish/corvus install --dev-reload publish` registers a relay instead of the
 server (`config --dev-reload publish` prints it). The relay runs from a staged copy under
-`<LocalAppData>/NetDecompilerMcp/relay` (`CORVUS_RELAY_DIR`), speaks MCP to the client and runs the server published in
+`<LocalAppData>/Corvus/relay` (`CORVUS_RELAY_DIR`), speaks MCP to the client and runs the server published in
 that folder as a child, itself from a staged copy. Each `./publish.ps1` writes `publish/.build-complete` last; once
 it is stable and no call is in flight, the relay starts the new build, repeats the client's `initialize`, replays
 the workspace calls that succeeded (`load_assembly`, `unload_assembly`, `add_search_directory`, `load_pdb`,
@@ -147,7 +147,7 @@ resources and resource templates (subscribers get an update notice after each wo
 search and info tools, typed errors (`Error (<code>) in <tool>: ...` with a `Next:` step and a JSON copy; codes and format in [docs/errors.md](docs/errors.md)), strict arguments
 (an undeclared parameter is `invalid_argument` naming the closest declared ones; closed value sets such as `engine`, `kind`
 and `format` are advertised as `enum` and an unlisted value is `invalid_argument` with the closest one), a stale-server check
-(`server_status expectedCatalogDigest=...`, `NetDecompilerMcp doctor`), a response-size guard (`read_result`; every tool declares `anthropic/maxResultSizeChars` so Claude Code keeps a default page in context instead of saving it to a file), cancellation,
+(`server_status expectedCatalogDigest=...`, `corvus doctor`), a response-size guard (`read_result`; every tool declares `anthropic/maxResultSizeChars` so Claude Code keeps a default page in context instead of saving it to a file), cancellation,
 server instructions (a core under 2,048 characters; the details in the `guide` prompt), and workspace notices (files reloaded from disk) at the top of the next tool result.
 
 | Area | Tools |
@@ -169,7 +169,7 @@ server instructions (a core under 2,048 characters; the details in the `guide` p
 | Native bindings | `generate_cpp_binding` (C++ binding for a type in a Mono or Il2Cpp application: class lookup, field offsets, exact-overload method lookups, typed accessors and invoke wrappers; generic definitions as C++ templates. Styles: `mono` (Mono embedding API), `il2cpp` (Il2Cpp runtime exports, with each method's code pointer), `hostapi` (a host function table found in `projectDir`); without `style` it is picked from the project, and the header's first line says which and why) |
 | Patch (in memory, `dryRun` on all) | `rename_symbol` · `rename_namespace` · `stub_method` · `patch_method_csharp` (new body in C#: lambdas, async, `yield`, LINQ, private members accessible) · `add_members_csharp` · `add_types_csharp` · `patch_method_il` (IL assembler that accepts edited `get_il` output; replace or prepend) · `simplify_methods` (for transformed code: string-decoder calls run in a sandboxed IL interpreter and become literals; constant branches, dead code and flattened control flow cleaned up; forwarders and delegate-field call proxies call their real target; every result stack-verified, everything left alone reported with a reason code: [docs/simplify.md](docs/simplify.md)) · `save_assembly` (atomic write with `.bak`, never overwrites without `overwrite=true`; bodies and signatures no edit touched are kept byte-for-byte and the written image is checked against the original: [docs/saving.md](docs/saving.md)) |
 | Edit history | `list_edits` · `diff_edits` (before/after decompiled C# of pending edits) · `undo_edit` · `revert_edits` · `export_edits` / `apply_edits` (replayable JSON edit scripts: re-apply a patch set to a new build; a dry run applies and compiles every edit, then rolls back). Unsaved .NET edits and native patches are journaled per user after every change; loading a file whose last session ended without saving names the journal to replay (`apply_edits`, or `migrate_native_patches` with the same image twice) |
-| Notes | `record_note` (a finding, question, hypothesis or todo anchored to a native address, a .NET member, a file or a dump; kept per user by file SHA-256 / module MVID across sessions and server processes; native notes show in IDA as marked positions and in Ghidra as bookmarks of category NDM) · `update_note` (partial update guarded by the note's revision; a conflict returns the current note) · `list_notes` (by status, kind, anchor, tag and text; an address lists its function's notes) |
+| Notes | `record_note` (a finding, question, hypothesis or todo anchored to a native address, a .NET member, a file or a dump; kept per user by file SHA-256 / module MVID across sessions and server processes; native notes show in IDA as marked positions and in Ghidra as bookmarks of category Corvus) · `update_note` (partial update guarded by the note's revision; a conflict returns the current note) · `list_notes` (by status, kind, anchor, tag and text; an address lists its function's notes) |
 
 **Resources:** `corvus://assemblies`, `corvus://assembly/{assembly}/info`, `corvus://assembly/{assembly}/type/{type}`
 (decompiled C#), `corvus://assembly/{assembly}/il/{symbol}`, `corvus://native/{image}/segments` (sections with exclusive
@@ -611,7 +611,7 @@ Options go after the command in a client's configuration (`args`), e.g. to prelo
 | `--ghidra-scripting` | Allow `ghidra_script` (arbitrary Java in the Ghidra worker, with the server's rights; `CORVUS_GHIDRA_SCRIPTING=1`). Off by default. |
 | `--engine <auto\|ours\|ida\|ghidra>` | Default engine for the native function, cross-reference and CFG tools, and for `decompile_native` when it names one (default `auto`; `CORVUS_ENGINE`); see Engine preference above. |
 | `--prewarm <ida\|ghidra\|auto>` | Analyze each native image in that engine in the background as it loads, one at a time (`auto`: IDA when installed, else Ghidra; `CORVUS_PREWARM`; `--ida-prewarm` / `CORVUS_IDA_PREWARM=1` mean `ida`). Off by default. |
-| `--index-cache <dir\|off>` | Where native code indexes are saved (default `<LocalAppData>/NetDecompilerMcp/code-index`; `CORVUS_CODE_INDEX_CACHE`). Entries are keyed by the file's SHA-256 and the build options, so reopening the same bytes loads the index in seconds (msedge.dll, 334 MB: 2.6 s instead of 36 s); changed, damaged or older-format entries are rebuilt. |
+| `--index-cache <dir\|off>` | Where native code indexes are saved (default `<LocalAppData>/Corvus/code-index`; `CORVUS_CODE_INDEX_CACHE`). Entries are keyed by the file's SHA-256 and the build options, so reopening the same bytes loads the index in seconds (msedge.dll, 334 MB: 2.6 s instead of 36 s); changed, damaged or older-format entries are rebuilt. |
 | `--index-cache-mb <n>`, `--index-cache-days <n>` | Bounds of that cache (default 8192 MB and 30 days unused; least recently used entries go first; `CORVUS_CODE_INDEX_CACHE_MB` / `_DAYS`). |
 | `--binding-style <mono\|hostapi>` | `generate_cpp_binding` style when a call gives none and no host table is detected (default `mono`). |
 | `--binding-project <dir>` | Project directory `generate_cpp_binding` scans for a host table when a call gives no `projectDir`. |
