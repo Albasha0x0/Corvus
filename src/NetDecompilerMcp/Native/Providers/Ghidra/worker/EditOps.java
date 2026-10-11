@@ -1,6 +1,5 @@
 // The user's analysis edits (code, functions, data, undefined ranges) and operand display formats as apply_user_types
-// items. The operations follow mrexodia/ida-pro-mcp's define_code / define_func / undefine / make_data / set_op_type (MIT)
-// on Ghidra's listing; see THIRD-PARTY-NOTICES.md.
+// items, on Ghidra's listing.
 package ndm.ghidra;
 
 import java.util.Set;

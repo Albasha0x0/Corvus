@@ -1,5 +1,4 @@
-// Decompiler variables are renamed and retyped through HighFunctionDBUtil.updateDBVariable, as ReVa does
-// (cyberkaida, Apache License 2.0). See THIRD-PARTY-NOTICES.md.
+// Decompiler variables are renamed and retyped through HighFunctionDBUtil.updateDBVariable.
 package ndm.ghidra;
 
 import java.util.ArrayList;

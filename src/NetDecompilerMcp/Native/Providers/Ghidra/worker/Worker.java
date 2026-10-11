@@ -1,7 +1,6 @@
 // Ghidra worker for NetDecompilerMcp: one program per process, requests as JSON lines on stdio.
-// Hosting patterns follow other Apache-2.0 Ghidra servers: fd 1 kept for the protocol and System.out sent to stderr
-// (LaurieWired GhidraMCP); a BundleHost acquired before analysis and save before project disposal on shutdown
-// (bethington ghidra-mcp). See THIRD-PARTY-NOTICES.md.
+// fd 1 is kept for the protocol and System.out goes to stderr; a BundleHost is acquired before analysis and the
+// program is saved before project disposal on shutdown.
 package ndm.ghidra;
 
 import java.io.BufferedReader;

@@ -1,6 +1,4 @@
-// Record schema ported from dotnet/runtime (MIT License, Copyright (c) .NET Foundation and Contributors):
-// src/coreclr/tools/Common/Internal/Metadata/NativeFormat/Generator/SchemaDef.cs and the generated
-// NativeFormatReaderGen.cs / MdBinaryReaderGen.cs at v7.0.20, v8.0.22, v9.0.11, v10.0.0 and main. See THIRD-PARTY-NOTICES.md.
+// NativeFormat metadata record schema of .NET 7 to 10 (SchemaDef.cs and the generated readers in dotnet/runtime).
 
 namespace NetDecompilerMcp.Native.NativeAot;
 

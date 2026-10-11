@@ -1,6 +1,6 @@
-// Type creation follows ReVa (cyberkaida, Apache License 2.0): C declarations through CParser resolved into the
-// program's data type manager with the replace handler, prototypes through Ghidra's signature parsing, and types
-// parsed against the program's manager so pointer sizes follow its data organization. See THIRD-PARTY-NOTICES.md.
+// Type creation: C declarations through CParser resolved into the program's data type manager with the replace
+// handler, prototypes through Ghidra's signature parsing, and types parsed against the program's manager so pointer
+// sizes follow its data organization.
 package ndm.ghidra;
 
 import java.io.File;

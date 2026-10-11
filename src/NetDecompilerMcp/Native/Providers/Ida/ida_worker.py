@@ -4,8 +4,6 @@
 # Unsolicited lines: {"event": "progress", "op": ..., "elapsed": seconds}.
 # Anything IDA or Python prints goes to stderr: fd 1 is redirected there before idalib loads.
 # Addresses on the wire are RVAs relative to the database image base.
-# The user type, local, stack frame, member reference, declaration and Python ops adapt code from mrexodia/ida-pro-mcp
-# (MIT, Copyright (c) 2025 Duncan Ogilvie); see THIRD-PARTY-NOTICES.md.
 import json
 import os
 import sys
@@ -1617,8 +1615,6 @@ def op_sleep(args):
 
 
 # ---- user edits beyond types (apply_user_types): enum members, analysis, stack deletes, operand display ----
-# Adapted from mrexodia/ida-pro-mcp enum_upsert / define_func / define_code / undefine / make_data / delete_stack / set_op_type (MIT);
-# see THIRD-PARTY-NOTICES.md.
 
 DATA_SIZES = {"byte": 1, "word": 2, "dword": 4, "qword": 8, "float": 4, "double": 8}
 

@@ -1,5 +1,4 @@
-// A decompiler timeout is its own error, not a failure, as in ReVa (cyberkaida, Apache License 2.0).
-// See THIRD-PARTY-NOTICES.md.
+// A decompiler timeout is its own error, not a failure.
 package ndm.ghidra;
 
 import java.util.HexFormat;

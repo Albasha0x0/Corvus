@@ -1,5 +1,4 @@
-// Pool design (LIFO reuse, bounded slots, one deadline over wait and run, flushCache after writes) follows
-// pyghidra-mcp's decompiler_pool.py, Copyright clearbluejar, Apache License 2.0. See THIRD-PARTY-NOTICES.md.
+// Pool: LIFO reuse, bounded slots, one deadline over wait and run, flushCache after writes.
 package ndm.ghidra;
 
 import java.util.ArrayDeque;
