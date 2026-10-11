@@ -448,12 +448,12 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         WorkerRows.Namespaces(await CallAsync("namespaces", new JsonObject(), cancellationToken).ConfigureAwait(false));
 
     public async Task<NativeFieldXrefs> GetFieldXrefsAsync(IReadOnlyList<string> types, string? member, int? offset, IReadOnlyList<uint> functions, double seconds,
-        CancellationToken cancellationToken = default)
+        uint? allFrom = null, CancellationToken cancellationToken = default)
     {
         // the budget stays under the request timeout so slow decompilation ends the scan instead of the request
         double budget = Math.Clamp(seconds, 1, Math.Max(1, Options.RequestTimeout.TotalSeconds * 0.6));
         var args = WorkerRows.Args(("types", new JsonArray(types.Select(t => (JsonNode)t).ToArray())), ("member", member), ("offset", offset),
-            ("functions", new JsonArray(functions.Select(f => (JsonNode)f).ToArray())), ("seconds", budget));
+            ("functions", new JsonArray(functions.Select(f => (JsonNode)f).ToArray())), ("seconds", budget), ("all_from", allFrom));
         return WorkerRows.FieldXrefs(await CallAsync("field_xrefs", args, cancellationToken).ConfigureAwait(false));
     }
 

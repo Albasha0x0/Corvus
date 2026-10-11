@@ -21,9 +21,9 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
     [McpServerTool(Name = "get_exception_info", Title = "Native exception handling")]
     [Description("Exception handling of the native function containing an address. ELF / Mach-O: FDE or compact unwind entry, personality, " +
                  "LSDA call sites with landing pads and caught types. MSVC: the handler (__C_specific_handler, __CxxFrameHandler3/4, " +
-                 "__GSHandlerCheck; x86 _except_handler3/4, __ehhandler$ stubs), try blocks with caught types, the unwind map, SEH scopes, " +
+                 "x86 _except_handler3/4), try blocks with caught types, the unwind map, SEH scopes, " +
                  "the IP-to-state map, and the code it reaches: catch blocks, unwind funclets, filters and handlers attached as chunks, x64 " +
-                 "funclets with their parent, chained fragments. Without an address: counts for the image and the metadata that failed its checks.")]
+                 "funclets with their parent, chained fragments. Without an address: image counts and the metadata that failed its checks.")]
     public Task<string> GetExceptionInfo(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription + " Omit for a summary of the image.")] string? address = null,

@@ -104,6 +104,12 @@ final class FieldOps {
                     }
         }
         for (JsonElement e : Worker.array(r.args, "functions")) functions.add(e.getAsLong());
+        if (r.args.has("all_from") && !r.args.get("all_from").isJsonNull()) {
+            // every function from that rva on (scope all, resumed where the last call stopped)
+            long first = r.args.get("all_from").getAsLong();
+            for (Function f : w.program.getFunctionManager().getFunctions(true))
+                if (f.getEntryPoint().getOffset() - w.base >= first) functions.add(f.getEntryPoint().getOffset() - w.base);
+        }
 
         int scanned = 0, failed = 0, skipped = 0;
         boolean decompiler = Worker.decompilerPresent();

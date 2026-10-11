@@ -223,6 +223,16 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(ErrorCode.NotFound, type.Code);
         Assert.StartsWith("list_native_types filter=NoSuchType kind=struct", type.Remediation);
         Assert.Equal(ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => rig.CodeTools.FindXrefs(Image, "_IMAGE_NT_HEADERS64::Signature", engine: "ours"))).Code);
+        // scope=all: every function's pseudocode, continued by calling again until complete; the typed scan's uses are among them
+        string all = "";
+        for (int call = 0; call < 40 && !all.Contains("; complete", StringComparison.Ordinal); call++)
+            all = await rig.CodeTools.FindXrefs(Image, "_IMAGE_NT_HEADERS64::OptionalHeader", engine: "ida", scope: "all", limit: 5000);
+        output.WriteLine(all.Split('\n')[1]);
+        Assert.Contains("pseudocode of all functions scanned: ", all);
+        Assert.Contains("; complete", all);
+        static HashSet<string> Rows(string t) => t.Split('\n').Where(l => l.StartsWith("0x", StringComparison.Ordinal)).Select(l => l.Trim()).ToHashSet();
+        Assert.Subset(Rows(all), Rows(text));
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.CodeTools.FindXrefs(Image, "_IMAGE_NT_HEADERS64::OptionalHeader", engine: "ida", scope: "some"))).Code);
         // an ordinary name still resolves as an address
         Assert.Contains("References to", await rig.CodeTools.FindXrefs(Image, Function));
     }

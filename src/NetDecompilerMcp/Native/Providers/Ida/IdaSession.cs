@@ -338,12 +338,12 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
     }
 
     public async Task<NativeFieldXrefs> GetFieldXrefsAsync(IReadOnlyList<string> types, string? member, int? offset, IReadOnlyList<uint> functions, double seconds,
-        CancellationToken cancellationToken = default)
+        uint? allFrom = null, CancellationToken cancellationToken = default)
     {
         // the budget stays under the request timeout so slow decompilation ends the scan instead of the worker
         double budget = Math.Clamp(seconds, 1, Math.Max(1, RequestTimeout.TotalSeconds * 0.6));
         var args = IdaProvider.Args(("types", new JsonArray(types.Select(t => (JsonNode)t).ToArray())), ("member", member), ("offset", offset),
-            ("functions", new JsonArray(functions.Select(f => (JsonNode)f).ToArray())), ("seconds", budget));
+            ("functions", new JsonArray(functions.Select(f => (JsonNode)f).ToArray())), ("seconds", budget), ("all_from", allFrom));
         var r = await CallAsync("field_xrefs", args, cancellationToken).ConfigureAwait(false);
         var rows = r.GetProperty("rows").EnumerateArray()
             .Select(x => new NativeFieldAccess(x[0].GetUInt32(), x[1].GetString() ?? "", x[2].ValueKind == JsonValueKind.Number ? x[2].GetUInt32() : null)).ToList();

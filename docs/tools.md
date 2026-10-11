@@ -1127,7 +1127,7 @@ Structured output: `image`, `function`, `address`, `engine`, `blocks`, `switches
 
 **Native cross-references** (read-only, idempotent, open-world, long-running)
 
-What references an address in a native image: calls (direct, through import slots and thunks), jumps, data reads and writes, address-taken uses, switch tables and relocated pointers, each with its function; for a virtual method, the virtual call sites reaching it (VirtualExact: the only implementation; VirtualPossible: one of several; MSVC RTTI). An import (module!name): its call sites (x86 calls through a register loaded from the slot too) and its binding; an export: also call sites in other loaded images ([image] prefix). Call rows show recovered arguments. A late-bound import (GetProcAddress): where it is resolved and calls through its pointer. direction=from: what the address references (a function start: the whole function), rows ending '-> target'. A struct member (Type::member, Type.member, Type+0x18; engine types) lists its uses through IDA or Ghidra: typed operands, and reads, writes and address-of in the pseudocode of functions whose prototype names the type. The first call on an image waits for its code index (built in the background after loading; seconds for a typical DLL, one to two minutes for a 300 MB browser DLL; progress is reported).
+What references an address in a native image: calls (direct, through import slots and thunks), jumps, data reads and writes, address-taken uses, switch tables and relocated pointers, each with its function; for a virtual method, the virtual call sites reaching it (VirtualExact: the only implementation; VirtualPossible: one of several). An import (module!name): its call sites (x86 calls through a register loaded from the slot too) and its binding; an export: also call sites in other loaded images ([image] prefix). Call rows show recovered arguments. A late-bound import (GetProcAddress): where it is resolved and calls through its pointer. direction=from: what the address references (a function start: the whole function), rows ending '-> target'. A struct member (Type::member, Type+0x18) lists its uses through IDA or Ghidra: typed operands, reads, writes and address-of in the pseudocode of functions whose prototype names the type (scope=all: every function; call again to continue). The first call on an image waits for its code index (built in the background after loading; seconds for a typical DLL, one to two minutes for a 300 MB browser DLL; progress is reported).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1138,6 +1138,7 @@ What references an address in a native image: calls (direct, through import slot
 | `engine` | string |  |  | auto (default: IDA's or Ghidra's analysis when complete in this session, else the built-in index; never starts an engine), ours (built-in index only), ida or ghidra (that engine, started when needed). Server default: --engine / NDM_ENGINE. An engine's references get the RTTI-resolved virtual calls it lacks (marked ours). Values: auto, ours, ida, ghidra. |
 | `direction` | string |  |  | to (default), from or both. Values: to, from, both. |
 | `kind` | string |  |  | any (default), code (calls, jumps) or data (reads, writes, pointers, address-taken). Values: any, code, data. |
+| `scope` | string |  |  | Struct member: typed (default) or all. Values: typed, all. |
 
 Structured output: `image`, `target`, `items`, `offset`, `total`, `truncated`, `boundTo`, `engine`, `engineNote`.
 
@@ -1163,7 +1164,7 @@ Callers or callees of a native function, several levels deep (calls through thun
 
 **Native virtual calls** (read-only, idempotent, open-world, long-running)
 
-Virtual call sites resolved through RTTI (MSVC or Itanium; ARM: calls through this): calls through a vftable slot, also through stack spills, this adjustments and the CFG dispatch. The receiver's class comes from a vftable stored into the object (also by a constructor called on it), this of a virtual method, or decorated names (this of members, class pointers passed or returned); the slot's implementations in it and its derived classes are the targets: one is exact, several possible (pure virtual stubs left out), the rest unresolved with the reason. The edges are part of the call graph (native_call_tree, find_xrefs, get_call_arguments, disassemble comments). crossCheck=true compares a sample with a decompiler engine (IDA when installed, else Ghidra; its decompiler with the RTTI class types pushed, and its code references) and reports the agreement rate; the report names the engine.
+Virtual call sites resolved through RTTI (MSVC or Itanium; ARM: calls through this): calls through a vftable slot, also through stack spills, this adjustments and the CFG dispatch. The receiver's class comes from a vftable stored into the object (also by a constructor called on it), this of a virtual method, or decorated names (this of members, class pointers passed or returned); the slot's implementations in it and its derived classes are the targets: one is exact, several possible (pure virtual stubs left out), the rest unresolved with the reason. The edges are part of the call graph (native_call_tree, find_xrefs, get_call_arguments, disassemble comments). crossCheck=true compares a sample with a decompiler engine (IDA when installed, else Ghidra; its pseudocode with the RTTI class types pushed, and its references) and reports the agreement rate.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1199,7 +1200,7 @@ Structured output: `image`, `items`, `offset`, `total`, `truncated`, `notEvaluat
 
 **Native call arguments** (read-only, idempotent, long-running)
 
-Call sites of a native image (x86 / x64 / ARM) with their argument values, recovered by backward constant propagation in the calling function under the platform conventions (x64 Microsoft on PE, System V on ELF / Mach-O; x86 pushed / stored stack slots; ARM x0-x7 / r0-r3): immediates, string literals, named addresses, results of earlier calls, globals; merges of different values are unknown. Known Win32 / CRT APIs give parameter names and decoded constants (GENERIC_READ, PAGE_EXECUTE_READWRITE, HKEY_LOCAL_MACHINE, printf formats). Pass address (a call instruction, or any address in a function for all its calls) and/or callee (an API or function name: all calls to it).
+Call sites of a native image (x86 / x64 / ARM) with their argument values, recovered by backward constant propagation in the calling function under the platform conventions (x64 Microsoft on PE, System V on ELF / Mach-O; x86 pushed / stored stack slots; ARM x0-x7 / r0-r3): immediates, strings, named addresses, results of earlier calls, globals; merges of different values are unknown. Known Win32 / CRT / libc APIs give parameter names and decoded constants (GENERIC_READ, printf formats). Pass address (a call instruction, or any address in a function for all its calls) and/or callee (an API or function name: all calls to it).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1299,7 +1300,7 @@ Structured output: `image`, `query`, `seeds`, `totalSeeds`, `functions`, `totalF
 
 **Native exception handling** (read-only, idempotent, long-running)
 
-Exception handling of the native function containing an address. ELF / Mach-O: FDE or compact unwind entry, personality, LSDA call sites with landing pads and caught types. MSVC: the handler (__C_specific_handler, __CxxFrameHandler3/4, __GSHandlerCheck; x86 _except_handler3/4, __ehhandler$ stubs), try blocks with caught types, the unwind map, SEH scopes, the IP-to-state map, and the code it reaches: catch blocks, unwind funclets, filters and handlers attached as chunks, x64 funclets with their parent, chained fragments. Without an address: counts for the image and the metadata that failed its checks.
+Exception handling of the native function containing an address. ELF / Mach-O: FDE or compact unwind entry, personality, LSDA call sites with landing pads and caught types. MSVC: the handler (__C_specific_handler, __CxxFrameHandler3/4, x86 _except_handler3/4), try blocks with caught types, the unwind map, SEH scopes, the IP-to-state map, and the code it reaches: catch blocks, unwind funclets, filters and handlers attached as chunks, x64 funclets with their parent, chained fragments. Without an address: image counts and the metadata that failed its checks.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

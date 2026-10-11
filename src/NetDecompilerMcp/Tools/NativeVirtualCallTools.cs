@@ -55,8 +55,8 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
                  "slot's implementations in it and its derived classes are the targets: one is exact, several possible (pure virtual stubs left " +
                  "out), the rest unresolved with the reason. The edges are " +
                  "part of the call graph (native_call_tree, find_xrefs, get_call_arguments, disassemble comments). crossCheck=true compares a sample " +
-                 "with a decompiler engine (IDA when installed, else Ghidra; its decompiler with the RTTI class types pushed, and its code references) " +
-                 "and reports the agreement rate; the report names the engine.")]
+                 "with a decompiler engine (IDA when installed, else Ghidra; its pseudocode with the RTTI class types pushed, and its references) " +
+                 "and reports the agreement rate.")]
     public async Task<string> FindVirtualCalls(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Only sites in the function containing this address or named so. " + NativeTools.AddressDescription)] string? function = null,

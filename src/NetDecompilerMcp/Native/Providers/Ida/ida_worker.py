@@ -1343,6 +1343,10 @@ def op_field_xrefs(args):
         if m.ida_nalt.get_tinfo(ftif, ea) and ftif.get_func_details(ftd) and (names_struct(ftd.rettype) or any(names_struct(a.type) for a in ftd)):
             funcs.add(ea)
     funcs.update(_state["base"] + r for r in args.get("functions") or [])
+    if args.get("all_from") is not None:
+        # every function from that rva on (scope all, resumed where the last call stopped)
+        first = _state["base"] + int(args["all_from"])
+        funcs.update(ea for ea in m.idautils.Functions() if ea >= first)
     result = {"type": tname, "member": mname, "offset": moff, "size": msize, "member_type": mtype, "rows": rows, "candidates": len(funcs),
               "scanned": 0, "skipped": 0, "failed": 0, "decompiler": hexrays_ready(m)}
     if not result["decompiler"]:

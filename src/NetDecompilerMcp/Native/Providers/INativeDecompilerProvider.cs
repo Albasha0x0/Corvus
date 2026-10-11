@@ -192,10 +192,11 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     /// <summary>
     /// References to a member of a struct or union (the first of <paramref name="types"/> that exists), by name or by an
     /// offset it covers: operands typed as the member, and member accesses in the pseudocode of the functions whose type
-    /// names the struct plus <paramref name="functions"/>, within <paramref name="seconds"/>. NotFound for no such type or member.
+    /// names the struct plus <paramref name="functions"/> (and every function from <paramref name="allFrom"/> on), within
+    /// <paramref name="seconds"/>. NotFound for no such type or member.
     /// </summary>
     Task<NativeFieldXrefs> GetFieldXrefsAsync(IReadOnlyList<string> types, string? member, int? offset, IReadOnlyList<uint> functions, double seconds,
-        CancellationToken cancellationToken = default) =>
+        uint? allFrom = null, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not report struct member references.");
 
     /// <summary>

@@ -125,6 +125,10 @@ public sealed class NativeGhidraViewTests(ITestOutputHelper output, GhidraCacheF
         Assert.True(r.Scanned >= 1);
         Assert.Contains(r.Accesses, a => a.FunctionRva == rva && a.Kind == "read");
         Assert.Equal("e_lfanew", (await s.GetFieldXrefsAsync(["NdmDos"], null, 0x3D, [], 60)).Member);
+        // every function from the typed one on: more candidates, the typed function's access among the uses
+        var all = await s.GetFieldXrefsAsync(["NdmDos"], "pad", null, [], 30, allFrom: rva);
+        Assert.True(all.Candidates > r.Candidates, $"{all.Candidates} candidates");
+        Assert.Contains(all.Accesses, a => a.FunctionRva == rva && a.Kind == "read");
         Assert.Equal(Core.ErrorCode.NotFound, (await Assert.ThrowsAsync<Core.ToolError>(() => s.GetFieldXrefsAsync(["NdmDos"], "nope", null, [], 10))).Code);
         Assert.Equal(Core.ErrorCode.NotFound, (await Assert.ThrowsAsync<Core.ToolError>(() => s.GetFieldXrefsAsync(["NdmNone"], "x", null, [], 10))).Code);
     }
