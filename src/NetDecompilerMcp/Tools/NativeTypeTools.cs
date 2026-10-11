@@ -17,7 +17,7 @@ namespace NetDecompilerMcp.Tools;
 /// </summary>
 [McpServerToolType]
 public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineService engines, NativeUserTypePush userTypes, NativeCodeService? code = null,
-    NativeNamePush? names = null, NativeTypePush? types = null)
+    NativeNamePush? names = null, NativeTypePush? types = null, OutputPager? pager = null)
 {
     private const string EngineDescription = "Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra), ida or ghidra.";
 
@@ -654,17 +654,21 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         limit = Math.Clamp(limit, 1, 5000);
         var (total, rows) = await NativeEngineQueries.Types(session, new NativeEngineQueries.TypeQuery(nameFilter, k, order, descending, members ? MemberRows : 0, offset, limit),
             cancellationToken);
+        var blocks = rows.Select(t =>
+        {
+            var b = new System.Text.StringBuilder($"  {t.Kind} {t.Name}" + (t.Size >= 0 ? $"  {t.Size} bytes" : "") + (t.MemberCount > 0 ? $"  {t.MemberCount} members" : ""));
+            foreach (var m in t.Members ?? [])
+                b.AppendLine().Append(t.Kind == "enum" ? $"      {m.Name} = {m.Offset}" : $"      +0x{m.Offset:X}  {m.Name}  {m.Type}  {m.Size}");
+            if (t.Members is { } shown && t.MemberCount > shown.Count) b.AppendLine().Append($"      ... {t.MemberCount - shown.Count} more (name={t.Name} lists them)");
+            return b.ToString();
+        }).ToList();
+        int fit = (pager ?? new OutputPager(new ServerOptions())).FitRows(blocks, 400);
         var text = new System.Text.StringBuilder($"{total} type(s)" + (nameFilter != null ? $" matching '{nameFilter.Text}'" : "") + (k != null ? $" of kind {k}" : "") +
                                                  (order != "ordinal" ? $" by {order}{(descending ? " descending" : "")}" : "") +
-                                                 (rows.Count < total ? $"; rows {offset + 1}-{offset + rows.Count}" : "") + "\n");
-        foreach (var t in rows)
-        {
-            text.AppendLine($"  {t.Kind} {t.Name}" + (t.Size >= 0 ? $"  {t.Size} bytes" : "") + (t.MemberCount > 0 ? $"  {t.MemberCount} members" : ""));
-            foreach (var m in t.Members ?? [])
-                text.AppendLine(t.Kind == "enum" ? $"      {m.Name} = {m.Offset}" : $"      +0x{m.Offset:X}  {m.Name}  {m.Type}  {m.Size}");
-            if (t.Members is { } shown && t.MemberCount > shown.Count) text.AppendLine($"      ... {t.MemberCount - shown.Count} more (name={t.Name} lists them)");
-        }
-        if (offset + rows.Count < total) text.AppendLine($"More: offset={offset + rows.Count}");
+                                                 (fit < total ? $"; rows {offset + 1}-{offset + fit}" : "") + "\n");
+        foreach (var block in blocks.Take(fit)) text.AppendLine(block);
+        if (fit < blocks.Count) text.AppendLine(OutputPager.CapNote(fit, blocks.Count, offset + fit));
+        else if (offset + rows.Count < total) text.AppendLine($"More: offset={offset + rows.Count}");
         return text.ToString();
     });
 

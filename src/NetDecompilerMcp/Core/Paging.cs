@@ -50,18 +50,42 @@ public sealed class OutputPager(ServerOptions options)
         limit = Math.Clamp(limit, 1, 5_000);
         offset = Math.Max(0, offset);
         var page = rows.Skip(offset).Take(limit).ToList();
+        var fit = FitRows(page.Select(r => "  " + r).ToList(), 1_000); // room for the caller's header lines too
         var sb = new System.Text.StringBuilder()
-            .AppendLine($"{rows.Count} {(rows.Count == 1 ? noun : noun + "s")} (showing {(page.Count == 0 ? 0 : offset + 1)}-{offset + page.Count}):");
-        foreach (var r in page) sb.Append("  ").AppendLine(r);
-        if (offset + page.Count < rows.Count)
+            .AppendLine($"{rows.Count} {(rows.Count == 1 ? noun : noun + "s")} (showing {(fit == 0 ? 0 : offset + 1)}-{offset + fit}):");
+        foreach (var r in page.Take(fit)) sb.Append("  ").AppendLine(r);
+        if (fit < page.Count)
+            sb.AppendLine(CapNote(fit, page.Count, offset + fit));
+        else if (offset + page.Count < rows.Count)
             sb.AppendLine($"[More: call again with offset={offset + page.Count}]");
         return Page(sb.ToString());
     }
 
+    /// <summary>The output limit of a call (maxChars when given, else the server's).</summary>
+    public int MaxChars(int? maxChars = null) => Math.Clamp(maxChars is > 0 ? maxChars.Value : options.MaxOutputChars, 1_000, 500_000);
+
+    /// <summary>How many of <paramref name="lines"/> fit in the output limit beside <paramref name="reserve"/> characters of header and footer.</summary>
+    public int FitRows(IReadOnlyList<string> lines, int reserve, int? maxChars = null)
+    {
+        long room = MaxChars(maxChars) - reserve;
+        int n = 0;
+        foreach (var line in lines)
+        {
+            room -= line.Length + Environment.NewLine.Length;
+            if (room < 0) break;
+            n++;
+        }
+        return Math.Max(n, Math.Min(1, lines.Count)); // at least one row, so paging always advances
+    }
+
+    /// <summary>The footer of a row list cut by the output limit: "473 of 532 rows fit; use offset=473".</summary>
+    public static string CapNote(int fit, int asked, int next) =>
+        $"[{fit} of {asked} rows fit in the output limit; use offset={next} (or a larger maxChars / smaller limit)]";
+
     /// <summary>Returns the character slice starting at <paramref name="offset"/>, cut at a line break when possible.</summary>
     public string Page(string text, int offset = 0, int? maxChars = null)
     {
-        int max = Math.Clamp(maxChars is > 0 ? maxChars.Value : options.MaxOutputChars, 1_000, 500_000);
+        int max = MaxChars(maxChars);
         if (offset < 0) offset = 0;
         if (offset >= text.Length && text.Length > 0)
             throw new ToolError(ErrorCode.InvalidArgument, $"offset {offset} is past the end of the output ({text.Length} chars).");

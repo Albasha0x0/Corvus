@@ -154,18 +154,21 @@ public sealed class PdbTools(AssemblyWorkspace workspace, PdbService pdbs, Outpu
         limit = Math.Clamp(limit, 1, 5_000);
         offset = Math.Max(0, offset);
         var page = matches.Skip(offset).Take(limit).ToList();
-        var sb = new StringBuilder();
-        sb.AppendLine($"{native.Id} ({Path.GetFileName(s.Path)}): {Plural(matches.Count, "symbol")} (showing {(page.Count == 0 ? 0 : offset + 1)}-{offset + page.Count}):");
-        foreach (var x in page)
+        var lines = page.Select(x =>
         {
             string at = x.Rva is { } rva ? NativeAddress.Va(native.Image, rva) : $"{x.Segment:X4}:{x.Offset:X8} (not in the image)";
             string name = x.IsPublic ? PdbNaming.Display(x.Name) : x.Name;
             string sig = x.IsPublic && PdbNaming.Signature(x.Name) is { } full && full != name ? $"  [{full}]" : "";
             string mod = x.Module >= 0 && x.Module < s.Pdb.Modules.Count ? $"  ({Path.GetFileName(s.Pdb.Modules[x.Module].Name)})" : "";
             string size = x.Size > 0 ? $" {x.Size,6}" : "       ";
-            sb.AppendLine($"  {at}  {KindName(x.Kind),-8}{size}  {name}{sig}{mod}");
-        }
-        if (offset + page.Count < matches.Count) sb.AppendLine($"[More: call again with offset={offset + page.Count}]");
+            return $"  {at}  {KindName(x.Kind),-8}{size}  {name}{sig}{mod}";
+        }).ToList();
+        int fit = pager.FitRows(lines, 400);
+        var sb = new StringBuilder();
+        sb.AppendLine($"{native.Id} ({Path.GetFileName(s.Path)}): {Plural(matches.Count, "symbol")} (showing {(fit == 0 ? 0 : offset + 1)}-{offset + fit}):");
+        foreach (var line in lines.Take(fit)) sb.AppendLine(line);
+        if (fit < lines.Count) sb.AppendLine(OutputPager.CapNote(fit, lines.Count, offset + fit));
+        else if (offset + page.Count < matches.Count) sb.AppendLine($"[More: call again with offset={offset + page.Count}]");
         return pager.Page(sb.ToString());
     }, cancellationToken);
 

@@ -76,11 +76,13 @@ public sealed partial class NativeCodeTools
             : await Task.Run(() => ScanIndex(index, ranges, query, offset + limit + 1, budget, cancellationToken), cancellationToken);
 
         var sb = new StringBuilder($"; {choice.Line}\n");
-        var shown = scan.Matches.Skip(offset).Take(limit).ToList();
+        var lines = scan.Matches.Skip(offset).Take(limit).Select(m => $"  {NativeAddress.Va(index.Image, m.Rva)}  {m.Where}  {m.Text}").ToList();
+        int fit = pager.FitRows(lines, 600);
         sb.AppendLine($"{(scan.Matches.Count > offset + limit ? "More than " + (offset + limit) : scan.Matches.Count.ToString(CultureInfo.InvariantCulture))} match(es) " +
-                      $"in {Plural(scan.Scanned, "instruction")} scanned" + (shown.Count > 0 ? $"; showing {offset + 1}-{offset + shown.Count}" : ""));
-        foreach (var m in shown) sb.AppendLine($"  {NativeAddress.Va(index.Image, m.Rva)}  {m.Where}  {m.Text}");
-        if (scan.Matches.Count > offset + limit) sb.AppendLine($"More: offset={offset + limit}");
+                      $"in {Plural(scan.Scanned, "instruction")} scanned" + (fit > 0 ? $"; showing {offset + 1}-{offset + fit}" : ""));
+        foreach (var line in lines.Take(fit)) sb.AppendLine(line);
+        if (fit < lines.Count) sb.AppendLine(OutputPager.CapNote(fit, lines.Count, offset + fit));
+        else if (scan.Matches.Count > offset + limit) sb.AppendLine($"More: offset={offset + limit}");
         if (scan.StoppedAt is { } stop)
             sb.AppendLine($"Scan budget of {Plural(budget, "instruction")} reached at {NativeAddress.Va(index.Image, stop)}: continue with start=0x{index.Image.ImageBase + stop:X}" +
                           (ranges.Count > 0 && ranges[^1].End > stop ? $" end=0x{index.Image.ImageBase + ranges[^1].End:X}" : "") + ", or raise maxInstructions");

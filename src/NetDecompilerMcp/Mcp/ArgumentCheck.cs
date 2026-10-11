@@ -40,6 +40,11 @@ public static class ArgumentCheck
             {
                 if (value.ValueKind == JsonValueKind.String && property.TryGetProperty("enum", out var allowed) && allowed.ValueKind == JsonValueKind.Array)
                     CheckValue(tool, name, value.GetString()!, allowed);
+                if (name == "limit" && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var limit) && limit < 1 && IsNativeTool(tool))
+                    throw new ToolError(ErrorCode.InvalidArgument, $"parameter 'limit' must be at least 1, not {limit}.", "Pass limit=1 or more, or omit it for the default.")
+                    {
+                        Details = new { parameter = name, value = limit },
+                    };
                 continue;
             }
             var detail = types.Contains("integer") && value.ValueKind == JsonValueKind.Number
@@ -48,6 +53,10 @@ public static class ArgumentCheck
             throw new ToolError(ErrorCode.InvalidArgument, $"parameter '{name}' must be {detail}.");
         }
     }
+
+    /// <summary>Native tools (the native, native-edit and engine families, and tools named *native*), whose paged lists reject a limit below 1.</summary>
+    public static bool IsNativeTool(string? tool) =>
+        tool != null && (Toolsets.FamilyOf(tool) is "native" or "native-edit" or "engine" || tool.Contains("native", StringComparison.Ordinal));
 
     /// <summary>Accepts a listed value or alias (any case, trimmed) and the empty string, which the tool reads as its default.</summary>
     private static void CheckValue(string? tool, string name, string value, JsonElement allowed)
