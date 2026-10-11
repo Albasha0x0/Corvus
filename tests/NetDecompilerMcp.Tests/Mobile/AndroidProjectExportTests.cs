@@ -65,6 +65,23 @@ public sealed class AndroidProjectExportTests : IDisposable
         Assert.Equal(ErrorCode.Conflict, (await Assert.ThrowsAsync<ToolError>(() => export.Export(apk, root, null, default))).Code);
     }
 
+    /// <summary>R8 names classes a and A in one package: on a case-insensitive file system the second gets its own file, not a conflict.</summary>
+    [Fact]
+    public async Task ClassesDifferingOnlyInCaseGetTheirOwnFiles()
+    {
+        using var env = new EnvironmentScope().Set("NDM_JAVA_DECOMPILER", Path.Combine(_dir.Path, "missing.jar"));
+        using var java = new JavaDecompilerService(new DexService());
+        var dex = new DexBuilder();
+        dex.Class("Lp/a;");
+        dex.Class("Lp/A;");
+        var apk = AndroidSamples.Save(_dir, "case.apk", AndroidSamples.Apk(30, ("classes.dex", dex.Build())));
+        var r = await new AndroidProjectExport(new DexService(), java).Export(apk, _dir.File("out"), null, default);
+        var ext = r.Sources == "java" ? ".java" : ".smali";
+        var files = Directory.GetFiles(Path.Combine(r.Directory, "app", "src", "main", r.Sources, "p")).Select(Path.GetFileName).Order(StringComparer.Ordinal).ToList();
+        Assert.Equal(["A" + ext, "a_2" + ext], files);
+        Assert.Contains(r.Notes, n => n.StartsWith("1 class(es) differ from another only in letter case", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task WithJadx_OneJavaFilePerTopLevelClass()
     {

@@ -109,6 +109,17 @@ public sealed partial class AndroidProjectExport(DexService dex, JavaDecompilerS
             return ("none", 0, 0);
         }
         var all = index.Classes.Keys.Order(StringComparer.Ordinal).ToList();
+        // Minified classes may differ only in case (a and A), which share one file on Windows and macOS.
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int renamed = 0;
+        string FileFor(string folder, string cls, string extension)
+        {
+            var stem = $"app/src/main/{folder}/{cls[1..^1]}";
+            var relative = stem + extension;
+            for (int n = 2; !used.Add(relative); n++) relative = $"{stem}_{n}{extension}";
+            if (!relative.EndsWith("/" + cls[1..^1].Split('/')[^1] + extension, StringComparison.Ordinal)) renamed++;
+            return relative;
+        }
         var topLevel = all.Where(d => Outer(d) is not { } outer || !index.Classes.ContainsKey(outer)).ToList();
         bool useJava = true;
         int done = 0, failures = 0;
@@ -129,11 +140,17 @@ public sealed partial class AndroidProjectExport(DexService dex, JavaDecompilerS
                 failures++;
                 text = $"// {cls}: not decompiled ({ex.Message})\n";
             }
-            write($"app/src/main/java/{cls[1..^1]}.java", Encoding.UTF8.GetBytes(StripHeader(text)));
+            write(FileFor("java", cls, ".java"), Encoding.UTF8.GetBytes(StripHeader(text)));
         }
-        if (useJava) return ("java", topLevel.Count, failures);
+        if (useJava)
+        {
+            CaseNote();
+            return ("java", topLevel.Count, failures);
+        }
 
         done = 0;
+        used.Clear();
+        renamed = 0;
         foreach (var cls in all)
         {
             ct.ThrowIfCancellationRequested();
@@ -145,10 +162,16 @@ public sealed partial class AndroidProjectExport(DexService dex, JavaDecompilerS
                 failures++;
                 smali = $"# {cls}: not disassembled ({ex.Message})\n";
             }
-            write($"app/src/main/smali/{cls[1..^1]}.smali", Encoding.UTF8.GetBytes(smali));
+            write(FileFor("smali", cls, ".smali"), Encoding.UTF8.GetBytes(smali));
         }
+        CaseNote();
         notes.Add("Gradle does not build smali: app/src/main/smali is the code to read, or to rebuild with a smali assembler.");
         return ("smali", all.Count, failures);
+
+        void CaseNote()
+        {
+            if (renamed > 0) notes.Add($"{renamed} class(es) differ from another only in letter case and are written as Name_2 (Name_3, ...) beside it.");
+        }
     }
 
     private static string? Outer(string descriptor)
