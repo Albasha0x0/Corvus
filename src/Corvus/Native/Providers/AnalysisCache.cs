@@ -10,14 +10,14 @@ namespace Corvus.Native.Providers;
 /// </summary>
 public sealed class AnalysisCache(string root)
 {
-    public const string RootVariable = "NDM_ANALYSIS_CACHE";
+    public const string RootVariable = "CORVUS_ANALYSIS_CACHE";
 
     public string Root { get; } = Path.GetFullPath(root);
 
     public static string DefaultRoot =>
         Environment.GetEnvironmentVariable(RootVariable) is { Length: > 0 } custom
             ? custom
-            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), "NetDecompilerMcp", "analysis");
+            : DataFolder.Combine("analysis");
 
     /// <summary>
     /// Locks the entry for <paramref name="imagePath"/>'s bytes and makes sure its private copy exists and hashes to
@@ -191,7 +191,7 @@ public sealed class AnalysisCache(string root)
         try { return action(); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            throw new ToolError(ErrorCode.IoError, $"I/O error on {path}: {ex.Message}", "Check that the path is readable and the cache directory is writable (NDM_ANALYSIS_CACHE selects another).");
+            throw new ToolError(ErrorCode.IoError, $"I/O error on {path}: {ex.Message}", "Check that the path is readable and the cache directory is writable (CORVUS_ANALYSIS_CACHE selects another).");
         }
     }
 }

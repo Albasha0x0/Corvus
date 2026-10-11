@@ -14,7 +14,7 @@ public sealed partial class MinidumpService
     public const int DefaultMaxDumps = 1000;
     private const int BucketWalkFrames = 64;
     /// <summary>Overrides the folder of the incremental bucketing cache.</summary>
-    public const string BucketCacheVariable = "NDM_DUMP_BUCKET_CACHE";
+    public const string BucketCacheVariable = "CORVUS_DUMP_BUCKET_CACHE";
 
     /// <summary>Frames that say how an exception was raised, not where: skipped in signatures.</summary>
     private static readonly string[] NoiseFrames =
@@ -22,7 +22,7 @@ public sealed partial class MinidumpService
 
     /// <summary>Where signatures of already bucketed dumps are kept (per folder; keyed by path, size and write time).</summary>
     internal string BucketCache { get; set; } = Environment.GetEnvironmentVariable(BucketCacheVariable) is { Length: > 0 } custom ? custom
-        : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), "NetDecompilerMcp", "dumpbuckets");
+        : Native.Providers.DataFolder.Combine("dumpbuckets");
 
     public sealed record DumpCounts(
         [property: Description("Dump files found.")] int Seen,

@@ -22,14 +22,13 @@ public static class PdbLocator
 {
     public const string DefaultServer = "https://msdl.microsoft.com/download/symbols";
     /// <summary>Overrides the download cache directory.</summary>
-    public const string CacheVariable = "NDM_SYMBOL_CACHE";
+    public const string CacheVariable = "CORVUS_SYMBOL_CACHE";
     public const long DefaultMaxDownloadBytes = 2L << 30;
 
     public static string DownloadCache =>
         Environment.GetEnvironmentVariable(CacheVariable) is { Length: > 0 } custom
             ? custom
-            : System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create),
-                "NetDecompilerMcp", "symbols");
+            : Providers.DataFolder.Combine("symbols");
 
     /// <summary>The symbol store key: GUID (32 upper-case hex digits) followed by the age in hex.</summary>
     public static string StoreKey(PeCodeView cv) => cv.Guid.ToString("N").ToUpperInvariant() + cv.Age.ToString("X");

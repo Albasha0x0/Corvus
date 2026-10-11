@@ -56,7 +56,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
             Assert.Equal(ErrorCode.Unsupported, e.Code);
             Assert.Contains("Mips", e.Message);
             Assert.Contains("IDA", e.Remediation);
-            Assert.Contains("NDM_GHIDRA_DIR", e.Remediation);
+            Assert.Contains("CORVUS_GHIDRA_DIR", e.Remediation);
         }
         // list_functions still answers from the declared starts.
         Assert.Contains("1 function", await tools.ListFunctions(path));

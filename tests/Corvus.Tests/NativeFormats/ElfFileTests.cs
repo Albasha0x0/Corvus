@@ -299,7 +299,7 @@ public sealed class ElfFileTests(ITestOutputHelper output)
         else Assert.Contains(elf.DeclaredFunctions, f => f.Source == DeclaredSource.Unwind);
     }
 
-    /// <summary>Every shared object of the linux-arm64 runtime pack (libcoreclr.so and friends) agrees with LibObjectFile, and with LLVM when NDM_LLVM_BIN is set.</summary>
+    /// <summary>Every shared object of the linux-arm64 runtime pack (libcoreclr.so and friends) agrees with LibObjectFile, and with LLVM when CORVUS_LLVM_BIN is set.</summary>
     [Fact]
     [Trait("Speed", "Slow")]
     public void RuntimePack_SharedObjects()
@@ -325,7 +325,7 @@ public sealed class ElfFileTests(ITestOutputHelper output)
         }
     }
 
-    /// <summary>LLVM's relocation dump and FDE list match ours (needs NDM_LLVM_BIN).</summary>
+    /// <summary>LLVM's relocation dump and FDE list match ours (needs CORVUS_LLVM_BIN).</summary>
     [Fact]
     public void RealSharedObject_AgreesWithLlvm()
     {
@@ -358,7 +358,7 @@ public sealed class ElfFileTests(ITestOutputHelper output)
 
     /// <summary>
     /// Shared objects built by clang and lld for several architectures and relocation packings agree with LLVM's own
-    /// readers: relocations (APS2 and RELR expanded), dynamic symbols, PLT stubs and unwind starts (needs NDM_LLVM_BIN with clang).
+    /// readers: relocations (APS2 and RELR expanded), dynamic symbols, PLT stubs and unwind starts (needs CORVUS_LLVM_BIN with clang).
     /// </summary>
     [Fact]
     [Trait("Speed", "Slow")]
@@ -421,7 +421,7 @@ public sealed class ElfFileTests(ITestOutputHelper output)
         withoutHeaders.PackAndroid = true;
         withoutHeaders.Relr = [ElfWriter.DataRva + 0x40];
         seeds.Add(withoutHeaders.Build());
-        int iterations = int.TryParse(Environment.GetEnvironmentVariable("NDM_FORMAT_FUZZ_ITERATIONS"), out int n) ? n : 300;
+        int iterations = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_FORMAT_FUZZ_ITERATIONS"), out int n) ? n : 300;
         var failures = FormatFuzz.Run(seeds, iterations, 20261011, bytes => FormatFuzz.Touch(ElfFile.FromBytes(bytes, "fuzz.so"), elf =>
         {
             _ = elf.Relocations.Count + elf.PltEntries.Count + elf.Notes.Count + elf.StaticSymbols.Count;

@@ -236,8 +236,8 @@ public static class PatchExport
                 print("NetDecompilerMcp: %d applied, %d already applied, %d with different original bytes, %d not loaded (of %d)" % (applied, already, differ, missing, len(PATCHES)))
                 return applied, already, differ, missing
 
-            NDM_SEGMENTS_RESULT = add_segments()
-            NDM_PATCH_RESULT = apply_patches()
+            CORVUS_SEGMENTS_RESULT = add_segments()
+            CORVUS_PATCH_RESULT = apply_patches()
 
             """.Replace("\r\n", "\n"));
         return (Encoding.UTF8.GetBytes(sb.ToString()), entries.Count + segments.Count);

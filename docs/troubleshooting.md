@@ -37,9 +37,9 @@ entry's args also delays the start: load it from the session instead.
 `NetDecompilerMcp status --engine all` (with `--deep` it also starts IDA's worker) names what is missing and how to
 fix it:
 
-- IDA: install IDA 9 with idalib, or point `NDM_IDA_DIR` at its folder.
-- Python for IDA: `NDM_IDA_PYTHON` names the interpreter when the one found is not the one IDA was set up with.
-- Ghidra: `NDM_GHIDRA_DIR` (Ghidra 12 or newer) and a JDK (`NDM_GHIDRA_JAVA`, `JAVA_HOME` or `PATH`).
+- IDA: install IDA 9 with idalib, or point `CORVUS_IDA_DIR` at its folder.
+- Python for IDA: `CORVUS_IDA_PYTHON` names the interpreter when the one found is not the one IDA was set up with.
+- Ghidra: `CORVUS_GHIDRA_DIR` (Ghidra 12 or newer) and a JDK (`CORVUS_GHIDRA_JAVA`, `JAVA_HOME` or `PATH`).
 
 Only `decompile_native`, the engine tools and `engine=ida|ghidra` need an engine; everything else is built in. From the
 command line such errors exit with code 3.
@@ -78,7 +78,7 @@ While the repository is private, downloads need a token with read access: set `G
 ## The install script stops with a checksum error
 
 The release's `SHA256SUMS` does not list the archive, or the download does not match it. Run the script again; if it
-persists, report it. An offline install verifies a local archive only when `NDM_SHA256SUMS` names a manifest
+persists, report it. An offline install verifies a local archive only when `CORVUS_SHA256SUMS` names a manifest
 ([installation.md](installation.md)).
 
 ## Reporting a problem

@@ -24,8 +24,8 @@ public class ErrorContractTests
         while (!File.Exists(Path.Combine(root, "Corvus.slnx"))) root = Path.GetDirectoryName(root) ?? throw new InvalidOperationException("repository root not found");
         var path = Path.Combine(root, "docs", "errors.md");
         var expected = ErrorResult.ContractMarkdown().ReplaceLineEndings("\n");
-        if (Environment.GetEnvironmentVariable("NDM_UPDATE_DOCS") == "1") File.WriteAllText(path, expected);
+        if (Environment.GetEnvironmentVariable("CORVUS_UPDATE_DOCS") == "1") File.WriteAllText(path, expected);
         Assert.True(File.Exists(path) && File.ReadAllText(path).ReplaceLineEndings("\n") == expected,
-            "docs/errors.md is out of date: run the tests once with NDM_UPDATE_DOCS=1");
+            "docs/errors.md is out of date: run the tests once with CORVUS_UPDATE_DOCS=1");
     }
 }

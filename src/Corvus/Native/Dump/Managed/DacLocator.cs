@@ -18,7 +18,7 @@ public sealed record DacCandidate(string Path, string Source);
 /// <summary>
 /// Finds the DAC (mscordaccore.dll / mscordacwks.dll) that matches a dumped runtime, offline first: the caller's path,
 /// the runtime's own folder when it holds the same build, the runtimes installed on this machine, and local symbol
-/// stores. A download from a symbol server happens only when asked for, never under NDM_OFFLINE=1. Every file must
+/// stores. A download from a symbol server happens only when asked for, never under CORVUS_OFFLINE=1. Every file must
 /// carry Microsoft's signature (embedded or through a system catalog) before it is loaded.
 /// </summary>
 public static class DacLocator

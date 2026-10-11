@@ -8,7 +8,7 @@ namespace Corvus.Tests;
 /// simplify_methods over real assemblies from several toolchains: .NET Framework reference and runtime libraries (C#,
 /// VB.NET, mixed-mode C++/CLI), ReadyToRun shared-framework libraries of several .NET versions, F#, and NuGet packages
 /// built by different compilers and IL weavers. Assemblies are found on this machine and skipped when absent;
-/// NDM_SWEEP=full adds the largest ones.
+/// CORVUS_SWEEP=full adds the largest ones.
 /// </summary>
 [Trait("Speed", "Slow")]
 [Collection(SweepCollection.Name)]
@@ -23,10 +23,10 @@ public sealed class SimplifySweepTests(ITestOutputHelper output)
     /// <summary>
     /// How far above the baseline a sweep may run before the test fails. Generous on purpose: machines and load vary;
     /// a real regression (an accidental quadratic pass, a missing cache) shows up as an order of magnitude.
-    /// Override with NDM_PERF_FACTOR.
+    /// Override with CORVUS_PERF_FACTOR.
     /// </summary>
     private static double PerfFactor =>
-        double.TryParse(Environment.GetEnvironmentVariable("NDM_PERF_FACTOR"), NumberStyles.Float, CultureInfo.InvariantCulture, out var f) ? f : 5;
+        double.TryParse(Environment.GetEnvironmentVariable("CORVUS_PERF_FACTOR"), NumberStyles.Float, CultureInfo.InvariantCulture, out var f) ? f : 5;
 
     /// <summary>Assemblies smaller than this have too few methods for a stable per-method time on their own.</summary>
     private const int PerfMinMethods = 2_000;
@@ -51,7 +51,7 @@ public sealed class SimplifySweepTests(ITestOutputHelper output)
         double engine = ran.Sum(r => r.Outcome!.Elapsed.TotalMilliseconds);
         double allowed = BaselineMsPerMethod * PerfFactor;
         output.WriteLine($"Whole-library time: {total / methods:0.000} ms/method over {methods:N0} methods (engine alone {engine / methods:0.000} ms); " +
-                         $"baseline {BaselineMsPerMethod} ms, limit {allowed:0.0} ms (NDM_PERF_FACTOR={PerfFactor})");
+                         $"baseline {BaselineMsPerMethod} ms, limit {allowed:0.0} ms (CORVUS_PERF_FACTOR={PerfFactor})");
         Assert.True(total / methods <= allowed,
             $"simplify sweep: {total / methods:0.000} ms/method exceeds {PerfFactor}x the {BaselineMsPerMethod} ms baseline");
         foreach (var (entry, outcome) in ran.Where(r => r.Outcome!.Methods >= PerfMinMethods))
@@ -139,10 +139,10 @@ public sealed class SweepFactAttribute : FactAttribute
 internal static class SweepCatalog
 {
     /// <param name="Determinism">Also used by the determinism guard (mid-size, varied toolchains).</param>
-    /// <param name="Large">Only with NDM_SWEEP=full.</param>
+    /// <param name="Large">Only with CORVUS_SWEEP=full.</param>
     public sealed record Entry(string Origin, string Name, string? Path, bool Determinism = false, bool Large = false);
 
-    public static bool Full => string.Equals(Environment.GetEnvironmentVariable("NDM_SWEEP"), "full", StringComparison.OrdinalIgnoreCase);
+    public static bool Full => string.Equals(Environment.GetEnvironmentVariable("CORVUS_SWEEP"), "full", StringComparison.OrdinalIgnoreCase);
 
     public static IEnumerable<Entry> Entries(bool full) => All().Where(e => full || !e.Large);
 

@@ -9,17 +9,17 @@ namespace Corvus.Tests;
 /// Every native tool on real Windows images, in process: System32, SysWOW64, Program Files and the largest native images
 /// found. Each call must succeed or fail with a typed error that fits the input, within its time limit, with a bounded
 /// result; memory must return to the baseline after the images are unloaded.
-/// NDM_NATIVE_TOOL_SWEEP_LIMIT caps the files per directory (default 120; 0 = all); NDM_NATIVE_TOOL_SWEEP_IDA the number of
+/// CORVUS_NATIVE_TOOL_SWEEP_LIMIT caps the files per directory (default 120; 0 = all); CORVUS_NATIVE_TOOL_SWEEP_IDA the number of
 /// images also decompiled through IDA (default 2, when IDA is installed). Images of 64 MB and more run one at a time with their memory sampled.
 /// </summary>
 [Trait("Speed", "Slow")]
 [Collection(SweepCollection.Name)]
 public class NativeToolSweepTests(ITestOutputHelper output)
 {
-    private static int Limit => int.TryParse(Environment.GetEnvironmentVariable("NDM_NATIVE_TOOL_SWEEP_LIMIT"), out var l) ? l : 120;
-    /// <summary>Program Files holds tens of thousands of images: NDM_NATIVE_TOOL_SWEEP_PF_LIMIT per root (default 120; 0 = all).</summary>
-    private static int ProgramFilesLimit => int.TryParse(Environment.GetEnvironmentVariable("NDM_NATIVE_TOOL_SWEEP_PF_LIMIT"), out var l) ? l : 120;
-    private static int IdaSample => int.TryParse(Environment.GetEnvironmentVariable("NDM_NATIVE_TOOL_SWEEP_IDA"), out var n) ? n : 2;
+    private static int Limit => int.TryParse(Environment.GetEnvironmentVariable("CORVUS_NATIVE_TOOL_SWEEP_LIMIT"), out var l) ? l : 120;
+    /// <summary>Program Files holds tens of thousands of images: CORVUS_NATIVE_TOOL_SWEEP_PF_LIMIT per root (default 120; 0 = all).</summary>
+    private static int ProgramFilesLimit => int.TryParse(Environment.GetEnvironmentVariable("CORVUS_NATIVE_TOOL_SWEEP_PF_LIMIT"), out var l) ? l : 120;
+    private static int IdaSample => int.TryParse(Environment.GetEnvironmentVariable("CORVUS_NATIVE_TOOL_SWEEP_IDA"), out var n) ? n : 2;
     private static readonly string Windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
     /// <summary>Images from this size on run alone, with their memory sampled.</summary>
     private const long LargeImage = 64L << 20;

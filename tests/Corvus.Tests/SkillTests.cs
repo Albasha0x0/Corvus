@@ -22,7 +22,7 @@ public sealed class SkillTests : IDisposable
     {
         var folder = Path.Combine(RepoRoot(), "skills", Skill.Name);
         var expected = Skill.Files();
-        if (Environment.GetEnvironmentVariable("NDM_UPDATE_DOCS") == "1")
+        if (Environment.GetEnvironmentVariable("CORVUS_UPDATE_DOCS") == "1")
         {
             if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
             foreach (var (path, text) in expected)
@@ -37,7 +37,7 @@ public sealed class SkillTests : IDisposable
                 f => Path.GetRelativePath(folder, f).Replace('\\', '/'), f => File.ReadAllText(f).ReplaceLineEndings("\n"))
             : [];
         Assert.True(actual.Count == expected.Count && expected.All(e => actual.TryGetValue(e.Key, out var text) && text == e.Value),
-            "skills/net-decompiler is out of date: run the tests once with NDM_UPDATE_DOCS=1");
+            "skills/net-decompiler is out of date: run the tests once with CORVUS_UPDATE_DOCS=1");
     }
 
     [Fact]

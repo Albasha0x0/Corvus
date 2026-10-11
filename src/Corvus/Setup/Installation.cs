@@ -81,7 +81,7 @@ internal static class Installation
             output.WriteLine("Install with the one-line command in the README, or rebuild from source.");
             return 1;
         }
-        var repo = Environment.GetEnvironmentVariable("NDM_REPO") is { Length: > 0 } r ? r : DefaultRepository;
+        var repo = Environment.GetEnvironmentVariable("CORVUS_REPO") is { Length: > 0 } r ? r : DefaultRepository;
         using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         http.DefaultRequestHeaders.UserAgent.ParseAdd("NetDecompilerMcp/" + Version);
         var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
@@ -209,7 +209,8 @@ internal static class Installation
 
     /// <summary>Default location of per-user data: annotations, analysis and code-index caches, symbols, Il2Cpp caches, reference packs.</summary>
     public static string? DataRoot(SetupEnvironment env) =>
-        Path.IsPathFullyQualified(env.LocalAppData) ? Path.Combine(env.LocalAppData, "NetDecompilerMcp") : null;
+        env.Variable(Native.Providers.DataFolder.RootVariable) is { Length: > 0 } custom ? Path.GetFullPath(custom)
+        : Path.IsPathFullyQualified(env.LocalAppData) ? Path.Combine(env.LocalAppData, Native.Providers.DataFolder.Name) : null;
 
     /// <summary>What uninstall deletes, in order (links are removed without following them), and the data entries it keeps.</summary>
     internal sealed record Removal(IReadOnlyList<(string Path, bool Link)> Delete, string? RootIfEmpty, string DataRoot, IReadOnlyList<string> Kept);

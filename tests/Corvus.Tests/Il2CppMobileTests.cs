@@ -273,10 +273,10 @@ public sealed class Il2CppMobileTests(ITestOutputHelper output) : IDisposable
         Assert.False(Il2CppBinaryLayout.IsArm32(lib));
     }
 
-    private const string MobileVariable = "NDM_IL2CPP_MOBILE";
+    private const string MobileVariable = "CORVUS_IL2CPP_MOBILE";
 
     /// <summary>
-    /// Real mobile games (NDM_IL2CPP_MOBILE: a folder of .apk / .xapk / .aab / .ipa packages and extracted game folders):
+    /// Real mobile games (CORVUS_IL2CPP_MOBILE: a folder of .apk / .xapk / .aab / .ipa packages and extracted game folders):
     /// each is loaded through load_assembly, every Android package once per ABI it ships, and the counts are reported.
     /// A build LibCpp2IL cannot read must fail with a reason code.
     /// </summary>

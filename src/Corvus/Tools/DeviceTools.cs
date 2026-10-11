@@ -10,7 +10,7 @@ public sealed class DeviceTools(DeviceService devices)
     private const string SerialDescription = "Device serial (list_android_devices); optional with one ready device.";
 
     [McpServerTool(Name = "list_android_devices", Title = "List Android devices", UseStructuredContent = true)]
-    [Description("Android devices and emulators adb sees: serial, state, product, model, transport. adb: NDM_ADB, else PATH, else the SDK's platform-tools.")]
+    [Description("Android devices and emulators adb sees: serial, state, product, model, transport. adb: CORVUS_ADB, else PATH, else the SDK's platform-tools.")]
     public Task<AndroidDeviceList> ListAndroidDevices(CancellationToken cancellationToken = default) =>
         Task.Run(() => devices.Devices(cancellationToken), cancellationToken);
 

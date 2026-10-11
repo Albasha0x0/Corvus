@@ -7,7 +7,7 @@ namespace Corvus.Tests;
 
 /// <summary>
 /// Generated documentation: docs/tools.md from the tool catalog and the client table of docs/installation.md from the
-/// client catalog. Run the tests with NDM_UPDATE_DOCS=1 to regenerate them.
+/// client catalog. Run the tests with CORVUS_UPDATE_DOCS=1 to regenerate them.
 /// </summary>
 [Collection(InProcessCatalogCollection.Name)]
 public class DocsTests
@@ -19,7 +19,7 @@ public class DocsTests
         return root;
     }
 
-    private static bool Update => Environment.GetEnvironmentVariable("NDM_UPDATE_DOCS") == "1";
+    private static bool Update => Environment.GetEnvironmentVariable("CORVUS_UPDATE_DOCS") == "1";
 
     [Fact]
     public void ToolReferenceIsCurrent()
@@ -28,7 +28,7 @@ public class DocsTests
         var expected = ToolsMarkdown();
         if (Update) File.WriteAllText(path, expected);
         Assert.True(File.Exists(path) && File.ReadAllText(path).ReplaceLineEndings("\n") == expected,
-            "docs/tools.md is out of date: run the tests once with NDM_UPDATE_DOCS=1");
+            "docs/tools.md is out of date: run the tests once with CORVUS_UPDATE_DOCS=1");
     }
 
     [Fact]
@@ -40,10 +40,10 @@ public class DocsTests
         Assert.True(start >= 0 && end > start, $"docs/installation.md has no {ClientsBegin} ... {ClientsEnd} block");
         var expected = text[..(start + ClientsBegin.Length)] + "\n" + ClientTable() + text[end..];
         if (Update) File.WriteAllText(path, text = expected);
-        Assert.True(text == expected,"docs/installation.md's client table is out of date: run the tests once with NDM_UPDATE_DOCS=1");
+        Assert.True(text == expected,"docs/installation.md's client table is out of date: run the tests once with CORVUS_UPDATE_DOCS=1");
     }
 
-    internal const string ClientsBegin = "<!-- clients:begin (generated from Setup/ClientCatalog.cs; NDM_UPDATE_DOCS=1 updates it) -->";
+    internal const string ClientsBegin = "<!-- clients:begin (generated from Setup/ClientCatalog.cs; CORVUS_UPDATE_DOCS=1 updates it) -->";
     internal const string ClientsEnd = "<!-- clients:end -->";
 
     private static string Cell(string text) => text.ReplaceLineEndings(" ").Replace("|", "\\|", StringComparison.Ordinal).Trim();
@@ -52,7 +52,7 @@ public class DocsTests
     {
         var tools = ToolCli.CatalogTools;
         var sb = new StringBuilder();
-        sb.Append("# Tools\n\n<!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->\n\n");
+        sb.Append("# Tools\n\n<!-- Generated from the tool catalog by DocsTests; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->\n\n");
         sb.Append($"{tools.Count} tools in {Toolsets.Families.Count} toolsets. A server registers every tool unless it is started with ");
         sb.Append("`--toolsets` (README, \"Server options\"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same ");
         sb.Append("reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).\n\n");

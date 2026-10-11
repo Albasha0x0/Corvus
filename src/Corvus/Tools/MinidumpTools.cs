@@ -26,7 +26,7 @@ public sealed class MinidumpTools(MinidumpService dumps)
         [Description("First thread listed.")] int threadsOffset = 0,
         [Description("Max threads listed.")] int threadsLimit = MinidumpService.DefaultListLimit,
         [Description("The dumped runtime's DAC (mscordaccore.dll / mscordacwks.dll) or its folder, when that runtime build is not installed here.")] string? dacPath = null,
-        [Description("Download the DAC from a symbol server when no local copy matches (network; refused under NDM_OFFLINE=1).")] bool downloadDac = false,
+        [Description("Download the DAC from a symbol server when no local copy matches (network; refused under CORVUS_OFFLINE=1).")] bool downloadDac = false,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => dumps.Summarize(path, imageDirectories, modulesOffset, modulesLimit, threadsOffset, threadsLimit,
             new DacRequest(string.IsNullOrWhiteSpace(dacPath) ? null : dacPath, downloadDac), cancellationToken), cancellationToken);

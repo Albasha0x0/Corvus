@@ -168,7 +168,7 @@ public partial class DocFactsTests
     [GeneratedRegex(@"^\| `([^` ]+)", RegexOptions.Multiline)]
     private static partial Regex CommandRow();
 
-    [GeneratedRegex(@"""(NDM_[A-Z0-9_]+)""")]
+    [GeneratedRegex(@"""(CORVUS_[A-Z0-9_]+)""")]
     private static partial Regex VariableLiteral();
 
     [GeneratedRegex(@"<Version>([^<]+)</Version>")]

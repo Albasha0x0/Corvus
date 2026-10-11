@@ -14,21 +14,21 @@ namespace Corvus.Core;
 ///   --binding-project &lt;d&gt; default project directory scanned for a host table by generate_cpp_binding
 ///   --prewarm &lt;e&gt;        start an engine's analysis of each native image in the background right after it loads (one at a time):
 ///                         ida, ghidra or auto (the preferred engine installed); --ida-prewarm is --prewarm ida
-///   --ida-scripting       allow ida_python (arbitrary Python in the IDA worker; NDM_IDA_SCRIPTING=1)
-///   --ghidra-scripting    allow ghidra_script (arbitrary Java in the Ghidra worker; NDM_GHIDRA_SCRIPTING=1)
+///   --ida-scripting       allow ida_python (arbitrary Python in the IDA worker; CORVUS_IDA_SCRIPTING=1)
+///   --ghidra-scripting    allow ghidra_script (arbitrary Java in the Ghidra worker; CORVUS_GHIDRA_SCRIPTING=1)
 ///   --engine &lt;e&gt;         where native functions, xrefs and CFGs come from by default: auto (an engine's analysis when it is complete, else ours), ours, ida or ghidra
-///   --index-cache &lt;dir|off&gt;  directory of saved native code indexes (default &lt;LocalAppData&gt;/NetDecompilerMcp/code-index), or off
+///   --index-cache &lt;dir|off&gt;  directory of saved native code indexes (default &lt;LocalAppData&gt;/Corvus/code-index), or off
 ///   --index-cache-mb &lt;n&gt;  size limit of the code index cache in MB (default 8192)
 ///   --index-cache-days &lt;n&gt; entries unused for this many days are deleted (default 30)
 ///   --log-level &lt;l&gt;     stderr log level: trace, debug (adds one line per tool call), information (default), warning, error or none
 ///   --toolsets &lt;list&gt;   register only these tool families (see <see cref="Core.Toolsets"/>; default all): core, or names such as core,dumps
-///   --tools-file &lt;path|readonly|triage&gt;  register only the tools a whitelist names, after --toolsets (NDM_TOOLS_FILE)
-///   --trace &lt;file&gt;      append one JSON line per tool call (tool, arguments, ms, error, size) to this file (NDM_TRACE)
-///   --allow-device-changes  allow the Android device tools that install or uninstall apps (NDM_ALLOW_DEVICE_CHANGES=1)
-/// The NETDECOMP_LOAD environment variable (';'-separated paths) is also honored; NDM_PREWARM sets --prewarm (NDM_IDA_PREWARM=1: ida); NDM_ENGINE sets --engine;
-/// NDM_CODE_INDEX_CACHE, NDM_CODE_INDEX_CACHE_MB and NDM_CODE_INDEX_CACHE_DAYS set the code index cache defaults; NDM_LOG_LEVEL sets --log-level;
-/// NDM_TOOLSETS sets --toolsets; NDM_ENGINE_REQUEST_TIMEOUT and NDM_ENGINE_OPEN_TIMEOUT (seconds) bound IDA and Ghidra requests and opens;
-/// NDM_ENGINE_ANALYSIS=none opens images in IDA and Ghidra without auto-analysis.
+///   --tools-file &lt;path|readonly|triage&gt;  register only the tools a whitelist names, after --toolsets (CORVUS_TOOLS_FILE)
+///   --trace &lt;file&gt;      append one JSON line per tool call (tool, arguments, ms, error, size) to this file (CORVUS_TRACE)
+///   --allow-device-changes  allow the Android device tools that install or uninstall apps (CORVUS_ALLOW_DEVICE_CHANGES=1)
+/// The CORVUS_LOAD environment variable (';'-separated paths) is also honored; CORVUS_PREWARM sets --prewarm (CORVUS_IDA_PREWARM=1: ida); CORVUS_ENGINE sets --engine;
+/// CORVUS_CODE_INDEX_CACHE, CORVUS_CODE_INDEX_CACHE_MB and CORVUS_CODE_INDEX_CACHE_DAYS set the code index cache defaults; CORVUS_LOG_LEVEL sets --log-level;
+/// CORVUS_TOOLSETS sets --toolsets; CORVUS_ENGINE_REQUEST_TIMEOUT and CORVUS_ENGINE_OPEN_TIMEOUT (seconds) bound IDA and Ghidra requests and opens;
+/// CORVUS_ENGINE_ANALYSIS=none opens images in IDA and Ghidra without auto-analysis.
 /// </summary>
 public sealed class ServerOptions
 {
@@ -56,51 +56,51 @@ public sealed class ServerOptions
     /// </summary>
     public EngineMode? Prewarm { get; set; }
 
-    public const string PrewarmVariable = "NDM_PREWARM";
+    public const string PrewarmVariable = "CORVUS_PREWARM";
     /// <summary>Older switch: 1 means --prewarm ida.</summary>
-    public const string IdaPrewarmVariable = "NDM_IDA_PREWARM";
+    public const string IdaPrewarmVariable = "CORVUS_IDA_PREWARM";
 
     /// <summary>Allow ida_python: arbitrary Python in the IDA worker, with the server's rights (default off).</summary>
     public bool IdaScripting { get; set; }
 
-    public const string IdaScriptingVariable = "NDM_IDA_SCRIPTING";
+    public const string IdaScriptingVariable = "CORVUS_IDA_SCRIPTING";
 
     /// <summary>Allow ghidra_script: arbitrary Java in the Ghidra worker, with the server's rights (default off).</summary>
     public bool GhidraScripting { get; set; }
 
     public const string GhidraScriptingOption = "--ghidra-scripting";
-    public const string GhidraScriptingVariable = "NDM_GHIDRA_SCRIPTING";
+    public const string GhidraScriptingVariable = "CORVUS_GHIDRA_SCRIPTING";
 
     /// <summary>Allow the device tools that change a connected Android device (install, uninstall); default off.</summary>
     public bool AllowDeviceChanges { get; set; }
 
     public const string AllowDeviceChangesOption = "--allow-device-changes";
-    public const string AllowDeviceChangesVariable = "NDM_ALLOW_DEVICE_CHANGES";
+    public const string AllowDeviceChangesVariable = "CORVUS_ALLOW_DEVICE_CHANGES";
 
     /// <summary>Default engine of the native code tools when a call names none (see <see cref="EngineMode"/>).</summary>
     public EngineMode Engine { get; set; } = EngineMode.Auto;
 
-    public const string EngineVariable = "NDM_ENGINE";
+    public const string EngineVariable = "CORVUS_ENGINE";
 
     /// <summary>Seconds each IDA or Ghidra request may take before it is cancelled (the worker answers with what it has); default 120.</summary>
     public int EngineRequestTimeoutSeconds { get; set; } = 120;
 
-    public const string EngineRequestTimeoutVariable = "NDM_ENGINE_REQUEST_TIMEOUT";
+    public const string EngineRequestTimeoutVariable = "CORVUS_ENGINE_REQUEST_TIMEOUT";
 
     /// <summary>Seconds an engine gets to start and load or auto-analyze an image; default 1200.</summary>
     public int EngineOpenTimeoutSeconds { get; set; } = 1200;
 
-    public const string EngineOpenTimeoutVariable = "NDM_ENGINE_OPEN_TIMEOUT";
+    public const string EngineOpenTimeoutVariable = "CORVUS_ENGINE_OPEN_TIMEOUT";
 
     /// <summary>IDA's first open of an image: full auto-analysis (default) or none (load only; functions made on demand, kept under a separate database).</summary>
     public Native.Providers.EngineAnalysis EngineAnalysis { get; set; } = Native.Providers.EngineAnalysis.Full;
 
-    public const string EngineAnalysisVariable = "NDM_ENGINE_ANALYSIS";
+    public const string EngineAnalysisVariable = "CORVUS_ENGINE_ANALYSIS";
 
     /// <summary>Minimum level of the stderr log; Debug adds a line per tool call (tool, outcome, milliseconds).</summary>
     public LogLevel LogLevel { get; set; } = LogLevel.Information;
 
-    public const string LogLevelVariable = "NDM_LOG_LEVEL";
+    public const string LogLevelVariable = "CORVUS_LOG_LEVEL";
 
     /// <summary>Tool families registered (<see cref="Core.Toolsets"/>); session is always among them.</summary>
     public IReadOnlySet<string> Toolsets { get; set; } = Core.Toolsets.Default;
@@ -194,7 +194,7 @@ public sealed class ServerOptions
         };
         if (engine != null)
             o.Engine = EngineModes.TryParse(engine) ?? throw new ArgumentException($"--engine (or {EngineVariable}) must be auto, ours, ida or ghidra, not '{engine.Trim()}'");
-        var env = Environment.GetEnvironmentVariable("NETDECOMP_LOAD");
+        var env = Environment.GetEnvironmentVariable("CORVUS_LOAD");
         if (!string.IsNullOrWhiteSpace(env))
             o.Preload.AddRange(env.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
         return o;
@@ -212,7 +212,7 @@ public sealed class ServerOptions
     public string? TracePath { get; set; }
 
     public const string TraceOption = "--trace";
-    public const string TraceVariable = "NDM_TRACE";
+    public const string TraceVariable = "CORVUS_TRACE";
 
     /// <summary>Engine database files a trace must never be written into.</summary>
     private static readonly string[] DatabaseExtensions = [".i64", ".idb", ".id0", ".id1", ".id2", ".nam", ".til", ".gpr", ".gzf", ".rep"];

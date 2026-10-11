@@ -4,12 +4,12 @@ namespace Corvus.Native.Providers.Ida;
 
 /// <summary>
 /// An IDA install usable as a library: the directory, the idalib binary and the <c>idapro</c> Python package
-/// shipped under idalib/python. Located from NDM_IDA_DIR, else from Paths.ida-install-dir in ida-config.json
+/// shipped under idalib/python. Located from CORVUS_IDA_DIR, else from Paths.ida-install-dir in ida-config.json
 /// (in IDAUSR or the per-user IDA directory), which IDA writes on first start.
 /// </summary>
 public sealed record IdaInstallation(string Directory, string LibraryPath, string PythonPackageDirectory, string Source)
 {
-    public const string DirectoryVariable = "NDM_IDA_DIR";
+    public const string DirectoryVariable = "CORVUS_IDA_DIR";
 
     public static string LibraryFileName =>
         OperatingSystem.IsWindows() ? "idalib.dll" : OperatingSystem.IsMacOS() ? "libidalib.dylib" : "libidalib.so";
@@ -73,15 +73,15 @@ public sealed record IdaInstallation(string Directory, string LibraryPath, strin
         }
         if (dir == null)
         {
-            reason = "IDA Pro was not found: NDM_IDA_DIR is not set and no ida-config.json names an install directory.";
-            remediation = "Install IDA Pro 9 or newer and start it once (it records its directory in ida-config.json), or set NDM_IDA_DIR to the IDA install directory.";
+            reason = "IDA Pro was not found: CORVUS_IDA_DIR is not set and no ida-config.json names an install directory.";
+            remediation = "Install IDA Pro 9 or newer and start it once (it records its directory in ida-config.json), or set CORVUS_IDA_DIR to the IDA install directory.";
             return null;
         }
         dir = dir.Trim().Trim('"');
         if (!System.IO.Directory.Exists(dir))
         {
             reason = $"The IDA directory {dir} (from {source}) does not exist.";
-            remediation = "Set NDM_IDA_DIR to the IDA install directory, or start the installed IDA once so it updates ida-config.json.";
+            remediation = "Set CORVUS_IDA_DIR to the IDA install directory, or start the installed IDA once so it updates ida-config.json.";
             return null;
         }
         var lib = Path.Combine(dir, LibraryFileName);
@@ -89,7 +89,7 @@ public sealed record IdaInstallation(string Directory, string LibraryPath, strin
         if (!File.Exists(lib) || !File.Exists(Path.Combine(package, "idapro", "__init__.py")))
         {
             reason = $"{dir} (from {source}) has no idalib ({LibraryFileName} and idalib/python/idapro); IDA Pro 9 or newer is required.";
-            remediation = "Point NDM_IDA_DIR at an IDA Pro 9+ install; IDA Home/Free editions do not ship idalib.";
+            remediation = "Point CORVUS_IDA_DIR at an IDA Pro 9+ install; IDA Home/Free editions do not ship idalib.";
             return null;
         }
         reason = remediation = "";

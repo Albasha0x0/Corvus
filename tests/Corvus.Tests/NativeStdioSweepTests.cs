@@ -14,7 +14,7 @@ namespace Corvus.Tests;
 /// The native tools through the real server over stdio on a sample of Windows images and one large browser DLL (when
 /// installed): every call answers within its limit with a result under the response budget or a typed error (never
 /// internal, unclassified, protocol errors or a dead server), and a long index build reports progress at least every
-/// <see cref="MaxSilence"/>. NDM_NATIVE_STDIO_SAMPLE sets the images per directory (default 25).
+/// <see cref="MaxSilence"/>. CORVUS_NATIVE_STDIO_SAMPLE sets the images per directory (default 25).
 /// </summary>
 [Trait("Speed", "Slow")]
 [Collection(SweepCollection.Name)]
@@ -27,7 +27,7 @@ public class NativeStdioSweepTests(ITestOutputHelper output)
     [WindowsFact]
     public async Task NativeToolsOverStdio()
     {
-        int sample = int.TryParse(Environment.GetEnvironmentVariable("NDM_NATIVE_STDIO_SAMPLE"), out var s) ? s : 25;
+        int sample = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_NATIVE_STDIO_SAMPLE"), out var s) ? s : 25;
         var windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
         var files = NativeToolSweepTests.Sample(NativeToolHarness.NativeFiles(Path.Combine(windows, "System32"), maxSize: 64 << 20), sample)
             .Concat(NativeToolSweepTests.Sample(NativeToolHarness.NativeFiles(Path.Combine(windows, "SysWOW64"), maxSize: 64 << 20), sample)).ToList();

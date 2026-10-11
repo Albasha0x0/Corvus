@@ -58,7 +58,7 @@ jobs:
       - name: Build
         run: dotnet build --no-restore -c Release
 
-      # Tests that need local data (NDM_* variables) are skipped. Generated C / C++ / Python is compiled or parsed
+      # Tests that need local data (CORVUS_* variables) are skipped. Generated C / C++ / Python is compiled or parsed
       # when clang and python are installed.
       - name: Test
         run: >-
@@ -109,12 +109,12 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force "$HOME\.cursor" | Out-Null
-          $env:NDM_ARCHIVE = (Resolve-Path package.zip).Path
-          $env:NDM_SHA256SUMS = (Resolve-Path SHA256SUMS.bad).Path
+          $env:CORVUS_ARCHIVE = (Resolve-Path package.zip).Path
+          $env:CORVUS_SHA256SUMS = (Resolve-Path SHA256SUMS.bad).Path
           $rejected = $false
           try { Get-Content install.ps1 -Raw | Invoke-Expression } catch { $rejected = $_.Exception.Message -match 'Checksum mismatch' }
           if (-not $rejected) { throw 'a checksum mismatch was not rejected' }
-          $env:NDM_SHA256SUMS = (Resolve-Path SHA256SUMS).Path
+          $env:CORVUS_SHA256SUMS = (Resolve-Path SHA256SUMS).Path
           $install = [scriptblock]::Create((Get-Content install.ps1 -Raw))
           # A dry run plans and changes nothing.
           $plan = & $install -DryRun -Yes *>&1 | Out-String
@@ -124,7 +124,7 @@ jobs:
           & $install
           if (Test-Path "$HOME\.cursor\mcp.json") { throw 'registered without consent' }
           & $install -Yes -Client cursor
-          Remove-Item Env:NDM_SHA256SUMS
+          Remove-Item Env:CORVUS_SHA256SUMS
           $exe = "$env:LOCALAPPDATA\NetDecompilerMcp\current\corvus.exe"
           $entry = (Get-Content "$HOME\.cursor\mcp.json" -Raw | ConvertFrom-Json).mcpServers.'net-decompiler'
           if ($entry.command -ne $exe) { throw "Cursor entry: $($entry.command)" }
@@ -150,20 +150,20 @@ jobs:
         run: |
           set -eux
           mkdir -p ~/.cursor
-          if NDM_ARCHIVE="$PWD/package.tar.gz" NDM_SHA256SUMS="$PWD/SHA256SUMS.bad" sh < install.sh 2> err.txt; then exit 1; fi
+          if CORVUS_ARCHIVE="$PWD/package.tar.gz" CORVUS_SHA256SUMS="$PWD/SHA256SUMS.bad" sh < install.sh 2> err.txt; then exit 1; fi
           grep -q 'checksum mismatch' err.txt
           # A dry run plans and changes nothing.
-          NDM_ARCHIVE="$PWD/package.tar.gz" NDM_SHA256SUMS="$PWD/SHA256SUMS" sh -s -- --dry-run --yes < install.sh > plan.txt
+          CORVUS_ARCHIVE="$PWD/package.tar.gz" CORVUS_SHA256SUMS="$PWD/SHA256SUMS" sh -s -- --dry-run --yes < install.sh > plan.txt
           grep -q 'Dry run: nothing was written' plan.txt
           test ! -e ~/.local/share/net-decompiler-mcp
           test ! -e ~/.cursor/mcp.json
           # No terminal and no --yes: new clients are listed, not registered.
-          NDM_ARCHIVE="$PWD/package.tar.gz" NDM_SHA256SUMS="$PWD/SHA256SUMS" sh < install.sh
+          CORVUS_ARCHIVE="$PWD/package.tar.gz" CORVUS_SHA256SUMS="$PWD/SHA256SUMS" sh < install.sh
           test ! -e ~/.cursor/mcp.json
-          NDM_ARCHIVE="$PWD/package.tar.gz" NDM_SHA256SUMS="$PWD/SHA256SUMS" sh -s -- --yes --client cursor < install.sh
+          CORVUS_ARCHIVE="$PWD/package.tar.gz" CORVUS_SHA256SUMS="$PWD/SHA256SUMS" sh -s -- --yes --client cursor < install.sh
           grep -q "$HOME/.local/share/net-decompiler-mcp/current/NetDecompilerMcp" ~/.cursor/mcp.json
           ~/.local/bin/NetDecompilerMcp status
-          NDM_ARCHIVE="$PWD/package.tar.gz" sh < install.sh
+          CORVUS_ARCHIVE="$PWD/package.tar.gz" sh < install.sh
           # The data root is .NET's local application data folder.
           if [ "$RUNNER_OS" = macOS ]; then data="$HOME/Library/Application Support/NetDecompilerMcp"; else data="$HOME/.local/share/NetDecompilerMcp"; fi
           mkdir -p "$data/annotations" && echo '{}' > "$data/annotations/marker.json"
@@ -172,7 +172,7 @@ jobs:
           test ! -e ~/.local/share/net-decompiler-mcp
           test ! -e ~/.local/bin/NetDecompilerMcp
           test -f "$data/annotations/marker.json"
-          NDM_ARCHIVE="$PWD/package.tar.gz" sh < install.sh
+          CORVUS_ARCHIVE="$PWD/package.tar.gz" sh < install.sh
           sh -s -- --uninstall --purge-data < install.sh
           test ! -e ~/.local/share/net-decompiler-mcp
           test ! -e "$data"

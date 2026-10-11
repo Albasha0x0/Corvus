@@ -21,22 +21,22 @@ public enum GhidraAnalysisProfile
 /// </summary>
 public static class GhidraOptions
 {
-    public const string DirectoryVariable = "NDM_GHIDRA_DIR";
-    public const string JavaVariable = "NDM_GHIDRA_JAVA";
-    public const string MaxMemoryVariable = "NDM_GHIDRA_MAXMEM";
-    public const string ProfileVariable = "NDM_GHIDRA_ANALYSIS";
+    public const string DirectoryVariable = "CORVUS_GHIDRA_DIR";
+    public const string JavaVariable = "CORVUS_GHIDRA_JAVA";
+    public const string MaxMemoryVariable = "CORVUS_GHIDRA_MAXMEM";
+    public const string ProfileVariable = "CORVUS_GHIDRA_ANALYSIS";
     /// <summary>Extra analyzer options, "Name=value;Name=value", applied after the profile's.</summary>
-    public const string OptionsVariable = "NDM_GHIDRA_OPTIONS";
+    public const string OptionsVariable = "CORVUS_GHIDRA_OPTIONS";
     /// <summary>A directory of Ghidra extensions (zips or unpacked) installed into the workers' private settings (see <see cref="GhidraExtensions"/>).</summary>
-    public const string ExtensionsVariable = "NDM_GHIDRA_EXTENSIONS";
+    public const string ExtensionsVariable = "CORVUS_GHIDRA_EXTENSIONS";
 
     /// <summary>Bumped when the worker protocol or what the worker stores in a project changes; part of the profile key.</summary>
     public const int ProtocolVersion = 1;
 
     /// <summary>Seconds the decompiler may spend on one function (1-600, default 60); not in the profile key, it does not change the project.</summary>
-    public const string DecompileTimeoutVariable = "NDM_GHIDRA_DECOMPILE_TIMEOUT";
+    public const string DecompileTimeoutVariable = "CORVUS_GHIDRA_DECOMPILE_TIMEOUT";
     /// <summary>Decompiler response limit in MB (16-2048, default 200); Ghidra's own 50 fails on large functions.</summary>
-    public const string DecompilePayloadVariable = "NDM_GHIDRA_DECOMPILE_PAYLOAD_MB";
+    public const string DecompilePayloadVariable = "CORVUS_GHIDRA_DECOMPILE_PAYLOAD_MB";
 
     public const int MaxDecompileSeconds = 600;
 

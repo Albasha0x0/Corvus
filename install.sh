@@ -9,14 +9,14 @@
 # Options: --version X installs that release (pinning or rolling back), --dry-run shows what would be installed and
 # registered and changes nothing, --yes registers new clients without asking, --client a,b registers only those.
 # The confirmation is read from the terminal (/dev/tty) even when the script itself arrives on stdin.
-# Environment: NDM_VERSION (as --version), NDM_YES=1 (as --yes), NDM_REPO (owner/name), NDM_HOME (install folder),
-# NDM_ARCHIVE (local release archive), NDM_SHA256SUMS (manifest to verify NDM_ARCHIVE against; without it a local
+# Environment: CORVUS_VERSION (as --version), CORVUS_YES=1 (as --yes), CORVUS_REPO (owner/name), CORVUS_HOME (install folder),
+# CORVUS_ARCHIVE (local release archive), CORVUS_SHA256SUMS (manifest to verify CORVUS_ARCHIVE against; without it a local
 # archive is trusted as is), GITHUB_TOKEN (private repositories).
 # Downloads are verified against the release's SHA256SUMS; a missing manifest or a mismatch stops the install.
 set -eu
 
-REPO="${NDM_REPO:-Albasha0x0/NetDecompilerMcp}"
-ROOT="${NDM_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/net-decompiler-mcp}"
+REPO="${CORVUS_REPO:-Albasha0x0/NetDecompilerMcp}"
+ROOT="${CORVUS_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/net-decompiler-mcp}"
 BIN="$HOME/.local/bin"
 EXE="$ROOT/current/NetDecompilerMcp"
 
@@ -28,7 +28,7 @@ if [ "${1:-}" = "--uninstall" ]; then
     exit 0
 fi
 
-version="${NDM_VERSION:-}"
+version="${CORVUS_VERSION:-}"
 dry_run=""
 # Options passed on to the program's install command.
 setup_args=""
@@ -69,10 +69,10 @@ sums="$tmp/SHA256SUMS"
 unverified="refusing to install an unverified build"
 if [ -n "$version" ]; then release="v$version"; else release="the latest release"; fi
 
-if [ -n "${NDM_ARCHIVE:-}" ]; then
-    cp "$NDM_ARCHIVE" "$archive"
-    release="$NDM_ARCHIVE"
-    if [ -n "${NDM_SHA256SUMS:-}" ]; then cp "$NDM_SHA256SUMS" "$sums"; source="$NDM_SHA256SUMS"; else sums=""; source="none (local archive)"; fi
+if [ -n "${CORVUS_ARCHIVE:-}" ]; then
+    cp "$CORVUS_ARCHIVE" "$archive"
+    release="$CORVUS_ARCHIVE"
+    if [ -n "${CORVUS_SHA256SUMS:-}" ]; then cp "$CORVUS_SHA256SUMS" "$sums"; source="$CORVUS_SHA256SUMS"; else sums=""; source="none (local archive)"; fi
 elif [ -n "${GITHUB_TOKEN:-}" ]; then
     auth="Authorization: Bearer $GITHUB_TOKEN"
     if [ -n "$version" ]; then api="https://api.github.com/repos/$REPO/releases/tags/v$version"; else api="https://api.github.com/repos/$REPO/releases/latest"; fi

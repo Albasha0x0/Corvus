@@ -9,12 +9,12 @@ namespace Corvus.Tests;
 /// <summary>
 /// The code index and RTTI recovery give the same results on the real PE parser (<see cref="PeFile"/>, the reference for
 /// loader semantics) and on the test-only adapters written before it (<see cref="CodeTestImage"/>, <see cref="MsvcTestImage"/>).
-/// NDM_NATIVE_ADAPTER_SAMPLE sets the files per directory (default 60; 0 = all).
+/// CORVUS_NATIVE_ADAPTER_SAMPLE sets the files per directory (default 60; 0 = all).
 /// </summary>
 [Trait("Speed", "Slow")]
 public class NativeAdapterConsistencyTests(ITestOutputHelper output)
 {
-    private static int Limit => int.TryParse(Environment.GetEnvironmentVariable("NDM_NATIVE_ADAPTER_SAMPLE"), out var l) ? l : 60;
+    private static int Limit => int.TryParse(Environment.GetEnvironmentVariable("CORVUS_NATIVE_ADAPTER_SAMPLE"), out var l) ? l : 60;
 
     public static IEnumerable<object[]> Directories() =>
     [

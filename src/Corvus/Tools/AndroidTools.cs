@@ -87,7 +87,7 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         }, cancellationToken), offset, maxChars), cancellationToken);
 
     [McpServerTool(Name = "decompile_java", Title = "Decompile Java")]
-    [Description("Java source of a class or one method of an Android package through JADX (NDM_JAVA_DECOMPILER, JDK 17+; one session per " +
+    [Description("Java source of a class or one method of an Android package through JADX (CORVUS_JAVA_DECOMPILER, JDK 17+; one session per " +
                  "package kept loaded). Without JADX: provider_unavailable; disassemble_dex gives smali.")]
     public async Task<string> DecompileJava(
         [Description(CodeDescription)] string path,

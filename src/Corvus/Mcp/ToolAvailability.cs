@@ -35,7 +35,7 @@ public static class ToolAvailability
     private static IEnumerable<(string Tool, string? Mode, bool Found, string Reason, string Remediation)> ExternalPrograms()
     {
         yield return ("unity_overview", "detectItEasy=true", Services.Analysis.UnityOverview.FindDie() != null,
-            "Detect It Easy (diec) was not found in NDM_DIE or on PATH", "set NDM_DIE to the Detect It Easy folder (or diec.exe)");
+            "Detect It Easy (diec) was not found in CORVUS_DIE or on PATH", "set CORVUS_DIE to the Detect It Easy folder (or diec.exe)");
         foreach (var tool in new[] { ExternalTools.JavaDecompiler, ExternalTools.Java })
         {
             var probe = ExternalTools.Probe(tool);

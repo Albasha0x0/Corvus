@@ -62,7 +62,7 @@ internal static class SetupCli
           install [client...]   Register the server with MCP clients, then start it once to check it works.
                                 Existing registrations are refreshed. Detected clients without one are listed in a
                                 plan and added after one confirmation (Enter = yes); without a terminal they are
-                                added only with --yes (or NDM_YES=1) or --all-detected.
+                                added only with --yes (or CORVUS_YES=1) or --all-detected.
                                 --client X      only these clients (repeatable or comma-separated), detected or not
                                 --dry-run       print the plan and write nothing (--check also runs the server check)
                                 --json          print the plan and result as JSON (needs --yes to add new clients)
@@ -157,10 +157,10 @@ internal static class SetupCli
             output.WriteLine($"--dev-reload: {target} does not exist; publish first (./publish.ps1).");
             return null;
         }
-        var state = env.Variable("NDM_RELAY_DIR") is { Length: > 0 } dir ? dir : Installation.DataRoot(env) is { } root ? Path.Combine(root, "relay") : null;
+        var state = env.Variable("CORVUS_RELAY_DIR") is { Length: > 0 } dir ? dir : Installation.DataRoot(env) is { } root ? Path.Combine(root, "relay") : null;
         if (state == null)
         {
-            output.WriteLine("--dev-reload: no per-user data folder; set NDM_RELAY_DIR.");
+            output.WriteLine("--dev-reload: no per-user data folder; set CORVUS_RELAY_DIR.");
             return null;
         }
         bool dotnet = launch.Args.Count > 0 && Path.GetFileName(launch.Args[0]).Equals("corvus.dll", StringComparison.OrdinalIgnoreCase);
@@ -181,7 +181,7 @@ internal static class SetupCli
     private static int Install(TextWriter output, SetupEnvironment env, ServerLaunch launch, SetupArgs a)
     {
         bool json = a.Has("--json"), dryRun = a.Has("--dry-run"), refreshOnly = a.Has("--refresh-only");
-        bool yes = a.Has("--yes") || a.Has("-y") || env.Variable("NDM_YES") is "1" or "true";
+        bool yes = a.Has("--yes") || a.Has("-y") || env.Variable("CORVUS_YES") is "1" or "true";
         bool check = dryRun ? a.Has("--check") : !a.Has("--no-check");
         // The install scripts plan with a staged copy, for the program they are about to put in place.
         if (a.Value("--command") is { } command) launch = new ServerLaunch(Path.GetFullPath(command), []);

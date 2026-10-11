@@ -15,7 +15,7 @@ using Xunit.Abstractions;
 namespace Corvus.Tests;
 
 /// <summary>
-/// The native tools through a real Ghidra (NDM_GHIDRA_DIR): engine=ghidra on the code tools and decompile_native, our
+/// The native tools through a real Ghidra (CORVUS_GHIDRA_DIR): engine=ghidra on the code tools and decompile_native, our
 /// names and patches pushed into the project, PDB types through Ghidra's loader, and agreement with IDA where both run.
 /// </summary>
 [Trait("Speed", "Slow")]

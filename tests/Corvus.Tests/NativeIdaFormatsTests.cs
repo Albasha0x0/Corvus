@@ -81,14 +81,14 @@ public sealed class NativeIdaFormatsTests(ITestOutputHelper output) : IDisposabl
     }
 
     /// <summary>
-    /// The smallest Android package of NDM_IL2CPP_MOBILE (see <see cref="Il2CppMobileTests"/>): IDA opens its libil2cpp.so
+    /// The smallest Android package of CORVUS_IL2CPP_MOBILE (see <see cref="Il2CppMobileTests"/>): IDA opens its libil2cpp.so
     /// at our image base, and the Il2Cpp method starts are compared with IDA's functions.
     /// </summary>
     [IdaFact]
     [Trait("Speed", "Slow")]
     public async Task Il2CppMobileBinaryAgreesWithIda()
     {
-        if (RealData.Get("NDM_IL2CPP_MOBILE") is not { } root || !Directory.Exists(root)) { output.WriteLine("NDM_IL2CPP_MOBILE not set"); return; }
+        if (RealData.Get("CORVUS_IL2CPP_MOBILE") is not { } root || !Directory.Exists(root)) { output.WriteLine("CORVUS_IL2CPP_MOBILE not set"); return; }
         var package = Directory.EnumerateFiles(root, "*.apk").OrderBy(f => new FileInfo(f).Length).FirstOrDefault();
         if (package == null) return;
         var cache = RealData.Get(Il2CppRawLoader.RootVariable) ?? _dir.File("il2cpp");

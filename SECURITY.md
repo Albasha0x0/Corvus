@@ -27,7 +27,7 @@ The server analyzes files; it does not run them.
   systems it runs in its own process group, which is killed with the server. `ida_python` runs arbitrary Python in
   that worker and is off unless the server is started with `--ida-scripting`.
 - **Network.** The server reaches the network only to download a .NET reference pack from nuget.org when analyzed code
-  targets an uninstalled .NET version (`NDM_OFFLINE=1` turns this off), when `load_pdb` is called with
+  targets an uninstalled .NET version (`CORVUS_OFFLINE=1` turns this off), when `load_pdb` is called with
   `download=true`, and when `NetDecompilerMcp update` fetches a release from GitHub.
 - **Files written.** Tools write only to paths given in the call (saved assemblies and images keep a `.bak` of an
   original they replace, and never overwrite without `overwrite=true`), plus per-user caches and annotation files.

@@ -19,7 +19,7 @@ public static class NativeFixtures
     public static string OsxX64Coverage => RealPackages.File("Microsoft.CodeCoverage", "17.14.1", "build", "netstandard2.0", "macos", "x64", "libCoverageInstrumentationMethod.dylib");
     public static string LinuxX64InstrumentationEngine => RealPackages.File("Microsoft.CodeCoverage", "17.14.1", "build", "netstandard2.0", "ubuntu", "x64", "libInstrumentationEngine.so");
     public static string OsxX64InstrumentationEngine => RealPackages.File("Microsoft.CodeCoverage", "17.14.1", "build", "netstandard2.0", "macos", "x64", "libInstrumentationEngine.dylib");
-    /// <summary>Itanium RTTI on ARM64 and ARM32 Android (slow set: the runtime packs download with NDM_ALL_TESTS=1).</summary>
+    /// <summary>Itanium RTTI on ARM64 and ARM32 Android (slow set: the runtime packs download with CORVUS_ALL_TESTS=1).</summary>
     public static string AndroidArm64Tracing => RealPackages.File("Microsoft.Android.Runtime.35.android-arm64", "35.0.105", "runtimes", "android-arm64", "native", "libxamarin-native-tracing.so");
     public static string AndroidArmTracing => RealPackages.File("Microsoft.Android.Runtime.35.android-arm", "35.0.105", "runtimes", "android-arm", "native", "libxamarin-native-tracing.so");
     public static string WinArm64DbgShim => RealPackages.File("Microsoft.Diagnostics.DbgShim.win-arm64", DbgShim, "runtimes/win-arm64/native/dbgshim.dll");
@@ -29,12 +29,12 @@ public static class NativeFixtures
 }
 
 /// <summary>
-/// Optional LLVM tools as oracles: NDM_LLVM_BIN names a folder with llvm-readobj, llvm-objdump and llvm-cxxfilt.
+/// Optional LLVM tools as oracles: CORVUS_LLVM_BIN names a folder with llvm-readobj, llvm-objdump and llvm-cxxfilt.
 /// Their option strings live only in <see cref="Options"/>.
 /// </summary>
 public static class LlvmOracle
 {
-    public const string Variable = "NDM_LLVM_BIN";
+    public const string Variable = "CORVUS_LLVM_BIN";
 
     /// <summary>Native option strings per use.</summary>
     public static class Options
@@ -77,7 +77,7 @@ public static class LlvmOracle
     /// <summary>Compiles <paramref name="source"/> (C) with clang into <paramref name="output"/>; null on success, else clang's output.</summary>
     public static string? Compile(string source, string output, string options)
     {
-        if (Bin is not { } bin) return "NDM_LLVM_BIN is not set";
+        if (Bin is not { } bin) return "CORVUS_LLVM_BIN is not set";
         var exe = System.IO.Path.Combine(bin, OperatingSystem.IsWindows() ? "clang.exe" : "clang");
         if (!System.IO.File.Exists(exe)) return $"{exe} not found";
         var c = System.IO.Path.ChangeExtension(output, ".c");
@@ -93,7 +93,7 @@ public static class LlvmOracle
 
     public static string? Bin => RealData.Get(Variable) is { } dir && Directory.Exists(dir) ? dir : null;
 
-    /// <summary>Output of <paramref name="tool"/> (e.g. "llvm-readobj") or null when NDM_LLVM_BIN is unset or the tool failed.</summary>
+    /// <summary>Output of <paramref name="tool"/> (e.g. "llvm-readobj") or null when CORVUS_LLVM_BIN is unset or the tool failed.</summary>
     public static string? Run(string tool, string options, string path)
     {
         if (Bin is not { } bin) return null;

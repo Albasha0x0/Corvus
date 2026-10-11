@@ -169,7 +169,7 @@ public sealed class SetupTests : IDisposable
         var q = System.Text.Json.JsonSerializer.Serialize(dll);
         home.Write($$"""{ "mcpServers": { "net-decompiler": { "command": "dotnet", "args": [{{q}}] } } }""", ".cursor", "mcp.json");
         // The entry's env reaches the server: an invalid engine makes it exit.
-        home.Write($$"""{ "mcpServers": { "net-decompiler": { "command": "dotnet", "args": [{{q}}], "env": { "NDM_ENGINE": "nonsense" } } } }""", ".kiro", "settings", "mcp.json");
+        home.Write($$"""{ "mcpServers": { "net-decompiler": { "command": "dotnet", "args": [{{q}}], "env": { "CORVUS_ENGINE": "nonsense" } } } }""", ".kiro", "settings", "mcp.json");
         home.Write("""{ "mcpServers": { "net-decompiler": { "command": "C:/gone/corvus.exe" } } }""", ".lmstudio", "mcp.json");
         var output = new StringWriter();
         var code = SetupCli.TryRun(["status"], output, home.Env(), server);
@@ -227,7 +227,7 @@ public sealed class SetupTests : IDisposable
         var env = new SetupEnvironment
         {
             Os = _env.Os, Home = _env.Home, AppData = _env.AppData, LocalAppData = _env.LocalAppData, XdgConfig = _env.XdgConfig,
-            Variable = name => name == "NDM_RELAY_DIR" ? state : null,
+            Variable = name => name == "CORVUS_RELAY_DIR" ? state : null,
         };
         Directory.CreateDirectory(Home(".cursor"));
         File.WriteAllText(Home(".cursor", "mcp.json"), """{ "mcpServers": { "net-decompiler": { "command": "old", "args": ["--load", "x"] } } }""");
@@ -268,14 +268,14 @@ public sealed class SetupTests : IDisposable
         Directory.CreateDirectory(Home(".cursor"));
         File.WriteAllText(Home(".cursor", "mcp.json"), """
             { "mcpServers": { "net-decompiler": { "command": "C:/old/corvus.exe", "args": ["--load", "x"],
-              "env": { "NDM_IDA_DIR": "C:/ida" }, "timeout": 30 } } }
+              "env": { "CORVUS_IDA_DIR": "C:/ida" }, "timeout": 30 } } }
             """);
         JsonNode Entry() => ReadJson(Home(".cursor", "mcp.json"))["mcpServers"]!["net-decompiler"]!;
         void AssertKept(params string[] args)
         {
             var e = Entry();
             Assert.Equal(args, e["args"]!.AsArray().Select(a => a!.GetValue<string>()));
-            Assert.Equal("C:/ida", e["env"]!["NDM_IDA_DIR"]!.GetValue<string>());
+            Assert.Equal("C:/ida", e["env"]!["CORVUS_IDA_DIR"]!.GetValue<string>());
             Assert.Equal(30, e["timeout"]!.GetValue<int>());
         }
 
@@ -331,7 +331,7 @@ public sealed class SetupTests : IDisposable
             startup_timeout_sec = 30
 
             [mcp_servers.net-decompiler.env]
-            NDM_IDA_DIR = "C:/ida"
+            CORVUS_IDA_DIR = "C:/ida"
 
             [profiles.fast]
             model = "mini"
@@ -348,7 +348,7 @@ public sealed class SetupTests : IDisposable
         Assert.Equal(0, SetupCli.TryRun(["install", "--no-check", "codex"], new StringWriter(), _env, DotnetLaunch));
         var toml = File.ReadAllText(Home(".codex", "config.toml"));
         Assert.Contains("command = \"dotnet\"\nargs = [" + System.Text.Json.JsonSerializer.Serialize(DotnetLaunch.Args[0]) + ", \"--load\", \"x\"]\nstartup_timeout_sec = 30", toml);
-        Assert.Contains("[mcp_servers.net-decompiler.env]\nNDM_IDA_DIR = \"C:/ida\"", toml);
+        Assert.Contains("[mcp_servers.net-decompiler.env]\nCORVUS_IDA_DIR = \"C:/ida\"", toml);
         Assert.Equal(0, Run("install", "--no-check", "codex").Code);
         Assert.Contains("args = [\"--load\", \"x\"]\nstartup_timeout_sec = 30", File.ReadAllText(Home(".codex", "config.toml")));
 
@@ -424,7 +424,7 @@ public sealed class SetupTests : IDisposable
     [Fact]
     public void Uninstall_PurgeData_DeletesTheDataRoot_AndRejectsKeepFiles()
     {
-        var dataRoot = Path.Combine(_env.LocalAppData, "NetDecompilerMcp");
+        var dataRoot = Path.Combine(_env.LocalAppData, "Corvus");
         Directory.CreateDirectory(Path.Combine(dataRoot, "analysis"));
         var (code, output) = Run("uninstall", "--purge-data", "--keep-files");
         Assert.Equal(2, code);

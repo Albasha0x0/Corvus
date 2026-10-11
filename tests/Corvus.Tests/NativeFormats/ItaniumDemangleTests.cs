@@ -141,7 +141,7 @@ public sealed class ItaniumDemangleTests(ITestOutputHelper output)
         Assert.Null(ItaniumDemangler.Demangle("_Z1fI" + string.Concat(Enumerable.Repeat("I", 20000)) + "iE"));
     }
 
-    /// <summary>Every C++ symbol of the linux-arm64 and osx-arm64 runtime packs and of SkiaSharp against llvm-cxxfilt (needs NDM_LLVM_BIN).</summary>
+    /// <summary>Every C++ symbol of the linux-arm64 and osx-arm64 runtime packs and of SkiaSharp against llvm-cxxfilt (needs CORVUS_LLVM_BIN).</summary>
     [Fact]
     [Trait("Speed", "Slow")]
     public void RuntimePackSymbols_MatchLlvm()

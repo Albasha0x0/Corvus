@@ -9,7 +9,7 @@ Services/NativeEditService.cs).
 - The authoritative in-memory copy is `NativeAnnotations` (per image, keyed by RVA). It is created on first use
   and loaded from a **sidecar** JSON file.
 - The sidecar lives under the same per-user root as the analysis cache, a sibling folder:
-  `<LocalAppData>/NetDecompilerMcp/annotations/<sha256>.json` (override with `NDM_ANNOTATIONS_DIR`). One file per
+  `<LocalAppData>/NetDecompilerMcp/annotations/<sha256>.json` (override with `CORVUS_ANNOTATIONS_DIR`). One file per
   image **SHA-256**, written atomically (temp file + move).
 - The key is the file's hash **as first loaded** (`LoadedNative.OriginalSha256`); it stays stable even after the
   image is patched in memory, so a session's names and a file's identity do not drift.

@@ -17,7 +17,7 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
     [McpServerTool(Name = "ida_python", Title = "Run IDAPython on a native image")]
     [Description("Run Python in the IDA worker holding a native image's database (idalib): IDAPython modules imported, base is the image base, " +
                  "globals persist between calls (reset=true clears them); returns a final expression's value, stdout and stderr. Off unless the " +
-                 "server runs with --ida-scripting (NDM_IDA_SCRIPTING=1): the code has the server's rights and can destroy the database. Changes " +
+                 "server runs with --ida-scripting (CORVUS_IDA_SCRIPTING=1): the code has the server's rights and can destroy the database. Changes " +
                  "are not journaled: a worker restart loses them unless persist=true saves the database.")]
     public Task<string> IdaPython(
         [Description(NativeTools.ImageDescription)] string image,
@@ -75,7 +75,7 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
     [McpServerTool(Name = "ghidra_script", Title = "Run a Ghidra script on a native image")]
     [Description("Run Java in the Ghidra worker holding a native image's program: a GhidraScript class, or run()'s body with imports first " +
                  "(currentProgram, println, FlatProgramAPI). One transaction, committed when the script returns, then saved. Off unless the server " +
-                 "runs with --ghidra-scripting (NDM_GHIDRA_SCRIPTING=1): the code has the server's rights. Changes are not in the annotation sidecar.")]
+                 "runs with --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1): the code has the server's rights. Changes are not in the annotation sidecar.")]
     public Task<string> GhidraScript(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Java source: a class extending GhidraScript, or statements for run().")] string code,

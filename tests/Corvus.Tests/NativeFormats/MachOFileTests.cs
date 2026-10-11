@@ -346,7 +346,7 @@ public sealed class MachOFileTests(ITestOutputHelper output)
         Assert.NotNull(apphost.CodeSignature?.Primary);
     }
 
-    /// <summary>Every dylib of the osx-arm64 runtime pack (libcoreclr.dylib and friends) parses cleanly, and agrees with LLVM's fixups when NDM_LLVM_BIN is set.</summary>
+    /// <summary>Every dylib of the osx-arm64 runtime pack (libcoreclr.dylib and friends) parses cleanly, and agrees with LLVM's fixups when CORVUS_LLVM_BIN is set.</summary>
     [Fact]
     [Trait("Speed", "Slow")]
     public void RuntimePack_Dylibs()
@@ -369,7 +369,7 @@ public sealed class MachOFileTests(ITestOutputHelper output)
         }
     }
 
-    /// <summary>Fixups, exports and function starts match llvm-objdump's (needs NDM_LLVM_BIN).</summary>
+    /// <summary>Fixups, exports and function starts match llvm-objdump's (needs CORVUS_LLVM_BIN).</summary>
     [Fact]
     public void RealImages_AgreeWithLlvm()
     {
@@ -403,7 +403,7 @@ public sealed class MachOFileTests(ITestOutputHelper output)
         }
     }
 
-    /// <summary>Dylibs linked by ld64.lld with chained fixups (arm64) and with dyld info opcodes (x86_64) agree with llvm-objdump (needs NDM_LLVM_BIN with clang).</summary>
+    /// <summary>Dylibs linked by ld64.lld with chained fixups (arm64) and with dyld info opcodes (x86_64) agree with llvm-objdump (needs CORVUS_LLVM_BIN with clang).</summary>
     [Fact]
     [Trait("Speed", "Slow")]
     public void ClangBuilds_AgreeWithLlvm()
@@ -443,7 +443,7 @@ public sealed class MachOFileTests(ITestOutputHelper output)
         withSignature.CodeSignature = new("id", "TEAM");
         withSignature.CompactUnwind = [(MachOWriter.TextOffset, 0x04000000)];
         var seeds = new List<byte[]> { SampleMachO().Build(), SampleMachO(1).Build(), withSignature.Build(), File.ReadAllBytes(NativeFixtures.OsxArm64AppHost) };
-        int iterations = int.TryParse(Environment.GetEnvironmentVariable("NDM_FORMAT_FUZZ_ITERATIONS"), out int n) ? n : 300;
+        int iterations = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_FORMAT_FUZZ_ITERATIONS"), out int n) ? n : 300;
         var failures = FormatFuzz.Run(seeds, iterations, 20261012, bytes => FormatFuzz.Touch(MachOFile.FromBytes(bytes, "fuzz.dylib"), m =>
         {
             _ = m.Fixups.All.Count + m.ExportTrie.Count + m.Stubs.Count + m.DataInCode.Count + m.FunctionStarts.Count + m.LoadCommands.Count;

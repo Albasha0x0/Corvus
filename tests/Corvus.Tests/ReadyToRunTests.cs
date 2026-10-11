@@ -289,13 +289,13 @@ public class ReadyToRunSweepTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// A composite ReadyToRun app (NDM_R2R_COMPOSITE_DIR: the output of dotnet publish --self-contained -p:PublishReadyToRun=true
+    /// A composite ReadyToRun app (CORVUS_R2R_COMPOSITE_DIR: the output of dotnet publish --self-contained -p:PublishReadyToRun=true
     /// -p:PublishReadyToRunComposite=true): every component's code is found in the composite image and named.
     /// </summary>
-    [RequiresRealDataFact("NDM_R2R_COMPOSITE_DIR")]
+    [RequiresRealDataFact("CORVUS_R2R_COMPOSITE_DIR")]
     public void CompositeComponents()
     {
-        var dir = RealData.Get("NDM_R2R_COMPOSITE_DIR")!;
+        var dir = RealData.Get("CORVUS_R2R_COMPOSITE_DIR")!;
         using var env = new Env();
         var service = new ReadyToRunService(env.Workspace);
         int components = 0;

@@ -4,7 +4,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests.NativeFormats;
 
-/// <summary>The synthetic ELF / Mach-O writers produce files an independent reader accepts (LibObjectFile; LLVM when NDM_LLVM_BIN is set).</summary>
+/// <summary>The synthetic ELF / Mach-O writers produce files an independent reader accepts (LibObjectFile; LLVM when CORVUS_LLVM_BIN is set).</summary>
 public sealed class FormatWriterTests(ITestOutputHelper output)
 {
     internal static ElfWriter SampleElf(bool is64 = true, ushort machine = ElfWriter.EmAarch64) => new()

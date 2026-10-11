@@ -34,21 +34,21 @@ Then restart your MCP client. The script:
 
 | Script option (PowerShell / sh) | Environment | Effect |
 |---|---|---|
-| `-Version X` / `--version X` | `NDM_VERSION` | Install release X: pin a version or roll back. |
+| `-Version X` / `--version X` | `CORVUS_VERSION` | Install release X: pin a version or roll back. |
 | `-DryRun` / `--dry-run` | | Show the release, the checksum source, the install folder and every client file it would change; change nothing. |
-| `-Yes` / `--yes` | `NDM_YES=1` | Register new clients without asking (needed when there is no terminal). |
+| `-Yes` / `--yes` | `CORVUS_YES=1` | Register new clients without asking (needed when there is no terminal). |
 | `-Client a,b` / `--client a,b` | | Register only these clients (ids from the table below). |
 | `-Uninstall` / `--uninstall` | | Run `NetDecompilerMcp uninstall`; add `-PurgeData` / `--purge-data` to delete your data too. |
-| | `NDM_REPO` | Download from another repository (`owner/name`). |
+| | `CORVUS_REPO` | Download from another repository (`owner/name`). |
 | | `GITHUB_TOKEN` | Token for a private repository. |
-| | `NDM_HOME` | Install folder (sh only). |
-| | `NDM_ARCHIVE`, `NDM_SHA256SUMS` | Offline install from a local archive, checked against a local manifest when one is given. |
+| | `CORVUS_HOME` | Install folder (sh only). |
+| | `CORVUS_ARCHIVE`, `CORVUS_SHA256SUMS` | Offline install from a local archive, checked against a local manifest when one is given. |
 
 With options: `& ([scriptblock]::Create((irm <url>))) -DryRun` in PowerShell, `curl -fsSL <url> | sh -s -- --dry-run`
 with sh. Piped into `sh`, the confirmation is read from the terminal.
 
 **Offline install.** Download the archive for your system and `SHA256SUMS` from the release page, then run the script
-with `NDM_ARCHIVE=<archive>` and `NDM_SHA256SUMS=<manifest>`.
+with `CORVUS_ARCHIVE=<archive>` and `CORVUS_SHA256SUMS=<manifest>`.
 
 **From source.** `./publish.ps1` (add `-SelfContained` for a build that needs no .NET), then
 `publish/NetDecompilerMcp install`.
@@ -85,7 +85,7 @@ Where each client keeps its user-level server list (`~` is the home folder, `%AP
 folder), the shape of the entry, and the environment variables that move the file. `-` means the client is not
 supported on that system.
 
-<!-- clients:begin (generated from Setup/ClientCatalog.cs; NDM_UPDATE_DOCS=1 updates it) -->
+<!-- clients:begin (generated from Setup/ClientCatalog.cs; CORVUS_UPDATE_DOCS=1 updates it) -->
 | Id | Client | Entry | Windows | macOS | Linux | Moved by |
 |---|---|---|---|---|---|---|
 | `claude-code` | Claude Code | JSON `mcpServers` | `~/.claude.json` | `~/.claude.json` | `~/.claude.json` | `CLAUDE_CONFIG_DIR` |
@@ -158,23 +158,24 @@ Server options and their environment variables are in the README ("Server option
 
 | Variable | Effect |
 |---|---|
-| `NDM_YES` | `1`: `install` adds new clients without asking. |
-| `NDM_REPO` | Repository `update` and the scripts download from (`owner/name`). |
-| `NDM_RELAY_DIR` | Folder of the development reload relay's staged copies. |
-| `NDM_OFFLINE` | `1`: never download reference packs, symbols or a runtime DAC. |
-| `NDM_IDA_DIR`, `NDM_IDA_PYTHON` | IDA installation folder and the Python interpreter for idalib (found automatically otherwise). |
-| `NDM_GHIDRA_DIR`, `NDM_GHIDRA_JAVA`, `NDM_GHIDRA_ANALYSIS`, `NDM_GHIDRA_MAXMEM`, `NDM_GHIDRA_OPTIONS`, `NDM_GHIDRA_EXTENSIONS`, `NDM_GHIDRA_DECOMPILE_TIMEOUT`, `NDM_GHIDRA_DECOMPILE_PAYLOAD_MB` | Ghidra installation, JDK, analysis profile, JVM heap, analyzer options, extension zips and decompiler limits (README, "Server options"). |
-| `NDM_ENGINE_MEMORY_MB` | Memory limit of each IDA or Ghidra worker in MB (`0` removes it). |
-| `NDM_ENGINE_ANALYSIS` | `none`: IDA and Ghidra open images without auto-analysis (functions are made where a tool asks), kept in a database or project of their own; default `full`. |
-| `NDM_ENGINE_REQUEST_TIMEOUT`, `NDM_ENGINE_OPEN_TIMEOUT` | Seconds each IDA or Ghidra request may take (default 120) and an engine's start plus auto-analysis (default 1200). |
-| `NDM_CODE_INDEX_CACHE`, `NDM_CODE_INDEX_CACHE_MB`, `NDM_CODE_INDEX_CACHE_DAYS` | Folder and bounds of saved native code indexes (`--index-cache`, `--index-cache-mb`, `--index-cache-days`). |
-| `NDM_ANALYSIS_CACHE` | Folder of saved engine databases (IDA, Ghidra), keyed by file hash. |
-| `NDM_ANNOTATIONS_DIR` | Folder of saved native names, comments and imported name layers. |
-| `NDM_IL2CPP_CACHE` | Folder of the dummy assemblies made by the built-in Il2Cpp metadata reader. |
-| `NDM_SYMBOL_CACHE` | Folder of downloaded PDBs and runtime DACs (`open_minidump downloadDac=true`). |
-| `NDM_CLR32` | Path of the 32-bit .NET decoder (`Corvus.Clr32.exe`) that decodes 32-bit dumps; default `clr32/` beside the server. |
-| `NDM_DUMP_BUCKET_CACHE` | Folder of the signatures `bucket_minidumps` keeps per dump file, so a re-run parses only new dumps. |
-| `NDM_AUTO_PDB` | `0`: do not read a matching local PDB automatically. |
-| `NDM_AUTO_NATIVEAOT` | `0`: do not name NativeAOT images from their metadata automatically. |
-| `NDM_DIE` | Detect It Easy's `diec` (the file or its folder) for `unity_overview detectItEasy=true`. |
-| `NDM_CLEANUP_LOG` | Set: record the decompiler cleanup's rewrite decisions (diagnostics). |
+| `CORVUS_DATA_DIR` | The per-user data folder (default `<LocalAppData>/Corvus`); the caches and folders below default to entries in it. |
+| `CORVUS_YES` | `1`: `install` adds new clients without asking. |
+| `CORVUS_REPO` | Repository `update` and the scripts download from (`owner/name`). |
+| `CORVUS_RELAY_DIR` | Folder of the development reload relay's staged copies. |
+| `CORVUS_OFFLINE` | `1`: never download reference packs, symbols or a runtime DAC. |
+| `CORVUS_IDA_DIR`, `CORVUS_IDA_PYTHON` | IDA installation folder and the Python interpreter for idalib (found automatically otherwise). |
+| `CORVUS_GHIDRA_DIR`, `CORVUS_GHIDRA_JAVA`, `CORVUS_GHIDRA_ANALYSIS`, `CORVUS_GHIDRA_MAXMEM`, `CORVUS_GHIDRA_OPTIONS`, `CORVUS_GHIDRA_EXTENSIONS`, `CORVUS_GHIDRA_DECOMPILE_TIMEOUT`, `CORVUS_GHIDRA_DECOMPILE_PAYLOAD_MB` | Ghidra installation, JDK, analysis profile, JVM heap, analyzer options, extension zips and decompiler limits (README, "Server options"). |
+| `CORVUS_ENGINE_MEMORY_MB` | Memory limit of each IDA or Ghidra worker in MB (`0` removes it). |
+| `CORVUS_ENGINE_ANALYSIS` | `none`: IDA and Ghidra open images without auto-analysis (functions are made where a tool asks), kept in a database or project of their own; default `full`. |
+| `CORVUS_ENGINE_REQUEST_TIMEOUT`, `CORVUS_ENGINE_OPEN_TIMEOUT` | Seconds each IDA or Ghidra request may take (default 120) and an engine's start plus auto-analysis (default 1200). |
+| `CORVUS_CODE_INDEX_CACHE`, `CORVUS_CODE_INDEX_CACHE_MB`, `CORVUS_CODE_INDEX_CACHE_DAYS` | Folder and bounds of saved native code indexes (`--index-cache`, `--index-cache-mb`, `--index-cache-days`). |
+| `CORVUS_ANALYSIS_CACHE` | Folder of saved engine databases (IDA, Ghidra), keyed by file hash. |
+| `CORVUS_ANNOTATIONS_DIR` | Folder of saved native names, comments and imported name layers. |
+| `CORVUS_IL2CPP_CACHE` | Folder of the dummy assemblies made by the built-in Il2Cpp metadata reader. |
+| `CORVUS_SYMBOL_CACHE` | Folder of downloaded PDBs and runtime DACs (`open_minidump downloadDac=true`). |
+| `CORVUS_CLR32` | Path of the 32-bit .NET decoder (`Corvus.Clr32.exe`) that decodes 32-bit dumps; default `clr32/` beside the server. |
+| `CORVUS_DUMP_BUCKET_CACHE` | Folder of the signatures `bucket_minidumps` keeps per dump file, so a re-run parses only new dumps. |
+| `CORVUS_AUTO_PDB` | `0`: do not read a matching local PDB automatically. |
+| `CORVUS_AUTO_NATIVEAOT` | `0`: do not name NativeAOT images from their metadata automatically. |
+| `CORVUS_DIE` | Detect It Easy's `diec` (the file or its folder) for `unity_overview detectItEasy=true`. |
+| `CORVUS_CLEANUP_LOG` | Set: record the decompiler cleanup's rewrite decisions (diagnostics). |

@@ -112,8 +112,8 @@ public static class UnityOverview
         string? die = null;
         if (detectItEasy)
             die = FindDie() ?? throw new ToolError(ErrorCode.ProviderUnavailable,
-                "Detect It Easy (diec) was not found: looked at NDM_DIE (diec.exe or its folder) and for diec / diec.exe on PATH.",
-                "set NDM_DIE to the Detect It Easy folder (or diec.exe), or call again with detectItEasy=false");
+                "Detect It Easy (diec) was not found: looked at CORVUS_DIE (diec.exe or its folder) and for diec / diec.exe on PATH.",
+                "set CORVUS_DIE to the Detect It Easy folder (or diec.exe), or call again with detectItEasy=false");
 
         string? package = null;
         if (Il2CppPackages.IsPackage(full))
@@ -657,11 +657,11 @@ public static class UnityOverview
         _ => $"packer ({section})",
     };
 
-    /// <summary>diec from NDM_DIE (the file or its folder) or PATH; null when absent.</summary>
+    /// <summary>diec from CORVUS_DIE (the file or its folder) or PATH; null when absent.</summary>
     internal static string? FindDie()
     {
         var name = OperatingSystem.IsWindows() ? "diec.exe" : "diec";
-        if (Environment.GetEnvironmentVariable("NDM_DIE") is { Length: > 0 } configured)
+        if (Environment.GetEnvironmentVariable("CORVUS_DIE") is { Length: > 0 } configured)
         {
             if (File.Exists(configured)) return Path.GetFullPath(configured);
             if (Directory.Exists(configured) && File.Exists(Path.Combine(configured, name))) return Path.GetFullPath(Path.Combine(configured, name));

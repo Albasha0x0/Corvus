@@ -177,7 +177,7 @@ public sealed class NativeEngineService : IDisposable
     /// <summary>The engine the native code tools use when a call names none.</summary>
     public EngineMode DefaultMode { get; }
 
-    /// <summary>Limit of each engine request (NDM_ENGINE_REQUEST_TIMEOUT) and of an engine's start and analysis (NDM_ENGINE_OPEN_TIMEOUT).</summary>
+    /// <summary>Limit of each engine request (CORVUS_ENGINE_REQUEST_TIMEOUT) and of an engine's start and analysis (CORVUS_ENGINE_OPEN_TIMEOUT).</summary>
     public TimeSpan RequestTimeout { get; }
     public TimeSpan OpenTimeout { get; }
 
@@ -477,7 +477,7 @@ public sealed class NativeEngineService : IDisposable
         {
             var bytes = content ?? native.Patches.PatchedBytes();
             var sha = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
-            var dir = Path.Combine(Path.GetTempPath(), "NetDecompilerMcp", content == null ? "patched" : "slices", sha[..16]);
+            var dir = Path.Combine(Path.GetTempPath(), "Corvus", content == null ? "patched" : "slices", sha[..16]);
             Directory.CreateDirectory(dir);
             var path = Path.Combine(dir, name);
             await File.WriteAllBytesAsync(path, bytes, native.Released).ConfigureAwait(false);

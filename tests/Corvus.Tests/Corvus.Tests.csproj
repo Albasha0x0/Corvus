@@ -7,11 +7,11 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
-  <!-- dotnet test runs the quick set; NDM_ALL_TESTS=1 (environment or -p:) also runs the tests marked Speed=Slow. -->
-  <PropertyGroup Condition="'$(NDM_ALL_TESTS)' != '1'">
+  <!-- dotnet test runs the quick set; CORVUS_ALL_TESTS=1 (environment or -p:) also runs the tests marked Speed=Slow. -->
+  <PropertyGroup Condition="'$(CORVUS_ALL_TESTS)' != '1'">
     <RunSettingsFilePath>$(MSBuildThisFileDirectory)quick.runsettings</RunSettingsFilePath>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(NDM_ALL_TESTS)' == '1'">
+  <PropertyGroup Condition="'$(CORVUS_ALL_TESTS)' == '1'">
     <RunSettingsFilePath>$(MSBuildThisFileDirectory)full.runsettings</RunSettingsFilePath>
   </PropertyGroup>
 
@@ -51,7 +51,7 @@
   </ItemGroup>
 
   <!-- NativeAOT-compiled production binaries (tools/ilc of the ILCompiler runtime packs: PE, ELF, Mach-O) for the slow NativeAOT tests. -->
-  <ItemGroup Condition="'$(NDM_ALL_TESTS)' == '1'">
+  <ItemGroup Condition="'$(CORVUS_ALL_TESTS)' == '1'">
     <PackageDownload Include="runtime.win-x64.Microsoft.DotNet.ILCompiler" Version="[8.0.30];[9.0.19];[10.0.11]" />
     <PackageDownload Include="runtime.win-arm64.Microsoft.DotNet.ILCompiler" Version="[10.0.11]" />
     <PackageDownload Include="runtime.win-x86.Microsoft.DotNet.ILCompiler" Version="[10.0.11]" />
@@ -75,7 +75,7 @@
     <PackageDownload Include="SkiaSharp.NativeAssets.macOS" Version="[2.88.9]" />
   </ItemGroup>
   <!-- Large runtime packs for the slow native format tests only. -->
-  <ItemGroup Condition="'$(NDM_ALL_TESTS)' == '1'">
+  <ItemGroup Condition="'$(CORVUS_ALL_TESTS)' == '1'">
     <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-arm64" Version="[10.0.11]" />
     <PackageDownload Include="Microsoft.NETCore.App.Runtime.osx-arm64" Version="[10.0.11]" />
     <PackageDownload Include="SkiaSharp.NativeAssets.Linux" Version="[3.119.4]" />

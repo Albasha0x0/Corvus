@@ -425,7 +425,7 @@ public class CallArgumentTests(ITestOutputHelper output)
                         int known = s.Arguments.Count(a => a.Kind != ArgKind.Unknown);
                         recovered += known;
                         if (s.Arguments.Any(a => a.Kind is ArgKind.Immediate or ArgKind.String)) { withConstant++; fileConst++; }
-                        else if (Environment.GetEnvironmentVariable("NDM_DEBUG_ARGS") == "1" && fileSites - fileConst < 3)
+                        else if (Environment.GetEnvironmentVariable("CORVUS_DEBUG_ARGS") == "1" && fileSites - fileConst < 3)
                             output.WriteLine($"    {s.Display} @{s.Rva:X}: {string.Join(" | ", s.Arguments.Select(a => a.Derivation))}");
                     }
                 // every call of the image: no exception, guessed arguments for unknown callees
@@ -469,7 +469,7 @@ public class CallArgumentTests(ITestOutputHelper output)
                 output.WriteLine($"  {name}: {set.Imports.Count}/{set.GetProcAddressSites} GetProcAddress calls resolved ({set.Imports.Count(i => i.Module != null)} with module), " +
                                  $"{set.ByGlobal.Count} pointer globals, {set.ByGlobal.Values.Sum(i => i.PointerCalls.Count)} calls through them, " +
                                  $"{set.Modules.Count} modules by name, {t.ElapsedMilliseconds} ms; e.g. {string.Join(", ", set.Imports.Take(3).Select(i => i.FullName))}");
-                if (Environment.GetEnvironmentVariable("NDM_DEBUG_ARGS") == "1")
+                if (Environment.GetEnvironmentVariable("CORVUS_DEBUG_ARGS") == "1")
                 {
                     var analysis = CallAnalysis.For(index);
                     foreach (var d in set.Imports.Where(i => i.Module == null).Take(4))

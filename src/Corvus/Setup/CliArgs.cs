@@ -55,7 +55,7 @@ internal sealed partial class CliArgs
 
     /// <summary>
     /// Server options for a CLI session: no file watching, whole results instead of pages (unless --max-output), and
-    /// warnings only on stderr (unless --log-level or NDM_LOG_LEVEL).
+    /// warnings only on stderr (unless --log-level or CORVUS_LOG_LEVEL).
     /// </summary>
     public ServerOptions Server()
     {

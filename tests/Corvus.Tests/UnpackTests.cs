@@ -506,8 +506,8 @@ public partial class UnpackTests(ContainerFixtures fx) : IClassFixture<Container
         Assert.Contains(r.Notes, n => n.Contains("costura.broken.dll.compressed") && n.Contains("deflate"));
     }
 
-    /// <summary>Fuzz iterations per fixture; override with NDM_FUZZ_CASES.</summary>
-    private static readonly int FuzzCases = int.TryParse(Environment.GetEnvironmentVariable("NDM_FUZZ_CASES"), out var n) ? n : 40;
+    /// <summary>Fuzz iterations per fixture; override with CORVUS_FUZZ_CASES.</summary>
+    private static readonly int FuzzCases = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_FUZZ_CASES"), out var n) ? n : 40;
 
     [Trait("Speed", "Slow")]
     [Fact]

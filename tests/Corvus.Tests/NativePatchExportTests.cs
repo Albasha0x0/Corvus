@@ -339,7 +339,7 @@ public class NativePatchExportTests(ITestOutputHelper output)
             import idaapi, ida_bytes, ida_segment
             g = {"__name__": "__main__"}
             exec(compile(open(script, encoding="utf-8").read(), script, "exec"), g)
-            applied, already, differ, missing = g["NDM_PATCH_RESULT"]
+            applied, already, differ, missing = g["CORVUS_PATCH_RESULT"]
             # every loaded byte equals the saved file's byte at its file offset
             import ida_loader
             data = open(saved, "rb").read()
@@ -363,7 +363,7 @@ public class NativePatchExportTests(ITestOutputHelper output)
             # a second run finds everything applied
             g2 = {"__name__": "__main__"}
             exec(compile(open(script, encoding="utf-8").read(), script, "exec"), g2)
-            print("RESULT %d %d %d %d checked %d bad %d rerun_applied %d" % (applied, already, differ, missing, checked, bad, g2["NDM_PATCH_RESULT"][0]))
+            print("RESULT %d %d %d %d checked %d bad %d rerun_applied %d" % (applied, already, differ, missing, checked, bad, g2["CORVUS_PATCH_RESULT"][0]))
             idapro.close_database(False)
             """);
         var env = new Dictionary<string, string?> { ["IDADIR"] = ida.Directory, ["TVHEADLESS"] = "1", ["IDA_IS_INTERACTIVE"] = null };

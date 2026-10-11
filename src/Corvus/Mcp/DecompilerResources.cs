@@ -14,7 +14,7 @@ namespace Corvus.Mcp;
 [McpServerResourceType]
 public sealed class DecompilerResources(AssemblyWorkspace workspace, DecompilerService decompiler, AssemblyReport report)
 {
-    public const string Scheme = "netdecomp";
+    public const string Scheme = "corvus";
 
     [McpServerResource(UriTemplate = Scheme + "://assemblies", Name = "assemblies", Title = "Loaded assemblies", MimeType = "text/plain")]
     [Description("The loaded assemblies and native images, with ids, paths, unsaved edits and patches.")]

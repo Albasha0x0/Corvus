@@ -10,7 +10,7 @@ namespace Corvus.Tests;
 /// <summary>
 /// Mutation fuzzing of the native PE parser: real and synthetic images with bytes flipped or overwritten in the headers,
 /// the section table and the directories (seeded, so a failure names the iteration that reproduces it).
-/// NDM_PE_FUZZ_ITERATIONS sets the iteration count; NDM_PE_FUZZ_SEED the base seed.
+/// CORVUS_PE_FUZZ_ITERATIONS sets the iteration count; CORVUS_PE_FUZZ_SEED the base seed.
 /// </summary>
 public sealed class NativePeFuzzTests(ITestOutputHelper output)
 {
@@ -18,8 +18,8 @@ public sealed class NativePeFuzzTests(ITestOutputHelper output)
     [Trait("Speed", "Slow")]
     public void MutatedImages_NeverThrowAndStayBounded()
     {
-        int iterations = int.TryParse(Environment.GetEnvironmentVariable("NDM_PE_FUZZ_ITERATIONS"), out int n) ? n : 20_000;
-        int seed = int.TryParse(Environment.GetEnvironmentVariable("NDM_PE_FUZZ_SEED"), out int s) ? s : 20251010;
+        int iterations = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_PE_FUZZ_ITERATIONS"), out int n) ? n : 20_000;
+        int seed = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_PE_FUZZ_SEED"), out int s) ? s : 20251010;
         var seeds = new List<(string, byte[])> { ("kitchen sink x64", NativePeTests.KitchenSink(true)), ("kitchen sink x86", NativePeTests.KitchenSink(false)) };
         foreach (var path in RealSeeds()) seeds.Add((path, File.ReadAllBytes(path)));
         var result = PeFuzzer.Run(seeds, iterations, seed);
@@ -60,7 +60,7 @@ internal static class PeFuzzer
     public sealed record Result(List<string> Failures, TimeSpan Elapsed, double MaxMilliseconds, long MaxAllocatedBytes, int NotPe);
 
     /// <summary>A single parse (and full read) may take this long and allocate this much before it counts as a failure.</summary>
-    private static readonly TimeSpan TimeBound = TimeSpan.FromMilliseconds(int.TryParse(Environment.GetEnvironmentVariable("NDM_PE_FUZZ_TIME_BOUND_MS"), out int ms) ? ms : 10_000);
+    private static readonly TimeSpan TimeBound = TimeSpan.FromMilliseconds(int.TryParse(Environment.GetEnvironmentVariable("CORVUS_PE_FUZZ_TIME_BOUND_MS"), out int ms) ? ms : 10_000);
     private const long AllocationBound = 512L << 20;
 
     public static Result Run(IReadOnlyList<(string Name, byte[] Bytes)> seeds, int iterations, int seed)
@@ -92,7 +92,7 @@ internal static class PeFuzzer
             if (elapsed > TimeBound) failures.Add($"iteration {i} ({seeds[which].Name}; {what}): took {elapsed.TotalSeconds:0.0} s");
             if (allocated > AllocationBound) failures.Add($"iteration {i} ({seeds[which].Name}; {what}): allocated {allocated >> 20} MB");
             if ((elapsed > TimeBound || allocated > AllocationBound || failures.Any(f => f.StartsWith($"iteration {i} ", StringComparison.Ordinal)))
-                && Environment.GetEnvironmentVariable("NDM_PE_FUZZ_DUMP") is { Length: > 0 } dump)
+                && Environment.GetEnvironmentVariable("CORVUS_PE_FUZZ_DUMP") is { Length: > 0 } dump)
                 File.WriteAllBytes(Path.Combine(dump, $"fuzz-{seed}-{i}.bin"), bytes);
             InterlockedMax(ref maxMs, elapsed.TotalMilliseconds);
             InterlockedMax(ref maxAllocated, allocated);

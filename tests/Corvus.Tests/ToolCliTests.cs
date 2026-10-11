@@ -220,9 +220,9 @@ public class ToolCliTests
 
         (code, output, _) = await Run("resources", "--load", Env.FixturePath, "--no-index");
         Assert.Equal(0, code);
-        Assert.Contains("netdecomp://guide/{topic}", output);
+        Assert.Contains("corvus://guide/{topic}", output);
 
-        (code, output, _) = await Run("read", "netdecomp://guide/edits");
+        (code, output, _) = await Run("read", "corvus://guide/edits");
         Assert.Equal(0, code);
         Assert.Contains("save_assembly", output);
     }

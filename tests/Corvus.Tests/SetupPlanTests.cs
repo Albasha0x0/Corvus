@@ -95,7 +95,7 @@ public sealed class SetupPlanTests : IDisposable
     public void NdmYes_AddsNewClientsUnattended()
     {
         ExistingAndNew();
-        var (code, output) = _home.Run(_home.Env(variables: new Dictionary<string, string> { ["NDM_YES"] = "1" }), "install", "--no-check");
+        var (code, output) = _home.Run(_home.Env(variables: new Dictionary<string, string> { ["CORVUS_YES"] = "1" }), "install", "--no-check");
         Assert.True(code == 0, output);
         Assert.True(File.Exists(_home.Path(".codex", "config.toml")));
     }

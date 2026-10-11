@@ -7,11 +7,11 @@ Requires the .NET 10 SDK. Warnings are errors and the recommended analyzers run 
 ```powershell
 dotnet build
 dotnet test                         # quick set: everything not marked [Trait("Speed", "Slow")]; keep it near 30 s
-$env:NDM_ALL_TESTS=1; dotnet test   # everything (or dotnet test -p:NDM_ALL_TESTS=1)
+$env:CORVUS_ALL_TESTS=1; dotnet test   # everything (or dotnet test -p:CORVUS_ALL_TESTS=1)
 ```
 
 Run the quick set while iterating and the full set before a pull request. Tests that need real-world data (application
-folders, Il2Cpp games, external tools) read their locations from `NDM_*` environment variables and are skipped when
+folders, Il2Cpp games, external tools) read their locations from `CORVUS_*` environment variables and are skipped when
 those are unset; the README's "Build, test, publish" section lists them. Real libraries in tests come from
 `<PackageDownload>` items in the test project, never from paths on one machine. A new external tool used by tests is
 found through an environment variable with a neutral name.
@@ -37,7 +37,7 @@ raised only deliberately, with the new figure recorded there.
 `docs/simplify.md`, `docs/errors.md`, `docs/saving.md`, `docs/tools.md`, the client table of `docs/installation.md`
 and `skills/net-decompiler` are generated from the code (`SimplifyManifest`, the error codes, `SaveManifest`, the tool
 catalog, the client catalog, the guide) and checked by tests: after changing their sources, run the tests once with
-`NDM_UPDATE_DOCS=1` and commit the regenerated files. The testing policy is `docs/testing.md`.
+`CORVUS_UPDATE_DOCS=1` and commit the regenerated files. The testing policy is `docs/testing.md`.
 
 ## Style
 

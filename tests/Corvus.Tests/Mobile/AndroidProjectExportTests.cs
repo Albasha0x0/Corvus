@@ -28,7 +28,7 @@ public sealed class AndroidProjectExportTests : IDisposable
     [Fact]
     public async Task WithoutJadx_ResourcesDecodedAndSmaliPerClass()
     {
-        using var env = new EnvironmentScope().Set("NDM_JAVA_DECOMPILER", Path.Combine(_dir.Path, "missing.jar"));
+        using var env = new EnvironmentScope().Set("CORVUS_JAVA_DECOMPILER", Path.Combine(_dir.Path, "missing.jar"));
         using var java = new JavaDecompilerService(new DexService());
         var export = new AndroidProjectExport(new DexService(), java);
         var apk = Apk();
@@ -69,7 +69,7 @@ public sealed class AndroidProjectExportTests : IDisposable
     [Fact]
     public async Task ClassesDifferingOnlyInCaseGetTheirOwnFiles()
     {
-        using var env = new EnvironmentScope().Set("NDM_JAVA_DECOMPILER", Path.Combine(_dir.Path, "missing.jar"));
+        using var env = new EnvironmentScope().Set("CORVUS_JAVA_DECOMPILER", Path.Combine(_dir.Path, "missing.jar"));
         using var java = new JavaDecompilerService(new DexService());
         var dex = new DexBuilder();
         dex.Class("Lp/a;");
@@ -88,7 +88,7 @@ public sealed class AndroidProjectExportTests : IDisposable
         var jar = Path.Combine(_fake.Directory, "jadx-headless-mcp-0.7.1-all.jar");
         File.WriteAllBytes(jar, [0x50, 0x4B, 3, 4]);
         _fake.Set("mcp", new JsonObject());
-        using var env = new EnvironmentScope().Set("NDM_JAVA", _fake.CopyAs("java")).Set("NDM_JAVA_DECOMPILER", jar);
+        using var env = new EnvironmentScope().Set("CORVUS_JAVA", _fake.CopyAs("java")).Set("CORVUS_JAVA_DECOMPILER", jar);
         using var java = new JavaDecompilerService(new DexService()) { Environment = _fake.Environment };
         var r = await new AndroidProjectExport(new DexService(), java).Export(Apk(), _dir.File("out"), null, default);
         Assert.Equal("java", r.Sources);
@@ -110,7 +110,7 @@ public sealed class AndroidProjectExportTests : IDisposable
             ("AndroidManifest.xml", AndroidSamples.Manifest()),
             ("resources.arsc", res.Build()),
             ("res/a1.xml", Write(new Node("full-backup-content")))]));
-        using var env = new EnvironmentScope().Set("NDM_JAVA_DECOMPILER", Path.Combine(_dir.Path, "missing.jar"));
+        using var env = new EnvironmentScope().Set("CORVUS_JAVA_DECOMPILER", Path.Combine(_dir.Path, "missing.jar"));
         using var java = new JavaDecompilerService(new DexService());
         var r = await new AndroidProjectExport(new DexService(), java).Export(apk, _dir.File("out"), null, default);
         Assert.Contains("<full-backup-content", Read(r.Directory, "app/src/main/res/xml/rules.xml"));

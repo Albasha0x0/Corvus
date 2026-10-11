@@ -11,17 +11,17 @@ public class ExternalToolsTests
     {
         using var fake = new FakeTool();
         var adb = fake.CopyAs("adb");
-        using var env = new EnvironmentScope().Set("NDM_ADB", adb);
-        Assert.Equal((adb, "NDM_ADB"), ExternalTools.Locate(ExternalTools.Adb));
-        env.Set("NDM_ADB", Path.GetDirectoryName(adb));
-        Assert.Equal((adb, "NDM_ADB"), ExternalTools.Locate(ExternalTools.Adb));
+        using var env = new EnvironmentScope().Set("CORVUS_ADB", adb);
+        Assert.Equal((adb, "CORVUS_ADB"), ExternalTools.Locate(ExternalTools.Adb));
+        env.Set("CORVUS_ADB", Path.GetDirectoryName(adb));
+        Assert.Equal((adb, "CORVUS_ADB"), ExternalTools.Locate(ExternalTools.Adb));
 
-        env.Set("NDM_ADB", Path.Combine(fake.Directory, "missing"));
+        env.Set("CORVUS_ADB", Path.Combine(fake.Directory, "missing"));
         Assert.Null(ExternalTools.Locate(ExternalTools.Adb));
         var probe = ExternalTools.Probe(ExternalTools.Adb);
         Assert.False(probe.Usable);
-        Assert.Contains("NDM_ADB is set to", probe.Problem);
-        Assert.Contains("NDM_ADB", probe.Remediation);
+        Assert.Contains("CORVUS_ADB is set to", probe.Problem);
+        Assert.Contains("CORVUS_ADB", probe.Remediation);
     }
 
     [Fact]
@@ -29,13 +29,13 @@ public class ExternalToolsTests
     {
         using var dir = new TempDir();
         File.WriteAllBytes(dir.File("jadx-headless-mcp-0.7.1-all.jar"), [0x50, 0x4B]);
-        using var env = new EnvironmentScope().Set("NDM_JAVA_DECOMPILER", dir.Path);
+        using var env = new EnvironmentScope().Set("CORVUS_JAVA_DECOMPILER", dir.Path);
         Assert.Equal(dir.File("jadx-headless-mcp-0.7.1-all.jar"), ExternalTools.Locate(ExternalTools.JavaDecompiler)?.Path);
         Assert.Equal("0.7.1", ExternalTools.Probe(ExternalTools.JavaDecompiler).Version); // from the file name; nothing is run
 
         using var fake = new FakeTool();
         var adb = fake.CopyAs("adb");
-        env.Set("NDM_ADB", null).Set("PATH", Path.GetDirectoryName(adb) + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH"));
+        env.Set("CORVUS_ADB", null).Set("PATH", Path.GetDirectoryName(adb) + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH"));
         Assert.Equal((adb, "PATH"), ExternalTools.Locate(ExternalTools.Adb));
     }
 
@@ -43,17 +43,17 @@ public class ExternalToolsTests
     public void Probe_ReadsVersions_AndChecksTheMinimum()
     {
         using var fake = new FakeTool();
-        using var env = new EnvironmentScope().Set("NDM_ADB", fake.CopyAs("adb")).Set("NDM_JAVA", fake.CopyAs("java"));
+        using var env = new EnvironmentScope().Set("CORVUS_ADB", fake.CopyAs("adb")).Set("CORVUS_JAVA", fake.CopyAs("java"));
         var adb = ExternalTools.Probe(ExternalTools.Adb);
         Assert.True(adb.Usable, adb.Problem);
         Assert.Equal("1.0.41", adb.Version);
-        Assert.Equal("NDM_ADB", adb.Source);
+        Assert.Equal("CORVUS_ADB", adb.Source);
         Assert.Equal("21.0.2", ExternalTools.Probe(ExternalTools.Java).Version);
 
         // A JDK 8 is found but refused (the probe reads the script through the inherited variable).
         using var old = new FakeTool();
         old.Set("javaVersion", "java version \"1.8.0_202\"");
-        env.Set("NDM_JAVA", old.CopyAs("java8")).Set(FakeTool.ScriptVariable, old.ScriptPath);
+        env.Set("CORVUS_JAVA", old.CopyAs("java8")).Set(FakeTool.ScriptVariable, old.ScriptPath);
         var java = ExternalTools.Probe(ExternalTools.Java);
         Assert.True(java.Found);
         Assert.False(java.Usable);
@@ -64,12 +64,12 @@ public class ExternalToolsTests
     public void Run_GivesTheChildAMinimalEnvironment()
     {
         using var fake = new FakeTool();
-        fake.On("secret", printEnv: "NDM_TEST_SECRET").On("script", printEnv: FakeTool.ScriptVariable);
-        using var env = new EnvironmentScope().Set("NDM_TEST_SECRET", "s3cret");
+        fake.On("secret", printEnv: "CORVUS_TEST_SECRET").On("script", printEnv: FakeTool.ScriptVariable);
+        using var env = new EnvironmentScope().Set("CORVUS_TEST_SECRET", "s3cret");
         Assert.Equal("<unset>", ExternalTools.Run(FakeTool.Executable, ["secret"], TimeSpan.FromSeconds(30), 1000, default, fake.Environment).Text);
         Assert.Equal(fake.ScriptPath, ExternalTools.Run(FakeTool.Executable, ["script"], TimeSpan.FromSeconds(30), 1000, default, fake.Environment).Text);
-        Assert.Contains("NDM_TEST_SECRET", ExternalTools.MinimalEnvironment().Keys);
-        Assert.Null(ExternalTools.MinimalEnvironment()["NDM_TEST_SECRET"]);
+        Assert.Contains("CORVUS_TEST_SECRET", ExternalTools.MinimalEnvironment().Keys);
+        Assert.Null(ExternalTools.MinimalEnvironment()["CORVUS_TEST_SECRET"]);
     }
 
     [Fact]
@@ -99,7 +99,7 @@ public class ExternalToolsTests
         Assert.Equal(["-Xss16m", "-jar", "a.jar"], ExternalTools.Arguments(ExternalTools.Java, "jar", ("jar", "a.jar")));
         foreach (var tool in ExternalTools.Table)
         {
-            Assert.StartsWith("NDM_", tool.Variable);
+            Assert.StartsWith("CORVUS_", tool.Variable);
             Assert.NotEmpty(tool.Options);
         }
         Assert.Equal(ExternalTools.Table.Count, ExternalTools.Table.Select(t => t.Variable).Distinct().Count());
@@ -109,7 +109,7 @@ public class ExternalToolsTests
     public void ServerStatus_ListsEachExternalTool_WithItsFix()
     {
         using var fake = new FakeTool();
-        using var env = new EnvironmentScope().Set("NDM_ADB", fake.CopyAs("adb")).Set("NDM_JAVA_DECOMPILER", Path.Combine(fake.Directory, "none.jar"));
+        using var env = new EnvironmentScope().Set("CORVUS_ADB", fake.CopyAs("adb")).Set("CORVUS_JAVA_DECOMPILER", Path.Combine(fake.Directory, "none.jar"));
         var capabilities = Corvus.Tools.SessionTools.ExternalToolCapabilities().ToList();
         Assert.Equal(ExternalTools.Table.Count(t => !t.TestOracle), capabilities.Count);
         var adb = capabilities.Single(c => c.Name.Contains("adb", StringComparison.Ordinal));
@@ -117,7 +117,7 @@ public class ExternalToolsTests
         Assert.Contains("version 1.0.41", adb.Detail);
         var jadx = capabilities.Single(c => c.Name.Contains("JADX", StringComparison.Ordinal));
         Assert.False(jadx.Available);
-        Assert.Contains("NDM_JAVA_DECOMPILER", jadx.Remediation);
+        Assert.Contains("CORVUS_JAVA_DECOMPILER", jadx.Remediation);
         Assert.DoesNotContain(capabilities, c => c.Name.Contains("oracle", StringComparison.Ordinal));
     }
 }

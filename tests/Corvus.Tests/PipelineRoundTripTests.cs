@@ -18,25 +18,25 @@ namespace Corvus.Tests;
 /// floor pinned per option and sample, so a regression fails the test.
 /// </summary>
 /// <remarks>
-/// The pipeline is a command-line tool that reads a crproj project (NDM_PIPELINE_TOOL: its executable; the first
+/// The pipeline is a command-line tool that reads a crproj project (CORVUS_PIPELINE_TOOL: its executable; the first
 /// configuration is the pipeline tool's command-line executable). The samples are every PipelineSamples/*.cs (one
-/// program each, named after the file; a new file is a new sample) and, with NDM_PIPELINE_SAMPLES, a folder of sample
-/// projects (one Program.cs each, as the tool's UnitTest/Samples). Optional: NDM_PIPELINE_PROFILES, a folder of bundled
-/// .crproj profiles (default: Build/Profiles next to the tool); NDM_PIPELINE_SEEDS (default 3); NDM_PIPELINE_ONLY and
-/// NDM_PIPELINE_SAMPLE, substrings of the option and sample names to run; NDM_PIPELINE_PARALLEL, round trips run at once
-/// (default 1); NDM_PIPELINE_REPORT, a file for the report; NDM_PIPELINE_KEEP, keep the work files.
+/// program each, named after the file; a new file is a new sample) and, with CORVUS_PIPELINE_SAMPLES, a folder of sample
+/// projects (one Program.cs each, as the tool's UnitTest/Samples). Optional: CORVUS_PIPELINE_PROFILES, a folder of bundled
+/// .crproj profiles (default: Build/Profiles next to the tool); CORVUS_PIPELINE_SEEDS (default 3); CORVUS_PIPELINE_ONLY and
+/// CORVUS_PIPELINE_SAMPLE, substrings of the option and sample names to run; CORVUS_PIPELINE_PARALLEL, round trips run at once
+/// (default 1); CORVUS_PIPELINE_REPORT, a file for the report; CORVUS_PIPELINE_KEEP, keep the work files.
 /// </remarks>
 [Trait("Speed", "Slow")]
 [Collection(SweepCollection.Name)]
 public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposable
 {
-    public const string ToolVariable = "NDM_PIPELINE_TOOL";
+    public const string ToolVariable = "CORVUS_PIPELINE_TOOL";
     private readonly TempDir _dir = new();
     private bool _keep;
 
     public void Dispose()
     {
-        if (_keep || Environment.GetEnvironmentVariable("NDM_PIPELINE_KEEP") != null) output.WriteLine($"files kept in {_dir.Path}");
+        if (_keep || Environment.GetEnvironmentVariable("CORVUS_PIPELINE_KEEP") != null) output.WriteLine($"files kept in {_dir.Path}");
         else _dir.Dispose();
     }
 
@@ -134,7 +134,7 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
 
     /// <summary>
     /// Options not run: the tool itself fails on them, its output misbehaves before
-    /// any simplification, or its output is not IL that can be checked. NDM_PIPELINE_RECHECK=1 runs them as any other
+    /// any simplification, or its output is not IL that can be checked. CORVUS_PIPELINE_RECHECK=1 runs them as any other
     /// option, to see whether a new tool build changed that. A profile's rule comes from its file (null here).
     /// </summary>
     public static readonly (string Name, string? Rule, string Why)[] Skipped =
@@ -158,7 +158,7 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
         ("profile balanced", new Floors(35, 31, 31, 30)),
     ];
 
-    private static bool Recheck => Environment.GetEnvironmentVariable("NDM_PIPELINE_RECHECK") == "1";
+    private static bool Recheck => Environment.GetEnvironmentVariable("CORVUS_PIPELINE_RECHECK") == "1";
 
     /// <summary>One option of the project file's rule, with its arguments.</summary>
     private static string Rule(string id, params (string Name, string Value)[] arguments) =>
@@ -190,10 +190,10 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
     public void ProcessedProgramsSimplifyAndBehaveTheSame()
     {
         var tool = RealData.Path(ToolVariable);
-        int seeds = int.TryParse(Environment.GetEnvironmentVariable("NDM_PIPELINE_SEEDS"), out int n) ? n : 3;
-        int parallel = int.TryParse(Environment.GetEnvironmentVariable("NDM_PIPELINE_PARALLEL"), out int p) ? Math.Max(p, 1) : 1;
-        var only = Environment.GetEnvironmentVariable("NDM_PIPELINE_ONLY");
-        var onlySample = Environment.GetEnvironmentVariable("NDM_PIPELINE_SAMPLE");
+        int seeds = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_PIPELINE_SEEDS"), out int n) ? n : 3;
+        int parallel = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_PIPELINE_PARALLEL"), out int p) ? Math.Max(p, 1) : 1;
+        var only = Environment.GetEnvironmentVariable("CORVUS_PIPELINE_ONLY");
+        var onlySample = Environment.GetEnvironmentVariable("CORVUS_PIPELINE_SAMPLE");
         if (!Recheck) foreach (var (name, _, why) in Skipped) output.WriteLine($"skipped option {name}: {why}");
 
         bool Wanted(string name) => only == null || name.Contains(only, StringComparison.Ordinal);
@@ -228,7 +228,7 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
         }
 
         var report = Report(rows, built.Select(b => b.Name).ToList(), options.Select(o => o.Name).ToList());
-        if (Environment.GetEnvironmentVariable("NDM_PIPELINE_REPORT") is { Length: > 0 } path) File.WriteAllText(path, report);
+        if (Environment.GetEnvironmentVariable("CORVUS_PIPELINE_REPORT") is { Length: > 0 } path) File.WriteAllText(path, report);
         output.WriteLine(report);
         Assert.True(failures.IsEmpty, string.Join("\n", failures));
     }
@@ -307,7 +307,7 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
     };
 
     /// <summary>
-    /// Every PipelineSamples/*.cs, in name order, and, with NDM_PIPELINE_SAMPLES, the tool's samples listed here that have
+    /// Every PipelineSamples/*.cs, in name order, and, with CORVUS_PIPELINE_SAMPLES, the tool's samples listed here that have
     /// a Program.cs.
     /// </summary>
     private static IEnumerable<Sample> Samples()
@@ -317,7 +317,7 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
             var name = Path.GetFileNameWithoutExtension(file);
             yield return new Sample(name, File.ReadAllText(file), SampleResources.TryGetValue(name, out var text) ? Encoding.UTF8.GetBytes(text) : null);
         }
-        if (RealData.Get("NDM_PIPELINE_SAMPLES") is not { } dir) yield break;
+        if (RealData.Get("CORVUS_PIPELINE_SAMPLES") is not { } dir) yield break;
         foreach (var name in new[] { "BasicFlow", "Constants", "ExceptionFlow" })
         {
             var program = Path.Combine(dir, name, "Program.cs");
@@ -330,7 +330,7 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
     {
         // Next to a release's executable, or two levels up from a source build's Release/bin.
         var toolDir = Path.GetDirectoryName(tool)!;
-        var dir = RealData.Get("NDM_PIPELINE_PROFILES")
+        var dir = RealData.Get("CORVUS_PIPELINE_PROFILES")
                   ?? new[] { Path.Combine(toolDir, "Build", "Profiles"), Path.Combine(toolDir, "..", "..", "Build", "Profiles") }.FirstOrDefault(Directory.Exists);
         if (dir == null || !Directory.Exists(dir)) yield break;
         foreach (var file in Directory.GetFiles(dir, "*.crproj").Order(StringComparer.Ordinal))

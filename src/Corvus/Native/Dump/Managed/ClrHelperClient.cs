@@ -15,7 +15,7 @@ internal sealed class ClrHelperClient : IClrBackend
 {
     public const string Folder = "clr32", FileName = "Corvus.Clr32.exe";
     /// <summary>Overrides the decoder's path (tests and custom layouts).</summary>
-    public const string PathVariable = "NDM_CLR32";
+    public const string PathVariable = "CORVUS_CLR32";
     private static readonly TimeSpan StartTimeout = TimeSpan.FromMinutes(2), CallTimeout = TimeSpan.FromMinutes(10);
     private const long MemoryLimit = 3L << 30;
 

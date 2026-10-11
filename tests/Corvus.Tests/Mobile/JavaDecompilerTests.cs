@@ -5,7 +5,7 @@ using static Corvus.Tests.AndroidSamples;
 
 namespace Corvus.Tests;
 
-/// <summary>decompile_java against a stand-in JADX server (the fake tool) and, with NDM_JAVA_DECOMPILER, the real one.</summary>
+/// <summary>decompile_java against a stand-in JADX server (the fake tool) and, with CORVUS_JAVA_DECOMPILER, the real one.</summary>
 [Collection(ExternalToolEnvironmentCollection.Name)]
 public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper output) : IDisposable
 {
@@ -28,7 +28,7 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
         {
             ["get_methods_of_class"] = FakeTool.Json(new { items = new[] { new { name = "compute", signature = "compute(int): int" }, new { name = "compute", signature = "compute(String): int" } } }),
         });
-        var env = new EnvironmentScope().Set("NDM_JAVA", _fake.CopyAs("java")).Set("NDM_JAVA_DECOMPILER", jar);
+        var env = new EnvironmentScope().Set("CORVUS_JAVA", _fake.CopyAs("java")).Set("CORVUS_JAVA_DECOMPILER", jar);
         return (new JavaDecompilerService(new DexService()) { Environment = _fake.Environment }, env);
     }
 
@@ -90,17 +90,17 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
     [Fact]
     public async Task WithoutJadx_NamesTheVariable()
     {
-        using var env = new EnvironmentScope().Set("NDM_JAVA_DECOMPILER", Path.Combine(_dir.Path, "missing.jar"));
+        using var env = new EnvironmentScope().Set("CORVUS_JAVA_DECOMPILER", Path.Combine(_dir.Path, "missing.jar"));
         using var service = new JavaDecompilerService(new DexService());
         var error = await Assert.ThrowsAsync<ToolError>(() => service.Decompile(Apk(), "com.example.app.Main", true, default));
         Assert.Equal(ErrorCode.ProviderUnavailable, error.Code);
         Assert.Contains("disassemble_dex", error.Message);
-        Assert.Contains("NDM_JAVA_DECOMPILER", error.Remediation);
+        Assert.Contains("CORVUS_JAVA_DECOMPILER", error.Remediation);
     }
 
-    /// <summary>The real JADX server (NDM_JAVA_DECOMPILER) decompiles the sample and picks the overload asked for.</summary>
+    /// <summary>The real JADX server (CORVUS_JAVA_DECOMPILER) decompiles the sample and picks the overload asked for.</summary>
     [Trait("Speed", "Slow")]
-    [RequiresRealDataFact("NDM_JAVA_DECOMPILER")]
+    [RequiresRealDataFact("CORVUS_JAVA_DECOMPILER")]
     public async Task RealJadx()
     {
         using var service = new JavaDecompilerService(new DexService());

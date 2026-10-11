@@ -5,7 +5,7 @@ using Corvus.Native.Providers.Ghidra;
 
 namespace Corvus.Tests;
 
-/// <summary>Ghidra extensions from NDM_GHIDRA_EXTENSIONS: discovery, installation into the private settings and the profile key.</summary>
+/// <summary>Ghidra extensions from CORVUS_GHIDRA_EXTENSIONS: discovery, installation into the private settings and the profile key.</summary>
 public class GhidraExtensionTests
 {
     /// <summary>An extension zip: one top-level module directory with extension.properties, Module.manifest and a jar.</summary>

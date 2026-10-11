@@ -343,7 +343,7 @@ public sealed class Il2CppStringTests : IDisposable
     }
 
     /// <summary>
-    /// A real Il2CppDumper dump (NDM_IL2CPP_STRINGS_DIR: a DummyDll folder with stringliteral.json / script.json beside
+    /// A real Il2CppDumper dump (CORVUS_IL2CPP_STRINGS_DIR: a DummyDll folder with stringliteral.json / script.json beside
     /// it, and optionally GameAssembly.dll): literal and reference counts, timings and retained memory.
     /// </summary>
     [RequiresRealDataFact(RealData.Il2CppStringsDir)]

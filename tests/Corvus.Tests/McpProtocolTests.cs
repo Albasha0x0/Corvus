@@ -48,7 +48,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
             // (a restart there finds the first server's sidecars).
             EnvironmentVariables = new Dictionary<string, string?>(FakeDevice.ServerEnvironment)
             {
-                ["NDM_ANNOTATIONS_DIR"] = workingDirectory != null
+                ["CORVUS_ANNOTATIONS_DIR"] = workingDirectory != null
                     ? Path.Combine(workingDirectory, ".ndm-annotations")
                     : Path.Combine(AnnotationsDir, Guid.NewGuid().ToString("N")),
                 // the dump bucketing cache is private: outside the working directory the contract sweep watches
@@ -499,30 +499,30 @@ public abstract class McpProtocolTests : IAsyncLifetime
         public async Task ResourcesAndTemplates()
         {
             var resources = await _client.ListResourcesAsync();
-            Assert.Contains(resources, r => r.Uri == "netdecomp://assemblies");
+            Assert.Contains(resources, r => r.Uri == "corvus://assemblies");
             var templates = await _client.ListResourceTemplatesAsync();
             Assert.Equal(7, templates.Count);
 
             async Task<string> Read(string uri) =>
                 string.Join("", (await _client.ReadResourceAsync(uri)).Contents.OfType<TextResourceContents>().Select(c => c.Text));
 
-            Assert.Contains("TestFixture.Consumer", await Read("netdecomp://assemblies"));
-            Assert.Contains("public class Account", await Read("netdecomp://assembly/TestFixture/type/Fixture.Model.Account"));
-            Assert.Contains("class Inventory", await Read("netdecomp://assembly/TestFixture/type/Fixture.Model.Account%2BInventory"));
-            Assert.Contains("ldstr", await Read("netdecomp://assembly/TestFixture/il/Account::CheckLicense"));
-            Assert.Contains("Sections:", await Read("netdecomp://assembly/TestFixture/info"));
-            await Assert.ThrowsAnyAsync<McpException>(() => Read("netdecomp://assembly/TestFixture/type/Nope.Missing"));
-            Assert.Equal(Corvus.Mcp.Guide.Topics["native"], await Read("netdecomp://guide/native"));
-            await Assert.ThrowsAnyAsync<McpException>(() => Read("netdecomp://guide/nope"));
+            Assert.Contains("TestFixture.Consumer", await Read("corvus://assemblies"));
+            Assert.Contains("public class Account", await Read("corvus://assembly/TestFixture/type/Fixture.Model.Account"));
+            Assert.Contains("class Inventory", await Read("corvus://assembly/TestFixture/type/Fixture.Model.Account%2BInventory"));
+            Assert.Contains("ldstr", await Read("corvus://assembly/TestFixture/il/Account::CheckLicense"));
+            Assert.Contains("Sections:", await Read("corvus://assembly/TestFixture/info"));
+            await Assert.ThrowsAnyAsync<McpException>(() => Read("corvus://assembly/TestFixture/type/Nope.Missing"));
+            Assert.Equal(Corvus.Mcp.Guide.Topics["native"], await Read("corvus://guide/native"));
+            await Assert.ThrowsAnyAsync<McpException>(() => Read("corvus://guide/nope"));
 
             // Native images and their unsaved patches are listed too (the development relay reads them before a swap).
             await Call("load_assembly", new() { ["path"] = NativeSample(_dir) });
             await Call("patch_bytes", new() { ["image"] = "native.dll", ["address"] = "First", ["hex"] = "90" });
-            Assert.Contains("native.dll\tnative\t", await Read("netdecomp://assemblies"));
-            Assert.Contains("[1 unsaved patches]", await Read("netdecomp://assemblies"));
-            Assert.Matches(@"\.text\t0x[0-9A-F]+-0x[0-9A-F]+\t0x[0-9A-F]+\tr-x", await Read("netdecomp://native/native.dll/segments"));
-            Assert.Matches(@"0x[0-9A-F]+\texport\tFirst\t#\d+", await Read("netdecomp://native/native.dll/entrypoints"));
-            await Assert.ThrowsAnyAsync<McpException>(() => Read("netdecomp://native/native.dll/type/NoSuchType"));
+            Assert.Contains("native.dll\tnative\t", await Read("corvus://assemblies"));
+            Assert.Contains("[1 unsaved patches]", await Read("corvus://assemblies"));
+            Assert.Matches(@"\.text\t0x[0-9A-F]+-0x[0-9A-F]+\t0x[0-9A-F]+\tr-x", await Read("corvus://native/native.dll/segments"));
+            Assert.Matches(@"0x[0-9A-F]+\texport\tFirst\t#\d+", await Read("corvus://native/native.dll/entrypoints"));
+            await Assert.ThrowsAnyAsync<McpException>(() => Read("corvus://native/native.dll/type/NoSuchType"));
         }
 
         [Fact]
@@ -565,7 +565,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
             Assert.Contains("TestFixture", assemblies.Completion.Values);
             Assert.Contains("TestFixture.Consumer", assemblies.Completion.Values);
 
-            var types = await _client.CompleteAsync(new ResourceTemplateReference { Uri = "netdecomp://assembly/{assembly}/type/{type}" }, "type", "Fixture.Model.Acc");
+            var types = await _client.CompleteAsync(new ResourceTemplateReference { Uri = "corvus://assembly/{assembly}/type/{type}" }, "type", "Fixture.Model.Acc");
             Assert.Contains("Fixture.Model.Account", types.Completion.Values);
 
             var shortName = await _client.CompleteAsync(new PromptReference { Name = "explain_type" }, "type", "Sho");
@@ -583,7 +583,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
             Assert.Equal([native], imagePaths.Completion.Values);
 
             Assert.Equal(["dotnet", "dumps"], (await _client.CompleteAsync(new PromptReference { Name = "guide" }, "topic", "d")).Completion.Values);
-            Assert.Equal(["native"], (await _client.CompleteAsync(new ResourceTemplateReference { Uri = "netdecomp://guide/{topic}" }, "topic", "Na")).Completion.Values);
+            Assert.Equal(["native"], (await _client.CompleteAsync(new ResourceTemplateReference { Uri = "corvus://guide/{topic}" }, "topic", "Na")).Completion.Values);
 
             var none = await _client.CompleteAsync(new PromptReference { Name = "find_feature" }, "feature", "x");
             Assert.Empty(none.Completion.Values);
@@ -649,14 +649,14 @@ public abstract class McpProtocolTests : IAsyncLifetime
                 updated.Enqueue(n.Params.Deserialize<ResourceUpdatedNotificationParams>(McpJsonUtilities.DefaultOptions)!.Uri);
                 return ValueTask.CompletedTask;
             });
-            await client.SubscribeToResourceAsync("netdecomp://assemblies");
+            await client.SubscribeToResourceAsync("corvus://assemblies");
 
             await client.CallToolAsync("get_type_info", new Dictionary<string, object?> { ["type"] = "Account" }); // reads change nothing
             await client.CallToolAsync("load_assembly", new Dictionary<string, object?> { ["path"] = NativeSample(_dir) });
             for (int i = 0; i < 100 && updated.IsEmpty; i++) await Task.Delay(20);
-            Assert.Equal(["netdecomp://assemblies"], updated);
+            Assert.Equal(["corvus://assemblies"], updated);
 
-            await client.UnsubscribeFromResourceAsync("netdecomp://assemblies");
+            await client.UnsubscribeFromResourceAsync("corvus://assemblies");
             await client.CallToolAsync("unload_assembly", new Dictionary<string, object?> { ["assembly"] = "native.dll" });
             await Task.Delay(300);
             Assert.Single(updated);
@@ -729,7 +729,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
             var output = _dir.File("export-cancelled");
             var psi = new System.Diagnostics.ProcessStartInfo("dotnet") { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
             foreach (var arg in new[] { ServerDll, "--load", Env.FixturePath, "--load", library }) psi.ArgumentList.Add(arg);
-            psi.Environment["NDM_ANNOTATIONS_DIR"] = AnnotationsDir;
+            psi.Environment["CORVUS_ANNOTATIONS_DIR"] = AnnotationsDir;
             var trace = _dir.File("trace.jsonl");
             psi.ArgumentList.Add("--trace");
             psi.ArgumentList.Add(trace);

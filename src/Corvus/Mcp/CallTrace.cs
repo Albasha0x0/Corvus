@@ -5,7 +5,7 @@ using Corvus.Core;
 namespace Corvus.Mcp;
 
 /// <summary>
-/// Opt-in call trace (NDM_TRACE / --trace): one JSON line per tools/call with the time, tool, arguments, milliseconds,
+/// Opt-in call trace (CORVUS_TRACE / --trace): one JSON line per tools/call with the time, tool, arguments, milliseconds,
 /// error code and result size, appended to a plain file of its own. A failed write is reported once and never fails a call.
 /// </summary>
 public sealed class CallTrace

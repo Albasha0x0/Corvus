@@ -238,13 +238,13 @@ public sealed class ManagedDumpTests
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => service.Heap(path, "tree", null, 0, 0, 50, 100, default))).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => service.Object(path, "nowhere", 1, 10, 10, default))).Code);
 
-        var previous = Environment.GetEnvironmentVariable("NDM_OFFLINE");
-        Environment.SetEnvironmentVariable("NDM_OFFLINE", "1");
+        var previous = Environment.GetEnvironmentVariable("CORVUS_OFFLINE");
+        Environment.SetEnvironmentVariable("CORVUS_OFFLINE", "1");
         try
         {
             summary = await service.Summarize(path, null, 0, 50, 0, 50, new DacRequest(Download: true), default);
             Assert.Equal("download_refused_offline", summary.Managed!.Dac.Status);
         }
-        finally { Environment.SetEnvironmentVariable("NDM_OFFLINE", previous); }
+        finally { Environment.SetEnvironmentVariable("CORVUS_OFFLINE", previous); }
     }
 }

@@ -8,7 +8,7 @@ using Xunit.Abstractions;
 
 namespace Corvus.Tests;
 
-/// <summary>Runs only with NDM_NATIVEAOT_SAMPLES=1 on Windows: needs the .NET SDK and the C++ build tools (x64 and x86) NativeAOT links with.</summary>
+/// <summary>Runs only with CORVUS_NATIVEAOT_SAMPLES=1 on Windows: needs the .NET SDK and the C++ build tools (x64 and x86) NativeAOT links with.</summary>
 public sealed class NativeAotSamplesTheoryAttribute : TheoryAttribute
 {
     public NativeAotSamplesTheoryAttribute()
@@ -26,7 +26,7 @@ public sealed class NativeAotSamplesTheoryAttribute : TheoryAttribute
 [Trait("Speed", "Slow")]
 public class NativeAotSampleTests(ITestOutputHelper log)
 {
-    public const string Variable = "NDM_NATIVEAOT_SAMPLES";
+    public const string Variable = "CORVUS_NATIVEAOT_SAMPLES";
 
     /// <summary>Build matrix: target framework, runtime identifier and the MSBuild properties passed to dotnet publish.</summary>
     private static readonly Dictionary<string, (string Tfm, string Runtime, string Rid, string[] Properties)> Variants = new()

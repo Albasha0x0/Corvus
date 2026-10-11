@@ -18,7 +18,7 @@ The full tool reference is [tools.md](tools.md); setup commands (`install`, `sta
 | `prompts` | The prompts and their arguments. |
 | `prompt <name> [name=value ...]` | A prompt's text, ready to pipe into any agent. |
 | `resources` | The resources and resource templates. |
-| `read <uri>` | One resource, e.g. `netdecomp://guide/native`. |
+| `read <uri>` | One resource, e.g. `corvus://guide/native`. |
 | `completion <bash\|zsh\|pwsh>` | A shell completion script for commands, tools and parameter names. |
 
 Tool names are accepted in snake case or kebab case (`decompile-member`). `NetDecompilerMcp help` lists the setup
@@ -47,7 +47,7 @@ Every server option applies to the session (README, "Server options"). The ones 
 - `--no-index` skips background indexing, which a single call rarely needs.
 - `--max-output N` restores paging. Without it the command line prints whole results: paging is for agents.
 - `--timeout S`, `--engine E`, `--toolsets T`, `--log-level L` as for the server. Logs go to stderr at `warning` unless
-  `--log-level` or `NDM_LOG_LEVEL` says otherwise.
+  `--log-level` or `CORVUS_LOG_LEVEL` says otherwise.
 
 Files are not watched for changes in a command-line session.
 

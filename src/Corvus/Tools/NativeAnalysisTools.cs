@@ -66,7 +66,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         [Description("With functions: seconds per function (1-600).")] int perFunctionSeconds = 60,
         [Description("With functions: most decompiled (1-200); the rest get a follow-up call.")] int maxFunctions = 32,
         [Description("With address: a footer listing the globals, functions, strings and imports used.")] bool refs = false,
-        [Description("Seconds per engine request (1-600; default NDM_ENGINE_REQUEST_TIMEOUT); Ghidra retries once with 4x.")] int? timeoutSeconds = null,
+        [Description("Seconds per engine request (1-600; default CORVUS_ENGINE_REQUEST_TIMEOUT); Ghidra retries once with 4x.")] int? timeoutSeconds = null,
         [Description("Instead of address: decompile the functions calling this one (engine references).")] string? callersOf = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>

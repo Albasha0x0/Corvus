@@ -21,7 +21,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
 
     public sealed record NoteCounts(int Open, int Total, string Store);
 
-    [Description("The --tools-file whitelist in effect (list name or path) and the tools it names; the call trace file (--trace / NDM_TRACE).")]
+    [Description("The --tools-file whitelist in effect (list name or path) and the tools it names; the call trace file (--trace / CORVUS_TRACE).")]
     public sealed record CatalogFilter(string? ToolsFile, int? ToolsFileTools, string? TraceFile);
 
     public sealed record EngineSession(string Image, string Engine, int? WorkerPid,
@@ -32,7 +32,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         int Restarts, string? Database, bool ReusedDatabase,
         [property: Description("no auto-analysis, or a read-only snapshot of a database another process holds.")] string? Note);
 
-    [Description("Seconds per IDA or Ghidra request (NDM_ENGINE_REQUEST_TIMEOUT) and per engine start plus analysis (NDM_ENGINE_OPEN_TIMEOUT).")]
+    [Description("Seconds per IDA or Ghidra request (CORVUS_ENGINE_REQUEST_TIMEOUT) and per engine start plus analysis (CORVUS_ENGINE_OPEN_TIMEOUT).")]
     public sealed record EngineLimits(int RequestSeconds, int OpenSeconds);
 
     public sealed record ServerStatus(string Version,
@@ -59,7 +59,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         int MaxOutputChars, int TimeoutSeconds, long WorkingSetMB, IReadOnlyList<Capability> Capabilities,
         [property: Description("Tools that can take over 10 s on large inputs.")]
         IReadOnlyList<string> LongRunningTools,
-        [property: Description("Tool families and whether this server registers them; every family unless the server was started with --toolsets <list> (or NDM_TOOLSETS: all, core, or names such as core,dumps).")]
+        [property: Description("Tool families and whether this server registers them; every family unless the server was started with --toolsets <list> (or CORVUS_TOOLSETS: all, core, or names such as core,dumps).")]
         IReadOnlyList<Toolset> Toolsets,
         [property: Description("Registered tools, or modes of them (e.g. engine=ida), that cannot work here, with the reason and the fix.")]
         IReadOnlyList<ToolAvailability.Unavailable> UnavailableTools,
@@ -94,7 +94,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         [
             new(".NET decompilation, search, navigation, editing", true, "built in", null),
             ReferencePacks.Offline
-                ? new("reference pack download", false, "NDM_OFFLINE is set: assemblies targeting an uninstalled .NET version resolve fewer references", "unset NDM_OFFLINE")
+                ? new("reference pack download", false, "CORVUS_OFFLINE is set: assemblies targeting an uninstalled .NET version resolve fewer references", "unset CORVUS_OFFLINE")
                 : new("reference pack download", true, "downloads the reference pack of an uninstalled target framework on demand", null),
         ];
         capabilities.Add(new("native PE analysis (headers, imports, exports, resources, C++ classes, bytes)", true, "built in", null));
@@ -128,7 +128,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
                     $"this session {c.Hits} loaded, {c.Misses} not found, {c.Rejected} unusable (rebuilt), {c.Writes} saved, {c.Evicted} evicted" +
                     (c.LastError != null ? $"; last problem: {c.LastError}" : ""), null)
                 : new("saved native code indexes", false, "off: every image's code index is built when it is opened",
-                    "start the server without --index-cache off (and without NDM_CODE_INDEX_CACHE=off)"));
+                    "start the server without --index-cache off (and without CORVUS_CODE_INDEX_CACHE=off)"));
         if (code != null)
         {
             var s = code.ImportStats;

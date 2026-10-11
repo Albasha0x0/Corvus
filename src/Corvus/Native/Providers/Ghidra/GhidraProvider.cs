@@ -5,23 +5,23 @@ namespace Corvus.Native.Providers.Ghidra;
 
 public sealed record GhidraProviderOptions
 {
-    /// <summary>Ghidra install directory; null: NDM_GHIDRA_DIR, then GHIDRA_INSTALL_DIR.</summary>
+    /// <summary>Ghidra install directory; null: CORVUS_GHIDRA_DIR, then GHIDRA_INSTALL_DIR.</summary>
     public string? InstallDirectory { get; init; }
-    /// <summary>JDK home, its bin directory or its java; null: NDM_GHIDRA_JAVA, JAVA_HOME, PATH.</summary>
+    /// <summary>JDK home, its bin directory or its java; null: CORVUS_GHIDRA_JAVA, JAVA_HOME, PATH.</summary>
     public string? JavaHome { get; init; }
     /// <summary>Root of the private input copies, projects and Ghidra directories; null: <see cref="AnalysisCache.DefaultRoot"/>.</summary>
     public string? CacheRoot { get; init; }
-    /// <summary>Analysis profile; null: NDM_GHIDRA_ANALYSIS, else standard.</summary>
+    /// <summary>Analysis profile; null: CORVUS_GHIDRA_ANALYSIS, else standard.</summary>
     public GhidraAnalysisProfile? Profile { get; init; }
-    /// <summary>JVM heap such as 6G; null: NDM_GHIDRA_MAXMEM, else by image size.</summary>
+    /// <summary>JVM heap such as 6G; null: CORVUS_GHIDRA_MAXMEM, else by image size.</summary>
     public string? MaxMemory { get; init; }
-    /// <summary>Extra analyzer options "Name=value;..."; null: NDM_GHIDRA_OPTIONS.</summary>
+    /// <summary>Extra analyzer options "Name=value;..."; null: CORVUS_GHIDRA_OPTIONS.</summary>
     public string? ExtraOptions { get; init; }
-    /// <summary>Directory of Ghidra extensions to install for the workers; null: NDM_GHIDRA_EXTENSIONS.</summary>
+    /// <summary>Directory of Ghidra extensions to install for the workers; null: CORVUS_GHIDRA_EXTENSIONS.</summary>
     public string? ExtensionsDirectory { get; init; }
-    /// <summary>Per-function decompiler limit; null: NDM_GHIDRA_DECOMPILE_TIMEOUT, else 60 s.</summary>
+    /// <summary>Per-function decompiler limit; null: CORVUS_GHIDRA_DECOMPILE_TIMEOUT, else 60 s.</summary>
     public TimeSpan? DecompileTimeout { get; init; }
-    /// <summary>Decompiler response limit in MB; null: NDM_GHIDRA_DECOMPILE_PAYLOAD_MB, else 200.</summary>
+    /// <summary>Decompiler response limit in MB; null: CORVUS_GHIDRA_DECOMPILE_PAYLOAD_MB, else 200.</summary>
     public int? DecompilePayloadMb { get; init; }
     /// <summary>Time the worker gets to save and exit on close before it is killed.</summary>
     public TimeSpan ShutdownGrace { get; init; } = TimeSpan.FromSeconds(30);
@@ -213,7 +213,7 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         ? $"Raise {EngineMemoryLimit.Variable} (MB; 0 turns the limit off) or lower {GhidraOptions.MaxMemoryVariable}, and retry."
         : code switch
     {
-        ErrorCode.Timeout => "The request was stopped and Ghidra keeps running; retry with a larger time limit (timeoutSeconds where the tool takes it, or NDM_ENGINE_REQUEST_TIMEOUT).",
+        ErrorCode.Timeout => "The request was stopped and Ghidra keeps running; retry with a larger time limit (timeoutSeconds where the tool takes it, or CORVUS_ENGINE_REQUEST_TIMEOUT).",
         ErrorCode.ProviderUnavailable => "Retry once (the session restarts Ghidra from the saved project); if it persists, run the provider probe and check the Ghidra install and the JDK.",
         ErrorCode.Unsupported => "Use the built-in disassembly, or build Ghidra's native decompiler for this platform.",
         ErrorCode.NotFound => "List the functions to find a valid address.",

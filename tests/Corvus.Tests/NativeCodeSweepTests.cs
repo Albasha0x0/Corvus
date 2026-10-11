@@ -7,7 +7,7 @@ namespace Corvus.Tests;
 
 /// <summary>
 /// Code analysis over many Windows DLLs: no exceptions, bounded time, every x64 .pdata function found.
-/// NDM_NATIVE_SWEEP_LIMIT caps the number of files per directory (default 400; 0 = all).
+/// CORVUS_NATIVE_SWEEP_LIMIT caps the number of files per directory (default 400; 0 = all).
 /// </summary>
 [Trait("Speed", "Slow")]
 public class NativeCodeSweepTests(ITestOutputHelper output)
@@ -17,7 +17,7 @@ public class NativeCodeSweepTests(ITestOutputHelper output)
     public static IEnumerable<string> Sample(string directory)
     {
         if (!OperatingSystem.IsWindows() || !Directory.Exists(directory)) return [];
-        int limit = int.TryParse(Environment.GetEnvironmentVariable("NDM_NATIVE_SWEEP_LIMIT"), out var l) ? l : 400;
+        int limit = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_NATIVE_SWEEP_LIMIT"), out var l) ? l : 400;
         var files = Directory.EnumerateFiles(directory, "*.dll").Concat(Directory.EnumerateFiles(directory, "*.exe"))
             .Where(f => { try { return new FileInfo(f).Length is > 0 and < 200_000_000; } catch (IOException) { return false; } })
             .Order(StringComparer.OrdinalIgnoreCase).ToList();
@@ -36,11 +36,11 @@ public class NativeCodeSweepTests(ITestOutputHelper output)
         Sweep(dir, NativeArch.X86);
     }
 
-    /// <summary>One large image (NDM_NATIVE_LARGE_IMAGE, e.g. a game executable or a browser DLL): time, memory, completeness.</summary>
-    [RequiresRealDataFact("NDM_NATIVE_LARGE_IMAGE")]
+    /// <summary>One large image (CORVUS_NATIVE_LARGE_IMAGE, e.g. a game executable or a browser DLL): time, memory, completeness.</summary>
+    [RequiresRealDataFact("CORVUS_NATIVE_LARGE_IMAGE")]
     public void Large_image()
     {
-        var path = RealData.Path("NDM_NATIVE_LARGE_IMAGE");
+        var path = RealData.Path("CORVUS_NATIVE_LARGE_IMAGE");
         var image = Corvus.Native.Pe.PeFile.Open(path);
         long before = GC.GetTotalMemory(true);
         var phases = new List<string>();

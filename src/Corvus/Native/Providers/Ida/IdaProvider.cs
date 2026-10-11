@@ -6,9 +6,9 @@ namespace Corvus.Native.Providers.Ida;
 
 public sealed record IdaProviderOptions
 {
-    /// <summary>IDA install directory; null: NDM_IDA_DIR, then ida-config.json.</summary>
+    /// <summary>IDA install directory; null: CORVUS_IDA_DIR, then ida-config.json.</summary>
     public string? InstallDirectory { get; init; }
-    /// <summary>Python executable or directory; null: NDM_IDA_PYTHON, IDA's configured Python, py -3, PATH.</summary>
+    /// <summary>Python executable or directory; null: CORVUS_IDA_PYTHON, IDA's configured Python, py -3, PATH.</summary>
     public string? PythonPath { get; init; }
     /// <summary>Root of the private input copies and databases; null: <see cref="AnalysisCache.DefaultRoot"/>.</summary>
     public string? CacheRoot { get; init; }
@@ -39,7 +39,7 @@ public sealed record IdaProviderOptions
 public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDecompilerProvider
 {
     public const string ProviderId = "ida";
-    public const string PythonVariable = "NDM_IDA_PYTHON";
+    public const string PythonVariable = "CORVUS_IDA_PYTHON";
     internal const string WorkerResource = "Corvus.Native.Providers.Ida.ida_worker.py";
 
     private readonly IdaProviderOptions _options = options ?? new IdaProviderOptions();
@@ -75,7 +75,7 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
         Version = version;
         if (int.TryParse(version.Split('.')[0], out var major) && major < 9)
             throw new ToolError(ErrorCode.Unsupported, $"IDA {version} is too old: idalib from IDA Pro 9.0 or newer is required.",
-                "Install IDA Pro 9 or newer, or set NDM_IDA_DIR to such an install.");
+                "Install IDA Pro 9 or newer, or set CORVUS_IDA_DIR to such an install.");
     }
 
     private (ProviderAvailability Result, IdaInstallation? Ida, PythonInterpreter? Python) Static()
@@ -255,7 +255,7 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
             return $"Raise {EngineMemoryLimit.Variable} (MB; 0 turns the limit off) and retry.";
         return code switch
         {
-            ErrorCode.Timeout => "The request was stopped and IDA keeps running; retry with a larger time limit (timeoutSeconds where the tool takes it, or NDM_ENGINE_REQUEST_TIMEOUT).",
+            ErrorCode.Timeout => "The request was stopped and IDA keeps running; retry with a larger time limit (timeoutSeconds where the tool takes it, or CORVUS_ENGINE_REQUEST_TIMEOUT).",
             ErrorCode.ProviderUnavailable => "Retry once (the session restarts IDA from the saved database); if it persists, run the provider probe and check the IDA install, its license and the Python it uses.",
             ErrorCode.Unsupported => "Use the built-in disassembly for this architecture.",
             ErrorCode.NotFound => "List the functions to find a valid address.",

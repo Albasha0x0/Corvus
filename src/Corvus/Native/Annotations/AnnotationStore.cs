@@ -113,7 +113,7 @@ public sealed class AnnotationDocument
 
 /// <summary>
 /// Per-user sidecar storage for native annotations: one JSON file per image SHA-256 under
-/// <c>&lt;LocalAppData&gt;/NetDecompilerMcp/annotations/&lt;sha256&gt;.json</c> (the same per-user root the analysis
+/// <c>&lt;LocalAppData&gt;/Corvus/annotations/&lt;sha256&gt;.json</c> (the same per-user root the analysis
 /// cache uses, a sibling folder), written atomically. A different file hash is a different sidecar, so a changed file
 /// starts clean; <see cref="FindOtherHashesForPath"/> reports when a sidecar already exists for the same path.
 /// Imported name layers (load_pdb, apply_il2cpp_names) live beside it, one compressed file per source
@@ -121,7 +121,7 @@ public sealed class AnnotationDocument
 /// </summary>
 public sealed class AnnotationStore
 {
-    public const string RootVariable = "NDM_ANNOTATIONS_DIR";
+    public const string RootVariable = "CORVUS_ANNOTATIONS_DIR";
 
     /// <summary>The newest sidecar format this build reads; a newer one is left untouched.</summary>
     public const int FormatVersion = 4;

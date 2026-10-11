@@ -285,7 +285,7 @@ public sealed class Il2CppNavigationTests(ITestOutputHelper output) : IDisposabl
     }
 
     /// <summary>
-    /// A real Il2CppDumper dump (NDM_IL2CPP_STRINGS_DIR): navigation index build time and memory, and round trips —
+    /// A real Il2CppDumper dump (CORVUS_IL2CPP_STRINGS_DIR): navigation index build time and memory, and round trips —
     /// dummy method → RVA → method, instantiation name → RVA → name, type → TypeInfo slot → type, slot → method.
     /// </summary>
     [RequiresRealDataFact(RealData.Il2CppStringsDir)]

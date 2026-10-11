@@ -171,7 +171,7 @@ public sealed class PdbIdaTypesTests(ITestOutputHelper output) : IDisposable
     }
 
     /// <summary>
-    /// A real image shipped with its PDB, named by NDM_PDB_SAMPLE ("image path|function name|function name..."; skipped when
+    /// A real image shipped with its PDB, named by CORVUS_PDB_SAMPLE ("image path|function name|function name..."; skipped when
     /// unset): each function decompiled without the PDB's types (a copy of the image away from its PDB), then through IDA's
     /// PDB loader and through the own reader. Prints the snippets and timings.
     /// </summary>
@@ -179,7 +179,7 @@ public sealed class PdbIdaTypesTests(ITestOutputHelper output) : IDisposable
     [IdaFact]
     public async Task Real_image_with_its_pdb()
     {
-        if (Environment.GetEnvironmentVariable("NDM_PDB_SAMPLE") is not { Length: > 0 } sample) { output.WriteLine("NDM_PDB_SAMPLE is not set"); return; }
+        if (Environment.GetEnvironmentVariable("CORVUS_PDB_SAMPLE") is not { Length: > 0 } sample) { output.WriteLine("CORVUS_PDB_SAMPLE is not set"); return; }
         var parts = sample.Split('|');
         var original = parts[0];
         var pdbPath = Path.ChangeExtension(original, ".pdb");

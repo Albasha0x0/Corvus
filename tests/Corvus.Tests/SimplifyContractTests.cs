@@ -833,12 +833,12 @@ public sealed class SimplifyContractTests
         while (!File.Exists(Path.Combine(root, "Corvus.slnx"))) root = Path.GetDirectoryName(root) ?? throw new InvalidOperationException("repository root not found");
         var path = Path.Combine(root, "docs", "simplify.md");
         var expected = SimplifyManifest.Markdown().ReplaceLineEndings("\n");
-        if (Environment.GetEnvironmentVariable("NDM_UPDATE_DOCS") == "1")
+        if (Environment.GetEnvironmentVariable("CORVUS_UPDATE_DOCS") == "1")
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllText(path, expected);
         }
         Assert.True(File.Exists(path) && File.ReadAllText(path).ReplaceLineEndings("\n") == expected,
-            "docs/simplify.md is out of date: run the tests once with NDM_UPDATE_DOCS=1");
+            "docs/simplify.md is out of date: run the tests once with CORVUS_UPDATE_DOCS=1");
     }
 }

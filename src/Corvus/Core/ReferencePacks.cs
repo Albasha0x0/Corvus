@@ -7,17 +7,16 @@ namespace Corvus.Core;
 /// <summary>
 /// Downloads a shared framework's reference pack (e.g. Microsoft.NETCore.App.Ref 6.0.x) from nuget.org when neither the
 /// runtime nor the pack is installed, so code targeting that version resolves against its exact API.
-/// Cached under the local application data folder; disabled by NDM_OFFLINE=1.
+/// Cached under the local application data folder; disabled by CORVUS_OFFLINE=1.
 /// </summary>
 internal static class ReferencePacks
 {
     private const string FeedBase = "https://api.nuget.org/v3-flatcontainer/";
     private static readonly ConcurrentDictionary<string, Lazy<string?>> Fetched = new(StringComparer.OrdinalIgnoreCase);
 
-    public static string CacheRoot { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), "NetDecompilerMcp", "packs");
+    public static string CacheRoot { get; } = Corvus.Native.Providers.DataFolder.Combine("packs");
 
-    public static bool Offline => Environment.GetEnvironmentVariable("NDM_OFFLINE") is "1" or "true";
+    public static bool Offline => Environment.GetEnvironmentVariable("CORVUS_OFFLINE") is "1" or "true";
 
     /// <summary>The cached <c>ref/net{major}.0</c> directory of the pack, downloading it once per process if needed.</summary>
     public static string? Get(string packId, int major)

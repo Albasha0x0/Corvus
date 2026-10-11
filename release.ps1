@@ -58,10 +58,10 @@ if (-not $VerifyOnly) {
         [IO.File]::WriteAllText($project, $bumped)
 
         # Generated docs and the skill can name the version; regenerate, then run the full suite on the result.
-        $env:NDM_UPDATE_DOCS = '1'
+        $env:CORVUS_UPDATE_DOCS = '1'
         try { Run 'dotnet' @('test', (Join-Path $root 'tests/Corvus.Tests'), '--nologo') }
-        finally { Remove-Item Env:NDM_UPDATE_DOCS }
-        if (-not $SkipTests) { Run 'dotnet' @('test', (Join-Path $root 'tests/Corvus.Tests'), '--nologo', '-p:NDM_ALL_TESTS=1') }
+        finally { Remove-Item Env:CORVUS_UPDATE_DOCS }
+        if (-not $SkipTests) { Run 'dotnet' @('test', (Join-Path $root 'tests/Corvus.Tests'), '--nologo', '-p:CORVUS_ALL_TESTS=1') }
 
         Run 'git' @('add', '-A')
         Run 'git' @('commit', '-m', "release: $Version")

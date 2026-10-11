@@ -97,14 +97,14 @@ internal static class Doctor
             ? new CheckReport(name, true, Healthy, string.Join(", ", a.Details.Select(d => $"{d.Key} {d.Value}")), null)
             : new CheckReport(name, false, MissingEngine, a.Reason ?? "not available", a.Remediation);
 
-    /// <summary>Only what a Ghidra install needs to be found: its folder (NDM_GHIDRA_DIR) and a Java runtime.</summary>
+    /// <summary>Only what a Ghidra install needs to be found: its folder (CORVUS_GHIDRA_DIR) and a Java runtime.</summary>
     private static CheckReport Ghidra(SetupEnvironment env)
     {
-        if (env.Set("NDM_GHIDRA_DIR") is not { } dir)
-            return new CheckReport("ghidra", false, MissingEngine, "NDM_GHIDRA_DIR is not set", "Set NDM_GHIDRA_DIR to a Ghidra install folder.");
+        if (env.Set("CORVUS_GHIDRA_DIR") is not { } dir)
+            return new CheckReport("ghidra", false, MissingEngine, "CORVUS_GHIDRA_DIR is not set", "Set CORVUS_GHIDRA_DIR to a Ghidra install folder.");
         var headless = Path.Combine(dir, "support", env.Os == HostOs.Windows ? "analyzeHeadless.bat" : "analyzeHeadless");
         if (!File.Exists(headless))
-            return new CheckReport("ghidra", false, MissingEngine, $"{dir} is not a Ghidra install (no {Path.GetRelativePath(dir, headless)})", "Point NDM_GHIDRA_DIR at the folder that holds ghidraRun.");
+            return new CheckReport("ghidra", false, MissingEngine, $"{dir} is not a Ghidra install (no {Path.GetRelativePath(dir, headless)})", "Point CORVUS_GHIDRA_DIR at the folder that holds ghidraRun.");
         var javaName = env.Os == HostOs.Windows ? "java.exe" : "java";
         var java = env.Set("JAVA_HOME") is { } home && File.Exists(Path.Combine(home, "bin", javaName)) ? Path.Combine(home, "bin", javaName) : env.FindTool("java");
         return java == null

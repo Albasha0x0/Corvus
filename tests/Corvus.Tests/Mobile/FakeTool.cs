@@ -78,7 +78,7 @@ internal sealed class FakeTool : IDisposable
     public void Dispose() => _dir.Dispose();
 }
 
-/// <summary>Tests that set the external tools' environment variables (NDM_ADB, NDM_JAVA, ...) run one at a time.</summary>
+/// <summary>Tests that set the external tools' environment variables (CORVUS_ADB, CORVUS_JAVA, ...) run one at a time.</summary>
 [CollectionDefinition(Name)]
 public sealed class ExternalToolEnvironmentCollection
 {

@@ -344,7 +344,7 @@ public sealed class DevRelayRealServerTests
         {
             var process = ChildProcess.Start(new ChildProcessStart(Path.Combine(staged, RelayBuilds.ProgramName), [])
             {
-                Environment = new Dictionary<string, string?> { ["NDM_ANNOTATIONS_DIR"] = Path.Combine(dir.Path, "annotations") },
+                Environment = new Dictionary<string, string?> { ["CORVUS_ANNOTATIONS_DIR"] = Path.Combine(dir.Path, "annotations") },
             });
             processes.Enqueue(process);
             return process;
@@ -581,7 +581,7 @@ internal sealed class FakeMcpServer : ChildProcess
             case "resources/read":
                 Interlocked.Increment(ref EditChecks);
                 var listing = _unsaved > 0 ? $"app.dll\tApp\tC:\\app.dll\t[{_unsaved} unsaved edits]" : "No assemblies loaded.";
-                Reply(id, new JsonObject { ["contents"] = new JsonArray(new JsonObject { ["uri"] = "netdecomp://assemblies", ["text"] = listing }) });
+                Reply(id, new JsonObject { ["contents"] = new JsonArray(new JsonObject { ["uri"] = "corvus://assemblies", ["text"] = listing }) });
                 return;
             case "tools/call":
                 await CallAsync(id!, p!["name"]!.GetValue<string>(), p["arguments"] as JsonObject);

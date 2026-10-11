@@ -580,7 +580,7 @@ public class InspectionTests : IDisposable
         Assert.Contains("Unknown format", Assert.Throws<ToolError>(() => Inspection.ExtractStrings(null, path, null, null, "xml", false, default)).Message);
     }
 
-    private static readonly int FuzzCases = int.TryParse(Environment.GetEnvironmentVariable("NDM_FUZZ_CASES"), out var n) ? n : 30;
+    private static readonly int FuzzCases = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_FUZZ_CASES"), out var n) ? n : 30;
 
     /// <summary>Fixtures cut short and with random bytes changed: every analysis either works or throws ToolError.</summary>
     [Trait("Speed", "Slow")]

@@ -6,7 +6,7 @@ namespace Corvus.Tests;
 
 /// <summary>
 /// NativeAOT recovery on production binaries: tools/ilc of the ILCompiler runtime packs is itself compiled with
-/// NativeAOT (.NET 8, 9, 10; x64, ARM64, x86 and ARM). Restored only for the full suite (NDM_ALL_TESTS=1).
+/// NativeAOT (.NET 8, 9, 10; x64, ARM64, x86 and ARM). Restored only for the full suite (CORVUS_ALL_TESTS=1).
 /// </summary>
 [Trait("Speed", "Slow")]
 public class NativeAotRealTests

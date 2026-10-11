@@ -13,16 +13,16 @@ namespace Corvus.Native.Code;
 /// <param name="MinBuildTime">Indexes that built faster than this are not saved (small images rebuild quicker than they load).</param>
 public sealed record CodeIndexCacheOptions(string Root, long MaxBytes, TimeSpan MaxAge, TimeSpan MinBuildTime)
 {
-    public const string RootVariable = "NDM_CODE_INDEX_CACHE";
-    public const string MaxMegabytesVariable = "NDM_CODE_INDEX_CACHE_MB";
-    public const string MaxDaysVariable = "NDM_CODE_INDEX_CACHE_DAYS";
+    public const string RootVariable = "CORVUS_CODE_INDEX_CACHE";
+    public const string MaxMegabytesVariable = "CORVUS_CODE_INDEX_CACHE_MB";
+    public const string MaxDaysVariable = "CORVUS_CODE_INDEX_CACHE_DAYS";
     public const long DefaultMaxMegabytes = 8192;
     public const int DefaultMaxDays = 30;
 
     /// <summary>
-    /// <c>&lt;LocalAppData&gt;/NetDecompilerMcp/code-index</c> (a sibling of the analysis cache and the annotations), or
-    /// NDM_CODE_INDEX_CACHE; null when that variable is "off". Size and age limits from NDM_CODE_INDEX_CACHE_MB and
-    /// NDM_CODE_INDEX_CACHE_DAYS.
+    /// <c>&lt;LocalAppData&gt;/Corvus/code-index</c> (a sibling of the analysis cache and the annotations), or
+    /// CORVUS_CODE_INDEX_CACHE; null when that variable is "off". Size and age limits from CORVUS_CODE_INDEX_CACHE_MB and
+    /// CORVUS_CODE_INDEX_CACHE_DAYS.
     /// </summary>
     public static CodeIndexCacheOptions? FromEnvironment()
     {

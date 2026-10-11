@@ -113,15 +113,15 @@ public class ImportedNamesTests(ITestOutputHelper output)
 public class ImportedNamesRealDataTests(ITestOutputHelper output)
 {
     /// <summary>
-    /// A real game (NDM_IL2CPP_GAME, read by the built-in reader): the il2cpp layer is saved, then restored by a fresh
+    /// A real game (CORVUS_IL2CPP_GAME, read by the built-in reader): the il2cpp layer is saved, then restored by a fresh
     /// workspace and service over the same annotation folder. Reports counts, the saved file size and the timings.
     /// </summary>
-    [RequiresRealDataFact("NDM_IL2CPP_GAME")]
+    [RequiresRealDataFact("CORVUS_IL2CPP_GAME")]
     [Trait("Speed", "Slow")]
     public void RealIl2CppNamesRestore()
     {
         using var dir = new TempDir();
-        var files = Corvus.Services.Il2CppGameFiles.Find(RealData.Path("NDM_IL2CPP_GAME")) ?? throw new InvalidOperationException("not an Il2Cpp game");
+        var files = Corvus.Services.Il2CppGameFiles.Find(RealData.Path("CORVUS_IL2CPP_GAME")) ?? throw new InvalidOperationException("not an Il2Cpp game");
         var store = new AnnotationStore(dir.File("ann"));
         var cache = Environment.GetEnvironmentVariable(Corvus.Services.Il2CppRawLoader.RootVariable) is { Length: > 0 } c ? c : dir.File("il2cpp-cache");
         int names, comments;
@@ -184,7 +184,7 @@ public class ImportedNamesRealDataTests(ITestOutputHelper output)
         File.Copy(pdb!, copy);
         var store = new AnnotationStore(dir.File("ann"));
         var options = new Corvus.Core.ServerOptions { WatchFiles = false, BackgroundIndexing = false };
-        Environment.SetEnvironmentVariable("NDM_AUTO_PDB", "0"); // only the saved layer may name the second session
+        Environment.SetEnvironmentVariable("CORVUS_AUTO_PDB", "0"); // only the saved layer may name the second session
         try
         {
             int names;
@@ -212,6 +212,6 @@ public class ImportedNamesRealDataTests(ITestOutputHelper output)
             output.WriteLine($"index with the restored names and starts in {w2.Elapsed.TotalSeconds:0.0} s: {index.Sourced.Count(NativeNameSource.Pdb)} pdb names, {index.Functions.Count} functions");
             Assert.Equal(names, index.Sourced.Count(NativeNameSource.Pdb));
         }
-        finally { Environment.SetEnvironmentVariable("NDM_AUTO_PDB", null); }
+        finally { Environment.SetEnvironmentVariable("CORVUS_AUTO_PDB", null); }
     }
 }

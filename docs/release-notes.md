@@ -24,7 +24,7 @@ build migration) and a batch of usability and analysis-depth work on top of it.
 - **Imported names survive restarts.** Names from `load_pdb` and `apply_il2cpp_names` are saved beside user renames and
   reapplied when the same file loads again, also with the PDB moved or deleted (434,680 names on an Il2Cpp title restored in 0.8 s).
   `list_native_edits` lists each layer and whether it was restored; `clear=true` removes a layer.
-- **Engine preference** `engine=auto|ours|ida` (server default `--engine` / `NDM_ENGINE`): see above; `auto` never starts
+- **Engine preference** `engine=auto|ours|ida` (server default `--engine` / `CORVUS_ENGINE`): see above; `auto` never starts
   IDA and costs about 0.1 µs per call. With IDA, our names still win and RTTI virtual-call edges IDA lacks are added.
   Every result names its engine.
 - **PDB types in IDA.** `decompile_native` loads the PDB's structs, enums, typedefs and prototypes into the IDA database

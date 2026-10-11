@@ -81,9 +81,9 @@ public sealed class StatusTests : IDisposable
 
         (code, output) = _home.Run("status", "--engine", "ghidra");
         Assert.Equal(1, code);
-        Assert.Contains("NDM_GHIDRA_DIR is not set", output);
+        Assert.Contains("CORVUS_GHIDRA_DIR is not set", output);
         var ghidra = _home.Path("ghidra");
-        var vars = new Dictionary<string, string> { ["NDM_GHIDRA_DIR"] = ghidra, ["JAVA_HOME"] = _home.Path("jdk") };
+        var vars = new Dictionary<string, string> { ["CORVUS_GHIDRA_DIR"] = ghidra, ["JAVA_HOME"] = _home.Path("jdk") };
         (code, output) = _home.Run(_home.Env(variables: vars), "status", "--engine", "ghidra");
         Assert.Equal(1, code);
         Assert.Contains("is not a Ghidra install", output);

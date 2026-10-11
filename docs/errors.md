@@ -1,6 +1,6 @@
 # Error results
 
-<!-- Generated from Core/ToolError.cs and Mcp/ErrorResult.cs by ErrorContractTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
+<!-- Generated from Core/ToolError.cs and Mcp/ErrorResult.cs by ErrorContractTests; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->
 
 A failed tool call returns a result with `isError: true`, no `structuredContent` and two text blocks:
 

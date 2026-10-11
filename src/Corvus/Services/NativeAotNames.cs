@@ -25,7 +25,7 @@ namespace Corvus.Services;
 public static class NativeAotNames
 {
     /// <summary>Set to 0 to turn off naming NativeAOT images automatically.</summary>
-    public const string AutoVariable = "NDM_AUTO_NATIVEAOT";
+    public const string AutoVariable = "CORVUS_AUTO_NATIVEAOT";
     /// <summary>Saved with the layer; a layer saved by another version of this naming is rebuilt.</summary>
     public const string ReaderIdentity = "nativeaot-names 3";
     /// <summary>Most other folded methods listed in a function's comment.</summary>

@@ -26,7 +26,7 @@ internal static class Skill
         return files;
     }
 
-    private const string Generated = "<!-- Generated from src/Corvus/Mcp/Guide.cs; run the tests with NDM_UPDATE_DOCS=1 to update. -->";
+    private const string Generated = "<!-- Generated from src/Corvus/Mcp/Guide.cs; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->";
 
     public const string Description =
         "Reverse engineering of compiled .NET assemblies and native PE, ELF and Mach-O binaries with the net-decompiler MCP server " +
@@ -76,7 +76,7 @@ internal static class Skill
 
             ## Topics
 
-            The full guidance per area, also served by the `guide` prompt and `netdecomp://guide/{topic}`:
+            The full guidance per area, also served by the `guide` prompt and `corvus://guide/{topic}`:
 
 
             """);

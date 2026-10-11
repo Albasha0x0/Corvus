@@ -19,7 +19,7 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
     private static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
 
     public const string MarkerFileName = "il2cpp-source.json";
-    public const string RootVariable = "NDM_IL2CPP_CACHE";
+    public const string RootVariable = "CORVUS_IL2CPP_CACHE";
     public const string DummyFolder = "DummyDll";
     public const int MaxEntries = 8;
     private const int CacheFormat = 2; // bump when the reader's output changes: older entries are then read again
@@ -27,7 +27,7 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRo
     public static string DefaultRoot =>
         Environment.GetEnvironmentVariable(RootVariable) is { Length: > 0 } custom
             ? custom
-            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), "NetDecompilerMcp", "il2cpp");
+            : Native.Providers.DataFolder.Combine("il2cpp");
 
     /// <summary>What a cache folder was made from; <see cref="BinaryIdentity"/> is the binary's build id or SHA-256, to match a copy loaded from elsewhere.</summary>
     public sealed record Marker(string Binary, string Metadata, string BinaryStamp, string MetadataStamp, int Format, string Reader, DateTime Created,

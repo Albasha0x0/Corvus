@@ -4,7 +4,7 @@ using Corvus.Tools;
 
 namespace Corvus.Tests;
 
-/// <summary>netdecomp://native/{image}/segments, /entrypoints and /type/{name}.</summary>
+/// <summary>corvus://native/{image}/segments, /entrypoints and /type/{name}.</summary>
 public sealed class NativeResourceTests
 {
     [Fact]

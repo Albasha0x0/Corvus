@@ -34,7 +34,7 @@ public sealed record PdbState(
 public sealed class PdbService
 {
     /// <summary>Set to 0 to turn off reading local PDBs automatically.</summary>
-    public const string AutoVariable = "NDM_AUTO_PDB";
+    public const string AutoVariable = "CORVUS_AUTO_PDB";
 
     private static readonly ConditionalWeakTable<LoadedNative, Slot> States = new();
     private readonly NativeCodeService _code;

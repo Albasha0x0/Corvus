@@ -138,8 +138,8 @@ public sealed class SessionFileTests : IDisposable
         Assert.Equal(SessionFileTools.AlreadyLoaded, Item(await b.Tools.LoadSession(session, dryRun: false), "dump").Outcome);
     }
 
-    /// <summary>A real game (NDM_IL2CPP_GAME: game folder or global-metadata.dat): saved after load_assembly, read again by load_session.</summary>
-    [RequiresRealDataFact("NDM_IL2CPP_GAME")]
+    /// <summary>A real game (CORVUS_IL2CPP_GAME: game folder or global-metadata.dat): saved after load_assembly, read again by load_session.</summary>
+    [RequiresRealDataFact("CORVUS_IL2CPP_GAME")]
     [Trait("Speed", "Slow")]
     public async Task Il2CppGameRoundTrips()
     {
@@ -151,7 +151,7 @@ public sealed class SessionFileTests : IDisposable
             var options = new ServerOptions { BackgroundIndexing = false, WatchFiles = false };
             var tools = new WorkspaceTools(a.Workspace, il2cpp, new AssemblyReport(a.Workspace, il2cpp), new IndexingService(a.Workspace, new CallGraphService(a.Workspace), options),
                 new Corvus.Services.Analysis.UnpackService(a.Workspace), il2cppRaw: new Il2CppRawLoader(a.Workspace, _dir.File("cache")));
-            await tools.LoadAssembly(RealData.Path("NDM_IL2CPP_GAME"));
+            await tools.LoadAssembly(RealData.Path("CORVUS_IL2CPP_GAME"));
             binarySha = Assert.Single(a.Workspace.Natives).OriginalSha256;
             await a.Tools.SaveSession(session);
         }

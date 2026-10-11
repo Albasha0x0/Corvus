@@ -1,6 +1,6 @@
 # Guide: dotnet
 
-<!-- Generated from src/Corvus/Mcp/Guide.cs; run the tests with NDM_UPDATE_DOCS=1 to update. -->
+<!-- Generated from src/Corvus/Mcp/Guide.cs; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->
 
 .NET assemblies.
 Load: load_assembly takes a file or a whole folder (an application folder, a Unity *_Data/Managed folder, an Il2CppDumper

@@ -12,8 +12,8 @@ namespace Corvus.Tests;
 /// Mutation fuzzing through the tools: real and synthetic images with headers, the section table, directories, code,
 /// .pdata, import/export tables, resources and RTTI structures mutated (seeded), each loaded through load_assembly and
 /// given to every native tool. Typed errors are fine; an unexpected exception, an unclassified error, a hang or a
-/// result over the response budget fails. NDM_NATIVE_TOOL_FUZZ_ITERATIONS sets the count (default 2500, about a minute on 16 cores),
-/// NDM_NATIVE_TOOL_FUZZ_SEED the base seed; NDM_NATIVE_TOOL_FUZZ_DUMP a folder that receives the failing inputs.
+/// result over the response budget fails. CORVUS_NATIVE_TOOL_FUZZ_ITERATIONS sets the count (default 2500, about a minute on 16 cores),
+/// CORVUS_NATIVE_TOOL_FUZZ_SEED the base seed; CORVUS_NATIVE_TOOL_FUZZ_DUMP a folder that receives the failing inputs.
 /// </summary>
 [Trait("Speed", "Slow")]
 [Collection(SweepCollection.Name)]
@@ -22,9 +22,9 @@ public class NativeToolFuzzTests(ITestOutputHelper output)
     [Fact]
     public async Task MutatedImagesThroughEveryTool()
     {
-        int iterations = int.TryParse(Environment.GetEnvironmentVariable("NDM_NATIVE_TOOL_FUZZ_ITERATIONS"), out var n) ? n : 2500;
-        int seed = int.TryParse(Environment.GetEnvironmentVariable("NDM_NATIVE_TOOL_FUZZ_SEED"), out var s) ? s : 20261010;
-        var dump = Environment.GetEnvironmentVariable("NDM_NATIVE_TOOL_FUZZ_DUMP");
+        int iterations = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_NATIVE_TOOL_FUZZ_ITERATIONS"), out var n) ? n : 2500;
+        int seed = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_NATIVE_TOOL_FUZZ_SEED"), out var s) ? s : 20261010;
+        var dump = Environment.GetEnvironmentVariable("CORVUS_NATIVE_TOOL_FUZZ_DUMP");
         var seeds = Seeds();
         var targets = seeds.Select(x => ToolFuzzer.Targets(x.Bytes)).ToArray();
         using var dir = new TempDir();

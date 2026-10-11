@@ -12,7 +12,7 @@ namespace Corvus.Tests;
 /// The native PE parser over every PE file under System32 and SysWOW64: no exception, no internal error, bounded time,
 /// and agreement with System.Reflection.PortableExecutable (headers, sections), AsmResolver.PE (imports, exports,
 /// relocations, TLS, .pdata, CodeView, resources) and dumpbin (imports incl. delay-load, exports, load config).
-/// NDM_PE_SWEEP_LIMIT caps the file count; NDM_PE_SWEEP_REPORT names a file for the full report.
+/// CORVUS_PE_SWEEP_LIMIT caps the file count; CORVUS_PE_SWEEP_REPORT names a file for the full report.
 /// </summary>
 public sealed class NativePeSweepTests(ITestOutputHelper output)
 {
@@ -20,7 +20,7 @@ public sealed class NativePeSweepTests(ITestOutputHelper output)
     [Trait("Speed", "Slow")]
     public void System32AndSysWow64AgreeWithOracles()
     {
-        int limit = int.TryParse(Environment.GetEnvironmentVariable("NDM_PE_SWEEP_LIMIT"), out int l) ? l : int.MaxValue;
+        int limit = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_PE_SWEEP_LIMIT"), out int l) ? l : int.MaxValue;
         var files = PeCorpus.Files().Take(limit).ToList();
         var failures = new ConcurrentBag<string>();
         var diffs = new ConcurrentBag<string>();
@@ -100,7 +100,7 @@ public sealed class NativePeSweepTests(ITestOutputHelper output)
         foreach (var f in failures.Take(50)) report.AppendLine("FAIL " + f);
         foreach (var d in diffs.Order().Take(300)) report.AppendLine("DIFF " + d);
         foreach (var g in oracleGaps.Order().Take(100)) report.AppendLine("GAP  " + g);
-        if (Environment.GetEnvironmentVariable("NDM_PE_SWEEP_REPORT") is { Length: > 0 } reportPath)
+        if (Environment.GetEnvironmentVariable("CORVUS_PE_SWEEP_REPORT") is { Length: > 0 } reportPath)
             File.WriteAllText(reportPath, report + string.Join("\n", diffs.Order().Select(d => "DIFF " + d)) + "\n" + string.Join("\n", oracleGaps.Order().Select(g => "GAP  " + g)));
         output.WriteLine(report.ToString());
 

@@ -1,6 +1,6 @@
 # Guide: builds
 
-<!-- Generated from src/Corvus/Mcp/Guide.cs; run the tests with NDM_UPDATE_DOCS=1 to update. -->
+<!-- Generated from src/Corvus/Mcp/Guide.cs; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->
 
 New builds: load both (the second gets an id like app.dll#2).
 .NET: compare_assemblies, then find_counterpart carries renamed types/members and changed offsets forward; export_edits +

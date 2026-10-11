@@ -8,7 +8,7 @@ namespace Corvus.Tests;
 
 /// <summary>
 /// Function starts and direct call edges compared with IDA (idalib, auto-analysis, PDB loading off) on a few system
-/// DLLs. Skipped when IDA or a Python that can import idapro is missing. NDM_IDA_ORACLE_FILES (paths separated by
+/// DLLs. Skipped when IDA or a Python that can import idapro is missing. CORVUS_IDA_ORACLE_FILES (paths separated by
 /// ';') replaces the default sample. IDA results are cached per file hash under %TEMP%\ndm-ida-oracle.
 /// </summary>
 [Trait("Speed", "Slow")]
@@ -73,7 +73,7 @@ public class NativeCodeOracleTests(ITestOutputHelper output)
 
     private static IEnumerable<string> Samples()
     {
-        if (RealData.Get("NDM_IDA_ORACLE_FILES") is { } list) return list.Split(';', StringSplitOptions.RemoveEmptyEntries);
+        if (RealData.Get("CORVUS_IDA_ORACLE_FILES") is { } list) return list.Split(';', StringSplitOptions.RemoveEmptyEntries);
         var sys32 = Environment.SystemDirectory;
         var wow = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "SysWOW64");
         string[] names = ["version.dll", "cabinet.dll", "msvcp_win.dll", "wininet.dll"];

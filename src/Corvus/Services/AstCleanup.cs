@@ -50,9 +50,9 @@ internal static class AstCleanup
 
     internal static string? LastError;
 
-    /// <summary>Rewrite decisions, recorded when NDM_CLEANUP_LOG is set.</summary>
+    /// <summary>Rewrite decisions, recorded when CORVUS_CLEANUP_LOG is set.</summary>
     internal static readonly System.Collections.Concurrent.ConcurrentQueue<string> Log = new();
-    internal static readonly bool Logging = Environment.GetEnvironmentVariable("NDM_CLEANUP_LOG") != null;
+    internal static readonly bool Logging = Environment.GetEnvironmentVariable("CORVUS_CLEANUP_LOG") != null;
 
     /// <summary>Isolates a transform: if it throws, the engine output is kept instead of failing the member.</summary>
     private sealed class Guarded(IAstTransform inner) : IAstTransform

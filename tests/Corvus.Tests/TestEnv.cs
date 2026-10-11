@@ -111,23 +111,23 @@ public static class RealPackages
 public static class RealData
 {
     /// <summary>A folder of real-world .NET assemblies.</summary>
-    public const string AssemblyDir = "NDM_ASSEMBLY_DIR";
+    public const string AssemblyDir = "CORVUS_ASSEMBLY_DIR";
     /// <summary>An Il2CppDumper / Cpp2IL DummyDll folder.</summary>
-    public const string Il2CppDummyDir = "NDM_IL2CPP_DUMMY_DIR";
+    public const string Il2CppDummyDir = "CORVUS_IL2CPP_DUMMY_DIR";
     /// <summary>An Il2CppDumper DummyDll folder with stringliteral.json / script.json (and optionally GameAssembly.dll) beside it.</summary>
-    public const string Il2CppStringsDir = "NDM_IL2CPP_STRINGS_DIR";
+    public const string Il2CppStringsDir = "CORVUS_IL2CPP_STRINGS_DIR";
     /// <summary>Two builds of the same application (folders), and the assembly to compare between them.</summary>
-    public const string CompareOldDir = "NDM_COMPARE_OLD_DIR";
-    public const string CompareNewDir = "NDM_COMPARE_NEW_DIR";
-    public const string CompareAssembly = "NDM_COMPARE_ASSEMBLY";
+    public const string CompareOldDir = "CORVUS_COMPARE_OLD_DIR";
+    public const string CompareNewDir = "CORVUS_COMPARE_NEW_DIR";
+    public const string CompareAssembly = "CORVUS_COMPARE_ASSEMBLY";
     /// <summary>Optional: known type moves between the two builds, "Old.Name=>New.Name;Old2=>New2".</summary>
-    public const string CompareExpect = "NDM_COMPARE_EXPECT";
+    public const string CompareExpect = "CORVUS_COMPARE_EXPECT";
     /// <summary>Optional: a method to search call paths to (default: picked automatically).</summary>
-    public const string CallPathTarget = "NDM_CALLPATH_TARGET";
+    public const string CallPathTarget = "CORVUS_CALLPATH_TARGET";
     /// <summary>Root of a C/C++ project with a host function table (generate_cpp_binding style=hostapi detection).</summary>
-    public const string HostApiProjectDir = "NDM_HOSTAPI_PROJECT_DIR";
+    public const string HostApiProjectDir = "CORVUS_HOSTAPI_PROJECT_DIR";
     /// <summary>A real Android package (.apk, .aab or split set).</summary>
-    public const string AndroidPackage = "NDM_ANDROID_PACKAGE";
+    public const string AndroidPackage = "CORVUS_ANDROID_PACKAGE";
 
     public static string? Get(string variable) => Environment.GetEnvironmentVariable(variable) is { Length: > 0 } v ? v : null;
 

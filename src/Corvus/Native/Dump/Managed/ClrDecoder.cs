@@ -164,7 +164,7 @@ public sealed class ClrDecoder : IDisposable
         if (request.Download)
         {
             if (ReferencePacks.Offline)
-                return Fail("download_refused_offline", Joined("NDM_OFFLINE=1: the DAC is not downloaded", problems));
+                return Fail("download_refused_offline", Joined("CORVUS_OFFLINE=1: the DAC is not downloaded", problems));
             var (candidate, error) = await DacLocator.Download(clr, request, arch, ct).ConfigureAwait(false);
             if (candidate != null && Try(candidate) is { } backend) return new ClrDecoder(name, clr.Version.ToString(), new DacState("loaded", candidate.Path, Where(candidate)), backend);
             if (candidate == null) return Fail("download_failed", Joined($"download failed: {error}", problems));

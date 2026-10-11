@@ -8,7 +8,7 @@ namespace Corvus.Tests;
 /// simplify_methods over randomly generated method bodies (<see cref="IlBodyGenerator"/>). For every seed: the engine
 /// never crashes and stays within its limits, every rewrite verifies and survives save / reload, two runs give the same
 /// image, and the simplified methods JIT-compile and return what the originals return (or throw the same exception).
-/// Seeds 1..NDM_FUZZ_COUNT (default 40) run by default; NDM_FUZZ_SEED=n runs one seed, NDM_FUZZ_SEED=random a fresh one.
+/// Seeds 1..CORVUS_FUZZ_COUNT (default 40) run by default; CORVUS_FUZZ_SEED=n runs one seed, CORVUS_FUZZ_SEED=random a fresh one.
 /// A failure names its seed.
 /// </summary>
 [Trait("Speed", "Slow")]
@@ -45,7 +45,7 @@ public sealed class SimplifyFuzzTests(ITestOutputHelper output) : IDisposable
                          string.Join(", ", stats.Fallbacks.OrderByDescending(f => f.Value).Select(f => $"{f.Key} {f.Value}")));
         foreach (var f in failures) output.WriteLine(f);
         Assert.True(failures.Count == 0,
-            $"{failures.Count} fuzz seed(s) failed (rerun one with NDM_FUZZ_SEED=<seed>):\n" + string.Join("\n", failures.Take(20)));
+            $"{failures.Count} fuzz seed(s) failed (rerun one with CORVUS_FUZZ_SEED=<seed>):\n" + string.Join("\n", failures.Take(20)));
     }
 
     private sealed class Stats
@@ -56,11 +56,11 @@ public sealed class SimplifyFuzzTests(ITestOutputHelper output) : IDisposable
 
     private static IEnumerable<int> Seeds()
     {
-        var single = Environment.GetEnvironmentVariable("NDM_FUZZ_SEED");
+        var single = Environment.GetEnvironmentVariable("CORVUS_FUZZ_SEED");
         if (string.Equals(single, "random", StringComparison.OrdinalIgnoreCase))
             return [Random.Shared.Next(1, int.MaxValue)];
         if (int.TryParse(single, out int seed)) return [seed];
-        int count = int.TryParse(Environment.GetEnvironmentVariable("NDM_FUZZ_COUNT"), out int n) ? n : 40;
+        int count = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_FUZZ_COUNT"), out int n) ? n : 40;
         return Enumerable.Range(1, count);
     }
 

@@ -410,20 +410,20 @@ public class VirtualCallTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// The acceptance run on a real C++ image named by NDM_VCALL_IMAGE (skipped when unset): call graph edges before and after,
+    /// The acceptance run on a real C++ image named by CORVUS_VCALL_IMAGE (skipped when unset): call graph edges before and after,
     /// site counts, and the agreement with IDA on a sample.
     /// </summary>
     [Trait("Speed", "Slow")]
     [IdaFact]
     public async Task Real_image_virtual_edges_and_agreement_with_IDA()
     {
-        var path = Environment.GetEnvironmentVariable("NDM_VCALL_IMAGE");
-        if (string.IsNullOrEmpty(path) || !File.Exists(path)) { output.WriteLine("NDM_VCALL_IMAGE not set"); return; }
+        var path = Environment.GetEnvironmentVariable("CORVUS_VCALL_IMAGE");
+        if (string.IsNullOrEmpty(path) || !File.Exists(path)) { output.WriteLine("CORVUS_VCALL_IMAGE not set"); return; }
         using var dir = new TempDir();
         var (_, tools, engines) = Rig(dir);
         using var _e = engines;
         var clock = Stopwatch.StartNew();
-        int sample = int.TryParse(Environment.GetEnvironmentVariable("NDM_VCALL_SAMPLE"), out var n) ? n : 150;
+        int sample = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_VCALL_SAMPLE"), out var n) ? n : 150;
         var report = await tools.Report(path, limit: 1, crossCheck: true, sampleFunctions: sample, seconds: 1800);
         output.WriteLine($"{Path.GetFileName(path)}: direct call edges {report.DirectEdges}, virtual edges added {report.Edges} " +
                          $"(sites {report.Sites}: exact {report.Exact}, possible {report.Possible}, unresolved {report.Unresolved}; {report.RttiClasses} RTTI classes)");

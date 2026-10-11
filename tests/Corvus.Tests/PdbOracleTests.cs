@@ -121,12 +121,12 @@ public class PdbOracleTests(ITestOutputHelper output)
         Assert.True(missing.Count == 0, string.Join(", ", missing));
     }
 
-    /// <summary>Downloads the PDB of a system DLL from Microsoft's symbol server; runs only with NDM_NETWORK_TESTS=1.</summary>
+    /// <summary>Downloads the PDB of a system DLL from Microsoft's symbol server; runs only with CORVUS_NETWORK_TESTS=1.</summary>
     [Fact]
     [Trait("Speed", "Slow")]
     public async Task DownloadsASystemPdbWhenNetworkTestsAreOn()
     {
-        if (Environment.GetEnvironmentVariable("NDM_NETWORK_TESTS") != "1") return;
+        if (Environment.GetEnvironmentVariable("CORVUS_NETWORK_TESTS") != "1") return;
         var dll = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "kernel32.dll");
         if (!File.Exists(dll)) return;
         var image = PeFile.Open(dll);

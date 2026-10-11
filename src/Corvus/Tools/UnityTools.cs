@@ -14,7 +14,7 @@ public sealed class UnityTools
                  "(load_assembly the Managed folder or the metadata, or dump from memory). Not Unity: unsupported, reason not_a_unity_title.")]
     public Task<UnityOverview.Report> UnityOverviewTool(
         [Description("The title's folder, executable, *_Data folder, UnityPlayer.dll, GameAssembly.dll or global-metadata.dat; an extracted APK folder or a macOS / iOS .app.")] string path,
-        [Description("Also run Detect It Easy (diec, NDM_DIE or PATH) on the main binaries; launches it, about a second per file.")] bool detectItEasy = false,
+        [Description("Also run Detect It Easy (diec, CORVUS_DIE or PATH) on the main binaries; launches it, about a second per file.")] bool detectItEasy = false,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => UnityOverview.Inspect(path, detectItEasy, cancellationToken), cancellationToken);
 }

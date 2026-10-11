@@ -36,7 +36,7 @@ public static partial class ExternalTools
 
     private static readonly string Exe = OperatingSystem.IsWindows() ? ".exe" : "";
 
-    public static readonly ExternalTool Java = new("java", "Java (JDK 17+)", "NDM_JAVA", ExternalToolKind.Executable, ["java" + Exe], ["-version"], 17,
+    public static readonly ExternalTool Java = new("java", "Java (JDK 17+)", "CORVUS_JAVA", ExternalToolKind.Executable, ["java" + Exe], ["-version"], 17,
         "runs the Java decompiler (decompile_java)", false,
         Ops(("jar", ["-Xss16m", "-jar", "{jar}"])))
     {
@@ -44,11 +44,11 @@ public static partial class ExternalTools
         KnownDirectoriesFirst = true,
     };
 
-    public static readonly ExternalTool JavaDecompiler = new("jadx", "JADX headless server (jadx-headless-mcp fat jar)", "NDM_JAVA_DECOMPILER", ExternalToolKind.Jar,
+    public static readonly ExternalTool JavaDecompiler = new("jadx", "JADX headless server (jadx-headless-mcp fat jar)", "CORVUS_JAVA_DECOMPILER", ExternalToolKind.Jar,
         ["jadx-headless-mcp*.jar"], [], 0, "Java / Kotlin source for decompile_java", false,
         Ops(("server", ["--threads", "{threads}", "--decompile-timeout-ms", "{timeoutMs}", "--max-source-bytes", "{maxBytes}", "--resources", "none"])));
 
-    public static readonly ExternalTool Adb = new("adb", "Android Debug Bridge (adb)", "NDM_ADB", ExternalToolKind.Executable, ["adb" + Exe], ["version"], 0,
+    public static readonly ExternalTool Adb = new("adb", "Android Debug Bridge (adb)", "CORVUS_ADB", ExternalToolKind.Executable, ["adb" + Exe], ["version"], 0,
         "the Android device tools", false,
         Ops(("devices", ["devices", "-l"]),
             ("getprop", ["-s", "{serial}", "shell", "getprop"]),
@@ -65,15 +65,15 @@ public static partial class ExternalTools
         KnownDirectories = AndroidSdkDirectories,
     };
 
-    public static readonly ExternalTool Aapt2 = new("aapt2", "aapt2 (test oracle)", "NDM_AAPT2", ExternalToolKind.Executable, ["aapt2" + Exe], ["version"], 0,
+    public static readonly ExternalTool Aapt2 = new("aapt2", "aapt2 (test oracle)", "CORVUS_AAPT2", ExternalToolKind.Executable, ["aapt2" + Exe], ["version"], 0,
         "oracle for the manifest and resource readers in tests", true,
         Ops(("xmltree", ["dump", "xmltree", "--file", "{file}", "{apk}"]), ("resources", ["dump", "resources", "{apk}"])));
 
-    public static readonly ExternalTool ApkSigner = new("apksigner", "apksigner (test oracle)", "NDM_APKSIGNER", ExternalToolKind.Jar, ["apksigner*.jar"], ["--version"], 0,
+    public static readonly ExternalTool ApkSigner = new("apksigner", "apksigner (test oracle)", "CORVUS_APKSIGNER", ExternalToolKind.Jar, ["apksigner*.jar"], ["--version"], 0,
         "oracle for APK signature verification in tests", true,
         Ops(("verify", ["verify", "--print-certs", "-v", "{apk}"])));
 
-    public static readonly ExternalTool DexDisassembler = new("baksmali", "baksmali (test oracle)", "NDM_DEX_DISASSEMBLER", ExternalToolKind.Jar, ["baksmali*.jar"], ["--version"], 0,
+    public static readonly ExternalTool DexDisassembler = new("baksmali", "baksmali (test oracle)", "CORVUS_DEX_DISASSEMBLER", ExternalToolKind.Jar, ["baksmali*.jar"], ["--version"], 0,
         "oracle for the Dalvik disassembler in tests", true,
         Ops(("disassemble", ["disassemble", "-o", "{out}", "{dex}"])));
 

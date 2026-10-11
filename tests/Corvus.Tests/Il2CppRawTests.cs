@@ -9,7 +9,7 @@ namespace Corvus.Tests;
 /// <summary>
 /// The built-in Il2Cpp metadata reader: header checks and typed errors, game file discovery, memory-image layouts,
 /// and the model's round trip into the script the navigator uses (quick); on a real game, agreement with an
-/// Il2CppDumper dump of the same files (slow, NDM_IL2CPP_GAME and NDM_IL2CPP_GAME_DUMP).
+/// Il2CppDumper dump of the same files (slow, CORVUS_IL2CPP_GAME and CORVUS_IL2CPP_GAME_DUMP).
 /// </summary>
 public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
 {
@@ -177,8 +177,8 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
     }
 
     /// <summary>
-    /// A raw game (NDM_IL2CPP_GAME: game folder or global-metadata.dat) read by the built-in reader, against an
-    /// Il2CppDumper dump of the same files (NDM_IL2CPP_GAME_DUMP: its DummyDll folder, script.json and stringliteral.json
+    /// A raw game (CORVUS_IL2CPP_GAME: game folder or global-metadata.dat) read by the built-in reader, against an
+    /// Il2CppDumper dump of the same files (CORVUS_IL2CPP_GAME_DUMP: its DummyDll folder, script.json and stringliteral.json
     /// beside it or in its parent). Methods, types and fields are paired by assembly and metadata token ([Token]);
     /// reports the agreement of method addresses, field offsets, ScriptMethod / metadata slots and string literals,
     /// and the timings. Without the dump, reports the read alone.
@@ -362,8 +362,8 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
         return result;
     }
 
-    private const string GameVariable = "NDM_IL2CPP_GAME";
-    private const string DumpVariable = "NDM_IL2CPP_GAME_DUMP";
+    private const string GameVariable = "CORVUS_IL2CPP_GAME";
+    private const string DumpVariable = "CORVUS_IL2CPP_GAME_DUMP";
 
     private void Report(string what, int same, int dumpCount, int rawCount) =>
         output.WriteLine($"{what}: {same} of {dumpCount} ({(dumpCount == 0 ? 0 : 100.0 * same / dumpCount):0.00} %); raw has {rawCount}");

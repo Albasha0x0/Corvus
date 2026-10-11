@@ -6,7 +6,7 @@ using static Corvus.Tests.AndroidSamples;
 
 namespace Corvus.Tests;
 
-/// <summary>Smali output of the Dalvik disassembler, and (with NDM_DEX_DISASSEMBLER) the same text as baksmali's.</summary>
+/// <summary>Smali output of the Dalvik disassembler, and (with CORVUS_DEX_DISASSEMBLER) the same text as baksmali's.</summary>
 [Collection(ExternalToolEnvironmentCollection.Name)]
 public sealed class DalvikDisassemblerTests(Xunit.Abstractions.ITestOutputHelper output) : IDisposable
 {
@@ -90,9 +90,9 @@ public sealed class DalvikDisassemblerTests(Xunit.Abstractions.ITestOutputHelper
         Assert.Contains("not defined in it", framework.Message);
     }
 
-    /// <summary>baksmali 2.5 (NDM_DEX_DISASSEMBLER, its jar) writes the same text for every class of the sample, and of the first DEX of NDM_ANDROID_PACKAGE.</summary>
+    /// <summary>baksmali 2.5 (CORVUS_DEX_DISASSEMBLER, its jar) writes the same text for every class of the sample, and of the first DEX of CORVUS_ANDROID_PACKAGE.</summary>
     [Trait("Speed", "Slow")]
-    [RequiresRealDataFact("NDM_DEX_DISASSEMBLER")]
+    [RequiresRealDataFact("CORVUS_DEX_DISASSEMBLER")]
     public void MatchesBaksmali()
     {
         var dexPath = Save(_dir, "classes.dex", Dex());

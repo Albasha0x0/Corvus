@@ -6,7 +6,7 @@ namespace Corvus.Native.Providers;
 public static class EngineMemoryLimit
 {
     /// <summary>Limit in MB; 0 or off: none. Default: three quarters of the memory available to this process.</summary>
-    public const string Variable = "NDM_ENGINE_MEMORY_MB";
+    public const string Variable = "CORVUS_ENGINE_MEMORY_MB";
 
     /// <summary>The limit in bytes for a worker: <paramref name="configured"/> (0: none), else <see cref="Variable"/>, else the default.</summary>
     public static long? Resolve(long? configured) =>

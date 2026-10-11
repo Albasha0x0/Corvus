@@ -211,7 +211,7 @@ public class NativeDiffRealTests(ITestOutputHelper output)
     [Fact]
     public void Real_build_pairs_match_with_high_precision()
     {
-        int max = int.TryParse(Environment.GetEnvironmentVariable("NDM_DIFF_PAIRS"), out var m) ? m : 6;
+        int max = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_DIFF_PAIRS"), out var m) ? m : 6;
         var pairs = DiscoverPairs(max).ToList();
         if (pairs.Count == 0) { output.WriteLine("No pairs of builds found (C:\\symbols, side-by-side .NET runtimes): nothing to check."); return; }
         var report = new StringBuilder();

@@ -5,7 +5,7 @@
 - **Quick set** (`dotnet test`): every test not marked `[Trait("Speed", "Slow")]`. It runs while iterating and must stay
   near 30 seconds, so a quick test uses the small fixtures in `tests/TestFixture` and builds nothing external. The
   quick set is green at every commit.
-- **Full set** (`NDM_ALL_TESTS=1 dotnet test`, or `dotnet test -p:NDM_ALL_TESTS=1`): adds real-library builds, whole-server
+- **Full set** (`CORVUS_ALL_TESTS=1 dotnet test`, or `dotnet test -p:CORVUS_ALL_TESTS=1`): adds real-library builds, whole-server
   runs over stdio, sweeps, fuzzing and the large runtime packs. It runs before pushing.
 
 CI (`.github/workflows/ci.yml`) runs the quick set as a smoke lane; the release workflow builds the release archives.
@@ -15,7 +15,7 @@ The full set and the real-application runs are done locally.
 
 - Real libraries come from `<PackageDownload>` items in the test project, read through `RealPackages.Lib`; tests never
   read paths of one machine.
-- Data that cannot be redistributed (application folders, Il2Cpp games, external tools) is found through `NDM_*`
+- Data that cannot be redistributed (application folders, Il2Cpp games, external tools) is found through `CORVUS_*`
   environment variables (README, "Build, test, publish"), and a test without its data is skipped.
 - A new external tool used by tests is wired through an environment variable with a neutral name, with its command-line
   options kept in one table.
@@ -38,7 +38,7 @@ and the skill in `skills/net-decompiler` are generated from the code and compare
 sources, regenerate them and commit the result:
 
 ```sh
-NDM_UPDATE_DOCS=1 dotnet test
+CORVUS_UPDATE_DOCS=1 dotnet test
 ```
 
 ## Command-line tests

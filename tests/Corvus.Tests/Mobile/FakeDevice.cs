@@ -88,8 +88,8 @@ internal static class FakeDevice
     /// <summary>Environment for a test server: adb is the fake playing this emulator.</summary>
     public static IReadOnlyDictionary<string, string?> ServerEnvironment => new Dictionary<string, string?>
     {
-        ["NDM_ADB"] = FakeTool.Executable,
+        ["CORVUS_ADB"] = FakeTool.Executable,
         [FakeTool.ScriptVariable] = SharedTool.Value.ScriptPath,
-        ["NDM_JAVA_DECOMPILER"] = "", // the JADX server is never found by a test server
+        ["CORVUS_JAVA_DECOMPILER"] = "", // the JADX server is never found by a test server
     };
 }

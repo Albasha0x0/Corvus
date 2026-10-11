@@ -4,7 +4,7 @@ using Corvus.Services.Mobile;
 
 namespace Corvus.Tests;
 
-/// <summary>The Android tools on a real package (NDM_ANDROID_PACKAGE): every reader completes on real data.</summary>
+/// <summary>The Android tools on a real package (CORVUS_ANDROID_PACKAGE): every reader completes on real data.</summary>
 public class AndroidRealTests(Xunit.Abstractions.ITestOutputHelper output)
 {
     private static string Package => RealData.Path(RealData.AndroidPackage);

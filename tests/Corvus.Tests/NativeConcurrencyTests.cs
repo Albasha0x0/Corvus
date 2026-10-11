@@ -8,7 +8,7 @@ namespace Corvus.Tests;
 /// <summary>
 /// Many native tool calls in parallel on the same and different images while other tasks load, unload and reload them:
 /// no deadlock, no unexpected exception, and no code index build left running for an image that is gone.
-/// NDM_NATIVE_STRESS_SECONDS sets the duration (default 30).
+/// CORVUS_NATIVE_STRESS_SECONDS sets the duration (default 30).
 /// </summary>
 [Trait("Speed", "Slow")]
 [Collection(SweepCollection.Name)]
@@ -22,7 +22,7 @@ public class NativeConcurrencyTests(ITestOutputHelper output)
     [WindowsFact]
     public async Task ToolsLoadsUnloadsAndReloadsInParallel()
     {
-        var seconds = int.TryParse(Environment.GetEnvironmentVariable("NDM_NATIVE_STRESS_SECONDS"), out var s) ? s : 30;
+        var seconds = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_NATIVE_STRESS_SECONDS"), out var s) ? s : 30;
         var windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
         var files = new[]
         {

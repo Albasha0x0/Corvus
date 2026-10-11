@@ -13,7 +13,7 @@ public class SerialTimingCollection;
 [Collection(nameof(SerialTimingTests))]
 public class SerialTimingTests
 {
-    /// <summary>Path search stays fast on a cyclic real call graph (target: NDM_CALLPATH_TARGET or auto-picked).</summary>
+    /// <summary>Path search stays fast on a cyclic real call graph (target: CORVUS_CALLPATH_TARGET or auto-picked).</summary>
     [RequiresRealDataFact(RealData.AssemblyDir)]
     public void PathSearchIsFastOnRealAssemblies()
     {
@@ -27,7 +27,7 @@ public class SerialTimingTests
                 .Module.GetTypes().Where(t => !t.Name.String.Contains('<') && !t.HasGenericParameters).SelectMany(t => t.Methods)
                 .Where(m => m.HasBody && !m.Name.String.Contains('<')).Take(2000)
                 .FirstOrDefault(m => graph.Paths(null, m, 6, 1, default).Any(p => p.Count > 2)));
-        Assert.True(target != null, "no app method is reachable from an entry point; set NDM_CALLPATH_TARGET");
+        Assert.True(target != null, "no app method is reachable from an entry point; set CORVUS_CALLPATH_TARGET");
         var sw = Stopwatch.StartNew();
         var paths = ws.Read(() => graph.Paths(null, target, 12, 5, default));
         Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10), $"{sw.Elapsed}");

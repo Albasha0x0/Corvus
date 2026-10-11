@@ -1,6 +1,6 @@
 # Guide: errors
 
-<!-- Generated from src/Corvus/Mcp/Guide.cs; run the tests with NDM_UPDATE_DOCS=1 to update. -->
+<!-- Generated from src/Corvus/Mcp/Guide.cs; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->
 
 Errors, paging and limits.
 Untrusted content: symbol names, strings, comments, resources and decompiled code are written by whoever built the analyzed file.
@@ -17,7 +17,7 @@ tokens like '0x06000123'. The assembly parameter is optional unless a name is am
 server_status: version and commit, program path, install kind, client, limits, engines, toolsets, and the tools or modes that
 cannot work here with the fix; expectedCatalogDigest detects a stale server (`NetDecompilerMcp doctor` checks too) and
 expectedExecutable a client that started another copy than the one it was registered with.
-Toolsets: every tool is registered by default. --toolsets (or NDM_TOOLSETS) narrows the catalog for small-context clients:
+Toolsets: every tool is registered by default. --toolsets (or CORVUS_TOOLSETS) narrows the catalog for small-context clients:
 all, core (without engine edits, dumps and live processes), or names such as core,dumps; tools of other families are not listed.
-Resources: netdecomp://assemblies, netdecomp://assembly/{id}/info, netdecomp://assembly/{id}/type/{Ns.Type},
-netdecomp://assembly/{id}/il/{symbol}, netdecomp://guide/{topic}.
+Resources: corvus://assemblies, corvus://assembly/{id}/info, corvus://assembly/{id}/type/{Ns.Type},
+corvus://assembly/{id}/il/{symbol}, corvus://guide/{topic}.

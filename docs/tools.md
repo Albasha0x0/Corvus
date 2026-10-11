@@ -1,6 +1,6 @@
 # Tools
 
-<!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
+<!-- Generated from the tool catalog by DocsTests; run the tests with CORVUS_UPDATE_DOCS=1 to update. -->
 
 155 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
@@ -616,7 +616,7 @@ Overview of a Unity title in seconds, without loading it (listings, headers and 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string | yes |  | The title's folder, executable, *_Data folder, UnityPlayer.dll, GameAssembly.dll or global-metadata.dat; an extracted APK folder or a macOS / iOS .app. |
-| `detectItEasy` | boolean |  | `false` | Also run Detect It Easy (diec, NDM_DIE or PATH) on the main binaries; launches it, about a second per file. |
+| `detectItEasy` | boolean |  | `false` | Also run Detect It Easy (diec, CORVUS_DIE or PATH) on the main binaries; launches it, about a second per file. |
 
 Structured output: `input`, `gameDirectory`, `dataDirectory`, `executable`, `company`, `product`, `platform`, `architecture`, `architectureSource`, `engine`, `backend`, `markers`, `folders`, `nextSteps`, `notes`, `elapsedSeconds`.
 
@@ -1253,7 +1253,7 @@ Targets of call and tail-jump sites in native code (x86 / x64 / ARM), each with 
 | `engine` | string |  |  | auto (default): a finished IDA / Ghidra analysis of this session, else ours (the built-in index); never starts one. ida / ghidra: that engine, started when needed. Values: auto, ours, ida, ghidra. |
 | `offset` | integer |  | `0` | Index of the first site. |
 | `limit` | integer |  | `100` | Max sites (max 1000). |
-| `timeoutSeconds` | integer |  |  | Seconds per engine request (default NDM_ENGINE_REQUEST_TIMEOUT); scans then answer partial. |
+| `timeoutSeconds` | integer |  |  | Seconds per engine request (default CORVUS_ENGINE_REQUEST_TIMEOUT); scans then answer partial. |
 
 Structured output: `image`, `scope`, `engine`, `total`, `byStatus`, `byMechanism`, `topUnresolved`, `offset`, `truncated`, `items`, `notes`.
 
@@ -1366,7 +1366,7 @@ C pseudocode of the native function containing an address, through IDA (Hex-Rays
 | `perFunctionSeconds` | integer |  | `60` | With functions: seconds per function (1-600). |
 | `maxFunctions` | integer |  | `32` | With functions: most decompiled (1-200); the rest get a follow-up call. |
 | `refs` | boolean |  | `false` | With address: a footer listing the globals, functions, strings and imports used. |
-| `timeoutSeconds` | integer |  |  | Seconds per engine request (1-600; default NDM_ENGINE_REQUEST_TIMEOUT); Ghidra retries once with 4x. |
+| `timeoutSeconds` | integer |  |  | Seconds per engine request (1-600; default CORVUS_ENGINE_REQUEST_TIMEOUT); Ghidra retries once with 4x. |
 | `callersOf` | string |  |  | Instead of address: decompile the functions calling this one (engine references). |
 
 Structured output: `image`, `engine`, `items`, `total`, `succeeded`, `failed`, `skipped`, `next`.
@@ -2002,7 +2002,7 @@ Set how an instruction operand displays in the engine's disassembly and, where t
 
 **Run IDAPython on a native image** (destructive, open-world, long-running)
 
-Run Python in the IDA worker holding a native image's database (idalib): IDAPython modules imported, base is the image base, globals persist between calls (reset=true clears them); returns a final expression's value, stdout and stderr. Off unless the server runs with --ida-scripting (NDM_IDA_SCRIPTING=1): the code has the server's rights and can destroy the database. Changes are not journaled: a worker restart loses them unless persist=true saves the database.
+Run Python in the IDA worker holding a native image's database (idalib): IDAPython modules imported, base is the image base, globals persist between calls (reset=true clears them); returns a final expression's value, stdout and stderr. Off unless the server runs with --ida-scripting (CORVUS_IDA_SCRIPTING=1): the code has the server's rights and can destroy the database. Changes are not journaled: a worker restart loses them unless persist=true saves the database.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2018,7 +2018,7 @@ Run Python in the IDA worker holding a native image's database (idalib): IDAPyth
 
 **Run a Ghidra script on a native image** (destructive, open-world, long-running)
 
-Run Java in the Ghidra worker holding a native image's program: a GhidraScript class, or run()'s body with imports first (currentProgram, println, FlatProgramAPI). One transaction, committed when the script returns, then saved. Off unless the server runs with --ghidra-scripting (NDM_GHIDRA_SCRIPTING=1): the code has the server's rights. Changes are not in the annotation sidecar.
+Run Java in the Ghidra worker holding a native image's program: a GhidraScript class, or run()'s body with imports first (currentProgram, println, FlatProgramAPI). One transaction, committed when the script returns, then saved. Off unless the server runs with --ghidra-scripting (CORVUS_GHIDRA_SCRIPTING=1): the code has the server's rights. Changes are not in the annotation sidecar.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2137,7 +2137,7 @@ Smali of a method or class of an Android package's DEX code, in baksmali's layou
 
 **Decompile Java** (read-only, idempotent, open-world, long-running)
 
-Java source of a class or one method of an Android package through JADX (NDM_JAVA_DECOMPILER, JDK 17+; one session per package kept loaded). Without JADX: provider_unavailable; disassemble_dex gives smali.
+Java source of a class or one method of an Android package through JADX (CORVUS_JAVA_DECOMPILER, JDK 17+; one session per package kept loaded). Without JADX: provider_unavailable; disassemble_dex gives smali.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2215,7 +2215,7 @@ Structured output: `items`, `offset`, `total`, `truncated`, `libraries`, `notes`
 
 **List Android devices** (read-only, idempotent, open-world)
 
-Android devices and emulators adb sees: serial, state, product, model, transport. adb: NDM_ADB, else PATH, else the SDK's platform-tools.
+Android devices and emulators adb sees: serial, state, product, model, transport. adb: CORVUS_ADB, else PATH, else the SDK's platform-tools.
 
 No parameters.
 
@@ -2354,7 +2354,7 @@ Summary of a Windows minidump (.dmp): OS, CPU, process; the exception (code, fau
 | `threadsOffset` | integer |  | `0` | First thread listed. |
 | `threadsLimit` | integer |  | `50` | Max threads listed. |
 | `dacPath` | string |  |  | The dumped runtime's DAC (mscordaccore.dll / mscordacwks.dll) or its folder, when that runtime build is not installed here. |
-| `downloadDac` | boolean |  | `false` | Download the DAC from a symbol server when no local copy matches (network; refused under NDM_OFFLINE=1). |
+| `downloadDac` | boolean |  | `false` | Download the DAC from a symbol server when no local copy matches (network; refused under CORVUS_OFFLINE=1). |
 
 Structured output: `id`, `path`, `fileSize`, `timeUtc`, `dumpType`, `system`, `process`, `exception`, `managed`, `moduleCount`, `modulesOffset`, `modulesTruncated`, `modules`, `threadCount`, `threadsOffset`, `threadsTruncated`, `threads`, `unloadedModuleCount`, `unloadedModules`, `memory`, `handleCount`, `handleTypes`, `streams`, `comments`, `issues`, `notes`.
 

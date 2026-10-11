@@ -69,11 +69,11 @@ public static class RelayCli
         };
     }
 
-    /// <summary><c>NDM_RELAY_DIR</c>, else &lt;LocalAppData&gt;/NetDecompilerMcp/relay.</summary>
+    /// <summary><c>CORVUS_RELAY_DIR</c>, else the data folder's relay/.</summary>
     public static string DefaultState() =>
-        Environment.GetEnvironmentVariable("NDM_RELAY_DIR") is { Length: > 0 } dir
+        Environment.GetEnvironmentVariable("CORVUS_RELAY_DIR") is { Length: > 0 } dir
             ? dir
-            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), "NetDecompilerMcp", "relay");
+            : Native.Providers.DataFolder.Combine("relay");
 
     /// <summary>
     /// A registration's arguments without the relay command and its own options (what remains is the server's); the

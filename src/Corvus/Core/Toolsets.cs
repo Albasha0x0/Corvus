@@ -1,13 +1,13 @@
 namespace Corvus.Core;
 
 /// <summary>
-/// Tool families. A server registers every tool unless started with --toolsets / NDM_TOOLSETS, which lets a client with
+/// Tool families. A server registers every tool unless started with --toolsets / CORVUS_TOOLSETS, which lets a client with
 /// a small context see a smaller catalog with full schemas. Every tool is in exactly one family; session is always on.
 /// </summary>
 public static class Toolsets
 {
     public const string Option = "--toolsets";
-    public const string Variable = "NDM_TOOLSETS";
+    public const string Variable = "CORVUS_TOOLSETS";
     public const string Session = "session";
 
     /// <summary>InCore: part of the core profile (--toolsets core).</summary>
@@ -89,7 +89,7 @@ public static class Toolsets
     }
 
     public const string ToolsFileOption = "--tools-file";
-    public const string ToolsFileVariable = "NDM_TOOLS_FILE";
+    public const string ToolsFileVariable = "CORVUS_TOOLS_FILE";
 
     /// <summary>
     /// Tool lists a --tools-file value names instead of a file. readonly: the analysis tools that change nothing loaded and write

@@ -131,8 +131,8 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         var ida = await rig.Session("ida");
         var magic = await Instruction(ida, fn, "10Bh"); // mov ecx, 10Bh: the PE32 optional header magic
         Assert.Contains("267", await rig.Types.SetNativeOperand(path, Rva(magic), 1, "dec"));
-        await rig.Types.DeclareNativeTypes(path, "enum NdmMagic { NDM_PE32 = 0x10B, NDM_PE64 = 0x20B };");
-        Assert.Contains("NDM_PE32", await rig.Types.SetNativeOperand(path, Rva(magic), 1, "enum", type: "NdmMagic"));
+        await rig.Types.DeclareNativeTypes(path, "enum NdmMagic { CORVUS_PE32 = 0x10B, CORVUS_PE64 = 0x20B };");
+        Assert.Contains("CORVUS_PE32", await rig.Types.SetNativeOperand(path, Rva(magic), 1, "enum", type: "NdmMagic"));
         var load = await Instruction(ida, fn, "[rdi+18h]");
         await rig.Types.DeclareNativeTypes(path, "struct NdmHdr { char pad[0x18]; unsigned short Magic; };");
         Assert.Contains("NdmHdr.Magic", await rig.Types.SetNativeOperand(path, Rva(load), 1, "struct", type: "NdmHdr"));
@@ -144,7 +144,7 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         Assert.Equal(2, rig.Code.Annotations(rig.Native).UserTypes.Operands.Count);
 
         await WorkerKill.KillAsync(ida);
-        Assert.Contains("NDM_PE32", await TextAt(ida, fn, magic));
+        Assert.Contains("CORVUS_PE32", await TextAt(ida, fn, magic));
 
         Restart();
         var fresh = Setup("ida-p");
@@ -262,19 +262,19 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         var ghidra = await rig.Session("ghidra");
         var magic = await Instruction(ghidra, fn, "0x10b");
         Assert.Contains("267", await rig.Types.SetNativeOperand(path, Rva(magic), 1, "dec", engine: "ghidra"));
-        await rig.Types.DeclareNativeTypes(path, "enum NdmMagic { NDM_PE32 = 0x10B, NDM_PE64 = 0x20B };", engine: "ghidra");
+        await rig.Types.DeclareNativeTypes(path, "enum NdmMagic { CORVUS_PE32 = 0x10B, CORVUS_PE64 = 0x20B };", engine: "ghidra");
         var shown = await rig.Types.SetNativeOperand(path, Rva(magic), 1, "enum", type: "NdmMagic", engine: "ghidra");
         output.WriteLine(shown);
-        Assert.Contains("NDM_PE32", shown);
+        Assert.Contains("CORVUS_PE32", shown);
         var pseudocode = await rig.Analysis.DecompileNative(path, Function, engine: "ghidra");
         output.WriteLine(pseudocode);
-        Assert.Contains("!= NDM_PE32", pseudocode);
+        Assert.Contains("!= CORVUS_PE32", pseudocode);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeOperand(path, Rva(magic), 1, "struct", type: "NdmMagic", engine: "ghidra"))).Code);
 
         Restart();
         var fresh = Setup("ghidra-p");
         await fresh.Types.GetNativeFrame(path, Function, engine: "ghidra");
-        Assert.Contains("NDM_PE32", await TextAt(await fresh.Session("ghidra"), fn, magic));
+        Assert.Contains("CORVUS_PE32", await TextAt(await fresh.Session("ghidra"), fn, magic));
     }
 
     [GhidraFact]

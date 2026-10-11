@@ -40,7 +40,7 @@ public sealed record PulledPackage(string Serial, string Package, IReadOnlyList<
     [property: Description("The base APK read with the package reader: manifest facts, runtimes, signature.")] AndroidPackageFacts? Summary);
 
 /// <summary>
-/// Android devices through adb (NDM_ADB, else PATH, else the SDK's platform-tools), one short-lived call per operation with the
+/// Android devices through adb (CORVUS_ADB, else PATH, else the SDK's platform-tools), one short-lived call per operation with the
 /// device serial pinned. Reading is always allowed; installing and uninstalling need the server option --allow-device-changes.
 /// </summary>
 public sealed partial class DeviceService(ServerOptions options)

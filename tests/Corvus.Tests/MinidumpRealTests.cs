@@ -399,7 +399,7 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
 
     private static string? Cdb()
     {
-        if (Environment.GetEnvironmentVariable("NDM_CDB") is { Length: > 0 } custom && File.Exists(custom)) return custom;
+        if (Environment.GetEnvironmentVariable("CORVUS_CDB") is { Length: > 0 } custom && File.Exists(custom)) return custom;
         var pf86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
         if (pf86.Length == 0) return null;
         var path = Path.Combine(pf86, "Windows Kits", "10", "Debuggers", "x64", "cdb.exe");

@@ -40,7 +40,7 @@ public sealed class GhidraCacheFixture : IDisposable
 }
 
 /// <summary>
-/// The Ghidra provider against a real Ghidra (NDM_GHIDRA_DIR) and JDK, on copies of system DLLs; skipped otherwise.
+/// The Ghidra provider against a real Ghidra (CORVUS_GHIDRA_DIR) and JDK, on copies of system DLLs; skipped otherwise.
 /// One class so tests sharing a cache entry never run in parallel; tests that write or need a cold cache use an
 /// isolated provider.
 /// </summary>
@@ -627,7 +627,7 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
     }
 }
 
-/// <summary>Runs when Ghidra (NDM_GHIDRA_DIR or GHIDRA_INSTALL_DIR) and a JDK for it are present, on Windows (system DLL samples).</summary>
+/// <summary>Runs when Ghidra (CORVUS_GHIDRA_DIR or GHIDRA_INSTALL_DIR) and a JDK for it are present, on Windows (system DLL samples).</summary>
 public sealed class GhidraFactAttribute : FactAttribute
 {
     private static readonly Lazy<string?> SkipReason = new(() =>

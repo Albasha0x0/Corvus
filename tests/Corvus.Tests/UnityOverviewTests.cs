@@ -202,7 +202,7 @@ public sealed class UnityOverviewTests : IDisposable
 
 /// <summary>
 /// unity_overview over the Unity titles installed on this machine: Steam library folders (from the Steam registry key) and
-/// NDM_UNITY_TITLES (';'-separated game folders). Prints per-title results and timings; each overview must finish in seconds.
+/// CORVUS_UNITY_TITLES (';'-separated game folders). Prints per-title results and timings; each overview must finish in seconds.
 /// </summary>
 [Collection(SweepCollection.Name)]
 [Trait("Speed", "Slow")]
@@ -212,14 +212,14 @@ public sealed class UnityOverviewRealTests(ITestOutputHelper output)
     public void Installed_titles_are_overviewed_in_seconds()
     {
         var titles = Titles().Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (titles.Count == 0) { output.WriteLine("No Unity titles found (Steam libraries, NDM_UNITY_TITLES)."); return; }
+        if (titles.Count == 0) { output.WriteLine("No Unity titles found (Steam libraries, CORVUS_UNITY_TITLES)."); return; }
         int unity = 0;
         var total = Stopwatch.StartNew();
         foreach (var title in titles)
         {
             var watch = Stopwatch.StartNew();
             UnityOverview.Report r;
-            try { r = UnityOverview.Inspect(title, Environment.GetEnvironmentVariable("NDM_DIE") != null, default); }
+            try { r = UnityOverview.Inspect(title, Environment.GetEnvironmentVariable("CORVUS_DIE") != null, default); }
             catch (ToolError e) when (e.Code == ErrorCode.Unsupported) { continue; }
             watch.Stop();
             unity++;
@@ -241,7 +241,7 @@ public sealed class UnityOverviewRealTests(ITestOutputHelper output)
 
     private static IEnumerable<string> Titles()
     {
-        if (Environment.GetEnvironmentVariable("NDM_UNITY_TITLES") is { Length: > 0 } list)
+        if (Environment.GetEnvironmentVariable("CORVUS_UNITY_TITLES") is { Length: > 0 } list)
             foreach (var t in list.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                 if (Directory.Exists(t) || File.Exists(t)) yield return t;
         if (!OperatingSystem.IsWindows()) yield break;

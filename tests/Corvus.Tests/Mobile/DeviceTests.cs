@@ -11,7 +11,7 @@ public sealed class DeviceTests : IDisposable
     private readonly FakeTool _fake = FakeDevice.Configure(new FakeTool(), AndroidSamples.Apk());
     private readonly EnvironmentScope _env;
 
-    public DeviceTests() => _env = new EnvironmentScope().Set("NDM_ADB", FakeTool.Executable);
+    public DeviceTests() => _env = new EnvironmentScope().Set("CORVUS_ADB", FakeTool.Executable);
 
     public void Dispose()
     {
@@ -128,10 +128,10 @@ public sealed class DeviceTests : IDisposable
     [Fact]
     public void WithoutAdb_ProviderUnavailableNamingTheVariable()
     {
-        using var env = new EnvironmentScope().Set("NDM_ADB", _dir.File("none.exe"));
+        using var env = new EnvironmentScope().Set("CORVUS_ADB", _dir.File("none.exe"));
         var error = Assert.Throws<ToolError>(() => Service().Devices(default));
         Assert.Equal(ErrorCode.ProviderUnavailable, error.Code);
-        Assert.Contains("NDM_ADB", error.Remediation);
+        Assert.Contains("CORVUS_ADB", error.Remediation);
         Assert.True(ServerOptions.Parse([ServerOptions.AllowDeviceChangesOption]).AllowDeviceChanges);
         Assert.False(new ServerOptions().AllowDeviceChanges);
     }

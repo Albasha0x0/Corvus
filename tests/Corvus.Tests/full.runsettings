@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- NDM_ALL_TESTS=1: the slow sweeps spread their own work over every processor, so only a few test classes run at once;
+<!-- CORVUS_ALL_TESTS=1: the slow sweeps spread their own work over every processor, so only a few test classes run at once;
      otherwise the per-call time limits of the contract sweep and the native sweeps measure a starved machine. -->
 <RunSettings>
   <xUnit>

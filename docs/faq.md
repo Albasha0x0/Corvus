@@ -2,7 +2,7 @@
 
 **Does it upload my files or send anything over the network?**
 No file is uploaded. The server makes three kinds of requests: a .NET reference pack from nuget.org when code targets
-a .NET version that is not installed (`NDM_OFFLINE=1` turns this off), a PDB from a symbol server when you call
+a .NET version that is not installed (`CORVUS_OFFLINE=1` turns this off), a PDB from a symbol server when you call
 `load_pdb download=true`, and the release download of the install scripts and `update`. Everything else runs locally.
 
 **Does it run the program I analyze?**
@@ -32,7 +32,7 @@ Yes. Every tool runs from a terminal: `NetDecompilerMcp decompile_member --load 
 `batch` runs several calls in one session ([cli.md](cli.md)).
 
 **Can I install without internet access on the target machine?**
-Yes: copy a release archive and `SHA256SUMS`, then run the install script with `NDM_ARCHIVE` and `NDM_SHA256SUMS`
+Yes: copy a release archive and `SHA256SUMS`, then run the install script with `CORVUS_ARCHIVE` and `CORVUS_SHA256SUMS`
 ([installation.md](installation.md)).
 
 **Does it handle Il2Cpp and Unity builds?**

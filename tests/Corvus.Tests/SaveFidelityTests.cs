@@ -294,7 +294,7 @@ public sealed class SaveFidelityTests(ITestOutputHelper output)
     public void RandomDamageIsRefusedOrSavedWithEverythingReported()
     {
         var image = SaveFidelity.Build(Enum.GetValues<InvalidShape>());
-        int count = int.TryParse(Environment.GetEnvironmentVariable("NDM_FUZZ_COUNT"), out int n) ? n : 60;
+        int count = int.TryParse(Environment.GetEnvironmentVariable("CORVUS_FUZZ_COUNT"), out int n) ? n : 60;
         var outcomes = new Dictionary<string, int>();
         for (int seed = 1; seed <= count; seed++)
         {
@@ -330,12 +330,12 @@ public sealed class SaveFidelityTests(ITestOutputHelper output)
         while (!File.Exists(Path.Combine(root, "Corvus.slnx"))) root = Path.GetDirectoryName(root) ?? throw new InvalidOperationException("repository root not found");
         var path = Path.Combine(root, "docs", "saving.md");
         var expected = SaveManifest.Markdown().ReplaceLineEndings("\n");
-        if (Environment.GetEnvironmentVariable("NDM_UPDATE_DOCS") == "1")
+        if (Environment.GetEnvironmentVariable("CORVUS_UPDATE_DOCS") == "1")
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllText(path, expected);
         }
         Assert.True(File.Exists(path) && File.ReadAllText(path).ReplaceLineEndings("\n") == expected,
-            "docs/saving.md is out of date: run the tests once with NDM_UPDATE_DOCS=1");
+            "docs/saving.md is out of date: run the tests once with CORVUS_UPDATE_DOCS=1");
     }
 }

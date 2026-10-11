@@ -656,7 +656,7 @@ public sealed partial class DevRelay : IAsyncDisposable
     private async Task<int> UnsavedEditsAsync(Child child, JsonObject? meta)
     {
         JsonObject reply;
-        try { reply = await RequestAsync(child, "resources/read", WithMeta(new JsonObject { ["uri"] = "netdecomp://assemblies" }, meta)); }
+        try { reply = await RequestAsync(child, "resources/read", WithMeta(new JsonObject { ["uri"] = "corvus://assemblies" }, meta)); }
         catch (Exception ex) when (ex is TimeoutException or RelayException or IOException) { return 0; }
         int count = 0;
         foreach (var content in reply["result"]?["contents"] as JsonArray ?? [])

@@ -185,15 +185,15 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// The DAC of the dumped runtime downloaded from Microsoft's symbol server (NDM_NETWORK_TESTS=1): signature checked,
+    /// The DAC of the dumped runtime downloaded from Microsoft's symbol server (CORVUS_NETWORK_TESTS=1): signature checked,
     /// loaded, and kept in the download cache, where the next call finds it without a request.
     /// </summary>
     [Fact]
     public async Task DacIsDownloadedFromTheSymbolServerAndCached()
     {
-        if (!OperatingSystem.IsWindows() || Environment.GetEnvironmentVariable("NDM_NETWORK_TESTS") != "1") return;
+        if (!OperatingSystem.IsWindows() || Environment.GetEnvironmentVariable("CORVUS_NETWORK_TESTS") != "1") return;
         using var dir = new TempDir();
-        using var env = new EnvironmentScope().Set(Native.Pdb.PdbLocator.CacheVariable, dir.File("cache")).Set("NDM_OFFLINE", null)
+        using var env = new EnvironmentScope().Set(Native.Pdb.PdbLocator.CacheVariable, dir.File("cache")).Set("CORVUS_OFFLINE", null)
             .Set("_NT_SYMBOL_PATH", null).Set("_NT_ALT_SYMBOL_PATH", null);
         var dump = Crash(Build(dir), dir.File("mini.dmp"), 1);
         var request = new Native.Dump.Managed.DacRequest(Download: true) { DownloadOnly = true };

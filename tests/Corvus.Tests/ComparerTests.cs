@@ -48,7 +48,7 @@ public class ComparerTests(ITestOutputHelper output)
         Assert.Throws<ToolError>(() => comparer.Compare(env.Fixture, env.Fixture, default));
     }
 
-    /// <summary>Compares NDM_COMPARE_ASSEMBLY (default: largest shared app assembly) between two real builds.</summary>
+    /// <summary>Compares CORVUS_COMPARE_ASSEMBLY (default: largest shared app assembly) between two real builds.</summary>
     [RequiresRealDataFact(RealData.CompareOldDir, RealData.CompareNewDir)]
     public void RealBuildUpdate()
     {

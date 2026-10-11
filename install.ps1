@@ -7,8 +7,8 @@
 #   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Albasha0x0/NetDecompilerMcp/main/install.ps1))) -Uninstall
 # -Version installs that release (pinning or rolling back), -DryRun shows what would be installed and registered and
 # changes nothing, -Yes registers new clients without asking, -Client registers only the named clients.
-# Environment: NDM_VERSION (as -Version), NDM_YES=1 (as -Yes), NDM_REPO (owner/name), NDM_ARCHIVE (local release
-# archive), NDM_SHA256SUMS (manifest to verify NDM_ARCHIVE against; without it a local archive is trusted as is),
+# Environment: CORVUS_VERSION (as -Version), CORVUS_YES=1 (as -Yes), CORVUS_REPO (owner/name), CORVUS_ARCHIVE (local release
+# archive), CORVUS_SHA256SUMS (manifest to verify CORVUS_ARCHIVE against; without it a local archive is trusted as is),
 # GITHUB_TOKEN (private repositories).
 # Downloads are verified against the release's SHA256SUMS; a missing manifest or a mismatch stops the install.
 param([switch]$Uninstall, [switch]$PurgeData, [string]$Version, [switch]$DryRun, [switch]$Yes, [string[]]$Client)
@@ -17,11 +17,11 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-$repo = if ($env:NDM_REPO) { $env:NDM_REPO } else { 'Albasha0x0/NetDecompilerMcp' }
+$repo = if ($env:CORVUS_REPO) { $env:CORVUS_REPO } else { 'Albasha0x0/NetDecompilerMcp' }
 $root = Join-Path $env:LOCALAPPDATA 'NetDecompilerMcp'
 $current = Join-Path $root 'current'
 $exe = Join-Path $current 'corvus.exe'
-if (-not $Version) { $Version = $env:NDM_VERSION }
+if (-not $Version) { $Version = $env:CORVUS_VERSION }
 if ($Version) { $Version = $Version.TrimStart('v') }
 
 # Options passed on to the program's install (or uninstall) command.
@@ -51,10 +51,10 @@ $release = if ($Version) { "v$Version" } else { 'the latest release' }
 function Test-PlansSetup([string] $v) { [version](($v -split '[+-]')[0]) -ge [version]'1.2.0' }
 
 try {
-    if ($env:NDM_ARCHIVE) {
-        Copy-Item $env:NDM_ARCHIVE $archive
-        if ($env:NDM_SHA256SUMS) { Copy-Item $env:NDM_SHA256SUMS $sums; $source = $env:NDM_SHA256SUMS } else { $sums = $null; $source = 'none (local archive)' }
-        $release = $env:NDM_ARCHIVE
+    if ($env:CORVUS_ARCHIVE) {
+        Copy-Item $env:CORVUS_ARCHIVE $archive
+        if ($env:CORVUS_SHA256SUMS) { Copy-Item $env:CORVUS_SHA256SUMS $sums; $source = $env:CORVUS_SHA256SUMS } else { $sums = $null; $source = 'none (local archive)' }
+        $release = $env:CORVUS_ARCHIVE
     } elseif ($env:GITHUB_TOKEN) {
         $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; 'User-Agent' = 'NetDecompilerMcp-installer' }
         $api = if ($Version) { "https://api.github.com/repos/$repo/releases/tags/v$Version" } else { "https://api.github.com/repos/$repo/releases/latest" }
