@@ -83,6 +83,30 @@ public sealed class EngineControlRealTests(ITestOutputHelper output) : IDisposab
         }
     }
 
+    /// <summary>A Ghidra open whose analysis budget runs out: lookups that fail say so and name reanalyze_native, which completes the analysis.</summary>
+    [GhidraFact]
+    public async Task A_partial_Ghidra_analysis_points_at_reanalysis_which_completes_it()
+    {
+        var dir = Directory.CreateDirectory(_dir.File("partial")).FullName;
+        var copy = Path.Combine(dir, "dbghelp.dll");
+        File.Copy(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "dbghelp.dll"), copy, overwrite: true);
+        using var provider = new Native.Providers.Ghidra.GhidraProvider(new Native.Providers.Ghidra.GhidraProviderOptions { CacheRoot = _dir.File("partial-cache") });
+        await using var session = (Native.Providers.Ghidra.GhidraSession)await provider.OpenAsync(copy, null,
+            new NativeOpenOptions { Symbols = SymbolMode.Off, OpenTimeout = TimeSpan.FromSeconds(30) });
+        Assert.False(session.AnalysisComplete);
+        var e = await Assert.ThrowsAsync<ToolError>(() => session.DecompileAsync(0x10)); // the headers: in no function
+        Assert.Equal(ErrorCode.NotFound, e.Code);
+        Assert.Contains("is partial (the open's budget ran out): reanalyze_native image=dbghelp.dll engine=ghidra completes it", e.Remediation);
+        var clock = Stopwatch.StartNew();
+        var r = await EngineControl.Of(session)!.ReanalyzeAsync([], null, null, 900);
+        output.WriteLine($"resumed in {clock.Elapsed.TotalSeconds:0.0} s: complete {r.Complete}, functions {r.FunctionsBefore} -> {r.FunctionsAfter}");
+        Assert.True(r.Complete);
+        Assert.True(session.AnalysisComplete);
+        Assert.True(r.FunctionsAfter >= r.FunctionsBefore);
+        e = await Assert.ThrowsAsync<ToolError>(() => session.DecompileAsync(0x10));
+        Assert.DoesNotContain("partial", e.Remediation ?? "");
+    }
+
     [IdaFact]
     public Task Ida() => Run("ida");
 

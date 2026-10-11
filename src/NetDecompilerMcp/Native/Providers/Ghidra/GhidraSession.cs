@@ -467,6 +467,15 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     /// <summary>Size of the worker's decompiler pool: decompile requests that run at once.</summary>
     internal int DecompilerPool => provider.Options.Decompilers;
 
+    /// <summary>A lookup that failed on a project whose analysis was cut short may succeed once the analysis is complete: the Next line says so.</summary>
+    protected override ToolError Explain(ToolError error)
+    {
+        if (AnalysisComplete || error.Code is not (ErrorCode.NotFound or ErrorCode.Failed or ErrorCode.Unsupported)) return error;
+        var next = $"the Ghidra analysis of {Path.GetFileName(ImagePath)} is partial (the open's budget ran out): reanalyze_native image={Path.GetFileName(ImagePath)} " +
+                   "engine=ghidra completes it";
+        return new ToolError(error.Code, error.Message, error.Remediation is { Length: > 0 } r ? $"{r}; or {next}" : next) { Details = error.Details, Partial = error.Partial };
+    }
+
     /// <summary>After a reanalysis: whether the saved project now holds a complete analysis, and its function count.</summary>
     internal void Reanalyzed(bool complete, int functions)
     {

@@ -220,6 +220,9 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         w.Dispose();
     }
 
+    /// <summary>An engine error with what the session knows added (a partial analysis); the error itself when there is nothing to add.</summary>
+    protected virtual ToolError Explain(ToolError error) => error;
+
     /// <summary>Runs one request, restarting the worker first when it is gone.</summary>
     internal async Task<JsonElement> CallAsync(string op, JsonObject args, CancellationToken cancellationToken, bool journal = false, bool saves = false,
         TimeSpan? timeout = null)
@@ -283,6 +286,10 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
             {
                 KillWorker(worker, "cancelled");
                 throw;
+            }
+            catch (ToolError e) when (Explain(e) is { } explained && explained != e)
+            {
+                throw explained;
             }
         }
         finally
