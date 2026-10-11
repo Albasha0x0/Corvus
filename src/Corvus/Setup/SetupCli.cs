@@ -226,6 +226,8 @@ internal static class SetupCli
         bool check = dryRun ? a.Has("--check") : !a.Has("--no-check");
         // The install scripts plan with a staged copy, for the program they are about to put in place.
         if (a.Value("--command") is { } command) launch = new ServerLaunch(Path.GetFullPath(command), []);
+        // Old entries are re-staged from the program itself: their relays keep their own target folders.
+        var program = launch;
         if (DevReload(output, env, launch, a, dryRun) is not { } relayed) return 2;
         launch = relayed;
         var text = json ? TextWriter.Null : output;
@@ -272,7 +274,7 @@ internal static class SetupCli
             SetupPlan.Write(text, env, rows);
             if (dryRun)
             {
-                var renames = RenameLegacy(text, env, legacy, launch, dryRun: true);
+                var renames = RenameLegacy(text, env, legacy, program, dryRun: true);
                 report.Clients.AddRange(renames);
                 Skills(text, env, report, [.. rows, .. renames], a.Has("--skill"), dryRun: true);
                 if (pending.Any(r => r.NeedsConsent)) text.WriteLine("New clients are added after confirmation, or with --yes / --all-detected.");
@@ -315,7 +317,7 @@ internal static class SetupCli
             var mark = row.Action == SetupAction.Blocked ? "!! " : row.Action == SetupAction.Skip ? "-- " : "ok ";
             text.WriteLine($"  {mark} {row.Name,-20} {row.Message,-20} {SetupPlan.Short(env, row.ConfigPath)}");
         }
-        var renamed = RenameLegacy(text, env, legacy, launch, dryRun: false);
+        var renamed = RenameLegacy(text, env, legacy, program, dryRun: false);
         report.Clients.AddRange(renamed);
         failed += renamed.Count(r => r.Action == SetupAction.Blocked);
         changed += renamed.Count(r => r.Action == SetupAction.Rename);

@@ -171,6 +171,31 @@ public sealed class RenameMigrationTests : IDisposable
     }
 
     [Fact]
+    public void An_old_relay_entry_is_kept_by_an_install_with_dev_reload_too()
+    {
+        var program = _home.Path("publish", "corvus.exe");
+        _home.Write("apphost", "publish", "corvus.exe");
+        _home.Write("server", "publish", "corvus.dll");
+        var publish = _home.Path("publish");
+        var other = _home.Path("other");
+        Directory.CreateDirectory(other);
+        var oldHost = _home.Path("AppData", "Local", "NetDecompilerMcp", "relay", "host", "1.1.0-abc", "NetDecompilerMcp.exe");
+        _home.Write($$"""{ "mcpServers": { "net-decompiler": { "command": {{JsonSerializer.Serialize(oldHost)}}, "args": ["relay", "--target", {{JsonSerializer.Serialize(other)}}] } } }""", ".cursor", "mcp.json");
+
+        var output = new StringWriter();
+        Assert.Equal(0, SetupCli.TryRun(["install", "--no-check", "--dev-reload", publish, "--dry-run"], output, _home.Env(), new ServerLaunch(program, [])));
+        Assert.DoesNotContain("relay not kept", output.ToString());
+        Assert.Contains("would rename from net-decompiler", output.ToString());
+
+        output = new StringWriter();
+        Assert.Equal(0, SetupCli.TryRun(["install", "--no-check", "--dev-reload", publish], output, _home.Env(), new ServerLaunch(program, [])));
+        Assert.DoesNotContain("relay not kept", output.ToString());
+        var entry = ReadJson(_home.Path(".cursor", "mcp.json"))["mcpServers"]!["corvus"]!;
+        Assert.StartsWith(_home.Path("AppData", "Local", "Corvus", "relay", "host"), entry["command"]!.GetValue<string>());
+        Assert.Equal(["relay", "--target", other], entry["args"]!.AsArray().Select(a => a!.GetValue<string>()));
+    }
+
+    [Fact]
     public void A_dry_run_lists_the_renames_and_writes_nothing()
     {
         _home.Write("""{ "mcpServers": { "net-decompiler": { "command": "old" } } }""", ".cursor", "mcp.json");
