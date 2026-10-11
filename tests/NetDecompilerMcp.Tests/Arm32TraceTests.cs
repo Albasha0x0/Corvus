@@ -15,6 +15,18 @@ public class Arm32TraceTests
 
     private sealed record Sample(NativeCodeIndex Index, Dictionary<string, uint> At);
 
+    [Fact]
+    public void Cycle_check_walks_shared_merge_inputs_once()
+    {
+        // 200 levels of merges whose two inputs are the same value: 2^200 paths for a plain walk
+        var v = new A32Val(A64Kind.Const, 0, "") { Num = 1 };
+        for (int i = 0; i < 200; i++) v = new A32Val(A64Kind.Merge, 0, "") { Inputs = [v, v with { Why = "b" }] };
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        Assert.False(Arm32Resolver.ContainsCycle(v, new(ReferenceEqualityComparer.Instance)));
+        Assert.True(Arm32Resolver.ContainsCycle(new A32Val(A64Kind.Merge, 0, "") { Inputs = [v, new A32Val(A64Kind.Cycle, 0, "")] }, new(ReferenceEqualityComparer.Instance)));
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5));
+    }
+
     /// <summary>
     /// main: worker("Hello", 0x10); other: worker("World", 0x20). worker(name, n): spills name to the stack, reloads it and
     /// calls fopen(name, "Hello") through its GOT slot; returns 7. store: callback = target (a Thumb pointer). dispatch:

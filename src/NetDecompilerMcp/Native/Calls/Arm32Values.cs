@@ -29,6 +29,7 @@ internal sealed class Arm32Resolver(Arm32Trace host, A32Function code)
     public const int MaxPaths = 16;
     private const int Pc = A32Function.Pc, Sp = A32Function.Sp;
     private readonly Dictionary<(A32Loc, int), A32Val> _atStart = [];
+    private readonly HashSet<A32Val> _acyclic = new(ReferenceEqualityComparer.Instance);
     private readonly HashSet<(A32Loc, int)> _open = [];
     public int Budget { get; init; } = 6000;
     public int Steps { get; private set; }
@@ -89,11 +90,21 @@ internal sealed class Arm32Resolver(Arm32Trace host, A32Function code)
             _ => new A32Val(A64Kind.Merge, code.Blocks[block].FirstOrDefault()?.Rva ?? 0, $"{values.Count} paths meet at {host.Va(code.Graph.Blocks[block].Start)}")
                 { Inputs = [.. values], Truncated = truncated },
         };
-        if (!ContainsCycle(result)) _atStart[key] = result;
+        if (!ContainsCycle(result, _acyclic)) _atStart[key] = result;
         return result;
     }
 
-    private static bool ContainsCycle(A32Val v) => v.Kind == A64Kind.Cycle || v.Inputs?.Any(ContainsCycle) == true;
+    /// <summary>Whether a cycle value is among <paramref name="v"/>'s inputs, each shared merge input walked once (a plain walk is
+    /// exponential in the merge depth).</summary>
+    internal static bool ContainsCycle(A32Val v, HashSet<A32Val> acyclic)
+    {
+        if (v.Kind == A64Kind.Cycle) return true;
+        if (v.Inputs == null || acyclic.Contains(v)) return false;
+        foreach (var input in v.Inputs)
+            if (ContainsCycle(input, acyclic)) return true;
+        acyclic.Add(v);
+        return false;
+    }
 
     private A32Val Incoming(A32Loc loc)
     {
