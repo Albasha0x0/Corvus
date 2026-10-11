@@ -53,7 +53,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         "Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them).";
 
     [McpServerTool(Name = "get_pe_info", Title = "Native image overview", UseStructuredContent = true, OutputSchemaType = typeof(PeSummary))]
-    [Description("Overview of a native image. PE: machine, kind, subsystem, image base, entry point, timestamps, linker, sections (with flags and entropy), " +
+    [Description("Overview of a native image. PE: machine, kind, subsystem, image base, entry point, timestamps, linker, sections (with flags and entropy), packers and protectors, " +
                  "security mitigations (ASLR, DEP, CFG, SafeSEH, GS cookie, CET...), import/export counts, TLS callbacks, debug info (PDB path and GUID), " +
                  "load config, version resource, manifest, rich header (toolchain), checksum, overlay, Authenticode signature, and anything malformed. " +
                  "ELF: program headers, soname, NDK note, build id, relocations, hardening. Mach-O: slice, segments, libraries, fixups, code signature, " +
@@ -106,6 +106,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                           $"{Access(s.Access)} entropy {Entropy(pe, layout):0.00}" + (layout.CharacteristicNames.Count > 0 ? $"  [{string.Join(", ", layout.CharacteristicNames)}]" : ""));
         }
 
+        PackerLines(sb, pe, pe.FileBytes.Span);
         sb.AppendLine($"Imports: {Plural(pe.ImportModules.Count, "module")}, {Plural(pe.ImportModules.Sum(i => i.Functions.Count), "function")}" +
                       (pe.DelayImportModules.Count > 0 ? $"; delay-loaded: {Plural(pe.DelayImportModules.Count, "module")}, {Plural(pe.DelayImportModules.Sum(i => i.Functions.Count), "function")}" : "") +
                       (pe.BoundImports.Count > 0 ? $"; {Plural(pe.BoundImports.Count, "bound module")}" : "") + " (list_imports)");

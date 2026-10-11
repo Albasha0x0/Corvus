@@ -35,6 +35,7 @@ public sealed partial class NativeTools
         foreach (var s in image.Sections)
             sb.AppendLine($"  {s.Name,-20} rva 0x{s.Rva:X8} size 0x{s.VirtualSize:X8} file 0x{s.RawOffset:X8}+0x{s.RawSize:X} {Access(s.Access)} " +
                           $"entropy {FileEntropy(file, s):0.00}" + (SectionFlags(image, s) is { Count: > 0 } f ? $"  [{string.Join(", ", f)}]" : ""));
+        PackerLines(sb, image, file);
         if (image.Dependencies.Count > 0)
             sb.AppendLine($"Dependencies ({image.Dependencies.Count}): {string.Join(", ", image.Dependencies.Take(64))}" + (image.Dependencies.Count > 64 ? ", …" : ""));
         sb.AppendLine($"Imports: {Plural(image.Imports.Count, "symbol")} from {Plural(image.Imports.Select(i => i.Module).Distinct().Count(), "module")}" +
@@ -56,6 +57,13 @@ public sealed partial class NativeTools
             foreach (var issue in image.Issues.Take(50))
                 sb.AppendLine($"  {issue.Area}: {issue.Message}" + (issue.FileOffset is { } fo ? $" (file 0x{fo:X})" : ""));
         }
+    }
+
+    /// <summary>Packers and protectors the image shows signs of (detection only).</summary>
+    private static void PackerLines(StringBuilder sb, INativeImage image, ReadOnlySpan<byte> file)
+    {
+        foreach (var p in PackerDetection.Detect(image, file))
+            sb.AppendLine(p.Kind == "suspicious" ? $"Possibly packed: {p.Evidence}" : $"Packed: {p.Name} ({p.Kind}): {p.Evidence}");
     }
 
     private static void GoLine(StringBuilder sb, INativeImage image)
