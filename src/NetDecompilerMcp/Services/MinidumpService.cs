@@ -13,7 +13,7 @@ namespace NetDecompilerMcp.Services;
 /// frames. Module images come from disk when a file with the module's timestamp and size is found (its recorded path,
 /// the dump's folder, or folders the caller names), else from dump memory. Names, best first: a loaded native image's
 /// code index (user, PDB, Il2Cpp and discovered names), Il2Cpp dummy DLLs for GameAssembly.dll, then a matching local
-/// PDB and the exports. Managed code is identified, not decoded (no CLR data access). Dumps are re-read per call
+/// PDB and the exports. .NET (CLR) frames are decoded through the runtime's DAC when a verified one is available. Dumps are re-read per call
 /// (positional reads); module images and names are cached.
 /// </summary>
 public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null, NativeCodeService? code = null, Il2CppNavigator? navigator = null)
@@ -264,7 +264,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
             var region = dump.RegionAt(lookup);
             if (HostsClr(dump, out var runtime) && (region == null || region.IsExecutable))
                 return new Location(null, null, null, null, null, null, "managed",
-                    $"not in a module: JIT-compiled managed code ({runtime} is loaded); use a managed debugger or SOS (!clrstack, !ip2md) for the method");
+                    $"not in a module: JIT-compiled managed code ({runtime} is loaded); the runtime's DAC names it when one is available (open_minidump dacPath or downloadDac)");
             string what = region == null ? "not in a module" : region.IsExecutable ? "not in a module: generated or injected code (executable private memory)"
                 : "not in a module and not executable memory";
             return new Location(null, null, null, null, null, null, "unknown", what);
@@ -295,7 +295,7 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         if (mc.Image is { IsDotNet: true })
         {
             kind = "managed";
-            note = $"managed code in {module.FileName} (ReadyToRun or IL stub): use a managed debugger or SOS; find_r2r_method maps ReadyToRun code to its method";
+            note = $"managed code in {module.FileName} (ReadyToRun or IL stub): find_r2r_method maps ReadyToRun code to its method";
         }
         if (found is { } n)
         {

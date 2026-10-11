@@ -4,6 +4,7 @@ using Iced.Intel;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native;
 using NetDecompilerMcp.Native.Dump;
+using NetDecompilerMcp.Native.Dump.Managed;
 using NetDecompilerMcp.Native.Msvc;
 
 namespace NetDecompilerMcp.Services;
@@ -74,6 +75,7 @@ public sealed partial class MinidumpService
         string Path, long FileSize, string TimeUtc,
         [property: Description("MINIDUMP_TYPE flags the dump was written with.")] IReadOnlyList<string> DumpType,
         SystemSummary? System, ProcessSummary Process, ExceptionSummary? Exception,
+        [property: Description(".NET runtime state through its DAC (exception with inner chain, threads, heap); null when no managed runtime is loaded.")] ManagedSummary? Managed,
         int ModuleCount, int ModulesOffset, bool ModulesTruncated, IReadOnlyList<ModuleSummary> Modules,
         int ThreadCount, int ThreadsOffset, bool ThreadsTruncated, IReadOnlyList<ThreadSummary> Threads,
         int UnloadedModuleCount, IReadOnlyList<UnloadedModuleSummary> UnloadedModules,
@@ -88,10 +90,14 @@ public sealed partial class MinidumpService
         string? Function,
         [property: Description("user, pdb, il2cpp, discovered, export, nearest_export (a guess) or none.")] string? SymbolSource,
         string? FunctionAddress,
-        [property: Description("native, managed (JIT or ReadyToRun code: use a managed debugger / SOS), unloaded_module or unknown.")] string Kind,
-        [property: Description("How the frame was found: context, unwind_info, epilog, leaf, machine_frame, frame_pointer, or scan (heuristic).")] string Method,
+        [property: Description("native, managed (JIT or ReadyToRun code), unloaded_module or unknown.")] string Kind,
+        [property: Description("How the frame was found: context, unwind_info, epilog, leaf, machine_frame, frame_pointer, scan (heuristic), or clr (the runtime's own stack walk).")] string Method,
         [property: Description("Found by scanning the stack for a return address: may be a stale value.")] bool Heuristic,
-        string? Note);
+        string? Note,
+        [property: Description("Managed frames: the method token, for decompile_member with assembly.")] string? Token = null,
+        [property: Description("Managed frames: IL offset of the instruction, when the dump holds the JIT's IL map.")] int? IlOffset = null,
+        [property: Description("Managed frames: id of the loaded assembly that is this build (file name and MVID).")] string? Assembly = null,
+        [property: Description("Managed frames: match, mismatch (the loaded assembly of that name is another build), or unknown.")] string? BuildCheck = null);
 
     public sealed record StackReport(
         string Dump, uint ThreadId, string? ThreadName,
@@ -100,6 +106,7 @@ public sealed partial class MinidumpService
         int Total, int Offset, bool Truncated, IReadOnlyList<StackFrame> Frames,
         [property: Description("Why the walk ended: end_of_stack, max_frames, stack_not_captured, no_unwind_data, left_the_stack, ...")] string Stop,
         int HeuristicFrames,
+        [property: Description("Managed frames: decoded (through the runtime's DAC), off, or the DAC status that kept them identified only (not_found, bitness_mismatch, ...); null without a managed runtime.")] string? Managed,
         [property: Description("Where the names and unwind data of each module came from, and what was not covered.")] IReadOnlyList<string> Notes);
 
     public sealed record MemoryRead(
@@ -109,7 +116,11 @@ public sealed partial class MinidumpService
         [property: Description("Hex dump: address, 16 bytes, ASCII.")] string Hex,
         string Bytes, string? Note);
 
-    public async Task<DumpSummary> Summarize(string path, string? imageDirectories, int modulesOffset, int modulesLimit, int threadsOffset, int threadsLimit, CancellationToken ct)
+    public Task<DumpSummary> Summarize(string path, string? imageDirectories, int modulesOffset, int modulesLimit, int threadsOffset, int threadsLimit, CancellationToken ct) =>
+        Summarize(path, imageDirectories, modulesOffset, modulesLimit, threadsOffset, threadsLimit, new DacRequest(), ct);
+
+    public async Task<DumpSummary> Summarize(string path, string? imageDirectories, int modulesOffset, int modulesLimit, int threadsOffset, int threadsLimit, DacRequest dac,
+        CancellationToken ct)
     {
         using var s = Open(path, imageDirectories);
         var d = s.Dump;
@@ -133,6 +144,7 @@ public sealed partial class MinidumpService
             misc?.ProcessIntegrityLevel is { } il ? IntegrityName(il) : null, wow64, runtime);
 
         ExceptionSummary? exception = d.Exception != null ? await DescribeException(s, ct) : null;
+        var managed = await ManagedSection(s, dac, ct);
 
         var modules = d.Modules.Skip(modulesOffset).Take(modulesLimit).Select(m => ModuleRow(m, s.Directories, d.Arch)).ToList();
         var exceptionThread = d.Exception?.ThreadId;
@@ -150,7 +162,7 @@ public sealed partial class MinidumpService
         if (!d.HasMemory64 && d.Modules.Count > 0) notes.Add("Not a full-memory dump: module code is read from the image files on disk when a matching build is found.");
         var handleTypes = d.Handles.GroupBy(h => h.TypeName ?? "(unknown)").Select(g => new HandleTypeCount(g.Key, g.Count()))
             .OrderByDescending(h => h.Count).ThenBy(h => h.Type, StringComparer.Ordinal).Take(30).ToList();
-        return new DumpSummary(s.Id, d.Path, d.FileSize, d.Time.ToString("u"), d.FlagNames, system, process, exception,
+        return new DumpSummary(s.Id, d.Path, d.FileSize, d.Time.ToString("u"), d.FlagNames, system, process, exception, managed,
             d.Modules.Count, modulesOffset, modulesOffset + modules.Count < d.Modules.Count, modules,
             d.Threads.Count, threadsOffset, threadsOffset + threads.Count < d.Threads.Count, threads,
             d.UnloadedModules.Count, d.UnloadedModules.Take(50).Select(u => new UnloadedModuleSummary(Path.GetFileName(u.Path), Hex(d, u.Base), $"0x{u.Size:X}", $"0x{u.TimeDateStamp:X8}")).ToList(),
@@ -276,7 +288,11 @@ public sealed partial class MinidumpService
         return n;
     }
 
-    public async Task<StackReport> Stack(string path, string? thread, bool exceptionContext, int maxFrames, int offset, int limit, string? imageDirectories, CancellationToken ct)
+    public Task<StackReport> Stack(string path, string? thread, bool exceptionContext, int maxFrames, int offset, int limit, string? imageDirectories, CancellationToken ct) =>
+        Stack(path, thread, exceptionContext, maxFrames, offset, limit, imageDirectories, true, ct);
+
+    public async Task<StackReport> Stack(string path, string? thread, bool exceptionContext, int maxFrames, int offset, int limit, string? imageDirectories, bool managed,
+        CancellationToken ct)
     {
         using var s = Open(path, imageDirectories);
         var d = s.Dump;
@@ -295,22 +311,35 @@ public sealed partial class MinidumpService
 
         var walker = new StackWalker(d, m => s.Code(m).Image);
         var walk = await Task.Run(() => walker.Walk(ctx, t.StackStart, t.StackStart + t.StackSize, maxFrames, ct), ct);
-        var frames = await Frames(s, walk, offset, limit, ct);
         var notes = new List<string>(walk.Notes);
+        var (clrFrames, managedState) = await ManagedFrames(s, t.Id, managed, maxFrames, notes, ct);
+        var merged = Merge(walk.Frames, clrFrames);
+        if (merged.Count > maxFrames) merged.RemoveRange(maxFrames, merged.Count - maxFrames);
+        var frames = await Frames(s, merged, offset, limit, ct);
         if (d.Arch == NativeArch.X64 && d.Modules.Any(m => m.FileName.Equals("wow64cpu.dll", StringComparison.OrdinalIgnoreCase)))
             notes.Add("WoW64 process: this is the 64-bit side of the thread; its 32-bit frames are not walked.");
         notes.AddRange(ModuleNotes(s));
         return new StackReport(s.Id, t.Id, t.Name, contextKind, ArchName(d.Arch, d.SystemInfo?.ProcessorArchitecture ?? 0xFFFF), ctx.Format(),
-            walk.Frames.Count, offset, offset + frames.Count < walk.Frames.Count, frames, walk.Stop, walk.Frames.Count(f => f.Heuristic), notes);
+            merged.Count, offset, offset + frames.Count < merged.Count, frames, walk.Stop, merged.Count(f => f.Managed == null && f.Native!.Heuristic), managedState, notes);
     }
 
     /// <summary>Frames <paramref name="offset"/>.. of a walk, each named through <see cref="Locate"/>.</summary>
-    internal async Task<List<StackFrame>> Frames(Session s, WalkResult walk, int offset, int limit, CancellationToken ct)
+    internal Task<List<StackFrame>> Frames(Session s, WalkResult walk, int offset, int limit, CancellationToken ct) =>
+        Frames(s, walk.Frames.Select(f => ((WalkFrame?)f, (ManagedFrame?)null)).ToList(), offset, limit, ct);
+
+    /// <summary>Frames <paramref name="offset"/>.. of a merged walk: managed frames carry the runtime's names, the others are named through <see cref="Locate"/>.</summary>
+    private async Task<List<StackFrame>> Frames(Session s, List<(WalkFrame? Native, ManagedFrame? Managed)> walk, int offset, int limit, CancellationToken ct)
     {
         var d = s.Memory;
         var frames = new List<StackFrame>();
-        foreach (var (f, i) in walk.Frames.Select((f, i) => (f, i)).Skip(offset).Take(limit))
+        foreach (var ((native, clr), i) in walk.Select((f, i) => (f, i)).Skip(offset).Take(limit))
         {
+            if (clr != null)
+            {
+                frames.Add(ManagedStackFrame(s, i, native, clr));
+                continue;
+            }
+            var f = native!;
             var where = await Locate(s, f.Ip, f.IsReturnAddress, ct);
             string? note = string.Join("; ", new[] { f.Note, where.Note }.Where(x => !string.IsNullOrEmpty(x)));
             frames.Add(new StackFrame(i, Hex(d, f.Ip), Hex(d, f.Sp), where.Module?.FileName, where.Rva is { } r ? $"0x{r:X}" : null, where.Symbol, where.Function,

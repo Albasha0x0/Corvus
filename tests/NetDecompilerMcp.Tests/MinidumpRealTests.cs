@@ -336,7 +336,8 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
         var service = new MinidumpService();
         var summary = await service.Summarize(dump, null, 0, 500, 0, 200, default);
         Assert.Equal(".NET (CoreCLR)", summary.Process.Runtime);
-        int managed = 0, frames = 0, heuristic = 0;
+        output.WriteLine($"DAC {summary.Managed!.Dac.Status}: {summary.Managed.Dac.Detail}; heap {summary.Managed.Heap}");
+        int managed = 0, frames = 0, heuristic = 0, decoded = 0;
         var sw = Stopwatch.StartNew();
         for (int i = 0; i < summary.ThreadCount; i++)
         {
@@ -344,10 +345,12 @@ public sealed class MinidumpRealTests(ITestOutputHelper output)
             frames += stack.Frames.Count;
             heuristic += stack.HeuristicFrames;
             managed += stack.Frames.Count(f => f.Kind == "managed");
+            decoded += stack.Frames.Count(f => f.SymbolSource == "clr" && f.Token != null);
             if (i == 0) Print(stack);
         }
-        output.WriteLine($"{summary.ThreadCount} threads, {frames} frames ({heuristic} heuristic, {managed} managed) in {sw.ElapsedMilliseconds} ms");
+        output.WriteLine($"{summary.ThreadCount} threads, {frames} frames ({heuristic} heuristic, {managed} managed, {decoded} decoded) in {sw.ElapsedMilliseconds} ms");
         Assert.True(managed > 0, "no managed frame identified");
+        if (summary.Managed.Dac.Status == "loaded") Assert.True(decoded > 0, "the DAC loaded but no managed frame was decoded");
     }
 
     /// <summary>Through the server: a loaded image's user name wins over the PDB name in dump_stack.</summary>

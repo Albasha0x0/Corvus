@@ -1785,9 +1785,9 @@ Crash dumps.
 
 ### open_minidump
 
-**Open a crash dump** (read-only, idempotent)
+**Open a crash dump** (read-only, idempotent, open-world, long-running)
 
-Summary of a Windows minidump (.dmp): OS and CPU, process (id, times, integrity, WoW64, managed runtime), the exception (code and name, e.g. EXCEPTION_ACCESS_VIOLATION writing 0x0, the faulting thread, module+offset and function, the faulting instruction disassembled from dump memory or the module image, registers, the thrown type of a C++ exception), modules (path, base, size, timestamp, checksum, version, PDB name/GUID/age, and whether a matching image file exists on this machine), threads (ids, names, stack ranges, where each one is), unloaded modules, captured memory, handle counts by type, and what the parser could not read. Modules and threads are paged. The dump gets an id for dump_stack and read_dump_memory. Nothing is executed and no debugger is needed.
+Summary of a Windows minidump (.dmp): OS and CPU, process (id, times, integrity, WoW64, managed runtime), the exception (code and name, e.g. EXCEPTION_ACCESS_VIOLATION writing 0x0, the faulting thread, module+offset and function, the faulting instruction disassembled from dump memory or the module image, registers, the thrown type of a C++ exception), the .NET state (the managed exception with its message, stack and inner exceptions, threads, whether the heap can be walked), modules (path, base, size, timestamp, checksum, version, PDB name/GUID/age, and whether a matching image file exists on this machine), threads (ids, names, stack ranges, where each one is), unloaded modules, captured memory, handle counts by type, and what the parser could not read. Modules and threads are paged. The dump gets an id for dump_stack, dump_heap, dump_object and read_dump_memory. The dumped program is not run; decoding .NET state loads Microsoft's debugging library for that runtime build (its DAC, signature-checked) into this server, never code from the dump.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1797,14 +1797,16 @@ Summary of a Windows minidump (.dmp): OS and CPU, process (id, times, integrity,
 | `modulesLimit` | integer |  | `50` | Max modules listed (default 50). |
 | `threadsOffset` | integer |  | `0` | Index of the first thread listed. |
 | `threadsLimit` | integer |  | `50` | Max threads listed (default 50). |
+| `dacPath` | string |  |  | The dumped runtime's DAC (mscordaccore.dll / mscordacwks.dll) or its folder, when the same runtime build is not installed here. |
+| `downloadDac` | boolean |  | `false` | Download the DAC from the symbol server (_NT_SYMBOL_PATH's, else Microsoft's) when no local copy matches; refused under NDM_OFFLINE=1. |
 
-Structured output: `id`, `path`, `fileSize`, `timeUtc`, `dumpType`, `system`, `process`, `exception`, `moduleCount`, `modulesOffset`, `modulesTruncated`, `modules`, `threadCount`, `threadsOffset`, `threadsTruncated`, `threads`, `unloadedModuleCount`, `unloadedModules`, `memory`, `handleCount`, `handleTypes`, `streams`, `comments`, `issues`, `notes`.
+Structured output: `id`, `path`, `fileSize`, `timeUtc`, `dumpType`, `system`, `process`, `exception`, `managed`, `moduleCount`, `modulesOffset`, `modulesTruncated`, `modules`, `threadCount`, `threadsOffset`, `threadsTruncated`, `threads`, `unloadedModuleCount`, `unloadedModules`, `memory`, `handleCount`, `handleTypes`, `streams`, `comments`, `issues`, `notes`.
 
 ### dump_stack
 
 **Crash dump stack** (read-only, idempotent)
 
-Call stack of a thread in a minidump. x64: virtual unwind with the modules' .pdata unwind data (from the matching image file on disk, or the image in dump memory); x86: the EBP chain. Where unwind data is missing (JIT code, no image) the stack is scanned for return addresses and those frames are marked heuristic. Frames are named from a loaded native image's code index (user, PDB, Il2Cpp, discovered names), Il2Cpp dummy DLLs for GameAssembly.dll, a matching local PDB, or exports (nearest_export is a guess); managed code is identified as such (use a managed debugger or SOS for those frames). The faulting thread uses the exception context, like .ecxr.
+Call stack of a thread in a minidump. x64: virtual unwind with the modules' .pdata unwind data (from the matching image file on disk, or the image in dump memory); x86: the EBP chain. Where unwind data is missing (JIT code, no image) the stack is scanned for return addresses and those frames are marked heuristic. Frames are named from a loaded native image's code index (user, PDB, Il2Cpp, discovered names), Il2Cpp dummy DLLs for GameAssembly.dll, a matching local PDB, or exports (nearest_export is a guess). .NET frames come from the runtime's own stack walk through its DAC, merged with the native frames by stack pointer: method, token, IL offset and the loaded assembly that is this build (by MVID), ready for decompile_member. The faulting thread uses the exception context, like .ecxr.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1815,8 +1817,9 @@ Call stack of a thread in a minidump. x64: virtual unwind with the modules' .pda
 | `offset` | integer |  | `0` | Index of the first frame returned. |
 | `limit` | integer |  | `100` | Max frames returned (default 100). |
 | `imageDirectories` | string |  |  | Folders with the crashed program's binaries (';'-separated), searched by file name when a module's recorded path is not on this machine or holds another build. The dump's own folder is always searched. |
+| `managed` | string |  | `auto` | auto: decode .NET frames through a local DAC (or the one open_minidump loaded); off: native walk only. Values: auto, off. |
 
-Structured output: `dump`, `threadId`, `threadName`, `context`, `architecture`, `registers`, `total`, `offset`, `truncated`, `frames`, `stop`, `heuristicFrames`, `notes`.
+Structured output: `dump`, `threadId`, `threadName`, `context`, `architecture`, `registers`, `total`, `offset`, `truncated`, `frames`, `stop`, `heuristicFrames`, `managed`, `notes`.
 
 ### read_dump_memory
 

@@ -177,12 +177,11 @@ public sealed partial class MinidumpFile : IProcessMemory, IDisposable
     public DumpThread? ThreadById(uint id) => Threads.FirstOrDefault(t => t.Id == id);
 
     /// <summary>Reads a CONTEXT record for the dump's architecture; null when the location holds nothing.</summary>
-    public DumpContext? ReadContext(DumpLocation location)
-    {
-        if (location.Size == 0 || location.Rva == 0) return null;
-        var bytes = Block(location.Rva, (int)Math.Min(location.Size, 0x4D0u + 0x100));
-        return DumpContext.Parse(Arch, bytes);
-    }
+    public DumpContext? ReadContext(DumpLocation location) => DumpContext.Parse(Arch, ContextBytes(location));
+
+    /// <summary>The raw CONTEXT record at <paramref name="location"/> (at most 0x5D0 bytes); empty when the location holds nothing.</summary>
+    public byte[] ContextBytes(DumpLocation location) =>
+        location.Size == 0 || location.Rva == 0 ? [] : Block(location.Rva, (int)Math.Min(location.Size, 0x4D0u + 0x100));
 
     private void Issue(string area, string message, long? offset = null)
     {

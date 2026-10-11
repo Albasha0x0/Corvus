@@ -171,7 +171,7 @@ public static class ToolEffects
         ["update_to_new_build"] = Changes(destructive: true, idempotent: true, longRunning: true), // dryRun=false patches the new build and replaces its imported layers; a re-run reports already_present
 
         // Crash dumps (an open dump gets an id, as loading an image does)
-        ["open_minidump"] = Reads(),
+        ["open_minidump"] = Reads(longRunning: true, openWorld: true), // downloadDac=true fetches the runtime's DAC from a symbol server
         ["dump_stack"] = Reads(),
         ["read_dump_memory"] = Reads(),
         // Notes (kept per user beside the annotation sidecars)

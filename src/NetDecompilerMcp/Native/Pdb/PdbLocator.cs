@@ -188,9 +188,51 @@ public static class PdbLocator
             throw new ToolError(ErrorCode.Unsupported, "The image has no PDB 7.0 (RSDS) CodeView record with a file name; there is nothing to download.");
         if (!Uri.TryCreate(server.TrimEnd('/') + "/", UriKind.Absolute, out var baseUri) || baseUri.Scheme is not ("https" or "http"))
             throw new ToolError(ErrorCode.InvalidArgument, $"'{server}' is not an http(s) symbol server URL.", $"for example {DefaultServer}");
-        string key = StoreKey(cv);
+        return await Fetch(baseUri, name, StoreKey(cv), "PDB", path => Check(path, cv), timeout, maxBytes, handler, cache, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>The symbol store key of a PE image: TimeDateStamp (8 hex digits) followed by SizeOfImage in hex.</summary>
+    public static string ImageKey(uint timeDateStamp, uint sizeOfImage) => $"{timeDateStamp:X8}{sizeOfImage:x}";
+
+    /// <summary>
+    /// Downloads a PE image (a runtime's DAC, for example) stored under <paramref name="key"/> from <paramref name="server"/>
+    /// into the download cache; <paramref name="check"/> (default: any PE file) accepts the file. Returns the cached path.
+    /// </summary>
+    public static Task<string> DownloadImageAsync(string fileName, string key, Func<string, string?>? check, string server, TimeSpan timeout, long maxBytes,
+        HttpMessageHandler? handler = null, string? cache = null, CancellationToken ct = default)
+    {
+        if (fileName.Length == 0 || fileName.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0)
+            throw new ToolError(ErrorCode.InvalidArgument, $"'{fileName}' is not a file name.");
+        if (!Uri.TryCreate(server.TrimEnd('/') + "/", UriKind.Absolute, out var baseUri) || baseUri.Scheme is not ("https" or "http"))
+            throw new ToolError(ErrorCode.InvalidArgument, $"'{server}' is not an http(s) symbol server URL.", $"for example {DefaultServer}");
+        return Fetch(baseUri, fileName, key, "image", check ?? IsPe, timeout, maxBytes, handler, cache, ct);
+    }
+
+    private static string? IsPe(string path)
+    {
+        try { PeFile.Open(path); return null; }
+        catch (ToolError e) { return "not a PE image: " + e.Message; }
+    }
+
+    /// <summary>Null when the PE at <paramref name="path"/> has this TimeDateStamp and SizeOfImage; else why not.</summary>
+    public static string? CheckImage(string path, uint timeDateStamp, uint sizeOfImage)
+    {
+        try
+        {
+            var pe = PeFile.Open(path);
+            if (pe.Coff.TimeDateStamp != timeDateStamp || pe.SizeOfImage != sizeOfImage)
+                return $"different build (timestamp 0x{pe.Coff.TimeDateStamp:X8}, size 0x{pe.SizeOfImage:X}; wanted 0x{timeDateStamp:X8}, 0x{sizeOfImage:X})";
+            return null;
+        }
+        catch (ToolError e) { return "unreadable: " + e.Message; }
+    }
+
+    /// <summary>Downloads <c>name/key/name</c> from a symbol server into the cache; a temporary file first, a failing <paramref name="check"/> deletes it.</summary>
+    private static async Task<string> Fetch(Uri baseUri, string name, string key, string what, Func<string, string?> check, TimeSpan timeout, long maxBytes,
+        HttpMessageHandler? handler, string? cache, CancellationToken ct)
+    {
         var target = System.IO.Path.Combine(cache ?? DownloadCache, name, key, name);
-        if (File.Exists(target) && Check(target, cv) == null) return target;
+        if (File.Exists(target) && check(target) == null) return target;
         var url = new Uri(baseUri, $"{Uri.EscapeDataString(name)}/{key}/{Uri.EscapeDataString(name)}");
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(target)!);
         var temp = target + $".{Environment.ProcessId}.{Guid.NewGuid():N}.part";
@@ -203,7 +245,7 @@ public static class PdbLocator
             http.DefaultRequestHeaders.UserAgent.ParseAdd("Microsoft-Symbol-Server/10.0.0.0");
             using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token).ConfigureAwait(false);
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-                throw new ToolError(ErrorCode.NotFound, $"{url} does not have this PDB (404).", "the build may not be on that server; try another server or a local path");
+                throw new ToolError(ErrorCode.NotFound, $"{url} does not have this {what} (404).", "the build may not be on that server; try another server or a local path");
             if (!response.IsSuccessStatusCode)
                 throw new ToolError(ErrorCode.ProviderUnavailable, $"{url} answered {(int)response.StatusCode} {response.ReasonPhrase}.");
             if (response.Content.Headers.ContentLength is { } declared && declared > maxBytes)
@@ -222,8 +264,8 @@ public static class PdbLocator
                     await file.WriteAsync(buffer.AsMemory(0, n), timeoutCts.Token).ConfigureAwait(false);
                 }
             }
-            if (Check(temp, cv) is { } why)
-                throw new ToolError(ErrorCode.MalformedInput, $"The file downloaded from {url} is not this image's PDB: {why}.");
+            if (check(temp) is { } why)
+                throw new ToolError(ErrorCode.MalformedInput, $"The file downloaded from {url} is not the expected {what}: {why}.");
             File.Move(temp, target, overwrite: true);
             return target;
         }

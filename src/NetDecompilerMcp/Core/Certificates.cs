@@ -32,8 +32,11 @@ public static class Certificates
     private const int SecurityDirectory = 4;
     private const ushort WinCertTypePkcsSignedData = 2;
 
-    public static CertificateInfo Read(byte[] file)
+    public static CertificateInfo Read(byte[] file) => Read(file, out _);
+
+    private static CertificateInfo Read(byte[] file, out SignedCms? signed)
     {
+        signed = null;
         var pe = PeImage.TryParse(file);
         if (pe == null) return new CertificateInfo(false, Problem: "not a PE file");
         var (offset, size) = pe.Directory(file, SecurityDirectory); // file offset, not an RVA
@@ -50,7 +53,12 @@ public static class Certificates
         try { cms.Decode(file.AsSpan((int)offset + 8, (int)length - 8)); }
         catch (CryptographicException ex) { return new CertificateInfo(true, Problem: $"signature unreadable: {ex.Message}"); }
         // SignedCms parses certificates lazily; damaged ones throw on first use.
-        try { return Read(file, pe, offset, size, cms); }
+        try
+        {
+            var info = Read(file, pe, offset, size, cms);
+            signed = cms;
+            return info;
+        }
         catch (Exception ex) when (ex is CryptographicException or AsnContentException)
         {
             return new CertificateInfo(true, Problem: $"signature unreadable: {ex.Message}");
@@ -148,6 +156,60 @@ public static class Certificates
     }
 
     /// <summary>
+    /// Null when the PE's embedded signature is intact and valid, its signer and the chain's root belong to
+    /// <paramref name="organization"/>, and the chain is trusted on this machine (no revocation check, no downloads); else why not.
+    /// </summary>
+    public static string? VerifyPublisher(byte[] file, string organization)
+    {
+        var info = Read(file, out var cms);
+        if (!info.Present) return "no embedded signature";
+        if (info.Problem != null) return info.Problem;
+        if (info.DigestMatches != true) return "the file does not match its signature (changed after signing)";
+        if (info.SignatureValid != true) return "the signature does not verify";
+        return CheckSigner(cms!, organization);
+    }
+
+    /// <summary>Null when a PKCS #7 signature (Authenticode or a security catalog) verifies and chains to a trusted root of <paramref name="organization"/>.</summary>
+    public static string? CheckSigner(SignedCms cms, string organization)
+    {
+        try
+        {
+            if (cms.SignerInfos.Count == 0) return "the signature has no signer";
+            var signer = cms.SignerInfos[0];
+            signer.CheckSignature(verifySignatureOnly: true);
+            var cert = signer.Certificate;
+            if (cert == null) return "the signer certificate is missing";
+            if (Organization(cert) != organization) return $"signed by '{cert.Subject}', not {organization}";
+            using var chain = Chain(cms.Certificates, SigningTime(signer));
+            if (!chain.Build(cert))
+                return $"the signer's chain is not trusted on this machine ({string.Join(", ", chain.ChainStatus.Select(s => s.Status.ToString()).Distinct())})";
+            var root = chain.ChainElements[^1].Certificate;
+            return Organization(root) == organization ? null : $"the chain ends at '{root.Subject}', not a root of {organization}";
+        }
+        catch (Exception ex) when (ex is CryptographicException or AsnContentException)
+        {
+            return $"signature unreadable: {ex.Message}";
+        }
+    }
+
+    private static string? Organization(X509Certificate2 cert)
+    {
+        foreach (var rdn in cert.SubjectName.EnumerateRelativeDistinguishedNames())
+            if (rdn.GetSingleElementType().Value == "2.5.4.10") return rdn.GetSingleElementValue();
+        return null;
+    }
+
+    private static X509Chain Chain(X509Certificate2Collection extra, DateTime? timestamp)
+    {
+        var chain = new X509Chain();
+        chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+        chain.ChainPolicy.DisableCertificateDownloads = true;
+        chain.ChainPolicy.ExtraStore.AddRange(extra);
+        if (timestamp is { } at) chain.ChainPolicy.VerificationTime = at.ToLocalTime();
+        return chain;
+    }
+
+    /// <summary>
     /// Builds the signer's chain without revocation checks. Timestamped signatures are verified at signing time, as
     /// Windows does.
     /// </summary>
@@ -155,11 +217,7 @@ public static class Certificates
     {
         try
         {
-            using var chain = new X509Chain();
-            chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
-            chain.ChainPolicy.DisableCertificateDownloads = true;
-            chain.ChainPolicy.ExtraStore.AddRange(extra);
-            if (timestamp is { } at) chain.ChainPolicy.VerificationTime = at.ToLocalTime();
+            using var chain = Chain(extra, timestamp);
             bool trusted = chain.Build(cert);
             var path = string.Join(" <- ", chain.ChainElements.Select(e => e.Certificate.GetNameInfo(X509NameType.SimpleName, false)));
             if (trusted)

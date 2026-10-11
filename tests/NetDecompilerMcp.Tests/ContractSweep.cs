@@ -39,7 +39,7 @@ public static class ContractSweep
     };
 
     /// <summary>Parameters whose value can launch a process or reach the network; a tool with any of them is open-world.</summary>
-    public static readonly string[] OpenWorldParameters = ["engine", "crossCheck", "download", "server", "detectItEasy"];
+    public static readonly string[] OpenWorldParameters = ["engine", "crossCheck", "download", "server", "detectItEasy", "downloadDac"];
 
     /// <summary>Open-world whatever the arguments: server_status probes Python, inspect_process reads another process.</summary>
     public static readonly string[] AlwaysOpenWorld = ["server_status", "inspect_process"];
