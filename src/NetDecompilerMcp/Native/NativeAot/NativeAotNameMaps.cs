@@ -99,6 +99,7 @@ public sealed class NativeAotNameMaps
         if (declared > MaxEntries) throw new NativeAotFormatException($"stack-trace map declares {declared} entries");
         string owner = "?", method = "?";
         string? signature = null, instantiation = null;
+        bool? hasThis = null;
         uint p = blob.StartRva + 4;
         int read = 0, unnamed = 0;
         while (p < blob.EndRva && read < declared)
@@ -119,6 +120,7 @@ public sealed class NativeAotNameMaps
             {
                 p = NativeFormat.DecodeUnsigned(view, p, out uint sig);
                 signature = md.FormatSignature(sig);
+                hasThis = md.HasThis(sig);
                 instantiation = null;
             }
             if ((command & 0x08) != 0)
@@ -126,6 +128,7 @@ public sealed class NativeAotNameMaps
                 p = NativeFormat.DecodeUnsigned(view, p, out uint sig);
                 p = NativeFormat.DecodeUnsigned(view, p, out uint args);
                 signature = md.FormatSignature(sig);
+                hasThis = md.HasThis(sig);
                 instantiation = $"<{string.Join(", ", md.StringArray(args))}>";
             }
             bool isHidden = (command & 0x10) != 0;
@@ -135,7 +138,7 @@ public sealed class NativeAotNameMaps
             read++;
             // Hidden startup wrappers may precede the first owner and name: nothing to name them with.
             if (method == "?") { unnamed++; continue; }
-            methods.Add(new NativeAotMethod(code, new NativeAotMethodName(owner, method, signature, instantiation), "stacktrace", isHidden));
+            methods.Add(new NativeAotMethod(code, new NativeAotMethodName(owner, method, signature, instantiation) { HasThis = hasThis }, "stacktrace", isHidden));
         }
         string detail = $"{read - unnamed} methods named ({hidden} hidden from stack traces" + (unnamed > 0 ? $", {unnamed} without a name" : "") + ")";
         return read == declared

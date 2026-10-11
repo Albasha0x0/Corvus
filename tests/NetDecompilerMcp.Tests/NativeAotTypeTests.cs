@@ -110,12 +110,14 @@ public class NativeAotTypeTests
         {
             uint name = md.Ref(m.Speak, "name");
             Assert.InRange(name, 0u, 0x3FFFu);
+            uint signature = md.Ref(m.Speak, "signature"); // an instance method
+            byte[] tail = [.. Unsigned(name), .. Unsigned(signature)];
+            map = new byte[9 + tail.Length + 4];
             map[0] = 1;
-            map[4] = 0x03;
+            map[4] = 0x07;
             BinaryPrimitives.WriteUInt32LittleEndian(map.AsSpan(5), m.Writer.Token(m.Dog));
-            Unsigned(name).CopyTo(map, 9);
-            int code = Unsigned(name).Length + 9;
-            Array.Resize(ref map, code + 4);
+            tail.CopyTo(map, 9);
+            int code = 9 + tail.Length;
             BinaryPrimitives.WriteInt32LittleEndian(map.AsSpan(code), (int)(SpeakCode - (st + (uint)code)));
         }
         Assert.Equal(st, b.Blob(BlobId.StackTraceMethodRvaToTokenMapping, map));

@@ -15,6 +15,9 @@ public readonly record struct MdHandle(MdRecord Record, uint Offset)
 /// <summary>A method name recovered from metadata; <see cref="Full"/> is "Ns.Type::Name&lt;inst&gt;(params)".</summary>
 public sealed record NativeAotMethodName(string Owner, string Name, string? Signature = null, string? Instantiation = null)
 {
+    /// <summary>The signature's HasThis bit: an instance method; null without a signature.</summary>
+    public bool? HasThis { get; init; }
+
     public string Full => $"{Owner}::{Name}{Instantiation}{Signature}";
     public string Short => $"{Owner}::{Name}{Instantiation}";
 }
@@ -293,6 +296,9 @@ public sealed class NativeAotMetadata
         return "(" + string.Join(", ", Handles(sig, "parameters").Select(p => FormatType(p, 1, true))) + ")";
     }
 
+    /// <summary>Whether the MethodSignature at <paramref name="offset"/> has HasThis (SignatureCallingConvention 0x20); null for none.</summary>
+    public bool? HasThis(uint offset) => offset == 0 ? null : (Int(new MdHandle(MdRecord.MethodSignature, offset), "callingConvention") & 0x20) != 0;
+
     /// <summary>The C# keyword of a built-in type name, as nested names (arguments, elements, parameters) use it.</summary>
     internal static string Keyword(string name) => name switch
     {
@@ -326,15 +332,17 @@ public sealed class NativeAotMetadata
         switch (h.Record)
         {
             case MdRecord.Method:
-                return new NativeAotMethodName(MethodOwner(h.Offset) ?? "?", StringField(h, "name") ?? "?", FormatSignature(Ref(h, "signature")));
+                return new NativeAotMethodName(MethodOwner(h.Offset) ?? "?", StringField(h, "name") ?? "?", FormatSignature(Ref(h, "signature")))
+                    { HasThis = HasThis(Ref(h, "signature")) };
             case MdRecord.QualifiedMethod:
                 var method = new MdHandle(MdRecord.Method, Ref(h, "method"));
                 return new NativeAotMethodName(FormatType(new MdHandle(MdRecord.TypeDefinition, Ref(h, "enclosingType"))),
-                    StringField(method, "name") ?? "?", FormatSignature(Ref(method, "signature")));
+                    StringField(method, "name") ?? "?", FormatSignature(Ref(method, "signature"))) { HasThis = HasThis(Ref(method, "signature")) };
             case MdRecord.MemberReference:
                 var signature = Handle(h, "signature");
                 return new NativeAotMethodName(FormatType(Handle(h, "parent")), StringField(h, "name") ?? "?",
-                    signature.Record == MdRecord.MethodSignature ? FormatSignature(signature.Offset) : null);
+                    signature.Record == MdRecord.MethodSignature ? FormatSignature(signature.Offset) : null)
+                    { HasThis = signature.Record == MdRecord.MethodSignature ? HasThis(signature.Offset) : null };
             case MdRecord.MethodInstantiation:
                 var generic = FormatMethod(Handle(h, "method"), depth + 1);
                 var args = Handles(h, "genericTypeArguments").Select(a => FormatType(a, 1, true));

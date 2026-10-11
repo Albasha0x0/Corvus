@@ -151,7 +151,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
                  "and string references shown as comments; calls are commented with their recovered arguments (CreateFileW(L\"a.ini\", GENERIC_READ, ...), see get_call_arguments). " +
                  "Warns when the address is inside an instruction, in data or in bss; a listing from an address renders strings, pointers, IAT slots and switch " +
                  "tables as data and resynchronizes when it runs into a known instruction; a function listing names the gaps between its blocks " +
-                 "(switch table, padding, unreached bytes). Warnings are repeated in a footer. " + IndexNote)]
+                 "(switch table, padding, unreached bytes). Warnings are repeated in a footer. " +
+                 "In a NativeAOT image, string literal loads show the text and virtual calls the vtable slot and, on this, the method in it. " + IndexNote)]
     public Task<string> Disassemble(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -187,7 +188,9 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
                 sb.AppendLine($"; {fn.Name} at {NativeAddress.Va(index.Image, fn.Start)}, {fn.Size} bytes, {Plural(fn.BlockCount, "block")}{Flags(fn)}");
                 if (index.Sourced.CommentAt(fn.Start) is { } fc)
                     foreach (var c in fc.Text.Split('\n')) sb.AppendLine($"; {c}");
-                var calls = NativeCallTools.CallComments(index, fn, cancellationToken);
+                var calls = new Dictionary<uint, string>(NativeCallTools.CallComments(index, fn, cancellationToken));
+                foreach (var (at, note) in NativeAotCode.Comments(native, index, fn, cancellationToken))
+                    calls[at] = calls.TryGetValue(at, out var known) ? $"{note}; {known}" : note;
                 AppendFunction(sb, index, classifier, fn, max, calls, warnings, cancellationToken);
             }
             else
@@ -217,7 +220,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     private static string Line(DisasmLine l, IReadOnlyDictionary<uint, string>? calls = null)
     {
         var comment = l.Comment;
-        if (calls != null && calls.TryGetValue(l.Rva, out var call)) comment = comment != null ? call + "; " + comment : call;
+        if (calls != null && calls.TryGetValue(l.Rva, out var call)) comment = comment == null ? call : comment.Contains(call, StringComparison.Ordinal) ? comment : call + "; " + comment;
         return $"  {l.Address:X}  {l.Bytes,-24} {l.Text}{(comment != null ? "  ; " + comment : "")}";
     }
 

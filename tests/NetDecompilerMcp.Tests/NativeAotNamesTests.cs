@@ -145,9 +145,22 @@ public class NativeAotNamesTests(ITestOutputHelper output)
         var pe = (PeFile)w.Aot.Image;
         var bytes = pe.FileBytes.ToArray();
         Assert.True(pe.TryRvaToFileOffset(T.SpeakCode, out long at));
-        byte[] lea = [0x48, 0x8D, 0x0D, 0, 0, 0, 0, 0xC3];
-        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(lea.AsSpan(3), (int)(w.Text + 8 - (T.SpeakCode + 7)));
-        lea.CopyTo(bytes, at);
+        byte[] body =
+        [
+            0x48, 0x8B, 0xD9,             // mov rbx, rcx         this kept in rbx
+            0x48, 0x8D, 0x0D, 0, 0, 0, 0, // lea rcx, [rip+"hi"]
+            0x48, 0x8B, 0x03,             // mov rax, [rbx]       this's MethodTable
+            0xFF, 0x50, 0x18,             // call [rax+18h]       slot 0
+            0x48, 0x8B, 0x02,             // mov rax, [rdx]       a MethodTable of an unknown type
+            0xFF, 0x50, 0x20,             // call [rax+20h]       slot 1
+            0x48, 0x8B, 0x03,             // mov rax, [rbx]
+            0x48, 0x8B, 0x40, 0x20,       // mov rax, [rax+20h]   slot 1 into rax
+            0xFF, 0x15, 0, 0, 0, 0,       // call [rip+fptr]      a CFG dispatch call on rax
+            0xC3,
+        ];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(body.AsSpan(6), (int)(w.Text + 8 - (T.SpeakCode + 10)));
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(body.AsSpan(31), (int)(w.Object - (T.SpeakCode + 35)));
+        body.CopyTo(bytes, at);
         var path = dir.File(name);
         File.WriteAllBytes(path, bytes);
         return (path, w);
@@ -211,6 +224,22 @@ public class NativeAotNamesTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task Disassemble_RendersStringLiteralsAndVirtualCalls()
+    {
+        using var env = new Env();
+        using var dir = new TempDir();
+        var code = new NativeCodeService(env.Workspace, env.Options, null, new AnnotationStore(dir.File("ann")));
+        var tools = new NetDecompilerMcp.Tools.NativeCodeTools(env.Workspace, code, new OutputPager(env.Options));
+        var (path, _) = WriteImage(dir);
+        var text = await tools.Disassemble(path, "Sample_Zoo_Dog__Speak");
+        output.WriteLine(text);
+        Assert.Contains("lea    rcx, [str_0]  ; \"hi\"\n", text.Replace("\r\n", "\n"));
+        Assert.Contains("; virtual Sample.Zoo.Dog slot 0: Sample_Zoo_Dog__Speak (or an override)", text);
+        Assert.Contains("; virtual call, vtable slot 1: System_Object__vslot1 or an override", text);
+        Assert.Contains("; virtual Sample.Zoo.Dog slot 1: System_Object__vslot1 (or an override)", text);
+    }
+
+    [Fact]
     public async Task ResolveAddress_DescribesMethodTablesFrozenObjectsMethodsAndSections()
     {
         using var env = new Env();
@@ -226,6 +255,7 @@ public class NativeAotNamesTests(ITestOutputHelper output)
         Assert.Contains("name MT_Sample_Zoo_Dog (nativeaot)", mt);
         Assert.Contains("NativeAOT MethodTable of Sample.Zoo.Dog (class, name from vtable)", mt);
         Assert.Contains("NativeAOT frozen String \"hi\"", await tools.ResolveAddress(native.Id, "str_0"));
+        Assert.True(w.Aot.Names.MethodAt[T.SpeakCode].Name.HasThis);
         Assert.Contains($"inside the NativeAOT frozen String \"hi\" at rva {Hex(w.Text + 8)} (+0x4)", await tools.ResolveAddress(native.Id, Hex(w.Text + 12)));
         Assert.Contains("inside the NativeAOT frozen Sample.Zoo.Dog (32 bytes)", await tools.ResolveAddress(native.Id, Hex(w.Frozen)));
         Assert.Contains("NativeAOT method Sample.Zoo.Dog::Speak", await tools.ResolveAddress(native.Id, "Sample_Zoo_Dog__Speak"));
@@ -254,6 +284,16 @@ public class NativeAotNamesTests(ITestOutputHelper output)
         Assert.True(pdataNamed > 0.75 * pdata.Count, $"{pdataNamed} of {pdata.Count}");
         Assert.Contains(index.Sourced.AddressesOf("ILCompiler_Program__Main"), a => a.Source == NativeNameSource.NativeAot);
         Assert.NotEmpty(index.Sourced.AddressesOf("MT_System_String"));
+        // Disassembly comments over every named function: string literal loads and virtual calls (x64).
+        int literals = 0, typed = 0, untyped = 0;
+        foreach (var f in index.Functions.Where(f => index.Sourced.NameAt(f.Start) is { Source: NativeNameSource.NativeAot }))
+            foreach (var c in NativeAotCode.Comments(native, index, f).Values)
+                if (c.StartsWith('"')) literals++;
+                else if (c.StartsWith("virtual call", StringComparison.Ordinal)) untyped++;
+                else typed++;
+        output.WriteLine($"  disassembly comments: {literals} string literals, {typed} virtual calls on this, {untyped} other virtual calls");
+        if (native.Image.Arch == NetDecompilerMcp.Native.NativeArch.X64) Assert.True(literals > 1000 && typed > 100 && untyped > 1000);
+
         var strings = NativeAotNames.View(native)!.Frozen.Objects.Where(o => o.Text != null).ToList();
         int referenced = strings.Count(o => index.CountRefsTo(o.Rva) > 0);
         output.WriteLine($"  {referenced} of {strings.Count} frozen strings referenced by code");
