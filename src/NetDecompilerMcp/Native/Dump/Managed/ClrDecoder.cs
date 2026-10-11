@@ -129,7 +129,7 @@ public sealed class ClrDecoder : IDisposable
                 return null;
             }
         }
-        foreach (var c in DacLocator.Local(clr, module, request))
+        foreach (var c in request.DownloadOnly ? [] : DacLocator.Local(clr, module, request))
         {
             ct.ThrowIfCancellationRequested();
             if (Try(c) is { } rt) return new ClrDecoder(name, clr.Version.ToString(), new DacState("loaded", c.Path, c.Source), target, rt);

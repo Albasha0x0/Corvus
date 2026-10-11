@@ -6,7 +6,11 @@ using NetDecompilerMcp.Native.Pdb;
 namespace NetDecompilerMcp.Native.Dump.Managed;
 
 /// <summary>Where to look for the runtime's data access library (DAC): a caller's path, and whether a download is allowed.</summary>
-public sealed record DacRequest(string? Path = null, bool Download = false, string? Server = null);
+public sealed record DacRequest(string? Path = null, bool Download = false, string? Server = null)
+{
+    /// <summary>Tests: skip the local candidates, so the download path runs on a machine that has the runtime.</summary>
+    internal bool DownloadOnly { get; init; }
+}
 
 /// <summary>A DAC file to try, and where it came from.</summary>
 public sealed record DacCandidate(string Path, string Source);

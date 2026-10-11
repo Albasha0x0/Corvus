@@ -16,6 +16,7 @@ namespace NetDecompilerMcp.Tests;
 /// DAC is the one of the runtime running the tests, found locally.
 /// </summary>
 [Trait("Speed", "Slow")]
+[Collection(ExternalToolEnvironmentCollection.Name)]
 public sealed class ManagedDumpRealTests(ITestOutputHelper output)
 {
     private const string Source = """
@@ -180,6 +181,38 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         var native = await service.Bucket(dumps, false, null, 3, null, false, false, 10, null, 0, 10, null, default);
         Assert.NotEqual("clr_exception", Assert.Single(native.Buckets).Kind);
     }
+
+    /// <summary>
+    /// The DAC of the dumped runtime downloaded from Microsoft's symbol server (NDM_NETWORK_TESTS=1): signature checked,
+    /// loaded, and kept in the download cache, where the next call finds it without a request.
+    /// </summary>
+    [Fact]
+    public async Task DacIsDownloadedFromTheSymbolServerAndCached()
+    {
+        if (!OperatingSystem.IsWindows() || Environment.GetEnvironmentVariable("NDM_NETWORK_TESTS") != "1") return;
+        using var dir = new TempDir();
+        using var env = new EnvironmentScope().Set(Native.Pdb.PdbLocator.CacheVariable, dir.File("cache")).Set("NDM_OFFLINE", null)
+            .Set("_NT_SYMBOL_PATH", null).Set("_NT_ALT_SYMBOL_PATH", null);
+        var dump = Crash(Build(dir), dir.File("mini.dmp"), 1);
+        var request = new Native.Dump.Managed.DacRequest(Download: true) { DownloadOnly = true };
+
+        var m = (await new MinidumpService().Summarize(dump, null, 0, 50, 0, 50, request, default)).Managed!;
+        output.WriteLine($"{m.Runtime}: DAC {m.Dac.Status} {m.Dac.Path} ({m.Dac.Detail})");
+        Assert.Equal("loaded", m.Dac.Status);
+        Assert.StartsWith(dir.File("cache"), m.Dac.Path);
+        Assert.Contains("downloaded from https://msdl.microsoft.com", m.Dac.Detail);
+        Assert.Equal("ndm-probe", m.Exception!.Inner.Single().Message);
+        Assert.Null(DacLocatorVerify(m.Dac.Path!));
+
+        var written = File.GetLastWriteTimeUtc(m.Dac.Path!);
+        var again = (await new MinidumpService().Summarize(dump, null, 0, 50, 0, 50, request, default)).Managed!;
+        Assert.Equal((m.Dac.Path, written), (again.Dac.Path, File.GetLastWriteTimeUtc(again.Dac.Path!))); // from the cache
+        // the cache is a local store: found without a download
+        var local = (await new MinidumpService().Summarize(dump, null, 0, 50, 0, 50, new Native.Dump.Managed.DacRequest(), default)).Managed!;
+        Assert.Equal("loaded", local.Dac.Status);
+    }
+
+    private static string? DacLocatorVerify(string path) => Native.Dump.Managed.DacLocator.Verify(File.ReadAllBytes(path), path);
 
     private static void AssertSortedBySp(MinidumpService.StackReport stack)
     {
