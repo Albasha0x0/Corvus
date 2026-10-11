@@ -1242,20 +1242,21 @@ Structured output: `image`, `scope`, `engine`, `total`, `byStatus`, `byMechanism
 
 **Native function dossier** (read-only, idempotent, open-world, long-running)
 
-Everything known about one native function, in sections bounded by maxItems with totals: identity (name and source, ranges, flags, demangled and Il2Cpp names, vftable slots), signature evidence (ret n, argument registers read before written, this class, result use), frame (stack, saved registers, frame pointer, address-taken locals, EH), callers (edge kinds, importers in other images, roots), callees (targets, basis, arguments; unresolved with the reason), data (strings, globals read and written, import slots), flow (blocks, loops, switches, cyclomatic complexity, unresolved jumps, noreturn and tail calls), annotations. Optional: constants (non-trivial immediates), params (values callers pass) and pseudocode (IDA or Ghidra). Several addresses give one dossier each. A failing section reports its error. Ends with follow-up calls.
+Everything known about one native function, in sections bounded by maxItems with totals: identity (name and source, ranges, flags, demangled and Il2Cpp names, vftable slots), signature evidence (ret n, argument registers read before written, this class, result use), frame (stack, saved registers, frame pointer, address-taken locals, EH), callers (edge kinds, importers in other images, roots), callees (targets, basis, arguments; unresolved with the reason), data (strings, globals read and written, import slots), flow (blocks, loops, switches, cyclomatic complexity, unresolved jumps, noreturn and tail calls), annotations. Optional: constants, params (values callers pass) and pseudocode (IDA or Ghidra). Several addresses: a dossier each, or with component=true a component view (sections only when asked). A failing section reports its error.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
 | `address` | string | yes |  | An address inside the function, or up to 16 comma-separated. Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them). |
-| `sections` | string |  |  | Comma-separated sections (default all but constants, params and pseudocode): identity, signature, frame, callers, callees, data, constants, flow, annotations, params, pseudocode. |
+| `sections` | string |  |  | Comma-separated section names (default all but constants, params and pseudocode). |
 | `maxItems` | integer |  | `40` | Facts per section (default 40, 1-500). |
 | `pseudocode` | boolean |  | `false` | Add the pseudocode section. |
+| `component` | boolean |  | `false` | With several addresses: how they work together (internal calls, shared data and strings, interface or internal). |
 | `engine` | string |  |  | Pseudocode engine: auto (default), ida or ghidra. Values: auto, ida, ghidra. |
 | `offset` | integer |  | `0` | Character offset for paging long output (use the value from the truncation footer). |
 | `maxChars` | integer |  |  | Max characters in this page (default from server config, ~60000). |
 
-Structured output: `image`, `address`, `name`, `size`, `end`, `sections`, `next`, `batch`.
+Structured output: `image`, `address`, `name`, `size`, `end`, `sections`, `next`, `batch`, `component`.
 
 ### trace_native_feature
 

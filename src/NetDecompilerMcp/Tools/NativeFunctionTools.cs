@@ -36,7 +36,21 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
     public sealed record FunctionDossier(string Image, string Address, string Name, [property: Description("Bytes of code in its blocks.")] long Size,
         [property: Description("Exclusive end of its highest range (VA).")] string End, IReadOnlyList<DossierSection> Sections,
         [property: Description("Follow-up calls.")] IReadOnlyList<string> Next,
-        [property: Description("Several addresses: the dossiers after the first, and the addresses that are in no function; null for one.")] IReadOnlyList<DossierPart>? Batch);
+        [property: Description("Several addresses: the dossiers after the first, and the addresses that are in no function; null for one.")] IReadOnlyList<DossierPart>? Batch,
+        [property: Description("component=true: how the functions work together.")] ComponentView? Component = null);
+
+    [Description("A set of functions as one component.")]
+    public sealed record ComponentView(IReadOnlyList<ComponentFunction> Functions,
+        [property: Description("Calls between functions of the set.")] IReadOnlyList<ComponentEdge> Edges,
+        [property: Description("Data (not strings) that two or more of the functions read, write or take the address of.")] IReadOnlyList<SharedItem> SharedGlobals,
+        [property: Description("Strings two or more of the functions use.")] IReadOnlyList<SharedItem> SharedStrings);
+
+    public sealed record ComponentFunction(string Address, string Name, long Size, int? Blocks, int? Complexity, int Callers, int Callees,
+        [property: Description("Called, referenced or exported from outside the set; false: only the set reaches it.")] bool Interface);
+
+    public sealed record ComponentEdge(string From, string To, int Sites);
+
+    public sealed record SharedItem(string Address, string Text, IReadOnlyList<string> Functions);
 
     [Description("A further dossier of a batch, or an address that could not be analyzed (Error).")]
     public sealed record DossierPart(string Query, string? Address, string? Name, long Size, string? End, IReadOnlyList<DossierSection> Sections, string? Error);
@@ -56,22 +70,22 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
                  "result use), frame (stack, saved registers, frame pointer, address-taken locals, EH), callers (edge kinds, importers in other " +
                  "images, roots), callees (targets, basis, arguments; unresolved with the reason), data (strings, globals read and written, import " +
                  "slots), flow (blocks, loops, switches, cyclomatic complexity, unresolved jumps, noreturn and tail calls), annotations. Optional: " +
-                 "constants (non-trivial immediates), params (values callers pass) and pseudocode (IDA or Ghidra). Several addresses give one dossier " +
-                 "each. A failing section reports its error. Ends with follow-up calls.")]
+                 "constants, params (values callers pass) and pseudocode (IDA or Ghidra). Several addresses: a dossier each, or with component=true " +
+                 "a component view (sections only when asked). A failing section reports its error.")]
     public Task<string> AnalyzeNativeFunction(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("An address inside the function, or up to 16 comma-separated. " + NativeTools.AddressDescription)] string address,
-        [Description("Comma-separated sections (default all but constants, params and pseudocode): identity, signature, frame, callers, callees, " +
-                     "data, constants, flow, annotations, params, pseudocode.")] string? sections = null,
+        [Description("Comma-separated section names (default all but constants, params and pseudocode).")] string? sections = null,
         [Description("Facts per section (default 40, 1-500).")] int maxItems = 40,
         [Description("Add the pseudocode section.")] bool pseudocode = false,
+        [Description("With several addresses: how they work together (internal calls, shared data and strings, interface or internal).")] bool component = false,
         [Description("Pseudocode engine: auto (default), ida or ghidra.")] string? engine = null,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        var wanted = Sections(sections, pseudocode);
+        var wanted = component && string.IsNullOrWhiteSpace(sections) ? Sections("identity", pseudocode).Where(s => s != "identity").ToList() : Sections(sections, pseudocode);
         int max = Math.Clamp(maxItems, 1, 500);
         var native = await Task.Run(() => NativeAnalysisTools.ResolveImage(workspace, image), cancellationToken);
         var waited = System.Diagnostics.Stopwatch.StartNew();
@@ -98,8 +112,10 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         }
         var functions = found.Where(x => x.Function != null).Select(x => x.Function!).DistinctBy(x => x.Start).ToList();
         if (functions.Count == 0) throw new ToolError(ErrorCode.NotFound, "None of the addresses is inside a function.", "list_functions shows the functions");
+        if (component && functions.Count < 2)
+            throw new ToolError(ErrorCode.InvalidArgument, "component=true needs two or more functions.", "pass the functions as comma-separated addresses");
         var pseudo = wanted.Contains("pseudocode") ? await Pseudocode(native, functions, engine, progress, cancellationToken) : [];
-        var key = $"dossier|{native.Image.Sha256}|{string.Join(",", found.Select(x => $"{x.Query}={x.Function?.Start:X}"))}|{string.Join(",", wanted)}|{max}|" +
+        var key = $"dossier|{native.Image.Sha256}|{string.Join(",", found.Select(x => $"{x.Query}={x.Function?.Start:X}"))}|{string.Join(",", wanted)}|{max}|{component}|" +
                   $"{index.Sourced.Version}|{engine}|{string.Join(",", pseudo.Values.Select(p => $"{p.Text?.GetHashCode()}:{p.Error}"))}";
         var (text, report) = await Task.Run(() =>
         {
@@ -108,7 +124,8 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             var parts = functions.Select(f => Build(native, index, f, wanted, max, pseudo.GetValueOrDefault(f.Start).Text, pseudo.GetValueOrDefault(f.Start).Error,
                 cancellationToken)).ToList();
             var sb = new StringBuilder();
-            foreach (var p in parts) sb.Append(p.Text).AppendLine();
+            var view = component ? Component(native, index, functions, max, sb, cancellationToken) : null;
+            if (wanted.Count > 0 || !component) foreach (var p in parts) sb.Append(p.Text).AppendLine();
             foreach (var (q, _, error) in found.Where(x => x.Function == null)) sb.AppendLine($"{q}: {error}");
             sb.AppendLine("Next:");
             foreach (var n in parts[0].Report.Next) sb.AppendLine("  " + n);
@@ -117,7 +134,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
                 : functions.Zip(parts).Skip(1).Select(t => new DossierPart(found.First(x => x.Function?.Start == t.First.Start).Query, t.Second.Report.Address,
                         t.Second.Report.Name, t.Second.Report.Size, t.Second.Report.End, t.Second.Report.Sections, null))
                     .Concat(found.Where(x => x.Function == null).Select(x => new DossierPart(x.Query, null, null, 0, null, [], x.Error))).ToList();
-            var built = (Text: sb.ToString(), Report: first with { Batch = batch });
+            var built = (Text: sb.ToString(), Report: first with { Batch = batch, Component = view });
             pager.GetOrCreate(key, () => built.Text);
             lock (Reports)
             {
@@ -416,6 +433,69 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
                                    (g.Values.Count > 12 ? ", ..." : "") : "no constant values from callers") + (g.Frontier.Count > 0 ? $"; {Plural(g.Frontier.Count, "frontier item")}" : ""), "parameter");
             }
         }
+    }
+
+    /// <summary>component=true: the set's internal calls, shared data and strings, and which functions the rest of the image reaches; written to <paramref name="sb"/>.</summary>
+    private static ComponentView Component(LoadedNative native, NativeCodeIndex index, List<NativeFunction> functions, int max, StringBuilder sb, CancellationToken ct)
+    {
+        var image = index.Image;
+        string Va(uint r) => NativeAddress.Va(image, r);
+        string Name(NativeFunction f) => index.NameAt(f.Start) ?? f.Name;
+        var set = functions.Select(f => f.Start).ToHashSet();
+        var rows = new List<ComponentFunction>();
+        var edges = new List<ComponentEdge>();
+        var globals = new Dictionary<uint, SortedSet<string>>();
+        var strings = new Dictionary<uint, SortedSet<string>>();
+        foreach (var f in functions)
+        {
+            ct.ThrowIfCancellationRequested();
+            int? blocks = null, complexity = null;
+            try
+            {
+                var graph = index.GetGraph(f, ct);
+                (blocks, complexity) = (graph.Blocks.Count, Cyclomatic(graph));
+            }
+            catch (NotSupportedException) { }
+            var callers = index.Callers(f);
+            var callees = index.Callees(f);
+            bool root = f.Start == image.EntryPointRva || image.Exports.Any(e => e.Rva == f.Start) || image.TlsCallbackRvas.Contains(f.Start);
+            bool outside = callers.Any(c => c.Caller is not { } cf || !set.Contains(cf.Start))
+                           || index.RefsTo(f.Start).Any(r => r.Kind is XrefKind.Address or XrefKind.Pointer && (index.FunctionAt(r.From) is not { } by || !set.Contains(by.Start)));
+            rows.Add(new ComponentFunction(Va(f.Start), Name(f), f.Size, blocks, complexity, callers.Count, callees.Count, root || outside));
+            foreach (var g in callees.Where(c => c.Function != null && set.Contains(c.Function.Start)).GroupBy(c => c.Function!.Start))
+                edges.Add(new ComponentEdge(Name(f), Name(index.FunctionByStart(g.Key)!), g.Count()));
+            foreach (var (s, e) in index.Ranges(f))
+                foreach (var r in index.RefsFrom(s, e).Where(r => r.Kind is XrefKind.Read or XrefKind.Write or XrefKind.Address))
+                {
+                    if (index.FunctionByStart(r.To) != null || image.Imports.Any(i => i.SlotRva == r.To)) continue;
+                    var into = index.StringAt(r.To) != null ? strings : globals;
+                    if (!into.TryGetValue(r.To, out var users)) into[r.To] = users = new SortedSet<string>(StringComparer.Ordinal);
+                    users.Add(Name(f));
+                }
+        }
+        List<SharedItem> Shared(Dictionary<uint, SortedSet<string>> map, bool isString) => map.Where(m => m.Value.Count >= 2).OrderByDescending(m => m.Value.Count).ThenBy(m => m.Key)
+            .Select(m => new SharedItem(Va(m.Key), isString && index.StringAt(m.Key) is { } s
+                ? $"{(s.Encoding == StringEncoding.Utf16 ? "L" : "")}\"{Format.Clip(index.ReadString(s, 200), 80)}\"" : index.NameAt(m.Key) ?? Va(m.Key), m.Value.ToList())).ToList();
+        var view = new ComponentView(rows, edges, Shared(globals, false), Shared(strings, true));
+
+        sb.AppendLine($"Component of {Plural(functions.Count, "function")} [{native.Id}] (ends are exclusive throughout)");
+        sb.AppendLine("\n== functions (address, size, blocks, complexity, callers, callees) ==");
+        foreach (var r in rows)
+            sb.AppendLine($"  {r.Address}  {r.Name}  {r.Size} bytes, {(r.Blocks?.ToString() ?? "?")} blocks, complexity {(r.Complexity?.ToString() ?? "?")}, " +
+                          $"{r.Callers} callers, {r.Callees} callees, {(r.Interface ? "interface" : "internal")}");
+        void List(string title, IEnumerable<string> lines)
+        {
+            var all = lines.ToList();
+            sb.AppendLine($"\n== {title} ({all.Count}{(all.Count > max ? $"; first {max}" : "")}) ==");
+            foreach (var l in all.Take(max)) sb.AppendLine("  " + l);
+            if (all.Count == 0) sb.AppendLine("  (none)");
+        }
+        List("internal calls", edges.Select(e => $"{e.From} -> {e.To} ({Plural(e.Sites, "site")})"));
+        List("shared globals", view.SharedGlobals.Select(g => $"{g.Address}  {g.Text}: {string.Join(", ", g.Functions)}"));
+        List("shared strings", view.SharedStrings.Select(g => $"{g.Address}  {g.Text}: {string.Join(", ", g.Functions)}"));
+        List("internal only (reached from the set alone)", rows.Where(r => !r.Interface).Select(r => r.Name));
+        sb.AppendLine();
+        return view;
     }
 
     /// <summary>Edges between the graph's blocks minus blocks plus 2 (McCabe).</summary>

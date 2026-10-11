@@ -81,6 +81,72 @@ public sealed class FunctionDossierTests : IDisposable
         }
     }
 
+    /// <summary>component.dll: Outer (export) and Inner (called by Outer only) both load L"shared" and read the dword g_count; Outer calls Inner twice.</summary>
+    private static (string Path, string Inner) ComponentSample(TempDir dir)
+    {
+        uint? text = null;
+        Dictionary<string, uint>? at = null;
+        byte[] Code(Dictionary<string, uint> slots)
+        {
+            Instruction Rip(Iced.Intel.Code c, Register r, uint rva) => Instruction.Create(c, r, new MemoryOperand(Register.RIP, (long)(Base + rva), 8));
+            var a = new Assembler(64);
+            var outer = a.CreateLabel();
+            var inner = a.CreateLabel();
+            a.Label(ref outer);
+            a.sub(rsp, 0x28);
+            a.AddInstruction(Rip(Iced.Intel.Code.Lea_r64_m, Register.RCX, slots["text"]));
+            a.AddInstruction(Rip(Iced.Intel.Code.Mov_r32_rm32, Register.EAX, slots["count"]));
+            a.call(inner);
+            a.call(inner);
+            a.add(rsp, 0x28);
+            a.ret();
+            for (int i = 0; i < 6; i++) a.int3();
+            a.Label(ref inner);
+            a.AddInstruction(Rip(Iced.Intel.Code.Lea_r64_m, Register.RDX, slots["text"]));
+            a.AddInstruction(Rip(Iced.Intel.Code.Mov_r32_rm32, Register.EAX, slots["count"]));
+            a.ret();
+            var stream = new MemoryStream();
+            var result = a.Assemble(new StreamCodeWriter(stream), Base + LinkedImages.Text, BlockEncoderOptions.ReturnNewInstructionOffsets);
+            at = new() { ["Outer"] = (uint)(result.GetLabelRIP(outer) - Base), ["Inner"] = (uint)(result.GetLabelRIP(inner) - Base) };
+            text = LinkedImages.Text;
+            return stream.ToArray();
+        }
+        LinkedImages.Build("component.dll", [], [("KERNEL32.dll", ["ExitProcess"])], Code, Strings);
+        var path = dir.File("component.dll");
+        File.WriteAllBytes(path, LinkedImages.Build("component.dll", [("Outer", (int)(at!["Outer"] - text!.Value))], [("KERNEL32.dll", ["ExitProcess"])], Code, Strings));
+        return (path, $"rva:0x{at["Inner"]:X}");
+
+        static Dictionary<string, uint> Strings(PeBlob blob, List<uint> relocations)
+        {
+            blob.Align(4);
+            uint count = blob.U32(7);
+            uint shared = blob.Utf16("shared\0");
+            return new() { ["text"] = shared, ["count"] = count };
+        }
+    }
+
+    [Fact]
+    public async Task Component_view_of_several_functions()
+    {
+        var (ws, tools) = Rig();
+        using var _ = ws;
+        var (path, inner) = ComponentSample(_dir);
+        var record = StructuredOutput.Begin();
+        var text = await tools.AnalyzeNativeFunction(path, $"Outer,{inner}", component: true);
+        NativeLinkTests.Has(text, "Component of 2 functions [component.dll]");
+        Assert.Matches(@"Outer -> sub_[0-9A-F]+ \(2 sites\)", text);
+        Assert.Matches(@"L""shared"": Outer, sub_[0-9A-F]+", text);
+        Assert.Matches(@"^  0x[0-9A-F]+  [^\r\n]+: Outer, sub_[0-9A-F]+", text.Split("== shared globals")[1].Split("== shared strings")[0].Split('\n')[1]); // the dword both read
+        NativeLinkTests.Has(text, $"== internal only (reached from the set alone) (1) ==");
+        Assert.DoesNotContain("== identity", text); // per-function sections only when asked
+        var view = Assert.IsType<NativeFunctionTools.FunctionDossier>(record.Value).Component!;
+        Assert.Equal([true, false], view.Functions.Select(f => f.Interface));
+        Assert.Single(view.SharedGlobals);
+        Assert.Single(view.SharedStrings);
+        Assert.Contains("== identity", await tools.AnalyzeNativeFunction(path, $"Outer,{inner}", sections: "identity", component: true));
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.AnalyzeNativeFunction(path, "Outer", component: true))).Code);
+    }
+
     private (AssemblyWorkspace Workspace, NativeFunctionTools Tools) Rig()
     {
         var options = new ServerOptions { BackgroundIndexing = false };

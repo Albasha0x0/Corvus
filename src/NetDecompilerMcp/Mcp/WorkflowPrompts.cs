@@ -109,7 +109,8 @@ public static class WorkflowPrompts
         1. load_assembly (path={path}), then get_pe_info: machine, subsystem, mitigations, PDB path, version resource, rich header (toolchain), signature, overlay, parse issues.
         2. list_imports grouped by DLL: name the capabilities they imply (files, registry, network, crypto, processes, UI). list_exports if it is a DLL.
         3. list_functions (sort=callers for the most used helpers, sort=size for the largest), search_native_strings for URLs, paths, formats, error text; list_cpp_classes for C++ class names.
-        4. Pick the 3-5 most important functions (entry point, exports, functions referencing key strings or APIs): disassemble or decompile_native them, and follow native_call_tree.
+        4. Pick the 3-5 most important functions (entry point, exports, functions referencing key strings or APIs): analyze_native_function with their
+           addresses comma-separated (component=true shows their internal calls and shared data), decompile_native the deciding ones, and follow native_call_tree.
         {(string.IsNullOrWhiteSpace(focus) ? "" : $"Focus especially on: {focus}.\n")}Finish with: a capability summary, a map of the main code areas with addresses, and suggested next steps.
         {Evidence}
         """;
