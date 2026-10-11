@@ -11,6 +11,8 @@ public class NativeAotTypeTests
     internal const uint SpeakCode = B.TextRva + 0x10, ToStringCode = B.TextRva + 0x60, EqualsCode = B.TextRva + 0x70, HashCode = B.TextRva + 0x80;
     /// <summary>Dog's implementation of the interface's slot 1, reached only through its sealed vtable.</summary>
     internal const uint SealedCode = B.TextRva + 0x90;
+    /// <summary>The initial interface dispatch stub and a function calling through a dispatch cell.</summary>
+    internal const uint DispatchStub = B.TextRva + 0xF0, InterfaceCaller = B.TextRva + 0xA0;
     private const uint HasDispatchMap = 0x40000, HasSealedVTable = 0x400000;
     private const uint KindCanonical = 0, KindGenericDefinition = 3;
     private const uint IsGeneric = 0x02000000, IsGeneric7 = 0x400, OptionalFields7 = 0x100;
@@ -87,12 +89,13 @@ public class NativeAotTypeTests
     {
         public uint Text { get; init; }
         public uint String { get; init; }
+        public uint[] Cells { get; init; } = [];
     }
 
     /// <summary>Sizes of the fixture's objects: Object, Dog (one field more) and String (two pointers, the length and a character).</summary>
     internal static (uint Object, uint Dog, uint String) Sizes(bool is32) => is32 ? (12u, 16u, 14u) : (0x18u, 0x20u, 0x16u);
 
-    internal static World Build(ushort major, bool is32 = false)
+    internal static World Build(ushort major, bool is32 = false, bool dispatchCells = false)
     {
         var m = NativeAotMetadataTests.Model(major);
         var md = new NativeAotMetadata(m.Blob, m.Format);
@@ -166,8 +169,35 @@ public class NativeAotTypeTests
             BinaryPrimitives.WriteInt32LittleEndian(map.AsSpan(code), (int)(SpeakCode - (st + (uint)code)));
         }
         Assert.Equal(st, b.Blob(BlobId.StackTraceMethodRvaToTokenMapping, map));
+
+        // Interface dispatch cells: two runs for the speaker's slots 0 and 1, each cell the initial stub and the tagged
+        // relative pointer to the interface, each run ended by a null pointer and the slot; then code calling through the first.
+        uint[] cells = [];
+        if (dispatchCells)
+        {
+            var d = b.Data;
+            d.Align(2 * p);
+            uint Cell()
+            {
+                uint at = b.Pointer(d, DispatchStub);
+                d.U32(speaker - d.Here | 3);
+                if (p == 8) d.U32(0);
+                return at;
+            }
+            uint first = Cell(), second = Cell();
+            d.Ptr(!is32, 0);
+            d.Ptr(!is32, 0);
+            uint third = Cell();
+            d.Ptr(!is32, 0);
+            d.Ptr(!is32, 1);
+            cells = [first, second, third];
+            // lea r11, [rip + first]; call qword ptr [r11]; ret
+            byte[] call = [0x4C, 0x8D, 0x1D, 0, 0, 0, 0, 0x41, 0xFF, 0x13, 0xC3];
+            BinaryPrimitives.WriteInt32LittleEndian(call.AsSpan(3), (int)(first - (InterfaceCaller + 7)));
+            call.CopyTo(b.Text, (int)(InterfaceCaller - B.TextRva));
+        }
         var aot = NativeAotImage.Open(b.Image())!;
-        return new World(aot, obj, speaker, dog, dogArray, boxDef, boxOfDog, frozen, lookAlike) { Text = text, String = str };
+        return new World(aot, obj, speaker, dog, dogArray, boxDef, boxOfDog, frozen, lookAlike) { Text = text, String = str, Cells = cells };
     }
 
     [Theory]

@@ -98,6 +98,12 @@ public class NativeAotSampleTests(ITestOutputHelper log)
         if (!properties.Contains("StackTraceSupport=false")) // owners come from named methods
             Assert.True(owned.Count > 20 && ownersAgree >= 0.85 * owned.Count, $"{ownersAgree} of {owned.Count} statics types agree with the PDB");
 
+        // Interface dispatch cells at the PDB's cell symbols.
+        var cellSymbols = symbols.Where(s => s.Value.Any(n => n.Contains("__InterfaceDispatchCell_", StringComparison.Ordinal))).Select(s => s.Key).ToHashSet();
+        int cellsFound = aot.Dispatch.Cells.Count(c => cellSymbols.Contains(c.Rva));
+        // The first cell may carry the section's start symbol instead.
+        Assert.True(cellsFound >= 0.95 * cellSymbols.Count && aot.Dispatch.Cells.Count - cellsFound <= 1, $"{cellsFound} of {cellSymbols.Count} dispatch cells, {aot.Dispatch.Cells.Count} found");
+
         // Dispatch maps (.NET 7: through the optional fields and the dispatch map table): most implementations are named bodies.
         var impls = aot.Types.ByRva.Values.SelectMany(aot.Types.Implementations).Where(i => i.Code != 0).ToList();
         Assert.True(impls.Count > 100, $"{impls.Count} interface implementations");

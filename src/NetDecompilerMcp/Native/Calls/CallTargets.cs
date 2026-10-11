@@ -5,11 +5,11 @@ using NetDecompilerMcp.Native.Code;
 namespace NetDecompilerMcp.Native.Calls;
 
 /// <param name="Basis">direct_branch, import_slot, thunk_import, constant_pointer, getprocaddress, rtti_vftable_exact, rtti_vftable_possible,
-/// global_writers, initial_contents, pointer_table, caller_argument, ida_xref, hexrays_direct.</param>
+/// global_writers, initial_contents, pointer_table, caller_argument, ida_xref, hexrays_direct, interface_dispatch_cell (NativeAOT).</param>
 /// <param name="Confidence">exact, possible or candidate (from an incomplete set, or another engine's view only).</param>
 public sealed record CallTarget(uint Address, string Name, string Basis, string Confidence, string Evidence);
 
-/// <param name="Mechanism">direct, import_slot, thunk, register, memory_pointer, vftable_slot, cfg_dispatch, tail_jump, pointer_table.</param>
+/// <param name="Mechanism">direct, import_slot, thunk, register, memory_pointer, vftable_slot, cfg_dispatch, tail_jump, pointer_table, interface_dispatch.</param>
 /// <param name="Status">direct, import, resolved (the complete target set), possible (several, or not proven complete), virtual_exact,
 /// virtual_possible, ambiguous (engines disagree) or unresolved.</param>
 /// <param name="Hint">For unresolved sites: the call that traces the target's value.</param>
@@ -130,6 +130,8 @@ public static class CallTargets
             }
         }
 
+        if (InterfaceDispatch(a, code, b, i) is { } dispatch) return Site("interface_dispatch", "virtual_possible", dispatch);
+
         // indirect: a global function pointer, a pointer table, a parameter
         uint? global = c.Target ?? (x.Op0Kind == OpKind.Memory && d.HasMem ? d.MemRva : null);
         if (global is { } g && a.ImportAtSlot(g) == null && a.Image.SectionAt(g) is { } sec && (sec.Access & SectionAccess.Write) != 0)
@@ -152,6 +154,24 @@ public static class CallTargets
                     complete ? null : "other values may reach it (unknown paths or budgets)", complete ? null : hint);
         }
         return Site(mechanism, "unresolved", [], c.Why ?? "target not known", hint);
+    }
+
+    /// <summary>
+    /// A NativeAOT interface call through its dispatch cell ("call [cell]", or "lea r11, [cell]; call [r11]"): the types
+    /// whose dispatch maps implement the cell's interface slot; null for other calls.
+    /// </summary>
+    private static List<CallTarget>? InterfaceDispatch(CallAnalysis a, FunctionCode code, int b, int i)
+    {
+        ref readonly var d = ref code.Blocks[b][i];
+        var x = d.I;
+        if (x.Op0Kind != OpKind.Memory || NativeAot.NativeAotImage.For(a.Image) is not { } aot) return null;
+        uint? at = d.HasMem ? d.MemRva
+            : x.MemoryBase != Register.None && x.MemoryIndex == Register.None && x.MemoryDisplacement64 == 0
+              && new ValueResolver(a, code) { Budget = 200 }.ValueBefore(Loc.Of(x.MemoryBase), b, i) is { Kind: VKind.Addr } v ? v.Rva : null;
+        if (at is not { } rva || aot.Dispatch.CellAt(rva) is not { } cell) return null;
+        string evidence = $"{cell.Target} through the interface dispatch cell at {a.Va(rva)}";
+        return [.. aot.Dispatch.Implementers(cell.Interface, cell.Slot).Select(m =>
+            new CallTarget(m.Code, a.Index.NameAt(m.Code) ?? $"sub_{m.Code:X}", "interface_dispatch_cell", "possible", $"{m.TypeName}: {evidence}"))];
     }
 
     private static CallTargetSite GlobalWriters(CallAnalysis a, uint g, string mechanism,

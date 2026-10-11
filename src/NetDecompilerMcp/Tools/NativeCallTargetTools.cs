@@ -21,7 +21,7 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
         [property: Description("VA of the target (the import slot for imports, the pointer global for late-bound imports).")] string Address,
         string Name,
         [property: Description("How it was found: direct_branch, import_slot, thunk_import, constant_pointer, getprocaddress, rtti_vftable_exact, rtti_vftable_possible, " +
-                               "global_writers, initial_contents, pointer_table, caller_argument, ida_xref, hexrays_direct, ghidra_xref, ghidra_direct.")] string Basis,
+                               "global_writers, initial_contents, pointer_table, caller_argument, interface_dispatch_cell, ida_xref, hexrays_direct, ghidra_xref, ghidra_direct.")] string Basis,
         [property: Description("exact, possible, or candidate (from an incomplete set, or only another engine's view).")] string Confidence,
         string Evidence);
 
@@ -30,7 +30,7 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
         [property: Description("VA of the instruction.")] string Address,
         [property: Description("Function and offset.")] string Function,
         [property: Description("The instruction.")] string Text,
-        [property: Description("direct, import_slot, thunk, register, memory_pointer, vftable_slot, cfg_dispatch, tail_jump or pointer_table.")] string Mechanism,
+        [property: Description("direct, import_slot, thunk, register, memory_pointer, vftable_slot, cfg_dispatch, tail_jump, pointer_table or interface_dispatch.")] string Mechanism,
         [property: Description("direct, import, resolved (the complete set), possible (several, or not proven complete), virtual_exact, virtual_possible, " +
                                "ambiguous (engines disagree) or unresolved.")] string Status,
         [property: Description("Distinct targets (all of them; at most 64 listed).")] int TargetCount,
@@ -53,7 +53,7 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
 
     [McpServerTool(Name = "resolve_call_targets", Title = "Native call targets", UseStructuredContent = true, OutputSchemaType = typeof(CallTargetsReport))]
     [Description("Targets of call and tail-jump sites in native code (x86 / x64 / ARM), each with its basis and confidence: direct branches, import and GOT " +
-                 "slots, thunks, constant pointers (also through the CFG dispatch), GetProcAddress pointers, RTTI virtual calls, the writers and initial contents " +
+                 "slots, thunks, constant pointers (also through the CFG dispatch), GetProcAddress pointers, RTTI virtual calls, NativeAOT interface calls (the implementations of the dispatch cell's slot), the writers and initial contents " +
                  "of a global function pointer, relocated pointer tables (complete when an index bound is found), and with deep=true the function " +
                  "pointers callers pass in. Several targets are listed, never collapsed; unresolved sites carry the reason and the trace_native_values " +
                  "call to follow. engine=ida or ghidra merges that engine's references and decompiler targets for the sites returned (a disagreement is ambiguous).")]

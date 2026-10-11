@@ -33,6 +33,7 @@ public sealed class NativeAotImage
         types = new(() => NativeAotTypes.Read(this));
         frozen = new(() => NativeAotFrozen.Read(this));
         statics = new(() => NativeAotStatics.Read(this));
+        dispatch = new(() => NativeAotDispatch.Read(this));
     }
 
     /// <summary>Largest blob read into memory.</summary>
@@ -43,6 +44,7 @@ public sealed class NativeAotImage
     private readonly Lazy<NativeAotTypes> types;
     private readonly Lazy<NativeAotFrozen> frozen;
     private readonly Lazy<NativeAotStatics> statics;
+    private readonly Lazy<NativeAotDispatch> dispatch;
 
     public INativeImage Image { get; }
     /// <summary>The module analyzed (the first header found); <see cref="Headers"/> lists every module of a multi-module image.</summary>
@@ -50,6 +52,12 @@ public sealed class NativeAotImage
     public IReadOnlyList<NativeAotHeader> Headers { get; }
     public int? DebugHeaderMajor { get; }
     public NativeAotFormat Format => Header.Format;
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<INativeImage, Lazy<NativeAotImage?>> Views = new();
+
+    /// <summary>The NativeAOT view of <paramref name="image"/>, opened once per image and shared; null when it has none.</summary>
+    public static NativeAotImage? For(INativeImage image) =>
+        Views.GetValue(image, i => new Lazy<NativeAotImage?>(() => Open(i))).Value;
 
     /// <summary>The NativeAOT view of <paramref name="image"/>, or null when it has no NativeAOT module header.</summary>
     public static NativeAotImage? Open(INativeImage image, CancellationToken ct = default)
@@ -86,6 +94,9 @@ public sealed class NativeAotImage
 
     /// <summary>GC, non-GC and thread statics bases with their types and, when the metadata keeps them, fields.</summary>
     public NativeAotStatics Statics => statics.Value;
+
+    /// <summary>Interface dispatch cells, interface method names and the implementations of interface slots.</summary>
+    public NativeAotDispatch Dispatch => dispatch.Value;
 
     /// <summary>The start of the code a pointer or relative pointer to code targets: ARM32 code pointers carry the Thumb bit.</summary>
     public static uint CodeAddress(INativeImage image, uint target) => image.Arch == NativeArch.Arm ? target & ~1u : target;
@@ -143,6 +154,7 @@ public sealed class NativeAotImage
         stages.Add(Types.Stage);
         stages.Add(Frozen.Stage);
         stages.Add(Statics.Stage);
+        stages.Add(Dispatch.Stage);
         var sections = Header.Sections.Select(s => new NativeAotSectionInfo(s.Id, s.Name, s.StartRva, s.Length)).ToList();
         var counts = new Dictionary<string, int>
         {
@@ -155,6 +167,7 @@ public sealed class NativeAotImage
             ["frozenStrings"] = Frozen.StringCount,
             ["statics"] = Statics.Bases.Count,
             ["staticsWithType"] = Statics.Bases.Count(b => b.Owner != null),
+            ["dispatchCells"] = Dispatch.Cells.Count,
         };
         return new NativeAotSummary(Runtime, ReadyToRunVersion, DebugHeaderMajor, Header.IsDehydrated, Header.Rva, Headers.Count, sections, stages, counts);
     }

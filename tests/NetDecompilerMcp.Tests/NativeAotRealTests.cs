@@ -70,6 +70,19 @@ public class NativeAotRealTests
         }
     }
 
+    /// <summary>Interface dispatch cells in every format: most carry the interface method's name and have implementations.</summary>
+    [Theory]
+    [MemberData(nameof(Samples))]
+    public void DispatchCells_NamedWithImplementations(string sample)
+    {
+        var (_, aot) = Open(sample);
+        var cells = aot.Dispatch.Cells;
+        Assert.InRange(cells.Count, 4000, 9000);
+        Assert.True(cells.Count(c => c.Method != null) > 0.95 * cells.Count);
+        Assert.True(cells.Count(c => aot.Dispatch.Implementers(c.Interface, c.Slot).Count > 0) > 0.85 * cells.Count); // the rest: interfaces nothing implements here
+        Assert.Contains(cells, c => c.Target == "System.Collections.IEnumerator::MoveNext");
+    }
+
     /// <summary>32-bit images: 4-byte MethodTable pointers, frozen objects with 4-byte headers, ARM code pointers without the Thumb bit.</summary>
     [Theory]
     [InlineData("win-x86 10.0.11")]

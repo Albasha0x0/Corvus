@@ -18,7 +18,8 @@ namespace NetDecompilerMcp.Services;
 /// "str_&lt;n&gt;" (n in address order) commented with the text, other frozen objects "frozen_&lt;n&gt;"; the module header
 /// "__ReadyToRunHeader" and its sections "__&lt;SectionName&gt;"; statics bases "Ns_Type__GCStatics", "Ns_Type__Statics" and
 /// "Ns_Type__ThreadStaticsIndex" (or "GCStatics_&lt;n&gt;" and so on when the type is unknown), non-GC static fields
-/// "Ns_Type__field". A name already used at another address gets "_&lt;RVA hex&gt;".
+/// "Ns_Type__field"; interface dispatch cells "__InterfaceDispatchCell_Ns_IFoo__Method". A name already used at another
+/// address gets "_&lt;RVA hex&gt;".
 /// </para>
 /// </summary>
 public static class NativeAotNames
@@ -26,7 +27,7 @@ public static class NativeAotNames
     /// <summary>Set to 0 to turn off naming NativeAOT images automatically.</summary>
     public const string AutoVariable = "NDM_AUTO_NATIVEAOT";
     /// <summary>Saved with the layer; a layer saved by another version of this naming is rebuilt.</summary>
-    public const string ReaderIdentity = "nativeaot-names 2";
+    public const string ReaderIdentity = "nativeaot-names 3";
     /// <summary>Most other folded methods listed in a function's comment.</summary>
     private const int FoldedListed = 8;
     private const int MaxSlotDepth = 64;
@@ -35,6 +36,7 @@ public static class NativeAotNames
     public sealed record Report(int Functions, int FoldedFunctions, int VtableSlots, int InterfaceSlots, int MethodTables, int FrozenStrings, int FrozenObjects, int Suffixed, TimeSpan Elapsed)
     {
         public int Statics { get; init; }
+        public int DispatchCells { get; init; }
     }
 
     /// <summary>The layer's contents: names and comments by RVA, the function starts it contributes, and counts.</summary>
@@ -55,7 +57,7 @@ public static class NativeAotNames
         lock (holder.Gate)
         {
             if (holder.Done) return holder.View;
-            try { holder.View = NativeAotImage.Open(native.Image, ct); }
+            try { holder.View = NativeAotImage.For(native.Image); }
             catch (ToolError e) { holder.Problem = e.Message; }
             holder.Done = true;
             return holder.View;
@@ -108,6 +110,8 @@ public static class NativeAotNames
                 break;
             }
         }
+        if (aot.Dispatch.CellAt(rva) is { } cell)
+            lines.Add($"NativeAOT interface dispatch cell: {cell.Target} (slot {cell.Slot}), {aot.Dispatch.Implementers(cell.Interface, cell.Slot).Count} implementations known; resolve_call_targets lists them at the call");
         if (aot.Statics.At(rva) is { } st)
         {
             var field = st.Fields.LastOrDefault(f => st.Rva + f.Offset <= rva);
@@ -176,16 +180,6 @@ public static class NativeAotNames
         var implementations = types.Values.Where(t => t.DispatchMap != 0).OrderBy(t => t.NameOrigin == "generated" ? 1 : 0).ThenBy(t => t.Rva)
             .Select(t => (Type: t, Impls: aot.Types.Implementations(t))).ToList();
         string Interface(uint rva) => rva != 0 && types.TryGetValue(rva, out var i) ? i.Name : "interface";
-        var votes = new Dictionary<(string, int), Dictionary<string, int>>();
-        foreach (var (_, impls) in implementations)
-            foreach (var impl in impls)
-                if (maps.MethodAt.TryGetValue(impl.Code, out var named))
-                {
-                    var key = (Interface(impl.Interface).Split('<')[0], impl.InterfaceSlot);
-                    var method = named.Name.Name[(named.Name.Name.LastIndexOf('.') + 1)..]; // explicit implementations: "Ns.IFoo.Bar" -> "Bar"
-                    if (!votes.TryGetValue(key, out var counts)) votes[key] = counts = new(StringComparer.Ordinal);
-                    counts[method] = counts.GetValueOrDefault(method) + 1;
-                }
         foreach (var (mt, impls) in implementations)
         {
             ct.ThrowIfCancellationRequested();
@@ -193,8 +187,7 @@ public static class NativeAotNames
             {
                 if (impl.Code == 0 || names.ContainsKey(impl.Code) || !Code(impl.Code)) continue;
                 string iface = Interface(impl.Interface);
-                string? method = votes.TryGetValue((iface.Split('<')[0], impl.InterfaceSlot), out var counts)
-                    ? counts.OrderByDescending(c => c.Value).ThenBy(c => c.Key, StringComparer.Ordinal).First().Key : null;
+                string? method = aot.Dispatch.InterfaceMethod(iface, impl.InterfaceSlot);
                 Add(impl.Code, NativeName.Identifier($"{mt.Name}$${method ?? $"{Short(iface)}_slot{impl.InterfaceSlot}"}"),
                     $"{mt.Name} implementation of {iface} slot {impl.InterfaceSlot}{(method != null ? $" ({method})" : "")}, vtable slot {impl.ImplSlot}");
                 starts.Add(impl.Code);
@@ -230,12 +223,22 @@ public static class NativeAotNames
                     Add(b.Rva + f.Offset, NativeName.Identifier($"{b.Owner}$${f.Name}"), $"static {f.Type} {b.Owner}::{f.Name}");
             statics++;
         }
+        int cells = 0;
+        foreach (var cell in aot.Dispatch.Cells)
+        {
+            ct.ThrowIfCancellationRequested();
+            var impls = aot.Dispatch.Implementers(cell.Interface, cell.Slot);
+            Add(cell.Rva, "__InterfaceDispatchCell_" + NativeName.Identifier($"{cell.InterfaceName}$${cell.Method ?? $"slot{cell.Slot}"}"),
+                $"interface dispatch cell: {cell.Target} (slot {cell.Slot}); {impls.Count} implementation(s) known" +
+                (impls.Count > 0 ? ": " + string.Join(", ", impls.Take(FoldedListed).Select(i => i.TypeName)) + (impls.Count > FoldedListed ? ", …" : "") : ""));
+            cells++;
+        }
         Add(aot.Header.Rva, "__ReadyToRunHeader", $"NativeAOT module header, ReadyToRun {aot.ReadyToRunVersion} ({aot.Runtime})");
         foreach (var section in aot.Header.Sections.Where(s => s.HasEnd && s.Length > 0))
             Add(section.StartRva, "__" + NativeName.Identifier(section.Name), $"NativeAOT module section {section.Name} ({section.Length} bytes)");
 
         return new Built(names, comments, starts.Distinct().Order().ToArray(),
-            new Report(functions, folded, slots, interfaceSlots, methodTables, strings, objects, suffixed, watch.Elapsed) { Statics = statics });
+            new Report(functions, folded, slots, interfaceSlots, methodTables, strings, objects, suffixed, watch.Elapsed) { Statics = statics, DispatchCells = cells });
     }
 
     /// <summary>What a statics base holds and how its type is known, with its fields when the metadata keeps them.</summary>

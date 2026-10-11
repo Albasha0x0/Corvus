@@ -67,7 +67,7 @@ public sealed class HydratedImage
         var slot = b[..PointerSize];
         if (Read(rva, slot) != slot.Length) return null;
         ulong va = PointerSize == 8 ? BinaryPrimitives.ReadUInt64LittleEndian(slot) : BinaryPrimitives.ReadUInt32LittleEndian(slot);
-        return va >= Image.ImageBase && va - Image.ImageBase < Image.SizeOfImage ? (uint)(va - Image.ImageBase) : null;
+        return va != 0 && va >= Image.ImageBase && va - Image.ImageBase < Image.SizeOfImage ? (uint)(va - Image.ImageBase) : null; // ELF images load at 0
     }
 
     /// <summary>The target of the 32-bit relative pointer at <paramref name="rva"/>; null when it leaves the image.</summary>
