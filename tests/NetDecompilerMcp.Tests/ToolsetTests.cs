@@ -90,6 +90,9 @@ public class ToolsetTests
         Assert.True(ServerOptions.Parse([Toolsets.ToolsFileOption, file]).ToolAllowList!.SetEquals(allowed));
         Assert.True(ServerOptions.Parse([Toolsets.ToolsFileOption, "triage"]).ToolAllowList!.SetEquals(Toolsets.ToolLists["triage"]));
         Assert.Null(new ServerOptions().ToolAllowList);
+        // server_status names the whitelist: a list name, or the file's full path
+        Assert.Equal("triage", ServerOptions.Parse([Toolsets.ToolsFileOption, "Triage"]).ToolAllowListSource);
+        Assert.Equal(Path.GetFullPath(file), ServerOptions.Parse([Toolsets.ToolsFileOption, file]).ToolAllowListSource);
     }
 
     [Fact]

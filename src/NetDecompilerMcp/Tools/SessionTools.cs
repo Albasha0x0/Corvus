@@ -21,6 +21,9 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
 
     public sealed record NoteCounts(int Open, int Total, string Store);
 
+    [Description("The --tools-file whitelist in effect (list name or path) and the tools it names; the call trace file (--trace / NDM_TRACE).")]
+    public sealed record CatalogFilter(string? ToolsFile, int? ToolsFileTools, string? TraceFile);
+
     public sealed record EngineSession(string Image, string Engine, int? WorkerPid,
         [property: Description("opening, idle, busy or closed.")] string State,
         [property: Description("The request running (or open/restart), its seconds and the worker's last stage.")] string? BusyOp, double BusySeconds, string? Stage,
@@ -63,7 +66,8 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         [property: Description("Analyst notes in the per-user store (record_note): open, total and the store directory.")]
         NoteCounts? Notes,
         EngineLimits EngineTimeLimits,
-        IReadOnlyList<EngineSession> EngineSessions);
+        IReadOnlyList<EngineSession> EngineSessions,
+        CatalogFilter ToolsFileAndTrace);
 
     private static readonly ConditionalWeakTable<McpServerOptions, string> Digests = new();
 
@@ -148,7 +152,8 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             NoteCountsOf(notes),
             new EngineLimits(options.EngineRequestTimeoutSeconds, options.EngineOpenTimeoutSeconds),
             (engines?.SessionStates() ?? []).Select(e => new EngineSession(e.Image, e.State.Engine, e.State.WorkerPid, e.State.State, e.State.BusyOp,
-                e.State.BusySeconds, e.State.Stage, e.State.Queued, e.State.Unsaved, e.State.Restarts, e.State.Database, e.State.ReusedDatabase, e.State.Note)).ToList());
+                e.State.BusySeconds, e.State.Stage, e.State.Queued, e.State.Unsaved, e.State.Restarts, e.State.Database, e.State.ReusedDatabase, e.State.Note)).ToList(),
+            new CatalogFilter(options.ToolAllowList != null ? options.ToolAllowListSource ?? "(set)" : null, options.ToolAllowList?.Count, options.TracePath));
     }
 
     /// <summary>One capability per external program the server runs (test oracles left out), probed once per file.</summary>

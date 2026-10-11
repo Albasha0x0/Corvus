@@ -196,6 +196,9 @@ public sealed class ServerOptions
     /// <summary>Tools a --tools-file whitelist names (null: no whitelist); applied after <see cref="Toolsets"/>, session tools always kept.</summary>
     public IReadOnlySet<string>? ToolAllowList { get; set; }
 
+    /// <summary>The --tools-file value the whitelist came from (a list name or a path); null without one.</summary>
+    public string? ToolAllowListSource { get; set; }
+
     /// <summary>JSONL file that gets one line per tools/call (tool, arguments, ms, error, size); null: off.</summary>
     public string? TracePath { get; set; }
 
@@ -218,7 +221,11 @@ public sealed class ServerOptions
     private void ParseProductOptions(string? toolsFile, string? trace)
     {
         toolsFile ??= Environment.GetEnvironmentVariable(Core.Toolsets.ToolsFileVariable) is { Length: > 0 } fileFromEnv ? fileFromEnv : null;
-        if (toolsFile != null) ToolAllowList = Core.Toolsets.LoadToolList(toolsFile);
+        if (toolsFile != null)
+        {
+            ToolAllowList = Core.Toolsets.LoadToolList(toolsFile);
+            ToolAllowListSource = Core.Toolsets.ToolLists.ContainsKey(toolsFile.Trim().ToLowerInvariant()) ? toolsFile.Trim().ToLowerInvariant() : Path.GetFullPath(toolsFile.Trim());
+        }
         trace ??= Environment.GetEnvironmentVariable(TraceVariable) is { Length: > 0 } traceFromEnv ? traceFromEnv : null;
         if (trace != null) TracePath = TraceFile(trace);
     }
