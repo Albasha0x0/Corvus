@@ -117,6 +117,40 @@ public class NativeDiffTests
         Assert.Null(m.ByNew[m.New.ByStart[n.At["X"]]]);
     }
 
+    /// <summary>P, two identical uncalled copies T1 and T2, and Q; the new build inserts X before them, so everything moves.</summary>
+    private static (NativeCodeIndex Index, Dictionary<string, uint> At) Copies(bool newer)
+    {
+        var a = new Assembler(64);
+        var at = new Dictionary<string, Label>();
+        void Here(string name) { var l = a.CreateLabel(name); a.Label(ref l); at[name] = l; }
+        if (newer) { Here("X"); a.mov(eax, 0x4242); a.imul(eax, eax, 3); a.ret(); a.int3(); }
+        Here("P"); a.mov(eax, 0x1111); a.xor(eax, 0x2222); a.add(eax, 0x3333); a.ret(); a.int3();
+        Here("T1"); a.mov(eax, 7); a.add(eax, ecx); a.ret(); a.int3();
+        Here("T2"); a.mov(eax, 7); a.add(eax, ecx); a.ret(); a.int3();
+        Here("Q"); a.mov(eax, 0x5555); a.sub(eax, 0x6666); a.imul(eax, eax, 9); a.ret();
+        var stream = new MemoryStream();
+        var result = a.Assemble(new StreamCodeWriter(stream), Base + Code, BlockEncoderOptions.ReturnNewInstructionOffsets);
+        var exports = new[] { "P", "T1", "T2", "Q" }.Select((n, i) => new NativeExport(n, (uint)i + 1, (uint)(result.GetLabelRIP(at[n]) - Base), null)).ToList();
+        var image = CodeTestImage.Synthetic(NativeArch.X64, stream.ToArray(), exports: exports, entry: (uint)(result.GetLabelRIP(at["P"]) - Base));
+        return (NativeCodeIndex.Build(image), at.ToDictionary(kv => kv.Key, kv => (uint)(result.GetLabelRIP(kv.Value) - Base)));
+    }
+
+    [Fact]
+    public void Identical_copies_between_matched_neighbors_pair_by_their_place()
+    {
+        var (o, oldAt) = Copies(false);
+        var (n, newAt) = Copies(true);
+        var m = BuildMatcher.Match(ImagePrints.Build(o, default), ImagePrints.Build(n, default), new MatchOptions { UseNames = false }, default);
+        foreach (var name in new[] { "P", "T1", "T2", "Q" })
+        {
+            var pair = m.ForOldStart(oldAt[name]);
+            Assert.True(pair != null, $"{name} unmatched");
+            Assert.Equal(newAt[name], m.New.Functions[pair!.New].Start);
+        }
+        Assert.Equal("address_sequence", m.ForOldStart(oldAt["T2"])!.Basis);
+        Assert.Empty(m.Ambiguous);
+    }
+
     [Fact]
     public void Function_diff_shows_logic_changes_not_moved_addresses()
     {

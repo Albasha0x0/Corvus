@@ -63,7 +63,8 @@ public sealed class MatchResult
 /// (3) the same imports, strings and constants; (4) call-graph propagation from matched pairs to callees in the same
 /// position, to mutually best callers / callees, by callers and callees in common, and to the same slot of matched tables
 /// of function pointers (vtables), to a fixed point; (5) fuzzy similarity above a threshold with a
-/// margin over the runner-up on both sides. Tiers 4 and 5 alternate until nothing changes.
+/// margin over the runner-up on both sides. Tiers 4 and 5 alternate until nothing changes; then identical code between matched
+/// neighbors pairs by its place (tier 4).
 /// </summary>
 public sealed class BuildMatcher
 {
@@ -128,7 +129,41 @@ public sealed class BuildMatcher
             if (Fuzzy() == 0) break;
         }
         PropagateAll();
+        if (Sequence() > 0) PropagateAll();
     }
+
+    /// <summary>
+    /// Pairs the unmatched functions between two matched neighbors that moved by the same distance with the unmatched
+    /// functions at that distance in the new build, when their code is identical or the same shape: identical copies
+    /// (templates, folded helpers) no other tier tells apart keep their place in the layout.
+    /// </summary>
+    private int Sequence()
+    {
+        var order = Enumerable.Range(0, _o.Length).OrderBy(i => _o[i].Start).ToArray();
+        int accepted = 0, prev = -1;
+        for (int k = 0; k < order.Length; k++)
+        {
+            if (_byOld[order[k]] == null) continue;
+            if (prev >= 0 && k - prev > 1)
+            {
+                long before = Shift(order[prev]), after = Shift(order[k]);
+                if (before == after)
+                    for (int g = prev + 1; g < k; g++)
+                    {
+                        int o = order[g];
+                        long at = _o[o].Start + before;
+                        if (at is < 0 or > uint.MaxValue || !_new.ByStart.TryGetValue((uint)at, out var n) || _byNew[n] != null) continue;
+                        bool same = !_o[o].Failed && !_n[n].Failed && _o[o].Size == _n[n].Size
+                                    && (_o[o].BytesHash == _n[n].BytesHash || _o[o].StructHash == _n[n].StructHash);
+                        if (same && Accept(o, n, 4, "address_sequence", Similarity(o, n))) accepted++;
+                    }
+            }
+            prev = k;
+        }
+        return accepted;
+    }
+
+    private long Shift(int o) => (long)_n[_byOld[o]!.New].Start - _o[o].Start;
 
     /// <summary>Propagation and context votes, alternated until neither adds a pair.</summary>
     private void PropagateAll()

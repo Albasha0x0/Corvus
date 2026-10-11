@@ -136,7 +136,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
                  "only when unique on both sides: 1 same name (export, PDB, Il2Cpp, user), same import thunk, or identical bytes with addresses masked; " +
                  "2 same canonical control-flow graph and instruction shapes; 3 same imports, strings and constants; 4 call-graph propagation from matched " +
                  "pairs (callees in the same position, mutually best callers / callees, callers and callees in common, the same slot of matched " +
-                 "function-pointer tables such as vtables) to a fixed point; 5 fuzzy similarity (instruction mix, graph, size, " +
+                 "function-pointer tables such as vtables, and identical code between two matched neighbors that moved by the same distance) to a fixed point; 5 fuzzy similarity (instruction mix, graph, size, " +
                  "references, matched neighbors) above minScore with a margin over the runner-up. Returns per-tier counts and one paged list (view): pairs " +
                  "with tier, score and what changed; changed pairs; unmatched functions with the reason; ambiguous functions with their candidates. " +
                  "The first call waits for both code indexes; results are cached until names change.")]
