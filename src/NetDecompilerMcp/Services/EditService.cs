@@ -11,7 +11,7 @@ namespace NetDecompilerMcp.Services;
 /// Each edit is recorded as a replayable <see cref="EditRecord"/>; <see cref="Undo"/> and edit scripts rebuild from
 /// the original image and replay records. Callers must hold the workspace write lock, or the read lock for dry runs.
 /// </summary>
-public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembler, CSharpPatcher csharp)
+public sealed partial class EditService(AssemblyWorkspace workspace, IlAssembler assembler, CSharpPatcher csharp)
 {
     public string Rename(ResolvedSymbol symbol, string newName, bool dryRun = false)
     {
@@ -317,8 +317,12 @@ public sealed class EditService(AssemblyWorkspace workspace, IlAssembler assembl
     private static string Relaxed(CSharpPatcher.Outcome outcome) =>
         outcome.Relaxed.Count == 0 ? "" : "\nAccessibility relaxed so the code passes runtime access checks:\n  " + string.Join("\n  ", outcome.Relaxed);
 
+    /// <summary>Labels without compiler-generated names ('&lt;' starting a name); a generic method's "&lt;T&gt;" is kept.</summary>
     private static List<string> UserVisible(IEnumerable<string> labels) =>
-        labels.Where(l => !l.Contains('<')).ToList();
+        labels.Where(l => !GeneratedName().IsMatch(l)).ToList();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"(^|[/.:])<")]
+    private static partial System.Text.RegularExpressions.Regex GeneratedName();
 
     private static string ShortName(string label)
     {

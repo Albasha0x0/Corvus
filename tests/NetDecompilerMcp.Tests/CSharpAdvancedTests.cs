@@ -51,6 +51,15 @@ public class CSharpAdvancedTests : IDisposable
 
     private string AddTypes(string code) => _env.Edit(() => _env.Edits.AddTypesCSharp(_env.Fixture, code, false, default));
 
+    /// <summary>A generic method is labeled Echo&lt;T&gt;(T); it is still listed as added, while closures stay hidden.</summary>
+    [Fact]
+    public void AddedGenericMembersAreListed()
+    {
+        var result = AddMembers("Shop", "public T Echo<T>(T x) { System.Func<T> f = () => x; return f(); }");
+        Assert.Contains("Echo<T>(T)", result);
+        Assert.DoesNotContain("<>", result);
+    }
+
     [Fact]
     public void LambdasLinqAndCapturedThis()
     {
