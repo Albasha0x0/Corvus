@@ -351,7 +351,7 @@ public class NativeArm32Tests
     /// the veneer is a function of its own named j_dst (not a block of the first jumper), the thunk j_j_dst.
     /// </summary>
     [Fact]
-    public void Conditional_tail_jumps_to_a_veneer_make_it_a_named_function()
+    public async Task Conditional_tail_jumps_to_a_veneer_make_it_a_named_function()
     {
         var a = new A32Code(Text);
         uint veneer = 0, dst = 0, add = 0;
@@ -382,6 +382,21 @@ public class NativeArm32Tests
         Assert.Equal("j_dst", index.FunctionByStart(veneer)!.Name);
         Assert.Equal("j_j_dst", index.FunctionByStart(thunk)!.Name);
         Assert.Equal(Text, index.FunctionAt(Text + 2)?.Start);
+
+        // a mnemonic search ignores the width qualifier: ^b$ finds b.w
+        using var dir = new TempDir();
+        var path = dir.File("veneer.so");
+        File.WriteAllBytes(path, ElfBytes(a.Bytes(), w =>
+        {
+            w.Symbols.Add(new ElfWriter.Symbol("dst", dst | 1, Type: 2));
+            w.Relocations.Add(new ElfWriter.Reloc(Data + 0x40, 23, Addend: Text | 1));
+            w.Relocations.Add(new ElfWriter.Reloc(Data + 0x44, 23, Addend: thunk | 1));
+            w.Relocations.Add(new ElfWriter.Reloc(Data + 0x48, 23, Addend: other | 1));
+        }));
+        using var h = new NativeToolHarness(backgroundIndexing: false);
+        var found = await h.CodeTools.SearchInstructions(path, mnemonic: "^b$");
+        Assert.Contains("1 match(es)", found);
+        Assert.Contains("b.w", found);
     }
 
     /// <summary>A vtable slot (Thumb pointer) to ldr; str; bx lr, whose bytes read "IjAbpG" with a NUL after: code, not a string.</summary>
