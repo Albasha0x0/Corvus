@@ -167,6 +167,8 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         if (damaged.Count > 20) sb.AppendLine($"  … {damaged.Count - 20} more skipped");
         foreach (var hint in Services.Analysis.UnityLayout.FolderHints(path))
             sb.AppendLine($"Note: {hint}");
+        if (Webcil.FolderHint(path) is { } webcil)
+            sb.AppendLine($"Note: {webcil}");
         return sb.ToString();
     }
 

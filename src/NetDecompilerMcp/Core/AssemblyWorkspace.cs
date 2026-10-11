@@ -151,6 +151,7 @@ public sealed class AssemblyWorkspace : IDisposable
     public (LoadedAssembly? Assembly, LoadedNative? Native) LoadAny(string path, string? slice = null)
     {
         var full = InputFiles.RequireRegularFile(path);
+        Webcil.ThrowIfWebcil(full);
         var kind = Native.NativeImageLoader.DetectFile(full);
         if (kind is Native.NativeFileKind.Elf or Native.NativeFileKind.MachO or Native.NativeFileKind.MachOFat)
             return (null, LoadNativeFile(full, slice));

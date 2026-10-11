@@ -34,6 +34,12 @@ public static class Containers
         ct.ThrowIfCancellationRequested();
         var kind = Blob.Identify(data);
         if (kind == "zip") return OpenZip(data, name, limits, ct);
+        if (kind is "wasm" or "webcil")
+        {
+            if (Webcil.ToPe(data) is { } pe32)
+                return new ContainerContents("Webcil", [new ExtractedItem(Path.ChangeExtension(Path.GetFileName(name), ".dll"), pe32, "Webcil (Blazor WebAssembly) converted to PE")], []);
+            return new ContainerContents("none", [], [kind == "wasm" ? "A WebAssembly module without a .NET assembly (Webcil) in it." : "Unreadable Webcil data."]);
+        }
         if (kind.StartsWith("xalz", StringComparison.Ordinal))
         {
             var decoded = Blob.TryXalz(data, limits.MaxItemBytes) ?? throw new ToolError(ErrorCode.MalformedInput, $"{name}: corrupt XALZ (LZ4) data.");

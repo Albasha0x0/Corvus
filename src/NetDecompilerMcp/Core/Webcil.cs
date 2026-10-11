@@ -1,0 +1,170 @@
+using System.Buffers.Binary;
+
+namespace NetDecompilerMcp.Core;
+
+/// <summary>
+/// Webcil: how Blazor WebAssembly (.NET 8+) ships assemblies in its _framework folder. The PE headers are replaced by a
+/// small "WbIL" header and section table, and the result is wrapped as a data segment of a WebAssembly module (.wasm).
+/// The sections are the original PE sections, so a PE is rebuilt around them for every reader of .NET images.
+/// </summary>
+public static class Webcil
+{
+    private const int HeaderSize = 28, SectionSize = 16, FileAlignment = 0x200, SectionAlignment = 0x2000;
+
+    /// <summary>The Webcil payload of a .wasm module or a bare Webcil file, or null.</summary>
+    public static ReadOnlyMemory<byte>? Payload(byte[] data)
+    {
+        if (data.AsSpan().StartsWith("WbIL"u8)) return data;
+        if (!data.AsSpan().StartsWith("\0asm"u8) || data.Length < 8 || BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(4)) != 1) return null;
+        int at = 8;
+        while (at < data.Length)
+        {
+            byte id = data[at++];
+            long size = Uleb(data, ref at);
+            if (size < 0 || size > data.Length - at) return null;
+            int end = at + (int)size;
+            // Data section: a passive segment holding the payload size, then a passive segment holding the payload.
+            if (id == 11)
+            {
+                int p = at;
+                if (Uleb(data, ref p) != 2 || p >= end || data[p++] != 1) return null;
+                long first = Uleb(data, ref p);
+                if (first < 0 || first >= end - p) return null;
+                p += (int)first;
+                if (data[p++] != 1) return null;
+                long length = Uleb(data, ref p);
+                if (length < 0 || length > end - p || !data.AsSpan(p).StartsWith("WbIL"u8)) return null;
+                return data.AsMemory(p, (int)length);
+            }
+            at = end;
+        }
+        return null;
+    }
+
+    public static bool IsWebcil(byte[] data) => Payload(data) != null;
+
+    /// <summary>The assembly as a PE image, or null when <paramref name="data"/> is not readable Webcil.</summary>
+    public static byte[]? ToPe(byte[] data)
+    {
+        if (Payload(data) is not { } payload) return null;
+        var w = payload.Span;
+        if (w.Length < HeaderSize) return null;
+        int sections = BinaryPrimitives.ReadUInt16LittleEndian(w[8..]);
+        uint cliRva = BinaryPrimitives.ReadUInt32LittleEndian(w[12..]), cliSize = BinaryPrimitives.ReadUInt32LittleEndian(w[16..]);
+        if (sections is 0 or > 96 || w.Length < HeaderSize + sections * SectionSize) return null;
+
+        var table = new (uint VirtualSize, uint Va, uint RawSize, uint RawPointer)[sections];
+        for (int i = 0; i < sections; i++)
+        {
+            var s = w[(HeaderSize + i * SectionSize)..];
+            table[i] = (BinaryPrimitives.ReadUInt32LittleEndian(s), BinaryPrimitives.ReadUInt32LittleEndian(s[4..]),
+                BinaryPrimitives.ReadUInt32LittleEndian(s[8..]), BinaryPrimitives.ReadUInt32LittleEndian(s[12..]));
+            if ((long)table[i].RawPointer + table[i].RawSize > w.Length) return null;
+        }
+
+        const int peOffset = 0x80, optionalSize = 0xE0;
+        int headers = Align(peOffset + 4 + 20 + optionalSize + sections * 40, FileAlignment);
+        var rawPointers = new int[sections];
+        int fileSize = headers;
+        for (int i = 0; i < sections; i++) { rawPointers[i] = fileSize; fileSize += Align((int)table[i].RawSize, FileAlignment); }
+        uint imageSize = (uint)Align((int)table.Max(t => t.Va + Math.Max(t.VirtualSize, t.RawSize)), SectionAlignment);
+
+        var pe = new byte[fileSize];
+        var o = pe.AsSpan();
+        o[0] = (byte)'M'; o[1] = (byte)'Z';
+        BinaryPrimitives.WriteInt32LittleEndian(o[0x3C..], peOffset);
+        "PE\0\0"u8.CopyTo(o[peOffset..]);
+        var coff = o[(peOffset + 4)..];
+        BinaryPrimitives.WriteUInt16LittleEndian(coff, 0x14C);
+        BinaryPrimitives.WriteUInt16LittleEndian(coff[2..], (ushort)sections);
+        BinaryPrimitives.WriteUInt16LittleEndian(coff[16..], optionalSize);
+        BinaryPrimitives.WriteUInt16LittleEndian(coff[18..], 0x2102); // executable image, 32-bit, DLL
+        var opt = coff[20..];
+        BinaryPrimitives.WriteUInt16LittleEndian(opt, 0x10B);
+        BinaryPrimitives.WriteUInt32LittleEndian(opt[28..], 0x10000000); // image base
+        BinaryPrimitives.WriteUInt32LittleEndian(opt[32..], SectionAlignment);
+        BinaryPrimitives.WriteUInt32LittleEndian(opt[36..], FileAlignment);
+        BinaryPrimitives.WriteUInt16LittleEndian(opt[40..], 4); // OS and subsystem version 4.0
+        BinaryPrimitives.WriteUInt16LittleEndian(opt[48..], 4);
+        BinaryPrimitives.WriteUInt32LittleEndian(opt[56..], imageSize);
+        BinaryPrimitives.WriteUInt32LittleEndian(opt[60..], (uint)headers);
+        BinaryPrimitives.WriteUInt16LittleEndian(opt[68..], 3); // console subsystem
+        BinaryPrimitives.WriteUInt16LittleEndian(opt[70..], 0x8540); // dynamic base, NX, no SEH, terminal server aware
+        BinaryPrimitives.WriteUInt32LittleEndian(opt[72..], 0x100000);
+        BinaryPrimitives.WriteUInt32LittleEndian(opt[76..], 0x1000);
+        BinaryPrimitives.WriteUInt32LittleEndian(opt[80..], 0x100000);
+        BinaryPrimitives.WriteUInt32LittleEndian(opt[84..], 0x1000);
+        BinaryPrimitives.WriteUInt32LittleEndian(opt[92..], 16);
+        // Only the CLI header directory: the debug directory's file offsets point into the Webcil payload.
+        BinaryPrimitives.WriteUInt32LittleEndian(opt[(96 + 14 * 8)..], cliRva);
+        BinaryPrimitives.WriteUInt32LittleEndian(opt[(96 + 14 * 8 + 4)..], cliSize);
+        var headersAt = o[(peOffset + 4 + 20 + optionalSize)..];
+        for (int i = 0; i < sections; i++)
+        {
+            var h = headersAt[(i * 40)..];
+            System.Text.Encoding.ASCII.GetBytes(i == 0 ? ".text" : $".sect{i}").CopyTo(h);
+            BinaryPrimitives.WriteUInt32LittleEndian(h[8..], table[i].VirtualSize);
+            BinaryPrimitives.WriteUInt32LittleEndian(h[12..], table[i].Va);
+            BinaryPrimitives.WriteUInt32LittleEndian(h[16..], (uint)Align((int)table[i].RawSize, FileAlignment));
+            BinaryPrimitives.WriteUInt32LittleEndian(h[20..], (uint)rawPointers[i]);
+            BinaryPrimitives.WriteUInt32LittleEndian(h[36..], i == 0 ? 0x60000020u : 0x40000040u);
+            w.Slice((int)table[i].RawPointer, (int)table[i].RawSize).CopyTo(o[rawPointers[i]..]);
+        }
+        return pe;
+    }
+
+    /// <summary>The error for a Webcil file given to load_assembly: it is read only as a container for now.</summary>
+    public static void ThrowIfWebcil(string file)
+    {
+        Span<byte> magic = stackalloc byte[4];
+        try
+        {
+            using (var stream = File.OpenRead(file))
+                if (stream.ReadAtLeast(magic, 4, throwOnEndOfStream: false) < 4 || !(magic.SequenceEqual("\0asm"u8) || magic.SequenceEqual("WbIL"u8))) return;
+            if (!IsWebcil(File.ReadAllBytes(file))) return;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return; }
+        throw new ToolError(ErrorCode.Unsupported,
+            $"{file} is a Webcil assembly (Blazor WebAssembly wraps each .NET assembly in a .wasm module); load_assembly does not read Webcil directly yet (planned).",
+            $"unpack_container path=\"{file}\" converts it to a PE that loads; summarize_file and list_assemblies with path read it as it is");
+    }
+
+    /// <summary>
+    /// The note a folder load adds when the folder (or its _framework subfolder) holds Webcil assemblies, which are not
+    /// loaded directly.
+    /// </summary>
+    public static string? FolderHint(string folder)
+    {
+        var dirs = new[] { folder, Path.Combine(folder, "_framework"), Path.Combine(folder, "wwwroot", "_framework") }.Where(Directory.Exists).Distinct().ToList();
+        var found = new List<string>();
+        foreach (var dir in dirs)
+            foreach (var file in Directory.EnumerateFiles(dir, "*.wasm"))
+            {
+                try
+                {
+                    if (new FileInfo(file).Length <= 64L << 20 && IsWebcil(File.ReadAllBytes(file))) found.Add(file);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            }
+        if (found.Count == 0) return null;
+        var where = Path.GetDirectoryName(found[0])!;
+        return $"{found.Count} .NET assemblies here are Webcil (Blazor WebAssembly: each wrapped in a .wasm module, e.g. {Path.GetFileName(found[0])}), " +
+               $"which load_assembly does not read directly yet (planned). unpack_container path=\"{found[0]}\" converts one to a PE that loads; " +
+               $"summarize_file and list_assemblies with path read them as they are. Folder: {where}";
+    }
+
+    /// <summary>An unsigned LEB128 value, or -1 when it runs past the data or past 32 bits.</summary>
+    private static long Uleb(byte[] data, ref int at)
+    {
+        long value = 0;
+        for (int shift = 0; shift < 35 && at < data.Length; shift += 7)
+        {
+            byte b = data[at++];
+            value |= (long)(b & 0x7F) << shift;
+            if ((b & 0x80) == 0) return value;
+        }
+        return -1;
+    }
+
+    private static int Align(int value, int alignment) => (value + alignment - 1) & ~(alignment - 1);
+}
