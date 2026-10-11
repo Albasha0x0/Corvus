@@ -22,7 +22,8 @@ internal sealed class ForwardSlicer(OursSliceProvider provider, FunctionCode cod
     private bool _truncated;
     private string? _note;
 
-    private readonly record struct Live(bool Derived, string Path);
+    /// <param name="Delta">What plain additions added to the traced value on the way here (null after other arithmetic).</param>
+    private readonly record struct Live(bool Derived, string Path, long? Delta = 0);
 
     public FunctionSlice Run(SliceSeed seed, CancellationToken ct)
     {
@@ -103,7 +104,7 @@ internal sealed class ForwardSlicer(OursSliceProvider provider, FunctionCode cod
                 int next = code.BlockIndexOf(e.To);
                 if (next < 0) continue;
                 var key = next + ":" + string.Join(",", live.OrderBy(l => l.Key.Kind).ThenBy(l => l.Key.Reg).ThenBy(l => l.Key.Slot)
-                    .Select(l => $"{(int)l.Key.Kind}.{(int)l.Key.Reg}.{l.Key.Slot}.{(l.Value.Derived ? 1 : 0)}"));
+                    .Select(l => $"{(int)l.Key.Kind}.{(int)l.Key.Reg}.{l.Key.Slot}.{(l.Value.Derived ? 1 : 0)}.{l.Value.Delta}"));
                 if (visited.Add(key)) work.Enqueue((next, 0, new Dictionary<Loc, Live>(live)));
             }
         }
@@ -188,7 +189,13 @@ internal sealed class ForwardSlicer(OursSliceProvider provider, FunctionCode cod
                 }
                 else if (x.Mnemonic == Mnemonic.Lea)
                 {
-                    if (live.TryGetValue(Loc.Of(x.MemoryBase), out var b) || live.TryGetValue(Loc.Of(x.MemoryIndex), out b)) source ??= b with { Derived = true };
+                    if (live.TryGetValue(Loc.Of(x.MemoryBase), out var b) && x.MemoryIndex == Register.None) source ??= b with { Derived = true, Delta = b.Delta + Displacement(in x) };
+                    else if (live.TryGetValue(Loc.Of(x.MemoryBase), out b) || live.TryGetValue(Loc.Of(x.MemoryIndex), out b)) source ??= b with { Derived = true, Delta = null };
+                }
+                else if (x.MemoryIndex != Register.None && live.TryGetValue(Loc.Of(x.MemoryIndex), out var ix) && SwitchEnding(insns) is { } table)
+                {
+                    // the table load of a switch: the value is its index
+                    Use(SwitchNode(in d, table, ix));
                 }
                 else if (x.MemoryBase != Register.None && live.TryGetValue(Loc.Of(x.MemoryBase), out var b) || x.MemoryIndex != Register.None && live.TryGetValue(Loc.Of(x.MemoryIndex), out b))
                 {
@@ -203,7 +210,7 @@ internal sealed class ForwardSlicer(OursSliceProvider provider, FunctionCode cod
         if (x.Mnemonic == Mnemonic.Push)
         {
             Shift(live, x.StackPointerIncrement);
-            if (source is { } p) live[Loc.Stack(0)] = new Live(p.Derived, Step(p.Path, in d));
+            if (source is { } p) live[Loc.Stack(0)] = new Live(p.Derived, Step(p.Path, in d), p.Delta);
             return;
         }
         if (x.Mnemonic == Mnemonic.Pop)
@@ -211,7 +218,7 @@ internal sealed class ForwardSlicer(OursSliceProvider provider, FunctionCode cod
             if (x.Op0Kind == OpKind.Register)
             {
                 var dest = Loc.Of(x.Op0Register);
-                if (live.TryGetValue(Loc.Stack(0), out var top)) live[dest] = new Live(top.Derived, Step(top.Path, in d));
+                if (live.TryGetValue(Loc.Stack(0), out var top)) live[dest] = new Live(top.Derived, Step(top.Path, in d), top.Delta);
                 else live.Remove(dest);
             }
             Shift(live, x.StackPointerIncrement);
@@ -233,7 +240,7 @@ internal sealed class ForwardSlicer(OursSliceProvider provider, FunctionCode cod
             Loc? dest = kind == OpKind.Register ? Loc.Of(x.GetOpRegister(k)) : kind == OpKind.Memory ? SlotOf(in x) : null;
             if (source is { } s && !zeroing)
             {
-                var next = new Live(s.Derived || !IsCopy(x.Mnemonic), Step(s.Path, in d));
+                var next = new Live(s.Derived || !IsCopy(x.Mnemonic), Step(s.Path, in d), DeltaAfter(in x, s));
                 if (dest is { } dl) { live[dl] = next; written.Add(dl); }
                 else if (kind == OpKind.Memory && d.HasMem && _a.ImportAtSlot(d.MemRva) == null && IsWritable(d.MemRva))
                     Use(new SliceNode(SliceNodeKind.Store, d.Rva, $"stored to [{_a.Index.NameAt(d.MemRva) ?? _a.Va(d.MemRva)}]", next.Path) { Rva = d.MemRva, Derived = next.Derived });
@@ -263,6 +270,30 @@ internal sealed class ForwardSlicer(OursSliceProvider provider, FunctionCode cod
             foreach (var loc in live.Keys.Where(l => l.Kind == LocKind.Frame).ToList()) live.Remove(loc);
     }
 
+    /// <summary>The traced value's offset after a copy, lea, add, sub, inc or dec of it; null after anything else.</summary>
+    private static long? DeltaAfter(in Instruction x, Live s)
+    {
+        if (x.Mnemonic == Mnemonic.Lea || IsCopy(x.Mnemonic) && x.Mnemonic is not (Mnemonic.Movsx or Mnemonic.Movsxd or Mnemonic.Movzx)) return s.Delta;
+        bool imm = x.OpCount == 2 && IsImmediate(x.Op1Kind) && x.Op0Kind == OpKind.Register;
+        return x.Mnemonic switch
+        {
+            Mnemonic.Add when imm => s.Delta + (long)x.GetImmediate(1),
+            Mnemonic.Sub when imm => s.Delta - (long)x.GetImmediate(1),
+            Mnemonic.Inc => s.Delta + 1,
+            Mnemonic.Dec => s.Delta - 1,
+            Mnemonic.Movsx or Mnemonic.Movsxd or Mnemonic.Movzx => s.Delta,
+            _ => null,
+        };
+    }
+
+    /// <summary>The switch whose dispatch ends the block, when there is one.</summary>
+    private SwitchTable? SwitchEnding(Decoded[] insns) =>
+        insns.Length > 0 && insns[^1].I.FlowControl == FlowControl.IndirectBranch ? code.Graph.Switches.FirstOrDefault(s => s.JumpRva == insns[^1].Rva) : null;
+
+    private SliceNode SwitchNode(in Decoded d, SwitchTable table, Live index) =>
+        new(SliceNodeKind.Switch, d.Rva, $"indexes the switch at {_a.Va(table.JumpRva)} ({table.Targets.Count} targets)", Step(index.Path, in d))
+            { Derived = index.Derived, Value = (ulong)table.Targets.Count, Site = table.JumpRva, Offset = index.Delta };
+
     private bool IsWritable(uint rva) => _a.Image.SectionAt(rva) is { } s && (s.Access & SectionAccess.Write) != 0;
 
     private static bool IsImmediate(OpKind k) => k is OpKind.Immediate8 or OpKind.Immediate8to16 or OpKind.Immediate8to32 or OpKind.Immediate8to64
@@ -290,12 +321,15 @@ internal sealed class ForwardSlicer(OursSliceProvider provider, FunctionCode cod
     {
         ref readonly var x = ref d.I;
         Live? used = null;
+        bool index = false;
         if (x.Op0Kind == OpKind.Register && live.TryGetValue(Loc.Of(x.Op0Register), out var r)) used = r;
-        else if (x.Op0Kind == OpKind.Memory && (live.TryGetValue(Loc.Of(x.MemoryIndex), out var m) || live.TryGetValue(Loc.Of(x.MemoryBase), out m))) used = m;
+        else if (x.Op0Kind == OpKind.Memory && live.TryGetValue(Loc.Of(x.MemoryIndex), out var m)) (used, index) = (m, true);
+        else if (x.Op0Kind == OpKind.Memory && live.TryGetValue(Loc.Of(x.MemoryBase), out m)) used = m;
         if (used is not { } u) return;
         uint rva = d.Rva;
         var table = code.Graph.Switches.FirstOrDefault(s => s.JumpRva == rva);
-        Use(new SliceNode(SliceNodeKind.Switch, d.Rva, table != null ? $"indexes the switch at {_a.Va(d.Rva)} ({table.Targets.Count} targets)" : $"selects the target of {x}",
+        if (table != null && index) Use(SwitchNode(in d, table, u));
+        else Use(new SliceNode(SliceNodeKind.Switch, d.Rva, table != null ? $"indexes the switch at {_a.Va(d.Rva)} ({table.Targets.Count} targets)" : $"selects the target of {x}",
             Step(u.Path, in d)) { Derived = u.Derived, Value = (ulong)(table?.Targets.Count ?? 0) });
     }
 
@@ -336,7 +370,7 @@ internal sealed class ForwardSlicer(OursSliceProvider provider, FunctionCode cod
             var name = sig != null && index >= 0 && index < sig.Params.Count ? $" {sig.Params[index].Name}" : "";
             Use(new SliceNode(SliceNodeKind.Argument, d.Rva, $"argument {(index >= 0 ? (index + 1).ToString() : provider.LocationName(entry))}{name} of {c.Name}",
                 Step(l.Path, in d)) { Site = d.Rva, Location = provider.LocationName(entry), Index = index, Callee = c.Name, CallKind = c.Kind, Target = target, Derived = l.Derived,
-                    Rva = c.Import?.SlotRva ?? 0 });
+                    Rva = c.Import?.SlotRva ?? 0, Offset = l.Delta });
         }
     }
 

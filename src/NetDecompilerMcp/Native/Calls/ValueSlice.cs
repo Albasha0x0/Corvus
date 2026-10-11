@@ -91,7 +91,10 @@ public sealed record SliceNode(SliceNodeKind Kind, uint Address, string Text, st
     /// <summary>Forward: the value was changed by arithmetic before this use.</summary>
     public bool Derived { get; init; }
     public bool Truncated { get; init; }
-    /// <summary>Forward dereferences and field stores: the displacement of [base + offset] (no index register).</summary>
+    /// <summary>
+    /// Forward dereferences and field stores: the displacement of [base + offset] (no index register). Arguments and switch
+    /// indexes: what plain additions added to the traced value on the way (null after other arithmetic).
+    /// </summary>
     public long? Offset { get; init; }
     /// <summary>Forward "stored to [base + offset]": the base register at the store (its type names the field).</summary>
     public string? Base { get; init; }

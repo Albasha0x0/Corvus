@@ -298,7 +298,8 @@ internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
     private bool _truncated;
     private string? _note;
 
-    private readonly record struct Live(bool Derived, string Path);
+    /// <param name="Delta">What plain additions added to the traced value on the way here (null after other arithmetic).</param>
+    private readonly record struct Live(bool Derived, string Path, long? Delta = 0);
 
     public FunctionSlice Run(SliceSeed seed, CancellationToken ct)
     {
@@ -359,7 +360,8 @@ internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
             if (!Block(block, index, live)) continue;
             foreach (int next in code.Successors(block))
             {
-                var key = next + ":" + string.Join(",", live.OrderBy(l => l.Key.IsSlot).ThenBy(l => l.Key.Value).Select(l => $"{(l.Key.IsSlot ? 's' : 'r')}{l.Key.Value}.{(l.Value.Derived ? 1 : 0)}"));
+                var key = next + ":" + string.Join(",", live.OrderBy(l => l.Key.IsSlot).ThenBy(l => l.Key.Value)
+                    .Select(l => $"{(l.Key.IsSlot ? 's' : 'r')}{l.Key.Value}.{(l.Value.Derived ? 1 : 0)}.{l.Value.Delta}"));
                 if (visited.Add(key)) work.Enqueue((next, 0, new Dictionary<A64Loc, Live>(live)));
             }
         }
@@ -462,7 +464,7 @@ internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
                 if (table != null)
                 {
                     Use(new SliceNode(SliceNodeKind.Switch, s.Rva, $"indexes the switch at {host.Va(table.JumpRva)} ({table.Targets.Count} targets)", Step(p.Path, s))
-                        { Derived = p.Derived, Value = (ulong)table.Targets.Count });
+                        { Derived = p.Derived, Value = (ulong)table.Targets.Count, Site = table.JumpRva, Offset = p.Delta });
                 }
                 else Use(new SliceNode(store ? SliceNodeKind.FieldStore : SliceNodeKind.Dereference, s.Rva,
                     $"{(store ? "points to the store" : "points to the load")} {text}", Step(p.Path, s))
@@ -484,7 +486,7 @@ internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
 
         if (store && mem is { } st && source is { } stored)
         {
-            var next = new Live(stored.Derived, Step(stored.Path, s));
+            var next = new Live(stored.Derived, Step(stored.Path, s), stored.Delta);
             if (st.Slot is { } to) live[A64Loc.Slot(to)] = next;
             else if (s.Facts.HasMem && host.ImportAt(s.Facts.MemTarget) == null && IsWritable(s.Facts.MemTarget))
                 Use(new SliceNode(SliceNodeKind.Store, s.Rva, $"stored to [{host.Index.NameAt(s.Facts.MemTarget) ?? host.Va(s.Facts.MemTarget)}]", next.Path)
@@ -507,7 +509,13 @@ internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
             var r = ((Arm64RegisterOperand)op).Value;
             if (r.Kind is not (Arm64RegisterKind.X or Arm64RegisterKind.W) || r.Index >= 31) continue;
             var dest = A64Loc.Reg(r.Index);
-            if (source is { } src && (k == 0 || load && mem is { Slot: not null })) live[dest] = new Live(src.Derived || !copy, Step(src.Path, s));
+            if (source is { } src && (k == 0 || load && mem is { Slot: not null }))
+            {
+                long? delta = copy ? src.Delta
+                    : i.Mnemonic is Arm64Mnemonic.ADD or Arm64Mnemonic.SUB && A64Function.Imm(in i, 2) is { } imm && i.GetOperand(1).Kind == Arm64OperandKind.Register
+                        ? src.Delta + (i.Mnemonic == Arm64Mnemonic.SUB ? -imm : imm) : null;
+                live[dest] = new Live(src.Derived || !copy, Step(src.Path, s), delta);
+            }
             else live.Remove(dest);
         }
         if (mem is { } wb && (wb.Accessor.IsPreIncrement || wb.Post) && wb.Accessor.BaseRegister.Kind == Arm64RegisterKind.X)
@@ -552,6 +560,7 @@ internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
             uint? target = call is { Kind: CalleeKind.Function } ? call.Target : null;
             Use(new SliceNode(SliceNodeKind.Argument, s.Rva, $"argument {index + 1}{name} of {calleeName}", Step(l.Path, s))
             {
+                Offset = l.Delta,
                 Site = s.Rva, Location = A64Function.Name(entry, null), Index = index, Callee = calleeName, CallKind = call?.Kind ?? CalleeKind.Indirect,
                 Target = target, Derived = l.Derived, Rva = call?.Import?.SlotRva ?? 0,
             });

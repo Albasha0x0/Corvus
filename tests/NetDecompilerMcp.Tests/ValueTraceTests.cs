@@ -220,6 +220,62 @@ public class ValueTraceTests
         Assert.Equal(2, a.Traces.Builds);
     }
 
+    /// <summary>main: sw(5); sw(20). sw(x): an MSVC switch on x - 3 over five cases (values 3..7) and a default.</summary>
+    private static (CallAnalysis Analysis, Dictionary<string, uint> At) Switch()
+    {
+        var a = new Assembler(64);
+        Label sw = a.CreateLabel(), dflt = a.CreateLabel(), five = a.CreateLabel(), twenty = a.CreateLabel();
+        var cases = Enumerable.Range(0, 5).Select(_ => a.CreateLabel()).ToArray();
+        const uint table = Data + 0x40;
+        a.sub(rsp, 0x28);
+        a.Label(ref five);
+        a.mov(ecx, 5);
+        a.call(sw);
+        a.Label(ref twenty);
+        a.mov(ecx, 20);
+        a.call(sw);
+        a.add(rsp, 0x28);
+        a.ret();
+        a.Label(ref sw);
+        a.lea(eax, __[rcx - 3]);
+        a.cmp(eax, 4);
+        a.ja(dflt);
+        a.AddInstruction(Instruction.Create(Iced.Intel.Code.Lea_r64_m, Register.RDX, new MemoryOperand(Register.RIP, (long)Base, 8)));
+        a.movsxd(rax, eax);
+        a.mov(ecx, __dword_ptr[rdx + rax * 4 + (int)table]);
+        a.add(rcx, rdx);
+        a.jmp(rcx);
+        for (int i = 0; i < 5; i++)
+        {
+            a.Label(ref cases[i]);
+            a.mov(eax, 100 + i);
+            a.ret();
+        }
+        a.Label(ref dflt);
+        a.xor(eax, eax);
+        a.ret();
+        var stream = new MemoryStream();
+        var result = a.Assemble(new StreamCodeWriter(stream), Base + Code, BlockEncoderOptions.ReturnNewInstructionOffsets);
+        uint Rva(Label l) => (uint)(result.GetLabelRIP(l) - Base);
+        var data = new byte[0x100];
+        for (int i = 0; i < 5; i++) System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x40 + 4 * i), Rva(cases[i]));
+        var image = CodeTestImage.Synthetic(NativeArch.X64, stream.ToArray(), data, entry: Code);
+        var at = new Dictionary<string, uint> { ["five"] = Rva(five), ["twenty"] = Rva(twenty), ["case2"] = Rva(cases[2]), ["default"] = Rva(dflt) };
+        return (CallAnalysis.For(NativeCodeIndex.Build(image)), at);
+    }
+
+    [Fact]
+    public void Forward_constant_reports_the_switch_case_it_selects()
+    {
+        var (a, at) = Switch();
+        var g = Trace(a, Va(at["five"]), location: "rcx", options: new ValueTraceOptions(TraceDirection.Forward));
+        var sw = Assert.Single(g.Nodes, n => n.Kind == TraceNodeKind.Switch);
+        Assert.Equal($"selects case 5 -> {Va(at["case2"])}", sw.Decoded);
+        Assert.Contains(g.Values, v => v.Kind == TraceNodeKind.Switch && v.Text.EndsWith($"selects case 5 -> {Va(at["case2"])}", StringComparison.Ordinal));
+        var other = Trace(a, Va(at["twenty"]), location: "rcx", options: new ValueTraceOptions(TraceDirection.Forward));
+        Assert.Equal($"selects the default -> {Va(at["default"])} (value 20)", Assert.Single(other.Nodes, n => n.Kind == TraceNodeKind.Switch).Decoded);
+    }
+
     [Fact]
     public void Seeds_reject_bad_arguments_with_reasons()
     {

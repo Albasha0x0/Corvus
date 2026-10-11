@@ -133,6 +133,8 @@ public sealed class ValueTrace
     private readonly List<string> _notes = [];
     private readonly HashSet<(int, uint)> _functions = [];
     private readonly Dictionary<string, int> _expanded = [];
+    /// <summary>Forward: the constant a node's value is (the seed's, passed on through plain additions).</summary>
+    private readonly Dictionary<int, ulong> _consts = [];
     private readonly Queue<Expansion> _queue = new();
     private int _steps;
     private bool _nodesFull;
@@ -244,6 +246,7 @@ public sealed class ValueTrace
     private void StartForward(int seedNode)
     {
         var f = _seed.Function;
+        if (SeedConstant is { } c) _consts[seedNode] = c;
         switch (_seed.Kind)
         {
             case TraceSeedKind.Global:
@@ -323,6 +326,25 @@ public sealed class ValueTrace
         if (_types != null)
             for (int i = 0; i < s.Nodes.Count; i++)
                 if (map[i] >= 0) TypedField(s, i, map[i], depth, backward, param, returns);
+        if (!backward && _consts.TryGetValue(attach, out ulong entering))
+            for (int i = 0; i < s.Nodes.Count; i++)
+            {
+                if (map[i] < 0 || i == s.Root || s.Nodes[i].Offset is not { } delta) continue;
+                if (s.Nodes[i].Kind == SliceNodeKind.Argument) _consts[map[i]] = entering + (ulong)delta;
+                else if (s.Nodes[i].Kind == SliceNodeKind.Switch && s.Nodes[i].Site != 0) SwitchCase(map[i], s.Function, s.Nodes[i].Site, (long)(entering + (ulong)delta));
+            }
+    }
+
+    /// <summary>The case a constant switch index selects: index plus the table's bias is the switched value.</summary>
+    private void SwitchCase(int node, NativeFunction f, uint jump, long index)
+    {
+        if (Index.GetGraph(f, _ct).Switches.FirstOrDefault(t => t.JumpRva == jump) is not { } table) return;
+        long value = index + table.Bias;
+        string what;
+        if (table.Cases.FirstOrDefault(c => c.Values.Contains(value)) is { } hit) what = $"selects case {value} -> {Va(hit.Target)}";
+        else if (table.Default is { } d) what = $"selects the default -> {Va(d)} (value {value})";
+        else return;
+        _nodes[node] = Get(node) with { Decoded = what, Value = (ulong)value };
     }
 
     /// <summary>
@@ -561,6 +583,7 @@ public sealed class ValueTrace
                 int origin = AddNode(TraceNodeKind.Parameter, e.Function!.Start, e.Function, e.Location,
                     $"{(e.Index >= 0 ? $"parameter {e.Index + 1}" : e.Location)} of {e.Function!.Name}", null, null, null, e.Depth + 1, "", e.Node, false);
                 _edges.Add(new TraceEdge(e.Node, origin, "parameter", e.Rva, e.SiteHost >= 0 ? e.SiteHost : _cur));
+                if (_consts.TryGetValue(e.Node, out ulong passed)) _consts[origin] = passed;
                 Materialize(slice, e.Depth + 1, origin, false, "parameter", e.Rva, null, null);
                 break;
             }
@@ -770,9 +793,9 @@ public sealed class ValueTrace
         foreach (var n in _nodes)
         {
             bool backwardValue = n.Backward && Terminal.Contains(n.Kind);
-            bool forwardSink = !n.Backward && n.Kind == TraceNodeKind.Sink;
+            bool forwardSink = !n.Backward && (n.Kind == TraceNodeKind.Sink || n.Kind == TraceNodeKind.Switch && n.Decoded != null);
             if (!backwardValue && !forwardSink) continue;
-            var text = n.Decoded != null && n.Kind == TraceNodeKind.Sink ? $"{n.Text} = {n.Decoded}" : n.Text;
+            var text = n.Decoded != null && n.Kind is TraceNodeKind.Sink or TraceNodeKind.Switch ? $"{n.Text} = {n.Decoded}" : n.Text;
             if (seen.Add(n.Kind + text)) result.Add(new TraceValue(text, n.Kind, n.ValueRva, n.Id, n.Image));
         }
         return result;

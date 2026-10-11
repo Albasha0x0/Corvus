@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using NetDecompilerMcp.Native;
+using NetDecompilerMcp.Native.Calls;
 using NetDecompilerMcp.Native.Code;
 
 namespace NetDecompilerMcp.Tests;
@@ -60,6 +61,28 @@ public class NativeArm64SwitchTests
 
     /// <summary>Case i of value i, then one entry that goes to the default.</summary>
     private static uint[] Targets(uint[] cases, uint dflt) => [.. cases, dflt];
+
+    [Fact]
+    public void Forward_constant_selects_its_case_through_the_bias()
+    {
+        var a = new A64(Code);
+        uint anchor = 0, dflt = 0;
+        var caseAt = new uint[3];
+        a.Word(A64.MovW(0, 7)).Word(SubImm(8, 0, 5)).Word(CmpImm(8, 3)).Later(at => A64.BCond(at, dflt, Hi));
+        a.Word(A64.Adrp(a.Here, Table, 9, Base)).Word(A64.AddImm(9, 9, Table & 0xFFF));
+        a.Later(at => A64.Adr(at, anchor, 10)).Word(Ldrb(11, 9, 8)).Word(AddShift(10, 10, 11, 2)).Word(A64.Br(10));
+        anchor = a.Here;
+        for (int i = 0; i < 3; i++) { caseAt[i] = a.Here; a.Word(A64.MovW(0, (uint)i + 1)).Word(A64.Ret); }
+        dflt = a.Here;
+        a.Word(A64.MovW(0, 0)).Word(A64.Ret);
+        var code = a.Bytes();
+        var data = new byte[0x200];
+        Targets(caseAt, dflt).Select(t => (byte)((t - anchor) / 4)).ToArray().CopyTo(data, Table - Data);
+        var host = Arm64Trace.For(NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.Arm64, code, data, entry: Code)));
+        var seed = NetDecompilerMcp.Tools.NativeTraceTools.Arm64Seed(host, $"0x{Base + Code:X}", "x0", null, default);
+        var g = ValueTrace.Build(host, seed, new ValueTraceOptions(TraceDirection.Forward));
+        Assert.Equal($"selects case 7 -> 0x{Base + caseAt[2]:X}", Assert.Single(g.Nodes, n => n.Kind == TraceNodeKind.Switch).Decoded);
+    }
 
     [Fact]
     public void Byte_offsets_from_an_adr_anchor_with_bias_and_a_sparse_default()

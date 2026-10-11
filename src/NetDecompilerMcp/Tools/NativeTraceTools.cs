@@ -59,9 +59,9 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         string Detail,
         [property: Description("The call that continues there.")] string Next);
 
-    [Description("A distinct value reaching the seed (backward), or an API argument the seed's value reaches (forward).")]
+    [Description("A distinct value reaching the seed (backward), or an API argument or switch case the seed's value reaches (forward).")]
     public sealed record TraceValueRecord(string Text,
-        [property: Description("const, string, function, address, import, api_result or sink.")] string Kind,
+        [property: Description("const, string, function, address, import, api_result, sink, or switch (the case a constant selects).")] string Kind,
         [property: Description("VA, for strings, functions and addresses.")] string? Address,
         [property: Description("The node.")] int Node);
 
