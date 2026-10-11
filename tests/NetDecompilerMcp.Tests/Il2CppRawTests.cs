@@ -68,6 +68,13 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
         Assert.Empty(ws.Assemblies); // nothing half-loaded
         // GameAssembly.dll alone still loads as a native image, with the way to its metadata.
         Assert.Contains("Il2Cpp game: its metadata is", await tools.LoadAssembly(Path.Combine(game, "GameAssembly.dll")));
+        // A package without Il2Cpp metadata says so, not that it is no PE file.
+        var apk = _dir.File("plain.apk");
+        using (var zip = System.IO.Compression.ZipFile.Open(apk, System.IO.Compression.ZipArchiveMode.Create)) zip.CreateEntry("classes.dex");
+        var previousCache = Environment.GetEnvironmentVariable(Il2CppRawLoader.RootVariable);
+        Environment.SetEnvironmentVariable(Il2CppRawLoader.RootVariable, _dir.File("cache"));
+        try { Assert.Contains("reason no_il2cpp_metadata", (await Assert.ThrowsAsync<ToolError>(() => tools.LoadAssembly(apk))).Message); }
+        finally { Environment.SetEnvironmentVariable(Il2CppRawLoader.RootVariable, previousCache); }
     }
 
     [Fact]

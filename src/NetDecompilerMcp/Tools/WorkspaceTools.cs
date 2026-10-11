@@ -110,8 +110,10 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { return null; }
         if (Il2CppPackages.IsPackage(full))
         {
-            var root = Il2CppPackages.Extract(full, slice);
-            return root == null ? null : (Il2CppGameFiles.Find(root, slice) ?? throw new ToolError(ErrorCode.NotFound, $"{full} holds Il2Cpp metadata but no game binary.")) with { Package = full };
+            var root = Il2CppPackages.Extract(full, slice)
+                       ?? throw new ToolError(ErrorCode.NotFound, $"{full} is a package without Il2Cpp metadata (no global-metadata.dat): reason no_il2cpp_metadata.",
+                           "summarize_file tells what it holds; list_assemblies with path lists the .NET assemblies a Xamarin / MAUI / Unity Mono package carries");
+            return (Il2CppGameFiles.Find(root, slice) ?? throw new ToolError(ErrorCode.NotFound, $"{full} holds Il2Cpp metadata but no game binary.")) with { Package = full };
         }
         if (File.Exists(full)) return Il2CppGameFiles.IsMetadataFile(full) ? Il2CppGameFiles.Find(full, slice) : null;
         if (!Directory.Exists(full)) return null;

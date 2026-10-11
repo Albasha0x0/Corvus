@@ -19,7 +19,7 @@ public static class Il2CppPackages
     /// <summary>The Unity version is in the first bytes of data.unity3d; the rest (often hundreds of MB) is not needed.</summary>
     private const int VersionHeaderBytes = 1 << 16;
     private const long MaxEntryBytes = 2L << 30;
-    private const int ExtractFormat = 2; // bump when what is extracted changes
+    private const int ExtractFormat = 3; // bump when what is extracted changes
 
     private static readonly string[] Extensions = [".apk", ".xapk", ".apks", ".apkm", ".aab", ".ipa"];
 
@@ -58,7 +58,7 @@ public static class Il2CppPackages
             bool found;
             var splits = Path.Combine(staging, "splits");
             using (var zip = OpenZip(full))
-                found = ExtractGame(zip, Path.GetExtension(full).ToLowerInvariant(), game, splits, abi, ct);
+                found = ExtractGame(zip, IsAppBundle(zip) ? ".aab" : Path.GetExtension(full).ToLowerInvariant(), game, splits, abi, ct);
             TryDelete(splits);
             if (!found) Directory.Delete(game, true);
             File.WriteAllText(Path.Combine(staging, MarkerFileName), JsonSerializer.Serialize(new Marker(full, sha, abi, DateTime.UtcNow)));
@@ -78,6 +78,10 @@ public static class Il2CppPackages
             throw;
         }
     }
+
+    /// <summary>An Android App Bundle by its content (BundleConfig.pb, base/manifest/), whatever the file is called.</summary>
+    private static bool IsAppBundle(ZipArchive zip) =>
+        zip.GetEntry("BundleConfig.pb") != null || zip.Entries.Any(e => e.FullName.StartsWith("base/manifest/", StringComparison.Ordinal));
 
     private static ZipArchive OpenZip(string path)
     {

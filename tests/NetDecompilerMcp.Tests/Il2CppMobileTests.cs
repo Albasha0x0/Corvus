@@ -208,6 +208,11 @@ public sealed class Il2CppMobileTests(ITestOutputHelper output) : IDisposable
 
         var aab = Put("in/game.aab", Zip(("base/lib/arm64-v8a/libil2cpp.so", lib64), ("base/assets/bin/Data/Managed/Metadata/global-metadata.dat", MetadataBytes)));
         Assert.Equal(lib64, File.ReadAllBytes(Il2CppGameFiles.Find(Il2CppPackages.Extract(aab, null, cache)!)!.Binary));
+        // An app bundle saved as .apk is known by its content; the same bytes give the same answer under any name.
+        byte[] bundleBytes = Zip(("BundleConfig.pb", [0]), ("base/manifest/AndroidManifest.xml", [0]), ("base/lib/arm64-v8a/libil2cpp.so", lib64),
+            ("base/assets/bin/Data/Managed/Metadata/global-metadata.dat", MetadataBytes));
+        foreach (var name in new[] { "in/bundle.apk", "in/bundle-copy.aab" })
+            Assert.Equal(lib64, File.ReadAllBytes(Il2CppGameFiles.Find(Il2CppPackages.Extract(Put(name, bundleBytes), null, cache)!)!.Binary));
 
         var ipa = Put("in/game.ipa", Zip(("Payload/Game.app/Frameworks/UnityFramework.framework/UnityFramework", [0xCF, 0xFA, 0xED, 0xFE]),
             ("Payload/Game.app/Data/Managed/Metadata/global-metadata.dat", MetadataBytes), ("Payload/Game.app/Data/globalgamemanagers", [5])));
