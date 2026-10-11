@@ -668,7 +668,9 @@ public sealed class ValueTrace
             _cur = h;
             if (!CanEnter(caller))
                 _frontier.Add(new TraceFrontier(e.Node, "functions", $"call site {Where(site)}: maxFunctions={_o.MaxFunctions} reached", $"{Tool} address={Va(site)} {position}"));
-            else Materialize(Slice(caller, new SliceSeed(SliceSeedKind.Argument, site, e.Location), false), e.Depth + 1, e.Node, true, "argument", site, e.Param, null);
+            // a jump thunk (incremental-link entry, one jump to the function) passes the arguments on: it costs no depth
+            else Materialize(Slice(caller, new SliceSeed(SliceSeedKind.Argument, site, e.Location), false),
+                caller.InstructionCount == 1 && site == caller.Start ? e.Depth : e.Depth + 1, e.Node, true, "argument", site, e.Param, null);
             _cur = home;
         }
     }

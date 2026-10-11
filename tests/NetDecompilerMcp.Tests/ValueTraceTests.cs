@@ -130,6 +130,30 @@ public class ValueTraceTests
     }
 
     [Fact]
+    public void A_jump_thunk_between_caller_and_function_costs_no_depth()
+    {
+        var a = new Assembler(64);
+        var thunk = a.CreateLabel();
+        var f = a.CreateLabel();
+        a.sub(rsp, 0x28);
+        a.mov(ecx, 7);
+        a.call(thunk);
+        a.add(rsp, 0x28);
+        a.ret();
+        a.Label(ref thunk);
+        a.jmp(f);
+        a.Label(ref f);
+        a.lea(eax, __[rcx + 1]);
+        a.ret();
+        var stream = new MemoryStream();
+        var result = a.Assemble(new StreamCodeWriter(stream), Base + Code, BlockEncoderOptions.ReturnNewInstructionOffsets);
+        uint fRva = (uint)(result.GetLabelRIP(f) - Base);
+        var analysis = CallAnalysis.For(NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, stream.ToArray(), entry: Code)));
+        var g = Trace(analysis, Va(fRva), argument: "1", options: new ValueTraceOptions(MaxDepth: 1));
+        Assert.Equal(["7"], g.Values.Select(v => v.Text));
+    }
+
+    [Fact]
     public void Backward_merge_keeps_both_values_decoded_through_the_api_parameter()
     {
         var (a, at) = Sample();
