@@ -155,6 +155,7 @@ final class FrameOps {
         for (Variable v : sf.getStackVariables())
             if (v.getStackOffset() == at) existing = v;
         String old = existing != null ? existing.getName() : null;
+        rememberOriginal(w, rva, offset, existing);
         if (name != null)
             for (Variable v : f.getAllVariables())
                 if (v.getName().equals(name) && v != existing)
@@ -255,5 +256,102 @@ final class FrameOps {
             return item("local", rva, local, false, "the decompiler kept " + now.getName() + " as " + now.getDataType().getDisplayName() + " (it did not accept " + type + ")",
                 resolved, stk, null);
         return item("local", rva, local, true, null, resolved, stk, now.getDataType().getDisplayName() + " " + now.getName());
+    }
+
+    // ---- clearing user edits ----
+
+    private static String originalKey(long rva, int offset) {
+        return "ndm_stack_original_" + Long.toHexString(rva) + "_" + offset;
+    }
+
+    /** The member Ghidra had before the first user edit at this offset ("null" when none), so a clear restores it. */
+    private static void rememberOriginal(Worker w, long rva, int offset, Variable existing) {
+        var options = w.program.getOptions(Worker.STAMPS);
+        String key = originalKey(rva, offset);
+        if (options.getString(key, null) != null) return;
+        JsonArray v = new JsonArray();
+        if (existing != null) {
+            v.add(existing.getName());
+            v.add(existing.getDataType().getDisplayName());
+        }
+        options.setString(key, existing == null ? "null" : v.toString());
+    }
+
+    /** Clears, before the other edits: local_clears [[function, local, stack offset or null, name]], stack_clears [[function, offset]]. */
+    static void clears(Worker w, Worker.Request r, JsonArray items) throws Exception {
+        for (JsonElement e : Worker.array(r.args, "local_clears")) {
+            JsonArray l = e.getAsJsonArray();
+            items.add(clearLocal(w, r, l.get(0).getAsLong(), l.get(1).getAsString(), l.get(2).isJsonNull() ? null : l.get(2).getAsInt(),
+                l.get(3).isJsonNull() ? null : l.get(3).getAsString()));
+        }
+        for (JsonElement e : Worker.array(r.args, "stack_clears")) {
+            JsonArray s = e.getAsJsonArray();
+            items.add(clearStack(w, s.get(0).getAsLong(), s.get(1).getAsInt()));
+        }
+    }
+
+    /** Drops the user's name and type of a decompiler local: a committed local is removed, a parameter gets its default name back. */
+    static JsonArray clearLocal(Worker w, Worker.Request r, long rva, String local, Integer stack, String name) throws Exception {
+        Function f = w.program.getFunctionManager().getFunctionContaining(w.space().getAddress(w.base + rva));
+        if (f == null) return item("local_clear", rva, local, false, "no function contains rva 0x" + Long.toHexString(rva).toUpperCase(), null, stack, null);
+        rva = w.rva(f.getEntryPoint());
+        int low = low(f.getStackFrame());
+        w.decompilers.flush();
+        HighFunction hf;
+        try {
+            hf = high(w, f, r);
+        }
+        catch (Worker.WorkerError e) {
+            return item("local_clear", rva, local, false, e.getMessage(), null, stack, null);
+        }
+        HighSymbol s = find(hf, low, local, stack, name);
+        if (s == null) return item("local_clear", rva, local, true, null, null, stack, "no such local; nothing to clear");
+        String resolved = s.getName();
+        Integer stk = s.getStorage().isStackStorage() ? s.getStorage().getStackOffset() - low : null;
+        try {
+            if (s.isParameter()) {
+                ghidra.program.model.listing.Parameter p = f.getParameter(s.getCategoryIndex());
+                if (p != null) p.setName(null, SourceType.DEFAULT);
+            }
+            else if (s.getSymbol() != null && s.getSymbol().getObject() instanceof Variable v) f.removeVariable(v);
+        }
+        catch (Exception e) {
+            return item("local_clear", rva, local, false, "Ghidra did not clear " + resolved + ": " + e.getMessage(), resolved, stk, null);
+        }
+        w.decompilers.flush();
+        return item("local_clear", rva, local, true, null, resolved, stk, "cleared");
+    }
+
+    /** Restores the member Ghidra had before the first user edit; without that record the member is removed and the decompiler names it again. */
+    static JsonArray clearStack(Worker w, long rva, int offset) {
+        String target = "+0x" + Integer.toHexString(offset).toUpperCase();
+        Function f = w.program.getFunctionManager().getFunctionContaining(w.space().getAddress(w.base + rva));
+        if (f == null) return item("stack_clear", rva, target, false, "no function contains rva 0x" + Long.toHexString(rva).toUpperCase(), null, offset, null);
+        rva = w.rva(f.getEntryPoint());
+        StackFrame sf = f.getStackFrame();
+        int at = offset + low(sf);
+        if (returnAddressOnStack(w) && at >= sf.getReturnAddressOffset() && at < sf.getReturnAddressOffset() + w.program.getDefaultPointerSize())
+            return item("stack_clear", rva, target, false, target + " is the return address", "__return_address", offset, null);
+        Variable existing = sf.getVariableContaining(at);
+        String old = existing != null && existing.getStackOffset() == at ? existing.getName() : null;
+        var options = w.program.getOptions(Worker.STAMPS);
+        String key = originalKey(rva, offset);
+        String saved = options.getString(key, null);
+        try {
+            if (old != null) sf.clearVariable(at);
+            if (saved != null && !saved.equals("null")) {
+                JsonArray o = com.google.gson.JsonParser.parseString(saved).getAsJsonArray();
+                DataType dt = TypeOps.parseType(w, o.get(1).getAsString());
+                if (dt == null && existing != null) dt = existing.getDataType();
+                if (dt != null) sf.createVariable(o.get(0).getAsString(), at, dt, SourceType.ANALYSIS);
+            }
+            if (saved != null) options.removeOption(key);
+        }
+        catch (Exception e) {
+            return item("stack_clear", rva, target, false, "Ghidra did not restore the stack member at " + target + ": " + e.getMessage(), old, offset, null);
+        }
+        for (Variable v : f.getStackFrame().getStackVariables())
+            if (v.getStackOffset() == at) return item("stack_clear", rva, target, true, null, old, offset, v.getDataType().getDisplayName() + " " + v.getName());
+        return item("stack_clear", rva, target, true, null, old, offset, "no member");
     }
 }

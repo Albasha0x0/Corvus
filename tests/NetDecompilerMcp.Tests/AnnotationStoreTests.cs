@@ -131,6 +131,26 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
+    public void Cleared_locals_and_stack_members_leave_the_layer_and_the_sidecar()
+    {
+        var ann = Open();
+        ann.ChangeUserTypes(l => l.WithLocal(new(0x1000, "v3", 0x28, "count", null)).WithLocal(new(0x1000, "v4", null, "size", "int"))
+            .WithStackVar(new(0x1000, 0x20, "buffer", "char[16]")));
+        var layer = ann.UserTypes;
+        // found by its first name, by the name it got and by stack offset
+        var count = layer.LocalEdit(0x1000, "count", null)!;
+        Assert.Same(count, layer.LocalEdit(0x1000, "v3", null));
+        Assert.Same(count, layer.LocalEdit(0x1000, "other", 0x28));
+        Assert.Null(layer.LocalEdit(0x2000, "count", null));
+        ann.ChangeUserTypes(l => l.WithoutLocal(count).WithoutStackVar(0x1000, 0x20).WithoutStackVar(0x1000, 0x99));
+        var again = Open().UserTypes;
+        Assert.Equal("size", Assert.Single(again.Locals[0x1000]).Name);
+        Assert.Empty(again.StackVars);
+        ann.ChangeUserTypes(l => l.WithoutLocal(l.LocalEdit(0x1000, "size", null)!));
+        Assert.Empty(Open().UserTypes.Locals);
+    }
+
+    [Fact]
     public void Export_CarriesUserTypes_InTheIdaScriptAndJson()
     {
         var ann = Open();

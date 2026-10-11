@@ -987,6 +987,7 @@ def apply_stack(m, ti, rva, offset, name, typ):
     if name and any(x.name == name and x.offset != offset for x in members):
         return ["stack", rva, target, False, "the frame already has a member named %s" % name, u.name if u else None, offset, None]
     old = u.name if u is not None else None
+    remember_stack_original(rva, offset, u)
     retaddr = ida_frame.frame_off_retaddr(f)
     if typ:
         tif = parse_type(ti, typ, False)
@@ -1622,6 +1623,7 @@ DATA_SIZES = {"byte": 1, "word": 2, "dword": 4, "qword": 8, "float": 4, "double"
 def apply_edits_before(m, ti, args):
     # enums: [[enum, member, value or null]]; analysis: [[rva, kind, end or null, type or null]] in the order made
     items = [apply_enum_member(m, ti, e[0], e[1], e[2]) for e in args.get("enums") or []]
+    items += apply_clears(m, ti, args)
     return items + [apply_analysis(m, ti, a[0], a[1], a[2], a[3]) for a in args.get("analysis") or []]
 
 
@@ -1886,6 +1888,98 @@ def apply_analysis(m, ti, rva, kind, end, typ):
         ok, error = make_data(m, ti, ea, end_ea, typ)
         return item(True, None, item_text(m, ea)) if ok else item(False, error)
     return item(False, "unknown analysis edit %r" % kind)
+
+
+# ---- clearing user edits, pseudocode comments, type guesses ----
+
+def stack_original_key(rva, offset):
+    return "stk:%X:%d" % (rva, offset)
+
+
+def remember_stack_original(rva, offset, u):
+    # the member IDA had before the first user edit at this offset ("" when there was none), so a clear restores it
+    node = user_node(True)
+    key = stack_original_key(rva, offset)
+    if node.hashstr_buf(key) is None:
+        node.hashset_buf(key, json.dumps([u.name, str(u.type)] if u is not None else None))
+
+
+def apply_clears(m, ti, args):
+    # local_clears: [[function, local, stack offset or null, name]]; stack_clears: [[function, offset]]
+    items = [clear_local(m, c[0], c[1], c[2], c[3]) for c in args.get("local_clears") or []]
+    return items + [clear_stack(m, ti, c[0], c[1]) for c in args.get("stack_clears") or []]
+
+
+def clear_local(m, rva, local, stack, name):
+    # drops the variable's saved user settings (name, type, comment): Hex-Rays shows its own again
+    hr = m.ida_hexrays
+    f = m.ida_funcs.get_func(_state["base"] + rva)
+    if f is None:
+        return ["local_clear", rva, local, False, "no function contains rva 0x%X" % rva, None, stack, None]
+    rva = rva_of(f.start_ea)
+    cf, why = decompile_function(m, f.start_ea)
+    if cf is None:
+        return ["local_clear", rva, local, False, why, None, stack, None]
+    lv = find_lvar(list(cf.get_lvars()), local, stack, name)
+    if lv is None:
+        return ["local_clear", rva, local, True, None, None, stack, "no such local; nothing to clear"]
+    resolved = lv.name
+    stk = lv.get_stkoff() if lv.is_stk_var() else None
+    loc = hr.lvar_locator_t(lv.location, lv.defea)  # a copy: lv dies with its cfunc
+    info = hr.lvar_uservec_t()
+    if hr.restore_user_lvar_settings(info, f.start_ea):
+        kept = [hr.lvar_saved_info_t(x) for x in info.lvvec if not x.ll == loc]
+        if len(kept) != info.lvvec.size():
+            info.lvvec.clear()
+            for x in kept:
+                info.lvvec.push_back(x)
+            hr.save_user_lvar_settings(f.start_ea, info)
+    hr.mark_cfunc_dirty(f.start_ea, False)
+    cf, why = decompile_function(m, f.start_ea)
+    now = next((v for v in cf.get_lvars() if loc == v), None) if cf is not None else None
+    return ["local_clear", rva, local, True, None, resolved, stk, "%s %s" % (now.type(), now.name) if now is not None else "cleared"]
+
+
+def clear_stack(m, ti, rva, offset):
+    # restores the member IDA had before the first user edit; without that record the default name is given back and the type kept
+    import ida_frame
+    target = "+0x%X" % offset
+    f = m.ida_funcs.get_func(_state["base"] + rva)
+    if f is None:
+        return ["stack_clear", rva, target, False, "no function contains rva 0x%X" % rva, None, offset, None]
+    rva = rva_of(f.start_ea)
+    frame, members = frame_members(m, f)
+    if frame is None:
+        return ["stack_clear", rva, target, False, "the function has no stack frame", None, offset, None]
+    u = next((x for x in members if x.offset == offset), None)
+    if u is not None and frame_kind(f, frame, u.index, offset) == "special":
+        return ["stack_clear", rva, target, False, "%s is %s (return address or saved registers)" % (target, u.name), u.name, offset, None]
+    node = user_node(True)
+    key = stack_original_key(rva, offset)
+    saved = node.hashstr_buf(key)
+    retaddr = ida_frame.frame_off_retaddr(f)
+    default = ("var_%X" % (retaddr - offset)) if offset < retaddr else ("arg_%X" % (offset - ida_frame.frame_off_args(f)))
+    old = u.name if u is not None else None
+    note = None
+    if saved is not None:
+        original = json.loads(saved)
+        if u is not None:
+            ida_frame.delete_frame_members(f, offset, offset + max(1, u.size))
+        if original is not None:
+            tif = parse_type(ti, original[1], False) or (u.type if u is not None else None)
+            if tif is None or not ida_frame.define_stkvar(f, original[0], offset - retaddr, tif):
+                return ["stack_clear", rva, target, False, "IDA did not restore %s at %s" % (original[0], target), old, offset, None]
+        node.hashdel(key)
+    elif u is not None:
+        if u.name != default and frame.rename_udm(u.index, default) != ti.TERR_OK:
+            return ["stack_clear", rva, target, False, "IDA did not rename %s back to %s" % (u.name, default), old, offset, None]
+        note = "IDA's original type is not recorded; the type is kept"
+    if hexrays_ready(m):
+        m.ida_hexrays.mark_cfunc_dirty(f.start_ea, False)
+    _, now = frame_members(m, f)
+    got = [x for x in now if x.offset == offset]
+    text = ("%s %s" % (got[0].type, got[0].name)) if got else "no member"
+    return ["stack_clear", rva, target, True, None, old, offset, text + ("; " + note if note else "")]
 
 
 OPS = {"hello": op_hello, "open": op_open, "rebase": op_rebase, "functions": op_functions, "decompile": op_decompile,

@@ -225,16 +225,23 @@ internal static class WorkerRows
         foreach (var t in batch.Types) types.Add(new JsonArray(t.Rva, t.Declaration));
         var stack = new JsonArray();
         var deletes = new JsonArray();
+        var stackClears = new JsonArray();
         foreach (var s in batch.StackVars)
-            if (s.Delete) deletes.Add(new JsonArray(s.Function, s.Offset));
+            if (s.Clear) stackClears.Add(new JsonArray(s.Function, s.Offset));
+            else if (s.Delete) deletes.Add(new JsonArray(s.Function, s.Offset));
             else stack.Add(new JsonArray(s.Function, s.Offset, s.Name, s.Type));
         var locals = new JsonArray();
-        foreach (var l in batch.Locals) locals.Add(new JsonArray(l.Function, l.Local, l.Stack, l.Name, l.Type));
+        var localClears = new JsonArray();
+        foreach (var l in batch.Locals)
+            if (l.Clear) localClears.Add(new JsonArray(l.Function, l.Local, l.Stack, l.Name));
+            else locals.Add(new JsonArray(l.Function, l.Local, l.Stack, l.Name, l.Type));
         var args = Args(("decls", new JsonArray(batch.Declarations.Select(d => (JsonNode)d).ToArray())), ("types", types), ("stack", stack),
             ("locals", locals), ("stamp_key", stampKey), ("stamp", stamp), ("save", save));
         if (batch.EnumMembers.Count > 0)
             args["enums"] = new JsonArray(batch.EnumMembers.Select(e => (JsonNode)new JsonArray(e.Enum, e.Member, e.Value)).ToArray());
         if (deletes.Count > 0) args["stack_deletes"] = deletes;
+        if (localClears.Count > 0) args["local_clears"] = localClears;
+        if (stackClears.Count > 0) args["stack_clears"] = stackClears;
         if (batch.Analysis.Count > 0)
             args["analysis"] = new JsonArray(batch.Analysis.Select(a => (JsonNode)new JsonArray(a.Rva, a.Kind, a.End, a.Type)).ToArray());
         if (batch.Operands.Count > 0)

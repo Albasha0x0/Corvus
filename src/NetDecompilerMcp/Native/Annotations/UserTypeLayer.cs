@@ -148,6 +148,33 @@ public sealed class UserTypeLayer
         return With(locals: new Dictionary<uint, IReadOnlyList<NativeLocalEdit>>(Locals) { [edit.Function] = list });
     }
 
+    /// <summary>The edit of the function's local that <paramref name="local"/> names (by stack offset, its first name or the name it got), or null.</summary>
+    public NativeLocalEdit? LocalEdit(uint function, string local, int? stack) =>
+        Locals.TryGetValue(function, out var list)
+            ? list.FirstOrDefault(e => (stack != null && e.Stack == stack) || e.Local == local || (e.Name != null && e.Name == local)) : null;
+
+    /// <summary>Without <paramref name="edit"/> (a cleared local).</summary>
+    public UserTypeLayer WithoutLocal(NativeLocalEdit edit)
+    {
+        if (!Locals.TryGetValue(edit.Function, out var list) || !list.Contains(edit)) return this;
+        var locals = new Dictionary<uint, IReadOnlyList<NativeLocalEdit>>(Locals);
+        var rest = list.Where(e => e != edit).ToList();
+        if (rest.Count == 0) locals.Remove(edit.Function);
+        else locals[edit.Function] = rest;
+        return With(locals: locals);
+    }
+
+    /// <summary>Without the stack member edit at <paramref name="offset"/> of <paramref name="function"/> (a cleared member).</summary>
+    public UserTypeLayer WithoutStackVar(uint function, int offset)
+    {
+        if (!StackVars.TryGetValue(function, out var list) || list.All(e => e.Offset != offset)) return this;
+        var stack = new Dictionary<uint, IReadOnlyList<NativeStackVarEdit>>(StackVars);
+        var rest = list.Where(e => e.Offset != offset).ToList();
+        if (rest.Count == 0) stack.Remove(function);
+        else stack[function] = rest;
+        return With(stackVars: stack);
+    }
+
     /// <summary>With a stack member edit merged into the edit at the same offset; a deletion, or an edit after one, replaces it.</summary>
     public UserTypeLayer WithStackVar(NativeStackVarEdit edit)
     {

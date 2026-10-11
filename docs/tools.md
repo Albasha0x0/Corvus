@@ -1466,10 +1466,10 @@ Replace bytes at a native address with a hex string, in memory. The patch is rec
 | `hex` | string | yes |  | Replacement bytes as hex (e.g. '90 90' or '9090' or '0x90,0x90'). |
 | `force` | boolean |  | `false` | Override the safety checks (mid-instruction, past function end, header bytes, a new address with no free relocation slot). |
 | `dryRun` | boolean |  | `false` | Preview only; do not record the patch. |
-| `relocations` | string |  |  | Base relocations under the patch (the loader adds the load delta to each under ASLR / rebasing): auto (default) keeps an entry where the new bytes still hold an address, neutralizes the rest (type ABSOLUTE) and adds entries for new absolute addresses by reusing an ABSOLUTE slot of the page's relocation block; keep leaves every entry as it is; neutralize neutralizes every entry under the patch. The report lists kept / neutralized / added entries; undo restores them. Ignored when extend=true. Values: auto, keep, neutralize. |
-| `extend` | boolean |  | `false` | When the new code is larger than a single in-place patch allows (or always, to keep the original site intact), place a relocation stub in slack space: the site becomes a near jump to the stub (a file-backed code cave, or a new executable section when none fits — see placement) holding the new code, and control returns to the instruction after the site. Refused with a reason code (branch_target_in_site, displaced_absolute_reloc, unwind_data, no_space, no_space_at_site, no_header_space, stub_needs_reloc, unreachable_section, arm64_unsupported) when unsafe. The stub is one undoable edit, exported and saved with the patch. |
-| `stubMode` | string |  |  | With extend=true, how the stub runs the new code relative to the site's displaced instructions: replace (default; the new code runs instead of them), before (new code then the displaced originals), after (the displaced originals then the new code). Values: replace, before, after. |
-| `placement` | string |  |  | With extend=true, where the stub goes: auto (default; a reusable code cave if one fits, else a new executable section), cave (a file-backed code cave only; no_space when none fits), section (always a new section appended to the file). A new section updates the section count, SizeOfImage, SizeOfCode and PE checksum; undo removes it and the file returns byte-for-byte to the original. Refused with no_header_space (no free section-table slot), stub_needs_reloc (an absolute in-image operand under ASLR) or unreachable_section. Values: auto, cave, section. |
+| `relocations` | string |  |  | Base relocations under the patch: auto (default) keeps entries where the new bytes still hold an address, neutralizes the rest and adds entries for new absolute addresses in a free slot of the page's block; keep leaves them; neutralize neutralizes all. Reported; undo restores them. Ignored with extend=true. Values: auto, keep, neutralize. |
+| `extend` | boolean |  | `false` | Place the new code in a stub (a code cave or a new section, see placement): the site becomes a near jump to it and control returns after the site. For code larger than the site, or to keep the site intact. Refused with a reason code when unsafe (branch_target_in_site, displaced_absolute_reloc, unwind_data, no_space, no_space_at_site, no_header_space, stub_needs_reloc, unreachable_section, arm64_unsupported). One undoable edit. |
+| `stubMode` | string |  |  | With extend=true: replace (default; the new code instead of the displaced instructions), before (new code, then them) or after. Values: replace, before, after. |
+| `placement` | string |  |  | With extend=true: auto (default; a code cave if one fits, else a new executable section), cave (no_space when none fits) or section (always new; header fields and checksum updated, undo restores the file byte-for-byte). Values: auto, cave, section. |
 
 ### patch_asm
 
@@ -1484,10 +1484,10 @@ Assemble x86/x64 instructions (multi-line; labels, numeric and symbol branch tar
 | `assembly` | string | yes |  | Assembly, one instruction per line (e.g. 'jmp target' with a 'target:' label, or 'mov eax, 1\nret'). |
 | `force` | boolean |  | `false` | Override the safety checks (mid-instruction, past function end, header bytes, a new address with no free relocation slot). |
 | `dryRun` | boolean |  | `false` | Preview only; do not record the patch. |
-| `relocations` | string |  |  | Base relocations under the patch (the loader adds the load delta to each under ASLR / rebasing): auto (default) keeps an entry where the new bytes still hold an address, neutralizes the rest (type ABSOLUTE) and adds entries for new absolute addresses by reusing an ABSOLUTE slot of the page's relocation block; keep leaves every entry as it is; neutralize neutralizes every entry under the patch. The report lists kept / neutralized / added entries; undo restores them. Ignored when extend=true. Values: auto, keep, neutralize. |
-| `extend` | boolean |  | `false` | When the new code is larger than a single in-place patch allows (or always, to keep the original site intact), place a relocation stub in slack space: the site becomes a near jump to the stub (a file-backed code cave, or a new executable section when none fits — see placement) holding the new code, and control returns to the instruction after the site. Refused with a reason code (branch_target_in_site, displaced_absolute_reloc, unwind_data, no_space, no_space_at_site, no_header_space, stub_needs_reloc, unreachable_section, arm64_unsupported) when unsafe. The stub is one undoable edit, exported and saved with the patch. |
-| `stubMode` | string |  |  | With extend=true, how the stub runs the new code relative to the site's displaced instructions: replace (default; the new code runs instead of them), before (new code then the displaced originals), after (the displaced originals then the new code). Values: replace, before, after. |
-| `placement` | string |  |  | With extend=true, where the stub goes: auto (default; a reusable code cave if one fits, else a new executable section), cave (a file-backed code cave only; no_space when none fits), section (always a new section appended to the file). A new section updates the section count, SizeOfImage, SizeOfCode and PE checksum; undo removes it and the file returns byte-for-byte to the original. Refused with no_header_space (no free section-table slot), stub_needs_reloc (an absolute in-image operand under ASLR) or unreachable_section. Values: auto, cave, section. |
+| `relocations` | string |  |  | Base relocations under the patch: auto (default) keeps entries where the new bytes still hold an address, neutralizes the rest and adds entries for new absolute addresses in a free slot of the page's block; keep leaves them; neutralize neutralizes all. Reported; undo restores them. Ignored with extend=true. Values: auto, keep, neutralize. |
+| `extend` | boolean |  | `false` | Place the new code in a stub (a code cave or a new section, see placement): the site becomes a near jump to it and control returns after the site. For code larger than the site, or to keep the site intact. Refused with a reason code when unsafe (branch_target_in_site, displaced_absolute_reloc, unwind_data, no_space, no_space_at_site, no_header_space, stub_needs_reloc, unreachable_section, arm64_unsupported). One undoable edit. |
+| `stubMode` | string |  |  | With extend=true: replace (default; the new code instead of the displaced instructions), before (new code, then them) or after. Values: replace, before, after. |
+| `placement` | string |  |  | With extend=true: auto (default; a code cave if one fits, else a new executable section), cave (no_space when none fits) or section (always new; header fields and checksum updated, undo restores the file byte-for-byte). Values: auto, cave, section. |
 
 ### list_native_edits
 
@@ -1810,7 +1810,7 @@ Set the type of a native function (its prototype, e.g. 'int __fastcall Parse(Pac
 
 **Rename or retype a decompiler local** (destructive, idempotent, open-world, long-running)
 
-Rename and/or retype a local variable or argument in the pseudocode of a native function (IDA Hex-Rays or Ghidra's decompiler): name it as decompile_native shows it (v3, a1), or by stack offset as stack:0x28. Later edits may name it by its new name; it stays one edit. The decompiler can refuse a type that does not fit the variable (reported). Saved per file hash with the image's annotations: re-applied to a new database, exported by export_native_annotations and carried by migrate_native_names and update_to_new_build.
+Rename and/or retype a local variable or argument in the pseudocode of a native function (IDA Hex-Rays or Ghidra's decompiler): name it as decompile_native shows it (v3, a1), or by stack offset as stack:0x28. Later edits may name it by its new name; it stays one edit; its first name again, or clear=true, drops the edit. The decompiler can refuse a type that does not fit (reported). Saved per file hash with the image's annotations: re-applied to a new database, exported by export_native_annotations and carried by migrate_native_names and update_to_new_build.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1819,13 +1819,14 @@ Rename and/or retype a local variable or argument in the pseudocode of a native 
 | `local` | string | yes |  | The variable: its name in the pseudocode, or stack:<offset> (hex). |
 | `newName` | string |  |  | New name (a C identifier). |
 | `type` | string |  |  | New C type, e.g. 'unsigned int', 'Packet *', 'char[16]'. |
+| `clear` | boolean |  | `false` | Drop the user's name and type of the variable (no newName or type). |
 | `engine` | string |  |  | Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra), ida or ghidra. Values: auto, ida, ghidra. |
 
 ### set_native_stack_var
 
 **Rename, retype or delete a stack variable** (destructive, idempotent, open-world, long-running)
 
-Rename and/or retype a member of a native function's stack frame in the engine, named as get_native_frame lists it (var_28) or by frame offset (0x20 or +0x20, from the frame's lowest address); a type at an offset with no member creates one; delete=true removes it. The return address and saved registers are refused. Stack variables the decompiler has not renamed take the member's name. Saved per file hash with the image's annotations: re-applied to a new database, exported by export_native_annotations and carried by migrate_native_names and update_to_new_build.
+Rename and/or retype a member of a native function's stack frame in the engine, named as get_native_frame lists it (var_28) or by frame offset (0x20 or +0x20, from the frame's lowest address); a type at an offset with no member creates one; delete=true removes it; clear=true drops the user's edit, restoring the engine's member. The return address and saved registers are refused. Saved per file hash with the image's annotations: re-applied to a new database, exported by export_native_annotations and carried by migrate_native_names and update_to_new_build.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1835,6 +1836,7 @@ Rename and/or retype a member of a native function's stack frame in the engine, 
 | `newName` | string |  |  | New name (a C identifier). |
 | `type` | string |  |  | New C type, e.g. 'int', 'char[16]', 'Packet'. |
 | `delete` | boolean |  | `false` | Delete the member instead (no newName or type). |
+| `clear` | boolean |  | `false` | Drop the user's edit of the member (no newName or type). |
 | `engine` | string |  |  | Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra), ida or ghidra. Values: auto, ida, ghidra. |
 
 ### get_native_frame

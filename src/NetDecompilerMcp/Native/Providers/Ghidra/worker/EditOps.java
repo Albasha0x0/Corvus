@@ -71,6 +71,7 @@ final class EditOps {
             }
             items.add(item);
         }
+        FrameOps.clears(w, r, items);
         for (JsonElement e : Worker.array(r.args, "analysis")) {
             JsonArray a = e.getAsJsonArray();
             long rva = a.get(0).getAsLong();

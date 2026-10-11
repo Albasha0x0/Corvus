@@ -40,27 +40,21 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     });
 
     private const string RelocationsDescription =
-        "Base relocations under the patch (the loader adds the load delta to each under ASLR / rebasing): auto (default) keeps an entry " +
-        "where the new bytes still hold an address, neutralizes the rest (type ABSOLUTE) and adds entries for new absolute addresses by " +
-        "reusing an ABSOLUTE slot of the page's relocation block; keep leaves every entry as it is; neutralize neutralizes every entry " +
-        "under the patch. The report lists kept / neutralized / added entries; undo restores them. Ignored when extend=true.";
+        "Base relocations under the patch: auto (default) keeps entries where the new bytes still hold an address, neutralizes the rest and " +
+        "adds entries for new absolute addresses in a free slot of the page's block; keep leaves them; neutralize neutralizes all. Reported; " +
+        "undo restores them. Ignored with extend=true.";
 
     private const string ExtendDescription =
-        "When the new code is larger than a single in-place patch allows (or always, to keep the original site intact), place a relocation " +
-        "stub in slack space: the site becomes a near jump to the stub (a file-backed code cave, or a new executable section when none fits — " +
-        "see placement) holding the new code, and control returns to the instruction after the site. Refused with a reason code " +
-        "(branch_target_in_site, displaced_absolute_reloc, unwind_data, no_space, no_space_at_site, no_header_space, stub_needs_reloc, " +
-        "unreachable_section, arm64_unsupported) when unsafe. The stub is one undoable edit, exported and saved with the patch.";
+        "Place the new code in a stub (a code cave or a new section, see placement): the site becomes a near jump to it and control returns " +
+        "after the site. For code larger than the site, or to keep the site intact. Refused with a reason code when unsafe (branch_target_in_site, " +
+        "displaced_absolute_reloc, unwind_data, no_space, no_space_at_site, no_header_space, stub_needs_reloc, unreachable_section, arm64_unsupported). One undoable edit.";
 
     private const string StubModeDescription =
-        "With extend=true, how the stub runs the new code relative to the site's displaced instructions: replace (default; the new code " +
-        "runs instead of them), before (new code then the displaced originals), after (the displaced originals then the new code).";
+        "With extend=true: replace (default; the new code instead of the displaced instructions), before (new code, then them) or after.";
 
     private const string PlacementDescription =
-        "With extend=true, where the stub goes: auto (default; a reusable code cave if one fits, else a new executable section), cave (a " +
-        "file-backed code cave only; no_space when none fits), section (always a new section appended to the file). A new section updates the " +
-        "section count, SizeOfImage, SizeOfCode and PE checksum; undo removes it and the file returns byte-for-byte to the original. Refused " +
-        "with no_header_space (no free section-table slot), stub_needs_reloc (an absolute in-image operand under ASLR) or unreachable_section.";
+        "With extend=true: auto (default; a code cave if one fits, else a new executable section), cave (no_space when none fits) or " +
+        "section (always new; header fields and checksum updated, undo restores the file byte-for-byte).";
 
     [McpServerTool(Name = "rename_native", Title = "Name a native address")]
     [Description("Give a name to a native address (a function start, or any address): the name shows up in list_functions, disassemble (labels and " +

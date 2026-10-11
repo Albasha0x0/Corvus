@@ -416,16 +416,22 @@ public sealed record NativeCallTargets(IReadOnlyList<NativeCallTarget> Targets, 
 /// <summary>
 /// A decompiler local of the function at <see cref="Function"/>, found by its stack offset when it has one, else by
 /// <see cref="Local"/> (its name when first edited), else by <see cref="Name"/>; gets <see cref="Name"/> and/or <see cref="Type"/>.
+/// With <see cref="Clear"/> the user's settings of the variable are dropped instead (the decompiler's own name and type return).
 /// </summary>
-public sealed record NativeLocalEdit(uint Function, string Local, int? Stack, string? Name, string? Type);
+public sealed record NativeLocalEdit(uint Function, string Local, int? Stack, string? Name, string? Type)
+{
+    public bool Clear { get; init; }
+}
 
 /// <summary>
 /// The stack frame member at <see cref="Offset"/> (bytes from the frame's lowest address) gets <see cref="Name"/> and/or
-/// <see cref="Type"/>; created when none is there. With <see cref="Delete"/> the member is removed instead.
+/// <see cref="Type"/>; created when none is there. With <see cref="Delete"/> the member is removed instead; with
+/// <see cref="Clear"/> the member the engine had before the user's first edit there is restored.
 /// </summary>
 public sealed record NativeStackVarEdit(uint Function, int Offset, string? Name, string? Type)
 {
     public bool Delete { get; init; }
+    public bool Clear { get; init; }
 }
 
 /// <summary>Member <see cref="Member"/> of enum <see cref="Enum"/> (created when missing) gets <see cref="Value"/>; a null value removes the member.</summary>
@@ -468,7 +474,7 @@ public sealed record NativeUserTypeBatch(IReadOnlyList<string> Declarations, IRe
 }
 
 /// <summary>
-/// One item of a user type batch: <see cref="Kind"/> type, stack, stack_delete, local, enum (at RVA 0), analysis or operand
+/// One item of a user type batch: <see cref="Kind"/> type, stack, stack_delete, stack_clear, local, local_clear, enum (at RVA 0), analysis or operand
 /// (with the operand index as <see cref="Stack"/>), at <see cref="Rva"/> (the address or function);
 /// <see cref="Target"/> as asked; for a local the name it had before (<see cref="Resolved"/>) and its stack offset;
 /// <see cref="Text"/>: the type or name now in effect.

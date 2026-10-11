@@ -75,7 +75,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     [McpServerTool(Name = "set_native_stack_var", Title = "Rename, retype or delete a stack variable")]
     [Description("Rename and/or retype a member of a native function's stack frame in the engine, named as get_native_frame lists it (var_28) or by " +
                  "frame offset (0x20 or +0x20, from the frame's lowest address); a type at an offset with no member creates one; delete=true removes " +
-                 "it. The return address and saved registers are refused. Stack variables the decompiler has not renamed take the member's name." + KeptNote)]
+                 "it; clear=true drops the user's edit, restoring the engine's member. The return address and saved registers are refused." + KeptNote)]
     public Task<string> SetNativeStackVar(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("The function: " + NativeTools.AddressDescription)] string function,
@@ -83,14 +83,17 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         [Description("New name (a C identifier).")] string? newName = null,
         [Description("New C type, e.g. 'int', 'char[16]', 'Packet'.")] string? type = null,
         [Description("Delete the member instead (no newName or type).")] bool delete = false,
+        [Description("Drop the user's edit of the member (no newName or type).")] bool clear = false,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var name = string.IsNullOrWhiteSpace(newName) ? null : newName.Trim();
         var decl = string.IsNullOrWhiteSpace(type) ? null : type.Trim();
-        if (delete && (name != null || decl != null)) throw new ToolError(ErrorCode.InvalidArgument, "delete takes no newName or type.", "drop newName and type");
-        if (!delete && name == null && decl == null) throw new ToolError(ErrorCode.InvalidArgument, "Nothing to change.", "pass newName, type or both, or delete=true");
+        if ((delete || clear) && (name != null || decl != null || (delete && clear)))
+            throw new ToolError(ErrorCode.InvalidArgument, "delete and clear take no newName or type, and not each other.", "pass one of: newName/type, delete=true, clear=true");
+        if (!delete && !clear && name == null && decl == null)
+            throw new ToolError(ErrorCode.InvalidArgument, "Nothing to change.", "pass newName, type or both, delete=true or clear=true");
         if (name != null && !Identifier(name))
             throw new ToolError(ErrorCode.InvalidArgument, $"'{name}' is not a C identifier.", "use letters, digits and _, not starting with a digit");
         var (native, rva, session) = await Open(image, function, engine, progress, cancellationToken);
@@ -100,10 +103,12 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             : NativeAddress.Number(v.TrimStart('+')) is { } n && n <= int.MaxValue ? (int)n
             : throw new ToolError(ErrorCode.InvalidArgument, $"The frame of {frame.Name} has no member '{v}'.",
                 $"members: {string.Join(", ", frame.Members.Select(m => m.Name).Take(40))}; or pass a frame offset such as 0x20");
-        var edit = new NativeStackVarEdit(frame.StartRva, offset, name, decl) { Delete = delete };
+        var edit = new NativeStackVarEdit(frame.StartRva, offset, name, decl) { Delete = delete, Clear = clear };
         var result = await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch([], [], [edit], []),
-            (r, layer) => r.Items is [{ Applied: true } item] ? layer.WithStackVar(edit with { Function = item.Rva }) : null, cancellationToken);
+            (r, layer) => r.Items is not [{ Applied: true } item] ? null
+                : clear ? layer.WithoutStackVar(item.Rva, offset) : layer.WithStackVar(edit with { Function = item.Rva }), cancellationToken);
         var done = Outcome(result);
+        if (clear) return $"Stack member +0x{offset:X} of {frame.Name} at {Va(native, done.Rva)}: the user edit is cleared; now {done.Text}";
         return delete ? $"Stack member +0x{offset:X} of {frame.Name} at {Va(native, done.Rva)}: {(done.Resolved != null ? $"{done.Resolved} " : "")}{done.Text}"
             : $"Stack member +0x{offset:X} of {frame.Name} at {Va(native, done.Rva)}{(done.Resolved != null ? $" (was {done.Resolved})" : "")} is now: {done.Text}";
     });
@@ -173,31 +178,96 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
 
     [McpServerTool(Name = "set_native_local", Title = "Rename or retype a decompiler local")]
     [Description("Rename and/or retype a local variable or argument in the pseudocode of a native function (IDA Hex-Rays or Ghidra's decompiler): name it as " +
-                 "decompile_native shows it (v3, a1), or by stack offset as stack:0x28. Later edits may name it by its new name; it stays one edit. " +
-                 "The decompiler can refuse a type that does not fit the variable (reported)." + KeptNote)]
+                 "decompile_native shows it (v3, a1), or by stack offset as stack:0x28. Later edits may name it by its new name; it stays one edit; " +
+                 "its first name again, or clear=true, drops the edit. The decompiler can refuse a type that does not fit (reported)." + KeptNote)]
     public Task<string> SetNativeLocal(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("The function: " + NativeTools.AddressDescription)] string function,
         [Description("The variable: its name in the pseudocode, or stack:<offset> (hex).")] string local,
         [Description("New name (a C identifier).")] string? newName = null,
         [Description("New C type, e.g. 'unsigned int', 'Packet *', 'char[16]'.")] string? type = null,
+        [Description("Drop the user's name and type of the variable (no newName or type).")] bool clear = false,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        var request = LocalRequest(local, newName, type, clear);
+        var (native, rva, session) = await Open(image, function, engine, progress, cancellationToken);
+        var edits = LocalEdits(native, rva, [request]);
+        var result = await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch([], [], [], edits), (r, layer) => RecordLocals(r, layer, edits), cancellationToken);
+        if (result.Items.FirstOrDefault(i => !i.Applied) is { } failed) Outcome(result with { Items = [failed] });
+        var done = result.Items.Count > 0 ? result.Items[^1] : throw new ToolError(ErrorCode.Failed, "The engine did not report the edit.");
+        return $"Local {done.Resolved} of the function at {Va(native, done.Rva)}{(done.Stack is { } k ? $" (stack 0x{k:X})" : "")} " +
+               (done.Kind == "local_clear" ? $"is cleared; now {done.Text}" : $"is now: {done.Text}");
+    });
+
+    /// <summary>One local to change: its target (name or stack offset), the new name and type, or a clear.</summary>
+    internal sealed record LocalChange(string Target, int? Stack, string? Name, string? Type, bool Clear);
+
+    internal static LocalChange LocalRequest(string local, string? newName, string? type, bool clear)
+    {
         var name = string.IsNullOrWhiteSpace(newName) ? null : newName.Trim();
         var decl = string.IsNullOrWhiteSpace(type) ? null : type.Trim();
-        if (name == null && decl == null) throw new ToolError(ErrorCode.InvalidArgument, "Nothing to change.", "pass newName, type or both");
+        if (clear && (name != null || decl != null)) throw new ToolError(ErrorCode.InvalidArgument, "clear takes no newName or type.", "drop newName and type");
+        if (!clear && name == null && decl == null) throw new ToolError(ErrorCode.InvalidArgument, "Nothing to change.", "pass newName, type or both, or clear=true");
         if (name != null && !Identifier(name))
             throw new ToolError(ErrorCode.InvalidArgument, $"'{name}' is not a C identifier.", "use letters, digits and _, not starting with a digit");
         var (target, stack) = LocalTarget(local);
-        var (native, rva, session) = await Open(image, function, engine, progress, cancellationToken);
-        var result = await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch([], [], [], [new NativeLocalEdit(rva, target, stack, name, decl)]),
-            (r, layer) => r.Items is [{ Applied: true } item] ? layer.WithLocal(new NativeLocalEdit(item.Rva, item.Resolved ?? target, item.Stack, name, decl)) : null,
-            cancellationToken);
-        var done = Outcome(result);
-        return $"Local {done.Resolved} of the function at {Va(native, done.Rva)}{(done.Stack is { } k ? $" (stack 0x{k:X})" : "")} is now: {done.Text}";
-    });
+        return new(target, stack, name, decl, clear);
+    }
+
+    /// <summary>
+    /// The engine edits for the changes, clears first (the engine applies them first). A variable given back the name it had
+    /// before the user's first edit is cleared, keeping a user type.
+    /// </summary>
+    private List<NativeLocalEdit> LocalEdits(LoadedNative native, uint rva, IEnumerable<LocalChange> changes)
+    {
+        var layer = code?.Annotations(native).UserTypes ?? UserTypeLayer.Empty;
+        var start = code?.Ready(native)?.FunctionAt(rva)?.Start ?? rva;
+        var clears = new List<NativeLocalEdit>();
+        var sets = new List<NativeLocalEdit>();
+        foreach (var c in changes)
+        {
+            var existing = layer.LocalEdit(rva, c.Target, c.Stack) ?? layer.LocalEdit(start, c.Target, c.Stack);
+            bool clear = c.Clear || (c.Name != null && existing is { Name: not null } && c.Name == existing.Local);
+            if (!clear)
+            {
+                sets.Add(new NativeLocalEdit(rva, c.Target, c.Stack, c.Name, c.Type));
+                continue;
+            }
+            clears.Add(new NativeLocalEdit(rva, c.Target, c.Stack ?? existing?.Stack, existing?.Name, null) { Clear = true });
+            if (!c.Clear && (c.Type ?? existing?.Type) is { } keep) sets.Add(new NativeLocalEdit(rva, existing!.Local, c.Stack ?? existing.Stack, null, keep));
+        }
+        return [.. clears, .. sets];
+    }
+
+    /// <summary>
+    /// Records the applied ones of <paramref name="edits"/> (outcomes in the same order): a clear removes the variable's edit,
+    /// and an edit left with its first name and no type is dropped.
+    /// </summary>
+    private static UserTypeLayer RecordLocals(UserTypeResult result, UserTypeLayer layer, IReadOnlyList<NativeLocalEdit> edits)
+    {
+        var firstNames = new Dictionary<(uint, int?), string>();
+        for (int i = 0; i < Math.Min(result.Items.Count, edits.Count); i++)
+        {
+            var (item, edit) = (result.Items[i], edits[i]);
+            if (!item.Applied) continue;
+            if (edit.Clear)
+            {
+                if (item.Resolved != null && layer.LocalEdit(item.Rva, item.Resolved, item.Stack) is { } old)
+                {
+                    layer = layer.WithoutLocal(old);
+                    firstNames[(item.Rva, item.Stack)] = old.Local;
+                }
+                continue;
+            }
+            var first = firstNames.GetValueOrDefault((item.Rva, item.Stack)) ?? item.Resolved ?? edit.Local;
+            layer = layer.WithLocal(new NativeLocalEdit(item.Rva, first, item.Stack, edit.Name, edit.Type));
+            if (layer.LocalEdit(item.Rva, first, item.Stack) is { Type: null } merged && (merged.Name == null || merged.Name == merged.Local))
+                layer = layer.WithoutLocal(merged);
+        }
+        return layer;
+    }
 
     [McpServerTool(Name = "declare_native_types", Title = "Declare C types in the engine")]
     [Description("Declare C types (structs, unions, enums, typedefs, function pointer types) in the decompiler engine (IDA or Ghidra) from C declarations, " +
