@@ -29,6 +29,21 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         }
         return workspace.Read(() => work(workspace.GetNative(id ?? image)));
     }, ct);
+    /// <summary>A function name as people read it: MSVC-decorated names as the qualified name, Itanium-mangled ones demangled; others as given.</summary>
+    internal static string DisplayName(string name, ImageFormat format = ImageFormat.Pe)
+    {
+        if (name.Length > 1 && name[0] == '?') return Native.Pdb.PdbNaming.Display(name);
+        bool macho = format == ImageFormat.MachO;
+        return Native.Itanium.ItaniumDemangler.IsMangled(name, macho) && Native.Itanium.ItaniumDemangler.Demangle(name, macho) is { Length: > 0 } plain ? plain : name;
+    }
+
+    /// <summary>"A::f" for a mangled name with the symbol beside it ("; symbol ?f@A@@QEAAXXZ"), so the name stays usable as input.</summary>
+    internal static (string Display, string Symbol) Named(string name, ImageFormat format)
+    {
+        var display = DisplayName(name, format);
+        return (display, display == name ? "" : $"; symbol {name}");
+    }
+
     public const string AddressDescription =
         "Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them).";
 

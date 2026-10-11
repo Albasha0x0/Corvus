@@ -52,8 +52,9 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     {
         var (native, rva, session) = await Open(image, function, engine, progress, cancellationToken);
         var f = await session.GetFrameAsync(rva, cancellationToken);
-        var sb = new System.Text.StringBuilder($"Frame of {f.Name} at {Va(native, f.StartRva)}: {f.LocalSize} bytes of locals, {f.SavedRegisters} of saved registers; " +
-                                               $"return address at +0x{f.ReturnAddressOffset:X}\n");
+        var (display, symbol) = NativeTools.Named(f.Name, native.Image.Format);
+        var sb = new System.Text.StringBuilder($"Frame of {display} at {Va(native, f.StartRva)}{(symbol.Length > 0 ? $" ({symbol[2..]})" : "")}: {f.LocalSize} bytes of " +
+                                               $"locals, {f.SavedRegisters} of saved registers; return address at +0x{f.ReturnAddressOffset:X}\n");
         sb.AppendLine(f.Members.Count == 0 ? "No stack members." : "Stack members (offset [base-relative]  name  type  size  kind):");
         foreach (var m in f.Members)
         {

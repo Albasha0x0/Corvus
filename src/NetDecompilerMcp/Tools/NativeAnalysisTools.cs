@@ -102,7 +102,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         var known = code?.Ready(native!)?.FunctionAt(rva);
         uint? functionStart = decompiled?.StartRva ?? known?.Start;
         var item = new DecompileItem(address!, NativeAddress.Va(native!.Image, rva), functionStart is { } fs ? NativeAddress.Va(native.Image, fs) : null,
-            decompiled?.Name ?? known?.Name, "ok", null, null, single.Count(c => c == '\n'), single.Length);
+            (decompiled?.Name ?? known?.Name) is { } shown ? NativeTools.DisplayName(shown, native.Image.Format) : null, "ok", null, null, single.Count(c => c == '\n'), single.Length);
         return StructuredOutput.With(header + (pushed != null ? $"// {pushed}\n" : "") + pager.Page(single, offset, maxChars),
             new DecompileReport(native.Id, session.ProviderId, [item], 1, 1, 0, 0, null));
     });
@@ -133,8 +133,9 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
     {
         var lines = function.Text.Split('\n');
         var byLine = function.LineAddresses.GroupBy(l => l.Line).ToDictionary(g => g.Key, g => g.Min(l => l.Rva));
-        var sb = new StringBuilder($"// {function.Name} at {NativeAddress.Va(native.Image, function.StartRva)} ({session.ProviderId}" +
-                                   $"{(session.ReusedDatabase ? ", saved analysis" : $", analyzed in {session.OpenTime.TotalSeconds:0.0} s")})\n");
+        var (display, symbol) = NativeTools.Named(function.Name, native.Image.Format);
+        var sb = new StringBuilder($"// {display} at {NativeAddress.Va(native.Image, function.StartRva)} ({session.ProviderId}" +
+                                   $"{(session.ReusedDatabase ? ", saved analysis" : $", analyzed in {session.OpenTime.TotalSeconds:0.0} s")}{symbol})\n");
         for (int i = 0; i < lines.Length; i++)
             sb.Append(addresses ? (byLine.TryGetValue(i, out var at) ? $"/* {native.Image.ImageBase + at:X} */ " : new string(' ', 6 + 16 - 2)) : "")
               .AppendLine(lines[i].TrimEnd('\r'));
@@ -207,7 +208,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         for (int i = 0; i < n; i++)
         {
             var o = outcomes[i];
-            var name = o?.Function?.Name ?? (starts[i] is { } s ? index?.NameAt(s) : null);
+            var name = (o?.Function?.Name ?? (starts[i] is { } s ? index?.NameAt(s) : null)) is { } symbol ? NativeTools.DisplayName(symbol, image.Format) : null;
             var where = starts[i] is { } st ? Va(st) : rvas[i] is { } r ? Va(r) : null;
             var head = $"// [{i + 1}/{n}] {name ?? where ?? inputs[i]}{(where != null && name != null ? $" at {where}" : "")} (input \"{inputs[i]}\")";
             string? code = null, message = null;
