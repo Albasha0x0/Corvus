@@ -6,7 +6,7 @@ namespace NetDecompilerMcp.Tests;
 /// <summary>
 /// Project layering, checked on the built assembly's metadata. Layers are the namespaces under NetDecompilerMcp
 /// (Core, Native, Services, Tools, Mcp, Setup; the root holds Program and ServerInstructions). Core and Native are the
-/// bottom and may use each other; Services builds on them; Tools and Mcp on Services; Setup only on Mcp.
+/// bottom and may use each other; Services builds on them; Tools and Mcp on Services; Setup only on Mcp; Relay only on Native.
 /// </summary>
 public class LayeringTests
 {
@@ -18,6 +18,8 @@ public class LayeringTests
         ["Services"] = ["Tools", "Mcp", "Setup", ""],
         ["Mcp"] = ["Tools", "Setup", ""],
         ["Setup"] = ["Services", "Tools", ""],
+        // The development relay stays small: process ownership from Native, nothing that analyzes.
+        ["Relay"] = ["Core", "Services", "Tools", "Mcp", "Setup", ""],
     };
 
     [Fact]
