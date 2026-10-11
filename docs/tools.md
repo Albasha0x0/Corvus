@@ -614,7 +614,7 @@ One-call overview of a Unity game, in seconds and without loading it: engine ver
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `path` | string | yes |  | The game folder, its executable, its <Game>_Data folder, UnityPlayer.dll, GameAssembly.dll or global-metadata.dat; also an extracted Android APK folder or a macOS .app. |
+| `path` | string | yes |  | The game folder, its executable, its <Game>_Data folder, UnityPlayer.dll, GameAssembly.dll or global-metadata.dat; also an extracted Android APK folder or a macOS or iOS .app. |
 | `detectItEasy` | boolean |  | `false` | Also run Detect It Easy (diec, from NDM_DIE or PATH) on the executable, GameAssembly.dll or Assembly-CSharp.dll: launches it, about a second per file. |
 
 Structured output: `input`, `gameDirectory`, `dataDirectory`, `executable`, `company`, `product`, `platform`, `architecture`, `architectureSource`, `engine`, `backend`, `markers`, `folders`, `nextSteps`, `notes`, `elapsedSeconds`.

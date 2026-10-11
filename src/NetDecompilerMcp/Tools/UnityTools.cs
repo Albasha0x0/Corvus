@@ -19,7 +19,7 @@ public sealed class UnityTools
                  "headers and version resources only. Not a Unity title: an unsupported error with reason not_a_unity_title and what was looked for.")]
     public Task<UnityOverview.Report> UnityOverviewTool(
         [Description("The game folder, its executable, its <Game>_Data folder, UnityPlayer.dll, GameAssembly.dll or global-metadata.dat; also an extracted " +
-                     "Android APK folder or a macOS .app.")] string path,
+                     "Android APK folder or a macOS or iOS .app.")] string path,
         [Description("Also run Detect It Easy (diec, from NDM_DIE or PATH) on the executable, GameAssembly.dll or Assembly-CSharp.dll: launches it, about a second per file.")] bool detectItEasy = false,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => UnityOverview.Inspect(path, detectItEasy, cancellationToken), cancellationToken);

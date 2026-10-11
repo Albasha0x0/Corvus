@@ -94,7 +94,7 @@ public static class UnityOverview
 
     private static readonly string LookedFor =
         "a <Game>_Data folder (with globalgamemanagers, data.unity3d, mainData, level0, Managed or il2cpp_data), UnityPlayer.dll / UnityPlayer.so, " +
-        "GameAssembly.dll with global-metadata.dat, assets/bin/Data (extracted Android APK) or Contents/Resources/Data (macOS .app), " +
+        "GameAssembly.dll with global-metadata.dat, assets/bin/Data (extracted Android APK), Contents/Resources/Data (macOS .app) or Data (iOS .app), " +
         "in the path or up to 4 folders above it";
 
     /// <summary>The overview of the Unity title at <paramref name="path"/>; ToolError (unsupported, reason not_a_unity_title) otherwise.</summary>
@@ -168,6 +168,10 @@ public static class UnityOverview
         var macData = Path.Combine(dir, "Contents", "Resources", "Data");
         if (Directory.Exists(macData))
             return new Layout(dir, macData, null, "macos", FirstExisting([Path.Combine(dir, "Contents", "Frameworks", "UnityPlayer.dylib")]), notes);
+        // iOS: X.app/Data; the code is in Frameworks/UnityFramework.framework (2019.3+) or the app's executable.
+        var iosData = Path.Combine(dir, "Data");
+        if (dir.EndsWith(".app", StringComparison.OrdinalIgnoreCase) && IsDataFolder(iosData))
+            return new Layout(dir, iosData, null, "ios", null, notes);
 
         if (Path.GetFileName(dir).EndsWith("_Data", StringComparison.OrdinalIgnoreCase) && IsDataFolder(dir))
             return Build(Path.GetDirectoryName(dir)!, dir, exeHint, notes);
@@ -325,7 +329,8 @@ public static class UnityOverview
         var game = layout.Game;
         var data = layout.Data;
         var binary = FirstExisting([Path.Combine(game, "GameAssembly.dll"), Path.Combine(game, "GameAssembly.so"),
-            Path.Combine(game, "Contents", "Frameworks", "GameAssembly.dylib"), .. Libs(game, "libil2cpp.so")]);
+            Path.Combine(game, "Contents", "Frameworks", "GameAssembly.dylib"), .. Libs(game, "libil2cpp.so"),
+            .. layout.Platform == "ios" ? [Path.Combine(game, "Frameworks", "UnityFramework.framework", "UnityFramework"), Path.Combine(game, Path.GetFileNameWithoutExtension(game))] : Array.Empty<string>()]);
         string? metadata = data != null
             ? FirstExisting([Path.Combine(data, "il2cpp_data", "Metadata", "global-metadata.dat"), Path.Combine(data, "Managed", "Metadata", "global-metadata.dat")])
             : Il2CppGameFiles.MetadataIn(game);
@@ -709,12 +714,27 @@ public static class UnityOverview
                 return (pe.Machine switch { 0x8664 => "x64", 0x14c => "x86", 0xaa64 => "arm64", 0x1c4 => "arm", _ => "unknown" }, file);
             if (head.Length >= 20 && head[0] == 0x7F && head[1] == 'E' && head[2] == 'L' && head[3] == 'F')
                 return (BinaryPrimitives.ReadUInt16LittleEndian(head.AsSpan(18)) switch { 0x3E => "x64", 0x03 => "x86", 0xB7 => "arm64", 0x28 => "arm", _ => "unknown" }, file);
+            if (MachOArchitecture(head) is { } macho) return (macho, file);
         }
         if (layout.Platform == "android")
             foreach (var abi in SafeList(() => Directory.EnumerateDirectories(Path.Combine(layout.Game, "lib")).Select(Path.GetFileName).OfType<string>().ToList()))
                 if (abi switch { "arm64-v8a" => "arm64", "armeabi-v7a" => "arm", "x86_64" => "x64", "x86" => "x86", _ => null } is { } a)
                     return (a, Path.Combine(layout.Game, "lib", abi));
         return ("unknown", null);
+    }
+
+    /// <summary>The CPU of a thin Mach-O, or "universal (x64, arm64)" for a fat one; null when not Mach-O.</summary>
+    internal static string? MachOArchitecture(byte[] head)
+    {
+        static string Cpu(uint type) => type switch { 0x01000007 => "x64", 7 => "x86", 0x0100000C => "arm64", 12 => "arm", _ => "unknown" };
+        if (head.Length < 8) return null;
+        if (BinaryPrimitives.ReadUInt32LittleEndian(head) is 0xFEEDFACF or 0xFEEDFACE) return Cpu(BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(4)));
+        uint magic = BinaryPrimitives.ReadUInt32BigEndian(head), count = BinaryPrimitives.ReadUInt32BigEndian(head.AsSpan(4));
+        if (magic is not (0xCAFEBABE or 0xCAFEBABF) || count is 0 or > 16) return null; // a Java class file shares 0xCAFEBABE with a large count
+        int stride = magic == 0xCAFEBABF ? 32 : 20;
+        var cpus = Enumerable.Range(0, (int)count).Where(i => 8 + i * stride + 4 <= head.Length)
+            .Select(i => Cpu(BinaryPrimitives.ReadUInt32BigEndian(head.AsSpan(8 + i * stride))));
+        return $"universal ({string.Join(", ", cpus)})";
     }
 
     private static List<FolderFact> Folders(Layout layout, CancellationToken ct)

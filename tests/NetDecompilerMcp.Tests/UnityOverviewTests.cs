@@ -106,6 +106,29 @@ public sealed class UnityOverviewTests : IDisposable
     }
 
     [Fact]
+    public void An_iOS_app_is_an_Il2Cpp_title_with_UnityFramework_and_a_macOS_universal_binary_has_both_cpus()
+    {
+        var app = Path.Combine(_dir.Path, "Game.app");
+        var data = Path.Combine(app, "Data");
+        Directory.CreateDirectory(Path.Combine(data, "Managed", "Metadata"));
+        File.WriteAllBytes(Path.Combine(data, "globalgamemanagers"), SerializedHeader(22, "2021.3.1f1"));
+        File.WriteAllBytes(Path.Combine(data, "Managed", "Metadata", "global-metadata.dat"), Metadata(29, ["Player", "Update"]));
+        var framework = Path.Combine(app, "Frameworks", "UnityFramework.framework", "UnityFramework");
+        Directory.CreateDirectory(Path.GetDirectoryName(framework)!);
+        File.WriteAllBytes(framework, [0xCF, 0xFA, 0xED, 0xFE, 0x0C, 0x00, 0x00, 0x01, .. new byte[24]]);
+        foreach (var input in new[] { app, data, Path.Combine(data, "Managed", "Metadata", "global-metadata.dat") })
+        {
+            var r = UnityOverview.Inspect(input, false, default);
+            Assert.Equal((app, "ios", "arm64"), (r.GameDirectory, r.Platform, r.Architecture));
+            Assert.Equal(("il2cpp", framework, "readable"), (r.Backend.Kind, r.Backend.NativeBinary, r.Backend.MetadataState));
+            Assert.Equal(["load_assembly", "apply_il2cpp_names"], r.NextSteps.Select(s => s.Action));
+        }
+        byte[] fat = [0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 2, 0x01, 0, 0, 0x07, .. new byte[16], 0x01, 0, 0, 0x0C, .. new byte[16]];
+        Assert.Equal("universal (x64, arm64)", UnityOverview.MachOArchitecture(fat));
+        Assert.Null(UnityOverview.MachOArchitecture([0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 52])); // a Java class file
+    }
+
+    [Fact]
     public void Not_a_unity_title_is_a_typed_error_saying_what_was_looked_for()
     {
         var e = Assert.Throws<ToolError>(() => UnityOverview.Inspect(Env.FixturePath, false, default));
