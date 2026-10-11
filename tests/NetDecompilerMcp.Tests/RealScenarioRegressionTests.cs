@@ -275,6 +275,55 @@ public sealed class RealScenarioRegressionTests
     }
 
     /// <summary>
+    /// The reference copy of the target got [InternalsVisibleTo] through an assembly reference to the core library; for
+    /// the core library itself (System.Private.CoreLib, a Unity mscorlib) that left Roslyn without one (CS0518).
+    /// </summary>
+    [Fact]
+    public void CSharpPatchesCompileInTheCoreLibrary()
+    {
+        using var dir = new TempDir();
+        var core = Microsoft.CodeAnalysis.CSharp.CSharpCompilation.Create("MiniCore", [Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText("""
+            namespace System
+            {
+                public class Object { }
+                public struct Void { }
+                public struct Boolean { }
+                public struct Byte { }
+                public struct Char { }
+                public struct Int32 { }
+                public struct IntPtr { }
+                public abstract class ValueType { }
+                public abstract class Enum : ValueType { }
+                public sealed class String { }
+                public abstract class Array { }
+                public class Attribute { }
+                public class Exception { }
+                public abstract class Delegate { }
+                public abstract class MulticastDelegate : Delegate { }
+                public struct Nullable<T> where T : struct { }
+                public class Type { }
+                public struct RuntimeTypeHandle { }
+                public struct RuntimeFieldHandle { }
+                public struct RuntimeMethodHandle { }
+                public enum AttributeTargets { All = 32767 }
+                public sealed class AttributeUsageAttribute : Attribute
+                {
+                    public AttributeUsageAttribute(AttributeTargets validOn) { }
+                    public bool AllowMultiple { get; set; }
+                    public bool Inherited { get; set; }
+                }
+                public static class Probe { public static bool IsEmpty(string s) { return s == null; } }
+            }
+            namespace System.Runtime.CompilerServices { public sealed class InternalsVisibleToAttribute : Attribute { public InternalsVisibleToAttribute(string assemblyName) { } } }
+            """)], [], new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(Microsoft.CodeAnalysis.OutputKind.DynamicallyLinkedLibrary));
+        using (var file = File.Create(dir.File("MiniCore.dll")))
+            Assert.True(core.Emit(file).Success);
+        using var env = new Env(dir.File("MiniCore.dll"));
+        var result = env.Edit(() => env.Edits.PatchMethodCSharp(env.One("System.Probe::IsEmpty"), "return false;", dryRun: true, default));
+        Assert.Contains("compiled OK", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// A netstandard library's closure has the runtime's System.Private.CoreLib (through a framework dependency) and the
     /// System.Memory package, which define the same types: every C# patch using spans failed with CS0433 (System.Text.Json).
     /// </summary>

@@ -99,8 +99,12 @@ public sealed partial class CSharpPatcher
             {
                 using var module = ModuleDefMD.Load(image);
                 if (module.Assembly is not { } assembly) return image;
-                var ivt = new TypeRefUser(module, "System.Runtime.CompilerServices", "InternalsVisibleToAttribute", module.CorLibTypes.AssemblyRef);
-                var ctor = new MemberRefUser(module, ".ctor", MethodSig.CreateInstance(module.CorLibTypes.Void, module.CorLibTypes.String), ivt);
+                // The core library defines the attribute: a reference to it would give the core library an assembly reference, and Roslyn none.
+                ICustomAttributeType ctor = module.Find("System.Runtime.CompilerServices.InternalsVisibleToAttribute", isReflectionName: false)?
+                                                .FindMethod(".ctor", MethodSig.CreateInstance(module.CorLibTypes.Void, module.CorLibTypes.String)) is { } own
+                    ? own
+                    : new MemberRefUser(module, ".ctor", MethodSig.CreateInstance(module.CorLibTypes.Void, module.CorLibTypes.String),
+                        new TypeRefUser(module, "System.Runtime.CompilerServices", "InternalsVisibleToAttribute", module.CorLibTypes.AssemblyRef));
                 assembly.CustomAttributes.Add(new CustomAttribute(ctor, [new CAArgument(module.CorLibTypes.String, friend)]));
                 using var ms = new MemoryStream();
                 FaithfulWriter.WritePlain(module, ms);
