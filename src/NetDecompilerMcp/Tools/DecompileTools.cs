@@ -12,7 +12,8 @@ using static NetDecompilerMcp.Tools.ToolSupport;
 namespace NetDecompilerMcp.Tools;
 
 [McpServerToolType]
-public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerService decompiler, OutputPager pager, NotesService? notes = null)
+public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerService decompiler, OutputPager pager, NotesService? notes = null,
+    Services.Mobile.AndroidProjectExport? android = null)
 {
     private const int MaxMembersPerCall = 25;
 
@@ -154,12 +155,28 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
             pager.Page(decompiler.DecompileAssemblyAttributes(workspace.Get(assembly), cancellationToken)), cancellationToken);
 
     [McpServerTool(Name = "export_project", Title = "Export C# project")]
-    [Description("Decompile an entire assembly into a C# project on disk (one .cs file per type, a .csproj, and resources). Best way to grep or browse a large codebase with normal file tools. Reports progress.")]
+    [Description("Decompile an assembly into a C# project on disk (a .cs file per type, a .csproj, resources): the way to grep or browse a large " +
+                 "codebase with file tools. An .apk / .aab path gives a Gradle project (manifest and resources decoded, assets, jniLibs, Java through " +
+                 "JADX when configured, else smali). Reports progress.")]
     public Task<string> ExportProject(
         [Description(AssemblyDescription)] string assembly,
         [Description("Empty or new output directory.")] string outputDirectory,
         RequestContext<CallToolRequestParams> context = null!, // bound by the SDK
-        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Read(workspace, () =>
+        CancellationToken cancellationToken = default)
+    {
+        if (android != null && Services.Mobile.AndroidProjectExport.IsPackagePath(assembly) && File.Exists(assembly.Trim()))
+            return OrderedProgress.Run(context, async progress =>
+            {
+                var r = await android.Export(assembly.Trim(), outputDirectory, (done, total, status) => Report(progress, done, total, status), cancellationToken).ConfigureAwait(false);
+                var summary = $"Exported {Path.GetFileName(assembly.Trim())} to {r.Directory} as a Gradle project: {r.Files} files, {r.Classes} classes as {r.Sources}" +
+                              (r.SourceFailures > 0 ? $" ({r.SourceFailures} failed; their files hold the error)" : "") + ".";
+                return r.Notes.Count == 0 ? summary : summary + "\n" + string.Join("\n", r.Notes.Take(20));
+            });
+        return ExportAssembly(assembly, outputDirectory, context, cancellationToken);
+    }
+
+    private Task<string> ExportAssembly(string assembly, string outputDirectory, RequestContext<CallToolRequestParams> context, CancellationToken cancellationToken) =>
+        OrderedProgress.Run(context, progress => Read(workspace, () =>
     {
         var asm = workspace.Get(assembly);
         var result = decompiler.ExportProject(asm, outputDirectory, (done, total, status) => Report(progress, done, total, status), cancellationToken);

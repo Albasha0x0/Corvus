@@ -24,10 +24,9 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         Task.Run(() => packages.Manifest(path, cancellationToken), cancellationToken);
 
     [McpServerTool(Name = "list_android_resources", Title = "List Android resources", UseStructuredContent = true)]
-    [Description("Compiled resources of an Android package (resources.arsc, or resources.pb of an app bundle): one row per resource and " +
-                 "configuration with id (0x7f...), type, name, configuration qualifiers (pt-rBR, b+zh+Hans, night, xxhdpi, v31; '' is the default), " +
-                 "value type and value (strings, references by name, colors, dimensions, file paths; styles, arrays and plurals as name=value lists). " +
-                 "types gives every resource type with its count.")]
+    [Description("Compiled resources of an Android package (resources.arsc, or an app bundle's resources.pb): a row per resource and " +
+                 "configuration with id, type, name, qualifiers (pt-rBR, night, xxhdpi, v31; '' is the default), value type and value (references " +
+                 "by name; styles, arrays and plurals as name=value lists); types counts each type.")]
     public Task<AndroidResourceList> ListAndroidResources(
         [Description(PackageDescription)] string path,
         [Description("Only this type: string, layout, xml, drawable, color, ...")] string? type = null,

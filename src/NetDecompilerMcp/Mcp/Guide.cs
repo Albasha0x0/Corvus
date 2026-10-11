@@ -73,7 +73,7 @@ public static class Guide
             Android packages (.apk, .aab, split sets), read natively: get_android_manifest (components, exported state, permissions, deep links),
             list_android_resources and get_android_resource (decoded XML, @type/name values). DEX code: list_dex_classes, get_dex_class (exact
             method ids), disassemble_dex (smali of one method or class), decompile_java
-            (Java through JADX when NDM_JAVA_DECOMPILER is set), search_dex (strings, types, members, constants, opcodes), find_dex_references (callers, field readers / writers, callees). JNI: list_jni_bindings pairs native methods with Java_ exports and RegisterNatives tables. Xamarin / MAUI and Unity Mono (AndroidJavaObject calls by name): map_java_dotnet links a Java wrapper
+            (Java through JADX when NDM_JAVA_DECOMPILER is set), search_dex (strings, types, members, constants, opcodes), find_dex_references (callers, field readers / writers, callees). JNI: list_jni_bindings pairs native methods with Java_ exports and RegisterNatives tables. export_project with a package path writes a Gradle project. Xamarin / MAUI and Unity Mono (AndroidJavaObject calls by name): map_java_dotnet links a Java wrapper
             class or method to its .NET type or method (then decompile_member) and back.
             Devices through adb: list_android_devices, get_android_device_info, list_android_packages, get_android_package_info, read_android_log,
             pull_android_package (then the tools above on the APKs), pull_android_file; install_android_package and uninstall_android_package

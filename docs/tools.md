@@ -477,7 +477,7 @@ Read a resource: text as text, binary as a hex preview, .resources containers as
 
 **Export C# project** (edit, idempotent, long-running)
 
-Decompile an entire assembly into a C# project on disk (one .cs file per type, a .csproj, and resources). Best way to grep or browse a large codebase with normal file tools. Reports progress.
+Decompile an assembly into a C# project on disk (a .cs file per type, a .csproj, resources): the way to grep or browse a large codebase with file tools. An .apk / .aab path gives a Gradle project (manifest and resources decoded, assets, jniLibs, Java through JADX when configured, else smali). Reports progress.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2059,7 +2059,7 @@ Structured output: `package`, `versionCode`, `versionName`, `minSdk`, `targetSdk
 
 **List Android resources** (read-only, idempotent)
 
-Compiled resources of an Android package (resources.arsc, or resources.pb of an app bundle): one row per resource and configuration with id (0x7f...), type, name, configuration qualifiers (pt-rBR, b+zh+Hans, night, xxhdpi, v31; '' is the default), value type and value (strings, references by name, colors, dimensions, file paths; styles, arrays and plurals as name=value lists). types gives every resource type with its count.
+Compiled resources of an Android package (resources.arsc, or an app bundle's resources.pb): a row per resource and configuration with id, type, name, qualifiers (pt-rBR, night, xxhdpi, v31; '' is the default), value type and value (references by name; styles, arrays and plurals as name=value lists); types counts each type.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
