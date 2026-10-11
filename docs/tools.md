@@ -1299,7 +1299,7 @@ Structured output: `image`, `query`, `seeds`, `totalSeeds`, `functions`, `totalF
 
 **Native exception handling** (read-only, idempotent, long-running)
 
-MSVC exception handling of the native function containing an address: the handler (__C_specific_handler, __CxxFrameHandler3/4, __GSHandlerCheck variants; x86 _except_handler3/4 frames and __ehhandler$ stubs), try blocks with their catch clauses and caught types, the unwind map, SEH scopes (filters, __except and __finally blocks), the IP-to-state map, and the code it reaches: catch blocks, unwind funclets, filters and handlers attached to the function as chunks, x64 C++ funclets with their parent, chained fragments. Without an address: counts for the image and the metadata that failed its checks. The first call waits for the code index.
+Exception handling of the native function containing an address. ELF / Mach-O: FDE or compact unwind entry, personality, LSDA call sites with landing pads and caught types. MSVC: the handler (__C_specific_handler, __CxxFrameHandler3/4, __GSHandlerCheck; x86 _except_handler3/4, __ehhandler$ stubs), try blocks with caught types, the unwind map, SEH scopes, the IP-to-state map, and the code it reaches: catch blocks, unwind funclets, filters and handlers attached as chunks, x64 funclets with their parent, chained fragments. Without an address: counts for the image and the metadata that failed its checks.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

@@ -380,6 +380,9 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
                 x.Add(null, $"exception handling: {eh.Scheme}, {Plural(eh.TryBlocks.Count, "try block")}, {Plural(eh.Unwind.Count, "unwind state")}, " +
                             $"{Plural(eh.Scopes.Count, "SEH scope")}, {Plural(eh.Children.Count, "funclet")}{(eh.GsCookieOffset is { } gs ? $", GS cookie at {gs:+0x0;-0x0}" : "")} " +
                             $"(get_exception_info)", "exception");
+            else if (image.Format != ImageFormat.Pe && Native.Itanium.ItaniumEh.Of(image).At(f.Start) is { Lsda: not null } it)
+                x.Add(null, $"exception handling: {it.Personality ?? "a personality routine"}, {Plural(it.CallSites.Count, "call site")}, " +
+                            $"{Plural(it.CallSites.Count(c => c.LandingPad != null), "landing pad")} (get_exception_info)", "exception");
             foreach (var chunk in f.Chunks) x.Add(Va(chunk.Start), $"exception chunk: {chunk.Kind}", "chunk");
         }
 

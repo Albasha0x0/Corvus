@@ -19,11 +19,11 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
     private const int MaxIpStates = 64;
 
     [McpServerTool(Name = "get_exception_info", Title = "Native exception handling")]
-    [Description("MSVC exception handling of the native function containing an address: the handler (__C_specific_handler, __CxxFrameHandler3/4, " +
-                 "__GSHandlerCheck variants; x86 _except_handler3/4 frames and __ehhandler$ stubs), try blocks with their catch clauses and caught types, " +
-                 "the unwind map, SEH scopes (filters, __except and __finally blocks), the IP-to-state map, and the code it reaches: catch blocks, unwind " +
-                 "funclets, filters and handlers attached to the function as chunks, x64 C++ funclets with their parent, chained fragments. " +
-                 "Without an address: counts for the image and the metadata that failed its checks. The first call waits for the code index.")]
+    [Description("Exception handling of the native function containing an address. ELF / Mach-O: FDE or compact unwind entry, personality, " +
+                 "LSDA call sites with landing pads and caught types. MSVC: the handler (__C_specific_handler, __CxxFrameHandler3/4, " +
+                 "__GSHandlerCheck; x86 _except_handler3/4, __ehhandler$ stubs), try blocks with caught types, the unwind map, SEH scopes, " +
+                 "the IP-to-state map, and the code it reaches: catch blocks, unwind funclets, filters and handlers attached as chunks, x64 " +
+                 "funclets with their parent, chained fragments. Without an address: counts for the image and the metadata that failed its checks.")]
     public Task<string> GetExceptionInfo(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription + " Omit for a summary of the image.")] string? address = null,
@@ -33,6 +33,7 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var (native, index) = await Open(image, progress, cancellationToken);
+        if (index.Image.Format != ImageFormat.Pe) return pager.Page(Itanium(native.Id, index, address), offset, maxChars);
         var eh = index.ExceptionInfo;
         if (string.IsNullOrWhiteSpace(address)) return pager.Page(Summary(native.Id, index, eh), offset, maxChars);
 
@@ -71,9 +72,48 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
         }, ct);
         var index = await code.Index(native, new Progress<CodeIndexProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = p.Done, Total = p.Total > 0 ? p.Total : null, Message = $"indexing {native.Id}: {p.Phase}" })), ct);
-        if (index.Image.Arch is not (NativeArch.X86 or NativeArch.X64))
-            throw new ToolError(ErrorCode.Unsupported, $"Exception metadata is decoded for x86 and x64 images; {native.Id} is {index.Image.Arch}.");
+        if (index.Image.Format == ImageFormat.Pe && index.Image.Arch is not (NativeArch.X86 or NativeArch.X64))
+            throw new ToolError(ErrorCode.Unsupported, $"Exception metadata of PE images is decoded for x86 and x64; {native.Id} is {index.Image.Arch}.");
         return (native, index);
+    }
+
+    /// <summary>ELF and Mach-O: the Itanium tables (FDE or compact unwind, personality, LSDA call sites) of one function or the image.</summary>
+    private static string Itanium(string id, NativeCodeIndex index, string? address)
+    {
+        var image = index.Image;
+        var table = Native.Itanium.ItaniumEh.Of(image);
+        string Va(uint r) => NativeAddress.Va(image, r);
+        var sb = new StringBuilder();
+        if (string.IsNullOrWhiteSpace(address))
+        {
+            var withLsda = table.Functions.Where(f => f.Lsda != null).ToList();
+            sb.AppendLine($"{id}: {Plural(table.Fdes, "FDE")} (.eh_frame)" + (image.Format == ImageFormat.MachO ? $", {Plural(table.CompactEntries, "compact unwind entry")}" : "") +
+                          $"; {Plural(withLsda.Count, "function")} with an LSDA, {Plural(withLsda.Sum(f => f.CallSites.Count), "call site")}, " +
+                          $"{Plural(withLsda.Sum(f => f.CallSites.Count(c => c.LandingPad != null)), "landing pad")}");
+            foreach (var g in table.Functions.Where(f => f.Personality != null).GroupBy(f => f.Personality!).OrderByDescending(g => g.Count()))
+                sb.AppendLine($"Personality {g.Key}: {Plural(g.Count(), "function")}");
+            var caught = withLsda.SelectMany(f => f.CallSites).SelectMany(c => c.Actions).Where(a => a.StartsWith("catch", StringComparison.Ordinal))
+                .GroupBy(a => a).OrderByDescending(g => g.Count()).Take(20).ToList();
+            if (caught.Count > 0) sb.AppendLine("Caught: " + string.Join(", ", caught.Select(g => $"{g.Key[6..^1]} ({g.Count()})")));
+            foreach (var note in table.Notes) sb.AppendLine($"Note: {note}");
+            sb.AppendLine("Pass an address for one function's call sites and landing pads.");
+            return sb.ToString();
+        }
+        uint rva = NativeCodeTools.Address(index, address);
+        var fn = index.FunctionAt(rva) ?? throw new ToolError(ErrorCode.NotFound, $"No function contains {Va(rva)}.", "list_functions shows the functions");
+        sb.AppendLine($"{fn.Name} at {Va(fn.Start)}");
+        if (table.At(fn.Start) is not { } eh)
+        {
+            sb.AppendLine("No exception handling metadata (no FDE or compact unwind entry with a personality routine).");
+            return sb.ToString();
+        }
+        sb.AppendLine($"{eh.Source} {Va(eh.Begin)}-{Va(eh.End)}" + (eh.Personality != null ? $", personality {eh.Personality}" : "") + (eh.Lsda is { } l ? $", LSDA {Va(l)}" : ", no LSDA"));
+        foreach (var note in eh.Notes) sb.AppendLine($"Note: {note}");
+        if (eh.CallSites.Count > 0) sb.AppendLine($"Call sites ({eh.CallSites.Count}):");
+        string Name(uint r) => index.NameAt(r) is { } n ? $"{n} ({Va(r)})" : Va(r);
+        foreach (var c in eh.CallSites)
+            sb.AppendLine($"  {Va(c.Start)}-{Va(c.End)}: " + (c.LandingPad is { } pad ? $"landing pad {Name(pad)}" + (c.Actions.Count > 0 ? ": " + string.Join(", ", c.Actions) : "") : "no landing pad (unwinds through)"));
+        return sb.ToString();
     }
 
     private static string Summary(string id, NativeCodeIndex index, MsvcEhResult eh)

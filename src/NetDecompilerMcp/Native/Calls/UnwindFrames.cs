@@ -7,7 +7,7 @@ namespace NetDecompilerMcp.Native.Calls;
 /// A function's frame as its unwind data describes it: stack allocated, registers saved (with their offsets), the frame
 /// pointer, the prolog size, handler and chaining flags.
 /// </summary>
-/// <param name="Format">x64 UNWIND_INFO, ARM64 packed or ARM64 xdata.</param>
+/// <param name="Format">x64 UNWIND_INFO, ARM64 packed or ARM64 xdata; DWARF CFI or compact unwind on ELF and Mach-O.</param>
 /// <param name="Allocation">Bytes the prolog allocates below the saved registers (x64), or the whole frame (ARM64).</param>
 public sealed record UnwindFrame(string Format, uint Begin, uint End, int PrologBytes, long Allocation, IReadOnlyList<string> Saved, string? FramePointer,
     IReadOnlyList<string> Notes);
@@ -21,6 +21,7 @@ public static class UnwindFrames
     /// <summary>The unwind data of the function covering <paramref name="rva"/>, or null when the image has none for it.</summary>
     public static UnwindFrame? Of(INativeImage image, uint rva)
     {
+        if (image.Format != ImageFormat.Pe) return Itanium.ItaniumEh.Frame(image, rva);
         var table = image.RuntimeFunctions;
         int lo = 0, hi = table.Count - 1;
         while (lo <= hi)

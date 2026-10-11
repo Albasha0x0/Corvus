@@ -6,7 +6,7 @@ namespace NetDecompilerMcp.Native.Elf;
 /// DWARF call frame information as the unwinder reads it: .eh_frame CIE/FDE records (ELF .eh_frame, Mach-O __eh_frame)
 /// and the .eh_frame_hdr binary search table. Only what locates functions is decoded: FDE address ranges.
 /// </summary>
-internal static class EhFrame
+internal static partial class EhFrame
 {
     public const byte Omit = 0xFF;
 
