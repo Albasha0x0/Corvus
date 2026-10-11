@@ -235,6 +235,41 @@ public sealed class EngineSliceTests(ITestOutputHelper output) : IDisposable
         Assert.True(placed >= located / 2, $"location: {placed} of {located}");
     }
 
+    /// <summary>ARM64 (an ELF from the runtime packages): constant call arguments through the engine against the built-in AAPCS64 slices.</summary>
+    private async Task Arm64ConstantsAgree(string engine)
+    {
+        var (ws, code, engines) = Rig();
+        var native = ws.LoadAny(NativeFormats.NativeFixtures.LinuxArm64DbgShim).Native!;
+        var index = await code.Index(native, null, default);
+        var a = Arm64Trace.For(index);
+        var session = await engines.Session(native, engine, null, default);
+        var provider = new EngineSliceProvider(a, session);
+        var sites = index.Functions.SelectMany(f => a.Calls.CallsIn(f)).Where(c => c.Arguments.Any(x => x.Kind == ArgKind.Immediate && x.Index < 8)).Take(25).ToList();
+        int compared = 0, agree = 0;
+        foreach (var c in sites)
+            foreach (var arg in c.Arguments.Where(x => x.Kind == ArgKind.Immediate && x.Index < 8))
+            {
+                var seed = NativeTraceTools.Arm64Seed(a, NativeAddress.Va(index.Image, c.Rva), null, (arg.Index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), default);
+                var ours = ValueTrace.Build(a, seed, new ValueTraceOptions(MaxDepth: 0)).Nodes.Where(n => n.Kind == TraceNodeKind.Const).Select(n => n.Value).ToHashSet();
+                var theirs = ValueTrace.Build(a, seed, new ValueTraceOptions(MaxDepth: 0), provider).Nodes.Where(n => n.Kind == TraceNodeKind.Const).Select(n => n.Value).ToHashSet();
+                compared++;
+                if (ours.Overlaps(theirs)) agree++;
+                else output.WriteLine($"  {c.Display} arg {arg.Index + 1} [{(c.Signature != null ? "signature" : "guessed")}]: ours {string.Join(",", ours)} vs {string.Join(",", theirs)}");
+            }
+        output.WriteLine($"{engine} ARM64: {compared} constant arguments at {sites.Count} call sites: {agree} agree; {provider.EngineSlices} engine slices, {provider.Fallbacks} fallbacks");
+        Assert.True(compared >= 10, $"only {compared} arguments compared");
+        Assert.True(agree >= compared * 0.7, $"{agree} of {compared} agree");
+        Assert.True(provider.EngineSlices >= compared / 2, $"{provider.EngineSlices} engine slices");
+    }
+
+    [IdaFact]
+    [Trait("Speed", "Slow")]
+    public Task Ida_microcode_slices_agree_on_arm64() => Arm64ConstantsAgree("ida");
+
+    [GhidraFact]
+    [Trait("Speed", "Slow")]
+    public Task Ghidra_pcode_slices_agree_on_arm64() => Arm64ConstantsAgree("ghidra");
+
     [IdaFact]
     [Trait("Speed", "Slow")]
     public Task Ida_microcode_slices_agree_with_ours() => ConstantsAgree("ida");

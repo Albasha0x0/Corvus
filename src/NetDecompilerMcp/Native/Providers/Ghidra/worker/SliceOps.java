@@ -250,6 +250,16 @@ final class SliceOps {
             }
         }
 
+        private boolean defined(long value) {
+            try {
+                Address a = w.space().getAddress(value);
+                return w.program.getSymbolTable().getPrimarySymbol(a) != null || w.program.getListing().getDefinedDataAt(a) != null;
+            }
+            catch (RuntimeException e) {
+                return false;
+            }
+        }
+
         /** A pointer that is a fixed address: a constant, PTRSUB(0, c), or a copy or cast of one. */
         private Long fixed(Varnode ptr) {
             for (int depth = 0; depth < 8 && ptr != null; depth++) {
@@ -287,7 +297,8 @@ final class SliceOps {
             if (depth > 48) return node("unknown", null, "?", "derivation deeper than 48 steps", null);
             if (v.isConstant()) {
                 long c = v.getOffset();
-                Long target = addressOf(c, v.getSize());
+                // a number is an address only where something is defined (images based at 0 make every small number mapped)
+                Long target = Long.compareUnsigned(c, 0x10000) >= 0 && defined(c) ? addressOf(c, v.getSize()) : null;
                 if (target != null && c != 0) return node("address", null, hex(c), "constant", n -> n.addProperty("target", target));
                 return node("constant", null, hex(c), "constant", n -> n.add("value", Worker.u64(c)));
             }

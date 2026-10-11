@@ -1708,7 +1708,10 @@ class _Slicer:
         t = op.t
         if t == hr.mop_n:
             v = op.nnn.value
-            tg = self.target(v) if op.size >= 4 else None
+            # a number is an address only where something is defined (images based at 0 make every small number loaded)
+            m = self.m
+            named = v >= 0x10000 and (m.ida_name.get_name(v) or m.ida_bytes.is_strlit(m.ida_bytes.get_flags(v)))
+            tg = self.target(v) if op.size >= 4 and named else None
             if tg is not None and v:
                 return self.node("address", None, "0x%X" % v, "constant", target=tg)
             return self.node("constant", None, "0x%X" % v, "constant", value=v)
