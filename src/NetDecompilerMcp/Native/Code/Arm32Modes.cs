@@ -31,8 +31,29 @@ internal sealed class Arm32Modes
             if (elf.Entry != 0 && elf.TryVaToRva(elf.Entry & ~1UL, out uint entry)) _facts.TryAdd(entry, (elf.Entry & 1) != 0);
             foreach (var (rva, kind) in elf.MappingSymbols)
                 if (kind is 'a' or 't' or 'd') mapping.Add((rva, kind));
+            CodePointers(elf);
         }
         _mapping = [.. mapping];
+    }
+
+    /// <summary>
+    /// Relocated pointers in data name the state of the code they point to: an odd one Thumb, an even one to a declared
+    /// function start (unwind tables carry no state bit) ARM.
+    /// </summary>
+    private void CodePointers(Elf.ElfFile elf)
+    {
+        var declared = elf.DeclaredFunctions.Select(d => d.Rva).ToHashSet();
+        var even = new List<uint>();
+        Span<byte> b = stackalloc byte[4];
+        foreach (uint slot in elf.RelocationRvas)
+        {
+            if (elf.SectionAt(slot) is not { IsExecutable: false } || elf.Read(slot, b) != 4) continue;
+            uint value = BinaryPrimitives.ReadUInt32LittleEndian(b);
+            if (!elf.TryVaToRva(value & ~1u, out uint rva) || elf.SectionAt(rva) is not { IsExecutable: true }) continue;
+            if ((value & 1) != 0) _facts.TryAdd(rva, true);
+            else if (declared.Contains(rva)) even.Add(rva);
+        }
+        foreach (uint rva in even) _facts.TryAdd(rva, false);
     }
 
     private HashSet<uint>? _mov32;
@@ -64,10 +85,21 @@ internal sealed class Arm32Modes
         return result;
     }
 
-    /// <summary>Records what analysis learned about the code at <paramref name="rva"/> unless something is known already.</summary>
+    /// <summary>Records what analysis learned about the code at <paramref name="rva"/> unless something is known already (or the states are sealed).</summary>
     public void Hint(uint rva, bool thumb)
     {
-        if (!_allThumb) _facts.TryAdd(rva, thumb);
+        if (!_allThumb && !_sealed) _facts.TryAdd(rva, thumb);
+    }
+
+    private volatile bool _sealed;
+
+    /// <summary>Discovery starts: hints are taken again.</summary>
+    public void Open() => _sealed = false;
+
+    /// <summary>Keeps the state a function is explored in, so later hints cannot change it.</summary>
+    public void Fix(uint start)
+    {
+        if (!_allThumb) _facts.TryAdd(start, StartMode(start));
     }
 
     /// <summary>The state of a function starting at <paramref name="rva"/>.</summary>
@@ -90,12 +122,13 @@ internal sealed class Arm32Modes
         return i >= 0 ? thumb[i] : Sniff(rva);
     }
 
-    /// <summary>Fixes the state of every function start for <see cref="At"/>.</summary>
+    /// <summary>Fixes the state of every function start for <see cref="At"/>; hints are ignored until <see cref="Open"/>.</summary>
     public void Seal(IEnumerable<uint> functionStarts)
     {
         var starts = functionStarts.ToArray();
         Array.Sort(starts);
         _functions = (starts, starts.Select(StartMode).ToArray());
+        _sealed = true;
     }
 
     /// <summary>Function starts in ARM state (the saved index keeps them; the rest are Thumb).</summary>
@@ -109,6 +142,7 @@ internal sealed class Arm32Modes
         Array.Sort(starts);
         foreach (var s in starts) _facts[s] = !arm.Contains(s);
         _functions = (starts, starts.Select(s => !arm.Contains(s)).ToArray());
+        _sealed = true;
     }
 
     private bool? MappingAt(uint rva)
@@ -136,9 +170,10 @@ internal sealed class Arm32Modes
             Arm32Decode.Arm(w, (uint)(_image.ImageBase + rva) + (uint)k * 4, out var x);
             if (!x.IsValid || w == 0) return true;
             if (w >> 28 is 0xE or 0xF) always++;
-            // a short function: every word up to its end reads as ARM
-            if (x.Flow is ArmFlow.Return or ArmFlow.Jump or ArmFlow.IndirectJump && !x.IsConditional) return always <= k;
-            if (k == 3) return always < 3;
+            // conditional instructions keep a valid run ARM when it starts with the always condition; a short function ends early
+            bool first = BinaryPrimitives.ReadUInt32LittleEndian(b) >> 28 == 0xE;
+            if (x.Flow is ArmFlow.Return or ArmFlow.Jump or ArmFlow.IndirectJump && !x.IsConditional) return !(first && always * 2 >= k + 1);
+            if (k == 3) return !(always >= 3 || always >= 2 && first);
         }
         return true;
     }

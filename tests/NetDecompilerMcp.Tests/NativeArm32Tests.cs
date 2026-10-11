@@ -240,6 +240,37 @@ public class NativeArm32Tests
     }
 
     [Fact]
+    public void Veneers_and_unwind_starts_get_their_state()
+    {
+        // main (Thumb) tail-jumps to a bx pc veneer whose ARM half jumps on with add pc, ip, pc to an ARM function that
+        // only an unwind entry and an even data pointer name, and that starts with conditional instructions
+        var a = new A32Code(Text);
+        uint veneer = 0, target = 0, other = 0;
+        a.Later(-4, at => A32Code.Bl(at, veneer) & 0xFFFFBFFF | 0x1000); // b.w veneer
+        a.Align4();
+        veneer = a.Here;
+        a.H(0x4778).H(0x46C0);                                              // bx pc; nop
+        uint add = a.Here + 4;
+        a.W(0xE59FC000).W(0xE08FF00C).Later(4, _ => target - (add + 8));    // ldr ip, [pc]; add pc, ip, pc; .word
+        target = a.Here;
+        a.W(A32Code.ArmBxLr);
+        other = a.Here;
+        a.W(A32Code.ArmCmp(0, 0)).W(0x03A00000).W(0x012FFF1E).W(0xE3A00001).W(A32Code.ArmBxLr); // cmp; moveq r0, #0; bxeq lr; mov r0, #1; bx lr
+        var image = Elf(a.Bytes(), w =>
+        {
+            w.Symbols.Add(new ElfWriter.Symbol("main", Text | 1, Type: 2));
+            w.Exidx.Add((other, true));
+            w.Relocations.Add(new ElfWriter.Reloc(Data + 0x40, 23, Addend: other));
+        });
+        var index = NativeCodeIndex.Build(image);
+        var dis = index.CreateDisassembler();
+        Assert.Equal([Text, veneer, veneer + 4, target, other], index.Functions.Select(f => f.Start));
+        Assert.Equal([true, true, false, false, false], index.Functions.Select(f => dis.ThumbAt(f.Start) == true));
+        Assert.All(index.Functions, f => Assert.Equal(0, (int)(f.Flags & FunctionFlags.InvalidCode)));
+        Assert.Contains(index.RefsFrom(veneer + 4, veneer + 12), x => x.Kind == XrefKind.TailCall && x.To == target);
+    }
+
+    [Fact]
     public void Windows_thumb_import_thunk_and_relocated_movw_movt()
     {
         // Windows on ARM: every function is Thumb; movw / movt r12 (THUMB_MOV32 relocation); ldr.w pc, [r12]

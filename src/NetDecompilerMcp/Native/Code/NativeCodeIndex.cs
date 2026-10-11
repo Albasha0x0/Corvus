@@ -695,6 +695,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             ct.ThrowIfCancellationRequested();
             _ctx.FunctionStarts = [];
             _ctx.Thunks.Clear();
+            _ctx.ArmModes?.Open();
             var discovery = new FunctionDiscovery(_ctx, ct, n => report.Report("discovering functions", n, 0));
             _sources = discovery.Run();
             if (discovery.FunctionsTruncated) AddTruncation($"function limit {options.MaxFunctions} reached");

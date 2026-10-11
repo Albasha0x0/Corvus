@@ -182,6 +182,7 @@ internal sealed class FunctionDiscovery
     private void Explore(uint root)
     {
         List<(uint Begin, uint End)>? own = _ctx.PdataRanges.TryGetValue(root, out var r) ? r : null;
+        _ctx.ArmModes?.Fix(root);
         _dec.BeginFunction(root);
         _work.Clear();
         _work.Push((root, IndexBound.None));
@@ -254,9 +255,10 @@ internal sealed class FunctionDiscovery
                 return !(insn.HasMem && _ctx.NoReturn.Contains(insn.MemTarget));
             case FlowKind.Jump:
                 if (!insn.HasTarget || !_ctx.Code.IsCode(insn.Target)) return false;
-                // a function that is only a jump (adjustor / ICF thunk), a jump to an import thunk, an x86 jump to a
-                // standard prologue: tail calls to functions
-                if (insn.Rva == root && insn.Target != root || ThunkSlot(insn.Target) != null || (_x86Dec is { Is64: false } && StartsWithPrologue(insn.Target)))
+                // a function that is only a jump (adjustor / ICF thunk), a jump to an import thunk, an x86 jump to a standard
+                // prologue, an ARM32 jump that changes state, is computed (a veneer) or reaches a bx pc stub: tail calls to functions
+                if (insn.Rva == root && insn.Target != root || ThunkSlot(insn.Target) != null || (_x86Dec is { Is64: false } && StartsWithPrologue(insn.Target))
+                    || _dec is Arm32Decoder arm && (arm.LastSwitchesState || arm.LastIsComputed || arm.IsStateSwitchStub(insn.Target)))
                     Add(insn.Target, FunctionSource.TailJump, strong: true);
                 else Branch(insn.Target, root, own, IndexBound.None);
                 return false;

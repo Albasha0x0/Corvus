@@ -214,8 +214,20 @@ internal sealed class Arm32Decoder : ICodeDecoder
         if (!_last.HasTarget || !TryRva(_last.Target, out uint target)) return;
         insn.HasTarget = true;
         insn.Target = target;
-        if (insn.Flow is FlowKind.Call || _last.TargetThumb != _thumb) Modes.Hint(target, _last.TargetThumb);
+        LastSwitchesState = _last.TargetThumb != _thumb;
+        LastIsComputed = false;
+        if (insn.Flow is FlowKind.Call or FlowKind.Jump || LastSwitchesState) Modes.Hint(target, _last.TargetThumb);
     }
+
+    /// <summary>The last direct branch or call lands in the other state (BLX, bx pc): its target is another function.</summary>
+    public bool LastSwitchesState { get; private set; }
+
+    /// <summary>The last branch target came from a register, a literal or a GOT slot (a veneer or stub): its target is another function.</summary>
+    public bool LastIsComputed { get; private set; }
+
+    /// <summary>The code at <paramref name="rva"/> is a Thumb-to-ARM stub ("bx pc"): a function of its own, never part of a caller.</summary>
+    public bool IsStateSwitchStub(uint rva) =>
+        _image.Read(rva, _scratch.AsSpan(0, 2)) == 2 && BinaryPrimitives.ReadUInt16LittleEndian(_scratch) == 0x4778 && Modes.At(rva);
 
     /// <summary>
     /// BX / BLX / a load into PC: through an import slot (an import call or jump), or to a code address a register or
@@ -232,6 +244,18 @@ internal sealed class Arm32Decoder : ICodeDecoder
             if (r == Pc && i.Thumb) { target = (_imageBase + rva + 4) & ~3u; thumb = false; }
             else if (_kind[r] == Known.ImportSlot) { Slot(ref insn, _value[r]); return; }
             else if (_kind[r] == Known.Address) { target = _value[r] & ~1u; thumb = (_value[r] & 1) != 0; }
+        }
+        else if (i.Mnemonic == "add" && i.OperandCount == 3 && i.Op(1).Kind == ArmOperandKind.Register && i.Op(2).Kind == ArmOperandKind.Register
+                 && (i.Op(1).Reg == Pc) != (i.Op(2).Reg == Pc))
+        {
+            // add pc, rX, pc with a constant rX (a long-branch veneer): the state from bit 0
+            int r = i.Op(1).Reg == Pc ? i.Op(2).Reg : i.Op(1).Reg;
+            if (_kind[r] == Known.Constant)
+            {
+                uint value = _value[r] + PcValue(in i, literal: false);
+                target = value & ~1u;
+                thumb = (value & 1) != 0;
+            }
         }
         else if (i.Loads && Memory(in i) is { } k && Effective(in i, k) is { } ea && TryRva(ea, out uint slot))
         {
@@ -258,6 +282,8 @@ internal sealed class Arm32Decoder : ICodeDecoder
         insn.HasTarget = true;
         insn.Target = to;
         insn.HasMem = false;
+        LastSwitchesState = thumb != _thumb;
+        LastIsComputed = true;
         Modes.Hint(to, thumb);
     }
 
