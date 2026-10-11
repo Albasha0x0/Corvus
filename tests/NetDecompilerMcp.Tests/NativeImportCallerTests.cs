@@ -86,4 +86,29 @@ public sealed class NativeImportCallerTests : IDisposable
         Assert.Contains("(import slot at 0x", tree);
         Assert.DoesNotContain("nothing calls through it", tree);
     }
+
+    [Fact]
+    public async Task A_loaded_shared_object_provides_the_imports_naming_it()
+    {
+        var elf = new ElfWriter
+        {
+            Machine = ElfWriter.EmAarch64, Type = 2, Base = 0x400000, Entry = ElfWriter.TextRva, Needed = ["libc.so.6"], PltImports = ["free"],
+            Text = [0x0C, 0x00, 0x00, 0x94, 0xC0, 0x03, 0x5F, 0xD6],
+        };
+        var toolPath = _dir.File("tool");
+        File.WriteAllBytes(toolPath, elf.Build());
+        // libc.so.6 elsewhere, loaded: free is ret
+        var lib = new ElfWriter { Machine = ElfWriter.EmAarch64, SoName = "libc.so.6", Text = [0xC0, 0x03, 0x5F, 0xD6] };
+        lib.Symbols.Add(new ElfWriter.Symbol("free", ElfWriter.TextRva, 4));
+        Directory.CreateDirectory(_dir.File("lib"));
+        var libPath = _dir.File(Path.Combine("lib", "libc.so.6"));
+        File.WriteAllBytes(libPath, lib.Build());
+        var (ws, paths, code) = Rig(toolPath, libPath);
+        using var _ = ws;
+        var text = await paths.FindCallPaths("libc.so.6!free");
+        Assert.DoesNotContain("its library is not loaded", text);
+        Assert.Contains("[libc.so.6] free at", text);
+        var tree = await code.NativeCallTree("tool", $"0x{0x400000 + ElfWriter.TextRva:X}", direction: "callees");
+        Assert.DoesNotContain("dll_not_found", tree);
+    }
 }

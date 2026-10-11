@@ -30,7 +30,7 @@ public sealed record LinkResult(string Status, string Module, string? File, IRea
 /// finds the export by name or ordinal and follows forwarder chains. Images are opened through the given delegate,
 /// which may serve them from a cache; results are memoized per instance. Not thread-safe.
 /// </summary>
-public sealed class NativeLinker
+public sealed partial class NativeLinker
 {
     /// <summary>Statuses: resolved, or the reason binding stopped.</summary>
     public const string Resolved = "resolved", DllNotFound = "dll_not_found", ApiSetUnmapped = "api_set_unmapped", MissingExport = "missing_export",
@@ -156,11 +156,22 @@ public sealed class NativeLinker
     private static bool HasImageExtension(string name) =>
         Path.HasExtension(name) && (name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
                                     || name.EndsWith(".drv", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".sys", StringComparison.OrdinalIgnoreCase)
-                                    || name.EndsWith(".ocx", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".cpl", StringComparison.OrdinalIgnoreCase));
+                                    || name.EndsWith(".ocx", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".cpl", StringComparison.OrdinalIgnoreCase)
+                                    || name.EndsWith(".dylib", StringComparison.Ordinal) || SharedObject().IsMatch(name));
+
+    /// <summary>ELF shared object names: lib.so, libc.so.6, libQt5Core.so.5.15.</summary>
+    [System.Text.RegularExpressions.GeneratedRegex(@"\.so(\.\d+)*$")]
+    private static partial System.Text.RegularExpressions.Regex SharedObject();
 
     /// <summary>Binds one import of <paramref name="importer"/> (a file path) to the code it reaches.</summary>
-    public LinkResult BindImport(string importer, bool x86, NativeImport import) =>
-        Bind(import.Module, importer, x86, import.Name, import.Name == null ? import.Ordinal : null, "import");
+    public LinkResult BindImport(string importer, bool x86, NativeImport import)
+    {
+        // an unversioned ELF symbol names no library: the first DT_NEEDED library that exports it, as the dynamic loader searches
+        if (import.Module == "*" && import.Name != null && Open(importer) is Elf.ElfFile { Dependencies: { Count: > 0 } needed })
+            foreach (var library in needed)
+                if (Bind(library, importer, x86, import.Name, null, "import") is { IsResolved: true } found) return found;
+        return Bind(import.Module, importer, x86, import.Name, import.Name == null ? import.Ordinal : null, "import");
+    }
 
     /// <summary>
     /// Binds <paramref name="name"/> (or <paramref name="ordinal"/>) of <paramref name="module"/> as imported by
