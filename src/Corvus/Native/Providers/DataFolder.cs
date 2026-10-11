@@ -69,6 +69,10 @@ public static class DataFolder
         return moved.Count + copied.Count == 0 ? null : new Migration(from, to, moved, copied);
     }
 
+    /// <summary>Whether a start with <paramref name="args"/> runs the migration: not for commands that only read (version, status, dry runs).</summary>
+    public static bool MigratesOnStart(IReadOnlyList<string> args) =>
+        args is not [("version" or "--version" or "-v" or "status"), ..] && !args.Contains("--dry-run");
+
     /// <summary>
     /// The migration for the default folder, reported on <paramref name="log"/> when it brought anything. Not when
     /// <see cref="RootVariable"/> chooses the folder: that one is the user's, not a renamed default.

@@ -4,7 +4,7 @@ using Corvus;
 using Corvus.Core;
 using Corvus.Mcp;
 
-if (args is not [("version" or "--version" or "-v"), ..]) Corvus.Native.Providers.DataFolder.MigrateDefault(Console.Error);
+if (Corvus.Native.Providers.DataFolder.MigratesOnStart(args)) Corvus.Native.Providers.DataFolder.MigrateDefault(Console.Error);
 if (Corvus.Relay.RelayCli.TryRun(args) is { } relayExitCode) return relayExitCode;
 if (Corvus.Setup.ToolCli.TryRun(args) is { } toolExitCode) return toolExitCode;
 if (Corvus.Setup.SetupCli.TryRun(args) is { } setupExitCode) return setupExitCode;

@@ -195,6 +195,16 @@ public sealed class RenameMigrationTests : IDisposable
         Assert.Equal(["relay", "--target", other], entry["args"]!.AsArray().Select(a => a!.GetValue<string>()));
     }
 
+    [Theory]
+    [InlineData(true, new string[0])]
+    [InlineData(true, new[] { "install" })]
+    [InlineData(true, new[] { "--load", "a.dll" })]
+    [InlineData(false, new[] { "version" })]
+    [InlineData(false, new[] { "status" })]
+    [InlineData(false, new[] { "install", "--dry-run" })]
+    public void Only_commands_that_write_move_the_data_folder(bool migrates, string[] args) =>
+        Assert.Equal(migrates, DataFolder.MigratesOnStart(args));
+
     [Fact]
     public void A_dry_run_lists_the_renames_and_writes_nothing()
     {
