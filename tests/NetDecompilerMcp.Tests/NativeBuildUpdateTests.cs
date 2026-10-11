@@ -136,6 +136,25 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task Elf_builds_carry_names_and_report_patches_not_applicable()
+    {
+        using var h = new Harness();
+        byte[] Elf(byte extra) => new NativeFormats.ElfWriter
+        {
+            Machine = NativeFormats.ElfWriter.EmX64, Entry = NativeFormats.ElfWriter.TextRva,
+            Text = [0xB8, 0x01, 0x00, 0x00, 0x00, 0x83, 0xC0, extra, 0xC3, 0xCC, 0xB8, 0x02, 0x00, 0x00, 0x00, 0xC3],
+        }.Build();
+        var (oldN, _) = await h.Load(Elf(5), "old.so", null);
+        var (newN, _) = await h.Load(Elf(6), "new.so", null);
+        h.Code.Annotations(oldN).SetName(NativeFormats.ElfWriter.TextRva, "entry_renamed");
+        var report = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id);
+        var patches = report.Categories.Single(c => c.Category == "patches");
+        Assert.Equal("not_applicable", patches.Status);
+        Assert.Contains("byte patches apply to PE images", patches.Detail);
+        Assert.Contains(report.Items, i => i is { Category: "names", Value: "entry_renamed", Outcome: "would_carry" });
+    }
+
+    [Fact]
     public async Task Notes_follow_their_address_to_the_new_build()
     {
         using var h = new Harness();

@@ -578,6 +578,12 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
     {
         List<MigratablePatch> patches;
         string source;
+        if ((oldNative.Pe == null && string.IsNullOrWhiteSpace(patchSet)) || newNative.Pe == null)
+        {
+            var other = newNative.Pe == null ? newNative : oldNative;
+            categories[Patches] = ("not_applicable", $"byte patches apply to PE images; {other.Id} is {other.Image.Format}", null);
+            return [];
+        }
         if (!string.IsNullOrWhiteSpace(patchSet))
         {
             var trimmed = patchSet.Trim();
