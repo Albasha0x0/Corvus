@@ -115,14 +115,23 @@ public static class UnityOverview
                 "Detect It Easy (diec) was not found: looked at NDM_DIE (diec.exe or its folder) and for diec / diec.exe on PATH.",
                 "set NDM_DIE to the Detect It Easy folder (or diec.exe), or call again with detectItEasy=false");
 
+        string? package = null;
+        if (Il2CppPackages.IsPackage(full))
+        {
+            // Packages: the Il2Cpp game files load_assembly extracts (binary, metadata, the data folder's version files).
+            package = full;
+            full = Il2CppPackages.Extract(full, null, ct: ct) ?? throw new ToolError(ErrorCode.Unsupported,
+                $"{package} holds no Il2Cpp game: reason not_a_unity_title (a Unity Mono package keeps its assemblies under assets/bin/Data/Managed).",
+                "unpack_container (or list_assemblies with path) extracts a Mono package's assemblies; unity_overview then reads the extracted folder");
+        }
         var layout = Resolve(full, ct) ?? throw new ToolError(ErrorCode.Unsupported,
             $"{full} is not a Unity title: reason not_a_unity_title. Looked for {LookedFor}.",
             "pass the game folder (the one with the executable), its <Game>_Data folder, UnityPlayer.dll or GameAssembly.dll")
         {
             Details = new { reason = "not_a_unity_title", path = full, lookedFor = LookedFor },
         };
-
         var notes = new List<string>(layout.Notes);
+        if (package != null) notes.Add($"Read from the game files of {package}, extracted to {full} (the libraries of one ABI and the data folder's version files).");
         var markers = new List<MarkerFact>();
         ct.ThrowIfCancellationRequested();
         var engine = Engine(layout, ct);

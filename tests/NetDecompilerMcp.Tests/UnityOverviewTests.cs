@@ -74,6 +74,38 @@ public sealed class UnityOverviewTests : IDisposable
             Assert.Equal(game, UnityOverview.Inspect(input, false, default).GameDirectory);
     }
 
+    /// <summary>An .apk reads like its extracted game files; a package without Il2Cpp metadata says what to do instead.</summary>
+    [Fact]
+    public void An_android_package_is_read_through_its_extracted_game_files()
+    {
+        var apk = Path.Combine(_dir.Path, "game.apk");
+        using (var zip = System.IO.Compression.ZipFile.Open(apk, System.IO.Compression.ZipArchiveMode.Create))
+        {
+            void Entry(string name, byte[] bytes)
+            {
+                using var s = zip.CreateEntry(name).Open();
+                s.Write(bytes);
+            }
+            Entry("lib/arm64-v8a/libil2cpp.so", [0x7F, 0x45, 0x4C, 0x46, 2]);
+            Entry("lib/arm64-v8a/libunity.so", [0x7F, 0x45, 0x4C, 0x46, 2]);
+            Entry("assets/bin/Data/Managed/Metadata/global-metadata.dat", Metadata(27, ["Player"]));
+            Entry("assets/bin/Data/data.unity3d", [.. "UnityFS\0"u8, 0, 0, 0, 8, .. "5.x.x\0"u8, .. "2021.1.5f1\0"u8, 0, 0, 0, 0]);
+        }
+        var mono = Path.Combine(_dir.Path, "mono.apk");
+        using (var zip = System.IO.Compression.ZipFile.Open(mono, System.IO.Compression.ZipArchiveMode.Create)) zip.CreateEntry("assets/bin/Data/Managed/Assembly-CSharp.dll");
+        var previous = Environment.GetEnvironmentVariable(Services.Il2CppRawLoader.RootVariable);
+        Environment.SetEnvironmentVariable(Services.Il2CppRawLoader.RootVariable, Path.Combine(_dir.Path, "cache"));
+        try
+        {
+            var r = UnityOverview.Inspect(apk, false, default);
+            Assert.Equal(("il2cpp", "readable", "2021.1.5f1"), (r.Backend.Kind, r.Backend.MetadataState, r.Engine.Version));
+            Assert.Contains(r.Notes, n => n.StartsWith($"Read from the game files of {apk}", StringComparison.Ordinal));
+            var error = Assert.Throws<ToolError>(() => UnityOverview.Inspect(mono, false, default));
+            Assert.Contains("unpack_container", error.Remediation);
+        }
+        finally { Environment.SetEnvironmentVariable(Services.Il2CppRawLoader.RootVariable, previous); }
+    }
+
     [Fact]
     public void Il2Cpp_title_states_metadata_readability_and_branches_the_next_step()
     {
