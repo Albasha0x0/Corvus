@@ -142,6 +142,7 @@ public static class ToolEffects
         ["resolve_address"] = Reads(),
         ["search_bytes"] = Reads(),
         ["read_bytes"] = Reads(),
+        ["convert_number"] = Reads(),
         ["list_functions"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
         ["disassemble"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
         ["inspect_instruction"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA

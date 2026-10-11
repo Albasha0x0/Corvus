@@ -255,6 +255,53 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         Assert.DoesNotContain("[zero fill]", be);
     }
 
+    [Theory]
+    [InlineData("0xDEADBEEF", null, 4, "3735928559", "-559038737", "0xDEADBEEF", "EF BE AD DE")]
+    [InlineData("-1", null, 1, "255", "-1", "0xFF", "FF")]
+    [InlineData("-1", 4, 4, "4294967295", "-1", "0xFFFFFFFF", "FF FF FF FF")]
+    [InlineData("1Ah", null, 1, "26", "26", "0x1A", "1A")]
+    [InlineData("0b1010_1010", null, 1, "170", "-86", "0xAA", "AA")]
+    [InlineData("0o777", 2, 2, "511", "511", "0x01FF", "FF 01")]
+    [InlineData("4294967296ULL", null, 8, "4294967296", "4294967296", "0x0000000100000000", "00 00 00 00 01 00 00 00")]
+    [InlineData("'RIFF'", null, 4, "1380533830", "1380533830", "0x52494646", "46 46 49 52")]
+    [InlineData("\"MZ\"", null, 2, "23117", "23117", "0x5A4D", "4D 5A")]
+    [InlineData("0xFFFFFFFFFFFFFFFF", null, 8, "18446744073709551615", "-1", "0xFFFFFFFFFFFFFFFF", "FF FF FF FF FF FF FF FF")]
+    public void Convert_number_gives_every_view(string input, int? size, int width, string unsigned, string signed, string hex, string le)
+    {
+        var c = NativeTools.Convert(input, size);
+        Assert.Null(c.Error);
+        Assert.Equal((width, unsigned, signed, hex, le), (c.Size, c.Unsigned, c.Signed, c.Hex, c.BytesLe));
+        Assert.Equal(string.Join(' ', le.Split(' ').Reverse()), c.BytesBe);
+    }
+
+    [Fact]
+    public async Task Convert_number_reports_ascii_floats_and_per_item_errors()
+    {
+        var c = NativeTools.Convert("0x41424344", null);
+        Assert.Equal(("\"DCBA\"", "\"ABCD\""), (c.AsciiLe, c.AsciiBe));
+        Assert.Equal("0100 0001 0100 0010 0100 0011 0100 0100", c.Binary);
+        Assert.Equal("1.5", NativeTools.Convert("0x3FC00000", null).Float);
+        Assert.Equal("1.5", NativeTools.Convert("0x3FF8000000000000", null).Float);
+        Assert.Null(NativeTools.Convert("0x100", null).Float); // 2 bytes: no float view
+        Assert.Contains("does not fit in 1 byte", NativeTools.Convert("256", 1).Error);
+        Assert.Contains("does not fit in 1 byte", NativeTools.Convert("-129", 1).Error);
+        Assert.Contains("does not fit in 8 bytes", NativeTools.Convert("0x1_0000_0000_0000_0000", null).Error);
+        Assert.Contains("not a number", NativeTools.Convert("0xZZ", null).Error);
+        Assert.Contains("not a number", NativeTools.Convert("DEADBEEF", null).Error);
+
+        var options = new ServerOptions { BackgroundIndexing = false };
+        var workspace = new AssemblyWorkspace(options);
+        _owned.Add(workspace);
+        var tools = new NativeTools(workspace, new OutputPager(options));
+        var text = await tools.ConvertNumber(["65", "nope"], 4);
+        Assert.Contains("65 (4 bytes)", text);
+        Assert.Contains("bytes LE  41 00 00 00", text);
+        Assert.Contains("ascii     LE \"A\", BE -", text);
+        Assert.Contains("nope: error: not a number", text);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.ConvertNumber(["1"], 3))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.ConvertNumber([]))).Code);
+    }
+
     internal sealed class FakeProvider : INativeDecompilerProvider
     {
         public List<(uint Start, uint End, string Name)> Functions { get; set; } = [];

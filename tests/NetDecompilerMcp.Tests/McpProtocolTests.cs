@@ -252,6 +252,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["resolve_address"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "export First"),
         ["search_bytes"] = (new() { ["image"] = NativeSample(dir), ["pattern"] = "ExitProcess", ["text"] = true }, "1 hit"),
         ["read_bytes"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["length"] = 32 }, "32 bytes"),
+        ["convert_number"] = (new() { ["numbers"] = new[] { "0x41424344" } }, "ascii     LE \"DCBA\""),
         ["list_cpp_classes"] = (new() { ["image"] = NativeSample(dir) }, "0 classes with RTTI"),
         ["get_exception_info"] = (new() { ["image"] = NativeSample(dir) }, "0 frames with exception metadata"),
         ["list_functions"] = (new() { ["image"] = NativeSample(dir) }, "function"),

@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
-148 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+149 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -13,7 +13,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [containers](#containers) | yes | 7: file inspection, containers and wrapped apps, Unity overview |
 | [edit](#edit) | yes | 15: .NET edits, edit history and saving |
 | [il2cpp](#il2cpp) | yes | 5: Il2Cpp metadata, addresses, symbols and bindings |
-| [native](#native) | yes | 29: native PE analysis, symbols and decompilation |
+| [native](#native) | yes | 30: native PE analysis, symbols and decompilation |
 | [native-edit](#native-edit) | yes | 9: native names, comments, patches and saving |
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
@@ -984,6 +984,19 @@ Hex dump (with ASCII) of a native image's mapped bytes at an address, as the loa
 | `offset` | integer |  | `0` | Character offset for paging long output (use the value from the truncation footer). |
 | `maxChars` | integer |  |  | Max characters in this page (default from server config, ~60000). |
 | `type` | string |  |  | Read values of this type instead of dumping bytes. |
+
+### convert_number
+
+**Convert a number** (read-only, idempotent)
+
+Exact conversions of numbers, so none is done by hand: unsigned and signed decimal, hex, binary and octal at a width, little- and big-endian bytes, the bytes as ASCII, and the bits as a float or double. Input: decimal, 0x / h-suffixed hex, 0b, 0o, negative, with _ separators and C suffixes (u, l), 'ABCD' (a C multi-character constant) or "text" (its bytes in memory order).
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `numbers` | string[] | yes |  | Numbers to convert, each in any of the input forms. |
+| `size` | integer |  |  | Width in bytes: 1, 2, 4 or 8 (default: the smallest that holds each value). |
+
+Structured output: `items`.
 
 ### list_functions
 
