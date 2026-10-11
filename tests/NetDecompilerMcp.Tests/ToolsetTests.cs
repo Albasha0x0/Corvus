@@ -65,6 +65,11 @@ public class ToolsetTests
         foreach (var (name, list) in Toolsets.ToolLists)
             Assert.True(Toolsets.LoadToolList(name).SetEquals(list), name);
         Assert.All(Toolsets.ToolLists["readonly"], t => Assert.True(ToolEffects.Of(t).ReadOnly, t));
+        // every read-only tool is in it, but the session tools (always on), device tools and live processes
+        var missing = Catalog.OfThisBuild().Tools.Select(t => (string)t["name"]!)
+            .Where(t => ToolEffects.Of(t).ReadOnly && Toolsets.FamilyOf(t) is not (Toolsets.Session or "live") && !ToolAvailability.DeviceTools.Contains(t))
+            .Except(Toolsets.ToolLists["readonly"]).ToList();
+        Assert.True(missing.Count == 0, "add to the readonly list: " + string.Join(", ", missing));
         Assert.Subset(Toolsets.ToolLists["readonly"].ToHashSet(), Toolsets.ToolLists["triage"].ToHashSet());
     }
 
