@@ -756,6 +756,9 @@ public abstract class McpProtocolTests : IAsyncLifetime
                 await Until(m => Is(m, 1));
                 Send(new { jsonrpc = "2.0", method = "notifications/initialized" });
                 Send(new { jsonrpc = "2.0", id = 2, method = "tools/call", @params = new { name = "export_project", arguments = new { assembly = "Newtonsoft.Json", outputDirectory = output }, _meta = new { progressToken = "export" } } });
+                // Cancelled once its files are being written: the first progress notification can arrive when the export is
+                // nearly done, and an export that ends before the cancellation is read ends ok.
+                for (var waited = System.Diagnostics.Stopwatch.StartNew(); Files(output) < 20 && waited.Elapsed < ContractSweep.CallLimit;) await Task.Delay(20);
                 await Until(Progress);
                 Send(new { jsonrpc = "2.0", method = "notifications/cancelled", @params = new { requestId = 2, reason = "test" } });
                 Read(3);
