@@ -3,6 +3,7 @@ using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Mcp;
 using NetDecompilerMcp.Native;
 using NetDecompilerMcp.Native.Code;
 using NetDecompilerMcp.Native.Msvc;
@@ -47,7 +48,7 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         [property: Description("The cross-check against IDA, when asked for.")] VirtualCallCheck.Report? CrossCheck,
         [property: Description("Coverage notes.")] IReadOnlyList<string> Notes);
 
-    [McpServerTool(Name = "find_virtual_calls", Title = "Native virtual calls", UseStructuredContent = true)]
+    [McpServerTool(Name = "find_virtual_calls", Title = "Native virtual calls", UseStructuredContent = true, OutputSchemaType = typeof(VirtualCallReport))]
     [Description("Virtual call sites of an MSVC-built native image (x86 / x64), resolved through RTTI: calls through a vftable slot, also through stack " +
                  "spills, this adjustments and the CFG dispatch. The receiver's class comes from a vftable stored into the object (constructors, " +
                  "or a constructor called on it), from this of a virtual method, or from decorated names (this of member functions, class pointers " +
@@ -56,7 +57,7 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
                  "part of the call graph (native_call_tree, find_xrefs, get_call_arguments, disassemble comments). crossCheck=true compares a sample " +
                  "with a decompiler engine (IDA when installed, else Ghidra; its decompiler with the RTTI class types pushed, and its code references) " +
                  "and reports the agreement rate; the report names the engine.")]
-    public Task<VirtualCallReport> FindVirtualCalls(
+    public async Task<string> FindVirtualCalls(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Only sites in the function containing this address or named so. " + NativeTools.AddressDescription)] string? function = null,
         [Description("Only sites with this status: exact, possible or unresolved.")] string? status = null,
@@ -66,7 +67,39 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         [Description("Cross-check: functions to sample (default 100; as many again with only unresolved sites, halved).")] int sampleFunctions = 100,
         [Description("Cross-check: time budget in seconds (default 300).")] int seconds = 300,
         RequestContext<CallToolRequestParams> context = null!,
-        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
+        CancellationToken cancellationToken = default)
+    {
+        var report = await Report(image, function, status, offset, limit, crossCheck, sampleFunctions, seconds, context, cancellationToken);
+        return StructuredOutput.With(Text(report), report);
+    }
+
+    /// <summary>The report as text: the counts, one line per site with its targets or reason, the cross-check and notes.</summary>
+    internal static string Text(VirtualCallReport r)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"{r.Image}: {r.Sites:N0} virtual call sites ({r.Exact:N0} exact, {r.Possible:N0} possible, {r.Unresolved:N0} unresolved); " +
+                      $"{r.Edges:N0} virtual edges beside {r.DirectEdges:N0} direct call edges; {r.RttiClasses:N0} RTTI classes with vftables");
+        sb.AppendLine(r.Total == 0 ? "No site matches." : $"{r.Total:N0} matching, {r.Items.Count} from #{r.Offset}:");
+        foreach (var s in r.Items)
+        {
+            var receiver = $"{s.Class ?? "class unknown"} slot {s.Slot}" + (s.VfptrOffset != 0 ? $" (vfptr +0x{s.VfptrOffset:X})" : "") + $", receiver from {s.Receiver}";
+            sb.AppendLine($"  {s.Address}  {s.Function}  {(s.TailCall ? "jump" : "call")}  {s.Status}{(s.Reason != null ? $" ({s.Reason})" : "")}  {receiver}" +
+                          (s.Incomplete ? "; overrides through a virtual base not included" : ""));
+            foreach (var t in s.Targets) sb.AppendLine($"      -> {t}");
+            if (s.TargetCount > s.Targets.Count) sb.AppendLine($"      ... {s.TargetCount - s.Targets.Count} more");
+        }
+        if (r.CrossCheck is { } c)
+            sb.AppendLine($"Cross-check with {c.Engine}: {c.SitesChecked} sites in {c.FunctionsDecompiled} decompiled functions; agree {c.Agree}, compatible {c.Compatible}, " +
+                          $"disagree {c.Disagree}, {c.Engine} only {c.IdaOnly}, ours only {c.OursOnly}, neither {c.BothNone}" +
+                          (c.AgreementRate is { } rate ? $"; agreement {rate:P1}" : ""));
+        foreach (var n in r.Notes) sb.AppendLine("Note: " + n);
+        return sb.ToString();
+    }
+
+    /// <summary>find_virtual_calls' report as fields.</summary>
+    internal Task<VirtualCallReport> Report(string image, string? function = null, string? status = null, int offset = 0, int limit = 100, bool crossCheck = false,
+        int sampleFunctions = 100, int seconds = 300, RequestContext<CallToolRequestParams> context = null!, CancellationToken cancellationToken = default) =>
+        OrderedProgress.Run(context, async progress =>
     {
         var wanted = status?.Trim().ToLowerInvariant() switch
         {

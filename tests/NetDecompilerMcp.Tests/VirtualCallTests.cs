@@ -384,7 +384,7 @@ public class VirtualCallTests(ITestOutputHelper output)
         if (Compile(dir, "x64", "") is not var (image, _)) return;
         var (_, tools, engines) = Rig(dir);
         using var _e = engines;
-        var report = await tools.FindVirtualCalls(image.Path, crossCheck: true, sampleFunctions: 50, seconds: 300);
+        var report = await tools.Report(image.Path, crossCheck: true, sampleFunctions: 50, seconds: 300);
         var c = report.CrossCheck!;
         output.WriteLine(System.Text.Json.JsonSerializer.Serialize(c));
         Assert.True(c.FunctionsDecompiled > 0);
@@ -400,7 +400,7 @@ public class VirtualCallTests(ITestOutputHelper output)
         if (Compile(dir, "x64", "") is not var (image, _)) return;
         var (_, tools, engines) = Rig(dir, EngineMode.Ghidra);
         using var _e = engines;
-        var report = await tools.FindVirtualCalls(image.Path, crossCheck: true, sampleFunctions: 50, seconds: 300);
+        var report = await tools.Report(image.Path, crossCheck: true, sampleFunctions: 50, seconds: 300);
         var c = report.CrossCheck!;
         output.WriteLine(System.Text.Json.JsonSerializer.Serialize(c));
         Assert.Equal("ghidra", c.Engine);
@@ -424,7 +424,7 @@ public class VirtualCallTests(ITestOutputHelper output)
         using var _e = engines;
         var clock = Stopwatch.StartNew();
         int sample = int.TryParse(Environment.GetEnvironmentVariable("NDM_VCALL_SAMPLE"), out var n) ? n : 150;
-        var report = await tools.FindVirtualCalls(path, limit: 1, crossCheck: true, sampleFunctions: sample, seconds: 1800);
+        var report = await tools.Report(path, limit: 1, crossCheck: true, sampleFunctions: sample, seconds: 1800);
         output.WriteLine($"{Path.GetFileName(path)}: direct call edges {report.DirectEdges}, virtual edges added {report.Edges} " +
                          $"(sites {report.Sites}: exact {report.Exact}, possible {report.Possible}, unresolved {report.Unresolved}; {report.RttiClasses} RTTI classes)");
         output.WriteLine(System.Text.Json.JsonSerializer.Serialize(report.CrossCheck, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
