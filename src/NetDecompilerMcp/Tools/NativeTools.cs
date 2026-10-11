@@ -539,7 +539,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     [McpServerTool(Name = "read_bytes", Title = "Read native bytes or values")]
     [Description("Hex dump (with ASCII) of a native image's mapped bytes at an address, as the loader maps them. type= reads length values " +
                  "instead, each with its address: u8-u64, i8-i64 (le or be suffix: u32be), f32, f64, ptr (with the target's name), C names " +
-                 "(int, DWORD, char *...), cstr or wstr (strings one after another). Zero fill past a section's file data reads as 0, marked. " +
+                 "(int, DWORD, char *...), cstr or wstr (strings one after another). Bytes with no file data (.bss) show as ?? with a gap list. " +
                  "get_native_type read=true reads structs.")]
     public Task<string> ReadBytes(
         [Description(ImageDescription)] string image,
@@ -555,6 +555,8 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         if (!string.IsNullOrWhiteSpace(type)) return pager.Page(ReadValues(native, rva, type.Trim(), length ?? 1), offset, maxChars);
         var buffer = new byte[Math.Clamp(length ?? 256, 1, 65_536)];
         int read = pe.Read(rva, buffer);
+        var unset = new bool[read];
+        for (int i = 0; i < read; i++) unset[i] = Uninitialized(pe, rva + (uint)i);
         var sb = new StringBuilder(NativeAddress.Describe(pe, rva) + ", " + (read < buffer.Length
             ? $"{read:N0} of {buffer.Length:N0} bytes requested: incomplete, nothing is mapped at 0x{pe.ImageBase + rva + (uint)read:X}"
             : Plural(read, "byte")) + (length > buffer.Length ? $" (length {length:N0} capped at {buffer.Length:N0})" : "") + "\n");
@@ -562,11 +564,22 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         {
             int n = Math.Min(16, read - row);
             sb.Append($"{pe.ImageBase + rva + (uint)row:X}  ");
-            for (int i = 0; i < 16; i++) sb.Append(i < n ? $"{buffer[row + i]:X2} " : "   ");
+            for (int i = 0; i < 16; i++) sb.Append(i >= n ? "   " : unset[row + i] ? "?? " : $"{buffer[row + i]:X2} ");
             sb.Append(' ');
-            for (int i = 0; i < n; i++) sb.Append(buffer[row + i] is >= 0x20 and < 0x7F ? (char)buffer[row + i] : '.');
+            for (int i = 0; i < n; i++) sb.Append(unset[row + i] ? '?' : buffer[row + i] is >= 0x20 and < 0x7F ? (char)buffer[row + i] : '.');
             sb.AppendLine();
         }
+        var gaps = new List<string>();
+        for (int i = 0; i < read; i++)
+        {
+            if (!unset[i]) continue;
+            int start = i;
+            while (i + 1 < read && unset[i + 1]) i++;
+            uint at = rva + (uint)start;
+            gaps.Add($"0x{pe.ImageBase + at:X}-0x{pe.ImageBase + rva + (uint)i + 1:X} ({Plural(i - start + 1, "byte")}{(pe.SectionAt(at) is { } s ? $", {s.Name}" : "")})");
+        }
+        if (gaps.Count > 0)
+            sb.AppendLine($"?? uninitialized (no file data; zero at load, run-time values in a process): {string.Join(", ", gaps)}");
         return pager.Page(sb.ToString(), offset, maxChars);
     }, cancellationToken);
 
@@ -578,8 +591,8 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         Func<uint, string?> nameAt = r => index?.NameAt(r);
         var head = NativeAddress.Describe(pe, rva);
         count = Math.Clamp(count, 1, 4096);
-        // zero fill past a section's file data reads as 0 here and holds what the program stores at run time
-        string Fill(uint at, int size) => !pe.TryRvaToFileOffset(at, out _) || !pe.TryRvaToFileOffset(at + (uint)size - 1, out _) ? "  [zero fill]" : "";
+        // bytes without file data read as 0 here and hold what the program stores at run time
+        string Fill(uint at, int size) => Uninitialized(pe, at) || Uninitialized(pe, at + (uint)size - 1) ? "  [?? uninitialized]" : "";
         var (name, bigEndian) = ByteOrder(type);
         if (StringWidth(name, pe) is { } width)
         {
@@ -588,6 +601,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
             for (int i = 0; i < count; i++)
             {
                 if (NativeValues.ReadString(pe, at, width == 2) is not { } text) { sb.AppendLine($"{pe.ImageBase + at:X}  (not mapped)"); break; }
+                if (Uninitialized(pe, at)) { sb.AppendLine($"{pe.ImageBase + at:X}  ?? uninitialized"); break; }
                 int units = Terminator(pe, at, width);
                 sb.AppendLine($"{pe.ImageBase + at:X}  {text}{Fill(at, Math.Max(width, units * width))}");
                 if (units < 0) break;
@@ -605,10 +619,14 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
             uint at = rva + (uint)(i * scalar.Size);
             if (pe.Read(at, bytes) < bytes.Length) { values.AppendLine($"{pe.ImageBase + at:X}  (not mapped)"); break; }
             if (bigEndian) Array.Reverse(bytes);
+            if (Uninitialized(pe, at) && Uninitialized(pe, at + (uint)scalar.Size - 1)) { values.AppendLine($"{pe.ImageBase + at:X}  ?? uninitialized"); continue; }
             values.AppendLine($"{pe.ImageBase + at:X}  {NativeValues.Format(pe, bytes, scalar, nameAt)}{Fill(at, scalar.Size)}");
         }
         return $"{head}, {count} x {name}{(bigEndian ? " big-endian" : "")} ({scalar.Size} byte(s) each)\n" + values;
     }
+
+    /// <summary>Mapped but with no file data behind it (virtual size past raw size, .bss): zero in the file image, unknown at run time.</summary>
+    private static bool Uninitialized(INativeImage pe, uint rva) => !pe.TryRvaToFileOffset(rva, out _);
 
     /// <summary>The type without a byte-order suffix (u32be, i16_le, f64:be) and whether it is big-endian; other types as given.</summary>
     internal static (string Type, bool BigEndian) ByteOrder(string type)

@@ -987,7 +987,7 @@ Find a byte pattern in a native image's mapped sections: hex bytes with ?? wildc
 
 **Read native bytes or values** (read-only, idempotent)
 
-Hex dump (with ASCII) of a native image's mapped bytes at an address, as the loader maps them. type= reads length values instead, each with its address: u8-u64, i8-i64 (le or be suffix: u32be), f32, f64, ptr (with the target's name), C names (int, DWORD, char *...), cstr or wstr (strings one after another). Zero fill past a section's file data reads as 0, marked. get_native_type read=true reads structs.
+Hex dump (with ASCII) of a native image's mapped bytes at an address, as the loader maps them. type= reads length values instead, each with its address: u8-u64, i8-i64 (le or be suffix: u32be), f32, f64, ptr (with the target's name), C names (int, DWORD, char *...), cstr or wstr (strings one after another). Bytes with no file data (.bss) show as ?? with a gap list. get_native_type read=true reads structs.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

@@ -249,10 +249,10 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         Assert.Contains("(0x44332211)", (await tools.ReadBytes(path, At(7), type: "u32")));
         Assert.Contains("\"wi\"", (await tools.ReadBytes(path, At(11), type: "wstr")));
         Assert.Contains("  1.5", (await tools.ReadBytes(path, At(17), type: "f64be")).Replace("big-endian", ""));
-        // past the section's file data: zeros, marked
+        // past the section's file data: uninitialized, not a value
         var bss = await tools.ReadBytes(path, At(0x1000), length: 2, type: "u64");
-        Assert.Contains("0  [zero fill]", bss);
-        Assert.DoesNotContain("[zero fill]", be);
+        Assert.Contains($"{0x140000000 + section.Rva + 0x1000:X}  ?? uninitialized", bss);
+        Assert.DoesNotContain("uninitialized", be);
     }
 
     [Theory]
