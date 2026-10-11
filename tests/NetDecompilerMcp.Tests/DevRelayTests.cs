@@ -264,7 +264,7 @@ public abstract class DevRelayTests(string protocol) : IAsyncLifetime
         var slow = Call("slow");
         await Until(() => Server("A").Running == 1, "the slow call to start");
         PublishBuild("B");
-        await Task.Delay(300);
+        await Until(() => _relay.PendingBuild == "B", "build B to be found");
         Assert.Single(_servers); // not while a call is in flight
         var text = await Call("echo", new() { ["text"] = "hi" });
         Assert.StartsWith("[relay] new build B is ready but not applied yet: 1 call(s) in flight (tools/call slow).", text);

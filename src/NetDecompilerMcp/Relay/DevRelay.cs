@@ -74,6 +74,12 @@ public sealed partial class DevRelay : IAsyncDisposable
     private long _ids;
     private int _generation;
 
+    /// <summary>The id of a newer build found but not yet swapped in, or null.</summary>
+    internal string? PendingBuild
+    {
+        get { lock (_gate) return _pending?.Id; }
+    }
+
     /// <param name="launch">Starts the server in a staged folder (tests pass a fake).</param>
     public DevRelay(RelayOptions options, Stream clientIn, Stream clientOut, TextWriter log, Func<string, ChildProcess>? launch = null)
     {
