@@ -82,8 +82,9 @@ public abstract class ResultBoundsTests : IAsyncLifetime
         [Fact]
         public async Task CancelledCallStopsAndTheServerStaysResponsive()
         {
-            // Decompiling the whole library takes seconds; cancel it shortly after it starts. The SDK's client does not send
-            // notifications/cancelled when a call's token is cancelled, so the call and its cancellation are sent by hand.
+            // The SDK's client does not send notifications/cancelled when a call's token is cancelled, so the call and its
+            // cancellation are sent by hand, back to back: the server reads the cancellation right after starting the call,
+            // seconds before the export could end, however late this process gets to run.
             var exportDir = _dir.File("export");
             var id = new RequestId("export-to-cancel");
             var arguments = new Dictionary<string, System.Text.Json.JsonElement>
@@ -94,15 +95,11 @@ public abstract class ResultBoundsTests : IAsyncLifetime
             _ = _client.SendRequestAsync<CallToolRequestParams, CallToolResult>(RequestMethods.ToolsCall,
                 new CallToolRequestParams { Name = "export_project", Arguments = arguments }, ModelContextProtocol.McpJsonUtilities.DefaultOptions, id)
                 .AsTask().ContinueWith(t => t.Exception, TaskContinuationOptions.OnlyOnFaulted); // never answered once cancelled
-            // Cancel once the parallel decompilation is under way, when it occupies the thread pool.
             int Files() => Directory.Exists(exportDir) ? Directory.EnumerateFiles(exportDir, "*", SearchOption.AllDirectories).Count() : 0;
-            for (var started = Stopwatch.StartNew(); Files() < 20 && started.Elapsed < TimeSpan.FromSeconds(10);)
-                await Task.Delay(20);
             await _client.SendNotificationAsync(NotificationMethods.CancelledNotification,
                 new CancelledNotificationParams { RequestId = id, Reason = "test" }, ModelContextProtocol.McpJsonUtilities.DefaultOptions);
 
-            // The export's handler ends as cancelled (it ran to the end when the transport had no thread to read the
-            // notification with), and writes nothing after that.
+            // The export's handler ends as cancelled, and writes nothing after that.
             Assert.Equal("cancelled", await McpProtocolTests.TracedOutcome(Trace, "export_project", TimeSpan.FromMinutes(2)));
             int files = Files();
 

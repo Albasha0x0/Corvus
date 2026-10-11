@@ -741,7 +741,11 @@ public abstract class McpProtocolTests : IAsyncLifetime
                 while (await server.StandardOutput.ReadLineAsync() is { } line)
                     messages.Enqueue(JsonDocument.Parse(line).RootElement.Clone());
             });
-            void Send(object message) { server.StandardInput.WriteLine(JsonSerializer.Serialize(message)); server.StandardInput.Flush(); }
+            void Send(params object[] batch)
+            {
+                server.StandardInput.Write(string.Concat(batch.Select(m => JsonSerializer.Serialize(m) + "\n")));
+                server.StandardInput.Flush();
+            }
             async Task Until(Func<JsonElement, bool> match)
             {
                 for (var waited = System.Diagnostics.Stopwatch.StartNew(); !messages.Any(match); await Task.Delay(20))
@@ -756,12 +760,10 @@ public abstract class McpProtocolTests : IAsyncLifetime
                 Send(new { jsonrpc = "2.0", id = 1, method = "initialize", @params = new { protocolVersion = "2025-06-18", capabilities = new { }, clientInfo = new { name = "test", version = "1" } } });
                 await Until(m => Is(m, 1));
                 Send(new { jsonrpc = "2.0", method = "notifications/initialized" });
-                Send(new { jsonrpc = "2.0", id = 2, method = "tools/call", @params = new { name = "export_project", arguments = new { assembly = "Newtonsoft.Json", outputDirectory = output }, _meta = new { progressToken = "export" } } });
-                // Cancelled once its files are being written: the first progress notification can arrive when the export is
-                // nearly done, and an export that ends before the cancellation is read ends ok.
-                for (var waited = System.Diagnostics.Stopwatch.StartNew(); Files(output) < 20 && waited.Elapsed < ContractSweep.CallLimit;) await Task.Delay(20);
-                await Until(Progress);
-                Send(new { jsonrpc = "2.0", method = "notifications/cancelled", @params = new { requestId = 2, reason = "test" } });
+                // The call and its cancellation in one write: the server reads the cancellation right after starting the call,
+                // seconds before the export could end, however late this process gets to run.
+                Send(new { jsonrpc = "2.0", id = 2, method = "tools/call", @params = new { name = "export_project", arguments = new { assembly = "Newtonsoft.Json", outputDirectory = output }, _meta = new { progressToken = "export" } } },
+                    new { jsonrpc = "2.0", method = "notifications/cancelled", @params = new { requestId = 2, reason = "test" } });
                 Read(3);
                 await Until(m => Is(m, 3)); // the server stays responsive
 
