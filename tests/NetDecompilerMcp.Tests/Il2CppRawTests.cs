@@ -33,7 +33,7 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
         var encrypted = Assert.Throws<ToolError>(() => Il2CppMetadataReader.CheckHeader(Metadata("enc.dat", 0x12345678, 29)));
         Assert.Equal(ErrorCode.MalformedInput, encrypted.Code);
         Assert.Contains("encrypted_or_obfuscated", encrypted.Message);
-        foreach (var version in new[] { 23, 32 })
+        foreach (var version in new[] { 23, 40 })
         {
             var old = Assert.Throws<ToolError>(() => Il2CppMetadataReader.CheckHeader(Metadata($"v{version}.dat", 0xFAB11BAF, version)));
             Assert.Equal(ErrorCode.Unsupported, old.Code);

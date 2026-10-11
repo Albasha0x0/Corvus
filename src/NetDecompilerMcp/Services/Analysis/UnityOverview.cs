@@ -61,7 +61,7 @@ public static class UnityOverview
         string? Metadata,
         long? MetadataSize,
         [property: Description("The metadata header's version field as read (also when out of range).")] int? MetadataVersion,
-        [property: Description("readable (built-in reader, versions 24-31), encrypted (no metadata magic), header_tampered (magic kept, header inconsistent), unsupported_version, truncated, missing or not_applicable.")] string MetadataState,
+        [property: Description("readable (built-in reader, versions 24-39), encrypted (no metadata magic), header_tampered (magic kept, header inconsistent), unsupported_version, truncated, missing or not_applicable.")] string MetadataState,
         string? MetadataStateReason,
         [property: Description("Assemblies listed in <Data>/ScriptingAssemblies.json (Unity 2019.3+); what survived code stripping.")] int? ScriptingAssemblies,
         [property: Description("Share (0..1) of identifiers that are unreadable or one or two characters long (Assembly-CSharp type names, or the Il2Cpp metadata string heap); null when not read.")] double? UnreadableNameRatio,
@@ -790,12 +790,12 @@ public static class UnityOverview
                 steps.Add(new NextStep("use_external_dumper", null, Args(("metadata", backend.Metadata!), ("binary", backend.NativeBinary ?? "")),
                     backend.MetadataState == "readable"
                         ? $"The built-in reader takes a Windows PE GameAssembly.dll; this is a {layout.Platform} build: run Il2CppDumper or Cpp2IL, then load_assembly its DummyDll folder."
-                        : $"Metadata version {backend.MetadataVersion} is outside the built-in reader's 24-31: run Il2CppDumper or Cpp2IL, then load_assembly its DummyDll folder."));
+                        : $"Metadata version {backend.MetadataVersion} is outside the built-in reader's 24-39: run Il2CppDumper or Cpp2IL, then load_assembly its DummyDll folder."));
                 break;
             case "il2cpp" when backend.MetadataState is "encrypted" or "header_tampered":
                 steps.Add(new NextStep("dump_from_memory", null, Args(("process", process), ("magic", "AF 1B B1 FA")),
                     $"Metadata {backend.MetadataState} ({backend.MetadataStateReason}). The running game holds it decrypted: dump the block starting with AF 1B B1 FA " +
-                    "(the metadata magic, followed by a version 24-31) from its memory, save it as global-metadata.dat beside GameAssembly.dll, then load_assembly that file."));
+                    "(the metadata magic, followed by a version 24-39) from its memory, save it as global-metadata.dat beside GameAssembly.dll, then load_assembly that file."));
                 steps.Add(new NextStep("inspect_process", "inspect_process", Args(("process", process), ("sections", "regions"), ("regionFilter", "private")),
                     "Read-only view of the running game's private memory regions: the decrypted metadata is in one of them (tens of MB)."));
                 break;

@@ -10,10 +10,11 @@ using NetDecompilerMcp.Core;
 namespace NetDecompilerMcp.Services;
 
 /// <summary>
-/// The built-in Il2Cpp reader: reads global-metadata.dat (versions 24 to 31) with the game's GameAssembly.dll through
-/// LibCpp2IL and produces what Il2CppDumper would: dummy assemblies (written to a folder) and the script.json /
-/// stringliteral.json data (<see cref="Il2CppGameModel"/>). A memory image of GameAssembly.dll (a process dump) is read
-/// with its sections at their RVAs. When the Unity version is not known from the player or the data folder, each
+/// The built-in Il2Cpp reader: reads global-metadata.dat (versions 24 to 39) with the game binary (GameAssembly.dll,
+/// libil2cpp.so, UnityFramework, GameAssembly.dylib/.so; see <see cref="Il2CppBinaryLayout"/>) through LibCpp2IL and
+/// produces what Il2CppDumper would: dummy assemblies (written to a folder) and the script.json / stringliteral.json data
+/// (<see cref="Il2CppGameModel"/>). A memory image of the binary (a process dump) is read with its sections at their
+/// RVAs; 32-bit ARM code pointers lose their Thumb bit. When the Unity version is not known from the player or the data folder, each
 /// sub-version of the metadata's version is tried and the first whose method pointers land in code is kept. Unreadable
 /// metadata is a typed error (encrypted or obfuscated header, unsupported version, mismatched binary); unreadable single
 /// items are listed in <see cref="Il2CppGameModel.Unreadables"/>. LibCpp2IL keeps one game in process-wide state, so
@@ -21,7 +22,7 @@ namespace NetDecompilerMcp.Services;
 /// </summary>
 public static class Il2CppMetadataReader
 {
-    public const int MinVersion = 24, MaxVersion = 31;
+    public const int MinVersion = 24, MaxVersion = 39;
     private const uint Magic = 0xFAB11BAF;
     private static readonly object Gate = new();
     private const int MaxLibraryMessages = 50;
@@ -76,15 +77,13 @@ public static class Il2CppMetadataReader
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { throw new ToolError(ErrorCode.IoError, $"Cannot read the game files: {ex.Message}"); }
         int headerVersion = CheckHeader(files.Metadata, metadata);
-        var original = MappedPeLayout.Parse(binary)
-            ?? throw new ToolError(ErrorCode.Unsupported, $"{files.Binary} is not a PE image: reason binary_not_pe — the built-in reader takes Windows builds (GameAssembly.dll).",
-                "for Android/iOS/WebGL builds use Il2CppDumper or Cpp2IL output");
-        bool mapped = MappedPeLayout.IsMapped(binary, original);
-        if (mapped) MappedPeLayout.Normalize(binary, original);
-        var header = MappedPeLayout.Parse(binary)!;
+        var opened = Il2CppBinaryLayout.Open(binary, files.Binary, files.Slice);
+        binary = opened.Bytes;
+        var layout = opened.Layout;
+        bool mapped = opened.MemoryImage;
 
         var notes = new List<string>();
-        if (mapped) notes.Add($"{Path.GetFileName(files.Binary)} is a memory image of the loaded module (sections at their RVAs, image base 0x{header.ImageBase:X}); read as such");
+        if (opened.Note != null) notes.Add(opened.Note);
         var tried = new List<string>();
         lock (Gate)
         {
@@ -112,7 +111,7 @@ public static class Il2CppMetadataReader
                         continue;
                     }
                     double sane;
-                    try { sane = CodeShare(header); }
+                    try { sane = CodeShare(layout); }
                     catch (Exception ex) when (ex is not (OutOfMemoryException or OperationCanceledException)) { tried.Add($"Unity {version}: method pointers unreadable: {Clip(ex.Message)}"); continue; }
                     if (sane < 0.5)
                     {
@@ -126,19 +125,26 @@ public static class Il2CppMetadataReader
                 {
                     LibCpp2IlMain.Reset();
                     bool registration = tried.Any(t => t.Contains("registration", StringComparison.OrdinalIgnoreCase));
+                    if (layout.Arch == Native.NativeArch.Arm && !layout.Is64)
+                        throw new ToolError(ErrorCode.MalformedInput,
+                            $"The metadata (v{headerVersion}) could not be read with the 32-bit ARM {Path.GetFileName(files.Binary)}: reason " +
+                            (registration ? "registration_not_found_armv7 — LibCpp2IL did not find the code/metadata registration in this armeabi-v7a build"
+                                          : "armv7_unreadable — LibCpp2IL failed on this armeabi-v7a build") +
+                            $". Tried: {string.Join("; ", tried)}",
+                            "load the arm64-v8a build of the same game (the package with slice=arm64-v8a, or its lib/arm64-v8a/libil2cpp.so), or a memory dump of the library");
                     throw new ToolError(ErrorCode.MalformedInput,
                         $"The metadata (v{headerVersion}) could not be read with {Path.GetFileName(files.Binary)}: reason " +
                         (registration ? "binary_mismatch_or_protected — the code/metadata registration was not found in the binary: it was built from other metadata, or it is packed/protected on disk"
                                       : "unreadable_structures — no Unity sub-version's layout reads it") +
                         $". Tried: {string.Join("; ", tried)}",
-                        registration ? "use the GameAssembly.dll of the same build, or a memory dump of GameAssembly.dll from the running game"
+                        registration ? "use the game binary of the same build, or a memory dump of it from the running game"
                                      : "check that both files come from the same build; Il2CppDumper/Cpp2IL output (DummyDll folder) can still be loaded");
                 }
                 if (tried.Count > 0) notes.Add($"Unity version {c.Version} ({c.Source}) after {tried.Count} other(s) failed: {string.Join("; ", tried)}");
                 ct.ThrowIfCancellationRequested();
                 Il2CppGameModel model;
                 TimeSpan writeTime;
-                try { model = Extract(files, binary, header, original, mapped, headerVersion, c.Version.ToString(), c.Source, dummyDirectory, progress, notes, ct, out writeTime); }
+                try { model = Extract(files, binary, layout, mapped, headerVersion, c.Version.ToString(), c.Source, dummyDirectory, progress, notes, ct, out writeTime); }
                 catch (Exception ex) when (ex is not (OutOfMemoryException or OperationCanceledException or ToolError or IOException or UnauthorizedAccessException))
                 {
                     throw new ToolError(ErrorCode.MalformedInput, $"Reading the metadata (v{headerVersion}, Unity {c.Version}) failed: reason unreadable_structures — {ex.GetType().Name}: {Clip(ex.Message)} ({Where(ex)})",
@@ -196,6 +202,7 @@ public static class Il2CppMetadataReader
             27 => ["2021.1.0f1", "2020.2.4f1", "2020.2.0f1"],
             29 => ["2022.1.0f1", "2021.3.0f1"],
             31 => ["2022.3.33f1", "2022.3.0f1"],
+            > 31 => ["6000.3.0f1"], // read as the header version itself
             _ => ["2022.3.33f1"],
         };
         foreach (var f in fallback)
@@ -207,7 +214,7 @@ public static class Il2CppMetadataReader
     }
 
     /// <summary>The share of non-null method pointers that land in an executable section.</summary>
-    private static double CodeShare(MappedPeLayout.Header header)
+    private static double CodeShare(Il2CppBinaryLayout layout)
     {
         var bin = LibCpp2IlMain.Binary!;
         var meta = LibCpp2IlMain.TheMetadata!;
@@ -216,7 +223,7 @@ public static class Il2CppMetadataReader
         {
             if (p == 0) return;
             total++;
-            if (p >= header.ImageBase && p - header.ImageBase < header.SizeOfImage && header.SectionAt((uint)(p - header.ImageBase)) is { Executable: true }) inCode++;
+            if (layout.InCode(p)) inCode++;
         }
         if (meta.MetadataVersion >= 24.2f)
         {
@@ -249,15 +256,15 @@ public static class Il2CppMetadataReader
     /// Metadata 27+: the slots are found as Il2CppDumper finds them, by scanning the initialized data sections for
     /// pointer-aligned values that encode a usage ((kind &lt;&lt; 29 | index &lt;&lt; 1) + 1) with an index in range for the kind.
     /// </summary>
-    private static void ScanEncodedUsages(byte[] binary, MappedPeLayout.Header header, Il2CppMetadata meta, Il2CppBinary bin,
+    private static void ScanEncodedUsages(byte[] binary, Il2CppBinaryLayout layout, Il2CppMetadata meta, Il2CppBinary bin,
         Action<uint, uint, uint> usage, CancellationToken ct)
     {
-        int size = header.Is64 ? 8 : 4;
+        int size = layout.Is64 ? 8 : 4;
         long[] limits = [0, bin.NumTypes, bin.NumTypes, meta.methodDefs.Length, meta.fieldRefs.Length, meta.stringLiterals.Length, bin.AllGenericMethodSpecs.Length];
-        foreach (var section in header.Sections)
+        foreach (var section in layout.Areas)
         {
-            if (section.Characteristics is not (0x40000040 or 0xC0000040)) continue; // read-only and writable initialized data
-            long start = section.RawOffset, end = Math.Min(binary.LongLength, start + Math.Min(section.RawSize, Math.Max(section.VirtualSize, 1u)));
+            if (!section.InitializedData) continue;
+            long start = (long)section.RawOffset, end = Math.Min(binary.LongLength, start + section.RawSize);
             for (long at = start + ((size - start % size) % size); at + size <= end; at += size)
             {
                 if (((at - start) & 0xFFFFF) == 0) ct.ThrowIfCancellationRequested();
@@ -268,7 +275,7 @@ public static class Il2CppMetadataReader
                 if (kind is 0 or > 6) continue;
                 uint index = (encoded & 0x1FFFFFFE) >> 1;
                 if (value != ((kind << 29) | (index << 1)) + 1 || index >= limits[kind]) continue;
-                usage(kind, index, section.Rva + (uint)(at - section.RawOffset));
+                usage(kind, index, section.Rva + (uint)(at - start));
             }
         }
     }
@@ -344,7 +351,7 @@ public static class Il2CppMetadataReader
     private static T? Private<T>(object target, string name) where T : class =>
         typeof(Il2CppBinary).GetField(name, BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(target) as T;
 
-    private sealed class State(Il2CppMetadata meta, Il2CppBinary bin, MappedPeLayout.Header header, MappedPeLayout.Header original)
+    private sealed class State(Il2CppMetadata meta, Il2CppBinary bin, Il2CppBinaryLayout layout)
     {
         public readonly Il2CppMetadata Meta = meta;
         public readonly Il2CppBinary Bin = bin;
@@ -353,14 +360,16 @@ public static class Il2CppMetadataReader
 
         public void Unreadable(string item, string reason, string detail) => Unreadables.Add(new(item, reason, Clip(detail)));
 
-        /// <summary>The RVA of a pointer into the image, or null.</summary>
-        public uint? Rva(ulong pointer) =>
-            pointer >= header.ImageBase && pointer - header.ImageBase < header.SizeOfImage ? (uint)(pointer - header.ImageBase) : null;
+        /// <summary>The RVA of a data pointer into the image, or null.</summary>
+        public uint? Rva(ulong pointer) => layout.Rva(pointer);
 
-        /// <summary>The offset of an RVA in the file as built (the headers' raw layout, also for a memory image).</summary>
-        public ulong Offset(uint rva) => original.FileOffset(rva) ?? 0;
+        /// <summary>The RVA of a code pointer (Thumb bit cleared), or null.</summary>
+        public uint? CodeRva(ulong pointer) => layout.CodeRva(pointer);
 
-        public ulong ImageBase => header.ImageBase;
+        /// <summary>The offset of an RVA in the file as built (also for a memory image).</summary>
+        public ulong Offset(uint rva) => layout.FileOffset(rva) ?? 0;
+
+        public ulong ImageBase => layout.ImageBase;
 
         /// <summary>A method definition's code pointer as Il2CppDumper takes it (codegen module table by token; no shared generic code).</summary>
         public ulong Pointer(Il2CppMethodDefinition m, string imageName)
@@ -375,15 +384,15 @@ public static class Il2CppMetadataReader
         }
     }
 
-    private static Il2CppGameModel Extract(Il2CppGameFiles files, byte[] binary, MappedPeLayout.Header header, MappedPeLayout.Header original, bool mapped, int headerVersion,
+    private static Il2CppGameModel Extract(Il2CppGameFiles files, byte[] binary, Il2CppBinaryLayout layout, bool mapped, int headerVersion,
         string unityVersion, string unitySource, string dummyDirectory, Action<string>? progress, List<string> notes, CancellationToken ct, out TimeSpan writeTime)
     {
         var meta = LibCpp2IlMain.TheMetadata!;
         var bin = LibCpp2IlMain.Binary!;
-        var s = new State(meta, bin, header, original);
-        var (repaired, unresolved, layout) = RepairTypeHandles(meta, bin);
+        var s = new State(meta, bin, layout);
+        var (repaired, unresolved, repairLayout) = RepairTypeHandles(meta, bin);
         if (repaired > 0)
-            notes.Add($"repaired {repaired} type entries the running game had turned into pointers to its loaded metadata (a memory image after start-up; {layout})");
+            notes.Add($"repaired {repaired} type entries the running game had turned into pointers to its loaded metadata (a memory image after start-up; {repairLayout})");
         if (unresolved > 0)
             s.Unreadable($"{unresolved} type entries", "unresolved_type_handle", "pointers that are neither a type definition nor a generic parameter of this metadata");
         var names = new Il2CppDumperNames(meta, bin);
@@ -410,7 +419,7 @@ public static class Il2CppMetadataReader
                 try { pointer = s.Pointer(m, imageOfType[t]); }
                 catch (Exception ex) when (ex is not OutOfMemoryException) { s.Unreadable($"method {d.FullName}::{m.Name}", "unreadable_pointer", ex.Message); continue; }
                 if (pointer == 0) continue;
-                if (s.Rva(pointer) is not { } rva)
+                if (s.CodeRva(pointer) is not { } rva)
                 {
                     s.Unreadable($"method {d.FullName}::{m.Name}", "pointer_outside_image", $"code pointer 0x{pointer:X} is outside the image (base 0x{s.ImageBase:X})");
                     continue;
@@ -448,7 +457,7 @@ public static class Il2CppMetadataReader
             var spec = specs[specIndex];
             try
             {
-                if (s.Rva(pointer) is not { } rva) { s.Unreadable($"generic instantiation #{specIndex}", "pointer_outside_image", $"code pointer 0x{pointer:X} is outside the image"); continue; }
+                if (s.CodeRva(pointer) is not { } rva) { s.Unreadable($"generic instantiation #{specIndex}", "pointer_outside_image", $"code pointer 0x{pointer:X} is outside the image"); continue; }
                 var (type, method) = names.MethodSpecName(spec, true);
                 var definition = meta.methodDefs[spec.methodDefinitionIndex.Value];
                 methods.Add(new(rva, type + "$$" + method, imageOfType[definition.declaringTypeIdx.Value], definition.token));
@@ -463,7 +472,7 @@ public static class Il2CppMetadataReader
         {
             if (pointers == null) return;
             foreach (var p in pointers)
-                if (p != 0 && s.Rva(p) is { } r) starts.Add(r);
+                if (p != 0 && s.CodeRva(p) is { } r) starts.Add(r);
         }
         AddStarts(genericPointers);
         if (Private<Il2CppCodeRegistration>(bin, "_codeRegistration") is { } registration)
@@ -507,7 +516,7 @@ public static class Il2CppMetadataReader
                         var md = meta.methodDefs[index];
                         var td = meta.typeDefs[md.declaringTypeIdx.Value];
                         var pointer = s.Pointer(md, imageOfType[md.declaringTypeIdx.Value]);
-                        infos.Add(new ScriptMetadataMethod(rva, "Method$" + names.TypeDefName(td, true, true) + "." + md.Name + "()", s.Rva(pointer) ?? 0));
+                        infos.Add(new ScriptMetadataMethod(rva, "Method$" + names.TypeDefName(td, true, true) + "." + md.Name + "()", s.CodeRva(pointer) ?? 0));
                         break;
                     case 4:
                         var fieldRef = meta.fieldRefs[index];
@@ -522,7 +531,7 @@ public static class Il2CppMetadataReader
                         var spec = specs[index];
                         var (typeName, methodName) = names.MethodSpecName(spec, true);
                         infos.Add(new ScriptMetadataMethod(rva, "Method$" + typeName + "." + methodName + "()",
-                            specPointers.TryGetValue((int)index, out var p) && s.Rva(p) is { } target ? target : 0));
+                            specPointers.TryGetValue((int)index, out var p) && s.CodeRva(p) is { } target ? target : 0));
                         break;
                 }
             }
@@ -543,7 +552,7 @@ public static class Il2CppMetadataReader
                         if (s.Rva(pointer) is { } rva) Usage(kind, value, rva);
                     }
         }
-        else ScanEncodedUsages(binary, header, meta, bin, Usage, ct);
+        else ScanEncodedUsages(binary, layout, meta, bin, Usage, ct);
 
         var literalValues = new string[meta.stringLiterals.Length];
         int withoutSlot = 0;
@@ -572,7 +581,7 @@ public static class Il2CppMetadataReader
         return new Il2CppGameModel
         {
             BinaryPath = files.Binary, MetadataPath = files.Metadata, MetadataVersion = meta.MetadataVersion, HeaderVersion = headerVersion,
-            UnityVersion = unityVersion, UnityVersionSource = unitySource, ImageBase = header.ImageBase, MemoryImage = mapped,
+            UnityVersion = unityVersion, UnityVersionSource = unitySource, ImageBase = layout.ImageBase, MemoryImage = mapped,
             LiteralValues = literalValues, LiteralSlots = literalSlots, Methods = methods, Metadata = slots, MethodInfos = infos,
             Addresses = starts.Distinct().Order().ToArray(), Unreadables = s.Unreadables,
             Images = meta.imageDefinitions.Length, Types = builder.Types, MethodDefinitions = builder.Methods, Fields = builder.Fields,

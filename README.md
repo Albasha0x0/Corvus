@@ -234,7 +234,7 @@ Measured on a real Unity application (36 assemblies, 40,895 types, ~300k methods
 ## Il2Cpp navigation
 
 No external dumper is needed: `load_assembly` on an Il2Cpp game folder or its `global-metadata.dat` (with
-`GameAssembly.dll` beside it) reads the metadata directly through LibCpp2IL (versions 24-31; on a title with v31 metadata read from a memory dump,
+`GameAssembly.dll` beside it) reads the metadata directly through LibCpp2IL (versions 24-39; on a title with v31 metadata read from a memory dump,
 methods, RVAs, vtable slots, fields, field offsets and every `script.json` method agree 100% with Il2CppDumper's output; first read
 15 s, reloads from the per-user cache `NDM_IL2CPP_CACHE` in 0.1 s). Unreadable metadata is an error with a reason
 (`encrypted_or_obfuscated`, `unsupported_version`, `binary_mismatch_or_protected`, ...); single items that cannot be read

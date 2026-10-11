@@ -7,7 +7,7 @@ namespace NetDecompilerMcp.Services;
 /// (global-metadata.dat) and, for the Unity version, the player (UnityPlayer.dll) and the data folder (&lt;Game&gt;_Data).
 /// Found from the game folder, the metadata file, or the binary.
 /// </summary>
-public sealed record Il2CppGameFiles(string Binary, string Metadata, string? UnityPlayer, string? DataDirectory)
+public sealed record Il2CppGameFiles(string Binary, string Metadata, string? UnityPlayer, string? DataDirectory, string? Slice = null)
 {
     public const string MetadataFileName = "global-metadata.dat";
     public const string BinaryFileName = "GameAssembly.dll";

@@ -41,7 +41,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                  "A native PE (without .NET metadata), ELF or Mach-O file given by path loads as a native image for the native tools (get_pe_info, list_imports, list_exports, list_functions, disassemble); " +
                  "a universal Mach-O loads one slice (slice=) as name[slice]; " +
                  "folder loads take only .NET assemblies and list the native files they skipped. " +
-                 "An Il2Cpp game (its folder, or its global-metadata.dat with GameAssembly.dll beside it or in the game folder; also a memory dump of GameAssembly.dll) is read by the built-in metadata reader (versions 24-31, no external dumper): " +
+                 "An Il2Cpp game (its folder, or its global-metadata.dat with GameAssembly.dll beside it or in the game folder; also a memory dump of GameAssembly.dll) is read by the built-in metadata reader (versions 24-39, no external dumper): " +
                  "dummy assemblies with method addresses, field offsets and tokens, plus string literals, generic instantiations and metadata slots for the Il2Cpp tools, cached per user (NDM_IL2CPP_CACHE); " +
                  "GameAssembly.dll is loaded as a native image too. Unreadable metadata is an error with a reason (encrypted_or_obfuscated, unsupported_version, binary_mismatch_or_protected); unreadable items are listed by reason. " +
                  "Files are read into memory and never locked. The directory joins the reference search path. Loading the same path twice is a no-op. " +
