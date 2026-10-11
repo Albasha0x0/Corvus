@@ -124,13 +124,21 @@ public class NativeToolSweepTests(ITestOutputHelper output)
             GC.WaitForPendingFinalizers();
             GC.Collect();
             using var harness = new NativeToolHarness();
+            // Live data, not the heap: garbage awaiting collection grows with how late the GC runs on a busy machine.
+            // Each full collection's survivors are a lower bound of the peak, so a reading never exceeds what the image kept alive.
             long fileHeap = 0, filePrivate = 0;
+            void Survivors(GCKind kind)
+            {
+                var gc = GC.GetGCMemoryInfo(kind);
+                if (gc.Index > 0 && gc.Generation == 2) fileHeap = Math.Max(fileHeap, gc.PromotedBytes);
+            }
             using var sampling = new CancellationTokenSource();
             var sampler = Task.Run(async () =>
             {
                 while (!sampling.IsCancellationRequested)
                 {
-                    fileHeap = Math.Max(fileHeap, GC.GetTotalMemory(false));
+                    Survivors(GCKind.FullBlocking);
+                    Survivors(GCKind.Background);
                     filePrivate = Math.Max(filePrivate, Process.GetCurrentProcess().PrivateMemorySize64);
                     try { await Task.Delay(100, sampling.Token); } catch (OperationCanceledException) { }
                 }
@@ -140,11 +148,12 @@ public class NativeToolSweepTests(ITestOutputHelper output)
             catch (Exception ex) { calls.Add(new(file, "harness", "", sw.Elapsed, 0, null, null, ex, false)); }
             sampling.Cancel();
             await sampler;
+            fileHeap = Math.Max(fileHeap, GC.GetTotalMemory(true));
             foreach (var c in harness.Calls) calls.Add(c);
             long bytes = SafeLength(file);
             var index = harness.Calls.FirstOrDefault(c => c.Tool == "list_functions" && c.Args == "");
             output.WriteLine($"  large: {Path.GetFileName(file)} {bytes >> 20} MB: all tools {sw.Elapsed.TotalSeconds:0.0} s, index wait {index?.Elapsed.TotalSeconds:0.0} s, " +
-                             $"peak GC heap {fileHeap >> 20} MB, peak private bytes {filePrivate >> 20} MB");
+                             $"peak live heap {fileHeap >> 20} MB, peak private bytes {filePrivate >> 20} MB");
             perFile.Add((file, bytes, sw.Elapsed, fileHeap));
             peakWorkingSet = Math.Max(peakWorkingSet, filePrivate);
             if (fileHeap > peakHeap) { peakHeap = fileHeap; peakHeapFile = file; }
