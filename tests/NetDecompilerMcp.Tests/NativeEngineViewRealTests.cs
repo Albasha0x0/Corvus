@@ -35,6 +35,20 @@ public sealed class NativeGhidraViewTests(ITestOutputHelper output, GhidraCacheF
         Assert.Contains(NativeIdaProviderTests.ExportRva(shared.Sample, Export), info.EntryPoints);
         Assert.Equal("complete", info.Analysis);
     }
+
+    [GhidraFact]
+    public async Task Defined_data_lists_typed_items_with_values_and_strings()
+    {
+        await using var s = await Open();
+        var data = await s.ListDataAsync(100_000);
+        output.WriteLine($"{data.Total} items; " + string.Join("; ", data.Items.Take(8).Select(d => $"0x{d.Rva:X} {d.Size} {d.Type} {d.Label} = {d.Value}")));
+        Assert.True(data.Total > 200, $"{data.Total} items");
+        Assert.Equal(data.Total, data.Items.Count);
+        Assert.True(data.Items.Zip(data.Items.Skip(1)).All(p => p.First.Rva < p.Second.Rva));
+        Assert.Contains(data.Items, d => d.IsString && d.Value != null && d.Size > 1);
+        Assert.Contains(data.Items, d => d.Label != null && d.Type.Length > 0);
+        Assert.Equal(5, (await s.ListDataAsync(5)).Items.Count);
+    }
 }
 
 /// <summary>The engine read views against a real IDA (idalib), on a system DLL analyzed once for the class.</summary>
@@ -63,5 +77,18 @@ public sealed class NativeIdaViewTests(ITestOutputHelper output, IdaCacheFixture
         Assert.Contains(info.Blocks, b => b.Name == ".text" && b.Permissions.StartsWith('r') && b.Initialized);
         Assert.Contains(NativeIdaProviderTests.ExportRva(NativeIdaProviderTests.System64, Export), info.EntryPoints);
         Assert.Equal("complete", info.Analysis);
+    }
+
+    [IdaFact]
+    public async Task Defined_data_lists_typed_items_with_values_and_strings()
+    {
+        await using var s = await Open();
+        var data = await s.ListDataAsync(100_000);
+        output.WriteLine($"{data.Total} items; " + string.Join("; ", data.Items.Take(8).Select(d => $"0x{d.Rva:X} {d.Size} {d.Type} {d.Label} = {d.Value}")));
+        Assert.True(data.Total > 200, $"{data.Total} items");
+        Assert.True(data.Items.Zip(data.Items.Skip(1)).All(p => p.First.Rva < p.Second.Rva));
+        Assert.Contains(data.Items, d => d.IsString && d.Value != null && d.Size > 1);
+        Assert.Contains(data.Items, d => d.Label != null && d.Type.Length > 0);
+        Assert.Equal(5, (await s.ListDataAsync(5)).Items.Count);
     }
 }

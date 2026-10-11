@@ -2851,6 +2851,56 @@ def op_image_info(args):
             "blocks": blocks, "changed": None, "analysis": "complete" if m.ida_auto.auto_is_ok() else "running"}
 
 
+def op_defined_data(args):
+    # data items in address order: total, rows [rva, size, type, label or null, value text or null, is string] up to max
+    m = need_open()
+    import ida_typeinf
+    limit = int(args.get("max") or 200000)
+    rows, total = [], 0
+    for n in range(m.ida_segment.get_segm_qty()):
+        seg = m.ida_segment.getnseg(n)
+        ea = seg.start_ea
+        while ea != m.idautils.ida_idaapi.BADADDR and ea < seg.end_ea:
+            flags = m.ida_bytes.get_flags(ea)
+            if m.ida_bytes.is_data(flags) and rva_of(ea) is not None:
+                total += 1
+                if len(rows) < limit:
+                    size = m.ida_bytes.get_item_size(ea)
+                    tif = ida_typeinf.tinfo_t()
+                    typ = str(tif) if m.ida_nalt.get_tinfo(tif, ea) else data_flag_type(m, flags, size)
+                    label = m.ida_name.get_name(ea) if m.ida_bytes.has_user_name(flags) or m.ida_bytes.has_auto_name(flags) else None
+                    text = without_comment(m.ida_lines.tag_remove(m.ida_lines.generate_disasm_line(ea, 0) or "")).strip()
+                    rows.append([rva_of(ea), size, typ, label or None, text[:120] + ("..." if len(text) > 120 else "") if text else None,
+                                 bool(m.ida_bytes.is_strlit(flags))])
+            ea = m.ida_bytes.next_head(ea, seg.end_ea)
+    return {"total": total, "rows": rows}
+
+
+def without_comment(line):
+    # the listing line up to its comment (a ';' outside quotes)
+    quote = None
+    for i, c in enumerate(line):
+        if quote:
+            if c == quote:
+                quote = None
+        elif c in "'\"":
+            quote = c
+        elif c == ";":
+            return line[:i]
+    return line
+
+
+def data_flag_type(m, flags, size):
+    b = m.ida_bytes
+    for test, name, unit in ((b.is_byte, "byte", 1), (b.is_word, "word", 2), (b.is_dword, "dword", 4), (b.is_qword, "qword", 8),
+                             (b.is_oword, "oword", 16), (b.is_float, "float", 4), (b.is_double, "double", 8), (b.is_strlit, "string", 0),
+                             (b.is_struct, "struct", 0), (b.is_align, "align", 0)):
+        if test(flags):
+            return name if unit == 0 or size <= unit else "%s[%d]" % (name, size // unit)
+    return "data"
+
+
+OPS["defined_data"] = op_defined_data
 OPS["image_info"] = op_image_info
 
 

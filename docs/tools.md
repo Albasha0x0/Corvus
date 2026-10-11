@@ -1036,9 +1036,9 @@ Structured output: `image`, `functions`, `items`, `offset`, `total`, `truncated`
 
 ### list_globals
 
-**List native globals** (read-only, idempotent, long-running)
+**List native globals** (read-only, idempotent, open-world, long-running)
 
-Named data items of a native image, outside functions and code sections, from every name source: PDB data symbols with type and size, the user's names and global types (rename_native, set_native_type, define_native data), Il2Cpp, NativeAOT and IDA names, data exports and symbol-table objects. Filter by name or section; paged. get_native_type read=true reads one's fields.
+Named data items of a native image, outside functions and code sections, from every name source: PDB data symbols with type and size, the user's names and global types (rename_native, set_native_type, define_native data), Il2Cpp, NativeAOT and IDA names, data exports and symbol-table objects; with an engine also its defined data (unnamed too) with type and value. Filter by name or section; paged. get_native_type read=true reads one's fields.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1047,8 +1047,9 @@ Named data items of a native image, outside functions and code sections, from ev
 | `section` | string |  |  | Only this section, e.g. .data. |
 | `offset` | integer |  | `0` | Index of the first row. |
 | `limit` | integer |  | `300` | Max rows (default 300). |
+| `engine` | string |  |  | auto (default: IDA's or Ghidra's analysis when complete in this session, else the built-in index; never starts an engine), ours (built-in index only), ida or ghidra (that engine, started when needed). Server default: --engine / NDM_ENGINE. Values: auto, ours, ida, ghidra. |
 
-Structured output: `image`, `items`, `offset`, `total`, `truncated`.
+Structured output: `image`, `items`, `offset`, `total`, `truncated`, `engine`.
 
 ### disassemble
 

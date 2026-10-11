@@ -66,6 +66,22 @@ public sealed class EngineViewTests : IDisposable
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tool.GetEngineStatus(rig.Image, "bogus"))).Code);
     }
 
+    [Fact]
+    public async Task List_globals_with_an_engine_adds_its_defined_data_with_types_and_values()
+    {
+        var rig = Setup();
+        await Loaded(rig);
+        var ours = await rig.Tools.ListGlobals(rig.Image);
+        Assert.Contains("Engine: ours", ours);
+        Assert.DoesNotContain("g_engine_table", ours);
+        var text = await rig.Tools.ListGlobals(rig.Image, engine: "ghidra");
+        Assert.Contains("(3 defined by Ghidra, the first 2 read)", text);
+        Assert.Contains("Engine: ghidra", text);
+        Assert.Matches(@"0x[0-9A-F]+3000  g_engine_table  pointer  8 bytes  \S+  \(ghidra\)  = 180001000h", text);
+        Assert.Matches(@"0x[0-9A-F]+3010  data_3010  string  6 bytes  \S+  \(ghidra\)  = ""hello""", text);
+        Assert.Contains("g_engine_table", await rig.Tools.ListGlobals(rig.Image, filter: "engine_t", engine: "ghidra"));
+    }
+
     /// <summary>A Ghidra-like engine whose sessions answer the read views from fixed data.</summary>
     internal sealed class ViewProvider : INativeDecompilerProvider
     {
@@ -103,6 +119,10 @@ public sealed class EngineViewTests : IDisposable
         public TimeSpan OpenTime => TimeSpan.FromSeconds(2);
         public bool DecompilerAvailable => true;
         public bool IsOpen => true;
+
+        public Task<EngineDataList> ListDataAsync(int max, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new EngineDataList(3, [new EngineDataItem(0x3000, 8, "pointer", "g_engine_table", "180001000h", false),
+                new EngineDataItem(0x3010, 6, "string", null, "\"hello\"", true)]));
 
         public Task<EngineImageInfo> GetEngineInfoAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(new EngineImageInfo("12.1", "x86", "x86:LE:64:default", "windows", "PE", 8, "little", 3, 2, [0x1000], "d41d", "abc",

@@ -280,6 +280,7 @@ public class Worker implements GhidraLaunchable {
             case "insn": return read(() -> InsnOps.insn(this, r));
             case "value_slice": return read(() -> SliceOps.valueSlice(this, r));
             case "image_info": return read(() -> InfoOps.imageInfo(this, r));
+            case "defined_data": return read(() -> InfoOps.data(this, r));
             default: throw new WorkerError("invalid_argument", "unknown op '" + r.op + "'");
         }
     }

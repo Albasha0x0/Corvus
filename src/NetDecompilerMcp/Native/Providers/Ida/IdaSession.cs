@@ -399,4 +399,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
 
     public async Task<EngineImageInfo> GetEngineInfoAsync(CancellationToken cancellationToken = default) =>
         WorkerRows.ImageInfo(await CallAsync("image_info", new JsonObject(), cancellationToken).ConfigureAwait(false));
+
+    public async Task<EngineDataList> ListDataAsync(int max, CancellationToken cancellationToken = default) =>
+        WorkerRows.DataList(await CallAsync("defined_data", WorkerRows.Args(("max", Math.Clamp(max, 1, 500_000))), cancellationToken).ConfigureAwait(false));
 }

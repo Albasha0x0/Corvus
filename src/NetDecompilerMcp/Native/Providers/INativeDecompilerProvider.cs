@@ -209,6 +209,10 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     Task<EngineImageInfo> GetEngineInfoAsync(CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not describe the image.");
 
+    /// <summary>The engine's defined data items in address order, at most <paramref name="max"/>; <see cref="EngineDataList.Total"/> counts them all.</summary>
+    Task<EngineDataList> ListDataAsync(int max, CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not list defined data.");
+
     /// <summary>References to <paramref name="rva"/> (ordinary flow excluded).</summary>
     Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default);
 
@@ -597,3 +601,12 @@ public sealed record EngineMemoryBlock(string Name, ulong Start, ulong Size, str
 public sealed record EngineImageInfo(string Version, string Processor, string Language, string? Compiler, string Format, int PointerSize, string Endian,
     int Functions, int ExternalFunctions, IReadOnlyList<uint> EntryPoints, string? Md5, string? Sha256, IReadOnlyList<EngineMemoryBlock> Blocks, bool? Changed,
     string? Analysis);
+
+/// <summary>
+/// A data item the engine defined: size in bytes, its type as the engine prints it, its label (null when the engine only has a
+/// generated name for it), the engine's text of its value (clipped) and whether it holds a string.
+/// </summary>
+public sealed record EngineDataItem(uint Rva, long Size, string Type, string? Label, string? Value, bool IsString);
+
+/// <summary>Defined data items, the first <see cref="Items"/> of <see cref="Total"/>.</summary>
+public sealed record EngineDataList(int Total, IReadOnlyList<EngineDataItem> Items);

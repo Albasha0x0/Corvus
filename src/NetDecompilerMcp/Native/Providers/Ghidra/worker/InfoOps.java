@@ -2,13 +2,20 @@ package ndm.ghidra;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 
 import ghidra.framework.Application;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressIterator;
 import ghidra.program.model.lang.Language;
+import ghidra.program.model.listing.Data;
+import ghidra.program.model.listing.DataIterator;
 import ghidra.program.model.mem.MemoryBlock;
+import ghidra.program.model.symbol.SourceType;
+import ghidra.program.model.symbol.Symbol;
+import ghidra.program.model.symbol.SymbolTable;
 
 /** Read views of the program as Ghidra holds it; callers hold the read lock. Row shapes match the IDA worker's. */
 final class InfoOps {
@@ -55,6 +62,41 @@ final class InfoOps {
         o.addProperty("changed", w.program.isChanged());
         o.addProperty("analysis", w.program.getOptions(Worker.STAMPS).getString(Worker.ANALYSIS_STAMP, null));
         return o;
+    }
+
+    /** Defined data in address order (defined_data): total, rows [rva, size, type, label or null, value or null, is string] up to max. */
+    static JsonElement data(Worker w, Worker.Request r) throws Exception {
+        int max = r.args.has("max") ? r.args.get("max").getAsInt() : 200_000;
+        SymbolTable symbols = w.program.getSymbolTable();
+        JsonArray rows = new JsonArray();
+        int total = 0;
+        DataIterator it = w.program.getListing().getDefinedData(true);
+        while (it.hasNext()) {
+            r.monitor.checkCancelled();
+            Data d = it.next();
+            Long rva = w.rva(d.getAddress());
+            if (rva == null) continue;
+            total++;
+            if (rows.size() >= max) continue;
+            JsonArray row = new JsonArray();
+            row.add(rva);
+            row.add(d.getLength());
+            row.add(d.getDataType().getDisplayName());
+            Symbol s = symbols.getPrimarySymbol(d.getAddress());
+            row.add(s != null && s.getSource() != SourceType.DEFAULT ? new JsonPrimitive(s.getName(true)) : JsonNull.INSTANCE);
+            String value = d.getDefaultValueRepresentation();
+            row.add(value == null || value.isEmpty() ? JsonNull.INSTANCE : new JsonPrimitive(clip(value, 120)));
+            row.add(d.hasStringValue());
+            rows.add(row);
+        }
+        JsonObject o = new JsonObject();
+        o.addProperty("total", total);
+        o.add("rows", rows);
+        return o;
+    }
+
+    static String clip(String s, int max) {
+        return s.length() <= max ? s : s.substring(0, max) + "...";
     }
 
     static Address at(Worker w, long rva) {

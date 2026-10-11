@@ -436,12 +436,7 @@ public sealed class NativeEngineService : IDisposable
             holder.OpenedPdb = PdbService.PathForEngines(native);
             holder.OpenStarted = DateTime.UtcNow;
             holder.Stage = "start";
-            var caller = progress;
-            progress = new Progress<NativeProviderProgress>(p =>
-            {
-                holder.Stage = p.Stage;
-                caller?.Report(p);
-            });
+            progress = new StageProgress(holder, progress);
             // The open is not tied to this call's cancellation (a later call reuses the same analysis) but ends when the image is unloaded or reloaded.
             // A universal Mach-O slice goes to the engine as a thin file of its own, keyed by its own hash.
             holder.Opening = native.Image is Native.MachO.MachOFile { Slice: { } slice } thin
@@ -539,6 +534,16 @@ public sealed class NativeEngineService : IDisposable
                 opening.Exception?.InnerException is { } e ? (e is ToolError t ? t.Message : e.Message) : "cancelled"));
         }
         return list;
+    }
+
+    /// <summary>Records the open's stage as it is reported (synchronously, unlike <see cref="Progress{T}"/>) and passes it on.</summary>
+    private sealed class StageProgress(SessionHolder holder, IProgress<NativeProviderProgress>? next) : IProgress<NativeProviderProgress>
+    {
+        public void Report(NativeProviderProgress value)
+        {
+            holder.Stage = value.Stage;
+            next?.Report(value);
+        }
     }
 
     /// <summary>The image's open session of engine <paramref name="id"/> (null: any, in order of preference), or null; never opens or waits.</summary>

@@ -344,4 +344,9 @@ internal static class WorkerRows
         return new EngineImageInfo(S(r, "version") ?? "", S(r, "processor") ?? "", S(r, "language") ?? "", S(r, "compiler"), S(r, "format") ?? "", I(r, "pointer_size"),
             S(r, "endian") ?? "", I(r, "functions"), I(r, "external_functions"), entries, S(r, "md5"), S(r, "sha256"), blocks, changed, S(r, "analysis"));
     }
+
+    /// <summary>defined_data: total and rows [rva, size, type, label or null, value or null, is string].</summary>
+    public static EngineDataList DataList(JsonElement r) =>
+        new(r.GetProperty("total").GetInt32(), r.GetProperty("rows").EnumerateArray()
+            .Select(x => new EngineDataItem(x[0].GetUInt32(), x[1].GetInt64(), x[2].GetString() ?? "", Text(x[3]), Text(x[4]), x[5].GetBoolean())).ToList());
 }
