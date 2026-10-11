@@ -1031,6 +1031,7 @@ Functions of a native image (x86 / x64 / ARM64): address, size, name (export, mo
 | `to` | string |  |  | Start addresses below this one. |
 | `hasType` | boolean |  |  | Engines: true keeps functions with a prototype, false those without. |
 | `descending` | boolean |  |  | Sort direction instead of the sort's default. |
+| `view` | string |  |  | functions (default), or candidates: IDA or Ghidra code in no function, most referenced first. Values: functions, candidates. |
 
 Structured output: `image`, `functions`, `items`, `offset`, `total`, `truncated`, `coverage`, `engine`, `engineNote`.
 

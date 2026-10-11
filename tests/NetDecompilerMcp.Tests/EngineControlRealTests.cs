@@ -94,6 +94,16 @@ public sealed class EngineControlRealTests(ITestOutputHelper output) : IDisposab
         output.WriteLine($"{engine} callersOf: {callers.Split('\n')[0]}");
         Assert.Matches(@"// \d+ inputs?: [1-9]\d* decompiled", callers);
 
+        // list_functions view=candidates: the engine's code outside functions
+        clock.Restart();
+        collector = StructuredOutput.Begin();
+        var candidates = await rig.CodeTools.ListFunctions(id, engine: engine, view: "candidates", limit: 5);
+        var candidateList = Assert.IsType<FunctionList>(collector.Value);
+        output.WriteLine($"{engine} candidates ({clock.Elapsed.TotalSeconds:0.0} s):\n{string.Join('\n', candidates.Split('\n').Take(5))}");
+        Assert.Contains("runs of code in no function", candidates);
+        Assert.Equal(engine, candidateList.Engine);
+        Assert.All(candidateList.Items, c => Assert.Contains("candidate", c.Flags));
+
         // reanalyze_native: the analyzer list, then a run over one function's range
         var analyzers = await rig.Control.ReanalyzeNative(id, engine: engine, analyzers: true);
         Assert.Contains(engine == "ida" ? "AF_FLIRT = " : "Decompiler Parameter ID = ", analyzers);

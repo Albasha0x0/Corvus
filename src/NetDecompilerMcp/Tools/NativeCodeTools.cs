@@ -118,11 +118,14 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description("Start addresses below this one.")] string? to = null,
         [Description("Engines: true keeps functions with a prototype, false those without.")] bool? hasType = null,
         [Description("Sort direction instead of the sort's default.")] bool? descending = null,
+        [Description("functions (default), or candidates: IDA or Ghidra code in no function, most referenced first.")] string? view = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         FunctionQuery.Create(filter, minSize, maxSize, null, null, hasType, sort, descending); // bad arguments fail before the image is opened
         var mode = Mode(engine);
+        if (Candidates(view))
+            return await FunctionCandidates(image, mode, offset, limit, context, progress, cancellationToken);
         var (native, index) = await Open(image, context, progress, cancellationToken);
         uint? Bound(string? text) => string.IsNullOrWhiteSpace(text) ? null : Address(index, text);
         var query = FunctionQuery.Create(filter, minSize, maxSize, Bound(from), Bound(to), hasType, sort, descending);
