@@ -91,6 +91,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         _ctx = ctx;
         _functions = functions;
         _byStart = functions.ToDictionary(f => f.Start);
+        FindJumpThunks();
         // Known names here are the discovered ones; sources later override them per address only.
         _discoveredByName = functions.Where(f => f.KnownName != null).GroupBy(f => f.KnownName!, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Select(f => f.Start).ToArray(), StringComparer.Ordinal);
@@ -509,6 +510,38 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         if (!_byStart.TryGetValue(rva, out var f)) return;
         if (!_builtinNames.ContainsKey(rva)) _builtinNames[rva] = f.KnownName;
         f.KnownName = name ?? _builtinNames[rva];
+        // jump thunks to it follow its name (j_<name>) unless a source named them
+        foreach (uint t in _thunksTo.GetValueOrDefault(rva) ?? [])
+            if (_sourced.NameAt(t) == null && _byStart.TryGetValue(t, out var thunk) && (thunk.KnownName == null || thunk.KnownName.StartsWith("j_", StringComparison.Ordinal)))
+                ApplyKnownName(t, f.KnownName is { } target ? "j_" + target : null);
+    }
+
+    // jump thunk -> the function it jumps to, and back
+    private readonly Dictionary<uint, List<uint>> _thunksTo = [];
+
+    /// <summary>
+    /// Functions that are one direct jump to another function (x86 / x64 jmp rel32 / rel8, ARM64 b): incremental-link thunks
+    /// and the like, named j_&lt;target&gt; as IDA names them while they have no name of their own.
+    /// </summary>
+    private void FindJumpThunks()
+    {
+        Span<byte> b = stackalloc byte[5];
+        foreach (var f in _functions)
+        {
+            if (f.InstructionCount != 1 || f.ThunkImport != null || f.Size is not (2 or 4 or 5) || Image.Read(f.Start, b[..(int)f.Size]) < f.Size) continue;
+            long target = (Image.Arch, f.Size, b[0]) switch
+            {
+                (NativeArch.X86 or NativeArch.X64, 5, 0xE9) => f.Start + 5L + System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(b[1..]),
+                (NativeArch.X86 or NativeArch.X64, 2, 0xEB) => f.Start + 2L + (sbyte)b[1],
+                (NativeArch.Arm64, 4, _) when (System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(b) & 0xFC000000) == 0x14000000 =>
+                    f.Start + ((long)((int)(System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(b) << 6) >> 6) << 2),
+                _ => -1,
+            };
+            if (target < 0 || target > uint.MaxValue || target == f.Start || !_byStart.TryGetValue((uint)target, out var to)) continue;
+            if (!_thunksTo.TryGetValue(to.Start, out var list)) _thunksTo[to.Start] = list = [];
+            list.Add(f.Start);
+            if (f.KnownName == null && to.KnownName != null) f.KnownName = "j_" + to.KnownName;
+        }
     }
 
     /// <summary>
