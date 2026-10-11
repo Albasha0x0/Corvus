@@ -34,13 +34,13 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         return new Rig(workspace, code, new NativeCodeTools(workspace, code, pager, null, engines, names), new NativeAnalysisTools(workspace, engines, pager, names, code, new NativeTypePush()), engines);
     }
 
-    /// <summary>An ARM (Thumb-2) PE: the built-in analysis only lists the entry point.</summary>
-    private string SyntheticArm()
+    /// <summary>A MIPS ELF shared object: the built-in analysis only lists its function symbol.</summary>
+    private string SyntheticMips()
     {
-        var b = new PeBuilder { Machine = 0x1C4, Is64 = false, ImageBase = 0x10000000, EntryPoint = 0x1001 };
-        b.Add(".text", [0x00, 0x20, 0x70, 0x47], 0x60000020); // movs r0, #0; bx lr
-        var path = _dir.File("arm.dll");
-        File.WriteAllBytes(path, b.Build());
+        var w = new NativeFormats.ElfWriter { Is64 = false, Machine = NativeFormats.ElfWriter.EmMips, Text = [0, 0, 0, 0, 0x08, 0x00, 0xE0, 0x03, 0, 0, 0, 0] }; // nop; jr ra; nop
+        w.Symbols.Add(new NativeFormats.ElfWriter.Symbol("f", NativeFormats.ElfWriter.TextRva, 12));
+        var path = _dir.File("mips.so");
+        File.WriteAllBytes(path, w.Build());
         return path;
     }
 
@@ -49,12 +49,12 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
     {
         var tools = Setup(new IdaProviderOptions { InstallDirectory = _dir.File("no-ida-here"), CacheRoot = _dir.File("cache") },
             ghidra: new() { InstallDirectory = _dir.File("no-ghidra-here"), CacheRoot = _dir.File("cache") }).Tools;
-        var path = SyntheticArm();
+        var path = SyntheticMips();
         foreach (var call in new Func<Task<string>>[] { () => tools.Disassemble(path, "rva:0x1000"), () => tools.GetCfg(path, "rva:0x1000") })
         {
             var e = await Assert.ThrowsAsync<ToolError>(call);
             Assert.Equal(ErrorCode.Unsupported, e.Code);
-            Assert.Contains("Arm", e.Message);
+            Assert.Contains("Mips", e.Message);
             Assert.Contains("IDA", e.Remediation);
             Assert.Contains("NDM_GHIDRA_DIR", e.Remediation);
         }

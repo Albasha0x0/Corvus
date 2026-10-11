@@ -75,7 +75,8 @@ internal sealed class CodeContext
         foreach (var s in image.Symbols)
             if (s.Kind == ImageSymbolKind.Function && code.IsCode(s.Rva) && NoReturnNames.IsNoReturn(s.Name, underscore)) NoReturn.Add(s.Rva);
         DataInCode = DataRanges(image);
-        if (image.Arch is NativeArch.X64 or NativeArch.Arm64) ReadPdata();
+        if (image.Arch == NativeArch.Arm) ArmModes = new Arm32Modes(image);
+        if (image.Arch is NativeArch.X64 or NativeArch.Arm64 or NativeArch.Arm) ReadPdata();
         ReadGuardCfTable();
         IsKernelMode = KernelModeByName(image.Path)
             || image.Imports.Any(i => i.Module.Equals("ntoskrnl.exe", StringComparison.OrdinalIgnoreCase) || i.Module.Equals("hal.dll", StringComparison.OrdinalIgnoreCase));
@@ -83,6 +84,9 @@ internal sealed class CodeContext
 
     /// <summary>Byte ranges inside code sections that hold data (Mach-O LC_DATA_IN_CODE, ELF $d mapping symbols), sorted.</summary>
     public (uint Start, uint End)[] DataInCode { get; }
+
+    /// <summary>32-bit ARM: the ARM or Thumb state of each function; null for other instruction sets.</summary>
+    public Arm32Modes? ArmModes { get; }
 
     private static (uint Start, uint End)[] DataRanges(INativeImage image)
     {
@@ -128,7 +132,7 @@ internal sealed class CodeContext
         foreach (var rf in entries)
         {
             if (rf.EndRva <= rf.BeginRva) continue;
-            // ARM64 .pdata has no chained entries: each one is a function
+            // ARM and ARM64 .pdata have no chained entries: each one is a function
             uint primary = Image.Arch == NativeArch.X64 ? PrimaryOf(rf, byBegin) : rf.BeginRva;
             if (!PdataRanges.TryGetValue(primary, out var list)) PdataRanges[primary] = list = [];
             list.Add((rf.BeginRva, rf.EndRva));
@@ -209,6 +213,7 @@ internal sealed class CodeContext
         for (int i = 0; i < n; i++)
         {
             uint rva = BinaryPrimitives.ReadUInt32LittleEndian(raw.AsSpan(i * (int)stride));
+            if (Image.Arch == NativeArch.Arm) rva &= ~1u; // Thumb bit
             if (Code.IsCode(rva)) GuardCfFunctions.Add(rva);
         }
     }
@@ -242,7 +247,7 @@ internal sealed class CodeContext
         {
             ComputeAccess = computeAccess, RejectImplausible = !IsKernelMode, CheckRelocations = true, ImageHasRelocations = Relocations.Length > 0,
         },
-        _ => CodeDecoders.Create(Image, Code, Relocations, ImportSlotSet, DataInCode),
+        _ => CodeDecoders.Create(Image, Code, Relocations, ImportSlotSet, DataInCode, ArmModes),
     };
 
     private HashSet<uint>? _importSlotSet;
@@ -374,7 +379,7 @@ internal static class SwitchDispatch
                 var m = dec.MatchSwitch(out _);
                 return m != null ? ctx.ReadSwitch(jump, m, own, out _) : null;
             }
-            if (insn.Flow is FlowKind.Jump or FlowKind.Return or FlowKind.IndirectJump or FlowKind.Trap) return null;
+            if (insn.Flow is FlowKind.Jump or FlowKind.Trap || insn.Flow is FlowKind.Return or FlowKind.IndirectJump && !insn.Conditional) return null;
             if (insn.Flow == FlowKind.Call && insn.HasTarget && ctx.NoReturn.Contains(insn.Target)) return null;
             a = insn.Next;
         }
@@ -399,6 +404,7 @@ internal static class NoReturnNames
         "_ZSt17__throw_bad_allocv", "_ZSt20__throw_length_errorPKc", "_ZSt24__throw_out_of_range_fmtPKcz", "_ZSt20__throw_out_of_rangePKc",
         "_ZSt19__throw_logic_errorPKc", "_ZSt25__throw_bad_function_callv", "_ZSt16__throw_bad_castv",
         "_ZNSt3__120__throw_length_errorB8ne180000EPKc", "_ZNSt3__120__throw_out_of_rangeB8ne180000EPKc",
+        "abort_message", "__libcpp_verbose_abort", "_ZNSt3__122__libcpp_verbose_abortEPKcz", "_ZNSt6__ndk122__libcpp_verbose_abortEPKcz", "__cxa_end_cleanup",
         "?terminate@@YAXXZ", "?_Xbad_alloc@std@@YAXXZ", "?_Xlength_error@std@@YAXPEBD@Z", "?_Xlength_error@std@@YAXPBD@Z",
         "?_Xout_of_range@std@@YAXPEBD@Z", "?_Xout_of_range@std@@YAXPBD@Z", "?_Xinvalid_argument@std@@YAXPEBD@Z",
         "?_Xinvalid_argument@std@@YAXPBD@Z", "?_Xbad_function_call@std@@YAXXZ", "?_Xruntime_error@std@@YAXPEBD@Z",

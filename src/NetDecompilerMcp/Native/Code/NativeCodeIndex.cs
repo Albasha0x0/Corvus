@@ -397,7 +397,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     public NativeDisassembler CreateDisassembler()
     {
         if (_ctx == null) throw new NotSupportedException(SupportNote);
-        return new NativeDisassembler(Image, this, _ctx.Relocations);
+        return new NativeDisassembler(Image, this, _ctx.Relocations, _ctx.ArmModes, _ctx.Code);
     }
 
     /// <summary>Linear disassembly from <paramref name="rva"/>.</summary>
@@ -698,6 +698,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             var starts = _sources.Keys.ToArray();
             Array.Sort(starts);
             _ctx.FunctionStarts = new HashSet<uint>(starts);
+            _ctx.ArmModes?.Seal(starts);
             return starts;
         }
 
@@ -818,7 +819,10 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
                 if ((++i & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
                 // inside decoded functions a relocation is an instruction operand, already a cross-reference
                 if (_ctx.Code.IsCode(reloc) && functionCode.Contains(reloc)) continue;
-                if (_ctx.TryReadPointer(reloc, out uint target)) pointers.Add(new CodeXref(reloc, target, XrefKind.Pointer));
+                if (!_ctx.TryReadPointer(reloc, out uint target)) continue;
+                // 32-bit ARM: a Thumb code pointer points one byte past its function
+                if (_ctx.ArmModes != null && (target & 1) != 0 && _ctx.Code.IsCode(target)) target &= ~1u;
+                pointers.Add(new CodeXref(reloc, target, XrefKind.Pointer));
             }
             total += pointers.Count;
             if (total > options.MaxXrefs)

@@ -31,6 +31,7 @@ public sealed class NativeDisassembler
     private readonly Arm64Decoder? _arm;
     private readonly AsmArm64.Arm64InstructionFormattingOptions _armOptions = new() { UseUppercaseHex = true };
     private readonly char[] _armText = new char[256];
+    private readonly Arm32Decoder? _arm32;
 
     private sealed class Resolver(INativeImage image) : ISymbolResolver
     {
@@ -56,16 +57,22 @@ public sealed class NativeDisassembler
         }
     }
 
-    /// <exception cref="NotSupportedException">The image is not x86, x64 or ARM64.</exception>
+    /// <exception cref="NotSupportedException">The image is not x86, x64, ARM64 or 32-bit ARM.</exception>
     public NativeDisassembler(INativeImage image, ICodeSymbols? symbols = null) : this(image, symbols, SortedRelocations(image)) { }
 
-    internal NativeDisassembler(INativeImage image, ICodeSymbols? symbols, uint[] sortedRelocations)
+    /// <param name="armModes">32-bit ARM: the instruction state per function of a code index (else read from the image).</param>
+    internal NativeDisassembler(INativeImage image, ICodeSymbols? symbols, uint[] sortedRelocations, Arm32Modes? armModes = null, ImageCode? code = null)
     {
         _image = image;
         _symbols = symbols;
         if (image.Arch == NativeArch.Arm64)
         {
             _arm = new Arm64Decoder(image, null, sortedRelocations);
+            return;
+        }
+        if (image.Arch == NativeArch.Arm)
+        {
+            _arm32 = new Arm32Decoder(image, code, sortedRelocations, armModes ?? new Arm32Modes(image));
             return;
         }
         if (image.Arch is not (NativeArch.X86 or NativeArch.X64))
@@ -93,15 +100,29 @@ public sealed class NativeDisassembler
     public DisasmLine? DecodeOne(uint rva, IReadOnlyDictionary<uint, string>? labels = null)
     {
         _arm?.BeginRun(IndexBound.None);
+        rva = BeginArm32(rva);
         return Next(rva, labels);
     }
 
-    /// <summary>The instruction at <paramref name="rva"/>, continuing the current run (ARM64 keeps ADRP pairs across lines).</summary>
+    /// <summary>32-bit ARM: a new run; an odd address is Thumb code at the address below it (an interworking pointer).</summary>
+    private uint BeginArm32(uint rva)
+    {
+        if (_arm32 == null) return rva;
+        _arm32.BeginRun(IndexBound.None);
+        if ((rva & 1) != 0) { _arm32.Pin(true); return rva & ~1u; }
+        _arm32.Unpin();
+        return rva;
+    }
+
+    /// <summary>The ARM state 32-bit ARM code at <paramref name="rva"/> is decoded in (true: Thumb); null for other instruction sets.</summary>
+    public bool? ThumbAt(uint rva) => _arm32 == null ? null : (rva & 1) != 0 || _arm32.Modes.At(rva);
+
+    /// <summary>The instruction at <paramref name="rva"/>, continuing the current run (ARM keeps address-forming pairs across lines).</summary>
     private DisasmLine? Next(uint rva, IReadOnlyDictionary<uint, string>? labels)
     {
         Insn insn;
-        if (_arm != null ? !_arm.DecodeMapped(rva, out insn) : !_decoder!.DecodeMapped(rva, out insn)) return null;
-        return Line(in insn, labels);
+        bool decoded = _arm != null ? _arm.DecodeMapped(rva, out insn) : _arm32 != null ? _arm32.DecodeMapped(rva, out insn) : _decoder!.DecodeMapped(rva, out insn);
+        return decoded ? Line(in insn, labels) : null;
     }
 
     /// <summary>
@@ -112,6 +133,7 @@ public sealed class NativeDisassembler
     {
         var lines = new List<DisasmLine>();
         _arm?.BeginRun(IndexBound.None);
+        rva = BeginArm32(rva);
         while (lines.Count < maxInstructions && rva < end)
         {
             var line = Next(rva, labels);
@@ -131,6 +153,7 @@ public sealed class NativeDisassembler
         string text;
         if (insn.Flow == FlowKind.Invalid) text = "(bad)";
         else if (_arm != null) text = FormatArm64(in insn, labels);
+        else if (_arm32 != null) text = FormatArm32(labels);
         else
         {
             _resolver!.Current = insn;
@@ -144,10 +167,10 @@ public sealed class NativeDisassembler
             if (insn.HasMem) comment = _symbols.CommentFor(insn.MemTarget);
             if (comment == null && insn.HasImm) comment = _symbols.CommentFor(insn.ImmTarget);
         }
-        if (_arm != null && comment == null && insn.Flow != FlowKind.Invalid && (insn.HasMem || insn.HasImm))
+        if ((_arm != null || _arm32 != null) && comment == null && insn.Flow != FlowKind.Invalid && (insn.HasMem || insn.HasImm))
         {
-            // the address an ADRP pair or a load through a slot forms is not in the operand text
-            uint at = insn.HasMem ? insn.MemTarget : insn.ImmTarget;
+            // the address an ADRP pair, a PC-relative pair or a load through a slot forms is not in the operand text
+            uint at = insn.HasImm && _arm32 != null ? insn.ImmTarget : insn.HasMem ? insn.MemTarget : insn.ImmTarget;
             comment = labels?.GetValueOrDefault(at) ?? _symbols?.NameAt(at) ?? $"0x{_image.ImageBase + at:X}";
         }
         return new DisasmLine(insn.Rva, _image.ImageBase + insn.Rva, hex, text, comment, Facts(in insn));
@@ -182,6 +205,22 @@ public sealed class NativeDisassembler
         int space = text.IndexOf(' ');
         return space < 0 ? text.ToString() : string.Concat(text[..space].ToString().PadRight(6), " ", text[(space + 1)..].ToString());
     }
+
+    /// <summary>ARM syntax; branch, ADR and literal addresses by name when known.</summary>
+    private string FormatArm32(IReadOnlyDictionary<uint, string>? labels)
+    {
+        var image = _image;
+        var symbols = _symbols;
+        return _arm32!.Last.Format(va =>
+        {
+            if (va < image.ImageBase || va - image.ImageBase >= image.SizeOfImage) return null;
+            uint rva = (uint)(va - image.ImageBase);
+            return labels?.GetValueOrDefault(rva) ?? symbols?.NameAt(rva);
+        });
+    }
+
+    /// <summary>The last decoded 32-bit ARM instruction (the inspector reads its operands).</summary>
+    internal ArmInstruction? LastArm32 => _arm32?.Last;
 
     internal static InstructionFacts Facts(in Insn i) => new(
         i.Rva, i.Length, i.Flow,

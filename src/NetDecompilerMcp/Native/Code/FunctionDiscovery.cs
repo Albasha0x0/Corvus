@@ -125,6 +125,12 @@ internal sealed class FunctionDiscovery
 
     private void Add(uint rva, FunctionSource source, bool strong)
     {
+        // 32-bit ARM: an odd start is a Thumb function one byte lower
+        if (_ctx.ArmModes is { } modes && (rva & 1) != 0)
+        {
+            rva &= ~1u;
+            modes.Hint(rva, true);
+        }
         if (_functions.TryGetValue(rva, out var existing)) { _functions[rva] = existing | source; return; }
         if (_functions.Count >= _ctx.Options.MaxFunctions) { FunctionsTruncated = true; return; }
         _functions[rva] = source;
@@ -176,7 +182,7 @@ internal sealed class FunctionDiscovery
     private void Explore(uint root)
     {
         List<(uint Begin, uint End)>? own = _ctx.PdataRanges.TryGetValue(root, out var r) ? r : null;
-        _dec.BeginFunction();
+        _dec.BeginFunction(root);
         _work.Clear();
         _work.Push((root, IndexBound.None));
         while (_work.Count > 0)
@@ -186,7 +192,7 @@ internal sealed class FunctionDiscovery
             if (region == null) continue;
             if (_starts[region.BitBase + (a - region.Rva)])
             {
-                if (bound.IsKnown && _pendingSwitches.Count > 0) RetrySwitches(a, bound, own);
+                if (bound.IsKnown && _pendingSwitches.Count > 0) RetrySwitches(a, bound, own, root);
                 continue;
             }
             _dec.BeginRun(bound);
@@ -262,20 +268,25 @@ internal sealed class FunctionDiscovery
                 }
                 return true;
             case FlowKind.IndirectJump:
-                if (insn.HasMem && _ctx.ImportSlots.ContainsKey(insn.MemTarget)) return false;
+                // a conditional dispatch (ARM32 ldrls pc / addls pc) falls through to its default
+                if (insn.HasMem && _ctx.ImportSlots.ContainsKey(insn.MemTarget)) return insn.Conditional;
                 if (_dec.MatchSwitch(out _) is { } m && _ctx.ReadSwitch(insn.Rva, m, own, out _) is { } table) FollowSwitch(table);
-                else _pendingSwitches.Add(insn.Rva);
-                return false;
+                else if (!insn.Conditional) _pendingSwitches.Add(insn.Rva);
+                return insn.Conditional;
             case FlowKind.Next:
                 return true;
+            case FlowKind.Return:
+                return insn.Conditional;
             default:
                 return false;
         }
     }
 
     /// <summary>A path with a known index bound reaches decoded code: retries the unresolved switches it leads to.</summary>
-    private void RetrySwitches(uint a, IndexBound bound, List<(uint Begin, uint End)>? own)
+    private void RetrySwitches(uint a, IndexBound bound, List<(uint Begin, uint End)>? own, uint root)
     {
+        if (_pendingSwitches.GetViewBetween(a, a + 512).Count == 0) return;
+        _peek.BeginFunction(root);
         foreach (uint jump in _pendingSwitches.GetViewBetween(a, a + 512).ToList())
         {
             if (SwitchDispatch.Redecode(_peek, _ctx, a, bound, jump, own) is not { } table) continue;
@@ -342,7 +353,14 @@ internal sealed class FunctionDiscovery
             long bit = _ctx.Code.BitIndex(reloc);
             if ((bit >= 0) != inCode) continue;
             if (bit >= 0 && (_covered[bit] || tableEntries!.Contains(reloc))) continue;
-            if (_ctx.TryReadPointer(reloc, out uint target) && _ctx.Code.IsCode(target)) result.Add(target);
+            if (!_ctx.TryReadPointer(reloc, out uint target) || !_ctx.Code.IsCode(target)) continue;
+            // ARM32: bit 0 of a code pointer selects Thumb state
+            if (_ctx.ArmModes is { } modes && (target & 1) != 0)
+            {
+                target &= ~1u;
+                modes.Hint(target, true);
+            }
+            result.Add(target);
         }
         return result;
     }
@@ -455,6 +473,7 @@ internal sealed class FunctionDiscovery
         var work = new Stack<uint>();
         work.Push(root);
         int count = 0;
+        _peek.BeginFunction(root);
         while (work.Count > 0)
         {
             uint a = work.Pop();
@@ -513,6 +532,8 @@ internal sealed class FunctionDiscovery
                         break;
                     case FlowKind.IndirectJump:
                     case FlowKind.Return:
+                        if (insn.Conditional) break;
+                        goto endRun;
                     case FlowKind.Trap:
                         goto endRun;
                 }

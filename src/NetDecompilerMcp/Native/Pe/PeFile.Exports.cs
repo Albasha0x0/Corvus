@@ -89,6 +89,7 @@ public sealed partial class PeFile
             string? forwarder = null;
             if (rva >= forwardStart && rva < forwardEnd)
                 forwarder = ReadName(rva, budget, log, "export forwarder") ?? "";
+            else if (Arch == NativeArch.Arm) rva &= ~1u; // Thumb bit
             if (first == k) entries.Add(new NativeExport(null, ordinal, rva, forwarder));
             for (int n = first; n < k; n++) entries.Add(new NativeExport(byIndex[n].Name, ordinal, rva, forwarder));
         }

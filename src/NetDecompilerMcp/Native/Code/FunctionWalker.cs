@@ -52,6 +52,8 @@ internal sealed class FunctionWalker
     /// <summary>Unresolved indirect jumps that a later path with a known bound may still resolve, and their runs.</summary>
     private readonly SortedSet<uint> _pending = [];
     private readonly Dictionary<uint, int> _pendingRun = [];
+    /// <summary>ARM32: some return is conditional (the run goes on after it).</summary>
+    private bool _conditionalReturn;
 
     public FunctionWalker(CodeContext ctx)
     {
@@ -68,7 +70,8 @@ internal sealed class FunctionWalker
         _visited.Clear(); _insns.Clear(); _lengths.Clear(); _runs.Clear(); _leaders.Clear(); _work.Clear(); _xrefs.Clear(); _callees.Clear();
         _branches.Clear(); _conditionals.Clear(); _switches.Clear(); _unresolved.Clear(); _tails.Clear(); _fallsInto.Clear(); _pending.Clear(); _pendingRun.Clear();
         var result = new WalkResult();
-        _dec.BeginFunction();
+        _conditionalReturn = false;
+        _dec.BeginFunction(start);
         // chained .pdata fragments only say which jumps stay inside the function: a fragment can begin with data
         // (a switch table), so fragments are reached by flow, never decoded from their begin
         var bodyOwn = _ctx.PdataRanges.GetValueOrDefault(start);
@@ -110,7 +113,7 @@ internal sealed class FunctionWalker
                 bool stop = Step(in insn, root, own, ref run, result);
                 a = insn.Next;
                 if (stop) break;
-                bool conditional = insn.Flow == FlowKind.ConditionalJump;
+                bool conditional = insn.Flow == FlowKind.ConditionalJump || insn.Conditional;
                 if (_visited.Contains(a))
                 {
                     run.EndKind = RunEnd.FallThrough;
@@ -260,17 +263,20 @@ internal sealed class FunctionWalker
             }
 
             case FlowKind.IndirectJump:
+            {
+                if (insn.Conditional) ConditionalFallThrough(in insn);
                 if (insn.HasMem && _ctx.ImportSlots.ContainsKey(insn.MemTarget))
                 {
                     _callees.Add(insn.MemTarget);
                     run.EndKind = RunEnd.TailCall;
-                    return true;
+                    return !insn.Conditional;
                 }
                 var match = _dec.MatchSwitch(out var reason);
                 var table = match != null ? _ctx.ReadSwitch(insn.Rva, match, own, out reason) : null;
                 if (table == null)
                 {
                     _unresolved.Add(new UnresolvedJump(insn.Rva, match == null && insn.HasMem && reason == SwitchMatch.NoDispatch ? $"jump through memory at rva 0x{insn.MemTarget:X}" : reason));
+                    if (insn.Conditional) return false;
                     _pending.Add(insn.Rva);
                     _pendingRun[insn.Rva] = _runs.Count;
                     run.EndKind = RunEnd.IndirectJump;
@@ -278,9 +284,16 @@ internal sealed class FunctionWalker
                 }
                 AddSwitch(insn.Rva, table);
                 run.EndKind = RunEnd.Switch;
-                return true;
+                return !insn.Conditional;
+            }
 
             case FlowKind.Return:
+                if (insn.Conditional)
+                {
+                    _conditionalReturn = true;
+                    ConditionalFallThrough(in insn);
+                    return false;
+                }
                 run.EndKind = RunEnd.Return;
                 return true;
 
@@ -289,6 +302,14 @@ internal sealed class FunctionWalker
                 return true;
         }
         return false;
+    }
+
+    /// <summary>ARM32 conditional return or dispatch: the block ends there and the next instruction is its other successor.</summary>
+    private void ConditionalFallThrough(in Insn insn)
+    {
+        _leaders.Add(insn.Next);
+        _conditionals.Add(insn.Rva);
+        _branches.Add((insn.Rva, insn.Next, EdgeKind.ConditionalFallThrough));
     }
 
     private void RecordData(in Insn insn)
@@ -313,7 +334,7 @@ internal sealed class FunctionWalker
 
     private void Summarize(WalkResult result, uint start)
     {
-        bool returns = false;
+        bool returns = _conditionalReturn;
         foreach (var r in _runs)
         {
             switch (r.EndKind)

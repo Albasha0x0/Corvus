@@ -737,7 +737,7 @@ internal static class Arm32Decode
             i.Shifted(rm, rotate != 0 ? ArmShift.Ror : ArmShift.None, rotate);
             return;
         }
-        if ((op1 & 8) != 0 && (op2 & 0xC) == 0)
+        if ((op1 & 8) != 0 && (op2 & 8) == 0)
         {
             string? op = (op1 & 7) switch { 1 => "add16", 2 => "asx", 6 => "sax", 5 => "sub16", 0 => "add8", 4 => "sub8", _ => null };
             if (op == null || Parallel(op, (op2 & 4) != 0, (int)(op2 & 3)) is not { } name) return;
@@ -1363,7 +1363,7 @@ internal static class Arm32Decode
                 long imm8 = w & 0xFF;
                 if (!vfp)
                 {
-                    Set(ref i, l ? "ldc" : "stc");
+                    Set(ref i, (l ? "ldc" : "stc") + ((w & 0x400000) != 0 ? "l" : ""));
                     i.Text($"p{coproc}"); i.Text($"c{rt}");
                     i.MemImm(rn, u ? imm8 * 4 : -imm8 * 4, !p ? ArmIndexing.PostIndex : wb ? ArmIndexing.PreIndex : ArmIndexing.Offset);
                     return;

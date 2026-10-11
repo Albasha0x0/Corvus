@@ -101,7 +101,7 @@ public sealed partial class PeFile : INativeImage
     public bool IsDll => (Coff.Characteristics & 0x2000) != 0;
     public bool IsDotNet => Directory(PeDirectory.ClrRuntimeHeader).Rva != 0;
     public ulong ImageBase => Optional.ImageBase;
-    public uint EntryPointRva => Optional.AddressOfEntryPoint;
+    public uint EntryPointRva => Arch == NativeArch.Arm ? Optional.AddressOfEntryPoint & ~1u : Optional.AddressOfEntryPoint;
     public uint SizeOfImage => Optional.SizeOfImage;
     public string SubsystemName => PeNames.Subsystem(Optional.Subsystem);
     public IReadOnlyList<string> CharacteristicNames => PeNames.FileCharacteristics(Coff.Characteristics);

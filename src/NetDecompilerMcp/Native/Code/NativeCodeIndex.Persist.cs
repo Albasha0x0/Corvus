@@ -13,7 +13,7 @@ public sealed partial class NativeCodeIndex
     /// (new fields, new cross-reference kinds such as virtual-call edges) or the analysis gives different results for the
     /// same bytes: saved indexes of another version are ignored and rebuilt.
     /// </summary>
-    public const int PersistFormatVersion = 3;
+    public const int PersistFormatVersion = 4;
 
     /// <summary>Read from the code index cache instead of built; <see cref="CacheLoadTime"/> says how long that took.</summary>
     public bool LoadedFromCache { get; private set; }
@@ -121,6 +121,7 @@ public sealed partial class NativeCodeIndex
         var thunks = Sorted(_ctx.Thunks.Keys);
         w.DeltaUInts(thunks);
         w.UInts(thunks.Select(t => _ctx.Thunks[t]).ToArray());
+        w.DeltaUInts(_ctx.ArmModes?.ArmStarts ?? []);
 
         WriteEh(w, ExceptionInfo);
         WriteVirtualCalls(w);
@@ -271,6 +272,7 @@ public sealed partial class NativeCodeIndex
         var thunkStarts = r.DeltaUInts();
         int tn = thunkStarts.Length;
         var thunkSlots = r.UInts(tn);
+        var armStarts = r.DeltaUInts();
         plan.Eh = ReadEh(ref r);
         var (virtualCalls, virtualEdges) = ReadVirtualCalls(ref r);
         if (!r.AtEnd) throw new InvalidDataException("data after the end of the index");
@@ -281,6 +283,7 @@ public sealed partial class NativeCodeIndex
             FunctionStarts = [.. functionStarts],
             NoReturn = [.. noReturn],
         };
+        ctx.ArmModes?.Load(functionStarts, armStarts);
         foreach (var s in localSubroutines) ctx.LocalSubroutines.Add(s);
         foreach (var s in funclets) ctx.Funclets.Add(s);
         for (int i = 0; i < tn; i++) ctx.Thunks[thunkStarts[i]] = thunkSlots[i];

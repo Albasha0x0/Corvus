@@ -29,6 +29,8 @@ internal struct Insn
     public OperandAccess MemAccess;
     public bool HasImm;
     public uint ImmTarget;
+    /// <summary>ARM32: a return or indirect jump that runs only when its condition holds; otherwise the next instruction runs.</summary>
+    public bool Conditional;
     public uint Next => Rva + (uint)Length;
 }
 
@@ -63,6 +65,9 @@ internal interface ICodeDecoder
 
     /// <summary>Starts the walk of a new function (forgets what was learned about the previous one).</summary>
     void BeginFunction() { }
+
+    /// <summary>Starts the walk of the function at <paramref name="start"/> (ARM32: decodes in that function's state).</summary>
+    void BeginFunction(uint start) => BeginFunction();
 
     /// <summary>Starts a new linear run; <paramref name="incoming"/> is a bound known on entry.</summary>
     void BeginRun(IndexBound incoming);
@@ -99,12 +104,14 @@ internal interface ICodeDecoder
 internal static class CodeDecoders
 {
     /// <param name="code">Executable code for <see cref="ICodeDecoder.Decode(uint, out Insn)"/>; null when only DecodeMapped is used.</param>
-    /// <param name="sortedRelocations">x86: relocations inside code (operand checks); ARM64: every relocated pointer location.</param>
+    /// <param name="sortedRelocations">x86: relocations inside code (operand checks); ARM: every relocated pointer location.</param>
+    /// <param name="armModes">ARM32: the instruction state per function (a new one from the image when null).</param>
     public static ICodeDecoder Create(INativeImage image, ImageCode? code, uint[] sortedRelocations, IReadOnlySet<uint>? importSlots = null,
-        (uint Start, uint End)[]? dataInCode = null) => image.Arch switch
+        (uint Start, uint End)[]? dataInCode = null, Arm32Modes? armModes = null) => image.Arch switch
     {
         NativeArch.X86 or NativeArch.X64 => new X86Decoder(image, code, sortedRelocations),
         NativeArch.Arm64 => new Arm64Decoder(image, code, sortedRelocations, importSlots, dataInCode),
+        NativeArch.Arm => new Arm32Decoder(image, code, sortedRelocations, armModes ?? new Arm32Modes(image), importSlots, dataInCode),
         _ => throw new NotSupportedException(InstructionSets.For(image.Arch).Reason),
     };
 }
