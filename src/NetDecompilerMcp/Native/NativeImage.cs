@@ -50,8 +50,11 @@ public sealed record NativeSection(string Name, uint Rva, uint VirtualSize, uint
 /// </summary>
 public sealed record NativeImport(string Module, string? Name, ushort? Ordinal, ushort Hint, uint SlotRva, bool IsDelayLoad);
 
-/// <summary>One exported entry. <see cref="ForwardedTo"/> is set (and <see cref="Rva"/> points at the forwarder string) for forwarded exports.</summary>
-public sealed record NativeExport(string? Name, uint Ordinal, uint Rva, string? ForwardedTo);
+/// <summary>
+/// One exported entry. <see cref="ForwardedTo"/> is set (and <see cref="Rva"/> points at the forwarder string) for forwarded exports;
+/// <see cref="Version"/> is an ELF symbol version as the name's suffix: @@NAME for the default, @NAME for another.
+/// </summary>
+public sealed record NativeExport(string? Name, uint Ordinal, uint Rva, string? ForwardedTo, string? Version = null);
 
 /// <summary>A function range from the exception directory (.pdata) on x64, ARM64 and ARM.</summary>
 public sealed record RuntimeFunction(uint BeginRva, uint EndRva, uint UnwindInfoRva);

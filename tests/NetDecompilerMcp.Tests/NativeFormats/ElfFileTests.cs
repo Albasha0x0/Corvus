@@ -185,6 +185,24 @@ public sealed class ElfFileTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task Versions_OfExportsTellTwoDefinitionsOfOneNameApart()
+    {
+        var w = SampleElf();
+        uint at = ElfWriter.TextRva;
+        w.Symbols.Add(new ElfWriter.Symbol("sample_attr", at, 4, Version: "LIB_2.34"));
+        w.Symbols.Add(new ElfWriter.Symbol("sample_attr", at, 4, Version: "LIB_2.2.5", Hidden: true));
+        var elf = Parse(w);
+        Assert.Equal(["@@LIB_2.34", "@LIB_2.2.5"], elf.Exports.Where(e => e.Name == "sample_attr").Select(e => e.Version));
+
+        using var dir = new TempDir();
+        File.WriteAllBytes(dir.File("libver.so"), w.Build());
+        using var env = new Env();
+        var list = await new NetDecompilerMcp.Tools.NativeTools(env.Workspace, env.Pager).ListExports(dir.File("libver.so"), filter: "sample_attr");
+        Assert.Contains("sample_attr@@LIB_2.34", list);
+        Assert.Contains("sample_attr@LIB_2.2.5", list);
+    }
+
+    [Fact]
     public void Notes_AndroidIdent()
     {
         var w = SampleElf();

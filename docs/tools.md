@@ -944,7 +944,7 @@ Structured output: `image`, `items`, `offset`, `total`, `truncated`, `bindings`.
 
 **List native exports** (read-only, idempotent)
 
-A native image's exported functions and data: ordinal, VA, name (with the demangled MSVC or Itanium C++ form), forwarders (Mach-O re-exports).
+A native image's exported functions and data: ordinal, VA, name (with the demangled MSVC or Itanium C++ form and the ELF symbol version, name@@VERSION), forwarders (Mach-O re-exports).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

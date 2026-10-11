@@ -160,7 +160,8 @@ public sealed record ImportEntry(
 public sealed record ImportList(string Image, IReadOnlyList<ImportEntry> Items, int Offset, int Total, bool Truncated,
     [property: Description("bind=true: counts of bound / not loaded / unresolved.")] string? Bindings);
 
-public sealed record ExportEntry(int Ordinal, [property: Description("VA; null for a forwarder.")] string? Address, string? Name, string? Demangled, string? ForwardedTo);
+public sealed record ExportEntry(int Ordinal, [property: Description("VA; null for a forwarder.")] string? Address, string? Name, string? Demangled, string? ForwardedTo,
+    [property: Description("ELF symbol version: @@VERSION (default) or @VERSION.")] string? Version = null);
 
 public sealed record ExportList(string Image, IReadOnlyList<ExportEntry> Items, int Offset, int Total, bool Truncated);
 

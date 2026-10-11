@@ -293,7 +293,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     private static partial System.Text.RegularExpressions.Regex DynamicRow();
 
     [McpServerTool(Name = "list_exports", Title = "List native exports", UseStructuredContent = true, OutputSchemaType = typeof(ExportList))]
-    [Description("A native image's exported functions and data: ordinal, VA, name (with the demangled MSVC or Itanium C++ form), forwarders (Mach-O re-exports).")]
+    [Description("A native image's exported functions and data: ordinal, VA, name (with the demangled MSVC or Itanium C++ form and the ELF symbol version, name@@VERSION), forwarders (Mach-O re-exports).")]
     public Task<string> ListExports(
         [Description(ImageDescription)] string image,
         [Description("Only exports whose name contains this text (case-insensitive; matches the demangled form too).")] string? filter = null,
@@ -312,10 +312,10 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
             var demangled = !ordinals ? Native.Itanium.ItaniumDemangler.Demangle(e.Name, stripUnderscore: pe.Format == ImageFormat.MachO)
                 : e.Name is { } n && (n.StartsWith('?') || n.StartsWith('@') || n.StartsWith('_')) ? Native.Msvc.MsvcDemangler.Undecorate(n, Native.Msvc.MsvcNameStyle.Full) : null;
             if (filter != null && !name.Contains(filter, StringComparison.OrdinalIgnoreCase) && demangled?.Contains(filter, StringComparison.OrdinalIgnoreCase) != true) continue;
-            rows.Add($"{(ordinals ? $"#{e.Ordinal,-5} " : "")}{(e.ForwardedTo != null ? (ordinals ? "forwarder" : "re-export").PadRight(18) : NativeAddress.Va(pe, e.Rva).PadRight(18))} {name}" +
+            rows.Add($"{(ordinals ? $"#{e.Ordinal,-5} " : "")}{(e.ForwardedTo != null ? (ordinals ? "forwarder" : "re-export").PadRight(18) : NativeAddress.Va(pe, e.Rva).PadRight(18))} {name}{e.Version}" +
                      (demangled != null && demangled != name ? $"  = {demangled}" : "") + (e.ForwardedTo != null ? $"  -> {e.ForwardedTo}" : ""));
             items.Add(new ExportEntry((int)e.Ordinal, e.ForwardedTo != null ? null : NativeAddress.Va(pe, e.Rva), e.Name,
-                demangled != null && demangled != name ? demangled : null, e.ForwardedTo));
+                demangled != null && demangled != name ? demangled : null, e.ForwardedTo, e.Version));
         }
         return StructuredOutput.With(pager.PageRows(rows, offset, limit, "export"),
             Paged(items, offset, limit, (page, o, total, more) => new ExportList(native.Id, page, o, total, more)));

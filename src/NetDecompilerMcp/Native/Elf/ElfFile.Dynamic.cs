@@ -5,10 +5,11 @@ namespace NetDecompilerMcp.Native.Elf;
 
 /// <summary>
 /// A symbol table entry. <see cref="Value"/> is the raw st_value (a virtual address for defined symbols, with the Thumb
-/// bit for ARM Thumb functions). <see cref="Version"/> and <see cref="VersionLibrary"/> come from the GNU version tables.
+/// bit for ARM Thumb functions). <see cref="Version"/>, <see cref="VersionLibrary"/> and <see cref="VersionHidden"/> (a
+/// non-default version, name@VERSION rather than name@@VERSION) come from the GNU version tables.
 /// </summary>
 public sealed record ElfSymbol(int Index, string Name, ulong Value, ulong Size, byte Type, byte Binding, byte Visibility, ushort SectionIndex,
-    string? Version = null, string? VersionLibrary = null)
+    string? Version = null, string? VersionLibrary = null, bool VersionHidden = false)
 {
     public const byte TypeNone = 0, TypeObject = 1, TypeFunction = 2, TypeSection = 3, TypeFile = 4, TypeCommon = 5, TypeTls = 6, TypeIndirectFunction = 10;
     public const byte BindLocal = 0, BindGlobal = 1, BindWeak = 2;
@@ -195,7 +196,7 @@ public sealed partial class ElfFile
         for (int i = 0; i < count && budget.Step(); i++)
         {
             var sym = ReadSymbol(symtab, i * (long)symEnt, i, strtab, log, budget);
-            if (versions != null && i < versions.Length && versions[i] is { } v) sym = sym with { Version = v.Name, VersionLibrary = v.Library };
+            if (versions != null && i < versions.Length && versions[i] is { } v) sym = sym with { Version = v.Name, VersionLibrary = v.Library, VersionHidden = v.Hidden };
             d.Symbols.Add(sym);
         }
         return d;
@@ -291,7 +292,7 @@ public sealed partial class ElfFile
         return words;
     }
 
-    private readonly record struct VersionName(string? Name, string? Library);
+    private readonly record struct VersionName(string? Name, string? Library, bool Hidden = false);
 
     /// <summary>Per dynamic symbol: its version and, for imports, the library that provides it (DT_VERSYM with DT_VERNEED / DT_VERDEF).</summary>
     private VersionName?[]? ReadVersions(DynamicInfo d, ByteView strtab, int count, IssueLog log)
@@ -338,8 +339,8 @@ public sealed partial class ElfFile
         var result = new VersionName?[count];
         for (int i = 0; i < count && (i + 1) * 2L <= versym.Length; i++)
         {
-            int v = versym.U16(i * 2L) & 0x7FFF;
-            if (v >= 2 && names.TryGetValue(v, out var name)) result[i] = name;
+            int raw = versym.U16(i * 2L), v = raw & 0x7FFF;
+            if (v >= 2 && names.TryGetValue(v, out var name)) result[i] = name with { Hidden = (raw & 0x8000) != 0 };
         }
         return result;
     }

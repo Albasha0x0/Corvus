@@ -18,7 +18,8 @@ internal sealed class ElfWriter
 
     public const ushort EmX86 = 3, EmArm = 40, EmX64 = 62, EmAarch64 = 183, EmMips = 8;
 
-    public sealed record Symbol(string Name, uint Value = 0, uint Size = 0, byte Type = 2, byte Bind = 1, bool Defined = true);
+    /// <summary>A dynamic symbol; <c>Version</c> on a defined one is a version it defines (DT_VERDEF), <c>Hidden</c> for name@VERSION.</summary>
+    public sealed record Symbol(string Name, uint Value = 0, uint Size = 0, byte Type = 2, byte Bind = 1, bool Defined = true, string? Version = null, bool Hidden = false);
     public sealed record Reloc(uint Offset, uint Type, string? Symbol = null, long Addend = 0);
     public enum HashKind { None, Sysv, Gnu, Both }
 
@@ -136,6 +137,8 @@ internal sealed class ElfWriter
         // Names first so .dynstr is complete before it is written.
         foreach (var s in dynsym.Skip(1)) dynstr.Add(s.Name);
         foreach (var (lib, ver) in Versions.Values) { dynstr.Add(lib); dynstr.Add(ver); }
+        var definedVersions = dynsym.Where(s => s.Defined && s.Version != null).Select(s => s.Version!).Distinct().ToList();
+        foreach (var v in definedVersions) dynstr.Add(v);
 
         var dynsymSec = Table(".dynsym", 11, 2, () => { foreach (var s in dynsym) WriteSym(w, s, dynstr, s.Defined ? (ushort)1 : (ushort)0); });
         dynsymSec.EntSize = (uint)SymSize;
@@ -143,21 +146,44 @@ internal sealed class ElfWriter
         var dynstrSec = Table(".dynstr", 3, 2, () => w.Bytes(dynstr.Bytes), 1);
         dynsymSec.Link = (uint)sections.IndexOf(dynstrSec) + 1;
 
-        Sec? hash = null, gnuHash = null, versym = null, verneed = null;
+        Sec? hash = null, gnuHash = null, versym = null, verneed = null, verdef = null;
         if (Hash is HashKind.Sysv or HashKind.Both)
             hash = Table(".hash", 5, 2, () => WriteSysvHash(w, dynsym), 4);
         if (Hash is HashKind.Gnu or HashKind.Both)
             gnuHash = Table(".gnu.hash", 0x6FFFFFF6, 2, () => WriteGnuHash(w, dynsym, symOffset, gnuBuckets));
         var libs = Versions.Values.Select(v => v.Library).Distinct().ToList();
         var versionIndex = Versions.Values.Distinct().Select((v, i) => (v, i)).ToDictionary(p => p.v, p => (ushort)(2 + p.i));
-        if (Versions.Count > 0)
+        // defined versions take the indexes after the needed ones
+        ushort DefIndex(string v) => (ushort)(2 + versionIndex.Count + definedVersions.IndexOf(v));
+        if (Versions.Count > 0 || definedVersions.Count > 0)
         {
             versym = Table(".gnu.version", 0x6FFFFFFF, 2, () =>
             {
                 foreach (var s in dynsym)
-                    w.U16(s.Name.Length == 0 ? (ushort)0 : Versions.TryGetValue(s.Name, out var v) ? versionIndex[v] : (ushort)1);
+                    w.U16(s.Name.Length == 0 ? (ushort)0
+                        : s.Defined && s.Version != null ? (ushort)(DefIndex(s.Version) | (s.Hidden ? 0x8000 : 0))
+                        : Versions.TryGetValue(s.Name, out var v) ? versionIndex[v] : (ushort)1);
             }, 2);
             versym.EntSize = 2;
+        }
+        if (definedVersions.Count > 0)
+            verdef = Table(".gnu.version_d", 0x6FFFFFFD, 2, () =>
+            {
+                for (int i = 0; i < definedVersions.Count; i++)
+                {
+                    w.U16(1);
+                    w.U16(0);
+                    w.U16(DefIndex(definedVersions[i]));
+                    w.U16(1);
+                    w.U32(ElfHash(definedVersions[i]));
+                    w.U32(20);
+                    w.U32(i + 1 < definedVersions.Count ? 28u : 0);
+                    w.U32(dynstr.Offset(definedVersions[i]));
+                    w.U32(0);
+                }
+            }, 4);
+        if (Versions.Count > 0)
+        {
             verneed = Table(".gnu.version_r", 0x6FFFFFFE, 2, () =>
             {
                 for (int li = 0; li < libs.Count; li++)
@@ -283,9 +309,14 @@ internal sealed class ElfWriter
             dyn.Add((35, relr.Size));
             dyn.Add((37, (ulong)WordSize));
         }
+        if (versym != null) dyn.Add((0x6FFFFFF0, Base + versym.Rva));
+        if (verdef != null)
+        {
+            dyn.Add((0x6FFFFFFC, Base + verdef.Rva));
+            dyn.Add((0x6FFFFFFD, (ulong)definedVersions.Count));
+        }
         if (versym != null && verneed != null)
         {
-            dyn.Add((0x6FFFFFF0, Base + versym.Rva));
             dyn.Add((0x6FFFFFFE, Base + verneed.Rva));
             dyn.Add((0x6FFFFFFF, (ulong)libs.Count));
         }
@@ -375,6 +406,7 @@ internal sealed class ElfWriter
             if (gnuHash != null) gnuHash.Link = (uint)sections.IndexOf(dynsymSec) + 1;
             if (versym != null) versym.Link = (uint)sections.IndexOf(dynsymSec) + 1;
             if (verneed != null) verneed.Link = (uint)sections.IndexOf(dynstrSec) + 1;
+            if (verdef != null) { verdef.Link = (uint)sections.IndexOf(dynstrSec) + 1; verdef.Info = (uint)definedVersions.Count; }
             foreach (var r in new[] { relDyn, relPlt, android }) if (r != null) r.Link = (uint)sections.IndexOf(dynsymSec) + 1;
             if (relPlt != null) relPlt.Info = (uint)sections.FindIndex(s => s.Name == ".got.plt") + 1;
             if (exidx != null) exidx.Link = (uint)sections.IndexOf(text) + 1;

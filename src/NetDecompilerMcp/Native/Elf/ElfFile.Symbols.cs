@@ -69,7 +69,7 @@ public sealed partial class ElfFile
                 log.Add($"more than {PeLimits.MaxExports} exports; the rest are not listed");
                 break;
             }
-            result.Exports.Add(new NativeExport(s.Name, 0, rva, null));
+            result.Exports.Add(new NativeExport(s.Name, 0, rva, null, s.Version == null ? null : (s.VersionHidden ? "@" : "@@") + s.Version));
         }
         return result;
     }
