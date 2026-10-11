@@ -17,12 +17,14 @@ public sealed class DecompilerResources(AssemblyWorkspace workspace, DecompilerS
     public const string Scheme = "netdecomp";
 
     [McpServerResource(UriTemplate = Scheme + "://assemblies", Name = "assemblies", Title = "Loaded assemblies", MimeType = "text/plain")]
-    [Description("The loaded assemblies, with ids, paths and unsaved edits.")]
+    [Description("The loaded assemblies and native images, with ids, paths, unsaved edits and patches.")]
     public string Assemblies() => workspace.Read(() =>
     {
         var sb = new StringBuilder();
         foreach (var a in workspace.Assemblies)
             sb.AppendLine($"{a.Id}\t{a.FullAssemblyName}\t{a.FilePath}{(a.IsDirty ? $"\t[{a.Edits.Count} unsaved edits]" : "")}");
+        foreach (var n in workspace.Natives)
+            sb.AppendLine($"{n.Id}\tnative\t{n.FilePath}{(n.HasPatches ? $"\t[{n.Patches.Patches.Count} unsaved patches]" : "")}");
         return sb.Length == 0 ? "No assemblies loaded." : sb.ToString();
     });
 

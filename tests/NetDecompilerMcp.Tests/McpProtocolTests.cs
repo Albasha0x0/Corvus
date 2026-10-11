@@ -414,6 +414,10 @@ public abstract class McpProtocolTests : IAsyncLifetime
             Assert.NotNull(_client.ServerCapabilities.Resources);
             Assert.NotNull(_client.ServerCapabilities.Prompts);
             Assert.NotNull(_client.ServerCapabilities.Completions);
+            // The development relay sends list_changed after it swaps servers.
+            Assert.True(_client.ServerCapabilities.Tools.ListChanged);
+            Assert.True(_client.ServerCapabilities.Prompts.ListChanged);
+            Assert.True(_client.ServerCapabilities.Resources.ListChanged);
         }
 
         [Trait("Speed", "Slow")]
@@ -436,6 +440,12 @@ public abstract class McpProtocolTests : IAsyncLifetime
             await Assert.ThrowsAnyAsync<McpException>(() => Read("netdecomp://assembly/TestFixture/type/Nope.Missing"));
             Assert.Equal(NetDecompilerMcp.Mcp.Guide.Topics["native"], await Read("netdecomp://guide/native"));
             await Assert.ThrowsAnyAsync<McpException>(() => Read("netdecomp://guide/nope"));
+
+            // Native images and their unsaved patches are listed too (the development relay reads them before a swap).
+            await Call("load_assembly", new() { ["path"] = NativeSample(_dir) });
+            await Call("patch_bytes", new() { ["image"] = "native.dll", ["address"] = "First", ["hex"] = "90" });
+            Assert.Contains("native.dll\tnative\t", await Read("netdecomp://assemblies"));
+            Assert.Contains("[1 unsaved patches]", await Read("netdecomp://assemblies"));
         }
 
         [Fact]
