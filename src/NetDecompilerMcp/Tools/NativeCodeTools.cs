@@ -294,11 +294,12 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
                  "and callers include call sites in other loaded images that import the function. Callees include late-bound imports called " +
                  "through a GetProcAddress pointer stored once ([dynamic]) and the implementations virtual calls reach, resolved through MSVC RTTI " +
                  "([virtual]: the only one; [virtual?: one of n]: one of several; find_virtual_calls lists the sites). Repeated subtrees and recursion are " +
-                 "marked instead of expanded. " + IndexNote)]
+                 "marked instead of expanded. direction=both: one level of callers and callees, each with its call site and flags (call or jump, " +
+                 "direct or indirect, external, virtual). " + IndexNote)]
     public Task<string> NativeCallTree(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string function,
-        [Description("callers or callees (default callees).")] string direction = "callees",
+        [Description("callers, callees (default) or both (depth 1, with call sites).")] string direction = "callees",
         [Description("Levels (1-8, default 3).")] int depth = 3,
         [Description("Max nodes (default 500).")] int maxNodes = 500,
         [Description(OffsetDescription)] int offset = 0,
@@ -309,11 +310,12 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        bool both = direction?.Trim().ToLowerInvariant() == "both";
         bool callers = direction?.Trim().ToLowerInvariant() switch
         {
             "callers" => true,
-            "callees" or null or "" => false,
-            _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown direction '{direction}'.", "use callers or callees"),
+            "callees" or "both" or null or "" => false,
+            _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown direction '{direction}'.", "use callers, callees or both"),
         };
         var edges = calls?.Trim().ToLowerInvariant() switch
         {
@@ -325,6 +327,12 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         var mode = Mode(engine);
         var (native, index) = await Open(image, context, progress, cancellationToken);
         var choice = Choose(mode, native, index);
+        if (both)
+        {
+            var sites = choice.External ? await _engine!.CallSites(native, index, Address(index, function), edges, choice, progress, cancellationToken)
+                : OurCallSites(index, FunctionAt(index, Address(index, function)), edges, cancellationToken);
+            return choice.Line + "\n" + pager.Page(sites, offset, maxChars);
+        }
         if (choice.External)
             return await _engine!.CallTree(native, index, Address(index, function), callers, Math.Clamp(depth, 1, 8), ClampLimit(maxNodes, 20_000), offset, maxChars,
                 edges, choice, progress, cancellationToken);

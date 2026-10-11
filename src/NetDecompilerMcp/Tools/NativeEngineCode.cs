@@ -345,6 +345,59 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
     /// Callers or callees through the engine's call and jump references; with a decoded image, the virtual call edges the
     /// built-in index resolved through RTTI are added where the engine has none (marked "ours"), filtered by <paramref name="edges"/>.
     /// </summary>
+    /// <summary>
+    /// One level of callers and callees by call site from the engine's call and jump references: a reference through an import
+    /// slot is indirect and external, a jump a tail call; with a decoded image the RTTI virtual edges it lacks are added (ours).
+    /// </summary>
+    public async Task<string> CallSites(LoadedNative native, NativeCodeIndex index, uint rva, CallEdgeFilter edges, EngineChoice choice,
+        IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    {
+        var session = await Session(native, choice, progress, ct);
+        var functions = await LoadFunctions(session, references: false, ct);
+        var root = functions.At(rva) ?? throw new ToolError(ErrorCode.NotFound, $"No function contains {Va(index, rva)} ({NativeEngineService.DisplayName(choice.Engine)}).", "list_functions shows the functions");
+        var imports = index.Image.Imports.GroupBy(i => i.SlotRva).ToDictionary(g => g.Key, g => g.First());
+        string FunctionName(uint start) => functions.ByStart.TryGetValue(start, out var info) ? Name(index, start, info.Name) : index.NameAt(start) ?? Va(index, start);
+        string Where(uint from) => functions.At(from) is { } f ? $"{FunctionName(f.StartRva)}+0x{from - f.StartRva:X}" : "(no function)";
+        bool direct = edges != CallEdgeFilter.Virtual, virtualEdges = edges != CallEdgeFilter.Direct && Decoded(index);
+        var callers = new List<(uint Site, string Row)>();
+        var callees = new List<(uint Site, string Row)>();
+        if (direct)
+        {
+            foreach (var x in await session.GetXrefsToAsync(root.StartRva, ct))
+                if (x.Kind is NativeXrefKind.Call or NativeXrefKind.Jump && !(x.Kind == NativeXrefKind.Jump && functions.At(x.FromRva)?.StartRva == root.StartRva))
+                    callers.Add((x.FromRva, $"  {Va(index, x.FromRva)}  {Where(x.FromRva)}  [{(x.Kind == NativeXrefKind.Call ? "call" : "jump")}, direct]"));
+            foreach (var x in await session.GetXrefsFromAsync(root.StartRva, wholeFunction: true, ct))
+            {
+                string kind = x.Kind == NativeXrefKind.Call ? "call" : "jump";
+                if (imports.TryGetValue(x.ToRva, out var imp))
+                    callees.Add((x.FromRva, $"  {Va(index, x.FromRva)}  -> {NativeCodeIndex.ImportName(imp)}  [{kind}, indirect, external]"));
+                else if (x.Kind == NativeXrefKind.Call || x.Kind == NativeXrefKind.Jump && functions.ByStart.ContainsKey(x.ToRva) && x.ToRva != root.StartRva)
+                {
+                    var target = functions.At(x.ToRva)?.StartRva ?? x.ToRva;
+                    callees.Add((x.FromRva, $"  {Va(index, x.FromRva)}  -> {FunctionName(target)}  {Va(index, target)}  [{kind}, direct" +
+                                            (functions.ByStart.ContainsKey(target) ? "" : ", external") + "]"));
+                }
+            }
+        }
+        if (virtualEdges)
+        {
+            var seen = callers.Select(c => c.Site).ToHashSet();
+            foreach (var v in index.VirtualEdgesTo(root.StartRva))
+                if (seen.Add(v.From)) callers.Add((v.From, $"  {Va(index, v.From)}  {Where(v.From)}  [{NativeCodeTools.SiteFlags(v.Kind)}, ours]"));
+            foreach (var v in index.VirtualEdgesFrom(root.StartRva, root.EndRva))
+            {
+                var target = functions.At(v.To)?.StartRva ?? v.To;
+                callees.Add((v.From, $"  {Va(index, v.From)}  -> {FunctionName(target)}  {Va(index, target)}  [{NativeCodeTools.SiteFlags(v.Kind)}, ours]"));
+            }
+        }
+        var sb = new StringBuilder($"; callers and callees of {FunctionName(root.StartRva)} at {Va(index, root.StartRva)}, one level, by call site {Via(choice.Engine)}\n");
+        sb.AppendLine($"callers ({callers.Count}):");
+        foreach (var c in callers.OrderBy(c => c.Site)) sb.AppendLine(c.Row);
+        sb.AppendLine($"callees ({callees.Count}):");
+        foreach (var c in callees.OrderBy(c => c.Site)) sb.AppendLine(c.Row);
+        return sb.ToString();
+    }
+
     public async Task<string> CallTree(LoadedNative native, NativeCodeIndex index, uint rva, bool callers, int depth, int maxNodes, int offset, int? maxChars,
         CallEdgeFilter edges, EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {

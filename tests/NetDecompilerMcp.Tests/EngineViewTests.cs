@@ -132,6 +132,26 @@ public sealed class EngineViewTests : IDisposable
         Assert.Equal(Core.ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => tools.ListCppClasses(rig.Image, engine: "ida"))).Code);
     }
 
+    [Fact]
+    public async Task Call_tree_both_lists_callers_and_callees_by_call_site_with_flags()
+    {
+        var rig = Setup();
+        var native = await Loaded(rig);
+        var ours = await rig.Tools.NativeCallTree(rig.Image, "First", direction: "both");
+        Assert.Contains("one level, by call site", ours);
+        Assert.Matches(@"callers \(\d+\):", ours);
+        Assert.Matches(@"callees \(\d+\):", ours);
+        Assert.Equal(0, rig.Provider.Opens);
+
+        var first = (await rig.Code.Index(native, null, default)).AddressOfName("First")!.Value;
+        rig.Provider.Functions = [new NativeFunctionInfo(first, first + 0x10, "First", NativeFunctionFlags.None),
+            new NativeFunctionInfo(first + 0x100, first + 0x110, "helper", NativeFunctionFlags.None)];
+        var engine = await rig.Tools.NativeCallTree(rig.Image, "First", direction: "both", engine: "ghidra");
+        Assert.Contains("(via Ghidra)", engine);
+        Assert.Matches(@"callers \(1\):\r?\n  0x[0-9A-F]+  \S+\+0x4  \[call, direct\]", engine);
+        Assert.Matches(@"callees \(1\):\r?\n  0x[0-9A-F]+  -> \S+  0x[0-9A-F]+  \[call, direct\]", engine);
+    }
+
     /// <summary>A Ghidra-like engine whose sessions answer the read views from fixed data.</summary>
     internal sealed class ViewProvider : INativeDecompilerProvider
     {
@@ -194,9 +214,14 @@ public sealed class EngineViewTests : IDisposable
             Task.FromResult(new PatchSyncResult(wanted.Count, 0, 0, 0, 0, 0, [], TimeSpan.Zero));
         public Task<DecompiledFunction> DecompileAsync(uint rva, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FunctionDisassembly> DisassembleAsync(uint rva, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<NativeXref>>([]);
+        // with two functions: the second calls the first at +4, the first calls the second at +4
+        public Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<NativeXref>>(provider.Functions.Count > 1 && rva == provider.Functions[0].StartRva
+                ? [new NativeXref(provider.Functions[1].StartRva + 4, rva, NativeXrefKind.Call, provider.Functions[1].StartRva)] : []);
+
         public Task<IReadOnlyList<NativeXref>> GetXrefsFromAsync(uint rva, bool wholeFunction = false, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<NativeXref>>([]);
+            Task.FromResult<IReadOnlyList<NativeXref>>(provider.Functions.Count > 1 && rva == provider.Functions[0].StartRva
+                ? [new NativeXref(rva + 4, provider.Functions[1].StartRva, NativeXrefKind.Call, rva)] : []);
         public Task<string> SetNameAsync(uint rva, string name, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<string> SetCommentAsync(uint rva, string text, bool repeatable = false, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<NameBatchResult> ApplyNamesAsync(IReadOnlyList<NativeNameItem> items, string? stampKey = null, string? stamp = null, bool save = false,
