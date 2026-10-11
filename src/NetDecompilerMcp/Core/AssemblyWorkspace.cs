@@ -429,7 +429,7 @@ public sealed class AssemblyWorkspace : IDisposable
             throw FindNative(id) is { } only
                 ? new ToolError(ErrorCode.Unsupported, $"'{identifier}' is a native image ({only.Image.MachineName}), not a .NET assembly.",
                     "use the native tools: get_pe_info, list_imports, list_exports, list_functions, disassemble")
-                : new ToolError(ErrorCode.NotLoaded, "No assemblies are loaded. Call load_assembly first.");
+                : NoAssemblies();
 
         var matches = all.Where(a => a.Id.Equals(id, StringComparison.OrdinalIgnoreCase)).ToList();
         if (matches.Count == 0)
@@ -448,13 +448,22 @@ public sealed class AssemblyWorkspace : IDisposable
         throw new ToolError(ErrorCode.NotFound, $"No loaded assembly matches '{identifier}'. Loaded: {string.Join(", ", all.Select(a => a.Id))}");
     }
 
+    private ToolError NoAssemblies()
+    {
+        var natives = _natives.ToArray();
+        return natives.Length == 0
+            ? new ToolError(ErrorCode.NotLoaded, "No assemblies are loaded. Call load_assembly first.")
+            : new ToolError(ErrorCode.NotLoaded,
+                $"No .NET assembly is loaded, only native images ({string.Join(", ", natives.Take(5).Select(n => n.Id))}{(natives.Length > 5 ? ", ..." : "")}).",
+                "use the native tools (list_functions, disassemble, native_call_tree, find_xrefs); find_call_paths takes native code as to=native:<image>!<function>");
+    }
+
     /// <summary>Resolves an optional assembly parameter; null or empty means all loaded assemblies.</summary>
     public IReadOnlyList<LoadedAssembly> Scope(string? identifier)
     {
         if (string.IsNullOrWhiteSpace(identifier))
         {
-            if (_assemblies.Count == 0)
-                throw new ToolError(ErrorCode.NotLoaded, "No assemblies are loaded. Call load_assembly first.");
+            if (_assemblies.Count == 0) throw NoAssemblies();
             return _assemblies.ToArray();
         }
         return [Get(identifier)];

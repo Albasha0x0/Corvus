@@ -70,6 +70,19 @@ public class WorkspaceTests
     }
 
     [Fact]
+    public void OnlyNativeImagesLoadedSaysSoAndPointsToTheNativeTools()
+    {
+        using var ws = new AssemblyWorkspace();
+        ws.LoadAny(NativeFormats.NativeFixtures.WinArm64DbgShim);
+        foreach (var error in new[] { Assert.Throws<ToolError>(() => ws.Scope(null)), Assert.Throws<ToolError>(() => ws.Get("Other")) })
+        {
+            Assert.Equal(ErrorCode.NotLoaded, error.Code);
+            Assert.Contains("only native images (dbgshim.dll)", error.Message);
+            Assert.Contains("native:<image>!<function>", error.Remediation);
+        }
+    }
+
+    [Fact]
     public void UnloadAndGenerationInvalidation()
     {
         using var ws = new AssemblyWorkspace();
