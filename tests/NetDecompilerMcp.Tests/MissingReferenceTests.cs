@@ -103,6 +103,39 @@ public class MissingReferenceTests : IDisposable
         Assert.True(exitCode == 0, string.Join("\n", Regex.Matches(output, @"[^\\/\r\n]+\.cs\(\d+,\d+\): error [^\r\n]*").Select(m => m.Value).Distinct()));
     }
 
+    /// <summary>
+    /// An exported project of MediatR (MediatR.Contracts missing) did not build: the stub left out types named only by
+    /// [assembly: TypeForwardedTo], and its ref readonly property lacked [IsReadOnly], so C# rejected it (CS0570).
+    /// </summary>
+    [Fact]
+    public void MissingDependency_StubHasForwardedTypesAndReadOnlyRefs()
+    {
+        var lib = Compile("Lib", """
+            namespace Lib
+            {
+                public class Moved { }
+                public interface IMarker<T> { }
+                public struct Unit { private static readonly Unit _value; public static ref readonly Unit Value => ref _value; }
+            }
+            """);
+        var app = _dir.File("App.dll");
+        File.WriteAllBytes(app, Compile("App", """
+            [assembly: System.Runtime.CompilerServices.TypeForwardedTo(typeof(Lib.Moved))]
+            [assembly: System.Runtime.CompilerServices.TypeForwardedTo(typeof(Lib.IMarker<>))]
+            namespace App { public class Uses { public Lib.Unit Get() => Lib.Unit.Value; } }
+            """, lib));
+        using var env = new Env(app);
+        var stub = NetDecompilerMcp.Core.ReferenceStubs.Build("Lib", null, [env.Fixture]);
+        Assert.NotNull(stub);
+        using var module = dnlib.DotNet.ModuleDefMD.Load(stub.Value.Image);
+        Assert.NotNull(module.Find("Lib.Moved", isReflectionName: false));
+        Assert.NotNull(module.Find("Lib.IMarker`1", isReflectionName: false));
+        Compile("Consumer", """
+            [assembly: System.Runtime.CompilerServices.TypeForwardedTo(typeof(Lib.Moved))]
+            public class C { public Lib.Unit Get() => Lib.Unit.Value; }
+            """, stub.Value.Image);
+    }
+
     [Fact]
     public void LocalFunction_CapturedByLambdas_IsNotLost()
     {

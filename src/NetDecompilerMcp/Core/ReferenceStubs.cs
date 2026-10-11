@@ -163,6 +163,9 @@ internal static class ReferenceStubs
 
             foreach (var tr in m.GetTypeRefs())
                 if (IsMissing(tr)) Info(tr);
+            // [assembly: TypeForwardedTo] names a type no TypeRef may mention.
+            foreach (var et in m.ExportedTypes)
+                if (MetadataUtil.Try(et.ToTypeRef) is { } forwarded && IsMissing(forwarded)) Info(forwarded);
             Attributes(m.Assembly);
             Attributes(m);
 
@@ -347,6 +350,28 @@ internal static class ReferenceStubs
             _ => importer.Import(sig),
         };
 
+        static bool ReadOnlyRef(TypeSig? sig) => sig is CModReqdSig { Modifier.FullName: "System.Runtime.InteropServices.InAttribute" };
+
+        MethodDefUser? isReadOnly = null;
+        MethodDefUser IsReadOnlyConstructor()
+        {
+            if (isReadOnly != null) return isReadOnly;
+            // Defined here, as compilers embed it, since the referenced core library may not have it.
+            var attribute = new TypeDefUser("System.Runtime.CompilerServices", "IsReadOnlyAttribute", CorLib("System", "Attribute"))
+            {
+                Attributes = TypeAttributes.NotPublic | TypeAttributes.Sealed | TypeAttributes.BeforeFieldInit,
+            };
+            isReadOnly = new MethodDefUser(".ctor", MethodSig.CreateInstance(module.CorLibTypes.Void),
+                MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName);
+            var body = new CilBody();
+            body.Instructions.Add(OpCodes.Ldnull.ToInstruction());
+            body.Instructions.Add(OpCodes.Throw.ToInstruction());
+            isReadOnly.Body = body;
+            attribute.Methods.Add(isReadOnly);
+            module.Types.Add(attribute);
+            return isReadOnly;
+        }
+
         memberCount = 0;
         foreach (var t in types.Values)
         {
@@ -393,6 +418,12 @@ internal static class ReferenceStubs
                     md.GenericParameters.Add(new GenericParamUser((ushort)i, GenericParamAttributes.NonVariant, "M" + i));
                 for (int i = 0; i < sig.Params.Count; i++)
                     md.ParamDefs.Add(new ParamDefUser(m.Name.StartsWith("set_", StringComparison.Ordinal) && i == sig.Params.Count - 1 ? "value" : "p" + i, (ushort)(i + 1)));
+                // C# reads modreq(InAttribute) only next to [IsReadOnly] (also on the property): a ref readonly return or an in parameter of a virtual.
+                if (ReadOnlyRef(sig.RetType))
+                    md.ParamDefs.Add(new ParamDefUser(null, 0));
+                foreach (var pd in md.ParamDefs)
+                    if (ReadOnlyRef(pd.Sequence == 0 ? sig.RetType : sig.Params[pd.Sequence - 1]))
+                        pd.CustomAttributes.Add(new CustomAttribute(IsReadOnlyConstructor()));
                 if (!md.IsAbstract && md.ImplAttributes != MethodImplAttributes.Runtime)
                 {
                     var body = new CilBody();
@@ -418,6 +449,7 @@ internal static class ReferenceStubs
                 var index = (getter?.MethodSig.Params ?? setter!.MethodSig.Params.Take(setter.MethodSig.Params.Count - 1).ToList()).ToArray();
                 bool isStatic = (getter ?? setter)!.IsStatic;
                 var property = new PropertyDefUser(group.Key, isStatic ? PropertySig.CreateStatic(propertyType, index) : PropertySig.CreateInstance(propertyType, index));
+                if (ReadOnlyRef(propertyType)) property.CustomAttributes.Add(new CustomAttribute(IsReadOnlyConstructor()));
                 if (getter != null) property.GetMethods.Add(getter);
                 if (setter != null) property.SetMethods.Add(setter);
                 def.Properties.Add(property);
