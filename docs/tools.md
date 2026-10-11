@@ -88,14 +88,14 @@ Structured output: `assemblies`, `searchDirectories`, `backgroundIndexing`, `con
 
 **Server status** (read-only, idempotent, open-world)
 
-Which server is running (version and commit, program path, install kind, start time, protocol, client), a digest of the tool and prompt catalog, what is loaded, background indexing state, response limits, long-running tools, which capabilities are available here with the reason and the fix when one is not, the tool families registered, and the tools or modes that cannot work here. Pass expectedCatalogDigest (from an earlier server_status, or NetDecompilerMcp doctor) to detect a stale server, and expectedExecutable to check that the client started the copy it was registered with.
+Which server runs (version, program, install kind, client), a catalog digest, what is loaded, limits, long-running tools, capabilities with the fix when missing, tool families, unusable tools, and engine sessions (busy op, queue). expectedCatalogDigest detects a stale server; expectedExecutable checks the registered copy.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `expectedCatalogDigest` | string |  |  | Catalog digest to compare with this server's (e.g. t92-0123456789ab.p5-01234567). |
-| `expectedExecutable` | string |  |  | Path of the server program the client is registered with, compared with the running one. |
+| `expectedCatalogDigest` | string |  |  | Catalog digest to compare (t92-0123456789ab.p5-01234567). |
+| `expectedExecutable` | string |  |  | Registered server program path, compared with the running one. |
 
-Structured output: `version`, `informationalVersion`, `executable`, `executableMatches`, `installKind`, `startedAt`, `uptimeSeconds`, `protocolVersion`, `client`, `catalogDigest`, `catalogMatches`, `catalogDifference`, `tools`, `loadedAssemblies`, `backgroundIndexing`, `maxOutputChars`, `timeoutSeconds`, `workingSetMB`, `capabilities`, `longRunningTools`, `toolsets`, `unavailableTools`, `notes`.
+Structured output: `version`, `informationalVersion`, `executable`, `executableMatches`, `installKind`, `startedAt`, `uptimeSeconds`, `protocolVersion`, `client`, `catalogDigest`, `catalogMatches`, `catalogDifference`, `tools`, `loadedAssemblies`, `backgroundIndexing`, `maxOutputChars`, `timeoutSeconds`, `workingSetMB`, `capabilities`, `longRunningTools`, `toolsets`, `unavailableTools`, `notes`, `engineTimeLimits`, `engineSessions`, `toolsFileAndTrace`.
 
 ### read_result
 
@@ -1235,6 +1235,7 @@ Targets of call and tail-jump sites in native code (x86 / x64 / ARM64), each wit
 | `engine` | string |  |  | Analysis used: auto (default: an engine whose analysis of this image is complete in this session, IDA first, else the built-in index; never starts one), ours (the built-in index), ida or ghidra (that engine, started or waited for). Server default: --engine or NDM_ENGINE. Values: auto, ours, ida, ghidra. |
 | `offset` | integer |  | `0` | Index of the first site. |
 | `limit` | integer |  | `100` | Max sites (default 100, max 1000). |
+| `timeoutSeconds` | integer |  |  | Seconds per engine request (default NDM_ENGINE_REQUEST_TIMEOUT); scans then answer partial. |
 
 Structured output: `image`, `scope`, `engine`, `total`, `byStatus`, `byMechanism`, `topUnresolved`, `offset`, `truncated`, `items`, `notes`.
 
@@ -1345,7 +1346,7 @@ C pseudocode of the native function containing an address, through IDA (Hex-Rays
 | `perFunctionSeconds` | integer |  | `60` | With functions: seconds per function (default 60, 1-600). |
 | `maxFunctions` | integer |  | `32` | With functions: functions decompiled (default 32, 1-200); the rest are skipped with a follow-up call. |
 | `refs` | boolean |  | `false` | With address: a footer on the first page listing the globals, functions, strings and imports used. |
-| `timeoutSeconds` | integer |  |  | Ghidra: decompiler seconds (1-600, default 60), retried once with 4x. |
+| `timeoutSeconds` | integer |  |  | Seconds for this call's engine requests (1-600; default NDM_ENGINE_REQUEST_TIMEOUT); Ghidra's decompiler retries once with 4x. |
 
 Structured output: `image`, `engine`, `items`, `total`, `succeeded`, `failed`, `skipped`, `next`.
 
