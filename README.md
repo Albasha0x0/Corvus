@@ -621,6 +621,17 @@ options (`Name=value;...`), and `NDM_GHIDRA_EXTENSIONS` a directory of Ghidra ex
 analyzer, for example), installed into the workers' private settings; nothing is downloaded. Projects are kept per file hash
 and configuration, so a changed profile or extension set analyzes again once.
 
+Other external programs are optional and each is found through one variable (a file or its folder), then as listed;
+`server_status` reports where each was found, its version, or the fix. They run in their own process tree with a minimal
+environment (path, temp, home and Android / Java variables only).
+
+| Variable | Program | Used for |
+|---|---|---|
+| `NDM_JAVA` | `java`, JDK 17+ (else `JAVA_HOME`, else `PATH`) | running the Java decompiler |
+| `NDM_JAVA_DECOMPILER` | the [jadx-headless-mcp](https://github.com/1013503897/jadx-headless-mcp) fat jar (Apache-2.0), started with `java -jar` | Java / Kotlin source |
+| `NDM_ADB` | `adb` (else `PATH`, else the Android SDK's `platform-tools`) | the Android device tools |
+| `NDM_AAPT2`, `NDM_APKSIGNER`, `NDM_DEX_DISASSEMBLER` | aapt2, the apksigner jar, the baksmali jar | test oracles only |
+
 Code that targets a .NET version not installed on the machine is read against that version's reference pack, which
 is downloaded once from nuget.org into the local app data folder. Set `NDM_OFFLINE=1` to never download; such code is
 then read against the nearest installed version.

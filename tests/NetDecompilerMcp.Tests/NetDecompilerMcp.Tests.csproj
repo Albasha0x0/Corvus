@@ -73,6 +73,7 @@
     <ProjectReference Include="..\..\src\NetDecompilerMcp\NetDecompilerMcp.csproj" />
     <ProjectReference Include="..\TestFixture\TestFixture.csproj" />
     <ProjectReference Include="..\TestFixture.Consumer\TestFixture.Consumer.csproj" />
+    <ProjectReference Include="..\TestFixture.FakeTools\TestFixture.FakeTools.csproj" />
   </ItemGroup>
 
   <!-- Programs the tests compile with external toolchains (pipeline round trip, NativeAOT samples): data, not part of this project. -->

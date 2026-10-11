@@ -121,6 +121,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
                 $"on: {code.AnnotationRoot}; this session {s.LayersRestored} layer(s) restored on load ({s.NamesRestored} names), {s.LayersSaved} saved" +
                 (s.LastProblem != null ? $"; last problem: {s.LastProblem}" : ""), null));
         }
+        capabilities.AddRange(ExternalToolCapabilities());
         int loaded = workspace.Read(() => workspace.Assemblies.Count + workspace.Natives.Count);
         var registered = (server?.ToolCollection?.Select(t => t.ProtocolTool.Name) ?? []).ToHashSet(StringComparer.Ordinal);
         var client = context?.Server?.ClientInfo;
@@ -135,6 +136,13 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             ToolAvailability.Of(registered, availability, options.IdaScripting, OperatingSystem.IsWindows()),
             NoteCountsOf(notes));
     }
+
+    /// <summary>One capability per external program the server runs (test oracles left out), probed once per file.</summary>
+    internal static IEnumerable<Capability> ExternalToolCapabilities() =>
+        Native.Providers.ExternalTools.Table.Where(t => !t.TestOracle).Select(Native.Providers.ExternalTools.Probe).Select(p =>
+            new Capability($"external tool: {p.Name}, for {p.Purpose}", p.Usable,
+                p.Usable ? $"{p.Path} (from {p.Source}{(p.Version != null ? $", version {p.Version}" : "")})" : p.Problem!,
+                p.Usable ? null : p.Remediation));
 
     private static NoteCounts? NoteCountsOf(NotesService? notes)
     {
