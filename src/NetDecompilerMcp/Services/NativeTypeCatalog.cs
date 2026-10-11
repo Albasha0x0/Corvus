@@ -165,7 +165,8 @@ public sealed class NativeTypeCatalog(AssemblyWorkspace workspace, NativeCodeSer
             if (hits.Count == 1 && hits[0].View is { } only) return (only, [], 1);
             if (hits.Count > 1)
                 throw new ToolError(ErrorCode.Ambiguous, $"{hits.Count} types are named '{name}': " +
-                    string.Join("; ", hits.Select(h => $"{h.Candidate.Id} ({h.Candidate.Kind}{SizeText(h.Candidate.Size)}, {h.Candidate.Source})")),
+                    string.Join("; ", hits.Take(20).Select(h => $"{h.Candidate.Id} ({h.Candidate.Kind}{SizeText(h.Candidate.Size)}, {h.Candidate.Source})")) +
+                    (hits.Count > 20 ? $"; +{hits.Count - 20} more" : ""),
                     "pass id= with one of these ids");
         }
         var found = await Collect(c, n => n.Contains(name, StringComparison.OrdinalIgnoreCase), name, null, ct).ConfigureAwait(false);
@@ -184,11 +185,20 @@ public sealed class NativeTypeCatalog(AssemblyWorkspace workspace, NativeCodeSer
         {
             IEnumerable<string> names = exact == StringComparison.Ordinal ? model.Named(text).Count > 0 ? [text] : [] : model.Names.Where(match);
             foreach (var n in names)
-                foreach (var index in model.Named(n))
+                // compilands repeat anonymous-namespace types and lambdas under their own unique names: one per layout
+                foreach (var same in Definitions(model, n))
                 {
                     if (hits.Count >= MaxCandidates) break;
+                    var index = same.First();
+                    var others = same.Skip(1).Select(PdbId).ToList();
                     var node = model.Node(index)!;
-                    var hit = new Hit(new NativeTypeCandidate(PdbId(index), node.Name, KindOf(node), node.Forward ? -1 : node.Size, Pdb), () => PdbView(c, index));
+                    NativeTypeView Build()
+                    {
+                        var v = PdbView(c, index);
+                        if (others.Count == 0) return v;
+                        return v with { Notes = [.. v.Notes, $"{others.Count} identical definition(s) from other compilands: {string.Join(", ", others.Take(10))}{(others.Count > 10 ? ", ..." : "")}"] };
+                    }
+                    var hit = new Hit(new NativeTypeCandidate(PdbId(index), node.Name, KindOf(node), node.Forward ? -1 : node.Size, Pdb), Build);
                     hits.Add(hit);
                     (pdbByName.TryGetValue(n, out var l) ? l : pdbByName[n] = []).Add(hit);
                 }
@@ -248,6 +258,25 @@ public sealed class NativeTypeCatalog(AssemblyWorkspace workspace, NativeCodeSer
             hits.AddRange(c.EngineRequested ? engineHits : engineHits.Where(h => !known.Contains(h.Candidate.Name)));
         }
         return hits;
+    }
+
+    /// <summary>The records named <paramref name="name"/> grouped by layout; forward-only records only when no definition has the name.</summary>
+    private static IEnumerable<List<uint>> Definitions(PdbTypeModel model, string name)
+    {
+        var named = model.Named(name);
+        if (named is [var single]) return [[single]];
+        var defined = named.Where(i => model.DefinitionOf(i) != 0).ToList();
+        return (defined.Count > 0 ? defined : named).GroupBy(i => Layout(model, i)).Select(g => g.ToList());
+    }
+
+    /// <summary>A record's layout as text: kind, size, members (offset, name, type, bits) and enumerators.</summary>
+    private static string Layout(PdbTypeModel model, uint index)
+    {
+        var node = model.Node(index)!;
+        var sb = new System.Text.StringBuilder($"{node.Kind};{node.Size};{node.Forward}");
+        foreach (var m in node.Members) sb.Append($";{m.Kind},{m.Offset},{m.Name},{model.Spell(m.Type)},{m.BitLength},{m.BitPosition}");
+        foreach (var e in node.Enumerators) sb.Append($";{e.Name}={e.Value}");
+        return sb.ToString();
     }
 
     private static bool IsTag(PdbTypeModel model, PdbTypedef t)

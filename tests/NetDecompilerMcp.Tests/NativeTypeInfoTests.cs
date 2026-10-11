@@ -174,6 +174,30 @@ public sealed class NativeTypeInfoTests : IDisposable
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => Get("Player", source: "nope"))).Code);
     }
 
+    /// <summary>Compilands repeat a type under their own unique names: identical layouts are one candidate, different ones stay ambiguous.</summary>
+    [Fact]
+    public async Task Identical_definitions_from_other_compilands_collapse()
+    {
+        var t = new TpiBuilder();
+        foreach (var unique in new[] { "?A0x1", "?A0x2", "?A0x3" })
+            t.Struct("Lambda", t.FieldList(TpiBuilder.Member(0x74, 0, "captured")), 4, unique: unique);
+        t.Struct("Pair", t.FieldList(TpiBuilder.Member(0x74, 0, "a")), 4, unique: "?A0x4");
+        t.Struct("Pair", t.FieldList(TpiBuilder.Member(0x74, 0, "b")), 4, unique: "?A0x5");
+        var msf = PdbBuilder.Sample().Msf();
+        msf.Streams[2] = t.Build();
+        File.WriteAllBytes(_dir.File("dups.pdb"), msf.Build());
+        var pdb = NetDecompilerMcp.Native.Pdb.PdbFile.Open(_dir.File("dups.pdb"));
+        var native = _env.Workspace.LoadAny(_image).Native!;
+        var c = new NativeTypeCatalog.Context
+        {
+            Native = native, PdbFile = pdb, Model = NetDecompilerMcp.Native.Pdb.PdbTypeModel.Of(pdb, 8), Sources = new HashSet<string> { NativeTypeCatalog.Pdb },
+        };
+        var catalog = new NativeTypeCatalog(_env.Workspace);
+        var lambda = (await catalog.Find(c, "Lambda", 0, 10, default)).View!();
+        Assert.Contains("2 identical definition(s) from other compilands: pdb:0x", Assert.Single(lambda.Notes, n => n.Contains("identical", StringComparison.Ordinal)));
+        Assert.Equal(ErrorCode.Ambiguous, (await Assert.ThrowsAsync<ToolError>(() => catalog.Find(c, "Pair", 0, 10, default))).Code);
+    }
+
     /// <summary>RTTI classes of the synthetic image: bases with offsets, vftables with named slots, and a slot address typed.</summary>
     [Fact]
     public async Task Rtti_classes_and_vftable_addresses()
