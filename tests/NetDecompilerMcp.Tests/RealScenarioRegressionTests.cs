@@ -371,6 +371,13 @@ public sealed class RealScenarioRegressionTests
         using var env = new Env(dir.File("App.dll"));
         var result = env.Edit(() => env.Edits.PatchMethodCSharp(env.One("App.C::Run"), "try { return 2; } catch (Exception e) { return e.Message.Length; }", dryRun: true, default));
         Assert.Contains("compiled OK", result, StringComparison.OrdinalIgnoreCase);
+
+        // add_types_csharp: the user's own file-level usings bind the same way
+        const string added = """
+            using System;
+            namespace App.Extra { public class D { public int Run() { try { return 2; } catch (Exception e) { return e.Message.Length; } } } }
+            """;
+        Assert.Contains("compiled OK", env.Edit(() => env.Edits.AddTypesCSharp(env.Fixture, added, dryRun: true, default)), StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

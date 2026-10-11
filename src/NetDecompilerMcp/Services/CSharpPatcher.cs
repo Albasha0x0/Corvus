@@ -168,7 +168,7 @@ public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, Decompile
         if (string.IsNullOrWhiteSpace(code))
             throw new ToolError(ErrorCode.InvalidArgument, "The C# source is empty.");
         var tree = CSharpSyntaxTree.ParseText(code, new CSharpParseOptions(LanguageVersion.Preview), cancellationToken: ct);
-        var root = tree.GetCompilationUnitRoot(ct).WithAdditionalAnnotations(UserCode);
+        var root = UsingsInsideNamespaces(tree.GetCompilationUnitRoot(ct)).WithAdditionalAnnotations(UserCode);
         tree = CSharpSyntaxTree.Create(root, new CSharpParseOptions(LanguageVersion.Preview));
         if (!root.DescendantNodes().OfType<BaseTypeDeclarationSyntax>().Any())
             throw new ToolError(ErrorCode.InvalidArgument, "The source declares no types. Pass whole type declarations (optionally inside a namespace).");
