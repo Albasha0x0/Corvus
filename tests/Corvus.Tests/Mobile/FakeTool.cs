@@ -12,7 +12,21 @@ internal sealed class FakeTool : IDisposable
     public const string ScriptVariable = "ADB_FAKE_SCRIPT";
     private const string Program = "TestFixture.FakeTools";
 
-    public static string Executable => Path.Combine(AppContext.BaseDirectory, Program + (OperatingSystem.IsWindows() ? ".exe" : ""));
+    public static string Executable => OperatingSystem.IsWindows() ? Path.Combine(AppContext.BaseDirectory, Program + ".exe") : UnixLauncher.Value;
+
+    // Off Windows the apphost finds a runtime outside the default locations (CI, ~/.dotnet) only through DOTNET_ROOT, which
+    // the minimal environment drops: a script runs the program with this runtime's dotnet host instead.
+    private static readonly Lazy<string> UnixLauncher = new(() => WriteLauncher(Path.Combine(AppContext.BaseDirectory, "fake-tool-bin", Program)));
+
+    private static string WriteLauncher(string path)
+    {
+        static string Quote(string s) => "'" + s.Replace("'", "'\\''") + "'";
+        var host = Path.GetFullPath(Path.Combine(System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory(), "..", "..", "..", "dotnet"));
+        System.IO.Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, $"#!/bin/sh\nexec {Quote(host)} {Quote(Path.Combine(AppContext.BaseDirectory, Program + ".dll"))} \"$@\"\n");
+        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return path;
+    }
 
     private readonly TempDir _dir = new();
     private readonly JsonObject _script = new() { ["rules"] = new JsonArray() };
@@ -61,10 +75,11 @@ internal sealed class FakeTool : IDisposable
 
     public List<string[]> ArgumentLists => Calls.OfType<JsonArray>().Select(a => a.Select(x => (string)x!).ToArray()).ToList();
 
-    /// <summary>A copy of the program under another name (with its .dll beside it), e.g. "adb" or "java".</summary>
+    /// <summary>The program under another name, e.g. "adb" or "java": a copy with its .dll beside it, off Windows a launcher.</summary>
     public string CopyAs(string name)
     {
         var dir = _dir.File("bin-" + name);
+        if (!OperatingSystem.IsWindows()) return WriteLauncher(Path.Combine(dir, name));
         System.IO.Directory.CreateDirectory(dir);
         foreach (var ext in new[] { ".dll", ".runtimeconfig.json", ".deps.json" })
             File.Copy(Path.Combine(AppContext.BaseDirectory, Program + ext), Path.Combine(dir, Program + ext), true);
