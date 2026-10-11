@@ -94,6 +94,15 @@ public static class Il2CppMetadataReader
             LibLogger.Writer = log;
             LibCpp2IlMain.Settings.AllowManualMetadataAndCodeRegInput = false; // it would read the console
             LibCpp2IlMain.Settings.DisableMethodPointerMapping = true;
+            var bytesForSearch = binary;
+            searchCandidates = new(() =>
+            {
+                try { return Il2CppRegistrationSearch.CodeRegistration(Native.NativeImageLoader.FromBytes(bytesForSearch, files.Binary), ct); }
+                catch (ToolError) { return []; }
+            });
+            searchIs64 = layout.Is64;
+            searchNote = null;
+            Il2CppBinary.OnRegistrationStructLocationFailure += LocateRegistrations;
             try
             {
                 var candidates = UnityVersions(files, headerVersion, notes);
@@ -143,6 +152,7 @@ public static class Il2CppMetadataReader
                                      : "check that both files come from the same build; Il2CppDumper/Cpp2IL output (DummyDll folder) can still be loaded");
                 }
                 if (tried.Count > 0) notes.Add($"Unity version {c.Version} ({c.Source}) after {tried.Count} other(s) failed: {string.Join("; ", tried)}");
+                if (searchNote != null) notes.Add(searchNote);
                 ct.ThrowIfCancellationRequested();
                 Il2CppGameModel model;
                 TimeSpan writeTime;
@@ -158,9 +168,40 @@ public static class Il2CppMetadataReader
             }
             finally
             {
+                Il2CppBinary.OnRegistrationStructLocationFailure -= LocateRegistrations;
+                searchCandidates = null;
                 LibCpp2IlMain.Reset();
                 LibLogger.Writer = Silent;
             }
+        }
+    }
+
+    /// <summary>The binary being read (under <see cref="Gate"/>), for <see cref="LocateRegistrations"/>; the note it leaves.</summary>
+    private static Lazy<List<Il2CppRegistrationSearch.Candidate>>? searchCandidates;
+    private static bool searchIs64;
+    private static string? searchNote;
+
+    /// <summary>
+    /// The library's fallback when its own search leaves the code registration unfound: our relocation-based candidates,
+    /// each read with the version's layout and kept when its module count and array pointer read back as found.
+    /// </summary>
+    private static void LocateRegistrations(Il2CppBinary binary, LibCpp2IL.Metadata.Il2CppMetadata metadata, ref Il2CppCodeRegistration? codeReg, ref Il2CppMetadataRegistration? metaReg)
+    {
+        if (codeReg != null || searchCandidates == null) return;
+        int ptr = searchIs64 ? 8 : 4;
+        int size = Il2CppCodeRegistration.GetStructSize(!searchIs64, metadata.MetadataVersion);
+        foreach (var c in searchCandidates.Value)
+        {
+            ulong start = c.FieldVa + (ulong)ptr - (ulong)size;
+            try
+            {
+                var read = binary.ReadReadableAtVirtualAddress<Il2CppCodeRegistration>(start);
+                if (read.codeGenModulesCount != c.Modules || read.addrCodeGenModulePtrs != c.ArrayVa) continue;
+                codeReg = read;
+                searchNote = $"code registration at 0x{start:X} found from the module list ({c.Modules} modules) after the library's search failed";
+                return;
+            }
+            catch (Exception ex) when (ex is not (OutOfMemoryException or OperationCanceledException)) { }
         }
     }
 
