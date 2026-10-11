@@ -209,6 +209,14 @@ public sealed class NativeTypeEditTests : IDisposable
             (await Assert.ThrowsAsync<ToolError>(() => tools.DeclareNativeTypes(native.Id, typeName: "Packet", members: "A=1", fields: "a: int"))).Code);
     }
 
+    [Fact]
+    public async Task Only_a_Ghidra_session_refreshes_the_ghidra_name_layer()
+    {
+        var (_, engine, code, native) = await Rig();
+        Assert.Null(GhidraNames.Refresh(native, await engine.OpenAsync(""), code));
+        Assert.Null(GhidraNames.LastRefresh(native));
+    }
+
     /// <summary>An engine that keeps named types and applies declarations and type edits as the workers do.</summary>
     internal sealed class ScriptedProvider : INativeDecompilerProvider
     {

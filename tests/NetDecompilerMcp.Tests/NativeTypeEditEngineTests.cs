@@ -1,4 +1,5 @@
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Native.Code;
 using NetDecompilerMcp.Native.Providers;
 using NetDecompilerMcp.Native.Providers.Ida;
 using NetDecompilerMcp.Services;
@@ -135,6 +136,22 @@ public sealed class NativeTypeEditEngineTests(ITestOutputHelper output) : IDispo
 
     [GhidraFact]
     public Task Struct_and_union_member_edits_apply_in_Ghidra_stay_over_declarations_and_reach_a_new_project() => MemberEdits("ghidra", "ghidra-m", "ghidra-n");
+
+    [GhidraFact]
+    public async Task Define_native_refreshes_the_ghidra_name_layer_in_the_background()
+    {
+        var rig = Setup("ghidra-g");
+        var path = Image();
+        output.WriteLine(await rig.Types.GetNativeFrame(path, Function, engine: "ghidra"));
+        Assert.True(await rig.Engines.GhidraNameLayer(rig.Native)! > 0);
+        var index = await rig.Code.Index(rig.Native, null, default);
+        NativeNameLayers.Of(rig.Native).Remove(NativeNameSource.Ghidra, index);
+        Assert.Null(NativeNameLayers.Of(rig.Native).Get(NativeNameSource.Ghidra));
+        var fn = rig.Native.Image.Exports.First(e => e.Name == Function).Rva;
+        await rig.Types.DefineNative(path, $"rva:0x{fn:X}", "function", engine: "ghidra");
+        Assert.True(await GhidraNames.LastRefresh(rig.Native)! > 0);
+        Assert.NotNull(NativeNameLayers.Of(rig.Native).Get(NativeNameSource.Ghidra));
+    }
 
     [IdaFact]
     public Task Type_renames_and_deletions_apply_in_IDA_stay_over_recovered_types_and_reach_a_new_database() =>

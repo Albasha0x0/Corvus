@@ -580,6 +580,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         var result = await userTypes.ApplyAsync(native, session, NativeUserTypeBatch.Empty with { Analysis = [edit] },
             (r, layer) => r.Items is [{ Applied: true }] ? layer.WithAnalysis(edit) : null, cancellationToken);
         var done = Outcome(result);
+        if (k != NativeAnalysisEdit.Data) _ = GhidraNames.Refresh(native, session, code);
         return $"{k} at {Va(native, rva)}{(stop is { } s ? $"-{Va(native, s)}" : "")}: {done.Text}";
     });
 

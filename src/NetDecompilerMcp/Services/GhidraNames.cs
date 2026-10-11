@@ -1,5 +1,6 @@
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native.Code;
+using NetDecompilerMcp.Native.Providers;
 using NetDecompilerMcp.Native.Providers.Ghidra;
 
 namespace NetDecompilerMcp.Services;
@@ -28,4 +29,25 @@ public static class GhidraNames
         if (code?.Ready(native) is { } built && !ReferenceEquals(built, index)) layers.ReplayInto(built);
         return names.Count;
     }
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<LoadedNative, Task<int>> Refreshes = new();
+
+    /// <summary>
+    /// After an analysis edit (define_native, reanalysis) in a Ghidra session, imports its names again in the background so
+    /// the layer follows functions made or removed; a single names pass, so the edit does not wait for it. Null for other engines.
+    /// </summary>
+    public static Task<int>? Refresh(LoadedNative native, INativeDecompilerSession session, NativeCodeService? code)
+    {
+        if (session is not GhidraSession ghidra) return null;
+        var task = Task.Run(async () =>
+        {
+            try { return await ImportAsync(native, ghidra, code, native.Released).ConfigureAwait(false); }
+            catch (Exception ex) when (ex is ToolError or OperationCanceledException or ObjectDisposedException) { return -1; }
+        });
+        Refreshes.AddOrUpdate(native, task);
+        return task;
+    }
+
+    /// <summary>The latest background refresh of the image's ghidra layer, or null when none ran.</summary>
+    public static Task<int>? LastRefresh(LoadedNative native) => Refreshes.TryGetValue(native, out var t) ? t : null;
 }
