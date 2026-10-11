@@ -14,7 +14,7 @@ public sealed record ContainerContents(string Kind, List<ExtractedItem> Items, L
 
 /// <summary>
 /// Opens one container level (callers recurse): .NET single-file bundles, Costura.Fody resources, ZIP-based packages
-/// (.nupkg, .apk / .aab, .zip) with Xamarin XALZ and assembly stores, otherwise carves embedded .NET images.
+/// (.nupkg, .apk / .aab, .zip) with XALZ / XAZS assemblies and .NET for Android assembly stores, otherwise carves embedded .NET images.
 /// All offsets are bounds-checked and decompression is bounded by <see cref="AnalysisLimits"/>.
 /// </summary>
 public static class Containers
@@ -38,6 +38,11 @@ public static class Containers
         {
             var decoded = Blob.TryXalz(data, limits.MaxItemBytes) ?? throw new ToolError(ErrorCode.MalformedInput, $"{name}: corrupt XALZ (LZ4) data.");
             return new ContainerContents("Xamarin XALZ", [new ExtractedItem(Path.GetFileName(name), decoded, "XALZ (LZ4) decompressed")], []);
+        }
+        if (kind.StartsWith("xazs", StringComparison.Ordinal))
+        {
+            var decoded = Blob.TryXazs(data, limits.MaxItemBytes) ?? throw new ToolError(ErrorCode.MalformedInput, $"{name}: corrupt XAZS (Zstandard) data.");
+            return new ContainerContents(".NET for Android XAZS", [new ExtractedItem(Path.GetFileName(name), decoded, "XAZS (Zstandard) decompressed")], []);
         }
 
         var pe = PeImage.TryParse(data);
@@ -165,6 +170,7 @@ public static class Containers
     private static bool IsAndroidDotNet(string entry) =>
         entry.StartsWith("assemblies/", StringComparison.Ordinal) || entry.Contains("libmonodroid", StringComparison.Ordinal)
         || entry.Contains("libmonosgen", StringComparison.Ordinal) || entry.Contains("libassemblies.", StringComparison.Ordinal)
+        || entry.EndsWith("libassembly-store.so", StringComparison.Ordinal)
         || entry.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || entry.EndsWith(".blob", StringComparison.OrdinalIgnoreCase);
 
     private static ContainerContents OpenZip(byte[] data, string name, AnalysisLimits limits, CancellationToken ct)
@@ -203,6 +209,8 @@ public static class Containers
             : "zip archive";
         var items = new List<ExtractedItem>();
         var notes = new List<string>();
+        var stores = new List<(string Path, byte[] Bytes)>();
+        Dictionary<(uint, int), string>? v1Names = null;
         long total = 0;
         foreach (var e in entries)
         {
@@ -221,22 +229,41 @@ public static class Containers
                 notes.Add($"Skipped {e.FullName}: larger than the extraction limit.");
                 continue;
             }
-            if (Blob.StartsWith(bytes, "XALZ"u8))
+            if (Blob.TryDecompressAssembly(bytes, limits.MaxItemBytes) is (var decoded, { } compression))
             {
-                var decoded = Blob.TryXalz(bytes, limits.MaxItemBytes);
-                if (decoded == null) { notes.Add($"Skipped {e.FullName}: corrupt XALZ data."); continue; }
-                items.Add(new ExtractedItem(e.FullName, decoded, $"{kind} entry {e.FullName} (XALZ LZ4)"));
+                var label = compression == "lz4" ? "XALZ LZ4" : "XAZS Zstandard";
+                if (decoded == null) { notes.Add($"Skipped {e.FullName}: corrupt {label} data."); continue; }
+                items.Add(new ExtractedItem(e.FullName, decoded, $"{kind} entry {e.FullName} ({label})"));
             }
-            else if (IsAssemblyStore(e.FullName, bytes))
-            {
-                var store = Carve(bytes, e.FullName, "Xamarin assembly store", limits, ct);
-                items.AddRange(store.Items.Select(i => i with { Origin = $"{e.FullName}: {i.Origin}" }));
-                notes.AddRange(store.Notes.Select(n => $"{e.FullName}: {n}"));
-            }
+            else if (IsAssemblyStore(e.FullName, bytes)) stores.Add((e.FullName, bytes));
             else
             {
+                if (Path.GetFileName(e.FullName) == "assemblies.manifest") v1Names = Mobile.AssemblyStore.ReadV1Manifest(Encoding.UTF8.GetString(bytes));
                 items.Add(new ExtractedItem(e.FullName, bytes, $"{kind} entry"));
             }
+        }
+        foreach (var (path, bytes) in stores) // after the loop: assemblies.manifest may come after the stores
+        {
+            ct.ThrowIfCancellationRequested();
+            var store = Mobile.AssemblyStore.TryRead(bytes, path, limits, v1Names);
+            notes.AddRange((store?.Issues ?? []).Select(i => $"{path}: {i.Message}."));
+            if (store is { Entries.Count: > 0 })
+            {
+                foreach (var a in store.Entries)
+                {
+                    var at = a.Abi == null ? $"assemblies/{a.Name}" : $"assemblies/{a.Abi}/{a.Name}";
+                    var origin = $"{path}: assembly store v{store.Version} ({store.Location}) entry {a.Index}" +
+                                 (a.Compression == "none" ? "" : a.Compression == "lz4" ? " (XALZ LZ4)" : " (XAZS Zstandard)") + (a.Ignored ? ", marked ignored" : "");
+                    items.Add(new ExtractedItem(at, a.Image, origin));
+                    if (a.Debug != null) items.Add(new ExtractedItem(Path.ChangeExtension(at, ".pdb"), a.Debug, origin + " debug data"));
+                    if (a.Config != null) items.Add(new ExtractedItem(at + ".config", a.Config, origin + " config data"));
+                }
+                continue;
+            }
+            var carved = Carve(bytes, path, "Xamarin assembly store", limits, ct);
+            notes.Add($"{path}: not a readable assembly store; .NET images carved from its bytes (names lost).");
+            items.AddRange(carved.Items.Select(i => i with { Origin = $"{path}: {i.Origin}" }));
+            notes.AddRange(carved.Notes.Select(n => $"{path}: {n}"));
         }
         if (items.Count == 0) notes.Add("No assemblies or nested packages found in the archive.");
         return new ContainerContents(kind, items, notes);
@@ -353,13 +380,14 @@ public static class Containers
     private static bool IsInteresting(string path)
     {
         var file = Path.GetFileName(path).ToLowerInvariant();
-        if (file.StartsWith("libassemblies.", StringComparison.Ordinal) && file.EndsWith(".blob.so", StringComparison.Ordinal)) return true;
+        if (file.StartsWith("libassemblies.", StringComparison.Ordinal) && file.EndsWith(".blob.so", StringComparison.Ordinal) || file == "libassembly-store.so") return true;
         if (file is "assemblies.manifest" || file.EndsWith(".deps.json", StringComparison.Ordinal) || file.EndsWith(".runtimeconfig.json", StringComparison.Ordinal)) return true;
         return Path.GetExtension(file) is ".dll" or ".exe" or ".winmd" or ".blob" or ".nupkg" or ".zip" or ".apk" or ".aab" or ".xap" or ".vsix";
     }
 
     private static bool IsAssemblyStore(string path, byte[] bytes) =>
-        Blob.StartsWith(bytes, "XABA"u8) || path.EndsWith(".blob", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".blob.so", StringComparison.OrdinalIgnoreCase);
+        Blob.StartsWith(bytes, "XABA"u8) || path.EndsWith(".blob", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".blob.so", StringComparison.OrdinalIgnoreCase)
+        || path.EndsWith("libassembly-store.so", StringComparison.Ordinal);
 
     /// <summary>Carves .NET images and XALZ chunks from arbitrary data; native images are counted, not extracted.</summary>
     public static ContainerContents Carve(byte[] data, string name, string kind, AnalysisLimits limits, CancellationToken ct)

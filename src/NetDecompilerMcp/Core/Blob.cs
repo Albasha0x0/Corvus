@@ -46,6 +46,7 @@ public static class Blob
         if (StartsWith(b, [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])) return "ole (msi/doc/xls)";
         if (StartsWith(b, [0x4C, 0x00, 0x00, 0x00, 0x01, 0x14, 0x02, 0x00])) return "lnk shortcut";
         if (StartsWith(b, "XALZ"u8)) return "xalz (Xamarin LZ4)";
+        if (StartsWith(b, "XAZS"u8)) return "xazs (.NET for Android Zstandard)";
         if (StartsWith(b, "XABA"u8)) return "xaba (Xamarin assembly store)";
         if (StartsWith(b, [0xCE, 0xCA, 0xEF, 0xBE])) return ".resources";
         if (StartsWith(b, "BSJB"u8)) return "portable pdb";
@@ -152,6 +153,25 @@ public static class Blob
         int written = K4os.Compression.LZ4.LZ4Codec.Decode(data[12..], output);
         return written == size ? output : null;
     }
+
+    /// <summary>.NET for Android "XAZS" Zstandard-compressed assembly: the XALZ header with a Zstandard frame.</summary>
+    public static byte[]? TryXazs(ReadOnlySpan<byte> data, long maxBytes)
+    {
+        if (!StartsWith(data, "XAZS"u8) || data.Length < 12) return null;
+        uint size = BinaryPrimitives.ReadUInt32LittleEndian(data[8..]);
+        if (size == 0 || size > maxBytes) return null;
+        var output = new byte[size];
+        try
+        {
+            using var zstd = new ZstdSharp.Decompressor();
+            return zstd.Unwrap(data[12..], output) == size ? output : null;
+        }
+        catch (ZstdSharp.ZstdException) { return null; }
+    }
+
+    /// <summary>An XALZ or XAZS assembly decompressed, null for other data or a corrupt one; Kind is "lz4", "zstd" or null.</summary>
+    public static (byte[]? Bytes, string? Kind) TryDecompressAssembly(ReadOnlySpan<byte> data, long maxBytes) =>
+        StartsWith(data, "XALZ"u8) ? (TryXalz(data, maxBytes), "lz4") : StartsWith(data, "XAZS"u8) ? (TryXazs(data, maxBytes), "zstd") : (null, null);
 
     public sealed record Carved(int Offset, int Length, bool IsDotNet);
 

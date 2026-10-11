@@ -12,7 +12,7 @@ public sealed class UnpackTools(UnpackService unpacker)
     [McpServerTool(Name = "unpack_container", Title = "Unpack container", UseStructuredContent = true)]
     [Description("Extract the .NET assemblies shipped inside a container and (by default) load them: .NET single-file bundles " +
                  "(apphost .exe / Linux / macOS, compressed or not), Costura.Fody embedded assemblies, NuGet packages, Xamarin / MAUI " +
-                 ".apk / .aab (including XALZ LZ4 assemblies and assemblies.blob stores), plain zips, and .NET images embedded anywhere " +
+                 ".apk / .aab (XALZ / XAZS compressed assemblies, assembly stores v1-v3 with real names, per ABI), plain zips, and .NET images embedded anywhere " +
                  "else. Nested containers are opened too. Nothing is executed; extracted names cannot escape the output directory and " +
                  "runnable extensions get a .bin suffix. Reports NativeAOT executables, which have no IL to extract.")]
     public Task<UnpackService.UnpackReport> UnpackContainer(

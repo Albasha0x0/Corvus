@@ -310,9 +310,9 @@ up to 4 levels deep, into a `<name>_unpacked` folder next to it.
 | .NET single-file bundle (`PublishSingleFile`) | The bundle signature in an apphost: Windows PE, Linux ELF or macOS Mach-O | Every manifest entry under its bundle path: assemblies, native libraries, `.deps.json`, `.runtimeconfig.json`, symbols. Compressed bundles (`EnableCompressionInSingleFile`) are inflated, and every entry is checked against its declared size. |
 | Costura.Fody | A .NET assembly with `costura.*` / `costura32.*` / `costura64.*` manifest resources | Each embedded assembly under its original name, inflated when the resource ends in `.compressed`. |
 | NuGet package (`.nupkg`) | A zip with a `.nuspec` | `lib/`, `runtimes/` and `tools/` assemblies (one per target framework), and nested packages. |
-| Xamarin / MAUI `.apk` / `.aab` | A zip with `AndroidManifest.xml` | Assemblies, with `XALZ` (LZ4) ones decompressed; `assemblies.blob` / `libassemblies.*.blob.so` stores are scanned for PE images and `XALZ` chunks. An assembly repeated in several per-ABI stores is written once. |
+| Xamarin / MAUI `.apk` / `.aab` | A zip with `AndroidManifest.xml` | Assemblies, with `XALZ` (LZ4) and `XAZS` (Zstandard) ones decompressed. Assembly stores are parsed, so entries keep their names and ABI (`assemblies/<abi>/Name.dll`, with `.pdb` / `.config` data when present): v1 `assemblies[.<abi>].blob` (names from `assemblies.manifest`, else from the metadata), v2 / v3 raw or inside `libassemblies.<abi>.blob.so` (`payload` section) and `libassembly-store.so` (`_assembly_store` symbol). A store that does not parse is scanned for PE images and `XALZ` chunks instead, with a note. An assembly repeated in several per-ABI stores is written once. |
 | Other zips (`.zip`, `.vsix`, `.xap`) | Zip signature | `.dll` / `.exe` / `.winmd`, `.deps.json` / `.runtimeconfig.json`, and nested packages. Everything else (images, Android resources, Java code) is skipped. |
-| Standalone `XALZ` file | `XALZ` magic | The decompressed assembly. |
+| Standalone `XALZ` / `XAZS` file | `XALZ` / `XAZS` magic | The decompressed assembly. |
 | Anything else | No known format | .NET images and `XALZ` chunks carved out of the raw bytes (installers, memory dumps), validated by their PE headers. |
 
 A plain .NET assembly is reported as containing nothing, and an apphost without a bundle as a launcher for the

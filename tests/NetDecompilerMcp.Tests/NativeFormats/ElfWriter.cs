@@ -33,6 +33,8 @@ internal sealed class ElfWriter
     public bool BindNow { get; set; }
     public byte[] Text { get; set; } = [0x1F, 0x20, 0x03, 0xD5, 0xC0, 0x03, 0x5F, 0xD6];
     public byte[] Data { get; set; } = new byte[0x100];
+    /// <summary>Name of the section holding <see cref="Data"/> (a .NET for Android store library calls it "payload").</summary>
+    public string DataSectionName { get; set; } = ".data";
     public HashKind Hash { get; set; } = HashKind.Both;
     /// <summary>Dynamic symbols; undefined ones are imports.</summary>
     public List<Symbol> Symbols { get; set; } = [];
@@ -317,7 +319,7 @@ internal sealed class ElfWriter
             for (int i = 0; i < PltImports.Count; i++) w.WordAt(RwAt(PltSlotRva(i)), Base + PltRva, Is64);
         }
         if ((3 + PltImports.Count) * WordSize > DataRva - GotPltRva) throw new InvalidOperationException("too many PLT imports");
-        var data = Add(".data", 1, 3);
+        var data = Add(DataSectionName, 1, 3);
         data.Rva = DataRva;
         data.Size = (uint)Data.Length;
         w.BytesAt(RwAt(DataRva), Data);
