@@ -52,6 +52,37 @@ public sealed class EngineControlRealTests(ITestOutputHelper output) : IDisposab
             new NativeEditTools(workspace, code, new NativeEditService(workspace, code), null, engines, names), notes, native);
     }
 
+    /// <summary>The open's stage profile, cold (a new cache) and warm (the saved database), on notepad.exe and dbghelp.dll copies.</summary>
+    [GhidraFact]
+    public Task Open_stages_Ghidra() => OpenStages("ghidra");
+
+    [IdaFact]
+    public Task Open_stages_Ida() => OpenStages("ida");
+
+    private async Task OpenStages(string engine)
+    {
+        foreach (var name in new[] { "notepad.exe", "dbghelp.dll" })
+        {
+            var cache = _dir.File("profile-cache-" + engine);
+            foreach (var pass in new[] { "cold", "warm" })
+            {
+                var options = new ServerOptions { TimeoutSeconds = 1200, BackgroundIndexing = false };
+                using var workspace = new AssemblyWorkspace(options);
+                using var engines = new NativeEngineService(new IdaProviderOptions { CacheRoot = cache }, null, workspace, options);
+                var dir = Directory.CreateDirectory(_dir.File($"profile-{engine}-{pass}")).FullName;
+                var copy = Path.Combine(dir, name);
+                File.Copy(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", name), copy, overwrite: true);
+                var native = workspace.LoadAny(copy).Native!;
+                var clock = Stopwatch.StartNew();
+                await engines.Session(native, engine, null, default);
+                var stages = engines.ImageSessions(native).Single(s => s.Engine == engine).OpenStages;
+                output.WriteLine($"{engine} {name} {pass}: {clock.Elapsed.TotalSeconds:0.0} s: {EngineOpenProfile.Describe(stages)}");
+                Assert.Equal(["prepare", "start"], stages.Take(2).Select(s => s.Stage));
+                Assert.Equal("pdb types", stages[^1].Stage);
+            }
+        }
+    }
+
     [IdaFact]
     public Task Ida() => Run("ida");
 

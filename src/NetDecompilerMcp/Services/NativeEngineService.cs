@@ -377,7 +377,9 @@ public sealed class NativeEngineService : IDisposable
         // the image's PDB types, once per PDB and database (see NativePdbTypes)
         var holder = Holder(native, id);
         var patched = holder.Patched is { IsCompletedSuccessfully: true } p && ReferenceEquals(p.Result, session);
+        var pdbClock = System.Diagnostics.Stopwatch.StartNew();
         await PdbTypes.EnsureAsync(native, session, patched ? holder.PatchedPdb : holder.OpenedPdb, ct).ConfigureAwait(false);
+        if (!patched && Interlocked.Exchange(ref holder.PdbTimed, 1) == 0) holder.Profile.After("pdb types", pdbClock.Elapsed.TotalSeconds);
         return session;
     }
 
@@ -436,7 +438,11 @@ public sealed class NativeEngineService : IDisposable
             holder.OpenedPdb = PdbService.PathForEngines(native);
             holder.OpenStarted = DateTime.UtcNow;
             holder.Stage = "start";
-            progress = new StageProgress(holder, progress);
+            holder.Profile = new EngineOpenProfile();
+            holder.PdbTimed = 0;
+            holder.Profile.Mark("prepare", 0); // the input copy and cache entry, before the engine starts
+            var started = holder.OpenStarted;
+            progress = new StageProgress(holder, holder.Profile.Recording(() => (DateTime.UtcNow - started).TotalSeconds, progress));
             // The open is not tied to this call's cancellation (a later call reuses the same analysis) but ends when the image is unloaded or reloaded.
             // A universal Mach-O slice goes to the engine as a thin file of its own, keyed by its own hash.
             holder.Opening = native.Image is Native.MachO.MachOFile { Slice: { } slice } thin
@@ -513,7 +519,11 @@ public sealed class NativeEngineService : IDisposable
     /// One engine's session of an image as get_engine_status reports it: State opening (Stage, Seconds since the open
     /// started), open (Session), failed (Error) or closed.
     /// </summary>
-    public sealed record ImageEngineStatus(string Engine, string State, string? Stage, double Seconds, INativeDecompilerSession? Session, string? Error);
+    public sealed record ImageEngineStatus(string Engine, string State, string? Stage, double Seconds, INativeDecompilerSession? Session, string? Error)
+    {
+        /// <summary>The open's stages with their seconds (see <see cref="EngineOpenProfile"/>).</summary>
+        public IReadOnlyList<EngineOpenStage> OpenStages { get; init; } = [];
+    }
 
     /// <summary>The image's engine sessions opened in this process (none is started or waited for), in order of preference.</summary>
     public IReadOnlyList<ImageEngineStatus> ImageSessions(LoadedNative native)
@@ -523,15 +533,16 @@ public sealed class NativeEngineService : IDisposable
         {
             if (Existing(native, id) is not { Opening: { } opening } h) continue;
             double seconds = Math.Round((DateTime.UtcNow - h.OpenStarted).TotalSeconds, 1);
-            if (!opening.IsCompleted) list.Add(new(id, "opening", h.Stage, seconds, null, null));
+            var stages = h.Profile.Stages((DateTime.UtcNow - h.OpenStarted).TotalSeconds);
+            if (!opening.IsCompleted) list.Add(new(id, "opening", h.Stage, seconds, null, null) { OpenStages = stages });
             else if (opening.IsCompletedSuccessfully)
             {
                 // a patched copy serves the current patch set when the database could not take it
                 var served = h.Patched is { IsCompletedSuccessfully: true } p && h.PatchedState == h.SyncedKey ? p.Result : opening.Result;
-                list.Add(new(id, served.IsOpen ? "open" : "closed", null, seconds, served, null));
+                list.Add(new(id, served.IsOpen ? "open" : "closed", null, seconds, served, null) { OpenStages = stages });
             }
             else list.Add(new(id, "failed", h.Stage, seconds, null,
-                opening.Exception?.InnerException is { } e ? (e is ToolError t ? t.Message : e.Message) : "cancelled"));
+                opening.Exception?.InnerException is { } e ? (e is ToolError t ? t.Message : e.Message) : "cancelled") { OpenStages = stages });
         }
         return list;
     }
@@ -583,6 +594,9 @@ public sealed class NativeEngineService : IDisposable
         /// <summary>When the last open of <see cref="Opening"/> started and its latest progress stage.</summary>
         public DateTime OpenStarted;
         public volatile string? Stage;
+        /// <summary>The last open's stage timings, and whether the PDB type load after it was timed.</summary>
+        public EngineOpenProfile Profile = new();
+        public int PdbTimed;
 
         public void DisposePatched()
         {

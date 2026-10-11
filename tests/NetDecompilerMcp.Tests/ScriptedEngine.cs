@@ -32,8 +32,19 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
     public ProviderAvailability CheckAvailability() => ProviderAvailability.Ok(Id, new Dictionary<string, string>());
     public Task<ProviderAvailability> ProbeAsync(CancellationToken cancellationToken = default) => Task.FromResult(CheckAvailability());
 
-    public Task<INativeDecompilerSession> OpenAsync(string imagePath, string? sha256 = null, NativeOpenOptions? options = null, CancellationToken cancellationToken = default) =>
-        Task.FromResult<INativeDecompilerSession>(new Session(this));
+    /// <summary>Stages the open reports, each lasting the given milliseconds.</summary>
+    public List<(string Stage, int Milliseconds)> OpenStages { get; } = [];
+
+    public async Task<INativeDecompilerSession> OpenAsync(string imagePath, string? sha256 = null, NativeOpenOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        foreach (var (stage, ms) in OpenStages)
+        {
+            options?.Progress?.Report(new NativeProviderProgress(stage, clock.Elapsed));
+            await Task.Delay(ms, cancellationToken);
+        }
+        return new Session(this);
+    }
 
     public void Dispose() { }
 

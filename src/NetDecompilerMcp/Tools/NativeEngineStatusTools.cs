@@ -49,6 +49,8 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
         public bool? Decompiler { get; init; }
         [Description("Edits a worker restart would replay (made since the last save).")] public int? UnsavedEdits { get; init; }
         [Description("Whether the database has changes not yet saved, when the engine says.")] public bool? Changed { get; init; }
+        [Description("Seconds per stage of the open (prepare, start, load or import, analysis and its sub-stages, save; then pdb types).")]
+        public IReadOnlyList<EngineOpenStage>? OpenStages { get; init; }
     }
 
     public sealed record EngineStatusReport(string Image, IReadOnlyList<EngineStatus> Engines);
@@ -77,7 +79,7 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
                     list.Add(new EngineStatus(id, "not_started", null, 0, saved, engines.UnavailabilityOf(id)?.Reason));
                 continue;
             }
-            var status = new EngineStatus(id, state.State, state.Stage, state.Seconds, saved, state.Error);
+            var status = new EngineStatus(id, state.State, state.Stage, state.Seconds, saved, state.Error) { OpenStages = state.OpenStages.Count > 0 ? state.OpenStages : null };
             if (state.Session is { IsOpen: true } session) status = await Describe(native, session, status, cancellationToken);
             list.Add(status);
         }
@@ -132,9 +134,11 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
                     continue;
                 case "opening":
                     sb.AppendLine($"{name}: opening ({s.Stage ?? "start"}, {s.Seconds:0.#} s)");
+                    if (s.OpenStages != null) sb.AppendLine($"  stages so far: {EngineOpenProfile.Describe(s.OpenStages)}");
                     continue;
                 case "failed":
                     sb.AppendLine($"{name}: failed after {s.Seconds:0.#} s ({s.Stage}): {s.Error}");
+                    if (s.OpenStages != null) sb.AppendLine($"  open stages: {EngineOpenProfile.Describe(s.OpenStages)}");
                     continue;
                 case "closed":
                     sb.AppendLine($"{name}: closed (the next engine call opens it again)");
@@ -142,6 +146,9 @@ public sealed class NativeEngineStatusTools(AssemblyWorkspace workspace, NativeE
             }
             sb.AppendLine($"{name} {s.Version}: open, analysis {s.Analysis}" + (s.ReusedDatabase == true ? ", reused saved database" : ", analyzed in this session") +
                           $", opened in {s.OpenSeconds:0.#} s");
+            if (s.OpenStages != null) sb.AppendLine($"  open stages: {EngineOpenProfile.Describe(s.OpenStages)}");
+            if (s.Analysis == "partial")
+                sb.AppendLine($"  the analysis budget ran out; reanalyze_native image={native.Id} engine={s.Engine} completes it");
             sb.AppendLine($"  {s.Processor} {s.Language}" + (s.Compiler != null ? $", compiler {s.Compiler}" : "") + $", {s.Format}, {s.PointerSize * 8}-bit {s.Endian}, base {s.ImageBase}");
             sb.AppendLine($"  {s.Functions} functions, {s.ExternalFunctions} external; decompiler {(s.Decompiler == true ? "available" : "not available")}");
             if (s.EntryPoints is { Count: > 0 } ep) sb.AppendLine($"  entry points: {string.Join(", ", ep.Take(8))}{(ep.Count > 8 ? $" (+{ep.Count - 8})" : "")}");
