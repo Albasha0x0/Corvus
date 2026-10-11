@@ -138,6 +138,37 @@ public sealed class NativeCodeService
         foreach (var (rva, comment) in ann.Comments()) index.SetUserComment(rva, comment);
     }
 
+    /// <summary>How often a caller waiting for an index hears its phase again when the build reports nothing new.</summary>
+    internal static readonly TimeSpan ProgressHeartbeat = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// Repeats the latest progress every <paramref name="every"/>: a phase that reports rarely, or a build slowed by a busy
+    /// machine, still shows the caller that the server is working.
+    /// </summary>
+    internal static IDisposable Heartbeat(Func<CodeIndexProgress?> latest, IProgress<CodeIndexProgress> progress, TimeSpan every) =>
+        new ProgressBeat(latest, progress, every);
+
+    /// <summary>Once disposed it reports nothing more, so no progress follows the call's result.</summary>
+    private sealed class ProgressBeat : IDisposable
+    {
+        private readonly Timer _timer;
+        private readonly object _gate = new();
+        private bool _stopped;
+
+        public ProgressBeat(Func<CodeIndexProgress?> latest, IProgress<CodeIndexProgress> progress, TimeSpan every) =>
+            _timer = new Timer(_ =>
+            {
+                lock (_gate)
+                    if (!_stopped) progress.Report(latest() ?? new CodeIndexProgress("starting", 0, 0));
+            }, null, every, every);
+
+        public void Dispose()
+        {
+            lock (_gate) _stopped = true;
+            _timer.Dispose();
+        }
+    }
+
     /// <summary>The image's index, building it if needed; progress reports the build phase while the caller waits.</summary>
     public async Task<NativeCodeIndex> Index(LoadedNative native, IProgress<CodeIndexProgress>? progress, CancellationToken ct)
     {
@@ -145,7 +176,10 @@ public sealed class NativeCodeService
         object? last = null; // boxed: written by the build thread
         Action<CodeIndexProgress> listener = p => { Volatile.Write(ref last, p); progress?.Report(p); };
         holder.Progress += listener;
-        try { return await holder.Start(_logger, this).WaitAsync(ct); }
+        var build = holder.Start(_logger, this);
+        using var heartbeat = progress == null || build.IsCompleted ? null
+            : Heartbeat(() => Volatile.Read(ref last) as CodeIndexProgress?, progress, ProgressHeartbeat);
+        try { return await build.WaitAsync(ct); }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             // The build was cancelled because the image was unloaded, reloaded or patched by another call.
