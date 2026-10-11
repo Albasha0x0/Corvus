@@ -80,15 +80,20 @@ internal interface ICodeDecoder
 
     /// <summary>The code at <paramref name="rva"/> is alignment padding (never followed as code after a noreturn call).</summary>
     bool IsPadding(ImageCode.Region region, uint rva);
+
+    /// <summary>The import slot when the code at <paramref name="rva"/> is a stub that only jumps through it (x86 jmp [slot]; ARM64 PLT and Mach-O stubs).</summary>
+    uint? ThunkSlot(uint rva, Func<uint, bool> isImportSlot);
 }
 
 /// <summary>The decoder for an image's instruction set.</summary>
 internal static class CodeDecoders
 {
     /// <param name="code">Executable code for <see cref="ICodeDecoder.Decode(uint, out Insn)"/>; null when only DecodeMapped is used.</param>
-    public static ICodeDecoder Create(INativeImage image, ImageCode? code, uint[] sortedRelocations) => image.Arch switch
+    /// <param name="sortedRelocations">x86: relocations inside code (operand checks); ARM64: every relocated pointer location.</param>
+    public static ICodeDecoder Create(INativeImage image, ImageCode? code, uint[] sortedRelocations, IReadOnlySet<uint>? importSlots = null) => image.Arch switch
     {
         NativeArch.X86 or NativeArch.X64 => new X86Decoder(image, code, sortedRelocations),
+        NativeArch.Arm64 => new Arm64Decoder(image, code, sortedRelocations, importSlots),
         _ => throw new NotSupportedException(InstructionSets.For(image.Arch).Reason),
     };
 }

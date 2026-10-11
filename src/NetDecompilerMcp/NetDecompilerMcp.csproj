@@ -20,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="AsmArm64" Version="2.3.0" />
     <PackageReference Include="dnlib" Version="4.5.0" />
     <PackageReference Include="ICSharpCode.Decompiler" Version="11.1.0.9782" />
     <PackageReference Include="ICSharpCode.BamlDecompiler" Version="11.1.0.9782" />

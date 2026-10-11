@@ -2,7 +2,7 @@
 
 A headless .NET decompiler and native PE analyzer for AI agents, served over the [Model Context Protocol](https://modelcontextprotocol.io).
 It decompiles, searches, cross-references and patches .NET assemblies, including Unity Mono builds and
-Il2CppDumper / Cpp2IL dummy DLLs, and analyzes, diffs and patches native Windows PE files (x86 / x64), with IDA as the
+Il2CppDumper / Cpp2IL dummy DLLs, and analyzes, diffs and patches native PE, ELF and Mach-O files (x86 / x64 / ARM64), with IDA as the
 optional decompiler for native code. No GUI, no dnSpy instance, no admin rights and no network port.
 
 - **Decompiler:** the ILSpy engine (`ICSharpCode.Decompiler`), the same engine dnSpy uses.
@@ -122,7 +122,7 @@ server instructions (a core under 2,048 characters; the details in the `guide` p
 
 ### Native images
 
-Native `.exe` / `.dll` / `.sys` files, ELF (`.so`, executables) and Mach-O (`.dylib`, executables, one slice of a universal file) images (x86 and x64 decoded by our own engine; ARM64 / ARM code goes through IDA, else Ghidra, when one is installed, marked "(via IDA)" or "(via Ghidra)") load with
+Native `.exe` / `.dll` / `.sys` files, ELF (`.so`, executables) and Mach-O (`.dylib`, executables, one slice of a universal file) images (x86, x64 and ARM64 decoded by our own engine; ARM (Thumb) code goes through IDA, else Ghidra, when one is installed, marked "(via IDA)" or "(via Ghidra)") load with
 `load_assembly` by path, or are loaded by any native tool given a path. Everything below is our own analysis
 (PE parser, Iced disassembler, function discovery, MSVC RTTI / exception data / name demangling, PDB reader);
 only `decompile_native` needs an external engine (IDA through idalib, or Ghidra through a Java worker built on first use). Reliability runs and their numbers:

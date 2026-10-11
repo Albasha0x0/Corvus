@@ -144,8 +144,8 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         {
             Progress = (float)waited.Elapsed.TotalSeconds, Message = $"indexing {native.Id}: {p.Phase}",
         })), ct);
-        if (index.Support != CodeSupport.Full)
-            throw new ToolError(ErrorCode.Unsupported, $"Instructions are not decoded for {index.Image.Arch} images.", "decompile_native shows the code through IDA");
+        if (!CallAnalysis.Supports(index))
+            throw new ToolError(ErrorCode.Unsupported, $"Values are traced in x86 / x64 code, not {index.Image.Arch}.", "decompile_native shows the code through IDA");
         return (native, index);
     }
 

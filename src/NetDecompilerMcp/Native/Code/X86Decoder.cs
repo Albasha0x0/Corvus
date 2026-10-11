@@ -242,6 +242,9 @@ internal sealed class X86Decoder : ICodeDecoder
 
     private static bool IsNear(OpKind kind) => kind is OpKind.NearBranch16 or OpKind.NearBranch32 or OpKind.NearBranch64;
 
+    public uint? ThunkSlot(uint rva, Func<uint, bool> isImportSlot) =>
+        Decode(rva, out var insn) && insn.Flow == FlowKind.IndirectJump && insn.HasMem && isImportSlot(insn.MemTarget) ? insn.MemTarget : null;
+
     /// <summary>int3, nop and zero fill between functions.</summary>
     public bool IsPadding(ImageCode.Region region, uint rva) => region.Bytes[rva - region.Rva] is 0xCC or 0x90 or 0x00;
 

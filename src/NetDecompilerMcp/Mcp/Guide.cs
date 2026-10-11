@@ -113,7 +113,7 @@ public static class Guide
             (anchor=xrefs: a signature at every referencing instruction) / search_code_pattern.
             """,
         ["native"] = """
-            Native PE files (.exe/.dll/.sys without .NET metadata; x86 and x64): load_assembly the file, or pass its path as image.
+            Native files (PE .exe/.dll/.sys without .NET metadata, ELF, Mach-O; x86, x64 and ARM64): load_assembly the file, or pass its path as image.
             Overview: get_pe_info (headers, mitigations, PDB, version, rich header, signature, anything malformed), list_imports
             (includeDynamic=true adds GetProcAddress imports; bind=true shows each binding), list_exports (MSVC names demangled),
             list_resources / get_resource, survey_features.
@@ -134,7 +134,7 @@ public static class Guide
             forwarders and thunks into them.
             Engines: list_functions, disassemble, get_cfg, find_xrefs and native_call_tree take engine=auto|ours|ida|ghidra. auto
             (default) uses an engine's analysis once it has finished in this session (IDA's before Ghidra's), else the built-in index,
-            and never starts an engine; every result has an "Engine: ours|ida|ghidra (why)" line. ARM64 / ARM images work through IDA,
+            and never starts an engine; every result has an "Engine: ours|ida|ghidra (why)" line. ARM (Thumb) images work through IDA,
             else Ghidra (NDM_GHIDRA_DIR and a JDK). inspect_instruction takes auto|ours|ida (auto: the built-in decoder for x86 / x64).
             Name priority: user > pdb > nativeaot > il2cpp > ida > discovered; our names win in engine output. decompile_native pushes
             names, patches, Il2Cpp prototypes, RTTI and PDB types into the engine's database; --prewarm ida|ghidra|auto analyzes images

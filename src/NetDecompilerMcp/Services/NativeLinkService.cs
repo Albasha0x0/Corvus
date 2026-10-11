@@ -358,7 +358,7 @@ public sealed partial class NativeLinkService(AssemblyWorkspace workspace, Nativ
         if (edges == CallEdgeFilter.Virtual) return result;
         AddManagedCallees(result, node, index);
         // late-bound imports called through a GetProcAddress pointer stored once
-        if (index.Support == CodeSupport.Full
+        if (Native.Calls.CallAnalysis.Supports(index)
             && Native.Calls.CallAnalysis.For(index).DynamicImports().CallsByFunction.TryGetValue(node.Function!.Start, out var late))
             foreach (var (_, d) in late.DistinctBy(c => c.Import.FullName))
                 result.Add(new TreeNode(node.Image, null, $"{d.FullName}  [dynamic]"));

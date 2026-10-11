@@ -48,7 +48,7 @@ public sealed record AddressClass(uint Rva, AddressStatus Status, NativeFunction
 }
 
 /// <summary>
-/// Classifies addresses of an x86 / x64 image against its code index: instruction boundaries inside known functions
+/// Classifies addresses of an x86 / x64 / ARM64 image against its code index: instruction boundaries inside known functions
 /// (blocks decoded again, cached per instance), data items, bss and unowned code. Not thread-safe; one per request.
 /// </summary>
 public sealed class AddressClassifier
@@ -140,6 +140,18 @@ public sealed class AddressClassifier
     private List<(uint Rva, int Length)> Starts(BasicBlock b)
     {
         if (_blockStarts.TryGetValue((b.Start, b.End), out var cached)) return cached;
+        if (_image.Arch == NativeArch.Arm64)
+        {
+            // fixed 4-byte instructions
+            var words = new List<(uint, int)>();
+            for (uint a = b.Start; a < b.End; a += 4)
+            {
+                int length = DecodeLength(a);
+                words.Add((a, length));
+                if (length == 0) break;
+            }
+            return _blockStarts[(b.Start, b.End)] = words;
+        }
         var bytes = new byte[Math.Min(b.End - b.Start, 1u << 20) + 15];
         int n = _image.Read(b.Start, bytes);
         var decoder = Decoder.Create(_image.Is64Bit ? 64 : 32, new ByteArrayCodeReader(bytes, 0, n), _image.ImageBase + b.Start, DecoderOptions.None);
@@ -158,6 +170,7 @@ public sealed class AddressClassifier
 
     private int DecodeLength(uint rva)
     {
+        if (_image.Arch == NativeArch.Arm64) return _index.Decode(rva) is { Flow: not FlowKind.Invalid } ? 4 : 0;
         var bytes = new byte[15];
         int n = _image.Read(rva, bytes);
         if (n == 0) return 0;

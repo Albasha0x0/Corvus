@@ -58,8 +58,8 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         }, ct);
         var index = await code.Index(native, new Progress<CodeIndexProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = p.Done, Total = p.Total > 0 ? p.Total : null, Message = $"indexing {native.Id}: {p.Phase}" })), ct);
-        if (index.Support != CodeSupport.Full)
-            throw new ToolError(ErrorCode.Unsupported, $"Instructions are not decoded for {index.Image.Arch} images.", "decompile_native shows calls through IDA");
+        if (!CallAnalysis.Supports(index))
+            throw new ToolError(ErrorCode.Unsupported, $"Call arguments are recovered for x86 / x64 code, not {index.Image.Arch}.", "decompile_native shows calls through IDA");
         return index;
     }
 
@@ -181,7 +181,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
     {
         string Va(uint r) => NativeAddress.Va(index.Image, r);
         var callers = index.Callers(import);
-        if (index.Support != CodeSupport.Full)
+        if (!CallAnalysis.Supports(index))
             return callers.Select(c => $"{Va(c.From)}  {c.Kind,-10} {where(c.From)}").ToList();
         var sites = CallAnalysis.For(index).CallsTo(import, MaxAnalyzedRows, ct).ToDictionary(s => s.Rva);
         var rows = new List<(uint From, string Text)>();
@@ -195,7 +195,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
     /// <summary>Rows "address  kind  where", with the call's arguments for calls (the first <see cref="MaxAnalyzedRows"/>).</summary>
     internal static List<string> WithArguments(NativeCodeIndex index, IEnumerable<(uint From, string Kind, bool IsCall)> refs, Func<uint, string> where, CancellationToken ct)
     {
-        var analysis = index.Support == CodeSupport.Full ? CallAnalysis.For(index) : null;
+        var analysis = CallAnalysis.Supports(index) ? CallAnalysis.For(index) : null;
         int analyzed = 0;
         var rows = new List<string>();
         foreach (var (from, kind, isCall) in refs)
@@ -215,7 +215,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
     internal static string DynamicSection(NativeCodeIndex? index, CancellationToken ct)
     {
         if (index == null) return "Dynamic imports: not computed yet (the code index is still building; list_imports includeDynamic=true waits for it)\n";
-        if (index.Support != CodeSupport.Full) return "";
+        if (!CallAnalysis.Supports(index)) return "";
         var set = CallAnalysis.For(index).DynamicImports(ct);
         if (set.GetProcAddressSites == 0 && set.Modules.Count == 0) return "Dynamic imports: none (no GetProcAddress / LoadLibrary / GetModuleHandle calls with constant names)\n";
         var sb = new System.Text.StringBuilder();
@@ -236,7 +236,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
     internal static List<string> DynamicImportRows(NativeCodeIndex index, string? module, string? filter, CancellationToken ct)
     {
         var rows = new List<string>();
-        if (index.Support != CodeSupport.Full) return rows;
+        if (!CallAnalysis.Supports(index)) return rows;
         var set = CallAnalysis.For(index).DynamicImports(ct);
         foreach (var d in set.Imports)
         {
@@ -250,13 +250,13 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
 
     /// <summary>"late-bound pointer to kernel32!X" for a pointer global a GetProcAddress result is stored to, else null.</summary>
     internal static string? PointerName(NativeCodeIndex index, uint rva, CancellationToken ct) =>
-        index.Support == CodeSupport.Full && CallAnalysis.For(index).DynamicImports(ct).ByGlobal.GetValueOrDefault(rva) is { } d
+        CallAnalysis.Supports(index) && CallAnalysis.For(index).DynamicImports(ct).ByGlobal.GetValueOrDefault(rva) is { } d
             ? $"late-bound pointer to {d.FullName}" : null;
 
     /// <summary>find_xrefs rows for a late-bound import named by <paramref name="address"/> ("module!name" or "name"); null when none matches.</summary>
     internal static List<string>? DynamicXrefRows(NativeCodeIndex index, string address, CancellationToken ct)
     {
-        if (index.Support != CodeSupport.Full || string.IsNullOrWhiteSpace(address) || NativeAddress.Number(address.Trim()) != null) return null;
+        if (!CallAnalysis.Supports(index) || string.IsNullOrWhiteSpace(address) || NativeAddress.Number(address.Trim()) != null) return null;
         var analysis = CallAnalysis.For(index);
         var matches = analysis.DynamicImports(ct).Find(address);
         if (matches.Count == 0) return null;
@@ -275,7 +275,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
     internal static HashSet<CallTreeNode> AddDynamicCallees(NativeCodeIndex index, CallTreeNode root, CancellationToken ct)
     {
         var added = new HashSet<CallTreeNode>();
-        if (index.Support != CodeSupport.Full) return added;
+        if (!CallAnalysis.Supports(index)) return added;
         var set = CallAnalysis.For(index).DynamicImports(ct);
         if (set.CallsByFunction.Count == 0) return added;
         var stack = new Stack<CallTreeNode>();
@@ -299,7 +299,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
     /// <summary>Call comments for a function's disassembly: call RVA -> "CreateFileW(...)"; empty when the analysis fails.</summary>
     internal static IReadOnlyDictionary<uint, string> CallComments(NativeCodeIndex index, NativeFunction fn, CancellationToken ct)
     {
-        if (index.Support != CodeSupport.Full) return new Dictionary<uint, string>();
+        if (!CallAnalysis.Supports(index)) return new Dictionary<uint, string>();
         var analysis = CallAnalysis.For(index);
         return analysis.CallsIn(fn, ct).Where(s => s.Arguments.Count > 0 || !s.Guessed).ToDictionary(s => s.Rva, s => s.Display);
     }

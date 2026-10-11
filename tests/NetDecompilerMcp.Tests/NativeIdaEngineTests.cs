@@ -34,12 +34,12 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         return new Rig(workspace, code, new NativeCodeTools(workspace, code, pager, null, engines, names), new NativeAnalysisTools(workspace, engines, pager, names, code, new NativeTypePush()), engines);
     }
 
-    /// <summary>An ARM64 PE with code but no unwind data: the built-in analysis only lists the entry point.</summary>
-    private string SyntheticArm64()
+    /// <summary>An ARM (Thumb-2) PE: the built-in analysis only lists the entry point.</summary>
+    private string SyntheticArm()
     {
-        var b = new PeBuilder { Machine = 0xAA64, ImageBase = 0x180000000, EntryPoint = 0x1000 };
-        b.Add(".text", [0x00, 0x00, 0x80, 0x52, 0xC0, 0x03, 0x5F, 0xD6], 0x60000020); // mov w0, #0; ret
-        var path = _dir.File("arm64.dll");
+        var b = new PeBuilder { Machine = 0x1C4, Is64 = false, ImageBase = 0x10000000, EntryPoint = 0x1001 };
+        b.Add(".text", [0x00, 0x20, 0x70, 0x47], 0x60000020); // movs r0, #0; bx lr
+        var path = _dir.File("arm.dll");
         File.WriteAllBytes(path, b.Build());
         return path;
     }
@@ -49,12 +49,12 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
     {
         var tools = Setup(new IdaProviderOptions { InstallDirectory = _dir.File("no-ida-here"), CacheRoot = _dir.File("cache") },
             ghidra: new() { InstallDirectory = _dir.File("no-ghidra-here"), CacheRoot = _dir.File("cache") }).Tools;
-        var path = SyntheticArm64();
+        var path = SyntheticArm();
         foreach (var call in new Func<Task<string>>[] { () => tools.Disassemble(path, "rva:0x1000"), () => tools.GetCfg(path, "rva:0x1000") })
         {
             var e = await Assert.ThrowsAsync<ToolError>(call);
             Assert.Equal(ErrorCode.Unsupported, e.Code);
-            Assert.Contains("Arm64", e.Message);
+            Assert.Contains("Arm", e.Message);
             Assert.Contains("IDA", e.Remediation);
             Assert.Contains("NDM_GHIDRA_DIR", e.Remediation);
         }
@@ -110,7 +110,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         output.WriteLine(path);
         var (workspace, _, tools, _, _) = Setup();
         var clock = Stopwatch.StartNew();
-        var list = await tools.ListFunctions(path, limit: 5000);
+        var list = await tools.ListFunctions(path, limit: 5000, engine: "ida");
         output.WriteLine($"list_functions {clock.Elapsed.TotalSeconds:0.0} s (includes IDA analysis)\n{string.Join('\n', list.Split('\n').Take(12))}");
         Assert.Contains(NativeEngineCode.Via("ida"), list);
         var id = workspace.Read(() => workspace.Natives[0].Id);
@@ -120,21 +120,21 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         Assert.True(declared > 10, list[..200]);
 
         clock.Restart();
-        var asm = await tools.Disassemble(id, export.Name!);
+        var asm = await tools.Disassemble(id, export.Name!, engine: "ida");
         output.WriteLine($"disassemble {export.Name}: {clock.ElapsedMilliseconds} ms\n{string.Join('\n', asm.Split('\n').Take(10))}");
         Assert.Contains(NativeEngineCode.Via("ida"), asm);
         Assert.Contains($"{pe.ImageBase + export.Rva:X}", asm);
         Assert.Matches(@"(?m)^  [0-9A-F]+  [0-9A-F]{8} +\S", asm); // ARM64: 4-byte instructions
 
-        var linear = await tools.Disassemble(id, export.Name!, function: false, maxInstructions: 5);
+        var linear = await tools.Disassemble(id, export.Name!, function: false, maxInstructions: 5, engine: "ida");
         Assert.Equal(5, linear.Split('\n').Count(l => l.StartsWith("  ", StringComparison.Ordinal)));
 
-        var cfg = await tools.GetCfg(id, export.Name!);
+        var cfg = await tools.GetCfg(id, export.Name!, engine: "ida");
         output.WriteLine(cfg);
         Assert.Contains(NativeEngineCode.Via("ida"), cfg);
         Assert.Matches(@"insn  (Return|Jump|ConditionalJump|FallThrough|TailCall|NoReturnCall|IndirectJump|Switch)", cfg);
 
-        var callees = await tools.NativeCallTree(id, export.Name!, depth: 2);
+        var callees = await tools.NativeCallTree(id, export.Name!, depth: 2, engine: "ida");
         output.WriteLine(callees);
         Assert.Contains(NativeEngineCode.Via("ida"), callees);
 
@@ -142,11 +142,11 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         var called = list.Split('\n').Select(l => System.Text.RegularExpressions.Regex.Match(l, @"^\s*(0x[0-9A-F]+) .*; (\d+) refs\)\s*$"))
             .Where(m => m.Success && int.Parse(m.Groups[2].Value) > 1).Select(m => m.Groups[1].Value).FirstOrDefault();
         Assert.NotNull(called);
-        var xrefs = await tools.FindXrefs(id, called!);
+        var xrefs = await tools.FindXrefs(id, called!, engine: "ida");
         output.WriteLine(string.Join('\n', xrefs.Split('\n').Take(8)));
         Assert.Contains(NativeEngineCode.Via("ida"), xrefs);
         Assert.Matches(@"(?m)^\s*0x[0-9A-F]+  Call ", xrefs);
-        var callers = await tools.NativeCallTree(id, called!, direction: "callers", depth: 1);
+        var callers = await tools.NativeCallTree(id, called!, direction: "callers", depth: 1, engine: "ida");
         Assert.True(callers.Split('\n').Length > 2, callers);
     }
 

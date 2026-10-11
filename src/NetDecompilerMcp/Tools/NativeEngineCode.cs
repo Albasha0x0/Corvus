@@ -22,7 +22,7 @@ internal sealed record EngineChoice(string Engine, string Note)
 /// <summary>
 /// list_functions, disassemble, get_cfg, find_xrefs and native_call_tree answered through an engine session (IDA or
 /// Ghidra) in the same formats, marked "(via IDA)" or "(via Ghidra)": for images whose instruction set the built-in
-/// analysis does not decode (ARM64, ARM), and for any image when the engine preference picks an engine (engine=ida or
+/// analysis does not decode (ARM), and for any image when the engine preference picks an engine (engine=ida or
 /// engine=ghidra, or auto once that engine's analysis is complete). Merging: functions, bounds, references and blocks
 /// are the engine's; names in effect here (user, PDB, Il2Cpp, exports) win over the engine's own (they are pushed into
 /// the database first); virtual call edges the built-in index resolved through RTTI and the engine has no reference

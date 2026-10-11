@@ -15,10 +15,7 @@ public static class InstructionSets
     /// <summary>What the analysis can do for <paramref name="arch"/>, and why not more.</summary>
     public static (CodeSupport Support, string? Reason) For(NativeArch arch) => arch switch
     {
-        NativeArch.X86 or NativeArch.X64 => (CodeSupport.Full, null),
-        // Disarm 2022.1.0-master.99 (the only managed ARM64 decoder at hand) throws on PACIBSP / AUTIBSP, which
-        // start and end most functions in current Windows ARM64 binaries, and on several SIMD groups.
-        NativeArch.Arm64 => (CodeSupport.DeclaredFunctionsOnly, "ARM64 decoding is not supported yet: no reliable managed ARM64 decoder (Disarm fails on pointer-authentication hints and SIMD groups)"),
+        NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64 => (CodeSupport.Full, null),
         NativeArch.Arm => (CodeSupport.DeclaredFunctionsOnly, "ARM (Thumb-2) decoding is not supported"),
         _ => (CodeSupport.DeclaredFunctionsOnly, $"instruction set {arch} is not supported"),
     };

@@ -71,7 +71,7 @@ internal sealed class CodeContext
             ImportSlots.TryAdd(imp.SlotRva, imp);
             if (imp.Name != null && NoReturnNames.IsNoReturn(imp.Name)) NoReturn.Add(imp.SlotRva);
         }
-        if (image.Arch == NativeArch.X64) ReadPdata();
+        if (image.Arch is NativeArch.X64 or NativeArch.Arm64) ReadPdata();
         ReadGuardCfTable();
         IsKernelMode = KernelModeByName(image.Path)
             || image.Imports.Any(i => i.Module.Equals("ntoskrnl.exe", StringComparison.OrdinalIgnoreCase) || i.Module.Equals("hal.dll", StringComparison.OrdinalIgnoreCase));
@@ -96,7 +96,8 @@ internal sealed class CodeContext
         foreach (var rf in entries)
         {
             if (rf.EndRva <= rf.BeginRva) continue;
-            uint primary = PrimaryOf(rf, byBegin);
+            // ARM64 .pdata has no chained entries: each one is a function
+            uint primary = Image.Arch == NativeArch.X64 ? PrimaryOf(rf, byBegin) : rf.BeginRva;
             if (!PdataRanges.TryGetValue(primary, out var list)) PdataRanges[primary] = list = [];
             list.Add((rf.BeginRva, rf.EndRva));
             sorted.Add((rf.BeginRva, rf.EndRva, primary));
@@ -209,8 +210,11 @@ internal sealed class CodeContext
         {
             ComputeAccess = computeAccess, RejectImplausible = !IsKernelMode, CheckRelocations = true, ImageHasRelocations = Relocations.Length > 0,
         },
-        _ => CodeDecoders.Create(Image, Code, CodeRelocations),
+        _ => CodeDecoders.Create(Image, Code, Relocations, ImportSlotSet),
     };
+
+    private HashSet<uint>? _importSlotSet;
+    private HashSet<uint> ImportSlotSet => _importSlotSet ??= [.. ImportSlots.Keys];
 
     private readonly Lock _readLock = new();
 

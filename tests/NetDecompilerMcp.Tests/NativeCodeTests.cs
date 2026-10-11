@@ -521,13 +521,13 @@ public class NativeCodeTests
     }
 
     [Fact]
-    public void Arm64_reports_declared_functions_only()
+    public void Arm_reports_declared_functions_only()
     {
         var code = new byte[0x40];
         var pdata = new[] { new RuntimeFunction(Code, Code + 0x20, 0), new RuntimeFunction(Code + 0x20, Code + 0x40, 0) };
-        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.Arm64, code, pdata: pdata));
+        var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.Arm, code, pdata: pdata));
         Assert.Equal(CodeSupport.DeclaredFunctionsOnly, index.Support);
-        Assert.Contains("ARM64", index.SupportNote);
+        Assert.Contains("ARM", index.SupportNote);
         Assert.Equal([Code, Code + 0x20], index.Functions.Select(f => f.Start));
         Assert.Equal(index.Functions[1], index.FunctionAt(Code + 0x24));
         Assert.Throws<NotSupportedException>(() => index.GetGraph(index.Functions[0]));

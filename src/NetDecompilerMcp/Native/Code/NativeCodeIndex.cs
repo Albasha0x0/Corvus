@@ -369,7 +369,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     public InstructionFacts? Decode(uint rva)
     {
         if (_ctx == null) return null;
-        var d = CodeDecoders.Create(Image, _ctx.Code, _ctx.Relocations);
+        var d = Image.Arch is NativeArch.X86 or NativeArch.X64 ? CodeDecoders.Create(Image, _ctx.Code, _ctx.Relocations) : _ctx.NewDecoder(computeAccess: true);
         return d.DecodeMapped(rva, out var insn) ? NativeDisassembler.Facts(in insn) : null;
     }
 

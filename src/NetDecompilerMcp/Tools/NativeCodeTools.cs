@@ -13,7 +13,7 @@ using static NetDecompilerMcp.Tools.ToolSupport;
 
 namespace NetDecompilerMcp.Tools;
 
-/// <summary>Native code: functions, disassembly, control flow, cross-references, call trees and strings (x86 / x64).</summary>
+/// <summary>Native code: functions, disassembly, control flow, cross-references, call trees and strings (x86 / x64 / ARM64).</summary>
 [McpServerToolType]
 public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeService code, OutputPager pager, NativeLinkService? link = null,
     NativeEngineService? engines = null, NativeNamePush? names = null, NativeTypePush? types = null, NativeUserTypePush? userTypes = null)
@@ -103,7 +103,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     }
 
     [McpServerTool(Name = "list_functions", Title = "List native functions", UseStructuredContent = true, OutputSchemaType = typeof(FunctionList))]
-    [Description("Functions of a native image (x86 / x64): address, size, name (export name, module!import for thunks, or sub_<rva>), flags " +
+    [Description("Functions of a native image (x86 / x64 / ARM64): address, size, name (export name, module!import for thunks, or sub_<rva>), flags " +
                  "(thunk, noreturn, unresolved jumps, invalid code, funclet, funclet of its parent, exception chunks: catch blocks, unwind funclets, filters " +
                  "and handlers attached to their function), how it was found and how many call sites reach it. get_exception_info shows the details. " +
                  "Names from rename_native, PDB symbols and apply_il2cpp_names take precedence in that order. " + IndexNote)]

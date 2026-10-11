@@ -122,14 +122,20 @@ public sealed partial class NativeCodeTools
         var rva = Address(index, address);
         int n = Math.Clamp(count, 1, MaxInspectCount);
         bool undecoded = index.Support == CodeSupport.DeclaredFunctionsOnly;
+        // the built-in inspector reads x86 / x64 operands; other decoded instruction sets go to IDA too
+        bool operands = !undecoded && index.Image.Arch is NativeArch.X86 or NativeArch.X64;
         var origin = mode.Named ? $"engine={EngineModes.Name(mode.Mode)}" : $"server default {EngineModes.Name(mode.Mode)}";
         var choice = mode.Mode switch
         {
             EngineMode.Ida => NativeEngineCode.Choose(EngineMode.Ida, mode.Named, engines, native, index),
-            _ when !undecoded => new EngineChoice("ours", $"{origin}: the built-in decoder"),
+            _ when operands => new EngineChoice("ours", $"{origin}: the built-in decoder"),
             // instruction details come from IDA only
-            EngineMode.Auto when engines?.UnavailabilityOf("ida") == null => new EngineChoice("ida", $"{origin}: the built-in analysis does not decode {index.Image.Arch} instructions"),
-            _ => throw NativeEngineCode.Unsupported(index, engines),
+            EngineMode.Auto when engines != null && engines.UnavailabilityOf("ida") == null => new EngineChoice("ida", undecoded
+                ? $"{origin}: the built-in analysis does not decode {index.Image.Arch} instructions"
+                : $"{origin}: the built-in inspector reads x86 / x64 operands"),
+            _ when undecoded => throw NativeEngineCode.Unsupported(index, engines),
+            _ => throw new ToolError(ErrorCode.Unsupported, $"The built-in inspector reads x86 / x64 operands; {index.Image.Arch} instructions are inspected through IDA.",
+                "install IDA Pro 9 or newer with idalib (or set NDM_IDA_DIR); disassemble and get_cfg decode this code without it"),
         };
         var (text, report) = choice.External
             ? await InspectWithEngine(native, index, rva, n, choice, progress, cancellationToken)

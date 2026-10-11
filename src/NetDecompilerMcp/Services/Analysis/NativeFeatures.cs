@@ -18,7 +18,7 @@ internal sealed class NativeFeatureScan(NativeCodeIndex index, CancellationToken
     private const int MaxLocations = 5;
     private const int MaxStringChars = 4096;
     private const int MinEntropyBytes = 4096;
-    private readonly CallAnalysis? _calls = index.Support == CodeSupport.Full ? CallAnalysis.For(index) : null;
+    private readonly CallAnalysis? _calls = CallAnalysis.Supports(index) ? CallAnalysis.For(index) : null;
     private readonly List<string> _notes = [];
     private List<(uint Rva, string Text)>? _strings;
     private List<MsvcRttiClass>? _classes;

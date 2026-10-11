@@ -132,9 +132,12 @@ public sealed partial class CallAnalysis
 
     /// <summary>The analysis of an index (created once per index).</summary>
     /// <exception cref="NotSupportedException">The index does not decode instructions (not x86 / x64).</exception>
+    /// <summary>The analysis reads x86 / x64 code; other instruction sets have no call analysis yet.</summary>
+    public static bool Supports(NativeCodeIndex index) => index.Support == CodeSupport.Full && index.Image.Arch is NativeArch.X86 or NativeArch.X64;
+
     public static CallAnalysis For(NativeCodeIndex index)
     {
-        if (index.Support != CodeSupport.Full) throw new NotSupportedException(index.SupportNote ?? "instructions are not decoded for this architecture");
+        if (!Supports(index)) throw new NotSupportedException(index.SupportNote ?? $"call analysis reads x86 / x64 code, not {index.Image.Arch}");
         return Table.GetValue(index, i => new CallAnalysis(i));
     }
 

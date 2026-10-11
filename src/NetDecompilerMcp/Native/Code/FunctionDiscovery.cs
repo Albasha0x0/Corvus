@@ -14,6 +14,7 @@ internal sealed class FunctionDiscovery
     private readonly CodeContext _ctx;
     private readonly ICodeDecoder _dec;
     private readonly ICodeDecoder _peek;
+    private readonly ICodeDecoder _thunks;
     // the same decoders on x86 / x64, for the heuristics that read x86 instructions (prologues, frames, SEH scopes)
     private readonly X86Decoder? _x86Dec;
     private readonly X86Decoder? _x86Peek;
@@ -44,6 +45,7 @@ internal sealed class FunctionDiscovery
         _progress = progress;
         _dec = ctx.NewDecoder(computeAccess: false);
         _peek = ctx.NewDecoder(computeAccess: false);
+        _thunks = ctx.NewDecoder(computeAccess: false);
         _x86Dec = _dec as X86Decoder;
         _x86Peek = _peek as X86Decoder;
         _starts = new CodeBitmap(ctx.Code.TotalBytes);
@@ -125,13 +127,11 @@ internal sealed class FunctionDiscovery
         _roots.Enqueue(rva);
     }
 
-    /// <summary>The import slot when the code at <paramref name="rva"/> is "jmp [slot]".</summary>
+    /// <summary>The import slot when the code at <paramref name="rva"/> only jumps through one ("jmp [slot]", an ARM64 PLT stub).</summary>
     private uint? ThunkSlot(uint rva)
     {
         if (_thunkCache.TryGetValue(rva, out var cached)) return cached;
-        uint? slot = null;
-        if (_peek.Decode(rva, out var insn) && insn.Flow == FlowKind.IndirectJump && insn.HasMem && _ctx.ImportSlots.ContainsKey(insn.MemTarget))
-            slot = insn.MemTarget;
+        var slot = _thunks.ThunkSlot(rva, _ctx.ImportSlots.ContainsKey);
         _thunkCache[rva] = slot;
         return slot;
     }
