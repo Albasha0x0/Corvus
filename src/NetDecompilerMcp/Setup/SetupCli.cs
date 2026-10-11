@@ -18,6 +18,8 @@ internal static class SetupCli
         ["update"] = ["--version", "--dry-run"],
     };
 
+    public static bool IsCommand(string arg) => Commands.Contains(arg, StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Runs a setup command and returns its exit code, or null when the arguments start the server.</summary>
     public static int? TryRun(string[] args, TextWriter? output = null, SetupEnvironment? env = null, ServerLaunch? launch = null)
     {
@@ -85,6 +87,18 @@ internal static class SetupCli
           version               Print the version.
 
         Exit codes: 0 success (a dry run always), 1 a check or a registration failed, 2 usage error.
+
+        Tools from the terminal (each call runs the server in this process; docs/cli.md):
+          <tool> [name=value ...]  Call a tool, e.g. NetDecompilerMcp decompile_member --load app.dll member=Ns.T::M
+          call <tool> ...       The same. Values: name=value (typed by the parameter), name:=<json>, name=@file,
+                                name=@- (stdin); or --args '<json object>' (also --json '{...}'), --args-file F|-.
+                                --load PATH preloads (repeatable); any server option applies (see the README).
+                                --json          print {tool, isError, text, structured, error}
+                                --structured    print only the structured content
+          tools [filter]        List the tools by toolset (--json for a table).
+          describe <name>       A tool's or prompt's description, parameters and an example (help <name> too).
+        Tool exit codes: 0 success, 1 tool error, 2 usage or invalid_argument, 3 engine missing or unsupported,
+        124 timeout, 130 cancelled (Ctrl+C).
         """;
 
     /// <summary>The help text with the client ids of this system's catalog.</summary>

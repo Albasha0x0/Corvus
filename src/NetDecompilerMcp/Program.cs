@@ -5,6 +5,7 @@ using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Mcp;
 
 if (NetDecompilerMcp.Relay.RelayCli.TryRun(args) is { } relayExitCode) return relayExitCode;
+if (NetDecompilerMcp.Setup.ToolCli.TryRun(args) is { } toolExitCode) return toolExitCode;
 if (NetDecompilerMcp.Setup.SetupCli.TryRun(args) is { } setupExitCode) return setupExitCode;
 
 ServerOptions options;

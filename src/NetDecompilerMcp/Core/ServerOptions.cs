@@ -79,6 +79,13 @@ public sealed class ServerOptions
     /// </summary>
     public Native.Code.CodeIndexCacheOptions? CodeIndexCache { get; set; }
 
+    /// <summary>The options <see cref="Parse"/> reads a value after (the tool CLI tells them from tool arguments).</summary>
+    public static readonly IReadOnlySet<string> ValueOptions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "--load", "--search-dir", "--max-output", "--timeout", "--binding-style", "--binding-project", "--prewarm", "--engine",
+        "--index-cache", "--index-cache-mb", "--index-cache-days", "--log-level", Core.Toolsets.Option,
+    };
+
     public static ServerOptions Parse(string[] args)
     {
         var o = new ServerOptions { CodeIndexCache = Native.Code.CodeIndexCacheOptions.FromEnvironment() };
