@@ -13,19 +13,36 @@ public class NativeAotTypeTests
     internal const uint SealedCode = B.TextRva + 0x90;
     private const uint HasDispatchMap = 0x40000, HasSealedVTable = 0x400000;
     private const uint KindCanonical = 0, KindGenericDefinition = 3;
-    private const uint IsGeneric = 0x02000000, IsGeneric7 = 0x400;
+    private const uint IsGeneric = 0x02000000, IsGeneric7 = 0x400, OptionalFields7 = 0x100;
 
     /// <summary>Writes a MethodTable of <paramref name="layout"/> and the builder's pointer size into .data; returns its RVA.</summary>
     private static uint Mt(B b, MethodTableLayout layout, E element, uint kind, uint baseSize, uint related, uint[] vtable, uint[] interfaces,
         ushort componentSize = 0, uint genericDefinition = 0, uint genericArgument = 0, uint dispatchMap = 0, uint sealedVTable = 0)
     {
         var d = b.Data;
-        d.Align(b.PointerSize);
         bool generic = genericDefinition != 0;
-        if (layout == MethodTableLayout.Net7)
+        bool net7 = layout == MethodTableLayout.Net7;
+        uint optionalFields = 0, composition = 0;
+        if (net7 && dispatchMap != 0)
+        {
+            // Rare flags with HasSealedVTableEntries (0x200, NativeFormat 01 08), then the dispatch map's index 0 in section 203.
+            optionalFields = d.Bytes([0x00, 0x01, 0x08, 0x81, 0x00]);
+            d.Align(b.PointerSize);
+            uint table = b.Pointer(d, dispatchMap);
+            b.Row(203, table, table + (uint)b.PointerSize);
+        }
+        if (net7 && generic)
+        {
+            d.Align(b.PointerSize);
+            composition = d.U16(1); // arity, no variance, padding to a pointer
+            d.Zero(b.PointerSize - 2);
+            b.Pointer(d, genericArgument);
+        }
+        d.Align(b.PointerSize);
+        if (net7)
         {
             d.U16(componentSize);
-            d.U16((ushort)(((uint)element << 11) | kind | (generic ? IsGeneric7 : 0)));
+            d.U16((ushort)(((uint)element << 11) | kind | (generic ? IsGeneric7 : 0) | (optionalFields != 0 ? OptionalFields7 : 0)));
         }
         else
         {
@@ -43,9 +60,20 @@ public class NativeAotTypeTests
         foreach (var i in interfaces) b.Pointer(d, i);
         d.U32(0); // type manager indirection
         d.U32(0); // writable data
+        if (net7)
+        {
+            if (optionalFields != 0) d.U32(optionalFields - d.Here);
+            if (sealedVTable != 0) d.U32(sealedVTable - d.Here);
+            if (generic)
+            {
+                d.U32(genericDefinition - d.Here);
+                d.U32(composition - d.Here);
+            }
+            return at;
+        }
         if (dispatchMap != 0) d.U32(dispatchMap - d.Here);
         if (sealedVTable != 0) d.U32(sealedVTable - d.Here);
-        if (generic && layout != MethodTableLayout.Net7)
+        if (generic)
         {
             uint def = d.Here;
             d.U32(genericDefinition - def);
@@ -77,16 +105,12 @@ public class NativeAotTypeTests
 
         uint obj = Mt(b, layout, E.Class, KindCanonical, size.Object, 0, [ToStringCode, EqualsCode, HashCode], []);
         uint speaker = Mt(b, layout, E.Interface, KindCanonical, 0, 0, [], []);
-        // Dog's dispatch map (.NET 8+): the interface's slot 0 is vtable slot 0 (Speak), slot 1 is slot 3, the sealed vtable's first.
-        uint dogMap = 0, dogSealed = 0;
-        if (layout != MethodTableLayout.Net7)
-        {
-            b.Data.Align(4);
-            dogMap = b.Data.Here;
-            foreach (var v in new ushort[] { 2, 0, 0, 0, 0, 0, 0, 0, 1, 3 }) b.Data.U16(v);
-            dogSealed = b.Data.Here;
-            b.Data.U32(SealedCode - dogSealed);
-        }
+        // Dog's dispatch map: the interface's slot 0 is vtable slot 0 (Speak), slot 1 is slot 3, the sealed vtable's first.
+        b.Data.Align(4);
+        uint dogMap = b.Data.Here;
+        foreach (var v in new ushort[] { 2, 0, 0, 0, 0, 0, 0, 0, 1, 3 }) b.Data.U16(v);
+        uint dogSealed = b.Data.Here;
+        b.Data.U32(SealedCode - dogSealed);
         uint dog = Mt(b, layout, E.Class, KindCanonical, size.Dog, obj, [SpeakCode, EqualsCode, HashCode], [speaker], dispatchMap: dogMap, sealedVTable: dogSealed);
         uint dogArray = Mt(b, layout, E.SzArray, KindCanonical, size.Object, dog, [ToStringCode, EqualsCode, HashCode], [], componentSize: (ushort)p);
         // .NET 9+: a generic definition's BaseSize is its arity; .NET 8: its component size.
@@ -182,12 +206,17 @@ public class NativeAotTypeTests
     {
         var w = Build(8);
         var types = w.Aot.Types.ByRva;
-        Assert.Equal(NativeAotStage.Partial, w.Aot.Types.Stage.Status);
-        Assert.Contains("generic instantiations are not decoded", w.Aot.Types.Stage.Detail);
+        Assert.Equal(NativeAotStage.Complete, w.Aot.Types.Stage.Status);
         Assert.Equal("System.Object", types[w.Object].Name);
         Assert.Equal("Sample.Zoo.Dog", types[w.Dog].Name);
         Assert.Equal("Sample.Zoo.Dog[]", types[w.DogArray].Name);
-        Assert.Equal("generated", types[w.BoxOfDog].NameOrigin);
+        // Generic instantiations: definition by relative pointer, arguments in the composition; dispatch map through the optional fields.
+        Assert.Equal(("Sample.Zoo.Box<Sample.Zoo.Dog>", "composition"), (types[w.BoxOfDog].Name, types[w.BoxOfDog].NameOrigin));
+        Assert.Equal([w.Dog], types[w.BoxOfDog].GenericArguments);
+        Assert.Equal(w.BoxDefinition, types[w.BoxOfDog].GenericDefinition);
+        Assert.Equal([new NativeAotInterfaceImpl(w.Speaker, 0, 0, SpeakCode), new NativeAotInterfaceImpl(w.Speaker, 1, 3, SealedCode)],
+            w.Aot.Types.Implementations(types[w.Dog]));
+        Assert.Equal(SealedCode, w.Aot.Types.SlotCode(types[w.Dog], 3));
         Assert.False(types.ContainsKey(w.LookAlike));
     }
 

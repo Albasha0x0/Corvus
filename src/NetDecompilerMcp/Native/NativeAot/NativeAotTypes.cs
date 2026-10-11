@@ -106,8 +106,7 @@ public sealed class NativeAotTypes
         types.ByRva = named;
         var origins = named.Values.GroupBy(m => m.NameOrigin).OrderBy(g => g.Key, StringComparer.Ordinal).Select(g => $"{g.Count()} {g.Key}");
         string detail = $"{named.Count} found ({string.Join(", ", origins)}); seeds: {reader.SeedSummary}" + (reader.Truncated ? "; stopped at the type limit" : "");
-        types.Stage = new("method tables", aot.Format.Exact && !reader.Truncated && aot.Format.Layout != MethodTableLayout.Net7 ? NativeAotStage.Complete : NativeAotStage.Partial,
-            aot.Format.Layout == MethodTableLayout.Net7 ? detail + "; .NET 7 layout: generic instantiations are not decoded" : detail);
+        types.Stage = new("method tables", aot.Format.Exact && !reader.Truncated ? NativeAotStage.Complete : NativeAotStage.Partial, detail);
         return types;
     }
 
@@ -243,7 +242,7 @@ public sealed class NativeAotTypes
         {
             mt = null;
             try { return Read(rva, out mt); }
-            catch (NativeAotFormatException) { return false; }
+            catch (Exception e) when (e is NativeAotFormatException or ReadyToRun.R2RFormatException) { return false; }
         }
 
         private bool Read(uint rva, [NotNullWhen(true)] out NativeAotMethodTable? mt)
@@ -299,8 +298,78 @@ public sealed class NativeAotTypes
                 HasFinalizer = (flags & masks.HasFinalizer) != 0,
                 HasDispatchMap = (flags & masks.HasDispatchMap) != 0,
             };
-            if (layout != MethodTableLayout.Net7) mt = Tail(mt, at, kind);
+            mt = layout == MethodTableLayout.Net7 ? Tail7(mt, at, kind) : Tail(mt, at, kind);
             return true;
+        }
+
+        /// <summary>
+        /// .NET 7 tail after the interfaces, 32-bit relative pointers: TypeManager, WritableData, [Finalizer], [OptionalFields],
+        /// [SealedVTable when the rare flags say so], [GenericDefinition, GenericComposition]. The optional fields hold the
+        /// rare flags and the dispatch map's index in the InterfaceDispatchTable (section 203); the composition is u16 arity,
+        /// u8 variance flag, padding to a pointer, then the argument MethodTable pointers (EETypeNode.cs, GenericCompositionNode.cs at v7).
+        /// </summary>
+        private NativeAotMethodTable Tail7(NativeAotMethodTable mt, uint at, uint kind)
+        {
+            const uint HasSealedVTableEntries = 0x200;
+            at += 8; // TypeManager indirection, writable data
+            if (mt.HasFinalizer) at += 4;
+            uint rare = 0;
+            if ((mt.Flags & masks.OptionalFields) != 0)
+            {
+                if (image.RelativeAt(at) is { } fields && IsData(fields))
+                {
+                    var optional = OptionalFields(fields);
+                    rare = optional.GetValueOrDefault(0);
+                    // The table's row has a start only.
+                    if (optional.TryGetValue(1, out uint index) && aot.Header.Section(203) is { } table && index < MaxTypes
+                        && image.PointerAt(table.StartRva + index * ptr) is { } map && IsData(map))
+                        mt = mt with { DispatchMap = map, HasDispatchMap = true };
+                }
+                at += 4;
+            }
+            if ((rare & HasSealedVTableEntries) != 0)
+            {
+                mt = mt with { SealedVTable = image.RelativeAt(at) is { } sealedSlots && IsData(sealedSlots) ? sealedSlots : 0 };
+                at += 4;
+            }
+            if ((mt.Flags & masks.IsGeneric) == 0 || kind == masks.KindGenericDefinition) return mt;
+            uint definition = Direct(image.RelativeAt(at) ?? 0);
+            if (definition == 0 || !IsData(definition)) return mt;
+            mt = mt with { GenericDefinition = definition };
+            if (image.RelativeAt(at + 4) is not { } composition || !IsData(composition)) return mt;
+            uint arity = U16(composition);
+            if (arity is 0 or > 64) return mt;
+            var args = new uint[arity];
+            for (uint i = 0; i < arity; i++)
+            {
+                uint arg = Direct(Pointer(composition + ptr + i * ptr) ?? 0);
+                if (arg == 0 || !IsData(arg)) return mt;
+                args[i] = arg;
+            }
+            return mt with { GenericArguments = args };
+        }
+
+        /// <summary>A type reference that may go through an indirection cell (low bit set): the MethodTable it names.</summary>
+        private uint Direct(uint target) => (target & 1) == 0 ? target : image.PointerAt(target & ~1u) ?? 0;
+
+        /// <summary>The .NET 7 optional fields: tag bytes (0x80 on the last) each followed by a NativeFormat unsigned value.</summary>
+        private Dictionary<int, uint> OptionalFields(uint rva)
+        {
+            var fields = new Dictionary<int, uint>();
+            for (int i = 0; i < 8; i++)
+            {
+                byte tag = U8(rva++);
+                rva = ReadyToRun.NativeFormat.DecodeUnsigned(image.View, rva, out uint value);
+                fields[tag & 0x7F] = value;
+                if ((tag & 0x80) != 0) break;
+            }
+            return fields;
+        }
+
+        private byte U8(uint rva)
+        {
+            Span<byte> b = stackalloc byte[1];
+            return image.Read(rva, b) == 1 ? b[0] : throw new NativeAotFormatException("outside the image");
         }
 
         private string Kind(uint kind, NativeAotElementType element)

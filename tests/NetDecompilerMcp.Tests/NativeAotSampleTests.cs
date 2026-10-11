@@ -31,6 +31,7 @@ public class NativeAotSampleTests(ITestOutputHelper log)
     /// <summary>Build matrix: target framework, runtime identifier and the MSBuild properties passed to dotnet publish.</summary>
     private static readonly Dictionary<string, (string Tfm, string Runtime, string Rid, string[] Properties)> Variants = new()
     {
+        ["net7"] = ("net7.0", ".NET 7", "win-x64", []),
         ["net8"] = ("net8.0", ".NET 8", "win-x64", []),
         ["net9"] = ("net9.0", ".NET 9", "win-x64", []),
         ["net10"] = ("net10.0", ".NET 10", "win-x64", []),
@@ -89,6 +90,11 @@ public class NativeAotSampleTests(ITestOutputHelper log)
             Assert.Contains("Sample.Zoo.Program::Thrower(int)", methods);
             Assert.Contains("Sample.Zoo.Program::Compute(int, int)", methods);
         }
+        // Dispatch maps (.NET 7: through the optional fields and the dispatch map table): most implementations are named bodies.
+        var impls = aot.Types.ByRva.Values.SelectMany(aot.Types.Implementations).Where(i => i.Code != 0).ToList();
+        Assert.True(impls.Count > 100, $"{impls.Count} interface implementations");
+        if (!properties.Contains("StackTraceSupport=false"))
+            Assert.True(impls.Count(i => aot.Names.MethodAt.ContainsKey(i.Code)) > impls.Count / 2, "interface implementations named");
         var types = aot.Types.ByRva.Values.Select(t => t.Name).ToHashSet();
         Assert.Contains("Sample.Zoo.Dog", types);
         Assert.Contains("Sample.Zoo.Box<Sample.Zoo.Point>", types);
