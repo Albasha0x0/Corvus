@@ -260,6 +260,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["apply_il2cpp_names"] = (new() { ["image"] = NativeSample(dir), ["assembly"] = "TestFixture" }, "il2cpp names from TestFixture"),
         ["load_pdb"] = (new() { ["image"] = PdbSample(dir) }, "matches the image"),
         ["search_pdb_symbols"] = (new() { ["image"] = PdbSample(dir), ["query"] = "Foo" }, "public: int __cdecl Bar::Foo(int)"),
+        ["get_native_type"] = (new() { ["image"] = PdbTypeFixture.Image(dir), ["name"] = "Game", ["at"] = "0xD8" }, "players[3].pos.y (float)"),
         ["verify_native_imports"] =(new() { ["assembly"] = "TestFixture" }, "TestFixture"),
         ["get_r2r_code"] = R2RFramework.Linq is { } linq
             ? (new() { ["method"] = "System.Linq.Enumerable::Any", ["assembly"] = linq, ["maxBodies"] = 1 }, "native code in System.Linq.dll")

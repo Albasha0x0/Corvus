@@ -32,7 +32,7 @@ public static class Toolsets
         new("native", true, "native PE analysis, symbols and decompilation",
             ["get_pe_info", "list_imports", "list_exports", "resolve_address", "search_bytes", "read_bytes", "list_functions", "disassemble", "inspect_instruction", "get_cfg",
              "find_xrefs", "native_call_tree", "find_virtual_calls", "search_native_strings", "get_call_arguments", "trace_native_values", "resolve_call_targets", "get_exception_info",
-             "list_cpp_classes", "decompile_native", "verify_native_imports", "load_pdb", "search_pdb_symbols"]),
+             "list_cpp_classes", "get_native_type", "decompile_native", "verify_native_imports", "load_pdb", "search_pdb_symbols"]),
         new("native-edit", true, "native names, comments, patches and saving",
             ["rename_native", "comment_native", "export_native_annotations", "patch_bytes", "patch_asm", "list_native_edits", "undo_native_edit",
              "save_native", "export_native_patches"]),

@@ -24,7 +24,7 @@ public static class ToolAvailability
     };
 
     /// <summary>Modes that run an engine although the tool has no engine parameter: (tool, mode, provider id).</summary>
-    public static readonly IReadOnlyList<(string Tool, string Mode, string Provider)> EngineModes = [("find_virtual_calls", "crossCheck=true", "ida")];
+    public static readonly IReadOnlyList<(string Tool, string Mode, string Provider)> EngineModes = [("find_virtual_calls", "crossCheck=true", "ida"), ("get_native_type", "source=engine", "ida")];
 
     public static readonly IReadOnlyList<string> WindowsOnly = ["inspect_process"];
 

@@ -58,6 +58,10 @@ public static class ParameterDomains
         ["set_native_local"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["declare_native_types"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["list_native_types"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
+        ["get_native_type"] = new Dictionary<string, Domain>
+        {
+            ["source"] = Of(["auto", "pdb", "rtti", "il2cpp", "engine"]), ["format"] = Of(["table", "c"]), ["engine"] = DecompilerEngine,
+        },
         ["ida_python"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["find_virtual_calls"] = new Dictionary<string, Domain> { ["status"] = Of(["exact", "possible", "unresolved"]) },
         ["trace_native_values"] = new Dictionary<string, Domain> { ["direction"] = Of(["backward", "forward", "both"], "back", "fwd") },
