@@ -88,8 +88,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
                  "(where does it go): API arguments (named, constants decoded), callees' parameters, stores to globals and their readers, returns into " +
                  "callers' uses, compares, switch indexes, dereferences. The seed: address plus location (" + LocationHelp + "), or argument (of a call, " +
                  "or a function's parameter at its start), or a writable global alone. Budgets cap depth, functions, nodes, callers and writers; " +
-                 "what they leave out is listed as frontier entries with the exact follow-up call. The graph is built once: pages (offset / limit " +
-                 "over nodes) come from it.")]
+                 "what they leave out is listed as frontier entries with the exact follow-up call. Pages (offset / limit) reuse the built graph.")]
     public Task<string> TraceNativeValues(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("An instruction, a call, a function start (with argument) or a writable global. " + NativeTools.AddressDescription)] string address,
@@ -115,7 +114,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
             "both" => TraceDirection.Both,
             _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown direction '{direction}'.", "use backward, forward or both"),
         };
-        var index = await OpenIndex(workspace, code, image, progress, cancellationToken);
+        var (_, index) = await OpenIndex(workspace, code, image, progress, cancellationToken);
         return await Task.Run(() =>
         {
             var analysis = CallAnalysis.For(index);
@@ -129,7 +128,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
     });
 
     /// <summary>Loads the image if given by path and waits for its code index (x86 / x64 only).</summary>
-    internal static async Task<NativeCodeIndex> OpenIndex(AssemblyWorkspace workspace, NativeCodeService code, string image, IProgress<ProgressNotificationValue> progress,
+    internal static async Task<(LoadedNative Native, NativeCodeIndex Index)> OpenIndex(AssemblyWorkspace workspace, NativeCodeService code, string image, IProgress<ProgressNotificationValue> progress,
         CancellationToken ct)
     {
         var native = await Task.Run(() =>
@@ -147,7 +146,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         })), ct);
         if (index.Support != CodeSupport.Full)
             throw new ToolError(ErrorCode.Unsupported, $"Instructions are not decoded for {index.Image.Arch} images.", "decompile_native shows the code through IDA");
-        return index;
+        return (native, index);
     }
 
     /// <summary>The seed named by address plus location, argument, or a global alone.</summary>
