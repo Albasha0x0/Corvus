@@ -126,13 +126,13 @@ public static class NativeAddress
 
     /// <summary>
     /// <paramref name="import"/> is module!name: the module by file name with or without its extension (kernel32, KERNEL32.dll,
-    /// libc.so.6, libSystem.B.dylib; an unversioned ELF import, module *, matches any library), the name exactly, by #ordinal,
+    /// libc.so.6, libSystem.B.dylib; an unversioned ELF import, module *, matches * or any library it needs), the name exactly, by #ordinal,
     /// or on Mach-O without its leading underscore.
     /// </summary>
     public static bool ImportMatches(INativeImage image, NativeImport import, string module, string name)
     {
         if (import.Module != "*" && !SameModule(import.Module, module)) return false;
-        if (import.Module == "*" && image.Dependencies.Count > 0 && !image.Dependencies.Any(d => SameModule(d, module))) return false;
+        if (import.Module == "*" && module != "*" && image.Dependencies.Count > 0 && !image.Dependencies.Any(d => SameModule(d, module))) return false;
         if (name.StartsWith('#')) return import.Ordinal?.ToString() == name[1..];
         return import.Name == name || (image.Format == ImageFormat.MachO && import.Name == "_" + name);
     }
