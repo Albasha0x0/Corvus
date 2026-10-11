@@ -36,6 +36,8 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
         public readonly Dictionary<TypeDef, Source> SourceOf = [];
         public readonly List<string> Notes = [];
         public readonly List<(UnityJavaCall Call, Source Source)> Unity = [];
+        /// <summary>The package's DEX code, read when a method's base has no [Register] left.</summary>
+        public Lazy<DexIndex?>? Dex;
     }
 
     private readonly object _lock = new();
@@ -52,6 +54,12 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
     {
         symbol = symbol.Trim();
         var index = Build(path, ct);
+        if (dex != null && path != null)
+            index.Dex = new(() =>
+            {
+                try { return dex.Index(path, ct); }
+                catch (ToolError ex) { index.Notes.Add($"The package's DEX code is not read ({ex.Message})."); return null; }
+            });
         bool java = symbol.StartsWith('L') && (symbol.EndsWith(';') || symbol.Contains(";->", StringComparison.Ordinal)) || symbol.Contains('/', StringComparison.Ordinal)
                     || symbol.Contains("->", StringComparison.Ordinal);
         var sep = symbol.IndexOf("::", StringComparison.Ordinal);
@@ -98,7 +106,8 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
                 if (m.Name == simple && (paren < 0 || Format.MemberLabel(m).EndsWith(name, StringComparison.Ordinal)))
                     items.Add(new($"L{bound.Java};->{javaMember}", Format.MemberLabel(m), source.Label, source.Loaded, basis));
             if (items.Count == 0)
-                throw new ToolError(ErrorCode.NotFound, $"{TypeLabel(type)}::{name} is not registered with Java and overrides no registered method.");
+                throw new ToolError(ErrorCode.NotFound, $"{TypeLabel(type)}::{name} is not registered with Java and overrides no registered method.",
+                    path == null ? "pass path=the package: release builds strip [Register] from Mono.Android, and the Java callable wrapper in the DEX names the overrides" : null);
         }
         return new JavaDotNetResult(symbol, "dotnet_to_java", items, index.Notes);
     }
@@ -221,20 +230,52 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
     /// <summary>Java methods of a .NET type: its own [Register] methods and overrides of registered base methods, as name(sig)ret.</summary>
     private static IEnumerable<(MethodDef Method, string Java, string Basis)> Methods(Index index, TypeDef type)
     {
+        List<(string Java, string Connector)>? wrapper = null;
         foreach (var m in type.Methods)
         {
             if (Register(m) is { } own && own.Signature != null) { yield return (m, own.Name + own.Signature, "register_attribute"); continue; }
             if (!m.IsVirtual || m.IsNewSlot) continue;
+            bool registered = false;
             for (var b = Base(index, type); b != null; b = Base(index, b))
             {
                 var baseMethod = b.Methods.FirstOrDefault(x => x.Name == m.Name && x.IsVirtual && new SigComparer().Equals(x.MethodSig, m.MethodSig));
                 if (baseMethod == null) continue;
-                if (Register(baseMethod) is { Signature: not null } r) { yield return (m, r.Name + r.Signature, "override"); break; }
+                if (Register(baseMethod) is { Signature: not null } r) { yield return (m, r.Name + r.Signature, "override"); registered = true; break; }
                 if (baseMethod.IsNewSlot) break;
                 // An unregistered override in between (MauiAppCompatActivity.OnCreate): the registered slot is further down.
             }
+            if (registered) continue;
+            // Release builds strip [Register] from Mono.Android: the wrapper's registration names the overrides.
+            wrapper ??= index.ByType.TryGetValue(type, out var bound) && index.Dex?.Value is { } code ? WrapperMethods(code, bound.Java) : [];
+            foreach (var (java, connector) in wrapper)
+                if (ConnectorNames(connector, m.Name) && DexIndex.SplitParameters(java[(java.IndexOf('(') + 1)..java.IndexOf(')')]).Count == m.MethodSig.Params.Count)
+                    yield return (m, java, "override");
         }
     }
+
+    /// <summary>
+    /// The methods a Java callable wrapper registers in its static initializer, as name(sig)ret with the .NET connector
+    /// ("n_onCreate:(Landroid/os/Bundle;)V:GetOnCreate_Landroid_os_Bundle_Handler" lines).
+    /// </summary>
+    private static List<(string Java, string Connector)> WrapperMethods(DexIndex code, string javaClass)
+    {
+        var result = new List<(string, string)>();
+        if (!code.Methods.TryGetValue($"L{javaClass};-><clinit>()V", out var init) || init.Encoded.CodeOffset == 0
+            || init.File.Code(init.Encoded.CodeOffset) is not { } body) return result;
+        foreach (var i in Dalvik.Decode(body.Instructions))
+        {
+            if (i.Ref != DalvikRef.String) continue;
+            foreach (var line in init.File.String(i.Index).Split('\n'))
+                if (line.Split(':') is [var name, var signature, var connector, ..] && name.StartsWith("n_", StringComparison.Ordinal) && signature.StartsWith('('))
+                    result.Add((name[2..] + signature, connector));
+        }
+        return result;
+    }
+
+    /// <summary>Whether a connector (GetOnCreate_Landroid_os_Bundle_Handler, GetOnPauseHandler) belongs to the .NET method <paramref name="name"/>.</summary>
+    private static bool ConnectorNames(string connector, string name) =>
+        connector.StartsWith("Get", StringComparison.Ordinal) && connector.EndsWith("Handler", StringComparison.Ordinal)
+        && connector[3..^7] is var core && (core == name || core.StartsWith(name + "_", StringComparison.Ordinal));
 
     private static (string Name, string? Signature, bool DoNotGenerateAcw)? Register(IHasCustomAttribute member)
     {

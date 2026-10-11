@@ -8,7 +8,8 @@ namespace NetDecompilerMcp.Tests;
 /// <summary>Assemblies shaped like a .NET for Android app: a Mono.Android with bound types and an app with Java peers.</summary>
 internal static class XamarinSample
 {
-    public static (byte[] MonoAndroid, byte[] App) Build()
+    /// <summary><paramref name="trimmed"/>: no [Register] on Mono.Android's methods, as release builds ship it.</summary>
+    public static (byte[] MonoAndroid, byte[] App) Build(bool trimmed = false)
     {
         var mono = new ModuleDefUser("Mono.Android.dll") { Kind = ModuleKind.Dll };
         new AssemblyDefUser("Mono.Android", new Version(0, 0, 0, 0)).Modules.Add(mono);
@@ -42,10 +43,14 @@ internal static class XamarinSample
         var activity = Type(mono, "Android.App", "Activity", javaObject);
         activity.CustomAttributes.Add(Bind("android/app/Activity"));
         var onCreate = Method(activity, "OnCreate", MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.NewSlot | MethodAttributes.HideBySig, bundle.ToTypeSig());
-        onCreate.CustomAttributes.Add(new CustomAttribute(registerCtor3, [
-            new CAArgument(corlib.String, "onCreate"), new CAArgument(corlib.String, "(Landroid/os/Bundle;)V"), new CAArgument(corlib.String, "GetOnCreate_Landroid_os_Bundle_Handler")]));
-        Method(activity, "OnResume", MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.NewSlot | MethodAttributes.HideBySig).CustomAttributes
-            .Add(new CustomAttribute(registerCtor3, [new CAArgument(corlib.String, "onResume"), new CAArgument(corlib.String, "()V"), new CAArgument(corlib.String, "GetOnResumeHandler")]));
+        var onResume = Method(activity, "OnResume", MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.NewSlot | MethodAttributes.HideBySig);
+        if (!trimmed)
+        {
+            onCreate.CustomAttributes.Add(new CustomAttribute(registerCtor3, [
+                new CAArgument(corlib.String, "onCreate"), new CAArgument(corlib.String, "(Landroid/os/Bundle;)V"), new CAArgument(corlib.String, "GetOnCreate_Landroid_os_Bundle_Handler")]));
+            onResume.CustomAttributes.Add(new CustomAttribute(registerCtor3, [
+                new CAArgument(corlib.String, "onResume"), new CAArgument(corlib.String, "()V"), new CAArgument(corlib.String, "GetOnResumeHandler")]));
+        }
 
         var app = new ModuleDefUser("MyApp.dll") { Kind = ModuleKind.Dll };
         new AssemblyDefUser("MyApp", new Version(1, 0, 0, 0)).Modules.Add(app);
@@ -132,6 +137,28 @@ public sealed class JavaDotNetMapTests : IDisposable
         Assert.Equal(("MyApp.MainActivity", "Lcom/example/app/Main;"), map.Map("com.example.app.Main", apk, default).Items.Select(i => (i.DotNet, i.Java)).Single());
         Assert.Equal("MyApp.LinkActivity", map.Map(AndroidSamples.LinkPackage + ".LinkActivity", apk, default).Items.Single().DotNet);
         Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => map.Map("Lcom/example/app/Helper;", apk, default)).Code);
+    }
+
+    /// <summary>Release builds strip [Register] from Mono.Android's methods: the Java callable wrapper's registration in the DEX names the overrides.</summary>
+    [Fact]
+    public void TrimmedBindings_OverridesComeFromTheWrapperRegistration()
+    {
+        var (mono, app) = XamarinSample.Build(trimmed: true);
+        var home = $"L{AndroidSamples.LinkPackage}/HomeActivity;";
+        var dex = new DexBuilder();
+        dex.Class(home, 1, "Landroid/app/Activity;").Method("<clinit>", "V", [], 0x10008,
+            Asm.ConstString(0, "n_onCreate:(Landroid/os/Bundle;)V:GetOnCreate_Landroid_os_Bundle_Handler\nn_onResume:()V:GetOnResumeHandler\n"), Asm.ReturnVoid()).Registers = 1;
+        var apk = AndroidSamples.Save(_dir, "trimmed.apk",
+            AndroidSamples.Apk(30, ("classes.dex", dex.Build()), ("assemblies/Mono.Android.dll", mono), ("assemblies/MyApp.dll", app)));
+        var map = new JavaDotNetMap(_workspace, new DexService());
+        var java = map.Map("MyApp.HomeActivity::OnCreate", apk, default).Items.Single();
+        Assert.Equal((home + "->onCreate(Landroid/os/Bundle;)V", "override"), (java.Java, java.Basis));
+        Assert.Equal("MyApp.HomeActivity::OnCreate(Bundle)", map.Map(home + "->onCreate(Landroid/os/Bundle;)V", apk, default).Items.Single().DotNet);
+        File.WriteAllBytes(_dir.File("Mono.Android.dll"), mono);
+        File.WriteAllBytes(_dir.File("MyApp.dll"), app);
+        _workspace.Load(_dir.File("Mono.Android.dll"));
+        _workspace.Load(_dir.File("MyApp.dll"));
+        Assert.Contains("pass path=the package", Assert.Throws<ToolError>(() => map.Map("MyApp.HomeActivity::OnCreate", null, default)).Remediation);
     }
 
     [Fact]
