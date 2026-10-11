@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/NetDecompilerMcp/NetDecompilerMcp.csproj" />
+    <Project Path="src/NetDecompilerMcp.Clr32/NetDecompilerMcp.Clr32.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/NetDecompilerMcp.Tests/NetDecompilerMcp.Tests.csproj" />

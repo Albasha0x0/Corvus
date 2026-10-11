@@ -94,6 +94,7 @@ public sealed partial class MinidumpService
         {
             var notes = new List<string>();
             var (domains, threads, heap) = decoder.Facts();
+            if (decoder.OutOfProcess) notes.Add("A 32-bit process: decoded by the 32-bit decoder process with the 32-bit DAC.");
             uint? faulting = d.Exception is { Code: ExceptionCodes.ClrException } e ? e.ThreadId : null;
             ManagedException? ex = null;
             try { ex = decoder.Exception(faulting) ?? (faulting != null ? decoder.Exception(null) : null); }

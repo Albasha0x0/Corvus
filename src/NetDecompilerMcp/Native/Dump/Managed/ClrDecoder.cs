@@ -1,5 +1,5 @@
-using System.Reflection.Metadata;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using Microsoft.Diagnostics.Runtime;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native.Pe;
@@ -9,29 +9,29 @@ namespace NetDecompilerMcp.Native.Dump.Managed;
 /// <summary>DAC outcome: loaded, not_found, bitness_mismatch, host_unsupported, signature_invalid, download_refused_offline, download_failed, load_failed or unsupported_runtime.</summary>
 public sealed record DacState(string Status, string? Path, string Detail);
 
-/// <summary>A managed frame: a method (with token and IL offset when the runtime has them) or a runtime transition frame.</summary>
-public sealed record ManagedFrame(ulong Ip, ulong Sp, bool IsMethod, string Name, int? Token, int? IlOffset, string? ModulePath, Guid? Mvid, ulong? MethodStart);
-
-/// <summary>A managed exception object with its stack and inner chain.</summary>
-public sealed record ManagedException(string Type, string? Message, int HResult, ulong Address, uint? ThreadId, IReadOnlyList<ManagedFrame> Stack, ManagedException? Inner);
-
-/// <summary>Heap facts: whether objects can be walked, and why not.</summary>
-public sealed record ManagedHeapState(bool Walkable, int Segments, ulong Bytes, string? Reason);
+/// <summary>A decoded CLR: in this process, or in the 32-bit decoder process for a 32-bit dump.</summary>
+internal interface IClrBackend : IDisposable
+{
+    ManagedFacts Facts();
+    ManagedException? Exception(uint? threadId);
+    IReadOnlyList<ManagedFrame> Frames(uint threadId, int maxFrames);
+    HeapWalk Walk(string? type, ulong minSize, long maxObjects, int objectsFrom, int objectsTake, CancellationToken ct);
+    ObjectView? Object(ulong address, int depth, int maxFields, int maxArrayItems);
+}
 
 /// <summary>
 /// .NET (CoreCLR and .NET Framework) state of a dumped process through ClrMD and the runtime's own DAC: threads,
 /// stacks, exceptions and the GC heap. The dumped program is never run; the DAC is Microsoft's debugging library for
-/// that runtime build, loaded into this process only after its signature is verified. Calls are serialized on
-/// <see cref="Gate"/>; the decoder owns its dump file.
+/// that runtime build, loaded only after its signature is verified: into this process when the dump has this
+/// process's architecture, else (a 32-bit dump on a 64-bit server) into the 32-bit decoder process, which checks the
+/// file's hash before loading it. Calls are serialized on <see cref="Gate"/>; the decoder owns its dump file.
 /// </summary>
 public sealed class ClrDecoder : IDisposable
 {
-    public const int MaxInnerExceptions = 5;
-    public const int MaxExceptionFrames = 50;
+    public const int MaxInnerExceptions = ClrReads.MaxInnerExceptions;
+    public const int MaxExceptionFrames = ClrReads.MaxExceptionFrames;
 
-    private readonly DataTarget? _target;
-    private readonly ClrRuntime? _runtime;
-    private readonly Dictionary<ulong, Guid?> _mvids = [];
+    private readonly IClrBackend? _backend;
     private bool _disposed;
 
     public object Gate { get; } = new();
@@ -39,16 +39,16 @@ public sealed class ClrDecoder : IDisposable
     public string RuntimeName { get; }
     public string? Version { get; }
     public DacState Dac { get; }
-    public ClrRuntime? Runtime => _disposed ? throw Closed() : _runtime;
-    public bool Loaded => _runtime != null;
+    public bool Loaded => _backend != null;
+    /// <summary>Decoded in the 32-bit decoder process.</summary>
+    public bool OutOfProcess => _backend is ClrHelperClient;
 
-    private ClrDecoder(string runtimeName, string? version, DacState dac, DataTarget? target, ClrRuntime? runtime)
+    private ClrDecoder(string runtimeName, string? version, DacState dac, IClrBackend? backend)
     {
         RuntimeName = runtimeName;
         Version = version;
         Dac = dac;
-        _target = target;
-        _runtime = runtime;
+        _backend = backend;
     }
 
     /// <summary>The CLR flavor a dump hosts (CoreCLR or .NET Framework), from its runtime module; null for none.</summary>
@@ -71,17 +71,35 @@ public sealed class ClrDecoder : IDisposable
         ClrDecoder Fail(string status, string detail)
         {
             dump.Dispose();
-            return new ClrDecoder($"{flavor} {module.FileVersion}".TrimEnd(), module.FileVersion, new DacState(status, null, detail), null, null);
+            return new ClrDecoder($"{flavor} {module.FileVersion}".TrimEnd(), module.FileVersion, new DacState(status, null, detail), null);
         }
         if (!OperatingSystem.IsWindows())
             return Fail("host_unsupported", "the DAC of a Windows dump is a Windows DLL: decode .NET frames with this server on Windows");
         var hostArch = RuntimeInformation.ProcessArchitecture;
         var dumpArch = dump.Arch switch { NativeArch.X86 => Architecture.X86, NativeArch.Arm64 => Architecture.Arm64, NativeArch.Arm => Architecture.Arm, _ => Architecture.X64 };
+        string? helper = null;
         if (hostArch != dumpArch)
-            return Fail("bitness_mismatch", $"a {dumpArch} process needs a {dumpArch} DAC, which this {hostArch} server cannot load; frames stay identified as managed");
+        {
+            if (dumpArch != Architecture.X86 || hostArch != Architecture.X64)
+                return Fail("bitness_mismatch", $"a {dumpArch} process needs a {dumpArch} DAC, which this {hostArch} server cannot load; frames stay identified as managed");
+            helper = ClrHelperClient.Locate();
+            if (helper == null)
+                return Fail("bitness_mismatch", $"a 32-bit process needs the 32-bit DAC, loaded by the 32-bit decoder ({ClrHelperClient.Folder}/{ClrHelperClient.FileName}), " +
+                                                "which is not installed beside this server; frames stay identified as managed");
+        }
 
         var target = new DataTarget(new CustomDataTarget(new DumpDataReader(dump, image)) { FileLocator = new LocalImageLocator(imageDirectories) });
-        try { return await Decode(target, module, flavor, request, ct).ConfigureAwait(false); }
+        try
+        {
+            if (helper == null)
+                return await Decode(target, module, flavor, request, dumpArch, (clr, c, _) => new InProcessClr(target, clr.CreateRuntime(c.Path)), ownsTarget: true, ct).ConfigureAwait(false);
+            // the DAC is found and checked here; the 32-bit process loads it and reads the dump file itself
+            var path = dump.Path;
+            var decoder = await Decode(target, module, flavor, request, dumpArch,
+                (_, c, bytes) => ClrHelperClient.Start(helper, path, c.Path, Convert.ToHexStringLower(SHA256.HashData(bytes)), imageDirectories), ownsTarget: false, ct).ConfigureAwait(false);
+            target.Dispose();
+            return decoder;
+        }
         catch
         {
             target.Dispose();
@@ -89,14 +107,18 @@ public sealed class ClrDecoder : IDisposable
         }
     }
 
-    /// <summary>Finds, verifies and loads the DAC; a failure disposes <paramref name="target"/> and gives a decoder without a runtime.</summary>
-    private static async Task<ClrDecoder> Decode(DataTarget target, DumpModule module, string flavor, DacRequest request, CancellationToken ct)
+    /// <summary>
+    /// Finds and verifies the DAC, and loads it through <paramref name="load"/>; a failure gives a decoder without a
+    /// runtime (and disposes <paramref name="target"/> when <paramref name="ownsTarget"/>).
+    /// </summary>
+    private static async Task<ClrDecoder> Decode(DataTarget target, DumpModule module, string flavor, DacRequest request, Architecture arch,
+        Func<ClrInfo, DacCandidate, byte[], IClrBackend> load, bool ownsTarget, CancellationToken ct)
     {
         string name = $"{flavor} {module.FileVersion}".TrimEnd();
         ClrDecoder Fail(string status, string detail)
         {
-            target.Dispose();
-            return new ClrDecoder(name, module.FileVersion, new DacState(status, null, detail), null, null);
+            if (ownsTarget) target.Dispose();
+            return new ClrDecoder(name, module.FileVersion, new DacState(status, null, detail), null);
         }
         ClrInfo? clr;
         try { clr = target.ClrVersions.FirstOrDefault(); }
@@ -106,7 +128,7 @@ public sealed class ClrDecoder : IDisposable
 
         var problems = new List<string>();
         bool signatureFailed = false;
-        ClrRuntime? Try(DacCandidate c)
+        IClrBackend? Try(DacCandidate c)
         {
             try
             {
@@ -121,7 +143,7 @@ public sealed class ClrDecoder : IDisposable
                     problems.Add($"{c.Path} ({c.Source}): signature not accepted: {bad}");
                     return null;
                 }
-                return clr.CreateRuntime(c.Path);
+                return load(clr, c, bytes);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -129,17 +151,18 @@ public sealed class ClrDecoder : IDisposable
                 return null;
             }
         }
-        foreach (var c in request.DownloadOnly ? [] : DacLocator.Local(clr, module, request))
+        string Where(DacCandidate c) => arch != RuntimeInformation.ProcessArchitecture ? $"{c.Source}; decoded by the 32-bit decoder process" : c.Source;
+        foreach (var c in request.DownloadOnly ? [] : DacLocator.Local(clr, module, request, arch))
         {
             ct.ThrowIfCancellationRequested();
-            if (Try(c) is { } rt) return new ClrDecoder(name, clr.Version.ToString(), new DacState("loaded", c.Path, c.Source), target, rt);
+            if (Try(c) is { } backend) return new ClrDecoder(name, clr.Version.ToString(), new DacState("loaded", c.Path, Where(c)), backend);
         }
         if (request.Download)
         {
             if (ReferencePacks.Offline)
                 return Fail("download_refused_offline", Joined("NDM_OFFLINE=1: the DAC is not downloaded", problems));
-            var (candidate, error) = await DacLocator.Download(clr, request, ct).ConfigureAwait(false);
-            if (candidate != null && Try(candidate) is { } rt) return new ClrDecoder(name, clr.Version.ToString(), new DacState("loaded", candidate.Path, candidate.Source), target, rt);
+            var (candidate, error) = await DacLocator.Download(clr, request, arch, ct).ConfigureAwait(false);
+            if (candidate != null && Try(candidate) is { } backend) return new ClrDecoder(name, clr.Version.ToString(), new DacState("loaded", candidate.Path, Where(candidate)), backend);
             if (candidate == null) return Fail("download_failed", Joined($"download failed: {error}", problems));
         }
         if (signatureFailed) return Fail("signature_invalid", Joined("no DAC with a valid Microsoft signature", problems));
@@ -151,91 +174,27 @@ public sealed class ClrDecoder : IDisposable
     private static string Joined(string head, List<string> problems) => problems.Count == 0 ? head : $"{head}; tried: {string.Join("; ", problems.Take(4))}";
 
     /// <summary>App domains, managed threads and heap facts; requires <see cref="Loaded"/>.</summary>
-    public (int AppDomains, int Threads, ManagedHeapState Heap) Facts()
-    {
-        var rt = Require();
-        var heap = rt.Heap;
-        var segments = heap.Segments;
-        ulong bytes = 0;
-        foreach (var s in segments) bytes += s.ObjectRange.Length;
-        string? reason = !heap.CanWalkHeap ? "heap_not_walkable: the runtime reports the heap in an inconsistent state (a GC was running)"
-            : segments.Length == 0 || bytes == 0 ? "heap_not_captured: the dump holds no GC heap memory (a stacks-only dump; write one with full or private read/write memory)"
-            : null;
-        return (rt.AppDomains.Length, rt.Threads.Length, new ManagedHeapState(reason == null, segments.Length, bytes, reason));
-    }
+    public ManagedFacts Facts() => Require().Facts();
 
     /// <summary>
     /// The exception in flight: on <paramref name="threadId"/> when given (the faulting thread of a CLR exception), else
     /// on the first thread that has one. Inner exceptions to <see cref="MaxInnerExceptions"/>, frames to <see cref="MaxExceptionFrames"/>.
     /// </summary>
-    public ManagedException? Exception(uint? threadId)
-    {
-        var rt = Require();
-        var threads = rt.Threads.Where(t => threadId == null || t.OSThreadId == threadId);
-        foreach (var t in threads)
-            if (t.CurrentException is { } e) return Describe(e, t.OSThreadId, 0);
-        return null;
-    }
-
-    private ManagedException Describe(ClrException e, uint? thread, int depth)
-    {
-        var frames = e.StackTrace.Take(MaxExceptionFrames).Select(Frame).ToList();
-        var inner = depth < MaxInnerExceptions && e.Inner is { } i ? Describe(i, null, depth + 1) : null;
-        return new ManagedException(e.Type?.Name ?? "(unknown type)", e.Message, e.HResult, e.Address, thread, frames, inner);
-    }
+    public ManagedException? Exception(uint? threadId) => Require().Exception(threadId);
 
     /// <summary>The managed stack of an OS thread, innermost first; empty when the runtime does not know the thread.</summary>
-    public IReadOnlyList<ManagedFrame> Frames(uint threadId, int maxFrames)
-    {
-        var rt = Require();
-        var thread = rt.Threads.FirstOrDefault(t => t.OSThreadId == threadId);
-        if (thread == null) return [];
-        return thread.EnumerateStackTrace(false, maxFrames).Select(Frame).ToList();
-    }
+    public IReadOnlyList<ManagedFrame> Frames(uint threadId, int maxFrames) => Require().Frames(threadId, maxFrames);
 
-    private ManagedFrame Frame(ClrStackFrame f)
-    {
-        var m = f.Method;
-        if (f.Kind != ClrStackFrameKind.ManagedMethod || m == null)
-            return new ManagedFrame(f.InstructionPointer, f.StackPointer, false, $"[{f.FrameName ?? f.Kind.ToString()}]", null, null, null, null, null);
-        int? il = null;
-        if (f.InstructionPointer != 0)
-        {
-            int at = m.GetILOffset(f.InstructionPointer > 0 ? f.InstructionPointer - 1 : 0);
-            if (at < 0) at = m.GetILOffset(f.InstructionPointer);
-            if (at >= 0) il = at;
-        }
-        var module = m.Type?.Module;
-        return new ManagedFrame(f.InstructionPointer, f.StackPointer, true, m.Signature ?? m.Name ?? "(unknown method)", m.MetadataToken != 0 ? m.MetadataToken : null, il,
-            module?.Name, module != null ? Mvid(module) : null, m.NativeCode != 0 && m.NativeCode != ulong.MaxValue ? m.NativeCode : null);
-    }
+    /// <summary>A bounded heap walk (see <see cref="ClrHeapView.Walk"/>).</summary>
+    public HeapWalk Walk(string? type, ulong minSize, long maxObjects, int objectsFrom, int objectsTake, CancellationToken ct) =>
+        Require().Walk(type, minSize, maxObjects, objectsFrom, objectsTake, ct);
 
-    /// <summary>The module's MVID, read from its metadata in dump memory (or the read-only image).</summary>
-    public Guid? Mvid(ClrModule module)
-    {
-        if (_mvids.TryGetValue(module.Address, out var known)) return known;
-        Guid? mvid = null;
-        if (module.MetadataAddress != 0 && module.MetadataLength is > 0 and <= 256u << 20)
-        {
-            var bytes = new byte[module.MetadataLength];
-            if (_target!.DataReader.Read(module.MetadataAddress, bytes) == bytes.Length)
-                mvid = ReadMvid(bytes);
-        }
-        return _mvids[module.Address] = mvid;
-    }
+    /// <summary>One object's contents (see <see cref="ClrHeapView.Object"/>); null when no valid object is there.</summary>
+    public ObjectView? Object(ulong address, int depth, int maxFields, int maxArrayItems) => Require().Object(address, depth, maxFields, maxArrayItems);
 
-    internal static Guid? ReadMvid(byte[] metadata)
-    {
-        try
-        {
-            using var provider = MetadataReaderProvider.FromMetadataImage(System.Collections.Immutable.ImmutableArray.Create(metadata));
-            var md = provider.GetMetadataReader();
-            return md.GetGuid(md.GetModuleDefinition().Mvid);
-        }
-        catch (BadImageFormatException) { return null; }
-    }
+    internal static Guid? ReadMvid(byte[] metadata) => ClrReads.ReadMvid(metadata);
 
-    private ClrRuntime Require() => _disposed ? throw Closed() : _runtime ?? throw new InvalidOperationException("no runtime");
+    private IClrBackend Require() => _disposed ? throw Closed() : _backend ?? throw new InvalidOperationException("no runtime");
 
     private static ToolError Closed() =>
         new(ErrorCode.Conflict, "the dump's .NET decoder was closed while in use (more than four .NET dumps are open at once).", "call again");
@@ -246,8 +205,26 @@ public sealed class ClrDecoder : IDisposable
         {
             if (_disposed) return;
             _disposed = true;
-            _runtime?.Dispose();
-            _target?.Dispose();
+            _backend?.Dispose();
+        }
+    }
+
+    /// <summary>The CLR in this process: ClrMD over our dump reader.</summary>
+    private sealed class InProcessClr(DataTarget target, ClrRuntime runtime) : IClrBackend
+    {
+        private readonly ClrReads _reads = new(runtime);
+
+        public ManagedFacts Facts() => _reads.Facts();
+        public ManagedException? Exception(uint? threadId) => _reads.Exception(threadId);
+        public IReadOnlyList<ManagedFrame> Frames(uint threadId, int maxFrames) => _reads.Frames(threadId, maxFrames);
+        public HeapWalk Walk(string? type, ulong minSize, long maxObjects, int objectsFrom, int objectsTake, CancellationToken ct) =>
+            _reads.Walk(type, minSize, maxObjects, objectsFrom, objectsTake, ct);
+        public ObjectView? Object(ulong address, int depth, int maxFields, int maxArrayItems) => _reads.Object(address, depth, maxFields, maxArrayItems);
+
+        public void Dispose()
+        {
+            runtime.Dispose();
+            target.Dispose();
         }
     }
 

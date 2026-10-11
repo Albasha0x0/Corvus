@@ -27,8 +27,8 @@ public static class DacLocator
     public static readonly TimeSpan DownloadTimeout = TimeSpan.FromMinutes(2);
     public const long MaxDownloadBytes = 64L << 20;
 
-    /// <summary>Local candidates, best first; none of them is checked for its signature yet.</summary>
-    public static IEnumerable<DacCandidate> Local(ClrInfo clr, DumpModule runtime, DacRequest request)
+    /// <summary>Local candidates for a process of <paramref name="arch"/>, best first; none of them is checked for its signature yet.</summary>
+    public static IEnumerable<DacCandidate> Local(ClrInfo clr, DumpModule runtime, DacRequest request, Architecture arch)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var names = FileNames(clr);
@@ -39,7 +39,7 @@ public static class DacLocator
             foreach (var n in names)
                 if (Existing(System.IO.Path.Combine(dir, n)) is { } p && seen.Add(p)) yield return new(p, "the runtime's folder");
 
-        foreach (var folder in InstalledRuntimeFolders(runtime.FileName))
+        foreach (var folder in InstalledRuntimeFolders(runtime.FileName, arch))
         {
             var file = System.IO.Path.Combine(folder, runtime.FileName);
             if (!File.Exists(file) || !DumpImages.Check(file, runtime).Matches) continue;
@@ -49,12 +49,12 @@ public static class DacLocator
 
         var servers = new List<string>();
         foreach (var store in PdbLocator.LocalStores(servers))
-            foreach (var (name, key, _) in StoreKeys(clr))
+            foreach (var (name, key, _) in StoreKeys(clr, arch))
                 if (Existing(System.IO.Path.Combine(store, name, key, name)) is { } p && seen.Add(p)) yield return new(p, $"symbol store {store}");
     }
 
     /// <summary>Downloads the DAC by each of its store keys from <paramref name="request"/>'s server, else the symbol path's servers, else Microsoft's.</summary>
-    public static async Task<(DacCandidate? Candidate, string? Error)> Download(ClrInfo clr, DacRequest request, CancellationToken ct)
+    public static async Task<(DacCandidate? Candidate, string? Error)> Download(ClrInfo clr, DacRequest request, Architecture arch, CancellationToken ct)
     {
         var servers = new List<string>();
         if (request.Server is { Length: > 0 } s) servers.Add(s);
@@ -65,7 +65,7 @@ public static class DacLocator
         }
         string? error = null;
         foreach (var server in servers)
-            foreach (var (name, key, check) in StoreKeys(clr))
+            foreach (var (name, key, check) in StoreKeys(clr, arch))
             {
                 try
                 {
@@ -114,12 +114,11 @@ public static class DacLocator
     }
 
     /// <summary>
-    /// Symbol store keys of the DAC for this host's architecture: its own timestamp and size (checked after a download),
-    /// then the runtime's (the long-name file, matched by its signature and version only).
+    /// Symbol store keys of the DAC that runs on <paramref name="arch"/>: its own timestamp and size (checked after a
+    /// download), then the runtime's (the long-name file, matched by its signature and version only).
     /// </summary>
-    private static IEnumerable<(string Name, string Key, Func<string, string?>? Check)> StoreKeys(ClrInfo clr)
+    private static IEnumerable<(string Name, string Key, Func<string, string?>? Check)> StoreKeys(ClrInfo clr, Architecture arch)
     {
-        var arch = RuntimeInformation.ProcessArchitecture;
         foreach (var d in clr.DebuggingLibraries.OrderBy(d => d.ArchivedUnder == SymbolProperties.Self ? 0 : 1))
         {
             if (d.Kind != DebugLibraryKind.Dac || d.Platform != OSPlatform.Windows || d.TargetArchitecture != arch || d.IndexTimeStamp == 0 || d.IndexFileSize == 0) continue;
@@ -130,16 +129,17 @@ public static class DacLocator
         }
     }
 
-    private static IEnumerable<string> InstalledRuntimeFolders(string runtimeFile)
+    private static IEnumerable<string> InstalledRuntimeFolders(string runtimeFile, Architecture arch)
     {
+        bool x86 = arch == Architecture.X86 && Environment.Is64BitOperatingSystem;
         if (runtimeFile.Equals("coreclr.dll", StringComparison.OrdinalIgnoreCase))
         {
             var roots = new List<string>();
-            if (Environment.GetEnvironmentVariable("DOTNET_ROOT") is { Length: > 0 } root) roots.Add(root);
-            foreach (var pf in new[] { Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolder.ProgramFilesX86 })
+            if (Environment.GetEnvironmentVariable(x86 ? "DOTNET_ROOT(x86)" : "DOTNET_ROOT") is { Length: > 0 } root) roots.Add(root);
+            foreach (var pf in x86 ? [Environment.SpecialFolder.ProgramFilesX86] : new[] { Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolder.ProgramFilesX86 })
                 if (Environment.GetFolderPath(pf) is { Length: > 0 } p) roots.Add(System.IO.Path.Combine(p, "dotnet"));
             // this server's own runtime: <root>/shared/Microsoft.NETCore.App/<version>/
-            if (System.IO.Path.GetDirectoryName(typeof(object).Assembly.Location) is { Length: > 0 } own
+            if (!x86 && System.IO.Path.GetDirectoryName(typeof(object).Assembly.Location) is { Length: > 0 } own
                 && Directory.GetParent(own)?.Parent?.Parent is { } ownRoot) roots.Add(ownRoot.FullName);
             foreach (var r in roots.Distinct(StringComparer.OrdinalIgnoreCase))
             {
@@ -153,7 +153,7 @@ public static class DacLocator
         }
         else if (runtimeFile.Equals("clr.dll", StringComparison.OrdinalIgnoreCase) && Environment.GetFolderPath(Environment.SpecialFolder.Windows) is { Length: > 0 } windows)
         {
-            yield return System.IO.Path.Combine(windows, "Microsoft.NET", Environment.Is64BitProcess ? "Framework64" : "Framework", "v4.0.30319");
+            yield return System.IO.Path.Combine(windows, "Microsoft.NET", arch == Architecture.X86 ? "Framework" : "Framework64", "v4.0.30319");
         }
     }
 

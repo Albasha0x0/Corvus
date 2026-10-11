@@ -3,18 +3,6 @@ using Microsoft.Diagnostics.Runtime;
 
 namespace NetDecompilerMcp.Native.Dump.Managed;
 
-/// <summary>One type's share of the heap.</summary>
-public sealed record HeapTypeStat(string Type, long Count, ulong TotalSize, ClrType? ClrType);
-
-/// <summary>One heap object; strings carry their (clipped) value.</summary>
-public sealed record HeapObject(ulong Address, string Type, ulong Size, string? Value);
-
-/// <summary>A field (or array element) of an object, flattened: nested fields of expanded references and structs carry a dotted path.</summary>
-public sealed record ObjectField(string Path, int Depth, string? Type, int? Offset, string? Value, ulong? Address);
-
-/// <summary>An object's contents: its fields, string value or array elements, bounded.</summary>
-public sealed record ObjectView(ulong Address, ClrType Type, ulong Size, string? Value, int? Length, IReadOnlyList<ObjectField> Fields, bool Truncated);
-
 /// <summary>Bounded reads of a CLR heap: statistics by type, matching objects, and one object's fields.</summary>
 public static class ClrHeapView
 {
@@ -26,9 +14,9 @@ public static class ClrHeapView
     /// objects in heap order from <paramref name="objectsFrom"/> (up to <paramref name="objectsTake"/>), the matched
     /// count, the walked count and whether the walk stopped early.
     /// </summary>
-    public static (List<HeapTypeStat> Stats, List<HeapObject> Objects, long Matched, long Walked, bool Stopped) Walk(
-        ClrHeap heap, string? type, ulong minSize, long maxObjects, int objectsFrom, int objectsTake, CancellationToken ct)
+    public static HeapWalk Walk(ClrReads clr, string? type, ulong minSize, long maxObjects, int objectsFrom, int objectsTake, CancellationToken ct)
     {
+        var heap = clr.Runtime.Heap;
         var stats = new Dictionary<ClrType, (long Count, ulong Size)>();
         var objects = new List<HeapObject>();
         long walked = 0, matched = 0;
@@ -50,18 +38,18 @@ public static class ClrHeapView
                 objects.Add(new HeapObject(o.Address, t.Name ?? "?", size, t.IsString ? Clip(o.AsString(MaxStringChars + 1)) : null));
             matched++;
         }
-        var list = stats.Select(kv => new HeapTypeStat(kv.Key.Name ?? "?", kv.Value.Count, kv.Value.Size, kv.Key))
-            .OrderByDescending(s => s.TotalSize).ThenBy(s => s.Type, StringComparer.Ordinal).ToList();
-        return (list, objects, matched, walked, stopped);
+        var list = stats.Select(kv => new HeapTypeStat(clr.Type(kv.Key), kv.Value.Count, kv.Value.Size))
+            .OrderByDescending(s => s.TotalSize).ThenBy(s => s.Type.Name, StringComparer.Ordinal).ToList();
+        return new HeapWalk(list, objects, matched, walked, stopped);
     }
 
     /// <summary>
     /// The object at <paramref name="address"/>: fields (references expanded <paramref name="depth"/> levels, structs
     /// inline), a string's value, or an array's first <paramref name="maxArrayItems"/> elements. Null when no valid object is there.
     /// </summary>
-    public static ObjectView? Object(ClrHeap heap, ulong address, int depth, int maxFields, int maxArrayItems)
+    public static ObjectView? Object(ClrReads clr, ulong address, int depth, int maxFields, int maxArrayItems)
     {
-        var o = heap.GetObject(address);
+        var o = clr.Runtime.Heap.GetObject(address);
         if (!o.IsValid || o.Type is not { } type) return null;
         var fields = new List<ObjectField>();
         bool truncated = false;
@@ -76,7 +64,7 @@ public static class ClrHeapView
         }
         else if (Boxed(o, type) is { } boxed) value = boxed;
         else truncated = Fields(type, o.Address, false, "", 1, depth, fields, maxFields);
-        return new ObjectView(o.Address, type, o.Size, value, length, fields, truncated);
+        return new ObjectView(o.Address, clr.Type(type), o.Size, value, length, fields, truncated);
     }
 
     private static bool Fields(ClrType type, ulong at, bool interior, string prefix, int level, int depth, List<ObjectField> output, int maxFields)
@@ -185,7 +173,7 @@ public static class ClrHeapView
             ClrElementType.Int16 => ((short)raw).ToString(CultureInfo.InvariantCulture),
             ClrElementType.Int32 => ((int)raw).ToString(CultureInfo.InvariantCulture),
             ClrElementType.Int64 => ((long)raw).ToString(CultureInfo.InvariantCulture),
-            ClrElementType.Float => BitConverter.Int32BitsToSingle((int)raw).ToString("R", CultureInfo.InvariantCulture),
+            ClrElementType.Float => BitConverter.ToSingle(BitConverter.GetBytes((int)raw), 0).ToString("R", CultureInfo.InvariantCulture),
             ClrElementType.Double => BitConverter.Int64BitsToDouble((long)raw).ToString("R", CultureInfo.InvariantCulture),
             ClrElementType.NativeInt or ClrElementType.NativeUInt or ClrElementType.Pointer or ClrElementType.FunctionPointer => $"0x{raw:X}",
             _ => raw.ToString(CultureInfo.InvariantCulture),

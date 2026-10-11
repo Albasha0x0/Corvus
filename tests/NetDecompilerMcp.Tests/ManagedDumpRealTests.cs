@@ -212,6 +212,53 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.Equal("loaded", local.Dac.Status);
     }
 
+    /// <summary>A 32-bit .NET process (the x86 runtime, when installed) is decoded by the 32-bit decoder process with the x86 DAC.</summary>
+    [Fact]
+    public async Task X86CoreClrDumpIsDecodedOutOfProcess()
+    {
+        if (!OperatingSystem.IsWindows() || !Environment.Is64BitProcess) return;
+        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "dotnet");
+        var host = Path.Combine(root, "dotnet.exe");
+        var shared = Path.Combine(root, "shared", "Microsoft.NETCore.App");
+        if (!File.Exists(host) || !Directory.Exists(shared)) return;
+        var version = Directory.GetDirectories(shared).Select(Path.GetFileName).Select(v => Version.TryParse(v, out var x) ? x : null)
+            .Where(v => v is { Major: >= 6 }).Max();
+        if (version == null) return;
+        using var dir = new TempDir();
+        var bytes = Roslyn.Compile("Probe", Source, new CSharpCompilationOptions(OutputKind.ConsoleApplication, optimizationLevel: OptimizationLevel.Debug, platform: Platform.X86));
+        var dll = dir.File("Probe.dll");
+        File.WriteAllBytes(dll, bytes);
+        File.WriteAllText(dir.File("Probe.runtimeconfig.json"), System.Text.Json.JsonSerializer.Serialize(new
+        {
+            runtimeOptions = new { tfm = $"net{version.Major}.0", framework = new { name = "Microsoft.NETCore.App", version = version.ToString() } },
+        }));
+        var dump = dir.File("x86.dmp");
+        var psi = new ProcessStartInfo(host) { UseShellExecute = false, CreateNoWindow = true };
+        psi.ArgumentList.Add(dll);
+        foreach (var (k, v) in DumpSwitches(dump, 4)) psi.Environment[k] = v;
+        var (code, log) = Tools.Run(psi, 120_000);
+        Assert.True(code != 0 && File.Exists(dump), $"no dump written (exit {code}): {log}");
+
+        using var ws = new AssemblyWorkspace();
+        var probe = ws.Load(dll);
+        var service = new MinidumpService(ws);
+        var summary = await service.Summarize(dump, null, 0, 50, 0, 50, default);
+        var m = summary.Managed!;
+        output.WriteLine($"{m.Runtime}: DAC {m.Dac.Status} {m.Dac.Path} ({m.Dac.Detail}); heap {m.Heap}");
+        Assert.Equal("x86", summary.System!.Architecture);
+        Assert.Equal("loaded", m.Dac.Status);
+        Assert.Contains("32-bit decoder process", m.Dac.Detail);
+        Assert.Contains(m.Notes, n => n.StartsWith("A 32-bit process", StringComparison.Ordinal));
+        var inner = Assert.Single(m.Exception!.Inner);
+        Assert.Equal("ndm-probe", inner.Message);
+        // the exception's own stack trace array is not resolved to methods for x86 here; the thread's walk is
+        var stack = await service.Stack(dump, m.Exception.ThreadId?.ToString(System.Globalization.CultureInfo.InvariantCulture), true, 256, 0, 256, null, default);
+        Assert.Equal("decoded", stack.Managed);
+        Assert.Contains(stack.Frames, f => f.SymbolSource == "clr" && f.Function!.Contains("Main", StringComparison.Ordinal) && f.Token == $"0x{MethodToken(dll, "Main"):X8}");
+        var heap = await service.Heap(dump, "stats", "System.String", 0, 0, 10, MinidumpService.DefaultMaxHeapObjects, default);
+        Assert.True(heap.Types.Single().Count > 10);
+    }
+
     private static string? DacLocatorVerify(string path) => Native.Dump.Managed.DacLocator.Verify(File.ReadAllBytes(path), path);
 
     private static void AssertSortedBySp(MinidumpService.StackReport stack)

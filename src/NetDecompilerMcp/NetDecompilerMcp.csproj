@@ -36,4 +36,16 @@
     <PackageReference Include="ZstdSharp.Port" Version="0.8.8" />
   </ItemGroup>
 
+  <!-- The 32-bit .NET decoder (a 32-bit DAC cannot load in this process): built and copied to clr32/ beside the server. -->
+  <ItemGroup>
+    <ProjectReference Include="..\NetDecompilerMcp.Clr32\NetDecompilerMcp.Clr32.csproj" ReferenceOutputAssembly="false" Private="false"
+                      SkipGetTargetFrameworkProperties="true" GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained;TargetFramework" />
+  </ItemGroup>
+  <Target Name="IncludeClr32Decoder" BeforeTargets="AssignTargetPaths" DependsOnTargets="ResolveProjectReferences" Condition="'$(RuntimeIdentifier)' == '' or $(RuntimeIdentifier.StartsWith('win'))">
+    <ItemGroup>
+      <_Clr32File Include="$(MSBuildThisFileDirectory)..\NetDecompilerMcp.Clr32\bin\$(Configuration)\net48\*.dll;$(MSBuildThisFileDirectory)..\NetDecompilerMcp.Clr32\bin\$(Configuration)\net48\*.exe;$(MSBuildThisFileDirectory)..\NetDecompilerMcp.Clr32\bin\$(Configuration)\net48\*.exe.config" />
+      <None Include="@(_Clr32File)" Link="clr32\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
 </Project>

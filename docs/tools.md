@@ -2340,7 +2340,7 @@ Crash dumps and crash text.
 
 **Open a crash dump** (read-only, idempotent, open-world, long-running)
 
-Summary of a Windows minidump (.dmp): OS, CPU and process (times, integrity, WoW64, runtime); the exception (code and name, faulting thread, module+offset and function, the faulting instruction, registers, a C++ exception's thrown type); the .NET state (managed exception with stack and inner chain, threads, heap); modules (base, size, timestamp, version, PDB identity, whether a matching image is on this machine) and threads, paged; unloaded modules, captured memory, handle counts, parse issues. Gives the id the other dump tools take. The program is not run; .NET decoding loads Microsoft's signature-checked DAC for that runtime build, never code from the dump.
+Summary of a Windows minidump (.dmp): OS, CPU and process (times, integrity, WoW64, runtime); the exception (code and name, faulting thread, module+offset and function, the faulting instruction, registers, a C++ exception's thrown type); the .NET state (managed exception with stack and inner chain, threads, heap); modules (base, size, timestamp, version, PDB identity, whether a matching image is on this machine) and threads, paged; unloaded modules, captured memory, handle counts, parse issues. Gives the id the other dump tools take. The program is not run; .NET (CoreCLR or Framework) decoding loads Microsoft's signature-checked DAC for that runtime build (a 32-bit dump's in the 32-bit decoder process), never code from the dump.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

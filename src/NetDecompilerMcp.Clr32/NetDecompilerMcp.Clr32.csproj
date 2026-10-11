@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The 32-bit .NET decoder: a 64-bit server cannot load a 32-bit DAC, so a 32-bit dump is decoded here (.NET Framework, present on every Windows). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x86</PlatformTarget>
+    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+    <RuntimeIdentifiers>win-x86</RuntimeIdentifiers>
+    <SelfContained>false</SelfContained>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <Version>1.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\NetDecompilerMcp\Native\Dump\Managed\ClrModel.cs" Link="Shared\ClrModel.cs" />
+    <Compile Include="..\NetDecompilerMcp\Native\Dump\Managed\ClrReads.cs" Link="Shared\ClrReads.cs" />
+    <Compile Include="..\NetDecompilerMcp\Native\Dump\Managed\ClrHeapView.cs" Link="Shared\ClrHeapView.cs" />
+    <Compile Include="..\NetDecompilerMcp\Core\Wildcard.cs" Link="Shared\Wildcard.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Diagnostics.Runtime" Version="3.1.512801" />
+    <PackageReference Include="System.Reflection.Metadata" Version="8.0.1" />
+  </ItemGroup>
+
+</Project>

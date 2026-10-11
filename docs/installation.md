@@ -172,6 +172,7 @@ Server options and their environment variables are in the README ("Server option
 | `NDM_ANNOTATIONS_DIR` | Folder of saved native names, comments and imported name layers. |
 | `NDM_IL2CPP_CACHE` | Folder of the dummy assemblies made by the built-in Il2Cpp metadata reader. |
 | `NDM_SYMBOL_CACHE` | Folder of downloaded PDBs and runtime DACs (`open_minidump downloadDac=true`). |
+| `NDM_CLR32` | Path of the 32-bit .NET decoder (`NetDecompilerMcp.Clr32.exe`) that decodes 32-bit dumps; default `clr32/` beside the server. |
 | `NDM_DUMP_BUCKET_CACHE` | Folder of the signatures `bucket_minidumps` keeps per dump file, so a re-run parses only new dumps. |
 | `NDM_AUTO_PDB` | `0`: do not read a matching local PDB automatically. |
 | `NDM_AUTO_NATIVEAOT` | `0`: do not name NativeAOT images from their metadata automatically. |

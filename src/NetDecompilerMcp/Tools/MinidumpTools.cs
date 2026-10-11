@@ -19,7 +19,7 @@ public sealed class MinidumpTools(MinidumpService dumps)
                  "faulting thread, module+offset and function, the faulting instruction, registers, a C++ exception's thrown type); the .NET state " +
                  "(managed exception with stack and inner chain, threads, heap); modules (base, size, timestamp, version, PDB identity, whether a " +
                  "matching image is on this machine) and threads, paged; unloaded modules, captured memory, handle counts, parse issues. Gives the id " +
-                 "the other dump tools take. The program is not run; .NET decoding loads Microsoft's signature-checked DAC for that runtime build, never code from the dump.")]
+                 "the other dump tools take. The program is not run; .NET (CoreCLR or Framework) decoding loads Microsoft's signature-checked DAC for that runtime build (a 32-bit dump's in the 32-bit decoder process), never code from the dump.")]
     public Task<MinidumpService.DumpSummary> OpenMinidump(
         [Description("Path of the .dmp file (or the id of an open dump).")] string path,
         [Description(ImageDirectoriesDescription)] string? imageDirectories = null,

@@ -12,6 +12,7 @@ namespace NetDecompilerMcp.Tests;
 /// The ClrMD side of dump analysis without a real runtime: the data reader over our minidump parser (read-only image
 /// fallback, relocations, thread contexts), DAC signature checks and the DAC outcomes a dump without a usable DAC gets.
 /// </summary>
+[Collection(ExternalToolEnvironmentCollection.Name)]
 public sealed class ManagedDumpTests
 {
     private const ulong Preferred = 0x1_8000_0000, Loaded = 0x7FF6_2000_0000;
@@ -133,17 +134,32 @@ public sealed class ManagedDumpTests
         Assert.NotNull(DacLocator.Verify(bytes, copy)); // a changed copy is in no catalog
     }
 
+    /// <summary>A 32-bit dump goes to the 32-bit decoder after its DAC is looked for here; without the decoder it is a bitness mismatch.</summary>
     [Fact]
-    public async Task ThirtyTwoBitDumpGetsBitnessMismatch()
+    public async Task ThirtyTwoBitDumpNeedsTheThirtyTwoBitDecoder()
     {
         var (pe, _, _, _) = Image();
         var bytes = Dump(pe, arch: 0, module: @"Z:\app\coreclr.dll").Build();
-        var decoder = await ClrDecoder.Open(MinidumpFile.FromBytes(bytes), _ => null, [], new DacRequest(), default);
-        using (decoder)
+        async Task<DacState> Open()
         {
+            using var decoder = await ClrDecoder.Open(MinidumpFile.FromBytes(bytes), _ => null, [], new DacRequest(), default);
             Assert.NotNull(decoder);
             Assert.False(decoder.Loaded);
-            Assert.Equal(OperatingSystem.IsWindows() ? "bitness_mismatch" : "host_unsupported", decoder.Dac.Status);
+            return decoder.Dac;
+        }
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.Equal("host_unsupported", (await Open()).Status);
+            return;
+        }
+        if (RuntimeInformation.ProcessArchitecture != Architecture.X64) return;
+        Assert.NotNull(ClrHelperClient.Locate()); // built beside the server (and these tests)
+        Assert.NotEqual("bitness_mismatch", (await Open()).Status);
+        using (new EnvironmentScope().Set(ClrHelperClient.PathVariable, Path.Combine(Path.GetTempPath(), "missing", ClrHelperClient.FileName)))
+        {
+            var missing = await Open();
+            Assert.Equal("bitness_mismatch", missing.Status);
+            Assert.Contains("not installed", missing.Detail);
         }
     }
 

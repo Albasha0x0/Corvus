@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using Microsoft.Diagnostics.Runtime;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native;
 using NetDecompilerMcp.Native.Dump.Managed;
@@ -82,8 +81,7 @@ public sealed partial class MinidumpService
         var notes = new List<string>();
         lock (decoder.Gate)
         {
-            var heap = decoder.Runtime!.Heap;
-            var (rows, objects, matched, walked, stopped) = ClrHeapView.Walk(heap, pattern, minSize, maxObjects, stats ? 0 : offset, stats ? 0 : limit, ct);
+            var (rows, objects, matched, walked, stopped) = decoder.Walk(pattern, minSize, maxObjects, stats ? 0 : offset, stats ? 0 : limit, ct);
             if (stopped) notes.Add($"The walk stopped after {walked} objects (maxObjects): counts cover only that part of the heap.");
             ulong bytes = 0;
             foreach (var r in rows) bytes += r.TotalSize;
@@ -91,8 +89,8 @@ public sealed partial class MinidumpService
             {
                 var page = rows.Skip(offset).Take(limit).Select(r =>
                 {
-                    var (assembly, _) = r.ClrType?.Module is { } m ? AssemblyFor(m.Name, decoder.Mvid(m)) : (null, null);
-                    return new HeapTypeRow(r.Type, r.Count, r.TotalSize, assembly, r.ClrType is { MetadataToken: not 0 } t ? $"0x{t.MetadataToken:X8}" : null);
+                    var (assembly, _) = AssemblyFor(r.Type.ModulePath, r.Type.Mvid);
+                    return new HeapTypeRow(r.Type.Name, r.Count, r.TotalSize, assembly, r.Type.Token != 0 ? $"0x{r.Type.Token:X8}" : null);
                 }).ToList();
                 return new HeapReport(s.Id, "stats", pattern, minSize, walked, stopped, rows.Count, offset, offset + page.Count < rows.Count, bytes, page, [], notes);
             }
@@ -112,15 +110,15 @@ public sealed partial class MinidumpService
         maxArrayItems = Math.Clamp(maxArrayItems, 0, 1000);
         lock (decoder.Gate)
         {
-            var view = ClrHeapView.Object(decoder.Runtime!.Heap, at, depth, maxFields, maxArrayItems)
+            var view = decoder.Object(at, depth, maxFields, maxArrayItems)
                        ?? throw new ToolError(ErrorCode.NotFound, $"no managed object at {Hex(s.Dump, at)} (or the dump does not hold it).",
                            "pass an object address from dump_heap mode=objects or open_minidump's managed exception");
             var notes = new List<string>();
-            var (assembly, check) = view.Type.Module is { } m ? AssemblyFor(m.Name, decoder.Mvid(m)) : (null, null);
+            var (assembly, check) = AssemblyFor(view.Type.ModulePath, view.Type.Mvid);
             if (check == "mismatch") notes.Add($"{assembly} is another build of the type's module (MVID differs).");
             var fields = view.Fields.Select(f => new ObjectFieldRow(f.Path, f.Depth, f.Type, f.Offset, f.Value, f.Address is { } a ? Hex(s.Dump, a) : null)).ToList();
-            return new ObjectReport(s.Id, Hex(s.Dump, view.Address), view.Type.Name ?? "?", view.Size, assembly,
-                view.Type.MetadataToken != 0 ? $"0x{view.Type.MetadataToken:X8}" : null, check, view.Value, view.Length, fields, view.Truncated, notes);
+            return new ObjectReport(s.Id, Hex(s.Dump, view.Address), view.Type.Name, view.Size, assembly,
+                view.Type.Token != 0 ? $"0x{view.Type.Token:X8}" : null, check, view.Value, view.Length, fields, view.Truncated, notes);
         }
     }
 }
