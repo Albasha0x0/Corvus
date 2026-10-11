@@ -1552,6 +1552,7 @@ The in-memory byte patches of a native image, numbered; undo_native_edit reverts
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
+| `search` | string |  |  | Instead: the names and comments (user and layers) whose text matches: substring (case-insensitive), glob with * and ?, or /regex/ (flags i, m, s). |
 
 ### undo_native_edit
 

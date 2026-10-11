@@ -438,12 +438,22 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
                  "source file and identity, and whether it was saved or restored from the saved copy when the image loaded (with the import time).")]
     public Task<string> ListNativeEdits(
         [Description(NativeTools.ImageDescription)] string image,
+        [Description("Instead: the names and comments (user and layers) whose text matches: " + NameFilter.Description + ".")] string? search = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        var filter = NameFilter.Parse(search);
         var (native, _) = await Open(image, progress, cancellationToken);
-        return edits.List(native);
+        if (filter == null) return edits.List(native);
+        var matches = NoteMarks.Search(native, code, filter);
+        var rows = matches.Select(m => $"{NativeAddress.Va(native.Image, m.Rva)}  {m.Source,-9} {m.Kind,-7}  {Format.Clip(m.Text.ReplaceLineEndings(" "), 200)}").ToList();
+        int shown = Math.Min(rows.Count, MaxSearchRows);
+        return $"{native.Id}: {matches.Count} name(s) and comment(s) matching '{filter.Text}'\n" + string.Join("\n", rows.Take(shown)) +
+               (rows.Count > shown ? $"\n... {rows.Count - shown} more: narrow the search" : "") + filter.Note("annotation");
     });
+
+    /// <summary>Rows list_native_edits search= shows.</summary>
+    private const int MaxSearchRows = 500;
 
     [McpServerTool(Name = "undo_native_edit", Title = "Undo a native byte patch")]
     [Description("Undo one in-memory byte patch of a native image — the last by default, or any earlier one by number (from list_native_edits).")]

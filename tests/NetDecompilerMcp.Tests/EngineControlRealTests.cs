@@ -94,6 +94,17 @@ public sealed class EngineControlRealTests(ITestOutputHelper output) : IDisposab
         output.WriteLine($"{engine} callersOf: {callers.Split('\n')[0]}");
         Assert.Matches(@"// \d+ inputs?: [1-9]\d* decompiled", callers);
 
+        // notes become engine marks (Ghidra bookmarks, IDA marked positions), replaced as the notes change
+        rig.Notes.Record("checks the certificate table", "finding", null, new NoteAnchor(NoteAnchor.Native, rig.Native.OriginalSha256.ToLowerInvariant(), Rva: callee), null, null, null);
+        var marked = await rig.Analysis.DecompileNative(id, $"rva:0x{callee:X}", engine: engine);
+        Assert.Contains($"// notes: 1 mark(s) in {engine}", marked);
+        rig.Notes.Record("second note", "question", null, new NoteAnchor(NoteAnchor.Native, rig.Native.OriginalSha256.ToLowerInvariant(), Rva: callee + 1), null, null, null);
+        var remarked = await rig.Analysis.DecompileNative(id, $"rva:0x{callee:X}", engine: engine, addresses: true);
+        Assert.Contains($"// notes: 2 mark(s) in {engine}", remarked);
+        var control = EngineControl.Of(session)!;
+        var again = await control.SetMarksAsync([new NativeMark(callee!.Value, "only")], "test");
+        Assert.Equal((1, 2, 0), (again.Set, again.Removed, again.Failed)); // the two earlier marks were replaced, not added to
+
         // list_functions view=candidates: the engine's code outside functions
         clock.Restart();
         collector = StructuredOutput.Begin();

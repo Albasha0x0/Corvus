@@ -184,6 +184,8 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         var pushed = NativePdbTypes.Describe(NativePdbTypes.Report(session));
         if (names != null && NativeNamePush.Describe(await names.EnsureAsync(native, session, ct)) is { } named)
             pushed = (pushed != null ? pushed + "\n// " : "") + named;
+        if (notes != null && NoteMarks.Describe(await NoteMarks.EnsureAsync(native, session, notes, ct), session.ProviderId) is { } marked)
+            pushed = (pushed != null ? pushed + "\n// " : "") + marked;
         if (types != null && NativeTypePush.Describe(await types.EnsureAsync(native, session, ct)) is { } typed)
             pushed = (pushed != null ? pushed + "\n// " : "") + typed;
         if (userTypes != null && NativeUserTypePush.Describe(await userTypes.EnsureAsync(native, session, ct)) is { } user)
