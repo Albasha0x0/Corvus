@@ -176,6 +176,7 @@ public sealed class SessionFileTests : IDisposable
         using var b = new Stack(_dir.File("store-b"));
         var dry = await b.Tools.LoadSession(session, searchRoots: _dir.File("moved"));
         Assert.All(dry.Items.Where(i => i.Kind == "file"), i => Assert.Equal(("would_load", "search_root"), (i.Outcome, i.Reason)));
+        Assert.Equal((SessionFileTools.WouldApply, "not_loaded"), (Item(dry, "edits").Outcome, Item(dry, "edits").Reason)); // was refused, not_found
         Assert.Empty(b.Workspace.Assemblies);
 
         var run = await b.Tools.LoadSession(session, dryRun: false, searchRoots: _dir.File("moved"));

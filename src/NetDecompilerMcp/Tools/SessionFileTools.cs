@@ -143,6 +143,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
         // Files: the same build where it can be found; under targetBuild=other, the build now at the recorded path (old: the same build, for matching).
         var current = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); // recorded sha -> loaded id
         var old = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);     // recorded sha -> loaded id of the recorded build, when the target is another build
+        var wouldLoad = new HashSet<string>(StringComparer.OrdinalIgnoreCase);         // dry run: recorded sha of files a real run loads
         foreach (var f in doc.Files)
         {
             ct.ThrowIfCancellationRequested();
@@ -159,6 +160,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
                 if (located.Path != null) old[f.Sha256] = Load(located.Path, dryRun) ?? f.Id;
                 var id = Load(otherPath, dryRun);
                 if (id != null) current[f.Sha256] = id;
+                else if (dryRun) wouldLoad.Add(f.Sha256);
                 Add("file", f.Id, dryRun ? WouldLoad : Loaded, "other_build", 1,
                     otherPath + (located.Path != null ? $"; the recorded build for matching: {located.Path}" : "; the recorded build was not found (native names and patches need it)"));
                 continue;
@@ -168,6 +170,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
             {
                 var id = Load(same, dryRun);
                 if (id != null) current[f.Sha256] = id;
+                else if (dryRun) wouldLoad.Add(f.Sha256);
                 Add("file", f.Id, dryRun ? WouldLoad : Loaded, located.How, 1, same);
             }
             else if (located.Other is { } changed)
@@ -227,8 +230,9 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
                 var to = current.GetValueOrDefault(e.Sha256);
                 if (to == null || !IsLoaded(to))
                 {
-                    Add("edits", e.Id, to != null && dryRun ? WouldApply : Refused, to != null ? "not_loaded" : "not_found", e.Script.Edits.Count,
-                        to != null ? "the assembly is not loaded (a dry run loads nothing)" : "the assembly was not found");
+                    bool later = dryRun && (to != null || wouldLoad.Contains(e.Sha256));
+                    Add("edits", e.Id, later ? WouldApply : Refused, later || to != null ? "not_loaded" : "not_found", e.Script.Edits.Count,
+                        later || to != null ? "the assembly is not loaded (a dry run loads nothing)" : "the assembly was not found");
                     continue;
                 }
                 try
