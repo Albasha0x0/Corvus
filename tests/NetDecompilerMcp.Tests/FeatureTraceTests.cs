@@ -151,6 +151,10 @@ public sealed class FeatureTraceTests : IDisposable
         NativeLinkTests.Has(text, "constant 0x");
         NativeLinkTests.Has(text, "0xC0000000  (1 reference)");
         NativeLinkTests.Has(text, "-> CreateFileW(L\"settings.ini\", GENERIC_READ|GENERIC_WRITE");
+        // a constant no instruction holds is no seed
+        var absent = await tools.TraceNativeFeature(path, "0x1234567");
+        Assert.DoesNotContain("constant 0x0", absent);
+        NativeLinkTests.Has(absent, "0 matches");
 
         var exact = await tools.TraceNativeFeature(Sample(), "\"settings saved\"");
         NativeLinkTests.Has(exact, "1 match, 1 seed followed");

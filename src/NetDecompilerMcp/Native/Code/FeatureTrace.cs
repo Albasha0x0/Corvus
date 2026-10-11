@@ -205,8 +205,12 @@ public sealed class FeatureTrace
         var text = value < 10 ? value.ToString(System.Globalization.CultureInfo.InvariantCulture) : $"0x{value:X}";
         List<(uint Site, string Detail)> hits;
         Exception? failure = null;
-        try { hits = _calls != null ? X86Constants(value, ct) : Arm64Trace.Supports(_index) ? Arm64Constants(value, ct) : []; }
+        bool supported = _calls != null || Arm64Trace.Supports(_index);
+        try { hits = _calls != null ? X86Constants(value, ct) : supported ? Arm64Constants(value, ct) : []; }
         catch (Exception e) when (e is not OperationCanceledException) { (hits, failure) = ([], e); }
+        if (!supported) _notes.Add("constants in code are searched on x86 / x64 and ARM64 only");
+        // no instruction holds it: no seed (one at address 0 with no references reads as a match)
+        if (hits.Count == 0 && failure == null) return;
         Seed("constant", hits.Count > 0 ? hits[0].Site : 0, text, id =>
         {
             if (failure != null) throw failure;
