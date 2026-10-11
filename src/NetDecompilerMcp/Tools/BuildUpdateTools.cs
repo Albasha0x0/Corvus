@@ -165,7 +165,8 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         {
             var oldAnn = code.Annotations(oldNative);
             var sources = oldAnn.Names().Select(x => new MigrationSource("name", NativeNameSource.User, x.Rva, x.Name))
-                .Concat(oldAnn.Comments().Select(x => new MigrationSource("comment", NativeNameSource.User, x.Rva, x.Comment))).ToList();
+                .Concat(oldAnn.Comments().Select(x => new MigrationSource("comment", NativeNameSource.User, x.Rva, x.Comment)))
+                .Concat(oldAnn.PseudoComments().Select(x => new MigrationSource(NameMigration.PseudoComment, NativeNameSource.User, x.Rva, x.Comment))).ToList();
             var newAnn = code.Annotations(newNative);
             var steps = await Task.Run(() => NameMigration.Plan(mapper, sources, match.New.Index, newAnn, new MigrationOptions(), ct), ct);
             foreach (var s in steps)
@@ -176,10 +177,11 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
             }
             var setNames = steps.Where(s => s.Set && s.Item.Kind == "name").Select(s => (s.NewRva!.Value, s.Value)).ToList();
             var setComments = steps.Where(s => s.Set && s.Item.Kind == "comment").Select(s => (s.NewRva!.Value, s.Value)).ToList();
-            if (!dryRun && (setNames.Count > 0 || setComments.Count > 0))
+            var setPseudo = steps.Where(s => s.Set && s.Item.Kind == NameMigration.PseudoComment).Select(s => (s.NewRva!.Value, s.Value)).ToList();
+            if (!dryRun && (setNames.Count > 0 || setComments.Count > 0 || setPseudo.Count > 0))
                 workspace.Write(() =>
                 {
-                    newAnn.SetMany(setNames, setComments);
+                    newAnn.SetMany(setNames, setComments, setPseudo);
                     foreach (var index in new[] { match.New.Index, code.Ready(newNative) }.OfType<NativeCodeIndex>().Distinct())
                     {
                         foreach (var (rva, name) in setNames) index.SetUserName(rva, name);

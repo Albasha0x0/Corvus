@@ -18,6 +18,7 @@ public sealed class NativeAnnotations
     private readonly object _gate = new();
     private readonly Dictionary<uint, string> _names = new();
     private readonly Dictionary<uint, string> _comments = new();
+    private readonly Dictionary<uint, string> _pseudo = new();
     private UserTypeLayer _userTypes = UserTypeLayer.Empty;
 
     // The sidecar as last read or written: the change set of this process is the difference between it and the live maps.
@@ -136,6 +137,60 @@ public sealed class NativeAnnotations
         lock (_gate) return _comments.Select(kv => (kv.Key, kv.Value)).OrderBy(p => p.Key).ToList();
     }
 
+    public int PseudoCommentCount { get { lock (_gate) return _pseudo.Count; } }
+
+    /// <summary>The user's decompiler (pseudocode) comment at <paramref name="rva"/>, or null.</summary>
+    public string? PseudoCommentAt(uint rva) { lock (_gate) return _pseudo.GetValueOrDefault(rva); }
+
+    /// <summary>The user's decompiler comments, sorted by RVA.</summary>
+    public IReadOnlyList<(uint Rva, string Comment)> PseudoComments()
+    {
+        lock (_gate) return _pseudo.Select(kv => (kv.Key, kv.Value)).OrderBy(p => p.Key).ToList();
+    }
+
+    /// <summary>
+    /// Names, comments and pseudocode comments in one change, persisted once; a null or empty value removes the entry. Names
+    /// are validated and, unless <paramref name="allowDuplicate"/>, refused when used at another address (also within the
+    /// change); nothing is recorded when one is refused.
+    /// </summary>
+    public void Apply(IReadOnlyList<(uint Rva, string? Name)> names, IReadOnlyList<(uint Rva, string? Text)> comments,
+        IReadOnlyList<(uint Rva, string? Text)> pseudo, bool allowDuplicate = false)
+    {
+        Merged? merged;
+        lock (_gate)
+        {
+            var valid = names.Select(n => (n.Rva, Name: string.IsNullOrWhiteSpace(n.Name) ? null : NativeName.Validate(n.Name))).ToList();
+            if (!allowDuplicate)
+            {
+                var after = new Dictionary<uint, string>(_names);
+                foreach (var (rva, name) in valid)
+                    if (name == null) after.Remove(rva);
+                    else after[rva] = name;
+                foreach (var (rva, name) in valid)
+                    if (name != null && after.FirstOrDefault(kv => kv.Key != rva && kv.Value == name) is { Value: not null } other)
+                        throw new ToolError(ErrorCode.Conflict, $"The name '{name}' is already used at rva 0x{other.Key:X}.",
+                            "pass allowDuplicate=true to use it anyway, or pick another name");
+            }
+            foreach (var (rva, name) in valid)
+                if (name == null) _names.Remove(rva);
+                else _names[rva] = name;
+            Put(_comments, comments);
+            Put(_pseudo, pseudo);
+            merged = Persist();
+        }
+        Raise(merged);
+    }
+
+    private static void Put(Dictionary<uint, string> map, IEnumerable<(uint Rva, string? Text)> values)
+    {
+        foreach (var (rva, text) in values)
+        {
+            var t = text?.Trim();
+            if (string.IsNullOrEmpty(t)) map.Remove(rva);
+            else map[rva] = Cap(t);
+        }
+    }
+
     /// <summary>
     /// Validates and records a name at <paramref name="rva"/>; a null or empty name removes it. Refuses a name already
     /// used at another address unless <paramref name="allowDuplicate"/>. Persists on success.
@@ -175,8 +230,9 @@ public sealed class NativeAnnotations
         Raise(merged);
     }
 
-    /// <summary>Records validated names and comments in one change, persisted once (migrate_native_names).</summary>
-    public void SetMany(IEnumerable<(uint Rva, string Name)> names, IEnumerable<(uint Rva, string Text)> comments)
+    /// <summary>Records validated names, comments and pseudocode comments in one change, persisted once (migrate_native_names).</summary>
+    public void SetMany(IEnumerable<(uint Rva, string Name)> names, IEnumerable<(uint Rva, string Text)> comments,
+        IEnumerable<(uint Rva, string Text)>? pseudo = null)
     {
         Merged? merged;
         lock (_gate)
@@ -186,6 +242,11 @@ public sealed class NativeAnnotations
             {
                 var t = text.Trim();
                 if (t.Length > 0) _comments[rva] = Cap(t);
+            }
+            foreach (var (rva, text) in pseudo ?? [])
+            {
+                var t = text.Trim();
+                if (t.Length > 0) _pseudo[rva] = Cap(t);
             }
             merged = Persist();
         }
@@ -265,13 +326,14 @@ public sealed class NativeAnnotations
         return merged;
     }
 
-    private AnnotationDocument Current() => Compose(_names, _comments, _userTypes);
+    private AnnotationDocument Current() => Compose(_names, _comments, _pseudo, _userTypes);
 
-    private static AnnotationDocument Compose(Dictionary<uint, string> names, Dictionary<uint, string> comments, UserTypeLayer u)
+    private static AnnotationDocument Compose(Dictionary<uint, string> names, Dictionary<uint, string> comments, Dictionary<uint, string> pseudo, UserTypeLayer u)
     {
         var doc = new AnnotationDocument();
         foreach (var (r, n) in names) doc.Names[Hex(r)] = n;
         foreach (var (r, c) in comments) doc.Comments[Hex(r)] = c;
+        if (pseudo.Count > 0) doc.PseudoComments = pseudo.ToDictionary(p => Hex(p.Key), p => p.Value);
         if (u.Declarations.Count > 0) doc.Declarations = [.. u.Declarations];
         if (u.Types.Count > 0) doc.Types = u.Types.ToDictionary(t => Hex(t.Key), t => t.Value);
         if (u.Locals.Count > 0)
@@ -292,20 +354,23 @@ public sealed class NativeAnnotations
     /// <summary>Replaces the live maps with <paramref name="doc"/>; returns the names and comments that changed.</summary>
     private Merged Adopt(AnnotationDocument doc)
     {
-        var (names, comments) = Maps(doc);
+        var (names, comments, pseudo) = Maps(doc);
         var result = new Merged(Replace(_names, names), Replace(_comments, comments));
+        Replace(_pseudo, pseudo);
         var types = UserTypesOf(doc);
         if (types.Stamp != _userTypes.Stamp) _userTypes = types;
         return result;
     }
 
-    private static (Dictionary<uint, string> Names, Dictionary<uint, string> Comments) Maps(AnnotationDocument doc)
+    private static (Dictionary<uint, string> Names, Dictionary<uint, string> Comments, Dictionary<uint, string> Pseudo) Maps(AnnotationDocument doc)
     {
         var names = new Dictionary<uint, string>();
         var comments = new Dictionary<uint, string>();
+        var pseudo = new Dictionary<uint, string>();
         foreach (var (k, v) in doc.Names) if (Rva(k) is { } r) names[r] = v;
         foreach (var (k, v) in doc.Comments) if (Rva(k) is { } r) comments[r] = v;
-        return (names, comments);
+        foreach (var (k, v) in doc.PseudoComments ?? []) if (Rva(k) is { } r && !string.IsNullOrWhiteSpace(v)) pseudo[r] = v;
+        return (names, comments, pseudo);
     }
 
     private static List<(uint, string?)> Replace(Dictionary<uint, string> live, Dictionary<uint, string> next)
@@ -321,8 +386,8 @@ public sealed class NativeAnnotations
     // ---- merge ----
 
     private const int NameSection = 0, CommentSection = 1, TypeSection = 2, LocalSection = 3, StackSection = 4, DeclarationSection = 5, AnalysisSection = 6,
-        OperandSection = 7, EnumSection = 8;
-    private static readonly string[] SectionLabels = ["name", "comment", "type", "locals", "stack members", "declaration", "analysis edit", "operand", "enum member"];
+        OperandSection = 7, EnumSection = 8, PseudoSection = 9;
+    private static readonly string[] SectionLabels = ["name", "comment", "type", "locals", "stack members", "declaration", "analysis edit", "operand", "enum member", "pseudocode comment"];
 
     /// <summary>The sidecar as one comparable text value per key in each section (lists as their JSON).</summary>
     private sealed class Snapshot
@@ -341,8 +406,8 @@ public sealed class NativeAnnotations
     /// <summary>A document read from disk in the shape this build writes, so unchanged entries compare equal.</summary>
     private static Snapshot Normalize(AnnotationDocument doc)
     {
-        var (names, comments) = Maps(doc);
-        return ToSnapshot(Compose(names, comments, UserTypesOf(doc)));
+        var (names, comments, pseudo) = Maps(doc);
+        return ToSnapshot(Compose(names, comments, pseudo, UserTypesOf(doc)));
     }
 
     private static Snapshot ToSnapshot(AnnotationDocument doc)
@@ -357,6 +422,7 @@ public sealed class NativeAnnotations
         foreach (var a in doc.Analysis ?? []) s.Sections[AnalysisSection][a.Rva] = JsonSerializer.Serialize(a);
         foreach (var o in doc.Operands ?? []) s.Sections[OperandSection][OperandKey(o)] = JsonSerializer.Serialize(o);
         foreach (var e in doc.EnumMembers ?? []) s.Sections[EnumSection][EnumKey(e)] = JsonSerializer.Serialize(e);
+        foreach (var (k, v) in doc.PseudoComments ?? []) s.Sections[PseudoSection][k] = v;
         return s;
     }
 
@@ -368,6 +434,7 @@ public sealed class NativeAnnotations
             Names = new(s.Sections[NameSection]), Comments = new(s.Sections[CommentSection]),
         };
         if (s.Sections[TypeSection].Count > 0) doc.Types = new(s.Sections[TypeSection]);
+        if (s.Sections[PseudoSection].Count > 0) doc.PseudoComments = new(s.Sections[PseudoSection]);
         if (s.Sections[LocalSection].Count > 0)
             doc.Locals = s.Sections[LocalSection].ToDictionary(kv => kv.Key, kv => JsonSerializer.Deserialize<List<AnnotationDocument.LocalEntry>>(kv.Value)!);
         if (s.Sections[StackSection].Count > 0)
@@ -407,7 +474,7 @@ public sealed class NativeAnnotations
                     if (value == null) continue;
                     conflicts.Add($"{SectionLabels[section]} at 0x{key}: kept '{Short(value)}', other process had '{Short(other)}'");
                     if (section == NameSection) replacedNames.Add((key, other));
-                    else if (section == CommentSection) value = Cap(value + "\n[conflict] another process commented: " + other);
+                    else if (section is CommentSection or PseudoSection) value = Cap(value + "\n[conflict] another process commented: " + other);
                 }
                 if (value == null) result.Remove(key);
                 else result[key] = value;

@@ -18,6 +18,8 @@ public sealed class AnnotationDocument
     [JsonPropertyName("imageBase")] public ulong ImageBase { get; set; }
     [JsonPropertyName("names")] public Dictionary<string, string> Names { get; set; } = new();
     [JsonPropertyName("comments")] public Dictionary<string, string> Comments { get; set; } = new();
+    /// <summary>Format 3: the user's decompiler (pseudocode) comments by RVA; absent when there are none.</summary>
+    [JsonPropertyName("pseudoComments"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public Dictionary<string, string>? PseudoComments { get; set; }
 
     // The user's engine types (UserTypeLayer); absent when there are none.
     [JsonPropertyName("declarations"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<string>? Declarations { get; set; }
@@ -73,7 +75,7 @@ public sealed class AnnotationDocument
     }
 
     /// <summary>Holds what format 3 added; older builds must leave such a file alone.</summary>
-    public bool HasFormat3 => Analysis is { Count: > 0 } || Operands is { Count: > 0 } || EnumMembers is { Count: > 0 }
+    public bool HasFormat3 => PseudoComments is { Count: > 0 } || Analysis is { Count: > 0 } || Operands is { Count: > 0 } || EnumMembers is { Count: > 0 }
                               || StackVars?.Values.Any(l => l.Any(s => s.Delete)) == true;
 
     public bool HasUserTypes => Declarations is { Count: > 0 } || Types is { Count: > 0 } || Locals is { Count: > 0 } || StackVars is { Count: > 0 } || HasFormat3;

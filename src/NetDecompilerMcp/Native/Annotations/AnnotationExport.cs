@@ -42,6 +42,11 @@ public static class AnnotationExport
             sb.AppendLine($"idc.set_name(base + 0x{rva:X}, {Py(name)}, idc.SN_NOWARN)");
         foreach (var (rva, comment) in ann.Comments())
             sb.AppendLine($"idc.set_cmt(base + 0x{rva:X}, {Py(comment)}, 0)");
+        if (ann.PseudoCommentCount > 0)
+        {
+            sb.Append(IdaPseudoHelper);
+            foreach (var (rva, comment) in ann.PseudoComments()) sb.AppendLine($"ndm_pseudo(0x{rva:X}, {Py(comment)})");
+        }
         var types = ann.UserTypes;
         if (!types.IsEmpty)
         {
@@ -63,9 +68,30 @@ public static class AnnotationExport
                 sb.AppendLine(FormattableString.Invariant($"ndm_operand(0x{o.Rva:X}, {o.Operand}, {Py(o.Display)}, {PyOrNone(o.Detail)})"));
             sb.AppendLine("if ndm_failed: print('NetDecompilerMcp: not applied: ' + '; '.join(ndm_failed))");
         }
-        sb.AppendLine($"print('NetDecompilerMcp: applied {ann.NameCount} name(s), {ann.CommentCount} comment(s) and {types.Count} user type(s)')");
+        sb.AppendLine($"print('NetDecompilerMcp: applied {ann.NameCount} name(s), {ann.CommentCount} comment(s), {ann.PseudoCommentCount} pseudocode comment(s) and {types.Count} user type(s)')");
         return sb.ToString();
     }
+
+    // The worker's pseudo_comments (Native/Providers/Ida/ida_worker.py) for a database outside the server.
+    private const string IdaPseudoHelper = """
+        import ida_funcs, ida_hexrays
+        def ndm_pseudo(rva, text):
+            ea = base + rva
+            f = ida_funcs.get_func(ea)
+            cf = ida_hexrays.decompile(f.start_ea) if f is not None and ida_hexrays.init_hexrays_plugin() else None
+            if cf is None: print('NetDecompilerMcp: no pseudocode for the comment at 0x%X' % rva); return
+            eamap = cf.get_eamap()
+            lower = [k for k in eamap.keys() if k <= ea]
+            if not lower: return
+            tl = ida_hexrays.treeloc_t(); tl.ea = eamap[ea if ea in eamap else max(lower)][0].ea
+            for itp in range(ida_hexrays.ITP_SEMI, ida_hexrays.ITP_COLON):
+                tl.itp = itp
+                cf.set_user_cmt(tl, text); cf.save_user_cmts(); cf.refresh_func_ctext()
+                if not cf.has_orphan_cmts(): return
+                cf.del_orphan_cmts(); cf.save_user_cmts()
+            print('NetDecompilerMcp: the pseudocode comment at 0x%X found no place' % rva)
+
+        """;
 
     // Mirrors the worker's apply_user_types (Native/Providers/Ida/ida_worker.py) for a database outside the server.
     private const string IdaTypeHelpers = """
@@ -213,6 +239,8 @@ public static class AnnotationExport
             sb.AppendLine($"    createLabel(base.add(0x{rva:X}L), {Java(name)}, true, SourceType.USER_DEFINED);");
         foreach (var (rva, comment) in ann.Comments())
             sb.AppendLine($"    setPlateComment(base.add(0x{rva:X}L), {Java(comment)});");
+        foreach (var (rva, comment) in ann.PseudoComments())
+            sb.AppendLine($"    setPreComment(base.add(0x{rva:X}L), {Java(comment)});");
         sb.AppendLine($"    println(\"NetDecompilerMcp: applied {ann.NameCount} name(s) and {ann.CommentCount} comment(s)\");");
         sb.AppendLine("  }");
         sb.AppendLine("}");
@@ -228,6 +256,7 @@ public static class AnnotationExport
             imageBase = ann.ImageBase,
             names = ann.Names().Select(n => new { rva = n.Rva, name = n.Name }),
             comments = ann.Comments().Select(c => new { rva = c.Rva, comment = c.Comment }),
+            pseudoComments = ann.PseudoComments().Select(c => new { rva = c.Rva, comment = c.Comment }),
             declarations = ann.UserTypes.Declarations,
             types = ann.UserTypes.Types.OrderBy(t => t.Key).Select(t => new { rva = t.Key, type = t.Value }),
             stackVars = ann.UserTypes.StackVars.OrderBy(s => s.Key).SelectMany(s => s.Value)

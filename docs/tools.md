@@ -1430,15 +1430,19 @@ Give a name to a native address (a function start, or any address): the name sho
 
 ### comment_native
 
-**Comment a native address** (destructive, idempotent, long-running)
+**Comment a native address** (destructive, idempotent, open-world, long-running)
 
-Attach a comment to a native address; it shows up next to disassembly that references the address and is saved to the per-user sidecar keyed by the file's SHA-256 (so it survives reloads and restarts). An empty text clears the comment.
+Comment a native address, saved to the per-user sidecar keyed by the file's SHA-256 and pushed into the engine's database. scope: line (disassembly; also shown where the address is referenced), pseudocode (the decompiler statement made from the address, or the nearest before it), function (the containing function's comment) or auto (default: function at a function start, else line and pseudocode). append adds a line to the comment there (dedupe skips a line it already has). An empty text clears it.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
 | `address` | string | yes |  | Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them). |
 | `text` | string | yes |  | The comment text; empty to clear it. |
+| `scope` | string |  |  | auto, line, pseudocode or function. Values: auto, line, pseudocode, function. |
+| `append` | boolean |  | `false` | Add text as a new line of the existing comment. |
+| `dedupe` | boolean |  | `true` | With append: skip a line the comment already has (default true). |
+| `engine` | string |  |  | Engine to push pseudocode comments to now (default: one with this image open; else at its next use): auto, ida or ghidra. Values: auto, ida, ghidra. |
 
 ### export_native_annotations
 

@@ -348,7 +348,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         {
             var ann = code.Annotations(oldNative);
             items.AddRange(ann.Names().Select(x => new MigrationSource("name", NativeNameSource.User, x.Rva, x.Name)));
-            if (comments) items.AddRange(ann.Comments().Select(x => new MigrationSource("comment", NativeNameSource.User, x.Rva, x.Comment)));
+            if (comments) items.AddRange(ann.Comments().Select(x => new MigrationSource("comment", NativeNameSource.User, x.Rva, x.Comment))
+                .Concat(ann.PseudoComments().Select(x => new MigrationSource(NameMigration.PseudoComment, NativeNameSource.User, x.Rva, x.Comment))));
         }
         foreach (var source in new[] { NativeNameSource.Pdb, NativeNameSource.Il2Cpp })
         {
@@ -370,12 +371,13 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
 
         var setNames = steps.Where(s => s.Set && s.Item.Kind == "name").Select(s => (s.NewRva!.Value, s.Value)).ToList();
         var setComments = steps.Where(s => s.Set && s.Item.Kind == "comment").Select(s => (s.NewRva!.Value, s.Value)).ToList();
-        if (!dryRun && (setNames.Count > 0 || setComments.Count > 0))
+        var setPseudo = steps.Where(s => s.Set && s.Item.Kind == NameMigration.PseudoComment).Select(s => (s.NewRva!.Value, s.Value)).ToList();
+        if (!dryRun && (setNames.Count > 0 || setComments.Count > 0 || setPseudo.Count > 0))
         {
             var index = match.New.Index;
             workspace.Write(() =>
             {
-                newAnn.SetMany(setNames, setComments);
+                newAnn.SetMany(setNames, setComments, setPseudo);
                 foreach (var (rva, name) in setNames) { index.SetUserName(rva, name); if (code.Ready(newNative) is { } ready && ready != index) ready.SetUserName(rva, name); }
                 foreach (var (rva, text) in setComments) { index.SetUserComment(rva, text); if (code.Ready(newNative) is { } ready && ready != index) ready.SetUserComment(rva, text); }
                 return 0;

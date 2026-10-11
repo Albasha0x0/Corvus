@@ -7,13 +7,15 @@ using NetDecompilerMcp.Native;
 using NetDecompilerMcp.Native.Annotations;
 using NetDecompilerMcp.Native.Code;
 using NetDecompilerMcp.Native.Patching;
+using NetDecompilerMcp.Native.Providers;
 using NetDecompilerMcp.Services;
 
 namespace NetDecompilerMcp.Tools;
 
 /// <summary>Native annotations (rename, comment, export) and byte/assembly patching with undo and save.</summary>
 [McpServerToolType]
-public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEditService edits, EditJournal? journal = null)
+public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEditService edits, EditJournal? journal = null,
+    NativeEngineService? engines = null, NativeNamePush? names = null, NativeTypePush? types = null, NativeUserTypePush? userTypes = null)
 {
     private async Task<(LoadedNative Native, NativeCodeIndex Index)> Open(string image, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
@@ -74,18 +76,106 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     });
 
     [McpServerTool(Name = "comment_native", Title = "Comment a native address")]
-    [Description("Attach a comment to a native address; it shows up next to disassembly that references the address and is saved to the per-user sidecar " +
-                 "keyed by the file's SHA-256 (so it survives reloads and restarts). An empty text clears the comment.")]
+    [Description("Comment a native address, saved to the per-user sidecar keyed by the file's SHA-256 and pushed into the engine's database. scope: line " +
+                 "(disassembly; also shown where the address is referenced), pseudocode (the decompiler statement made from the address, or the nearest " +
+                 "before it), function (the containing function's comment) or auto (default: function at a function start, else line and pseudocode). " +
+                 "append adds a line to the comment there (dedupe skips a line it already has). An empty text clears it.")]
     public Task<string> CommentNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
         [Description("The comment text; empty to clear it.")] string text,
+        [Description("auto, line, pseudocode or function.")] string? scope = null,
+        [Description("Add text as a new line of the existing comment.")] bool append = false,
+        [Description("With append: skip a line the comment already has (default true).")] bool dedupe = true,
+        [Description("Engine to push pseudocode comments to now (default: one with this image open; else at its next use): auto, ida or ghidra.")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var (native, index) = await Open(image, progress, cancellationToken);
-        return edits.Comment(native, index, Address(index, address), text);
+        var rva = Address(index, address);
+        var plan = PlanComment(native, index, rva, text ?? "", CommentScopes.Parse(scope), append, dedupe);
+        edits.ApplyComments(native, index, plan.Change is { } c ? [c] : []);
+        var pushed = plan.Change?.Pseudo != null ? await PushComments(native, engine, progress, cancellationToken) : null;
+        return plan.Text + (plan.Change?.Pseudo != null ? PushNote(pushed, [plan.Rva]) : "");
     });
+
+    /// <summary>comment_native scopes.</summary>
+    internal static class CommentScopes
+    {
+        public const string Auto = "auto", Line = "line", Pseudocode = "pseudocode", Function = "function";
+        public static readonly string[] All = [Auto, Line, Pseudocode, Function];
+
+        public static string Parse(string? scope) => (scope ?? "").Trim().ToLowerInvariant() switch
+        {
+            "" or Auto => Auto,
+            Line or "disassembly" => Line,
+            Pseudocode or "decompiler" => Pseudocode,
+            Function or "func" => Function,
+            _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown scope '{scope}'.", "use auto, line, pseudocode or function"),
+        };
+    }
+
+    /// <summary>One comment request resolved: the change to record (null: nothing changes) and what it did per scope.</summary>
+    internal sealed record CommentPlan(uint Rva, NativeEditService.CommentChange? Change, string Text);
+
+    /// <summary>
+    /// Resolves the scope (a function start in auto scope is the function comment; elsewhere the line and the pseudocode
+    /// comment) and the text (append onto the comment in effect there, which may be an imported one; dedupe).
+    /// </summary>
+    internal CommentPlan PlanComment(LoadedNative native, NativeCodeIndex index, uint rva, string text, string scope, bool append, bool dedupe)
+    {
+        var fn = index.FunctionAt(rva);
+        if (scope == CommentScopes.Function && fn == null)
+            throw new ToolError(ErrorCode.NotFound, $"No function contains {NativeAddress.Va(index.Image, rva)}.", "use scope=line, or list_functions for the functions");
+        if (scope == CommentScopes.Auto) scope = fn?.Start == rva ? CommentScopes.Function : "both";
+        uint at = scope == CommentScopes.Function ? fn!.Start : rva;
+        var ann = edits.Annotations(native);
+        var parts = new List<string>();
+        string? Next(string? current, string label)
+        {
+            if (!append)
+            {
+                var t = text.Trim();
+                if (t.Length == 0 && current == null) { parts.Add($"{label}: no comment to clear"); return null; }
+                if (t == current) { parts.Add($"{label}: unchanged"); return null; }
+                parts.Add(t.Length == 0 ? $"{label} comment cleared" : $"{label} comment set");
+                return t;
+            }
+            var next = NativeEditService.AppendComment(current, text, dedupe);
+            parts.Add(next == null ? $"{label}: already has this line" : $"{label} comment appended");
+            return next;
+        }
+        string? line = null, pseudo = null;
+        if (scope is CommentScopes.Line or CommentScopes.Function or "both")
+            line = Next(index.Sourced.CommentAt(at)?.Text, scope == CommentScopes.Function ? $"function {fn!.Name}" : "line");
+        if (scope is CommentScopes.Pseudocode or "both")
+            pseudo = Next(ann.PseudoCommentAt(at), "pseudocode");
+        return new CommentPlan(at, line == null && pseudo == null ? null : new NativeEditService.CommentChange(at, line, pseudo),
+            $"{NativeAddress.Va(index.Image, at)}: {string.Join("; ", parts)}.");
+    }
+
+    /// <summary>Pushes the names and comments into an engine session now: the one asked for, else one open on the image; null when none.</summary>
+    private async Task<NativeNamePush.PushResult?> PushComments(LoadedNative native, string? engine, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    {
+        if (engines == null || names == null) return null;
+        var session = string.IsNullOrWhiteSpace(engine) ? engines.CompletedSession(native)
+            : await engines.Session(native, engine, new Progress<NativeProviderProgress>(p =>
+                progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), ct);
+        if (session == null) return null;
+        var pushed = await names.EnsureAsync(native, session, ct);
+        if (types != null) await types.EnsureAsync(native, session, ct);
+        if (userTypes != null) await userTypes.EnsureAsync(native, session, ct);
+        return pushed ?? new NativeNamePush.PushResult(0, 0, null, true, "", TimeSpan.Zero);
+    }
+
+    /// <summary>Where the pseudocode comments went: placed by the engine now, refused (with the reason), or kept for its next use.</summary>
+    private static string PushNote(NativeNamePush.PushResult? pushed, IReadOnlyCollection<uint> rvas)
+    {
+        if (pushed == null) return " Pseudocode comments reach the engine at its next use.";
+        var failed = pushed.PseudoFailures.Where(f => rvas.Contains(f.Rva)).ToList();
+        return failed.Count == 0 ? " Pushed to the engine." :
+            " Not placed in the pseudocode: " + string.Join("; ", failed.Take(10).Select(f => $"rva 0x{f.Rva:X}: {f.Error}")) + ".";
+    }
 
     [McpServerTool(Name = "export_native_annotations", Title = "Export native annotations")]
     [Description("Write the image's names and comments as an IDAPython script (ida), a Ghidra script (ghidra) or JSON; the IDA script and JSON also " +
@@ -106,7 +196,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
             ? AnnotationHeader.Render(ann, index.NameAt, rva => index.FunctionByStart(rva) != null)
             : AnnotationExport.Render(ann, fmt);
         var target = SafeFile.WriteAllText(outputPath, text, overwrite);
-        return $"Exported {ann.NameCount} name(s), {ann.CommentCount} comment(s) and {ann.UserTypes.Count} user type(s) to {target} ({fmt} format)" +
+        return $"Exported {ann.NameCount} name(s), {ann.CommentCount} comment(s), {ann.PseudoCommentCount} pseudocode comment(s) and {ann.UserTypes.Count} user type(s) to {target} ({fmt} format)" +
                (fmt == AnnotationExport.Format.Ghidra && ann.UserTypes.Count > 0 ? "; user types are not in Ghidra scripts." : ".");
     });
 

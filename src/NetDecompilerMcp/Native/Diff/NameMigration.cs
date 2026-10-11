@@ -25,6 +25,9 @@ public sealed record MigrationOptions
 /// </summary>
 public static class NameMigration
 {
+    /// <summary>The kind of a user's decompiler comment (the others: name, comment).</summary>
+    public const string PseudoComment = "pseudo_comment";
+
     public static List<MigrationStep> Plan(AddressMapper mapper, IReadOnlyList<MigrationSource> items, NativeCodeIndex newIndex,
         NativeAnnotations newAnnotations, MigrationOptions options, CancellationToken ct)
     {
@@ -33,6 +36,7 @@ public static class NameMigration
         foreach (var (rva, name) in newAnnotations.Names()) usedNames.TryAdd(name, rva);
         var plannedNames = new Dictionary<uint, MigrationSource>();
         var plannedComments = new Dictionary<uint, MigrationSource>();
+        var plannedPseudo = new Dictionary<uint, MigrationSource>();
 
         // user items first so they win over imported names landing on the same address
         foreach (var item in items.OrderByDescending(i => i.Source.Rank()).ThenBy(i => i.OldRva))
@@ -47,13 +51,14 @@ public static class NameMigration
             if (tier is { } t && t > options.MinTier) { steps.Add(Skip("below_min_tier", $"matched in tier {t} ({MatchResult.TierNames[t]}); minTier is {options.MinTier}")); continue; }
             if (mapped.Confidence < options.MinScore) { steps.Add(Skip("below_min_score", $"confidence {mapped.Confidence:0.###} < minScore {options.MinScore:0.###}")); continue; }
 
-            if (item.Kind == "comment")
+            if (item.Kind is "comment" or PseudoComment)
             {
-                var existing = newAnnotations.CommentAt(at);
+                var existing = item.Kind == PseudoComment ? newAnnotations.PseudoCommentAt(at) : newAnnotations.CommentAt(at);
                 if (existing == item.Value.Trim()) { steps.Add(Skip("same_comment", "the new build already has this comment")); continue; }
                 if (existing != null) { steps.Add(Skip("user_comment_exists", $"the new build has another comment there: \"{Clip(existing)}\"")); continue; }
-                if (plannedComments.TryGetValue(at, out var first)) { steps.Add(Skip("duplicate_target", $"the comment from {first.OldRva:X} already lands there")); continue; }
-                plannedComments[at] = item;
+                var planned = item.Kind == PseudoComment ? plannedPseudo : plannedComments;
+                if (planned.TryGetValue(at, out var first)) { steps.Add(Skip("duplicate_target", $"the comment from {first.OldRva:X} already lands there")); continue; }
+                planned[at] = item;
                 steps.Add(new(item, at, item.Value, true, mapped.Reason, tier, mapped.Confidence, mapped.Detail));
                 continue;
             }

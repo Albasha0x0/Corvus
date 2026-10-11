@@ -51,6 +51,40 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
             : $"Commented {NativeAddress.Va(index.Image, rva)}.{StaleNote(ann)}";
     }
 
+    /// <summary>A comment change at an address: <see cref="Line"/> the disassembly / function comment, <see cref="Pseudo"/> the decompiler comment; null leaves one, "" removes it.</summary>
+    public sealed record CommentChange(uint Rva, string? Line, string? Pseudo);
+
+    /// <summary>Records <paramref name="changes"/> with one sidecar write and shows the line comments in the code index.</summary>
+    public void ApplyComments(LoadedNative native, NativeCodeIndex index, IReadOnlyList<CommentChange> changes)
+    {
+        var ann = Annotations(native);
+        var lines = changes.Where(c => c.Line != null).Select(c => (c.Rva, Text: (string?)c.Line!.Trim())).ToList();
+        var pseudo = changes.Where(c => c.Pseudo != null).Select(c => (c.Rva, (string?)c.Pseudo)).ToList();
+        workspace.Write(() =>
+        {
+            ann.Apply([], lines, pseudo);
+            foreach (var (rva, text) in lines)
+            {
+                var shown = string.IsNullOrEmpty(text) ? null : ann.CommentAt(rva);
+                code.Ready(native)?.SetUserComment(rva, shown);
+                index.SetUserComment(rva, shown);
+            }
+            return 0;
+        });
+    }
+
+    /// <summary>
+    /// <paramref name="text"/> appended to <paramref name="current"/> on a new line; with <paramref name="dedupe"/> a text
+    /// already one of its lines is not added again (null: nothing to change).
+    /// </summary>
+    public static string? AppendComment(string? current, string text, bool dedupe)
+    {
+        var line = text.Trim();
+        if (string.IsNullOrEmpty(current)) return line.Length == 0 ? null : line;
+        if (line.Length == 0 || (dedupe && current.Split('\n').Any(l => l.Trim() == line))) return null;
+        return current.TrimEnd('\n') + "\n" + line;
+    }
+
     private static string StaleNote(NativeAnnotations ann) => ann.StaleSiblingHashes.Count == 0 ? ""
         : $" (note: a sidecar of annotations exists for this path under {ann.StaleSiblingHashes.Count} other file hash(es); this file's current bytes are a separate, clean annotation set.)";
 

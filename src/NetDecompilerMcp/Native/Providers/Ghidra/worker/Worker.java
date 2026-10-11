@@ -231,6 +231,7 @@ public class Worker implements GhidraLaunchable {
             case "set_name": return write("set name", () -> NameOps.setName(this, r));
             case "set_comment": return write("set comment", () -> NameOps.setComment(this, r));
             case "apply_names": return applyNames(r);
+            case "pseudo_comments": return write("pseudo comments", () -> NameOps.pseudoComments(this, r));
             case "sync_patches": return write("sync patches", () -> PatchOps.sync(this, r));
             case "apply_types": return saving(r, write("apply types", () -> TypeOps.applyTypes(this, r)));
             case "load_pdb": return loadPdb(r);

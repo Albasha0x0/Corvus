@@ -314,6 +314,9 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         return WorkerRows.NameBatch(await CallAsync("apply_names", args, cancellationToken, journal: !save, saves: save).ConfigureAwait(false));
     }
 
+    public async Task<IReadOnlyList<PseudoCommentOutcome>> SetPseudoCommentsAsync(IReadOnlyList<(uint Rva, string Text)> items, CancellationToken cancellationToken = default) =>
+        WorkerRows.PseudoComments(await CallAsync("pseudo_comments", WorkerRows.PseudoCommentArgs(items), cancellationToken, journal: true).ConfigureAwait(false));
+
     public async Task<string?> GetStampAsync(string key, CancellationToken cancellationToken = default) =>
         WorkerRows.Stamp(await CallAsync("get_stamp", WorkerRows.Args(("key", key)), cancellationToken).ConfigureAwait(false));
 

@@ -1982,12 +1982,79 @@ def clear_stack(m, ti, rva, offset):
     return ["stack_clear", rva, target, True, None, old, offset, text + ("; " + note if note else "")]
 
 
+def pseudo_anchor(cf, ea):
+    # the address whose ctree item holds the comment: ea itself, else the nearest lower address that generated code
+    eamap = cf.get_eamap()
+    if ea in eamap:
+        return eamap[ea][0].ea
+    lower = [k for k in eamap.keys() if k <= ea]
+    return eamap[max(lower)][0].ea if lower else None
+
+
+def drop_user_cmts(m, func_ea, ea):
+    # removes the user comments on ea whatever their placement
+    hr = m.ida_hexrays
+    cmts = hr.restore_user_cmts(func_ea)
+    if cmts is None:
+        return
+    for key in [k for k in cmts.keys() if k.ea == ea]:
+        cmts.erase(cmts.find(key))
+    hr.save_user_cmts(func_ea, cmts)
+
+
+def set_pseudo_comment(m, rva, text):
+    # [rva, applied, anchor rva, error]: the comment goes on the first placement (ITP_SEMI..) that does not leave it orphaned
+    hr = m.ida_hexrays
+    ea = _state["base"] + rva
+    f = m.ida_funcs.get_func(ea)
+    if f is None:
+        return [rva, False, None, "no function contains rva 0x%X" % rva]
+    cf, why = decompile_function(m, f.start_ea)
+    if cf is None:
+        return [rva, False, None, why]
+    target = pseudo_anchor(cf, ea)
+    if target is None:
+        return [rva, False, None, "no pseudocode is generated at or before rva 0x%X" % rva]
+    drop_user_cmts(m, f.start_ea, target)
+    hr.mark_cfunc_dirty(f.start_ea, False)
+    if not text:
+        return [rva, True, rva_of(target), None]
+    cf, why = decompile_function(m, f.start_ea)
+    if cf is None:
+        return [rva, False, None, why]
+    if cf.has_orphan_cmts():
+        cf.del_orphan_cmts()
+        cf.save_user_cmts()
+    tl = hr.treeloc_t()
+    tl.ea = target
+    for itp in range(hr.ITP_SEMI, hr.ITP_COLON):
+        tl.itp = itp
+        cf.set_user_cmt(tl, text)
+        cf.save_user_cmts()
+        cf.refresh_func_ctext()
+        if not cf.has_orphan_cmts():
+            hr.mark_cfunc_dirty(f.start_ea, False)
+            return [rva, True, rva_of(target), None]
+        cf.del_orphan_cmts()
+        cf.save_user_cmts()
+    return [rva, False, rva_of(target), "Hex-Rays found no place for a comment at rva 0x%X" % rva_of(target)]
+
+
+def op_pseudo_comments(args):
+    # items: [[rva, text; "" removes]]
+    m = need_open()
+    if not hexrays_ready(m):
+        raise WorkerError("unsupported", "the Hex-Rays decompiler is not available")
+    return {"items": [set_pseudo_comment(m, rva, text or "") for rva, text in args.get("items") or []]}
+
+
 OPS = {"hello": op_hello, "open": op_open, "rebase": op_rebase, "functions": op_functions, "decompile": op_decompile,
        "disasm": op_disasm, "disasm_range": op_disasm_range, "blocks": op_blocks, "xrefs_to": op_xrefs_to, "xrefs_from": op_xrefs_from, "set_name": op_set_name,
        "set_comment": op_set_comment, "apply_names": op_apply_names, "get_stamp": op_get_stamp, "save": op_save,
        "sync_patches": op_sync_patches, "apply_types": op_apply_types, "load_pdb": op_load_pdb, "virtual_targets": op_virtual_targets,
        "apply_user_types": op_apply_user_types, "frame": op_frame, "types": op_types, "type": op_type, "field_xrefs": op_field_xrefs,
        "python": op_python, "close": op_close, "sleep": op_sleep, "insn": op_insn}
+OPS.update({"pseudo_comments": op_pseudo_comments})
 
 
 def op_decompile_many(args):

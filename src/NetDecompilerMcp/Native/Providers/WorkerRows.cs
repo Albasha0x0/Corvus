@@ -144,6 +144,15 @@ internal static class WorkerRows
             r.GetProperty("functions_created").GetInt32(), TimeSpan.FromSeconds(r.GetProperty("seconds").GetDouble()),
             r.GetProperty("failures").EnumerateArray().Select(f => f.GetString() ?? "").ToList());
 
+    /// <summary>[[rva, text]] rows of pseudo_comments.</summary>
+    public static JsonObject PseudoCommentArgs(IReadOnlyList<(uint Rva, string Text)> items) =>
+        Args(("items", new JsonArray(items.Select(i => (JsonNode)new JsonArray(i.Rva, i.Text)).ToArray())));
+
+    /// <summary>Items [rva, applied, anchor rva or null, error or null].</summary>
+    public static IReadOnlyList<PseudoCommentOutcome> PseudoComments(JsonElement r) =>
+        r.GetProperty("items").EnumerateArray().Select(i => new PseudoCommentOutcome(i[0].GetUInt32(), i[1].GetBoolean(),
+            i[2].ValueKind == JsonValueKind.Number ? i[2].GetUInt32() : null, Text(i[3]))).ToList();
+
     public static string? Stamp(JsonElement r) =>
         r.GetProperty("stamp").ValueKind == JsonValueKind.String ? r.GetProperty("stamp").GetString() : null;
 

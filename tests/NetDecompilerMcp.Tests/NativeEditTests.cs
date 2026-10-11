@@ -379,6 +379,54 @@ public class NativeEditTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task CommentNative_Scopes_AppendWithDedupe_AndPseudocodeCommentsPersistAndExport()
+    {
+        using var h = new Harness();
+        var (native, index) = await h.Open();
+        uint entry = native.Image.EntryPointRva, inside = entry + 5;
+        string At(uint rva) => $"rva:0x{rva:X}";
+        var tools = new NativeEditTools(h.Env.Workspace, h.Code, h.Edits);
+        var ann = h.Code.Annotations(native);
+
+        // auto: a function start takes the function comment, any other address the line and the pseudocode comment
+        Assert.Contains("function", await tools.CommentNative(h.Path, At(entry), "decrypts"));
+        Assert.Equal(("decrypts", null), (ann.CommentAt(entry), ann.PseudoCommentAt(entry)));
+        var both = await tools.CommentNative(h.Path, At(inside), "returns 1");
+        _output.WriteLine(both);
+        Assert.Contains("reach the engine at its next use", both);
+        Assert.Equal(("returns 1", "returns 1"), (ann.CommentAt(inside), ann.PseudoCommentAt(inside)));
+        Assert.Equal("returns 1", index.CommentFor(inside));
+
+        // append, deduped by line; scope function from inside the function
+        Assert.Contains("already has this line", await tools.CommentNative(h.Path, At(inside), " returns 1 ", scope: "pseudocode", append: true));
+        await tools.CommentNative(h.Path, At(inside), "checked", scope: "pseudocode", append: true);
+        await tools.CommentNative(h.Path, At(inside), "checked", scope: "pseudocode", append: true, dedupe: false);
+        Assert.Equal(("returns 1", "returns 1\nchecked\nchecked"), (ann.CommentAt(inside), ann.PseudoCommentAt(inside)));
+        await tools.CommentNative(h.Path, At(inside), "second", scope: "function", append: true);
+        Assert.Equal("decrypts\nsecond", ann.CommentAt(entry));
+        await tools.CommentNative(h.Path, At(inside), "", scope: "line");
+        Assert.Equal((null, "returns 1\nchecked\nchecked"), (ann.CommentAt(inside), ann.PseudoCommentAt(inside)));
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.CommentNative(h.Path, At(inside), "x", scope: "everywhere"))).Code);
+
+        // kept in the sidecar (format 3), and exported by every format
+        using (var env2 = new Env())
+        {
+            var code2 = new NativeCodeService(env2.Workspace, env2.Options, null, h.Store);
+            var fresh = env2.Workspace.LoadAny(h.Path).Native!;
+            Assert.Equal("returns 1\nchecked\nchecked", code2.Annotations(fresh).PseudoCommentAt(inside));
+        }
+        Assert.Contains("\"formatVersion\": 3", File.ReadAllText(Directory.GetFiles(h.Store.Root, "*.json").Single()));
+        foreach (var (format, expected) in new[] { ("ida", $"ndm_pseudo(0x{inside:X}, \"returns 1\\nchecked\\nchecked\")"), ("ghidra", "setPreComment"), ("json", "pseudoComments") })
+        {
+            var file = h.Dir.File("export." + format);
+            Assert.Contains("1 pseudocode comment(s)", await tools.ExportNativeAnnotations(h.Path, file, format));
+            Assert.Contains(expected, File.ReadAllText(file));
+        }
+        await tools.CommentNative(h.Path, At(inside), "", scope: "pseudocode");
+        Assert.Equal(0, ann.PseudoCommentCount);
+    }
+
+    [Fact]
     public async Task Rename_FlowsIntoListFunctionsAndDisassemble()
     {
         using var h = new Harness();

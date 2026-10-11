@@ -162,7 +162,7 @@ public class AnnotationStoreTests : IDisposable
         Assert.Contains("ndm_type(0x1000, \"int __fastcall Parse(S *s)\")", ida);
         Assert.Contains("ndm_stack(0x1000, 32, None, \"char[16]\")", ida);
         Assert.Contains("ndm_local(0x1000, \"v3\", 40, \"count\", None)", ida);
-        Assert.Contains("1 name(s), 0 comment(s) and 4 user type(s)", ida);
+        Assert.Contains("1 name(s), 0 comment(s), 0 pseudocode comment(s) and 4 user type(s)", ida);
         var python = NetDecompilerMcp.Native.Providers.PythonLocator.Find([], []);
         if (python != null)
         {

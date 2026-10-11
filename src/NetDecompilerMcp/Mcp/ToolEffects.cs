@@ -178,7 +178,7 @@ public static class ToolEffects
 
         // Native annotations and edits (names and comments are saved to a per-user sidecar file)
         ["rename_native"] = Changes(destructive: true, idempotent: true, longRunning: true),
-        ["comment_native"] = Changes(destructive: true, idempotent: true, longRunning: true),
+        ["comment_native"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true),
         ["export_native_annotations"] = Changes(destructive: true, idempotent: true, longRunning: true), // overwrite=true replaces the file at outputPath
 
         // User types in the decompiler engine (saved to the sidecar; runs IDA)

@@ -210,6 +210,13 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     Task<NameBatchResult> ApplyNamesAsync(IReadOnlyList<NativeNameItem> items, string? stampKey = null, string? stamp = null, bool save = false,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Sets (empty text: removes) the decompiler comment at each address, on the pseudocode statement generated from it or,
+    /// when none is, from the nearest address before it in the function (<see cref="PseudoCommentOutcome.Anchor"/>).
+    /// </summary>
+    Task<IReadOnlyList<PseudoCommentOutcome>> SetPseudoCommentsAsync(IReadOnlyList<(uint Rva, string Text)> items, CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not take pseudocode comments.");
+
     /// <summary>The stamp recorded in the database under <paramref name="key"/> by <see cref="ApplyNamesAsync"/>, or null.</summary>
     Task<string?> GetStampAsync(string key, CancellationToken cancellationToken = default);
 
@@ -399,6 +406,9 @@ public enum NativeXrefKind
 /// a function start becomes the function comment.
 /// </summary>
 public sealed record NativeNameItem(uint Rva, string? Name, string? Comment, bool MakeFunction = false);
+
+/// <summary>One pseudocode comment: whether it attached, the address of the statement it is on, or why not.</summary>
+public sealed record PseudoCommentOutcome(uint Rva, bool Applied, uint? Anchor, string? Error);
 
 public sealed record NameBatchResult(int Named, int NameFailures, int Commented, int FunctionsCreated, TimeSpan Elapsed, IReadOnlyList<string> Failures);
 

@@ -54,13 +54,53 @@ public sealed class NativeEditParityTests(ITestOutputHelper output) : IDisposabl
         workspace.LoadAny(Image());
         return new Rig(workspace, code, engines, new NativeTypeTools(workspace, engines, user, code, names, types),
             new NativeAnalysisTools(workspace, engines, new OutputPager(options), names, code, types, user),
-            new NativeEditTools(workspace, code, new NativeEditService(workspace, code)));
+            new NativeEditTools(workspace, code, new NativeEditService(workspace, code), null, engines, names, types, user));
     }
 
     private void Restart()
     {
         foreach (var d in _owned) d.Dispose();
         _owned.Clear();
+    }
+
+    private static string Rva(uint rva) => $"rva:0x{rva:X}";
+
+    [IdaFact]
+    public Task Pseudocode_comments_show_clear_and_reach_a_new_database_in_IDA() => PseudocodeComments("ida");
+
+    [GhidraFact]
+    public Task Pseudocode_comments_show_clear_and_reach_a_new_database_in_Ghidra() => PseudocodeComments("ghidra");
+
+    private async Task PseudocodeComments(string engine)
+    {
+        var rig = Setup(engine + "-p");
+        var path = Image();
+        var session = await rig.Session(engine);
+        var lines = (await session.DecompileAsync(rig.Start)).LineAddresses.Where(l => l.Rva > rig.Start).ToList();
+        var at = lines[lines.Count / 2].Rva;
+
+        var set = await rig.Edits.CommentNative(path, Rva(at), "ndm pseudo note", scope: "pseudocode", engine: engine);
+        output.WriteLine(set);
+        Assert.Contains("Pushed to the engine", set);
+        var text = await rig.Analysis.DecompileNative(path, Function, engine: engine);
+        output.WriteLine(text);
+        Assert.Contains("ndm pseudo note", text);
+        // appended and deduped in the sidecar, then shown as two lines
+        await rig.Edits.CommentNative(path, Rva(at), "ndm second line", scope: "pseudocode", append: true, engine: engine);
+        Assert.Contains("already has this line", await rig.Edits.CommentNative(path, Rva(at), "ndm second line", scope: "pseudocode", append: true, engine: engine));
+        Assert.Contains("ndm second line", await rig.Analysis.DecompileNative(path, Function, engine: engine));
+
+        // cleared
+        await rig.Edits.CommentNative(path, Rva(at), "", scope: "pseudocode", engine: engine);
+        Assert.DoesNotContain("ndm pseudo note", await rig.Analysis.DecompileNative(path, Function, engine: engine));
+
+        // an address inside an instruction lands on the statement made from it; a new database gets it from the sidecar
+        await rig.Edits.CommentNative(path, Rva(at + 1), "ndm inside", scope: "pseudocode", engine: engine);
+        Assert.Contains("ndm inside", await rig.Analysis.DecompileNative(path, Function, engine: engine));
+        Restart();
+        var fresh = Setup(engine + "-q");
+        var again = await fresh.Analysis.DecompileNative(path, Function, engine: engine);
+        Assert.Contains("ndm inside", again);
     }
 
     [IdaFact]

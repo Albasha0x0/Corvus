@@ -75,6 +75,40 @@ final class NameOps {
     }
 
     /**
+     * items: [[rva, text; "" removes]]: the decompiler shows pre-comments above the statement made from the instruction
+     * holding the address. Rows [rva, applied, anchor rva, error].
+     */
+    static JsonObject pseudoComments(Worker w, Worker.Request r) {
+        Listing listing = w.program.getListing();
+        JsonArray rows = new JsonArray();
+        for (JsonElement e : Worker.array(r.args, "items")) {
+            JsonArray item = e.getAsJsonArray();
+            long rva = item.get(0).getAsLong();
+            String text = item.get(1).isJsonNull() ? "" : item.get(1).getAsString();
+            Address a = w.space().getAddress(w.base + rva);
+            JsonArray row = new JsonArray();
+            row.add(rva);
+            var unit = listing.getCodeUnitContaining(a);
+            if (unit == null || w.program.getFunctionManager().getFunctionContaining(a) == null) {
+                row.add(false);
+                row.add(com.google.gson.JsonNull.INSTANCE);
+                row.add("no function contains rva 0x" + Long.toHexString(rva).toUpperCase());
+            }
+            else {
+                listing.setComment(unit.getAddress(), CommentType.PRE, text.isEmpty() ? null : text);
+                row.add(true);
+                row.add(w.rva(unit.getAddress()));
+                row.add(com.google.gson.JsonNull.INSTANCE);
+            }
+            rows.add(row);
+        }
+        w.decompilers.flush();
+        JsonObject o = new JsonObject();
+        o.add("items", rows);
+        return o;
+    }
+
+    /**
      * items: [[rva, name or null, comment or null, make_function]]; an empty name or comment removes it. Names are
      * forced (Ghidra allows the same label name at several addresses); a comment at a function start is the function's.
      */

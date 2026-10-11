@@ -23,11 +23,20 @@ public sealed class NativeNamePush(NativeCodeService code)
 
     private static readonly ConditionalWeakTable<INativeDecompilerSession, State> States = new();
 
-    /// <summary>A name and comment in effect at an address; <see cref="Function"/>: an imported name in code (a function start).</summary>
-    public readonly record struct Entry(string? Name, string? Comment, bool Function);
+    /// <summary>
+    /// A name and comment in effect at an address; <see cref="Function"/>: an imported name in code (a function start);
+    /// <see cref="Pseudo"/>: the user's pseudocode comment.
+    /// </summary>
+    public readonly record struct Entry(string? Name, string? Comment, bool Function, string? Pseudo = null);
 
-    /// <summary>What a push did: entries sent, of them removals, the engine's counts, or that the database already had this set.</summary>
-    public sealed record PushResult(int Sent, int Removed, NameBatchResult? Totals, bool AlreadyInDatabase, string Stamp, TimeSpan Elapsed);
+    /// <summary>
+    /// What a push did: entries sent, of them removals, the engine's counts, or that the database already had this set;
+    /// pseudocode comments the engine could not place.
+    /// </summary>
+    public sealed record PushResult(int Sent, int Removed, NameBatchResult? Totals, bool AlreadyInDatabase, string Stamp, TimeSpan Elapsed)
+    {
+        public IReadOnlyList<PseudoCommentOutcome> PseudoFailures { get; init; } = [];
+    }
 
     private sealed class State
     {
@@ -59,6 +68,7 @@ public sealed class NativeNamePush(NativeCodeService code)
         {
             foreach (var (rva, name) in user.Names()) result[rva] = result.GetValueOrDefault(rva) with { Name = name, Function = false };
             foreach (var (rva, comment) in user.Comments()) result[rva] = result.GetValueOrDefault(rva) with { Comment = comment };
+            foreach (var (rva, comment) in user.PseudoComments()) result[rva] = result.GetValueOrDefault(rva) with { Pseudo = comment };
         }
         return result;
     }
@@ -74,6 +84,7 @@ public sealed class NativeNamePush(NativeCodeService code)
             rva[4] = e.Function ? (byte)1 : (byte)0;
             hash.AppendData(rva);
             hash.AppendData(Encoding.UTF8.GetBytes((e.Name ?? "") + "\0" + (e.Comment ?? "") + "\0"));
+            if (e.Pseudo != null) hash.AppendData(Encoding.UTF8.GetBytes("P" + e.Pseudo + "\0")); // absent: stamps of earlier builds hold
         }
         return Convert.ToHexString(hash.GetHashAndReset());
     }
@@ -93,13 +104,15 @@ public sealed class NativeNamePush(NativeCodeService code)
             // PDB names go in when the engine did not load the PDB with its own loader
             bool withPdb = NativePdbTypes.Current(session) is { Route: NativePdbTypes.RouteOwn };
             // Layers are immutable and replaced as a whole, so they compare by reference; user annotations by content.
-            object[] inputs = [withPdb, .. layers, .. user.Names().Select(n => (object)n), "|", .. user.Comments().Select(c => (object)c)];
+            object[] inputs = [withPdb, .. layers, .. user.Names().Select(n => (object)n), "|", .. user.Comments().Select(c => (object)c), "|",
+                .. user.PseudoComments().Select(c => (object)c)];
             if (state.Inputs != null && inputs.SequenceEqual(state.Inputs)) return null;
 
             var clock = System.Diagnostics.Stopwatch.StartNew();
             var effective = Effective(user, layers, native.Image, withPdb);
             var stamp = StampOf(effective);
             var items = new List<NativeNameItem>();
+            var pseudo = new List<(uint Rva, string Text)>();
             int removed = 0;
             if (state.Pushed == null)
             {
@@ -108,36 +121,52 @@ public sealed class NativeNamePush(NativeCodeService code)
                     Record(state, effective, stamp, inputs);
                     return effective.Count == 0 ? null : new PushResult(0, 0, null, true, stamp, clock.Elapsed);
                 }
-                items.AddRange(effective.OrderBy(kv => kv.Key).Select(kv => new NativeNameItem(kv.Key, kv.Value.Name, kv.Value.Comment, kv.Value.Function)));
+                items.AddRange(effective.Where(kv => kv.Value.Name != null || kv.Value.Comment != null).OrderBy(kv => kv.Key)
+                    .Select(kv => new NativeNameItem(kv.Key, kv.Value.Name, kv.Value.Comment, kv.Value.Function)));
+                pseudo.AddRange(effective.Where(kv => kv.Value.Pseudo != null).OrderBy(kv => kv.Key).Select(kv => (kv.Key, kv.Value.Pseudo!)));
             }
             else
             {
                 foreach (var (rva, e) in effective.OrderBy(kv => kv.Key))
                 {
                     var before = state.Pushed.GetValueOrDefault(rva);
-                    if (before != e)
+                    if (e.Name != before.Name || e.Comment != before.Comment || e.Function != before.Function)
                         items.Add(new NativeNameItem(rva, e.Name != before.Name ? e.Name ?? "" : null, e.Comment != before.Comment ? e.Comment ?? "" : null,
                             e.Function && !before.Function));
+                    if (e.Pseudo != before.Pseudo) pseudo.Add((rva, e.Pseudo ?? ""));
                 }
                 foreach (var (rva, before) in state.Pushed)
                     if (!effective.ContainsKey(rva))
                     {
-                        items.Add(new NativeNameItem(rva, before.Name != null ? "" : null, before.Comment != null ? "" : null));
+                        if (before.Name != null || before.Comment != null)
+                            items.Add(new NativeNameItem(rva, before.Name != null ? "" : null, before.Comment != null ? "" : null));
+                        if (before.Pseudo != null) pseudo.Add((rva, ""));
                         removed++;
                     }
             }
-            if (items.Count == 0)
+            if (items.Count == 0 && pseudo.Count == 0)
             {
                 Record(state, effective, stamp, inputs);
                 return null;
             }
 
+            // pseudocode comments go first: the last names batch records the stamp of the whole set and saves
+            IReadOnlyList<PseudoCommentOutcome> pseudoFailures = [];
+            if (pseudo.Count > 0)
+            {
+                try { pseudoFailures = (await session.SetPseudoCommentsAsync(pseudo, ct).ConfigureAwait(false)).Where(o => !o.Applied).ToList(); }
+                catch (ToolError e) when (e.Code == ErrorCode.Unsupported)
+                {
+                    pseudoFailures = pseudo.Select(p => new PseudoCommentOutcome(p.Rva, false, null, e.Message)).ToList();
+                }
+            }
+
             int named = 0, failed = 0, commented = 0, created = 0;
             var failures = new List<string>();
-            for (int i = 0; i < items.Count; i += BatchSize)
+            for (int i = 0; i < Math.Max(1, items.Count); i += BatchSize)
             {
                 bool last = i + BatchSize >= items.Count;
-                var batch = items.GetRange(i, Math.Min(BatchSize, items.Count - i));
+                var batch = items.GetRange(i, Math.Max(0, Math.Min(BatchSize, items.Count - i)));
                 var r = await session.ApplyNamesAsync(batch, last ? StampKey : null, last ? stamp : null, save: last, ct).ConfigureAwait(false);
                 named += r.Named;
                 failed += r.NameFailures;
@@ -146,7 +175,8 @@ public sealed class NativeNamePush(NativeCodeService code)
                 failures.AddRange(r.Failures.Take(20 - failures.Count));
             }
             Record(state, effective, stamp, inputs);
-            return new PushResult(items.Count, removed, new NameBatchResult(named, failed, commented, created, clock.Elapsed, failures), false, stamp, clock.Elapsed);
+            return new PushResult(items.Count + pseudo.Count, removed, new NameBatchResult(named, failed, commented, created, clock.Elapsed, failures), false, stamp, clock.Elapsed)
+                { PseudoFailures = pseudoFailures };
         }
         finally { state.Gate.Release(); }
     }
@@ -171,7 +201,8 @@ public sealed class NativeNamePush(NativeCodeService code)
         { AlreadyInDatabase: true } => "names: the database already has the current names and comments",
         { Totals: { } t } => $"names: pushed {r.Sent} name/comment change(s) to the database in {r.Elapsed.TotalSeconds:0.0} s ({t.Named} named, {t.Commented} commented" +
                              (t.FunctionsCreated > 0 ? $", {t.FunctionsCreated} functions created" : "") + (r.Removed > 0 ? $", {r.Removed} removed" : "") +
-                             (t.NameFailures > 0 ? $"; {t.NameFailures} rejected, e.g. {string.Join(", ", t.Failures.Take(3))}" : "") + ")",
+                             (t.NameFailures > 0 ? $"; {t.NameFailures} rejected, e.g. {string.Join(", ", t.Failures.Take(3))}" : "") +
+                             (r.PseudoFailures.Count > 0 ? $"; {r.PseudoFailures.Count} pseudocode comment(s) not placed, e.g. rva 0x{r.PseudoFailures[0].Rva:X}: {r.PseudoFailures[0].Error}" : "") + ")",
         _ => null,
     };
 }
