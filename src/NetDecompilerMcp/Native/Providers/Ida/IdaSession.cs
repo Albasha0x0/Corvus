@@ -31,9 +31,22 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         _databasePath = Path.Combine(Entry.Directory, IdaProvider.DatabaseFileName(ida, profile));
     }
 
-    /// <summary>Machine and image base from the PE header; rejects what IDA would load as something else.</summary>
-    private static (NativeArch, ulong) ReadHeader(string copy, string original)
+    /// <summary>
+    /// Machine and image base from the PE header, or from our ELF / Mach-O reader (ELF: the lowest PT_LOAD page; Mach-O:
+    /// __TEXT, a thin image); rejects what IDA would load as something else.
+    /// </summary>
+    internal static (NativeArch, ulong) ReadHeader(string copy, string original)
     {
+        switch (NativeImageLoader.DetectFile(copy))
+        {
+            case NativeFileKind.Elf or NativeFileKind.MachO:
+                var image = NativeImageLoader.Open(copy);
+                if (image.Arch is NativeArch.Unknown)
+                    throw new ToolError(ErrorCode.Unsupported, $"{original} is for machine {image.MachineName}, which the server cannot identify for IDA.");
+                return (image.Arch, image.ImageBase);
+            case NativeFileKind.MachOFat:
+                throw new ToolError(ErrorCode.InvalidArgument, $"{original} is a universal Mach-O; IDA is given one slice.", "load the image with slice= and open that");
+        }
         try
         {
             using var s = File.OpenRead(copy);
@@ -46,7 +59,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
                 Machine.Amd64 => NativeArch.X64,
                 Machine.Arm64 => NativeArch.Arm64,
                 Machine.Arm or Machine.ArmThumb2 or Machine.Thumb => NativeArch.Arm,
-                var m => throw new ToolError(ErrorCode.Unsupported, $"{original} is for machine {m} (0x{(ushort)m:X4}); x86, x64, ARM and ARM64 images are supported."),
+                var m => throw new ToolError(ErrorCode.Unsupported, $"{original} is for machine {m} (0x{(ushort)m:X4}); x86, x64, ARM and ARM64 PE images are supported."),
             };
             if (pe.PEHeaders.CorHeader is { } cor && (cor.Flags & CorFlags.ILOnly) != 0)
                 throw new ToolError(ErrorCode.Unsupported, $"{original} is an IL-only .NET assembly; it has no native code to decompile.",

@@ -133,8 +133,8 @@ def op_open(args):
     m.ida_auto.auto_wait()
     _state["base"] = m.ida_nalt.get_imagebase()
     ftype = m.ida_ida.inf_get_filetype()
-    if ftype != m.ida_ida.f_PE:
-        raise WorkerError("unsupported", "IDA loaded the file with a loader other than its PE loader (file type %d, processor %s)"
+    if ftype not in (m.ida_ida.f_PE, m.ida_ida.f_ELF, m.ida_ida.f_MACHO):
+        raise WorkerError("unsupported", "IDA loaded the file with a loader other than its PE, ELF or Mach-O loader (file type %d, processor %s)"
                           % (ftype, m.ida_ida.inf_get_procname()))
     sha = args.get("sha256") or ""
     if reuse and sha:
@@ -162,7 +162,23 @@ def info(m, reused, seconds):
     return {"imagebase": _state["base"], "bits": 64 if m.ida_ida.inf_is_64bit() else (32 if m.ida_ida.inf_is_32bit_exactly() else 16),
             "processor": m.ida_ida.inf_get_procname(), "functions": m.ida_funcs.get_func_qty(),
             "decompiler": hexrays_ready(m), "reused": reused, "seconds": round(seconds, 3),
-            "idb": m.ida_loader.get_path(m.ida_loader.PATH_TYPE_IDB)}
+            "idb": m.ida_loader.get_path(m.ida_loader.PATH_TYPE_IDB), "filetype": file_type_name(m)}
+
+
+def file_type_name(m):
+    t = m.ida_ida.inf_get_filetype()
+    return {m.ida_ida.f_PE: "pe", m.ida_ida.f_ELF: "elf", m.ida_ida.f_MACHO: "macho"}.get(t, "other")
+
+
+def is_thumb(m, ea):
+    # 32-bit ARM: the T segment register is 1 in Thumb code
+    if m.ida_ida.inf_get_procname().lower() != "arm" or m.ida_ida.inf_is_64bit():
+        return False
+    try:
+        import ida_idp, ida_segregs
+        return ida_segregs.get_sreg(ea, ida_idp.str2reg("T")) == 1
+    except BaseException:
+        return False
 
 
 def quote_arg(a):
@@ -192,7 +208,7 @@ def op_functions(args):
         start, end = rva_of(f.start_ea), rva_of(f.end_ea)
         if start is None or end is None:
             continue
-        flags = (1 if f.flags & m.ida_funcs.FUNC_THUNK else 0) | (2 if f.flags & m.ida_funcs.FUNC_LIB else 0)
+        flags = (1 if f.flags & m.ida_funcs.FUNC_THUNK else 0) | (2 if f.flags & m.ida_funcs.FUNC_LIB else 0) | (4 if is_thumb(m, f.start_ea) else 0)
         row = [start, end, m.ida_funcs.get_func_name(f.start_ea) or "", flags]
         if refs:
             row.append(sum(1 for _ in m.idautils.CodeRefsTo(f.start_ea, 0)))

@@ -402,8 +402,10 @@ public sealed class NativeEngineService : IDisposable
             holder.SyncedKey = null;
             holder.OpenedPdb = PdbService.PathForEngines(native);
             // The open is not tied to this call's cancellation (a later call reuses the same analysis) but ends when the image is unloaded or reloaded.
-            holder.Opening = provider.OpenAsync(native.FilePath, native.OriginalSha256,
-                new NativeOpenOptions { Progress = progress, PdbPath = holder.OpenedPdb }, native.Released);
+            // A universal Mach-O slice goes to the engine as a thin file of its own, keyed by its own hash.
+            holder.Opening = native.Image is Native.MachO.MachOFile { Slice: { } slice } thin
+                ? OpenBytes(provider, native, $"{Path.GetFileName(native.FilePath)}-{slice.Name}", thin.FileBytes.ToArray(), progress, holder.OpenedPdb)
+                : provider.OpenAsync(native.FilePath, native.OriginalSha256, new NativeOpenOptions { Progress = progress, PdbPath = holder.OpenedPdb }, native.Released);
             // Once open, the library functions IDA recognized become the image's ida name layer.
             if (id == IdaProvider.ProviderId)
                 holder.LibraryNames = holder.Opening.ContinueWith(async opened =>
@@ -417,16 +419,20 @@ public sealed class NativeEngineService : IDisposable
     }
 
     /// <summary>Opens a session on the patched bytes (written to a private file; the engine keeps its own copy per hash).</summary>
-    private Task<INativeDecompilerSession> OpenPatched(LoadedNative native, string id, IProgress<NativeProviderProgress>? progress, string? pdbPath)
+    private Task<INativeDecompilerSession> OpenPatched(LoadedNative native, string id, IProgress<NativeProviderProgress>? progress, string? pdbPath) =>
+        OpenBytes(Provider(id), native, Path.GetFileName(native.FilePath), null, progress, pdbPath);
+
+    /// <summary>Opens a session on <paramref name="content"/> (the patched bytes when null), written to a private file named <paramref name="name"/>.</summary>
+    private static Task<INativeDecompilerSession> OpenBytes(INativeDecompilerProvider provider, LoadedNative native, string name, byte[]? content,
+        IProgress<NativeProviderProgress>? progress, string? pdbPath)
     {
-        var provider = Provider(id);
         return Task.Run(async () =>
         {
-            var bytes = native.Patches.PatchedBytes();
+            var bytes = content ?? native.Patches.PatchedBytes();
             var sha = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
-            var dir = Path.Combine(Path.GetTempPath(), "NetDecompilerMcp", "patched", sha[..16]);
+            var dir = Path.Combine(Path.GetTempPath(), "NetDecompilerMcp", content == null ? "patched" : "slices", sha[..16]);
             Directory.CreateDirectory(dir);
-            var path = Path.Combine(dir, Path.GetFileName(native.FilePath));
+            var path = Path.Combine(dir, name);
             await File.WriteAllBytesAsync(path, bytes, native.Released).ConfigureAwait(false);
             try
             {

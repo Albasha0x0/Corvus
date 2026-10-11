@@ -54,8 +54,8 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     internal readonly record struct Header(NativeArch Arch, ulong? ImageBase, bool IsElf);
 
     /// <summary>
-    /// Architecture and image base from a PE or ELF header (ELF: the lowest PT_LOAD address). Other formats are left
-    /// to Ghidra's loaders, whose base is then taken as loaded.
+    /// Architecture and image base from a PE or ELF header (ELF: the lowest PT_LOAD address); the architecture of a thin
+    /// Mach-O. Other formats are left to Ghidra's loaders, whose base is then taken as loaded.
     /// </summary>
     internal static Header ReadHeader(string copy, string original)
     {
@@ -66,6 +66,8 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
             using (var s = File.OpenRead(copy)) n = s.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
             if (n >= 2 && head[0] == 'M' && head[1] == 'Z') return ReadPe(copy, original);
             if (n >= 20 && head[0] == 0x7F && head[1] == 'E' && head[2] == 'L' && head[3] == 'F') return ReadElf(copy, original);
+            // Mach-O: Ghidra's loader maps it at __TEXT, our image base too.
+            if (NativeImageLoader.Detect(head.AsSpan(0, n)) == NativeFileKind.MachO) return new Header(NativeImageLoader.Open(copy).Arch, null, false);
             return new Header(NativeArch.Unknown, null, false);
         }
         catch (IOException ex)

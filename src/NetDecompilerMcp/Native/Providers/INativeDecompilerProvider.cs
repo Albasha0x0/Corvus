@@ -222,6 +222,8 @@ public enum NativeFunctionFlags
     Thunk = 1,
     /// <summary>Recognized library code (signatures).</summary>
     Library = 2,
+    /// <summary>32-bit ARM code in Thumb state (IDA's T segment register).</summary>
+    Thumb = 4,
 }
 
 /// <summary>
