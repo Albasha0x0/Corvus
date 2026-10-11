@@ -55,7 +55,7 @@ public class Worker implements GhidraLaunchable {
     static final int PROTOCOL = 1;
     /** Program options category holding the server's stamps; saved with the program. */
     static final String STAMPS = "NetDecompilerMcp";
-    private static final String ANALYSIS_STAMP = "ndm_analysis";
+    static final String ANALYSIS_STAMP = "ndm_analysis";
     private static final long MAX_RESPONSE_CHARS = 32L << 20;
     private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().serializeNulls().create();
 
@@ -279,6 +279,7 @@ public class Worker implements GhidraLaunchable {
             case "decompile_many": return read(() -> BatchOps.decompileMany(this, r));
             case "insn": return read(() -> InsnOps.insn(this, r));
             case "value_slice": return read(() -> SliceOps.valueSlice(this, r));
+            case "image_info": return read(() -> InfoOps.imageInfo(this, r));
             default: throw new WorkerError("invalid_argument", "unknown op '" + r.op + "'");
         }
     }

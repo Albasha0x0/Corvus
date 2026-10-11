@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
-150 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+151 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -13,7 +13,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [containers](#containers) | yes | 7: file inspection, containers and wrapped apps, Unity overview |
 | [edit](#edit) | yes | 15: .NET edits, edit history and saving |
 | [il2cpp](#il2cpp) | yes | 5: Il2Cpp metadata, addresses, symbols and bindings |
-| [native](#native) | yes | 30: native PE analysis, symbols and decompilation |
+| [native](#native) | yes | 31: native PE analysis, symbols and decompilation |
 | [native-edit](#native-edit) | yes | 9: native names, comments, patches and saving |
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
@@ -909,6 +909,19 @@ Overview of a native image. PE: machine, kind, subsystem, image base, entry poin
 
 Structured output: `image`, `path`, `machine`, `kind`, `format`, `subsystem`, `fileSize`, `sha256`, `imageBase`, `entryPoint`, `timestamp`, `dotNet`, `mitigationsOn`, `mitigationsOff`, `sections`, `importModules`, `importFunctions`, `delayImportModules`, `exports`, `tlsCallbacks`, `pdbPath`, `pdbGuid`, `pdbAge`, `signer`, `checksumMatches`, `overlaySize`, `issues`, `capabilities`, `code`.
 
+### get_engine_status
+
+**Engine status of a native image** (read-only, idempotent, open-world)
+
+IDA and Ghidra sessions of a native image: opening (stage, seconds), failed, not started, or open with the engine's view (language, compiler, analysis complete or partial, warnings, counts, entry points, hashes, blocks, database, worker, unsaved edits). Starts no engine.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
+| `engine` | string |  |  | auto (default: both), ida or ghidra. Values: auto, ida, ghidra. |
+
+Structured output: `image`, `engines`.
+
 ### list_imports
 
 **List native imports** (read-only, idempotent, long-running)
@@ -1011,7 +1024,7 @@ Functions of a native image (x86 / x64 / ARM64): address, size, name (export, mo
 | `sort` | string |  |  | address (default), name, size (largest first) or callers (most called first). Values: address, name, size, callers. |
 | `offset` | integer |  | `0` | Index of the first row. |
 | `limit` | integer |  | `300` | Max rows (default 300). |
-| `engine` | string |  |  | Analysis used: auto (default: an engine whose analysis of this image is complete in this session, IDA first, else the built-in index; never starts one), ours (the built-in index), ida or ghidra (that engine, started or waited for). Server default: --engine or NDM_ENGINE. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default: IDA's or Ghidra's analysis when complete in this session, else the built-in index; never starts an engine), ours (built-in index only), ida or ghidra (that engine, started when needed). Server default: --engine / NDM_ENGINE. Values: auto, ours, ida, ghidra. |
 | `minSize` | integer |  |  | Smallest size in bytes. |
 | `maxSize` | integer |  |  | Largest size in bytes. |
 | `from` | string |  |  | Lowest start address. |
@@ -1051,7 +1064,7 @@ MASM-syntax disassembly of the native function containing an address (with block
 | `maxInstructions` | integer |  | `2000` | Max instructions (default 2000). |
 | `offset` | integer |  | `0` | Character offset for paging long output (use the value from the truncation footer). |
 | `maxChars` | integer |  |  | Max characters in this page (default from server config, ~60000). |
-| `engine` | string |  |  | Analysis used: auto (default: an engine whose analysis of this image is complete in this session, IDA first, else the built-in index; never starts one), ours (the built-in index), ida or ghidra (that engine, started or waited for). Server default: --engine or NDM_ENGINE. With an engine, the function's bounds and instructions are the engine's. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default: IDA's or Ghidra's analysis when complete in this session, else the built-in index; never starts an engine), ours (built-in index only), ida or ghidra (that engine, started when needed). Server default: --engine / NDM_ENGINE. With an engine, the function's bounds and instructions are the engine's. Values: auto, ours, ida, ghidra. |
 
 ### inspect_instruction
 
@@ -1089,7 +1102,7 @@ Find instructions by mnemonic, operand text, whole-line text (regular expression
 | `offset` | integer |  | `0` | Index of the first match to return. |
 | `limit` | integer |  | `100` | Max matches (default 100, max 2000). |
 | `maxInstructions` | integer |  | `500000` | Max instructions scanned (default 500000, max 5000000). |
-| `engine` | string |  |  | Analysis used: auto (default: an engine whose analysis of this image is complete in this session, IDA first, else the built-in index; never starts one), ours (the built-in index), ida or ghidra (that engine, started or waited for). Server default: --engine or NDM_ENGINE. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default: IDA's or Ghidra's analysis when complete in this session, else the built-in index; never starts an engine), ours (built-in index only), ida or ghidra (that engine, started when needed). Server default: --engine / NDM_ENGINE. Values: auto, ours, ida, ghidra. |
 
 ### get_cfg
 
@@ -1103,7 +1116,7 @@ Basic blocks of the native function containing an address: each block's range, i
 | `address` | string | yes |  | Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them). |
 | `offset` | integer |  | `0` | Character offset for paging long output (use the value from the truncation footer). |
 | `maxChars` | integer |  |  | Max characters in this page (default from server config, ~60000). |
-| `engine` | string |  |  | Analysis used: auto (default: an engine whose analysis of this image is complete in this session, IDA first, else the built-in index; never starts one), ours (the built-in index), ida or ghidra (that engine, started or waited for). Server default: --engine or NDM_ENGINE. With an engine, the blocks and edges are the engine's. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default: IDA's or Ghidra's analysis when complete in this session, else the built-in index; never starts an engine), ours (built-in index only), ida or ghidra (that engine, started when needed). Server default: --engine / NDM_ENGINE. With an engine, the blocks and edges are the engine's. Values: auto, ours, ida, ghidra. |
 
 Structured output: `image`, `function`, `address`, `engine`, `blocks`, `switches`, `unresolvedJumps`, `tailCalls`, `truncated`.
 
@@ -1119,7 +1132,7 @@ What references an address in a native image: calls (direct, through import slot
 | `address` | string | yes |  | Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them). Or a struct member: Type::member, Type.member, Type+0xOFFSET. |
 | `offset` | integer |  | `0` | Index of the first row. |
 | `limit` | integer |  | `500` | Max rows (default 500). |
-| `engine` | string |  |  | Analysis used: auto (default: an engine whose analysis of this image is complete in this session, IDA first, else the built-in index; never starts one), ours (the built-in index), ida or ghidra (that engine, started or waited for). Server default: --engine or NDM_ENGINE. An engine's references get the RTTI-resolved virtual calls it lacks (marked ours). Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default: IDA's or Ghidra's analysis when complete in this session, else the built-in index; never starts an engine), ours (built-in index only), ida or ghidra (that engine, started when needed). Server default: --engine / NDM_ENGINE. An engine's references get the RTTI-resolved virtual calls it lacks (marked ours). Values: auto, ours, ida, ghidra. |
 | `direction` | string |  |  | to (default), from or both. Values: to, from, both. |
 | `kind` | string |  |  | any (default), code (calls, jumps) or data (reads, writes, pointers, address-taken). Values: any, code, data. |
 
@@ -1141,7 +1154,7 @@ Callers or callees of a native function, several levels deep (calls through thun
 | `offset` | integer |  | `0` | Character offset for paging long output (use the value from the truncation footer). |
 | `maxChars` | integer |  |  | Max characters in this page (default from server config, ~60000). |
 | `calls` | string |  |  | Call edges to follow: all (default), direct (no virtual call edges) or virtual (only virtual_exact / virtual_possible edges). Values: all, direct, virtual. |
-| `engine` | string |  |  | Analysis used: auto (default: an engine whose analysis of this image is complete in this session, IDA first, else the built-in index; never starts one), ours (the built-in index), ida or ghidra (that engine, started or waited for). Server default: --engine or NDM_ENGINE. With an engine, edges are its call and jump references plus the RTTI-resolved virtual calls it has none for (marked ours); calls into other loaded images are followed with the built-in index only. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default: IDA's or Ghidra's analysis when complete in this session, else the built-in index; never starts an engine), ours (built-in index only), ida or ghidra (that engine, started when needed). Server default: --engine / NDM_ENGINE. With an engine, edges are its call and jump references plus the RTTI-resolved virtual calls it has none for (marked ours); calls into other loaded images are followed with the built-in index only. Values: auto, ours, ida, ghidra. |
 
 ### find_virtual_calls
 
@@ -1232,7 +1245,7 @@ Targets of call and tail-jump sites in native code (x86 / x64 / ARM64), each wit
 | `scope` | string |  |  | site, function or image (every indirect site); default: site at a call, else function, image without address. Values: site, function, image. |
 | `status` | string |  |  | all (default), resolved, possible, ambiguous, unresolved or indirect (all but direct branches). Values: all, resolved, possible, ambiguous, unresolved, indirect. |
 | `deep` | boolean |  | `false` | Trace pointers that arrive as parameters back into the callers (slower). |
-| `engine` | string |  |  | Analysis used: auto (default: an engine whose analysis of this image is complete in this session, IDA first, else the built-in index; never starts one), ours (the built-in index), ida or ghidra (that engine, started or waited for). Server default: --engine or NDM_ENGINE. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | auto (default: IDA's or Ghidra's analysis when complete in this session, else the built-in index; never starts an engine), ours (built-in index only), ida or ghidra (that engine, started when needed). Server default: --engine / NDM_ENGINE. Values: auto, ours, ida, ghidra. |
 | `offset` | integer |  | `0` | Index of the first site. |
 | `limit` | integer |  | `100` | Max sites (default 100, max 1000). |
 | `timeoutSeconds` | integer |  |  | Seconds per engine request (default NDM_ENGINE_REQUEST_TIMEOUT); scans then answer partial. |
@@ -1628,7 +1641,7 @@ What changed in one function between two builds. The function containing the add
 | `context` | integer |  | `4` | Unchanged rows (asm) or lines (pseudocode) shown around each change (default 4, 0-50). |
 | `maxLines` | integer |  | `300` | Most rows or diff lines returned (default 300, max 5000). |
 | `useNames` | boolean |  | `true` | Match functions by names from exports, PDB, Il2Cpp and user annotations (tier 1). false matches on code alone. |
-| `engine` | string |  |  | view=pseudocode: Analysis used: auto (default: an engine whose analysis of this image is complete in this session, IDA first, else the built-in index; never starts one), ours (the built-in index), ida or ghidra (that engine, started or waited for). Server default: --engine or NDM_ENGINE. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | view=pseudocode: auto (default: IDA's or Ghidra's analysis when complete in this session, else the built-in index; never starts an engine), ours (built-in index only), ida or ghidra (that engine, started when needed). Server default: --engine / NDM_ENGINE. Values: auto, ida, ghidra. |
 
 Structured output: `oldImage`, `newImage`, `oldFunction`, `newFunction`, `oldAddress`, `newAddress`, `tier`, `basis`, `score`, `view`, `summary`, `same`, `changed`, `removed`, `added`, `rows`, `unified`, `candidates`, `truncated`, `notes`.
 
@@ -1660,7 +1673,7 @@ A byte pattern for an address that survives rebuilds: instruction bytes with bra
 | `anchor` | string |  |  | auto (default): the address, else a reference to it; address; reference; xrefs: one per reference; range. Values: auto, address, reference, xrefs, range. |
 | `maxBytes` | integer |  | `64` | Longest pattern in bytes (default 64, 8-512). |
 | `maxPatterns` | integer |  | `8` | anchor=xrefs: most signatures (default 8, 1-32). |
-| `engine` | string |  |  | anchor=xrefs: Analysis used: auto (default: an engine whose analysis of this image is complete in this session, IDA first, else the built-in index; never starts one), ours (the built-in index), ida or ghidra (that engine, started or waited for). Server default: --engine or NDM_ENGINE. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | anchor=xrefs: auto (default: IDA's or Ghidra's analysis when complete in this session, else the built-in index; never starts an engine), ours (built-in index only), ida or ghidra (that engine, started when needed). Server default: --engine / NDM_ENGINE. Values: auto, ours, ida, ghidra. |
 | `format` | string |  |  | Syntax: ida (default), x64dbg, mask (\x48\x00 x?) or bitmask (0x48, 0x00 0b01). Values: ida, x64dbg, mask, bitmask. |
 | `end` | string |  |  | anchor=range: exclusive end, an address or +length. |
 

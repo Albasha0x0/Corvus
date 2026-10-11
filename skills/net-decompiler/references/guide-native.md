@@ -34,5 +34,6 @@ and never starts an engine; every result has an "Engine: ours|ida|ghidra (why)" 
 else Ghidra (NDM_GHIDRA_DIR and a JDK). inspect_instruction takes auto|ours|ida|ghidra (auto: the built-in decoder for x86 / x64 / ARM64).
 Name priority: user > pdb > nativeaot > il2cpp > ida > ghidra > discovered; our names win in engine output. decompile_native pushes
 names, patches, Il2Cpp prototypes, RTTI and PDB types into the engine's database; --prewarm ida|ghidra|auto analyzes images
-as they load. Code indexes are saved on disk by file SHA-256 (--index-cache off disables it).
+as they load; get_engine_status shows each engine session of an image (opening stage, analysis complete or partial, language,
+database, worker). Code indexes are saved on disk by file SHA-256 (--index-cache off disables it).
 Editing and engine type edits: the edits topic. Build-to-build: the builds topic.

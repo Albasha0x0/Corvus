@@ -21,9 +21,9 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     /// <summary>Answers through an engine (IDA or Ghidra): for images whose instructions the built-in analysis does not decode, or when the engine preference picks one.</summary>
     private readonly NativeEngineCode? _engine = engines != null ? new NativeEngineCode(engines, pager, names) : null;
 
-    internal const string EngineDescription = "Analysis used: auto (default: an engine whose analysis of this image is complete in this session, IDA " +
-                                              "first, else the built-in index; never starts one), ours (the built-in index), ida or ghidra (that engine, " +
-                                              "started or waited for). Server default: --engine or NDM_ENGINE.";
+    internal const string EngineDescription = "auto (default: IDA's or Ghidra's analysis when complete in this session, else the built-in index; never " +
+                                              "starts an engine), ours (built-in index only), ida or ghidra (that engine, started when needed). Server " +
+                                              "default: --engine / NDM_ENGINE.";
 
     /// <summary>The engine mode a call asks for (checked before the image is opened) and whether it named one.</summary>
     private (EngineMode Mode, bool Named) Mode(string? engine) =>

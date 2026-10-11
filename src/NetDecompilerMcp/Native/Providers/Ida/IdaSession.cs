@@ -397,4 +397,6 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         return WorkerRows.Stamp(await CallAsync("get_stamp", IdaProvider.Args(("key", key)), cancellationToken).ConfigureAwait(false));
     }
 
+    public async Task<EngineImageInfo> GetEngineInfoAsync(CancellationToken cancellationToken = default) =>
+        WorkerRows.ImageInfo(await CallAsync("image_info", new JsonObject(), cancellationToken).ConfigureAwait(false));
 }

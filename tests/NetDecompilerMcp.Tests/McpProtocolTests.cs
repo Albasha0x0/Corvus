@@ -246,6 +246,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["save_session"] = (new() { ["path"] = dir.File("work.session.json") }, "\"notes\":1"),
         ["load_session"] = (new() { ["path"] = dir.File("work.session.json") }, "\"outcome\":\"already_loaded\""),
         ["get_pe_info"] = (new() { ["image"] = NativeSample(dir) }, "seed.pdb"),
+        ["get_engine_status"] = (new() { ["image"] = NativeSample(dir) }, "Engine sessions of"),
         ["get_nativeaot_info"] = (new() { ["image"] = NativeSample(dir) }, "Error (unsupported) in get_nativeaot_info"),
         ["list_imports"] = (new() { ["image"] = NativeSample(dir), ["bind"] = true }, "KERNEL32.dll!ExitProcess"),
         ["list_exports"] = (new() { ["image"] = NativeSample(dir) }, "First"),

@@ -412,4 +412,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         }
         return list;
     }
+
+    public async Task<EngineImageInfo> GetEngineInfoAsync(CancellationToken cancellationToken = default) =>
+        WorkerRows.ImageInfo(await CallAsync("image_info", new JsonObject(), cancellationToken).ConfigureAwait(false));
 }

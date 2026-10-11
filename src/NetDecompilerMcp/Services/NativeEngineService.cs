@@ -434,6 +434,14 @@ public sealed class NativeEngineService : IDisposable
             var provider = Provider(id);
             holder.SyncedKey = null;
             holder.OpenedPdb = PdbService.PathForEngines(native);
+            holder.OpenStarted = DateTime.UtcNow;
+            holder.Stage = "start";
+            var caller = progress;
+            progress = new Progress<NativeProviderProgress>(p =>
+            {
+                holder.Stage = p.Stage;
+                caller?.Report(p);
+            });
             // The open is not tied to this call's cancellation (a later call reuses the same analysis) but ends when the image is unloaded or reloaded.
             // A universal Mach-O slice goes to the engine as a thin file of its own, keyed by its own hash.
             holder.Opening = native.Image is Native.MachO.MachOFile { Slice: { } slice } thin
@@ -506,6 +514,37 @@ public sealed class NativeEngineService : IDisposable
     public bool ServesPatchedCopy(LoadedNative native, string id) =>
         Existing(native, id) is { Patched: not null } h && h.PatchedState == h.SyncedKey;
 
+    /// <summary>
+    /// One engine's session of an image as get_engine_status reports it: State opening (Stage, Seconds since the open
+    /// started), open (Session), failed (Error) or closed.
+    /// </summary>
+    public sealed record ImageEngineStatus(string Engine, string State, string? Stage, double Seconds, INativeDecompilerSession? Session, string? Error);
+
+    /// <summary>The image's engine sessions opened in this process (none is started or waited for), in order of preference.</summary>
+    public IReadOnlyList<ImageEngineStatus> ImageSessions(LoadedNative native)
+    {
+        var list = new List<ImageEngineStatus>();
+        foreach (var (id, _) in _providers)
+        {
+            if (Existing(native, id) is not { Opening: { } opening } h) continue;
+            double seconds = Math.Round((DateTime.UtcNow - h.OpenStarted).TotalSeconds, 1);
+            if (!opening.IsCompleted) list.Add(new(id, "opening", h.Stage, seconds, null, null));
+            else if (opening.IsCompletedSuccessfully)
+            {
+                // a patched copy serves the current patch set when the database could not take it
+                var served = h.Patched is { IsCompletedSuccessfully: true } p && h.PatchedState == h.SyncedKey ? p.Result : opening.Result;
+                list.Add(new(id, served.IsOpen ? "open" : "closed", null, seconds, served, null));
+            }
+            else list.Add(new(id, "failed", h.Stage, seconds, null,
+                opening.Exception?.InnerException is { } e ? (e is ToolError t ? t.Message : e.Message) : "cancelled"));
+        }
+        return list;
+    }
+
+    /// <summary>The image's open session of engine <paramref name="id"/> (null: any, in order of preference), or null; never opens or waits.</summary>
+    public INativeDecompilerSession? OpenSession(LoadedNative native, string? id = null) =>
+        ImageSessions(native).FirstOrDefault(s => s.State == "open" && (id == null || s.Engine == id))?.Session;
+
     public void Dispose()
     {
         foreach (var (_, provider) in _providers)
@@ -536,6 +575,9 @@ public sealed class NativeEngineService : IDisposable
         public string? PatchedState;
         /// <summary>The PDB paths the sessions were opened with (the engine searched there first during analysis).</summary>
         public string? OpenedPdb, PatchedPdb;
+        /// <summary>When the last open of <see cref="Opening"/> started and its latest progress stage.</summary>
+        public DateTime OpenStarted;
+        public volatile string? Stage;
 
         public void DisposePatched()
         {

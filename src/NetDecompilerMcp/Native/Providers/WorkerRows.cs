@@ -327,4 +327,21 @@ internal static class WorkerRows
     public static PdbLoadResult PdbLoad(JsonElement r) =>
         new(r.GetProperty("loaded").GetBoolean(), r.GetProperty("from_analysis").GetBoolean(), r.GetProperty("plugin").GetBoolean(),
             r.GetProperty("types_before").GetInt32(), r.GetProperty("types_after").GetInt32(), TimeSpan.FromSeconds(r.GetProperty("seconds").GetDouble()));
+
+    /// <summary>
+    /// image_info: version, processor, language, compiler, format, pointer_size, endian, functions, external_functions, entry_points
+    /// [rva], md5, sha256, blocks [[name, start VA, size, permissions, initialized]], changed (or null), analysis.
+    /// </summary>
+    public static EngineImageInfo ImageInfo(JsonElement r)
+    {
+        static string? S(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        static int I(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : 0;
+        var blocks = r.TryGetProperty("blocks", out var b) && b.ValueKind == JsonValueKind.Array
+            ? b.EnumerateArray().Select(x => new EngineMemoryBlock(x[0].GetString() ?? "", x[1].GetUInt64(), x[2].GetUInt64(), x[3].GetString() ?? "", x[4].GetBoolean())).ToList()
+            : [];
+        var entries = r.TryGetProperty("entry_points", out var ep) && ep.ValueKind == JsonValueKind.Array ? ep.EnumerateArray().Select(x => x.GetUInt32()).ToList() : [];
+        bool? changed = r.TryGetProperty("changed", out var c) && c.ValueKind is JsonValueKind.True or JsonValueKind.False ? c.GetBoolean() : null;
+        return new EngineImageInfo(S(r, "version") ?? "", S(r, "processor") ?? "", S(r, "language") ?? "", S(r, "compiler"), S(r, "format") ?? "", I(r, "pointer_size"),
+            S(r, "endian") ?? "", I(r, "functions"), I(r, "external_functions"), entries, S(r, "md5"), S(r, "sha256"), blocks, changed, S(r, "analysis"));
+    }
 }

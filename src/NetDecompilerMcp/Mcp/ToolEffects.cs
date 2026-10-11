@@ -136,6 +136,7 @@ public static class ToolEffects
 
         // Native images
         ["get_pe_info"] = Reads(),
+        ["get_engine_status"] = Reads(openWorld: true), // never starts an engine; asks an open one for its view
         ["get_nativeaot_info"] = Reads(longRunning: true), // the first call reads the metadata of a large image
         ["list_imports"] = Reads(longRunning: true), // call sites wait for the code index
         ["list_exports"] = Reads(),

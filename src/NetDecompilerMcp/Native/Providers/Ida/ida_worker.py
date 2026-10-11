@@ -2813,6 +2813,47 @@ def op_save_as(args):
 OPS["save_as"] = op_save_as
 
 
+# ---- engine read views; rows shared with the Ghidra worker's InfoOps ----
+
+def op_image_info(args):
+    m = need_open()
+    import ida_typeinf
+    v = m.idapro.get_library_version()
+    bits = 64 if m.ida_ida.inf_is_64bit() else (32 if m.ida_ida.inf_is_32bit_exactly() else 16)
+    entries = []
+    for i in range(min(m.ida_entry.get_entry_qty(), 64)):
+        r = rva_of(m.ida_entry.get_entry(m.ida_entry.get_entry_ordinal(i)))
+        if r is not None:
+            entries.append(r)
+    externals = [0]
+
+    def count(ea, name, ordinal):
+        externals[0] += 1
+        return True
+
+    for i in range(m.ida_nalt.get_import_module_qty()):
+        m.ida_nalt.enum_import_names(i, count)
+    blocks = []
+    for n in range(m.ida_segment.get_segm_qty()):
+        seg = m.ida_segment.getnseg(n)
+        perm = seg.perm
+        perms = ("r" if perm & m.ida_segment.SEGPERM_READ else "-") + ("w" if perm & m.ida_segment.SEGPERM_WRITE else "-") + \
+                ("x" if perm & m.ida_segment.SEGPERM_EXEC else "-")
+        blocks.append([m.ida_segment.get_segm_name(seg) or "", seg.start_ea, seg.end_ea - seg.start_ea, perms,
+                       bool(m.ida_bytes.is_loaded(seg.start_ea))])
+    md5 = m.ida_nalt.retrieve_input_file_md5()
+    sha = m.ida_nalt.retrieve_input_file_sha256()
+    return {"version": "%d.%d.%d" % v if v else "", "processor": m.ida_ida.inf_get_procname(),
+            "language": "%s:%s:%d" % (m.ida_ida.inf_get_procname(), "BE" if m.ida_ida.inf_is_be() else "LE", bits),
+            "compiler": ida_typeinf.get_compiler_name(m.ida_ida.inf_get_cc_id()) or None, "format": file_type_name(m),
+            "pointer_size": bits // 8, "endian": "big" if m.ida_ida.inf_is_be() else "little", "functions": m.ida_funcs.get_func_qty(),
+            "external_functions": externals[0], "entry_points": entries, "md5": md5.hex() if md5 else None, "sha256": sha.hex() if sha else None,
+            "blocks": blocks, "changed": None, "analysis": "complete" if m.ida_auto.auto_is_ok() else "running"}
+
+
+OPS["image_info"] = op_image_info
+
+
 def watch_parent(parent):
     # POSIX has no job object: exit when the server dies, even while a request runs (stdin EOF is only seen between requests)
     try:

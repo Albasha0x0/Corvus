@@ -205,6 +205,10 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     Task<NativeScriptResult> RunScriptAsync(string code, bool reset = false, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not run scripts.");
 
+    /// <summary>The engine's own view of the open image: language, compiler, format, entry points, input hashes, memory blocks.</summary>
+    Task<EngineImageInfo> GetEngineInfoAsync(CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not describe the image.");
+
     /// <summary>References to <paramref name="rva"/> (ordinary flow excluded).</summary>
     Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default);
 
@@ -580,3 +584,16 @@ public sealed record NativeScriptResult(string? Result, string Stdout, string St
 
 /// <summary>A reference; <see cref="FromFunctionRva"/> is the start of the function containing the source, when any.</summary>
 public sealed record NativeXref(uint FromRva, uint ToRva, NativeXrefKind Kind, uint? FromFunctionRva);
+
+/// <summary>A memory block (segment) as the engine loaded it: VA, size, permissions (rwx) and whether it has file bytes.</summary>
+public sealed record EngineMemoryBlock(string Name, ulong Start, ulong Size, string Permissions, bool Initialized);
+
+/// <summary>
+/// The engine's description of an open image: engine version, processor and language id, compiler spec, loader format,
+/// pointer size, byte order, function and external function counts, entry point RVAs, the input's MD5 and SHA-256 as the
+/// engine recorded them, memory blocks, unsaved changes (null when the engine does not say) and its analysis state
+/// (complete, partial or running).
+/// </summary>
+public sealed record EngineImageInfo(string Version, string Processor, string Language, string? Compiler, string Format, int PointerSize, string Endian,
+    int Functions, int ExternalFunctions, IReadOnlyList<uint> EntryPoints, string? Md5, string? Sha256, IReadOnlyList<EngineMemoryBlock> Blocks, bool? Changed,
+    string? Analysis);
