@@ -48,17 +48,18 @@ public class LayeringTests
     private static HashSet<(string From, string To)> Dependencies()
     {
         using var module = ModuleDefMD.Load(typeof(NetDecompilerMcp.Core.ToolError).Assembly.Location);
-        var edges = new HashSet<(string, string)>();
-        foreach (var type in module.GetTypes())
+        // Types in parallel (dnlib reads thread-safely): one thread took 8-25 s, the quick suite's longest test.
+        var edges = new System.Collections.Concurrent.ConcurrentDictionary<(string, string), byte>();
+        Parallel.ForEach(module.GetTypes().ToList(), type =>
         {
             var from = TopLevel(type);
-            if (!Ours(from)) continue;
+            if (!Ours(from)) return;
             var refs = new References(module);
             refs.Visit(type);
             foreach (var to in refs.Found)
-                if (to != from && Ours(to)) edges.Add((from.FullName, to.FullName));
-        }
-        return edges;
+                if (to != from && Ours(to)) edges.TryAdd((from.FullName, to.FullName), 0);
+        });
+        return edges.Keys.ToHashSet();
     }
 
     /// <summary>In the NetDecompilerMcp namespace tree; excludes compiler-generated helpers and generated regex types.</summary>
