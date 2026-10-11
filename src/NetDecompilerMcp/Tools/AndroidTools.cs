@@ -8,17 +8,16 @@ using static NetDecompilerMcp.Tools.ToolSupport;
 namespace NetDecompilerMcp.Tools;
 
 [McpServerToolType]
-public sealed class AndroidTools(AndroidPackageService packages, DexService dex, JavaDecompilerService java, JavaDotNetMap map, OutputPager pager)
+public sealed class AndroidTools(AndroidPackageService packages, DexService dex, JavaDecompilerService java, JavaDotNetMap map, JniBindings jni, OutputPager pager)
 {
     public const string PackageDescription = "An Android package: .apk, .aab (its base module), or a split set (.apks, .xapk, .apkm, read through its base APK).";
     public const string CodeDescription = "An Android package (.apk, .aab, .apks, .xapk, .apkm), a .dex file, or a jar / zip with classes*.dex.";
 
     [McpServerTool(Name = "get_android_manifest", Title = "Android manifest", UseStructuredContent = true)]
-    [Description("AndroidManifest.xml of an Android package, decoded natively (no Java tools): package, versions, min / target / compile SDK; " +
-                 "permissions (also -sdk-23 and maxSdkVersion) and declared permissions with protection levels; application flags (debuggable, " +
-                 "allowBackup, usesCleartextTraffic, networkSecurityConfig with its file, extractNativeLibs); every activity, alias, service, receiver " +
-                 "and provider with its explicit and effective exported state and why, permissions, intent filters, launcher, deep links and " +
-                 "meta-data (in a .NET for Android app also the .NET type behind it); queries, features, libraries; highlights. Resource references are resolved. The XML itself: get_android_resource name=AndroidManifest.xml.")]
+    [Description("AndroidManifest.xml of an Android package, decoded natively: package, versions and SDKs; permissions (-sdk-23, maxSdkVersion) " +
+                 "and declared ones with protection levels; application flags (debuggable, allowBackup, cleartext traffic, network security config, " +
+                 "extractNativeLibs); each component with explicit and effective exported state and why, permissions, intent filters, launcher, deep " +
+                 "links, meta-data (and its .NET type in a .NET for Android app); queries, features, libraries; highlights. The XML: get_android_resource.")]
     public Task<AndroidManifestSummary> GetAndroidManifest(
         [Description(PackageDescription)] string path,
         CancellationToken cancellationToken = default) =>
@@ -95,10 +94,9 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         }, cancellationToken), offset, maxChars), cancellationToken);
 
     [McpServerTool(Name = "decompile_java", Title = "Decompile Java")]
-    [Description("Java source of a class or of one method of an Android package, through the JADX headless server (NDM_JAVA_DECOMPILER, run with " +
-                 "java -jar; JDK 17+). One session per package is kept loaded across calls; a slow load or call times out without losing it. A method is " +
-                 "one exact overload, chosen by its parameter types. Where JADX cannot decompile, smali is returned (smaliFallback). Without JADX: " +
-                 "provider_unavailable; disassemble_dex gives the smali.")]
+    [Description("Java source of a class or one method (one exact overload) of an Android package through the JADX headless server " +
+                 "(NDM_JAVA_DECOMPILER, java -jar, JDK 17+), one session per package kept loaded; a timeout keeps it. Where JADX fails, smali " +
+                 "(smaliFallback). Without JADX: provider_unavailable; disassemble_dex gives smali.")]
     public async Task<string> DecompileJava(
         [Description(CodeDescription)] string path,
         [Description("A class (pkg.C, Lpkg/C;) or a method (Lpkg/C;->name(params)ret, or pkg.C::name with optional (int, String)).")] string symbol,
@@ -125,6 +123,20 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
         [Description("The .apk / .aab whose assemblies to read (without loading them); optional when they are loaded.")] string? path = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => map.Map(symbol, path, cancellationToken), cancellationToken);
+
+    [McpServerTool(Name = "list_jni_bindings", Title = "List JNI bindings", UseStructuredContent = true)]
+    [Description("Java native methods of an Android package paired with their code in lib/<abi>/*.so: Java_ exports by JNI name mangling (overloads " +
+                 "included) and RegisterNatives tables in the libraries' data, a table's class from its FindClass string or a unique name and signature; " +
+                 "also unbound methods and stray Java_ exports.")]
+    public Task<JniBindingList> ListJniBindings(
+        [Description(PackageDescription)] string path,
+        [Description("ABI to read (arm64-v8a, x86_64, ...) or all; default arm64-v8a, else the first.")] string? abi = null,
+        [Description("Only rows naming this class (pkg.C or pkg/C).")] string? @class = null,
+        [Description("Only this kind.")] string? kind = null,
+        [Description("Rows to skip.")] int offset = 0,
+        [Description("Most rows (default 200).")] int limit = JniBindings.DefaultLimit,
+        CancellationToken cancellationToken = default) =>
+        Task.Run(() => jni.List(path, abi, @class, kind, offset, limit, cancellationToken), cancellationToken);
 
     [McpServerTool(Name = "search_dex", Title = "Search DEX code", UseStructuredContent = true)]
     [Description("Search the DEX code of an Android package. kind=string: string literals loaded by code, with the method and offset of each use; " +

@@ -94,6 +94,7 @@ public static class ToolEffects
         ["decompile_java"] = Reads(longRunning: true, openWorld: true), // runs the JADX server (java -jar); its first call loads the package
         ["search_dex"] = Reads(longRunning: true), // the first call builds the package's code index
         ["find_dex_references"] = Reads(longRunning: true),
+        ["list_jni_bindings"] = Reads(longRunning: true), // indexes the DEX code, and a library's code when a table's class needs it
 
         // Android devices through adb (open-world: they reach a device); install and uninstall need --allow-device-changes
         ["list_android_devices"] = Reads(openWorld: true),

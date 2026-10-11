@@ -47,7 +47,7 @@ public static class Toolsets
              "set_native_operand", "ida_python", "ghidra_script", "export_engine_database"]),
         new("android", false, "Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices",
             ["get_android_manifest", "list_android_resources", "get_android_resource", "list_dex_classes", "get_dex_class", "disassemble_dex", "decompile_java",
-             "search_dex", "find_dex_references", "map_java_dotnet", "list_android_devices", "get_android_device_info", "list_android_packages",
+             "search_dex", "find_dex_references", "map_java_dotnet", "list_jni_bindings", "list_android_devices", "get_android_device_info", "list_android_packages",
              "get_android_package_info", "pull_android_package", "pull_android_file", "read_android_log", "install_android_package", "uninstall_android_package"]),
         new("dumps", false, "crash dumps and crash text", ["open_minidump", "dump_stack", "dump_heap", "dump_object", "read_dump_memory", "symbolize_stack_text", "bucket_minidumps"]),
         new("live", false, "read-only inspection of a running process", ["inspect_process"]),
@@ -111,7 +111,7 @@ public static class Toolsets
             "get_native_type", "decompile_native", "search_decompiled", "verify_native_imports", "search_pdb_symbols", "list_native_edits", "get_native_frame", "list_native_types",
             "compare_native_images", "find_counterpart", "map_address_between_builds", "diff_function", "make_code_pattern", "search_code_pattern",
             "get_android_manifest", "list_android_resources", "list_dex_classes", "get_dex_class", "disassemble_dex", "map_java_dotnet", "decompile_java",
-            "search_dex", "find_dex_references",
+            "search_dex", "find_dex_references", "list_jni_bindings",
             "open_minidump", "dump_stack", "dump_heap", "dump_object", "read_dump_memory", "symbolize_stack_text", "bucket_minidumps", "list_notes",
         ],
         ["triage"] =

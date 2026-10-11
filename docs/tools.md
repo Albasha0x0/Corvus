@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
-154 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+155 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -18,7 +18,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
 | [engine](#engine) | no | 12: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
-| [android](#android) | no | 19: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
+| [android](#android) | no | 20: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
 | [dumps](#dumps) | no | 7: crash dumps and crash text |
 | [live](#live) | no | 1: read-only inspection of a running process |
 
@@ -2047,7 +2047,7 @@ Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET
 
 **Android manifest** (read-only, idempotent)
 
-AndroidManifest.xml of an Android package, decoded natively (no Java tools): package, versions, min / target / compile SDK; permissions (also -sdk-23 and maxSdkVersion) and declared permissions with protection levels; application flags (debuggable, allowBackup, usesCleartextTraffic, networkSecurityConfig with its file, extractNativeLibs); every activity, alias, service, receiver and provider with its explicit and effective exported state and why, permissions, intent filters, launcher, deep links and meta-data (in a .NET for Android app also the .NET type behind it); queries, features, libraries; highlights. Resource references are resolved. The XML itself: get_android_resource name=AndroidManifest.xml.
+AndroidManifest.xml of an Android package, decoded natively: package, versions and SDKs; permissions (-sdk-23, maxSdkVersion) and declared ones with protection levels; application flags (debuggable, allowBackup, cleartext traffic, network security config, extractNativeLibs); each component with explicit and effective exported state and why, permissions, intent filters, launcher, deep links, meta-data (and its .NET type in a .NET for Android app); queries, features, libraries; highlights. The XML: get_android_resource.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2134,7 +2134,7 @@ Smali of one method, or of a whole class, from the DEX code of an Android packag
 
 **Decompile Java** (read-only, idempotent, open-world, long-running)
 
-Java source of a class or of one method of an Android package, through the JADX headless server (NDM_JAVA_DECOMPILER, run with java -jar; JDK 17+). One session per package is kept loaded across calls; a slow load or call times out without losing it. A method is one exact overload, chosen by its parameter types. Where JADX cannot decompile, smali is returned (smaliFallback). Without JADX: provider_unavailable; disassemble_dex gives the smali.
+Java source of a class or one method (one exact overload) of an Android package through the JADX headless server (NDM_JAVA_DECOMPILER, java -jar, JDK 17+), one session per package kept loaded; a timeout keeps it. Where JADX fails, smali (smaliFallback). Without JADX: provider_unavailable; disassemble_dex gives smali.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2190,6 +2190,23 @@ The other side of a Xamarin / .NET for Android binding. A Java class (Lpkg/C;, c
 | `path` | string |  |  | The .apk / .aab whose assemblies to read (without loading them); optional when they are loaded. |
 
 Structured output: `query`, `direction`, `items`, `notes`.
+
+### list_jni_bindings
+
+**List JNI bindings** (read-only, idempotent, long-running)
+
+Java native methods of an Android package paired with their code in lib/<abi>/*.so: Java_ exports by JNI name mangling (overloads included) and RegisterNatives tables in the libraries' data, a table's class from its FindClass string or a unique name and signature; also unbound methods and stray Java_ exports.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `path` | string | yes |  | An Android package: .apk, .aab (its base module), or a split set (.apks, .xapk, .apkm, read through its base APK). |
+| `abi` | string |  |  | ABI to read (arm64-v8a, x86_64, ...) or all; default arm64-v8a, else the first. |
+| `class` | string |  |  | Only rows naming this class (pkg.C or pkg/C). |
+| `kind` | string |  |  | Only this kind. Values: static_export, registered, unresolved, export_only. |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `200` | Most rows (default 200). |
+
+Structured output: `items`, `offset`, `total`, `truncated`, `libraries`, `notes`.
 
 ### list_android_devices
 
@@ -2323,7 +2340,7 @@ Crash dumps and crash text.
 
 **Open a crash dump** (read-only, idempotent, open-world, long-running)
 
-Summary of a Windows minidump (.dmp): OS and CPU, process (id, times, integrity, WoW64, managed runtime), the exception (code and name, e.g. EXCEPTION_ACCESS_VIOLATION writing 0x0, the faulting thread, module+offset and function, the faulting instruction disassembled from dump memory or the module image, registers, the thrown type of a C++ exception), the .NET state (managed exception with stack and inner chain, threads, heap state), modules (path, base, size, timestamp, checksum, version, PDB name/GUID/age, and whether a matching image file exists on this machine), threads (ids, names, stack ranges, where each one is), unloaded modules, captured memory, handle counts by type, and what the parser could not read. Modules and threads are paged. The dump gets an id for the other dump tools. The dumped program is not run; .NET decoding loads Microsoft's signature-checked debugging library (DAC) for that runtime build, never code from the dump.
+Summary of a Windows minidump (.dmp): OS, CPU and process (times, integrity, WoW64, runtime); the exception (code and name, faulting thread, module+offset and function, the faulting instruction, registers, a C++ exception's thrown type); the .NET state (managed exception with stack and inner chain, threads, heap); modules (base, size, timestamp, version, PDB identity, whether a matching image is on this machine) and threads, paged; unloaded modules, captured memory, handle counts, parse issues. Gives the id the other dump tools take. The program is not run; .NET decoding loads Microsoft's signature-checked DAC for that runtime build, never code from the dump.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2342,7 +2359,7 @@ Structured output: `id`, `path`, `fileSize`, `timeUtc`, `dumpType`, `system`, `p
 
 **Crash dump stack** (read-only, idempotent)
 
-Call stack of a thread in a minidump. x64: virtual unwind with the modules' .pdata unwind data (from the matching image file on disk, or the image in dump memory); x86: the EBP chain. Where unwind data is missing (JIT code, no image) the stack is scanned for return addresses and those frames are marked heuristic. Frames are named from a loaded native image's code index (user, PDB, Il2Cpp, discovered names), Il2Cpp dummy DLLs for GameAssembly.dll, a matching local PDB, or exports (nearest_export is a guess). .NET frames come from the runtime's own walk (DAC), merged by stack pointer, with token, IL offset and the loaded assembly of that build (by MVID). The faulting thread uses the exception context, like .ecxr.
+Call stack of a minidump thread. x64: unwind with the modules' .pdata (image on disk or in dump memory); x86: the EBP chain; without unwind data (JIT code) a stack scan adds frames marked heuristic. Names from a loaded image's code index, Il2Cpp dummy DLLs, a matching PDB, or exports (nearest_export is a guess). .NET frames come from the runtime's walk (DAC) with token, IL offset and the loaded assembly of that build. The faulting thread starts at the exception context, like .ecxr.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2416,7 +2433,7 @@ Resolves crash text against the loaded build: Unity Player.log / error.log backt
 |---|---|---|---|---|
 | `text` | string |  |  | The crash text (up to 1 MiB). Pass this or path. |
 | `path` | string |  |  | A log or report file (Player.log, error.log, Report.wer, saved event text); its last 8 MiB are read. |
-| `format` | string |  | `auto` | auto (default), unity, dotnet, wer, eventlog or windbg. Values: auto, unity, dotnet, wer, eventlog, windbg. |
+| `format` | string |  | `auto` | Text format; auto detects it. Values: auto, unity, dotnet, wer, eventlog, windbg. |
 | `images` | string |  |  | Native image ids or paths to resolve against (';'-separated); default every loaded native image. |
 | `moduleBases` | string |  |  | Module load addresses for absolute addresses, 'name=0xBASE;...' (the crash's module list in the text is used too). |
 | `offset` | integer |  | `0` | Index of the first frame returned. |
