@@ -35,7 +35,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
     [Description("Seconds per IDA or Ghidra request (CORVUS_ENGINE_REQUEST_TIMEOUT) and per engine start plus analysis (CORVUS_ENGINE_OPEN_TIMEOUT).")]
     public sealed record EngineLimits(int RequestSeconds, int OpenSeconds);
 
-    public sealed record ServerStatus(string Version,
+    public sealed record ServerStatus(string Server, string Version,
         [property: Description("Version, plus +<commit> when known.")]
         string InformationalVersion,
         [property: Description("The running server program.")]
@@ -140,7 +140,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         int loaded = workspace.Read(() => workspace.Assemblies.Count + workspace.Natives.Count);
         var registered = (server?.ToolCollection?.Select(t => t.ProtocolTool.Name) ?? []).ToHashSet(StringComparer.Ordinal);
         var client = context?.Server?.ClientInfo;
-        return new ServerStatus(typeof(ServerOptions).Assembly.GetName().Version?.ToString(3) ?? "?", ServerIdentity.InformationalVersion,
+        return new ServerStatus(ServerIdentity.Product, typeof(ServerOptions).Assembly.GetName().Version?.ToString(3) ?? "?", ServerIdentity.InformationalVersion,
             ServerIdentity.Executable, string.IsNullOrWhiteSpace(expectedExecutable) ? null : ServerIdentity.SamePath(expectedExecutable.Trim(), ServerIdentity.Executable),
             ServerIdentity.InstallKind, ServerIdentity.StartedAt, (long)(DateTimeOffset.UtcNow - ServerIdentity.StartedAt).TotalSeconds,
             context?.Server?.NegotiatedProtocolVersion, client == null ? null : new Client(client.Name, client.Version),

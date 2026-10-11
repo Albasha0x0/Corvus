@@ -6,6 +6,8 @@ namespace Corvus.Mcp;
 /// <summary>Which copy of the server is running: its program, build, install channel and start time.</summary>
 public static class ServerIdentity
 {
+    public const string Product = "Corvus";
+
     /// <summary>The server's program: the executable, or the server's .dll when it runs under the dotnet host.</summary>
     public static string Executable { get; } = FindExecutable();
 
