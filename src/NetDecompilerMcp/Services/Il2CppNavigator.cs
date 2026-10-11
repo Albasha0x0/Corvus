@@ -344,14 +344,15 @@ public sealed class Il2CppNavigator(AssemblyWorkspace workspace, Il2CppService i
         var key = Il2CppNames.TypeKey(type);
         if (IsInGenericType(type))
             return Enumerable.Range(0, script.MetadataCount).Where(e => Il2CppNames.MetadataSubject(script.MetadataName(e)) is { } s && s != key && Il2CppNames.StripArgs(s) == key).ToList();
-        return new[] { "_TypeInfo", "_var", "[]_TypeInfo" }.SelectMany(suffix => script.MetadataNamed(key + suffix)).Order().ToList();
+        string[] keys = Il2CppNames.OtherSpelling(key) is { } alias ? [key, alias] : [key];
+        return keys.SelectMany(k => new[] { "_TypeInfo", "_var", "[]_TypeInfo" }.SelectMany(suffix => script.MetadataNamed(k + suffix))).Distinct().Order().ToList();
     }
 
     /// <summary>The dummy type a ScriptMetadata name ("Ns.Type&lt;args&gt;_TypeInfo") describes (its definition for an instantiation).</summary>
     public IReadOnlyList<ResolvedSymbol> TypeOfMetadata(Image image, string metadataName)
     {
         if (Il2CppNames.MetadataSubject(metadataName) is not { } subject) return [];
-        var key = Il2CppNames.StripArgs(subject.EndsWith("[]", StringComparison.Ordinal) ? subject[..^2] : subject);
+        var key = Il2CppNames.FullTypeKey(Il2CppNames.StripArgs(subject.EndsWith("[]", StringComparison.Ordinal) ? subject[..^2] : subject));
         if (key.Length == 0 || key.Contains('[')) return [];
         return TypesByKey(image).GetValueOrDefault(key.GetHashCode())?.Where(t => Il2CppNames.TypeKey((TypeDef)t.Member) == key).ToList() ?? [];
     }
@@ -437,7 +438,11 @@ public sealed class Il2CppNavigator(AssemblyWorkspace workspace, Il2CppService i
     public static (List<int> Metadata, List<int> MethodInfos) FindSlots(Il2CppScript script, string query)
     {
         var q = query.Trim();
-        return (script.MetadataNamed(q), q.StartsWith("Method$", StringComparison.Ordinal) ? script.MethodInfosNamed(q) : []);
+        var metadata = script.MetadataNamed(q);
+        // Built-in types by either spelling: "System.String_TypeInfo" finds script.json's "string_TypeInfo" and back.
+        if (metadata.Count == 0 && Il2CppNames.MetadataSubject(q) is { } subject && Il2CppNames.OtherSpelling(subject) is { } other)
+            metadata = script.MetadataNamed(other + q[subject.Length..]);
+        return (metadata, q.StartsWith("Method$", StringComparison.Ordinal) ? script.MethodInfosNamed(q) : []);
     }
 }
 
@@ -448,6 +453,21 @@ public static partial class Il2CppNames
     public static string TypeKey(TypeDef type) => type.DeclaringType is { } outer
         ? TypeKey(outer) + "." + Format.StripArity(type.Name)
         : (type.Namespace.Length > 0 ? type.Namespace + "." : "") + Format.StripArity(type.Name);
+
+    private static readonly Dictionary<string, string> Aliases = new(StringComparer.Ordinal)
+    {
+        ["System.Object"] = "object", ["System.String"] = "string", ["System.Boolean"] = "bool", ["System.Char"] = "char", ["System.SByte"] = "sbyte",
+        ["System.Byte"] = "byte", ["System.Int16"] = "short", ["System.UInt16"] = "ushort", ["System.Int32"] = "int", ["System.UInt32"] = "uint",
+        ["System.Int64"] = "long", ["System.UInt64"] = "ulong", ["System.Single"] = "float", ["System.Double"] = "double", ["System.Decimal"] = "decimal",
+        ["System.Void"] = "void",
+    };
+    private static readonly Dictionary<string, string> Unaliases = Aliases.ToDictionary(a => a.Value, a => a.Key, StringComparer.Ordinal);
+
+    /// <summary>The other spelling of a built-in type's key: script.json names them by C# keyword ("string_TypeInfo"); null for other types.</summary>
+    public static string? OtherSpelling(string key) => Aliases.GetValueOrDefault(key) ?? Unaliases.GetValueOrDefault(key);
+
+    /// <summary>A key in type-name form: "string" → "System.String"; other keys unchanged.</summary>
+    public static string FullTypeKey(string key) => Unaliases.GetValueOrDefault(key, key);
 
     /// <summary>A dummy method as script.json names it: "Ns.Type$$Method".</summary>
     public static string MethodKey(MethodDef method) => TypeKey(method.DeclaringType) + "$$" + method.Name;

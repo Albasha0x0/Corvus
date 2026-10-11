@@ -157,6 +157,25 @@ public sealed class Il2CppRawTests(ITestOutputHelper output) : IDisposable
         Assert.Throws<IOException>(() => Il2CppGameModel.Read(Env.FixturePath));
     }
 
+    /// <summary>script.json names built-in types by their C# keyword ("string_TypeInfo"); either spelling finds the slot.</summary>
+    [Fact]
+    public void BuiltInTypesAreFoundByEitherSpelling()
+    {
+        var model = new Il2CppGameModel
+        {
+            BinaryPath = "b", MetadataPath = "m", MetadataVersion = 29, HeaderVersion = 29, UnityVersion = "2022.1.0f1", UnityVersionSource = "test",
+            ImageBase = 0x180000000, MemoryImage = false, LiteralValues = [], LiteralSlots = [], Methods = [], MethodInfos = [], Addresses = [], Unreadables = [],
+            Metadata = [new(0x5000, "string_TypeInfo", "System_String_c*"), new(0x5008, "System.Collections.Generic.List<string>_TypeInfo", "x")],
+        };
+        var path = _dir.File("alias-" + Il2CppGameModel.FileName);
+        model.Write(path);
+        var script = Il2CppScript.FromModel(Il2CppGameModel.Read(path), path);
+        Assert.Single(Il2CppNavigator.FindSlots(script, "System.String_TypeInfo").Metadata);
+        Assert.Single(Il2CppNavigator.FindSlots(script, "string_TypeInfo").Metadata);
+        Assert.Empty(Il2CppNavigator.FindSlots(script, "System.Strin_TypeInfo").Metadata);
+        Assert.Equal(("string", "System.String", "Ns.Type"), (Il2CppNames.OtherSpelling("System.String"), Il2CppNames.FullTypeKey("string"), Il2CppNames.FullTypeKey("Ns.Type")));
+    }
+
     /// <summary>
     /// A raw game (NDM_IL2CPP_GAME: game folder or global-metadata.dat) read by the built-in reader, against an
     /// Il2CppDumper dump of the same files (NDM_IL2CPP_GAME_DUMP: its DummyDll folder, script.json and stringliteral.json
