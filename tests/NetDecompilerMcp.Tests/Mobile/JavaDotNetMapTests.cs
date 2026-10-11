@@ -60,6 +60,11 @@ internal static class XamarinSample
         named.NamedArguments.Add(new CANamedArgument(false, app.CorLibTypes.String, "Name", new CAArgument(app.CorLibTypes.String, "com.example.app.Main")));
         main.CustomAttributes.Add(named);
         Method(main, "OnResume", MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig);
+        // A framework base with an unregistered override (MauiAppCompatActivity) between the app's activity and Activity.
+        var framework = Type(app, "MyApp", "FrameworkActivity", activityRef);
+        Method(framework, "OnCreate", MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig, bundleSig);
+        var home = Type(app, "MyApp", "HomeActivity", framework);
+        Method(home, "OnCreate", MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig, bundleSig);
         var outer = Type(app, "MyApp", "Outer", app.CorLibTypes.Object.TypeDefOrRef);
         var inner = new TypeDefUser("", "Inner", importer.Import(javaObject)) { Attributes = TypeAttributes.NestedPublic | TypeAttributes.Class };
         outer.NestedTypes.Add(inner);
@@ -141,6 +146,9 @@ public sealed class JavaDotNetMapTests : IDisposable
         Assert.Equal("MyApp", map.Map("MyApp.LinkActivity", Apk(), default).Items.Single().Assembly); // the loaded copy wins over the package's
         Assert.Contains("not a Java peer", Assert.Throws<ToolError>(() => map.Map("MyApp.PlainClass", null, default)).Message);
         Assert.Contains("not registered", Assert.Throws<ToolError>(() => map.Map("MyApp.LinkActivity::Helper", null, default)).Message);
+        var home = map.Map("MyApp.HomeActivity::OnCreate", null, default).Items.Single();
+        Assert.Equal(("MyApp.HomeActivity::OnCreate(Bundle)", "override"), (home.DotNet, home.Basis));
+        Assert.EndsWith("/HomeActivity;->onCreate(Landroid/os/Bundle;)V", home.Java);
         Assert.Equal(ErrorCode.NotLoaded, Assert.Throws<ToolError>(() => new JavaDotNetMap(new AssemblyWorkspace(new ServerOptions())).Map("X", null, default)).Code);
     }
 

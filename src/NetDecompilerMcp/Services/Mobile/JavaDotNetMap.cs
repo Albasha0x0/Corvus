@@ -223,8 +223,9 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex =
             {
                 var baseMethod = b.Methods.FirstOrDefault(x => x.Name == m.Name && x.IsVirtual && new SigComparer().Equals(x.MethodSig, m.MethodSig));
                 if (baseMethod == null) continue;
-                if (Register(baseMethod) is { Signature: not null } r) yield return (m, r.Name + r.Signature, "override");
-                break;
+                if (Register(baseMethod) is { Signature: not null } r) { yield return (m, r.Name + r.Signature, "override"); break; }
+                if (baseMethod.IsNewSlot) break;
+                // An unregistered override in between (MauiAppCompatActivity.OnCreate): the registered slot is further down.
             }
         }
     }
