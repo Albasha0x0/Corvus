@@ -53,7 +53,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
         [property: Description("Frames in that module.")] int Frames);
 
     public sealed record SymbolizedStack(
-        [property: Description("The format recognized (unity, dotnet, wer, eventlog, windbg), or the one requested.")] string Format,
+        [property: Description("The format recognized (unity, dotnet, wer, eventlog, windbg, android), or the one requested.")] string Format,
         SymbolizedException? Exception,
         int Total, int Offset, bool Truncated, IReadOnlyList<SymbolizedFrame> Frames,
         [property: Description("Lines no format recognized (blank lines aside).")] int UnrecognizedLines,
@@ -87,7 +87,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
             if (f.Kind == "native")
             {
                 var module = ModuleOf(f, bases, parsed);
-                var native = module == null ? null : FindImage(natives, module);
+                var native = module == null ? null : FindImage(natives, module, f.BuildId);
                 if (module != null && native == null)
                 {
                     var known = parsed.Modules.FirstOrDefault(m => SameModule(m.Name, module));
@@ -191,8 +191,12 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
         a.Equals(b, StringComparison.OrdinalIgnoreCase) || Path.GetFileNameWithoutExtension(a).Equals(Path.GetFileNameWithoutExtension(b), StringComparison.OrdinalIgnoreCase)
         && (!Path.HasExtension(a) || !Path.HasExtension(b));
 
-    private static LoadedNative? FindImage(List<LoadedNative> natives, string module) =>
-        natives.FirstOrDefault(n => Path.GetFileName(n.FilePath).Equals(module, StringComparison.OrdinalIgnoreCase))
+    /// <summary>A text's build id may be cut short (tombstones print a prefix on some versions).</summary>
+    private static bool SameBuildId(string? ours, string theirs) => ours != null && (ours.StartsWith(theirs, StringComparison.OrdinalIgnoreCase) || theirs.StartsWith(ours, StringComparison.OrdinalIgnoreCase));
+
+    private static LoadedNative? FindImage(List<LoadedNative> natives, string module, string? buildId = null) =>
+        (buildId != null ? natives.FirstOrDefault(n => SameBuildId(n.Image.BuildId, buildId)) : null)
+        ?? natives.FirstOrDefault(n => Path.GetFileName(n.FilePath).Equals(module, StringComparison.OrdinalIgnoreCase))
         ?? natives.FirstOrDefault(n => SameModule(Path.GetFileName(n.FilePath), module));
 
     /// <summary>The module a native frame is in: named by the text, else the module whose range (or nearest base below) holds its address.</summary>
@@ -219,7 +223,8 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
             return Row(null, null, "unknown", "no module for this address", "pass moduleBases (name=0xBASE) or the crash's module list");
         if (native == null)
             return Row(null, null, "unknown", "the module is not loaded",
-                $"load_assembly {module}" + (textModule?.Version is { } v ? $" (version {v})" : "") + (textModule?.TimeDateStamp is { } ts ? $" (time stamp 0x{ts:X8})" : ""));
+                $"load_assembly {module}" + (textModule?.Version is { } v ? $" (version {v})" : "") + (textModule?.TimeDateStamp is { } ts ? $" (time stamp 0x{ts:X8})" : "")
+                + (f.BuildId is { } id ? $" (BuildId {id})" : ""));
 
         var index0 = await Index(native, ct);
         uint size = native.Image.SizeOfImage;
@@ -248,7 +253,14 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
         string check = "unknown";
         string? detail = null;
         uint? stamp = native.Pe?.Coff.TimeDateStamp;
-        if (textModule?.TimeDateStamp is { } want && stamp is { } have)
+        if (f.BuildId is { } wantId)
+        {
+            bool same = SameBuildId(native.Image.BuildId, wantId);
+            check = native.Image.BuildId == null ? "unknown" : same ? "match" : "mismatch";
+            detail = native.Image.BuildId == null ? $"{native.Id} has no build id to compare with {wantId}"
+                : same ? null : $"the text's {module} has BuildId {wantId}, the loaded image {native.Image.BuildId}";
+        }
+        else if (textModule?.TimeDateStamp is { } want && stamp is { } have)
         {
             check = want == have ? "match" : "mismatch";
             detail = want == have ? null : $"the text's {module} has time stamp 0x{want:X8}, the loaded image 0x{have:X8}";

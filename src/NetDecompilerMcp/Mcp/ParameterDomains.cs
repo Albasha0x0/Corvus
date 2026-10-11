@@ -58,7 +58,7 @@ public static class ParameterDomains
         ["dump_stack"] = new Dictionary<string, Domain> { ["managed"] = Of(["auto", "off"]) },
         ["dump_heap"] = new Dictionary<string, Domain> { ["mode"] = Of(["stats", "objects"]) },
         ["bucket_minidumps"] = new Dictionary<string, Domain> { ["managed"] = Of(["auto", "off"]) },
-        ["symbolize_stack_text"] = new Dictionary<string, Domain> { ["format"] = Of(["auto", "unity", "dotnet", "wer", "eventlog", "windbg"]) },
+        ["symbolize_stack_text"] = new Dictionary<string, Domain> { ["format"] = Of(["auto", "unity", "dotnet", "wer", "eventlog", "windbg", "android"]) },
         ["disassemble_dex"] = new Dictionary<string, Domain> { ["format"] = Of(["smali", "annotated"]) },
         ["decompile_java"] = new Dictionary<string, Domain> { ["engine"] = Of(["jadx"]) },
         ["read_android_log"] = new Dictionary<string, Domain> { ["priority"] = Of(["V", "D", "I", "W", "E", "F"], "verbose", "debug", "info", "warn", "warning", "error", "fatal") },

@@ -20,6 +20,8 @@ internal sealed record TextFrame(int Line, string Raw, string Format, string Kin
     public int? IlOffset { get; init; }
     public string? File { get; init; }
     public int? SourceLine { get; init; }
+    /// <summary>The module's GNU build id as the text gives it (Android tombstones), lower-case hex.</summary>
+    public string? BuildId { get; init; }
     /// <summary>Which exception of a chain the frame belongs to: 0 the outermost.</summary>
     public int? Segment { get; set; }
 }
@@ -45,11 +47,11 @@ internal sealed class ParsedStackText
 /// The crash-text parser table: one entry per recognized line shape, tried in order on each line; a line no entry
 /// takes is counted as unrecognized. Families: unity (Player.log / error.log native backtraces, module lists, Mono and
 /// Il2Cpp managed lines), dotnet (exception text, NativeAOT), wer (Report.wer), eventlog (Application Error 1000 and
-/// .NET Runtime 1026 text), windbg (k output, module!function+0x.., module+0x..).
+/// .NET Runtime 1026 text), windbg (k output, module!function+0x.., module+0x..), android (tombstone and logcat backtraces).
 /// </summary>
 internal static class StackTextFormats
 {
-    public static readonly string[] Families = ["unity", "dotnet", "wer", "eventlog", "windbg"];
+    public static readonly string[] Families = ["unity", "dotnet", "wer", "eventlog", "windbg", "android"];
     private const RegexOptions Options = RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture;
     private static readonly TimeSpan Limit = TimeSpan.FromMilliseconds(200);
 
@@ -107,6 +109,20 @@ internal static class StackTextFormats
         // Exception header: [Unhandled exception. ]Ns.SomeException: message ---> Ns.Inner: message
         new("dotnet", R(@"^\s*(?:Unhandled [Ee]xception\.?\s*|Unhandled exception: )?(?<text>(?:(?:[A-Za-z_][\w`]*\.)+[A-Za-z_][\w`+]*(?:Exception|Error|Failure)\w*|[A-Za-z_][\w`]*Exception)(?::.*)?)$"),
             (m, _, _, into, s) => Header(into, s, m.Groups["text"].Value)),
+        // Android tombstone / logcat: #00 pc 0000000000510134  /data/app/.../lib/arm64/libil2cpp.so (offset 0x1000) (sym+12) (BuildId: 3c5c...)
+        // pc is the address in the ELF's own layout; an APK-embedded library reads base.apk!libil2cpp.so.
+        new("android", R(@"^(?:.*?DEBUG\s*:)?\s*#\d+\s+pc\s+(?<pc>[0-9a-fA-F]+)\s+(?<path>[^\s(][^(]*?)(?:\s+\(offset 0x[0-9a-fA-F]+\))?(?:\s+\((?!BuildId:)(?<sym>.+?)(?:\+(?<off>\d+))?\))?(?:\s+\(BuildId: (?<id>[0-9a-fA-F]+)\))?\s*$"),
+            (m, line, raw, into, _) =>
+            {
+                var path = m.Groups["path"].Value.Trim();
+                var name = path[(path.LastIndexOfAny(['/', '!']) + 1)..];
+                return Add(into, new TextFrame(line, raw, "android", "native")
+                {
+                    Module = name, Offset = Hex(m.Groups["pc"]), Symbol = m.Groups["sym"].Success ? m.Groups["sym"].Value : null,
+                    SymbolOffset = m.Groups["off"].Success ? ulong.Parse(m.Groups["off"].Value, CultureInfo.InvariantCulture) : null,
+                    BuildId = m.Groups["id"].Success ? m.Groups["id"].Value.ToLowerInvariant() : null,
+                });
+            }),
         // Unity native backtrace: 0x00007FFB12345678 (GameAssembly) [file:line] Symbol | (function-name not available)
         new("unity", R(@"^\s*(?:#\d+\s+)?\(?0x(?<addr>[0-9a-fA-F]{8,16})\)? \((?<module>[^)]+)\) (?<rest>.*)$"),
             (m, line, raw, into, _) => UnityNative(m, line, raw, into)),

@@ -120,6 +120,35 @@ public sealed class StackTextTests : IDisposable
         Assert.Equal(2, r.UnrecognizedLines); // the banner lines
     }
 
+    /// <summary>An Android tombstone backtrace: frames resolve in the loaded .so whose GNU build id the line names; another build id is another build.</summary>
+    [Fact]
+    public async Task AndroidTombstoneFramesResolveByBuildId()
+    {
+        byte[] id = [0x3c, 0x5c, 0x01, 0x9f, 0xaa, 0xbb, 0xcc, 0xdd, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0x00, 0x12, 0x34];
+        var so = _dir.File("libgame.so");
+        File.WriteAllBytes(so, new NativeFormats.ElfWriter { BuildId = id, Symbols = [new("Crash", NativeFormats.ElfWriter.TextRva, 8)] }.Build());
+        var image = _ws.LoadAny(so).Native!;
+        var hex = Convert.ToHexStringLower(id);
+        var r = await Run($"""
+            *** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***
+            ABI: 'arm64'
+            signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0000000000000010
+            backtrace:
+                  #00 pc 0000000000001004  /data/app/~~abc==/com.example-1/lib/arm64/libgame.so (Crash+4) (BuildId: {hex})
+                  #01 pc 0000000000001004  /data/app/~~abc==/com.example-1/lib/arm64/libgame.so (BuildId: deadbeef)
+                  #02 pc 000000000004f1a4  /apex/com.android.runtime/lib64/bionic/libc.so (abort+164) (BuildId: 0f00ba44)
+            """);
+        Assert.Equal("android", r.Format);
+        Assert.Equal(3, r.Total);
+        var crash = r.Frames[0];
+        Assert.Equal(("libgame.so", "0x1004", "Crash+0x4", image.Id, "match"), (crash.Module, crash.Offset, crash.Resolved, crash.Image, crash.BuildCheck));
+        Assert.Equal("mismatch", r.Frames[1].BuildCheck);
+        Assert.Contains("deadbeef", r.Frames[1].BuildDetail);
+        var libc = Assert.Single(r.ModulesMissing);
+        Assert.Equal("libc.so", libc.Module);
+        Assert.Contains("BuildId 0f00ba44", r.Frames[2].NextStep);
+    }
+
     /// <summary>Il2Cpp builds print an all-zero MVID: no build identity, so the frame is matched by name and its build is unknown.</summary>
     [Fact]
     public async Task Il2CppZeroMvidIsUnknownNotAnotherBuild()
