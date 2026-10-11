@@ -41,6 +41,9 @@ public sealed record ApiParam(string Name, ApiParamType Type, ApiEnum? Enum = nu
     public string TypeName => Enum?.Name ?? Type.ToString().ToLowerInvariant();
 }
 
+/// <summary>What a known API returns: <see cref="Meaning"/> ("a Win32 error code") and the names of its values when they form an enumeration.</summary>
+public sealed record ApiReturn(string Meaning, ApiEnum? Enum);
+
 /// <summary>A known API: parameter names and types; <see cref="Variadic"/> takes extra arguments described by its format string.</summary>
 public sealed record ApiSignature(string Name, IReadOnlyList<ApiParam> Params, bool Variadic, bool Cdecl);
 
@@ -175,6 +178,11 @@ public static class ApiSignatures
         flags PipeMode: PIPE_WAIT=0 PIPE_NOWAIT=0x1 PIPE_READMODE_MESSAGE=0x2 PIPE_TYPE_MESSAGE=0x4 PIPE_REJECT_REMOTE_CLIENTS=0x8
         enum WindowMessage: WM_NULL=0 WM_CREATE=1 WM_DESTROY=2 WM_SETTEXT=0xC WM_GETTEXT=0xD WM_CLOSE=0x10 WM_QUIT=0x12 WM_COPYDATA=0x4A WM_SETICON=0x80 WM_KEYDOWN=0x100 WM_KEYUP=0x101 WM_CHAR=0x102 WM_COMMAND=0x111 WM_SYSCOMMAND=0x112 WM_TIMER=0x113 WM_USER=0x400
         flags FormatMessageFlags: FORMAT_MESSAGE_ALLOCATE_BUFFER=0x100 FORMAT_MESSAGE_IGNORE_INSERTS=0x200 FORMAT_MESSAGE_FROM_STRING=0x400 FORMAT_MESSAGE_FROM_HMODULE=0x800 FORMAT_MESSAGE_FROM_SYSTEM=0x1000 FORMAT_MESSAGE_ARGUMENT_ARRAY=0x2000
+        enum Win32Error: ERROR_SUCCESS=0 ERROR_INVALID_FUNCTION=1 ERROR_FILE_NOT_FOUND=2 ERROR_PATH_NOT_FOUND=3 ERROR_TOO_MANY_OPEN_FILES=4 ERROR_ACCESS_DENIED=5 ERROR_INVALID_HANDLE=6 ERROR_NOT_ENOUGH_MEMORY=8 ERROR_INVALID_DATA=13 ERROR_OUTOFMEMORY=14 ERROR_NO_MORE_FILES=18 ERROR_SHARING_VIOLATION=32 ERROR_HANDLE_EOF=38 ERROR_NOT_SUPPORTED=50 ERROR_FILE_EXISTS=80 ERROR_INVALID_PARAMETER=87 ERROR_BROKEN_PIPE=109 ERROR_INSUFFICIENT_BUFFER=122 ERROR_INVALID_NAME=123 ERROR_MOD_NOT_FOUND=126 ERROR_PROC_NOT_FOUND=127 ERROR_ALREADY_EXISTS=183 ERROR_ENVVAR_NOT_FOUND=203 ERROR_MORE_DATA=234 ERROR_NO_MORE_ITEMS=259 ERROR_OPERATION_ABORTED=995 ERROR_IO_INCOMPLETE=996 ERROR_IO_PENDING=997 ERROR_NOACCESS=998 ERROR_NOT_FOUND=1168 ERROR_CANCELLED=1223 ERROR_TIMEOUT=1460
+        enum WaitResult: WAIT_OBJECT_0=0 WAIT_ABANDONED=0x80 WAIT_IO_COMPLETION=0xC0 WAIT_TIMEOUT=0x102 WAIT_FAILED=0xFFFFFFFF
+        enum HResult: S_OK=0 S_FALSE=1 E_NOTIMPL=0x80004001 E_NOINTERFACE=0x80004002 E_POINTER=0x80004003 E_ABORT=0x80004004 E_FAIL=0x80004005 E_UNEXPECTED=0x8000FFFF E_ACCESSDENIED=0x80070005 E_HANDLE=0x80070006 E_OUTOFMEMORY=0x8007000E E_INVALIDARG=0x80070057 RPC_E_CHANGED_MODE=0x80010106 CO_E_NOTINITIALIZED=0x800401F0 REGDB_E_CLASSNOTREG=0x80040154
+        enum NtStatus: STATUS_SUCCESS=0 STATUS_BUFFER_OVERFLOW=0x80000005 STATUS_NO_MORE_ENTRIES=0x8000001A STATUS_UNSUCCESSFUL=0xC0000001 STATUS_NOT_IMPLEMENTED=0xC0000002 STATUS_INFO_LENGTH_MISMATCH=0xC0000004 STATUS_ACCESS_VIOLATION=0xC0000005 STATUS_INVALID_HANDLE=0xC0000008 STATUS_INVALID_PARAMETER=0xC000000D STATUS_NO_MEMORY=0xC0000017 STATUS_ACCESS_DENIED=0xC0000022 STATUS_BUFFER_TOO_SMALL=0xC0000023 STATUS_OBJECT_NAME_NOT_FOUND=0xC0000034 STATUS_OBJECT_NAME_COLLISION=0xC0000035 STATUS_NOT_SUPPORTED=0xC00000BB
+        enum WinsockError: WSAEINTR=10004 WSAEACCES=10013 WSAEFAULT=10014 WSAEINVAL=10022 WSAEWOULDBLOCK=10035 WSAEINPROGRESS=10036 WSAENOTSOCK=10038 WSAEADDRINUSE=10048 WSAENETDOWN=10050 WSAENETUNREACH=10051 WSAECONNABORTED=10053 WSAECONNRESET=10054 WSAENOTCONN=10057 WSAETIMEDOUT=10060 WSAECONNREFUSED=10061 WSAHOST_NOT_FOUND=11001 WSANOTINITIALISED=10093
 
         CreateFile%(str lpFileName, Access dwDesiredAccess, FileShare dwShareMode, ptr lpSecurityAttributes, CreationDisposition dwCreationDisposition, FileAttributes dwFlagsAndAttributes, handle hTemplateFile)
         CreateFile2(wstr lpFileName, Access dwDesiredAccess, FileShare dwShareMode, CreationDisposition dwCreationDisposition, ptr pCreateExParams)
@@ -437,6 +445,46 @@ public static class ApiSignatures
         cdecl sqrtf(float x)
         cdecl powf(float x, float y)
         """;
+
+    // What APIs return: "returns ENUM|- "meaning": Name Name% ...".
+    private const string ReturnTable = """
+        returns Win32Error "a Win32 error code": GetLastError RegOpenKey% RegOpenKeyEx% RegCreateKey% RegCreateKeyEx% RegQueryValueEx% RegSetValueEx% RegGetValue% RegSetKeyValue% RegDeleteKey% RegDeleteKeyEx% RegDeleteValue% RegDeleteTree% RegCloseKey RegEnumKeyEx% RegEnumValue% RegQueryInfoKey%
+        returns WinsockError "0 or a Winsock error code": WSAGetLastError WSAStartup
+        returns WaitResult "a wait result": WaitForSingleObject WaitForSingleObjectEx WaitForMultipleObjects WaitForMultipleObjectsEx SignalObjectAndWait MsgWaitForMultipleObjects MsgWaitForMultipleObjectsEx
+        returns HResult "an HRESULT": CoInitialize CoInitializeEx CoCreateInstance CoCreateInstanceEx CoGetClassObject OleInitialize URLDownloadToFile% SHGetFolderPath% SHGetKnownFolderPath DllRegisterServer DllGetClassObject
+        returns NtStatus "an NTSTATUS": NtAllocateVirtualMemory NtProtectVirtualMemory NtQueryInformationProcess NtSetInformationThread NtQuerySystemInformation NtCreateFile NtOpenFile NtReadFile NtWriteFile NtClose LdrLoadDll LdrGetProcedureAddress BCryptOpenAlgorithmProvider BCryptGenRandom
+        returns - "a handle; INVALID_HANDLE_VALUE (-1) on failure": CreateFile% CreateFile2 CreateNamedPipe% FindFirstFile% FindFirstFileEx% CreateToolhelp32Snapshot CreateMailslot%
+        returns - "a handle; NULL on failure": OpenProcess OpenThread CreateThread CreateRemoteThread CreateEvent% CreateMutex% CreateMutexEx% CreateSemaphore% OpenEvent% OpenMutex% CreateFileMapping% OpenFileMapping% OpenSCManager% OpenService% CreateService% InternetOpen% InternetOpenUrl% InternetConnect% HttpOpenRequest% WinHttpOpen WinHttpConnect WinHttpOpenRequest HeapCreate
+        returns - "a module handle; NULL on failure": LoadLibrary% LoadLibraryEx% GetModuleHandle%
+        returns - "a function address; NULL on failure": GetProcAddress
+        returns - "an address; NULL on failure": VirtualAlloc VirtualAllocEx HeapAlloc HeapReAlloc LocalAlloc GlobalAlloc MapViewOfFile malloc calloc realloc
+        returns - "nonzero on success, zero on failure (GetLastError)": ReadFile WriteFile CloseHandle DeleteFile% CopyFile% MoveFile% MoveFileEx% CreateDirectory% RemoveDirectory% SetFileAttributes% VirtualProtect VirtualProtectEx VirtualFree VirtualFreeEx WriteProcessMemory ReadProcessMemory HeapFree FreeLibrary CreateProcess% CreateProcessAsUser% TerminateProcess SetThreadContext DeviceIoControl StartService% ControlService CryptAcquireContext% CryptCreateHash CryptDeriveKey InternetReadFile HttpSendRequest% WinHttpSendRequest CheckRemoteDebuggerPresent UnmapViewOfFile
+        """;
+
+    private static readonly Lazy<Dictionary<string, ApiReturn>> Returns = new(() =>
+    {
+        var result = new Dictionary<string, ApiReturn>(StringComparer.Ordinal);
+        foreach (var raw in ReturnTable.Split('\n'))
+        {
+            var line = raw.Trim();
+            if (!line.StartsWith("returns ", StringComparison.Ordinal)) continue;
+            int open = line.IndexOf('"'), close = line.IndexOf('"', open + 1);
+            var enumName = line[8..open].Trim();
+            var meaning = new ApiReturn(line[(open + 1)..close], enumName == "-" ? null : Enums[enumName]);
+            foreach (var name in line[(line.IndexOf(':', close) + 1)..].Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                foreach (var n in name.EndsWith('%') ? [name[..^1] + "A", name[..^1] + "W"] : new[] { name })
+                    result[n] = meaning;
+        }
+        return result;
+    });
+
+    /// <summary>What an API returns (its meaning and the enumeration of its values), or null when not in the table.</summary>
+    public static ApiReturn? FindReturn(string? name)
+    {
+        if (string.IsNullOrEmpty(name)) return null;
+        var n = BareName(name);
+        return Returns.Value.GetValueOrDefault(n) ?? (n.Length > 1 && n[0] == '_' ? Returns.Value.GetValueOrDefault(n[1..]) : null);
+    }
 
     private static readonly Lazy<(Dictionary<string, ApiSignature> Signatures, Dictionary<string, ApiEnum> Enums)> Parsed = new(Parse);
 

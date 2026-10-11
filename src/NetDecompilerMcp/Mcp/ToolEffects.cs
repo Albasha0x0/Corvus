@@ -125,6 +125,7 @@ public static class ToolEffects
         ["find_virtual_calls"] = Reads(longRunning: true, openWorld: true), // crossCheck=true runs IDA
         ["search_native_strings"] = Reads(longRunning: true),
         ["get_call_arguments"] = Reads(longRunning: true),
+        ["trace_native_values"] = Reads(longRunning: true),
         ["get_exception_info"] = Reads(longRunning: true),
         ["list_cpp_classes"] = Reads(),
         ["decompile_native"] = Reads(longRunning: true, openWorld: true), // runs IDA (idalib) in a worker process; its database is a private cache

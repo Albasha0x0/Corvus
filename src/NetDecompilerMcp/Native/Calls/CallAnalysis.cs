@@ -240,6 +240,42 @@ public sealed partial class CallAnalysis
         return false;
     });
 
+    private OursSliceProvider? _slices;
+
+    /// <summary>The built-in engine's per-function value slices of this image.</summary>
+    internal OursSliceProvider Slices => LazyInitializer.EnsureInitialized(ref _slices, () => new OursSliceProvider(this));
+
+    private ValueTraceCache? _traces;
+
+    /// <summary>Value-trace graphs built on this image.</summary>
+    public ValueTraceCache Traces => LazyInitializer.EnsureInitialized(ref _traces, () => new ValueTraceCache());
+
+    /// <summary>A base relocation applies at <paramref name="rva"/> (a pointer the loader fixes up).</summary>
+    internal bool IsRelocated(uint rva) => Array.BinarySearch(_relocs, rva) >= 0;
+
+    /// <summary>The import whose slot is at <paramref name="rva"/>, or null.</summary>
+    internal NativeImport? ImportAtSlot(uint rva) => _slots.GetValueOrDefault(rva);
+
+    /// <summary>The late-bound import whose GetProcAddress result is stored at <paramref name="rva"/>, or null.</summary>
+    internal DynamicImport? LateBoundPointer(uint rva, CancellationToken ct)
+    {
+        EnsureDynamic(ct);
+        return _dynamic?.ByGlobal.GetValueOrDefault(rva);
+    }
+
+    /// <summary>The callee of the call or tail jump at <paramref name="index"/> of <paramref name="block"/>.</summary>
+    internal Callee CalleeAt(FunctionCode code, int block, int index) => ResolveCallee(code, block, index, new ValueResolver(this, code) { Budget = 1500 });
+
+    /// <summary>0: not a call site; 1: a call; 2: a tail call.</summary>
+    internal int SiteKindOf(FunctionCode code, in Decoded d) => SiteKind(code, in d);
+
+    /// <summary>The signature of a resolved callee (an API by name), or null.</summary>
+    internal static ApiSignature? SignatureOf(in Callee c) =>
+        ApiSignatures.Find(c.Import?.Name ?? c.Dynamic?.Name ?? (c.Kind == CalleeKind.Function ? c.Name : null));
+
+    /// <summary>Where the parameters of <paramref name="sig"/> are passed at a call (x64 floating point in xmm registers).</summary>
+    internal List<(Loc Loc, string Label)> ParameterLocations(ApiSignature sig, bool tail) => Locations([.. sig.Params], int.MaxValue, tail);
+
     internal bool IsTransparentCall(in Decoded d) => d.HasMem && d.I.Op0Kind == OpKind.Memory && _checkSlots.Contains(d.MemRva);
 
     /// <summary>Memory read at a confirmed data address: an import slot or writable data loads, read-only data is a constant.</summary>
@@ -577,7 +613,7 @@ public sealed partial class CallAnalysis
         }
     }
 
-    private static string FormatNumber(ulong n, ApiParam? p)
+    internal static string FormatNumber(ulong n, ApiParam? p)
     {
         bool is32 = n <= uint.MaxValue || n >> 32 == 0xFFFFFFFF;
         long signed = n >> 32 == 0xFFFFFFFF ? (int)(uint)n : (long)n;
@@ -611,7 +647,7 @@ public sealed partial class CallAnalysis
 
     private static string Hex(ulong n) => n < 10 ? n.ToString() : $"0x{n:X}";
 
-    private (ArgKind, ulong?, uint?, string) FormatAddress(uint rva, ApiParam? p)
+    internal (ArgKind Kind, ulong? Value, uint? Rva, string Text) FormatAddress(uint rva, ApiParam? p)
     {
         switch (p?.Type)
         {

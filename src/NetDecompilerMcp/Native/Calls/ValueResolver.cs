@@ -19,6 +19,12 @@ internal enum VKind : byte
     TakenLocal,
     /// <summary>Internal: the path loops back to a location already being resolved.</summary>
     Cycle,
+    /// <summary>Slice mode: the value at function entry; <see cref="Val.Site"/> is the register, else <see cref="Val.Num"/> the stack offset at entry.</summary>
+    Incoming,
+    /// <summary>Slice mode: paths with different values in <see cref="Val.Alternatives"/>; <see cref="Val.Rva"/> 1 when more were cut.</summary>
+    Merge,
+    /// <summary>Slice mode: a load from [base + <see cref="Val.Num"/>] at <see cref="Val.Site"/>; Alternatives[0] is the base.</summary>
+    Field,
 }
 
 /// <summary>
@@ -27,6 +33,9 @@ internal enum VKind : byte
 /// </summary>
 internal readonly record struct Val(VKind Kind, ulong Num, uint Rva, uint Site, string Why, Val[]? Alternatives = null)
 {
+    /// <summary>The instruction that defines the value (the innermost of the derivation), 0 when none.</summary>
+    public uint At { get; init; }
+
     public static Val Unknown(string why) => new(VKind.Unknown, 0, 0, 0, why);
     public bool SameAs(in Val o) => Kind == o.Kind && Num == o.Num && Rva == o.Rva && Site == o.Site;
 }
@@ -60,6 +69,8 @@ internal sealed class ValueResolver
     private const int MaxDepth = 40;
     private const int MaxPredecessors = 8;
     private const int MaxAlternatives = 4;
+    /// <summary>Slice mode: paths kept per merge.</summary>
+    public const int MaxSlicePaths = 8;
     private readonly CallAnalysis _owner;
     private readonly FunctionCode _code;
     private readonly bool _is64;
@@ -84,6 +95,16 @@ internal sealed class ValueResolver
     /// <summary>Instruction steps allowed per top-level query.</summary>
     public int Budget { get; set; } = 6000;
 
+    /// <summary>
+    /// Slice mode (value tracing): merges keep every path, loops are <see cref="VKind.Cycle"/>, the function entry gives
+    /// <see cref="VKind.Incoming"/>, [reg+n] loads give <see cref="VKind.Field"/> and a frame slot continues as the stack
+    /// slot the frame pointer was set from.
+    /// </summary>
+    public bool Slice { get; init; }
+
+    /// <summary>Instruction steps the last query took.</summary>
+    public int Steps => _steps;
+
     /// <summary>The value of <paramref name="loc"/> just before instruction <paramref name="index"/> of block <paramref name="block"/>.</summary>
     public Val ValueBefore(Loc loc, int block, int index)
     {
@@ -91,7 +112,21 @@ internal sealed class ValueResolver
         _depth = 0;
         _active.Clear();
         var v = Walk(loc, block, index);
-        return v.Kind == VKind.Cycle ? Val.Unknown("loop") : v;
+        return v.Kind == VKind.Cycle && !Slice ? Val.Unknown("loop") : v;
+    }
+
+    /// <summary>The value the instruction at <paramref name="index"/> of <paramref name="block"/> stores into memory (a mov or push).</summary>
+    public Val ValueStoredBy(int block, int index)
+    {
+        _steps = 0;
+        _depth = 0;
+        _active.Clear();
+        ref readonly var d = ref _code.Blocks[block][index];
+        var v = d.I.Mnemonic == Mnemonic.Push ? PushValue(in d, block, index)
+            : d.I.Op0Kind == OpKind.Memory ? StoreValue(in d, block, index, Math.Max(1, d.I.MemorySize.GetSize()))
+            : Val.Unknown($"{d.I.Mnemonic.ToString().ToLowerInvariant()} does not store to memory");
+        v = Why(v, in d);
+        return v.Kind == VKind.Cycle && !Slice ? Val.Unknown("loop") : v;
     }
 
     private Val Walk(Loc loc, int block, int index)
@@ -151,7 +186,11 @@ internal sealed class ValueResolver
 
                 if (loc.Kind == LocKind.Frame)
                 {
-                    if ((d.Writes & FpBit) != 0) return Val.Unknown($"frame pointer set at {Va(d.Rva)}");
+                    if ((d.Writes & FpBit) != 0)
+                    {
+                        if (Slice && FrameBase(in x) is { } fromSp) { loc = Loc.Stack(loc.Slot + fromSp); continue; }
+                        return Val.Unknown($"frame pointer set at {Va(d.Rva)}");
+                    }
                     if (x.Op0Kind != OpKind.Memory || IsImmediateOrNothing(in x)) continue;
                     if (x.MemoryBase.GetFullRegister() == Register.RBP && x.MemoryIndex == Register.None)
                     {
@@ -208,11 +247,17 @@ internal sealed class ValueResolver
             // start of the block: the predecessors
             var b = _code.Graph.Blocks[block];
             if (b.Start == _code.Function.Start && b.Predecessors.Count == 0)
+            {
+                if (Slice && loc.Kind != LocKind.Frame)
+                    return loc.Kind == LocKind.Register
+                        ? new Val(VKind.Incoming, 0, 0, (uint)loc.Reg, $"incoming {Name(loc.Reg)}")
+                        : new Val(VKind.Incoming, (ulong)(long)loc.Slot, 0, 0, $"incoming stack argument [sp+{loc.Slot:X}h]");
                 return Val.Unknown(loc.Kind switch
                 {
                     LocKind.Register => $"incoming {Name(loc.Reg)} (parameter or caller state)",
                     _ => "incoming stack argument",
                 });
+            }
             if (b.Predecessors.Count == 0) return Val.Unknown("block has no known predecessor");
             if (b.Predecessors.Count > MaxPredecessors) return Val.Unknown("too many incoming paths");
             if (!_active.Add((block, loc))) return new Val(VKind.Cycle, 0, 0, 0, "loop");
@@ -229,8 +274,37 @@ internal sealed class ValueResolver
         }
     }
 
+    /// <summary>The stack offset the frame pointer is set from (mov rbp, rsp / lea rbp, [rsp+n]), or null.</summary>
+    private static int? FrameBase(in Instruction x)
+    {
+        if (x.Op0Kind != OpKind.Register || x.Op0Register.GetFullRegister() != Register.RBP) return null;
+        if (x.Mnemonic == Mnemonic.Mov && x.Op1Kind == OpKind.Register && x.Op1Register.GetFullRegister() == Register.RSP) return 0;
+        if (x.Mnemonic == Mnemonic.Lea && x.MemoryBase.GetFullRegister() == Register.RSP && x.MemoryIndex == Register.None) return (int)(long)x.MemoryDisplacement64;
+        return null;
+    }
+
+    private Val SliceMerge(Loc loc, Code.BasicBlock b)
+    {
+        var values = new List<Val>();
+        bool loop = false, cut = false;
+        foreach (var e in b.Predecessors)
+        {
+            int p = _code.BlockIndexOf(e.From);
+            var v = p < 0 ? Val.Unknown("predecessor not decoded") : Walk(loc, p, int.MaxValue);
+            if (v.Kind == VKind.Cycle) { loop = true; continue; }
+            if (values.Any(o => o.SameAs(in v) && (v.Kind != VKind.Unknown || o.Why == v.Why))) continue;
+            if (values.Count >= MaxSlicePaths) { cut = true; continue; }
+            values.Add(v);
+        }
+        if (values.Count == 0) return new Val(VKind.Cycle, 0, 0, 0, "loop");
+        if (values.Count == 1 && !loop) return values[0] with { Why = values[0].Why + $" (same on {b.Predecessors.Count} paths)" };
+        if (loop) values.Add(new Val(VKind.Cycle, 0, 0, 0, $"carried around the loop at {Va(b.Start)}"));
+        return new Val(VKind.Merge, (ulong)b.Predecessors.Count, cut ? 1u : 0, 0, $"{b.Predecessors.Count} paths join at {Va(b.Start)}", [.. values]);
+    }
+
     private Val Merge(Loc loc, Code.BasicBlock b)
     {
+        if (Slice) return SliceMerge(loc, b);
         var values = new List<Val>();
         foreach (var e in b.Predecessors)
         {
@@ -264,7 +338,7 @@ internal sealed class ValueResolver
     private Val Why(Val v, in Decoded d)
     {
         var text = $"{d.I} @{Va(d.Rva)}";
-        return v with { Why = string.IsNullOrEmpty(v.Why) ? text : text + " <- " + v.Why };
+        return v with { Why = string.IsNullOrEmpty(v.Why) ? text : text + " <- " + v.Why, At = v.At != 0 ? v.At : d.Rva };
     }
 
 
@@ -297,6 +371,12 @@ internal sealed class ValueResolver
             if (b == _sp) return Walk(Loc.Stack(disp), block, index);
             if (_code.FrameAddressTaken(disp)) return new Val(VKind.TakenLocal, (ulong)(long)disp, 0, 1, $"local [rbp{disp:+0;-0}] has its address taken");
             return Walk(Loc.Frame(disp), block, index);
+        }
+        if (Slice && x.MemoryIndex == Register.None && x.MemoryBase != Register.None && x.MemoryBase != Register.RIP)
+        {
+            var baseValue = Walk(Loc.Of(x.MemoryBase), block, index);
+            long disp = _is64 ? (long)x.MemoryDisplacement64 : (int)(uint)x.MemoryDisplacement64;
+            return new Val(VKind.Field, (ulong)disp, 0, d.Rva, $"load from {MemText(in x)}", [baseValue]);
         }
         return Val.Unknown($"load from {MemText(in x)}");
     }
@@ -375,7 +455,9 @@ internal sealed class ValueResolver
             return IsImmediate(k) ? Immediate(in d, operand, bytes) : Val.Unknown("operand");
         }
         Val Fold(Val v, Func<ulong, ulong> f) =>
-            v.Kind == VKind.Const ? v with { Num = f(v.Num) & Mask(bytes) } : v.Kind == VKind.Unknown ? v : Val.Unknown($"{x.Mnemonic.ToString().ToLowerInvariant()} of a non-constant");
+            v.Kind == VKind.Const ? v with { Num = f(v.Num) & Mask(bytes) }
+            : v.Kind == VKind.Merge ? v with { Alternatives = [.. v.Alternatives!.Select(a => Fold(a, f))] }
+            : v.Kind is VKind.Unknown or VKind.Cycle ? v : Val.Unknown($"{x.Mnemonic.ToString().ToLowerInvariant()} of a non-constant");
         bool SameRegs() => x.Op1Kind == OpKind.Register && x.Op1Register.GetFullRegister() == full;
 
         switch (x.Mnemonic)

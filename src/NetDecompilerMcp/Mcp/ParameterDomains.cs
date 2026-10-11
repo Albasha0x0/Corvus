@@ -60,6 +60,7 @@ public static class ParameterDomains
         ["list_native_types"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["ida_python"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["find_virtual_calls"] = new Dictionary<string, Domain> { ["status"] = Of(["exact", "possible", "unresolved"]) },
+        ["trace_native_values"] = new Dictionary<string, Domain> { ["direction"] = Of(["backward", "forward", "both"], "back", "fwd") },
         ["search_pdb_symbols"] = new Dictionary<string, Domain> { ["kind"] = Of(["function", "data", "public", "all"], "functions", "publics") },
         ["make_code_pattern"] = new Dictionary<string, Domain> { ["anchor"] = Of(["auto", "address", "reference", "xrefs"]), ["engine"] = Engine },
         ["compare_native_images"] = new Dictionary<string, Domain> { ["view"] = Of(["pairs", "changed", "unmatched", "ambiguous"]) },
