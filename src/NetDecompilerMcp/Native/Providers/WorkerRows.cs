@@ -367,6 +367,16 @@ internal static class WorkerRows
             S(r, "return_type"), S(r, "return_storage"), B(r, "varargs"));
     }
 
+    /// <summary>field_xrefs: type, member, offset, size, member_type, rows [rva, kind, function or null], candidates, scanned, failed, skipped, decompiler.</summary>
+    public static NativeFieldXrefs FieldXrefs(JsonElement r)
+    {
+        var rows = r.GetProperty("rows").EnumerateArray()
+            .Select(x => new NativeFieldAccess(x[0].GetUInt32(), x[1].GetString() ?? "", x[2].ValueKind == JsonValueKind.Number ? x[2].GetUInt32() : null)).ToList();
+        return new NativeFieldXrefs(r.GetProperty("type").GetString() ?? "", r.GetProperty("member").GetString() ?? "", r.GetProperty("offset").GetInt32(),
+            r.GetProperty("size").GetInt32(), r.GetProperty("member_type").GetString() ?? "", rows, r.GetProperty("candidates").GetInt32(),
+            r.GetProperty("scanned").GetInt32(), r.GetProperty("failed").GetInt32(), r.GetProperty("skipped").GetInt32(), r.GetProperty("decompiler").GetBoolean());
+    }
+
     /// <summary>namespaces: rows [name, kind, functions, vftable rva or null].</summary>
     public static List<EngineNamespace> Namespaces(JsonElement r) =>
         r.GetProperty("rows").EnumerateArray().Select(x => new EngineNamespace(x[0].GetString() ?? "", x[1].GetString() ?? "", x[2].GetInt32(),

@@ -106,6 +106,30 @@ public sealed class NativeGhidraViewTests(ITestOutputHelper output, GhidraCacheF
     }
 
     [GhidraFact]
+    public async Task Field_xrefs_find_member_accesses_through_a_typed_parameter()
+    {
+        using var dir = new TempDir();
+        using var provider = new GhidraProvider(new GhidraProviderOptions { CacheRoot = dir.File("cache") });
+        var path = shared.Copy(NativeIdaProviderTests.System64);
+        var rva = NativeIdaProviderTests.ExportRva(path, Export);
+        await using var s = (GhidraSession)await provider.OpenAsync(path, null, Offline);
+        var typed = await s.ApplyUserTypesAsync(new NativeUserTypeBatch(["struct NdmDos { unsigned short e_magic; char pad[0x3a]; int e_lfanew; };"],
+            [new NativePrototype(rva, "void * __fastcall NdmCheck(struct NdmDos *image, unsigned int size, unsigned int *header, unsigned int *sum)")], [], []));
+        Assert.True(typed.Items[0].Applied, typed.Items[0].Error);
+        output.WriteLine((await s.DecompileAsync(rva)).Text);
+        var r = await s.GetFieldXrefsAsync(["NdmMissing", "NdmDos"], "pad", null, [], 60);
+        output.WriteLine($"{r.Type}::{r.Member} +0x{r.Offset:X} {r.MemberType} {r.Size}: {r.Scanned}/{r.Candidates} scanned; " +
+                         string.Join(", ", r.Accesses.Select(a => $"0x{a.Rva:X} {a.Kind} in 0x{a.FunctionRva:X}")));
+        Assert.Equal(("NdmDos", "pad", 2, 0x3A, "char[58]"), (r.Type, r.Member, r.Offset, r.Size, r.MemberType));
+        Assert.True(r.DecompilerAvailable);
+        Assert.True(r.Scanned >= 1);
+        Assert.Contains(r.Accesses, a => a.FunctionRva == rva && a.Kind == "read");
+        Assert.Equal("e_lfanew", (await s.GetFieldXrefsAsync(["NdmDos"], null, 0x3D, [], 60)).Member);
+        Assert.Equal(Core.ErrorCode.NotFound, (await Assert.ThrowsAsync<Core.ToolError>(() => s.GetFieldXrefsAsync(["NdmDos"], "nope", null, [], 10))).Code);
+        Assert.Equal(Core.ErrorCode.NotFound, (await Assert.ThrowsAsync<Core.ToolError>(() => s.GetFieldXrefsAsync(["NdmNone"], "x", null, [], 10))).Code);
+    }
+
+    [GhidraFact]
     public async Task Function_record_has_prototype_convention_storage_and_thunk_target()
     {
         await using var s = await Open();

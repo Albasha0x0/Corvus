@@ -428,6 +428,16 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     public async Task<IReadOnlyList<EngineNamespace>> ListNamespacesAsync(CancellationToken cancellationToken = default) =>
         WorkerRows.Namespaces(await CallAsync("namespaces", new JsonObject(), cancellationToken).ConfigureAwait(false));
 
+    public async Task<NativeFieldXrefs> GetFieldXrefsAsync(IReadOnlyList<string> types, string? member, int? offset, IReadOnlyList<uint> functions, double seconds,
+        CancellationToken cancellationToken = default)
+    {
+        // the budget stays under the request timeout so slow decompilation ends the scan instead of the request
+        double budget = Math.Clamp(seconds, 1, Math.Max(1, Options.RequestTimeout.TotalSeconds * 0.6));
+        var args = WorkerRows.Args(("types", new JsonArray(types.Select(t => (JsonNode)t).ToArray())), ("member", member), ("offset", offset),
+            ("functions", new JsonArray(functions.Select(f => (JsonNode)f).ToArray())), ("seconds", budget));
+        return WorkerRows.FieldXrefs(await CallAsync("field_xrefs", args, cancellationToken).ConfigureAwait(false));
+    }
+
     /// <summary>Java (a GhidraScript class or a run() body) within the request limit; see <see cref="RunJavaAsync"/>.</summary>
     public Task<NativeScriptResult> RunScriptAsync(string code, bool reset = false, CancellationToken cancellationToken = default) =>
         RunJavaAsync(code, Options.RequestTimeout.TotalSeconds, cancellationToken);

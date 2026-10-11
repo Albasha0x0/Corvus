@@ -29,7 +29,7 @@ public sealed partial class NativeCodeTools
                  "sites (x86 calls through a register loaded from the slot too) and its binding; an export: also call sites in other loaded images " +
                  "([image] prefix). Call rows show recovered arguments. A late-bound import (GetProcAddress): where it is resolved and calls through " +
                  "its pointer. direction=from: what the address references (a function start: the whole function), rows ending '-> target'. " +
-                 "A struct member (Type::member, Type.member, Type+0x18; engine types) lists its uses through IDA: typed operands, and reads, writes " +
+                 "A struct member (Type::member, Type.member, Type+0x18; engine types) lists its uses through IDA or Ghidra: typed operands, and reads, writes " +
                  "and address-of in the pseudocode of functions whose prototype names the type. " + IndexNote)]
     public Task<string> FindXrefs(
         [Description(NativeTools.ImageDescription)] string image,

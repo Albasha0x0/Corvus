@@ -9,7 +9,7 @@ using NetDecompilerMcp.Services;
 
 namespace NetDecompilerMcp.Tools;
 
-/// <summary>find_xrefs on a struct member: the engine's types, so always through IDA.</summary>
+/// <summary>find_xrefs on a struct member: the engine's types, so through IDA or Ghidra.</summary>
 public sealed partial class NativeCodeTools
 {
     /// <summary>A struct member as Type::member, Type.member or Type+offset, or null for anything else.</summary>
@@ -57,8 +57,9 @@ public sealed partial class NativeCodeTools
         if (engines == null || mode == EngineMode.Ours)
             throw new ToolError(ErrorCode.Unsupported, $"Struct members are known from the engine's types; engine=ours has none.",
                 "use engine=auto or engine=ida for Type::member");
-        // IDA answers member references; an explicit engine is taken as asked
-        var engine = EngineModes.ProviderId(mode) ?? Native.Providers.Ida.IdaProvider.ProviderId;
+        // auto: IDA, else Ghidra when only it is installed; an explicit engine is taken as asked
+        var engine = EngineModes.ProviderId(mode) ?? (engines.UnavailabilityOf(Native.Providers.Ida.IdaProvider.ProviderId) == null
+            ? Native.Providers.Ida.IdaProvider.ProviderId : engines.FirstAvailable() ?? Native.Providers.Ida.IdaProvider.ProviderId);
         if (engines.UnavailabilityOf(engine) is { } u)
             throw new ToolError(ErrorCode.ProviderUnavailable, $"Struct member references need {NativeEngineService.DisplayName(engine)}, which is not available: {u.Reason}", u.Remediation);
         var session = await engines.Session(native, engine, new Progress<NativeProviderProgress>(p =>
