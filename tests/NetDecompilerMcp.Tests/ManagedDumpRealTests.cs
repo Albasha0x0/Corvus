@@ -357,6 +357,20 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.Equal("throw new InvalidOperationException(\"ndm-probe\");", whole.Exception.Stack.First(f => f.Function.Contains("Inner", StringComparison.Ordinal)).Statement);
     }
 
+    /// <summary>The CLR exception code's description names the decoded exception instead of calling it unreadable.</summary>
+    [Fact]
+    public async Task SelfWrittenDump_ClrExceptionDescriptionNamesTheDecodedException()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var dir = new TempDir();
+        var (_, mini, _) = SelfDumps(dir);
+        var summary = await new MinidumpService().Summarize(mini, null, 0, 50, 0, 50, default);
+        Assert.Equal("0xE0434352", summary.Exception!.Code);
+        Assert.Equal("System.InvalidOperationException", summary.Managed!.Exception!.Type);
+        Assert.DoesNotContain("managed debugger", summary.Exception.Description);
+        Assert.Contains("System.InvalidOperationException: ndm-probe", summary.Exception.Description);
+    }
+
     private static string? DacLocatorVerify(string path) => Native.Dump.Managed.DacLocator.Verify(File.ReadAllBytes(path), path);
 
     private static void AssertSortedBySp(MinidumpService.StackReport stack)

@@ -146,6 +146,8 @@ public sealed partial class MinidumpService
 
         ExceptionSummary? exception = d.Exception != null ? await DescribeException(s, ct) : null;
         var managed = await ManagedSection(s, dac, ct);
+        if (exception != null && d.Exception!.Code == ExceptionCodes.ClrException && managed?.Exception is { } thrown)
+            exception = exception with { Description = $"CLR exception {thrown.Type}: {Format.Clip(thrown.Message ?? "", 200)} (managed.exception)" };
 
         var modules = d.Modules.Skip(modulesOffset).Take(modulesLimit).Select(m => ModuleRow(m, s.Directories, d.Arch, s.LoadedImages)).ToList();
         var exceptionThread = d.Exception?.ThreadId;

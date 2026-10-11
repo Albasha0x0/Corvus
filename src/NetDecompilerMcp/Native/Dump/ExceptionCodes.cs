@@ -98,7 +98,7 @@ public static class ExceptionCodes
             case CxxException when p.Count >= 3:
                 return $"C++ exception, object at {Hex(p[1])}, ThrowInfo at {Hex(p[2])}" + (p.Count >= 4 && p[3] != 0 ? $", thrown from the image at {Hex(p[3])}" : "");
             case ClrException:
-                return "CLR exception: the managed exception object is only readable with a managed debugger (SOS !pe)";
+                return "CLR exception: the managed exception object needs the runtime's DAC (managed.dac says why it was not decoded)";
             default:
                 return Name(code) ?? $"exception 0x{code:X8}";
         }
