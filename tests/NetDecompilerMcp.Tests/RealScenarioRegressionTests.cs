@@ -432,6 +432,18 @@ public sealed class RealScenarioRegressionTests
     }
 
     /// <summary>
+    /// Labels spell System.Decimal as Decimal and the decompiled source as decimal, so a patch of one of several same-count
+    /// overloads taking a decimal (JsonConvert.ToString(decimal)) failed: "none match by parameter types".
+    /// </summary>
+    [Trait("Speed", "Slow")]
+    [Fact]
+    public void CSharpPatchesFindDecimalOverloads()
+    {
+        using var env = new Env(RealPackages.Lib("Newtonsoft.Json", "13.0.1", "netstandard2.0", "Newtonsoft.Json.dll"));
+        Assert.Contains("compiled OK", env.Edit(() => env.Edits.PatchMethodCSharp(env.One("Newtonsoft.Json.JsonConvert::ToString(decimal)"), "return \"d\";", dryRun: true, default)));
+    }
+
+    /// <summary>
     /// Two references with an internal System.SR, neither public nor used by the target: none was hidden, so SR in code of
     /// namespace App.Sub (usings inside it) was ambiguous instead of the target's App.SR (System.Web.SR in System.Web.Security).
     /// </summary>

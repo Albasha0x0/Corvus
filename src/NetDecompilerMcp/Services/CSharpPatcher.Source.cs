@@ -346,6 +346,7 @@ public sealed partial class CSharpPatcher
         var s = type.Replace("global::", "").Replace(" ", "");
         s = Regex.Replace(s, @"Nullable<([^<>]+)>", "$1?");
         s = Regex.Replace(s, @"\b(?:[A-Za-z_]\w*\.)+(?=[A-Za-z_])", ""); // drop namespace qualifiers
+        s = Regex.Replace(s, @"\bdecimal\b", "Decimal"); // System.Decimal has no element type: labels spell it Decimal
         return s.Replace("?", "");
     }
 
