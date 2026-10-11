@@ -78,7 +78,8 @@ public static class Webcil
         BinaryPrimitives.WriteUInt16LittleEndian(coff, 0x14C);
         BinaryPrimitives.WriteUInt16LittleEndian(coff[2..], (ushort)sections);
         BinaryPrimitives.WriteUInt16LittleEndian(coff[16..], optionalSize);
-        BinaryPrimitives.WriteUInt16LittleEndian(coff[18..], 0x2102); // executable image, 32-bit, DLL
+        // Executable image, 32-bit, and DLL unless the CLI header names an entry point (a Blazor app is an exe: OutputType Exe on export).
+        BinaryPrimitives.WriteUInt16LittleEndian(coff[18..], (ushort)(HasEntryPoint(w, table, cliRva) ? 0x0102 : 0x2102));
         var opt = coff[20..];
         BinaryPrimitives.WriteUInt16LittleEndian(opt, 0x10B);
         BinaryPrimitives.WriteUInt32LittleEndian(opt[28..], 0x10000000); // image base
@@ -111,6 +112,18 @@ public static class Webcil
             w.Slice((int)table[i].RawPointer, (int)table[i].RawSize).CopyTo(o[rawPointers[i]..]);
         }
         return pe;
+    }
+
+    /// <summary>The CLI header at <paramref name="cliRva"/> has a managed entry point (a MethodDef token).</summary>
+    private static bool HasEntryPoint(ReadOnlySpan<byte> w, (uint VirtualSize, uint Va, uint RawSize, uint RawPointer)[] table, uint cliRva)
+    {
+        foreach (var s in table)
+            if (cliRva >= s.Va && cliRva - s.Va + 24 <= s.RawSize)
+            {
+                uint token = BinaryPrimitives.ReadUInt32LittleEndian(w[(int)(s.RawPointer + (cliRva - s.Va) + 20)..]);
+                return token >> 24 == 0x06 && (token & 0xFFFFFF) != 0;
+            }
+        return false;
     }
 
     /// <summary>The error for a Webcil file given to load_assembly: it is read only as a container for now.</summary>

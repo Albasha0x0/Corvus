@@ -59,6 +59,20 @@ public sealed class WebcilTests : IDisposable
         } while (value != 0);
     }
 
+    /// <summary>A Blazor app's assembly (it has Main) converted as a DLL exported as OutputType Library with a StartupObject: CS2017.</summary>
+    [Fact]
+    public void AnAssemblyWithAnEntryPointConvertsToAnExe()
+    {
+        var exe = Roslyn.Compile("App", "public static class Program { public static void Main() { } }",
+            new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(Microsoft.CodeAnalysis.OutputKind.ConsoleApplication), []);
+        foreach (var (image, isDll) in new[] { (exe, false), (File.ReadAllBytes(Env.FixturePath), true) })
+        {
+            var pe = Assert.Single(Containers.Open(ToWasm(image), "x.wasm", AnalysisLimits.Default, default).Items).Bytes;
+            using var reader = new PEReader(new MemoryStream(pe));
+            Assert.Equal(isDll, reader.PEHeaders.IsDll);
+        }
+    }
+
     [Fact]
     public void WebcilConvertsToAPeThatLoadsAndFolderLoadsSayWhyNothingLoaded()
     {
