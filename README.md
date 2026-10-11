@@ -143,7 +143,7 @@ a plain `install` switches the registration back. publish.ps1 renames files of a
 ## What it covers
 
 **MCP features:** 123 tools (each with a title and read-only / destructive / idempotent / open-world annotations from one audited table, `src/NetDecompilerMcp/Mcp/ToolEffects.cs`),
-resources and resource templates (subscribers get an update notice after each workspace change), 11 prompts, argument completion, progress notifications, structured output for the list,
+resources and resource templates (subscribers get an update notice after each workspace change), 13 prompts, argument completion, progress notifications, structured output for the list,
 search and info tools, typed errors (`Error (<code>) in <tool>: ...` with a `Next:` step and a JSON copy; codes and format in [docs/errors.md](docs/errors.md)), strict arguments
 (an undeclared parameter is `invalid_argument` naming the closest declared ones; closed value sets such as `engine`, `kind`
 and `format` are advertised as `enum` and an unlisted value is `invalid_argument` with the closest one), a stale-server check
@@ -173,9 +173,9 @@ server instructions (a core under 2,048 characters; the details in the `guide` p
 (decompiled C#), `netdecomp://assembly/{assembly}/il/{symbol}`, `netdecomp://guide/{topic}` (the guide topics).
 
 **Prompts:** `analyze_assembly`, `find_feature`, `explain_type`, `plan_patch`, `map_native_address`, `analyze_native`,
-`trace_native_feature`, `find_api_usage`, `patch_native`, `guide` (one topic of the full guidance: `dotnet`, `native`, `il2cpp`, `containers`, `edits`, `builds`, `dumps`, `errors`), `getting_started`.
+`trace_native_feature`, `find_api_usage`, `patch_native`, `compare_builds`, `triage_crash`, `guide` (one topic of the full guidance: `dotnet`, `native`, `il2cpp`, `containers`, `edits`, `builds`, `dumps`, `errors`), `getting_started`.
 
-**Completion:** assembly and native image ids, type names (full or short), file paths and guide topics for prompt and resource-template arguments.
+**Completion:** assembly, native image and open dump ids, type names (full or short), file paths (binaries, dumps, or build folders and packages, by argument) and guide topics for prompt and resource-template arguments.
 
 ### Native images
 

@@ -463,8 +463,8 @@ public abstract class McpProtocolTests : IAsyncLifetime
         public async Task Prompts()
         {
             var prompts = await _client.ListPromptsAsync();
-            Assert.Equal(["analyze_assembly", "analyze_native", "explain_type", "find_api_usage", "find_feature", "getting_started", "guide", "map_native_address",
-                    "patch_native", "plan_patch", "trace_native_feature"],
+            Assert.Equal(["analyze_assembly", "analyze_native", "compare_builds", "explain_type", "find_api_usage", "find_feature", "getting_started", "guide",
+                    "map_native_address", "patch_native", "plan_patch", "trace_native_feature", "triage_crash"],
                 prompts.Select(p => p.Name).Order());
             var result = await _client.GetPromptAsync("find_feature", new Dictionary<string, object?> { ["feature"] = "license check", ["assembly"] = "TestFixture" });
             var text = string.Join("\n", result.Messages.Select(m => (m.Content as TextContentBlock)?.Text));
@@ -521,6 +521,24 @@ public abstract class McpProtocolTests : IAsyncLifetime
 
             var none = await _client.CompleteAsync(new PromptReference { Name = "find_feature" }, "feature", "x");
             Assert.Empty(none.Completion.Values);
+
+            // A dump argument: open dump ids first, then .dmp / .mdmp paths and folders.
+            var dumps = Directory.CreateDirectory(_dir.File("crashes")).FullName;
+            var dump = Path.Combine(dumps, "first.dmp");
+            File.Copy(SyntheticCrash.Write(_dir), dump);
+            File.WriteAllText(Path.Combine(dumps, "first.txt"), "not a dump");
+            await Call("open_minidump", new() { ["path"] = dump });
+            Assert.Equal(["first.dmp"], (await _client.CompleteAsync(new PromptReference { Name = "triage_crash" }, "dump", "fir")).Completion.Values);
+            Assert.Equal([dump], (await _client.CompleteAsync(new PromptReference { Name = "triage_crash" }, "dump", Path.Combine(dumps, "fir"))).Completion.Values);
+
+            // Build paths: folders and packages; the cap holds with HasMore.
+            var builds = Directory.CreateDirectory(_dir.File("builds")).FullName;
+            for (int i = 0; i < 120; i++) File.WriteAllText(Path.Combine(builds, $"app{i:D3}.zip"), "");
+            File.WriteAllText(Path.Combine(builds, "app-notes.txt"), "");
+            var old = await _client.CompleteAsync(new PromptReference { Name = "compare_builds" }, "oldPath", Path.Combine(builds, "app"));
+            Assert.Equal(100, old.Completion.Values.Count);
+            Assert.True(old.Completion.HasMore);
+            Assert.All(old.Completion.Values, v => Assert.EndsWith(".zip", v));
         }
     }
 

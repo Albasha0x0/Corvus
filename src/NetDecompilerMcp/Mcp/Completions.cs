@@ -3,12 +3,18 @@ using NetDecompilerMcp.Core;
 
 namespace NetDecompilerMcp.Mcp;
 
-/// <summary>Argument completion for prompts and resource templates: assembly and native image ids, type names, file-system paths and guide topics.</summary>
+/// <summary>Argument completion for prompts and resource templates: assembly, native image and dump ids, type names, file-system paths and guide topics.</summary>
 public static class Completions
 {
     private const int MaxValues = 100;
 
-    public static CompleteResult Complete(AssemblyWorkspace workspace, CompleteRequestParams request)
+    private static readonly string[] ManagedOrNative = [".dll", ".exe", ".sys"];
+    private static readonly string[] Dumps = [".dmp", ".mdmp"];
+    /// <summary>What a build can be: an install folder, a package or a single binary.</summary>
+    private static readonly string[] Builds = [".zip", ".apk", ".aab", ".nupkg", ".ipa", ".msix", ".appx", ".exe", ".dll"];
+
+    /// <param name="dumps">Ids of the open dumps.</param>
+    public static CompleteResult Complete(AssemblyWorkspace workspace, CompleteRequestParams request, IReadOnlyCollection<string>? dumps = null)
     {
         var name = request.Argument?.Name ?? "";
         var prefix = request.Argument?.Value ?? "";
@@ -17,13 +23,17 @@ public static class Completions
 
         var values = name switch
         {
-            "assembly" => workspace.Read(() => workspace.Assemblies.Select(a => a.Id)
+            "assembly" or "oldAssembly" or "newAssembly" => workspace.Read(() => workspace.Assemblies.Select(a => a.Id)
                 .Where(id => id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList()),
             "type" or "symbol" => workspace.Read(() => TypeNames(workspace, assemblyContext, prefix)),
             // An image is a loaded native image id or the path of one.
-            "image" => [.. workspace.Read(() => workspace.Natives.Select(n => n.Id)
-                .Where(id => id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList()), .. Paths(prefix, drivesWhenEmpty: false)],
-            "path" or "dummyDllFolder" => Paths(prefix),
+            "image" or "oldImage" or "newImage" => [.. workspace.Read(() => workspace.Natives.Select(n => n.Id)
+                .Where(id => id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList()), .. Paths(prefix, ManagedOrNative, drivesWhenEmpty: false)],
+            // A dump is an open dump's id or the path of a .dmp (or a folder of them).
+            "dump" => [.. (dumps ?? []).Where(id => id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).Order(StringComparer.OrdinalIgnoreCase),
+                .. Paths(prefix, Dumps, drivesWhenEmpty: false)],
+            "oldPath" or "newPath" => Paths(prefix, Builds),
+            "path" or "dummyDllFolder" => Paths(prefix, ManagedOrNative),
             "topic" => Guide.Topics.Keys.Where(t => t.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList(),
             _ => [],
         };
@@ -56,7 +66,8 @@ public static class Completions
             .ToList();
     }
 
-    private static List<string> Paths(string prefix, bool drivesWhenEmpty = true)
+    /// <summary>Folders and files with one of <paramref name="extensions"/> under the prefix's folder.</summary>
+    private static List<string> Paths(string prefix, string[] extensions, bool drivesWhenEmpty = true)
     {
         try
         {
@@ -67,7 +78,7 @@ public static class Completions
             var start = Path.GetFileName(prefix);
             return Directory.EnumerateFileSystemEntries(dir)
                 .Where(p => Path.GetFileName(p).StartsWith(start, StringComparison.OrdinalIgnoreCase))
-                .Where(p => Directory.Exists(p) || Path.GetExtension(p).ToLowerInvariant() is ".dll" or ".exe" or ".sys")
+                .Where(p => Directory.Exists(p) || extensions.Contains(Path.GetExtension(p).ToLowerInvariant()))
                 .Take(MaxValues + 1)
                 .ToList();
         }

@@ -85,7 +85,8 @@ public static class ServerHost
             // Tools (annotations from Mcp/ToolEffects.cs), resources and prompts.
             .WithCatalog()
             .WithCompleteHandler((context, _) =>
-                ValueTask.FromResult(Completions.Complete(context.Services!.GetRequiredService<AssemblyWorkspace>(), context.Params!)))
+                ValueTask.FromResult(Completions.Complete(context.Services!.GetRequiredService<AssemblyWorkspace>(), context.Params!,
+                    context.Services!.GetRequiredService<MinidumpService>().OpenIds)))
             .WithSubscribeToResourcesHandler((context, _) =>
             {
                 context.Services!.GetRequiredService<ResourceSubscriptions>().Subscribe(context.Params!.Uri);

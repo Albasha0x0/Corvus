@@ -110,6 +110,9 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         public void Dispose() => (Memory as IDisposable)?.Dispose();
     }
 
+    /// <summary>Ids of the dumps opened so far (open_minidump, bucket_minidumps).</summary>
+    public IReadOnlyCollection<string> OpenIds => [.. _ids.Keys];
+
     /// <summary>
     /// Opens a dump by id (from an earlier open_minidump) or path; a path is registered under its file name (#2, #3...
     /// when another dump has the name).

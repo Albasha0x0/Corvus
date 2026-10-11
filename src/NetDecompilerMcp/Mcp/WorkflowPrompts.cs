@@ -156,4 +156,37 @@ public static class WorkflowPrompts
         Report exactly which bytes changed, at which addresses, and why.
         {Evidence}
         """;
+
+    [McpServerPrompt(Name = "compare_builds", Title = "Compare two builds")]
+    [Description("What changed between two builds of an application (assemblies or native images), and carry existing work over to the new one.")]
+    public static string CompareBuilds(
+        [Description("The old build: a file or folder.")] string oldPath,
+        [Description("The new build: a file or folder.")] string newPath,
+        [Description("What matters most (optional), e.g. 'networking' or 'the license check'.")] string? focus = null) => $"""
+        Compare {oldPath} (old) with {newPath} (new) with the net-decompiler tools.
+        1. load_assembly both paths; note the ids each side gets (the new side's ids carry #2 when the names repeat).
+        2. .NET: compare_assemblies oldAssembly=<old id> newAssembly=<new id> for every pair; native: compare_native_images oldImage=<old id> newImage=<new id>.
+        3. For the 5-10 most relevant changed members, find_counterpart with diff=true; for changed native functions, diff_function (view=asm, or pseudocode with IDA).
+        4. Carry work forward: apply_edits targetBuild=other dryRun=true for exported .NET edits, update_to_new_build dryRun=true for native names and patches.
+        5. record_note kind=finding for each conclusion, anchored to the new build.
+        {(string.IsNullOrWhiteSpace(focus) ? "" : $"Focus especially on: {focus}.\n")}Report the changes that matter with tokens or addresses on both sides, what carried over, and what needs manual work.
+        {Evidence}
+        """;
+
+    [McpServerPrompt(Name = "triage_crash", Title = "Triage a crash")]
+    [Description("From a crash dump, a folder of dumps or crash text to the faulting code: where it crashed, why, and whether it is our code.")]
+    public static string TriageCrash(
+        [Description("A .dmp file, an open dump id, or a folder of dumps (optional).")] string? dump = null,
+        [Description("Crash text (optional): a log excerpt, exception text, Report.wer or event text.")] string? crashText = null,
+        [Description("The crashed program's binaries (';'-separated ids or paths; optional).")] string? images = null) => $"""
+        Triage this crash with the net-decompiler tools.{(string.IsNullOrWhiteSpace(images) ? "" : $" Load the binaries first: {images}.")}
+        - A folder of dumps ({dump ?? "none given"}): bucket_minidumps, then triage the representative of the largest bucket.
+        - A dump: open_minidump (exception, managed section; downloadDac=true only when the user agrees to a download), dump_stack on the faulting thread,
+          then for the top frames that are not runtime or raising machinery: decompile_native or find_method_by_address for native and Il2Cpp code,
+          decompile_member assembly=<assembly> member=<token> for .NET frames, dump_object on the managed exception's address.
+        - Crash text ({(string.IsNullOrWhiteSpace(crashText) ? "none given" : "below")}): symbolize_stack_text, and check each frame's buildCheck before reasoning about it.
+        {(string.IsNullOrWhiteSpace(crashText) ? "" : $"Crash text:\n{crashText}\n")}Report the faulting condition with addresses, whether the crash is in the application's code or a dependency, and what is unknown;
+        record_note kind=question for each unknown.
+        {Evidence}
+        """;
 }
