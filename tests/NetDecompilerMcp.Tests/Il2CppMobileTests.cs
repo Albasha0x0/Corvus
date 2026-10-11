@@ -111,4 +111,181 @@ public sealed class Il2CppMobileTests(ITestOutputHelper output) : IDisposable
         }
         output.WriteLine($"versions {Il2CppMetadataReader.MinVersion}-{Il2CppMetadataReader.MaxVersion}");
     }
+
+    private static readonly byte[] MetadataBytes = [0xAF, 0x1B, 0xB1, 0xFA, 31, 0, 0, 0];
+
+    private string Put(string relative, byte[]? bytes = null)
+    {
+        var path = _dir.File(relative.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, bytes ?? [0x7F, 0x45, 0x4C, 0x46]);
+        return path;
+    }
+
+    [Fact]
+    public void GameFilesAreFoundInEveryPlatformLayout()
+    {
+        // Android, extracted: lib/<abi>/libil2cpp.so, assets/bin/Data/Managed/Metadata.
+        var arm64 = Put("apk/lib/arm64-v8a/libil2cpp.so");
+        var armv7 = Put("apk/lib/armeabi-v7a/libil2cpp.so");
+        var metadata = Put("apk/assets/bin/Data/Managed/Metadata/global-metadata.dat", MetadataBytes);
+        foreach (var path in new[] { _dir.File("apk"), metadata, arm64 })
+        {
+            var files = Assert.IsType<Il2CppGameFiles>(Il2CppGameFiles.Find(path));
+            Assert.Equal((arm64, metadata, "android"), (files.Binary, files.Metadata, files.Platform));
+            Assert.EndsWith(Path.Combine("assets", "bin", "Data"), files.DataDirectory);
+        }
+        Assert.Equal(armv7, Il2CppGameFiles.Find(armv7)!.Binary);
+        Assert.Equal(armv7, Il2CppGameFiles.Find(_dir.File("apk"), "armv7")!.Binary);
+        var missing = Assert.Throws<ToolError>(() => Il2CppGameFiles.Find(_dir.File("apk"), "x86"));
+        Assert.Equal(ErrorCode.NotFound, missing.Code);
+        Assert.Contains("arm64-v8a", missing.Message);
+
+        // iOS: Frameworks/UnityFramework.framework/UnityFramework, Data/Managed/Metadata; found inside a Payload folder too.
+        var framework = Put("Payload/Game.app/Frameworks/UnityFramework.framework/UnityFramework");
+        var iosMetadata = Put("Payload/Game.app/Data/Managed/Metadata/global-metadata.dat", MetadataBytes);
+        foreach (var path in new[] { _dir.File("Payload"), _dir.File("Payload/Game.app"), iosMetadata, framework })
+            Assert.Equal((framework, iosMetadata, "ios"), Il2CppGameFiles.Find(path) is { } f ? (f.Binary, f.Metadata, f.Platform) : default);
+        var universal = Il2CppGameFiles.Find(_dir.File("Payload/Game.app"), "arm64")!;
+        Assert.Equal("arm64", universal.Slice);
+
+        // macOS .app and Linux.
+        var dylib = Put("Mac.app/Contents/Frameworks/GameAssembly.dylib");
+        var macMetadata = Put("Mac.app/Contents/Resources/Data/il2cpp_data/Metadata/global-metadata.dat", MetadataBytes);
+        Assert.Equal((dylib, macMetadata, "macos"), Il2CppGameFiles.Find(macMetadata) is { } m ? (m.Binary, m.Metadata, m.Platform) : default);
+        Assert.Equal(dylib, Il2CppGameFiles.Find(_dir.File("Mac.app"))!.Binary);
+        var so = Put("linux/GameAssembly.so");
+        var linuxMetadata = Put("linux/Game_Data/il2cpp_data/Metadata/global-metadata.dat", MetadataBytes);
+        Assert.Equal((so, linuxMetadata, "linux"), Il2CppGameFiles.Find(linuxMetadata) is { } l ? (l.Binary, l.Metadata, l.Platform) : default);
+
+        // Side by side.
+        var lone = Put("flat/libil2cpp.so");
+        Assert.Equal((lone, "android"), Il2CppGameFiles.Find(Put("flat/global-metadata.dat", MetadataBytes)) is { } s ? (s.Binary, s.Platform) : default);
+        Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => Il2CppGameFiles.Find(Put("half/assets/bin/Data/Managed/Metadata/global-metadata.dat", MetadataBytes))).Code);
+    }
+
+    /// <summary>A zip of (path, bytes) entries.</summary>
+    private static byte[] Zip(params (string Path, byte[] Bytes)[] entries)
+    {
+        using var stream = new MemoryStream();
+        using (var zip = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+            foreach (var (path, bytes) in entries)
+            {
+                using var s = zip.CreateEntry(path).Open();
+                s.Write(bytes);
+            }
+        return stream.ToArray();
+    }
+
+    [Fact]
+    public void PackagesYieldTheirGameFiles()
+    {
+        var cache = _dir.File("cache");
+        byte[] lib64 = [0x7F, 0x45, 0x4C, 0x46, 2], lib32 = [0x7F, 0x45, 0x4C, 0x46, 1];
+        var bundle = new byte[0x20000];
+        "UnityFS"u8.CopyTo(bundle);
+        var apk = Zip(("lib/arm64-v8a/libil2cpp.so", lib64), ("lib/armeabi-v7a/libil2cpp.so", lib32), ("lib/arm64-v8a/libunity.so", [1]),
+            ("assets/bin/Data/Managed/Metadata/global-metadata.dat", MetadataBytes), ("assets/bin/Data/data.unity3d", bundle), ("classes.dex", [0]));
+        var apkPath = Put("in/game.apk", apk);
+        var root = Assert.IsType<string>(Il2CppPackages.Extract(apkPath, null, cache));
+        var files = Il2CppGameFiles.Find(root)!;
+        Assert.Equal(lib64, File.ReadAllBytes(files.Binary));
+        Assert.Equal(MetadataBytes, File.ReadAllBytes(files.Metadata));
+        Assert.Equal(0x10000, new FileInfo(Path.Combine(files.DataDirectory!, "data.unity3d")).Length); // the version header only
+        Assert.False(File.Exists(Path.Combine(root, "lib", "arm64-v8a", "libunity.so")));
+        Assert.False(Directory.Exists(Path.Combine(root, "lib", "armeabi-v7a")));
+        Assert.Equal(root, Il2CppPackages.Extract(apkPath, null, cache)); // cached
+        var v7 = Il2CppPackages.Extract(apkPath, "armeabi-v7a", cache)!;
+        Assert.Equal(lib32, File.ReadAllBytes(Il2CppGameFiles.Find(v7)!.Binary));
+        Assert.Contains("ABIs:", Assert.Throws<ToolError>(() => Il2CppPackages.Extract(apkPath, "x86", cache)).Message);
+
+        // Split set: metadata in the base APK, the library in its ABI split.
+        var xapk = Put("in/game.xapk", Zip(("com.example.game.apk", Zip(("assets/bin/Data/Managed/Metadata/global-metadata.dat", MetadataBytes), ("classes.dex", [0]))),
+            ("config.armeabi_v7a.apk", Zip(("lib/armeabi-v7a/libil2cpp.so", lib32))), ("manifest.json", [0x7B, 0x7D])));
+        var split = Il2CppGameFiles.Find(Il2CppPackages.Extract(xapk, null, cache)!)!;
+        Assert.Equal(lib32, File.ReadAllBytes(split.Binary));
+        Assert.Equal("android", split.Platform);
+
+        var aab = Put("in/game.aab", Zip(("base/lib/arm64-v8a/libil2cpp.so", lib64), ("base/assets/bin/Data/Managed/Metadata/global-metadata.dat", MetadataBytes)));
+        Assert.Equal(lib64, File.ReadAllBytes(Il2CppGameFiles.Find(Il2CppPackages.Extract(aab, null, cache)!)!.Binary));
+
+        var ipa = Put("in/game.ipa", Zip(("Payload/Game.app/Frameworks/UnityFramework.framework/UnityFramework", [0xCF, 0xFA, 0xED, 0xFE]),
+            ("Payload/Game.app/Data/Managed/Metadata/global-metadata.dat", MetadataBytes), ("Payload/Game.app/Data/globalgamemanagers", [5])));
+        var ios = Il2CppGameFiles.Find(Il2CppPackages.Extract(ipa, null, cache)!)!;
+        Assert.Equal(("ios", "UnityFramework"), (ios.Platform, Path.GetFileName(ios.Binary)));
+        Assert.True(File.Exists(Path.Combine(ios.DataDirectory!, "globalgamemanagers")));
+
+        Assert.Null(Il2CppPackages.Extract(Put("in/plain.apk", Zip(("classes.dex", [0]))), null, cache));
+    }
+
+    [Fact]
+    public async Task LoadAssemblyReadsAPackageAndReportsWhyNot()
+    {
+        var apk = Put("in/enc.apk", Zip(("lib/arm64-v8a/libil2cpp.so", File.ReadAllBytes(NativeFixtures.LinuxArm64DbgShim)),
+            ("assets/bin/Data/Managed/Metadata/global-metadata.dat", [0xDE, 0xAD, 0xBE, 0xEF, 31, 0, 0, 0])));
+        var previous = Environment.GetEnvironmentVariable(Il2CppRawLoader.RootVariable);
+        Environment.SetEnvironmentVariable(Il2CppRawLoader.RootVariable, _dir.File("cache"));
+        try
+        {
+            using var ws = new AssemblyWorkspace();
+            var error = await Assert.ThrowsAsync<ToolError>(() => Tools(ws).LoadAssembly(apk));
+            Assert.Contains("encrypted_or_obfuscated", error.Message);
+            Assert.Empty(ws.Assemblies);
+        }
+        finally { Environment.SetEnvironmentVariable(Il2CppRawLoader.RootVariable, previous); }
+    }
+
+    private static NetDecompilerMcp.Tools.WorkspaceTools Tools(AssemblyWorkspace ws)
+    {
+        var options = new ServerOptions { BackgroundIndexing = false, WatchFiles = false };
+        var il2cpp = new Il2CppService(ws);
+        return new NetDecompilerMcp.Tools.WorkspaceTools(ws, il2cpp, new AssemblyReport(ws, il2cpp), new IndexingService(ws, new CallGraphService(ws), options),
+            new NetDecompilerMcp.Services.Analysis.UnpackService(ws));
+    }
+
+    private const string MobileVariable = "NDM_IL2CPP_MOBILE";
+
+    /// <summary>
+    /// Real mobile games (NDM_IL2CPP_MOBILE: a folder of .apk / .xapk / .aab / .ipa packages and extracted game folders):
+    /// each is loaded through load_assembly, every Android package once per ABI it ships, and the counts are reported.
+    /// A build LibCpp2IL cannot read must fail with a reason code.
+    /// </summary>
+    [RequiresRealDataFact(MobileVariable)]
+    [Trait("Speed", "Slow")]
+    public async Task MobileGamesLoad()
+    {
+        var root = RealData.Path(MobileVariable);
+        var inputs = Directory.EnumerateFiles(root).Where(Il2CppPackages.IsPackage).Concat(Directory.EnumerateDirectories(root)).Order(StringComparer.Ordinal).ToList();
+        Assert.NotEmpty(inputs);
+        var previous = Environment.GetEnvironmentVariable(Il2CppRawLoader.RootVariable);
+        if (previous == null) Environment.SetEnvironmentVariable(Il2CppRawLoader.RootVariable, _dir.File("cache"));
+        int read = 0;
+        try
+        {
+            foreach (var input in inputs)
+                foreach (var abi in new string?[] { null, "armeabi-v7a" })
+                {
+                    using var ws = new AssemblyWorkspace(new ServerOptions { WatchFiles = false });
+                    var watch = System.Diagnostics.Stopwatch.StartNew();
+                    try
+                    {
+                        var text = await Tools(ws).LoadAssembly(input, slice: abi);
+                        read++;
+                        var model = Il2CppRawLoader.Model(Path.Combine(Path.GetDirectoryName(ws.Assemblies[0].FilePath)!, "..", Il2CppGameModel.FileName));
+                        output.WriteLine($"{Path.GetFileName(input)} [{abi ?? "default"}] {watch.Elapsed.TotalSeconds:0.0} s: metadata v{model.HeaderVersion}, Unity {model.UnityVersion}, " +
+                                         $"{model.Types} types, {model.MethodDefinitions} methods ({model.MethodsWithCode} with code), {model.Methods.Count} script methods, " +
+                                         $"{ws.Assemblies.Count} dummy assemblies, native {ws.Natives.FirstOrDefault()?.Image.Arch}");
+                        Assert.True(model.MethodsWithCode > 0);
+                        Assert.Contains("Read Il2Cpp game", text);
+                    }
+                    catch (ToolError e)
+                    {
+                        output.WriteLine($"{Path.GetFileName(input)} [{abi ?? "default"}] {watch.Elapsed.TotalSeconds:0.0} s: {e.Message}");
+                        Assert.Matches("reason [a-z0-9_]+|no lib/", e.Message);
+                    }
+                }
+        }
+        finally { Environment.SetEnvironmentVariable(Il2CppRawLoader.RootVariable, previous); }
+        Assert.True(read > 0);
+    }
 }

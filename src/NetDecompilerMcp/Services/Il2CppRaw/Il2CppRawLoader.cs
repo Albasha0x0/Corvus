@@ -7,7 +7,7 @@ using NetDecompilerMcp.Core;
 namespace NetDecompilerMcp.Services;
 
 /// <summary>
-/// Loads a raw Il2Cpp game (GameAssembly.dll + global-metadata.dat) without an external dumper:
+/// Loads a raw Il2Cpp game (its binary + global-metadata.dat) without an external dumper:
 /// <see cref="Il2CppMetadataReader"/> writes <c>root/&lt;key&gt;/DummyDll/*.dll</c>, <c>il2cpp-model.bin</c> and the
 /// marker <see cref="MarkerFileName"/> into a per-user cache, and the dummy assemblies load like an Il2CppDumper
 /// DummyDll folder. The key is the game files' paths, sizes and write times. The Il2Cpp tools find the model through the marker
@@ -22,15 +22,16 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace)
     public const string RootVariable = "NDM_IL2CPP_CACHE";
     public const string DummyFolder = "DummyDll";
     public const int MaxEntries = 8;
-    private const int CacheFormat = 1; // bump when the reader's output changes: older entries are then read again
+    private const int CacheFormat = 2; // bump when the reader's output changes: older entries are then read again
 
     public static string DefaultRoot =>
         Environment.GetEnvironmentVariable(RootVariable) is { Length: > 0 } custom
             ? custom
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), "NetDecompilerMcp", "il2cpp");
 
-    /// <summary>What a cache folder was made from.</summary>
-    public sealed record Marker(string Binary, string Metadata, string BinaryStamp, string MetadataStamp, int Format, string Reader, DateTime Created);
+    /// <summary>What a cache folder was made from; <see cref="BinaryIdentity"/> is the binary's build id or SHA-256, to match a copy loaded from elsewhere.</summary>
+    public sealed record Marker(string Binary, string Metadata, string BinaryStamp, string MetadataStamp, int Format, string Reader, DateTime Created,
+        string? Slice = null, string? BinaryIdentity = null, string? Package = null);
 
     public sealed record Result(Il2CppGameFiles Files, string CacheDirectory, string DummyDirectory, bool FromCache, Il2CppGameModel Model,
         AssemblyWorkspace.LoadReport Load, LoadedNative? Binary, string? BinaryProblem, TimeSpan ReadTime, TimeSpan Elapsed, IReadOnlyList<string> Notes);
@@ -62,7 +63,7 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace)
 
     private static string Key(Il2CppGameFiles files)
     {
-        var text = $"{CacheFormat}|{Path.GetFullPath(files.Binary).ToLowerInvariant()}|{Stamp(files.Binary)}|{Path.GetFullPath(files.Metadata).ToLowerInvariant()}|{Stamp(files.Metadata)}";
+        var text = $"{CacheFormat}|{Path.GetFullPath(files.Binary).ToLowerInvariant()}|{Stamp(files.Binary)}|{Path.GetFullPath(files.Metadata).ToLowerInvariant()}|{Stamp(files.Metadata)}|{files.Slice}";
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..16];
     }
 
@@ -109,7 +110,8 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace)
                 notes.AddRange(output.Notes);
                 progress?.Invoke("saving the model");
                 model.Write(Path.Combine(staging, Il2CppGameModel.FileName));
-                var newMarker = new Marker(files.Binary, files.Metadata, Stamp(files.Binary), Stamp(files.Metadata), CacheFormat, ReaderVersion, DateTime.UtcNow);
+                var newMarker = new Marker(files.Binary, files.Metadata, Stamp(files.Binary), Stamp(files.Metadata), CacheFormat, ReaderVersion, DateTime.UtcNow,
+                    files.Slice, output.BinaryIdentity, files.Package);
                 File.WriteAllText(Path.Combine(staging, MarkerFileName), JsonSerializer.Serialize(newMarker, IndentedJson));
                 if (Directory.Exists(dir))
                 {
@@ -141,7 +143,7 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace)
         string? binaryProblem = null;
         if (loadBinary)
         {
-            try { native = workspace.LoadAny(files.Binary).Native; }
+            try { native = workspace.LoadAny(files.Binary, files.Slice).Native; }
             catch (ToolError ex) { binaryProblem = ex.Message; }
         }
         return new Result(files, dir, dummy, fromCache, model, report, native, binaryProblem, readTime, watch.Elapsed, notes);
@@ -184,7 +186,9 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace)
     {
         var m = r.Model;
         var sb = new StringBuilder();
-        sb.AppendLine($"Read Il2Cpp game {r.Files.Binary} + {r.Files.Metadata} with the built-in reader (LibCpp2IL){(r.FromCache ? " — from the cache" : "")}:");
+        sb.AppendLine($"Read Il2Cpp game {r.Files.Binary}{(r.Files.Slice != null ? $" [{r.Files.Slice}]" : "")} + {r.Files.Metadata} with the built-in reader (LibCpp2IL){(r.FromCache ? " — from the cache" : "")}:");
+        if (r.Files.Package != null) sb.AppendLine($"  {r.Files.Platform} build extracted from {r.Files.Package}");
+        else if (r.Files.Platform != "windows") sb.AppendLine($"  {r.Files.Platform} build");
         sb.AppendLine($"  metadata v{m.HeaderVersion} (read as {m.MetadataVersion:0.##}), Unity {m.UnityVersion} ({m.UnityVersionSource}); image base 0x{m.ImageBase:X}{(m.MemoryImage ? " (memory image)" : "")}");
         sb.AppendLine($"  {m.Images} images, {m.Types} types, {m.MethodDefinitions} methods ({m.MethodsWithCode} with code), {m.Fields} fields; " +
                       $"{m.Methods.Count} ScriptMethod entries, {m.Metadata.Count} metadata and {m.MethodInfos.Count} MethodInfo slots, " +

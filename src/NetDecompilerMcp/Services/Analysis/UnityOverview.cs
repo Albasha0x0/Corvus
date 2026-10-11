@@ -378,7 +378,7 @@ public static class UnityOverview
                 if (state == "readable")
                 {
                     (ratio, namesRead) = MetadataNames(metadata, markers, ct);
-                    if (layout.Platform is not "windows") reason = "header readable; the built-in reader takes a Windows PE GameAssembly.dll only";
+                    if (layout.Platform is "unknown" && binary == null) reason = "header readable; the built-in reader needs the game binary (GameAssembly, libil2cpp.so or UnityFramework) beside it";
                 }
                 else if (state is "encrypted" or "header_tampered")
                     markers.Add(new MarkerFact("encryption", "encrypted Il2Cpp metadata", $"{state}: {reason}", "metadata_names"));
@@ -774,11 +774,11 @@ public static class UnityOverview
                     (obfuscated.Count > 0 ? $" (names obfuscated: {string.Join(", ", obfuscated)}; rename_symbol as you go)." : ".")));
                 steps.Add(new NextStep("list_namespaces", "list_namespaces", Args(("assembly", "Assembly-CSharp")), "The game's own code is in Assembly-CSharp (and Assembly-CSharp-firstpass)."));
                 break;
-            case "il2cpp" when backend.MetadataState == "readable" && layout.Platform == "windows" && backend.NativeBinary != null && !protectedBinary:
+            case "il2cpp" when backend.MetadataState == "readable" && backend.NativeBinary != null && !protectedBinary:
                 steps.Add(new NextStep("load_assembly", "load_assembly", Args(("path", backend.Metadata!)),
-                    $"Il2Cpp build with readable metadata v{backend.MetadataVersion}: the built-in reader builds dummy assemblies (addresses, field offsets, string literals) and loads GameAssembly.dll as a native image."));
+                    $"Il2Cpp build with readable metadata v{backend.MetadataVersion}: the built-in reader builds dummy assemblies (addresses, field offsets, string literals) and loads {Path.GetFileName(backend.NativeBinary)} as a native image."));
                 steps.Add(new NextStep("apply_il2cpp_names", "apply_il2cpp_names", Args(("image", backend.NativeBinary)),
-                    "Names GameAssembly.dll's functions after the C# methods for the native tools (disassemble, find_xrefs, decompile_native)."));
+                    $"Names {Path.GetFileName(backend.NativeBinary)}'s functions after the C# methods for the native tools (disassemble, find_xrefs, decompile_native)."));
                 break;
             case "il2cpp" when backend.MetadataState == "readable" && backend.NativeBinary != null && protectedBinary:
                 steps.Add(new NextStep("dump_from_memory", null, Args(("process", process), ("module", Path.GetFileName(backend.NativeBinary))),
@@ -789,7 +789,7 @@ public static class UnityOverview
             case "il2cpp" when backend.MetadataState is "readable" or "unsupported_version":
                 steps.Add(new NextStep("use_external_dumper", null, Args(("metadata", backend.Metadata!), ("binary", backend.NativeBinary ?? "")),
                     backend.MetadataState == "readable"
-                        ? $"The built-in reader takes a Windows PE GameAssembly.dll; this is a {layout.Platform} build: run Il2CppDumper or Cpp2IL, then load_assembly its DummyDll folder."
+                        ? "The game binary was not found beside the metadata: put it there (GameAssembly, libil2cpp.so or UnityFramework), or run Il2CppDumper or Cpp2IL and load_assembly its DummyDll folder."
                         : $"Metadata version {backend.MetadataVersion} is outside the built-in reader's 24-39: run Il2CppDumper or Cpp2IL, then load_assembly its DummyDll folder."));
                 break;
             case "il2cpp" when backend.MetadataState is "encrypted" or "header_tampered":

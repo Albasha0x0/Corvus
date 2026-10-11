@@ -49,7 +49,8 @@ public static class Guide
         ["il2cpp"] = """
             Il2Cpp games.
             No external dumper is needed: load_assembly the game folder or its global-metadata.dat (GameAssembly.dll beside it; a memory
-            dump of it works too). The built-in reader (metadata v24-39) makes dummy assemblies plus the script and literal data, cached
+            dump of it works too), or a mobile build: an .apk/.xapk/.aab (libil2cpp.so; slice= picks the ABI), an .ipa or .app (UnityFramework),
+            macOS .app or Linux GameAssembly.so. The built-in reader (metadata v24-39) makes dummy assemblies plus the script and literal data, cached
             per user. Unreadable metadata is an error with a reason; items it could not read are listed by reason in the load report.
             Dummy DLLs have empty bodies: get_il2cpp_info (RVAs, field offsets; slot=N for the method implementing a vtable slot),
             find_method_by_address (native address -> method), export_il2cpp_symbols (IDA/Ghidra scripts + C struct header).

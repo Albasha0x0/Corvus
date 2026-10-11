@@ -238,7 +238,12 @@ No external dumper is needed: `load_assembly` on an Il2Cpp game folder or its `g
 methods, RVAs, vtable slots, fields, field offsets and every `script.json` method agree 100% with Il2CppDumper's output; first read
 15 s, reloads from the per-user cache `NDM_IL2CPP_CACHE` in 0.1 s). Unreadable metadata is an error with a reason
 (`encrypted_or_obfuscated`, `unsupported_version`, `binary_mismatch_or_protected`, ...); single items that cannot be read
-are listed by reason in the load report. Il2CppDumper / Cpp2IL output folders keep working as below.
+are listed by reason in the load report. Mobile and Unix builds read the same way: an `.apk` / `.xapk` / `.apks` / `.aab`
+(`libil2cpp.so` of one ABI, `slice=` picks it; only the binary, the metadata and the version files are extracted to the
+cache), an extracted Android package, an `.ipa` or iOS `.app` (`UnityFramework`; FairPlay-encrypted binaries fail with
+`encrypted_fairplay`), a macOS `.app` (`GameAssembly.dylib`) or a Linux build (`GameAssembly.so`). Builds LibCpp2IL
+cannot read on 32-bit ARM fail with `registration_not_found_armv7` / `armv7_unreadable` and point to the arm64-v8a build.
+Il2CppDumper / Cpp2IL output folders keep working as below.
 
 With only the dummy DLLs, the known function starts are the dummy methods' `[Address]` RVAs; `find_method_by_address`
 then reports the preceding method as "probably inside", because generic instantiations (a third to a half of a game's
@@ -524,6 +529,7 @@ are unset:
 | `NDM_IL2CPP_DUMMY_DIR` | An Il2CppDumper / Cpp2IL `DummyDll` folder | address round-trips; IDA / Ghidra / C header export |
 | `NDM_UNITY_TITLES` | Optional: `;`-separated Unity game folders to add to the ones found in Steam libraries | `unity_overview` on real titles: version, backend, markers, timings |
 | `NDM_IL2CPP_GAME`, `NDM_IL2CPP_GAME_DUMP` | A raw Il2Cpp game (folder or `global-metadata.dat`); optionally an Il2CppDumper `DummyDll` folder of the same game | built-in metadata reader end to end; agreement rates with the dump (types, methods, RVAs, fields, offsets, literals) |
+| `NDM_IL2CPP_MOBILE` | A folder of mobile Il2Cpp builds (`.apk` / `.xapk` / `.aab` / `.ipa` packages and extracted game folders) | each loaded through `load_assembly`, Android packages once per ABI; counts, timings and reason codes |
 | `NDM_IL2CPP_STRINGS_DIR` | An Il2CppDumper `DummyDll` folder with `stringliteral.json` / `script.json` (and optionally `GameAssembly.dll`) beside it | string-literal index and code references: counts, timings, retained memory; navigation index size and time, round trips (method → RVA → method, script.json name → RVA → name, type → TypeInfo slot → type, vtable slot → method) |
 | `NDM_COMPARE_OLD_DIR`, `NDM_COMPARE_NEW_DIR` | Two builds of the same app | build comparison |
 | `NDM_COMPARE_ASSEMBLY` | Optional: the assembly to compare (default: the largest application assembly in both) | build comparison |

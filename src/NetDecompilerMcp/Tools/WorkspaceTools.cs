@@ -41,9 +41,10 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                  "A native PE (without .NET metadata), ELF or Mach-O file given by path loads as a native image for the native tools (get_pe_info, list_imports, list_exports, list_functions, disassemble); " +
                  "a universal Mach-O loads one slice (slice=) as name[slice]; " +
                  "folder loads take only .NET assemblies and list the native files they skipped. " +
-                 "An Il2Cpp game (its folder, or its global-metadata.dat with GameAssembly.dll beside it or in the game folder; also a memory dump of GameAssembly.dll) is read by the built-in metadata reader (versions 24-39, no external dumper): " +
+                 "An Il2Cpp game (game folder or global-metadata.dat: Windows, Linux, macOS, extracted Android, iOS .app; an .apk/.xapk/.aab/.ipa; also a memory dump of the binary) " +
+                 "is read by the built-in metadata reader (versions 24-39, no external dumper): " +
                  "dummy assemblies with method addresses, field offsets and tokens, plus string literals, generic instantiations and metadata slots for the Il2Cpp tools, cached per user (NDM_IL2CPP_CACHE); " +
-                 "GameAssembly.dll is loaded as a native image too. Unreadable metadata is an error with a reason (encrypted_or_obfuscated, unsupported_version, binary_mismatch_or_protected); unreadable items are listed by reason. " +
+                 "the binary is loaded as a native image too. Unreadable metadata is an error with a reason (encrypted_or_obfuscated, unsupported_version, binary_mismatch_or_protected, encrypted_fairplay); unreadable items are listed by reason. " +
                  "Files are read into memory and never locked. The directory joins the reference search path. Loading the same path twice is a no-op. " +
                  "loadProviders=true also loads the DLLs a file's imports bind to (one level, never their own dependencies; at most " +
                  "16 per call), so native_call_tree, find_xrefs and the .NET call tools continue into them.")]
@@ -51,11 +52,12 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         [Description("Absolute path to an assembly file or a directory.")] string path,
         [Description("When path is a directory, also load assemblies in subdirectories.")] bool recursive = false,
         [Description("For a file: also load the DLLs its imports bind to, one level deep (at most 16).")] bool loadProviders = false,
-        [Description("Universal Mach-O: the architecture slice to load (or its index); the default prefers arm64e, arm64, x86_64.")] string? slice = null,
+        [Description("Universal Mach-O slice (name or index; default arm64e, arm64, x86_64), or an Android Il2Cpp game's ABI (default arm64-v8a).")] string? slice = null,
         RequestContext<CallToolRequestParams> context = null!, // bound by the SDK
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
     {
-        if (RawIl2CppGame(path) is { } game)
+        var requestedSlice = string.IsNullOrWhiteSpace(slice) ? null : slice.Trim();
+        if (RawIl2CppGame(path, requestedSlice) is { } game)
         {
             int step = 0;
             var result = (il2cppRaw ?? new Il2CppRawLoader(workspace)).Load(game, loadBinary: true,
@@ -64,7 +66,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         }
         if (!Directory.Exists(path))
         {
-            var (loaded, native) = workspace.LoadAny(path, string.IsNullOrWhiteSpace(slice) ? null : slice.Trim());
+            var (loaded, native) = workspace.LoadAny(path, requestedSlice);
             var providers = loadProviders && link != null && (native == null || native.Pe != null) ? Providers(loaded, native) : "";
             if (native != null && loaded == null)
             {
@@ -73,8 +75,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                        $"{Plural(image.Sections.Count, "section")}, {Plural(image.Imports.Count, "import")}, {Plural(image.Exports.Count, "export")}" +
                        (image.RuntimeFunctions.Count > 0 ? $", {Plural(image.RuntimeFunctions.Count, "unwind entry")}" : "") +
                        (image.Issues.Count > 0 ? $"\n  {Plural(image.Issues.Count, "parse issue")} (get_pe_info lists them)" : "") + providers +
-                       (Path.GetFileName(native.FilePath).Equals(Il2CppGameFiles.BinaryFileName, StringComparison.OrdinalIgnoreCase)
-                        && Il2CppGameFiles.MetadataIn(Path.GetDirectoryName(native.FilePath)!) is { } metadata
+                       (Il2CppMetadataNear(native.FilePath) is { } metadata
                            ? $"\n  Il2Cpp game: its metadata is {metadata}; load_assembly that file (or the game folder) reads it with the built-in reader " +
                              "(dummy assemblies, addresses, field offsets, string literals), or apply_il2cpp_names on this image does it"
                            : "");
@@ -97,19 +98,33 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     }, cancellationToken));
 
     /// <summary>
-    /// The Il2Cpp game a load_assembly path names: a global-metadata.dat, or a folder holding GameAssembly.dll and its
-    /// metadata (game folder, or both files side by side). A GameAssembly.dll alone loads as a native image.
+    /// The Il2Cpp game a load_assembly path names: a global-metadata.dat, a game folder (Windows, Linux, macOS .app,
+    /// extracted Android package, iOS .app) or both files side by side, or an .apk / .xapk / .apks / .aab / .ipa holding
+    /// one (extracted to the cache). A game binary alone loads as a native image.
     /// </summary>
-    private static Il2CppGameFiles? RawIl2CppGame(string path)
+    private static Il2CppGameFiles? RawIl2CppGame(string path, string? slice)
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
         string full;
         try { full = Path.GetFullPath(path); }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { return null; }
-        if (File.Exists(full)) return Il2CppGameFiles.IsMetadataFile(full) ? Il2CppGameFiles.Find(full) : null;
+        if (Il2CppPackages.IsPackage(full))
+        {
+            var root = Il2CppPackages.Extract(full, slice);
+            return root == null ? null : (Il2CppGameFiles.Find(root, slice) ?? throw new ToolError(ErrorCode.NotFound, $"{full} holds Il2Cpp metadata but no game binary.")) with { Package = full };
+        }
+        if (File.Exists(full)) return Il2CppGameFiles.IsMetadataFile(full) ? Il2CppGameFiles.Find(full, slice) : null;
         if (!Directory.Exists(full)) return null;
-        try { return Il2CppGameFiles.Find(full); }
+        try { return Il2CppGameFiles.Find(full, slice); }
         catch (ToolError e) when (e.Code == ErrorCode.NotFound) { return null; } // half a game: an ordinary folder load, with the layout hints
+    }
+
+    /// <summary>The metadata of the Il2Cpp game whose binary is at <paramref name="binary"/>, or null.</summary>
+    private static string? Il2CppMetadataNear(string binary)
+    {
+        if (!Il2CppGameFiles.BinaryNames.Any(n => n.Equals(Path.GetFileName(binary), StringComparison.OrdinalIgnoreCase))) return null;
+        try { return Il2CppGameFiles.Find(binary)?.Metadata; }
+        catch (ToolError) { return null; }
     }
 
     /// <summary>Loads the provider DLLs of a loaded file's imports (native) or P/Invoke declarations (.NET), one level.</summary>

@@ -27,7 +27,8 @@ public static class Il2CppMetadataReader
     private static readonly object Gate = new();
     private const int MaxLibraryMessages = 50;
 
-    public sealed record Output(Il2CppGameModel Model, IReadOnlyList<string> Notes, TimeSpan WriteTime);
+    /// <param name="BinaryIdentity">The binary's build id (ELF build-id, Mach-O UUID), else the SHA-256 of its file.</param>
+    public sealed record Output(Il2CppGameModel Model, IReadOnlyList<string> Notes, TimeSpan WriteTime, string BinaryIdentity);
 
     /// <summary>The metadata header's magic and version; ToolError when the file is not readable metadata of a supported version.</summary>
     public static int CheckHeader(string metadataPath, byte[]? bytes = null)
@@ -77,6 +78,7 @@ public static class Il2CppMetadataReader
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { throw new ToolError(ErrorCode.IoError, $"Cannot read the game files: {ex.Message}"); }
         int headerVersion = CheckHeader(files.Metadata, metadata);
+        var sha = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(binary));
         var opened = Il2CppBinaryLayout.Open(binary, files.Binary, files.Slice);
         binary = opened.Bytes;
         var layout = opened.Layout;
@@ -152,7 +154,7 @@ public static class Il2CppMetadataReader
                 }
                 notes.AddRange(log.Messages.Take(10).Select(m => $"LibCpp2IL: {m}"));
                 model.ReadTime = watch.Elapsed;
-                return new Output(model, notes, writeTime);
+                return new Output(model, notes, writeTime, layout.BuildId ?? sha);
             }
             finally
             {

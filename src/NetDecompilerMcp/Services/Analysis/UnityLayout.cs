@@ -14,7 +14,7 @@ internal static class UnityLayout
     {
         if (bytes.Length >= 4 && BitConverter.ToUInt32(bytes, 0) == MetadataMagic)
             return "Unity IL2CPP metadata (global-metadata.dat): type and method definitions of an IL2CPP build. load_assembly this file (with the build's " +
-                   "GameAssembly.dll beside it or in the game folder) reads it with the built-in reader: dummy assemblies with addresses and field offsets, " +
+                   "binary (GameAssembly, libil2cpp.so or UnityFramework) beside it or in the game folder) reads it with the built-in reader: dummy assemblies with addresses and field offsets, " +
                    "string literals (get_il2cpp_info, find_method_by_address, search_strings).";
         if (PeImage.TryParse(bytes) is { } pe && pe.Exports(bytes, 4000).Any(e => e.StartsWith("il2cpp_", StringComparison.Ordinal)))
         {
