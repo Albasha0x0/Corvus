@@ -287,6 +287,10 @@ public class Worker implements GhidraLaunchable {
             case "script": return ScriptOps.run(this, r);
             case "field_xrefs": return read(() -> FieldOps.fieldXrefs(this, r));
             case "export_gzf": return InfoOps.exportPacked(this, r);
+            case "analyzers": return read(() -> analyzers());
+            case "reanalyze": return reanalyze(r);
+            case "function_candidates": return read(() -> ControlOps.functionCandidates(this, r));
+            case "set_marks": return write("set marks", () -> ControlOps.setMarks(this, r));
             default: throw new WorkerError("invalid_argument", "unknown op '" + r.op + "'");
         }
     }
@@ -655,6 +659,106 @@ public class Worker implements GhidraLaunchable {
             Thread.sleep(20);
         }
         return new JsonObject();
+    }
+
+    // --- analysis control: analyzer options and reanalysis ---
+
+    /** Analysis options of the program: {options: [[name, type, value, description]]} by name. */
+    private JsonElement analyzers() {
+        Options options = program.getOptions(Program.ANALYSIS_PROPERTIES);
+        List<String> names = new ArrayList<>(options.getOptionNames());
+        java.util.Collections.sort(names, String.CASE_INSENSITIVE_ORDER);
+        JsonArray rows = new JsonArray();
+        for (String name : names) {
+            Object value = options.getObject(name, null);
+            JsonArray row = new JsonArray();
+            row.add(name);
+            row.add(switch (options.getType(name)) {
+                case BOOLEAN_TYPE -> "bool";
+                case INT_TYPE, LONG_TYPE -> "int";
+                case DOUBLE_TYPE, FLOAT_TYPE -> "number";
+                case STRING_TYPE -> "string";
+                case ENUM_TYPE -> "enum";
+                default -> options.getType(name).name().toLowerCase().replace("_type", "");
+            });
+            row.add(value == null ? "" : value.toString());
+            row.add(options.getDescription(name));
+            rows.add(row);
+        }
+        JsonObject o = new JsonObject();
+        o.add("options", rows);
+        return o;
+    }
+
+    /**
+     * Runs auto-analysis again over the program, or [start, end), within budget_seconds; options [[k, v]] apply to this run
+     * and are restored after it. A full run that finishes marks the analysis complete (it resumes a partial one). Saved.
+     */
+    private JsonElement reanalyze(Request r) throws Exception {
+        long started = System.nanoTime();
+        JsonObject result = write("reanalyze", () -> {
+            JsonObject a = r.args;
+            List<String> warnings = new ArrayList<>();
+            AutoAnalysisManager mgr = AutoAnalysisManager.getAnalysisManager(program);
+            mgr.initializeOptions();
+            Options options = program.getOptions(Program.ANALYSIS_PROPERTIES);
+            java.util.Map<String, Object> previous = new java.util.LinkedHashMap<>();
+            for (JsonElement e : array(a, "options")) {
+                String name = e.getAsJsonArray().get(0).getAsString();
+                if (options.isRegistered(name)) previous.put(name, options.getObject(name, null));
+                setOption(options, name, e.getAsJsonArray().get(1).getAsString(), warnings);
+            }
+            ghidra.program.model.address.AddressSet range = null;
+            if (a.has("start") && !a.get("start").isJsonNull()) {
+                Address from = addr(a, "start");
+                Address to = a.has("end") && !a.get("end").isJsonNull() ? addr(a, "end").subtract(1) : from;
+                range = new ghidra.program.model.address.AddressSet(from, to);
+            }
+            int before = program.getFunctionManager().getFunctionCount();
+            double budget = a.has("budget_seconds") ? a.get("budget_seconds").getAsDouble() : 0;
+            Monitor m = r.monitor;
+            Thread timer = new Thread(() -> {
+                try {
+                    Thread.sleep((long) (Math.max(1, budget) * 1000));
+                    m.cancel();
+                }
+                catch (InterruptedException e) {
+                    // finished in time
+                }
+            }, "ndm reanalysis budget");
+            timer.setDaemon(true);
+            if (budget > 0) timer.start();
+            GhidraScriptUtil.acquireBundleHostReference();
+            boolean finished;
+            try {
+                r.monitor.setMessage("reanalysis");
+                mgr.reAnalyzeAll(range);
+                mgr.startAnalysis(r.monitor);
+                finished = !r.monitor.isCancelled();
+            }
+            finally {
+                timer.interrupt();
+                GhidraScriptUtil.releaseBundleHostReference();
+                for (var p : previous.entrySet()) options.putObject(p.getKey(), p.getValue());
+            }
+            if (finished && range == null) {
+                GhidraProgramUtilities.markProgramAnalyzed(program);
+                program.getOptions(STAMPS).setString(ANALYSIS_STAMP, "complete");
+            }
+            JsonObject o = new JsonObject();
+            o.addProperty("complete", finished);
+            o.addProperty("analysis_complete", "complete".equals(program.getOptions(STAMPS).getString(ANALYSIS_STAMP, null)));
+            o.addProperty("before", before);
+            o.addProperty("after", program.getFunctionManager().getFunctionCount());
+            JsonArray w = new JsonArray();
+            for (String s : warnings) w.add(s);
+            o.add("warnings", w);
+            return o;
+        });
+        r.monitor.setMessage("save");
+        saveProgram(TaskMonitor.DUMMY); // the request's monitor is cancelled when the budget ran out
+        result.addProperty("seconds", Math.round((System.nanoTime() - started) / 1e6) / 1000.0);
+        return result;
     }
 
     // --- output ---

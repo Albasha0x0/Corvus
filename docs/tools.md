@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
-153 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+154 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -17,7 +17,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [native-edit](#native-edit) | yes | 9: native names, comments, patches and saving |
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
-| [engine](#engine) | no | 11: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
+| [engine](#engine) | no | 12: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
 | [android](#android) | no | 19: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
 | [dumps](#dumps) | no | 7: crash dumps and crash text |
 | [live](#live) | no | 1: read-only inspection of a running process |
@@ -1960,6 +1960,23 @@ Change the engine's analysis (IDA or Ghidra) at an address. kind=code decodes in
 | `end` | string |  |  | Exclusive end address (same forms as address). |
 | `type` | string |  |  | kind=data: byte, word, dword, qword, float, double, string, string16 or a C type, optionally with [count]. |
 | `engine` | string |  |  | Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra), ida or ghidra. Values: auto, ida, ghidra. |
+
+### reanalyze_native
+
+**Re-run native auto-analysis** (destructive, open-world, long-running)
+
+Run IDA's or Ghidra's auto-analysis again over an image (or start-end) and save the database; a full run also completes a Ghidra analysis the open's budget cut short. options= sets analyzers for this run only; analyzers=true lists them with their values.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
+| `engine` | string |  |  | auto, ida or ghidra. Values: auto, ida, ghidra. |
+| `analyzers` | boolean |  | `false` | List the analyzer options and values instead of running. |
+| `filter` | string |  |  | With analyzers: name filter. |
+| `options` | string[] |  |  | name=value per option, e.g. AF_FLIRT=false or 'Decompiler Parameter ID=true'. |
+| `start` | string |  |  | Range start (default: the whole image). |
+| `end` | string |  |  | Range end (exclusive). |
+| `seconds` | integer |  | `600` | Time budget (default 600, max 3600); what is left runs on the next run. |
 
 ### set_native_operand
 

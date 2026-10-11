@@ -284,6 +284,8 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["declare_native_types"] = (new() { ["image"] = NativeSample(dir), ["declarations"] = "struct S { int a; };", ["engine"] = "bogus" },
             "Error (invalid_argument) in declare_native_types: parameter 'engine' must be one of auto, ida"),
         ["list_native_types"] = (new() { ["image"] = NativeSample(dir), ["engine"] = "bogus" }, "Error (invalid_argument) in list_native_types: parameter 'engine' must be one of auto, ida"),
+        ["reanalyze_native"] = (new() { ["image"] = NativeSample(dir), ["engine"] = "bogus" },
+            "Error (invalid_argument) in reanalyze_native: parameter 'engine' must be one of auto, ida"),
         ["define_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["kind"] = "function", ["engine"] = "bogus" },
             "Error (invalid_argument) in define_native: parameter 'engine' must be one of auto, ida"),
         ["set_native_operand"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["operand"] = 0, ["display"] = "hex", ["engine"] = "bogus" },

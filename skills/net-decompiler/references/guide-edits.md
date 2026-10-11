@@ -24,7 +24,8 @@ list_native_edits, undo_native_edit, save_native to a new file (checksum recompu
 export_native_annotations writes IDA / Ghidra scripts; export_native_patches writes IDAPython, IDA .dif, IPS or JSON.
 Engine edits (IDA or Ghidra): set_native_type (prototypes), set_native_local (decompiler locals), get_native_frame and
 set_native_stack_var (stack frames), declare_native_types and list_native_types (C declarations kept per image),
-define_native (code, functions, data items, undefined bytes), set_native_operand (operand display: number base,
+define_native (code, functions, data items, undefined bytes; list_functions view=candidates finds code outside functions),
+reanalyze_native (the engine's auto-analysis again, with per-run analyzer options), set_native_operand (operand display: number base,
 offset, stack variable, enum member, struct offset);
 ida_python runs IDAPython in the image's IDA worker, off unless --ida-scripting; ghidra_script runs a Java GhidraScript in the
 Ghidra worker (one transaction, rolled back on failure, saved after), off unless --ghidra-scripting; export_engine_database

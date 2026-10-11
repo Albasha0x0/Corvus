@@ -3135,6 +3135,190 @@ OPS["defined_strings"] = op_defined_strings
 OPS["image_info"] = op_image_info
 
 
+# ---- analysis control: analyzer flags, reanalysis, function candidates, marks ----
+
+_ANALYZER_FLAGS = [
+    ("AF_CODE", "trace execution flow"), ("AF_MARKCODE", "mark typical code sequences as code"), ("AF_JUMPTBL", "locate and create jump tables"),
+    ("AF_PURDAT", "control flow to data segment is ignored"), ("AF_USED", "analyze and create all xrefs"), ("AF_UNK", "delete instructions with no xrefs"),
+    ("AF_PROCPTR", "create function if data xref data->code32 exists"), ("AF_PROC", "create functions if call is present"),
+    ("AF_FTAIL", "create function tails"), ("AF_LVAR", "create stack variables"), ("AF_STKARG", "propagate stack argument information"),
+    ("AF_REGARG", "propagate register argument information"), ("AF_TRACE", "trace stack pointer"), ("AF_VERSP", "perform full SP-analysis"),
+    ("AF_ANORET", "perform no-return analysis"), ("AF_MEMFUNC", "try to guess member function types"), ("AF_TRFUNC", "truncate functions upon code deletion"),
+    ("AF_STRLIT", "create string literal if data xref exists"), ("AF_CHKUNI", "check for unicode strings"), ("AF_FIXUP", "create offsets and segments using fixup info"),
+    ("AF_DREFOFF", "create offset if data xref to seg32 exists"), ("AF_IMMOFF", "convert 32bit instruction operand to offset"),
+    ("AF_DATOFF", "automatically convert data to offsets"), ("AF_FLIRT", "use flirt signatures"), ("AF_SIGCMT", "append a signature name comment for recognized anonymous library functions"),
+    ("AF_SIGMLT", "allow recognition of several copies of the same function"), ("AF_HFLIRT", "automatically hide library functions"),
+    ("AF_JFUNC", "rename jump functions as j_..."), ("AF_NULLSUB", "rename empty functions as nullsub_..."), ("AF_DODATA", "coagulate data segs at the final pass"),
+    ("AF_DOCODE", "coagulate code segs at the final pass"), ("AF_FINAL", "final pass of analysis"),
+    ("AF2_DOEH", "handle EH information"), ("AF2_DORTTI", "handle RTTI information"), ("AF2_MACRO", "try to combine several instructions into a macro"),
+    ("AF2_MERGESTR", "merge string literals created using data xrefs"),
+]
+
+
+def _analyzer_bit(name):
+    import ida_ida
+    bit = getattr(ida_ida, name, None)
+    if bit is None:
+        return None, None
+    return bit, (ida_ida.inf_get_af2, ida_ida.inf_set_af2) if name.startswith("AF2_") else (ida_ida.inf_get_af, ida_ida.inf_set_af)
+
+
+def op_analyzers(args):
+    # IDA's analysis flags as options: {options: [[name, "bool", "true"|"false", description]]}
+    need_open()
+    rows = []
+    for name, description in _ANALYZER_FLAGS:
+        bit, accessors = _analyzer_bit(name)
+        if bit is not None:
+            rows.append([name, "bool", "true" if accessors[0]() & bit else "false", description])
+    return {"options": rows}
+
+
+def _set_analyzer(name, value, warnings):
+    bit, accessors = _analyzer_bit(name.strip().upper())
+    if bit is None:
+        warnings.append("unknown analysis option '%s'" % name)
+        return
+    text = str(value).strip().lower()
+    if text not in ("true", "false", "1", "0", "on", "off"):
+        warnings.append("analysis option '%s' = '%s': not true or false" % (name, value))
+        return
+    get, set_ = accessors
+    set_(get() | bit if text in ("true", "1", "on") else get() & ~bit)
+
+
+def op_reanalyze(args):
+    # plans [start, end) or the whole database for analysis again and waits for the queue within budget_seconds; options
+    # [[flag, value]] apply to this run only. Saved. complete: the queue ran empty; the rest runs on the next wait.
+    m = need_open()
+    import ida_ida
+    start = time.time()
+    budget = max(1.0, float(args.get("budget_seconds") or 600))
+    before = m.ida_funcs.get_func_qty()
+    saved = (ida_ida.inf_get_af(), ida_ida.inf_get_af2())
+    warnings = []
+    for name, value in args.get("options") or []:
+        _set_analyzer(name, value, warnings)
+    if args.get("start") is not None:
+        lo = ea_of(args, "start")
+        hi = ea_of(args, "end") if args.get("end") is not None else lo + 1
+    else:
+        lo, hi = ida_ida.inf_get_min_ea(), ida_ida.inf_get_max_ea()
+    try:
+        m.ida_auto.plan_range(lo, hi)
+        step = 0x100000
+        ea = lo
+        while ea < hi and time.time() - start < budget:
+            m.ida_auto.auto_wait_range(ea, min(hi, ea + step))
+            ea += step
+        if time.time() - start < budget and not m.ida_auto.auto_is_ok():
+            m.ida_auto.auto_wait()
+        complete = bool(m.ida_auto.auto_is_ok())
+    finally:
+        ida_ida.inf_set_af(saved[0])
+        ida_ida.inf_set_af2(saved[1])
+    if hexrays_ready(m):
+        m.ida_hexrays.clear_cached_cfuncs()
+    op_save({})
+    return {"complete": complete, "before": before, "after": m.ida_funcs.get_func_qty(), "warnings": warnings,
+            "seconds": round(time.time() - start, 3)}
+
+
+def op_function_candidates(args):
+    # runs of code items in no function, in address order, over at most max_scan code items: rows
+    # [start, end (exclusive), instructions, call refs, jump refs, data refs] to the run's start; scanned, truncated
+    m = need_open()
+    import ida_bytes, ida_xref
+    limit = max(1, int(args.get("max_scan") or 2000000))
+    calls = (ida_xref.fl_CF, ida_xref.fl_CN)
+    jumps = (ida_xref.fl_JF, ida_xref.fl_JN)
+    rows, scanned, truncated = [], 0, False
+    run = None  # [start, end, count]
+
+    def close():
+        if run is None or rva_of(run[0]) is None or rva_of(run[1]) is None:
+            return
+        c = j = d = 0
+        for x in m.idautils.XrefsTo(run[0], 0):
+            if x.type in calls:
+                c += 1
+            elif x.type in jumps:
+                j += 1
+            elif not x.iscode:
+                d += 1
+        rows.append([rva_of(run[0]), rva_of(run[1]), run[2], c, j, d])
+
+    for seg_ea in m.idautils.Segments():
+        seg = m.ida_segment.getseg(seg_ea)
+        if seg is None or not (seg.perm & m.ida_segment.SEGPERM_EXEC or seg.type == m.ida_segment.SEG_CODE):
+            continue
+        for head in m.idautils.Heads(seg.start_ea, seg.end_ea):
+            if not ida_bytes.is_code(ida_bytes.get_flags(head)):
+                close()
+                run = None
+                continue
+            if scanned >= limit:
+                truncated = True
+                break
+            scanned += 1
+            if m.ida_funcs.get_func(head) is not None:
+                close()
+                run = None
+            elif run is not None and run[1] == head:
+                run[1] = head + ida_bytes.get_item_size(head)
+                run[2] += 1
+            else:
+                close()
+                run = [head, head + ida_bytes.get_item_size(head), 1]
+        close()
+        run = None
+        if truncated:
+            break
+    return {"rows": rows, "scanned": scanned, "truncated": truncated}
+
+
+MARK_PREFIX = "NDM: "
+
+
+def op_set_marks(args):
+    # replaces the marked positions titled "NDM: ..." with items [[rva, text]] and records the stamp (stamp_key, stamp).
+    # Removing a slot (mark_position at BADADDR) shifts the later ones down, so slots are cleared from the top.
+    m = need_open()
+    import ida_idc, ida_moves
+    badaddr = m.idautils.ida_idaapi.BADADDR
+    used = 0
+    while used < ida_moves.MAX_MARK_SLOT and ida_idc.get_marked_pos(used) != badaddr:
+        used += 1
+    removed = 0
+    for slot in range(used - 1, -1, -1):
+        if (ida_idc.get_mark_comment(slot) or "").startswith(MARK_PREFIX):
+            ida_idc.mark_position(badaddr, 0, 0, 0, slot, "")
+            removed += 1
+    slot = used - removed
+    placed, failures = 0, []
+    for rva, text in args.get("items") or []:
+        ea = _state["base"] + rva
+        if slot >= ida_moves.MAX_MARK_SLOT:
+            failures.append("0x%X: all %d marked positions are in use" % (rva, ida_moves.MAX_MARK_SLOT))
+            continue
+        if not m.ida_bytes.is_mapped(ea):
+            failures.append("0x%X: not mapped" % rva)
+            continue
+        ida_idc.mark_position(ea, 0, 0, 0, slot, MARK_PREFIX + text)
+        slot += 1
+        placed += 1
+    if args.get("stamp_key"):
+        stamp_node(True).hashset_buf(args["stamp_key"], args.get("stamp") or "")
+    changed(m)
+    return {"set": placed, "removed": removed, "failed": len(failures), "failures": failures}
+
+
+OPS["analyzers"] = op_analyzers
+OPS["function_candidates"] = op_function_candidates
+OPS["reanalyze"] = op_reanalyze
+OPS["set_marks"] = op_set_marks
+
+
 def watch_parent(parent):
     # POSIX has no job object: exit when the server dies, even while a request runs (stdin EOF is only seen between requests)
     try:

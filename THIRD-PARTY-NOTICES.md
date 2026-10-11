@@ -45,7 +45,7 @@ deadlines: per-request deadlines that long loops check for partial results, IDA'
 and the profile hook that stops a script) are adapted from
 [mrexodia/ida-pro-mcp](https://github.com/mrexodia/ida-pro-mcp); the Ghidra worker's `EditOps.java` follows the same
 operations on Ghidra's listing, and `search_instructions` (`src/NetDecompilerMcp/Tools/NativeCodeTools.Search.cs`) follows
-the query shape of its `insn_query` and `search_text`. The output formats of `make_code_pattern` follow its signature maker, and the function roles of the `summarize_file` triage and the `analyze_native_function` component view follow its `survey_binary` and `analyze_component`.
+the query shape of its `insn_query` and `search_text`. The IDA marked positions the server keeps for notes (`set_marks`) use its bookmark slot handling. The output formats of `make_code_pattern` follow its signature maker, and the function roles of the `summarize_file` triage and the `analyze_native_function` component view follow its `survey_binary` and `analyze_component`.
 
 ```
 MIT License
@@ -110,7 +110,9 @@ from these Apache License 2.0 projects (https://www.apache.org/licenses/LICENSE-
   (`CodeOps.java`); C declarations parsed with `CParser` into the program's data type manager with the replace
   handler, and types parsed against the program's manager so pointer sizes follow its data organization
   (`TypeOps.java`); decompiler variables renamed and retyped through `HighFunctionDBUtil.updateDBVariable`
-  (`FrameOps.java`).
+  (`FrameOps.java`); the shape of `search_decompiled` (a regex over every function's pseudocode with a function cap), of
+  `reanalyze_native` (per-run analyzer options over a re-run auto-analysis) and of `list_functions view=candidates`
+  (code outside functions ranked by references) (`ControlOps.java`, `Worker.java`).
 - [jtang613/GhidrAssistMCP](https://github.com/jtang613/GhidrAssistMCP), Copyright (c) 2025 Jason Tang, MIT License (text as
   for ida-pro-mcp above): a Java script run through `GhidraScriptUtil.getProvider` and `getScriptInstance`, then
   `execute` with a `GhidraState` and `ScriptControls` whose writers capture its output (`ScriptOps.java`).
