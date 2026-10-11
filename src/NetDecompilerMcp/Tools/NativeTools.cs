@@ -476,12 +476,13 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                 int starts = (int)Math.Min(Math.Min(read, 1 << 20), backed - at);
                 foreach (var (bytes, mask, label) in patterns)
                 {
-                    // Candidates are found with a vectorized search for the fixed bytes the pattern starts with.
-                    int fixedPrefix = Array.IndexOf(mask, false) is var w and >= 0 ? w : mask.Length;
-                    var prefix = bytes.AsSpan(0, fixedPrefix);
+                    // Candidates are found with a vectorized search for the first run of fixed bytes (after any leading wildcards).
+                    int lead = Array.IndexOf(mask, true);
+                    int run = (Array.IndexOf(mask, false, lead) is var w and >= 0 ? w : mask.Length) - lead;
+                    var prefix = bytes.AsSpan(lead, run);
                     for (int i = 0; i < starts && i + bytes.Length <= span.Length; i++)
                     {
-                        int k = span[i..Math.Min(span.Length, starts + prefix.Length - 1)].IndexOf(prefix);
+                        int k = span[(i + lead)..Math.Min(span.Length, starts + lead + prefix.Length - 1)].IndexOf(prefix);
                         if (k < 0) break;
                         i += k;
                         if (i < starts && i + bytes.Length <= span.Length && Matches(span, i, bytes, mask)) Hit(s, s.Rva + at + (uint)i, label);
@@ -524,14 +525,13 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                 throw new ToolError(ErrorCode.InvalidArgument, $"'{t}' is not a hex byte or ??.", "write the pattern as hex bytes separated by spaces, e.g. 'E8 ?? ?? ?? ?? 85 C0'");
             mask[i] = true;
         }
-        if (mask.Length > 0 && !mask[0]) throw new ToolError(ErrorCode.InvalidArgument, "The pattern must start with a fixed byte, not a wildcard.");
+        if (mask.Length > 0 && !mask.Contains(true)) throw new ToolError(ErrorCode.InvalidArgument, "The pattern has no fixed byte, only wildcards.");
         return (bytes, mask, "hex");
     }
 
     private static bool Matches(ReadOnlySpan<byte> data, int at, byte[] bytes, bool[] mask)
     {
-        if (data[at] != bytes[0]) return false;
-        for (int j = 1; j < bytes.Length; j++)
+        for (int j = 0; j < bytes.Length; j++)
             if (mask[j] && data[at + j] != bytes[j]) return false;
         return true;
     }

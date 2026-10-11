@@ -565,7 +565,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
             total += count;
             if (found.Count == 0 || hits.Count >= limit) continue;
             NativeCodeIndex? index = null;
-            if (pe.Arch is NativeArch.X86 or NativeArch.X64)
+            if (pe.Arch is NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64)
                 index = await code.Index(native, null, cancellationToken);
             else notes.Add($"{native.Id}: {pe.Arch} code is not analyzed, so hits have no containing function");
             foreach (var rva in found)

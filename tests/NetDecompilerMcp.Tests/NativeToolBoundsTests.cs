@@ -40,6 +40,34 @@ public class NativeToolBoundsTests
         Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10), $"took {sw.Elapsed}");
     }
 
+    [Fact]
+    public async Task PatternsMayStartWithWildcardsAsMakeCodePatternWritesThem()
+    {
+        using var dir = new TempDir();
+        var path = dir.File("lead.dll");
+        var b = new PeBuilder();
+        var text = b.Add(".text", [0x55, 0x48, 0x89, 0xE5, 0x5D, 0xC3, 0xCC, 0xCC], 0x60000020);
+        b.EntryPoint = text.Rva;
+        File.WriteAllBytes(path, b.Build());
+        using var h = new NativeToolHarness();
+        Assert.StartsWith("1 hit\n", await h.Native.SearchBytes(path, "?? 48 89 E5 ?? C3"));
+        Assert.StartsWith("0 hits", await h.Native.SearchBytes(path, "?? 48 89 E6"));
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => h.Native.SearchBytes(path, "?? ??"))).Code);
+        var diff = new NetDecompilerMcp.Tools.NativeDiffTools(h.Workspace, h.Code);
+        var hit = Assert.Single((await diff.SearchCodePattern("?? ?? 89 E5", "lead.dll")).Hits);
+        Assert.Equal((0u, $"0x{b.ImageBase + text.Rva:X}"), (hit.FunctionOffset!.Value, hit.Address));
+
+        // ARM64 hits name their function too
+        var arm = h.Workspace.LoadAny(NativeFormats.NativeFixtures.WinArm64DbgShim).Native!;
+        var index = await h.Code.Index(arm, null, default);
+        var f = index.Functions.First(x => x.Size >= 8);
+        var head = new byte[8];
+        arm.Image.Read(f.Start, head);
+        var armHits = await diff.SearchCodePattern("?? ?? ?? ?? " + string.Join(" ", head.Skip(4).Select(x => x.ToString("X2"))), arm.Id);
+        Assert.Empty(armHits.Notes);
+        Assert.Contains(armHits.Hits, x => x.FunctionOffset == 0 && x.FunctionAddress == NetDecompilerMcp.Native.NativeAddress.Va(arm.Image, f.Start));
+    }
+
     [WindowsFact]
     public async Task SearchBytesPagesItsHits()
     {

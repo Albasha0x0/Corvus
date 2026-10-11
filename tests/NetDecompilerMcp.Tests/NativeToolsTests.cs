@@ -105,7 +105,7 @@ public class NativeToolsTests
         Assert.StartsWith("Error (not_found)", (await Assert.ThrowsAsync<ToolError>(() => tools.ResolveAddress("kernel32.dll", "0xFFFFFFFFFFFF"))).Render(null));
         Assert.StartsWith("Error (not_found)", (await Assert.ThrowsAsync<ToolError>(() => tools.ResolveAddress("kernel32.dll", "NoSuchExportName"))).Render(null));
         Assert.StartsWith("Error (invalid_argument)", (await Assert.ThrowsAsync<ToolError>(() => tools.SearchBytes("kernel32.dll", "4D ZZ"))).Render(null));
-        Assert.StartsWith("Error (invalid_argument)", (await Assert.ThrowsAsync<ToolError>(() => tools.SearchBytes("kernel32.dll", "?? 5A"))).Render(null));
+        Assert.StartsWith("Error (invalid_argument)", (await Assert.ThrowsAsync<ToolError>(() => tools.SearchBytes("kernel32.dll", "?? ??"))).Render(null));
         Assert.StartsWith("Error (unsupported)", (await Assert.ThrowsAsync<ToolError>(() => tools.GetPeInfo(Env.FixturePath))).Render(null));
         // A .NET tool given a native image says which tools apply.
         var wrongKind = Assert.Throws<ToolError>(() => env.Workspace.Read(() => env.Workspace.Get("kernel32.dll")));
