@@ -350,7 +350,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "export_native_annotations", Title = "Export native annotations")]
-    [Description("Write the image's names and comments as an IDAPython script (ida), a Ghidra script (ghidra) or JSON, the user's over the NativeAOT and Il2Cpp name layers; the IDA script and JSON " +
+    [Description("Write the image's names and comments as an IDAPython script (ida), a Ghidra script (ghidra) or JSON, over the NativeAOT and Il2Cpp names; the IDA script and JSON " +
                  "also carry the user's engine types. Scripts apply by RVA, rebased to the database's image base. header: a C header of declared " +
                  "types, prototypes by name and externs of typed globals.")]
     public Task<string> ExportNativeAnnotations(

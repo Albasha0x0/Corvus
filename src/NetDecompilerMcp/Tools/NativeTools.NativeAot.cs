@@ -14,12 +14,12 @@ namespace NetDecompilerMcp.Tools;
 public sealed partial class NativeTools
 {
     [McpServerTool(Name = "get_nativeaot_info", Title = "NativeAOT metadata", UseStructuredContent = true, OutputSchemaType = typeof(NativeAotInfo))]
-    [Description("What a NativeAOT image's own metadata recovers, read without executing it (.NET 7-10; PE, ELF and Mach-O, 64- and 32-bit). view=summary: runtime and ReadyToRun version, " +
-                 "dehydration, module header, each recovery stage with its status (complete / partial / absent / unsupported), counts and the share of " +
-                 "function starts named. view=sections: the module sections. view=types: MethodTables with name, name origin (typemap / composition / " +
-                 "vtable / element / generated), kind and base. view=type: one MethodTable by name or address with flags, base chain, interfaces and " +
-                 "vtable slots and dispatch-map interface implementations with their code. view=methods: named method bodies (origin stacktrace / invoke). view=strings: frozen string literals with " +
-                 "their references. view=statics: GC, non-GC and thread statics with their type and the fields the metadata keeps. query filters types / methods / strings / statics by substring. The names also apply automatically as the nativeaot name layer.")]
+    [Description("What a NativeAOT image's own metadata recovers, (.NET 7-10; PE, ELF, Mach-O; 32/64-bit). view=summary: runtime and ReadyToRun version, " +
+                 "dehydration, header, each stage's status, counts and the share of " +
+                 "function starts named. view=sections: module sections. view=types: MethodTables with name, name origin, " +
+                 "kind and base. view=type: one MethodTable (name or address): flags, bases, interfaces, " +
+                 "vtable and interface slots. view=methods: named method bodies. view=strings: frozen strings with " +
+                 "their references. view=statics: statics bases with their types and known fields. query filters the lists by substring. Its names apply on load as the nativeaot layer.")]
     public Task<string> GetNativeAotInfo(
         [Description(ImageDescription)] string image,
         [Description("summary (default), sections, types, type, methods, strings or statics.")] string? view = null,
@@ -213,7 +213,7 @@ public sealed partial class NativeTools
 }
 
 /// <summary>One row of a get_nativeaot_info list view.</summary>
-public sealed record NativeAotRow(string Address, string Name, [property: Description("section, MethodTable kind, method origin (stacktrace / invoke), string, slot, interface or statics kind (gc / nongc / thread).")] string Kind,
+public sealed record NativeAotRow(string Address, string Name, [property: Description("section, MethodTable kind, method origin, string, slot, interface or statics kind.")] string Kind,
     string? Detail);
 
 public sealed record NativeAotInfo(string Image, string View,

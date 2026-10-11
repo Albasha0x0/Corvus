@@ -1439,7 +1439,7 @@ Symbols of the PDB loaded for a native image (load_pdb, or found automatically):
 
 **NativeAOT metadata** (read-only, idempotent, long-running)
 
-What a NativeAOT image's own metadata recovers, read without executing it (.NET 7-10; PE, ELF and Mach-O, 64- and 32-bit). view=summary: runtime and ReadyToRun version, dehydration, module header, each recovery stage with its status (complete / partial / absent / unsupported), counts and the share of function starts named. view=sections: the module sections. view=types: MethodTables with name, name origin (typemap / composition / vtable / element / generated), kind and base. view=type: one MethodTable by name or address with flags, base chain, interfaces and vtable slots and dispatch-map interface implementations with their code. view=methods: named method bodies (origin stacktrace / invoke). view=strings: frozen string literals with their references. view=statics: GC, non-GC and thread statics with their type and the fields the metadata keeps. query filters types / methods / strings / statics by substring. The names also apply automatically as the nativeaot name layer.
+What a NativeAOT image's own metadata recovers, (.NET 7-10; PE, ELF, Mach-O; 32/64-bit). view=summary: runtime and ReadyToRun version, dehydration, header, each stage's status, counts and the share of function starts named. view=sections: module sections. view=types: MethodTables with name, name origin, kind and base. view=type: one MethodTable (name or address): flags, bases, interfaces, vtable and interface slots. view=methods: named method bodies. view=strings: frozen strings with their references. view=statics: statics bases with their types and known fields. query filters the lists by substring. Its names apply on load as the nativeaot layer.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1496,7 +1496,7 @@ Comment a native address (kept, pushed to engines). scope: line (repeatable: als
 
 **Export native annotations** (destructive, idempotent, long-running)
 
-Write the image's names and comments as an IDAPython script (ida), a Ghidra script (ghidra) or JSON, the user's over the NativeAOT and Il2Cpp name layers; the IDA script and JSON also carry the user's engine types. Scripts apply by RVA, rebased to the database's image base. header: a C header of declared types, prototypes by name and externs of typed globals.
+Write the image's names and comments as an IDAPython script (ida), a Ghidra script (ghidra) or JSON, over the NativeAOT and Il2Cpp names; the IDA script and JSON also carry the user's engine types. Scripts apply by RVA, rebased to the database's image base. header: a C header of declared types, prototypes by name and externs of typed globals.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
