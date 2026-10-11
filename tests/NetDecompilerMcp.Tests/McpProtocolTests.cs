@@ -317,7 +317,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["export_engine_database"] = (new() { ["image"] = NativeSample(dir), ["outputPath"] = dir.File("db.i64"), ["engine"] = "ghidra" }, "Error (invalid_argument) in export_engine_database"),
         ["ghidra_script"] = (new() { ["image"] = NativeSample(dir), ["code"] = "println(\"x\");" }, "Error (unsupported) in ghidra_script: ghidra_script is disabled"),
         ["rename_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["name"] = "SweepFunc" }, "Named"),
-        ["comment_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["text"] = "entry" }, "Commented"),
+        ["comment_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["text"] = "entry" }, "comment set"),
         ["export_native_annotations"] = (new() { ["image"] = NativeSample(dir), ["outputPath"] = dir.File("ann.py"), ["format"] = "ida" }, "Exported"),
         ["patch_asm"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["assembly"] = "nop", ["dryRun"] = true }, "Dry run"),
         ["patch_bytes"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["hex"] = "90" }, "Patched"),
