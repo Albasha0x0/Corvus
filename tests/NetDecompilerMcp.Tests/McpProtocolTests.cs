@@ -281,6 +281,8 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["list_native_types"] = (new() { ["image"] = NativeSample(dir), ["engine"] = "bogus" }, "Error (invalid_argument) in list_native_types: parameter 'engine' must be one of auto, ida"),
         ["define_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["kind"] = "function", ["engine"] = "bogus" },
             "Error (invalid_argument) in define_native: parameter 'engine' must be one of auto, ida"),
+        ["set_native_operand"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["operand"] = 0, ["display"] = "hex", ["engine"] = "bogus" },
+            "Error (invalid_argument) in set_native_operand: parameter 'engine' must be one of auto, ida"),
         ["ida_python"] = (new() { ["image"] = NativeSample(dir), ["code"] = "1 + 1" }, "Error (unsupported) in ida_python: ida_python is disabled"),
         ["rename_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["name"] = "SweepFunc" }, "Named"),
         ["comment_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["text"] = "entry" }, "Commented"),

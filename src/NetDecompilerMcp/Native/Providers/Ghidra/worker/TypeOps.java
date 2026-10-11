@@ -455,6 +455,7 @@ final class TypeOps {
             items.add(FrameOps.applyLocal(w, r, l.get(0).getAsLong(), l.get(1).getAsString(), l.get(2).isJsonNull() ? null : l.get(2).getAsInt(),
                 text(l.get(3)), text(l.get(4))));
         }
+        EditOps.after(w, r, items);
         w.setStamp(a);
         JsonObject o = new JsonObject();
         o.addProperty("decl_errors", errors);

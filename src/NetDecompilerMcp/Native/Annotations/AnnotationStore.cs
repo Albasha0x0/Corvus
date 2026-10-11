@@ -40,8 +40,17 @@ public sealed class AnnotationDocument
         [JsonPropertyName("type")] public string? Type { get; set; }
     }
 
-    // Format 3: analysis edits in the order made.
+    // Format 3: analysis edits in the order made, operand display formats.
     [JsonPropertyName("analysis"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<AnalysisEntry>? Analysis { get; set; }
+    [JsonPropertyName("operands"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<OperandEntry>? Operands { get; set; }
+
+    public sealed class OperandEntry
+    {
+        [JsonPropertyName("rva")] public string Rva { get; set; } = "";
+        [JsonPropertyName("operand")] public int Operand { get; set; }
+        [JsonPropertyName("display")] public string Display { get; set; } = "";
+        [JsonPropertyName("detail"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Detail { get; set; }
+    }
 
     public sealed class AnalysisEntry
     {
@@ -52,7 +61,7 @@ public sealed class AnnotationDocument
     }
 
     /// <summary>Holds what format 3 added; older builds must leave such a file alone.</summary>
-    public bool HasFormat3 => Analysis is { Count: > 0 };
+    public bool HasFormat3 => Analysis is { Count: > 0 } || Operands is { Count: > 0 };
 
     public bool HasUserTypes => Declarations is { Count: > 0 } || Types is { Count: > 0 } || Locals is { Count: > 0 } || StackVars is { Count: > 0 } || HasFormat3;
 

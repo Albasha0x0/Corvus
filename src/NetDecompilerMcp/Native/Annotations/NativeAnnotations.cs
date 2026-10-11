@@ -79,8 +79,13 @@ public sealed class NativeAnnotations
         foreach (var a in doc.Analysis ?? [])
             if (Rva(a.Rva) is { } r && a.Kind.Length > 0)
                 analysis.Add(new NativeAnalysisEdit(r, a.Kind, a.End != null ? Rva(a.End) : null, a.Type));
-        return new UserTypeLayer(doc.Declarations?.Where(d => !string.IsNullOrWhiteSpace(d)).ToList() ?? [], types, locals, stack, analysis);
+        var operands = new Dictionary<(uint, int), NativeOperandEdit>();
+        foreach (var o in doc.Operands ?? [])
+            if (Rva(o.Rva) is { } r && o.Display.Length > 0) operands[(r, o.Operand)] = new NativeOperandEdit(r, o.Operand, o.Display, o.Detail);
+        return new UserTypeLayer(doc.Declarations?.Where(d => !string.IsNullOrWhiteSpace(d)).ToList() ?? [], types, locals, stack, analysis, operands);
     }
+
+    private static string OperandKey(AnnotationDocument.OperandEntry o) => FormattableString.Invariant($"{o.Rva}:{o.Operand}");
 
     private static AnnotationDocument.AnalysisEntry Entry(NativeAnalysisEdit a) =>
         new() { Rva = Hex(a.Rva), Kind = a.Kind, End = a.End is { } e ? Hex(e) : null, Type = a.Type };
@@ -269,6 +274,9 @@ public sealed class NativeAnnotations
         if (u.StackVars.Count > 0)
             doc.StackVars = u.StackVars.ToDictionary(s => Hex(s.Key), s => s.Value.Select(e => new AnnotationDocument.StackVarEntry { Offset = e.Offset, Name = e.Name, Type = e.Type }).ToList());
         if (u.Analysis.Count > 0) doc.Analysis = u.Analysis.Select(Entry).ToList();
+        if (u.Operands.Count > 0)
+            doc.Operands = u.Operands.OrderBy(o => o.Key).Select(o => new AnnotationDocument.OperandEntry
+                { Rva = Hex(o.Value.Rva), Operand = o.Value.Operand, Display = o.Value.Display, Detail = o.Value.Detail }).ToList();
         return doc;
     }
 
@@ -303,8 +311,9 @@ public sealed class NativeAnnotations
 
     // ---- merge ----
 
-    private const int NameSection = 0, CommentSection = 1, TypeSection = 2, LocalSection = 3, StackSection = 4, DeclarationSection = 5, AnalysisSection = 6;
-    private static readonly string[] SectionLabels = ["name", "comment", "type", "locals", "stack members", "declaration", "analysis edit"];
+    private const int NameSection = 0, CommentSection = 1, TypeSection = 2, LocalSection = 3, StackSection = 4, DeclarationSection = 5, AnalysisSection = 6,
+        OperandSection = 7;
+    private static readonly string[] SectionLabels = ["name", "comment", "type", "locals", "stack members", "declaration", "analysis edit", "operand"];
 
     /// <summary>The sidecar as one comparable text value per key in each section (lists as their JSON).</summary>
     private sealed class Snapshot
@@ -337,6 +346,7 @@ public sealed class NativeAnnotations
         foreach (var (k, v) in doc.StackVars ?? []) s.Sections[StackSection][k] = JsonSerializer.Serialize(v);
         foreach (var d in doc.Declarations ?? []) s.Sections[DeclarationSection][d] = d;
         foreach (var a in doc.Analysis ?? []) s.Sections[AnalysisSection][a.Rva] = JsonSerializer.Serialize(a);
+        foreach (var o in doc.Operands ?? []) s.Sections[OperandSection][OperandKey(o)] = JsonSerializer.Serialize(o);
         return s;
     }
 
@@ -355,6 +365,8 @@ public sealed class NativeAnnotations
         if (s.Sections[DeclarationSection].Count > 0) doc.Declarations = [.. s.Sections[DeclarationSection].Keys];
         if (s.Sections[AnalysisSection].Count > 0)
             doc.Analysis = s.Sections[AnalysisSection].Values.Select(v => JsonSerializer.Deserialize<AnnotationDocument.AnalysisEntry>(v)!).ToList();
+        if (s.Sections[OperandSection].Count > 0)
+            doc.Operands = s.Sections[OperandSection].Values.Select(v => JsonSerializer.Deserialize<AnnotationDocument.OperandEntry>(v)!).ToList();
         return doc;
     }
 

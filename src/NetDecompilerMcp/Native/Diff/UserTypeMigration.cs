@@ -4,7 +4,7 @@ using NetDecompilerMcp.Native.Providers;
 namespace NetDecompilerMcp.Native.Diff;
 
 /// <summary>
-/// One user type of the old build and what happens to it: <see cref="Kind"/> declarations, analysis, type, local or stack_var;
+/// One user type of the old build and what happens to it: <see cref="Kind"/> declarations, analysis, operand, type, local or stack_var;
 /// <see cref="Apply"/> adds it to a layer of the new build (null when skipped).
 /// </summary>
 public sealed record UserTypeStep(string Kind, uint? OldRva, uint? NewRva, string Value, bool Set, string Reason, int? Tier, double Confidence, string Detail,
@@ -54,6 +54,18 @@ public static class UserTypeMigration
             steps.Add(existing == moved ? Step("analysis", a.Rva, map, value, "same_analysis", "the new build already has this analysis edit", null)
                 : existing != null ? Step("analysis", a.Rva, map, value, "user_analysis_exists", $"the new build has the analysis edit '{existing.Kind}' there", null)
                 : Step("analysis", a.Rva, map, value, null, map.Detail, l => l.WithAnalysis(moved)));
+        }
+
+        foreach (var o in old.Operands.OrderBy(o => o.Key).Select(o => o.Value))
+        {
+            var value = $"operand {o.Operand} {o.Display}{(o.Detail != null ? " " + o.Detail : "")}";
+            var map = Map(o.Rva, functionStart: false);
+            if (map.At is not { } at) { steps.Add(Step("operand", o.Rva, map, value, map.Skip, map.Detail, null)); continue; }
+            var moved = o with { Rva = at };
+            var existing = target.Operands.GetValueOrDefault((at, o.Operand));
+            steps.Add(existing == moved ? Step("operand", o.Rva, map, value, "same_operand", "the new build already shows this operand so", null)
+                : existing != null ? Step("operand", o.Rva, map, value, "user_operand_exists", $"the new build shows the operand as {existing.Display}", null)
+                : Step("operand", o.Rva, map, value, null, map.Detail, l => l.WithOperand(moved)));
         }
 
         foreach (var (rva, type) in old.Types.OrderBy(t => t.Key))

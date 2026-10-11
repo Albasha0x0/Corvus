@@ -75,6 +75,7 @@ public static class ParameterDomains
         ["decompile_native"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["get_native_frame"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["define_native"] = new Dictionary<string, Domain> { ["kind"] = Of(["code", "function", "undefine", "data"]), ["engine"] = DecompilerEngine },
+        ["set_native_operand"] = new Dictionary<string, Domain> { ["display"] = Of(Native.Providers.NativeOperandEdit.Displays), ["engine"] = DecompilerEngine },
         ["set_native_stack_var"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["set_native_type"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["set_native_local"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },

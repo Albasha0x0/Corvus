@@ -53,6 +53,8 @@ public static class AnnotationExport
                 sb.AppendLine($"ndm_stack(0x{s.Function:X}, {s.Offset}, {PyOrNone(s.Name)}, {PyOrNone(s.Type)})");
             foreach (var l in types.Locals.OrderBy(l => l.Key).SelectMany(l => l.Value))
                 sb.AppendLine($"ndm_local(0x{l.Function:X}, {Py(l.Local)}, {(l.Stack is { } k ? k.ToString(System.Globalization.CultureInfo.InvariantCulture) : "None")}, {PyOrNone(l.Name)}, {PyOrNone(l.Type)})");
+            foreach (var o in types.Operands.OrderBy(o => o.Key).Select(o => o.Value))
+                sb.AppendLine(FormattableString.Invariant($"ndm_operand(0x{o.Rva:X}, {o.Operand}, {Py(o.Display)}, {PyOrNone(o.Detail)})"));
             sb.AppendLine("if ndm_failed: print('NetDecompilerMcp: not applied: ' + '; '.join(ndm_failed))");
         }
         sb.AppendLine($"print('NetDecompilerMcp: applied {ann.NameCount} name(s), {ann.CommentCount} comment(s) and {types.Count} user type(s)')");
@@ -108,6 +110,17 @@ public static class AnnotationExport
             else:
                 ok = ndm_data(ea, stop, text or "")
             if not ok: ndm_failed.append('%s 0x%X' % (kind, rva))
+        def ndm_operand(rva, n, display, detail):
+            ea = base + rva
+            if display == "enum": ok = ida_bytes.op_enum(ea, n, idc.get_enum(detail), 0)
+            elif display == "struct":
+                name, _, delta = detail.partition("+")
+                t = ida_typeinf.tinfo_t()
+                ok = t.get_named_type(None, name.strip()) and idc.op_stroff(ea, n, t.get_tid(), int(delta.strip() or "0", 0))
+            elif display == "offset": ok = idc.op_plain_offset(ea, n, 0)
+            else: ok = {"hex": ida_bytes.op_hex, "dec": ida_bytes.op_dec, "oct": ida_bytes.op_oct, "bin": ida_bytes.op_bin, "char": ida_bytes.op_chr,
+                        "stack": ida_bytes.op_stkvar}[display](ea, n)
+            if not ok: ndm_failed.append('operand %d at 0x%X' % (n, rva))
         def ndm_parse(text):
             text = text.strip().rstrip(";").strip()
             named = text.replace("(*)", "(*__ndm_x)", 1) if "(*)" in text else \
@@ -163,7 +176,7 @@ public static class AnnotationExport
         sb.AppendLine("// Ghidra script: apply names and comments exported from NetDecompilerMcp.");
         sb.AppendLine($"// Source: {ann.FilePath}  sha256 {ann.Sha256}");
         sb.AppendLine("// @category NetDecompilerMcp");
-        if (ann.UserTypes.Count > 0) sb.AppendLine($"// {ann.UserTypes.Count} user type(s) (declarations, analysis edits, prototypes, locals, stack variables) are in the IDA and JSON exports only.");
+        if (ann.UserTypes.Count > 0) sb.AppendLine($"// {ann.UserTypes.Count} user type(s) (declarations, analysis edits, prototypes, locals, stack variables, operand formats) are in the IDA and JSON exports only.");
         sb.AppendLine("import ghidra.app.script.GhidraScript;");
         sb.AppendLine("import ghidra.program.model.address.Address;");
         sb.AppendLine("import ghidra.program.model.symbol.SourceType;");
@@ -196,6 +209,7 @@ public static class AnnotationExport
             locals = ann.UserTypes.Locals.OrderBy(l => l.Key).SelectMany(l => l.Value)
                 .Select(l => new { function = l.Function, local = l.Local, stack = l.Stack, name = l.Name, type = l.Type }),
             analysis = ann.UserTypes.Analysis.Select(a => new { rva = a.Rva, kind = a.Kind, end = a.End, type = a.Type }),
+            operands = ann.UserTypes.Operands.OrderBy(o => o.Key).Select(o => new { rva = o.Value.Rva, operand = o.Value.Operand, display = o.Value.Display, detail = o.Value.Detail }),
         };
         return JsonSerializer.Serialize(doc, IndentedJson);
     }

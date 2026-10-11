@@ -215,6 +215,36 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         return $"{k} at {Va(native, rva)}{(stop is { } s ? $"-{Va(native, s)}" : "")}: {done.Text}";
     });
 
+    [McpServerTool(Name = "set_native_operand", Title = "Set how an operand displays")]
+    [Description("Set how an instruction operand displays in the engine's disassembly and, where the decompiler follows it, the pseudocode: hex, dec, " +
+                 "oct, bin, char, offset (the constant as an address), stack (a stack variable), enum (type: the enum, a member of the constant's value; " +
+                 "declare_native_types declares enums), struct (type: 'Packet' or 'Packet+0x10' for a pointer into it; IDA only) or " +
+                 "default (the engine's own). Ghidra shows numbers and enum members as equates." + KeptNote)]
+    public Task<string> SetNativeOperand(
+        [Description(NativeTools.ImageDescription)] string image,
+        [Description("The instruction: " + NativeTools.AddressDescription)] string address,
+        [Description("Operand index, 0 for the first.")] int operand,
+        [Description("hex, dec, oct, bin, char, offset, stack, enum, struct or default.")] string display,
+        [Description("display=enum or struct: the type's name (struct: optionally +delta).")] string? type = null,
+        [Description(EngineDescription)] string? engine = null,
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
+    {
+        var d = (display ?? "").Trim().ToLowerInvariant();
+        if (!NativeOperandEdit.Displays.Contains(d))
+            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown display '{display}'.", $"use {string.Join(", ", NativeOperandEdit.Displays)}");
+        if (operand is < 0 or > 7) throw new ToolError(ErrorCode.InvalidArgument, $"operand must be 0-7, not {operand}.");
+        var t = string.IsNullOrWhiteSpace(type) ? null : type.Trim();
+        if (d is "enum" or "struct" && t == null) throw new ToolError(ErrorCode.InvalidArgument, $"display={d} needs the type's name.", "pass type");
+        if (d is not ("enum" or "struct") && t != null) throw new ToolError(ErrorCode.InvalidArgument, $"type applies to display=enum or struct, not {d}.", "drop type");
+        var (native, rva, session) = await Open(image, address, engine, progress, cancellationToken);
+        var edit = new NativeOperandEdit(rva, operand, d, t);
+        var result = await userTypes.ApplyAsync(native, session, NativeUserTypeBatch.Empty with { Operands = [edit] },
+            (r, layer) => r.Items is [{ Applied: true }] ? layer.WithOperand(edit) : null, cancellationToken);
+        var done = Outcome(result);
+        return $"Operand {operand} at {Va(native, rva)} shows as {d}{(t != null ? " " + t : "")}: {done.Text}";
+    });
+
     [McpServerTool(Name = "list_native_types", Title = "Browse the engine's types")]
     [Description("The named types of the decompiler engine's database (IDA local types, Ghidra data types: from the PDB, RTTI classes, Il2Cpp, the " +
                  "engine's type libraries and declare_native_types), filtered by name and kind, with size and member count; name= shows one type as a C " +

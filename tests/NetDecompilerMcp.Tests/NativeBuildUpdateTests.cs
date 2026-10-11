@@ -298,7 +298,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         h.Code.Annotations(oldN).ChangeUserTypes(l => l.WithDeclarations("struct Cfg { int a; };")
             .WithType(F1, "int __fastcall ReadGlobal(void)").WithType(F5, "void Removed(void)").WithType(F2, "int f2(void)")
             .WithLocal(new(F2, "v1", null, "count", "int")).WithStackVar(new(F3, 0x20, "buffer", "char[16]"))
-            .WithAnalysis(new(F1, "function", F1 + 0x10, null)));
+            .WithAnalysis(new(F1, "function", F1 + 0x10, null)).WithOperand(new(F1, 1, "dec", null)));
         h.Code.Annotations(newN).ChangeUserTypes(l => l.WithType(F2 + Shift, "int mine(void)"));
         var tools = new NativeDiffTools(h.Env.Workspace, h.Code);
 
@@ -326,6 +326,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         Assert.Equal(new NetDecompilerMcp.Native.Providers.NativeStackVarEdit(F3 + Shift, 0x20, "buffer", "char[16]"), Assert.Single(carried.StackVars[F3 + Shift]));
         // the edit keeps its length at the mapped start
         Assert.Equal(new NetDecompilerMcp.Native.Providers.NativeAnalysisEdit(F1 + Shift, "function", F1 + Shift + 0x10, null), Assert.Single(carried.Analysis));
+        Assert.Equal(new NetDecompilerMcp.Native.Providers.NativeOperandEdit(F1 + Shift, 1, "dec", null), Assert.Single(carried.Operands).Value);
 
         var again = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, include: "names", dryRun: false, limit: 500);
         Assert.Equal("already_present", One(again, "names", i => i.Kind == "local").Outcome);

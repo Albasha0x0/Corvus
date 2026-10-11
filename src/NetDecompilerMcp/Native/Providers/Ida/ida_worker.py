@@ -1241,6 +1241,7 @@ def op_apply_user_types(args):
         result["items"].append(apply_stack(m, ti, rva, offset, name, typ))
     for rva, local, stack, name, typ in args.get("locals") or []:
         result["items"].append(apply_local(m, ti, rva, local, stack, name, typ))
+    result["items"] += apply_edits_after(m, ti, args)
     changed(m)
     key = args.get("stamp_key")
     if key:
@@ -1562,8 +1563,8 @@ def op_sleep(args):
     return {}
 
 
-# ---- user edits beyond types (apply_user_types): analysis ----
-# Adapted from mrexodia/ida-pro-mcp define_func / define_code / undefine / make_data (MIT); see THIRD-PARTY-NOTICES.md.
+# ---- user edits beyond types (apply_user_types): analysis, operand display ----
+# Adapted from mrexodia/ida-pro-mcp define_func / define_code / undefine / make_data / set_op_type (MIT); see THIRD-PARTY-NOTICES.md.
 
 DATA_SIZES = {"byte": 1, "word": 2, "dword": 4, "qword": 8, "float": 4, "double": 8}
 
@@ -1571,6 +1572,58 @@ DATA_SIZES = {"byte": 1, "word": 2, "dword": 4, "qword": 8, "float": 4, "double"
 def apply_edits_before(m, ti, args):
     # analysis: [[rva, kind, end or null, type or null]] in the order made
     return [apply_analysis(m, ti, a[0], a[1], a[2], a[3]) for a in args.get("analysis") or []]
+
+
+def apply_edits_after(m, ti, args):
+    # operands: [[rva, operand, display, detail or null]]
+    return [apply_operand(m, ti, o[0], o[1], o[2], o[3]) for o in args.get("operands") or []]
+
+
+def apply_operand(m, ti, rva, n, display, detail):
+    # set_op_type: numeric formats, offset, stack variable, enum member, struct offset ("Name" or "Name+0x10"), default
+    import idc
+    b = m.ida_bytes
+    ea = _state["base"] + rva
+    target = "operand %d %s%s" % (n, display, " " + detail if detail else "")
+
+    def item(applied, error):
+        text = m.ida_lines.generate_disasm_line(ea, m.ida_lines.GENDSM_REMOVE_TAGS) if applied else None
+        return ["operand", rva, target, applied, error, None, n, text]
+
+    if not b.is_loaded(ea) or not b.is_code(b.get_flags(ea)) or b.get_item_head(ea) != ea:
+        return item(False, "no instruction starts at rva 0x%X" % rva)
+    insn = m.ida_ua.insn_t()
+    if m.ida_ua.decode_insn(insn, ea) <= 0 or not 0 <= n < 8 or insn.ops[n].type == m.ida_ua.o_void:
+        return item(False, "the instruction at rva 0x%X has no operand %d" % (rva, n))
+    formats = {"hex": b.op_hex, "dec": b.op_dec, "oct": b.op_oct, "bin": b.op_bin, "char": b.op_chr, "stack": b.op_stkvar,
+               "default": b.clr_op_type}
+    if display in formats:
+        ok = formats[display](ea, n)
+    elif display == "offset":
+        ok = idc.op_plain_offset(ea, n, 0)
+    elif display == "enum":
+        tid = idc.get_enum(detail or "")
+        if tid == m.idautils.ida_idaapi.BADADDR:
+            return item(False, "no enum named %s (declare_native_types declares one)" % detail)
+        ok = b.op_enum(ea, n, tid, 0)
+    elif display == "struct":
+        name, _, delta = (detail or "").partition("+")
+        t = ti.tinfo_t()
+        if not t.get_named_type(None, name.strip()) or not t.is_udt():
+            return item(False, "no struct named %s" % name.strip())
+        try:
+            off = int(delta.strip(), 0) if delta.strip() else 0
+        except ValueError:
+            return item(False, "the struct delta %r is not a number" % delta)
+        ok = idc.op_stroff(ea, n, t.get_tid(), off)
+    else:
+        return item(False, "unknown operand display %r" % display)
+    if not ok:
+        return item(False, "IDA did not show operand %d at rva 0x%X as %s" % (n, rva, display))
+    f = m.ida_funcs.get_func(ea)
+    if f is not None and hexrays_ready(m):
+        m.ida_hexrays.mark_cfunc_dirty(f.start_ea, False)
+    return item(True, None)
 
 
 def data_spec(text):

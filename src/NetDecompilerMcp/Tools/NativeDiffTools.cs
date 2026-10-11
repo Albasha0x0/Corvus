@@ -67,14 +67,14 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         [property: Description("Candidate or nearby new addresses when not mapped.")] IReadOnlyList<string> Candidates);
 
     public sealed record MigrationEntry(
-        [property: Description("name, comment, or a user type: declarations, analysis, type, local, stack_var.")] string Kind,
+        [property: Description("name, comment, or a user type: declarations, analysis, operand, type, local, stack_var.")] string Kind,
         [property: Description("Layer it came from in the old build: user, pdb or il2cpp.")] string Source,
         [property: Description("Null for declarations.")] string? OldAddress, string? NewAddress, string Value,
         [property: Description("set (or would_set in a dry run) or skipped.")] string Action,
         [property: Description("For set: how the address was mapped. For skipped: same_name, same_comment, user_name_exists, user_comment_exists, " +
                                "name_in_use, new_has_own_name, duplicate_target, invalid_name, below_min_tier, below_min_score, same_declarations, same_type, " +
                                "user_type_exists, not_a_function_start, same_local, user_local_exists, same_stack_var, user_stack_var_exists, same_analysis, " +
-                               "user_analysis_exists, or the mapping's reason.")]
+                               "user_analysis_exists, same_operand, user_operand_exists, or the mapping's reason.")]
         string Reason,
         int? Tier, double Confidence, string Detail);
 

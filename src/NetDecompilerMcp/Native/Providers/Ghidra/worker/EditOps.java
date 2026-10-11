@@ -1,5 +1,6 @@
-// The user's analysis edits (code, functions, data, undefined ranges) as apply_user_types items. The operations follow
-// mrexodia/ida-pro-mcp's define_code / define_func / undefine / make_data (MIT) on Ghidra's listing; see THIRD-PARTY-NOTICES.md.
+// The user's analysis edits (code, functions, data, undefined ranges) and operand display formats as apply_user_types
+// items. The operations follow mrexodia/ida-pro-mcp's define_code / define_func / undefine / make_data / set_op_type (MIT)
+// on Ghidra's listing; see THIRD-PARTY-NOTICES.md.
 package ndm.ghidra;
 
 import java.util.Set;
@@ -8,6 +9,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 
 import ghidra.app.cmd.disassemble.DisassembleCommand;
+import ghidra.app.cmd.function.CallDepthChangeInfo;
 import ghidra.app.cmd.function.CreateFunctionCmd;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSet;
@@ -22,10 +24,19 @@ import ghidra.program.model.data.QWordDataType;
 import ghidra.program.model.data.TerminatedStringDataType;
 import ghidra.program.model.data.TerminatedUnicodeDataType;
 import ghidra.program.model.data.WordDataType;
+import ghidra.program.model.lang.Register;
 import ghidra.program.model.listing.CodeUnit;
+import ghidra.program.model.listing.CodeUnitFormat;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.Function;
+import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.Listing;
+import ghidra.program.model.scalar.Scalar;
+import ghidra.program.model.symbol.Equate;
+import ghidra.program.model.symbol.EquateTable;
+import ghidra.program.model.symbol.RefType;
+import ghidra.program.model.symbol.Reference;
+import ghidra.program.model.symbol.ReferenceManager;
 import ghidra.program.model.symbol.SourceType;
 
 /** Edits made inside {@link TypeOps#applyUserTypes}, so they share its transaction, stamp and save. */
@@ -51,8 +62,113 @@ final class EditOps {
         }
     }
 
+    /** Edits applied after the locals: operands [[rva, operand, display, detail or null]]. */
+    static void after(Worker w, Worker.Request r, JsonArray items) throws Exception {
+        for (JsonElement e : Worker.array(r.args, "operands")) {
+            JsonArray o = e.getAsJsonArray();
+            long rva = o.get(0).getAsLong();
+            int n = o.get(1).getAsInt();
+            String display = o.get(2).getAsString();
+            String detail = o.get(3).isJsonNull() ? null : o.get(3).getAsString();
+            try {
+                items.add(operand(w, r, rva, n, display, detail));
+            }
+            catch (ghidra.util.exception.CancelledException c) {
+                throw c;
+            }
+            catch (Exception x) {
+                items.add(FrameOps.item("operand", rva, "operand " + n + " " + display, false, "Ghidra refused the edit: " + x.getMessage(), null, n, null));
+            }
+        }
+    }
+
     private static String hex(long v) {
         return Long.toHexString(v).toUpperCase();
+    }
+
+    /**
+     * An operand's display: numeric formats and enum members as equates (the decompiler shows them too), offset as a memory
+     * reference, stack as a stack reference at the stack depth there; default removes the user's equates and references.
+     */
+    static JsonArray operand(Worker w, Worker.Request r, long rva, int n, String display, String detail) throws Exception {
+        String target = "operand " + n + " " + display + (detail != null ? " " + detail : "");
+        Address a = w.space().getAddress(w.base + rva);
+        Instruction ins = w.program.getMemory().contains(a) ? w.program.getListing().getInstructionAt(a) : null;
+        if (ins == null) return operandItem(rva, n, target, false, "no instruction starts at rva 0x" + hex(rva), null);
+        if (n < 0 || n >= ins.getNumOperands()) return operandItem(rva, n, target, false, "the instruction at rva 0x" + hex(rva) + " has no operand " + n, null);
+        EquateTable equates = w.program.getEquateTable();
+        ReferenceManager refs = w.program.getReferenceManager();
+        Scalar scalar = ins.getScalar(n);
+        if (scalar == null)
+            for (Object o : ins.getOpObjects(n))
+                if (o instanceof Scalar s) scalar = s;
+        String error = null;
+        switch (display) {
+            case "default": {
+                for (Equate eq : equates.getEquates(a, n)) {
+                    eq.removeReference(a, n);
+                    if (eq.getReferenceCount() == 0) equates.removeEquate(eq.getName());
+                }
+                for (Reference ref : refs.getReferencesFrom(a, n))
+                    if (ref.getSource() == SourceType.USER_DEFINED) refs.delete(ref);
+                break;
+            }
+            case "hex", "dec", "oct", "bin", "char", "enum": {
+                if (scalar == null) return operandItem(rva, n, target, false, "operand " + n + " has no constant", null);
+                long v = scalar.getValue();
+                String name;
+                if (display.equals("enum")) {
+                    DataType dt = detail != null ? TypeOps.parseType(w, detail) : null;
+                    if (!(dt instanceof ghidra.program.model.data.Enum en))
+                        return operandItem(rva, n, target, false, "no enum named " + detail + " (declare_native_types declares one)", null);
+                    name = ghidra.program.database.symbol.EquateManager.formatNameForEquate(en.getUniversalID(), v);
+                }
+                else name = switch (display) {
+                    case "hex" -> "0x" + Long.toHexString(scalar.getUnsignedValue()).toUpperCase();
+                    case "dec" -> Long.toString(scalar.getSignedValue());
+                    case "oct" -> "0" + Long.toOctalString(scalar.getUnsignedValue());
+                    case "bin" -> "0b" + Long.toBinaryString(scalar.getUnsignedValue());
+                    default -> v >= 0x20 && v < 0x7F ? "'" + (char) v + "'" : null;
+                };
+                if (name == null) return operandItem(rva, n, target, false, "0x" + hex(v) + " is not a printable character", null);
+                for (Equate eq : equates.getEquates(a, n)) eq.removeReference(a, n);
+                Equate eq = equates.getEquate(name);
+                if (eq == null) eq = equates.createEquate(name, v);
+                else if (eq.getValue() != v) return operandItem(rva, n, target, false, "the equate " + name + " already stands for 0x" + hex(eq.getValue()), null);
+                eq.addReference(a, n);
+                break;
+            }
+            case "offset": {
+                if (scalar == null) return operandItem(rva, n, target, false, "operand " + n + " has no constant", null);
+                Address to = w.space().getAddress(scalar.getUnsignedValue());
+                if (!w.program.getMemory().contains(to)) return operandItem(rva, n, target, false, "0x" + hex(scalar.getUnsignedValue()) + " is not an address in the image", null);
+                Reference ref = refs.addMemoryReference(a, to, RefType.DATA, SourceType.USER_DEFINED, n);
+                refs.setPrimary(ref, true);
+                break;
+            }
+            case "stack": {
+                Function f = w.program.getFunctionManager().getFunctionContaining(a);
+                Register sp = w.program.getCompilerSpec().getStackPointer();
+                if (f == null || scalar == null || !java.util.Arrays.asList(ins.getOpObjects(n)).contains(sp))
+                    return operandItem(rva, n, target, false, "operand " + n + " is not a stack pointer access in a function", null);
+                int depth = new CallDepthChangeInfo(f, r.monitor).getDepth(a);
+                if (depth == Function.UNKNOWN_STACK_DEPTH_CHANGE || depth == Function.INVALID_STACK_DEPTH_CHANGE)
+                    return operandItem(rva, n, target, false, "Ghidra does not know the stack depth at rva 0x" + hex(rva), null);
+                refs.addStackReference(a, n, depth + (int) scalar.getSignedValue(), RefType.DATA, SourceType.USER_DEFINED);
+                break;
+            }
+            case "struct":
+                error = "Ghidra's listing has no struct offset display; type the pointer register's variable with set_native_local instead";
+                break;
+            default:
+                error = "unknown operand display '" + display + "'";
+        }
+        if (error != null) return operandItem(rva, n, target, false, error, null);
+        return operandItem(rva, n, target, true, null, CodeUnitFormat.DEFAULT.getRepresentationString(ins));
+    }
+
+    private static JsonArray operandItem(long rva, int n, String target, boolean applied, String error, String text) {
+        return FrameOps.item("operand", rva, target, applied, error, null, n, text);
     }
 
     static JsonArray analysis(Worker w, Worker.Request r, long rva, String kind, Long end, String type) throws Exception {

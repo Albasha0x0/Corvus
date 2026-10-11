@@ -216,7 +216,7 @@ internal static class WorkerRows
 
     /// <summary>
     /// apply_user_types arguments: decls, types [[rva, declaration]], stack [[function, offset, name, type]], locals [[function,
-    /// local, stack, name, type]]; analysis [[rva, kind, end, type]] only when there are any.
+    /// local, stack, name, type]]; analysis [[rva, kind, end, type]] and operands [[rva, operand, display, detail]] only when there are any.
     /// </summary>
     public static JsonObject UserTypeArgs(NativeUserTypeBatch batch, string? stampKey, string? stamp, bool save)
     {
@@ -230,6 +230,8 @@ internal static class WorkerRows
             ("locals", locals), ("stamp_key", stampKey), ("stamp", stamp), ("save", save));
         if (batch.Analysis.Count > 0)
             args["analysis"] = new JsonArray(batch.Analysis.Select(a => (JsonNode)new JsonArray(a.Rva, a.Kind, a.End, a.Type)).ToArray());
+        if (batch.Operands.Count > 0)
+            args["operands"] = new JsonArray(batch.Operands.Select(o => (JsonNode)new JsonArray(o.Rva, o.Operand, o.Display, o.Detail)).ToArray());
         return args;
     }
 

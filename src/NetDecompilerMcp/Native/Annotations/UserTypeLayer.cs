@@ -6,7 +6,8 @@ namespace NetDecompilerMcp.Native.Annotations;
 
 /// <summary>
 /// The user's engine types of one image: C declarations, analysis edits (code, functions, data, undefined ranges), types of
-/// functions and globals by RVA, stack frame members and decompiler locals by function. Immutable; every change makes a new layer.
+/// functions and globals by RVA, stack frame members and decompiler locals by function, operand display formats. Immutable;
+/// every change makes a new layer.
 /// </summary>
 public sealed class UserTypeLayer
 {
@@ -20,32 +21,40 @@ public sealed class UserTypeLayer
     public IReadOnlyDictionary<uint, IReadOnlyList<NativeStackVarEdit>> StackVars { get; }
     /// <summary>Analysis edits in the order made, one per start address.</summary>
     public IReadOnlyList<NativeAnalysisEdit> Analysis { get; }
+    /// <summary>Operand display formats by instruction and operand.</summary>
+    public IReadOnlyDictionary<(uint Rva, int Operand), NativeOperandEdit> Operands { get; }
 
     public UserTypeLayer(IReadOnlyList<string> declarations, IReadOnlyDictionary<uint, string> types, IReadOnlyDictionary<uint, IReadOnlyList<NativeLocalEdit>> locals,
-        IReadOnlyDictionary<uint, IReadOnlyList<NativeStackVarEdit>> stackVars, IReadOnlyList<NativeAnalysisEdit>? analysis = null)
+        IReadOnlyDictionary<uint, IReadOnlyList<NativeStackVarEdit>> stackVars, IReadOnlyList<NativeAnalysisEdit>? analysis = null,
+        IReadOnlyDictionary<(uint, int), NativeOperandEdit>? operands = null)
     {
         Declarations = declarations;
         Types = types;
         Locals = locals;
         StackVars = stackVars;
         Analysis = analysis ?? [];
+        Operands = operands ?? new Dictionary<(uint, int), NativeOperandEdit>();
     }
 
     private UserTypeLayer With(IReadOnlyList<string>? declarations = null, IReadOnlyDictionary<uint, string>? types = null,
         IReadOnlyDictionary<uint, IReadOnlyList<NativeLocalEdit>>? locals = null, IReadOnlyDictionary<uint, IReadOnlyList<NativeStackVarEdit>>? stackVars = null,
-        IReadOnlyList<NativeAnalysisEdit>? analysis = null) =>
-        new(declarations ?? Declarations, types ?? Types, locals ?? Locals, stackVars ?? StackVars, analysis ?? Analysis);
+        IReadOnlyList<NativeAnalysisEdit>? analysis = null, IReadOnlyDictionary<(uint, int), NativeOperandEdit>? operands = null) =>
+        new(declarations ?? Declarations, types ?? Types, locals ?? Locals, stackVars ?? StackVars, analysis ?? Analysis, operands ?? Operands);
 
-    public bool IsEmpty => Declarations.Count == 0 && Types.Count == 0 && Locals.Count == 0 && StackVars.Count == 0 && Analysis.Count == 0;
+    public bool IsEmpty => Declarations.Count == 0 && Types.Count == 0 && Locals.Count == 0 && StackVars.Count == 0 && Analysis.Count == 0 && Operands.Count == 0;
 
-    /// <summary>Declaration blocks, analysis edits, types, locals and stack members.</summary>
-    public int Count => Declarations.Count + Analysis.Count + Types.Count + Locals.Values.Sum(l => l.Count) + StackVars.Values.Sum(s => s.Count);
+    /// <summary>Declaration blocks, analysis edits, types, locals, stack members and operand formats.</summary>
+    public int Count => Declarations.Count + Analysis.Count + Types.Count + Locals.Values.Sum(l => l.Count) + StackVars.Values.Sum(s => s.Count) + Operands.Count;
 
     /// <summary>Everything, in the order an engine applies it.</summary>
     public NativeUserTypeBatch ToBatch() => new(Declarations,
         Types.OrderBy(t => t.Key).Select(t => new NativePrototype(t.Key, t.Value)).ToList(),
         StackVars.OrderBy(s => s.Key).SelectMany(s => s.Value).ToList(),
-        Locals.OrderBy(l => l.Key).SelectMany(l => l.Value).ToList()) { Analysis = Analysis };
+        Locals.OrderBy(l => l.Key).SelectMany(l => l.Value).ToList())
+    {
+        Analysis = Analysis,
+        Operands = Operands.OrderBy(o => o.Key).Select(o => o.Value).ToList(),
+    };
 
     private string? _stamp;
 
@@ -62,7 +71,17 @@ public sealed class UserTypeLayer
         foreach (var (rva, type) in Types.OrderBy(t => t.Key)) Add(FormattableString.Invariant($"T{rva:X}:{type}"));
         foreach (var s in StackVars.OrderBy(s => s.Key).SelectMany(s => s.Value)) Add(FormattableString.Invariant($"S{s.Function:X}:{s.Offset}:{s.Name}:{s.Type}"));
         foreach (var l in Locals.OrderBy(l => l.Key).SelectMany(l => l.Value)) Add(FormattableString.Invariant($"L{l.Function:X}:{l.Local}:{l.Stack}:{l.Name}:{l.Type}"));
+        foreach (var o in Operands.OrderBy(o => o.Key).Select(o => o.Value)) Add(FormattableString.Invariant($"O{o.Rva:X}:{o.Operand}:{o.Display}:{o.Detail}"));
         return Convert.ToHexString(hash.GetHashAndReset());
+    }
+
+    /// <summary>With an operand's display format set; default removes it.</summary>
+    public UserTypeLayer WithOperand(NativeOperandEdit edit)
+    {
+        var operands = new Dictionary<(uint, int), NativeOperandEdit>(Operands);
+        if (edit.Display == "default") operands.Remove((edit.Rva, edit.Operand));
+        else operands[(edit.Rva, edit.Operand)] = edit;
+        return With(operands: operands);
     }
 
     /// <summary>With the type at <paramref name="rva"/> set, or removed when <paramref name="type"/> is empty.</summary>

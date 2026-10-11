@@ -432,8 +432,18 @@ public sealed record NativeAnalysisEdit(uint Rva, string Kind, uint? End, string
 }
 
 /// <summary>
+/// How operand <see cref="Operand"/> (0-based) of the instruction at <see cref="Rva"/> shows: hex, dec, oct, bin, char,
+/// offset, stack, enum (<see cref="Detail"/>: the enum's name), struct (Detail: the struct's name, optionally +delta) or
+/// default (the engine's own choice).
+/// </summary>
+public sealed record NativeOperandEdit(uint Rva, int Operand, string Display, string? Detail)
+{
+    public static readonly string[] Displays = ["hex", "dec", "oct", "bin", "char", "offset", "stack", "enum", "struct", "default"];
+}
+
+/// <summary>
 /// User types, applied in this order: C declarations; analysis edits in the order made; types of functions (prototypes)
-/// and globals by RVA, an empty one clearing it; stack frame members; decompiler locals.
+/// and globals by RVA, an empty one clearing it; stack frame members; decompiler locals; operand display formats.
 /// </summary>
 public sealed record NativeUserTypeBatch(IReadOnlyList<string> Declarations, IReadOnlyList<NativePrototype> Types, IReadOnlyList<NativeStackVarEdit> StackVars,
     IReadOnlyList<NativeLocalEdit> Locals)
@@ -441,10 +451,12 @@ public sealed record NativeUserTypeBatch(IReadOnlyList<string> Declarations, IRe
     public static readonly NativeUserTypeBatch Empty = new([], [], [], []);
 
     public IReadOnlyList<NativeAnalysisEdit> Analysis { get; init; } = [];
+    public IReadOnlyList<NativeOperandEdit> Operands { get; init; } = [];
 }
 
 /// <summary>
-/// One item of a user type batch: <see cref="Kind"/> type, stack, local or analysis, at <see cref="Rva"/> (the address or function);
+/// One item of a user type batch: <see cref="Kind"/> type, stack, local, analysis or operand (with the operand index as
+/// <see cref="Stack"/>), at <see cref="Rva"/> (the address or function);
 /// <see cref="Target"/> as asked; for a local the name it had before (<see cref="Resolved"/>) and its stack offset;
 /// <see cref="Text"/>: the type or name now in effect.
 /// </summary>

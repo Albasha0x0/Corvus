@@ -176,6 +176,34 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
+    public void OperandFormats_RoundTrip_DefaultRemovesThem_AndExport()
+    {
+        var ann = Open();
+        ann.ChangeUserTypes(l => l.WithOperand(new(0x1010, 1, "enum", "Magic")).WithOperand(new(0x1010, 0, "hex", null)).WithOperand(new(0x1020, 1, "struct", "Hdr+0x8")));
+        ann.ChangeUserTypes(l => l.WithOperand(new(0x1010, 0, "default", null)));
+        var again = Open().UserTypes;
+        Assert.Equal([(0x1010u, 1), (0x1020u, 1)], again.Operands.Keys.Order());
+        Assert.Equal(new NetDecompilerMcp.Native.Providers.NativeOperandEdit(0x1020, 1, "struct", "Hdr+0x8"), again.Operands[(0x1020, 1)]);
+        Assert.Equal(ann.UserTypes.Stamp, again.Stamp);
+        Assert.Equal(3, Parse(Sidecar).GetProperty("formatVersion").GetInt32());
+        var batch = again.ToBatch();
+        Assert.Equal(2, batch.Operands.Count);
+        var ida = AnnotationExport.Render(ann, AnnotationExport.Format.Ida);
+        Assert.Contains("ndm_operand(0x1010, 1, \"enum\", \"Magic\")", ida);
+        Assert.Contains("ndm_operand(0x1020, 1, \"struct\", \"Hdr+0x8\")", ida);
+        var python = NetDecompilerMcp.Native.Providers.PythonLocator.Find([], []);
+        if (python != null)
+        {
+            var script = _dir.File("operands.py");
+            File.WriteAllText(script, ida);
+            var check = NetDecompilerMcp.Native.Providers.PythonLocator.RunCapture(python.Executable,
+                ["-I", "-c", "import sys; compile(open(sys.argv[1]).read(), sys.argv[1], 'exec')", script], TimeSpan.FromSeconds(30));
+            Assert.True(check.ExitCode == 0, check.Stderr);
+        }
+        Assert.Equal("struct", JsonDocument.Parse(AnnotationExport.Render(ann, AnnotationExport.Format.Json)).RootElement.GetProperty("operands")[1].GetProperty("display").GetString());
+    }
+
+    [Fact]
     public void NewerFormatVersion_IsLeftUntouched()
     {
         var text = "{\"formatVersion\":99,\"sha256\":\"ab12\",\"names\":{\"1000\":\"Future\"},\"comments\":{}}";

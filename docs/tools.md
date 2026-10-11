@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
-145 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+146 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -17,7 +17,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [native-edit](#native-edit) | yes | 9: native names, comments, patches and saving |
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
-| [engine](#engine) | no | 8: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
+| [engine](#engine) | no | 9: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
 | [android](#android) | no | 19: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
 | [dumps](#dumps) | no | 7: crash dumps and crash text |
 | [live](#live) | no | 1: read-only inspection of a running process |
@@ -1824,6 +1824,21 @@ Change the engine's analysis (IDA or Ghidra) at an address. kind=code decodes in
 | `kind` | string | yes |  | code, function, undefine or data. Values: code, function, undefine, data. |
 | `end` | string |  |  | Exclusive end address (same forms as address). |
 | `type` | string |  |  | kind=data: byte, word, dword, qword, float, double, string, string16 or a C type, optionally with [count]. |
+| `engine` | string |  |  | Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra), ida or ghidra. Values: auto, ida, ghidra. |
+
+### set_native_operand
+
+**Set how an operand displays** (destructive, idempotent, open-world, long-running)
+
+Set how an instruction operand displays in the engine's disassembly and, where the decompiler follows it, the pseudocode: hex, dec, oct, bin, char, offset (the constant as an address), stack (a stack variable), enum (type: the enum, a member of the constant's value; declare_native_types declares enums), struct (type: 'Packet' or 'Packet+0x10' for a pointer into it; IDA only) or default (the engine's own). Ghidra shows numbers and enum members as equates. Saved per file hash with the image's annotations: re-applied to a new database, exported by export_native_annotations and carried by migrate_native_names and update_to_new_build.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
+| `address` | string | yes |  | The instruction: Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them). |
+| `operand` | integer | yes |  | Operand index, 0 for the first. |
+| `display` | string | yes |  | hex, dec, oct, bin, char, offset, stack, enum, struct or default. Values: hex, dec, oct, bin, char, offset, stack, enum, struct, default. |
+| `type` | string |  |  | display=enum or struct: the type's name (struct: optionally +delta). |
 | `engine` | string |  |  | Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra), ida or ghidra. Values: auto, ida, ghidra. |
 
 ### ida_python
