@@ -59,16 +59,20 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
                  "literals, in categories: network, execution, registry, persistence, collection (keylogging, screen, clipboard, browser " +
                  "credentials), anti-debug / anti-VM, defense evasion, reflective loading and run-time compilation, process injection, " +
                  "discovery, crypto. Each matched feature has its MITRE ATT&CK technique where the operation is the technique itself, and " +
-                 "its evidence (pattern, count, up to 5 locations). Native images (a loaded one, or a PE / ELF / Mach-O path) get the same rules over " +
+                 "its evidence (pattern, count, up to 5 locations). Native images (image, or a PE / ELF / Mach-O path) get the same rules over " +
                  "static and late-bound (GetProcAddress) imports, call arguments (VirtualProtect with PAGE_EXECUTE_READWRITE, " +
                  "CREATE_SUSPENDED...), strings, sections (entropy, packer names, writable code) and RTTI class names, located by address and function.")]
     public Task<InspectionService.FeatureReport> SurveyFeatures(
-        [Description(AssemblyParam + " A loaded native image works too.")] string? assembly = null,
+        [Description(AssemblyParam)] string? assembly = null,
         [Description("A .NET assembly or native PE / ELF / Mach-O file to analyze without loading it. Pass this or assembly.")] string? path = null,
-        [Description("Only this category (network, execution, registry, persistence, collection, credential access, anti-analysis, defense evasion, " +
-                     "privilege escalation, code loading, injection, discovery, crypto, impact...) or ATT&CK technique prefix (T1055).")] string? category = null,
-        CancellationToken cancellationToken = default) =>
-        Task.Run(() => inspection.SurveyFeatures(assembly, path, category, cancellationToken), cancellationToken);
+        [Description("Only this category (network, execution, registry, persistence, anti-analysis, code loading, injection, crypto...) or ATT&CK technique prefix (T1055).")] string? category = null,
+        [Description("A loaded native image (instead of assembly).")] string? image = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (image != null && assembly != null)
+            throw new ToolError(ErrorCode.InvalidArgument, "Pass assembly or image, not both: they name the same thing.");
+        return Task.Run(() => inspection.SurveyFeatures(assembly ?? image, path, category, cancellationToken), cancellationToken);
+    }
 
     [McpServerTool(Name = "extract_strings", Title = "Extract typed strings", UseStructuredContent = true)]
     [Description("Typed values from string literals, constants, resource text and base64 / hex / compressed text decoded from the " +

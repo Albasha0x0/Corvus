@@ -9,6 +9,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Services;
 using NetDecompilerMcp.Services.Analysis;
 
 namespace NetDecompilerMcp.Tests;
@@ -226,6 +227,20 @@ public class InspectionTests : IDisposable
         var registry = Inspection.SurveyFeatures(null, _dir.File("EverydayApis.dll"), "registry", default);
         Assert.Equal(["modify the registry", "query the registry"], registry.Features.Select(c => c.Name).Order());
         Assert.Equal(["download files"], Inspection.SurveyFeatures(null, _dir.File("EverydayApis.dll"), "T1105", default).Features.Select(c => c.Name));
+    }
+
+    [Fact]
+    public async Task Features_TakeANativeImageAsImage()
+    {
+        var path = McpProtocolTests.NativeSample(_dir);
+        var native = _workspace.LoadAny(path).Native!;
+        var options = new ServerOptions { BackgroundIndexing = false };
+        var code = new NativeCodeService(_workspace, options, null, new NetDecompilerMcp.Native.Annotations.AnnotationStore(_dir.File("ann")));
+        var tools = new NetDecompilerMcp.Tools.InspectionTools(new InspectionService(_workspace, code), _workspace, code);
+        var byImage = await tools.SurveyFeatures(image: native.Id);
+        var byAssembly = await tools.SurveyFeatures(assembly: native.Id);
+        Assert.Equal(byAssembly.Features.Select(f => f.Name), byImage.Features.Select(f => f.Name));
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => { _ = tools.SurveyFeatures(assembly: native.Id, image: native.Id); }).Code);
     }
 
     [Fact]

@@ -532,13 +532,14 @@ Structured output: `file`, `container`, `assemblies`, `highlights`, `notes`, `na
 
 **Survey features** (read-only, idempotent)
 
-Rule-based (capa-style) survey of the APIs an assembly calls, the native functions it imports (P/Invoke) and its string literals, in categories: network, execution, registry, persistence, collection (keylogging, screen, clipboard, browser credentials), anti-debug / anti-VM, defense evasion, reflective loading and run-time compilation, process injection, discovery, crypto. Each matched feature has its MITRE ATT&CK technique where the operation is the technique itself, and its evidence (pattern, count, up to 5 locations). Native images (a loaded one, or a PE / ELF / Mach-O path) get the same rules over static and late-bound (GetProcAddress) imports, call arguments (VirtualProtect with PAGE_EXECUTE_READWRITE, CREATE_SUSPENDED...), strings, sections (entropy, packer names, writable code) and RTTI class names, located by address and function.
+Rule-based (capa-style) survey of the APIs an assembly calls, the native functions it imports (P/Invoke) and its string literals, in categories: network, execution, registry, persistence, collection (keylogging, screen, clipboard, browser credentials), anti-debug / anti-VM, defense evasion, reflective loading and run-time compilation, process injection, discovery, crypto. Each matched feature has its MITRE ATT&CK technique where the operation is the technique itself, and its evidence (pattern, count, up to 5 locations). Native images (image, or a PE / ELF / Mach-O path) get the same rules over static and late-bound (GetProcAddress) imports, call arguments (VirtualProtect with PAGE_EXECUTE_READWRITE, CREATE_SUSPENDED...), strings, sections (entropy, packer names, writable code) and RTTI class names, located by address and function.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `assembly` | string |  |  | A loaded assembly (id, name, file name or path). Pass this or path. A loaded native image works too. |
+| `assembly` | string |  |  | A loaded assembly (id, name, file name or path). Pass this or path. |
 | `path` | string |  |  | A .NET assembly or native PE / ELF / Mach-O file to analyze without loading it. Pass this or assembly. |
-| `category` | string |  |  | Only this category (network, execution, registry, persistence, collection, credential access, anti-analysis, defense evasion, privilege escalation, code loading, injection, discovery, crypto, impact...) or ATT&CK technique prefix (T1055). |
+| `category` | string |  |  | Only this category (network, execution, registry, persistence, anti-analysis, code loading, injection, crypto...) or ATT&CK technique prefix (T1055). |
+| `image` | string |  |  | A loaded native image (instead of assembly). |
 
 Structured output: `assembly`, `methodsScanned`, `features`, `notes`.
 
