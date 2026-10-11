@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
-126 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+130 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -18,7 +18,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
 | [engine](#engine) | no | 7: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
-| [android](#android) | no | 3: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
+| [android](#android) | no | 7: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
 | [dumps](#dumps) | no | 7: crash dumps and crash text |
 | [live](#live) | no | 1: read-only inspection of a running process |
 
@@ -1827,6 +1827,68 @@ One file of an Android package, or one resource: a path (res/xml/network_securit
 | `overwrite` | boolean |  | `false` | Replace savePath if it exists. |
 | `offset` | integer |  | `0` | Character offset for paging long output (use the value from the truncation footer). |
 | `maxChars` | integer |  |  | Max characters in this page (default from server config, ~60000). |
+
+### list_dex_classes
+
+**List DEX classes** (read-only, idempotent)
+
+Classes defined in the DEX code of an Android package (every classes*.dex, inner and anonymous classes included): descriptor, Java name, DEX file, access, superclass, interfaces, method and field counts, source file. Read natively, no Java tools.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `path` | string | yes |  | An Android package (.apk, .aab, .apks, .xapk, .apkm), a .dex file, or a jar / zip with classes*.dex. |
+| `query` | string |  |  | Only classes whose Java name or descriptor contains this (case-insensitive), or matches it with * and ? wildcards. |
+| `package` | string |  |  | Only this package and its subpackages, e.g. com.example. |
+| `offset` | integer |  | `0` | Classes to skip. |
+| `limit` | integer |  | `500` | Most classes to return (default 500). |
+
+Structured output: `items`, `offset`, `total`, `truncated`, `notes`.
+
+### get_dex_class
+
+**DEX class** (read-only, idempotent)
+
+One DEX class in full: access, superclass, interfaces, source file, generic signature, enclosing and inner classes, Kotlin @Metadata (kind and names), annotations; fields with type, access, static initial value and annotations; methods with their exact id (Lpkg/C;->name(params)ret, so overloads never collide), Java signature, access, code size, registers and parameter names.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `path` | string | yes |  | An Android package (.apk, .aab, .apks, .xapk, .apkm), a .dex file, or a jar / zip with classes*.dex. |
+| `class` | string | yes |  | Class: Lpkg/Name;, pkg.Name, or pkg.Outer.Inner / pkg.Outer$Inner. |
+
+Structured output: `descriptor`, `javaName`, `dexFile`, `access`, `super`, `interfaces`, `sourceFile`, `genericSignature`, `enclosingClass`, `enclosingMethod`, `innerClasses`, `kotlin`, `annotations`, `fields`, `methods`.
+
+### search_dex
+
+**Search DEX code** (read-only, idempotent, long-running)
+
+Search the DEX code of an Android package. kind=string: string literals loaded by code, with the method and offset of each use; type: defined classes and type uses (new-instance, check-cast, const-class...); method / field: defined and referenced members with their use counts; const: numeric constants (42, 0x7f010000, 1.5); opcode: instructions by mnemonic (invoke-static, sget-object). query is a case-insensitive substring, or a pattern with * and ? wildcards.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `path` | string | yes |  | An Android package (.apk, .aab, .apks, .xapk, .apkm), a .dex file, or a jar / zip with classes*.dex. |
+| `kind` | string | yes |  | string, type, method, field, const or opcode. Values: string, type, method, field, const, opcode. |
+| `query` | string | yes |  | Text to find (substring or wildcard pattern); for const a number. |
+| `offset` | integer |  | `0` | Hits to skip. |
+| `limit` | integer |  | `200` | Most hits to return (default 200). |
+
+Structured output: `items`, `offset`, `total`, `truncated`, `notes`.
+
+### find_dex_references
+
+**Find DEX references** (read-only, idempotent, long-running)
+
+Cross-references in DEX code with the method and code offset of each instruction. direction=to: callers of a method, readers and writers of a field, uses of a class (type uses and accesses to its members) or of a string literal. direction=from: what a method (or every method of a class) calls, reads, writes and loads. Methods are matched by exact id, so one overload never stands for another.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `path` | string | yes |  | An Android package (.apk, .aab, .apks, .xapk, .apkm), a .dex file, or a jar / zip with classes*.dex. |
+| `target` | string | yes |  | A class, a method (Lpkg/C;->m(I)V, or pkg.C::m with optional parameters (int, String)), a field (Lpkg/C;->f:I or pkg.C::f), or a string in double quotes. |
+| `direction` | string |  |  | to (default: who refers to the target) or from (what the target refers to). Values: to, from. |
+| `kind` | string |  |  | auto (default), class, method, field or string (target taken literally). Values: auto, class, method, field, string. |
+| `offset` | integer |  | `0` | References to skip. |
+| `limit` | integer |  | `500` | Most references to return (default 500). |
+
+Structured output: `target`, `targetKind`, `direction`, `items`, `offset`, `total`, `truncated`, `notes`.
 
 ## dumps
 

@@ -87,6 +87,10 @@ public static class ToolEffects
         ["get_android_manifest"] = Reads(),
         ["list_android_resources"] = Reads(),
         ["get_android_resource"] = Changes(destructive: true, idempotent: true), // savePath; overwrite=true replaces a file
+        ["list_dex_classes"] = Reads(),
+        ["get_dex_class"] = Reads(),
+        ["search_dex"] = Reads(longRunning: true), // the first call builds the package's code index
+        ["find_dex_references"] = Reads(longRunning: true),
 
         // Builds
         ["compare_assemblies"] = Changes(destructive: true, idempotent: true, longRunning: true), // tokenMapPath; overwrite=true replaces a file

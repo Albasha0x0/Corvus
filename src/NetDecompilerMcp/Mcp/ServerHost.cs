@@ -68,6 +68,7 @@ public static class ServerHost
             .AddSingleton<StackTextService>()
             .AddSingleton<LiveProcessService>()
             .AddSingleton<Services.Mobile.AndroidPackageService>()
+            .AddSingleton<Services.Mobile.DexService>()
             .AddSingleton<ResourceSubscriptions>();
 
         var server = builder.Services

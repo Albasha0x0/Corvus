@@ -76,6 +76,75 @@ internal static class AndroidSamples
             .. extra]);
     }
 
+    public const string Main = "Lcom/example/app/Main;", Helper = "Lcom/example/app/Helper;", Link = "Lcrc64a1b2c3d4e5f60718/LinkActivity;";
+    public const string NameField = Main + "->name:Ljava/lang/String;", CountField = Main + "->COUNT:I";
+    public const string Log = Helper + "->log(Ljava/lang/String;)V", ComputeInt = Main + "->compute(I)I", ComputeString = Main + "->compute(Ljava/lang/String;)I";
+
+    /// <summary>
+    /// A DEX with an activity (overloads, a field written and read, a string, a switch, array data, a try block, line numbers), a helper
+    /// with Kotlin metadata, an inner class, and a Java callable wrapper with a native method, as Xamarin generates them.
+    /// </summary>
+    public static byte[] Dex()
+    {
+        var b = new DexBuilder();
+        var main = b.Class(Main, 1, "Landroid/app/Activity;", "Main.java").Field("name", "Ljava/lang/String;", 2).Field("COUNT", "I", 0x19, 7);
+        main.Annotations.Add(("Ldalvik/annotation/MemberClasses;", 2, [("value", new[] { "Lcom/example/app/Main$Inner;" })]));
+        main.Method("<init>", "V", [], 1, Asm.Invoke(0x70, "Landroid/app/Activity;-><init>()V", 0), Asm.ReturnVoid()).Registers = 1;
+        var onCreate = main.Method("onCreate", "V", ["Landroid/os/Bundle;"], 4,
+            Asm.Invoke(0x6f, "Landroid/app/Activity;->onCreate(Landroid/os/Bundle;)V", 1, 2),
+            Asm.ConstString(0, "https://api.example.com/v1"),
+            Asm.Instance(0x5b, 0, 1, NameField),
+            Asm.Invoke(0x71, Log, 0),
+            Asm.ReturnVoid());
+        onCreate.Registers = 3;
+        onCreate.Lines.AddRange([(0, 10), (3, 11), (5, 12), (7, 13)]);
+        onCreate.ParameterNames = ["savedInstanceState"];
+        main.Method("compute", "I", ["I"], 1,
+            Asm.Static(0x60, 0, CountField),
+            Asm.AddIntLit8(0, 2, 42),
+            Asm.IfEqz(0, 3),
+            Asm.Instance(0x54, 0, 1, NameField),
+            Asm.Return(0x0f, 2)).Registers = 3;
+        main.Method("compute", "I", ["Ljava/lang/String;"], 1,
+            Asm.Invoke(0x6e, "Ljava/lang/String;->length()I", 2),
+            Asm.Op11x(0x0a, 0),
+            Asm.Return(0x0f, 0)).Registers = 3;
+        main.Method("pick", "I", ["I"], 9,
+            Asm.PackedSwitch(1, 8),            // 0: switch on p0 (v1); the payload at 8 (payloads start 4-byte aligned)
+            Asm.Const4(0, -1),                 // 3
+            Asm.Return(0x0f, 0),               // 4
+            Asm.ConstHigh16(0, 0x3f800000),    // 5: 1.0f
+            Asm.Return(0x0f, 0),               // 7
+            Asm.PackedSwitchPayload(10, 5, 3)).Registers = 2;
+        var guarded = main.Method("guarded", "V", [], 9,
+            Asm.Invoke(0x71, Log, 0),
+            Asm.ReturnVoid(),
+            Asm.Op11x(0x0d, 0),
+            Asm.ReturnVoid());
+        guarded.Registers = 1;
+        guarded.Tries.Add(new(0, 3, [("Ljava/lang/Exception;", 4), (null, 4)]));
+        var data = main.Method("data", "V", [], 9,
+            Asm.FillArrayData(0, 4), Asm.ReturnVoid(), Asm.ArrayPayload(4, 1, -2, 0x7fffffff));
+        data.Registers = 1;
+        main.Method("abstractLike", "V", [], 0x101); // native: no code
+
+        var helper = b.Class(Helper, 0x11, source: "Helper.kt").Field("level", "I", 9);
+        helper.Annotations.Add(("Lkotlin/Metadata;", 1, [("k", 1), ("d2", new[] { "Lcom/example/app/Helper;", "log", "", "msg", "" })]));
+        helper.Method("log", "V", ["Ljava/lang/String;"], 9,
+            Asm.ConstString(0, "Example"),
+            Asm.Invoke(0x71, "Landroid/util/Log;->d(Ljava/lang/String;Ljava/lang/String;)I", 0, 1),
+            Asm.Static(0x67, 0, Helper + "->level:I"),
+            Asm.ReturnVoid()).Registers = 2;
+
+        b.Class("Lcom/example/app/Main$Inner;", 0x10, source: "Main.java");
+        var link = b.Class(Link, 1, "Landroid/app/Activity;", "LinkActivity.java");
+        link.Interfaces.Add("Lmono/android/IGCUserPeer;");
+        link.Method("onCreate", "V", ["Landroid/os/Bundle;"], 1,
+            Asm.Invoke(0x70, Link + "->n_onCreate(Landroid/os/Bundle;)V", 1, 2), Asm.ReturnVoid()).Registers = 3;
+        link.Method("n_onCreate", "V", ["Landroid/os/Bundle;"], 0x102);
+        return b.Build();
+    }
+
     public static string Save(TempDir dir, string name, byte[] bytes)
     {
         var path = dir.File(name);
