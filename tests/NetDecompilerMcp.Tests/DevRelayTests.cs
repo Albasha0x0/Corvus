@@ -112,7 +112,7 @@ public abstract class DevRelayTests(string protocol) : IAsyncLifetime
             ],
         };
         Client = await McpClient.CreateAsync(new StreamClientTransport(toRelay.Writer.AsStream(), toClient.Reader.AsStream()),
-            new McpClientOptions { ClientInfo = new Implementation { Name = "relay-test", Version = "1" }, Handlers = handlers, ProtocolVersion = Protocol });
+            new McpClientOptions { ClientInfo = new Implementation { Name = "relay-test", Version = "1" }, Handlers = handlers, ProtocolVersion = Protocol, DiscoverProbeTimeout = Timeout.InfiniteTimeSpan });
         Assert.Equal(Protocol, Client.NegotiatedProtocolVersion);
         if (PerRequest)
         {
@@ -353,7 +353,7 @@ public sealed class DevRelayRealServerTests
         };
         using var listenEnd = new CancellationTokenSource();
         await using (var client = await McpClient.CreateAsync(new StreamClientTransport(toRelay.Writer.AsStream(), toClient.Reader.AsStream()),
-                         new McpClientOptions { Handlers = handlers, ProtocolVersion = protocol }))
+                         new McpClientOptions { Handlers = handlers, ProtocolVersion = protocol, DiscoverProbeTimeout = Timeout.InfiniteTimeSpan }))
         {
             Assert.Equal(protocol, client.NegotiatedProtocolVersion);
             async Task<string> Call(string tool, Dictionary<string, object?> args) =>
