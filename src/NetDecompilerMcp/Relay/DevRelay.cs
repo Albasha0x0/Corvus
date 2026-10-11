@@ -59,6 +59,7 @@ public sealed partial class DevRelay : IAsyncDisposable
     private Child? _active;
     private readonly Dictionary<string, (Child Child, JsonObject Request, bool Stream)> _inFlight = [];
     private readonly HashSet<string> _movedStreams = []; // the new child's acknowledgement of these is not news to the client
+    private readonly HashSet<string> _cancelledByClient = []; // a late reply to these is dropped, as the protocol asks of the receiver
     private readonly Dictionary<string, (Child Child, JsonNode? Id)> _serverRequests = [];
     private readonly List<(string Method, JsonObject? Params, string Label)> _replay = [];
     private readonly List<string> _notices = [];
@@ -215,7 +216,9 @@ public sealed partial class DevRelay : IAsyncDisposable
                 break;
             case "notifications/cancelled":
                 var cancelled = message["params"]?["requestId"];
-                return cancelled != null && _inFlight.TryGetValue(Key(cancelled), out var owner) ? owner.Child : _active;
+                if (cancelled == null || !_inFlight.TryGetValue(Key(cancelled), out var owner)) return _active;
+                _cancelledByClient.Add(Key(cancelled));
+                return owner.Child;
             case "tools/call":
                 if (id != null && ToolName(message) == ApplyTool)
                 {
@@ -290,17 +293,21 @@ public sealed partial class DevRelay : IAsyncDisposable
             own.TrySetResult(message);
             return;
         }
-        bool drained;
+        bool drained, cancelled;
         lock (_gate)
         {
             if (!_inFlight.TryGetValue(key, out var entry) || entry.Child != child) return;
             _inFlight.Remove(key);
             _movedStreams.Remove(key);
-            Record(entry.Request, message);
-            Decorate(entry.Request, message);
+            cancelled = _cancelledByClient.Remove(key);
+            if (!cancelled)
+            {
+                Record(entry.Request, message);
+                Decorate(entry.Request, message);
+            }
             drained = Calls() == 0;
         }
-        WriteClient(message);
+        if (!cancelled) WriteClient(message);
         if (drained) TryBeginSwap();
     }
 
@@ -317,7 +324,7 @@ public sealed partial class DevRelay : IAsyncDisposable
             {
                 if (entry.Stream && restart) continue; // taken over by the restarted server
                 _inFlight.Remove(key);
-                if (entry.Request["id"] is { } id) failed.Add(id.DeepClone());
+                if (!_cancelledByClient.Remove(key) && entry.Request["id"] is { } id) failed.Add(id.DeepClone());
             }
             if (child.Retired || child != _active || _stop.IsCancellationRequested) return;
             _notices.Add($"the server process of build {child.Build.Id} exited (exit code {child.Process.ExitCode?.ToString() ?? "?"}); it is restarted with the workspace calls replayed.");
