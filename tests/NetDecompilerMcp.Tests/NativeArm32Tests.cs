@@ -338,4 +338,22 @@ public class NativeArm32Tests
         var g = loaded.GetGraph(loaded.FunctionByStart(armFn)!);
         Assert.Equal(2, g.Blocks.Count);
     }
+
+    /// <summary>A vtable slot (Thumb pointer) to ldr; str; bx lr, whose bytes read "IjAbpG" with a NUL after: code, not a string.</summary>
+    [Fact]
+    public void Thumb_pointer_targets_are_code_even_where_the_bytes_read_as_text()
+    {
+        var a = new A32Code(Text);
+        a.H(A32Code.MovImm(0, 1)).H(A32Code.BxLr);
+        uint setter = a.Here;
+        a.H(0x6A49).H(0x6241).H(A32Code.BxLr).H(0x0000);
+        var image = Elf(a.Bytes(), w =>
+        {
+            w.Relocations.Add(new ElfWriter.Reloc(Data + 0x40, 23, Addend: Text | 1));
+            w.Relocations.Add(new ElfWriter.Reloc(Data + 0x44, 23, Addend: setter | 1));
+        });
+        var index = NativeCodeIndex.Build(image);
+        Assert.Equal(setter, index.FunctionByStart(setter)?.Start);
+        Assert.Equal(3, index.FunctionByStart(setter)!.InstructionCount);
+    }
 }

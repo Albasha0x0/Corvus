@@ -33,6 +33,8 @@ internal sealed class FunctionDiscovery
     private readonly HashSet<uint> _rejected = [];
     private readonly SortedSet<uint> _sortedStarts = [];
     private readonly HashSet<uint> _farJumps = [];
+    /// <summary>ARM32: targets of relocated pointers in data that carry the Thumb bit.</summary>
+    private readonly HashSet<uint> _thumbPointerTargets = [];
     private readonly Verifier _verifier;
     // speculative verification of a batch of candidates: results by candidate, and functions added since
     private readonly Dictionary<uint, (bool Ok, bool Funclet, uint[] Consulted)> _speculated = [];
@@ -406,6 +408,7 @@ internal sealed class FunctionDiscovery
             {
                 target &= ~1u;
                 modes.Hint(target, true);
+                _thumbPointerTargets.Add(target);
             }
             result.Add(target);
         }
@@ -450,7 +453,8 @@ internal sealed class FunctionDiscovery
         // more known code only adds reasons to reject, so a rejection is final
         if (_rejected.Contains(rva)) return false;
         Heartbeat();
-        if (_dataInCode.Contains(rva) || StringDetector.Detect(_ctx.Image, rva, 64, _stringBuffer) != null || !Verify(rva, out bool funclet))
+        // a relocated pointer with the Thumb bit points to code even where the bytes read as text (ldr; str; bx lr is "IjAbpG")
+        if (_dataInCode.Contains(rva) || (!_thumbPointerTargets.Contains(rva) && StringDetector.Detect(_ctx.Image, rva, 64, _stringBuffer) != null) || !Verify(rva, out bool funclet))
         {
             _rejected.Add(rva);
             return false;
