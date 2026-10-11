@@ -369,7 +369,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     public InstructionFacts? Decode(uint rva)
     {
         if (_ctx == null) return null;
-        var d = new X86Decoder(Image, _ctx.Code, _ctx.Relocations);
+        var d = CodeDecoders.Create(Image, _ctx.Code, _ctx.Relocations);
         return d.DecodeMapped(rva, out var insn) ? NativeDisassembler.Facts(in insn) : null;
     }
 
@@ -643,8 +643,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
                     if (x.Kind != XrefKind.Call || !local.Contains(x.To) || !dec.Decode(x.From, out var call)) continue;
                     uint next = call.Next;
                     if (_ctx.FunctionStarts.Contains(next) || _ctx.Code.RegionAt(next) is not { } region) continue;
-                    byte first = region.Bytes[next - region.Rva];
-                    if (first is 0xCC or 0x90 or 0x00) continue;
+                    if (dec.IsPadding(region, next)) continue;
                     dec.Decode(region, next, out var after);
                     if (after.Flow is not (FlowKind.Trap or FlowKind.Invalid)) return true;
                 }

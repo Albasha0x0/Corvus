@@ -12,8 +12,11 @@ internal sealed class FunctionDiscovery
     private const int VerifyLimit = 20_000;
 
     private readonly CodeContext _ctx;
-    private readonly X86Decoder _dec;
-    private readonly X86Decoder _peek;
+    private readonly ICodeDecoder _dec;
+    private readonly ICodeDecoder _peek;
+    // the same decoders on x86 / x64, for the heuristics that read x86 instructions (prologues, frames, SEH scopes)
+    private readonly X86Decoder? _x86Dec;
+    private readonly X86Decoder? _x86Peek;
     private readonly CodeBitmap _starts;
     private readonly CodeBitmap _covered;
     private readonly Dictionary<uint, FunctionSource> _functions = [];
@@ -41,6 +44,8 @@ internal sealed class FunctionDiscovery
         _progress = progress;
         _dec = ctx.NewDecoder(computeAccess: false);
         _peek = ctx.NewDecoder(computeAccess: false);
+        _x86Dec = _dec as X86Decoder;
+        _x86Peek = _peek as X86Decoder;
         _starts = new CodeBitmap(ctx.Code.TotalBytes);
         _covered = new CodeBitmap(ctx.Code.TotalBytes);
     }
@@ -76,7 +81,7 @@ internal sealed class FunctionDiscovery
             Drain();
             foreach (var t in _addressCandidates.ToList()) TryCandidate(t, FunctionSource.CodeAddress);
             Drain();
-            if (_ctx.Options.ScanPrologues) ScanGaps(image.Arch == NativeArch.X86);
+            if (_ctx.Options.ScanPrologues && _x86Peek != null) ScanGaps(image.Arch == NativeArch.X86);
             if (_functions.Count != before) continue;
             // pointers stored inside code sections last: by now the functions owning switch tables there are
             // decoded, so case labels are covered
@@ -200,7 +205,7 @@ internal sealed class FunctionDiscovery
                     {
                         _dataInCode.Add(insn.MemTarget);
                         // [index*4 + table] in code: an x86 switch table (or another pointer table), whatever the dispatch
-                        if (_dec.Last.MemoryIndex != Iced.Intel.Register.None && _dec.Last.MemoryIndexScale == 4) _codeTables.Add(insn.MemTarget);
+                        if (_x86Dec is { } x86 && x86.Last.MemoryIndex != Iced.Intel.Register.None && x86.Last.MemoryIndexScale == 4) _codeTables.Add(insn.MemTarget);
                     }
                 }
                 if (insn.HasImm && _ctx.Code.IsCode(insn.ImmTarget)) _addressCandidates.Add(insn.ImmTarget);
@@ -234,7 +239,7 @@ internal sealed class FunctionDiscovery
                 if (!insn.HasTarget || !_ctx.Code.IsCode(insn.Target)) return false;
                 // a function that is only a jump (adjustor / ICF thunk), a jump to an import thunk, an x86 jump to a
                 // standard prologue: tail calls to functions
-                if (insn.Rva == root && insn.Target != root || ThunkSlot(insn.Target) != null || (!_dec.Is64 && StartsWithPrologue(insn.Target)))
+                if (insn.Rva == root && insn.Target != root || ThunkSlot(insn.Target) != null || (_x86Dec is { Is64: false } && StartsWithPrologue(insn.Target)))
                     Add(insn.Target, FunctionSource.TailJump, strong: true);
                 else Branch(insn.Target, root, own, IndexBound.None);
                 return false;
@@ -376,7 +381,7 @@ internal sealed class FunctionDiscovery
 
     /// <summary>x86: a call just after leaving an SEH scope to a block shortly after it (the __finally block).</summary>
     private bool LocalFinallyCall(in Insn call) =>
-        call.Target > call.Rva && call.Target - call.Rva < 0x400 && _dec.PreviousLeavesSehScope();
+        call.Target > call.Rva && call.Target - call.Rva < 0x400 && _x86Dec?.PreviousLeavesSehScope() == true;
 
     /// <summary>
     /// x86: the code at <paramref name="rva"/> reads or writes [ebp+x] before it sets ebp, so it runs in its
@@ -384,11 +389,11 @@ internal sealed class FunctionDiscovery
     /// </summary>
     private bool UsesCallerFrame(uint rva)
     {
-        if (_dec.Is64) return false;
+        if (_x86Peek is not { Is64: false } peek) return false;
         for (int n = 0; n < 8; n++)
         {
-            if (!_peek.Decode(rva, out var insn) || insn.Flow == FlowKind.Invalid) return false;
-            ref readonly var x = ref _peek.Last;
+            if (!peek.Decode(rva, out var insn) || insn.Flow == FlowKind.Invalid) return false;
+            ref readonly var x = ref peek.Last;
             if (x.Op0Kind == Iced.Intel.OpKind.Register && x.Op0Register == Iced.Intel.Register.EBP && x.Mnemonic != Iced.Intel.Mnemonic.Push) return false;
             if (UsesEbpMemory(in x)) return true;
             if (insn.Flow != FlowKind.Next) return false;
@@ -455,14 +460,14 @@ internal sealed class FunctionDiscovery
                 if (_covered[bit]) return false;
                 if (++count > VerifyLimit) return false;
                 if (!_peek.Decode(a, out var insn) || insn.Flow is FlowKind.Invalid || _peek.LastIsImplausible() || _peek.LastHasImplausibleDisplacement(a)
-                    || UnlikelyInNewFunction(in _peek.Last)) return false;
+                    || (_x86Peek != null && UnlikelyInNewFunction(in _x86Peek.Last))) return false;
                 // int3 ends code only as padding after a call that does not return
-                if (insn.Flow == FlowKind.Trap && _peek.Last.Mnemonic == Iced.Intel.Mnemonic.Int3 && previous is not (FlowKind.Call or FlowKind.IndirectCall)) return false;
+                if (insn.Flow == FlowKind.Trap && _x86Peek?.Last.Mnemonic == Iced.Intel.Mnemonic.Int3 && previous is not (FlowKind.Call or FlowKind.IndirectCall)) return false;
                 previous = insn.Flow;
                 // x86: [ebp+x] before the code sets up ebp is the frame of another function (SEH filter or handler)
-                if (!_peek.Is64 && !frame)
+                if (_x86Peek is { Is64: false } && !frame)
                 {
-                    ref readonly var x = ref _peek.Last;
+                    ref readonly var x = ref _x86Peek.Last;
                     if (x.Op0Kind == Iced.Intel.OpKind.Register && x.Op0Register == Iced.Intel.Register.EBP && x.Mnemonic != Iced.Intel.Mnemonic.Push) frame = true;
                     else if (UsesEbpMemory(in x)) funclet = true;
                 }
@@ -474,7 +479,7 @@ internal sealed class FunctionDiscovery
                     return false;
                 // "mov eax, offset x; ret" returning a code address that is no function: a catch block's continuation
                 if (returnsAddress && insn.Flow == FlowKind.Return) funclet = true;
-                returnsAddress = insn.HasImm && _peek.Last.Mnemonic == Iced.Intel.Mnemonic.Mov && _peek.Last.Op0Register == Iced.Intel.Register.EAX
+                returnsAddress = insn.HasImm && _x86Peek != null && _x86Peek.Last.Mnemonic == Iced.Intel.Mnemonic.Mov && _x86Peek.Last.Op0Register == Iced.Intel.Register.EAX
                     && _ctx.Code.IsCode(insn.ImmTarget) && !_functions.ContainsKey(insn.ImmTarget);
                 for (int k = 1; k < insn.Length; k++)
                     if (_covered[_ctx.Code.BitIndex(a + (uint)k)]) return false;

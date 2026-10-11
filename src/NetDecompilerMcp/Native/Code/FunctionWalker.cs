@@ -34,7 +34,7 @@ internal sealed class FunctionWalker
     }
 
     private readonly CodeContext _ctx;
-    private readonly X86Decoder _dec;
+    private readonly ICodeDecoder _dec;
     private readonly HashSet<uint> _visited = [];
     private readonly List<uint> _insns = [];
     private readonly List<byte> _lengths = [];

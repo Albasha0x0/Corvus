@@ -203,11 +203,14 @@ internal sealed class CodeContext
     /// <summary>Relocations inside executable code (instruction operands, x86 tables): all a code decoder needs to look up.</summary>
     public uint[] CodeRelocations { get; }
 
-    public X86Decoder NewDecoder(bool computeAccess) =>
-        new(Code, CodeRelocations)
+    public ICodeDecoder NewDecoder(bool computeAccess) => Image.Arch switch
+    {
+        NativeArch.X86 or NativeArch.X64 => new X86Decoder(Code, CodeRelocations)
         {
             ComputeAccess = computeAccess, RejectImplausible = !IsKernelMode, CheckRelocations = true, ImageHasRelocations = Relocations.Length > 0,
-        };
+        },
+        _ => CodeDecoders.Create(Image, Code, CodeRelocations),
+    };
 
     private readonly Lock _readLock = new();
 
@@ -236,7 +239,7 @@ internal sealed class CodeContext
     /// Reads the case targets of a matched switch. Every entry must point into executable code (and, for absolute
     /// tables, be covered by a relocation when the image has relocations); otherwise null with the reason.
     /// </summary>
-    public SwitchTable? ReadSwitch(uint jumpRva, X86Decoder.SwitchMatch m, List<(uint Begin, uint End)>? ownRanges, out string reason)
+    public SwitchTable? ReadSwitch(uint jumpRva, SwitchMatch m, List<(uint Begin, uint End)>? ownRanges, out string reason)
     {
         reason = "";
         if (m.BaseAssumed && ownRanges == null) { reason = "image base register set outside the dispatch sequence"; return null; }
@@ -284,7 +287,7 @@ internal static class SwitchDispatch
     /// Decodes linearly from <paramref name="from"/> with <paramref name="bound"/> known on entry; when that reaches
     /// the indirect jump at <paramref name="jump"/> without leaving the straight-line path, matches its switch table.
     /// </summary>
-    public static SwitchTable? Redecode(X86Decoder dec, CodeContext ctx, uint from, IndexBound bound, uint jump, List<(uint Begin, uint End)>? own)
+    public static SwitchTable? Redecode(ICodeDecoder dec, CodeContext ctx, uint from, IndexBound bound, uint jump, List<(uint Begin, uint End)>? own)
     {
         dec.BeginRun(bound);
         uint a = from;

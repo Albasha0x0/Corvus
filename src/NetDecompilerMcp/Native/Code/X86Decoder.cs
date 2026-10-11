@@ -3,38 +3,10 @@ using Iced.Intel;
 namespace NetDecompilerMcp.Native.Code;
 
 /// <summary>
-/// An index known to be below <see cref="Count"/> (unsigned) on some path: a register, or with
-/// <see cref="SlotBase"/> set the frame slot [SlotBase + SlotDisp].
-/// </summary>
-internal readonly record struct IndexBound(Register Reg, uint Count, Register SlotBase = Register.None, ulong SlotDisp = 0)
-{
-    public static readonly IndexBound None = new(Register.None, 0);
-    public bool IsKnown => Reg != Register.None || SlotBase != Register.None;
-}
-
-/// <summary>Facts of one decoded instruction, in the form the analysis loops use. Addresses are RVAs.</summary>
-internal struct Insn
-{
-    public uint Rva;
-    public int Length;
-    public FlowKind Flow;
-    public bool HasTarget;
-    /// <summary>Direct branch / call target.</summary>
-    public uint Target;
-    public bool HasMem;
-    public uint MemTarget;
-    public bool MemRip;
-    public OperandAccess MemAccess;
-    public bool HasImm;
-    public uint ImmTarget;
-    public uint Next => Rva + (uint)Length;
-}
-
-/// <summary>
 /// x86 / x64 decoding over the code of an image (Iced). Keeps the last instructions of the current linear run so
 /// switch dispatch sequences can be matched. One instance per thread.
 /// </summary>
-internal sealed class X86Decoder
+internal sealed class X86Decoder : ICodeDecoder
 {
     private sealed class Reader : CodeReader
     {
@@ -270,6 +242,9 @@ internal sealed class X86Decoder
 
     private static bool IsNear(OpKind kind) => kind is OpKind.NearBranch16 or OpKind.NearBranch32 or OpKind.NearBranch64;
 
+    /// <summary>int3, nop and zero fill between functions.</summary>
+    public bool IsPadding(ImageCode.Region region, uint rva) => region.Bytes[rva - region.Rva] is 0xCC or 0x90 or 0x00;
+
     /// <summary>"00 00 00 00": zero fill decodes as add [rax], al twice; never treated as code.</summary>
     private static bool IsZeroPadding(byte[] data, int pos, int end, int length) =>
         length == 2 && pos + 4 <= end && BitConverter.ToUInt32(data, pos) == 0;
@@ -366,9 +341,9 @@ internal sealed class X86Decoder
         ulong imm;
         IndexBound Make(uint n)
         {
-            if (TryCompare(1, 0, out var reg, out _)) return new(reg, n);
+            if (TryCompare(1, 0, out var reg, out _)) return new((int)reg, n);
             ref var c = ref Back(1);
-            return new(Register.None, n, c.MemoryBase.GetFullRegister(), c.MemoryDisplacement64);
+            return new(0, n, (int)c.MemoryBase.GetFullRegister(), c.MemoryDisplacement64);
         }
         if (TryCompare(1, 0, out _, out imm)) { }
         else if (Back(1) is { Mnemonic: Mnemonic.Cmp, Op0Kind: OpKind.Memory, MemoryIndex: Register.None } c
@@ -451,13 +426,6 @@ internal sealed class X86Decoder
     private static bool WritesRegister(in Instruction x, Register full) =>
         x.Op0Kind == OpKind.Register && x.Op0Register.GetFullRegister() == full
         && x.Mnemonic is not (Mnemonic.Cmp or Mnemonic.Test or Mnemonic.Push or Mnemonic.Bt);
-
-    /// <summary>
-    /// A switch dispatch matched at the last instruction (an indirect jump). <see cref="BaseAssumed"/>: a register
-    /// used as __ImageBase is set outside the run (hoisted by the compiler); the caller must confirm the table by
-    /// requiring every target inside the function's own .pdata ranges.
-    /// </summary>
-    internal sealed record SwitchMatch(uint TableRva, int EntrySize, bool Absolute, bool RelativeToTable, uint Count, uint? IndexTableRva, uint IndexTableCount, bool BaseAssumed);
 
     /// <summary>
     /// Matches the instructions before the last one (an indirect jump) against the switch dispatch sequences:
@@ -672,8 +640,8 @@ internal sealed class X86Decoder
             return false;
         }
         if (k >= _ringCount && _runBound.IsKnown && (inSlot
-                ? _runBound.SlotBase == slotBase && _runBound.SlotDisp == slotDisp
-                : _runBound.Reg == current))
+                ? _runBound.SlotBase == (int)slotBase && _runBound.SlotDisp == slotDisp
+                : _runBound.Reg == (int)current))
         {
             count = _runBound.Count;
             return true;

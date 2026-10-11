@@ -172,6 +172,19 @@ public class NativeCodeTests
     }
 
     [Fact]
+    public void Decoders_are_chosen_by_instruction_set()
+    {
+        var image = CodeTestImage.Synthetic(NativeArch.X64, [0xC3], entry: Code);
+        var dec = CodeDecoders.Create(image, new ImageCode(image), []);
+        Assert.IsType<X86Decoder>(dec);
+        Assert.True(dec.Is64);
+        dec.BeginRun(IndexBound.None);
+        Assert.True(dec.Decode(Code, out var ret));
+        Assert.Equal(FlowKind.Return, ret.Flow);
+        Assert.Throws<NotSupportedException>(() => CodeDecoders.Create(CodeTestImage.Synthetic(NativeArch.Mips, [0, 0, 0, 0]), null, []));
+    }
+
+    [Fact]
     public void Switch_without_a_bound_is_reported_unresolved_not_guessed()
     {
         var (image, jump, cases) = MsvcSwitch(bounded: false);

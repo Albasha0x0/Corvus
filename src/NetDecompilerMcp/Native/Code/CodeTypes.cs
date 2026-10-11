@@ -41,7 +41,7 @@ public sealed record InstructionFacts(
 
 /// <summary>Where a function start came from (several can apply).</summary>
 [Flags]
-public enum FunctionSource : ushort
+public enum FunctionSource : uint
 {
     None = 0,
     /// <summary>Primary entry of the exception directory (.pdata).</summary>
