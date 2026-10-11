@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -77,7 +78,8 @@ public sealed partial class JniBindings(DexService dex)
             var parts = name.Split('/');
             if (parts.Length != 3 || !wanted.Contains(parts[1])) continue;
             ElfFile elf;
-            try { elf = ElfFile.FromBytes(package.Read(name) ?? [], name); }
+            byte[] bytes = [];
+            try { elf = ElfFile.FromBytes(bytes = package.Read(name) ?? [], name); }
             catch (ToolError ex) { notes.Add($"{name}: not read ({ex.Message})."); continue; }
 
             var exports = elf.Exports.Where(e => e.Name != null).GroupBy(e => e.Name!, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().Rva, StringComparer.Ordinal);
@@ -98,6 +100,7 @@ public sealed partial class JniBindings(DexService dex)
 
             var tables = Tables(elf, ct);
             NativeCodeIndex? code = null;
+            ConcurrentDictionary<uint, string?>? owners = null;
             int registered = 0;
             foreach (var table in tables)
             {
@@ -105,8 +108,13 @@ public sealed partial class JniBindings(DexService dex)
                 // the function that passes the table to RegisterNatives names its class with FindClass
                 if (!Unique(table, bySignature, out var byName))
                 {
-                    code ??= BuildIndex(elf, notes, name, ct);
-                    owner = code != null ? ClassString(code, table, natives) : null;
+                    owners ??= Owners(bytes);
+                    if (!owners.TryGetValue(table.Rva, out owner))
+                    {
+                        code ??= BuildIndex(elf, notes, name, ct);
+                        owner = code != null ? ClassString(code, table, natives) : null;
+                        if (code != null) owners[table.Rva] = owner;
+                    }
                 }
                 if (owner == null && byName != null) (owner, confidence) = (byName, "name_and_signature");
                 else if (owner != null) confidence = "class_string";
@@ -164,6 +172,18 @@ public sealed partial class JniBindings(DexService dex)
         owner = found;
         return found != null;
     }
+
+    // Table owners found through a library's code index, by the library's SHA-256: the index of a large ARM32 library takes a minute.
+    private static readonly ConcurrentDictionary<string, ConcurrentDictionary<uint, string?>> OwnerCache = new(StringComparer.Ordinal);
+
+    private static ConcurrentDictionary<uint, string?> Owners(byte[] library)
+    {
+        if (OwnerCache.Count > 256) OwnerCache.Clear();
+        return OwnerCache.GetOrAdd(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(library)), _ => new());
+    }
+
+    /// <summary>Whether the owner of the table at <paramref name="tableRva"/> of this library is kept from an earlier call.</summary>
+    internal static bool OwnerCached(byte[] library, uint tableRva) => Owners(library).ContainsKey(tableRva);
 
     private static NativeCodeIndex? BuildIndex(ElfFile elf, List<string> notes, string name, CancellationToken ct)
     {

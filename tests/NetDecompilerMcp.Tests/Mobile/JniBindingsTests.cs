@@ -35,7 +35,7 @@ public class JniBindingsTests
         return [adrp, add];
     }
 
-    private static byte[] Library()
+    private static byte[] Library(string soName = "libnative.so")
     {
         const uint Data = ElfWriter.DataRva, Text = ElfWriter.TextRva;
         var data = new byte[0x400];
@@ -70,7 +70,7 @@ public class JniBindingsTests
             Data = data,
             DataSectionName = ".data.rel.ro",
             Relocations = relocations,
-            SoName = "libnative.so",
+            SoName = soName,
             Symbols =
             [
                 new("JNI_OnLoad", Text, 0x10),
@@ -81,6 +81,22 @@ public class JniBindingsTests
                 new("Java_com_example_jni_Gone_x", Text + 0x30, 4),
             ],
         }.Build();
+    }
+
+    /// <summary>A table's class found through the code index is kept per library, so paging calls do not rebuild the index.</summary>
+    [Fact]
+    public void TableOwnersFromTheCodeIndexAreKeptPerLibrary()
+    {
+        using var dir = new TempDir();
+        var library = Library($"lib{Guid.NewGuid():N}.so");
+        var path = AndroidSamples.Save(dir, "jni.apk", AndroidSamples.Apk(30, ("classes.dex", Dex()), ("lib/arm64-v8a/libnative.so", library)));
+        var jni = new JniBindings(new DexService());
+        const uint table2 = ElfWriter.DataRva + 0x200;
+        Assert.False(JniBindings.OwnerCached(library, table2));
+        string Owner() => jni.List(path, null, null, "registered", 0, 100, default).Items.Single(i => i.JavaMethod == $"{Third}->init()V").Confidence!;
+        Assert.Equal("class_string", Owner());
+        Assert.True(JniBindings.OwnerCached(library, table2));
+        Assert.Equal("class_string", Owner());
     }
 
     [Theory]
