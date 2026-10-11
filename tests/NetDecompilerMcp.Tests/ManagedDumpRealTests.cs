@@ -87,13 +87,15 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         var dump = Crash(dll, dir.File("full.dmp"), 4);
         using var ws = new AssemblyWorkspace();
         var probe = ws.Load(dll);
-        var service = new MinidumpService(ws);
+        var service = new MinidumpService(ws, decompiler: new DecompilerService(ws, new ServerOptions()));
 
         var summary = await service.Summarize(dump, null, 0, 50, 0, 50, default);
         var m = summary.Managed!;
         output.WriteLine($"{m.Runtime}: DAC {m.Dac.Status} {m.Dac.Path} ({m.Dac.Detail}); heap {m.Heap}");
         Assert.Equal("loaded", m.Dac.Status);
         Assert.True(m.Heap!.Walkable, m.Heap.Reason);
+        Assert.Equal("throw new InvalidOperationException(\"ndm-probe\");",
+            m.Exception!.Inner.Single().Stack.First(f => f.Function.Contains("Inner", StringComparison.Ordinal)).Statement); // the IL offset as a C# statement
         var e = m.Exception!;
         Assert.Equal("System.ApplicationException", e.Type);
         Assert.Equal("ndm-outer", e.Message);

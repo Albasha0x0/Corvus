@@ -97,7 +97,8 @@ public sealed partial class MinidumpService
         [property: Description("Managed frames: the method token, for decompile_member with assembly.")] string? Token = null,
         [property: Description("Managed frames: IL offset of the instruction, when the dump holds the JIT's IL map.")] int? IlOffset = null,
         [property: Description("Managed frames: id of the loaded assembly that is this build (file name and MVID).")] string? Assembly = null,
-        [property: Description("Managed frames: match, mismatch (the loaded assembly of that name is another build), or unknown.")] string? BuildCheck = null);
+        [property: Description("Managed frames: match, mismatch (the loaded assembly of that name is another build), or unknown.")] string? BuildCheck = null,
+        [property: Description("Managed frames: the C# statement at the IL offset (decompiled with sequence points), for a matching build.")] string? Statement = null);
 
     public sealed record StackReport(
         string Dump, uint ThreadId, string? ThreadName,
@@ -336,11 +337,16 @@ public sealed partial class MinidumpService
         {
             if (clr != null)
             {
-                frames.Add(ManagedStackFrame(s, i, native, clr));
+                frames.Add(ManagedStackFrame(s, i, native, clr, ct));
                 continue;
             }
             var f = native!;
             var where = await Locate(s, f.Ip, f.IsReturnAddress, ct);
+            if (where.Kind == "managed" && where.Module == null && await MonoFrame(s, i, f, ct) is { } mono)
+            {
+                frames.Add(mono);
+                continue;
+            }
             string? note = string.Join("; ", new[] { f.Note, where.Note }.Where(x => !string.IsNullOrEmpty(x)));
             frames.Add(new StackFrame(i, Hex(d, f.Ip), Hex(d, f.Sp), where.Module?.FileName, where.Rva is { } r ? $"0x{r:X}" : null, where.Symbol, where.Function,
                 where.Source, where.FunctionAddress is { } fa ? Hex(d, fa) : null, where.Kind, f.Method, f.Heuristic, note.Length > 0 ? note : null));

@@ -2359,7 +2359,7 @@ Structured output: `id`, `path`, `fileSize`, `timeUtc`, `dumpType`, `system`, `p
 
 **Crash dump stack** (read-only, idempotent)
 
-Call stack of a minidump thread. x64: unwind with the modules' .pdata (image on disk or in dump memory); x86: the EBP chain; without unwind data (JIT code) a stack scan adds frames marked heuristic. Names from a loaded image's code index, Il2Cpp dummy DLLs, a matching PDB, or exports (nearest_export is a guess). .NET frames come from the runtime's walk (DAC) with token, IL offset and the loaded assembly of that build. The faulting thread starts at the exception context, like .ecxr.
+Call stack of a minidump thread. x64: unwind with the modules' .pdata (image on disk or in dump memory); x86: the EBP chain; without unwind data (JIT code) a stack scan adds frames marked heuristic. Names from a loaded image's code index, Il2Cpp dummy DLLs, a matching PDB, or exports (nearest_export is a guess). .NET frames come from the runtime's walk (DAC) with token, IL offset and the loaded assembly of that build and the C# statement; Mono JIT code from the runtime's report beside the dump. The faulting thread starts at the exception context, like .ecxr.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -2427,7 +2427,7 @@ Structured output: `dump`, `address`, `requested`, `length`, `source`, `location
 
 **Symbolize crash text** (read-only, idempotent, long-running)
 
-Resolves crash text against the loaded build: Unity Player.log / error.log backtraces (its module list gives load addresses), Mono frames (by module MVID), Il2Cpp/Unity managed lines, .NET exception text (inner chain, NativeAOT), WER Report.wer, Event Log 1000/1026 text and debugger stacks. Each frame gets our name and a buildCheck (time stamp, MVID or the text's own name); modules not loaded are listed; unrecognized lines are counted.
+Resolves crash text against the loaded build: Unity Player.log / error.log backtraces (its module list gives load addresses), Mono frames (by module MVID), Il2Cpp/Unity managed lines, .NET exception text (inner chain, NativeAOT), WER Report.wer, Event Log 1000/1026 text and debugger stacks. Each frame gets our name, a buildCheck (time stamp, MVID or the text's own name) and the C# statement at an IL offset; modules not loaded are listed; unrecognized lines are counted.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

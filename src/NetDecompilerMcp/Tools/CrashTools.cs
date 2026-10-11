@@ -13,7 +13,7 @@ public sealed class CrashTools(StackTextService stacks, MinidumpService dumps)
     [McpServerTool(Name = "symbolize_stack_text", Title = "Symbolize crash text", UseStructuredContent = true)]
     [Description("Resolves crash text against the loaded build: Unity Player.log / error.log backtraces (its module list gives load addresses), " +
                  "Mono frames (by module MVID), Il2Cpp/Unity managed lines, .NET exception text (inner chain, NativeAOT), WER Report.wer, Event Log " +
-                 "1000/1026 text and debugger stacks. Each frame gets our name and a buildCheck (time stamp, MVID or the text's own name); modules " +
+                 "1000/1026 text and debugger stacks. Each frame gets our name, a buildCheck (time stamp, MVID or the text's own name) and the C# statement at an IL offset; modules " +
                  "not loaded are listed; unrecognized lines are counted.")]
     public Task<StackTextService.SymbolizedStack> SymbolizeStackText(
         [Description("The crash text (up to 1 MiB). Pass this or path.")] string? text = null,

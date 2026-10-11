@@ -170,8 +170,9 @@ public static class Guide
             Load the crashed binaries first so frames get your names, PDB and Il2Cpp names; pass imageDirectories when they are not at
             their recorded paths. .NET dumps: the runtime's DAC (found locally: dacPath, the same runtime installed here, symbol stores;
             downloadDac=true fetches it, never under NDM_OFFLINE=1; always signature-checked) decodes the managed exception and its
-            inner chain, and gives managed frames a token, IL offset and the loaded assembly of that build (load the app's assemblies
-            first; decompile_member assembly=<id> member=<token>). Mono frames stay identified only. With heap memory in the dump:
+            inner chain, and gives managed frames a token, IL offset, the C# statement and the loaded assembly of that build (load the
+            app's assemblies first; decompile_member assembly=<id> member=<token>); .NET Framework and 32-bit dumps too. Unity Mono:
+            the runtime's report beside the dump (Player.log, error.log) names the JIT frames. With heap memory in the dump:
             dump_heap (stats per type, or objects by type) and dump_object (fields, strings, arrays; the exception's address works).
             No dump, only text (Player.log, error.log, Report.wer, event text, an exception's ToString, a debugger stack):
             symbolize_stack_text names each frame in the loaded build; check buildCheck before trusting a name (mismatch: another build).

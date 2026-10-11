@@ -464,6 +464,91 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         }
     }
 
+    /// <summary>The C# statement that holds an IL offset of a method, and its line in the method's decompiled text.</summary>
+    public sealed record IlStatement(string Text, int Line, int IlStart, int IlEnd);
+
+    private const int MaxStatementChars = 300, MaxCachedStatementMethods = 64;
+    private readonly LinkedList<(string Key, List<(int Start, int End, int Line, string Text)> Points)> _statements = new();
+
+    /// <summary>
+    /// The statement of <paramref name="method"/> at <paramref name="ilOffset"/> (a frame's IL offset), from the
+    /// decompiler's sequence points; a state machine's MoveNext maps through the method that starts it. Null when no
+    /// statement covers the offset or the assembly has edits (its IL offsets are not the ones that ran).
+    /// </summary>
+    public IlStatement? StatementAt(LoadedAssembly asm, Dn.MethodDef method, int ilOffset, CancellationToken ct)
+    {
+        if (asm.IsDirty || !method.HasBody) return null;
+        var source = StateMachineKickoff(method) ?? method;
+        string key = $"{workspace.Generation}|{asm.Id}|{asm.Version}|{method.MDToken.Raw:X8}";
+        List<(int Start, int End, int Line, string Text)>? points = null;
+        lock (_statements)
+            for (var n = _statements.First; n != null; n = n.Next)
+                if (n.Value.Key == key)
+                {
+                    points = n.Value.Points;
+                    _statements.Remove(n);
+                    _statements.AddFirst(n);
+                    break;
+                }
+        if (points == null)
+        {
+            points = [];
+            var found = points;
+            WithTimeout(token =>
+            {
+                var decompiler = CreateDecompiler(asm, token);
+                var tree = decompiler.Decompile(Handle(asm, source));
+                using var writer = new StringWriter();
+                var tokens = ICSharpCode.Decompiler.CSharp.OutputVisitor.TokenWriter.WrapInWriterThatSetsLocationsInAST(
+                    new ICSharpCode.Decompiler.CSharp.OutputVisitor.TextWriterTokenWriter(writer) { IndentationString = "    " });
+                tree.AcceptVisitor(new ICSharpCode.Decompiler.CSharp.OutputVisitor.CSharpOutputVisitor(tokens, CreateSettings().CSharpFormattingOptions));
+                var lines = writer.ToString().Split('\n');
+                int token32 = (int)asm.ImageToken(method);
+                foreach (var (function, list) in decompiler.CreateSequencePoints(tree))
+                {
+                    var owner = function.MoveNextMethod ?? function.Method;
+                    if (owner == null || MetadataTokens.GetToken(owner.MetadataToken) != token32) continue;
+                    foreach (var sp in list.Where(p => !p.IsHidden && p.StartLine >= 1 && p.EndLine <= lines.Length))
+                        found.Add((sp.Offset, sp.EndOffset, sp.StartLine, Slice(lines, sp)));
+                }
+                return "";
+            }, ct);
+            lock (_statements)
+            {
+                _statements.AddFirst((key, points));
+                while (_statements.Count > MaxCachedStatementMethods) _statements.RemoveLast();
+            }
+        }
+        var hit = points.Where(p => p.Start <= ilOffset && ilOffset < p.End).OrderBy(p => p.End - p.Start).FirstOrDefault();
+        return hit.Text == null ? null : new IlStatement(hit.Text, hit.Line, hit.Start, hit.End);
+    }
+
+    private static string Slice(string[] lines, ICSharpCode.Decompiler.DebugInfo.SequencePoint sp)
+    {
+        var sb = new StringBuilder();
+        for (int l = sp.StartLine; l <= sp.EndLine; l++)
+        {
+            var line = lines[l - 1].TrimEnd('\r');
+            int from = l == sp.StartLine ? Math.Clamp(sp.StartColumn - 1, 0, line.Length) : 0;
+            int to = l == sp.EndLine ? Math.Clamp(sp.EndColumn - 1, from, line.Length) : line.Length;
+            sb.Append(line.AsSpan(from, to - from).Trim()).Append(' ');
+        }
+        return Format.Clip(sb.ToString().Trim(), MaxStatementChars);
+    }
+
+    /// <summary>The async or iterator method a compiler-generated state machine's MoveNext belongs to.</summary>
+    private static Dn.MethodDef? StateMachineKickoff(Dn.MethodDef method)
+    {
+        if (method.Name != "MoveNext" || method.DeclaringType is not { DeclaringType: { } outer } machine) return null;
+        foreach (var m in outer.Methods)
+            foreach (var a in m.CustomAttributes)
+                if (a.TypeFullName is "System.Runtime.CompilerServices.AsyncStateMachineAttribute" or "System.Runtime.CompilerServices.IteratorStateMachineAttribute"
+                        or "System.Runtime.CompilerServices.AsyncIteratorStateMachineAttribute"
+                    && a.ConstructorArguments.Count == 1 && a.ConstructorArguments[0].Value is Dn.TypeDefOrRefSig { TypeDefOrRef: var t } && (t as Dn.TypeDef ?? Dn.Extensions.ResolveTypeDef(t)) == machine)
+                    return m;
+        return null;
+    }
+
     /// <summary>The member's handle in the assembly's current image, including added members.</summary>
     internal static EntityHandle Handle(LoadedAssembly asm, Dn.IMDTokenProvider member) => MetadataTokens.EntityHandle((int)asm.ImageToken(member));
 

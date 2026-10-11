@@ -16,7 +16,8 @@ namespace NetDecompilerMcp.Services;
 /// PDB and the exports. .NET (CLR) frames are decoded through the runtime's DAC when a verified one is available. Dumps are re-read per call
 /// (positional reads); module images and names are cached.
 /// </summary>
-public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null, NativeCodeService? code = null, Il2CppNavigator? navigator = null)
+public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null, NativeCodeService? code = null, Il2CppNavigator? navigator = null,
+    DecompilerService? decompiler = null, StackTextService? stacks = null)
 {
     private const int MaxCachedModules = 256;
     private static readonly TimeSpan IndexWait = TimeSpan.FromSeconds(30);
@@ -83,6 +84,10 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         /// <summary>The minidump of a dump session.</summary>
         public MinidumpFile Dump => Memory as MinidumpFile ?? throw new InvalidOperationException("not a dump session");
         public IReadOnlyList<string> Directories { get; } = directories;
+        /// <summary>Frames left whose IL offset may be mapped to a C# statement in this call.</summary>
+        public int StatementBudget { get; set; } = MaxStatements;
+        /// <summary>The Mono runtime's crash reports beside the dump, once read.</summary>
+        public IReadOnlyList<(string Log, StackTextService.SymbolizedStack Stack)>? MonoReports { get; set; }
         /// <summary>Files of the native images open in the workspace, matched to modules by timestamp and size under any name.</summary>
         public IReadOnlyList<string> LoadedImages { get; } = loaded ?? [];
 

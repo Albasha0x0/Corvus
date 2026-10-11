@@ -14,8 +14,11 @@ namespace NetDecompilerMcp.Services;
 /// (native images through their code index and Il2Cpp names, managed frames by MVID or name) and checked for being
 /// that build: time stamps, MVIDs, and the names the text gives against ours.
 /// </summary>
-public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeService? code = null, Il2CppNavigator? navigator = null)
+public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeService? code = null, Il2CppNavigator? navigator = null, DecompilerService? decompiler = null)
 {
+    /// <summary>Managed frames per call whose IL offset is mapped to a C# statement (each decompiles its method once).</summary>
+    public const int MaxStatements = 30;
+
     public const int MaxTextChars = 1 << 20;
     public const int MaxFileBytes = 8 << 20;
     public const int DefaultLimit = 200;
@@ -40,6 +43,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
         [property: Description("Id of the loaded native image the frame resolved in.")] string? Image,
         [property: Description("Id of the loaded assembly the method resolved in.")] string? Assembly,
         string? Token, int? IlOffset,
+        [property: Description("The C# statement at the IL offset (decompiled with sequence points), when the frame's build matches.")] string? Statement,
         [property: Description("Which exception of the chain the frame belongs to: 0 the outermost.")] int? Exception,
         [property: Description("match (the same build: time stamp, MVID or the text's own name agree), mismatch (another build: do not trust the name), or unknown.")] string BuildCheck,
         string? BuildDetail,
@@ -92,7 +96,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
                 }
                 if (inPage) page.Add(await Native(i, f, module, native, bases, parsed, ct));
             }
-            else if (inPage) page.Add(Managed(i, f, missing));
+            else if (inPage) page.Add(Managed(i, f, missing, page.Count(p => p.Statement != null) < MaxStatements, ct));
             else if (f.Mvid is { } mvid && workspace.Read(() => !workspace.Assemblies.Any(a => a.Module.Mvid == mvid)))
                 Count(missing, f.Type, mvid);
         }
@@ -208,7 +212,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
             rva = a - kb.Value;
         string? address = f.Address is { } addr ? $"0x{addr:X}" : null;
         SymbolizedFrame Row(string? resolved, string? source, string check, string? detail, string? next, ulong? shownRva = null) =>
-            new(index, f.Line, f.Raw, "native", module, (shownRva ?? rva) is { } r ? $"0x{r:X}" : null, address, resolved, source, native?.Id, null, null, null, f.Segment, check, detail, next);
+            new(index, f.Line, f.Raw, "native", module, (shownRva ?? rva) is { } r ? $"0x{r:X}" : null, address, resolved, source, native?.Id, null, null, null, null, f.Segment, check, detail, next);
 
         var textModule = module == null ? null : parsed.Modules.FirstOrDefault(m => SameModule(m.Name, module));
         if (module == null)
@@ -308,13 +312,27 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
         return (rva == n.Start ? n.Name : $"{n.Name}+0x{rva - n.Start:X}", n.Source);
     }
 
-    private sealed record ManagedMatch(string Kind, string? Resolved, string? Assembly, string? Token, string Check, string? Detail, string? Next);
-
-    private SymbolizedFrame Managed(int index, TextFrame f, Dictionary<string, (string? Version, uint? Stamp, int Frames)> missing)
+    private sealed record ManagedMatch(string Kind, string? Resolved, string? Assembly, string? Token, string Check, string? Detail, string? Next)
     {
-        var m = workspace.Read(() => Resolve(f, missing));
+        public (LoadedAssembly Assembly, MethodDef Method)? Target { get; init; }
+    }
+
+    private SymbolizedFrame Managed(int index, TextFrame f, Dictionary<string, (string? Version, uint? Stamp, int Frames)> missing, bool statement, CancellationToken ct)
+    {
+        var (m, text) = workspace.Read(() =>
+        {
+            var match = Resolve(f, missing);
+            string? s = null;
+            // a statement only where the IL is the one that ran (the same build) or no build check is possible
+            if (statement && decompiler != null && f.IlOffset is { } il && match is { Target: { } t, Kind: "managed", Check: not "mismatch" })
+            {
+                try { s = decompiler.StatementAt(t.Assembly, t.Method, il, ct)?.Text; }
+                catch (ToolError) { }
+            }
+            return (match, s);
+        });
         return new SymbolizedFrame(index, f.Line, f.Raw, m.Kind, null, f.SymbolOffset is { } so ? $"0x{so:X}" : null, f.Address is { } a ? $"0x{a:X}" : null,
-            m.Resolved, m.Resolved != null ? "metadata" : "none", null, m.Assembly, m.Token, f.IlOffset, f.Segment, m.Check, m.Detail, m.Next);
+            m.Resolved, m.Resolved != null ? "metadata" : "none", null, m.Assembly, m.Token, f.IlOffset, text, f.Segment, m.Check, m.Detail, m.Next);
     }
 
     /// <summary>A managed frame's method in the loaded assemblies: by MVID when the text has one (the build check), else by name.</summary>
@@ -359,7 +377,7 @@ public sealed class StackTextService(AssemblyWorkspace workspace, NativeCodeServ
         var token = $"0x{method.MDToken.Raw:X8}";
         bool il2cpp = navigator?.ImageOf(asm) != null;
         return new(il2cpp ? "il2cpp" : "managed", Format.MemberLabel(method), asm.Id, token, check, detail,
-            il2cpp ? $"get_il2cpp_info assembly={asm.Id} symbol={token}" : $"decompile_member assembly={asm.Id} member={token}");
+            il2cpp ? $"get_il2cpp_info assembly={asm.Id} symbol={token}" : $"decompile_member assembly={asm.Id} member={token}") { Target = (asm, method) };
     }
 
     private static TypeDef? Find(LoadedAssembly asm, string typeName) =>
