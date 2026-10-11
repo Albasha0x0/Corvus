@@ -300,7 +300,8 @@ public sealed class NativeImportVerifier
                 if (!_systemDlls && dot > 0 && IsSystemDll(export.ForwardedTo[..dot]))
                     return Result(Unresolved, "system_dll_not_on_host", file, candidate,
                         $"{candidate} is forwarded to {export.ForwardedTo}, a Windows system DLL this host does not have");
-                var link = _linker.Bind(module, asm.FilePath, x86, candidate, null, "pinvoke", runtimeFolder: true);
+                // From the file found above: locating the module again misses an app-local DLL matched ignoring case.
+                var link = _linker.BindIn(module, file, x86, candidate, "pinvoke");
                 if (link.IsResolved) return Result(Verified, "forwarded", file, candidate, $"forwarded: {link.Chain}");
                 return link.Detail.Contains(": module not found", StringComparison.Ordinal)
                     ? Result(Unresolved, "forwarder_dll_not_found", file, candidate, $"forwarder target not found: {link.Chain}: {link.Detail}")

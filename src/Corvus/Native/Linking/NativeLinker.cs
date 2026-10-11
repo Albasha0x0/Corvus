@@ -186,6 +186,9 @@ public sealed partial class NativeLinker
         return Export(module, file, x86, name, ordinal, via, 0);
     }
 
+    /// <summary>Binds <paramref name="name"/> in <paramref name="file"/>, already located as <paramref name="module"/>, following forwarders.</summary>
+    public LinkResult BindIn(string module, string file, bool x86, string name, string via) => Export(module, file, x86, name, null, via, 0);
+
     /// <summary>
     /// Binds the first of <paramref name="candidates"/> that <paramref name="module"/> exports (P/Invoke rules: A/W
     /// suffixes and stdcall decoration are tried by the caller's candidate list); the result's Detail names the
