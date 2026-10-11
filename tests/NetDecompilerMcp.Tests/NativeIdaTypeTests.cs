@@ -254,6 +254,33 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
     }
 
     [IdaFact]
+    public async Task Database_export_writes_a_copy_and_the_worker_keeps_its_own()
+    {
+        var rig = Setup("cache-e");
+        await rig.Types.DeclareNativeTypes(Image, "struct NdmShipped { int a; };");
+        var export = new EngineExportTools(rig.Workspace, rig.Engines, rig.Code);
+        var target = _dir.File("out/copy");
+        var r = await export.ExportEngineDatabase(Image, target);
+        output.WriteLine($"{r.Path} {r.Bytes}");
+        Assert.Equal(Path.GetFullPath(target + ".i64"), r.Path);
+        Assert.True(new FileInfo(r.Path).Length > 1000 && r.Bytes == new FileInfo(r.Path).Length);
+        Assert.Equal(ErrorCode.Conflict, (await Assert.ThrowsAsync<ToolError>(() => export.ExportEngineDatabase(Image, r.Path))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => export.ExportEngineDatabase(Image, _dir.File("x.idb")))).Code);
+        Assert.Equal(ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => export.ExportEngineDatabase(Image, _dir.File("y.i64"), engine: "ghidra"))).Code);
+
+        // the worker still saves to its own database, not to the copy
+        var session = await rig.Session();
+        var own = session.DatabasePath;
+        var copyTime = File.GetLastWriteTimeUtc(r.Path);
+        await Task.Delay(1100);
+        await session.SaveAsync();
+        Assert.Equal(own, session.DatabasePath);
+        Assert.Equal(copyTime, File.GetLastWriteTimeUtc(r.Path));
+        Assert.Equal(r.Path, (await export.ExportEngineDatabase(Image, r.Path, force: true)).Path);
+        Assert.Contains((await session.GetTypeAsync("NdmShipped")).Members, m => m.Name == "a");
+    }
+
+    [IdaFact]
     public async Task Exported_IDA_script_applies_every_user_type_to_another_database()
     {
         var rig = Setup("cache-x");

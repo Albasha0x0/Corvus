@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
-149 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+150 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -17,7 +17,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [native-edit](#native-edit) | yes | 9: native names, comments, patches and saving |
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
-| [engine](#engine) | no | 9: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
+| [engine](#engine) | no | 10: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
 | [android](#android) | no | 19: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
 | [dumps](#dumps) | no | 7: crash dumps and crash text |
 | [live](#live) | no | 1: read-only inspection of a running process |
@@ -1926,6 +1926,21 @@ Run Python in the IDA worker holding a native image's database (idalib): IDAPyth
 | `file` | string |  |  | A .py file to run instead of code. |
 | `maxOutput` | integer |  | `20000` | Characters kept of the result, stdout and stderr each (default 20000, 100-200000). |
 | `persist` | boolean |  | `false` | Save the database after the script. |
+
+### export_engine_database
+
+**Export the engine database** (destructive, idempotent, open-world, long-running)
+
+Write a native image's IDA database (analysis plus the names, comments and types pushed from here) as a compressed .i64 copy for the IDA GUI; the worker keeps its own. force=true replaces an existing file. Ghidra projects are not exported.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
+| `outputPath` | string | yes |  | The .i64 file to write. |
+| `force` | boolean |  | `false` | Replace outputPath if it exists. |
+| `engine` | string |  |  | Engine: auto (default) or ida. Values: auto, ida. |
+
+Structured output: `image`, `engine`, `path`, `bytes`, `note`.
 
 ## android
 

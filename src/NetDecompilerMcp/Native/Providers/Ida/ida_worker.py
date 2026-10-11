@@ -2411,6 +2411,27 @@ def op_decompile_refs(args):
 OPS["decompile_refs"] = op_decompile_refs
 
 
+# ---- Database export ----
+
+def op_save_as(args):
+    # A packed, compressed copy of the open database at a new path for the IDA GUI. Never DBFL_KILL: it deletes the
+    # unpacked working files the open database still runs on. The worker keeps saving to its own path.
+    m = need_open()
+    loader = m.ida_loader
+    path = os.path.abspath(args["path"])
+    current = loader.get_path(loader.PATH_TYPE_IDB)
+    if os.path.normcase(path) == os.path.normcase(os.path.abspath(current)):
+        raise WorkerError("invalid_argument", "that is the worker's own database")
+    if not loader.save_database(path, loader.DBFL_COMP):
+        raise WorkerError("io_error", "save_database failed for %s" % path)
+    if os.path.normcase(loader.get_path(loader.PATH_TYPE_IDB)) != os.path.normcase(current):
+        loader.set_path(loader.PATH_TYPE_IDB, current)
+    return {"path": path, "size": os.path.getsize(path)}
+
+
+OPS["save_as"] = op_save_as
+
+
 def watch_parent(parent):
     # POSIX has no job object: exit when the server dies, even while a request runs (stdin EOF is only seen between requests)
     try:

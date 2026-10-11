@@ -39,6 +39,7 @@ public static class ContractSweep
         ["export_native_annotations"] = ["outputPath"],
         ["save_native"] = ["outputPath"],
         ["export_native_patches"] = ["outputPath"],
+        ["export_engine_database"] = ["outputPath"],
     };
 
     /// <summary>Parameters whose value can launch a process or reach the network; a tool with any of them is open-world.</summary>

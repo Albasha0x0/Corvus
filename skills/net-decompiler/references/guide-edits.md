@@ -26,7 +26,8 @@ Engine edits (IDA or Ghidra): set_native_type (prototypes), set_native_local (de
 set_native_stack_var (stack frames), declare_native_types and list_native_types (C declarations kept per image),
 define_native (code, functions, data items, undefined bytes), set_native_operand (operand display: number base,
 offset, stack variable, enum member, struct offset);
-ida_python runs IDAPython in the image's IDA worker, off unless --ida-scripting.
+ida_python runs IDAPython in the image's IDA worker, off unless --ida-scripting; export_engine_database writes the IDA
+database as an .i64 for the GUI.
 Notes: record_note anchors a finding, question, hypothesis or todo to '<image>@<address>', '<assembly>:<symbol>', a file or
 a dump; notes persist per user by file SHA-256 / module MVID. update_note changes one in part (expectedRevision; a conflict
 returns the current note); list_notes filters by status, kind, anchor, tag and text. decompile_member and decompile_native
