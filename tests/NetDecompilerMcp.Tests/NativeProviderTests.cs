@@ -124,6 +124,18 @@ public class NativeProviderTests
     }
 
     [Fact]
+    public void IDA_before_9_is_refused_by_the_version_its_worker_reports()
+    {
+        using var provider = new NetDecompilerMcp.Native.Providers.Ida.IdaProvider();
+        static System.Text.Json.JsonElement Hello(string v) => System.Text.Json.JsonDocument.Parse($$"""{"version":"{{v}}"}""").RootElement.Clone();
+        var e = Assert.Throws<ToolError>(() => provider.CheckVersion(Hello("8.4.0")));
+        Assert.Equal(ErrorCode.Unsupported, e.Code);
+        Assert.Contains("9.0 or newer", e.Message);
+        provider.CheckVersion(Hello("9.3.0"));
+        Assert.Equal("9.3.0", provider.Version);
+    }
+
+    [Fact]
     public void A_locked_entry_names_its_owner_and_can_be_snapshotted()
     {
         using var tmp = new TempDir();

@@ -365,6 +365,15 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     }
 
     [IdaFact]
+    public async Task A_session_reports_the_IDA_version_in_the_availability()
+    {
+        var provider = Isolated();
+        Assert.StartsWith("not probed", provider.CheckAvailability().Details["version"]);
+        await using var s = await provider.OpenAsync(System64, null, Offline);
+        Assert.StartsWith("9.", provider.CheckAvailability().Details["version"]);
+    }
+
+    [IdaFact]
     public async Task The_worker_runs_in_batch_mode()
     {
         await using var s = await Provider.OpenAsync(System64, null, Offline);

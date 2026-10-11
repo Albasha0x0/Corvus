@@ -53,7 +53,30 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
     internal IdaProviderOptions Options => _options;
     internal AnalysisCache Cache { get; } = new((options ?? new IdaProviderOptions()).CacheRoot ?? AnalysisCache.DefaultRoot);
 
-    public ProviderAvailability CheckAvailability() => Static().Result;
+    /// <summary>The idalib version a worker reported (probe or session start), or null before one ran.</summary>
+    public string? Version { get; private set; }
+
+    /// <summary>The static checks, plus the version once a worker reported it.</summary>
+    public ProviderAvailability CheckAvailability()
+    {
+        var result = Static().Result;
+        if (!result.IsAvailable) return result;
+        var details = new Dictionary<string, string>(result.Details)
+        {
+            ["version"] = Version ?? "not probed yet (reported by the first IDA session, or NetDecompilerMcp status --deep)",
+        };
+        return ProviderAvailability.Ok(Id, details);
+    }
+
+    /// <summary>Records the version a worker's hello reported; IDA before 9.0 has no usable idalib and is refused.</summary>
+    internal void CheckVersion(System.Text.Json.JsonElement hello)
+    {
+        if (!hello.TryGetProperty("version", out var v) || v.GetString() is not { Length: > 0 } version) return;
+        Version = version;
+        if (int.TryParse(version.Split('.')[0], out var major) && major < 9)
+            throw new ToolError(ErrorCode.Unsupported, $"IDA {version} is too old: idalib from IDA Pro 9.0 or newer is required.",
+                "Install IDA Pro 9 or newer, or set NDM_IDA_DIR to such an install.");
+    }
 
     private (ProviderAvailability Result, IdaInstallation? Ida, PythonInterpreter? Python) Static()
     {
@@ -94,7 +117,8 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
             using var worker = StartWorker(ida!, python!);
             await worker.WaitReadyAsync(_options.StartTimeout, cancellationToken).ConfigureAwait(false);
             var hello = await worker.RequestAsync("hello", null, TimeSpan.FromMinutes(2), cancellationToken).ConfigureAwait(false);
-            if (hello.TryGetProperty("version", out var v) && v.GetString() is { } version) details["version"] = version;
+            CheckVersion(hello);
+            if (Version != null) details["version"] = Version;
             await worker.ShutdownAsync("close", null, TimeSpan.FromSeconds(5)).ConfigureAwait(false);
             return ProviderAvailability.Ok(Id, details);
         }

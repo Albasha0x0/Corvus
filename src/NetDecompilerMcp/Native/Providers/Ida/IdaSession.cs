@@ -114,6 +114,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         };
         await worker.WaitReadyAsync(provider.Options.StartTimeout, cancellationToken).ConfigureAwait(false);
 
+        provider.CheckVersion(await worker.RequestAsync("hello", null, provider.Options.StartTimeout, cancellationToken).ConfigureAwait(false));
         var reuse = File.Exists(_databasePath);
         ReusedDatabase = reuse;
         StartStage(reuse ? "load" : "analysis");
