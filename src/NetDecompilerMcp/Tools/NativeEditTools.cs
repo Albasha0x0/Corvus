@@ -359,7 +359,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     });
 
     [McpServerTool(Name = "patch_bytes", Title = "Patch native bytes")]
-    [Description("Replace bytes at a native address with a hex string, in memory. The patch is recorded as an undoable edit and every read path " +
+    [Description("Replace bytes at an address of a PE image with a hex string, in memory (ELF and Mach-O are not patched). The patch is recorded as an undoable edit and every read path " +
                  "(disassemble, strings, search_bytes, read_bytes) then sees the patched bytes. Over code, trailing bytes of a partly overwritten " +
                  "instruction are padded with NOPs; refused mid-instruction, past the function end or on zero-fill/header bytes unless force=true. " +
                  "Relocations under the patch are planned (see relocations). dryRun previews without recording.")]
@@ -394,8 +394,8 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     });
 
     [McpServerTool(Name = "patch_asm", Title = "Assemble and patch native code")]
-    [Description("Assemble x86/x64 instructions (multi-line; labels, numeric and symbol branch targets; a 'db <hex>' escape) and write them at a " +
-                 "native address, in memory. Branch displacements and RIP-relative references are computed for the target address. Same safety rules " +
+    [Description("Assemble x86/x64 instructions (multi-line; labels, numeric and symbol branch targets; a 'db <hex>' escape) and write them at an " +
+                 "address of a PE image, in memory. Branch displacements and RIP-relative references are computed for the target address. Same safety rules " +
                  "and NOP padding as patch_bytes; the patch is recorded as an undoable edit. Absolute addresses (x86 [addr] operands, 'offset name' / " +
                  "symbol immediates, x64 imm64 addresses) get base relocations and overwritten ones are neutralized (see relocations). dryRun previews.")]
     public Task<string> PatchAsm(
