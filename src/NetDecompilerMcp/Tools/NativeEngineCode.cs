@@ -11,34 +11,37 @@ using static NetDecompilerMcp.Tools.ToolSupport;
 
 namespace NetDecompilerMcp.Tools;
 
-/// <summary>Which engine answers a native code call and why: the Engine line of the text and the Engine / EngineNote fields.</summary>
-internal sealed record EngineChoice(bool Ida, string Note)
+/// <summary>Which engine answers a native code call (ours, ida or ghidra) and why: the Engine line of the text and the Engine / EngineNote fields.</summary>
+internal sealed record EngineChoice(string Engine, string Note)
 {
-    public string Engine => Ida ? "ida" : "ours";
+    /// <summary>Whether an external engine answers (not the built-in index).</summary>
+    public bool External => Engine != "ours";
     public string Line => $"Engine: {Engine} ({Note})";
 }
 
 /// <summary>
-/// list_functions, disassemble, get_cfg, find_xrefs and native_call_tree answered through the IDA session in the same
-/// formats, marked "(via IDA)": for images whose instruction set the built-in analysis does not decode (ARM64, ARM),
-/// and for any image when the engine preference picks IDA (engine=ida, or auto once IDA's analysis is complete).
-/// Merging: functions, bounds, references and blocks are IDA's; names in effect here (user, PDB, Il2Cpp, exports) win
-/// over IDA's own (they are pushed into the database first); virtual call edges the built-in index resolved through
-/// RTTI and IDA has no reference for are added, marked as ours.
+/// list_functions, disassemble, get_cfg, find_xrefs and native_call_tree answered through an engine session (IDA or
+/// Ghidra) in the same formats, marked "(via IDA)" or "(via Ghidra)": for images whose instruction set the built-in
+/// analysis does not decode (ARM64, ARM), and for any image when the engine preference picks an engine (engine=ida or
+/// engine=ghidra, or auto once that engine's analysis is complete). Merging: functions, bounds, references and blocks
+/// are the engine's; names in effect here (user, PDB, Il2Cpp, exports) win over the engine's own (they are pushed into
+/// the database first); virtual call edges the built-in index resolved through RTTI and the engine has no reference
+/// for are added, marked as ours.
 /// </summary>
 internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager pager, NativeNamePush? names)
 {
-    public const string Via = "(via IDA)";
+    /// <summary>The marker of results an engine produced: "(via IDA)", "(via Ghidra)".</summary>
+    public static string Via(string engine) => $"(via {NativeEngineService.DisplayName(engine)})";
 
-    /// <summary>Whether the call goes to the engine: the built-in analysis does not decode the code, and an engine is installed.</summary>
+    /// <summary>Whether the call goes to an engine: the built-in analysis does not decode the code, and an engine is installed.</summary>
     public bool Serves(NativeCodeIndex index) => index.Support == CodeSupport.DeclaredFunctionsOnly && engines.IsAvailable;
 
     /// <summary>
-    /// Which engine answers a call. ours: the built-in index, IDA is not asked anything. auto: IDA when its analysis of the
-    /// image is complete in this session (checked without a request to the engine), or when the built-in analysis does
-    /// not decode the image's instructions and IDA is installed; else ours (the result says when a saved IDA analysis of
-    /// the image exists that engine=ida would load). ida: IDA (the analysis is started or waited for by the call), or
-    /// provider_unavailable.
+    /// Which engine answers a call. ours: the built-in index, no engine is asked anything. auto: the engine whose analysis
+    /// of the image is complete in this session (IDA's before Ghidra's; checked without a request to the engine), or, when
+    /// the built-in analysis does not decode the image's instructions, the first engine installed (IDA, then Ghidra); else
+    /// ours (the result says when a saved engine analysis of the image exists that engine=ida or engine=ghidra would
+    /// load). ida, ghidra: that engine (the analysis is started or waited for by the call), or provider_unavailable.
     /// </summary>
     /// <param name="named">Whether the call named the engine (else it is the server default).</param>
     public static EngineChoice Choose(EngineMode mode, bool named, NativeEngineService? engines, LoadedNative native, NativeCodeIndex index)
@@ -48,39 +51,41 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
         switch (mode)
         {
             case EngineMode.Ours:
-                return new(false, $"{origin}: the built-in index; IDA not consulted");
-            case EngineMode.Ida:
+                return new("ours", $"{origin}: the built-in index; no engine consulted");
+            case EngineMode.Ida or EngineMode.Ghidra:
+                var id = EngineModes.ProviderId(mode)!;
+                var display = NativeEngineService.DisplayName(id);
                 if (engines == null)
-                    throw new ToolError(ErrorCode.ProviderUnavailable, "engine=ida: no analysis engine is set up in this server.", "use engine=auto or engine=ours");
-                if (engines.Unavailability is { } u)
-                    throw new ToolError(ErrorCode.ProviderUnavailable, $"engine=ida: IDA is not available: {u.Reason}",
+                    throw new ToolError(ErrorCode.ProviderUnavailable, $"engine={id}: no analysis engine is set up in this server.", "use engine=auto or engine=ours");
+                if (engines.UnavailabilityOf(id) is { } u)
+                    throw new ToolError(ErrorCode.ProviderUnavailable, $"engine={id}: {display} is not available: {u.Reason}",
                         (u.Remediation is { } r ? r + "; or " : "") + "use engine=auto or engine=ours for the built-in analysis");
-                return new(true, $"{origin}: IDA's analysis");
+                return new(id, $"{origin}: {display}'s analysis");
             default:
-                if (engines?.CompletedSession(native) != null)
-                    return new(true, $"{origin}: IDA's analysis of this image is complete in this session");
-                if (undecoded && engines?.IsAvailable == true)
-                    return new(true, $"{origin}: the built-in analysis does not decode {index.Image.Arch} instructions");
+                if (engines?.CompletedSession(native) is { } done)
+                    return new(done.ProviderId, $"{origin}: {NativeEngineService.DisplayName(done.ProviderId)}'s analysis of this image is complete in this session");
+                if (undecoded && engines?.FirstAvailable() is { } first)
+                    return new(first, $"{origin}: the built-in analysis does not decode {index.Image.Arch} instructions");
                 if (undecoded)
-                    return new(false, $"{origin}: the built-in analysis does not decode {index.Image.Arch} instructions and IDA is not available");
-                return new(false, engines?.HasSavedAnalysis(native) == true
-                    ? $"{origin}: IDA's saved analysis of this image is not loaded in this session; engine=ida loads it without analyzing again"
-                    : $"{origin}: no completed IDA analysis of this image in this session");
+                    return new("ours", $"{origin}: the built-in analysis does not decode {index.Image.Arch} instructions and no engine (IDA, Ghidra) is available");
+                return new("ours", engines?.SavedAnalysis(native) is { } saved
+                    ? $"{origin}: {NativeEngineService.DisplayName(saved)}'s saved analysis of this image is not loaded in this session; engine={saved} loads it without analyzing again"
+                    : $"{origin}: no completed engine analysis of this image in this session");
         }
     }
 
     /// <summary>The typed error for an undecoded architecture when no engine is installed.</summary>
     public static ToolError Unsupported(NativeCodeIndex index, NativeEngineService? engines) =>
         new(ErrorCode.Unsupported, $"Instructions are not decoded for {index.Image.Arch} images by the built-in analysis" +
-                                   (engines?.Unavailability is { } u ? $", and IDA is not available: {u.Reason}" : "."),
-            engines?.Unavailability is { } un
-                ? $"install IDA Pro 9 or newer with idalib (or set NDM_IDA_DIR) so {index.Image.Arch} code is analyzed through it" + (un.Remediation is { } r ? $": {r}" : "")
-                : "install IDA Pro 9 or newer with idalib (or set NDM_IDA_DIR) so this code is analyzed through it");
+                                   (engines?.Unavailability is { } u ? $", and no engine is available: {u.Reason}" : "."),
+            $"install IDA Pro 9 or newer with idalib (or set NDM_IDA_DIR), or Ghidra 12 or newer with a JDK (set NDM_GHIDRA_DIR), so {index.Image.Arch} code is analyzed through it" +
+            (engines?.Unavailability is { Remediation: { } r } ? $": {r}" : ""));
 
-    private async Task<INativeDecompilerSession> Session(LoadedNative native, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    private async Task<INativeDecompilerSession> Session(LoadedNative native, EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
-        var session = await engines.Session(native, null, new Progress<NativeProviderProgress>(p =>
-            progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = $"IDA {p.Stage}" })), ct);
+        var display = NativeEngineService.DisplayName(choice.Engine);
+        var session = await engines.Session(native, choice.Engine, new Progress<NativeProviderProgress>(p =>
+            progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = $"{display} {p.Stage}" })), ct);
         if (names != null) await names.EnsureAsync(native, session, ct);
         return session;
     }
@@ -128,7 +133,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
         var order = sort?.Trim().ToLowerInvariant();
         if (order is not (null or "" or "address" or "size" or "callers"))
             throw new ToolError(ErrorCode.InvalidArgument, $"Unknown sort '{sort}'.", "use address, size or callers");
-        var session = await Session(native, progress, ct);
+        var session = await Session(native, choice, progress, ct);
         var functions = await LoadFunctions(session, references: true, ct);
         var rows = functions.List.Select(f => (f, Name: Name(index, f.StartRva, f.Name)))
             .Where(x => filter == null || x.Name.Contains(filter, StringComparison.OrdinalIgnoreCase));
@@ -139,23 +144,24 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
             _ => rows,
         };
         var list = rows.ToList();
-        string Sources(NativeFunctionInfo f) => index.FunctionByStart(f.StartRva)?.Sources is { } declared ? $"ida, {declared}" : "ida";
+        string Sources(NativeFunctionInfo f) => index.FunctionByStart(f.StartRva)?.Sources is { } declared ? $"{choice.Engine}, {declared}" : choice.Engine;
         var lines = list.Select(x => $"{Va(index, x.f.StartRva)}  {x.f.EndRva - x.f.StartRva,7}  {x.Name}{Flags(x.f.Flags)}  ({Sources(x.f)}; {x.f.References ?? 0} refs)").ToList();
         int thunks = functions.List.Count(f => f.Flags.HasFlag(NativeFunctionFlags.Thunk));
         int library = functions.List.Count(f => f.Flags.HasFlag(NativeFunctionFlags.Library));
-        var coverage = Decoded(index) ? "functions, sizes and references come from IDA's analysis; names in effect here win over IDA's"
-            : $"{index.SupportNote ?? $"{index.Image.Arch} instructions are not decoded by the built-in analysis"}; functions, sizes and references come from IDA";
+        var display = NativeEngineService.DisplayName(choice.Engine);
+        var coverage = Decoded(index) ? $"functions, sizes and references come from {display}'s analysis; names in effect here win over {display}'s"
+            : $"{index.SupportNote ?? $"{index.Image.Arch} instructions are not decoded by the built-in analysis"}; functions, sizes and references come from {display}";
         var structured = Paged(list, offset, limit, (page, o, total, more) => new FunctionList(native.Id, functions.List.Count,
             page.Select(x => new FunctionEntry(Va(index, x.f.StartRva), (int)(x.f.EndRva - x.f.StartRva), x.Name, FlagList(x.f.Flags), Sources(x.f), x.f.References ?? 0)).ToList(),
             o, total, more, coverage, choice.Engine, choice.Note));
-        return StructuredOutput.With($"{native.Id}: {Plural(functions.List.Count, "function")} ({thunks} thunks, {library} library) {Via}\n{choice.Line}\n" +
+        return StructuredOutput.With($"{native.Id}: {Plural(functions.List.Count, "function")} ({thunks} thunks, {library} library) {Via(choice.Engine)}\n{choice.Line}\n" +
                                      $"Note: {coverage}\n" + pager.PageRows(lines, offset, limit, "function"), structured);
     }
 
     public async Task<string> Disassemble(LoadedNative native, NativeCodeIndex index, uint rva, bool function, int max, int offset, int? maxChars,
         EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
-        var session = await Session(native, progress, ct);
+        var session = await Session(native, choice, progress, ct);
         var sb = new StringBuilder();
         FunctionDisassembly d;
         if (function)
@@ -164,7 +170,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
             {
                 d = await session.DisassembleAsync(rva, ct);
                 sb.AppendLine($"; {Name(index, d.StartRva, d.Name)} at {Va(index, d.StartRva)}, {d.EndRva - d.StartRva} bytes, " +
-                              $"{Plural(d.Instructions.Count, "instruction")} {Via}");
+                              $"{Plural(d.Instructions.Count, "instruction")} {Via(choice.Engine)}");
                 if (index.Sourced.CommentAt(d.StartRva) is { } fc)
                     foreach (var c in fc.Text.Split('\n')) sb.AppendLine($"; {c}");
             }
@@ -172,13 +178,13 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
             {
                 function = false;
                 d = await session.DisassembleRangeAsync(rva, max, ct);
-                sb.AppendLine($"; {Plural(max, "instruction")} from {Va(index, rva)} (no function contains it) {Via}");
+                sb.AppendLine($"; {Plural(max, "instruction")} from {Va(index, rva)} (no function contains it) {Via(choice.Engine)}");
             }
         }
         else
         {
             d = await session.DisassembleRangeAsync(rva, max, ct);
-            sb.AppendLine($"; {Plural(max, "instruction")} from {Va(index, rva)} {Via}");
+            sb.AppendLine($"; {Plural(max, "instruction")} from {Va(index, rva)} {Via(choice.Engine)}");
         }
         int shown = 0;
         foreach (var i in d.Instructions)
@@ -194,14 +200,14 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
     public async Task<string> Cfg(LoadedNative native, NativeCodeIndex index, uint rva, int offset, int? maxChars,
         EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
-        var session = await Session(native, progress, ct);
+        var session = await Session(native, choice, progress, ct);
         NativeBlockGraph graph;
         try { graph = await session.GetBlocksAsync(rva, ct); }
         catch (ToolError e) when (e.Code == ErrorCode.NotFound)
         {
-            throw new ToolError(ErrorCode.NotFound, $"No function contains {Va(index, rva)} (IDA).", "list_functions shows the functions");
+            throw new ToolError(ErrorCode.NotFound, $"No function contains {Va(index, rva)} ({NativeEngineService.DisplayName(choice.Engine)}).", "list_functions shows the functions");
         }
-        var sb = new StringBuilder($"{Name(index, graph.StartRva, graph.Name)} at {Va(index, graph.StartRva)}: {Plural(graph.Blocks.Count, "block")} {Via}\n");
+        var sb = new StringBuilder($"{Name(index, graph.StartRva, graph.Name)} at {Va(index, graph.StartRva)}: {Plural(graph.Blocks.Count, "block")} {Via(choice.Engine)}\n");
         var starts = graph.Blocks.Select(b => b.StartRva).ToHashSet();
         foreach (var b in graph.Blocks)
         {
@@ -236,13 +242,13 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
     }
 
     /// <summary>
-    /// find_xrefs rows in the tool's format, the header lines and the target as shown: IDA's references, plus the virtual
-    /// call sites the built-in index resolved through RTTI that IDA has no reference from (marked "ours").
+    /// find_xrefs rows in the tool's format, the header lines and the target as shown: the engine's references, plus the
+    /// virtual call sites the built-in index resolved through RTTI that the engine has no reference from (marked "ours").
     /// </summary>
     public async Task<(string Header, List<string> Rows, string Target)> Xrefs(LoadedNative native, NativeCodeIndex index, uint rva,
         EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
-        var session = await Session(native, progress, ct);
+        var session = await Session(native, choice, progress, ct);
         var functions = await LoadFunctions(session, references: false, ct);
         var xrefs = await session.GetXrefsToAsync(rva, ct);
         string Where(uint from, uint? function) => (function ?? functions.At(from)?.StartRva) is { } f && functions.ByStart.TryGetValue(f, out var info)
@@ -257,21 +263,21 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
         }
         var name = functions.ByStart.TryGetValue(rva, out var t) ? Name(index, rva, t.Name) : index.NameAt(rva);
         var target = $"{Va(index, rva)}{(name != null ? $" ({name})" : "")}";
-        return ($"References to {target} {Via}:\n{choice.Line}\n", rows.OrderBy(r => r.From).Select(r => r.Row).ToList(), target);
+        return ($"References to {target} {Via(choice.Engine)}:\n{choice.Line}\n", rows.OrderBy(r => r.From).Select(r => r.Row).ToList(), target);
     }
 
     /// <summary>
-    /// Callers or callees through IDA's call and jump references; with a decoded image, the virtual call edges the built-in
-    /// index resolved through RTTI are added where IDA has none (marked "ours"), filtered by <paramref name="edges"/>.
+    /// Callers or callees through the engine's call and jump references; with a decoded image, the virtual call edges the
+    /// built-in index resolved through RTTI are added where the engine has none (marked "ours"), filtered by <paramref name="edges"/>.
     /// </summary>
     public async Task<string> CallTree(LoadedNative native, NativeCodeIndex index, uint rva, bool callers, int depth, int maxNodes, int offset, int? maxChars,
         CallEdgeFilter edges, EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
-        var session = await Session(native, progress, ct);
+        var session = await Session(native, choice, progress, ct);
         var functions = await LoadFunctions(session, references: false, ct);
-        var root = functions.At(rva) ?? throw new ToolError(ErrorCode.NotFound, $"No function contains {Va(index, rva)} (IDA).", "list_functions shows the functions");
+        var root = functions.At(rva) ?? throw new ToolError(ErrorCode.NotFound, $"No function contains {Va(index, rva)} ({NativeEngineService.DisplayName(choice.Engine)}).", "list_functions shows the functions");
         var imports = index.Image.Imports.GroupBy(i => i.SlotRva).ToDictionary(g => g.Key, g => g.First());
-        var sb = new StringBuilder($"; {(callers ? "callers" : "callees")} of {Name(index, root.StartRva, root.Name)} {Via}\n");
+        var sb = new StringBuilder($"; {(callers ? "callers" : "callees")} of {Name(index, root.StartRva, root.Name)} {Via(choice.Engine)}\n");
         bool direct = edges != CallEdgeFilter.Virtual, virtualEdges = edges != CallEdgeFilter.Direct && Decoded(index);
         var expanded = new HashSet<uint>();
         int nodes = 0;
@@ -310,7 +316,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
                     foreach (var v in index.VirtualEdgesFrom(start, self.EndRva))
                         children.Add((functions.At(v.To)?.StartRva ?? v.To, null, VirtualTag(v)));
             }
-            // IDA's edges come first: a virtual edge to a function IDA's references already reach adds nothing
+            // the engine's edges come first: a virtual edge to a function its references already reach adds nothing
             var distinct = children.DistinctBy(c => c.Rva).ToList();
             sb.AppendLine();
             foreach (var (child, import, childTag) in distinct)

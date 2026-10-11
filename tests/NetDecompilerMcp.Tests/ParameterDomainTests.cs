@@ -50,8 +50,10 @@ public class ParameterDomainTests
         Assert.Equal("parameter 'sort' must be one of address, size, callers, not 'calers'. Did you mean 'callers'?", error.Message);
         Assert.Equal("Pass one of: address, size, callers.", error.Remediation);
 
-        var engine = Assert.Throws<ToolError>(() => ArgumentCheck.Apply(Schema("decompile_native"), Args(("engine", "ghidra")), "decompile_native"));
-        Assert.StartsWith("parameter 'engine' must be one of auto, ida, not 'ghidra'.", engine.Message);
+        var engine = Assert.Throws<ToolError>(() => ArgumentCheck.Apply(Schema("decompile_native"), Args(("engine", "ours")), "decompile_native"));
+        Assert.StartsWith("parameter 'engine' must be one of auto, ida, ghidra, not 'ours'.", engine.Message);
+        var script = Assert.Throws<ToolError>(() => ArgumentCheck.Apply(Schema("ida_python"), Args(("engine", "ghidra")), "ida_python"));
+        Assert.StartsWith("parameter 'engine' must be one of auto, ida, not 'ghidra'.", script.Message);
     }
 
     [Theory]

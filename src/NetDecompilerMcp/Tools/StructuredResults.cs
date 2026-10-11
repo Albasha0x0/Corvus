@@ -196,8 +196,8 @@ internal static class SearchDoc
 /// <summary>Descriptions of the engine fields of native code results.</summary>
 internal static class EngineDoc
 {
-    public const string Engine = "Which analysis produced the result: ours (the built-in index) or ida (IDA's analysis through idalib).";
-    public const string Note = "Why that engine answered (the engine parameter or server default, and for auto whether IDA's analysis of the image was complete).";
+    public const string Engine = "Which analysis produced the result: ours (the built-in index), ida (IDA's analysis through idalib) or ghidra (Ghidra's analysis).";
+    public const string Note = "Why that engine answered (the engine parameter or server default, and for auto whether an engine's analysis of the image was complete).";
 }
 
 public sealed record NativeStringEntry(string Address, [property: Description("ascii, utf16, il2cpp (a string literal slot) or nativeaot (a frozen String object).")] string Encoding,

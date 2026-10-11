@@ -19,18 +19,20 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
     NativeCodeService? code = null, NativeTypePush? types = null, NativeUserTypePush? userTypes = null, NotesService? notes = null)
 {
     [McpServerTool(Name = "decompile_native", Title = "Decompile native function")]
-    [Description("C pseudocode of the native function containing an address, through IDA (idalib; Hex-Rays). The first call on an image runs IDA's " +
-                 "auto-analysis (seconds for a small DLL, minutes for a large game executable; progress is reported) and keeps the database per file " +
-                 "hash, so later calls and later sessions are fast. Lines are annotated with the address they come from. Names and comments in effect " +
+    [Description("C pseudocode of the native function containing an address, through IDA (idalib; Hex-Rays) or Ghidra (its decompiler, through a " +
+                 "Java worker). The first call on an image runs the engine's auto-analysis (seconds for a small DLL, minutes for a large game executable; " +
+                 "progress is reported) and keeps the database per file hash, so later calls and later sessions are fast. The header names the engine. " +
+                 "Lines are annotated with the address they come from. Names and comments in effect " +
                  "(rename_native / comment_native, apply_il2cpp_names, PDB names) are pushed into the database first, once per change, and saved with it. " +
                  "When the image has a PDB (found next to it or in the symbol cache, or loaded with load_pdb), its structs, enums, typedefs and " +
-                 "prototypes are loaded into the database through IDA's PDB loader (the server's own PDB type reader when that loader is not " +
+                 "prototypes are loaded into the database through the engine's PDB loader (the server's own PDB type reader when that loader is not " +
                  "available), once per PDB; the first line says which type source applies. The user's types (declare_native_types, set_native_type, set_native_local, set_native_stack_var) are applied last " +
                  "and win over recovered ones.")]
     public Task<string> DecompileNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
-        [Description("Engine: auto (default) or ida.")] string? engine = null,
+        [Description("Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra; the server default " +
+                     "--engine when it names one), ida or ghidra.")] string? engine = null,
         [Description("Prefix each line with the address it was generated from.")] bool addresses = false,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
@@ -52,7 +54,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         if (userTypes != null && NativeUserTypePush.Describe(await userTypes.EnsureAsync(native, session, cancellationToken)) is { } user)
             pushed = (pushed != null ? pushed + "\n// " : "") + user;
         if (native.HasPatches)
-            pushed = (pushed != null ? pushed + "\n// " : "") + (engines.ServesPatchedCopy(native)
+            pushed = (pushed != null ? pushed + "\n// " : "") + (engines.ServesPatchedCopy(native, session.ProviderId)
                 ? $"patched image: analyzed as a patched copy (the database could not take {Plural(native.Patches.Patches.Count, "patch")})"
                 : $"patched image: {Plural(native.Patches.Patches.Count, "patch")} applied in the database");
         var key = $"decompile|{native.Image.Sha256}|{rva:X}|{addresses}|{NativeNamePush.CurrentStamp(session)}|{NativeTypePush.CurrentStamp(session)}|{NativePdbTypes.CurrentStamp(session)}|{NativeUserTypePush.CurrentStamp(session)}";

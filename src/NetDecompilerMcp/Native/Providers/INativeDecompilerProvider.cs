@@ -51,6 +51,8 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     bool DecompilerAvailable { get; }
     /// <summary>False once the session is closed or the engine failed more often than the restart budget allows.</summary>
     bool IsOpen { get; }
+    /// <summary>False when the first analysis ran out of time and the database holds only part of it.</summary>
+    bool AnalysisComplete => true;
 
     Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(CancellationToken cancellationToken = default);
 

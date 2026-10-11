@@ -11,8 +11,9 @@ using Xunit.Abstractions;
 namespace NetDecompilerMcp.Tests;
 
 /// <summary>
-/// engine=auto|ours|ida on the native code tools: ours never asks the provider, auto asks it nothing until an analysis
-/// is complete in the session and then uses it without a new one, ida opens it or fails with provider_unavailable.
+/// engine=auto|ours|ida|ghidra on the native code tools: ours never asks a provider, auto asks nothing until an analysis
+/// is complete in the session and then uses it without a new one (IDA's before Ghidra's), ida and ghidra open that
+/// engine's analysis or fail with provider_unavailable.
 /// </summary>
 public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposable
 {
@@ -27,12 +28,14 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
 
     private sealed record Rig(AssemblyWorkspace Workspace, NativeCodeService Code, NativeCodeTools Tools, NativeEngineService Engines, string Image);
 
-    private Rig Setup(INativeDecompilerProvider provider, EngineMode mode = EngineMode.Auto)
+    private Rig Setup(INativeDecompilerProvider provider, EngineMode mode = EngineMode.Auto) => Setup([provider], mode);
+
+    private Rig Setup(IReadOnlyList<INativeDecompilerProvider> providers, EngineMode mode = EngineMode.Auto, EngineMode? prewarm = null)
     {
-        var options = new ServerOptions { BackgroundIndexing = false, Engine = mode };
+        var options = new ServerOptions { BackgroundIndexing = false, Engine = mode, Prewarm = prewarm };
         var workspace = new AssemblyWorkspace(options);
         var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(_dir.File("annotations")));
-        var engines = new NativeEngineService(provider, _dir.File("cache"), code, workspace, options);
+        var engines = new NativeEngineService(providers, _dir.File("cache"), code, workspace, options);
         _owned.Add(engines);
         _owned.Add(workspace);
         return new Rig(workspace, code, new NativeCodeTools(workspace, code, new OutputPager(options), null, engines), engines, McpProtocolTests.NativeSample(_dir));
@@ -63,7 +66,7 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
         var rig = Setup(provider, EngineMode.Ida); // even with ida as the server default
         await Loaded(rig);
         foreach (var result in await CallAll(rig, "ours"))
-            Assert.Contains("Engine: ours (engine=ours: the built-in index; IDA not consulted)", result);
+            Assert.Contains("Engine: ours (engine=ours: the built-in index; no engine consulted)", result);
         Assert.Equal(0, provider.Calls);
     }
 
@@ -74,13 +77,14 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
         var rig = Setup(provider);
         var (native, first) = await Loaded(rig);
         foreach (var result in await CallAll(rig, null))
-            Assert.Contains("Engine: ours (server default auto: no completed IDA analysis of this image in this session)", result);
+            Assert.Contains("Engine: ours (server default auto: no completed engine analysis of this image in this session)", result);
         // a saved database is reported, not opened
         var saved = Path.Combine(_dir.File("cache"), IdaProvider.ProviderId, native.OriginalSha256);
         Directory.CreateDirectory(saved);
         File.WriteAllBytes(Path.Combine(saved, "ida-default.i64"), [0]);
         rig.Engines.SavedCheckInterval = 0;
-        Assert.Contains("engine=ida loads it without analyzing again", await rig.Tools.ListFunctions(rig.Image, engine: "auto"));
+        Assert.Contains("IDA's saved analysis of this image is not loaded in this session; engine=ida loads it without analyzing again",
+            await rig.Tools.ListFunctions(rig.Image, engine: "auto"));
         Assert.Equal(0, provider.Calls);
 
         // the auto check costs two table lookups (the saved database is looked up again every 5 s), no request
@@ -137,7 +141,10 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
         // no engine service at all
         var bare = new NativeCodeTools(absent.Workspace, absent.Code, new OutputPager(new ServerOptions()));
         Assert.Equal(ErrorCode.ProviderUnavailable, (await Assert.ThrowsAsync<ToolError>(() => bare.ListFunctions(absent.Image, engine: "ida"))).Code);
-        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => bare.ListFunctions(absent.Image, engine: "ghidra"))).Code);
+        Assert.Equal(ErrorCode.ProviderUnavailable, (await Assert.ThrowsAsync<ToolError>(() => bare.ListFunctions(absent.Image, engine: "ghidra"))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => bare.ListFunctions(absent.Image, engine: "binja"))).Code);
+        // an engine this server does not have
+        Assert.Equal(ErrorCode.ProviderUnavailable, (await Assert.ThrowsAsync<ToolError>(() => absent.Tools.ListFunctions(absent.Image, engine: "ghidra"))).Code);
     }
 
     [Fact]
@@ -146,7 +153,116 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
         Assert.Equal(EngineMode.Auto, new ServerOptions().Engine);
         Assert.Equal(EngineMode.Ours, ServerOptions.Parse(["--engine", "ours"]).Engine);
         Assert.Equal(EngineMode.Ida, ServerOptions.Parse(["--engine", "IDA"]).Engine);
-        Assert.Throws<ArgumentException>(() => ServerOptions.Parse(["--engine", "ghidra"]));
+        Assert.Equal(EngineMode.Ghidra, ServerOptions.Parse(["--engine", "ghidra"]).Engine);
+        Assert.Throws<ArgumentException>(() => ServerOptions.Parse(["--engine", "binja"]));
+
+        Assert.Null(new ServerOptions().Prewarm);
+        Assert.Equal(EngineMode.Ida, ServerOptions.Parse(["--ida-prewarm"]).Prewarm);
+        Assert.Equal(EngineMode.Ghidra, ServerOptions.Parse(["--prewarm", "Ghidra"]).Prewarm);
+        Assert.Equal(EngineMode.Auto, ServerOptions.Parse(["--prewarm", "auto"]).Prewarm);
+        Assert.Null(ServerOptions.Parse(["--prewarm", "off"]).Prewarm);
+        Assert.Throws<ArgumentException>(() => ServerOptions.Parse(["--prewarm", "ours"]));
+    }
+
+    [Fact]
+    public async Task Ghidra_is_chosen_when_named_or_when_it_alone_has_a_complete_analysis()
+    {
+        var ida = new FakeProvider(available: true);
+        var ghidra = new FakeProvider(available: true, id: "ghidra");
+        var rig = Setup([ida, ghidra]);
+        var (native, first) = await Loaded(rig);
+        ida.Functions = [new(first, first + 0x20, "ida_First", NativeFunctionFlags.None, 1), new(first + 0x40, first + 0x60, "ida_only", NativeFunctionFlags.None, 1)];
+        ghidra.Functions = [new(first, first + 0x20, "FUN_first", NativeFunctionFlags.None, 1), new(first + 0x40, first + 0x60, "ghidra_only", NativeFunctionFlags.None, 1)];
+
+        // named: Ghidra's analysis is opened (IDA is not), every result says so and our names win
+        var results = await CallAll(rig, "ghidra");
+        foreach (var result in results) Assert.Contains("Engine: ghidra (engine=ghidra: Ghidra's analysis)", result);
+        Assert.Contains("(via Ghidra)", results[0]);
+        Assert.Contains("ghidra_only", results[0]);
+        Assert.Contains("First", results[0]);
+        Assert.DoesNotContain("FUN_first", results[0]);
+        Assert.Contains("ghidra_only", results[4]);
+        Assert.Equal((0, 1), (ida.Opens, ghidra.Opens));
+
+        // auto: Ghidra's analysis is the only complete one
+        foreach (var result in await CallAll(rig, null))
+            Assert.Contains("Engine: ghidra (server default auto: Ghidra's analysis of this image is complete in this session)", result);
+        Assert.Equal(0, ida.Opens);
+
+        // one image holds both sessions; once IDA's is complete, auto prefers it
+        Assert.Equal("ida", (await rig.Engines.Session(native, "ida", null, default)).ProviderId);
+        Assert.Equal((1, 1), (ida.Opens, ghidra.Opens));
+        Assert.Contains("Engine: ida (server default auto: IDA's analysis", await rig.Tools.GetCfg(rig.Image, "First"));
+        Assert.Equal("ghidra", (await rig.Engines.Session(native, "ghidra", null, default)).ProviderId);
+        Assert.Equal((1, 1), (ida.Opens, ghidra.Opens));
+        // without a named engine, a session that exists is used, IDA's first
+        Assert.Equal("ida", rig.Engines.Resolve(native, null));
+    }
+
+    [Fact]
+    public async Task Auto_skips_an_incomplete_analysis_and_falls_back_from_IDA_to_Ghidra()
+    {
+        var ida = new FakeProvider(available: false);
+        var ghidra = new FakeProvider(available: true, id: "ghidra") { Complete = false };
+        var rig = Setup([ida, ghidra]);
+        var (native, first) = await Loaded(rig);
+        ghidra.Functions = [new(first, first + 0x20, "FUN_first", NativeFunctionFlags.None, 1)];
+        // the only installed engine is Ghidra: an unnamed decompiler session goes there
+        Assert.Equal("ghidra", rig.Engines.Resolve(native, null));
+        await rig.Engines.Session(native, null, null, default);
+        Assert.Equal(1, ghidra.Opens);
+        // its analysis ran out of time: auto does not use it
+        Assert.Contains("Engine: ours (server default auto: no completed engine analysis", await rig.Tools.ListFunctions(rig.Image));
+        ghidra.Complete = true;
+        Assert.Contains("Engine: ghidra (server default auto: Ghidra's analysis of this image is complete", await rig.Tools.ListFunctions(rig.Image));
+
+        // engine=ida names IDA's remediation and offers the others
+        var e = await Assert.ThrowsAsync<ToolError>(() => rig.Tools.GetCfg(rig.Image, "First", engine: "ida"));
+        Assert.Equal(ErrorCode.ProviderUnavailable, e.Code);
+        Assert.Contains("engine=ida: IDA is not available: not installed here", e.Message);
+        Assert.Contains("install it", e.Remediation);
+
+        // neither installed: one message names both
+        var none = Setup([new FakeProvider(available: false), new FakeProvider(available: false, id: "ghidra")]);
+        Assert.Equal(("IDA: not installed here; Ghidra: not installed here", "install it; or install it"), none.Engines.Unavailability!.Value);
+        Assert.Null(none.Engines.FirstAvailable());
+    }
+
+    [Fact]
+    public async Task Prewarm_opens_the_configured_engine_as_an_image_loads()
+    {
+        var ida = new FakeProvider(available: true);
+        var ghidra = new FakeProvider(available: true, id: "ghidra");
+        var rig = Setup([ida, ghidra], prewarm: EngineMode.Ghidra);
+        await Loaded(rig);
+        var until = DateTime.UtcNow.AddSeconds(10);
+        while (rig.Engines.Prewarming.Done == 0 && DateTime.UtcNow < until) await Task.Delay(20);
+        Assert.Equal(new NativeEngineService.PrewarmStatus(true, "ghidra", 0, null, 0, 1, 0, 0, null), rig.Engines.Prewarming);
+        Assert.Equal((0, 1), (ida.Opens, ghidra.Opens));
+
+        // auto: the first engine installed
+        var auto = Setup([new FakeProvider(available: false), ghidra], prewarm: EngineMode.Auto);
+        await Loaded(auto);
+        until = DateTime.UtcNow.AddSeconds(10);
+        while (auto.Engines.Prewarming.Done == 0 && DateTime.UtcNow < until) await Task.Delay(20);
+        Assert.Equal(1, auto.Engines.Prewarming.Done);
+        Assert.Equal(2, ghidra.Opens);
+    }
+
+    [Fact]
+    public async Task A_saved_Ghidra_project_is_reported_not_opened()
+    {
+        var ida = new FakeProvider(available: true);
+        var ghidra = new FakeProvider(available: true, id: "ghidra");
+        var rig = Setup([ida, ghidra]);
+        var (native, _) = await Loaded(rig);
+        var project = Path.Combine(_dir.File("cache"), "ghidra", native.OriginalSha256, "p-0123456789abcdef");
+        Directory.CreateDirectory(project);
+        File.WriteAllBytes(Path.Combine(project, "ndm.gpr"), [0]);
+        rig.Engines.SavedCheckInterval = 0;
+        Assert.Contains("Ghidra's saved analysis of this image is not loaded in this session; engine=ghidra loads it without analyzing again",
+            await rig.Tools.ListFunctions(rig.Image));
+        Assert.Equal((0, 0), (ida.Opens, ghidra.Opens));
     }
 
     /// <summary>Real IDA on a small System32 DLL: function and reference counts by engine, and auto switching once the analysis is done.</summary>
@@ -171,7 +287,7 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
         clock.Restart();
         var auto = await tools.ListFunctions(path, sort: "callers", limit: 1);
         var autoTime = clock.Elapsed;
-        Assert.Contains("Engine: ours (server default auto: no completed IDA analysis", auto);
+        Assert.Contains("Engine: ours (server default auto: no completed engine analysis", auto);
         clock.Restart();
         var ida = await tools.ListFunctions(path, sort: "callers", limit: 1, engine: "ida");
         var idaTime = clock.Elapsed;
@@ -204,13 +320,14 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
     }
 
     /// <summary>A provider whose sessions answer from fixed data and count every request.</summary>
-    private sealed class FakeProvider(bool available) : INativeDecompilerProvider
+    private sealed class FakeProvider(bool available, string id = IdaProvider.ProviderId) : INativeDecompilerProvider
     {
         public int AvailabilityChecks, Opens, Probes, Requests;
         public IReadOnlyList<NativeFunctionInfo> Functions { get; set; } = [];
+        public bool Complete { get; set; } = true;
 
         public int Calls => AvailabilityChecks + Opens + Probes + Requests;
-        public string Id => IdaProvider.ProviderId;
+        public string Id => id;
         public string DisplayName => "fake engine";
 
         public ProviderAvailability CheckAvailability()
@@ -239,7 +356,8 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
 
     private sealed class FakeSession(FakeProvider provider, string path, string sha) : INativeDecompilerSession
     {
-        public string ProviderId => IdaProvider.ProviderId;
+        public string ProviderId => provider.Id;
+        public bool AnalysisComplete => provider.Complete;
         public string ImagePath => path;
         public string Sha256 => sha;
         public NativeArch Arch => NativeArch.X64;

@@ -63,17 +63,25 @@ public class ServerIdentityTests
     {
         var all = AllTools.Select(t => (string)t["name"]!).ToHashSet(StringComparer.Ordinal);
         var noIda = new ProviderAvailability("ida", false, "IDA not found", "set IDADIR", new Dictionary<string, string>());
-        var rows = ToolAvailability.Of(all, [noIda], idaScripting: false, isWindows: false);
-        Assert.Contains(rows, r => r is { Tool: "decompile_native", Mode: null, Reason: "IDA not found", Remediation: "set IDADIR" });
+        var noGhidra = new ProviderAvailability("ghidra", false, "Ghidra not found", "set NDM_GHIDRA_DIR", new Dictionary<string, string>());
+        var rows = ToolAvailability.Of(all, [noIda, noGhidra], idaScripting: false, isWindows: false);
+        Assert.Contains(rows, r => r is { Tool: "decompile_native", Mode: null, Reason: "ida: IDA not found; ghidra: Ghidra not found", Remediation: "set IDADIR; or set NDM_GHIDRA_DIR" });
+        Assert.Contains(rows, r => r is { Tool: "set_native_type", Mode: null, Reason: "IDA not found", Remediation: "set IDADIR" });
         Assert.Contains(rows, r => r is { Tool: "disassemble", Mode: "engine=ida" });
+        Assert.Contains(rows, r => r is { Tool: "disassemble", Mode: "engine=ghidra", Reason: "Ghidra not found" });
         Assert.Contains(rows, r => r is { Tool: "find_virtual_calls", Mode: "crossCheck=true" });
         Assert.Contains(rows, r => r is { Tool: "inspect_process", Mode: null });
         Assert.DoesNotContain(rows, r => r.Tool == "decompile_native" && r.Mode != null);
 
         var ida = noIda with { IsAvailable = true, Reason = null };
-        var withIda = ToolAvailability.Of(all, [ida], idaScripting: false, isWindows: true);
+        var ghidra = noGhidra with { IsAvailable = true, Reason = null };
+        var withIda = ToolAvailability.Of(all, [ida, ghidra], idaScripting: false, isWindows: true);
         Assert.Equal(["ida_python"], withIda.Where(r => r.Tool != "unity_overview").Select(r => r.Tool));
-        Assert.DoesNotContain(ToolAvailability.Of(all, [ida], idaScripting: true, isWindows: true), r => r.Tool == "ida_python");
+        Assert.DoesNotContain(ToolAvailability.Of(all, [ida, ghidra], idaScripting: true, isWindows: true), r => r.Tool == "ida_python");
+        // Ghidra alone serves decompile_native and the engine=ghidra modes
+        var ghidraOnly = ToolAvailability.Of(all, [noIda, ghidra], idaScripting: false, isWindows: true);
+        Assert.DoesNotContain(ghidraOnly, r => r.Tool == "decompile_native" || r.Mode == "engine=ghidra");
+        Assert.Contains(ghidraOnly, r => r is { Tool: "find_xrefs", Mode: "engine=ida" });
         // Only registered tools are reported.
         Assert.Empty(ToolAvailability.Of(Toolsets.Families.Single(f => f.Name == "dotnet").Tools.ToHashSet(), [noIda], false, false));
     }

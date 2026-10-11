@@ -30,7 +30,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
 
     internal string ProjectDirectory => _projectDirectory;
     /// <summary>False when the first analysis ran out of time; the saved project then holds what was analyzed.</summary>
-    internal bool AnalysisComplete { get; private set; }
+    public bool AnalysisComplete { get; private set; }
     internal string Language { get; private set; } = "";
     internal int FunctionCount { get; private set; }
     internal IReadOnlyList<string> Warnings { get; private set; } = [];

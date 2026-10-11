@@ -140,6 +140,13 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
 
     internal void Forget(GhidraSession session) => _sessions.TryRemove(session, out _);
 
+    /// <summary>Whether the cache holds a saved project of these bytes under any profile (file checks only).</summary>
+    public bool HasSavedProject(string sha256)
+    {
+        var dir = Path.Combine(Cache.Root, ProviderId, sha256.ToLowerInvariant());
+        return Directory.Exists(dir) && Directory.EnumerateDirectories(dir, "p-*").Any(p => File.Exists(Path.Combine(p, GhidraSession.ProjectName + ".gpr")));
+    }
+
     /// <summary>Builds the worker when needed and starts a JVM (inside a job on Windows); Ghidra initializes before the ready event.</summary>
     internal async Task<WorkerConnection> StartWorkerAsync(GhidraInstallation ghidra, JavaRuntime java, long imageBytes, CancellationToken cancellationToken)
     {

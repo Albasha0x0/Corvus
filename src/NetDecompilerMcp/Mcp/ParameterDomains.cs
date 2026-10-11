@@ -17,8 +17,12 @@ public static class ParameterDomains
 
     private static Domain Of(string[] values, params string[] aliases) => new(values, aliases);
 
-    private static readonly Domain Engine = Of(["auto", "ours", "ida"], "built-in", "builtin");
-    private static readonly Domain DecompilerEngine = Of(["auto", "ida"]);
+    private static readonly Domain Engine = Of(["auto", "ours", "ida", "ghidra"], "built-in", "builtin");
+    private static readonly Domain DecompilerEngine = Of(["auto", "ida", "ghidra"]);
+    /// <summary>Tools only IDA serves.</summary>
+    private static readonly Domain IdaEngine = Of(["auto", "ida"]);
+    /// <summary>Code tools whose engine side only IDA has.</summary>
+    private static readonly Domain IdaCodeEngine = Of(["auto", "ours", "ida"], "built-in", "builtin");
     private static readonly Domain Relocations = Of(["auto", "keep", "neutralize"], "neutralise");
     private static readonly Domain StubMode = Of(["replace", "before", "after"]);
     private static readonly Domain Placement = Of(["auto", "cave", "section"]);
@@ -51,22 +55,22 @@ public static class ParameterDomains
         ["get_nativeaot_info"] = new Dictionary<string, Domain> { ["view"] = Of(["summary", "sections", "types", "type", "methods", "strings"]) },
         ["list_functions"] = new Dictionary<string, Domain> { ["sort"] = Of(["address", "size", "callers"]), ["engine"] = Engine },
         ["disassemble"] = new Dictionary<string, Domain> { ["engine"] = Engine },
-        ["inspect_instruction"] = new Dictionary<string, Domain> { ["engine"] = Engine },
+        ["inspect_instruction"] = new Dictionary<string, Domain> { ["engine"] = IdaCodeEngine },
         ["get_cfg"] = new Dictionary<string, Domain> { ["engine"] = Engine },
         ["find_xrefs"] = new Dictionary<string, Domain> { ["engine"] = Engine },
         ["native_call_tree"] = new Dictionary<string, Domain> { ["direction"] = Direction, ["calls"] = Of(["all", "direct", "virtual"]), ["engine"] = Engine },
         ["decompile_native"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
-        ["get_native_frame"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
-        ["set_native_stack_var"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
-        ["set_native_type"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
-        ["set_native_local"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
-        ["declare_native_types"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
-        ["list_native_types"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
+        ["get_native_frame"] = new Dictionary<string, Domain> { ["engine"] = IdaEngine },
+        ["set_native_stack_var"] = new Dictionary<string, Domain> { ["engine"] = IdaEngine },
+        ["set_native_type"] = new Dictionary<string, Domain> { ["engine"] = IdaEngine },
+        ["set_native_local"] = new Dictionary<string, Domain> { ["engine"] = IdaEngine },
+        ["declare_native_types"] = new Dictionary<string, Domain> { ["engine"] = IdaEngine },
+        ["list_native_types"] = new Dictionary<string, Domain> { ["engine"] = IdaEngine },
         ["get_native_type"] = new Dictionary<string, Domain>
         {
-            ["source"] = Of(["auto", "pdb", "rtti", "il2cpp", "engine"]), ["format"] = Of(["table", "c"]), ["engine"] = DecompilerEngine,
+            ["source"] = Of(["auto", "pdb", "rtti", "il2cpp", "engine"]), ["format"] = Of(["table", "c"]), ["engine"] = IdaEngine,
         },
-        ["ida_python"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
+        ["ida_python"] = new Dictionary<string, Domain> { ["engine"] = IdaEngine },
         ["find_virtual_calls"] = new Dictionary<string, Domain> { ["status"] = Of(["exact", "possible", "unresolved"]) },
         ["trace_native_values"] = new Dictionary<string, Domain> { ["direction"] = Of(["backward", "forward", "both"], "back", "fwd") },
         ["resolve_call_targets"] = new Dictionary<string, Domain>

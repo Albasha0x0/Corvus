@@ -108,7 +108,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         int? OperandSize,
         [property: Description("relative, rip_relative or absolute.")] string? OperandKind,
         int? InstructionEnd, string Note,
-        [property: Description("ours (a reference the built-in index has) or ida (one only IDA has).")] string Source);
+        [property: Description("ours (a reference the built-in index has), or ida or ghidra (one only that engine has).")] string Source);
 
     public sealed record FunctionDiffRow(
         [property: Description("= same, ~ same instruction shape with other operands, - only in the old build, + only in the new, … unchanged rows skipped.")] string Op,
@@ -403,8 +403,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
                  "relocated or in-image addresses as ?? (IDA style '48 8B 05 ?? ?? ?? ??'), extended an instruction at a time until it occurs once in the " +
                  "image's executable sections. When the code at the address is not unique (anchor auto) or anchor=reference, the pattern starts at or shortly " +
                  "before an instruction that references the address, with the operand's offset and how to recover the address from a hit. " +
-                 "anchor=xrefs makes a unique signature at each instruction that references the address (shortest first; IDA's references " +
-                 "are added when the engine is IDA), so a new build that changed one site still has others. " +
+                 "anchor=xrefs makes a unique signature at each instruction that references the address (shortest first; the engine's references " +
+                 "are added when the engine is IDA or Ghidra), so a new build that changed one site still has others. " +
                  "search_code_pattern finds it again in another build.")]
     public async Task<CodePatternResult> MakeCodePattern(
         [Description(NativeTools.ImageDescription)] string image,
@@ -436,9 +436,9 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         var choice = NativeEngineCode.Choose(mode, named, engines, native, index);
         var ours = index.RefsTo(rva, 256).Select(x => x.From).ToHashSet();
         var extra = new List<uint>();
-        if (choice.Ida)
+        if (choice.External)
         {
-            var session = await engines!.Session(native, null, null, ct);
+            var session = await engines!.Session(native, choice.Engine, null, ct);
             // code that uses the address; data pointers to it are not signatures
             extra.AddRange((await session.GetXrefsToAsync(rva, ct)).Where(x => x.FromFunctionRva != null && x.Kind is not (NativeXrefKind.Jump or NativeXrefKind.Data))
                 .Select(x => x.FromRva).Where(f => !ours.Contains(f)));
@@ -447,8 +447,8 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         var refs = made.Select(p => p.Start + (uint)(p.ReferenceOffset ?? 0)).ToList();
         var list = made.Zip(refs).Select(t => new ReferencePattern(t.First.Pattern.ToString(), t.First.Pattern.Length, t.First.Pattern.FixedBytes, Va(index, t.First.Start),
             Va(index, t.Second), index.FunctionAt(t.Second) is { } f ? Name(index, f) : null, t.First.OperandOffset, t.First.OperandSize, t.First.OperandKind,
-            t.First.InstructionEnd, t.First.Note, ours.Contains(t.Second) ? "ours" : "ida")).ToList();
-        var note = $"{list.Count} unique signature(s) from {ours.Count + extra.Count} reference(s) ({ours.Count} built-in, {extra.Count} IDA-only); {choice.Line}";
+            t.First.InstructionEnd, t.First.Note, ours.Contains(t.Second) ? "ours" : choice.Engine)).ToList();
+        var note = $"{list.Count} unique signature(s) from {ours.Count + extra.Count} reference(s) ({ours.Count} built-in, {extra.Count} {choice.Engine}-only); {choice.Line}";
         if (made.FirstOrDefault() is not { } best)
             return new CodePatternResult(native.Id, Va(index, rva), "", 0, 0, false, 0, "xrefs", Va(index, rva), null, null, null, null, null,
                 "no instruction that references the address yields a unique pattern; " + note, list, choice.Engine);

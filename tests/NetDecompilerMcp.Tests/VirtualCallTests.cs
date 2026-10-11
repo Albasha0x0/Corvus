@@ -369,7 +369,7 @@ public class VirtualCallTests(ITestOutputHelper output)
 
     private static (AssemblyWorkspace Workspace, NativeVirtualCallTools Tools, NativeEngineService Engines) Rig(TempDir dir)
     {
-        var options = new ServerOptions { TimeoutSeconds = 600, BackgroundIndexing = false, IdaPrewarm = false };
+        var options = new ServerOptions { TimeoutSeconds = 600, BackgroundIndexing = false };
         var workspace = new AssemblyWorkspace(options);
         var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(dir.File("annotations")));
         var engines = new NativeEngineService(new IdaProviderOptions { CacheRoot = dir.File("cache") }, code, workspace, options);

@@ -40,10 +40,12 @@ public sealed partial class NativeCodeTools
         if (engines == null || mode == EngineMode.Ours)
             throw new ToolError(ErrorCode.Unsupported, $"Struct members are known from the engine's types; engine=ours has none.",
                 "use engine=auto or engine=ida for Type::member");
-        if (engines.Unavailability is { } u)
-            throw new ToolError(ErrorCode.ProviderUnavailable, $"Struct member references need IDA, which is not available: {u.Reason}", u.Remediation);
-        var session = await engines.Session(native, null, new Progress<NativeProviderProgress>(p =>
-            progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = $"IDA {p.Stage}" })), ct);
+        // IDA answers member references; an explicit engine is taken as asked
+        var engine = EngineModes.ProviderId(mode) ?? Native.Providers.Ida.IdaProvider.ProviderId;
+        if (engines.UnavailabilityOf(engine) is { } u)
+            throw new ToolError(ErrorCode.ProviderUnavailable, $"Struct member references need {NativeEngineService.DisplayName(engine)}, which is not available: {u.Reason}", u.Remediation);
+        var session = await engines.Session(native, engine, new Progress<NativeProviderProgress>(p =>
+            progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = $"{NativeEngineService.DisplayName(engine)} {p.Stage}" })), ct);
         // the recovered and the user's types must be in the database for their members to be found
         if (names != null) await names.EnsureAsync(native, session, ct);
         if (types != null) await types.EnsureAsync(native, session, ct);
@@ -60,7 +62,7 @@ public sealed partial class NativeCodeTools
         var scan = !r.DecompilerAvailable ? "the decompiler is not available, so only typed operands are listed"
             : $"pseudocode of {r.Scanned} of {r.Candidates} function(s) naming {r.Type} scanned" +
               (r.Skipped > 0 ? $", {r.Skipped} not reached in time" : "") + (r.Failed > 0 ? $", {r.Failed} failed to decompile" : "");
-        var choice = new EngineChoice(true, $"struct members come from the engine's types; {scan}");
+        var choice = new EngineChoice(session.ProviderId, $"struct members come from the engine's types; {scan}");
         var header = $"References to member {target} (+0x{r.Offset:X}, {r.MemberType}, {r.Size} bytes):\n{choice.Line}\n";
         return StructuredOutput.With(header + pager.PageRows(rows, offset, limit, "reference"), Xrefs(native.Id, target, rows, offset, limit, null, choice));
     }

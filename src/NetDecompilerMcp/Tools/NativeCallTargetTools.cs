@@ -109,14 +109,14 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
         start = Math.Min(start, filtered.Count);
         var page = filtered.Skip(start).Take(Math.Clamp(limit, 1, 1000)).ToList();
         string engineText = "ours";
-        if (choice.Ida && page.Count > 0)
+        if (choice.External && page.Count > 0)
         {
-            var session = await engines!.Session(native, null, new Progress<NativeProviderProgress>(p =>
+            var session = await engines!.Session(native, choice.Engine, new Progress<NativeProviderProgress>(p =>
                 progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), cancellationToken);
             var functions = page.Select(s => s.Function.Start).Distinct().ToList();
             var rows = await session.GetCallTargetsAsync(functions, page.Select(s => s.Rva).ToList(), 120, cancellationToken);
             page = page.Select(s => Merge(index, s, rows.Targets.Where(t => t.Site == s.Rva).ToList())).ToList();
-            engineText = "ours+ida";
+            engineText = "ours+" + choice.Engine;
             if (!rows.DecompilerAvailable) notes.Add("the IDA decompiler is not available: only IDA's code references are merged");
             if (rows.Failed.Count > 0) notes.Add($"IDA could not decompile {rows.Failed.Count} functions");
             if (rows.Skipped > 0) notes.Add($"IDA had no time for {rows.Skipped} functions");

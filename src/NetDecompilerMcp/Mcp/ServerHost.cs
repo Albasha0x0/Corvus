@@ -102,7 +102,7 @@ public static class ServerHost
         host.Services.GetRequiredService<IndexingService>();
         host.Services.GetRequiredService<NativeCodeService>();
         host.Services.GetRequiredService<PdbService>(); // reads matching local PDBs during index builds
-        host.Services.GetRequiredService<NativeEngineService>(); // with --ida-prewarm, analyzes preloaded native images in the background
+        host.Services.GetRequiredService<NativeEngineService>(); // with --prewarm, analyzes preloaded native images in the background
         host.Services.GetRequiredService<EditJournal>(); // offers journals of earlier sessions for preloaded files
         var subscriptions = host.Services.GetRequiredService<ResourceSubscriptions>();
         host.Services.GetRequiredService<FileWatchService>().Changed += _ => subscriptions.Check();

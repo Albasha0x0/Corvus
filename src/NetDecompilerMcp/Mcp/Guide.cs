@@ -14,7 +14,7 @@ public static class Guide
         Reverse engineering of .NET assemblies and native PE files (x86/x64). Reads bytes only; nothing is executed.
         Start: load_assembly(path) takes a file or a folder (.NET or native .exe/.dll/.sys); results name an id (app.dll, app.dll#2) that later calls take as assembly or image. Unknown file: summarize_file. Wrapped apps (single-file, .apk, .nupkg, Costura): list_assemblies path=..., unpack_container. Unity: unity_overview. Il2Cpp: load the game folder or global-metadata.dat.
         .NET: find with search_symbols, search_strings, search_constants, search_il; outline with get_type_info; read with decompile_member (one method, cheapest), decompile_type, get_il; follow with find_references, find_callees, get_call_tree, find_call_paths, find_overrides, get_type_hierarchy.
-        Native: get_pe_info, list_imports, list_exports, list_functions, find_xrefs ('kernel32!CreateFileW'), disassemble, native_call_tree, decompile_native (IDA; server_status says if available).
+        Native: get_pe_info, list_imports, list_exports, list_functions, find_xrefs ('kernel32!CreateFileW'), disassemble, native_call_tree, decompile_native (IDA or Ghidra; server_status says which).
         Edit in memory, dryRun=true first: rename_symbol, stub_method, patch_method_csharp, patch_method_il, simplify_methods (folds string decoders); native rename_native, patch_bytes, patch_asm. Review list_edits / diff_edits, undo_edit; save_assembly / save_native write a new file.
         New build: load both, then update_to_new_build (dryRun) or compare_assemblies / compare_native_images.
         Rules: an error reads "Error (<code>)" with a Next: line; follow it. limit_exceeded returns an id: read_result pages it. Long text: pass the footer's offset=N. Lists also return structured items/offset/total. Symbols: Ns.Type::Method(int), short names, or tokens (0x06000123).
@@ -123,7 +123,7 @@ public static class Guide
             trace_native_values (where a value comes from or goes, across callers, callees and globals), resolve_call_targets
             (targets of indirect calls with their basis; scope=image lists the unresolved ones), search_native_strings, search_bytes (?? wildcards), read_bytes, resolve_address, list_cpp_classes (RTTI classes, bases,
             vftables), get_native_type (a type's layout from the PDB, RTTI, Il2Cpp or IDA by name, id or typed address; at=0x48 names a field), get_exception_info (MSVC try / catch, SEH scopes, funclets), find_virtual_calls (obj->vfunc() sites resolved
-            through RTTI; crossCheck=true compares with IDA), decompile_native (C pseudocode through IDA when installed).
+            through RTTI; crossCheck=true compares with IDA), decompile_native (C pseudocode through IDA or Ghidra when installed).
             Addresses: hex VA or RVA, rva:/va:/off: prefixes, export names, module!import, sub_<rva>.
             Symbols: a matching local PDB is read with the code index; load_pdb loads one by path or downloads it (download=true);
             search_pdb_symbols lists its symbols. Names from load_pdb and apply_il2cpp_names are saved per file SHA-256 and reapplied
@@ -132,12 +132,13 @@ public static class Guide
             frozen strings); get_nativeaot_info shows the version, recovery stages, types, methods and strings.
             Cross-image: load the DLLs an image imports (or load_assembly loadProviders=true) and the call tools follow imports,
             forwarders and thunks into them.
-            Engines: list_functions, disassemble, get_cfg, find_xrefs and native_call_tree take engine=auto|ours|ida. auto (default)
-            uses IDA's analysis once it has finished in this session, else the built-in index, and never starts IDA; every result has
-            an "Engine: ours|ida (why)" line. ARM64 / ARM images work through IDA. inspect_instruction takes the same values (auto: the
-            built-in decoder for x86 / x64). Name priority: user > pdb > nativeaot > il2cpp > ida > discovered.
-            decompile_native pushes names, patches, Il2Cpp prototypes, RTTI and PDB types into the IDA database; --ida-prewarm analyzes
-            images in IDA as they load. Code indexes are saved on disk by file SHA-256 (--index-cache off disables it).
+            Engines: list_functions, disassemble, get_cfg, find_xrefs and native_call_tree take engine=auto|ours|ida|ghidra. auto
+            (default) uses an engine's analysis once it has finished in this session (IDA's before Ghidra's), else the built-in index,
+            and never starts an engine; every result has an "Engine: ours|ida|ghidra (why)" line. ARM64 / ARM images work through IDA,
+            else Ghidra (NDM_GHIDRA_DIR and a JDK). inspect_instruction takes auto|ours|ida (auto: the built-in decoder for x86 / x64).
+            Name priority: user > pdb > nativeaot > il2cpp > ida > discovered; our names win in engine output. decompile_native pushes
+            names, patches, Il2Cpp prototypes, RTTI and PDB types into the engine's database; --prewarm ida|ghidra|auto analyzes images
+            as they load. Code indexes are saved on disk by file SHA-256 (--index-cache off disables it).
             Editing and engine type edits: the edits topic. Build-to-build: the builds topic.
             """,
         ["dumps"] = """

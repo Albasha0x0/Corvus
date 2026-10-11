@@ -51,7 +51,7 @@ public sealed class EngineInspectTests : IDisposable
         var stream = new MemoryStream();
         a.Assemble(new StreamCodeWriter(stream), Base + 0x1000);
         var index = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, stream.ToArray(), entry: 0x1000));
-        var (text, report) = NativeCodeTools.EngineReport("sample", index, items, new EngineChoice(true, "test"), CancellationToken.None);
+        var (text, report) = NativeCodeTools.EngineReport("sample", index, items, new EngineChoice("ida", "test"), CancellationToken.None);
         Assert.Equal(["mid_instruction", "decoded", "decoded", "data"], report.Items.Select(i => i.Status));
         Assert.Equal(("sub_1000+0x2", "0x140001000"), (report.Items[0].Function, report.Items[0].ContainingInstruction));
         var mov = report.Items[1].Instruction!;

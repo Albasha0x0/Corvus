@@ -14,9 +14,9 @@ namespace NetDecompilerMcp.Mcp;
 /// <item>Destructive: can replace or discard existing state: method bodies, names, bytes or edits in the workspace, or an
 /// existing file. False for tools that only add (new members, a newly loaded file, files in an empty directory).</item>
 /// <item>Idempotent: the same call again has no further effect.</item>
-/// <item>OpenWorld: some argument value can make the call launch a process (IDA through idalib, Python, diec), reach the network
+/// <item>OpenWorld: some argument value can make the call launch a process (IDA through idalib, Python, a Ghidra JVM, diec), reach the network
 /// or read another running process; so every tool with an engine parameter is open-world. Not counted: server-wide settings
-/// (--engine, --ida-prewarm) and a reference pack download (any .NET tool can trigger one when an assembly targets a .NET
+/// (--engine, --prewarm) and a reference pack download (any .NET tool can trigger one when an assembly targets a .NET
 /// version that is not installed; NDM_OFFLINE=1 turns it off).</item>
 /// <item>LongRunning (not an MCP annotation): a call can run for more than ~10 s on large inputs: whole-assembly or whole-image
 /// work, an external engine, or the first use of a native image, which waits for its code index. Advertised as a

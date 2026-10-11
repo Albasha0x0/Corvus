@@ -18,12 +18,13 @@ namespace NetDecompilerMcp.Tools;
 public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeService code, OutputPager pager, NativeLinkService? link = null,
     NativeEngineService? engines = null, NativeNamePush? names = null, NativeTypePush? types = null, NativeUserTypePush? userTypes = null)
 {
-    /// <summary>Answers for images whose instructions the built-in analysis does not decode (ARM64, ARM), through IDA.</summary>
+    /// <summary>Answers through an engine (IDA or Ghidra): for images whose instructions the built-in analysis does not decode, or when the engine preference picks one.</summary>
     private readonly NativeEngineCode? _engine = engines != null ? new NativeEngineCode(engines, pager, names) : null;
 
-    internal const string EngineDescription = "Where functions, references and control flow come from: auto (default: IDA's analysis when one of this image " +
-                                              "is complete in this session, else the built-in index; never starts IDA), ours (the built-in index only) or ida " +
-                                              "(IDA's analysis, started or waited for when needed). The server default is set with --engine or NDM_ENGINE.";
+    internal const string EngineDescription = "Where functions, references and control flow come from: auto (default: an engine's analysis when one of this " +
+                                              "image is complete in this session, IDA's before Ghidra's, else the built-in index; never starts an engine), ours " +
+                                              "(the built-in index only), ida or ghidra (that engine's analysis, started or waited for when needed). The server " +
+                                              "default is set with --engine or NDM_ENGINE.";
 
     /// <summary>The engine mode a call asks for (checked before the image is opened) and whether it named one.</summary>
     private (EngineMode Mode, bool Named) Mode(string? engine) =>
@@ -119,7 +120,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         var mode = Mode(engine);
         var (native, index) = await Open(image, context, progress, cancellationToken);
         var choice = Choose(mode, native, index);
-        if (choice.Ida)
+        if (choice.External)
             return await _engine!.ListFunctions(native, index, filter, sort, offset, limit, choice, progress, cancellationToken);
         // library names of an IDA session already open (none is started for this)
         if (engines?.LibraryNames(native) is { IsCompleted: false } importing) await importing.WaitAsync(cancellationToken);
@@ -160,7 +161,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description("Max instructions (default 2000).")] int maxInstructions = 2000,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
-        [Description(EngineDescription + " With IDA, the function's bounds and instructions are IDA's.")] string? engine = null,
+        [Description(EngineDescription + " With an engine, the function's bounds and instructions are the engine's.")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -168,7 +169,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         var (native, index) = await Open(image, context, progress, cancellationToken);
         int max = Math.Clamp(maxInstructions, 1, 200_000);
         var choice = Choose(mode, native, index);
-        if (choice.Ida)
+        if (choice.External)
             return await _engine!.Disassemble(native, index, Address(index, address), function, max, offset, maxChars, choice, progress, cancellationToken);
         if (index.Support == CodeSupport.DeclaredFunctionsOnly) throw NativeEngineCode.Unsupported(index, engines);
         var rva = Address(index, address);
@@ -232,14 +233,14 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description(NativeTools.AddressDescription)] string address,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
-        [Description(EngineDescription + " With IDA, the blocks and edges are IDA's.")] string? engine = null,
+        [Description(EngineDescription + " With an engine, the blocks and edges are the engine's.")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var mode = Mode(engine);
         var (native, index) = await Open(image, context, progress, cancellationToken);
         var choice = Choose(mode, native, index);
-        if (choice.Ida)
+        if (choice.External)
             return await _engine!.Cfg(native, index, Address(index, address), offset, maxChars, choice, progress, cancellationToken);
         if (index.Support == CodeSupport.DeclaredFunctionsOnly) throw NativeEngineCode.Unsupported(index, engines);
         var fn = FunctionAt(index, Address(index, address));
@@ -272,7 +273,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description(NativeTools.AddressDescription + " Or a struct member: Type::member, Type.member, Type+0xOFFSET.")] string address,
         [Description("Index of the first row.")] int offset = 0,
         [Description("Max rows (default 500).")] int limit = 500,
-        [Description(EngineDescription + " With IDA, the references are IDA's, plus the RTTI-resolved virtual call sites IDA has none for (marked ours).")]
+        [Description(EngineDescription + " With an engine, the references are the engine's, plus the RTTI-resolved virtual call sites it has none for (marked ours).")]
         string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -282,7 +283,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         if (FieldTarget(address) is { } field && !IsAddress(index, address))
             return await FieldXrefs(native, field, mode.Mode, offset, limit, progress, cancellationToken);
         var choice = Choose(mode, native, index);
-        if (choice.Ida)
+        if (choice.External)
         {
             var via = await _engine!.Xrefs(native, index, Address(index, address), choice, progress, cancellationToken);
             return StructuredOutput.With(via.Header + pager.PageRows(via.Rows, offset, limit, "reference"),
@@ -357,7 +358,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
         [Description("Call edges to follow: all (default), direct (no virtual call edges) or virtual (only virtual_exact / virtual_possible edges).")] string? calls = null,
-        [Description(EngineDescription + " With IDA, edges are IDA's call and jump references plus the RTTI-resolved virtual calls IDA has none for " +
+        [Description(EngineDescription + " With an engine, edges are its call and jump references plus the RTTI-resolved virtual calls it has none for " +
                      "(marked ours); calls into other loaded images are followed with the built-in index only.")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -378,7 +379,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         var mode = Mode(engine);
         var (native, index) = await Open(image, context, progress, cancellationToken);
         var choice = Choose(mode, native, index);
-        if (choice.Ida)
+        if (choice.External)
             return await _engine!.CallTree(native, index, Address(index, function), callers, Math.Clamp(depth, 1, 8), ClampLimit(maxNodes, 20_000), offset, maxChars,
                 edges, choice, progress, cancellationToken);
         var fn = FunctionAt(index, Address(index, function));

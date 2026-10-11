@@ -31,9 +31,13 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
         if (!options.IdaScripting)
             throw new ToolError(ErrorCode.Unsupported, "ida_python is disabled on this server.",
                 $"start the server with --ida-scripting or set {ServerOptions.IdaScriptingVariable}=1 to allow scripts");
-        engines.Provider(engine);
+        // IDAPython runs in IDA only, whatever the server's default engine
+        var ida = string.IsNullOrWhiteSpace(engine) || engine.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase) ? "ida" : engine.Trim();
+        if (!ida.Equals("ida", StringComparison.OrdinalIgnoreCase))
+            throw new ToolError(ErrorCode.InvalidArgument, $"ida_python runs in IDA, not in '{ida}'.", "omit engine or pass engine=ida");
+        engines.Provider(ida);
         var (native, _) = await Task.Run(() => NativeAnalysisTools.Resolve(workspace, nativeCode, image, "rva:0"), cancellationToken);
-        var session = await engines.Session(native, engine, new Progress<NativeProviderProgress>(p =>
+        var session = await engines.Session(native, ida, new Progress<NativeProviderProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), cancellationToken);
         // the database as the other engine tools leave it
         if (names != null) await names.EnsureAsync(native, session, cancellationToken);

@@ -22,12 +22,12 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
 
     private sealed record Rig(AssemblyWorkspace Workspace, NativeCodeService Code, NativeCodeTools Tools, NativeAnalysisTools Analysis, NativeEngineService Engines);
 
-    private Rig Setup(IdaProviderOptions? ida = null, bool prewarm = false)
+    private Rig Setup(IdaProviderOptions? ida = null, bool prewarm = false, Native.Providers.Ghidra.GhidraProviderOptions? ghidra = null)
     {
-        var options = new ServerOptions { TimeoutSeconds = 120, BackgroundIndexing = false, IdaPrewarm = prewarm };
+        var options = new ServerOptions { TimeoutSeconds = 120, BackgroundIndexing = false, Prewarm = prewarm ? EngineMode.Ida : null };
         var workspace = new AssemblyWorkspace(options);
         var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(_dir.File("annotations")));
-        var engines = new NativeEngineService(ida ?? new IdaProviderOptions { CacheRoot = _dir.File("cache") }, code, workspace, options);
+        var engines = new NativeEngineService(ida ?? new IdaProviderOptions { CacheRoot = _dir.File("cache") }, code, workspace, options, ghidra);
         _owned.Add(engines);
         var pager = new OutputPager(options);
         var names = new NativeNamePush(code);
@@ -47,7 +47,8 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
     [WindowsFact]
     public async Task Undecoded_architecture_without_IDA_is_unsupported_with_remediation()
     {
-        var tools = Setup(new IdaProviderOptions { InstallDirectory = _dir.File("no-ida-here"), CacheRoot = _dir.File("cache") }).Tools;
+        var tools = Setup(new IdaProviderOptions { InstallDirectory = _dir.File("no-ida-here"), CacheRoot = _dir.File("cache") },
+            ghidra: new() { InstallDirectory = _dir.File("no-ghidra-here"), CacheRoot = _dir.File("cache") }).Tools;
         var path = SyntheticArm64();
         foreach (var call in new Func<Task<string>>[] { () => tools.Disassemble(path, "rva:0x1000"), () => tools.GetCfg(path, "rva:0x1000") })
         {
@@ -55,6 +56,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
             Assert.Equal(ErrorCode.Unsupported, e.Code);
             Assert.Contains("Arm64", e.Message);
             Assert.Contains("IDA", e.Remediation);
+            Assert.Contains("NDM_GHIDRA_DIR", e.Remediation);
         }
         // list_functions still answers from the declared starts.
         Assert.Contains("1 function", await tools.ListFunctions(path));
@@ -110,7 +112,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         var clock = Stopwatch.StartNew();
         var list = await tools.ListFunctions(path, limit: 5000);
         output.WriteLine($"list_functions {clock.Elapsed.TotalSeconds:0.0} s (includes IDA analysis)\n{string.Join('\n', list.Split('\n').Take(12))}");
-        Assert.Contains(NativeEngineCode.Via, list);
+        Assert.Contains(NativeEngineCode.Via("ida"), list);
         var id = workspace.Read(() => workspace.Natives[0].Id);
         var pe = workspace.Read(() => workspace.Natives[0].Image);
         var export = pe.Exports.First(e => e.Rva != 0 && e.Name != null && pe.SectionAt(e.Rva) is { IsExecutable: true });
@@ -120,7 +122,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         clock.Restart();
         var asm = await tools.Disassemble(id, export.Name!);
         output.WriteLine($"disassemble {export.Name}: {clock.ElapsedMilliseconds} ms\n{string.Join('\n', asm.Split('\n').Take(10))}");
-        Assert.Contains(NativeEngineCode.Via, asm);
+        Assert.Contains(NativeEngineCode.Via("ida"), asm);
         Assert.Contains($"{pe.ImageBase + export.Rva:X}", asm);
         Assert.Matches(@"(?m)^  [0-9A-F]+  [0-9A-F]{8} +\S", asm); // ARM64: 4-byte instructions
 
@@ -129,12 +131,12 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
 
         var cfg = await tools.GetCfg(id, export.Name!);
         output.WriteLine(cfg);
-        Assert.Contains(NativeEngineCode.Via, cfg);
+        Assert.Contains(NativeEngineCode.Via("ida"), cfg);
         Assert.Matches(@"insn  (Return|Jump|ConditionalJump|FallThrough|TailCall|NoReturnCall|IndirectJump|Switch)", cfg);
 
         var callees = await tools.NativeCallTree(id, export.Name!, depth: 2);
         output.WriteLine(callees);
-        Assert.Contains(NativeEngineCode.Via, callees);
+        Assert.Contains(NativeEngineCode.Via("ida"), callees);
 
         // References to some function that is called: callers in the tree match find_xrefs.
         var called = list.Split('\n').Select(l => System.Text.RegularExpressions.Regex.Match(l, @"^\s*(0x[0-9A-F]+) .*; (\d+) refs\)\s*$"))
@@ -142,7 +144,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         Assert.NotNull(called);
         var xrefs = await tools.FindXrefs(id, called!);
         output.WriteLine(string.Join('\n', xrefs.Split('\n').Take(8)));
-        Assert.Contains(NativeEngineCode.Via, xrefs);
+        Assert.Contains(NativeEngineCode.Via("ida"), xrefs);
         Assert.Matches(@"(?m)^\s*0x[0-9A-F]+  Call ", xrefs);
         var callers = await tools.NativeCallTree(id, called!, direction: "callers", depth: 1);
         Assert.True(callers.Split('\n').Length > 2, callers);
@@ -181,8 +183,8 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         output.WriteLine(patched);
         Assert.Contains("return 23063;", patched.Replace("0x5A17", "23063"));
         Assert.Contains("applied in the database", patched);
-        Assert.False(rig.Engines.ServesPatchedCopy(native));
-        var sync = rig.Engines.LastPatchSync(native)!;
+        Assert.False(rig.Engines.ServesPatchedCopy(native, "ida"));
+        var sync = rig.Engines.LastPatchSync(native, "ida")!;
         output.WriteLine($"sync: {sync}");
         Assert.True(sync.Complete);
 
@@ -191,7 +193,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         var undone = await rig.Analysis.DecompileNative(native.Id, Export);
         var undoTime = clock.Elapsed;
         Assert.Equal(Body(original), Body(undone));
-        Assert.True(rig.Engines.LastPatchSync(native)!.Reverted > 0);
+        Assert.True(rig.Engines.LastPatchSync(native, "ida")!.Reverted > 0);
         // the tool may answer from its page cache (same bytes as the original): ask the database itself
         var session = await rig.Engines.Session(native, null, null, default);
         var fresh = await session.DecompileAsync(native.Image.Exports.First(e => e.Name == Export).Rva);
@@ -205,7 +207,7 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         var reanalyzed = await rig.Analysis.DecompileNative(native.Id, Export);
         var fromScratch = clock.Elapsed;
         Assert.Contains("analyzed as a patched copy", reanalyzed);
-        Assert.True(rig.Engines.ServesPatchedCopy(native));
+        Assert.True(rig.Engines.ServesPatchedCopy(native, "ida"));
         Assert.Contains("return 23063;", reanalyzed.Replace("0x5A17", "23063"));
         output.WriteLine($"{Path.GetFileName(dll)} ({new FileInfo(dll).Length:N0} bytes): first open {open.TotalSeconds:0.0} s; decompile after a patch: " +
                          $"{inDatabase.TotalSeconds:0.00} s applied in the database (sync {sync.Elapsed.TotalSeconds:0.00} s, {sync.Functions} function(s) reanalyzed) " +
@@ -217,8 +219,8 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
     [Fact]
     public void Prewarm_is_off_by_default_and_turned_on_by_option()
     {
-        Assert.False(new ServerOptions().IdaPrewarm);
-        Assert.True(ServerOptions.Parse(["--ida-prewarm"]).IdaPrewarm);
+        Assert.Null(new ServerOptions().Prewarm);
+        Assert.Equal(EngineMode.Ida, ServerOptions.Parse(["--ida-prewarm"]).Prewarm);
         using var engines = new NativeEngineService();
         Assert.False(engines.Prewarming.Enabled);
     }

@@ -126,11 +126,12 @@ public sealed partial class NativeCodeTools
         var choice = mode.Mode switch
         {
             EngineMode.Ida => NativeEngineCode.Choose(EngineMode.Ida, mode.Named, engines, native, index),
-            _ when !undecoded => new EngineChoice(false, $"{origin}: the built-in decoder"),
-            EngineMode.Auto when engines?.IsAvailable == true => new EngineChoice(true, $"{origin}: the built-in analysis does not decode {index.Image.Arch} instructions"),
+            _ when !undecoded => new EngineChoice("ours", $"{origin}: the built-in decoder"),
+            // instruction details come from IDA only
+            EngineMode.Auto when engines?.UnavailabilityOf("ida") == null => new EngineChoice("ida", $"{origin}: the built-in analysis does not decode {index.Image.Arch} instructions"),
             _ => throw NativeEngineCode.Unsupported(index, engines),
         };
-        var (text, report) = choice.Ida
+        var (text, report) = choice.External
             ? await InspectWithEngine(native, index, rva, n, choice, progress, cancellationToken)
             : await Task.Run(() => Inspect(native.Id, index, rva, n, choice, cancellationToken), cancellationToken);
         return StructuredOutput.With(choice.Line + "\n" + Coverage(index) + pager.Page(text, offset, maxChars), report);
@@ -181,7 +182,7 @@ public sealed partial class NativeCodeTools
     private async Task<(string Text, InstructionReport Report)> InspectWithEngine(LoadedNative native, NativeCodeIndex index, uint rva, int count, EngineChoice choice,
         IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
-        var session = await engines!.Session(native, null, new Progress<NativeProviderProgress>(p =>
+        var session = await engines!.Session(native, choice.Engine, new Progress<NativeProviderProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = $"IDA {p.Stage}" })), ct);
         if (names != null) await names.EnsureAsync(native, session, ct);
         var found = await session.InspectAsync(rva, count, ct);

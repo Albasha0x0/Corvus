@@ -93,18 +93,19 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         }
         if (engines?.Prewarming is { } p)
             capabilities.Add(p.Enabled
-                ? new("IDA background analysis on load", true,
-                    $"on: {(p.Running != null ? $"analyzing {p.Running} ({p.RunningSeconds:0} s)" : "idle")}, {p.Queued} queued, {p.Done} done, {p.Failed} failed, {p.Cancelled} cancelled" +
+                ? new("engine background analysis on load", true,
+                    $"on ({p.Engine}): {(p.Running != null ? $"analyzing {p.Running} ({p.RunningSeconds:0} s)" : "idle")}, {p.Queued} queued, {p.Done} done, {p.Failed} failed, {p.Cancelled} cancelled" +
                     (p.LastError != null ? $"; last error: {p.LastError}" : ""), null)
-                : new("IDA background analysis on load", false, "off: the first decompile_native on an image waits for IDA's auto-analysis",
-                    $"start the server with --ida-prewarm (or {ServerOptions.IdaPrewarmVariable}=1)"));
+                : new("engine background analysis on load", false, "off: the first engine call on an image waits for the engine's auto-analysis",
+                    $"start the server with --prewarm ida|ghidra|auto (or {ServerOptions.PrewarmVariable})"));
         capabilities.Add(new("native engine preference (list_functions, disassemble, get_cfg, find_xrefs, native_call_tree)", true,
             options.Engine switch
             {
-                EngineMode.Ours => "default ours: the built-in index; IDA is not consulted unless a call passes engine=ida",
-                EngineMode.Ida => "default ida: IDA's analysis, started or waited for by the call; engine=ours or auto per call",
-                _ => "default auto: IDA's functions, references and blocks once its analysis of an image is complete in this session, else the built-in index",
-            } + $"; --engine auto|ours|ida (or {ServerOptions.EngineVariable}) sets the default, each of those tools takes engine", null));
+                EngineMode.Ours => "default ours: the built-in index; no engine is consulted unless a call passes engine=ida or engine=ghidra",
+                EngineMode.Ida => "default ida: IDA's analysis, started or waited for by the call; engine=ours, ghidra or auto per call",
+                EngineMode.Ghidra => "default ghidra: Ghidra's analysis, started or waited for by the call; engine=ours, ida or auto per call",
+                _ => "default auto: an engine's functions, references and blocks once its analysis of an image is complete in this session (IDA's before Ghidra's), else the built-in index",
+            } + $"; --engine auto|ours|ida|ghidra (or {ServerOptions.EngineVariable}) sets the default, each of those tools takes engine", null));
         if (code != null)
             capabilities.Add(code.IndexCache?.Status() is { } c
                 ? new("saved native code indexes", true,

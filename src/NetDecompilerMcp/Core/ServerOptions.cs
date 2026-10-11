@@ -12,15 +12,16 @@ namespace NetDecompilerMcp.Core;
 ///   --no-watch            do not reload assemblies when their files change on disk
 ///   --binding-style &lt;s&gt;  default generate_cpp_binding style when none is requested or detected: mono, il2cpp or hostapi
 ///   --binding-project &lt;d&gt; default project directory scanned for a host table by generate_cpp_binding
-///   --ida-prewarm         start IDA's analysis of each native image in the background right after it loads (one at a time)
+///   --prewarm &lt;e&gt;        start an engine's analysis of each native image in the background right after it loads (one at a time):
+///                         ida, ghidra or auto (the preferred engine installed); --ida-prewarm is --prewarm ida
 ///   --ida-scripting       allow ida_python (arbitrary Python in the IDA worker; NDM_IDA_SCRIPTING=1)
-///   --engine &lt;e&gt;         where native functions, xrefs and CFGs come from by default: auto (IDA's analysis when it is complete, else ours), ours or ida
+///   --engine &lt;e&gt;         where native functions, xrefs and CFGs come from by default: auto (an engine's analysis when it is complete, else ours), ours, ida or ghidra
 ///   --index-cache &lt;dir|off&gt;  directory of saved native code indexes (default &lt;LocalAppData&gt;/NetDecompilerMcp/code-index), or off
 ///   --index-cache-mb &lt;n&gt;  size limit of the code index cache in MB (default 8192)
 ///   --index-cache-days &lt;n&gt; entries unused for this many days are deleted (default 30)
 ///   --log-level &lt;l&gt;     stderr log level: trace, debug (adds one line per tool call), information (default), warning, error or none
 ///   --toolsets &lt;list&gt;   register only these tool families (see <see cref="Core.Toolsets"/>; default all): core, or names such as core,dumps
-/// The NETDECOMP_LOAD environment variable (';'-separated paths) is also honored; NDM_IDA_PREWARM=1 turns on --ida-prewarm; NDM_ENGINE sets --engine;
+/// The NETDECOMP_LOAD environment variable (';'-separated paths) is also honored; NDM_PREWARM sets --prewarm (NDM_IDA_PREWARM=1: ida); NDM_ENGINE sets --engine;
 /// NDM_CODE_INDEX_CACHE, NDM_CODE_INDEX_CACHE_MB and NDM_CODE_INDEX_CACHE_DAYS set the code index cache defaults; NDM_LOG_LEVEL sets --log-level;
 /// NDM_TOOLSETS sets --toolsets.
 /// </summary>
@@ -44,11 +45,14 @@ public sealed class ServerOptions
     public string? BindingProject { get; set; }
 
     /// <summary>
-    /// Open an IDA session for each native image in the background right after it loads (one image at a time, cancelled
-    /// on unload), so the first decompile_native does not wait for auto-analysis (default off).
+    /// The engine whose session opens for each native image in the background right after it loads (one image at a time,
+    /// cancelled on unload), so the first engine call does not wait for auto-analysis: Ida, Ghidra or Auto (the preferred
+    /// engine installed); null: off (default).
     /// </summary>
-    public bool IdaPrewarm { get; set; }
+    public EngineMode? Prewarm { get; set; }
 
+    public const string PrewarmVariable = "NDM_PREWARM";
+    /// <summary>Older switch: 1 means --prewarm ida.</summary>
     public const string IdaPrewarmVariable = "NDM_IDA_PREWARM";
 
     /// <summary>Allow ida_python: arbitrary Python in the IDA worker, with the server's rights (default off).</summary>
@@ -82,6 +86,8 @@ public sealed class ServerOptions
         long? cacheMb = null;
         int? cacheDays = null;
         string? engine = Environment.GetEnvironmentVariable(EngineVariable) is { Length: > 0 } fromEnv ? fromEnv : null;
+        string? prewarm = Environment.GetEnvironmentVariable(PrewarmVariable) is { Length: > 0 } prewarmFromEnv ? prewarmFromEnv
+            : Environment.GetEnvironmentVariable(IdaPrewarmVariable)?.Trim() is "1" or "true" or "on" ? "ida" : null;
         string? logLevel = Environment.GetEnvironmentVariable(LogLevelVariable) is { Length: > 0 } levelFromEnv ? levelFromEnv : null;
         string? toolsets = Environment.GetEnvironmentVariable(Core.Toolsets.Variable) is { Length: > 0 } setsFromEnv ? setsFromEnv : null;
         for (int i = 0; i < args.Length; i++)
@@ -100,7 +106,8 @@ public sealed class ServerOptions
                     o.BindingStyle = style is "mono" or "hostapi" or "il2cpp" ? style : throw new ArgumentException($"--binding-style must be mono, il2cpp or hostapi, not '{style}'");
                     break;
                 case "--binding-project": o.BindingProject = Next(); break;
-                case "--ida-prewarm": o.IdaPrewarm = true; break;
+                case "--ida-prewarm": prewarm = "ida"; break;
+                case "--prewarm": prewarm = Next(); break;
                 case "--ida-scripting": o.IdaScripting = true; break;
                 case "--engine": engine = Next(); break;
                 case "--index-cache": cacheRoot = Next(); break;
@@ -125,10 +132,13 @@ public sealed class ServerOptions
         if (logLevel != null)
             o.LogLevel = ParseLogLevel(logLevel) ?? throw new ArgumentException($"--log-level (or {LogLevelVariable}) must be trace, debug, information, warning, error or none, not '{logLevel.Trim()}'");
         if (toolsets != null) o.Toolsets = Core.Toolsets.Parse(toolsets);
-        if (Environment.GetEnvironmentVariable(IdaPrewarmVariable)?.Trim() is "1" or "true" or "on") o.IdaPrewarm = true;
+        if (prewarm != null)
+            o.Prewarm = EngineModes.TryParse(prewarm) is { } p && p != EngineMode.Ours ? p
+                : prewarm.Trim().ToLowerInvariant() is "off" or "0" or "none" ? null
+                : throw new ArgumentException($"--prewarm (or {PrewarmVariable}) must be ida, ghidra, auto or off, not '{prewarm.Trim()}'");
         if (Environment.GetEnvironmentVariable(IdaScriptingVariable)?.Trim() is "1" or "true" or "on") o.IdaScripting = true;
         if (engine != null)
-            o.Engine = EngineModes.TryParse(engine) ?? throw new ArgumentException($"--engine (or {EngineVariable}) must be auto, ours or ida, not '{engine.Trim()}'");
+            o.Engine = EngineModes.TryParse(engine) ?? throw new ArgumentException($"--engine (or {EngineVariable}) must be auto, ours, ida or ghidra, not '{engine.Trim()}'");
         var env = Environment.GetEnvironmentVariable("NETDECOMP_LOAD");
         if (!string.IsNullOrWhiteSpace(env))
             o.Preload.AddRange(env.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
@@ -148,27 +158,32 @@ public sealed class ServerOptions
 }
 
 /// <summary>
-/// Where the native code tools take functions, cross-references and control-flow graphs from: Auto (IDA's analysis
-/// when one of the image is complete in this session, else the built-in index; never starts IDA), Ours (the built-in
-/// index only; IDA is never asked) or Ida (IDA's analysis, started and waited for when needed).
+/// Where the native code tools take functions, cross-references and control-flow graphs from: Auto (an engine's
+/// analysis when one of the image is complete in this session, IDA's before Ghidra's, else the built-in index; never
+/// starts an engine), Ours (the built-in index only; no engine is asked), Ida or Ghidra (that engine's analysis,
+/// started and waited for when needed).
 /// </summary>
-public enum EngineMode { Auto, Ours, Ida }
+public enum EngineMode { Auto, Ours, Ida, Ghidra }
 
 public static class EngineModes
 {
-    /// <summary>auto, ours or ida (case-insensitive; "built-in" and "builtin" mean ours); null for anything else.</summary>
+    /// <summary>auto, ours, ida or ghidra (case-insensitive; "built-in" and "builtin" mean ours); null for anything else.</summary>
     public static EngineMode? TryParse(string? text) => text?.Trim().ToLowerInvariant() switch
     {
         "auto" => EngineMode.Auto,
         "ours" or "built-in" or "builtin" => EngineMode.Ours,
         "ida" => EngineMode.Ida,
+        "ghidra" => EngineMode.Ghidra,
         _ => null,
     };
 
     /// <summary>The mode a call asks for, or <paramref name="fallback"/> when it names none; an unknown name is an invalid_argument error.</summary>
     public static EngineMode Resolve(string? text, EngineMode fallback) =>
         string.IsNullOrWhiteSpace(text) ? fallback
-        : TryParse(text) ?? throw new ToolError(ErrorCode.InvalidArgument, $"Unknown engine '{text.Trim()}'.", "use auto, ours or ida");
+        : TryParse(text) ?? throw new ToolError(ErrorCode.InvalidArgument, $"Unknown engine '{text.Trim()}'.", "use auto, ours, ida or ghidra");
 
-    public static string Name(EngineMode mode) => mode switch { EngineMode.Ours => "ours", EngineMode.Ida => "ida", _ => "auto" };
+    public static string Name(EngineMode mode) => mode switch { EngineMode.Ours => "ours", EngineMode.Ida => "ida", EngineMode.Ghidra => "ghidra", _ => "auto" };
+
+    /// <summary>The provider id of an engine mode (ida, ghidra), or null for auto and ours.</summary>
+    public static string? ProviderId(EngineMode mode) => mode switch { EngineMode.Ida => "ida", EngineMode.Ghidra => "ghidra", _ => null };
 }
