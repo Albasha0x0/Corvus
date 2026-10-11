@@ -20,7 +20,8 @@ public sealed class InspectionTools(InspectionService inspection)
                  "(framework libraries last, translations skipped); an apphost launcher's .dll next to it is summarized as the app. For a NativeAOT " +
                  "executable, nativeAot gives the runtime version, module sections, recovery stages and counts of named methods, MethodTables and " +
                  "frozen strings. ELF / Mach-O: nativeImage gives format, slices, build id, libraries, platform, code signature, entitlements and FairPlay encryption. " +
-                 "highlights lists the notable findings.")]
+                 "Android packages: android gives package, versions, SDKs, runtimes with evidence (dotnet-android, unity-il2cpp, unity-mono, flutter, " +
+                 "react-native, kotlin / java), ABIs, DEX files, exported components and the APK signature verdict. highlights lists the notable findings.")]
     public Task<InspectionService.FileSummary> SummarizeFile(
         [Description("Any file: assembly, single-file bundle, .nupkg, .apk, zip, native executable. Pass this or assembly.")] string? path = null,
         [Description(AssemblyParam)] string? assembly = null,

@@ -70,6 +70,8 @@ public static class Guide
             assemblies inside, search_container finds types/members in them by name, and unpack_container extracts and loads them.
             list_assemblies and unpack_container flag ReadyToRun and merged (ILMerge/ILRepack) assemblies.
             Unity builds: unity_overview first.
+            Android packages (.apk, .aab, split sets), read natively: get_android_manifest (components, exported state, permissions, deep links),
+            list_android_resources and get_android_resource (decoded XML, @type/name values).
             """,
         ["edits"] = """
             Editing and saving (in memory until saved; dryRun=true previews).

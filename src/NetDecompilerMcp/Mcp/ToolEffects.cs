@@ -83,6 +83,11 @@ public static class ToolEffects
         ["unpack_container"] = Changes(destructive: false, idempotent: true, longRunning: true), // extracts into an empty directory (or its own earlier unpack) and loads
         ["unity_overview"] = Reads(openWorld: true), // headers and listings only; detectItEasy=true launches diec
 
+        // Android packages (read natively; nothing executed)
+        ["get_android_manifest"] = Reads(),
+        ["list_android_resources"] = Reads(),
+        ["get_android_resource"] = Changes(destructive: true, idempotent: true), // savePath; overwrite=true replaces a file
+
         // Builds
         ["compare_assemblies"] = Changes(destructive: true, idempotent: true, longRunning: true), // tokenMapPath; overwrite=true replaces a file
         ["find_counterpart"] = Reads(longRunning: true),

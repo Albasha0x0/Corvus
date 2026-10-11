@@ -32,6 +32,7 @@ public static class ContractSweep
         ["extract_embedded"] = ["outputDirectory"],
         ["unpack_container"] = ["outputDirectory"],
         ["get_resource"] = ["savePath"],
+        ["get_android_resource"] = ["savePath"],
         ["extract_strings"] = ["savePath"],
         ["export_native_annotations"] = ["outputPath"],
         ["save_native"] = ["outputPath"],

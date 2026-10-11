@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
-123 tools in 12 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+126 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -18,6 +18,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
 | [engine](#engine) | no | 7: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
+| [android](#android) | no | 3: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
 | [dumps](#dumps) | no | 7: crash dumps and crash text |
 | [live](#live) | no | 1: read-only inspection of a running process |
 
@@ -518,14 +519,14 @@ File inspection, containers and wrapped apps, Unity overview.
 
 **Summarize file** (read-only, idempotent)
 
-Summary of a file or loaded assembly, without executing it: file hashes, type and entropy; per managed assembly its identity (name, version, MVID, target framework, GUI/console/library, architecture, ReadyToRun, merged), signature (strong name, Authenticode signer with a digest check and chain), toolchain markers and heuristics, container wrapping (embedded assemblies, decoded embedded content, high-entropy sections), features with ATT&CK techniques, a summary of extracted values, and entry points (Main, module initializer, native exports, installer / service / AppDomainManager / COM hooks). Containers (single-file bundles, packages, APKs, zips, Costura hosts) are opened: the app's own assembly in full, up to 7 more in brief (framework libraries last, translations skipped); an apphost launcher's .dll next to it is summarized as the app. For a NativeAOT executable, nativeAot gives the runtime version, module sections, recovery stages and counts of named methods, MethodTables and frozen strings. ELF / Mach-O: nativeImage gives format, slices, build id, libraries, platform, code signature, entitlements and FairPlay encryption. highlights lists the notable findings.
+Summary of a file or loaded assembly, without executing it: file hashes, type and entropy; per managed assembly its identity (name, version, MVID, target framework, GUI/console/library, architecture, ReadyToRun, merged), signature (strong name, Authenticode signer with a digest check and chain), toolchain markers and heuristics, container wrapping (embedded assemblies, decoded embedded content, high-entropy sections), features with ATT&CK techniques, a summary of extracted values, and entry points (Main, module initializer, native exports, installer / service / AppDomainManager / COM hooks). Containers (single-file bundles, packages, APKs, zips, Costura hosts) are opened: the app's own assembly in full, up to 7 more in brief (framework libraries last, translations skipped); an apphost launcher's .dll next to it is summarized as the app. For a NativeAOT executable, nativeAot gives the runtime version, module sections, recovery stages and counts of named methods, MethodTables and frozen strings. ELF / Mach-O: nativeImage gives format, slices, build id, libraries, platform, code signature, entitlements and FairPlay encryption. Android packages: android gives package, versions, SDKs, runtimes with evidence (dotnet-android, unity-il2cpp, unity-mono, flutter, react-native, kotlin / java), ABIs, DEX files, exported components and the APK signature verdict. highlights lists the notable findings.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `path` | string |  |  | Any file: assembly, single-file bundle, .nupkg, .apk, zip, native executable. Pass this or assembly. |
 | `assembly` | string |  |  | A loaded assembly (id, name, file name or path). Pass this or path. |
 
-Structured output: `file`, `container`, `assemblies`, `highlights`, `notes`, `nativeAot`, `nativeImage`.
+Structured output: `file`, `container`, `assemblies`, `highlights`, `notes`, `nativeAot`, `nativeImage`, `android`.
 
 ### survey_features
 
@@ -1778,6 +1779,54 @@ Run Python in the IDA worker that holds a native image's database (idalib): IDAP
 | `code` | string | yes |  | Python source; a final expression's value is returned. |
 | `reset` | boolean |  | `false` | Clear the globals earlier calls left. |
 | `engine` | string |  |  | Engine: auto (default) or ida. Values: auto, ida. |
+
+## android
+
+Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices.
+
+### get_android_manifest
+
+**Android manifest** (read-only, idempotent)
+
+AndroidManifest.xml of an Android package, decoded natively (no Java tools): package, versions, min / target / compile SDK; permissions (also -sdk-23 and maxSdkVersion) and declared permissions with protection levels; application flags (debuggable, allowBackup, usesCleartextTraffic, networkSecurityConfig with its file, extractNativeLibs); every activity, alias, service, receiver and provider with its explicit and effective exported state and why, permissions, intent filters, launcher, deep links and meta-data; queries, features, libraries; highlights. Resource references are resolved. The XML itself: get_android_resource name=AndroidManifest.xml.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `path` | string | yes |  | An Android package: .apk, .aab (its base module), or a split set (.apks, .xapk, .apkm, read through its base APK). |
+
+Structured output: `package`, `versionCode`, `versionName`, `minSdk`, `targetSdk`, `maxSdk`, `compileSdk`, `split`, `permissions`, `declaredPermissions`, `application`, `components`, `queries`, `features`, `libraries`, `metaData`, `highlights`, `issues`.
+
+### list_android_resources
+
+**List Android resources** (read-only, idempotent)
+
+Compiled resources of an Android package (resources.arsc, or resources.pb of an app bundle): one row per resource and configuration with id (0x7f...), type, name, configuration qualifiers (pt-rBR, b+zh+Hans, night, xxhdpi, v31; '' is the default), value type and value (strings, references by name, colors, dimensions, file paths; styles, arrays and plurals as name=value lists). types gives every resource type with its count.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `path` | string | yes |  | An Android package: .apk, .aab (its base module), or a split set (.apks, .xapk, .apkm, read through its base APK). |
+| `type` | string |  |  | Only this type: string, layout, xml, drawable, color, ... |
+| `name` | string |  |  | Only names matching this (case-insensitive; * and ? wildcards). |
+| `config` | string |  |  | Only this configuration: qualifiers as in a directory name (values-pt-rBR: pt-rBR), or default. |
+| `offset` | integer |  | `0` | Rows to skip. |
+| `limit` | integer |  | `500` | Most rows to return (default 500). |
+
+Structured output: `items`, `offset`, `total`, `truncated`, `types`.
+
+### get_android_resource
+
+**Get Android resource** (destructive, idempotent)
+
+One file of an Android package, or one resource: a path (res/xml/network_security_config.xml, res/layout/main.xml, assets/..., AndroidManifest.xml) is read with binary XML decoded and resource references named, text as text, other data as a hex preview; @type/name or 0x7f... gives the resource's value in every configuration, or its file. savePath writes the raw bytes.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `path` | string | yes |  | An Android package: .apk, .aab (its base module), or a split set (.apks, .xapk, .apkm, read through its base APK). |
+| `name` | string | yes |  | An entry path, @type/name (@xml/network_security_config, @string/app_name) or a resource id 0x7f... |
+| `savePath` | string |  |  | Write the entry's bytes to this file. |
+| `overwrite` | boolean |  | `false` | Replace savePath if it exists. |
+| `offset` | integer |  | `0` | Character offset for paging long output (use the value from the truncation footer). |
+| `maxChars` | integer |  |  | Max characters in this page (default from server config, ~60000). |
 
 ## dumps
 

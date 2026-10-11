@@ -54,6 +54,9 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
 
         /// <summary>Set for an ELF or Mach-O image (the default slice of a universal file).</summary>
         public NativeImageFacts? NativeImage { get; init; }
+
+        /// <summary>Set for an Android package: manifest facts, runtimes with evidence, ABIs, DEX, signature.</summary>
+        public Mobile.AndroidPackageFacts? Android { get; init; }
     }
 
     private sealed record Scanned(ModuleDef Module, ModuleScan Scan, byte[] Image, string Label);
@@ -267,11 +270,13 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         if (UnityLayout.FileHint(full, bytes) is { } layout) fileHighlights.Add(layout);
         var native = NativeImageFacts.Of(full, bytes);
         if (native != null) fileHighlights.AddRange(native.Value.Highlights);
+        var android = Blob.Identify(bytes) == "zip" ? Mobile.AndroidPackageService.Facts(full, bytes, ct) : null;
+        if (android != null) fileHighlights.AddRange(android.Highlights);
         (string Source, string Container, List<UnpackService.ManagedAssembly> Assemblies, List<string> Notes) managed;
         try { managed = UnpackService.Managed(full, Limits, ct); }
         catch (ToolError ex)
         {
-            return new FileSummary(facts, "unreadable container", [], [.. fileHighlights, $"The file is damaged: {ex.Message}"], [ex.Message]) { NativeImage = native?.Facts };
+            return new FileSummary(facts, "unreadable container", [], [.. fileHighlights, $"The file is damaged: {ex.Message}"], [ex.Message]) { NativeImage = native?.Facts, Android = android };
         }
         var reportNotes = new List<string>(managed.Notes);
         reportNotes.AddRange(MappingNotes(bytes));
@@ -323,7 +328,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             highlights.AddRange(found.Count == 1 ? list : list.Select(h => $"[{assemblyPath}] {h}"));
         return new FileSummary(facts, managed.Container, summarized, highlights.Distinct().ToList(), reportNotes)
         {
-            NativeAot = NativeAotFacts(bytes, ct), NativeImage = native?.Facts,
+            NativeAot = NativeAotFacts(bytes, ct), NativeImage = native?.Facts, Android = android,
         };
     }
 

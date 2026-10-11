@@ -126,6 +126,8 @@ public static class RealData
     public const string CallPathTarget = "NDM_CALLPATH_TARGET";
     /// <summary>Root of a C/C++ project with a host function table (generate_cpp_binding style=hostapi detection).</summary>
     public const string HostApiProjectDir = "NDM_HOSTAPI_PROJECT_DIR";
+    /// <summary>A real Android package (.apk, .aab or split set).</summary>
+    public const string AndroidPackage = "NDM_ANDROID_PACKAGE";
 
     public static string? Get(string variable) => Environment.GetEnvironmentVariable(variable) is { Length: > 0 } v ? v : null;
 
