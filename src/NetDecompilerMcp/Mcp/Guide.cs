@@ -97,6 +97,9 @@ public static class Guide
             Notes: record_note anchors a finding, question, hypothesis or todo to '<image>@<address>', '<assembly>:<symbol>', a file or
             a dump; notes persist per user by file SHA-256 / module MVID. update_note changes one in part (expectedRevision; a conflict
             returns the current note); list_notes filters by status, kind, anchor, tag and text.
+            Sessions: save_session writes the loaded files (path, SHA-256), edits, patches, names, comments and notes to one JSON file;
+            load_session restores it (dryRun first), finding moved files by SHA-256 under searchRoots; targetBuild=other carries the
+            work to the build now at the recorded path.
             """,
         ["builds"] = """
             New builds: load both (the second gets an id like app.dll#2).

@@ -68,7 +68,7 @@ From source instead: `./publish.ps1`, then `publish/NetDecompilerMcp install`.
 
 ## What it covers
 
-**MCP features:** 116 tools (each with a title and read-only / destructive / idempotent / open-world annotations from one audited table, `src/NetDecompilerMcp/Mcp/ToolEffects.cs`),
+**MCP features:** 118 tools (each with a title and read-only / destructive / idempotent / open-world annotations from one audited table, `src/NetDecompilerMcp/Mcp/ToolEffects.cs`),
 resources and resource templates (subscribers get an update notice after each workspace change), 11 prompts, argument completion, progress notifications, structured output for the list,
 search and info tools, typed errors (`Error (<code>) in <tool>: ...` with a `Next:` step and a JSON copy; codes and format in [docs/errors.md](docs/errors.md)), strict arguments
 (an undeclared parameter is `invalid_argument` naming the closest declared ones; closed value sets such as `engine`, `kind`
@@ -78,7 +78,7 @@ server instructions (a core under 2,048 characters; the details in the `guide` p
 
 | Area | Tools |
 |---|---|
-| Workspace | `load_assembly` (a file or a whole folder, with progress; an Il2Cpp game folder or `global-metadata.dat` goes through the built-in metadata reader: see [Il2Cpp navigation](#il2cpp-navigation)) · `list_assemblies` (ids, versions, ReadyToRun / merged labels, unsaved edits; with `path`, the assemblies inside a container file) · `unload_assembly` · `reload_assembly` · `add_search_directory` · `get_assembly_info` (identity with MVID and file SHA-256, TFM, references and how each resolves, PE headers, metadata streams, table row counts and heap sizes, every row with a bad table, coded or heap index (reason and file offset), Il2Cpp detection, method bodies that are not valid IL and exception clauses off instruction boundaries or out of range) |
+| Workspace | `save_session` / `load_session` (the session's files by path and SHA-256 with their unsaved .NET edits, native patches, user names and comments, and notes in one JSON file; restored by SHA-256 with a per-item outcome and reason, here, on another machine, or carried to another build with `targetBuild=other`; `dryRun` by default) · `load_assembly` (a file or a whole folder, with progress; an Il2Cpp game folder or `global-metadata.dat` goes through the built-in metadata reader: see [Il2Cpp navigation](#il2cpp-navigation)) · `list_assemblies` (ids, versions, ReadyToRun / merged labels, unsaved edits; with `path`, the assemblies inside a container file) · `unload_assembly` · `reload_assembly` · `add_search_directory` · `get_assembly_info` (identity with MVID and file SHA-256, TFM, references and how each resolves, PE headers, metadata streams, table row counts and heap sizes, every row with a bad table, coded or heap index (reason and file offset), Il2Cpp detection, method bodies that are not valid IL and exception clauses off instruction boundaries or out of range) |
 | Browse | `list_namespaces` · `list_types` · `get_type_info` (outline with tokens, constants, hex enum values, IL sizes, Il2Cpp RVAs and offsets) · `get_type_hierarchy` · `get_attributes` (type, member, parameter, return value, assembly or module) · `resolve_symbol` |
 | Decompile | `decompile_type` · `decompile_member` (overloads, async, iterators and lambdas folded back; `simplified=true` shows the code after `simplify_methods` without editing; `provenance=true` heads it with token, IL hashes, file SHA-256 and MVID) · `get_il` (tokens, offsets, structured EH, a normalized IL hash and the raw IL SHA-256 per method: [docs/il-hash.md](docs/il-hash.md)) · `decompile_assembly_attributes` · `export_project` (whole assembly → .csproj that builds: see [Exported projects](#exported-projects); reports progress and failed types) |
 | Search | `search_symbols` (substring, wildcard or regex) · `search_strings` (paged; for Il2Cpp dummy DLLs, whose bodies are empty, the literals of the dump: see [Il2Cpp string literals](#il2cpp-string-literals)) · `search_constants` (IL literals, const and enum values, attribute arguments, and static array data such as S-boxes, CRC and crypto tables, read element by element as the array's own type) · `search_il` (instruction-sequence patterns with wildcards and gaps) |
@@ -130,7 +130,7 @@ only `decompile_native` needs an external engine (IDA through idalib). Reliabili
 
 | | dnspy-mcp | NetDecompilerMcp |
 |---|---|---|
-| Runs without dnSpy / GUI | headless mode only (36 tools) | always (116 tools) |
+| Runs without dnSpy / GUI | headless mode only (36 tools) | always (118 tools) |
 | Cross-references | methods and fields (`get_xrefs_to`) | methods (incl. virtual/interface dispatch), fields (read/write/address), properties, events, types in every position, overrides, hierarchy with derived types |
 | Search | types, methods, strings, `grep` | symbols (wildcard/regex, all member kinds), strings, numeric constants, IL instruction patterns |
 | Method patching | C# statements (`update_method_body`) | C# bodies with lambdas/async/LINQ (Roslyn, private access, ctor initializers preserved), new members and types, IL assembler (accepts edited `get_il` output, prepend hooks), constant stubs |

@@ -218,6 +218,8 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["record_note"] = (new() { ["text"] = "scores are capped", ["anchor"] = "TestFixture:Account::Score" }, "\"revision\":1"),
         ["update_note"] = (new() { ["id"] = "nzzzzzzzz", ["expectedRevision"] = 1 }, "Error (not_found) in update_note"),
         ["list_notes"] = (new() { ["anchor"] = "TestFixture" }, "scores are capped"),
+        ["save_session"] = (new() { ["path"] = dir.File("work.session.json") }, "\"notes\":1"),
+        ["load_session"] = (new() { ["path"] = dir.File("work.session.json") }, "\"outcome\":\"already_loaded\""),
         ["get_pe_info"] = (new() { ["image"] = NativeSample(dir) }, "seed.pdb"),
         ["get_nativeaot_info"] = (new() { ["image"] = NativeSample(dir) }, "Error (unsupported) in get_nativeaot_info"),
         ["list_imports"] = (new() { ["image"] = NativeSample(dir), ["bind"] = true }, "KERNEL32.dll!ExitProcess"),

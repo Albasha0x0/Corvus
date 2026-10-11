@@ -26,6 +26,7 @@ public static class ContractSweep
     {
         ["export_project"] = ["outputDirectory"],
         ["export_edits"] = ["path"],
+        ["save_session"] = ["path"],
         ["save_assembly"] = ["outputPath"],
         ["export_il2cpp_symbols"] = ["outputDirectory"],
         ["extract_embedded"] = ["outputDirectory"],

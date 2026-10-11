@@ -64,6 +64,7 @@ public static class ServerHost
             .AddSingleton<MinidumpService>()
             .AddSingleton<NotesService>()
             .AddSingleton<EditJournal>()
+            .AddSingleton<SessionService>()
             .AddSingleton<LiveProcessService>()
             .AddSingleton<ResourceSubscriptions>();
 

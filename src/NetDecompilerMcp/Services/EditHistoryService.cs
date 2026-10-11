@@ -98,9 +98,13 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
     /// build, symbols are resolved by name. With stopOnError, a failure rolls the assembly back to its state before the script.
     /// A script bound to a build (SHA-256) is refused on any other file unless <paramref name="target"/> is Other.
     /// </summary>
-    public string Apply(string path, string? assembly, bool dryRun, bool stopOnError, CancellationToken ct, TargetBuild target = TargetBuild.Same)
+    public string Apply(string path, string? assembly, bool dryRun, bool stopOnError, CancellationToken ct, TargetBuild target = TargetBuild.Same) =>
+        Apply(ReadScript(path), Path.GetFileName(path), assembly, dryRun, stopOnError, ct, target).Report;
+
+    /// <summary><see cref="Apply(string, string?, bool, bool, CancellationToken, TargetBuild)"/> of a script read elsewhere (<paramref name="name"/> labels it).</summary>
+    public (string Report, int Applied, int Failed) Apply(Script script, string name, string? assembly, bool dryRun, bool stopOnError, CancellationToken ct,
+        TargetBuild target = TargetBuild.Same)
     {
-        var script = ReadScript(path);
         var asm = workspace.Get(assembly ?? script.Assembly);
         var original = asm.GetOriginalView(workspace.DnlibContext).Module;
         bool sameImage = script.Mvid != null && script.Mvid == original.Mvid?.ToString();
@@ -118,7 +122,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
                               $"{asm.Id} is sha256 {asm.OriginalSha256}, MVID {actualMvid}, {actualIdentity}" +
                               (sameImage ? " (same MVID: the file was changed after compiling, e.g. saved with edits or re-signed)" : "");
             if (target == TargetBuild.Same)
-                throw new ToolError(ErrorCode.Conflict, $"The edit script {Path.GetFileName(path)} belongs to another build: {mismatch}.",
+                throw new ToolError(ErrorCode.Conflict, $"The edit script {name} belongs to another build: {mismatch}.",
                     "load the build the script was made from (matching sha256), or pass targetBuild=other to carry the edits to this build deliberately " +
                     "(symbols re-resolved by name; load the source build too so renamed targets are followed); try it with dryRun=true first");
             buildCheck = $"different build, carried over (targetBuild=other): {mismatch}";
@@ -158,7 +162,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
                 remapped.Add($"{old.Label} -> {Format.MemberLabel(match)} ({how})");
                 return new ResolvedSymbol(asm, match);
             };
-        var sb = new StringBuilder($"{(dryRun ? "Dry run of" : "Applying")} {records.Count} edit(s) from {Path.GetFileName(path)} to {asm.Id}" +
+        var sb = new StringBuilder($"{(dryRun ? "Dry run of" : "Applying")} {records.Count} edit(s) from {name} to {asm.Id}" +
                                    $" ({(sameImage ? "same build: using recorded tokens" : originalBuild != null
                                        ? $"different build: resolving symbols by name, renamed ones through {originalBuild.Id} (the build the script was made from)"
                                        : "different build: resolving symbols by name")}):\n" +
@@ -192,7 +196,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
                     {
                         edits.Rebuild(asm, before, ct);
                         sb.AppendLine($"Stopped; {asm.Id} was rolled back to its state before the script. Fix the edit (or pass stopOnError=false to skip failures).");
-                        return sb.ToString();
+                        return (sb.ToString(), 0, failed);
                     }
                 }
             }
@@ -209,7 +213,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
         if (!sameImage)
             sb.AppendLine($"Cross-build: {ok} edit(s) resolved by name, {allRemapped.Count} target(s) followed to a renamed counterpart" +
                           (originalBuild == null ? " (the source build is not loaded, so renamed targets could not be followed)." : "."));
-        return sb.ToString();
+        return (sb.ToString(), ok, failed);
     }
 
     private static string Short(string sha256) => sha256.Length > 16 ? sha256[..16] + "…" : sha256;

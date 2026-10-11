@@ -46,6 +46,8 @@ public static class ToolEffects
         ["list_assemblies"] = Reads(),
         ["server_status"] = Reads(openWorld: true), // probes the Python idalib uses (a process launch, once per server)
         ["read_result"] = Reads(),
+        ["save_session"] = Changes(destructive: true, idempotent: true), // overwrite=true replaces the file at path
+        ["load_session"] = Changes(destructive: true, idempotent: false, longRunning: true), // loads files and applies edits, patches and names; dryRun by default
 
         // .NET browse, decompile, search, navigate
         ["list_namespaces"] = Reads(),

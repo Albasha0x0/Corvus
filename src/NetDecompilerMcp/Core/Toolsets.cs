@@ -16,7 +16,8 @@ public static class Toolsets
     public static readonly IReadOnlyList<Family> Families =
     [
         new(Session, true, "workspace and server state",
-            ["load_assembly", "unload_assembly", "reload_assembly", "add_search_directory", "list_assemblies", "server_status", "read_result"]),
+            ["load_assembly", "unload_assembly", "reload_assembly", "add_search_directory", "list_assemblies", "server_status", "read_result",
+             "save_session", "load_session"]),
         new("dotnet", true, ".NET browse, decompile, search, navigate, resources, ReadyToRun, project export",
             ["list_namespaces", "list_types", "get_type_info", "get_assembly_info", "get_attributes", "get_type_hierarchy", "resolve_symbol",
              "decompile_type", "decompile_member", "decompile_assembly_attributes", "get_il", "search_symbols", "search_strings", "search_constants",
