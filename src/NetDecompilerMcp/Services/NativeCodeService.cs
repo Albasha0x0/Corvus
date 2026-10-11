@@ -73,7 +73,7 @@ public sealed class NativeCodeService
     }
 
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<LoadedNative, object> RestoreDone = new();
-    private static readonly NativeNameSource[] SavedSources = [NativeNameSource.Pdb, NativeNameSource.Il2Cpp];
+    private static readonly NativeNameSource[] SavedSources = [NativeNameSource.Pdb, NativeNameSource.Il2Cpp, NativeNameSource.NativeAot];
     private int _layersRestored, _namesRestored, _layersSaved;
     private string? _lastSaveProblem;
 
@@ -85,7 +85,7 @@ public sealed class NativeCodeService
         (Volatile.Read(ref _layersRestored), Volatile.Read(ref _namesRestored), Volatile.Read(ref _layersSaved), Volatile.Read(ref _lastSaveProblem));
 
     /// <summary>
-    /// Once per loaded image: reads the saved imported layers (PDB, Il2Cpp names) back into <see cref="NativeNameLayers"/>,
+    /// Once per loaded image: reads the saved imported layers (PDB, Il2Cpp, NativeAOT names) back into <see cref="NativeNameLayers"/>,
     /// except a source already imported in this session. Runs before the first index build so restored PDB function starts
     /// take part in discovery; tools that report layers call it too. Cheap after the first call.
     /// </summary>
@@ -188,6 +188,11 @@ public sealed class NativeCodeService
         }
         // A saved PDB layer whose PDB is gone still contributes its function starts.
         if (starts == null && NativeNameLayers.OfOrNull(native)?.Get(NativeNameSource.Pdb)?.Info?.FunctionStarts is { Count: > 0 } saved) starts = saved;
+        try
+        {
+            if (NativeAotNames.AutoApply(native, this, ct) is { Count: > 0 } aot) starts = [.. starts ?? [], .. aot];
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException) { _logger?.LogWarning(ex, "Naming the NativeAOT image {Id} failed", native.Id); }
         // The native bodies of a mixed-mode assembly's methods are function starts.
         if (native.ManagedView is { } asm)
             starts = [.. starts ?? [], .. Native.Linking.MixedModeMap.Build(asm.Module, ct).Bodies.Values.Distinct()];

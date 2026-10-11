@@ -218,7 +218,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         var ann = native.AnnotationsOrNull ?? code.Annotations(native);
         var layers = NativeNameLayers.OfOrNull(native)?.Layers ?? [];
         if (ann.NameCount == 0 && ann.CommentCount == 0 && layers.Count == 0) return;
-        sb.AppendLine("Names (priority user > pdb > il2cpp > ida > discovered):");
+        sb.AppendLine("Names (priority user > pdb > nativeaot > il2cpp > ida > discovered):");
         if (ann.NameCount > 0 || ann.CommentCount > 0)
             sb.AppendLine($"  user: {ann.NameCount} name(s), {ann.CommentCount} comment(s), saved per file hash in {code.AnnotationRoot}");
         foreach (var l in layers)
@@ -229,7 +229,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
                 { } info => $"imported {info.ImportedUtc:yyyy-MM-dd HH:mm} UTC, saved for the next load",
                 null => l.Source == NativeNameSource.Pdb ? "found automatically, not saved (read again on load)" : "this session only",
             };
-            var source = l.Info is { SourcePath: { } path } i2 ? $"; source {path}{(i2.SourceIdentity is { } id ? $" ({(l.Source == NativeNameSource.Pdb ? "GUID age " : "sha256 ")}{id})" : "")}" : "";
+            var source = l.Info is { SourcePath: { } path } i2 ? $"; source {path}{(i2.SourceIdentity is { } id ? $" ({l.Source switch { NativeNameSource.Pdb => "GUID age ", NativeNameSource.NativeAot => "", _ => "sha256 " }}{id})" : "")}" : "";
             sb.AppendLine($"  {l.Source.Id()}: {l.Names.Count} name(s), {l.Comments.Count} comment(s) from {l.Origin}; {state}{source}");
         }
     }

@@ -47,7 +47,7 @@ public sealed class NativeNamePush(NativeCodeService code)
     {
         var result = new Dictionary<uint, Entry>();
         var pdb = withPdb ? null : layers.FirstOrDefault(l => l.Source == NativeNameSource.Pdb)?.Names;
-        foreach (var layer in layers.Where(l => l.Source != NativeNameSource.Ida && (withPdb || l.Source != NativeNameSource.Pdb)).OrderBy(l => l.Source))
+        foreach (var layer in layers.Where(l => l.Source != NativeNameSource.Ida && (withPdb || l.Source != NativeNameSource.Pdb)).OrderBy(l => l.Source.Rank()))
         {
             foreach (var (rva, name) in layer.Names)
                 if (pdb == null || !pdb.ContainsKey(rva))

@@ -29,6 +29,8 @@ public class NativeAotRealTests
 
     private static readonly Dictionary<string, NativeAotImage> Opened = [];
 
+    public static string PathOf(string name) => All.Single(x => x.ToString() == name).Path;
+
     private static (Sample, NativeAotImage) Open(string name)
     {
         var s = All.Single(x => x.ToString() == name);

@@ -235,7 +235,8 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
         return image;
     }
 
-    private static string Quote(string text)
+    /// <summary>The text as a quoted, escaped comment, clipped to 200 characters.</summary>
+    public static string Quote(string text)
     {
         var clipped = text.Length > MaxCommentText ? text[..MaxCommentText] : text;
         var sb = new StringBuilder("\"");
@@ -281,7 +282,7 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
         }
         else return lines;
         lines.Add($"managed side: find_method_by_address 0x{rva:X} (assembly {applied.Assemblies.Split(", ")[0]}) shows the method(s), get_il2cpp_info their metadata");
-        if (index?.Sourced.NameAt(rva) is { Source: > NativeNameSource.Il2Cpp } over)
+        if (index?.Sourced.NameAt(rva) is { } over && over.Source.Rank() > NativeNameSource.Il2Cpp.Rank())
             lines.Add($"(the {over.Source.Id()} name {over.Name} is in effect there)");
         return lines;
     }

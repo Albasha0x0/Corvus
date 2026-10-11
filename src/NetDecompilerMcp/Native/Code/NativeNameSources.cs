@@ -5,18 +5,34 @@ namespace NetDecompilerMcp.Native.Code;
 
 /// <summary>
 /// Where a name or comment at a native address comes from. At one address the highest source wins:
-/// user (rename_native / comment_native) &gt; pdb &gt; il2cpp &gt; ida (library functions IDA recognized by signature) &gt;
-/// discovered (exports, imports, sub_&lt;rva&gt;).
+/// user (rename_native / comment_native) &gt; pdb &gt; nativeaot &gt; il2cpp &gt; ida (library functions IDA recognized by signature) &gt;
+/// discovered (exports, imports, sub_&lt;rva&gt;). Values are stored in saved layers; priority is <see cref="NativeNameSources.Rank"/>.
 /// </summary>
-public enum NativeNameSource { Discovered = 0, Ida = 1, Il2Cpp = 2, Pdb = 3, User = 4 }
+public enum NativeNameSource { Discovered = 0, Ida = 1, Il2Cpp = 2, Pdb = 3, User = 4, NativeAot = 5 }
 
 public static class NativeNameSources
 {
-    /// <summary>The source's identifier in tool output and sidecar files: user, pdb, il2cpp, ida, discovered.</summary>
+    /// <summary>Imported and user sources, highest priority first.</summary>
+    public static readonly IReadOnlyList<NativeNameSource> ByPriority =
+        [NativeNameSource.User, NativeNameSource.Pdb, NativeNameSource.NativeAot, NativeNameSource.Il2Cpp, NativeNameSource.Ida];
+
+    /// <summary>Priority of a source at one address: higher wins.</summary>
+    public static int Rank(this NativeNameSource source) => source switch
+    {
+        NativeNameSource.User => 5,
+        NativeNameSource.Pdb => 4,
+        NativeNameSource.NativeAot => 3,
+        NativeNameSource.Il2Cpp => 2,
+        NativeNameSource.Ida => 1,
+        _ => 0,
+    };
+
+    /// <summary>The source's identifier in tool output and sidecar files: user, pdb, nativeaot, il2cpp, ida, discovered.</summary>
     public static string Id(this NativeNameSource source) => source switch
     {
         NativeNameSource.User => "user",
         NativeNameSource.Pdb => "pdb",
+        NativeNameSource.NativeAot => "nativeaot",
         NativeNameSource.Il2Cpp => "il2cpp",
         NativeNameSource.Ida => "ida",
         _ => "discovered",
@@ -27,6 +43,7 @@ public static class NativeNameSources
         "user" => NativeNameSource.User,
         "pdb" => NativeNameSource.Pdb,
         "il2cpp" => NativeNameSource.Il2Cpp,
+        "nativeaot" => NativeNameSource.NativeAot,
         _ => null,
     };
 }
@@ -38,7 +55,8 @@ public static class NativeNameSources
 /// </summary>
 public sealed class SourcedNames
 {
-    private const int Sources = (int)NativeNameSource.User + 1;
+    private const int Sources = (int)NativeNameSource.NativeAot + 1;
+    private static readonly NativeNameSource[] Priority = [.. NativeNameSources.ByPriority];
     private readonly object _gate = new();
     private readonly Dictionary<uint, string>[] _names = Enumerable.Range(0, Sources).Select(_ => new Dictionary<uint, string>()).ToArray();
     private readonly Dictionary<uint, string>[] _comments = Enumerable.Range(0, Sources).Select(_ => new Dictionary<uint, string>()).ToArray();
@@ -120,8 +138,8 @@ public sealed class SourcedNames
     {
         lock (_gate)
         {
-            for (int s = Sources - 1; s > 0; s--)
-                if (_comments[s].TryGetValue(rva, out var c)) return (c, (NativeNameSource)s);
+            foreach (var s in Priority)
+                if (_comments[(int)s].TryGetValue(rva, out var c)) return (c, s);
             return null;
         }
     }
@@ -144,8 +162,8 @@ public sealed class SourcedNames
 
     private (string Name, NativeNameSource Source)? NameCore(uint rva)
     {
-        for (int s = Sources - 1; s > 0; s--)
-            if (_names[s].TryGetValue(rva, out var n)) return (n, (NativeNameSource)s);
+        foreach (var s in Priority)
+            if (_names[(int)s].TryGetValue(rva, out var n)) return (n, s);
         return null;
     }
 
@@ -191,7 +209,7 @@ public sealed record ImportInfo(string? SourcePath, string? SourceIdentity, Date
 /// <summary>
 /// The imported (non-user) names and comments of a loaded image, one layer per source, each replaced or removed as a
 /// whole. Kept per <see cref="LoadedNative"/> so they survive in-memory patching (which rebuilds the code index) and
-/// replayed onto every newly built index. Layers with <see cref="ImportInfo"/> (load_pdb, apply_il2cpp_names) are also
+/// replayed onto every newly built index. Layers with <see cref="ImportInfo"/> (load_pdb, apply_il2cpp_names, NativeAOT) are also
 /// saved beside the image's annotations and restored when the image is loaded again.
 /// </summary>
 public sealed class NativeNameLayers
@@ -216,7 +234,7 @@ public sealed class NativeNameLayers
 
     public IReadOnlyList<Layer> Layers
     {
-        get { lock (_gate) return _layers.Values.OrderByDescending(l => l.Source).ToList(); }
+        get { lock (_gate) return _layers.Values.OrderByDescending(l => l.Source.Rank()).ToList(); }
     }
 
     /// <summary>Replaces the layer of <paramref name="layer"/>'s source and applies it to <paramref name="index"/> when given.</summary>

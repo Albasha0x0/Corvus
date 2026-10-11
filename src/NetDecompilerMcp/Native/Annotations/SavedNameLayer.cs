@@ -50,7 +50,7 @@ public static class SavedNameLayer
             if (!string.Equals(r.ReadString(), sha256, StringComparison.OrdinalIgnoreCase)) return null;
             r.ReadString(); // image path
             int source = r.ReadInt32();
-            if (source is not ((int)NativeNameSource.Pdb or (int)NativeNameSource.Il2Cpp or (int)NativeNameSource.Ida)) return null;
+            if (source is not ((int)NativeNameSource.Pdb or (int)NativeNameSource.Il2Cpp or (int)NativeNameSource.Ida or (int)NativeNameSource.NativeAot)) return null;
             var origin = r.ReadString();
             var path = r.ReadString();
             var identity = r.ReadString();

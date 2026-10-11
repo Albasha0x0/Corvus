@@ -8,7 +8,7 @@ namespace NetDecompilerMcp.Tests;
 
 public class NativeAotTypeTests
 {
-    private const uint SpeakCode = B.TextRva + 0x10, ToStringCode = B.TextRva + 0x60, EqualsCode = B.TextRva + 0x70, HashCode = B.TextRva + 0x80;
+    internal const uint SpeakCode = B.TextRva + 0x10, ToStringCode = B.TextRva + 0x60, EqualsCode = B.TextRva + 0x70, HashCode = B.TextRva + 0x80;
     private const uint KindCanonical = 0, KindGenericDefinition = 3;
     private const uint IsGeneric = 0x02000000, IsGeneric7 = 0x400;
 
@@ -50,13 +50,13 @@ public class NativeAotTypeTests
         return at;
     }
 
-    private sealed record World(NativeAotImage Aot, uint Object, uint Speaker, uint Dog, uint DogArray, uint BoxDefinition, uint BoxOfDog, uint Frozen, uint LookAlike)
+    internal sealed record World(NativeAotImage Aot, uint Object, uint Speaker, uint Dog, uint DogArray, uint BoxDefinition, uint BoxOfDog, uint Frozen, uint LookAlike)
     {
         public uint Text { get; init; }
         public uint String { get; init; }
     }
 
-    private static World Build(ushort major)
+    internal static World Build(ushort major)
     {
         var m = NativeAotMetadataTests.Model(major);
         var md = new NativeAotMetadata(m.Blob, m.Format);

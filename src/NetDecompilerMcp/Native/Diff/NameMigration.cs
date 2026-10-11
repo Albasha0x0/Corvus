@@ -35,7 +35,7 @@ public static class NameMigration
         var plannedComments = new Dictionary<uint, MigrationSource>();
 
         // user items first so they win over imported names landing on the same address
-        foreach (var item in items.OrderByDescending(i => i.Source).ThenBy(i => i.OldRva))
+        foreach (var item in items.OrderByDescending(i => i.Source.Rank()).ThenBy(i => i.OldRva))
         {
             ct.ThrowIfCancellationRequested();
             var mapped = mapper.Map(item.OldRva, ct);
@@ -73,7 +73,7 @@ public static class NameMigration
             if (newIndex.Sourced.NameAt(at) is { } inEffect && item.Source != NativeNameSource.User)
             {
                 if (inEffect.Name == item.Value || inEffect.Name == value) { steps.Add(Skip("same_name", $"the new build's {inEffect.Source.Id()} layer has this name", value)); continue; }
-                if (inEffect.Source >= item.Source) { steps.Add(Skip("new_has_own_name", $"the new build's {inEffect.Source.Id()} layer names it '{inEffect.Name}'", value)); continue; }
+                if (inEffect.Source.Rank() >= item.Source.Rank()) { steps.Add(Skip("new_has_own_name", $"the new build's {inEffect.Source.Id()} layer names it '{inEffect.Name}'", value)); continue; }
             }
             if (usedNames.TryGetValue(value, out var other) && other != at) { steps.Add(Skip("name_in_use", $"'{value}' is a user name at rva 0x{other:X} in the new build", value)); continue; }
             if (plannedNames.TryGetValue(at, out var earlier)) { steps.Add(Skip("duplicate_target", $"the name from rva 0x{earlier.OldRva:X} already lands there", value)); continue; }
