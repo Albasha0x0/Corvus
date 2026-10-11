@@ -1,5 +1,7 @@
 using Iced.Intel;
+using System.Buffers.Binary;
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Native;
 using NetDecompilerMcp.Mcp;
 using NetDecompilerMcp.Native.Annotations;
 using NetDecompilerMcp.Services;
@@ -209,6 +211,111 @@ public sealed class FunctionDossierTests : IDisposable
         Assert.Same(first.Value, second.Value);
         var capped = await tools.AnalyzeNativeFunction(path, "Helper", sections: "callees,data", maxItems: 1);
         Assert.DoesNotContain("; first", capped.Split("== data")[0]); // one call: under the cap
+    }
+
+    /// <summary>
+    /// stack.dll: Main (entry) starts a thread on Worker (only its address is taken), then calls Five(0, 0, 0, 0, 5); Five returns
+    /// its fifth argument, read from [rsp+28h] at entry.
+    /// </summary>
+    private (string Path, NativeFunctionTools Tools, AssemblyWorkspace Workspace, uint Worker) Stack()
+    {
+        Dictionary<string, uint>? at = null;
+        byte[] Code(Dictionary<string, uint> slots)
+        {
+            var a = new Assembler(64);
+            Label five = a.CreateLabel(), worker = a.CreateLabel(), main = a.CreateLabel();
+            a.Label(ref main);
+            a.sub(rsp, 0x48);
+            a.xor(ecx, ecx);
+            a.xor(edx, edx);
+            a.lea(r8, __[worker]);
+            a.xor(r9d, r9d);
+            a.mov(__qword_ptr[rsp + 0x20], 0);
+            a.mov(__qword_ptr[rsp + 0x28], 0);
+            a.AddInstruction(Instruction.Create(Iced.Intel.Code.Call_rm64, new MemoryOperand(Register.RIP, (long)(Base + slots["KERNEL32.dll!CreateThread"]), 8)));
+            a.mov(__dword_ptr[rsp + 0x20], 5);
+            a.call(five);
+            a.add(rsp, 0x48);
+            a.ret();
+            for (int i = 0; i < 4; i++) a.int3();
+            a.Label(ref five);
+            a.mov(eax, __dword_ptr[rsp + 0x28]);
+            a.ret();
+            for (int i = 0; i < 4; i++) a.int3();
+            a.Label(ref worker);
+            a.xor(eax, eax);
+            a.ret();
+            var stream = new MemoryStream();
+            var r = a.Assemble(new StreamCodeWriter(stream), Base + LinkedImages.Text, BlockEncoderOptions.ReturnNewInstructionOffsets);
+            at = new() { ["Main"] = (uint)(r.GetLabelRIP(main) - Base), ["Five"] = (uint)(r.GetLabelRIP(five) - Base), ["Worker"] = (uint)(r.GetLabelRIP(worker) - Base) };
+            return stream.ToArray();
+        }
+        (string, string[])[] imports = [("KERNEL32.dll", ["CreateThread"])];
+        LinkedImages.Build("stack.dll", [], imports, Code);
+        var path = _dir.File("stack.dll");
+        File.WriteAllBytes(path, LinkedImages.Build("stack.dll", [("Main", (int)(at!["Main"] - LinkedImages.Text)), ("Five", (int)(at["Five"] - LinkedImages.Text))], imports, Code));
+        var options = new ServerOptions { BackgroundIndexing = false };
+        var ws = new AssemblyWorkspace(options);
+        var native = ws.LoadAny(path).Native!;
+        var code = new NativeCodeService(ws, options, null, new AnnotationStore(_dir.File("ann")));
+        code.Annotations(native).ChangeUserTypes(l => l.WithType(at["Five"], "int Five(int a, int b, int c, int d, int e)"));
+        return (path, new NativeFunctionTools(ws, code, new OutputPager(options)), ws, at["Worker"]);
+    }
+
+    [Fact]
+    public async Task Stack_parameters_callbacks_and_the_users_prototype()
+    {
+        var (path, tools, ws, workerRva) = Stack();
+        using var _ = ws;
+        var five = await tools.AnalyzeNativeFunction(path, "Five", sections: "identity,signature,callers,params");
+        NativeLinkTests.Has(five, "prototype (user): int Five(int a, int b, int c, int d, int e)");
+        NativeLinkTests.Has(five, "parameters read at entry: 5 ([rsp+28h]): at least 5 arguments");
+        NativeLinkTests.Has(five, "parameter 5 ([rsp+28h]): 5");
+        var worker = await tools.AnalyzeNativeFunction(path, $"rva:0x{workerRva:X}", sections: "callers");
+        NativeLinkTests.Has(worker, "reachable only through its address: a callback or a stored pointer (passed to CreateThread as lpStartAddress at 0x");
+    }
+
+    [Fact]
+    public async Task The_pdb_prototype_is_part_of_the_identity()
+    {
+        var options = new ServerOptions { BackgroundIndexing = false };
+        using var ws = new AssemblyWorkspace(options);
+        var code = new NativeCodeService(ws, options, null, new AnnotationStore(_dir.File("ann")));
+        _ = new PdbService(code);
+        var tools = new NativeFunctionTools(ws, code, new OutputPager(options));
+        var text = await tools.AnalyzeNativeFunction(PdbTypeFixture.Image(_dir), "rva:0x1040", sections: "identity");
+        NativeLinkTests.Has(text, "prototype (pdb): int __cdecl helper(Player *, int)");
+    }
+
+    [Fact]
+    public void Unwind_data_gives_the_frame()
+    {
+        // x64: push rbx (offset 1), sub rsp, 28h (offset 8)
+        var data = new byte[0x40];
+        new byte[] { 0x01, 0x08, 0x02, 0x00, 0x08, 0x42, 0x01, 0x30 }.CopyTo(data, 0);
+        var x64 = CodeTestImage.Synthetic(NativeArch.X64, new byte[0x40], data, pdata: [new RuntimeFunction(0x1000, 0x1040, CodeTestImage.SyntheticDataRva)]);
+        var u = NetDecompilerMcp.Native.Calls.UnwindFrames.Of(x64, 0x1010)!;
+        Assert.Equal(("x64 UNWIND_INFO", 0x28L, 8, "rbx"), (u.Format, u.Allocation, u.PrologBytes, string.Join(",", u.Saved)));
+
+        // ARM64 .xdata: one code word, set_fp then save_fplr_x (stp fp, lr, [sp, #-16]!), end
+        var xdata = new byte[0x40];
+        BinaryPrimitives.WriteUInt32LittleEndian(xdata, 0x10u | 1u << 21 | 1u << 27);
+        new byte[] { 0xE1, 0x81, 0xE4, 0xE3 }.CopyTo(xdata, 4);
+        var arm = CodeTestImage.Synthetic(NativeArch.Arm64, new byte[0x40], xdata, pdata: [new RuntimeFunction(0x1000, 0x1040, CodeTestImage.SyntheticDataRva)]);
+        var a = NetDecompilerMcp.Native.Calls.UnwindFrames.Of(arm, 0x1004)!;
+        Assert.Equal(("ARM64 xdata", 16L, "fp, lr", "x29 = sp"), (a.Format, a.Allocation, string.Join(",", a.Saved), a.FramePointer));
+
+        // ARM64 packed: x19-x20 saved, chained frame record, 32-byte frame
+        var b = new PeBuilder { Machine = 0xAA64, ImageBase = 0x140000000 };
+        var text = b.Add(".text", Enumerable.Repeat(new byte[] { 0x1F, 0x20, 0x03, 0xD5 }, 4).SelectMany(x => x).ToArray(), 0x60000020);
+        uint packed = 1u | 4u << 2 | 2u << 16 | 3u << 21 | 2u << 23;
+        var pdata = b.Add(".pdata", [.. BitConverter.GetBytes(text.Rva), .. BitConverter.GetBytes(packed)]);
+        b.Directories[NetDecompilerMcp.Native.Pe.PeDirectory.Exception] = (pdata.Rva, 8);
+        var file = _dir.File("packed.dll");
+        File.WriteAllBytes(file, b.Build());
+        var p = NetDecompilerMcp.Native.Calls.UnwindFrames.Of(NetDecompilerMcp.Native.Pe.PeFile.Open(file), text.Rva + 4)!;
+        Assert.Equal(("ARM64 packed", 32L, "x19-x20,fp, lr"), (p.Format, p.Allocation, string.Join(",", p.Saved)));
+        Assert.NotNull(p.FramePointer);
     }
 
     [Fact]

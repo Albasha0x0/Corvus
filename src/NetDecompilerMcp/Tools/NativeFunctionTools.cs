@@ -66,12 +66,12 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
 
     [McpServerTool(Name = "analyze_native_function", Title = "Native function dossier", UseStructuredContent = true, OutputSchemaType = typeof(FunctionDossier))]
     [Description("Everything known about one native function, in sections bounded by maxItems with totals: identity (name and source, ranges, " +
-                 "flags, demangled and Il2Cpp names, vftable slots, an open engine's function record), signature evidence (ret n, argument registers read before written, this class, " +
-                 "result use), frame (stack, saved registers, frame pointer, address-taken locals, EH), callers (edge kinds, importers in other " +
-                 "images, roots), callees (targets, basis, arguments; unresolved with the reason), data (strings, globals read and written, import " +
-                 "slots), flow (blocks, loops, switches, cyclomatic complexity, unresolved jumps, noreturn and tail calls), annotations. Optional: " +
-                 "constants, params (values callers pass) and pseudocode (IDA or Ghidra). Several addresses: a dossier each, or with component=true " +
-                 "a component view (sections only when asked). A failing section reports its error.")]
+                 "flags, demangled and Il2Cpp names, PDB and user prototypes, vftable slots, an open engine's record), signature (ret n, parameters read " +
+                 "at entry in registers and on the stack, this class, result use), frame (unwind data, stack, saved registers, frame pointer, address-taken " +
+                 "locals, EH), callers (edge kinds, importers in other images, roots, callback-only reachability), callees (targets, basis, arguments; " +
+                 "unresolved with the reason), data (strings, globals read and written, import slots), flow (blocks, loops, switches, complexity, " +
+                 "unresolved jumps, noreturn and tail calls), annotations. Optional: constants, params (values callers pass) and pseudocode (IDA or " +
+                 "Ghidra). Several addresses: a dossier each, or with component=true a component view. A failing section reports its error.")]
     public Task<string> AnalyzeNativeFunction(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("An address inside the function, or up to 16 comma-separated. " + NativeTools.AddressDescription)] string address,
@@ -298,6 +298,8 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             foreach (var line in Il2CppNativeNames.Describe(native, index, f.Start)) x.Add(null, line, "il2cpp");
             foreach (var slot in slots)
                 x.Add(Va(slot.Vtable.VftableRva), $"slot {slot.Slot} of {slot.Class.Name}'s vftable at {Va(slot.Vtable.VftableRva)} (subobject +0x{slot.Vtable.Offset:X})", "vftable_slot");
+            if (PdbService.StateOf(native)?.Pdb is { } pdb && PdbPrototype(pdb, image, f.Start) is { } proto) x.Add(Va(f.Start), $"prototype (pdb): {proto}", "prototype");
+            if (code.Annotations(native).UserTypes.Types.GetValueOrDefault(f.Start) is { } user) x.Add(Va(f.Start), $"prototype (user): {user}", "prototype");
             if (index.Sourced.CommentAt(f.Start) is { } c) x.Add(Va(f.Start), $"comment ({c.Source.Id()}): {c.Text}", "comment");
             if (record is { } engineRecord)
                 foreach (var line in NativeEngineCode.RecordLines(engineRecord.Value, Va)) x.Add(null, $"{engineRecord.Engine}: {line}", "engine");
@@ -305,7 +307,15 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
 
         void Signature(Section x)
         {
-            if (calls == null) { x.Error = $"signature evidence is read from x86 / x64 code; {image.Arch} is not analyzed here"; return; }
+            var incoming = IncomingParameters(index, f, ct);
+            if (incoming.Count > 0)
+                x.Add(null, $"parameters read at entry: {string.Join(", ", incoming.Select(p => $"{p.Index + 1} ({p.Location})"))}: at least {incoming.Max(p => p.Index) + 1} arguments",
+                    "parameters");
+            if (calls == null)
+            {
+                if (!Arm64Trace.Supports(index)) x.Error = $"signature evidence is read from x86 / x64 / ARM64 code; {image.Arch} is not analyzed here";
+                return;
+            }
             var fc = calls.Code(f, ct);
             var rets = fc.Blocks.SelectMany(b => b).Where(d => d.I.Mnemonic == Mnemonic.Ret).Select(d => d.I.OpCount > 0 ? (int)d.I.Immediate16 : 0).Distinct().ToList();
             if (!calls.Is64 && rets.Count > 0)
@@ -325,7 +335,28 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
 
         void Frame(Section x)
         {
-            if (calls == null) { x.Error = $"the frame is read from x86 / x64 code; {image.Arch} is not analyzed here"; return; }
+            if (UnwindFrames.Of(image, f.Start) is { } u)
+            {
+                x.Add(Va(u.Begin), $"unwind data ({u.Format}, {Va(u.Begin)}-{Va(u.End)}): allocates 0x{u.Allocation:X} bytes" +
+                                   (u.PrologBytes > 0 ? $", prolog {u.PrologBytes} bytes" : ""), "unwind");
+                if (u.Saved.Count > 0) x.Add(null, "unwind data saves: " + string.Join(", ", u.Saved), "saved");
+                if (u.FramePointer != null) x.Add(null, $"unwind data frame pointer: {u.FramePointer}", "frame_pointer");
+                foreach (var note in u.Notes) x.Add(null, "unwind data: " + note, "unwind");
+            }
+            if (calls == null)
+            {
+                if (Arm64Trace.Supports(index))
+                {
+                    var code = Arm64Trace.For(index).Code(f, ct);
+                    foreach (var g in code.Blocks.SelectMany(b => b).Where(s => s.I.Mnemonic is AsmArm64.Arm64Mnemonic.ADD or AsmArm64.Arm64Mnemonic.SUB && s.I.OperandCount > 2
+                                 && s.I.GetOperand(1) is { Kind: AsmArm64.Arm64OperandKind.Register } r && ((AsmArm64.Arm64RegisterOperand)r).Value.Kind == AsmArm64.Arm64RegisterKind.SP
+                                 && A64Function.Gpr(s.I, 0) is >= 0 and < 29 && s.Sp is not null && A64Function.Imm(s.I, 2) is not null)
+                                 .GroupBy(s => s.Sp!.Value + (s.I.Mnemonic == AsmArm64.Arm64Mnemonic.SUB ? -1 : 1) * (int)A64Function.Imm(s.I, 2)!.Value))
+                        x.Add(Va(g.First().Rva), $"address taken: local {A64Function.Name(A64Loc.Slot(g.Key), null)} from entry sp ({Plural(g.Count(), "site")})", "taken_local");
+                }
+                else if (x.Total == 0) x.Error = $"the frame is read from x86 / x64 / ARM64 code or unwind data; {image.Arch} is not analyzed here";
+                return;
+            }
             var fc = calls.Code(f, ct);
             var entry = fc.Blocks.Length > 0 ? fc.Blocks[Math.Max(0, fc.BlockIndexOf(f.Start))] : [];
             var pushed = new List<string>();
@@ -362,12 +393,43 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             foreach (var c in index.Callers(f))
                 x.Add(Va(c.From), $"{c.Kind switch { XrefKind.TailCall => "tail call", XrefKind.VirtualExact => "virtual call (exact)", XrefKind.VirtualPossible => "virtual call (possible)", _ => "call" }} " +
                                   $"from {Where(c.From)}", "caller");
+            int importers = 0;
             if (link != null)
                 foreach (var (importer, imp) in link.ImportersOf(native, f.Start, ct))
                     if (code.Ready(importer) is { } other)
                         foreach (var c in other.Callers(imp))
+                        {
+                            importers++;
                             x.Add(NativeAddress.Va(importer.Image, c.From), $"[{importer.Id}] calls it through {NativeCodeIndex.ImportName(imp)} from " +
                                                                            $"{(c.Caller is { } cf ? other.NameAt(cf.Start) ?? cf.Name : "(no function)")}", "importer");
+                        }
+            Reachability(x, importers);
+        }
+
+        // how control reaches the function: calls, or only its address (a callback passed to a call, a stored pointer)
+        void Reachability(Section x, int importers)
+        {
+            bool root = f.Start == image.EntryPointRva || image.Exports.Any(e => e.Rva == f.Start) || image.TlsCallbackRvas.Contains(f.Start);
+            int called = index.Callers(f).Count + importers;
+            var taken = index.RefsTo(f.Start).Where(r => r.Kind is XrefKind.Address or XrefKind.Pointer).ToList();
+            var uses = new List<string>();
+            var sites = NativeCallTools.Sites(index);
+            foreach (var r in taken.Take(16))
+            {
+                if (r.Kind == XrefKind.Pointer) { uses.Add($"pointer in data at {Va(r.From)}"); continue; }
+                var passed = index.FunctionAt(r.From) is { } user && sites != null
+                    ? sites.CallsIn(user, ct).Select(c => (Call: c, Argument: c.Arguments.FirstOrDefault(a => a.Rva == f.Start && a.Derivation.Contains(Va(r.From), StringComparison.OrdinalIgnoreCase))))
+                        .FirstOrDefault(c => c.Argument != null) : default;
+                uses.Add(passed.Call != null ? $"passed to {passed.Call.ShortCallee} as {passed.Argument!.Name ?? $"argument {passed.Argument.Index + 1}"} at {Va(passed.Call.Rva)}"
+                    : $"address taken at {Where(r.From)}");
+            }
+            if (taken.Count > uses.Count) uses.Add($"{taken.Count - uses.Count} more");
+            if (called == 0 && taken.Count > 0)
+                x.Add(Va(f.Start), $"reachable only through its address{(root ? " (and as an entry point or export)" : "")}: a callback or a stored pointer ({string.Join("; ", uses)})", "reachability");
+            else if (taken.Count > 0)
+                x.Add(Va(f.Start), $"called directly and also through its address ({string.Join("; ", uses)})", "reachability");
+            else if (called == 0 && !root)
+                x.Add(Va(f.Start), "no known callers or references: reached through a computed pointer, from another module, or unused", "reachability");
         }
 
         void Callees(Section x)
@@ -438,13 +500,16 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
 
         void Params(Section x)
         {
-            if (calls == null) { x.Error = $"values are traced in x86 / x64 code; {image.Arch} is not analyzed here"; return; }
-            var registers = ArgumentRegisters(calls.Code(f, ct), calls.Is64);
-            int count = calls.Is64 ? Math.Max(1, registers.Count) : 2;
-            for (int k = 0; k < Math.Min(4, count); k++)
+            var arm = Arm64Trace.Supports(index) ? Arm64Trace.For(index) : null;
+            if (calls == null && arm == null) { x.Error = $"values are traced in x86 / x64 / ARM64 code; {image.Arch} is not analyzed here"; return; }
+            var incoming = IncomingParameters(index, f, ct);
+            int count = Math.Clamp(incoming.Count > 0 ? incoming.Max(p => p.Index) + 1 : calls is { Is64: false } ? 2 : 1, 1, MaxParams);
+            for (int k = 0; k < count; k++)
             {
-                var seed = NativeTraceTools.Seed(calls, Va(f.Start), null, (k + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), ct);
-                var g = ValueTrace.Build(calls, seed, new ValueTraceOptions(TraceDirection.Backward, MaxDepth: 1, MaxFunctions: 16, MaxNodes: 200, MaxCallers: 16), ct: ct);
+                var position = (k + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                ITraceHost host = calls != null ? calls : arm!;
+                var seed = calls != null ? NativeTraceTools.Seed(calls, Va(f.Start), null, position, ct) : NativeTraceTools.Arm64Seed(arm!, Va(f.Start), null, position, ct);
+                var g = ValueTrace.Build(host, seed, new ValueTraceOptions(TraceDirection.Backward, MaxDepth: 1, MaxFunctions: 16, MaxNodes: 200, MaxCallers: 16), ct: ct);
                 x.Add(Va(f.Start), $"parameter {k + 1} ({seed.Location}): " + (g.Values.Count > 0 ? string.Join(", ", g.Values.Take(12).Select(v => v.Text)) +
                                    (g.Values.Count > 12 ? ", ..." : "") : "no constant values from callers") + (g.Frontier.Count > 0 ? $"; {Plural(g.Frontier.Count, "frontier item")}" : ""), "parameter");
             }
@@ -512,6 +577,76 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         List("internal only (reached from the set alone)", rows.Where(r => !r.Interface).Select(r => r.Name));
         sb.AppendLine();
         return view;
+    }
+
+    /// <summary>Most parameters the params section traces.</summary>
+    private const int MaxParams = 12;
+
+    /// <summary>
+    /// The parameters a function reads as they arrive (0-based position, entry location): argument registers read before
+    /// written, and caller stack slots read (x64 [rsp+28h] up, x86 [esp+4h] up, ARM64 [sp+0h] up at entry), through the
+    /// frame pointer and pushes too.
+    /// </summary>
+    internal static List<(int Index, string Location)> IncomingParameters(NativeCodeIndex index, NativeFunction f, CancellationToken ct)
+    {
+        var found = new SortedDictionary<int, string>();
+        if (CallAnalysis.Supports(index))
+        {
+            var calls = CallAnalysis.For(index);
+            var fc = calls.Code(f, ct);
+            foreach (var name in ArgumentRegisters(fc, calls.Is64))
+                if (OursSliceProvider.ParseLocation(name, calls.Is64) is { } r && calls.Slices.ParameterIndex(r) is var k and >= 0) found.TryAdd(k, name);
+            int checkedReads = 0;
+            for (int b = 0; b < fc.Blocks.Length && checkedReads < 400; b++)
+                for (int i = 0; i < fc.Blocks[b].Length && checkedReads < 400; i++)
+                {
+                    var x = fc.Blocks[b][i].I;
+                    if (x.Mnemonic == Mnemonic.Lea || x.MemoryIndex != Register.None || x.MemoryBase.GetFullRegister() is not (Register.RSP or Register.RBP)) continue;
+                    if (!Enumerable.Range(0, x.OpCount).Any(k => x.GetOpKind(k) == OpKind.Memory && k > 0 || x.GetOpKind(k) == OpKind.Memory && x.Mnemonic is Mnemonic.Push or Mnemonic.Cmp or Mnemonic.Test))
+                        continue;
+                    checkedReads++;
+                    int disp = (int)(long)x.MemoryDisplacement64;
+                    var loc = x.MemoryBase.GetFullRegister() == Register.RSP ? Loc.Stack(disp) : Loc.Frame(disp);
+                    var v = new ValueResolver(calls, fc) { Slice = true, Budget = 800 }.ValueBefore(loc, b, i);
+                    if (v.Kind != VKind.Incoming) continue;
+                    var entry = v.Site != 0 ? Loc.Of((Register)v.Site) : Loc.Stack((int)(long)v.Num);
+                    if (calls.Slices.ParameterIndex(entry) is var p and >= 0) found.TryAdd(p, calls.Slices.LocationName(entry));
+                }
+        }
+        else if (Arm64Trace.Supports(index))
+        {
+            var code = Arm64Trace.For(index).Code(f, ct);
+            var written = new HashSet<int>();
+            foreach (var s in code.Blocks.OrderBy(b => b.Length > 0 ? b[0].Rva : uint.MaxValue).SelectMany(b => b))
+            {
+                if (A64Function.IsCall(s.I) || s.Facts.Flow == FlowKind.Return) break;
+                for (int k = 0; k < s.I.OperandCount; k++)
+                    if (s.I.GetOperand(k) is { Kind: AsmArm64.Arm64OperandKind.Register } op && (op.Flags & AsmArm64.Arm64OperandFlags.Read) != 0
+                        && ((AsmArm64.Arm64RegisterOperand)op).Value is { Kind: AsmArm64.Arm64RegisterKind.X or AsmArm64.Arm64RegisterKind.W, Index: < 8 } r && !written.Contains(r.Index))
+                        found.TryAdd(r.Index, $"x{r.Index}");
+                if (A64Function.Dest(s.I) is { Kind: AsmArm64.Arm64RegisterKind.X or AsmArm64.Arm64RegisterKind.W } d) written.Add(d.Index);
+            }
+            foreach (var s in code.Blocks.SelectMany(b => b))
+                if (Arm64Resolver.IsLoad(s.I) && A64Function.Memory(s) is { Slot: >= 0 and < 8 * 24 and var slot } && slot % 8 == 0)
+                    found.TryAdd(8 + slot / 8, A64Function.Name(A64Loc.Slot(slot), null));
+        }
+        return found.Select(p => (p.Key, p.Value)).ToList();
+    }
+
+    /// <summary>"int __cdecl helper(Player *, int)" from the PDB procedure at <paramref name="start"/>, or null.</summary>
+    private static string? PdbPrototype(Native.Pdb.PdbFile pdb, INativeImage image, uint start)
+    {
+        var proc = pdb.Symbols.FirstOrDefault(s => s.Kind is Native.Pdb.PdbSymbolKind.GlobalProc or Native.Pdb.PdbSymbolKind.LocalProc && s.Rva == start && s.TypeIndex != 0);
+        if (proc == null) return null;
+        Native.Pdb.PdbTypeModel model;
+        try { model = Native.Pdb.PdbTypeModel.Of(pdb, image.Is64Bit ? 8 : 4); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException) { return null; }
+        if (model.FunctionTypeOf(proc.TypeIndex) is not (> 0 and var type) || model.Node(type)?.Function is not { } fn) return null;
+        var parameters = new List<string>();
+        if (fn.This != 0) parameters.Add(model.Spell(fn.This) + " this");
+        parameters.AddRange(fn.Parameters.Select(model.Spell));
+        if (fn.Variadic) parameters.Add("...");
+        return $"{model.Spell(fn.Return)} {fn.Convention} {proc.Name}({string.Join(", ", parameters)})";
     }
 
     /// <summary>Edges between the graph's blocks minus blocks plus 2 (McCabe).</summary>
