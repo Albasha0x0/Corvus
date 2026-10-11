@@ -20,6 +20,9 @@ internal static class SetupCli
 
     public static bool IsCommand(string arg) => Commands.Contains(arg, StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>The command words (no flag spellings).</summary>
+    public static IEnumerable<string> Words => Commands.Where(c => char.IsLetter(c[0]));
+
     /// <summary>Runs a setup command and returns its exit code, or null when the arguments start the server.</summary>
     public static int? TryRun(string[] args, TextWriter? output = null, SetupEnvironment? env = null, ServerLaunch? launch = null)
     {
@@ -97,6 +100,11 @@ internal static class SetupCli
                                 --structured    print only the structured content
           tools [filter]        List the tools by toolset (--json for a table).
           describe <name>       A tool's or prompt's description, parameters and an example (help <name> too).
+          batch <file|->        Run steps ({"tool": ..., "args": {...}} as a JSON array or JSON Lines) in one session,
+                                so ids and in-memory edits carry over. --stop-on-error, --json (one line per step).
+          prompts               List the prompts; prompt <name> [name=value ...] prints one, ready to pipe.
+          resources             List resources and templates; read <uri> prints one.
+          completion <shell>    A completion script for bash, zsh or pwsh.
         Tool exit codes: 0 success, 1 tool error, 2 usage or invalid_argument, 3 engine missing or unsupported,
         124 timeout, 130 cancelled (Ctrl+C).
         """;

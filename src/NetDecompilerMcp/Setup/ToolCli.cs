@@ -15,7 +15,7 @@ internal sealed record CliIo(TextWriter Out, TextWriter Error, TextReader In, bo
 /// Every tool from the terminal with no per-tool code: commands and argument types come from the live catalog, and calls
 /// run through an in-process server (<see cref="ToolSession"/>). Exit codes: <see cref="Exit"/>.
 /// </summary>
-internal static class ToolCli
+internal static partial class ToolCli
 {
     /// <summary>Exit codes, documented in docs/cli.md.</summary>
     public static class Exit
@@ -29,7 +29,7 @@ internal static class ToolCli
     }
 
     /// <summary>The CLI's commands; any other first word that is not a setup command is a tool name.</summary>
-    public static readonly string[] Commands = ["call", "tools", "describe", "help"];
+    public static readonly string[] Commands = ["call", "tools", "describe", "help", "batch", "prompts", "prompt", "resources", "read", "completion"];
 
     private const string Program = "NetDecompilerMcp";
 
@@ -81,6 +81,12 @@ internal static class ToolCli
             {
                 "call" => await CallAsync(a, io, cancellationToken),
                 "tools" => Tools(a, io),
+                "batch" => await BatchAsync(a, io, cancellationToken),
+                "prompts" => Prompts(a, io),
+                "prompt" => await PromptAsync(a, io, cancellationToken),
+                "resources" => await ResourcesAsync(a, io, cancellationToken),
+                "read" => await ReadAsync(a, io, cancellationToken),
+                "completion" => Completion(a, io),
                 _ => Describe(a, io),
             };
         }

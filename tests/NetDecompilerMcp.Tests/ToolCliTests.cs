@@ -145,16 +145,14 @@ public class ToolCliTests
         Assert.True(code == 0, error);
         Assert.Contains("Charge(", output);
 
-        // Structured output as JSON, the whole record with --json.
+        // Structured output only; the whole record with --json.
         (code, output, _) = await Run(["call", "list_types", .. server, "--structured"]);
         Assert.Equal(0, code);
         Assert.Contains(JsonNode.Parse(output)!["items"]!.AsArray(), i => (string?)i!["fullName"] == "Fixture.Model.Account");
-
         (code, output, _) = await Run(["list_types", .. server, "--json", "namespace=Fixture.Model"]);
         Assert.Equal(0, code);
-        var record = JsonNode.Parse(output)!;
-        Assert.False((bool)record["isError"]!);
-        Assert.NotNull(record["structured"]);
+        Assert.False((bool)JsonNode.Parse(output)!["isError"]!);
+        Assert.NotEmpty(JsonNode.Parse(output)!["structured"]!["items"]!.AsArray());
 
         // A tool error: exit 1, the text on stderr; --json carries the parsed error record.
         (code, output, error) = await Run(["decompile_member", .. server, "member=Fixture.Model.Account::Nope"]);
@@ -163,7 +161,9 @@ public class ToolCliTests
         Assert.Contains("Error (not_found)", error);
         (code, output, _) = await Run(["decompile_member", .. server, "member=Nope.Nope", "--json"]);
         Assert.Equal(1, code);
-        Assert.Equal("not_found", (string?)JsonNode.Parse(output)!["error"]!["code"]);
+        var record = JsonNode.Parse(output)!;
+        Assert.True((bool)record["isError"]!);
+        Assert.Equal("not_found", (string?)record["error"]!["code"]);
 
         // The server's invalid_argument (an undeclared parameter, with the closest name) is a usage error.
         (code, _, error) = await Run(["decompile_member", .. server, "membr=X"]);
@@ -173,6 +173,73 @@ public class ToolCliTests
         (code, _, error) = await Run(["decompile_member", "--structured"]);
         Assert.Equal(2, code);
         Assert.Contains("no structured output", error);
+    }
+
+    [Fact]
+    public async Task Batch_KeepsOneSessionAcrossSteps()
+    {
+        var path = System.Text.Json.JsonSerializer.Serialize(Env.FixturePath);
+        var steps = $$$"""
+            # the fixture is loaded by the first step only
+            {"tool": "load-assembly", "args": {"path": {{{path}}}}}
+            {"tool": "decompile_member", "args": {"member": "Fixture.Model.Account::Charge"}}
+            {"tool": "decompile_member", "arguments": {"member": "Nope.Nope"}}
+            {"tool": "list_assemblies"}
+            """;
+        var (code, output, _) = await RunWithInput(steps, "batch", "-", "--no-index");
+        Assert.Equal(1, code); // the first failed step's code; later steps still run
+        Assert.Contains("=== [2/4] decompile_member", output);
+        Assert.Contains("Charge(", output);
+        Assert.Contains("=== [3/4] decompile_member (error)", output);
+        Assert.Contains("=== [4/4] list_assemblies", output);
+
+        string error;
+        (code, output, error) = await RunWithInput(steps, "batch", "-", "--no-index", "--json", "--stop-on-error");
+        Assert.Equal(1, code);
+        var records = output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => JsonNode.Parse(l)!).ToList();
+        Assert.Equal([1, 2, 3], records.Select(r => (int)r["step"]!));
+        Assert.Equal("not_found", (string?)records[2]["error"]!["code"]);
+        Assert.Contains("Stopped at step 3 of 4", error);
+
+        Assert.Equal(["a", "b"], ToolCli.ParseBatch("""[{"tool":"list_assemblies","args":{"a":1,"b":null}}]""")[0].Arguments.Keys);
+        Assert.Throws<UsageException>(() => ToolCli.ParseBatch("""{"tool":"no_such_tool"}"""));
+        Assert.Throws<UsageException>(() => ToolCli.ParseBatch("""{"args":{}}"""));
+        Assert.Throws<UsageException>(() => ToolCli.ParseBatch("# nothing"));
+    }
+
+    [Fact]
+    public async Task PromptsAndResources()
+    {
+        var (code, output, _) = await Run("prompts");
+        Assert.Equal(0, code);
+        Assert.Contains($"{ToolCli.CatalogPrompts.Count} prompts.", output);
+
+        (code, output, _) = await Run("prompt", "guide", "topic=builds");
+        Assert.Equal(0, code);
+        Assert.Equal(Mcp.Guide.Topics["builds"].Trim(), output.Trim());
+
+        (code, output, _) = await Run("resources", "--load", Env.FixturePath, "--no-index");
+        Assert.Equal(0, code);
+        Assert.Contains("netdecomp://guide/{topic}", output);
+
+        (code, output, _) = await Run("read", "netdecomp://guide/edits");
+        Assert.Equal(0, code);
+        Assert.Contains("save_assembly", output);
+    }
+
+    [Fact]
+    public void CompletionScriptsNameEveryTool()
+    {
+        foreach (var shell in ToolCli.Shells)
+        {
+            var script = ToolCli.CompletionScript(shell);
+            foreach (var tool in ToolCli.CatalogTools) Assert.Contains((string)tool["name"]!, script);
+            Assert.Contains("member=", script);
+            Assert.Contains("uninstall", script);
+        }
+        Assert.Contains("complete -F", ToolCli.CompletionScript("bash"));
+        Assert.Contains("bashcompinit", ToolCli.CompletionScript("zsh"));
+        Assert.Contains("Register-ArgumentCompleter", ToolCli.CompletionScript("pwsh"));
     }
 
     [Fact]
