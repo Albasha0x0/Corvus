@@ -183,6 +183,14 @@ public sealed class NativeGhidraEngineTests(ITestOutputHelper output) : IDisposa
         Assert.Contains("NdmHeader *base", decompiled);
     }
 
+    [Trait("Speed", "Slow")]
+    [GhidraFact]
+    public async Task Call_tree_both_through_Ghidra_agrees_with_the_index()
+    {
+        var rig = Setup(_dir.File("cache"));
+        await NativeIdaEngineTests.CallTreeBoth(rig.Tools, rig.Workspace, rig.Code, "ghidra", output);
+    }
+
     /// <summary>Itanium RTTI classes of an ELF library become vftable and class structs in Ghidra.</summary>
     [Trait("Speed", "Slow")]
     [GhidraFact]

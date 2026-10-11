@@ -371,6 +371,39 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         output.WriteLine($"msvcp_win.dll first decompile_native {clock.Elapsed.TotalSeconds:0.0} s: {head.Split('\n').First(l => l.Contains("types:"))}");
     }
 
+    /// <summary>
+    /// native_call_tree direction=both through an engine on a real ELF library: a function with callers and callees, one
+    /// level by call site, the engine's sites agreeing with the built-in index's.
+    /// </summary>
+    internal static async Task CallTreeBoth(NativeCodeTools tools, AssemblyWorkspace workspace, NativeCodeService code, string engine, ITestOutputHelper output)
+    {
+        var path = NativeFormats.NativeFixtures.LinuxX64DbgShim;
+        var native = workspace.LoadAny(path).Native!;
+        var index = await code.Index(native, null, default);
+        var f = index.Functions.First(f => index.Callers(f).Count(c => c.Kind == Native.Code.XrefKind.Call) is > 0 and < 4
+            && index.RefsFrom(f).Count(x => x.Kind == Native.Code.XrefKind.Call) is > 0 and < 8);
+        var address = $"rva:0x{f.Start:X}";
+        var ours = await tools.NativeCallTree(native.Id, address, direction: "both");
+        var through = await tools.NativeCallTree(native.Id, address, direction: "both", engine: engine);
+        output.WriteLine(ours + "\n" + through);
+        Assert.Contains(NativeEngineCode.Via(engine), through);
+        static HashSet<string> Sites(string text, string section) => System.Text.RegularExpressions.Regex.Match(text, section + @" \(\d+\):\r?\n((?:  .*\r?\n?)*)")
+            .Groups[1].Value.Split('\n').Where(l => l.Length > 2).Select(l => l.Trim().Split(' ')[0]).ToHashSet();
+        var ourCallers = Sites(ours, "callers");
+        Assert.NotEmpty(ourCallers);
+        Assert.Subset(Sites(through, "callers"), ourCallers);
+        Assert.NotEmpty(Sites(through, "callees"));
+        Assert.Subset(Sites(through, "callees"), Sites(ours, "callees"));
+    }
+
+    [Trait("Speed", "Slow")]
+    [IdaFact]
+    public async Task Call_tree_both_through_IDA_agrees_with_the_index()
+    {
+        var rig = Setup();
+        await CallTreeBoth(rig.Tools, rig.Workspace, rig.Code, "ida", output);
+    }
+
     /// <summary>Itanium RTTI classes of an ELF library become vftable and class structs in IDA.</summary>
     [Trait("Speed", "Slow")]
     [IdaFact]
