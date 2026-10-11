@@ -709,11 +709,13 @@ public sealed class SimplifyContractTests
             I(OpCodes.Call, lab.Module.Import(typeof(string).GetMethod("Concat", [typeof(string), typeof(string)]))), Ret());
 
         var limits = new EvaluationLimits(InstructionBudget: int.MaxValue, MethodInstructionBudget: long.MaxValue, MethodTimeLimitMs: 50);
-        var simplifier = new MethodSimplifier(lab.Module, new SimplifyOptions(Limits: limits));
-        var timed = simplifier.Simplify(slow)!;
+        var timed = new MethodSimplifier(lab.Module, new SimplifyOptions(Limits: limits)).Simplify(slow)!;
         Assert.Equal(FallbackReason.TimeLimit, timed.Rejected?.Reason);
         Assert.Contains("[time-limit]", timed.Rejected!.ToString());
         Assert.False(timed.Changed);
+
+        // The other fallbacks run under the default time limit: 50 ms is not enough for them on a loaded machine.
+        var simplifier = new MethodSimplifier(lab.Module, new SimplifyOptions());
 
         Assert.Equal(FallbackReason.OriginalUnverifiable, simplifier.Simplify(invalid)!.Rejected?.Reason);
 
