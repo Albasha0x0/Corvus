@@ -29,11 +29,19 @@ public static class ToolAvailability
     public static readonly IReadOnlyList<string> WindowsOnly = ["inspect_process"];
 
     /// <summary>Modes that launch a program found on this machine: (tool, mode, found, reason, fix).</summary>
-    private static IEnumerable<(string Tool, string Mode, bool Found, string Reason, string Remediation)> ExternalPrograms()
+    private static IEnumerable<(string Tool, string? Mode, bool Found, string Reason, string Remediation)> ExternalPrograms()
     {
         yield return ("unity_overview", "detectItEasy=true", Services.Analysis.UnityOverview.FindDie() != null,
             "Detect It Easy (diec) was not found in NDM_DIE or on PATH", "set NDM_DIE to the Detect It Easy folder (or diec.exe)");
+        foreach (var tool in new[] { ExternalTools.JavaDecompiler, ExternalTools.Java })
+        {
+            var probe = ExternalTools.Probe(tool);
+            yield return ("decompile_java", null, probe.Usable, $"{probe.Name}: {probe.Problem}", probe.Remediation);
+        }
     }
+
+    /// <summary>Tools whose availability depends on programs found on this machine.</summary>
+    public static IEnumerable<string> ExternalProgramTools => ExternalPrograms().Select(p => p.Tool).Distinct();
 
     /// <summary>Every tool these tables name, for the drift test.</summary>
     public static IEnumerable<string> NamedTools =>

@@ -90,6 +90,7 @@ public static class ToolEffects
         ["list_dex_classes"] = Reads(),
         ["get_dex_class"] = Reads(),
         ["disassemble_dex"] = Reads(),
+        ["decompile_java"] = Reads(longRunning: true, openWorld: true), // runs the JADX server (java -jar); its first call loads the package
         ["search_dex"] = Reads(longRunning: true), // the first call builds the package's code index
         ["find_dex_references"] = Reads(longRunning: true),
 

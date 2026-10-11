@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
-131 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+132 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -18,7 +18,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
 | [engine](#engine) | no | 7: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
-| [android](#android) | no | 8: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
+| [android](#android) | no | 9: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
 | [dumps](#dumps) | no | 7: crash dumps and crash text |
 | [live](#live) | no | 1: read-only inspection of a running process |
 
@@ -1868,6 +1868,21 @@ Smali of one method, or of a whole class, from the DEX code of an Android packag
 | `path` | string | yes |  | An Android package (.apk, .aab, .apks, .xapk, .apkm), a .dex file, or a jar / zip with classes*.dex. |
 | `symbol` | string | yes |  | A method (Lpkg/C;->name(params)ret, or pkg.C::name with optional (int, String)) or a class (pkg.C, Lpkg/C;). |
 | `format` | string |  |  | smali (default) or annotated. Values: smali, annotated. |
+| `offset` | integer |  | `0` | Character offset for paging long output (use the value from the truncation footer). |
+| `maxChars` | integer |  |  | Max characters in this page (default from server config, ~60000). |
+
+### decompile_java
+
+**Decompile Java** (read-only, idempotent, open-world, long-running)
+
+Java source of a class or of one method of an Android package, through the JADX headless server (NDM_JAVA_DECOMPILER, run with java -jar; JDK 17+). One session per package is kept loaded across calls; a slow load or call times out without losing it. A method is one exact overload, chosen by its parameter types. Where JADX cannot decompile, smali is returned (smaliFallback). Without JADX: provider_unavailable; disassemble_dex gives the smali.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `path` | string | yes |  | An Android package (.apk, .aab, .apks, .xapk, .apkm), a .dex file, or a jar / zip with classes*.dex. |
+| `symbol` | string | yes |  | A class (pkg.C, Lpkg/C;) or a method (Lpkg/C;->name(params)ret, or pkg.C::name with optional (int, String)). |
+| `smaliFallback` | boolean |  | `true` | Return smali when JADX fails on the code (default true). |
+| `engine` | string |  |  | jadx (the only engine). Values: jadx. |
 | `offset` | integer |  | `0` | Character offset for paging long output (use the value from the truncation footer). |
 | `maxChars` | integer |  |  | Max characters in this page (default from server config, ~60000). |
 

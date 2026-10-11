@@ -11,4 +11,5 @@ list_assemblies and unpack_container flag ReadyToRun and merged (ILMerge/ILRepac
 Unity builds: unity_overview first.
 Android packages (.apk, .aab, split sets), read natively: get_android_manifest (components, exported state, permissions, deep links),
 list_android_resources and get_android_resource (decoded XML, @type/name values). DEX code: list_dex_classes, get_dex_class (exact
-method ids), disassemble_dex (smali of one method or class), search_dex (strings, types, members, constants, opcodes), find_dex_references (callers, field readers / writers, callees).
+method ids), disassemble_dex (smali of one method or class), decompile_java
+(Java through JADX when NDM_JAVA_DECOMPILER is set), search_dex (strings, types, members, constants, opcodes), find_dex_references (callers, field readers / writers, callees).

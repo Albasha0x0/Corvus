@@ -8,7 +8,7 @@ using static NetDecompilerMcp.Tools.ToolSupport;
 namespace NetDecompilerMcp.Tools;
 
 [McpServerToolType]
-public sealed class AndroidTools(AndroidPackageService packages, DexService dex, OutputPager pager)
+public sealed class AndroidTools(AndroidPackageService packages, DexService dex, JavaDecompilerService java, OutputPager pager)
 {
     public const string PackageDescription = "An Android package: .apk, .aab (its base module), or a split set (.apks, .xapk, .apkm, read through its base APK).";
     public const string CodeDescription = "An Android package (.apk, .aab, .apks, .xapk, .apkm), a .dex file, or a jar / zip with classes*.dex.";
@@ -93,6 +93,26 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex,
             "annotated" => true,
             var f => throw new ToolError(ErrorCode.InvalidArgument, $"unknown format '{f}'; use smali or annotated."),
         }, cancellationToken), offset, maxChars), cancellationToken);
+
+    [McpServerTool(Name = "decompile_java", Title = "Decompile Java")]
+    [Description("Java source of a class or of one method of an Android package, through the JADX headless server (NDM_JAVA_DECOMPILER, run with " +
+                 "java -jar; JDK 17+). One session per package is kept loaded across calls; a slow load or call times out without losing it. A method is " +
+                 "one exact overload, chosen by its parameter types. Where JADX cannot decompile, smali is returned (smaliFallback). Without JADX: " +
+                 "provider_unavailable; disassemble_dex gives the smali.")]
+    public async Task<string> DecompileJava(
+        [Description(CodeDescription)] string path,
+        [Description("A class (pkg.C, Lpkg/C;) or a method (Lpkg/C;->name(params)ret, or pkg.C::name with optional (int, String)).")] string symbol,
+        [Description("Return smali when JADX fails on the code (default true).")] bool smaliFallback = true,
+        [Description("jadx (the only engine).")] string? engine = null,
+        [Description(OffsetDescription)] int offset = 0,
+        [Description(MaxCharsDescription)] int? maxChars = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (engine is { Length: > 0 } e && !e.Trim().Equals("jadx", StringComparison.OrdinalIgnoreCase))
+            throw new ToolError(ErrorCode.InvalidArgument, $"unknown engine '{e}'; use jadx.");
+        var text = await Task.Run(() => java.Decompile(path, symbol, smaliFallback, cancellationToken), cancellationToken).ConfigureAwait(false);
+        return pager.Page(text, offset, maxChars);
+    }
 
     [McpServerTool(Name = "search_dex", Title = "Search DEX code", UseStructuredContent = true)]
     [Description("Search the DEX code of an Android package. kind=string: string literals loaded by code, with the method and offset of each use; " +
