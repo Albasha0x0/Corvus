@@ -21,14 +21,17 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
 
     public sealed record NoteCounts(int Open, int Total, string Store);
 
+    [Description("Seconds per IDA or Ghidra request (NDM_ENGINE_REQUEST_TIMEOUT) and per engine start plus analysis (NDM_ENGINE_OPEN_TIMEOUT).")]
+    public sealed record EngineLimits(int RequestSeconds, int OpenSeconds);
+
     public sealed record ServerStatus(string Version,
-        [property: Description("Version plus +<commit> when the build knew its source revision.")]
+        [property: Description("Version, plus +<commit> when known.")]
         string InformationalVersion,
-        [property: Description("The running server's program (its .dll under the dotnet host).")]
+        [property: Description("The running server program.")]
         string Executable,
         [property: Description("Whether Executable is expectedExecutable (also through links); null when none was given.")]
         bool? ExecutableMatches,
-        [property: Description("How this copy was installed, from its path: script, dotnet-tool, dnx, winget, scoop, homebrew or source.")]
+        [property: Description("script, dotnet-tool, dnx, winget, scoop, homebrew or source.")]
         string InstallKind,
         DateTimeOffset StartedAt, long UptimeSeconds,
         [property: Description("The MCP protocol version negotiated with this client.")]
@@ -43,26 +46,25 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         string? CatalogDifference,
         int Tools, int LoadedAssemblies, string BackgroundIndexing,
         int MaxOutputChars, int TimeoutSeconds, long WorkingSetMB, IReadOnlyList<Capability> Capabilities,
-        [property: Description("Tools whose calls can take more than 10 s on large inputs (whole-input work, an external engine, a native image's first code index).")]
+        [property: Description("Tools that can take over 10 s on large inputs.")]
         IReadOnlyList<string> LongRunningTools,
         [property: Description("Tool families and whether this server registers them; every family unless the server was started with --toolsets <list> (or NDM_TOOLSETS: all, core, or names such as core,dumps).")]
         IReadOnlyList<Toolset> Toolsets,
         [property: Description("Registered tools, or modes of them (e.g. engine=ida), that cannot work here, with the reason and the fix.")]
         IReadOnlyList<ToolAvailability.Unavailable> UnavailableTools,
         [property: Description("Analyst notes in the per-user store (record_note): open, total and the store directory.")]
-        NoteCounts? Notes);
+        NoteCounts? Notes,
+        EngineLimits EngineTimeLimits);
 
     private static readonly ConditionalWeakTable<McpServerOptions, string> Digests = new();
 
     [McpServerTool(Name = "server_status", Title = "Server status", UseStructuredContent = true)]
-    [Description("Which server is running (version and commit, program path, install kind, start time, protocol, client), a digest of the tool and " +
-                 "prompt catalog, what is loaded, background indexing state, response limits, long-running tools, which capabilities are available here " +
-                 "with the reason and the fix when one is not, the tool families registered, and the tools or modes that cannot work here. Pass " +
-                 "expectedCatalogDigest (from an earlier server_status, or NetDecompilerMcp doctor) to detect a stale server, and expectedExecutable to " +
-                 "check that the client started the copy it was registered with.")]
+    [Description("Which server runs (version, program, install kind, client), a catalog digest, what is loaded, limits, long-running tools, " +
+                 "capabilities with the fix when missing, tool families, and tools that cannot work here. expectedCatalogDigest " +
+                 "detects a stale server; expectedExecutable checks the registered copy.")]
     public ServerStatus GetServerStatus(
-        [Description("Catalog digest to compare with this server's (e.g. t92-0123456789ab.p5-01234567).")] string? expectedCatalogDigest = null,
-        [Description("Path of the server program the client is registered with, compared with the running one.")] string? expectedExecutable = null,
+        [Description("Catalog digest to compare (t92-0123456789ab.p5-01234567).")] string? expectedCatalogDigest = null,
+        [Description("Registered server program path, compared with the running one.")] string? expectedExecutable = null,
         RequestContext<CallToolRequestParams> context = null!)
     {
         var server = context?.Server?.ServerOptions;
@@ -134,7 +136,8 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             ToolEffects.LongRunning.Where(registered.Contains).ToList(),
             Core.Toolsets.Families.Select(f => new Toolset(f.Name, options.Toolsets.Contains(f.Name), f.InCore, f.Tools.Length, f.Description)).ToList(),
             ToolAvailability.Of(registered, availability, options.IdaScripting, OperatingSystem.IsWindows(), options.AllowDeviceChanges),
-            NoteCountsOf(notes));
+            NoteCountsOf(notes),
+            new EngineLimits(options.EngineRequestTimeoutSeconds, options.EngineOpenTimeoutSeconds));
     }
 
     /// <summary>One capability per external program the server runs (test oracles left out), probed once per file.</summary>

@@ -621,6 +621,12 @@ Logs go to stderr; stdout is reserved for the protocol.
 Each IDA or Ghidra worker is capped at three quarters of the memory available to the server (Windows Job Object; `NDM_ENGINE_MEMORY_MB`
 sets the limit in MB, `0` removes it). A worker that reaches it fails its request with the limit named and restarts on the next one.
 
+Each engine request may take `NDM_ENGINE_REQUEST_TIMEOUT` seconds (default 120; `decompile_native` and `resolve_call_targets`
+take `timeoutSeconds` per call), and an engine's start plus auto-analysis `NDM_ENGINE_OPEN_TIMEOUT` seconds (default 1200).
+A request that runs out of time or is cancelled by the client is stopped inside the worker, which keeps the database open:
+scans answer with what they found, marked partial with where to continue, and only a worker that does not stop within 10 s
+is killed (the next request restarts it from the saved database). `server_status` reports both limits.
+
 Ghidra (12.0 or newer) is found through `NDM_GHIDRA_DIR` (else `GHIDRA_INSTALL_DIR`) and a JDK through `NDM_GHIDRA_JAVA` (else
 `JAVA_HOME`, else `PATH`); the worker is compiled from its embedded sources on first use. `NDM_GHIDRA_ANALYSIS` picks the
 analysis profile (`standard`, `full` or `minimal`), `NDM_GHIDRA_MAXMEM` the JVM heap, `NDM_GHIDRA_OPTIONS` extra analyzer

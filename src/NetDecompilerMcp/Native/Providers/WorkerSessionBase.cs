@@ -6,6 +6,30 @@ using NetDecompilerMcp.Core;
 namespace NetDecompilerMcp.Native.Providers;
 
 /// <summary>
+/// The time limit of engine requests made on the current async flow, set by a tool call that names one (timeoutSeconds);
+/// null: each session's <see cref="NativeOpenOptions.RequestTimeout"/>.
+/// </summary>
+public static class EngineRequestLimit
+{
+    private static readonly AsyncLocal<TimeSpan?> CurrentLimit = new();
+
+    public static TimeSpan? Current => CurrentLimit.Value;
+
+    /// <summary>Applies <paramref name="limit"/> (null: no change) until the result is disposed.</summary>
+    public static IDisposable Use(TimeSpan? limit)
+    {
+        var previous = CurrentLimit.Value;
+        if (limit is { } l) CurrentLimit.Value = l;
+        return new Restore(previous);
+    }
+
+    private sealed class Restore(TimeSpan? previous) : IDisposable
+    {
+        public void Dispose() => CurrentLimit.Value = previous;
+    }
+}
+
+/// <summary>
 /// One image open in an engine worker process. Worker start and requests that change the database are serialized by
 /// a gate; with <see cref="ConcurrentRequests"/> other requests run in parallel once the worker is up. When the worker
 /// dies (crash, timeout, cancellation) the next request starts a new worker on the saved database and re-applies the
@@ -22,6 +46,8 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     private volatile bool _closed;
 
     protected NativeOpenOptions Options { get; } = options;
+    /// <summary>The limit of a request on the current flow: the tool call's (<see cref="EngineRequestLimit"/>), else the session's.</summary>
+    protected TimeSpan RequestTimeout => EngineRequestLimit.Current ?? Options.RequestTimeout;
     protected CacheEntry? Entry { get; private set; }
 
     public abstract string ProviderId { get; }
@@ -175,7 +201,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
             }
             try
             {
-                var result = await worker.RequestAsync(op, (JsonObject)args.DeepClone(), timeout ?? Options.RequestTimeout, cancellationToken).ConfigureAwait(false);
+                var result = await worker.RequestAsync(op, (JsonObject)args.DeepClone(), timeout ?? RequestTimeout, cancellationToken).ConfigureAwait(false);
                 bool saveNow;
                 lock (_sync)
                 {

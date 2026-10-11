@@ -66,9 +66,11 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
         [Description(NativeCodeTools.EngineDescription)] string? engine = null,
         [Description("Index of the first site.")] int offset = 0,
         [Description("Max sites (default 100, max 1000).")] int limit = 100,
+        [Description(NativeTools.EngineTimeoutDescription)] int? timeoutSeconds = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        using var engineLimit = EngineRequestLimit.Use(NativeTools.EngineTimeout(timeoutSeconds));
         var filter = (status?.Trim().ToLowerInvariant()) switch
         {
             null or "" or "all" => "all",
@@ -117,14 +119,14 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
             var session = await engines!.Session(native, choice.Engine, new Progress<NativeProviderProgress>(p =>
                 progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), cancellationToken);
             var functions = page.Select(s => s.Function.Start).Distinct().ToList();
-            var rows = await session.GetCallTargetsAsync(functions, page.Select(s => s.Rva).ToList(), 120, cancellationToken);
+            var rows = await session.GetCallTargetsAsync(functions, page.Select(s => s.Rva).ToList(), timeoutSeconds ?? 120, cancellationToken);
             page = page.Select(s => Merge(index, s, rows.Targets.Where(t => t.Site == s.Rva).ToList(), choice.Engine)).ToList();
             engineText = "ours+" + choice.Engine;
             var display = NativeEngineService.DisplayName(choice.Engine);
             if (!rows.DecompilerAvailable) notes.Add($"the {display} decompiler is not available: only {display}'s code references are merged");
             if (rows.Failed.Count > 0) notes.Add($"{display} could not decompile {rows.Failed.Count} functions");
             if (rows.Skipped > 0) notes.Add($"{display} had no time for {rows.Skipped} functions" +
-                (rows.Partial != null ? $" (PARTIAL: {NativeCodeTools.PartialReason(rows.Partial)}; call again, or with a smaller limit)" : ""));
+                (rows.Partial != null ? $" (PARTIAL: {NativeCodeTools.PartialReason(rows.Partial)}; call again with a larger timeoutSeconds, or a smaller limit)" : ""));
         }
         notes.Add(choice.Line);
         if (start + page.Count < filtered.Count) notes.Add($"{filtered.Count - start - page.Count} more: offset={start + page.Count}");

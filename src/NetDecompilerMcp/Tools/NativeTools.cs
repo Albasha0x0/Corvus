@@ -15,6 +15,11 @@ namespace NetDecompilerMcp.Tools;
 [McpServerToolType]
 public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager pager, NativeCodeService? code = null, NativeLinkService? link = null)
 {
+    public const string EngineTimeoutDescription = "Seconds per engine request (default NDM_ENGINE_REQUEST_TIMEOUT); scans then answer partial.";
+
+    /// <summary>A tool's timeoutSeconds as an engine request limit; null when not given.</summary>
+    public static TimeSpan? EngineTimeout(int? seconds) => seconds is { } s ? TimeSpan.FromSeconds(Math.Clamp(s, 1, 3600)) : null;
+
     public const string ImageDescription = "Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded.";
 
     /// <summary>Runs work on a loaded native image under the read lock; a path that is not loaded yet is loaded first.</summary>

@@ -56,6 +56,8 @@ public sealed class NativeEngineService : IDisposable
         _cacheRoot = cacheRoot;
         _code = code;
         DefaultMode = options?.Engine ?? EngineMode.Auto;
+        RequestTimeout = TimeSpan.FromSeconds(options?.EngineRequestTimeoutSeconds ?? 120);
+        OpenTimeout = TimeSpan.FromSeconds(options?.EngineOpenTimeoutSeconds ?? 1200);
         _prewarm = options?.Prewarm;
         if (_prewarm != null && workspace != null) workspace.NativeLoaded += native => _ = PrewarmCore(native);
     }
@@ -152,6 +154,13 @@ public sealed class NativeEngineService : IDisposable
 
     /// <summary>The engine the native code tools use when a call names none.</summary>
     public EngineMode DefaultMode { get; }
+
+    /// <summary>Limit of each engine request (NDM_ENGINE_REQUEST_TIMEOUT) and of an engine's start and analysis (NDM_ENGINE_OPEN_TIMEOUT).</summary>
+    public TimeSpan RequestTimeout { get; }
+    public TimeSpan OpenTimeout { get; }
+
+    private NativeOpenOptions OpenOptions(IProgress<NativeProviderProgress>? progress, string? pdbPath) =>
+        new() { Progress = progress, PdbPath = pdbPath, RequestTimeout = RequestTimeout, OpenTimeout = OpenTimeout };
 
     /// <summary>
     /// The image's session of engine <paramref name="provider"/> (null: the first engine in order of preference that has
@@ -404,8 +413,8 @@ public sealed class NativeEngineService : IDisposable
             // The open is not tied to this call's cancellation (a later call reuses the same analysis) but ends when the image is unloaded or reloaded.
             // A universal Mach-O slice goes to the engine as a thin file of its own, keyed by its own hash.
             holder.Opening = native.Image is Native.MachO.MachOFile { Slice: { } slice } thin
-                ? OpenBytes(provider, native, $"{Path.GetFileName(native.FilePath)}-{slice.Name}", thin.FileBytes.ToArray(), progress, holder.OpenedPdb)
-                : provider.OpenAsync(native.FilePath, native.OriginalSha256, new NativeOpenOptions { Progress = progress, PdbPath = holder.OpenedPdb }, native.Released);
+                ? OpenBytes(provider, native, $"{Path.GetFileName(native.FilePath)}-{slice.Name}", thin.FileBytes.ToArray(), OpenOptions(progress, holder.OpenedPdb))
+                : provider.OpenAsync(native.FilePath, native.OriginalSha256, OpenOptions(progress, holder.OpenedPdb), native.Released);
             // Once open, the library functions IDA recognized become the image's ida name layer, Ghidra's own names its ghidra layer.
             if (id is IdaProvider.ProviderId or GhidraProvider.ProviderId)
                 holder.LibraryNames = holder.Opening.ContinueWith(async opened =>
@@ -425,11 +434,11 @@ public sealed class NativeEngineService : IDisposable
 
     /// <summary>Opens a session on the patched bytes (written to a private file; the engine keeps its own copy per hash).</summary>
     private Task<INativeDecompilerSession> OpenPatched(LoadedNative native, string id, IProgress<NativeProviderProgress>? progress, string? pdbPath) =>
-        OpenBytes(Provider(id), native, Path.GetFileName(native.FilePath), null, progress, pdbPath);
+        OpenBytes(Provider(id), native, Path.GetFileName(native.FilePath), null, OpenOptions(progress, pdbPath));
 
     /// <summary>Opens a session on <paramref name="content"/> (the patched bytes when null), written to a private file named <paramref name="name"/>.</summary>
     private static Task<INativeDecompilerSession> OpenBytes(INativeDecompilerProvider provider, LoadedNative native, string name, byte[]? content,
-        IProgress<NativeProviderProgress>? progress, string? pdbPath)
+        NativeOpenOptions options)
     {
         return Task.Run(async () =>
         {
@@ -441,8 +450,7 @@ public sealed class NativeEngineService : IDisposable
             await File.WriteAllBytesAsync(path, bytes, native.Released).ConfigureAwait(false);
             try
             {
-                return await provider.OpenAsync(path, sha, new NativeOpenOptions { Progress = progress, PdbPath = pdbPath },
-                    native.Released).ConfigureAwait(false);
+                return await provider.OpenAsync(path, sha, options, native.Released).ConfigureAwait(false);
             }
             finally
             {

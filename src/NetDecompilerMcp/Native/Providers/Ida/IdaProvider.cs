@@ -229,7 +229,7 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
             return $"Raise {EngineMemoryLimit.Variable} (MB; 0 turns the limit off) and retry.";
         return code switch
         {
-            ErrorCode.Timeout => "The request was stopped and IDA keeps running; retry, or raise the time limit for large functions or images.",
+            ErrorCode.Timeout => "The request was stopped and IDA keeps running; retry with a larger time limit (timeoutSeconds where the tool takes it, or NDM_ENGINE_REQUEST_TIMEOUT).",
             ErrorCode.ProviderUnavailable => "Retry once (the session restarts IDA from the saved database); if it persists, run the provider probe and check the IDA install, its license and the Python it uses.",
             ErrorCode.Unsupported => "Use the built-in disassembly for this architecture.",
             ErrorCode.NotFound => "List the functions to find a valid address.",

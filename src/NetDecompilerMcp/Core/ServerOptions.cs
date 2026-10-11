@@ -26,7 +26,7 @@ namespace NetDecompilerMcp.Core;
 ///   --allow-device-changes  allow the Android device tools that install or uninstall apps (NDM_ALLOW_DEVICE_CHANGES=1)
 /// The NETDECOMP_LOAD environment variable (';'-separated paths) is also honored; NDM_PREWARM sets --prewarm (NDM_IDA_PREWARM=1: ida); NDM_ENGINE sets --engine;
 /// NDM_CODE_INDEX_CACHE, NDM_CODE_INDEX_CACHE_MB and NDM_CODE_INDEX_CACHE_DAYS set the code index cache defaults; NDM_LOG_LEVEL sets --log-level;
-/// NDM_TOOLSETS sets --toolsets.
+/// NDM_TOOLSETS sets --toolsets; NDM_ENGINE_REQUEST_TIMEOUT and NDM_ENGINE_OPEN_TIMEOUT (seconds) bound IDA and Ghidra requests and opens.
 /// </summary>
 public sealed class ServerOptions
 {
@@ -73,6 +73,16 @@ public sealed class ServerOptions
     public EngineMode Engine { get; set; } = EngineMode.Auto;
 
     public const string EngineVariable = "NDM_ENGINE";
+
+    /// <summary>Seconds each IDA or Ghidra request may take before it is cancelled (the worker answers with what it has); default 120.</summary>
+    public int EngineRequestTimeoutSeconds { get; set; } = 120;
+
+    public const string EngineRequestTimeoutVariable = "NDM_ENGINE_REQUEST_TIMEOUT";
+
+    /// <summary>Seconds an engine gets to start and load or auto-analyze an image; default 1200.</summary>
+    public int EngineOpenTimeoutSeconds { get; set; } = 1200;
+
+    public const string EngineOpenTimeoutVariable = "NDM_ENGINE_OPEN_TIMEOUT";
 
     /// <summary>Minimum level of the stderr log; Debug adds a line per tool call (tool, outcome, milliseconds).</summary>
     public LogLevel LogLevel { get; set; } = LogLevel.Information;
@@ -159,6 +169,8 @@ public sealed class ServerOptions
                 : throw new ArgumentException($"--prewarm (or {PrewarmVariable}) must be ida, ghidra, auto or off, not '{prewarm.Trim()}'");
         if (Environment.GetEnvironmentVariable(IdaScriptingVariable)?.Trim() is "1" or "true" or "on") o.IdaScripting = true;
         if (Environment.GetEnvironmentVariable(AllowDeviceChangesVariable)?.Trim() is "1" or "true" or "on") o.AllowDeviceChanges = true;
+        o.EngineRequestTimeoutSeconds = Seconds(EngineRequestTimeoutVariable, o.EngineRequestTimeoutSeconds);
+        o.EngineOpenTimeoutSeconds = Seconds(EngineOpenTimeoutVariable, o.EngineOpenTimeoutSeconds);
         if (engine != null)
             o.Engine = EngineModes.TryParse(engine) ?? throw new ArgumentException($"--engine (or {EngineVariable}) must be auto, ours, ida or ghidra, not '{engine.Trim()}'");
         var env = Environment.GetEnvironmentVariable("NETDECOMP_LOAD");
@@ -197,6 +209,14 @@ public sealed class ServerOptions
         if (toolsFile != null) ToolAllowList = Core.Toolsets.LoadToolList(toolsFile);
         trace ??= Environment.GetEnvironmentVariable(TraceVariable) is { Length: > 0 } traceFromEnv ? traceFromEnv : null;
         if (trace != null) TracePath = TraceFile(trace);
+    }
+
+    /// <summary>A positive number of seconds from <paramref name="variable"/>, or <paramref name="fallback"/> when it is unset.</summary>
+    private static int Seconds(string variable, int fallback)
+    {
+        var text = Environment.GetEnvironmentVariable(variable)?.Trim();
+        if (string.IsNullOrEmpty(text)) return fallback;
+        return int.TryParse(text, out var s) && s > 0 ? s : throw new ArgumentException($"{variable} must be a positive number of seconds, not '{text}'");
     }
 
     private static LogLevel? ParseLogLevel(string text) => text.Trim().ToLowerInvariant() switch

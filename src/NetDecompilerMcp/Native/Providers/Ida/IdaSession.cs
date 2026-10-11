@@ -195,7 +195,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         CancellationToken cancellationToken = default)
     {
         // the budget stays under the request timeout so a slow decompilation ends the batch instead of the worker
-        double budget = Math.Clamp(seconds, 1, Math.Max(1, Options.RequestTimeout.TotalSeconds * 0.6));
+        double budget = Math.Clamp(seconds, 1, Math.Max(1, RequestTimeout.TotalSeconds * 0.6));
         var args = IdaProvider.Args(("functions", new JsonArray(functions.Select(f => (JsonNode)f).ToArray())),
             ("sites", new JsonArray(sites.Select(s => (JsonNode)s).ToArray())), ("seconds", budget));
         var r = await CallAsync("virtual_targets", args, cancellationToken).ConfigureAwait(false);
@@ -315,7 +315,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         CancellationToken cancellationToken = default)
     {
         // the budget stays under the request timeout so slow decompilation ends the scan instead of the worker
-        double budget = Math.Clamp(seconds, 1, Math.Max(1, Options.RequestTimeout.TotalSeconds * 0.6));
+        double budget = Math.Clamp(seconds, 1, Math.Max(1, RequestTimeout.TotalSeconds * 0.6));
         var args = IdaProvider.Args(("types", new JsonArray(types.Select(t => (JsonNode)t).ToArray())), ("member", member), ("offset", offset),
             ("functions", new JsonArray(functions.Select(f => (JsonNode)f).ToArray())), ("seconds", budget));
         var r = await CallAsync("field_xrefs", args, cancellationToken).ConfigureAwait(false);

@@ -38,6 +38,16 @@ public sealed class WorkerSessionBaseTests : IDisposable
     }
 
     [Fact]
+    public async Task A_call_s_time_limit_reaches_the_worker()
+    {
+        await using var s = await Open();
+        Assert.Equal(120, (await s.CallAsync("timeout", new JsonObject(), default)).GetProperty("timeout").GetDouble());
+        using (EngineRequestLimit.Use(TimeSpan.FromSeconds(7)))
+            Assert.Equal(7, (await s.CallAsync("timeout", new JsonObject(), default)).GetProperty("timeout").GetDouble());
+        Assert.Null(EngineRequestLimit.Current);
+    }
+
+    [Fact]
     public async Task A_save_clears_the_journal()
     {
         await using var s = await Open();

@@ -165,6 +165,27 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
     }
 
     [Fact]
+    public void Engine_time_limits_come_from_the_environment()
+    {
+        Assert.Equal((120, 1200), (new ServerOptions().EngineRequestTimeoutSeconds, new ServerOptions().EngineOpenTimeoutSeconds));
+        var saved = (Environment.GetEnvironmentVariable(ServerOptions.EngineRequestTimeoutVariable), Environment.GetEnvironmentVariable(ServerOptions.EngineOpenTimeoutVariable));
+        try
+        {
+            Environment.SetEnvironmentVariable(ServerOptions.EngineRequestTimeoutVariable, "45");
+            Environment.SetEnvironmentVariable(ServerOptions.EngineOpenTimeoutVariable, "3600");
+            var o = ServerOptions.Parse([]);
+            Assert.Equal((45, 3600), (o.EngineRequestTimeoutSeconds, o.EngineOpenTimeoutSeconds));
+            using var engines = new NativeEngineService(new FakeProvider(available: true), null, options: o);
+            Assert.Equal((TimeSpan.FromSeconds(45), TimeSpan.FromSeconds(3600)), (engines.RequestTimeout, engines.OpenTimeout));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(ServerOptions.EngineRequestTimeoutVariable, saved.Item1);
+            Environment.SetEnvironmentVariable(ServerOptions.EngineOpenTimeoutVariable, saved.Item2);
+        }
+    }
+
+    [Fact]
     public async Task Ghidra_is_chosen_when_named_or_when_it_alone_has_a_complete_analysis()
     {
         var ida = new FakeProvider(available: true);

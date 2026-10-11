@@ -69,7 +69,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         [Description("With functions: seconds per function (default 60, 1-600).")] int perFunctionSeconds = 60,
         [Description("With functions: functions decompiled (default 32, 1-200); the rest are skipped with a follow-up call.")] int maxFunctions = 32,
         [Description("With address: a footer on the first page listing the globals, functions, strings and imports used.")] bool refs = false,
-        [Description("Ghidra: decompiler seconds (1-600, default 60), retried once with 4x.")] int? timeoutSeconds = null,
+        [Description("Seconds for this call's engine requests (1-600; default NDM_ENGINE_REQUEST_TIMEOUT); Ghidra's decompiler retries once with 4x.")] int? timeoutSeconds = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -80,6 +80,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         if (timeoutSeconds is { } ts && (ts < 1 || ts > 600))
             throw new ToolError(ErrorCode.InvalidArgument, $"timeoutSeconds {ts} is outside 1-600.", "timeoutSeconds=120");
         TimeSpan? limit = timeoutSeconds is { } t ? TimeSpan.FromSeconds(t) : null;
+        using var engineLimit = EngineRequestLimit.Use(limit);
         var native = batch ? await Task.Run(() => ResolveImage(workspace, image), cancellationToken) : null;
         uint rva = 0;
         if (!batch) (native, rva) = await Task.Run(() => Resolve(image, address!), cancellationToken);
