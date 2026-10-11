@@ -258,7 +258,6 @@ final class FrameOps {
         return false;
     }
 
-    /** Renames and/or retypes a decompiler local or parameter; the decompiler's view after the edit is the check. */
     static JsonArray applyLocal(Worker w, Worker.Request r, long rva, String local, Integer stack, String name, String type) throws Exception {
         return applyLocal(w, r, rva, local, stack, name, type, null);
     }
