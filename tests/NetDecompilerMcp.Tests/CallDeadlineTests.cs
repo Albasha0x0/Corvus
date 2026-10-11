@@ -8,8 +8,8 @@ namespace NetDecompilerMcp.Tests;
 /// <summary>The call deadline: tools not marked long-running end with a timeout error after DeadlineFactor x --timeout.</summary>
 public class CallDeadlineTests
 {
-    private static ServiceProvider Services() =>
-        new ServiceCollection().AddSingleton(new ServerOptions { TimeoutSeconds = 1 }).AddSingleton<ResultStore>().BuildServiceProvider();
+    private static ServiceProvider Services(int timeoutSeconds = 1) =>
+        new ServiceCollection().AddSingleton(new ServerOptions { TimeoutSeconds = timeoutSeconds }).AddSingleton<ResultStore>().BuildServiceProvider();
 
     private static ValueTask<CallToolResult> Run(ServiceProvider services, string tool, Func<CancellationToken, Task<CallToolResult>> work, CancellationToken client = default) =>
         CallFilter.Run(new CallToolRequestParams { Name = tool }, null, services, ct => new ValueTask<CallToolResult>(work(ct)), client);
@@ -48,10 +48,12 @@ public class CallDeadlineTests
     [Fact]
     public async Task ClientCancellationIsNotATimeout()
     {
-        using var services = Services();
-        using var cts = new CancellationTokenSource(100);
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            Run(services, "decompile_type", async ct => { await Task.Delay(Timeout.Infinite, ct); return Done; }, cts.Token).AsTask());
+        // A deadline out of reach: with timers for both, a busy pool could run the deadline's first.
+        using var services = Services(timeoutSeconds: 3600);
+        using var cts = new CancellationTokenSource();
+        var call = Run(services, "decompile_type", async ct => { await Task.Delay(Timeout.Infinite, ct); return Done; }, cts.Token).AsTask();
+        await cts.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => call);
     }
 
     [Fact]
