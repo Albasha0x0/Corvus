@@ -86,15 +86,27 @@ public sealed class AnnotationDocument
         [JsonPropertyName("newName"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? NewName { get; set; }
     }
 
-    /// <summary>Holds what format 4 added (pseudocode comments, comment kinds, type edits); older builds must leave such a file alone.</summary>
-    public bool HasFormat4 => PseudoComments is { Count: > 0 } || CommentKinds is { Count: > 0 } || TypeEdits is { Count: > 0 };
+    /// <summary>Format 4: struct and union member edits in the order made.</summary>
+    [JsonPropertyName("fields"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<FieldEntry>? Fields { get; set; }
+
+    public sealed class FieldEntry
+    {
+        [JsonPropertyName("type")] public string Type { get; set; } = "";
+        [JsonPropertyName("name"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Name { get; set; }
+        [JsonPropertyName("offset"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? Offset { get; set; }
+        /// <summary>Null: the member is removed.</summary>
+        [JsonPropertyName("fieldType"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? FieldType { get; set; }
+    }
+
+    /// <summary>Holds what format 4 added (pseudocode comments, comment kinds, type and member edits); older builds must leave such a file alone.</summary>
+    public bool HasFormat4 => PseudoComments is { Count: > 0 } || CommentKinds is { Count: > 0 } || TypeEdits is { Count: > 0 } || Fields is { Count: > 0 };
 
     /// <summary>Holds what format 3 added; older builds must leave such a file alone.</summary>
     public bool HasFormat3 => Analysis is { Count: > 0 } || Operands is { Count: > 0 } || EnumMembers is { Count: > 0 }
                               || StackVars?.Values.Any(l => l.Any(s => s.Delete)) == true;
 
     public bool HasUserTypes => Declarations is { Count: > 0 } || Types is { Count: > 0 } || Locals is { Count: > 0 } || StackVars is { Count: > 0 } || HasFormat3
-                                || TypeEdits is { Count: > 0 };
+                                || TypeEdits is { Count: > 0 } || Fields is { Count: > 0 };
 
     public bool IsEmpty => Names.Count == 0 && Comments.Count == 0 && !HasUserTypes && !HasFormat4;
 }

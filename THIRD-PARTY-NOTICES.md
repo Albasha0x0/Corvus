@@ -88,7 +88,9 @@ from these Apache License 2.0 projects (https://www.apache.org/licenses/LICENSE-
   custom headless host, and the program saved before it and the project are released on shutdown (`Worker.java`);
   a decompilation that times out retried once with a longer limit inside the same request (`CodeOps.java`);
   inline scripts: a run() body wrapped into a GhidraScript class with its import lines moved to the top, the class name
-  taken from `public class`, and the script's directory enabled on the bundle host (`ScriptOps.java`).
+  taken from `public class`, and the script's directory enabled on the bundle host (`ScriptOps.java`); the set of
+  named type edits, after its data type tools (delete and rename a type; add, retype and remove one struct or union
+  member: `TypeEditOps.java`).
   Its NOTICE file reads:
 
   ```

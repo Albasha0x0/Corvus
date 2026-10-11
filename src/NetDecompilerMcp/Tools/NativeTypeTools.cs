@@ -391,34 +391,41 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     [McpServerTool(Name = "declare_native_types", Title = "Declare C types in the engine")]
     [Description("Declare C types (structs, unions, enums, typedefs, function types) in the engine (IDA or Ghidra), e.g. 'struct P { int len; " +
                  "char tag[4]; };'. A type of the same name is replaced; declarations win over recovered PDB, RTTI and Il2Cpp types. Errors come " +
-                 "with the engine's messages and are not saved. enumName with members upserts or removes enum members (creating the enum). delete " +
-                 "or rename edits a named type; declaring the name again undoes that. Edits survive recovered types and redeclarations." + KeptNote)]
+                 "with the engine's messages and are not saved. typeName with members upserts or removes enum members (creating the enum), with " +
+                 "fields struct or union members. delete or rename edits a named type; declaring the name again undoes that. Edits survive " +
+                 "recovered types and redeclarations." + KeptNote)]
     public Task<string> DeclareNativeTypes(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("C declarations, several allowed; types they name must exist or be declared in the same text.")] string? declarations = null,
-        [Description("An enum whose members to upsert.")] string? enumName = null,
-        [Description("With enumName: 'NAME=value' pairs separated by commas or lines (hex or decimal); 'NAME=' removes the member.")] string? members = null,
+        [Description("C declarations; types they name must exist or be declared too.")] string? declarations = null,
+        [Description("Enum, struct or union to edit.")] string? typeName = null,
+        [Description("Enum: 'NAME=value, ...' (hex or decimal; or lines); 'NAME=' removes.")] string? members = null,
+        [Description("Struct or union: 'name: type; name@0x10: type; @0x10: type' (or lines); 'name:' removes.")] string? fields = null,
         [Description("A type to delete.")] string? delete = null,
-        [Description("'Old=New' renames a type; the kept edits naming it follow.")] string? rename = null,
+        [Description("'Old=New'; kept edits naming it follow.")] string? rename = null,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var text = (declarations ?? "").Trim();
-        var enumMembers = EnumMembers(enumName, members);
+        if (!string.IsNullOrWhiteSpace(members) && !string.IsNullOrWhiteSpace(fields))
+            throw new ToolError(ErrorCode.InvalidArgument, "Pass members (an enum) or fields (a struct or union), not both.");
+        var enumMembers = string.IsNullOrWhiteSpace(fields) ? EnumMembers(typeName, members) : [];
+        var fieldEdits = string.IsNullOrWhiteSpace(fields) ? [] : FieldEdits(typeName, fields);
         var typeEdit = TypeEditRequest(delete, rename);
         if (typeEdit != null)
         {
-            if (text.Length > 0 || enumMembers.Count > 0) throw new ToolError(ErrorCode.InvalidArgument, "delete and rename go alone.", "make the other changes in another call");
+            if (text.Length > 0 || enumMembers.Count > 0 || fieldEdits.Count > 0)
+                throw new ToolError(ErrorCode.InvalidArgument, "delete and rename go alone.", "make the other changes in another call");
             return await EditType(image, typeEdit, engine, progress, cancellationToken);
         }
-        if (text.Length == 0 && enumMembers.Count == 0)
-            throw new ToolError(ErrorCode.InvalidArgument, "No declarations or enum members given.", "pass C declarations such as 'struct S { int a; };', or enumName and members");
+        if (text.Length == 0 && enumMembers.Count == 0 && fieldEdits.Count == 0)
+            throw new ToolError(ErrorCode.InvalidArgument, "Nothing to declare.", "pass C declarations such as 'struct S { int a; };', or typeName with members or fields");
         var (native, _, session) = await Open(image, "rva:0", engine, progress, cancellationToken);
         var edits = userTypes.Layer(native).TypeEdits;
-        var result = await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch(text.Length > 0 ? [text] : [], [], [], []) { EnumMembers = enumMembers },
-            (r, layer) => r.DeclarationErrors > 0 ? null : r.Items.Where(i => i.Applied).Aggregate(text.Length > 0 ? layer.WithDeclarations(text, r.DeclaredTypes) : layer,
-                (l, i) => enumMembers.FirstOrDefault(e => $"{e.Enum}::{e.Member}" == i.Target) is { } e ? l.WithEnumMember(e) : l), cancellationToken);
+        var result = await userTypes.ApplyAsync(native, session,
+            new NativeUserTypeBatch(text.Length > 0 ? [text] : [], [], [], []) { EnumMembers = enumMembers, Fields = fieldEdits },
+            (r, layer) => r.DeclarationErrors > 0 ? null : RecordMembers(r, text.Length > 0 ? layer.WithDeclarations(text, r.DeclaredTypes) : layer, enumMembers, fieldEdits),
+            cancellationToken);
         if (result.DeclarationErrors > 0)
             throw new ToolError(ErrorCode.InvalidArgument, $"{result.DeclarationErrors} error(s) in the declarations" +
                 (result.DeclarationMessages.Count > 0 ? ": " + string.Join("; ", result.DeclarationMessages) : "."), "fix the declarations and declare them again");
@@ -429,11 +436,47 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         if (text.Length > 0)
             sb.AppendLine(result.DeclaredTypes.Count == 0 ? "Declared (the engine reported no type names)."
                 : $"Declared {result.DeclaredTypes.Count} type(s): {string.Join(", ", result.DeclaredTypes.Distinct())}");
-        foreach (var i in result.Items.Where(i => i.Kind == "enum")) sb.AppendLine(i.Applied ? $"  {i.Text}" : $"  {i.Target} not applied: {i.Error}");
-        if (enumMembers.Count > 0 && result.Items.All(i => !i.Applied))
-            throw new ToolError(ErrorCode.InvalidArgument, "No enum member was applied:\n" + sb, "check the enum's name and the member names");
+        foreach (var i in result.Items.Where(i => i.Kind is "enum" or "field")) sb.AppendLine(i.Applied ? $"  {i.Text}" : $"  {i.Target} not applied: {i.Error}");
+        if (enumMembers.Count + fieldEdits.Count > 0 && result.Items.All(i => !i.Applied))
+            throw new ToolError(ErrorCode.InvalidArgument, "No member was applied:\n" + sb, "check the type's name and the member names; list_native_types name= shows them");
         return sb.ToString().TrimEnd();
     });
+
+    /// <summary>The applied enum members and fields (field outcomes in the order sent) recorded in the layer.</summary>
+    private static UserTypeLayer RecordMembers(UserTypeResult result, UserTypeLayer layer, List<NativeEnumMemberEdit> enums, List<NativeFieldEdit> fields)
+    {
+        foreach (var i in result.Items.Where(i => i.Kind == "enum" && i.Applied))
+            if (enums.FirstOrDefault(e => $"{e.Enum}::{e.Member}" == i.Target) is { } e) layer = layer.WithEnumMember(e);
+        foreach (var (item, edit) in result.Items.Where(i => i.Kind == "field").Zip(fields))
+            if (item.Applied) layer = layer.WithField(edit);
+        return layer;
+    }
+
+    /// <summary>"len: int; data@0x8: char[16]; @0x20: int; old:" for a struct or union: members to set, an empty type removing one.</summary>
+    internal static List<NativeFieldEdit> FieldEdits(string? typeName, string? fields)
+    {
+        var type = (typeName ?? "").Trim();
+        if (!Identifier(type)) throw new ToolError(ErrorCode.InvalidArgument, type.Length == 0 ? "fields needs typeName." : $"'{type}' is not a type name.",
+            "e.g. typeName=Packet fields='length: int; data@0x8: char[16]'");
+        var result = new List<NativeFieldEdit>();
+        foreach (var entry in (fields ?? "").Split([';', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            int colon = entry.IndexOf(':', StringComparison.Ordinal);
+            if (colon < 0) throw new ToolError(ErrorCode.InvalidArgument, $"'{entry}' has no ':'.", "write 'name: type', 'name@0x10: type', or 'name:' to remove it");
+            var head = entry[..colon].Trim();
+            var fieldType = entry[(colon + 1)..].Trim();
+            int at = head.IndexOf('@', StringComparison.Ordinal);
+            var name = (at < 0 ? head : head[..at]).Trim();
+            int? offset = null;
+            if (at >= 0)
+                offset = NativeAddress.Number(head[(at + 1)..].Trim()) is { } n && n <= int.MaxValue ? (int)n
+                    : throw new ToolError(ErrorCode.InvalidArgument, $"'{head[(at + 1)..].Trim()}' is not an offset.", "use @0x10 or @16");
+            if (name.Length > 0 && !Identifier(name)) throw new ToolError(ErrorCode.InvalidArgument, $"'{name}' is not a C identifier.");
+            if (name.Length == 0 && offset == null) throw new ToolError(ErrorCode.InvalidArgument, $"'{entry}' names no member.", "give a name, an @offset or both");
+            result.Add(new NativeFieldEdit(type, name.Length > 0 ? name : null, offset, fieldType.Length > 0 ? fieldType : null));
+        }
+        return result;
+    }
 
     /// <summary>declare_native_types delete=Name or rename='Old=New' as a type edit; null for neither.</summary>
     internal static NativeTypeEdit? TypeEditRequest(string? delete, string? rename)
@@ -471,12 +514,12 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     }
 
     /// <summary>"A=1, B=0x10, C=" for an enum: members to set, an empty value removing one.</summary>
-    internal static List<NativeEnumMemberEdit> EnumMembers(string? enumName, string? members)
+    internal static List<NativeEnumMemberEdit> EnumMembers(string? typeName, string? members)
     {
-        var name = (enumName ?? "").Trim();
+        var name = (typeName ?? "").Trim();
         var list = (members ?? "").Split([',', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (name.Length == 0 != (list.Length == 0))
-            throw new ToolError(ErrorCode.InvalidArgument, "enumName and members go together.", "pass both, e.g. enumName=Color members='Red=1, Green=2'");
+            throw new ToolError(ErrorCode.InvalidArgument, "typeName goes with members or fields.", "e.g. typeName=Color members='Red=1, Green=2'");
         if (name.Length > 0 && !Identifier(name)) throw new ToolError(ErrorCode.InvalidArgument, $"'{name}' is not a C identifier.");
         var result = new List<NativeEnumMemberEdit>();
         foreach (var pair in list)

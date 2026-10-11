@@ -64,7 +64,7 @@ public sealed class NativeTypeEditEngineTests(ITestOutputHelper output) : IDispo
         var path = Image();
         await rig.Types.DeclareNativeTypes(path, "struct NdmPkt { int length; char tag[4]; };\nenum NdmGone { NdmGoneA = 1 };", engine: engine);
         await rig.Types.SetNativeType(path, $"rva:0x{rig.Data:X}", "NdmPkt", engine: engine);
-        await rig.Types.DeclareNativeTypes(path, enumName: "NdmGone", members: "NdmGoneB=2", engine: engine);
+        await rig.Types.DeclareNativeTypes(path, typeName: "NdmGone", members: "NdmGoneB=2", engine: engine);
         output.WriteLine(await rig.Types.DeclareNativeTypes(path, rename: "NdmPkt=NdmMsg", engine: engine));
         Assert.Contains("Deleted type NdmGone", await rig.Types.DeclareNativeTypes(path, delete: "NdmGone", engine: engine));
         var layer = rig.Code.Annotations(rig.Native).UserTypes;
@@ -94,6 +94,47 @@ public sealed class NativeTypeEditEngineTests(ITestOutputHelper output) : IDispo
         await again.ApplyTypesAsync(new NativeTypeBatch("struct NdmUnrelated2 { int a; };", [], [], [], 8));
         Assert.Equal("enum", (await again.GetTypeAsync("NdmGone")).Kind);
     }
+
+    /// <summary>The members of a type as "name@offset:size".</summary>
+    private static async Task<string> Members(INativeDecompilerSession s, string type) =>
+        string.Join(" ", (await s.GetTypeAsync(type)).Members.Select(m => $"{m.Name}@{m.Offset:X}:{m.Size}"));
+
+    /// <summary>Retypes, places, moves and removes struct and union members, then checks them over a recovered type push and in a new database.</summary>
+    private async Task MemberEdits(string engine, string cache, string freshCache)
+    {
+        var rig = Setup(cache);
+        var path = Image();
+        await rig.Types.DeclareNativeTypes(path, "struct NdmRec { int a; int b; };\nunion NdmU { int x; short y; };", engine: engine);
+        var text = await rig.Types.DeclareNativeTypes(path, typeName: "NdmRec", fields: "b: char[8]; c@0x10: short; @0x0: unsigned int", engine: engine);
+        output.WriteLine(text);
+        var s = await rig.Session(engine);
+        output.WriteLine(await Members(s, "NdmRec"));
+        Assert.Equal("a@0:4 b@4:8 c@10:2", await Members(s, "NdmRec"));
+        Assert.Matches("unsigned int|uint", (await s.GetTypeAsync("NdmRec")).Members[0].Type);
+        output.WriteLine(await rig.Types.DeclareNativeTypes(path, typeName: "NdmRec", fields: "a@0x14: int\nc:", engine: engine));
+        Assert.Equal("b@4:8 a@14:4", await Members(s, "NdmRec"));
+        await rig.Types.DeclareNativeTypes(path, typeName: "NdmU", fields: "z: long long; y:", engine: engine);
+        Assert.Equal("x@0:4 z@0:8", await Members(s, "NdmU"));
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.DeclareNativeTypes(path, typeName: "NdmNoSuch", fields: "a: int", engine: engine))).Code);
+        Assert.Equal(6, rig.Code.Annotations(rig.Native).UserTypes.Fields.Count);
+
+        // a recovered type push declares NdmRec again from the user's text; the member edits are applied after it
+        await s.ApplyTypesAsync(new NativeTypeBatch("struct NdmUnrelated { int a; };", [], [], [], 8));
+        Assert.Equal("b@4:8 a@14:4", await Members(s, "NdmRec"));
+
+        Restart();
+        var fresh = Setup(freshCache);
+        output.WriteLine(await fresh.Types.GetNativeFrame(path, Function, engine: engine));
+        var again = await fresh.Session(engine);
+        Assert.Equal("b@4:8 a@14:4", await Members(again, "NdmRec"));
+        Assert.Equal("x@0:4 z@0:8", await Members(again, "NdmU"));
+    }
+
+    [IdaFact]
+    public Task Struct_and_union_member_edits_apply_in_IDA_stay_over_declarations_and_reach_a_new_database() => MemberEdits("ida", "ida-m", "ida-n");
+
+    [GhidraFact]
+    public Task Struct_and_union_member_edits_apply_in_Ghidra_stay_over_declarations_and_reach_a_new_project() => MemberEdits("ghidra", "ghidra-m", "ghidra-n");
 
     [IdaFact]
     public Task Type_renames_and_deletions_apply_in_IDA_stay_over_recovered_types_and_reach_a_new_database() =>

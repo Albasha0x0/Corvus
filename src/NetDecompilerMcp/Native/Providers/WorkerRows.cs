@@ -260,7 +260,7 @@ internal static class WorkerRows
 
     /// <summary>
     /// apply_user_types arguments: decls, types [[rva, declaration]], stack [[function, offset, name, type]], locals [[function,
-    /// local, stack, name, type]]; only when there are any: enums [[enum, member, value]], analysis [[rva, kind, end, type]],
+    /// local, stack, name, type]]; only when there are any: enums [[enum, member, value]], fields [[type, name, offset, type]], analysis [[rva, kind, end, type]],
     /// stack_deletes [[function, offset]], operands [[rva, operand, display, detail]]; type_edits [[name, new name or null]] when set.
     /// </summary>
     public static JsonObject UserTypeArgs(NativeUserTypeBatch batch, string? stampKey, string? stamp, bool save)
@@ -285,6 +285,8 @@ internal static class WorkerRows
             args["enums"] = new JsonArray(batch.EnumMembers.Select(e => (JsonNode)new JsonArray(e.Enum, e.Member, e.Value)).ToArray());
         if (batch.TypeEdits != null)
             args["type_edits"] = new JsonArray(batch.TypeEdits.Select(e => (JsonNode)new JsonArray(e.Name, e.NewName)).ToArray());
+        if (batch.Fields.Count > 0)
+            args["fields"] = new JsonArray(batch.Fields.Select(f => (JsonNode)new JsonArray(f.Type, f.Name, f.Offset, f.FieldType)).ToArray());
         if (deletes.Count > 0) args["stack_deletes"] = deletes;
         if (localClears.Count > 0) args["local_clears"] = localClears;
         if (stackClears.Count > 0) args["stack_clears"] = stackClears;

@@ -167,11 +167,11 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         var fn = rig.Native.Image.Exports.First(e => e.Name == Function).Rva;
         var data = rig.Native.Image.Sections.First(s => !s.IsExecutable && s.Name == ".data").Rva;
         await rig.Types.DeclareNativeTypes(path, "enum NdmMode { NdmSlow = 1 };");
-        var upsert = await rig.Types.DeclareNativeTypes(path, enumName: "NdmMode", members: "NdmFast=0x10, NdmSlow=2");
+        var upsert = await rig.Types.DeclareNativeTypes(path, typeName: "NdmMode", members: "NdmFast=0x10, NdmSlow=2");
         output.WriteLine(upsert);
         Assert.Contains("NdmMode::NdmFast = 0x10", upsert);
-        Assert.Contains("NdmCreated::NdmOne = 0x1", await rig.Types.DeclareNativeTypes(path, enumName: "NdmCreated", members: "NdmOne=1"));
-        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.DeclareNativeTypes(path, enumName: "NdmMode", members: "bad name=1"))).Code);
+        Assert.Contains("NdmCreated::NdmOne = 0x1", await rig.Types.DeclareNativeTypes(path, typeName: "NdmCreated", members: "NdmOne=1"));
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.DeclareNativeTypes(path, typeName: "NdmMode", members: "bad name=1"))).Code);
         var ida = await rig.Session("ida");
         // a recovered type push declares the user's enums again; the upserts stay
         await ida.ApplyTypesAsync(new NativeTypeBatch("struct NdmUnrelated { int a; };", [], [], [], 8));
@@ -210,7 +210,7 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         var fn = rig.Native.Image.Exports.First(e => e.Name == Function).Rva;
         var data = rig.Native.Image.Sections.First(s => !s.IsExecutable && s.Name == ".data").Rva;
         await rig.Types.DeclareNativeTypes(path, "enum NdmMode { NdmSlow = 1 };", engine: "ghidra");
-        Assert.Contains("NdmMode::NdmFast = 0x10", await rig.Types.DeclareNativeTypes(path, enumName: "NdmMode", members: "NdmFast=0x10, NdmSlow=2", engine: "ghidra"));
+        Assert.Contains("NdmMode::NdmFast = 0x10", await rig.Types.DeclareNativeTypes(path, typeName: "NdmMode", members: "NdmFast=0x10, NdmSlow=2", engine: "ghidra"));
         var ghidra = await rig.Session("ghidra");
         await ghidra.ApplyTypesAsync(new NativeTypeBatch("struct NdmUnrelated { int a; };", [], [], [], 8));
         var mode = await ghidra.GetTypeAsync("NdmMode");

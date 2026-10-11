@@ -58,6 +58,8 @@ public static class AnnotationExport
             foreach (var r in types.TypeEdits) sb.AppendLine($"ndm_type_edit({Py(r.Name)}, {PyOrNone(r.NewName)})");
             foreach (var e in batch.EnumMembers)
                 sb.AppendLine($"ndm_enum({Py(e.Enum)}, {Py(e.Member)}, {(e.Value is { } v ? v.ToString(System.Globalization.CultureInfo.InvariantCulture) : "None")})");
+            foreach (var f in types.Fields)
+                sb.AppendLine($"ndm_field({Py(f.Type)}, {PyOrNone(f.Name)}, {(f.Offset is { } o ? o.ToString(System.Globalization.CultureInfo.InvariantCulture) : "None")}, {PyOrNone(f.FieldType)})");
             foreach (var a in types.Analysis)
                 sb.AppendLine($"ndm_analysis(0x{a.Rva:X}, {Py(a.Kind)}, {(a.End is { } e ? $"0x{e:X}" : "None")}, {PyOrNone(a.Type)})");
             foreach (var (rva, t) in types.Types.OrderBy(t => t.Key)) sb.AppendLine($"ndm_type(0x{rva:X}, {Py(t)})");
@@ -151,6 +153,22 @@ public static class AnnotationExport
             if new_name is None or ida_typeinf.tinfo_t().get_named_type(None, new_name): ok = ida_typeinf.del_named_type(None, name, ida_typeinf.NTF_TYPE)
             else: ok = t.rename_type(new_name) == 0
             if not ok: ndm_failed.append('type %s' % name)
+        def ndm_field(tname, name, offset, text):
+            t = ida_typeinf.tinfo_t()
+            if not t.get_named_type(None, tname) or not t.is_udt(): ndm_failed.append('member %s' % tname); return
+            udt = ida_typeinf.udt_type_data_t(); t.get_udt_details(udt)
+            idx = t.get_udm(name)[0] if name else -1
+            if idx < 0 and offset is not None: idx = next((i for i, u in enumerate(udt) if not u.is_gap() and u.offset // 8 == offset), -1)
+            ft = ndm_parse(text) if text is not None else None
+            if text is None: ok = idx < 0 or t.del_udm(idx) == 0
+            elif ft is None: ok = False
+            elif idx >= 0 and (offset is None or t.is_union() or udt[idx].offset // 8 == offset):
+                ok = t.set_udm_type(idx, ft, ida_typeinf.ETF_MAY_DESTROY) == 0 and (not name or udt[idx].name == name or t.rename_udm(idx, name) == 0)
+            else:
+                if idx >= 0: t.del_udm(idx)
+                at = 0 if t.is_union() else offset if offset is not None else t.get_size()
+                ok = t.add_udm(name or 'field_%X' % at, ft, at * 8, ida_typeinf.ETF_MAY_DESTROY) == 0
+            if not ok: ndm_failed.append('member %s.%s' % (tname, name or offset))
         def ndm_enum(enum, member, value):
             t = ida_typeinf.tinfo_t()
             if not t.get_named_type(None, enum):
@@ -237,7 +255,7 @@ public static class AnnotationExport
         sb.AppendLine("// Ghidra script: apply names and comments exported from NetDecompilerMcp.");
         sb.AppendLine($"// Source: {ann.FilePath}  sha256 {ann.Sha256}");
         sb.AppendLine("// @category NetDecompilerMcp");
-        if (ann.UserTypes.Count > 0) sb.AppendLine($"// {ann.UserTypes.Count} user type(s) (declarations, type edits, enum members, analysis edits, prototypes, locals, stack variables, operand formats) are in the IDA and JSON exports only.");
+        if (ann.UserTypes.Count > 0) sb.AppendLine($"// {ann.UserTypes.Count} user type(s) (declarations, type edits, enum and struct members, analysis edits, prototypes, locals, stack variables, operand formats) are in the IDA and JSON exports only.");
         sb.AppendLine("import ghidra.app.script.GhidraScript;");
         sb.AppendLine("import ghidra.program.model.address.Address;");
         sb.AppendLine("import ghidra.program.model.symbol.SourceType;");
@@ -276,6 +294,7 @@ public static class AnnotationExport
             operands = ann.UserTypes.Operands.OrderBy(o => o.Key).Select(o => new { rva = o.Value.Rva, operand = o.Value.Operand, display = o.Value.Display, detail = o.Value.Detail }),
             enumMembers = ann.UserTypes.ToBatch().EnumMembers.Select(e => new { @enum = e.Enum, member = e.Member, value = e.Value }),
             typeEdits = ann.UserTypes.TypeEdits.Select(e => new { name = e.Name, newName = e.NewName }),
+            fields = ann.UserTypes.Fields.Select(f => new { type = f.Type, name = f.Name, offset = f.Offset, fieldType = f.FieldType }),
         };
         return JsonSerializer.Serialize(doc, IndentedJson);
     }

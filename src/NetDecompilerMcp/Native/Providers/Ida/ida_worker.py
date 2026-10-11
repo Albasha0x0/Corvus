@@ -1402,6 +1402,7 @@ def reapply_user_decls():
         idc.parse_decls(blob.decode("utf-8", "replace"), idc.PT_SILENT | idc.PT_REPLACE)
     reapply_user_type_edits()
     reapply_user_enums()
+    reapply_user_fields()
 
 
 def op_apply_user_types(args):
@@ -1780,10 +1781,11 @@ DATA_SIZES = {"byte": 1, "word": 2, "dword": 4, "qword": 8, "float": 4, "double"
 
 
 def apply_edits_before(m, ti, args):
-    # type_edits (when given, the whole kept list): [[name, new name or null]]; enums: [[enum, member, value or null]];
+    # type_edits (when given, the whole kept list): [[name, new name or null]]; enums: [[enum, member, value or null]]; fields;
     # analysis: [[rva, kind, end or null, type or null]] in the order made
     items = apply_type_edits(m, ti, args["type_edits"]) if args.get("type_edits") is not None else []
     items += [apply_enum_member(m, ti, e[0], e[1], e[2]) for e in args.get("enums") or []]
+    items += apply_fields(m, ti, args.get("fields") or [])
     items += apply_clears(m, ti, args)
     return items + [apply_analysis(m, ti, a[0], a[1], a[2], a[3]) for a in args.get("analysis") or []]
 
@@ -2051,7 +2053,7 @@ def apply_analysis(m, ti, rva, kind, end, typ):
     return item(False, "unknown analysis edit %r" % kind)
 
 
-# ---- type renames and deletions (apply_user_types) ----
+# ---- type renames, deletions and struct members (apply_user_types) ----
 
 def user_type_edits():
     # blob 'R' of USER_NODE: [[name, new name or null]], applied again after declarations
@@ -2100,17 +2102,102 @@ def edit_type(m, ti, name, new_name):
 
 
 def rekey_kept_members(name, new_name):
-    # the kept enum member edits of a renamed type follow it; a deleted type's are dropped
+    # the kept enum and struct member edits of a renamed type follow it; a deleted type's are dropped
     prefix = name + "::"
-    edits = user_enums()
-    if any(k.startswith(prefix) for k in edits):
-        moved = {}
-        for k, v in edits.items():
-            if not k.startswith(prefix):
-                moved[k] = v
-            elif new_name is not None:
-                moved[new_name + "::" + k[len(prefix):]] = v
-        user_node(True).setblob(json.dumps(moved).encode("utf-8"), 0, "E")
+    for tag, edits in (("E", user_enums()), ("F", user_fields())):
+        if any(k.startswith(prefix) for k in edits):
+            moved = {}
+            for k, v in edits.items():
+                if not k.startswith(prefix):
+                    moved[k] = v
+                elif new_name is not None:
+                    moved[new_name + "::" + k[len(prefix):]] = v
+            user_node(True).setblob(json.dumps(moved).encode("utf-8"), 0, tag)
+
+
+def user_fields():
+    # blob 'F' of USER_NODE: {"type::member or @0xoffset": [name, offset, type or null]} in the order made, applied again after declarations
+    n = user_node(False)
+    blob = n.getblob(0, "F") if n is not None else None
+    return json.loads(blob.decode("utf-8")) if blob else {}
+
+
+def apply_fields(m, ti, fields):
+    # fields: [[type, member name or null, offset or null, type or null]]
+    items = []
+    for tname, name, offset, typ in fields:
+        item = edit_field(m, ti, tname, name, offset, typ)
+        if item[3]:
+            kept = user_fields()
+            key = "%s::%s" % (tname, name if name else "@0x%X" % offset)
+            kept.pop(key, None)
+            kept[key] = [name, offset, typ]
+            user_node(True).setblob(json.dumps(kept).encode("utf-8"), 0, "F")
+        items.append(item)
+    return items
+
+
+def reapply_user_fields():
+    kept = user_fields()
+    if kept:
+        import ida_typeinf as ti
+        m = ida()
+        for key, (name, offset, typ) in kept.items():
+            edit_field(m, ti, key.partition("::")[0], name, offset, typ)
+
+
+def edit_field(m, ti, tname, name, offset, typ):
+    # a member by name, else by offset: typ None removes it; else it is retyped in place (and renamed), or placed at offset
+    # (moving a named member there; overlapped members are replaced), or appended
+    target = "%s.%s" % (tname, name if name else "+0x%X" % offset)
+
+    def item(applied, error, text=None):
+        return ["field", 0, target, applied, error, None, offset, text]
+
+    t = ti.tinfo_t()
+    if not t.get_named_type(None, tname):
+        return item(False, "no struct or union named %s" % tname)
+    if not t.is_udt():
+        return item(False, "%s is a %s, not a struct or union" % (tname, type_kind(ti, t)))
+    udt = ti.udt_type_data_t()
+    t.get_udt_details(udt)
+    idx = t.get_udm(name)[0] if name else -1
+    if idx < 0 and offset is not None:
+        idx = next((i for i, u in enumerate(udt) if not u.is_gap() and u.offset // 8 == offset), -1)
+    if typ is None:
+        if idx < 0:
+            return item(True, None, "no member %s" % target)
+        old = udt[idx].name
+        code = t.del_udm(idx)
+        if code != ti.TERR_OK:
+            return item(False, "IDA did not remove %s: %s" % (old, ti.tinfo_errstr(code)))
+        return item(True, None, "removed %s" % old)
+    ft = parse_type(ti, typ, False)
+    if ft is None:
+        return item(False, "the type %r does not parse (types it names must be declared first)" % typ)
+    try:
+        if idx >= 0 and (offset is None or t.is_union() or udt[idx].offset // 8 == offset):
+            code = t.set_udm_type(idx, ft, ti.ETF_MAY_DESTROY)
+            if code == ti.TERR_OK and name and udt[idx].name != name:
+                code = t.rename_udm(idx, name)
+        else:
+            if idx >= 0:
+                t.del_udm(idx)
+                t = ti.tinfo_t()
+                t.get_named_type(None, tname)
+            at = 0 if t.is_union() else offset if offset is not None else t.get_size()
+            code = t.add_udm(name or "field_%X" % at, ft, at * 8, ti.ETF_MAY_DESTROY)
+    except ValueError as e:
+        return item(False, "IDA refused %s: %s" % (target, e))
+    if code != ti.TERR_OK:
+        return item(False, "IDA refused %s: %s" % (target, ti.tinfo_errstr(code)))
+    t = ti.tinfo_t()
+    t.get_named_type(None, tname)
+    i, u = t.get_udm(name) if name else (-1, None)
+    if u is None:
+        t.get_udt_details(udt)
+        u = next((x for x in udt if not x.is_gap() and x.offset // 8 == offset), None)
+    return item(True, None, "%s.%s: %s at +0x%X" % (tname, u.name, type_text(ti, u.type, ""), u.offset // 8) if u is not None else target)
 
 
 # ---- clearing user edits, pseudocode comments, type guesses ----

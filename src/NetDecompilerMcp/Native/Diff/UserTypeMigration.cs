@@ -4,7 +4,7 @@ using NetDecompilerMcp.Native.Providers;
 namespace NetDecompilerMcp.Native.Diff;
 
 /// <summary>
-/// One user type of the old build and what happens to it: <see cref="Kind"/> declarations, type_edit, enum_member, analysis, operand, type, local or stack_var;
+/// One user type of the old build and what happens to it: <see cref="Kind"/> declarations, type_edit, enum_member, field, analysis, operand, type, local or stack_var;
 /// <see cref="Apply"/> adds it to a layer of the new build (null when skipped).
 /// </summary>
 public sealed record UserTypeStep(string Kind, uint? OldRva, uint? NewRva, string Value, bool Set, string Reason, int? Tier, double Confidence, string Detail,
@@ -43,6 +43,15 @@ public static class UserTypeMigration
             steps.Add(existing == e ? new("enum_member", null, null, value, false, "same_enum_member", null, 1, "the new build already has this enum member edit", null)
                 : existing != null ? new("enum_member", null, null, value, false, "user_enum_member_exists", null, 1, "the new build has its own edit of this member", null)
                 : new("enum_member", null, null, value, true, "copied", null, 1, "enum members have no address", l => l.WithEnumMember(e)));
+        }
+
+        foreach (var f in old.Fields)
+        {
+            var value = $"{f.Type}.{f.Key}{(f.FieldType != null ? ": " + f.FieldType : " removed")}";
+            var existing = target.Fields.FirstOrDefault(e => e.Type == f.Type && e.Key == f.Key);
+            steps.Add(existing == f ? new("field", null, null, value, false, "same_field", null, 1, "the new build already has this member edit", null)
+                : existing != null ? new("field", null, null, value, false, "user_field_exists", null, 1, "the new build has its own edit of this member", null)
+                : new("field", null, null, value, true, "copied", null, 1, "struct members have no address", l => l.WithField(f)));
         }
 
         // a mapped address passes the tier and score limits, else the reason it does not

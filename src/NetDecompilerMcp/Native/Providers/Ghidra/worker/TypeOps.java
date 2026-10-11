@@ -189,6 +189,7 @@ final class TypeOps {
         if (kept != null && !kept.isEmpty()) parseDeclarations(w, kept);
         TypeEditOps.reapply(w);
         EditOps.reapplyEnums(w);
+        TypeEditOps.reapplyFields(w);
     }
 
     /** A C prototype ("int __fastcall f(Foo *p)") as a function definition, parsed against the program's types; null when it does not parse. */

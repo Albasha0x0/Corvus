@@ -6,7 +6,7 @@ using NetDecompilerMcp.Native.Providers;
 namespace NetDecompilerMcp.Native.Annotations;
 
 /// <summary>
-/// The user's engine types of one image: C declarations, type renames and deletions, enum members, analysis edits (code,
+/// The user's engine types of one image: C declarations, type renames and deletions, enum and struct members, analysis edits (code,
 /// functions, data, undefined ranges), types of functions and globals by RVA, stack frame members and decompiler locals by
 /// function, operand display formats. Immutable; every change makes a new layer.
 /// </summary>
@@ -28,11 +28,13 @@ public sealed class UserTypeLayer
     public IReadOnlyDictionary<(string Enum, string Member), NativeEnumMemberEdit> EnumMembers { get; }
     /// <summary>Type renames and deletions in the order made, one per name.</summary>
     public IReadOnlyList<NativeTypeEdit> TypeEdits { get; }
+    /// <summary>Struct and union member edits in the order made, one per type and member (<see cref="NativeFieldEdit.Key"/>).</summary>
+    public IReadOnlyList<NativeFieldEdit> Fields { get; }
 
     public UserTypeLayer(IReadOnlyList<string> declarations, IReadOnlyDictionary<uint, string> types, IReadOnlyDictionary<uint, IReadOnlyList<NativeLocalEdit>> locals,
         IReadOnlyDictionary<uint, IReadOnlyList<NativeStackVarEdit>> stackVars, IReadOnlyList<NativeAnalysisEdit>? analysis = null,
         IReadOnlyDictionary<(uint, int), NativeOperandEdit>? operands = null, IReadOnlyDictionary<(string, string), NativeEnumMemberEdit>? enumMembers = null,
-        IReadOnlyList<NativeTypeEdit>? typeEdits = null)
+        IReadOnlyList<NativeTypeEdit>? typeEdits = null, IReadOnlyList<NativeFieldEdit>? fields = null)
     {
         Declarations = declarations;
         Types = types;
@@ -42,20 +44,22 @@ public sealed class UserTypeLayer
         Operands = operands ?? new Dictionary<(uint, int), NativeOperandEdit>();
         EnumMembers = enumMembers ?? new Dictionary<(string, string), NativeEnumMemberEdit>();
         TypeEdits = typeEdits ?? [];
+        Fields = fields ?? [];
     }
 
     private UserTypeLayer With(IReadOnlyList<string>? declarations = null, IReadOnlyDictionary<uint, string>? types = null,
         IReadOnlyDictionary<uint, IReadOnlyList<NativeLocalEdit>>? locals = null, IReadOnlyDictionary<uint, IReadOnlyList<NativeStackVarEdit>>? stackVars = null,
         IReadOnlyList<NativeAnalysisEdit>? analysis = null, IReadOnlyDictionary<(uint, int), NativeOperandEdit>? operands = null,
-        IReadOnlyDictionary<(string, string), NativeEnumMemberEdit>? enumMembers = null, IReadOnlyList<NativeTypeEdit>? typeEdits = null) =>
+        IReadOnlyDictionary<(string, string), NativeEnumMemberEdit>? enumMembers = null, IReadOnlyList<NativeTypeEdit>? typeEdits = null,
+        IReadOnlyList<NativeFieldEdit>? fields = null) =>
         new(declarations ?? Declarations, types ?? Types, locals ?? Locals, stackVars ?? StackVars, analysis ?? Analysis, operands ?? Operands, enumMembers ?? EnumMembers,
-            typeEdits ?? TypeEdits);
+            typeEdits ?? TypeEdits, fields ?? Fields);
 
     public bool IsEmpty => Declarations.Count == 0 && Types.Count == 0 && Locals.Count == 0 && StackVars.Count == 0 && Analysis.Count == 0 && Operands.Count == 0
-                           && EnumMembers.Count == 0 && TypeEdits.Count == 0;
+                           && EnumMembers.Count == 0 && TypeEdits.Count == 0 && Fields.Count == 0;
 
-    /// <summary>Declaration blocks, type edits, enum members, analysis edits, types, locals, stack members and operand formats.</summary>
-    public int Count => Declarations.Count + TypeEdits.Count + EnumMembers.Count + Analysis.Count + Types.Count + Locals.Values.Sum(l => l.Count) + StackVars.Values.Sum(s => s.Count)
+    /// <summary>Declaration blocks, type edits, enum and struct members, analysis edits, types, locals, stack members and operand formats.</summary>
+    public int Count => Declarations.Count + TypeEdits.Count + EnumMembers.Count + Fields.Count + Analysis.Count + Types.Count + Locals.Values.Sum(l => l.Count) + StackVars.Values.Sum(s => s.Count)
                         + Operands.Count;
 
     /// <summary>Everything, in the order an engine applies it.</summary>
@@ -66,6 +70,7 @@ public sealed class UserTypeLayer
     {
         TypeEdits = TypeEdits,
         EnumMembers = EnumMembers.OrderBy(e => e.Key, KeyOrder).Select(e => e.Value).ToList(),
+        Fields = Fields,
         Analysis = Analysis,
         Operands = Operands.OrderBy(o => o.Key).Select(o => o.Value).ToList(),
     };
@@ -86,6 +91,7 @@ public sealed class UserTypeLayer
         foreach (var d in Declarations) Add("D" + d);
         foreach (var r in TypeEdits) Add($"R{r.Name}:{r.NewName}");
         foreach (var e in EnumMembers.OrderBy(e => e.Key, KeyOrder).Select(e => e.Value)) Add(FormattableString.Invariant($"E{e.Enum}:{e.Member}:{e.Value}"));
+        foreach (var f in Fields) Add(FormattableString.Invariant($"F{f.Type}:{f.Name}:{f.Offset}:{f.FieldType}"));
         foreach (var a in Analysis) Add(FormattableString.Invariant($"A{a.Rva:X}:{a.Kind}:{a.End:X}:{a.Type}"));
         foreach (var (rva, type) in Types.OrderBy(t => t.Key)) Add(FormattableString.Invariant($"T{rva:X}:{type}"));
         foreach (var s in StackVars.OrderBy(s => s.Key).SelectMany(s => s.Value))
@@ -98,6 +104,10 @@ public sealed class UserTypeLayer
     /// <summary>With an enum member edit, replacing an earlier edit of the same member.</summary>
     public UserTypeLayer WithEnumMember(NativeEnumMemberEdit edit) =>
         With(enumMembers: new Dictionary<(string, string), NativeEnumMemberEdit>(EnumMembers) { [(edit.Enum, edit.Member)] = edit });
+
+    /// <summary>With a struct or union member edit, replacing (and moving after the others) an earlier edit of the same member.</summary>
+    public UserTypeLayer WithField(NativeFieldEdit edit) =>
+        With(fields: Fields.Where(f => f.Type != edit.Type || f.Key != edit.Key).Append(edit).ToList());
 
     /// <summary>With an operand's display format set; default removes it.</summary>
     public UserTypeLayer WithOperand(NativeOperandEdit edit)
@@ -129,12 +139,13 @@ public sealed class UserTypeLayer
 
     /// <summary>
     /// With a type renamed or deleted, replacing an earlier edit of the same name. A rename renames the type in the other
-    /// edits (declarations, types, locals, stack members, data, operands, enum members); a deletion drops its enum members.
+    /// edits (declarations, types, locals, stack members, data, operands, enum and struct members); a deletion drops its member edits.
     /// </summary>
     public UserTypeLayer WithTypeEdit(NativeTypeEdit edit)
     {
         var layer = edit.NewName is { } to ? Renamed(edit.Name, to)
-            : With(enumMembers: EnumMembers.Where(e => e.Key.Enum != edit.Name).ToDictionary(e => e.Key, e => e.Value));
+            : With(enumMembers: EnumMembers.Where(e => e.Key.Enum != edit.Name).ToDictionary(e => e.Key, e => e.Value),
+                fields: Fields.Where(f => f.Type != edit.Name).ToList());
         return layer.With(typeEdits: layer.TypeEdits.Where(e => e.Name != edit.Name).Append(edit).ToList());
     }
 
@@ -150,7 +161,8 @@ public sealed class UserTypeLayer
             analysis: Analysis.Select(a => a with { Type = N(a.Type) }).ToList(),
             operands: Operands.ToDictionary(o => o.Key, o => o.Value.Display is "enum" or "struct" ? o.Value with { Detail = N(o.Value.Detail) } : o.Value),
             enumMembers: EnumMembers.Values.Select(e => e.Enum == from ? e with { Enum = to } : e).ToDictionary(e => (e.Enum, e.Member)),
-            typeEdits: TypeEdits.Select(e => e.NewName == from ? e with { NewName = to } : e).ToList());
+            typeEdits: TypeEdits.Select(e => e.NewName == from ? e with { NewName = to } : e).ToList(),
+            fields: Fields.Select(f => f with { Type = f.Type == from ? to : f.Type, FieldType = N(f.FieldType) }).ToList());
     }
 
     /// <summary>

@@ -1894,16 +1894,17 @@ A native function's stack frame as the engine has it (members: offset, name, typ
 
 **Declare C types in the engine** (destructive, idempotent, open-world, long-running)
 
-Declare C types (structs, unions, enums, typedefs, function types) in the engine (IDA or Ghidra), e.g. 'struct P { int len; char tag[4]; };'. A type of the same name is replaced; declarations win over recovered PDB, RTTI and Il2Cpp types. Errors come with the engine's messages and are not saved. enumName with members upserts or removes enum members (creating the enum). delete or rename edits a named type; declaring the name again undoes that. Edits survive recovered types and redeclarations. Kept with the image's annotations: replayed into new databases, exported, carried to new builds.
+Declare C types (structs, unions, enums, typedefs, function types) in the engine (IDA or Ghidra), e.g. 'struct P { int len; char tag[4]; };'. A type of the same name is replaced; declarations win over recovered PDB, RTTI and Il2Cpp types. Errors come with the engine's messages and are not saved. typeName with members upserts or removes enum members (creating the enum), with fields struct or union members. delete or rename edits a named type; declaring the name again undoes that. Edits survive recovered types and redeclarations. Kept with the image's annotations: replayed into new databases, exported, carried to new builds.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
-| `declarations` | string |  |  | C declarations, several allowed; types they name must exist or be declared in the same text. |
-| `enumName` | string |  |  | An enum whose members to upsert. |
-| `members` | string |  |  | With enumName: 'NAME=value' pairs separated by commas or lines (hex or decimal); 'NAME=' removes the member. |
+| `declarations` | string |  |  | C declarations; types they name must exist or be declared too. |
+| `typeName` | string |  |  | Enum, struct or union to edit. |
+| `members` | string |  |  | Enum: 'NAME=value, ...' (hex or decimal; or lines); 'NAME=' removes. |
+| `fields` | string |  |  | Struct or union: 'name: type; name@0x10: type; @0x10: type' (or lines); 'name:' removes. |
 | `delete` | string |  |  | A type to delete. |
-| `rename` | string |  |  | 'Old=New' renames a type; the kept edits naming it follow. |
+| `rename` | string |  |  | 'Old=New'; kept edits naming it follow. |
 | `engine` | string |  |  | Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra), ida or ghidra. Values: auto, ida, ghidra. |
 
 ### list_native_types

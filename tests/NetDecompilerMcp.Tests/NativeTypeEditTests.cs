@@ -154,6 +154,61 @@ public sealed class NativeTypeEditTests : IDisposable
         Assert.DoesNotContain(code.Annotations(native).UserTypes.TypeEdits, e => e.Name == "Other");
     }
 
+    [Fact]
+    public void Fields_parse_names_offsets_types_and_removals()
+    {
+        Assert.Equal([new NativeFieldEdit("Packet", "len", null, "int"), new("Packet", "data", 8, "char[16]"), new("Packet", null, 0x20, "std::size_t"),
+                new("Packet", "old", null, null), new("Packet", null, 4, null)],
+            NativeTypeTools.FieldEdits("Packet", "len: int; data@0x8: char[16]\n@0x20: std::size_t; old:; @4:"));
+        Assert.Equal("@0x20", new NativeFieldEdit("Packet", null, 0x20, null).Key);
+        foreach (var (type, fields) in new[] { ("", "a: int"), ("Packet", "a int"), ("Packet", "bad name: int"), ("Packet", ": int"), ("Packet", "a@zz: int") })
+            Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => NativeTypeTools.FieldEdits(type, fields)).Code);
+    }
+
+    [Fact]
+    public void Field_edits_replace_by_member_follow_renames_drop_with_deletions_and_round_trip()
+    {
+        var layer = Seeded().WithField(new("Packet", "len", null, "int")).WithField(new("Packet", null, 8, "PacketSize"))
+            .WithField(new("PacketSize", "p", null, "Packet *")).WithField(new("Packet", "len", 4, "short"));
+        // the same member again replaces the earlier edit and moves after the others
+        Assert.Equal(["@0x8", "p", "len"], layer.Fields.Select(f => f.Key));
+        Assert.Equal(4, layer.Fields[^1].Offset);
+
+        var renamed = layer.WithTypeEdit(new("Packet", "Msg"));
+        Assert.Equal(["Msg", "PacketSize", "Msg"], renamed.Fields.Select(f => f.Type));
+        Assert.Equal("Msg *", renamed.Fields[1].FieldType);
+        Assert.Equal([new NativeFieldEdit("PacketSize", "p", null, "Packet *")], layer.WithTypeEdit(new("Packet", null)).Fields);
+
+        var store = new AnnotationStore(_dir.File("ann"));
+        var ann = new NativeAnnotations(store, _dir.File("image.dll"), "ef56", 0x180000000);
+        ann.ChangeUserTypes(_ => layer.WithField(new("PacketSize", "gone", null, null)));
+        var again = new NativeAnnotations(store, _dir.File("image.dll"), "ef56", 0x180000000).UserTypes;
+        Assert.Equal(ann.UserTypes.Fields, again.Fields);
+        Assert.Equal(ann.UserTypes.Stamp, again.Stamp);
+        Assert.Equal("[[\"Packet\",null,8,\"PacketSize\"],[\"PacketSize\",\"p\",null,\"Packet *\"],[\"Packet\",\"len\",4,\"short\"],[\"PacketSize\",\"gone\",null,null]]",
+            WorkerRows.UserTypeArgs(again.ToBatch(), null, null, false)["fields"]!.ToJsonString());
+        var ida = AnnotationExport.Render(ann, AnnotationExport.Format.Ida);
+        Assert.Contains("ndm_field(\"Packet\", None, 8, \"PacketSize\")", ida);
+        Assert.Contains("ndm_field(\"PacketSize\", \"gone\", None, None)", ida);
+        Assert.True(ida.IndexOf("ndm_field(", StringComparison.Ordinal) < ida.IndexOf("ndm_type(", StringComparison.Ordinal));
+        Assert.Equal("len", JsonDocument.Parse(AnnotationExport.Render(ann, AnnotationExport.Format.Json)).RootElement.GetProperty("fields")[2].GetProperty("name").GetString());
+    }
+
+    [Fact]
+    public async Task Fields_go_to_the_engine_and_only_the_applied_ones_are_recorded()
+    {
+        var (tools, engine, code, native) = await Rig();
+        await tools.DeclareNativeTypes(native.Id, "struct Packet { int length; };\nenum Mode { Slow = 1 };");
+        var text = await tools.DeclareNativeTypes(native.Id, typeName: "Packet", fields: "length: short; tag@0x8: char[4]");
+        Assert.Contains("Packet.tag: char[4]", text);
+        Assert.Equal([new NativeFieldEdit("Packet", "length", null, "short"), new("Packet", "tag", 8, "char[4]")], engine.Batches[^2].Fields);
+        Assert.Equal(engine.Batches[^2].Fields, code.Annotations(native).UserTypes.Fields);
+        Assert.Contains("no struct or union named Mode", (await Assert.ThrowsAsync<ToolError>(() => tools.DeclareNativeTypes(native.Id, typeName: "Mode", fields: "a: int"))).Message);
+        Assert.Equal(2, code.Annotations(native).UserTypes.Fields.Count);
+        Assert.Equal(ErrorCode.InvalidArgument,
+            (await Assert.ThrowsAsync<ToolError>(() => tools.DeclareNativeTypes(native.Id, typeName: "Packet", members: "A=1", fields: "a: int"))).Code);
+    }
+
     /// <summary>An engine that keeps named types and applies declarations and type edits as the workers do.</summary>
     internal sealed class ScriptedProvider : INativeDecompilerProvider
     {
@@ -190,6 +245,11 @@ public sealed class NativeTypeEditTests : IDisposable
                 items.Add(new("type_edit", 0, e.Name, ok, ok ? null : "refused", null, null, ok ? "done" : null));
             }
             foreach (var e in batch.EnumMembers) items.Add(new("enum", 0, $"{e.Enum}::{e.Member}", true, null, null, null, $"{e.Enum}::{e.Member} = 0x{e.Value:X}"));
+            foreach (var f in batch.Fields)
+            {
+                bool ok = Types.GetValueOrDefault(f.Type) is "struct" or "union";
+                items.Add(new("field", 0, $"{f.Type}.{f.Key}", ok, ok ? null : $"no struct or union named {f.Type}", null, f.Offset, ok ? $"{f.Type}.{f.Key}: {f.FieldType}" : null));
+            }
             foreach (var t in batch.Types) items.Add(new("type", t.Rva, t.Declaration, true, null, null, null, t.Declaration));
             if (stampKey != null) Stamps[stampKey] = stamp ?? "";
             return new UserTypeResult(0, [], declared, items, TimeSpan.Zero);

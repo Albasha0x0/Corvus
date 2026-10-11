@@ -1,5 +1,5 @@
-// The user's type renames and deletions as apply_user_types items, kept in the program and applied again after
-// declarations.
+// The user's type renames and deletions and struct and union member edits as apply_user_types items, kept in the
+// program and applied again after declarations.
 package ndm.ghidra;
 
 import java.util.ArrayList;
@@ -11,8 +11,12 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import ghidra.program.model.data.Composite;
 import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.DataTypeComponent;
 import ghidra.program.model.data.DataTypeManager;
+import ghidra.program.model.data.Structure;
+import ghidra.program.model.data.Union;
 import ghidra.util.exception.DuplicateNameException;
 
 /** Edits made inside {@link TypeOps#applyUserTypes}, so they share its transaction, stamp and save. */
@@ -80,26 +84,138 @@ final class TypeEditOps {
             if (!dtm.remove(dt)) return FrameOps.item("type_edit", 0, name, false, "Ghidra did not delete " + dt.getPathName(), null, null, null);
             deleted = true;
         }
-        if (renamed || newName == null) rekeyEnums(w, name, newName);
+        if (renamed || newName == null) rekeyMembers(w, name, newName);
         String text = renamed ? "renamed " + name + " to " + newName : newName == null ? "deleted " + name : newName + " exists; deleted " + name;
         return FrameOps.item("type_edit", 0, name, true, null, null, null, deleted && renamed ? text + " (and another " + name + ")" : text);
     }
 
-    /** The kept enum member edits of a renamed type follow it; a deleted type's are dropped. */
-    private static void rekeyEnums(Worker w, String name, String newName) {
+    /** The kept enum and struct member edits of a renamed type follow it; a deleted type's are dropped. */
+    private static void rekeyMembers(Worker w, String name, String newName) {
         var options = w.program.getOptions(Worker.STAMPS);
-        String kept = options.getString(EditOps.USER_ENUMS, "");
-        if (kept == null || kept.isEmpty()) return;
-        String prefix = name + "::";
-        JsonObject edits = JsonParser.parseString(kept).getAsJsonObject(), moved = new JsonObject();
-        boolean changed = false;
-        for (Map.Entry<String, JsonElement> e : edits.entrySet()) {
-            if (!e.getKey().startsWith(prefix)) moved.add(e.getKey(), e.getValue());
-            else {
-                changed = true;
-                if (newName != null) moved.add(newName + "::" + e.getKey().substring(prefix.length()), e.getValue());
+        for (String option : new String[] { EditOps.USER_ENUMS, USER_FIELDS }) {
+            String kept = options.getString(option, "");
+            if (kept == null || kept.isEmpty()) continue;
+            String prefix = name + "::";
+            JsonObject edits = JsonParser.parseString(kept).getAsJsonObject(), moved = new JsonObject();
+            boolean changed = false;
+            for (Map.Entry<String, JsonElement> e : edits.entrySet()) {
+                if (!e.getKey().startsWith(prefix)) moved.add(e.getKey(), e.getValue());
+                else {
+                    changed = true;
+                    if (newName != null) moved.add(newName + "::" + e.getKey().substring(prefix.length()), e.getValue());
+                }
             }
+            if (changed) options.setString(option, moved.toString());
         }
-        if (changed) options.setString(EditOps.USER_ENUMS, moved.toString());
+    }
+
+    /** Program option: the user's struct and union member edits as JSON {"type::member or @0xoffset": [name, offset, type or null]} in the order made. */
+    static final String USER_FIELDS = "ndm_user_fields";
+
+    private static JsonObject userFields(Worker w) {
+        String kept = w.program.getOptions(Worker.STAMPS).getString(USER_FIELDS, "");
+        return kept == null || kept.isEmpty() ? new JsonObject() : JsonParser.parseString(kept).getAsJsonObject();
+    }
+
+    /** fields [[type, member name or null, offset or null, type or null]]; the applied ones are kept. */
+    static void fields(Worker w, Worker.Request r, JsonArray items) {
+        for (JsonElement e : Worker.array(r.args, "fields")) {
+            JsonArray f = e.getAsJsonArray();
+            String type = f.get(0).getAsString();
+            String name = f.get(1).isJsonNull() ? null : f.get(1).getAsString();
+            Integer offset = f.get(2).isJsonNull() ? null : f.get(2).getAsInt();
+            String fieldType = f.get(3).isJsonNull() ? null : f.get(3).getAsString();
+            JsonArray item = field(w, type, name, offset, fieldType);
+            if (item.get(3).getAsBoolean()) {
+                JsonObject kept = userFields(w);
+                String key = type + "::" + (name != null ? name : "@0x" + Integer.toHexString(offset).toUpperCase());
+                kept.remove(key);
+                JsonArray value = new JsonArray();
+                value.add(name);
+                value.add(offset);
+                value.add(fieldType);
+                kept.add(key, value);
+                w.program.getOptions(Worker.STAMPS).setString(USER_FIELDS, kept.toString());
+            }
+            items.add(item);
+        }
+    }
+
+    /** The user's member edits again, after declarations replaced the structs. */
+    static void reapplyFields(Worker w) {
+        for (Map.Entry<String, JsonElement> e : userFields(w).entrySet()) {
+            int sep = e.getKey().indexOf("::");
+            JsonArray v = e.getValue().getAsJsonArray();
+            if (sep > 0) field(w, e.getKey().substring(0, sep), v.get(0).isJsonNull() ? null : v.get(0).getAsString(),
+                v.get(1).isJsonNull() ? null : v.get(1).getAsInt(), v.get(2).isJsonNull() ? null : v.get(2).getAsString());
+        }
+    }
+
+    /**
+     * A member by name, else by offset: a null type removes it; else it is retyped in place (and renamed), or placed at
+     * offset (moving a named member there; overlapped members are replaced), or appended. A packed structure edited at an
+     * offset, or losing a member, keeps its current layout unpacked.
+     */
+    static JsonArray field(Worker w, String typeName, String name, Integer offset, String type) {
+        String target = typeName + "." + (name != null ? name : "+0x" + Integer.toHexString(offset).toUpperCase());
+        Composite c = null;
+        for (DataType dt : named(w, typeName))
+            if (dt instanceof Composite found) {
+                c = found;
+                break;
+            }
+        if (c == null) return fieldItem(target, offset, false, "no struct or union named " + typeName, null);
+        DataTypeComponent at = null;
+        for (DataTypeComponent m : c.getDefinedComponents())
+            if (name != null && name.equals(m.getFieldName())) at = m;
+        if (at == null && offset != null)
+            for (DataTypeComponent m : c.getDefinedComponents())
+                if (m.getOffset() == offset) at = m;
+        try {
+            if (type == null) {
+                if (at == null) return fieldItem(target, offset, true, null, "no member " + target);
+                String old = at.getFieldName() != null ? at.getFieldName() : at.getDefaultFieldName();
+                if (c instanceof Structure s) {
+                    // the other members keep their offsets, as in IDA
+                    if (s.isPackingEnabled()) s.setPackingEnabled(false);
+                    s.clearComponent(at.getOrdinal());
+                }
+                else c.delete(at.getOrdinal());
+                return fieldItem(target, offset, true, null, "removed " + old);
+            }
+            DataType dt = TypeOps.parseType(w, type);
+            if (dt == null) return fieldItem(target, offset, false, "the type '" + type + "' does not parse (types it names must be declared first)", null);
+            int len = dt.getLength();
+            if (len <= 0) return fieldItem(target, offset, false, type + " has no fixed size", null);
+            String member = name != null ? name : at != null && at.getFieldName() != null ? at.getFieldName() : "field_" + Integer.toHexString(offset).toUpperCase();
+            DataTypeComponent made;
+            if (c instanceof Union u) {
+                int ordinal = at != null ? at.getOrdinal() : u.getNumComponents();
+                if (at != null) u.delete(ordinal);
+                made = u.insert(ordinal, dt, len, member, null);
+            }
+            else {
+                Structure s = (Structure) c;
+                if (at != null && offset == null && s.isPackingEnabled()) made = s.replace(at.getOrdinal(), dt, len, member, null);
+                else if (at == null && offset == null) made = s.add(dt, len, member, null);
+                else {
+                    int place = offset != null ? offset : at.getOffset();
+                    if (s.isPackingEnabled()) s.setPackingEnabled(false);
+                    if (at != null && at.getOffset() != place) s.clearComponent(at.getOrdinal());
+                    if (place + len > s.getLength()) s.growStructure(place + len - s.getLength());
+                    for (int o = place; o < place + len; o++) s.clearAtOffset(o);
+                    made = s.replaceAtOffset(place, dt, len, member, null);
+                }
+            }
+            return fieldItem(target, offset, true, null, typeName + "." + made.getFieldName() + ": " + made.getDataType().getDisplayName() + " at +0x" +
+                Integer.toHexString(made.getOffset()).toUpperCase());
+        }
+        catch (IllegalArgumentException | IndexOutOfBoundsException e) {
+            return fieldItem(target, offset, false, "Ghidra refused " + target + ": " + e.getMessage(), null);
+        }
+    }
+
+    private static JsonArray fieldItem(String target, Integer offset, boolean applied, String error, String text) {
+        return FrameOps.item("field", 0, target, applied, error, null, offset, text);
     }
 }

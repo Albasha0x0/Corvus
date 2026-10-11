@@ -67,7 +67,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         [property: Description("Candidate or nearby new addresses when not mapped.")] IReadOnlyList<string> Candidates);
 
     public sealed record MigrationEntry(
-        [property: Description("name, comment, or a user type: declarations, type_edit, enum_member, analysis, operand, type, local, stack_var.")] string Kind,
+        [property: Description("name, comment, or a user type: declarations, type_edit, enum_member, field, analysis, operand, type, local, stack_var.")] string Kind,
         [property: Description("Layer it came from in the old build: user, pdb or il2cpp.")] string Source,
         [property: Description("Null for declarations.")] string? OldAddress, string? NewAddress, string Value,
         [property: Description("set (or would_set in a dry run) or skipped.")] string Action,
