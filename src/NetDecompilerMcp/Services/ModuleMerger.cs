@@ -214,6 +214,7 @@ internal sealed class ModuleMerger
             }
         }
 
+        var declared = new List<(IHasCustomAttribute Member, TypeDef Type)>(); // properties and events
         foreach (var (c, t) in _newProperties)
         {
             var importer = ImporterFor(t, null);
@@ -222,6 +223,7 @@ internal sealed class ModuleMerger
             foreach (var s in c.SetMethods) if (MapMethod(s) is { } ms) p.SetMethods.Add(ms);
             CopyAttributes(c, p, importer);
             t.Properties.Add(p);
+            declared.Add((p, t));
         }
 
         foreach (var (c, t) in _newEvents)
@@ -235,14 +237,49 @@ internal sealed class ModuleMerger
             };
             CopyAttributes(c, e, importer);
             t.Events.Add(e);
+            declared.Add((e, t));
         }
+        MarkNullableOblivious(declared);
+    }
+
+    /// <summary>
+    /// Patches compile without nullable annotations; a member added to a type with a nullable context would read as
+    /// annotated by it (T as notnull, string as non-null), so it is marked oblivious with the target's own attributes.
+    /// </summary>
+    private void MarkNullableOblivious(List<(IHasCustomAttribute Member, TypeDef Type)> propertiesAndEvents)
+    {
+        var newTypes = _newTypes.Select(x => x.Target).ToHashSet();
+        // The enclosing context attribute when it is not oblivious; its constructor (a definition or a reference) is reused.
+        CustomAttribute? Context(TypeDef? t)
+        {
+            for (; t != null && !newTypes.Contains(t); t = t.DeclaringType)
+                if (t.CustomAttributes.Find("System.Runtime.CompilerServices.NullableContextAttribute") is { } ca)
+                    return ca.ConstructorArguments is [{ Value: byte b }] && b != 0 ? ca : null;
+            return null;
+        }
+        CustomAttribute Oblivious(ICustomAttributeType ctor) => new(ctor, [new CAArgument(_target.CorLibTypes.Byte, (byte)0)]);
+
+        foreach (var (_, m) in _newMethods)
+            if (Context(m.DeclaringType) is { } ca) m.CustomAttributes.Add(Oblivious(ca.Constructor));
+        var nullable = _target.GetTypes().SelectMany(t => t.CustomAttributes.Concat(t.Fields.SelectMany(f => f.CustomAttributes)))
+            .FirstOrDefault(ca => ca.TypeFullName == "System.Runtime.CompilerServices.NullableAttribute" && ca.ConstructorArguments is [{ Value: byte }])?.Constructor;
+        if (nullable == null) return;
+        foreach (var (member, t) in _newFields.Select(x => ((IHasCustomAttribute)x.Target, x.Target.DeclaringType)).Concat(propertiesAndEvents))
+            if (Context(t) != null) member.CustomAttributes.Add(Oblivious(nullable));
     }
 
     private void CopyGenericConstraints(IList<GenericParam> from, IList<GenericParam> to, Importer importer)
     {
         for (int i = 0; i < from.Count && i < to.Count; i++)
+        {
             foreach (var c in from[i].GenericParamConstraints)
-                to[i].GenericParamConstraints.Add(new GenericParamConstraintUser(importer.Import(c.Constraint)));
+            {
+                var copy = new GenericParamConstraintUser(importer.Import(c.Constraint));
+                CopyAttributes(c, copy, importer);
+                to[i].GenericParamConstraints.Add(copy);
+            }
+            CopyAttributes(from[i], to[i], importer);
+        }
     }
 
     /// <summary>Copies custom attributes, skipping the attribute types Roslyn embeds into the compiled assembly (Nullable, IsReadOnly...).</summary>

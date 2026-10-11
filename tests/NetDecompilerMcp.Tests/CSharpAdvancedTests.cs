@@ -79,6 +79,23 @@ public class CSharpAdvancedTests : IDisposable
         Assert.DoesNotContain("<>", result);
     }
 
+    /// <summary>
+    /// Added members of a type with a nullable context are marked oblivious (an added T Same&lt;T&gt;(T) read as where T : notnull),
+    /// and attributes of added type parameters are kept.
+    /// </summary>
+    [Fact]
+    public void AddedMembersAreNullableObliviousAndKeepTypeParameterAttributes()
+    {
+        AddMembers("Shop", "public static T Same<T>(T x) => x; public static U Choose<[System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicMethods)] U>(U a) => a; public static string Note;");
+        var shop = (dnlib.DotNet.TypeDef)_env.One("Fixture.Model.Shop", SymbolKind.Type).Member;
+        Assert.Contains(shop.Methods.Single(m => m.Name == "Same").CustomAttributes, ca => ca.TypeFullName == "System.Runtime.CompilerServices.NullableContextAttribute"
+                                                                                       && ca.ConstructorArguments[0].Value is (byte)0);
+        Assert.Contains(shop.Fields.Single(f => f.Name == "Note").CustomAttributes, ca => ca.TypeFullName == "System.Runtime.CompilerServices.NullableAttribute");
+        Assert.DoesNotContain("notnull", _env.Decompile("Fixture.Model.Shop::Same<T>(T)"));
+        var pick = shop.Methods.Single(m => m.Name == "Choose").GenericParameters[0];
+        Assert.Contains(pick.CustomAttributes, ca => ca.TypeFullName == "System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute");
+    }
+
     [Fact]
     public void LambdasLinqAndCapturedThis()
     {
