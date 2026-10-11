@@ -160,6 +160,16 @@ public class RealWorldShapeTests : IDisposable
     }
 
     [Fact]
+    public void Android_UnityMonoAndAppBundle_AreLabelledSo()
+    {
+        var unity = Save("unity.apk", ContainerFixtures.Zip(("AndroidManifest.xml", [1]), ("lib/armeabi-v7a/libmonobdwgc-2.0.so", [2]),
+            ("assets/bin/Data/Managed/Assembly-CSharp.dll", ContainerFixtures.Module("Assembly-CSharp", _ => { }))));
+        Assert.Equal("Android package (Unity Mono)", Inspection.Summarize(null, unity, default).Container);
+        var aab = Save("app.aab", ContainerFixtures.Zip(("BundleConfig.pb", [1]), ("base/manifest/AndroidManifest.xml", [2]), ("base/dex/classes.dex", [3])));
+        Assert.Equal("Android App Bundle (no .NET runtime or assemblies)", Inspection.Summarize(null, aab, default).Container);
+    }
+
+    [Fact]
     public void Certificates_TimestampedSignatureWithAnExpiredCertificate_IsTrusted()
     {
         if (!OperatingSystem.IsWindows()) return; // needs the Windows root store

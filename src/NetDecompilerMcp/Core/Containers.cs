@@ -203,8 +203,14 @@ public static class Containers
 
     private static ContainerContents ReadZipEntries(List<(string FullName, Func<byte[]?> Read)> entries, AnalysisLimits limits, CancellationToken ct)
     {
-        string kind = entries.Any(e => e.FullName == "AndroidManifest.xml")
-                ? entries.Any(e => IsAndroidDotNet(e.FullName)) ? "Android package (Xamarin / MAUI)" : "Android package (no .NET runtime or assemblies)"
+        string? android = entries.Any(e => e.FullName == "AndroidManifest.xml") ? "Android package"
+            : entries.Any(e => e.FullName is "BundleConfig.pb" or "base/manifest/AndroidManifest.xml") ? "Android App Bundle"
+            : null;
+        // Unity Mono ships its Managed folder as plain .dll entries, which would otherwise read as Xamarin / MAUI.
+        string kind = android != null
+                ? entries.Any(e => e.FullName.Contains("assets/bin/Data/Managed/", StringComparison.Ordinal)) ? android + " (Unity Mono)"
+                : entries.Any(e => IsAndroidDotNet(e.FullName)) ? android + " (Xamarin / MAUI)"
+                : android + " (no .NET runtime or assemblies)"
             : entries.Any(e => e.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase)) ? "NuGet package"
             : "zip archive";
         var items = new List<ExtractedItem>();
