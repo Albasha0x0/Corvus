@@ -12,10 +12,22 @@ public sealed record ApkCertificate(string Subject, string Issuer, string Sha256
     bool IsDebug);
 
 /// <summary>A certificate of a v3 rotation lineage, oldest first; <paramref name="Flags"/> are the capabilities granted to it.</summary>
-public sealed record ApkLineageNode(ApkCertificate Certificate, uint Flags);
+public sealed record ApkLineageNode(ApkCertificate Certificate, uint Flags)
+{
+    /// <summary>The capability flags by name: installed_data, shared_uid, permission, rollback, auth.</summary>
+    public IReadOnlyList<string> Capabilities => [.. CapabilityNames.Where(c => (Flags & c.Bit) != 0).Select(c => c.Name)];
+
+    private static readonly (uint Bit, string Name)[] CapabilityNames = [(1, "installed_data"), (2, "shared_uid"), (4, "permission"), (8, "rollback"), (16, "auth")];
+}
 
 public sealed record ApkSigner(IReadOnlyList<ApkCertificate> Certificates, IReadOnlyList<string> Algorithms, int? MinSdk, int? MaxSdk, string Verdict,
-    IReadOnlyList<string> Reasons, IReadOnlyList<ApkLineageNode> Lineage, IReadOnlyList<uint> AttributeIds);
+    IReadOnlyList<string> Reasons, IReadOnlyList<ApkLineageNode> Lineage, IReadOnlyList<uint> AttributeIds)
+{
+    /// <summary>v3: the SDK from which the v3.1 block's rotated signer applies (rotation-min-sdk-version attribute).</summary>
+    public int? RotationMinSdk { get; init; }
+    /// <summary>v4: the scheme whose signer this one extends (v2, v3 or v3.1).</summary>
+    public string? Extends { get; init; }
+}
 
 /// <summary>One signature scheme found in the file: "v1", "v2", "v3", "v3.1" or "v4".</summary>
 public sealed record ApkSchemeResult(string Scheme, string Verdict, IReadOnlyList<ApkSigner> Signers, IReadOnlyList<string> Reasons);
@@ -37,7 +49,7 @@ public static class ApkSigning
     public const string Verified = "verified", Mismatch = "mismatch", Unsigned = "unsigned", Unsupported = "unsupported_algorithm";
 
     public const uint V2BlockId = 0x7109871a, V3BlockId = 0xf05368c0, V31BlockId = 0x1b93ad61;
-    private const uint ProofOfRotationId = 0x3ba06f8c, StrippingProtectionId = 0xbeeff00d;
+    private const uint ProofOfRotationId = 0x3ba06f8c, StrippingProtectionId = 0xbeeff00d, RotationMinSdkId = 0x559f8b02;
 
     private enum ContentDigest { Sha256Chunked, Sha512Chunked, Verity }
 
@@ -83,6 +95,8 @@ public static class ApkSigning
             if (blocks.FirstOrDefault(b => b.Id == V2BlockId) is { Value: not null } v2) _schemes.Add(SchemeV2V3("v2", v2.Value, false, v3.Value != null));
             if (v3.Value != null) _schemes.Add(SchemeV2V3("v3", v3.Value, true, false));
             if (blocks.FirstOrDefault(b => b.Id == V31BlockId) is { Value: not null } v31) _schemes.Add(SchemeV2V3("v3.1", v31.Value, true, false));
+            if (Rotation().ToList() is { Count: > 0 } rotation && _schemes.FindIndex(x => x.Scheme == "v3.1") is var at and >= 0)
+                _schemes[at] = _schemes[at] with { Verdict = Mismatch, Reasons = [.. _schemes[at].Reasons, .. rotation] };
             if (idsig != null) _schemes.Add(V4(idsig));
             string verdict = _schemes.Count == 0 ? Unsigned : Worst(_schemes.Select(s => s.Verdict));
             return new(verdict, _schemes, _blockIds, _issues);
@@ -166,7 +180,8 @@ public static class ApkSigning
                 signers.Add(Signer(signer, v3, v3Present));
             }
             if (signers.Count == 0) reasons.Add("no signers");
-            return new(scheme, signers.Count == 0 ? Mismatch : Worst(signers.Select(s => s.Verdict)), signers, reasons);
+            if (v3) reasons.AddRange(SignerSet(signers));
+            return new(scheme, reasons.Count > 0 ? Mismatch : Worst(signers.Select(s => s.Verdict)), signers, reasons);
         }
 
         private ApkSigner Signer(ReadOnlySpan<byte> s, bool v3, bool v3Present)
@@ -202,12 +217,14 @@ public static class ApkSigning
                 d += 8;
             }
             if (!Lp(signedData, ref d, out var attributes)) return Fail("additional attributes are malformed");
+            int? rotationMinSdk = null;
             foreach (var (id, attribute) in Pairs(attributes, prefixed: false))
             {
                 attributeIds.Add(id);
                 if (id == StrippingProtectionId && !v3 && !v3Present)
                     reasons.Add("the v2 signature says a v3 signature was made, but there is none (stripped)");
                 if (id == ProofOfRotationId && v3) Lineage(attribute, lineage, reasons, certificates.FirstOrDefault());
+                if (id == RotationMinSdkId && v3 && attribute.Length >= 4) rotationMinSdk = (int)BinaryPrimitives.ReadUInt32LittleEndian(attribute);
             }
 
             var sigs = Pairs(signatures);
@@ -232,13 +249,44 @@ public static class ApkSigning
                     case null: notes.Add($"{algorithm.Name} signatures cannot be checked on this host"); continue;
                 }
                 var expected = digests.FirstOrDefault(x => x.Id == id).Value;
-                if (algorithm.Digest == ContentDigest.Verity) { notes.Add($"{algorithm.Name}: the verity content digest is not recomputed"); continue; }
+                if (algorithm.Digest == ContentDigest.Verity && _blockStart % 4096 != 0)
+                {
+                    reasons.Add($"{algorithm.Name}: the signing block does not start at a 4096-byte boundary, which a verity digest requires");
+                    continue;
+                }
                 if (expected == null || !Content(algorithm.Digest).AsSpan().SequenceEqual(expected))
                     reasons.Add($"{algorithm.Name}: the content digest differs from the file (the APK changed after signing)");
                 else anyVerified = true;
             }
             return new(certificates, sigs.Select(x => AlgorithmName(x.Id)).ToList(), minSdk, maxSdk, Outcome(reasons, notes, anyVerified), [.. reasons, .. notes],
-                lineage, attributeIds);
+                lineage, attributeIds) { RotationMinSdk = rotationMinSdk };
+        }
+
+        /// <summary>Several v3 signers each cover their own SDK range, and their rotation lineages are one history: each the start of the longest.</summary>
+        private static IEnumerable<string> SignerSet(List<ApkSigner> signers)
+        {
+            for (int i = 0; i < signers.Count; i++)
+                for (int j = i + 1; j < signers.Count; j++)
+                    if (signers[i].MinSdk is { } a0 && signers[i].MaxSdk is { } a1 && signers[j].MinSdk is { } b0 && signers[j].MaxSdk is { } b1 && a0 <= b1 && b0 <= a1)
+                        yield return $"signers {i + 1} and {j + 1} cover overlapping SDK ranges ({a0}-{a1} and {b0}-{b1})";
+            var longest = signers.MaxBy(x => x.Lineage.Count)?.Lineage ?? [];
+            for (int i = 0; i < signers.Count; i++)
+            {
+                var own = signers[i].Lineage;
+                if (own.Count > 0 && !own.Select(n => n.Certificate.Sha256).SequenceEqual(longest.Take(own.Count).Select(n => n.Certificate.Sha256)))
+                    yield return $"signer {i + 1}'s rotation lineage is not the start of the longest lineage of the block";
+            }
+        }
+
+        /// <summary>The v3.1 signers apply from the SDK the v3 signer names (rotation-min-sdk-version); below it the v3 signer does.</summary>
+        private IEnumerable<string> Rotation()
+        {
+            var v3 = _schemes.FirstOrDefault(x => x.Scheme == "v3");
+            var v31 = _schemes.FirstOrDefault(x => x.Scheme == "v3.1");
+            if (v3 == null || v31 == null || v3.Signers.Select(x => x.RotationMinSdk).FirstOrDefault(x => x != null) is not { } minSdk) yield break;
+            foreach (var signer in v31.Signers)
+                if (signer.MinSdk is { } m && m != minSdk)
+                    yield return $"the v3.1 signer starts at SDK {m}, but the v3 signer's rotation-min-sdk-version is {minSdk}";
         }
 
         private static string Outcome(List<string> failures, List<string> notes, bool anyVerified) =>
@@ -309,7 +357,10 @@ public static class ApkSigning
             catch (CryptographicException) { return false; }
         }
 
-        /// <summary>The chunked content digest of the file: entries, central directory, and the end record pointing at the signing block.</summary>
+        /// <summary>
+        /// The content digest of the file over the entries, the central directory and the end record pointing at the
+        /// signing block: chunked SHA-256 / SHA-512, or the verity root (8 zero bytes of salt) followed by the length.
+        /// </summary>
         private byte[] Content(ContentDigest kind)
         {
             if (_digests.TryGetValue(kind, out var done)) return done;
@@ -317,6 +368,16 @@ public static class ApkSigning
             var eocd = apk.AsSpan((int)_eocd).ToArray();
             BinaryPrimitives.WriteUInt32LittleEndian(eocd.AsSpan(16), (uint)_blockStart);
             ReadOnlyMemory<byte>[] sections = [apk.AsMemory(0, (int)_blockStart), apk.AsMemory((int)_cdOffset, (int)(_eocd - _cdOffset)), eocd];
+            if (kind == ContentDigest.Verity)
+            {
+                var data = new byte[sections.Sum(x => x.Length)];
+                int at = 0;
+                foreach (var section in sections) { section.Span.CopyTo(data.AsSpan(at)); at += section.Length; }
+                var encoded = new byte[40];
+                MerkleRoot(data, new byte[8]).CopyTo(encoded, 0);
+                BinaryPrimitives.WriteInt64LittleEndian(encoded.AsSpan(32), data.Length);
+                return _digests[kind] = encoded;
+            }
             const int Chunk = 1 << 20;
             long chunks = sections.Sum(s => (s.Length + (long)Chunk - 1) / Chunk);
             using var top = IncrementalHash.CreateHash(hash);
@@ -342,43 +403,86 @@ public static class ApkSigning
 
         private ApkSchemeResult V4(byte[] idsig)
         {
-            var reasons = new List<string>();
             ApkSchemeResult Fail(string reason) => new("v4", Mismatch, [], [reason]);
-            int p = 0;
             if (idsig.Length < 4) return Fail("the .idsig file is truncated");
             uint version = BinaryPrimitives.ReadUInt32LittleEndian(idsig);
-            p = 4;
+            int p = 4;
             if (version != 2) return new("v4", Unsupported, [], [$".idsig version {version} is not supported (2 is)"]);
             if (!Lp(idsig, ref p, out var hashing) || !Lp(idsig, ref p, out var signing)) return Fail("the .idsig file is malformed");
-            int h = 0;
             if (hashing.Length < 5) return Fail("hashing info is malformed");
             uint hashAlgorithm = BinaryPrimitives.ReadUInt32LittleEndian(hashing);
             byte log2 = hashing[4];
-            h = 5;
+            int h = 5;
             if (!Lp(hashing, ref h, out var salt) || !Lp(hashing, ref h, out var rootHash)) return Fail("hashing info is malformed");
+
+            // The Merkle tree is the file's, shared by every signer.
+            var treeReasons = new List<string>();
+            var treeNotes = new List<string>();
+            if (hashAlgorithm != 1 || log2 != 12) treeNotes.Add($"hash algorithm {hashAlgorithm} with 2^{log2}-byte blocks is not supported (SHA-256, 4096)");
+            else if (!MerkleRoot(apk, salt.ToArray()).AsSpan().SequenceEqual(rootHash)) treeReasons.Add("the Merkle root differs from the file (the APK changed after signing)");
+            var hashingInfo = new V4Hashing(hashAlgorithm, log2, salt.ToArray(), rootHash.ToArray());
+
+            // Signing infos: the v3 (or v2) signer's, then one block per further scheme (v3.1) with its block id.
             int s = 0;
-            if (!Lp(signing, ref s, out var apkDigest) || !Lp(signing, ref s, out var der) || !Lp(signing, ref s, out var additional) || !Lp(signing, ref s, out var publicKey)
-                || s + 4 > signing.Length)
-                return Fail("signing info is malformed");
-            uint algorithmId = BinaryPrimitives.ReadUInt32LittleEndian(signing[s..]);
+            if (!V4SigningInfo(signing, ref s, out var first)) return Fail("signing info is malformed");
+            var infos = new List<(string Scheme, byte[] Info)> { (_schemes.Any(x => x.Scheme == "v3") ? "v3" : "v2", first.ToArray()) };
+            var reasons = new List<string>();
+            while (s < signing.Length)
+            {
+                if (s + 4 > signing.Length) { reasons.Add("a signing info block is truncated"); break; }
+                uint blockId = BinaryPrimitives.ReadUInt32LittleEndian(signing[s..]);
+                s += 4;
+                if (!Lp(signing, ref s, out var block)) { reasons.Add("a signing info block is malformed"); break; }
+                infos.Add((blockId == V31BlockId ? "v3.1" : $"block 0x{blockId:x8}", block.ToArray()));
+            }
+            if (!_schemes.Any(x => x.Scheme is "v2" or "v3" or "v3.1")) reasons.Add("v4 needs a v2 or v3 signature, and there is none");
+            var signers = infos.Select(i => V4Signer(i.Scheme, i.Info, hashingInfo, treeReasons, treeNotes)).ToList();
+            var verdict = reasons.Count > 0 ? Mismatch : Worst(signers.Select(x => x.Verdict));
+            return new("v4", verdict, signers, reasons);
+        }
+
+        private sealed record V4Hashing(uint Algorithm, byte Log2, byte[] Salt, byte[] Root);
+
+        private static bool V4SigningInfo(ReadOnlySpan<byte> s, ref int p, out ReadOnlySpan<byte> info)
+        {
+            int start = p;
+            info = default;
+            for (int i = 0; i < 4; i++) if (!Lp(s, ref p, out _)) return false;
+            if (p + 4 > s.Length) return false;
+            p += 4;
+            if (!Lp(s, ref p, out _)) return false;
+            info = s[start..p];
+            return true;
+        }
+
+        /// <summary>One v4 signer: its signature over the hashing info and its own fields, its APK digest, and its certificate against the scheme it extends.</summary>
+        private ApkSigner V4Signer(string scheme, byte[] info, V4Hashing hashing, List<string> treeReasons, List<string> treeNotes)
+        {
+            var reasons = new List<string>(treeReasons);
+            var notes = new List<string>(treeNotes);
+            int s = 0;
+            ReadOnlySpan<byte> span = info;
+            if (!Lp(span, ref s, out var apkDigest) || !Lp(span, ref s, out var der) || !Lp(span, ref s, out var additional) || !Lp(span, ref s, out var publicKey)
+                || s + 4 > span.Length)
+                return new([], [], null, null, Mismatch, ["signing info is malformed"], [], []);
+            uint algorithmId = BinaryPrimitives.ReadUInt32LittleEndian(span[s..]);
             s += 4;
-            if (!Lp(signing, ref s, out var signature)) return Fail("signing info is malformed");
+            if (!Lp(span, ref s, out var signature)) return new([], [], null, null, Mismatch, ["signing info is malformed"], [], []);
             var cert = Certificate(der.ToArray());
 
             // The signed data: size, file size, hashing info, and the APK digest, certificate and additional data.
             var signed = new MemoryStream();
             void U32(uint v) { Span<byte> b = stackalloc byte[4]; BinaryPrimitives.WriteUInt32LittleEndian(b, v); signed.Write(b); }
             void Bytes(ReadOnlySpan<byte> b) { U32((uint)b.Length); signed.Write(b); }
-            int size = 4 + 8 + 4 + 1 + 4 + salt.Length + 4 + rootHash.Length + 4 + apkDigest.Length + 4 + der.Length + 4 + additional.Length;
+            int size = 4 + 8 + 4 + 1 + 4 + hashing.Salt.Length + 4 + hashing.Root.Length + 4 + apkDigest.Length + 4 + der.Length + 4 + additional.Length;
             U32((uint)size);
             Span<byte> fileSize = stackalloc byte[8];
             BinaryPrimitives.WriteInt64LittleEndian(fileSize, apk.Length);
             signed.Write(fileSize);
-            U32(hashAlgorithm);
-            signed.WriteByte(log2);
-            Bytes(salt); Bytes(rootHash); Bytes(apkDigest); Bytes(der); Bytes(additional);
+            U32(hashing.Algorithm);
+            signed.WriteByte(hashing.Log2);
+            Bytes(hashing.Salt); Bytes(hashing.Root); Bytes(apkDigest); Bytes(der); Bytes(additional);
 
-            var notes = new List<string>();
             if (!Algorithms.TryGetValue(algorithmId, out var algorithm)) notes.Add($"signature algorithm 0x{algorithmId:x4} is unknown");
             else
                 switch (VerifySignature(algorithm, publicKey, signed.ToArray(), signature))
@@ -388,23 +492,22 @@ public static class ApkSigning
                 }
             if (cert != null && !cert.Spki.AsSpan().SequenceEqual(publicKey))
                 reasons.Add("the public key differs from the certificate's");
-            if (hashAlgorithm != 1 || log2 != 12) notes.Add($"hash algorithm {hashAlgorithm} with 2^{log2}-byte blocks is not supported (SHA-256, 4096)");
-            else if (!MerkleRoot(salt.ToArray()).AsSpan().SequenceEqual(rootHash)) reasons.Add("the Merkle root differs from the file (the APK changed after signing)");
-            // The APK digest is the v2 / v3 content digest of the same signer.
+            // The APK digest is a v2 / v3 content digest of the file: chunked SHA-256 or SHA-512, or verity.
             var claimed = apkDigest.ToArray();
-            var candidates = _schemes.Where(x => x.Scheme is "v2" or "v3" or "v3.1").ToList();
-            if (candidates.Count == 0) reasons.Add("v4 needs a v2 or v3 signature, and there is none");
-            else if (!new[] { ContentDigest.Sha256Chunked, ContentDigest.Sha512Chunked }.Any(k => _blockStart >= 0 && Content(k).AsSpan().SequenceEqual(claimed)))
+            if (_blockStart < 0 || !new[] { ContentDigest.Sha256Chunked, ContentDigest.Sha512Chunked, ContentDigest.Verity }.Any(k => Content(k).AsSpan().SequenceEqual(claimed)))
                 reasons.Add("the APK digest is not the content digest of the file");
-            List<ApkCertificate> info = cert != null ? [cert.Info] : [];
+            // The certificate is the one of a signer of the scheme it extends.
+            if (cert != null && _schemes.FirstOrDefault(x => x.Scheme == scheme) is { } extended
+                && !extended.Signers.Any(x => x.Certificates.FirstOrDefault()?.Sha256 == cert.Info.Sha256))
+                reasons.Add($"the certificate is not the one of a {scheme} signer");
+            List<ApkCertificate> certificates = cert != null ? [cert.Info] : [];
             // Every check must pass: one that could not run leaves the file unverified.
             string verdict = Outcome(reasons, notes, anyVerified: notes.Count == 0);
-            var signer = new ApkSigner(info, [AlgorithmName(algorithmId)], null, null, verdict, [.. reasons, .. notes], [], []);
-            return new("v4", verdict, [signer], []);
+            return new ApkSigner(certificates, [AlgorithmName(algorithmId)], null, null, verdict, [.. reasons, .. notes], [], []) { Extends = scheme };
         }
 
-        /// <summary>fs-verity Merkle root over the whole file: SHA-256 of 4 KiB blocks (zero padded), level by level, until one block remains.</summary>
-        private byte[] MerkleRoot(byte[] salt)
+        /// <summary>fs-verity Merkle root of <paramref name="data"/>: salted SHA-256 of 4 KiB blocks (zero padded), level by level, until one block remains.</summary>
+        private static byte[] MerkleRoot(byte[] data, byte[] salt)
         {
             const int Block = 4096;
             using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
@@ -415,7 +518,7 @@ public static class ApkSigning
                 if (block.Length < Block) sha.AppendData(new byte[Block - block.Length]);
                 return sha.GetHashAndReset();
             }
-            byte[] level = apk;
+            byte[] level = data;
             do
             {
                 var next = new byte[((level.Length + Block - 1) / Block) * 32];

@@ -13,7 +13,8 @@ public sealed record AndroidResourceList(IReadOnlyList<ResourceRow> Items, int O
 public sealed record AndroidPackageFacts(string Kind, string Package, string? VersionName, string? VersionCode, int? MinSdk, int? TargetSdk,
     [property: Description("Runtimes found in the package, each with its evidence.")] IReadOnlyList<AndroidRuntimeFamily> Runtimes,
     IReadOnlyList<string> Abis, int DexFiles, long DexBytes, int Permissions, int Components, int ExportedComponents,
-    [property: Description("APK signature verdict (verified, mismatch, unsigned, unsupported_algorithm) and schemes.")] string? Signature,
+    [property: Description("APK signature verdict (verified, mismatch, unsigned, unsupported_algorithm) and schemes (v4 from the .idsig beside the file).")] string? Signature,
+    [property: Description("One line per signer: scheme, certificate, SDK range, verdict with reasons, rotation lineage with capabilities.")] IReadOnlyList<string> Signers,
     IReadOnlyList<string> SplitApks, IReadOnlyList<string> Highlights);
 
 /// <summary>Android packages: manifest, resources and package facts, read natively from .apk / .aab / split sets.</summary>
@@ -141,6 +142,38 @@ public sealed class AndroidPackageService(OutputPager pager, JavaDotNetMap? dotn
         return sb.ToString();
     }
 
+    private static byte[]? Idsig(string path)
+    {
+        try
+        {
+            var idsig = path + ".idsig";
+            return File.Exists(idsig) && new FileInfo(idsig).Length <= 64 << 20 ? File.ReadAllBytes(idsig) : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    internal static IReadOnlyList<string> Signers(ApkSignatureReport report)
+    {
+        static string Name(ApkCertificate c) => $"{c.Subject} (SHA-256 {c.Sha256[..16]}...)";
+        var lines = new List<string>();
+        foreach (var scheme in report.Schemes)
+            for (int i = 0; i < scheme.Signers.Count; i++)
+            {
+                var s = scheme.Signers[i];
+                var line = new StringBuilder($"{scheme.Scheme} signer {i + 1}");
+                if (s.Extends != null) line.Append($" (for {s.Extends})");
+                line.Append($": {(s.Certificates.FirstOrDefault() is { } c ? Name(c) : "no certificate")}");
+                if (s.MinSdk != null) line.Append($", SDK {s.MinSdk}{(s.MaxSdk is { } max && max != int.MaxValue ? $"-{max}" : "+")}");
+                if (s.RotationMinSdk != null) line.Append($", rotated signer from SDK {s.RotationMinSdk}");
+                line.Append($", {s.Verdict}");
+                if (s.Reasons.Count > 0) line.Append($" ({string.Join("; ", s.Reasons)})");
+                if (s.Lineage.Count > 0)
+                    line.Append("; lineage ").Append(string.Join(" -> ", s.Lineage.Select(n => $"{n.Certificate.Subject} [{string.Join(", ", n.Capabilities)}]")));
+                lines.Add(line.ToString());
+            }
+        return lines;
+    }
+
     /// <summary>Package facts for summarize_file; null when <paramref name="path"/> is not an Android package.</summary>
     public static AndroidPackageFacts? Facts(string path, byte[] bytes, CancellationToken ct)
     {
@@ -156,10 +189,12 @@ public sealed class AndroidPackageService(OutputPager pager, JavaDotNetMap? dotn
             catch (ToolError ex) { highlights.Add($"The manifest cannot be read: {ex.Message}"); }
             var dex = p.DexFiles;
             string? signature = null;
+            IReadOnlyList<string> signers = [];
             if (p.Kind == "apk")
             {
-                var report = ApkSigning.Verify(bytes);
+                var report = ApkSigning.Verify(bytes, Idsig(path));
                 signature = $"{report.Verdict} ({string.Join(", ", report.Schemes.Select(s => $"{s.Scheme} {s.Verdict}"))})";
+                signers = Signers(report);
                 if (report.Verdict != ApkSigning.Verified) highlights.Add($"APK signature: {signature}.");
                 if (report.Schemes.SelectMany(s => s.Signers).SelectMany(s => s.Certificates).Any(c => c.Subject.Contains("CN=Android Debug", StringComparison.Ordinal)))
                     highlights.Add("Signed with the Android debug certificate.");
@@ -167,7 +202,7 @@ public sealed class AndroidPackageService(OutputPager pager, JavaDotNetMap? dotn
             highlights.AddRange(manifest?.Highlights ?? []);
             return new AndroidPackageFacts(p.Kind, manifest?.Package ?? "", manifest?.VersionName, manifest?.VersionCode, manifest?.MinSdk, manifest?.TargetSdk,
                 AndroidRuntime.Detect(p), p.Abis, dex.Count, dex.Sum(p.Length), manifest?.Permissions.Count ?? 0, manifest?.Components.Count ?? 0,
-                manifest?.Components.Count(c => c.EffectiveExported) ?? 0, signature, p.SplitApks, highlights);
+                manifest?.Components.Count(c => c.EffectiveExported) ?? 0, signature, signers, p.SplitApks, highlights);
         }
     }
 }

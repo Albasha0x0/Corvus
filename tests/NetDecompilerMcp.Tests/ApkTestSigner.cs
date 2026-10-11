@@ -89,7 +89,25 @@ internal static class ApkTestSigner
     }
 
     public sealed record SignerSpec(Key Key, int MinSdk = 24, int MaxSdk = int.MaxValue, byte[]? Lineage = null, bool StrippingProtection = false,
-        bool BreakSignature = false, uint? AlgorithmOverride = null);
+        bool BreakSignature = false, uint? AlgorithmOverride = null, bool Verity = false, int? RotationMinSdk = null);
+
+    /// <summary>The verity algorithm id of a key's algorithm (RSA PKCS #1, ECDSA, DSA with SHA-256).</summary>
+    private static uint VerityAlgorithm(Key key) => key.Private is ECDsa ? 0x0423u : 0x0421u;
+
+    /// <summary>Zero padding before the central directory so the signing block starts at a 4096-byte boundary, as verity signing requires.</summary>
+    public static byte[] AlignForVerity(byte[] zip)
+    {
+        var (cd, eocd) = Layout(zip);
+        int pad = (int)((4096 - cd % 4096) % 4096);
+        var aligned = new byte[zip.Length + pad];
+        zip.AsSpan(0, (int)cd).CopyTo(aligned);
+        zip.AsSpan((int)cd).CopyTo(aligned.AsSpan((int)cd + pad));
+        BinaryPrimitives.WriteUInt32LittleEndian(aligned.AsSpan((int)eocd + pad + 16), (uint)(cd + pad));
+        return aligned;
+    }
+
+    /// <summary>The verity content digest of an unsigned ZIP: the salted Merkle root of its bytes and their length.</summary>
+    public static byte[] VerityDigest(byte[] zip) => [.. MerkleRoot(zip, new byte[8]), .. U64((ulong)zip.Length)];
 
     /// <summary>Inserts an APK Signing Block holding the given blocks before the central directory.</summary>
     public static byte[] SignBlocks(byte[] zip, params (uint Id, bool V3, SignerSpec[] Signers)[] blocks)
@@ -97,11 +115,12 @@ internal static class ApkTestSigner
         var (cd, eocd) = Layout(zip);
         var digest256 = ContentDigest(zip, cd, eocd, HashAlgorithmName.SHA256);
         var digest512 = ContentDigest(zip, cd, eocd, HashAlgorithmName.SHA512);
+        var verity = cd % 4096 == 0 ? VerityDigest(zip) : new byte[40];
         var pairs = new MemoryStream();
         foreach (var (id, v3, signers) in blocks)
         {
             var list = new MemoryStream();
-            foreach (var s in signers) Lp(list, Signer(s, v3, s.Key.Algorithm is 0x0102 or 0x0104 ? digest512 : digest256));
+            foreach (var s in signers) Lp(list, Signer(s, v3, s.Key.Algorithm is 0x0102 or 0x0104 ? digest512 : digest256, verity));
             var value = Prefixed(list.ToArray());
             pairs.Write(U64((ulong)value.Length + 4));
             pairs.Write(U32(id));
@@ -143,24 +162,26 @@ internal static class ApkTestSigner
 
     private static byte[] Hash(HashAlgorithmName h, byte[] data) => h == HashAlgorithmName.SHA512 ? SHA512.HashData(data) : SHA256.HashData(data);
 
-    private static byte[] Signer(SignerSpec s, bool v3, byte[] digest)
+    private static byte[] Signer(SignerSpec s, bool v3, byte[] digest, byte[] verity)
     {
         uint algorithm = s.AlgorithmOverride ?? s.Key.Algorithm;
+        (uint Id, byte[] Digest)[] algorithms = s.Verity ? [(algorithm, digest), (VerityAlgorithm(s.Key), verity)] : [(algorithm, digest)];
         var signedData = new MemoryStream();
-        Lp(signedData, Prefixed(Pair(algorithm, digest)));
+        Lp(signedData, [.. algorithms.SelectMany(a => Prefixed(Pair(a.Id, a.Digest)))]);
         Lp(signedData, Prefixed(s.Key.Cert.RawData));
         if (v3) { signedData.Write(U32((uint)s.MinSdk)); signedData.Write(U32((uint)s.MaxSdk)); }
         var attributes = new MemoryStream();
         if (s.StrippingProtection) Lp(attributes, [.. U32(0xbeeff00d), .. U32(3)]);
         if (s.Lineage != null) Lp(attributes, [.. U32(0x3ba06f8c), .. s.Lineage]);
+        if (s.RotationMinSdk is { } rotation) Lp(attributes, [.. U32(0x559f8b02), .. U32((uint)rotation)]);
         Lp(signedData, attributes.ToArray());
         var data = signedData.ToArray();
-        var signature = s.Key.Sign(data);
-        if (s.BreakSignature) signature[^1] ^= 1;
+        var signatures = algorithms.Select(a => (a.Id, Signature: s.Key.Sign(data))).ToList();
+        if (s.BreakSignature) signatures[0].Signature[^1] ^= 1;
         var signer = new MemoryStream();
         Lp(signer, data);
         if (v3) { signer.Write(U32((uint)s.MinSdk)); signer.Write(U32((uint)s.MaxSdk)); }
-        Lp(signer, Prefixed(Pair(algorithm, signature)));
+        Lp(signer, [.. signatures.SelectMany(a => Prefixed(Pair(a.Id, a.Signature)))]);
         Lp(signer, s.Key.PublicKey);
         return signer.ToArray();
     }
@@ -179,32 +200,36 @@ internal static class ApkTestSigner
         return value.ToArray();
     }
 
-    /// <summary>A v4 .idsig for <paramref name="apk"/> signed by <paramref name="key"/>.</summary>
-    public static byte[] V4(byte[] apk, Key key, byte[] apkDigest, byte[]? rootOverride = null)
+    /// <summary>A v4 .idsig for <paramref name="apk"/> signed by <paramref name="key"/>; <paramref name="blocks"/> add signing info blocks (v3.1 signers).</summary>
+    public static byte[] V4(byte[] apk, Key key, byte[] apkDigest, byte[]? rootOverride = null, params (uint BlockId, Key Key, byte[] Digest)[] blocks)
     {
-        var root = rootOverride ?? MerkleRoot(apk);
-        var signed = new MemoryStream();
-        var der = key.Cert.RawData;
-        int size = 4 + 8 + 4 + 1 + 4 + 0 + 4 + root.Length + 4 + apkDigest.Length + 4 + der.Length + 4;
-        signed.Write(U32((uint)size));
-        signed.Write(U64((ulong)apk.Length));
-        signed.Write(U32(1));
-        signed.WriteByte(12);
-        Lp(signed, []);
-        Lp(signed, root);
-        Lp(signed, apkDigest);
-        Lp(signed, der);
-        Lp(signed, []);
-        var signature = key.Sign(signed.ToArray());
+        var root = rootOverride ?? MerkleRoot(apk, []);
+        byte[] Info(Key k, byte[] digest)
+        {
+            var signed = new MemoryStream();
+            var der = k.Cert.RawData;
+            int size = 4 + 8 + 4 + 1 + 4 + 0 + 4 + root.Length + 4 + digest.Length + 4 + der.Length + 4;
+            signed.Write(U32((uint)size));
+            signed.Write(U64((ulong)apk.Length));
+            signed.Write(U32(1));
+            signed.WriteByte(12);
+            Lp(signed, []);
+            Lp(signed, root);
+            Lp(signed, digest);
+            Lp(signed, der);
+            Lp(signed, []);
+            var signature = k.Sign(signed.ToArray());
+            return [.. Prefixed(digest), .. Prefixed(der), .. Prefixed([]), .. Prefixed(k.PublicKey), .. U32(k.Algorithm), .. Prefixed(signature)];
+        }
         var file = new MemoryStream();
         file.Write(U32(2));
         Lp(file, [.. U32(1), 12, .. Prefixed([]), .. Prefixed(root)]);
-        Lp(file, [.. Prefixed(apkDigest), .. Prefixed(der), .. Prefixed([]), .. Prefixed(key.PublicKey), .. U32(key.Algorithm), .. Prefixed(signature)]);
+        Lp(file, [.. Info(key, apkDigest), .. blocks.SelectMany(b => (byte[])[.. U32(b.BlockId), .. Prefixed(Info(b.Key, b.Digest))])]);
         Lp(file, []);
         return file.ToArray();
     }
 
-    private static byte[] MerkleRoot(byte[] data)
+    private static byte[] MerkleRoot(byte[] data, byte[] salt)
     {
         byte[] Level(byte[] input)
         {
@@ -214,7 +239,7 @@ internal static class ApkTestSigner
             {
                 var block = new byte[4096];
                 input.AsSpan(i * 4096, Math.Min(4096, input.Length - i * 4096)).CopyTo(block);
-                output.AddRange(SHA256.HashData(block));
+                output.AddRange(SHA256.HashData([.. salt, .. block]));
             }
             return [.. output];
         }
@@ -222,7 +247,7 @@ internal static class ApkTestSigner
         while (level.Length > 4096) level = Level(level);
         var top = new byte[4096];
         level.CopyTo(top, 0);
-        return SHA256.HashData(top);
+        return SHA256.HashData([.. salt, .. top]);
     }
 
     private static byte[] Pair(uint id, byte[] value) => [.. U32(id), .. Prefixed(value)];

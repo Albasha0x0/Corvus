@@ -124,10 +124,90 @@ public class ApkSigningTests
         Assert.NotEmpty(notZip.Issues);
         var unknown = ApkSigning.Verify(SignBlocks(Zip(Entries), (ApkSigning.V2BlockId, false, [new(Signer, AlgorithmOverride: 0x0999)])));
         Assert.Equal(ApkSigning.Unsupported, unknown.Verdict);
-        // A verity-only signer: the signature verifies, the verity digest is not recomputed.
+        // A verity signer needs the signing block at a page boundary.
         var verity = ApkSigning.Verify(SignBlocks(Zip(Entries), (ApkSigning.V2BlockId, false, [new(Signer, AlgorithmOverride: 0x0421)])));
-        Assert.Equal(ApkSigning.Unsupported, verity.Verdict);
-        Assert.Contains(verity.Schemes[0].Signers[0].Reasons, r => r.Contains("verity"));
+        Assert.Equal(ApkSigning.Mismatch, verity.Verdict);
+        Assert.Contains(verity.Schemes[0].Signers[0].Reasons, r => r.Contains("4096-byte boundary"));
+    }
+
+    [Fact]
+    public void Verity_ContentDigestIsRecomputed_InV2V3AndV4()
+    {
+        var zip = AlignForVerity(Zip(Entries));
+        var apk = SignBlocks(zip, (ApkSigning.V2BlockId, false, [new(Signer, Verity: true)]), (ApkSigning.V3BlockId, true, [new(EcSigner, Verity: true)]));
+        var report = ApkSigning.Verify(apk, V4(apk, EcSigner, VerityDigest(zip)));
+        Assert.True(report.Verdict == ApkSigning.Verified, Describe(report));
+        Assert.Contains("RSASSA-PKCS1-v1_5 with SHA2-256 (verity)", report.Schemes.Single(s => s.Scheme == "v2").Signers.Single().Algorithms);
+        Assert.Contains("ECDSA with SHA2-256 (verity)", report.Schemes.Single(s => s.Scheme == "v3").Signers.Single().Algorithms);
+        Assert.Equal("v3", report.Schemes[^1].Signers.Single().Extends);
+
+        // The digest signed under the verity id is a chunked one: the recomputed verity digest differs.
+        var wrong = ApkSigning.Verify(SignBlocks(zip, (ApkSigning.V2BlockId, false, [new(Signer, AlgorithmOverride: 0x0421)])));
+        Assert.Contains(wrong.Schemes[0].Signers[0].Reasons, r => r.Contains("(verity): the content digest differs"));
+        var changed = (byte[])apk.Clone();
+        changed[IndexOf(changed, "mmmm"u8)] ^= 1;
+        Assert.All(ApkSigning.Verify(changed).Schemes, s => Assert.Equal(ApkSigning.Mismatch, s.Verdict));
+    }
+
+    [Fact]
+    public void MultipleSigners_V3RangesV31RotationAndV4Blocks()
+    {
+        var third = Rsa("CN=Third");
+        var lineage = Lineage(Signer, EcSigner);
+        var zip = Zip(Entries);
+        var (cd, eocd) = Layout(zip);
+        var digest = ContentDigest(zip, cd, eocd, HashAlgorithmName.SHA256);
+        var apk = SignBlocks(zip,
+            (ApkSigning.V3BlockId, true, [new(Signer, MinSdk: 24, MaxSdk: 27, RotationMinSdk: 33), new(Signer, MinSdk: 28, MaxSdk: 32, RotationMinSdk: 33)]),
+            (ApkSigning.V31BlockId, true, [new(EcSigner, MinSdk: 33, Lineage: lineage)]));
+        var report = ApkSigning.Verify(apk, V4(apk, Signer, digest, null, (ApkSigning.V31BlockId, EcSigner, digest)));
+        Assert.True(report.Verdict == ApkSigning.Verified, Describe(report));
+        var v3 = report.Schemes.Single(s => s.Scheme == "v3");
+        Assert.Equal([24, 28], v3.Signers.Select(s => s.MinSdk!.Value));
+        Assert.All(v3.Signers, s => Assert.Equal(33, s.RotationMinSdk));
+        var node = report.Schemes.Single(s => s.Scheme == "v3.1").Signers.Single().Lineage[0];
+        Assert.Equal(["installed_data", "shared_uid", "permission"], node.Capabilities);
+        var v4 = report.Schemes.Single(s => s.Scheme == "v4");
+        Assert.Equal(["v3", "v3.1"], v4.Signers.Select(s => s.Extends!));
+        Assert.Equal("EC", v4.Signers[1].Certificates.Single().KeyAlgorithm);
+
+        // A v4 block signed by a key no v3.1 signer has.
+        var stranger = ApkSigning.Verify(apk, V4(apk, Signer, digest, null, (ApkSigning.V31BlockId, third, digest)));
+        Assert.Contains(stranger.Schemes[^1].Signers[1].Reasons, r => r.Contains("not the one of a v3.1 signer"));
+        Assert.Equal(ApkSigning.Mismatch, stranger.Verdict);
+
+        // Overlapping SDK ranges, lineages that are not one history, and a v3.1 start other than the rotation SDK.
+        var overlap = ApkSigning.Verify(SignBlocks(zip, (ApkSigning.V3BlockId, true, [new(Signer, MinSdk: 24, MaxSdk: 30), new(EcSigner, MinSdk: 28)])));
+        Assert.Contains(overlap.Schemes.Single().Reasons, r => r.Contains("overlapping SDK ranges (24-30 and 28-"));
+        var forked = ApkSigning.Verify(SignBlocks(zip, (ApkSigning.V3BlockId, true,
+            [new(EcSigner, MinSdk: 24, MaxSdk: 30, Lineage: lineage), new(Signer, MinSdk: 31, Lineage: Lineage(third, Signer))])));
+        Assert.Contains(forked.Schemes.Single().Reasons, r => r.Contains("not the start of the longest lineage"));
+        var late = ApkSigning.Verify(SignBlocks(zip,
+            (ApkSigning.V3BlockId, true, [new(Signer, MaxSdk: 32, RotationMinSdk: 33)]),
+            (ApkSigning.V31BlockId, true, [new(EcSigner, MinSdk: 34, Lineage: lineage)])));
+        Assert.Contains(late.Schemes.Single(s => s.Scheme == "v3.1").Reasons, r => r.Contains("rotation-min-sdk-version is 33"));
+    }
+
+    [Fact]
+    public void PackageFacts_ListEverySigner_WithTheIdsigBesideTheFile()
+    {
+        using var dir = new TempDir();
+        var zip = AndroidSamples.Apk();
+        var (cd, eocd) = Layout(zip);
+        var digest = ContentDigest(zip, cd, eocd, HashAlgorithmName.SHA256);
+        var apk = SignBlocks(zip,
+            (ApkSigning.V3BlockId, true, [new(Signer, MaxSdk: 32, RotationMinSdk: 33)]),
+            (ApkSigning.V31BlockId, true, [new(EcSigner, MinSdk: 33, Lineage: Lineage(Signer, EcSigner))]));
+        var path = dir.File("app.apk");
+        File.WriteAllBytes(path, apk);
+        File.WriteAllBytes(path + ".idsig", V4(apk, Signer, digest, null, (ApkSigning.V31BlockId, EcSigner, digest)));
+        var facts = NetDecompilerMcp.Services.Mobile.AndroidPackageService.Facts(path, apk, default)!;
+        Assert.Equal("verified (v3 verified, v3.1 verified, v4 verified)", facts.Signature);
+        Assert.Equal(4, facts.Signers.Count);
+        Assert.StartsWith("v3 signer 1: CN=Android Debug", facts.Signers[0]);
+        Assert.Contains("SDK 24-32, rotated signer from SDK 33, verified", facts.Signers[0]);
+        Assert.Contains("SDK 33+, verified; lineage CN=Android Debug, O=Android, C=US [installed_data, shared_uid, permission] -> CN=Test EC Signer [", facts.Signers[1]);
+        Assert.StartsWith("v4 signer 2 (for v3.1): CN=Test EC Signer", facts.Signers[3]);
     }
 
     [Fact]
