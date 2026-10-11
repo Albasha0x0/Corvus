@@ -11,13 +11,15 @@ namespace NetDecompilerMcp.Tools;
 
 [McpServerToolType]
 public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService indexing, ServerOptions options, ResultStore results, OutputPager pager,
-    NativeEngineService? engines = null, NativeCodeService? code = null)
+    NativeEngineService? engines = null, NativeCodeService? code = null, NotesService? notes = null)
 {
     public sealed record Capability(string Name, bool Available, string Detail, string? Remediation);
 
     public sealed record Toolset(string Name, bool Enabled, bool InCore, int Tools, string Description);
 
     public sealed record Client(string Name, string? Version);
+
+    public sealed record NoteCounts(int Open, int Total, string Store);
 
     public sealed record ServerStatus(string Version,
         [property: Description("Version plus +<commit> when the build knew its source revision.")]
@@ -46,7 +48,9 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         [property: Description("Tool families and whether this server registers them; every family unless the server was started with --toolsets <list> (or NDM_TOOLSETS: all, core, or names such as core,dumps).")]
         IReadOnlyList<Toolset> Toolsets,
         [property: Description("Registered tools, or modes of them (e.g. engine=ida), that cannot work here, with the reason and the fix.")]
-        IReadOnlyList<ToolAvailability.Unavailable> UnavailableTools);
+        IReadOnlyList<ToolAvailability.Unavailable> UnavailableTools,
+        [property: Description("Analyst notes in the per-user store (record_note): open, total and the store directory.")]
+        NoteCounts? Notes);
 
     private static readonly ConditionalWeakTable<McpServerOptions, string> Digests = new();
 
@@ -127,7 +131,15 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             toolCount, loaded, indexing.Status, options.MaxOutputChars, options.TimeoutSeconds, Environment.WorkingSet / (1024 * 1024), capabilities,
             ToolEffects.LongRunning.Where(registered.Contains).ToList(),
             Core.Toolsets.Families.Select(f => new Toolset(f.Name, options.Toolsets.Contains(f.Name), f.InCore, f.Tools.Length, f.Description)).ToList(),
-            ToolAvailability.Of(registered, availability, options.IdaScripting, OperatingSystem.IsWindows()));
+            ToolAvailability.Of(registered, availability, options.IdaScripting, OperatingSystem.IsWindows()),
+            NoteCountsOf(notes));
+    }
+
+    private static NoteCounts? NoteCountsOf(NotesService? notes)
+    {
+        if (notes == null) return null;
+        var (open, total) = notes.Counts();
+        return new NoteCounts(open, total, notes.Root);
     }
 
     [McpServerTool(Name = "read_result", Title = "Read a kept result")]

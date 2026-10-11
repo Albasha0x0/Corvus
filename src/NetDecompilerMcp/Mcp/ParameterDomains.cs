@@ -26,6 +26,8 @@ public static class ParameterDomains
     private static readonly Domain AnyKind = Of(["any", "type", "method", "field", "property", "event", "member"], KindAliases);
     private static readonly Domain ResolveKind = Of(["type", "method", "field", "property", "event"], [.. KindAliases, "any", "member"]);
     private static readonly Domain Direction = Of(["callers", "callees"]);
+    private static readonly Domain NoteKind = Of(["finding", "question", "hypothesis", "todo"]);
+    private static readonly Domain NoteStatus = Of(["open", "confirmed", "refuted", "answered", "dropped"]);
 
     /// <summary>By tool, then parameter.</summary>
     public static readonly IReadOnlyDictionary<string, IReadOnlyDictionary<string, Domain>> Table = new Dictionary<string, IReadOnlyDictionary<string, Domain>>(StringComparer.Ordinal)
@@ -79,6 +81,9 @@ public static class ParameterDomains
         ["export_native_annotations"] = new Dictionary<string, Domain> { ["format"] = Of(["ida", "ghidra", "json"], "idapython", "idc") },
         ["patch_bytes"] = new Dictionary<string, Domain> { ["relocations"] = Relocations, ["stubMode"] = StubMode, ["placement"] = Placement },
         ["patch_asm"] = new Dictionary<string, Domain> { ["relocations"] = Relocations, ["stubMode"] = StubMode, ["placement"] = Placement },
+        ["record_note"] = new Dictionary<string, Domain> { ["kind"] = NoteKind, ["status"] = NoteStatus },
+        ["update_note"] = new Dictionary<string, Domain> { ["kind"] = NoteKind, ["status"] = NoteStatus },
+        ["list_notes"] = new Dictionary<string, Domain> { ["kind"] = NoteKind, ["status"] = Of([.. NoteStatus.Values, "all"]) },
         ["update_to_new_build"] = new Dictionary<string, Domain>
         {
             ["stubPlacement"] = Placement,

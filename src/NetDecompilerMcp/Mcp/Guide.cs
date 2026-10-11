@@ -93,6 +93,9 @@ public static class Guide
             Engine edits (IDA): set_native_type (prototypes), set_native_local (Hex-Rays locals), get_native_frame and
             set_native_stack_var (stack frames), declare_native_types and list_native_types (C declarations kept per image);
             ida_python runs IDAPython in the image's IDA worker, off unless --ida-scripting.
+            Notes: record_note anchors a finding, question, hypothesis or todo to '<image>@<address>', '<assembly>:<symbol>', a file or
+            a dump; notes persist per user by file SHA-256 / module MVID. update_note changes one in part (expectedRevision; a conflict
+            returns the current note); list_notes filters by status, kind, anchor, tag and text.
             """,
         ["builds"] = """
             New builds: load both (the second gets an id like app.dll#2).

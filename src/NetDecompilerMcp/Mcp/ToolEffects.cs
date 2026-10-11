@@ -171,6 +171,11 @@ public static class ToolEffects
         ["open_minidump"] = Reads(),
         ["dump_stack"] = Reads(),
         ["read_dump_memory"] = Reads(),
+        // Notes (kept per user beside the annotation sidecars)
+        ["record_note"] = Changes(destructive: false, idempotent: false),
+        ["update_note"] = Changes(destructive: true, idempotent: true), // replaces text or status; a repeat with the same revision is a conflict
+        ["list_notes"] = Reads(),
+
         ["inspect_process"] = Reads(openWorld: true), // query and read handles to a running process only (docs/live-inspection.md); idempotent for the target
     };
 

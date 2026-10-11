@@ -62,6 +62,7 @@ public static class ServerHost
             .AddSingleton<ReadyToRunService>()
             .AddSingleton<PdbService>()
             .AddSingleton<MinidumpService>()
+            .AddSingleton<NotesService>()
             .AddSingleton<LiveProcessService>()
             .AddSingleton<ResourceSubscriptions>();
 

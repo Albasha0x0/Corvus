@@ -139,6 +139,9 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
         return new Session(this, id, file, dirs);
     }
 
+    /// <summary>The file of an open dump id, or null.</summary>
+    internal string? PathOf(string id) => _ids.TryGetValue(id.Trim(), out var path) ? path : null;
+
     /// <summary>A session over other process memory (a live process); it owns <paramref name="memory"/>.</summary>
     internal Session SessionFor(string id, IProcessMemory memory, IReadOnlyList<string> directories) => new(this, id, memory, directories);
 
