@@ -83,7 +83,7 @@ public static class ServerIdentity
     }
 
     /// <summary>The path with every linked directory or file on it resolved.</summary>
-    private static string RealPath(string path)
+    private static string RealPath(string path, int depth = 0)
     {
         var full = Path.GetFullPath(path);
         var root = Path.GetPathRoot(full) ?? "";
@@ -94,7 +94,9 @@ public static class ServerIdentity
             try
             {
                 FileSystemInfo info = Directory.Exists(current) ? new DirectoryInfo(current) : new FileInfo(current);
-                if (info.LinkTarget != null && info.ResolveLinkTarget(returnFinalTarget: true) is { } target) current = target.FullName;
+                // The target's own parents may be links too (macOS /var -> /private/var); 40 is the kernel's SYMLOOP_MAX.
+                if (info.LinkTarget != null && info.ResolveLinkTarget(returnFinalTarget: true) is { } target)
+                    current = depth < 40 ? RealPath(target.FullName, depth + 1) : target.FullName;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* keep the path as written */ }
         }

@@ -49,6 +49,12 @@ public class ServerIdentityTests
         try { Directory.CreateSymbolicLink(link, real); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return; } // no symlink privilege here
         Assert.True(ServerIdentity.SamePath(Path.Combine(link, "a.exe"), Path.Combine(real, "a.exe")));
+        // A link whose target runs through another link (macOS temp paths: /var -> /private/var).
+        var alias = Path.Combine(dir.Path, "alias");
+        Directory.CreateSymbolicLink(alias, dir.Path);
+        var through = Path.Combine(dir.Path, "through");
+        Directory.CreateSymbolicLink(through, Path.Combine(alias, "versions", "1.0"));
+        Assert.True(ServerIdentity.SamePath(Path.Combine(through, "a.exe"), Path.Combine(real, "a.exe")));
     }
 
     [Fact]
