@@ -193,9 +193,9 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
     }
 
     /// <summary>The text cache key of one function's pseudocode: single and batch calls share it.</summary>
-    private static string TextKey(LoadedNative native, INativeDecompilerSession session, uint rva, bool addresses) =>
+    internal static string TextKey(LoadedNative native, INativeDecompilerSession session, uint rva, bool addresses) =>
         $"decompile|{native.Image.Sha256}|{rva:X}|{addresses}|{NativeNamePush.CurrentStamp(session)}|{NativeTypePush.CurrentStamp(session)}|" +
-        $"{NativePdbTypes.CurrentStamp(session)}|{NativeUserTypePush.CurrentStamp(session)}";
+        $"{NativePdbTypes.CurrentStamp(session)}|{NativeUserTypePush.CurrentStamp(session)}|{EngineControl.Generation(session)}";
 
     private static string FunctionText(LoadedNative native, INativeDecompilerSession session, DecompiledFunction function, bool addresses)
     {

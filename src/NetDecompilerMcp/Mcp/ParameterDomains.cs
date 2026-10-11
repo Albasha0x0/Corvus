@@ -78,6 +78,7 @@ public static class ParameterDomains
         ["find_xrefs"] = new Dictionary<string, Domain> { ["engine"] = Engine, ["direction"] = Of(["to", "from", "both"]), ["kind"] = Of(["any", "code", "data"]) },
         ["native_call_tree"] = new Dictionary<string, Domain> { ["direction"] = Of(["callers", "callees", "both"]), ["calls"] = Of(["all", "direct", "virtual"]), ["engine"] = Engine },
         ["decompile_native"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
+        ["search_decompiled"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["get_native_frame"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["get_engine_status"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["define_native"] = new Dictionary<string, Domain> { ["kind"] = Of(["code", "function", "undefine", "data"]), ["engine"] = DecompilerEngine },

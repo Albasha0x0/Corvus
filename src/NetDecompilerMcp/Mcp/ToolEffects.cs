@@ -163,6 +163,7 @@ public static class ToolEffects
         ["list_cpp_classes"] = Reads(openWorld: true), // engine=ghidra runs Ghidra
         ["get_native_type"] = Reads(longRunning: true, openWorld: true), // source=engine runs IDA
         ["decompile_native"] = Reads(longRunning: true, openWorld: true), // runs IDA (idalib) in a worker process; its database is a private cache
+        ["search_decompiled"] = Reads(longRunning: true, openWorld: true), // decompiles many functions through IDA or Ghidra
         ["verify_native_imports"] = Reads(),
         ["load_pdb"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true), // download=true fetches from a symbol server; clear=true deletes the saved PDB names
         ["search_pdb_symbols"] = Reads(),

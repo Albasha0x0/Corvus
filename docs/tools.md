@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
-152 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+153 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -13,7 +13,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [containers](#containers) | yes | 7: file inspection, containers and wrapped apps, Unity overview |
 | [edit](#edit) | yes | 15: .NET edits, edit history and saving |
 | [il2cpp](#il2cpp) | yes | 5: Il2Cpp metadata, addresses, symbols and bindings |
-| [native](#native) | yes | 31: native PE analysis, symbols and decompilation |
+| [native](#native) | yes | 32: native PE analysis, symbols and decompilation |
 | [native-edit](#native-edit) | yes | 9: native names, comments, patches and saving |
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
@@ -1366,6 +1366,25 @@ C pseudocode of the native function containing an address, through IDA (Hex-Rays
 | `timeoutSeconds` | integer |  |  | Seconds for this call's engine requests (1-600; default NDM_ENGINE_REQUEST_TIMEOUT); Ghidra's decompiler retries once with 4x. |
 
 Structured output: `image`, `engine`, `items`, `total`, `succeeded`, `failed`, `skipped`, `next`.
+
+### search_decompiled
+
+**Search native pseudocode** (read-only, idempotent, open-world, long-running)
+
+Regex (case-insensitive; (?-i) for exact case) per line of the IDA or Ghidra pseudocode of every function (or filtered ones), in address order; parallel where the engine allows, cached. Stops at maxFunctions, seconds or limit hits; cursor= continues.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
+| `pattern` | string | yes |  | Regex. |
+| `engine` | string |  |  | auto, ida or ghidra. Values: auto, ida, ghidra. |
+| `filter` | string |  |  | Function name filter: substring (case-insensitive), glob with * and ?, or /regex/ (flags i, m, s). |
+| `maxFunctions` | integer |  | `500` | Default 500, max 20000. |
+| `seconds` | integer |  | `60` | Default 60, max 600. |
+| `cursor` | integer |  | `0` | From the previous result. |
+| `limit` | integer |  | `100` | Max hits (default 100, max 2000). |
+
+Structured output: `image`, `engine`, `pattern`, `hits`, `functions`, `from`, `searched`, `failed`, `cursor`, `stoppedBy`.
 
 ### verify_native_imports
 

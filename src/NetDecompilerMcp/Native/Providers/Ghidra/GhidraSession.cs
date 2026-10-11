@@ -461,4 +461,16 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         var r = await CallAsync("export_gzf", WorkerRows.Args(("path", path)), cancellationToken, saves: true, timeout: Options.OpenTimeout).ConfigureAwait(false);
         return (r.GetProperty("path").GetString() ?? path, r.GetProperty("size").GetInt64());
     }
+
+    // --- analysis control (EngineControl) ---
+
+    /// <summary>Size of the worker's decompiler pool: decompile requests that run at once.</summary>
+    internal int DecompilerPool => provider.Options.Decompilers;
+
+    /// <summary>After a reanalysis: whether the saved project now holds a complete analysis, and its function count.</summary>
+    internal void Reanalyzed(bool complete, int functions)
+    {
+        AnalysisComplete = complete;
+        FunctionCount = functions;
+    }
 }
