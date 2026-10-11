@@ -32,7 +32,9 @@ public class NativePatchMigrationTests(ITestOutputHelper output)
 
         public Harness()
         {
-            Code = new NativeCodeService(Env.Workspace, Env.Options, null, new AnnotationStore(Dir.File("ann")));
+            // Load sets the function starts after the load event: a background build would race it and miss them.
+            Env.Options.BackgroundIndexing = false;
+            Code =new NativeCodeService(Env.Workspace, Env.Options, null, new AnnotationStore(Dir.File("ann")));
             Code.SymbolStarts = (n, _) => _starts.TryGetValue(n, out var s) ? s : null;
             Edits = new NativeEditService(Env.Workspace, Code);
             Tools = new NativePatchTools(Env.Workspace, Code, Edits);

@@ -31,6 +31,8 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
 
         public Harness()
         {
+            // Load sets the function starts after the load event: a background build would race it and miss them.
+            Env.Options.BackgroundIndexing = false;
             var store = new AnnotationStore(Dir.File("ann"));
             Code = new NativeCodeService(Env.Workspace, Env.Options, null, store);
             var pdb = new PdbService(Code);
