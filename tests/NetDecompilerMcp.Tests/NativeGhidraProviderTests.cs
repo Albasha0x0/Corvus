@@ -491,6 +491,32 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
         Assert.True(cleared.Items[0].Applied);
     }
 
+    [GhidraFact]
+    public async Task Type_names_resolve_through_C_and_Windows_spellings()
+    {
+        // Windows typedefs the PE loader defines are taken as they are; the others resolve through aliases, prefixes and case
+        var path = shared.Copy(NativeIdaProviderTests.System64);
+        await using var s = await Isolated().OpenAsync(path, null, Offline);
+        (string Type, string? Shown)[] table =
+        [
+            ("DWORD", null), ("dword", "dword"), ("unsigned int", "uint"), ("PVOID", "PVOID"), ("uchar *", "uchar *"), ("char *", "char *"),
+            ("size_t", null), ("unsigned __int64", "ulonglong"), ("LPCSTR", "LPCSTR"), ("struct _IMAGE_DOS_HEADER *", "IMAGE_DOS_HEADER *"),
+            ("BYTE[16]", null), ("__int64", "longlong"), ("ULONG_PTR", "ULONG_PTR"), ("LPCWSTR", "LPCWSTR"), ("PIMAGE_DOS_HEADER", "IMAGE_DOS_HEADER *"),
+            ("image_dos_header", "IMAGE_DOS_HEADER"), ("const char *", "char *"), ("unsigned __int64 *[2]", "ulonglong *[2]"), ("NdmNoSuchType", null),
+        ];
+        var global = RdataRva(path) + 0x100;
+        var result = await s.ApplyUserTypesAsync(new NativeUserTypeBatch([], [.. table.Select((t, i) => new NativePrototype(global + (uint)i * 0x80, t.Type))], [], []));
+        for (int i = 0; i < table.Length; i++)
+            output.WriteLine($"{table[i].Type,-30} {result.Items[i].Applied} {result.Items[i].Text ?? result.Items[i].Error}");
+        for (int i = 0; i < table.Length; i++)
+        {
+            var item = result.Items[i];
+            if (table[i].Type == "NdmNoSuchType") { Assert.False(item.Applied); continue; }
+            Assert.True(item.Applied, $"{table[i].Type}: {item.Error}");
+            if (table[i].Shown is { } shown) Assert.True(shown == item.Text, $"{table[i].Type}: {item.Text}");
+        }
+    }
+
     /// <summary>The RVA of the image's .rdata section.</summary>
     private static uint RdataRva(string path)
     {

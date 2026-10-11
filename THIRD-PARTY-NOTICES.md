@@ -79,7 +79,9 @@ concerned say so in their headers.
   the decompiler pool in `Decompilers.java` (LIFO reuse, bounded slots, one deadline over both the wait and the
   run, `flushCache` after writes), from `decompiler_pool.py`.
 - [LaurieWired/GhidraMCP](https://github.com/LaurieWired/GhidraMCP), Copyright 2025 LaurieWired: keeping fd 1 for
-  the protocol and sending `System.out` to stderr (`Worker.java`).
+  the protocol and sending `System.out` to stderr (`Worker.java`); type names resolved after Ghidra's parser through
+  C and Windows aliases, `P`-prefixed pointer typedefs and a case-insensitive search over every category
+  (`TypeOps.java`).
 - [bethington/ghidra-mcp](https://github.com/bethington/ghidra-mcp): a `BundleHost` acquired before analysis in a
   custom headless host, and the program saved before it and the project are released on shutdown (`Worker.java`);
   a decompilation that times out retried once with a longer limit inside the same request (`CodeOps.java`).

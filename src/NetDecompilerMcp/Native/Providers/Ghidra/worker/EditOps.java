@@ -105,7 +105,7 @@ final class EditOps {
     static JsonArray enumMember(Worker w, String enumName, String member, Long value) {
         String target = enumName + "::" + member;
         DataTypeManager dtm = w.program.getDataTypeManager();
-        DataType dt = TypeOps.parseType(w, enumName);
+        DataType dt = TypeOps.parseExact(w, enumName);
         if (dt != null && !(dt instanceof ghidra.program.model.data.Enum))
             return FrameOps.item("enum", 0, target, false, enumName + " is a " + TypeOps.kind(dt) + ", not an enum", null, null, null);
         if (dt == null) {

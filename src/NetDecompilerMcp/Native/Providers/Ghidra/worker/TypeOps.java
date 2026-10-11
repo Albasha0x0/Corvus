@@ -12,6 +12,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -28,6 +30,7 @@ import ghidra.app.util.cparser.C.CParserUtils;
 import ghidra.framework.options.Options;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.Array;
+import ghidra.program.model.data.ArrayDataType;
 import ghidra.program.model.data.CategoryPath;
 import ghidra.program.model.data.Composite;
 import ghidra.program.model.data.DataType;
@@ -399,18 +402,121 @@ final class TypeOps {
         return Character.isDigit(s.charAt(0)) ? "_" + s : s;
     }
 
-    /** A C type ("int[4]", "struct Packet *", "Handler *[8]") parsed against the program's types; null when it does not parse. */
+    /**
+     * A C type ("int[4]", "struct Packet *", "Handler *[8]") parsed against the program's types; null when it does not parse.
+     * Names Ghidra's parser rejects are looked up as C and Windows spellings (unsigned __int64, DWORD_PTR, LPCWSTR), as
+     * P/LP/LPC pointer typedefs of a known type, without the tag's leading underscore, and case-insensitively.
+     */
     static DataType parseType(Worker w, String text) {
+        String t = strip(text);
+        DataTypeManager dtm = w.program.getDataTypeManager();
+        DataType dt = parse(dtm, t);
+        if (dt != null) return dt;
+        Matcher m = DECLARATOR.matcher(t.replaceAll("\\b(const|volatile)\\b", " ").trim());
+        if (!m.matches()) return null;
+        DataType base = named(w, m.group(1).trim().replaceAll("\\s+", " "), true);
+        if (base == null) return null;
+        String suffix = m.group(2).replaceAll("\\s", "");
+        if (suffix.matches(".*\\].*\\*.*")) return null; // a pointer after a dimension is not a C type
+        for (char c : suffix.toCharArray())
+            if (c == '*') base = new PointerDataType(base, dtm);
+        List<Integer> dims = new ArrayList<>();
+        Matcher d = DIM.matcher(suffix);
+        while (d.find()) dims.add(Integer.parseInt(d.group(1)));
+        for (int i = dims.size() - 1; i >= 0; i--) {
+            if (dims.get(i) <= 0 || base.getLength() <= 0) return null;
+            base = new ArrayDataType(base, dims.get(i), base.getLength(), dtm);
+        }
+        return base;
+    }
+
+    /** As {@link #parseType} without the name fallbacks, for lookups that must not land on a similar type (enum upserts). */
+    static DataType parseExact(Worker w, String text) {
+        return parse(w.program.getDataTypeManager(), strip(text));
+    }
+
+    private static String strip(String text) {
         String t = text.trim();
         while (t.endsWith(";")) t = t.substring(0, t.length() - 1).trim();
-        t = t.replaceAll("\\b(struct|union|enum|class)\\s+", "");
-        DataTypeManager dtm = w.program.getDataTypeManager();
+        return t.replaceAll("\\b(struct|union|enum|class)\\s+", "");
+    }
+
+    private static DataType parse(DataTypeManager dtm, String t) {
         try {
             return new DataTypeParser(dtm, dtm, null, DataTypeParser.AllowedDataTypes.FIXED_LENGTH).parse(t);
         }
         catch (Exception e) {
             return null;
         }
+    }
+
+    /** A base name followed by pointer stars and array dimensions. */
+    private static final Pattern DECLARATOR = Pattern.compile("([A-Za-z_][\\w ]*?)\\s*((?:\\*|\\[\\s*\\d+\\s*\\]|\\s)*)");
+    private static final Pattern DIM = Pattern.compile("\\[\\s*(\\d+)\\s*\\]");
+
+    /** C and Windows spellings Ghidra's parser does not take, by lowercase name; "ptr"/"sptr" are pointer-sized integers. */
+    private static final Map<String, String> ALIASES = aliases();
+
+    private static Map<String, String> aliases() {
+        Map<String, String> m = new HashMap<>();
+        String[][] groups = {
+            { "ulonglong", "unsigned __int64", "unsigned long long", "unsigned long long int", "__uint64", "uint64_t", "uint64", "dword64", "ulong64",
+                "dwordlong" },
+            { "longlong", "__int64", "signed __int64", "long long", "signed long long", "long long int", "int64_t", "int64", "long64" },
+            { "uint", "unsigned __int32", "unsigned", "uint32_t", "uint32", "dword32", "ulong32" },
+            { "int", "__int32", "signed", "signed int", "int32_t", "int32", "long32" },
+            { "ushort", "unsigned __int16", "unsigned short", "unsigned short int", "uint16_t" },
+            { "short", "__int16", "signed short", "short int", "int16_t" },
+            { "uchar", "unsigned __int8", "unsigned char", "uint8_t", "boolean" },
+            { "char", "__int8", "int8_t" },
+            { "wchar_t", "wchar", "__wchar_t" },
+            { "bool", "_bool" },
+            { "void *", "handle", "pvoid", "lpvoid", "lpcvoid", "hmodule", "hinstance", "hwnd", "hkey" },
+            { "char *", "lpstr", "pstr", "lpcstr", "pcstr", "pchar" },
+            { "wchar_t *", "lpwstr", "pwstr", "lpcwstr", "pcwstr", "pwchar", "bstr" },
+            { "ptr", "ulong_ptr", "uint_ptr", "dword_ptr", "size_t", "uintptr_t" },
+            { "sptr", "long_ptr", "int_ptr", "ssize_t", "intptr_t", "ptrdiff_t" },
+        };
+        for (String[] g : groups)
+            for (int i = 1; i < g.length; i++) m.put(g[i], g[0]);
+        return m;
+    }
+
+    /** Windows typedefs written in capitals: LONG and BOOL are 32-bit whatever the data organization's long is. */
+    private static final Map<String, String> WINDOWS = Map.of("bool", "int", "long", "int", "ulong", "uint", "dword", "uint", "word", "ushort",
+        "byte", "uchar", "qword", "ulonglong", "void", "void", "char", "char", "int", "int");
+
+    /** A type by name: exact in any category, an alias, a P/LP/LPC pointer typedef, the tag without its underscore, any case. */
+    private static DataType named(Worker w, String name, boolean prefixes) {
+        DataTypeManager dtm = w.program.getDataTypeManager();
+        List<DataType> found = new ArrayList<>();
+        dtm.findDataTypes(name, found);
+        if (!found.isEmpty()) return found.get(0);
+        String lower = name.toLowerCase(java.util.Locale.ROOT);
+        String alias = ALIASES.get(lower);
+        if (alias == null && name.equals(name.toUpperCase(java.util.Locale.ROOT))) alias = WINDOWS.get(lower);
+        if (alias != null) {
+            int ptr = w.program.getDefaultPointerSize();
+            if (alias.equals("ptr")) alias = ptr == 8 ? "ulonglong" : "uint";
+            else if (alias.equals("sptr")) alias = ptr == 8 ? "longlong" : "int";
+            DataType dt = parse(dtm, alias);
+            if (dt != null) return dt;
+        }
+        if (prefixes)
+            for (String p : new String[] { "LPC", "LP", "PC", "P" })
+                if (name.length() > p.length() + 1 && name.startsWith(p) && Character.isUpperCase(name.charAt(p.length()))) {
+                    DataType inner = named(w, name.substring(p.length()), false);
+                    if (inner != null) return new PointerDataType(inner, dtm);
+                }
+        if (name.startsWith("_") && name.length() > 1) {
+            DataType untagged = named(w, name.substring(1), false);
+            if (untagged != null) return untagged;
+        }
+        for (var it = dtm.getAllDataTypes(); it.hasNext();) {
+            DataType dt = it.next();
+            if (dt.getName().equalsIgnoreCase(name)) return dt;
+        }
+        return null;
     }
 
     /**
