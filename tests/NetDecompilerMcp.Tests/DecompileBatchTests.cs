@@ -96,7 +96,7 @@ public sealed class DecompileBatchTests : IDisposable
         var results = await session.DecompileManyAsync([0x1000, 0x1010, 0x1020], 0.2, 30);
         Assert.Equal([DecompileStatus.Ok, DecompileStatus.Error, DecompileStatus.Ok], results.Select(r => r.Status));
         Assert.Equal("timeout", results[1].ErrorCode);
-        var budget = await session.DecompileManyAsync([0x1010, 0x1000], 0.2, 0.2);
+        var budget = await session.DecompileManyAsync([0x1010, 0x1000], 0.3, 0.2); // the slow first item outlasts the whole budget
         Assert.Equal(DecompileStatus.Skipped, budget[1].Status);
     }
 
