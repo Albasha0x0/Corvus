@@ -121,13 +121,19 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
                 if (resolved != null && link!.FunctionOf(resolved.Binding) is { } goal)
                     return NativePaths(native, new NativeNode(goal.Image, goal.Function.Start), null, nativeFrom, from, deepest, limit, includeVirtual, cancellationToken);
                 // the provider is not loaded (or not found, as an ELF or Mach-O library on Windows): the calls through its imports in loaded images
-                var through = link!.ImportCallers(native, cancellationToken);
+                // an import slot named by address in a loaded image: the calls through that import
+                var symbol = native;
+                if (resolved?.Binding is { Target: { } owner, Rva: { } slotRva } && owner.Image.Imports.FirstOrDefault(i => i.SlotRva == slotRva) is { Name: { } importName } slotImport)
+                    symbol = new NativeSymbol(slotImport.Module, importName);
+                var through = link!.ImportCallers(symbol, cancellationToken);
                 if (through.Count > 0)
                 {
                     var (image, import, _, _) = through[0];
                     var goalNode = new NativeNode(image, import.SlotRva);
                     var hops = through.Select(t => new NativeHop(new NativeNode(t.Image, t.Caller.Start), goalNode, "import", t.Site)).ToList();
-                    return NativePaths(native, goalNode, hops, nativeFrom, from, deepest, limit, includeVirtual, cancellationToken, resolved);
+                    // each importer's own slot, for the last step of its chains
+                    var slots = through.GroupBy(t => t.Image).ToDictionary(g => g.Key, g => g.First().Import.SlotRva);
+                    return NativePaths(symbol, goalNode, hops, nativeFrom, from, deepest, limit, includeVirtual, cancellationToken, resolved, slots);
                 }
                 if (unresolved != null) throw unresolved;
             }
@@ -199,7 +205,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
     /// <param name="goalCallers">For an import goal (the slot in one importer): the calls through the imports that name it, in every importer.</param>
     /// <param name="direct">For an import goal: the export it resolves to, whose P/Invoke declarations also reach it.</param>
     private string NativePaths(NativeSymbol symbol, NativeNode goalNode, IReadOnlyList<NativeHop>? goalCallers, NativeSymbol? nativeFrom, string? from, int deepest,
-        int limit, bool includeVirtual, CancellationToken ct, NativeLinkService.NativeTarget? direct = null)
+        int limit, bool includeVirtual, CancellationToken ct, NativeLinkService.NativeTarget? direct = null, IReadOnlyDictionary<LoadedNative, uint>? goalSlots = null)
     {
         var paths = new NativeCallPaths(link!, code!) { EngineCallers = engines != null ? NativeCallPaths.FromEngines(engines, code!, ct) : null };
         var label = goalCallers != null
@@ -266,8 +272,9 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
             foreach (var hop in c.Native.Hops)
             {
                 indent++;
-                sb.AppendLine($"  {new string(' ', indent * 2)}-> {NativeStep(hop.To)}  ({hop.Edge} at {NativeAddress.Va(hop.From.Image.Image, hop.Site)})");
-                steps.Add(NativeEntry(hop.To, NativeAddress.Va(hop.From.Image.Image, hop.Site), hop.Edge));
+                var to = hop.To == goalNode && goalSlots != null && goalSlots.TryGetValue(hop.From.Image, out uint own) ? new NativeNode(hop.From.Image, own) : hop.To;
+                sb.AppendLine($"  {new string(' ', indent * 2)}-> {NativeStep(to)}  ({hop.Edge} at {NativeAddress.Va(hop.From.Image.Image, hop.Site)})");
+                steps.Add(NativeEntry(to, NativeAddress.Va(hop.From.Image.Image, hop.Site), hop.Edge));
             }
             items.Add(new CallPathEntry(steps, c.Managed.Count(s => s.Via != null) + c.Native.Hops.Count(h => h.Edge.StartsWith("virtual", StringComparison.Ordinal)),
                 c.Link != null ? NativeLinkService.Describe(c.Link.Binding) : null, c.Managed.Count > 0 ? "managed" : c.Native.Root));

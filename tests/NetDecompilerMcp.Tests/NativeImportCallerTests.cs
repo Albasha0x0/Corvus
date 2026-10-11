@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native.Annotations;
 using NetDecompilerMcp.Services;
@@ -48,6 +49,26 @@ public sealed class NativeImportCallerTests : IDisposable
         Assert.Contains("[app.exe] Main at", text);
         Assert.Contains("(import at 0x", text);
         Assert.Contains("provider_2c9d!OpenThing", text);
+    }
+
+    [Fact]
+    public async Task Each_importer_ends_its_chains_at_its_own_slot_and_a_slot_address_names_the_import()
+    {
+        var app = App();
+        var copy = _dir.File("app2.exe");
+        File.Copy(app, copy);
+        var (ws, paths, _) = Rig(app, copy);
+        using var _ = ws;
+        var text = await paths.FindCallPaths("provider_2c9d.dll!OpenThing");
+        Assert.Contains("imported by app.exe, app2.exe", text);
+        foreach (var id in new[] { "app.exe", "app2.exe" })
+            Assert.Matches($@"-> \[{Regex.Escape(id)}\] provider_2c9d!OpenThing at 0x[0-9A-F]+  \(import at", text);
+        // the import slot by address, as native:<image>!<va>
+        var native = ws.FindNative("app.exe")!;
+        var slot = native.Image.Imports.Single(i => i.Name == "OpenThing").SlotRva;
+        var bySlot = await paths.FindCallPaths($"native:app.exe!0x{native.Image.ImageBase + slot:X}");
+        Assert.Contains("[app.exe] Main at", bySlot);
+        Assert.DoesNotContain("no P/Invoke declaration", bySlot);
     }
 
     [Fact]
