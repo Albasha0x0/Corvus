@@ -173,6 +173,15 @@ internal static class Frameworks
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, List<(string File, Version? Version, int Rank)>> NuGetIndex = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>The library of package <paramref name="name"/> (newest version) for a .NET Framework target: its best lib folder not newer than the target.</summary>
+    public static string? NetFrameworkPackageFile(string name, string? framework)
+    {
+        if (NuGetRoot.Value is not { } root || name.Length == 0 || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return null;
+        int from = ShortName(framework) is { } target ? Array.IndexOf(FrameworkTfms, target) : -1;
+        var tfms = from < 0 ? FrameworkTfms : FrameworkTfms[from..];
+        return FirstExisting(Path.Combine(root, name.ToLowerInvariant()), d => tfms.Select(t => Path.Combine(d, "lib", t, name + ".dll")).FirstOrDefault(File.Exists) ?? "");
+    }
+
     /// <summary>
     /// Assembly from the NuGet package of the same name, using the best compatible lib/TFM folder. Version preference:
     /// exact, lowest same-major at or above it, newest same-major, newest.

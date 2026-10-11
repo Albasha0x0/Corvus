@@ -331,6 +331,8 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
             };
         }
         if (inferred != null) UseInferredFramework(dir, inferred);
+        FixFrameworkFileReferences(dir, framework, netFramework, asm.Module.GetAssemblyRefs().GroupBy(r => r.Name.String, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Max(r => r.Version), StringComparer.OrdinalIgnoreCase));
         IncludeEmbeddedReferences(asm, dir);
         AddTransitiveReferences(asm, dir, framework, netFramework);
         ThrowInFailedBodies(dir);
@@ -393,8 +395,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
 
     /// <summary>
     /// Writes the framework inferred from the references (<see cref="Frameworks.InferTargetFramework"/>) where the engine
-    /// wrote .NET Framework 4.0 for every assembly without a TargetFrameworkAttribute. A .NET Standard project gets its
-    /// framework assemblies from the SDK, so references into .NET Framework or shared framework folders are dropped.
+    /// wrote .NET Framework 4.0 for every assembly without a TargetFrameworkAttribute.
     /// </summary>
     private static void UseInferredFramework(string dir, string framework)
     {
@@ -404,10 +405,67 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         var current = System.Text.RegularExpressions.Regex.Match(text, "<TargetFramework>([^<]*)</TargetFramework>");
         if (!current.Success) return;
         text = text.Replace(current.Value, $"<TargetFramework>{tfm}</TargetFramework>\n    <!-- inferred from the referenced core assemblies: the assembly has no TargetFrameworkAttribute -->");
-        if (tfm.StartsWith("netstandard", StringComparison.Ordinal))
-            text = System.Text.RegularExpressions.Regex.Replace(text, @"[ \t]*<Reference Include=""[^""]+"">\s*<HintPath>([^<]+)</HintPath>\s*</Reference>\r?\n?",
-                m => IsFrameworkFile(Path.GetFullPath(Path.Combine(dir, m.Groups[1].Value))) ? "" : m.Value);
         File.WriteAllText(project, text);
+    }
+
+    /// <summary>
+    /// A .NET Standard project gets its framework assemblies from the SDK, so references into .NET Framework or shared
+    /// framework folders are dropped (their .NET Framework facades forward to mscorlib: CS1069); under .NET Standard 1.x a
+    /// contract outside the standard library (System.Collections.NonGeneric) becomes its package. For .NET Framework, a
+    /// file of the installed runtime that is a facade (System.ValueTuple forwards to the mscorlib of 4.7+) or older than
+    /// the version referenced (System.Numerics.Vectors) is replaced by its package's library, or dropped without one.
+    /// </summary>
+    private static void FixFrameworkFileReferences(string dir, string? framework, bool netFramework, IReadOnlyDictionary<string, Version?> referenced)
+    {
+        var project = Directory.GetFiles(dir, "*.csproj").FirstOrDefault();
+        if (project == null) return;
+        bool standard = framework?.StartsWith(".NETStandard", StringComparison.OrdinalIgnoreCase) == true;
+        if (!standard && !netFramework) return;
+        bool standard1 = framework?.StartsWith(".NETStandard,Version=v1.", StringComparison.OrdinalIgnoreCase) == true;
+        var text = File.ReadAllText(project);
+        var packages = new List<string>();
+        var fixedText = System.Text.RegularExpressions.Regex.Replace(text, @"[ \t]*<Reference Include=""([^""]+)"">\s*<HintPath>([^<]+)</HintPath>\s*</Reference>\r?\n?", m =>
+        {
+            var file = Path.GetFullPath(Path.Combine(dir, m.Groups[2].Value));
+            var name = m.Groups[1].Value.Split(',')[0];
+            if (standard)
+            {
+                // The contract packages of .NET Standard 1.x shipped as 4.3.0; a .NET Framework build of one (lib/net462) is not it.
+                bool contract = standard1 && (name.StartsWith("System.", StringComparison.Ordinal) || name is "Microsoft.CSharp" or "Microsoft.Win32.Primitives" or "Microsoft.Win32.Registry");
+                bool frameworkBuild = System.Text.RegularExpressions.Regex.IsMatch(file, @"[\\/]lib[\\/]net[1-4]\d*[\\/]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (!IsFrameworkFile(file) && !(contract && frameworkBuild)) return m.Value;
+                if (contract) packages.Add($"    <PackageReference Include=\"{name}\" Version=\"4.3.0\" />");
+                return "";
+            }
+            if (!Frameworks.InNetFrameworkDirectory(file) || !(IsFacade(file) || OlderThan(file, referenced.GetValueOrDefault(name)))) return m.Value;
+            return Frameworks.NetFrameworkPackageFile(name, framework) is { } package
+                ? m.Value.Replace(m.Groups[2].Value, System.Security.SecurityElement.Escape(Path.GetRelativePath(dir, package)))
+                : "";
+        });
+        if (packages.Count > 0)
+            fixedText = fixedText.Replace("</Project>", "  <ItemGroup>\n    <!-- .NET Standard 1.x contracts -->\n" + string.Join("\n", packages) + "\n  </ItemGroup>\n</Project>");
+        if (fixedText != text) File.WriteAllText(project, fixedText);
+    }
+
+    /// <summary>The file's assembly version is below <paramref name="wanted"/>.</summary>
+    private static bool OlderThan(string file, Version? wanted)
+    {
+        if (wanted == null || Frameworks.IsWildcard(wanted)) return false;
+        try { return System.Reflection.AssemblyName.GetAssemblyName(file).Version is { } v && v < wanted; }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException) { return false; }
+    }
+
+    /// <summary>An assembly that only forwards types (no type definitions of its own).</summary>
+    private static bool IsFacade(string file)
+    {
+        try
+        {
+            using var pe = new System.Reflection.PortableExecutable.PEReader(File.OpenRead(file));
+            if (!pe.HasMetadata) return false;
+            var md = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+            return md.TypeDefinitions.Count <= 1 && md.ExportedTypes.Count > 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException) { return false; }
     }
 
     private static bool IsFrameworkFile(string file) => Frameworks.InNetFrameworkDirectory(file) || Frameworks.SharedFrameworkMajor(file) != null;
@@ -446,8 +504,14 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
                 if (local != null && File.Exists(local)) found = local;
                 else if (netFramework && Frameworks.IsNetFrameworkAssembly(refName))
                 {
-                    added.Add($"    <Reference Include=\"{refName}\" />");
-                    continue;
+                    // A version above the framework's (System.Numerics.Vectors 4.1.3 has Vector<T>, the framework's 4.0 does not) is its package.
+                    if (Frameworks.NetFrameworkFile(refName) is { } fx && OlderThan(fx, refVersion) && Frameworks.NetFrameworkPackageFile(refName, framework) is { } package)
+                        found = package;
+                    else
+                    {
+                        added.Add($"    <Reference Include=\"{refName}\" />");
+                        continue;
+                    }
                 }
                 else found = workspace.LocateReference(refName, refVersion, refToken, file, netFramework, framework) is { Stub: null } t ? t.Loaded?.FilePath ?? t.File : null;
                 if (found == null || IsFrameworkFile(found)) continue;

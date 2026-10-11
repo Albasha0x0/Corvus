@@ -77,6 +77,37 @@ public sealed class ExportFrameworkTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// A .NET Standard 1.x library with a TargetFrameworkAttribute kept references to .NET Framework facades (CS1069: forwarded
+    /// to mscorlib); its contracts outside the standard library are their 4.3.0 packages instead.
+    /// </summary>
+    [Trait("Speed", "Slow")]
+    [Fact]
+    public void NetStandardOneContractsArePackagesNotFrameworkFacades()
+    {
+        using var env = new Env(RealPackages.Lib("Newtonsoft.Json", "13.0.1", "netstandard1.3", "Newtonsoft.Json.dll"));
+        var project = File.ReadAllText(env.Decompiler.ExportProject(env.Fixture, _dir.File("out"), null, default).ProjectFile!);
+        Assert.Contains("<TargetFramework>netstandard1.3</TargetFramework>", project);
+        Assert.DoesNotMatch(@"<HintPath>[^<]*Microsoft\.NET[\\/]Framework", project);
+        Assert.Contains("<PackageReference Include=\"Microsoft.CSharp\" Version=\"4.3.0\" />", project);
+        Assert.Contains("<PackageReference Include=\"System.Runtime.Serialization.Primitives\" Version=\"4.3.0\" />", project);
+    }
+
+    /// <summary>
+    /// A .NET Framework 4.6.2 library got the installed runtime's System.ValueTuple facade (forwarding to an mscorlib the 4.6.2
+    /// reference assemblies do not have: CS8179) and its System.Numerics.Vectors 4.0 (no Vector&lt;T&gt;).
+    /// </summary>
+    [Trait("Speed", "Slow")]
+    [Fact]
+    public void NetFrameworkLibrariesDoNotReferenceRuntimeFacadesOrOlderFrameworkCopies()
+    {
+        using var env = new Env(RealPackages.Lib("System.Text.Json", "10.0.1", "net462", "System.Text.Json.dll"));
+        var project = File.ReadAllText(env.Decompiler.ExportProject(env.Fixture, _dir.File("out"), null, default).ProjectFile!);
+        Assert.Contains("<TargetFramework>net462</TargetFramework>", project);
+        Assert.DoesNotMatch(@"<HintPath>[^<]*Microsoft\.NET[\\/]Framework[^<]*(ValueTuple|Numerics\.Vectors)", project);
+        Assert.DoesNotContain("<Reference Include=\"System.Numerics.Vectors\" />", project);
+    }
+
     /// <summary>App uses Mid only; Mid exposes a type of Base, which the project then needs too (CS0012).</summary>
     [Fact]
     public void DependenciesOfReferencedLibrariesAreReferenced()
