@@ -43,6 +43,10 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     private readonly List<(string Op, JsonObject Args)> _unsaved = [];
     private WorkerConnection? _worker;
     private int _failures;
+    private int _restarts;
+    private int _calls;
+    private (string Op, DateTime Since)? _starting;
+    private string? _startStage;
     private volatile bool _closed;
 
     protected NativeOpenOptions Options { get; } = options;
@@ -76,6 +80,37 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     {
         get { lock (_sync) return _unsaved.Count; }
     }
+
+    /// <summary>The database (file or project directory) the session works on, once chosen.</summary>
+    protected virtual string? DatabaseLocation => null;
+
+    /// <summary>What the session does now, from its own bookkeeping (never a worker request, so it answers while the worker is busy).</summary>
+    public EngineSessionState State()
+    {
+        var w = _worker;
+        var running = w?.Running ?? [];
+        var starting = _starting;
+        string state;
+        string? op = null, stage = null;
+        double seconds = 0;
+        if (!IsOpen) state = "closed";
+        else if (starting is { } s)
+        {
+            (state, op, stage, seconds) = ("opening", s.Op, _startStage, (DateTime.UtcNow - s.Since).TotalSeconds);
+        }
+        else if (running.Count > 0)
+        {
+            var first = running[0];
+            (state, op, stage, seconds) = ("busy", first.Op, first.Stage, (DateTime.UtcNow - first.StartedUtc).TotalSeconds);
+        }
+        else state = "idle";
+        int queued = Math.Max(0, Volatile.Read(ref _calls) - running.Count - (starting != null ? 1 : 0));
+        return new EngineSessionState(ProviderId, ImagePath, WorkerProcessId, state, op, Math.Round(seconds, 1), stage, queued, UnsavedCount,
+            Volatile.Read(ref _restarts), DatabaseLocation, ReusedDatabase);
+    }
+
+    /// <summary>Notes the worker's progress stage while the session starts (open, load, analysis).</summary>
+    protected void StartStage(string stage) => _startStage = stage;
 
     /// <summary>Locks the cache entry for the image (runs on the thread pool).</summary>
     protected abstract CacheEntry AcquireEntry(string imagePath, string? sha256);
@@ -115,6 +150,15 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
 
     /// <summary>Starts a worker and opens the database (reused when saved), falling back to a fresh analysis once when the saved database fails.</summary>
     private async Task StartAsync(bool firstOpen, CancellationToken cancellationToken)
+    {
+        _starting = (firstOpen ? "open" : "restart", DateTime.UtcNow);
+        _startStage = null;
+        if (!firstOpen) Interlocked.Increment(ref _restarts);
+        try { await StartCoreAsync(firstOpen, cancellationToken).ConfigureAwait(false); }
+        finally { _starting = null; }
+    }
+
+    private async Task StartCoreAsync(bool firstOpen, CancellationToken cancellationToken)
     {
         DiscardLeftovers();
         var reuse = DatabaseExists;
@@ -175,7 +219,13 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     internal async Task<JsonElement> CallAsync(string op, JsonObject args, CancellationToken cancellationToken, bool journal = false, bool saves = false,
         TimeSpan? timeout = null)
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        Interlocked.Increment(ref _calls);
+        try { await _gate.WaitAsync(cancellationToken).ConfigureAwait(false); }
+        catch
+        {
+            Interlocked.Decrement(ref _calls);
+            throw;
+        }
         var held = true;
         try
         {
@@ -231,6 +281,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         }
         finally
         {
+            Interlocked.Decrement(ref _calls);
             if (held) _gate.Release();
         }
     }

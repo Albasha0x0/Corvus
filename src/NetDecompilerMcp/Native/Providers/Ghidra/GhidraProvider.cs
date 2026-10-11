@@ -158,6 +158,8 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
 
     internal void Forget(GhidraSession session) => _sessions.TryRemove(session, out _);
 
+    public IReadOnlyList<EngineSessionState> SessionStates() => _sessions.Keys.Select(s => s.State()).ToList();
+
     /// <summary>Whether the cache holds a saved project of these bytes under any profile (file checks only).</summary>
     public bool HasSavedProject(string sha256)
     {

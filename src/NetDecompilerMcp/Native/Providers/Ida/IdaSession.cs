@@ -21,6 +21,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
     protected override int MaxRestarts => provider.Options.MaxRestarts;
     protected override int JournalSaveThreshold => provider.Options.JournalSaveThreshold;
     internal string DatabasePath => _databasePath;
+    protected override string? DatabaseLocation => _databasePath.Length > 0 ? _databasePath : null;
 
     protected override CacheEntry AcquireEntry(string imagePath, string? sha256) => provider.Cache.Acquire(ProviderId, imagePath, sha256);
 
@@ -92,6 +93,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
 
         var reuse = File.Exists(_databasePath);
         ReusedDatabase = reuse;
+        StartStage(reuse ? "load" : "analysis");
         Options.Progress?.Report(new NativeProviderProgress(reuse ? "load" : "analysis", clock.Elapsed));
         var idaArgs = new JsonArray();
         if (Options.Symbols == SymbolMode.Off) idaArgs.Add("-Opdb:off");

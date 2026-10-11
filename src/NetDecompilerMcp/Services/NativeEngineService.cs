@@ -152,6 +152,27 @@ public sealed class NativeEngineService : IDisposable
 
     private readonly string? _cacheRoot;
 
+    /// <summary>
+    /// Every engine session open or opening, with the loaded image it serves (its id; a patched copy or slice by file
+    /// name). Never asks a worker, so it answers while one is busy.
+    /// </summary>
+    public IReadOnlyList<(string Image, EngineSessionState State)> SessionStates()
+    {
+        var images = new Dictionary<string, string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        foreach (var (native, _) in _holders) images.TryAdd(Path.GetFullPath(native.FilePath), native.Id);
+        var list = new List<(string, EngineSessionState)>();
+        foreach (var (_, provider) in _providers)
+        {
+            if (!provider.IsValueCreated) continue;
+            foreach (var s in provider.Value.SessionStates())
+            {
+                var path = string.IsNullOrEmpty(s.ImagePath) ? "" : Path.GetFullPath(s.ImagePath);
+                list.Add((images.TryGetValue(path, out var id) ? id : Path.GetFileName(path) + " (copy)", s));
+            }
+        }
+        return list;
+    }
+
     /// <summary>The engine the native code tools use when a call names none.</summary>
     public EngineMode DefaultMode { get; }
 

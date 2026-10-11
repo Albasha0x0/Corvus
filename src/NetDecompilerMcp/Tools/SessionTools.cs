@@ -21,6 +21,13 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
 
     public sealed record NoteCounts(int Open, int Total, string Store);
 
+    public sealed record EngineSession(string Image, string Engine, int? WorkerPid,
+        [property: Description("opening, idle, busy or closed.")] string State,
+        [property: Description("The request running (or open/restart), its seconds and the worker's last stage.")] string? BusyOp, double BusySeconds, string? Stage,
+        [property: Description("Requests waiting for this session.")] int Queued,
+        [property: Description("Unsaved edits a restart would replay.")] int Unsaved,
+        int Restarts, string? Database, bool ReusedDatabase);
+
     [Description("Seconds per IDA or Ghidra request (NDM_ENGINE_REQUEST_TIMEOUT) and per engine start plus analysis (NDM_ENGINE_OPEN_TIMEOUT).")]
     public sealed record EngineLimits(int RequestSeconds, int OpenSeconds);
 
@@ -54,13 +61,14 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         IReadOnlyList<ToolAvailability.Unavailable> UnavailableTools,
         [property: Description("Analyst notes in the per-user store (record_note): open, total and the store directory.")]
         NoteCounts? Notes,
-        EngineLimits EngineTimeLimits);
+        EngineLimits EngineTimeLimits,
+        IReadOnlyList<EngineSession> EngineSessions);
 
     private static readonly ConditionalWeakTable<McpServerOptions, string> Digests = new();
 
     [McpServerTool(Name = "server_status", Title = "Server status", UseStructuredContent = true)]
     [Description("Which server runs (version, program, install kind, client), a catalog digest, what is loaded, limits, long-running tools, " +
-                 "capabilities with the fix when missing, tool families, and tools that cannot work here. expectedCatalogDigest " +
+                 "capabilities with the fix when missing, tool families, unusable tools, and engine sessions (busy op, queue). expectedCatalogDigest " +
                  "detects a stale server; expectedExecutable checks the registered copy.")]
     public ServerStatus GetServerStatus(
         [Description("Catalog digest to compare (t92-0123456789ab.p5-01234567).")] string? expectedCatalogDigest = null,
@@ -137,7 +145,9 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             Core.Toolsets.Families.Select(f => new Toolset(f.Name, options.Toolsets.Contains(f.Name), f.InCore, f.Tools.Length, f.Description)).ToList(),
             ToolAvailability.Of(registered, availability, options.IdaScripting, OperatingSystem.IsWindows(), options.AllowDeviceChanges),
             NoteCountsOf(notes),
-            new EngineLimits(options.EngineRequestTimeoutSeconds, options.EngineOpenTimeoutSeconds));
+            new EngineLimits(options.EngineRequestTimeoutSeconds, options.EngineOpenTimeoutSeconds),
+            (engines?.SessionStates() ?? []).Select(e => new EngineSession(e.Image, e.State.Engine, e.State.WorkerPid, e.State.State, e.State.BusyOp,
+                e.State.BusySeconds, e.State.Stage, e.State.Queued, e.State.Unsaved, e.State.Restarts, e.State.Database, e.State.ReusedDatabase)).ToList());
     }
 
     /// <summary>One capability per external program the server runs (test oracles left out), probed once per file.</summary>

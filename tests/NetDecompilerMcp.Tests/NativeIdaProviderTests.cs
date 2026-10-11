@@ -290,6 +290,21 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     }
 
     [IdaFact]
+    public async Task Session_state_answers_while_the_worker_is_busy()
+    {
+        await using var s = (IdaSession)await Provider.OpenAsync(System64, null, Offline);
+        var running = s.CallAsync("sleep", new JsonObject { ["seconds"] = 3 }, default);
+        await Task.Delay(500);
+        var clock = Stopwatch.StartNew();
+        var state = Assert.Single(Provider.SessionStates(), x => x.ImagePath == System64);
+        Assert.True(clock.ElapsedMilliseconds < 100, $"state took {clock.ElapsedMilliseconds} ms");
+        Assert.Equal(("ida", "busy", "sleep", s.WorkerProcessId), (state.Engine, state.State, state.BusyOp, state.WorkerPid));
+        Assert.Equal(s.DatabasePath, state.Database);
+        await running;
+        Assert.Equal("idle", Provider.SessionStates().Single(x => x.ImagePath == System64).State);
+    }
+
+    [IdaFact]
     public async Task Concurrent_requests_are_serialized()
     {
         await using var s = await Provider.OpenAsync(System64, null, Offline);

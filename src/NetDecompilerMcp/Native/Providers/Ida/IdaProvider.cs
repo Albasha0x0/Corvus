@@ -126,6 +126,8 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
 
     internal void Forget(IdaSession session) => _sessions.TryRemove(session, out _);
 
+    public IReadOnlyList<EngineSessionState> SessionStates() => _sessions.Keys.Select(s => s.State()).ToList();
+
     /// <summary>The database file of a symbol profile (default, nopdb): keyed by the IDA build, so another IDA never reuses it.</summary>
     internal static string DatabaseFileName(IdaInstallation ida, string profile) => $"ida-{profile}-{ida.EngineDigest()}.i64";
 

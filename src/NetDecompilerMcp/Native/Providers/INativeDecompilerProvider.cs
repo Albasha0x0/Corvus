@@ -26,7 +26,17 @@ public interface INativeDecompilerProvider : IDisposable
     /// later open of the same bytes skips auto-analysis.
     /// </summary>
     Task<INativeDecompilerSession> OpenAsync(string imagePath, string? sha256 = null, NativeOpenOptions? options = null, CancellationToken cancellationToken = default);
+
+    /// <summary>State of the sessions this provider has open or opening; answered without asking a worker.</summary>
+    IReadOnlyList<EngineSessionState> SessionStates() => [];
 }
+
+/// <summary>
+/// One engine session as seen from the server: its worker, what runs and for how long (with the worker's last stage),
+/// requests waiting, edits a restart would replay, restarts, and the database.
+/// </summary>
+public sealed record EngineSessionState(string Engine, string ImagePath, int? WorkerPid, string State, string? BusyOp, double BusySeconds,
+    string? Stage, int Queued, int Unsaved, int Restarts, string? Database, bool ReusedDatabase);
 
 /// <summary>
 /// One analyzed image. Requests that change the database run one at a time in arrival order; an engine may run reads

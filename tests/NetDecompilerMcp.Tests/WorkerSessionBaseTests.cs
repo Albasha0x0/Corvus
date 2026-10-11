@@ -48,6 +48,27 @@ public sealed class WorkerSessionBaseTests : IDisposable
     }
 
     [Fact]
+    public async Task State_shows_the_running_request_the_queue_and_restarts_without_asking_the_worker()
+    {
+        await using var s = await Open();
+        Assert.Equal("idle", s.State().State);
+        await s.CallAsync("set", Set("a", "1"), default, journal: true);
+        var running = s.CallAsync("sleep", new JsonObject { ["ms"] = 1500 }, default);
+        var waiting = s.CallAsync("get", Get("a"), default);
+        await Task.Delay(300);
+        var busy = s.State();
+        Assert.Equal(("busy", "sleep", 1, 1), (busy.State, busy.BusyOp, busy.Queued, busy.Unsaved));
+        Assert.True(busy.BusySeconds > 0);
+        Assert.NotNull(busy.WorkerPid);
+        await running;
+        await waiting;
+        Assert.Equal(("idle", 0), (s.State().State, s.State().Queued));
+        await Assert.ThrowsAsync<ToolError>(() => s.CallAsync("crash", new JsonObject(), default));
+        await s.CallAsync("get", Get("a"), default);
+        Assert.Equal(1, s.State().Restarts);
+    }
+
+    [Fact]
     public async Task A_save_clears_the_journal()
     {
         await using var s = await Open();

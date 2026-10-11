@@ -29,6 +29,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     protected override bool ConcurrentRequests => true;
     protected override int JournalSaveThreshold => provider.Options.JournalSaveThreshold;
     internal string ProjectDirectory => _projectDirectory;
+    protected override string? DatabaseLocation => _projectDirectory.Length > 0 ? _projectDirectory : null;
     /// <summary>False when the first analysis ran out of time; the saved project then holds what was analyzed.</summary>
     public bool AnalysisComplete { get; private set; }
     internal string Language { get; private set; } = "";
@@ -168,6 +169,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
 
         var reuse = DatabaseExists;
         ReusedDatabase = reuse;
+        StartStage(reuse ? "load" : "analysis");
         Options.Progress?.Report(new NativeProviderProgress(reuse ? "load" : "analysis", clock.Elapsed));
         if (!reuse) await provider.ColdAnalysis.WaitAsync(cancellationToken).ConfigureAwait(false);
         System.Text.Json.JsonElement info;

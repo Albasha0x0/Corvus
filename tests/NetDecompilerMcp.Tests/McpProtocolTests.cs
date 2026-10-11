@@ -362,6 +362,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
             Assert.Contains("export_project", status.GetProperty("longRunningTools").EnumerateArray().Select(e => e.GetString()));
             Assert.Equal(120, status.GetProperty("engineTimeLimits").GetProperty("requestSeconds").GetInt32());
             Assert.Equal(1200, status.GetProperty("engineTimeLimits").GetProperty("openSeconds").GetInt32());
+            Assert.Equal(JsonValueKind.Array, status.GetProperty("engineSessions").ValueKind);
             var stale = await Status($"t{tools.Count - 2}-0123456789ab.p{prompts.Count}-{seen[^8..]}");
             Assert.False(stale.GetProperty("catalogMatches").GetBoolean());
             Assert.Equal($"tools: {tools.Count - 2} expected, this server has {tools.Count} (added 2 or more)", stale.GetProperty("catalogDifference").GetString());
