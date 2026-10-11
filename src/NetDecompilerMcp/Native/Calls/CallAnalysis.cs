@@ -535,6 +535,7 @@ public sealed partial class CallAnalysis : ITraceHost
         {
             var regs = Abi.IntArgs;
             int home = Abi.HomeArea, highest = -1, highestSlot = -1;
+            var written = new HashSet<int>();
             for (int i = index - 1; i >= 0; i--)
             {
                 ref readonly var d = ref insns[i];
@@ -546,9 +547,11 @@ public sealed partial class CallAnalysis : ITraceHost
                 {
                     long disp = (long)d.I.MemoryDisplacement64;
                     if (disp >= home && disp < home + 8 * MaxGuessedArguments && (disp - home) % 8 == 0)
-                        highestSlot = Math.Max(highestSlot, (int)(disp - home) / 8);
+                        written.Add((int)(disp - home) / 8);
                 }
             }
+            // stack arguments fill the slots from the first one up; a store above a gap is a local (a saved cookie, a spill)
+            while (written.Contains(highestSlot + 1)) highestSlot++;
             // System V: [rsp] also holds locals, so stack slots count only once every register argument is set
             if (Abi.IsSystemV && highest < regs.Length - 1) highestSlot = -1;
             int count = highestSlot >= 0 ? regs.Length + highestSlot + 1 : highest + 1;

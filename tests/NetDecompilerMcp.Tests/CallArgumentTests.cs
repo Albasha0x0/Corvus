@@ -86,6 +86,25 @@ public class CallArgumentTests(ITestOutputHelper output)
         Assert.Contains("differs between paths", calls[1].Arguments[0].Derivation);
         Assert.Equal("Sleep(5)", calls[2].Display);
 
+        // a guessed call counts stack slots only from the first one up: a local stored above a gap is no argument
+        var guessed = Assemble(64, a =>
+        {
+            var callee = a.CreateLabel();
+            a.sub(rsp, 0x88);
+            a.mov(__qword_ptr[rsp + 0x60], rax);
+            a.mov(ecx, 0x10);
+            a.call(callee);
+            a.add(rsp, 0x88);
+            a.ret();
+            a.Label(ref callee);
+            a.mov(eax, ecx);
+            a.ret();
+        });
+        var guessedIndex = NativeCodeIndex.Build(CodeTestImage.Synthetic(NativeArch.X64, guessed, entry: Code));
+        var call = Assert.Single(CallAnalysis.For(guessedIndex).CallsIn(guessedIndex.FunctionByStart(Code)!));
+        Assert.True(call.Guessed);
+        Assert.Equal(["rcx"], call.Arguments.Select(x => x.Location));
+
         // reference rows carry arguments only on the page asked for
         var rows = NetDecompilerMcp.Tools.NativeCallTools.WithArguments(index, calls.Select(c => (c.Rva, "Call", true)), _ => "f", default, first: 2, count: 1);
         Assert.Equal([false, false, true], rows.Select(r => r.Contains('(')).ToArray());
