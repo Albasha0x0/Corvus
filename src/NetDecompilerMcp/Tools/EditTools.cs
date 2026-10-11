@@ -131,7 +131,10 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
-            pager.Page(history.Diff(workspace.Get(assembly), number, cancellationToken), offset, maxChars), cancellationToken);
+        {
+            var (text, complete) = history.Diff(workspace.Get(assembly), number, Math.Max(0, offset) + pager.MaxChars(maxChars), cancellationToken);
+            return pager.Page(text, offset, maxChars, complete);
+        }, cancellationToken);
 
     [McpServerTool(Name = "export_edits", Title = "Export edits as a script")]
     [Description("Save the edits of an assembly as a JSON edit script, bound to the build they were made on (file SHA-256, MVID, assembly identity). " +

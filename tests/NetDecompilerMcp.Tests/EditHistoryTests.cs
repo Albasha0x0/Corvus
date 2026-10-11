@@ -52,6 +52,24 @@ public class EditHistoryTests : IDisposable
         Assert.Contains("StartsWith", _env.Decompile("Secret::Validate"));
     }
 
+    /// <summary>
+    /// diff_edits decompiled every touched member twice before paging (a whole-assembly simplify: thousands of members,
+    /// 27 s for one page); now it stops past the page and keeps the members it diffed for the next page.
+    /// </summary>
+    [Fact]
+    public void DiffStopsPastThePageAndTheRestFollows()
+    {
+        foreach (var m in new[] { "Account::Score", "Shop::Describe", "Secret::Validate" })
+            _env.Edit(() => _env.Edits.StubMethod(_env.One(m), null));
+        var whole = _env.Workspace.Read(() => _env.History.Diff(_env.Fixture, null, default));
+        var (first, complete) = _env.Workspace.Read(() => _env.History.Diff(_env.Fixture, null, whole.IndexOf("=== #2", StringComparison.Ordinal), default));
+        Assert.False(complete);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(first, "^--- ", System.Text.RegularExpressions.RegexOptions.Multiline));
+        Assert.StartsWith(first, whole);
+        Assert.Contains("of 3000+. Call again with offset=", new OutputPager(new ServerOptions()).Page(new string('x', 3_000), 0, 1_000, complete: false));
+        Assert.Equal((whole, true), _env.Workspace.Read(() => _env.History.Diff(_env.Fixture, null, whole.Length, default)));
+    }
+
     [Trait("Speed", "Slow")]
     [Fact]
     public void DiffShowsBeforeAndAfter()

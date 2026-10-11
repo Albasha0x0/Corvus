@@ -83,7 +83,8 @@ public sealed class OutputPager(ServerOptions options)
         $"[{fit} of {asked} rows fit in the output limit; use offset={next} (or a larger maxChars / smaller limit)]";
 
     /// <summary>Returns the character slice starting at <paramref name="offset"/>, cut at a line break when possible.</summary>
-    public string Page(string text, int offset = 0, int? maxChars = null)
+    /// <param name="complete">False when <paramref name="text"/> was produced only past the page: the total is not known.</param>
+    public string Page(string text, int offset = 0, int? maxChars = null, bool complete = true)
     {
         int max = MaxChars(maxChars);
         if (offset < 0) offset = 0;
@@ -102,7 +103,7 @@ public sealed class OutputPager(ServerOptions options)
 
         var slice = text[offset..end];
         var footer = end < text.Length
-            ? $"\n\n[Output truncated: chars {offset}-{end} of {text.Length}. Call again with offset={end} for the next page.]"
+            ? $"\n\n[Output truncated: chars {offset}-{end} of {text.Length}{(complete ? "" : "+")}. Call again with offset={end} for the next page.]"
             : $"\n\n[End of output: chars {offset}-{end} of {text.Length}.]";
         var header = offset > 0 ? $"[Continuing from offset {offset}]\n" : "";
         return header + slice + footer;

@@ -228,10 +228,17 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
     private static string Short(string sha256) => sha256.Length > 16 ? sha256[..16] + "…" : sha256;
 
     /// <summary>Unified diffs of the decompiled C# of every member an edit touched, original vs current.</summary>
-    public string Diff(LoadedAssembly asm, int? number, CancellationToken ct)
+    public string Diff(LoadedAssembly asm, int? number, CancellationToken ct) => Diff(asm, number, int.MaxValue, ct).Text;
+
+    /// <summary>
+    /// <see cref="Diff(LoadedAssembly, int?, CancellationToken)"/> up to the first member that takes the text past
+    /// <paramref name="stopAfter"/> characters: a whole-assembly simplify touches thousands of members, each decompiled
+    /// twice, and a page shows a few. Complete is false when members were left out.
+    /// </summary>
+    public (string Text, bool Complete) Diff(LoadedAssembly asm, int? number, int stopAfter, CancellationToken ct)
     {
         if (asm.Edits.Count == 0)
-            return $"{asm.Id} has no edits.";
+            return ($"{asm.Id} has no edits.", true);
         var selected = number is { } n
             ? (n >= 1 && n <= asm.Edits.Count ? [(n, asm.Edits[n - 1])] : throw new ToolError(ErrorCode.NotFound, $"Edit #{n} does not exist; {asm.Id} has {asm.Edits.Count} edit(s)."))
             : asm.Edits.Select((e, i) => (i + 1, e)).ToList();
@@ -241,6 +248,7 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
         var done = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (num, edit) in selected)
         {
+            if (sb.Length > stopAfter) return (sb.ToString(), false);
             sb.AppendLine($"=== #{num} {edit.Kind}: {edit.Description}");
             if (edit.Touched.Count == 0)
             {
@@ -250,10 +258,37 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
             foreach (var label in edit.Touched)
             {
                 if (number == null && !done.Add(label)) continue; // already shown for an earlier edit
-                sb.Append(DiffMember(asm, originalView, label, ct));
+                if (sb.Length > stopAfter) return (sb.ToString(), false);
+                sb.Append(CachedDiffMember(asm, originalView, label, ct));
             }
         }
-        return sb.ToString();
+        return (sb.ToString(), true);
+    }
+
+    private sealed class MemberDiffs(long key)
+    {
+        public long Key { get; } = key;
+        public Dictionary<string, string> ByLabel { get; } = new(StringComparer.Ordinal);
+    }
+
+    // Per assembly state: the next page of a long diff reuses the members already shown.
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<LoadedAssembly, MemberDiffs> _memberDiffs = new();
+
+    private string CachedDiffMember(LoadedAssembly asm, LoadedAssembly originalView, string label, CancellationToken ct)
+    {
+        // Decompiled text depends on the assembly's edits and on what else is loaded.
+        long key = ((long)workspace.Generation << 32) | (uint)asm.Version;
+        MemberDiffs cache;
+        lock (_memberDiffs)
+        {
+            if (!_memberDiffs.TryGetValue(asm, out cache!) || cache.Key != key)
+                _memberDiffs.AddOrUpdate(asm, cache = new MemberDiffs(key));
+        }
+        lock (cache)
+            if (cache.ByLabel.TryGetValue(label, out var text)) return text;
+        var diff = DiffMember(asm, originalView, label, ct);
+        lock (cache) cache.ByLabel[label] = diff;
+        return diff;
     }
 
     private string DiffMember(LoadedAssembly asm, LoadedAssembly originalView, string label, CancellationToken ct)
