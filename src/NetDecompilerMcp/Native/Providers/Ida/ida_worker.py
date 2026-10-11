@@ -1273,7 +1273,8 @@ def op_types(args):
 
 
 def op_type(args):
-    # one named type: its C declaration and, for a struct or union, members [offset, name, type, size]
+    # one named type: its C declaration, alignment and packing and, for a struct or union, members
+    # [offset, name, type, size, bit offset in the storage unit or null, bit width or null, comment or null]
     need_open()
     import ida_typeinf as ti
     name = args.get("name") or ""
@@ -1281,15 +1282,25 @@ def op_type(args):
     if not name or not t.get_named_type(ti.get_idati(), name):
         raise WorkerError("not_found", "no type named %s" % name)
     members = []
+    packed = False
     if t.is_udt():
         udt = ti.udt_type_data_t()
         t.get_udt_details(udt)
+        packed = bool(udt.taudt_bits & ti.TAUDT_UNALIGNED)
         for u in udt:
-            if not u.is_gap():
-                members.append([u.offset // 8, u.name, str(u.type), u.size // 8])
+            if u.is_gap():
+                continue
+            cmt = u.cmt or None
+            bf = ti.bitfield_type_data_t()
+            if u.is_bitfield() and u.type.get_bitfield_details(bf) and bf.nbytes:
+                unit = (u.offset // 8) // bf.nbytes * bf.nbytes
+                members.append([unit, u.name, str(u.type), bf.nbytes, u.offset - unit * 8, bf.width, cmt])
+            else:
+                members.append([u.offset // 8, u.name, str(u.type), u.size // 8, None, None, cmt])
     decl = ti.print_tinfo("", 0, 0, ti.PRTYPE_MULTI | ti.PRTYPE_TYPE | ti.PRTYPE_DEF | ti.PRTYPE_SEMI, t, name, "") or str(t)
     size = t.get_size()
-    return {"name": name, "kind": type_kind(ti, t), "size": size if size != ti.BADSIZE else -1, "decl": decl, "members": members}
+    return {"name": name, "kind": type_kind(ti, t), "size": size if size != ti.BADSIZE else -1, "decl": decl, "members": members,
+            "align": t.get_alignment(), "packed": packed}
 
 
 def op_field_xrefs(args):

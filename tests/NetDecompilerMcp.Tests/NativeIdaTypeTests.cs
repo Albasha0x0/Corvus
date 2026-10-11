@@ -204,6 +204,29 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("+0x4  data  char[16]  16", await fresh.Types.ListNativeTypes(Image, name: "NdmPacket"));
     }
 
+    /// <summary>get_native_type through IDA: bit fields with their bits, member comments, the type's alignment and packing.</summary>
+    [IdaFact]
+    public async Task Engine_type_details_show_bit_fields_comments_and_alignment()
+    {
+        var rig = Setup("cache-details");
+        output.WriteLine(await rig.Types.DeclareNativeTypes(Image, "struct NdmBits { unsigned int lo : 3; unsigned int hi : 5; int whole; }; " +
+                                                                  "struct __attribute__((packed)) NdmPacked { char c; int i; };", engine: "ida"));
+        var session = await rig.Session();
+        var script = await session.RunScriptAsync("import ida_typeinf as ti\nt = ti.tinfo_t()\nt.get_named_type(None, 'NdmBits')\n" +
+                                                  "u = ti.udm_t()\nu.name = 'whole'\nidx = t.find_udm(u, ti.STRMEM_NAME)\nt.set_udm_cmt(idx, 'the whole count')\n");
+        Assert.Null(script.Error);
+        var tools = new NativeTypeInfoTools(rig.Workspace, rig.Code, rig.Engines);
+        var bits = await tools.GetNativeType(Image, name: "NdmBits", source: "engine");
+        output.WriteLine(bits);
+        Assert.Contains("align 4", bits);
+        Assert.Matches(@"\+0x0\s+4\s+lo : 3 \(bit 0\)", bits);
+        Assert.Matches(@"\+0x0\s+4\s+hi : 5 \(bit 3\)", bits);
+        Assert.Contains("// the whole count", bits);
+        var packed = await tools.GetNativeType(Image, name: "NdmPacked", source: "engine");
+        output.WriteLine(packed);
+        Assert.Contains("packed", packed);
+    }
+
     [IdaFact]
     public async Task Struct_member_references_come_from_typed_operands_and_pseudocode()
     {

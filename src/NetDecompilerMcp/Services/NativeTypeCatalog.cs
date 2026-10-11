@@ -838,10 +838,10 @@ public sealed class NativeTypeCatalog(AssemblyWorkspace workspace, NativeCodeSer
 
     private static NativeTypeView EngineView(string provider, NativeTypeDetail d)
     {
-        var fields = d.Members.Select(m => new NativeTypeField(m.Offset, m.Size, m.Name, m.Type, null, "member", null, null, null)).ToList();
+        var fields = d.Members.Select(m => new NativeTypeField(m.Offset, m.Size, m.Name, m.Type, null, "member", m.BitOffset, m.BitSize, m.Comment)).ToList();
         return Empty(provider + ":" + d.Name, d.Name, d.Kind, provider, d.Size) with
         {
-            Fields = fields, TotalFields = fields.Count, Declaration = d.Declaration.TrimEnd(),
+            Fields = fields, TotalFields = fields.Count, Declaration = d.Declaration.TrimEnd(), Alignment = d.Alignment, Packed = d.Packed,
         };
     }
 }

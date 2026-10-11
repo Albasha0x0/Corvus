@@ -363,9 +363,15 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
     public async Task<NativeTypeDetail> GetTypeAsync(string name, CancellationToken cancellationToken = default)
     {
         var r = await CallAsync("type", IdaProvider.Args(("name", name)), cancellationToken).ConfigureAwait(false);
+        static int? Int(JsonElement x, int i) => x.GetArrayLength() > i && x[i].ValueKind == JsonValueKind.Number ? x[i].GetInt32() : null;
         return new NativeTypeDetail(r.GetProperty("name").GetString() ?? name, r.GetProperty("kind").GetString() ?? "", r.GetProperty("size").GetInt64(),
             r.GetProperty("decl").GetString() ?? "", r.GetProperty("members").EnumerateArray()
-                .Select(x => new NativeTypeMember(x[0].GetInt64(), x[1].GetString() ?? "", x[2].GetString() ?? "", x[3].GetInt64())).ToList());
+                .Select(x => new NativeTypeMember(x[0].GetInt64(), x[1].GetString() ?? "", x[2].GetString() ?? "", x[3].GetInt64())
+                    { BitOffset = Int(x, 4), BitSize = Int(x, 5), Comment = x.GetArrayLength() > 6 ? Text(x[6]) : null }).ToList())
+        {
+            Alignment = r.TryGetProperty("align", out var a) && a.GetInt64() > 0 ? a.GetInt64() : null,
+            Packed = r.TryGetProperty("packed", out var p) && p.GetBoolean(),
+        };
     }
 
     private static string? Text(JsonElement e) => e.ValueKind == JsonValueKind.String ? e.GetString() : null;

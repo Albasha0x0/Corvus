@@ -580,10 +580,21 @@ public sealed record NativeTypeEntry(string Name, string Kind, long Size, int Me
 public sealed record NativeTypeList(int Total, IReadOnlyList<NativeTypeEntry> Types);
 
 /// <summary>A struct or union member at <see cref="Offset"/> bytes.</summary>
-public sealed record NativeTypeMember(long Offset, string Name, string Type, long Size);
+public sealed record NativeTypeMember(long Offset, string Name, string Type, long Size)
+{
+    /// <summary>A bit field's first bit in its storage unit (Offset, Size bytes) and its width; null for other members.</summary>
+    public int? BitOffset { get; init; }
+    public int? BitSize { get; init; }
+    public string? Comment { get; init; }
+}
 
 /// <summary>One named type: its C declaration as the engine prints it, and its members (structs and unions).</summary>
-public sealed record NativeTypeDetail(string Name, string Kind, long Size, string Declaration, IReadOnlyList<NativeTypeMember> Members);
+public sealed record NativeTypeDetail(string Name, string Kind, long Size, string Declaration, IReadOnlyList<NativeTypeMember> Members)
+{
+    /// <summary>The engine's alignment of the type (null when it gives none) and whether members sit below their natural alignment.</summary>
+    public long? Alignment { get; init; }
+    public bool Packed { get; init; }
+}
 
 /// <summary>A stack frame member at <see cref="Offset"/> bytes from the frame's lowest address; <see cref="Kind"/> local, arg or special (return address, saved registers).</summary>
 public sealed record NativeFrameMember(int Offset, string Name, string Type, int Size, string Kind);
