@@ -44,7 +44,7 @@ public sealed record PdbSection(string Name, uint VirtualAddress, uint VirtualSi
 /// <summary>
 /// A native PDB (MSF 7.0): identity (PDB info stream GUID and age, DBI age), module list, section headers, OMAP, and
 /// the symbols with addresses (publics, global and local data, and functions from the module streams). Type records
-/// (TPI) are read on demand by <see cref="PdbTypes"/>. Only the superblock check throws; every
+/// (TPI) are read on demand by <see cref="PdbTypeModel"/>. Only the superblock check throws; every
 /// later problem is recorded in <see cref="Issues"/> and the readable part is kept.
 /// </summary>
 public sealed class PdbFile
