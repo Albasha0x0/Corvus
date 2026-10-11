@@ -253,6 +253,13 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
         return sb.Append('"').Append(text.Length > MaxCommentText ? "..." : "").ToString();
     }
 
+    /// <summary>The assembly of the method(s) whose body starts at <paramref name="rva"/>, from script.json; null when unknown.</summary>
+    internal static string? MethodAssembly(Il2CppNavigator.Image image, uint rva)
+    {
+        if (image.Script is not { } script || script.MethodRange(rva) is not (var first, > 0)) return null;
+        return script.Definition(first) is { } definition ? Path.GetFileNameWithoutExtension(definition.Image) : null;
+    }
+
     /// <summary>
     /// Lines describing <paramref name="rva"/> through the applied il2cpp names: the slot or function name, its comment,
     /// and the reverse navigation to the managed method (find_method_by_address). Empty when nothing was applied.
@@ -280,7 +287,7 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
             rva = f.Start;
         }
         else return lines;
-        lines.Add($"managed side: find_method_by_address 0x{rva:X} (assembly {applied.Assemblies.Split(", ")[0]}) shows the method(s), get_il2cpp_info their metadata");
+        lines.Add($"managed side: find_method_by_address 0x{rva:X}{(MethodAssembly(applied.Image, rva) is { } assembly ? $" (assembly {assembly})" : "")} shows the method(s), get_il2cpp_info their metadata");
         if (index?.Sourced.NameAt(rva) is { } over && over.Source.Rank() > NativeNameSource.Il2Cpp.Rank())
             lines.Add($"(the {over.Source.Id()} name {over.Name} is in effect there)");
         return lines;

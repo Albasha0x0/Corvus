@@ -158,7 +158,7 @@ public sealed class Il2CppNativeNamesTests : IDisposable
 
         var resolved = await new NativeTools(_env.Workspace, _env.Pager, _code).ResolveAddress(native.Id, "0x180001204");
         Assert.Contains("in il2cpp function Fixture_Native_NativeThing__Shared_int (rva 0x1200", resolved);
-        Assert.Contains("find_method_by_address 0x1200", resolved);
+        Assert.Contains("find_method_by_address 0x1200 shows", resolved); // script.json gives no assembly: none is guessed
 
         // user > il2cpp, and clearing the user name falls back to the il2cpp name
         var edits = new NativeEditService(_env.Workspace, _code);
