@@ -51,6 +51,9 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
     {
         /// <summary>Set for a NativeAOT image: runtime version, module header and the recovery stages.</summary>
         public NativeAotSummary? NativeAot { get; init; }
+
+        /// <summary>Set for an ELF or Mach-O image (the default slice of a universal file).</summary>
+        public NativeImageFacts? NativeImage { get; init; }
     }
 
     private sealed record Scanned(ModuleDef Module, ModuleScan Scan, byte[] Image, string Label);
@@ -144,9 +147,10 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             if (!File.Exists(full)) return null;
             var head = new byte[Math.Min(4096, new FileInfo(full).Length)];
             using (var f = File.OpenRead(full)) f.ReadExactly(head);
-            if (head.Length < 2 || head[0] != 'M' || head[1] != 'Z') return null;
+            var kind = Native.NativeImageLoader.Detect(head);
+            if (kind == Native.NativeFileKind.Unknown) return null;
             var (_, bytes) = ReadFile(path!);
-            if (Blob.Identify(bytes) is not ("native PE" or "NativeAOT executable")) return null;
+            if (kind == Native.NativeFileKind.Pe && Blob.Identify(bytes) is not ("native PE" or "NativeAOT executable")) return null;
             if (code != null && workspace.Read(() => workspace.FindNative(full)) is { } loaded)
             {
                 index = code.Index(loaded, null, ct).GetAwaiter().GetResult();
@@ -154,13 +158,13 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
             }
             else
             {
-                Native.Pe.PeFile pe;
-                try { pe = Native.Pe.PeFile.Open(full); }
+                Native.INativeImage image;
+                try { image = Native.NativeImageLoader.Open(full); }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
                 {
-                    throw new ToolError(ErrorCode.MalformedInput, $"{full}: not a readable PE image ({ex.Message}).");
+                    throw new ToolError(ErrorCode.MalformedInput, $"{full}: not a readable native image ({ex.Message}).");
                 }
-                index = NativeCodeIndex.Build(pe, ct: ct);
+                index = NativeCodeIndex.Build(image, ct: ct);
                 label = Path.GetFileName(full);
             }
         }
@@ -261,11 +265,13 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         var fileHighlights = new List<string>();
         if (facts.Certificate is { Present: true } fileSig) fileHighlights.AddRange(SignatureHighlights(fileSig, "the file"));
         if (UnityLayout.FileHint(full, bytes) is { } layout) fileHighlights.Add(layout);
+        var native = NativeImageFacts.Of(full, bytes);
+        if (native != null) fileHighlights.AddRange(native.Value.Highlights);
         (string Source, string Container, List<UnpackService.ManagedAssembly> Assemblies, List<string> Notes) managed;
         try { managed = UnpackService.Managed(full, Limits, ct); }
         catch (ToolError ex)
         {
-            return new FileSummary(facts, "unreadable container", [], [.. fileHighlights, $"The file is damaged: {ex.Message}"], [ex.Message]);
+            return new FileSummary(facts, "unreadable container", [], [.. fileHighlights, $"The file is damaged: {ex.Message}"], [ex.Message]) { NativeImage = native?.Facts };
         }
         var reportNotes = new List<string>(managed.Notes);
         reportNotes.AddRange(MappingNotes(bytes));
@@ -315,7 +321,10 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         var highlights = new List<string>(fileHighlights);
         foreach (var (assemblyPath, list) in found)
             highlights.AddRange(found.Count == 1 ? list : list.Select(h => $"[{assemblyPath}] {h}"));
-        return new FileSummary(facts, managed.Container, summarized, highlights.Distinct().ToList(), reportNotes) { NativeAot = NativeAotFacts(bytes, ct) };
+        return new FileSummary(facts, managed.Container, summarized, highlights.Distinct().ToList(), reportNotes)
+        {
+            NativeAot = NativeAotFacts(bytes, ct), NativeImage = native?.Facts,
+        };
     }
 
     private static NativeAotSummary? NativeAotFacts(byte[] bytes, CancellationToken ct)

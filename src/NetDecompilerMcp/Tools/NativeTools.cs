@@ -11,7 +11,7 @@ using static NetDecompilerMcp.Tools.ToolSupport;
 
 namespace NetDecompilerMcp.Tools;
 
-/// <summary>Native PE images: headers, imports, exports, addresses and bytes.</summary>
+/// <summary>Native images (PE, ELF, Mach-O): headers, imports, exports, addresses and bytes.</summary>
 [McpServerToolType]
 public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager pager, NativeCodeService? code = null, NativeLinkService? link = null)
 {
@@ -32,10 +32,13 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     public const string AddressDescription =
         "Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them).";
 
-    [McpServerTool(Name = "get_pe_info", Title = "PE overview", UseStructuredContent = true, OutputSchemaType = typeof(PeSummary))]
-    [Description("Overview of a native PE image: machine, kind, subsystem, image base, entry point, timestamps, linker, sections (with flags and entropy), " +
+    [McpServerTool(Name = "get_pe_info", Title = "Native image overview", UseStructuredContent = true, OutputSchemaType = typeof(PeSummary))]
+    [Description("Overview of a native image. PE: machine, kind, subsystem, image base, entry point, timestamps, linker, sections (with flags and entropy), " +
                  "security mitigations (ASLR, DEP, CFG, SafeSEH, GS cookie, CET...), import/export counts, TLS callbacks, debug info (PDB path and GUID), " +
-                 "load config, version resource, manifest, rich header (toolchain), checksum, overlay, Authenticode signature, and anything malformed.")]
+                 "load config, version resource, manifest, rich header (toolchain), checksum, overlay, Authenticode signature, and anything malformed. " +
+                 "ELF: program headers, soname, interpreter, Android NDK note, build id, relocations, binding, PIE / NX / RELRO / stack protector. " +
+                 "Mach-O: slice, segments, libraries, rpaths, platform and versions, fixups, function starts, code signature (identifier, team, cdhash, " +
+                 "entitlements), FairPlay encryption.")]
     public Task<string> GetPeInfo(
         [Description(ImageDescription)] string image,
         [Description(OffsetDescription)] int offset = 0,
@@ -49,6 +52,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
 
     private static string PeInfo(LoadedNative native, string dynamicImports = "")
     {
+        if (native.Pe == null) return FormatInfo(native);
         var pe = native.RequirePe("get_pe_info");
         var sb = new StringBuilder();
         sb.AppendLine($"{native.Id}: {pe.MachineName} {(pe.IsDll ? "DLL" : "executable")} ({(pe.Is64Bit ? "PE32+" : "PE32")}), {pe.SubsystemName}");
@@ -144,6 +148,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     /// <summary>get_pe_info's facts as fields.</summary>
     private static PeSummary Summary(LoadedNative native)
     {
+        if (native.Pe == null) return FormatSummary(native);
         var pe = native.RequirePe("get_pe_info");
         var (on, off) = Mitigations(pe);
         var cv = pe.CodeView;
@@ -174,7 +179,8 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     }
 
     [McpServerTool(Name = "list_imports", Title = "List native imports", UseStructuredContent = true, OutputSchemaType = typeof(ImportList))]
-    [Description("Functions a native image imports, per DLL (delay-loaded marked), with the IAT slot address code calls through. " +
+    [Description("Functions a native image imports, per DLL (delay-loaded marked), with the IAT slot address code calls through; " +
+                 "ELF / Mach-O: per library (ELF version library, or * for an unversioned symbol), the GOT / pointer slot, lazy binding marked, Itanium names demangled. " +
                  "API set names (api-ms-win-*) are shown with the DLL they resolve to on this system. With bind=true each import is bound like the " +
                  "loader does (DLL search order, API sets, forwarders, jump thunks in loaded providers) to its export: 'at VA [image]' when the provider " +
                  "is loaded (disassemble / native_call_tree work on it), its path when not (load_assembly with that path, or with this image and " +
@@ -202,6 +208,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         }
         return await OnImage(image, native =>
         {
+            if (native.Pe == null) return FormatImports(native, module, filter, bind, offset, limit);
             var pe = native.RequirePe("list_imports");
             var apiSets = ApiSets.Value;
             var rows = new List<string>();
@@ -258,7 +265,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     private static partial System.Text.RegularExpressions.Regex DynamicRow();
 
     [McpServerTool(Name = "list_exports", Title = "List native exports", UseStructuredContent = true, OutputSchemaType = typeof(ExportList))]
-    [Description("Functions and data a native image exports: ordinal, address (VA), name (with the demangled C++ form for MSVC names), and forwarders.")]
+    [Description("Functions and data a native image exports: ordinal, address (VA), name (with the demangled C++ form of MSVC and Itanium names), and forwarders (Mach-O re-exports).")]
     public Task<string> ListExports(
         [Description(ImageDescription)] string image,
         [Description("Only exports whose name contains this text (case-insensitive; matches the demangled form too).")] string? filter = null,
@@ -267,15 +274,17 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
         var pe = native.Image;
+        bool ordinals = pe.Format == ImageFormat.Pe;
         var rows = new List<string>();
         var items = new List<ExportEntry>();
         foreach (var e in pe.Exports)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var name = e.Name ?? "(no name)";
-            var demangled = e.Name is { } n && (n.StartsWith('?') || n.StartsWith('@') || n.StartsWith('_')) ? Native.Msvc.MsvcDemangler.Undecorate(n, Native.Msvc.MsvcNameStyle.Full) : null;
+            var demangled = !ordinals ? Native.Itanium.ItaniumDemangler.Demangle(e.Name, stripUnderscore: pe.Format == ImageFormat.MachO)
+                : e.Name is { } n && (n.StartsWith('?') || n.StartsWith('@') || n.StartsWith('_')) ? Native.Msvc.MsvcDemangler.Undecorate(n, Native.Msvc.MsvcNameStyle.Full) : null;
             if (filter != null && !name.Contains(filter, StringComparison.OrdinalIgnoreCase) && demangled?.Contains(filter, StringComparison.OrdinalIgnoreCase) != true) continue;
-            rows.Add($"#{e.Ordinal,-5} {(e.ForwardedTo != null ? "forwarder".PadRight(18) : NativeAddress.Va(pe, e.Rva).PadRight(18))} {name}" +
+            rows.Add($"{(ordinals ? $"#{e.Ordinal,-5} " : "")}{(e.ForwardedTo != null ? (ordinals ? "forwarder" : "re-export").PadRight(18) : NativeAddress.Va(pe, e.Rva).PadRight(18))} {name}" +
                      (demangled != null && demangled != name ? $"  = {demangled}" : "") + (e.ForwardedTo != null ? $"  -> {e.ForwardedTo}" : ""));
             items.Add(new ExportEntry((int)e.Ordinal, e.ForwardedTo != null ? null : NativeAddress.Va(pe, e.Rva), e.Name,
                 demangled != null && demangled != name ? demangled : null, e.ForwardedTo));

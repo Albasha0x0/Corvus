@@ -19,7 +19,9 @@ public sealed class InspectionTools(InspectionService inspection)
                  "(single-file bundles, packages, APKs, zips, Costura hosts) are opened: the app's own assembly in full, up to 7 more in brief " +
                  "(framework libraries last, translations skipped); an apphost launcher's .dll next to it is summarized as the app. For a NativeAOT " +
                  "executable, nativeAot gives the runtime version, module sections, recovery stages and counts of named methods, MethodTables and " +
-                 "frozen strings. highlights lists the notable findings.")]
+                 "frozen strings. For an ELF or Mach-O image (a universal file's default slice), nativeImage gives the format, machine, kind, slices, " +
+                 "build id, libraries, counts, platform (Android NDK note, Apple build version), code signature and entitlements, and FairPlay encryption. " +
+                 "highlights lists the notable findings.")]
     public Task<InspectionService.FileSummary> SummarizeFile(
         [Description("Any file: assembly, single-file bundle, .nupkg, .apk, zip, native executable. Pass this or assembly.")] string? path = null,
         [Description(AssemblyParam)] string? assembly = null,
@@ -31,12 +33,12 @@ public sealed class InspectionTools(InspectionService inspection)
                  "literals, in categories: network, execution, registry, persistence, collection (keylogging, screen, clipboard, browser " +
                  "credentials), anti-debug / anti-VM, defense evasion, reflective loading and run-time compilation, process injection, " +
                  "discovery, crypto. Each matched feature has its MITRE ATT&CK technique where the operation is the technique itself, and " +
-                 "its evidence (pattern, count, up to 5 locations). Native images (a loaded one, or a native PE path) get the same rules over " +
+                 "its evidence (pattern, count, up to 5 locations). Native images (a loaded one, or a PE / ELF / Mach-O path) get the same rules over " +
                  "static and late-bound (GetProcAddress) imports, call arguments (VirtualProtect with PAGE_EXECUTE_READWRITE, CreateProcess " +
                  "with CREATE_SUSPENDED...), strings, sections (entropy, packer names, writable code) and RTTI class names, with addresses and functions as locations.")]
     public Task<InspectionService.FeatureReport> SurveyFeatures(
         [Description(AssemblyParam + " A loaded native image works too.")] string? assembly = null,
-        [Description("A .NET assembly or native PE file to analyze without loading it. Pass this or assembly.")] string? path = null,
+        [Description("A .NET assembly or native PE / ELF / Mach-O file to analyze without loading it. Pass this or assembly.")] string? path = null,
         [Description("Only this category (network, execution, registry, persistence, collection, credential access, anti-analysis, defense evasion, " +
                      "privilege escalation, code loading, injection, discovery, crypto, impact...) or ATT&CK technique prefix (T1055).")] string? category = null,
         CancellationToken cancellationToken = default) =>

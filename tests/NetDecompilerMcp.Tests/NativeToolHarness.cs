@@ -115,7 +115,7 @@ internal sealed class NativeToolHarness : IDisposable
     private async Task Body(string path, LoadedNative native, bool ida, TimeSpan? indexLimit)
     {
         var id = native.Id;
-        var pe = native.Pe!;
+        var pe = native.Image;
         string Va(uint rva) => $"0x{pe.ImageBase + rva:X}";
 
         await Run(path, "get_pe_info", "", ct => Native.GetPeInfo(id, cancellationToken: ct), mustSucceed: true);
@@ -123,7 +123,8 @@ internal sealed class NativeToolHarness : IDisposable
         await Run(path, "list_imports", "", ct => Native.ListImports(id, cancellationToken: ct), mustSucceed: true);
         await Run(path, "list_exports", "", ct => Native.ListExports(id, cancellationToken: ct), mustSucceed: true);
         await Run(path, "list_exports", "filter, page", ct => Native.ListExports(id, filter: "a", offset: 3, limit: 7, cancellationToken: ct), mustSucceed: true);
-        var import = pe.Imports.FirstOrDefault(i => i.Name != null);
+        // ELF can bind one symbol through two slots (GOT and PLT): such a name is ambiguous by design
+        var import = pe.Imports.Where(i => i.Name != null).GroupBy(i => (i.Module, i.Name)).FirstOrDefault(g => g.Count() == 1)?.First();
         if (import != null)
         {
             var imp = $"{import.Module}!{import.Name}";
@@ -148,7 +149,7 @@ internal sealed class NativeToolHarness : IDisposable
         await Run(path, "search_bytes", "wildcards", ct => Native.SearchBytes(id, "00 ?? ?? 00", limit: 10_000, cancellationToken: ct), mustSucceed: true);
 
         await Run(path, "list_resources", "", ct => Resources.ListResources(id, ct), mustSucceed: true);
-        foreach (var r in pe.Resources.GroupBy(r => r.TypeName).Select(g => g.First()).Take(12))
+        foreach (var r in (native.Pe?.Resources ?? []).GroupBy(r => r.TypeName).Select(g => g.First()).Take(12))
         {
             var key = NativeResourceService.Key(r);
             await Run(path, "get_resource", key, ct => Resources.GetResource(id, key, cancellationToken: ct));

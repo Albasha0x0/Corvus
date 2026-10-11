@@ -42,7 +42,7 @@ public static class Blob
         if (StartsWith(b, "GIF8"u8)) return "gif";
         if (StartsWith(b, [0x00, 0x00, 0x01, 0x00])) return "ico";
         if (StartsWith(b, [0x7F, (byte)'E', (byte)'L', (byte)'F'])) return "elf";
-        if (StartsWith(b, [0xCF, 0xFA, 0xED, 0xFE]) || StartsWith(b, [0xCE, 0xFA, 0xED, 0xFE]) || StartsWith(b, [0xCA, 0xFE, 0xBA, 0xBE])) return "mach-o";
+        if (Native.NativeImageLoader.Detect(b) is Native.NativeFileKind.MachO or Native.NativeFileKind.MachOFat) return "mach-o";
         if (StartsWith(b, [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])) return "ole (msi/doc/xls)";
         if (StartsWith(b, [0x4C, 0x00, 0x00, 0x00, 0x01, 0x14, 0x02, 0x00])) return "lnk shortcut";
         if (StartsWith(b, "XALZ"u8)) return "xalz (Xamarin LZ4)";

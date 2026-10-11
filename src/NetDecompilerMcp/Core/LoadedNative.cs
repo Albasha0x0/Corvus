@@ -32,6 +32,11 @@ public sealed class LoadedNative
     /// <summary>The current image: the file as loaded, or, once bytes have been patched in memory, the patched image.</summary>
     public INativeImage Image { get; private set; }
 
+    /// <summary>The selected slice of a universal Mach-O file, else null.</summary>
+    public string? SliceName => SliceOf(Image);
+
+    internal static string? SliceOf(INativeImage image) => (image as Native.MachO.MachOFile)?.Slice?.Name;
+
     /// <summary>The current image when it is a PE file, else null.</summary>
     public PeFile? Pe => Image as PeFile;
 

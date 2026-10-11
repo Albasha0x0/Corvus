@@ -19,7 +19,11 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     public sealed record AssemblyEntry(string Id, string Name, string Version, string Path, int Types, bool Il2CppDummy, IReadOnlyList<string> UnsavedEdits,
         bool ReadyToRun, string? Merged);
 
-    public sealed record NativeEntry(string Id, string Path, string Machine, string Kind, long Size, string Sha256);
+    public sealed record NativeEntry(string Id, string Path, string Machine, string Kind, long Size, string Sha256)
+    {
+        /// <summary>Universal Mach-O: every slice of the file (load_assembly slice= loads another).</summary>
+        public IReadOnlyList<string>? Slices { get; init; }
+    }
 
     /// <summary>Workspace listing, or the container contents when list_assemblies is given a path.</summary>
     public sealed record WorkspaceState(IReadOnlyList<AssemblyEntry> Assemblies, IReadOnlyList<string> SearchDirectories, string BackgroundIndexing,
@@ -34,7 +38,8 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
 
     [McpServerTool(Name = "load_assembly", Title = "Load assembly")]
     [Description("Load a .NET assembly (.dll/.exe) or every assembly in a directory (e.g. an application folder, a Unity *_Data/Managed folder or an Il2CppDumper DummyDll folder). " +
-                 "A native PE file (.exe/.dll/.sys without .NET metadata) given by path loads as a native image for the native tools (get_pe_info, list_imports, list_exports, list_functions, disassemble); " +
+                 "A native file given by path (PE .exe/.dll/.sys without .NET metadata, ELF .so / executable, Mach-O .dylib / executable) loads as a native image for the native tools (get_pe_info, list_imports, list_exports, list_functions, disassemble); " +
+                 "a universal (fat) Mach-O loads one slice (slice=, default arm64e, arm64, x86_64, then the first) with id name[slice]; " +
                  "folder loads take only .NET assemblies and list the native files they skipped. " +
                  "An Il2Cpp game (its folder, or its global-metadata.dat with GameAssembly.dll beside it or in the game folder; also a memory dump of GameAssembly.dll) is read by the built-in metadata reader (versions 24-31, no external dumper): " +
                  "dummy assemblies with method addresses, field offsets and tokens, plus string literals, generic instantiations and metadata slots for the Il2Cpp tools, cached per user (NDM_IL2CPP_CACHE); " +
@@ -46,6 +51,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         [Description("Absolute path to an assembly file or a directory.")] string path,
         [Description("When path is a directory, also load assemblies in subdirectories.")] bool recursive = false,
         [Description("For a file: also load the DLLs its imports bind to, one level deep (at most 16).")] bool loadProviders = false,
+        [Description("Universal Mach-O: the architecture slice to load (or its index); the default prefers arm64e, arm64, x86_64.")] string? slice = null,
         RequestContext<CallToolRequestParams> context = null!, // bound by the SDK
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
     {
@@ -58,12 +64,12 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         }
         if (!Directory.Exists(path))
         {
-            var (loaded, native) = workspace.LoadAny(path);
-            var providers = loadProviders && link != null ? Providers(loaded, native) : "";
+            var (loaded, native) = workspace.LoadAny(path, string.IsNullOrWhiteSpace(slice) ? null : slice.Trim());
+            var providers = loadProviders && link != null && (native == null || native.Pe != null) ? Providers(loaded, native) : "";
             if (native != null && loaded == null)
             {
                 var image = native.Image;
-                return $"Loaded native image {native.Id}: {image.MachineName} {(image.IsDll ? "DLL" : "executable")}{(image is Native.Pe.PeFile pe ? ", " + pe.SubsystemName : "")}\n  {native.FilePath}\n  " +
+                return $"Loaded native image {native.Id}: {Native.NativeImageExtensions.KindText(image)}\n  {native.FilePath}\n  " +
                        $"{Plural(image.Sections.Count, "section")}, {Plural(image.Imports.Count, "import")}, {Plural(image.Exports.Count, "export")}" +
                        (image.RuntimeFunctions.Count > 0 ? $", {Plural(image.RuntimeFunctions.Count, "unwind entry")}" : "") +
                        (image.Issues.Count > 0 ? $"\n  {Plural(image.Issues.Count, "parse issue")} (get_pe_info lists them)" : "") + providers +
@@ -179,7 +185,10 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
                 Total = matching.Count,
                 NativeImages = workspace.Natives.Where(n => filter == null || n.Id.Contains(filter, StringComparison.OrdinalIgnoreCase)
                                                             || n.FilePath.Contains(filter, StringComparison.OrdinalIgnoreCase))
-                    .Select(n => new NativeEntry(n.Id, n.FilePath, n.Image.MachineName, (n.Image.IsDll ? "dll" : "exe") + (n.ManagedView != null ? $" (native view of mixed-mode assembly {n.ManagedView.Id})" : ""), n.Image.FileSize, n.Image.Sha256)).ToList(),
+                    .Select(n => new NativeEntry(n.Id, n.FilePath, n.Image.MachineName, (n.Image.IsDll ? "dll" : "exe") + (n.ManagedView != null ? $" (native view of mixed-mode assembly {n.ManagedView.Id})" : ""), n.Image.FileSize, n.Image.Sha256)
+                    {
+                        Slices = n.Image is Native.MachO.MachOFile { Slices.Count: > 0 } m ? [.. m.Slices.Select(x => x.Name)] : null,
+                    }).ToList(),
             };
         });
     }, cancellationToken);

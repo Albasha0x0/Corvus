@@ -2,6 +2,14 @@ namespace NetDecompilerMcp.Native;
 
 public static class NativeImageExtensions
 {
+    /// <summary>What the image is, in one line: "EM_AARCH64 ELF64 shared object", "arm64 Mach-O MH_DYLIB (slice ...)", or the PE kind.</summary>
+    public static string KindText(this INativeImage image) => image switch
+    {
+        Elf.ElfFile elf => $"{elf.MachineName} ELF{(elf.Is64Bit ? "64" : "32")} {elf.KindName}",
+        MachO.MachOFile m => $"{m.MachineName} Mach-O {m.FileTypeName}" + (m.Slice != null ? $" (slice {m.Slice.Name} of {string.Join(", ", m.Slices.Select(s => s.Name))})" : ""),
+        _ => $"{image.MachineName} {(image.IsDll ? "DLL" : "executable")}" + (image is Pe.PeFile pe ? ", " + pe.SubsystemName : ""),
+    };
+
     /// <summary>
     /// Length of the prefix of [rva, rva + length) whose bytes come from the file; the rest of a section is zero fill.
     /// Binary search over <see cref="INativeImage.TryRvaToFileOffset"/> (the file-backed part of a section is a prefix).

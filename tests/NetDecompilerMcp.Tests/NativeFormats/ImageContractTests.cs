@@ -22,18 +22,15 @@ public sealed class ImageContractTests
     }
 
     [Fact]
-    public void Open_RefusesElfAndMachOUntilTheirLoadPathIsEnabled()
+    public void Open_ReadsEveryFormat()
     {
-        foreach (var path in new[] { NativeFixtures.LinuxArm64DbgShim, NativeFixtures.OsxArm64DbgShim, NativeFixtures.OsxFatSkia })
-        {
-            var e = Assert.Throws<ToolError>(() => NativeImageLoader.Open(path));
-            Assert.Equal(ErrorCode.Unsupported, e.Code);
-            Assert.Contains("format_not_loaded", e.ToJson());
-        }
+        Assert.Equal(ImageFormat.Elf, NativeImageLoader.Open(NativeFixtures.LinuxArm64DbgShim).Format);
+        Assert.Equal(ImageFormat.MachO, NativeImageLoader.Open(NativeFixtures.OsxFatSkia).Format);
         Assert.Equal(ImageFormat.Pe, NativeImageLoader.Open(NativeFixtures.WinArm64DbgShim).Format);
         Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => NativeImageLoader.Open(NativeFixtures.WinArm64DbgShim, "arm64")).Code);
         using var ws = new AssemblyWorkspace(new ServerOptions());
-        Assert.Equal(ErrorCode.Unsupported, Assert.Throws<ToolError>(() => ws.LoadAny(NativeFixtures.LinuxArm64DbgShim)).Code);
+        Assert.Equal(ImageFormat.Elf, ws.LoadAny(NativeFixtures.LinuxArm64DbgShim).Native!.Image.Format);
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => ws.LoadAny(NativeFixtures.WinArm64DbgShim, "arm64")).Code);
     }
 
     [Fact]

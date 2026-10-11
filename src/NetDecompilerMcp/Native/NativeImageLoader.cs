@@ -39,8 +39,8 @@ public static class NativeImageLoader
     }
 
     /// <summary>
-    /// Opens the image at <paramref name="path"/>. PE images (and anything unrecognized, which fails as "not a PE file")
-    /// are read; ELF and Mach-O images are recognized and refused until their load path is enabled.
+    /// Opens the image at <paramref name="path"/> by its content: PE, ELF, Mach-O, or the <paramref name="slice"/> of a
+    /// universal Mach-O (see <see cref="MachO.MachOFat.Select"/>). Anything unrecognized fails as "not a PE file".
     /// </summary>
     public static INativeImage Open(string path, string? slice = null)
     {
@@ -49,12 +49,14 @@ public static class NativeImageLoader
             throw new ToolError(ErrorCode.InvalidArgument, $"slice '{slice}' applies to universal Mach-O files only.", "omit slice");
         return kind switch
         {
-            NativeFileKind.Elf or NativeFileKind.MachO or NativeFileKind.MachOFat => throw NotLoaded(path, kind),
+            NativeFileKind.Elf => Elf.ElfFile.Open(path),
+            NativeFileKind.MachO or NativeFileKind.MachOFat => MachO.MachOFile.Open(path, slice),
             _ => PeFile.Open(path),
         };
     }
 
-    private static NativeFileKind DetectFile(string path)
+    /// <summary>The container format of the file at <paramref name="path"/>; Unknown when it cannot be read.</summary>
+    public static NativeFileKind DetectFile(string path)
     {
         var full = InputFiles.RequireRegularFile(path, "image file");
         try
@@ -67,13 +69,5 @@ public static class NativeImageLoader
         {
             return NativeFileKind.Unknown; // PeFile.Open reports the path problem
         }
-    }
-
-    private static ToolError NotLoaded(string path, NativeFileKind kind)
-    {
-        var format = kind == NativeFileKind.Elf ? "ELF" : "Mach-O";
-        return new ToolError(ErrorCode.Unsupported, $"{System.IO.Path.GetFileName(path)} is a {format} image; only PE images are loaded as native images so far.",
-            "load a Windows PE image, or open the file in an analysis engine")
-        { Details = new { reason = "format_not_loaded", format = kind.ToString() } };
     }
 }

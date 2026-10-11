@@ -117,6 +117,15 @@ public sealed partial class ElfFile : INativeImage
     public NativeArch Arch => ElfNames.Arch(Machine);
     public string MachineName => ElfNames.Machine(Machine);
     public string TypeName => ElfNames.FileType(Type);
+    /// <summary>The file type in words; ET_DYN with an interpreter is a position-independent executable.</summary>
+    public string KindName => Type switch
+    {
+        3 => Interpreter != null ? "position-independent executable" : "shared object",
+        2 => "executable",
+        1 => "relocatable object",
+        4 => "core dump",
+        _ => TypeName,
+    };
 
     /// <summary>Shared object rather than executable: ET_DYN without an interpreter (a PIE executable has PT_INTERP).</summary>
     public bool IsDll => Type == 3 && Interpreter == null;

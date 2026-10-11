@@ -50,6 +50,11 @@ public static class ParameterDomains
         ["apply_edits"] = new Dictionary<string, Domain> { ["targetBuild"] = Of(["same", "other"]) },
         ["load_session"] = new Dictionary<string, Domain> { ["targetBuild"] = Of(["same", "other"]) },
         ["extract_strings"] = new Dictionary<string, Domain> { ["format"] = Of(["json", "csv"]) },
+        ["load_assembly"] = new Dictionary<string, Domain>
+        {
+            ["slice"] = Of(["arm64e", "arm64", "x86_64", "x86_64h", "arm64_32", "armv7", "armv7s", "armv7k", "i386"],
+                [.. Enumerable.Range(0, 64).Select(i => i.ToString(System.Globalization.CultureInfo.InvariantCulture))]),
+        },
         ["inspect_process"] = new Dictionary<string, Domain> { ["regionFilter"] = Of(["committed", "all", "executable", "writable", "image", "private", "mapped"]) },
 
         ["get_nativeaot_info"] = new Dictionary<string, Domain> { ["view"] = Of(["summary", "sections", "types", "type", "methods", "strings"]) },

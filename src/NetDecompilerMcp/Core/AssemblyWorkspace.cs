@@ -145,12 +145,16 @@ public sealed class AssemblyWorkspace : IDisposable
     }
 
     /// <summary>
-    /// Loads a .NET assembly, or a native PE image when the file has no .NET metadata. Returns the existing entry when
-    /// the path is already loaded.
+    /// Loads a .NET assembly, or a native image when the file has no .NET metadata (PE, ELF, Mach-O; for a universal
+    /// Mach-O the <paramref name="slice"/>). Returns the existing entry when the path (and slice) is already loaded.
     /// </summary>
-    public (LoadedAssembly? Assembly, LoadedNative? Native) LoadAny(string path)
+    public (LoadedAssembly? Assembly, LoadedNative? Native) LoadAny(string path, string? slice = null)
     {
         var full = InputFiles.RequireRegularFile(path);
+        var kind = Native.NativeImageLoader.DetectFile(full);
+        if (kind is Native.NativeFileKind.Elf or Native.NativeFileKind.MachO or Native.NativeFileKind.MachOFat)
+            return (null, LoadNativeFile(full, slice));
+        if (slice != null) Native.NativeImageLoader.Open(full, slice); // the slice error
         if (Read(() => _natives.FirstOrDefault(n => InputFiles.SamePath(n.FilePath, full))) is { } existing)
             return (existing.ManagedView, existing);
         try
@@ -170,11 +174,24 @@ public sealed class AssemblyWorkspace : IDisposable
         }
     }
 
+    /// <summary>An ELF or Mach-O image; each slice of a universal file is its own entry, id "name[slice]".</summary>
+    private LoadedNative LoadNativeFile(string full, string? slice)
+    {
+        if (slice == null && Read(() => _natives.FirstOrDefault(n => InputFiles.SamePath(n.FilePath, full) && n.SliceName == null)) is { } existing)
+            return existing;
+        var image = Native.NativeImageLoader.Open(full, slice);
+        int before = _natives.Count;
+        var native = Write(() => LoadNativeCore(full, image));
+        if (_natives.Count != before) NativeLoaded?.Invoke(native);
+        return native;
+    }
+
     private LoadedNative LoadNativeCore(string full, Native.INativeImage image)
     {
-        var existing = _natives.FirstOrDefault(n => InputFiles.SamePath(n.FilePath, full));
+        var sliceName = LoadedNative.SliceOf(image);
+        var existing = _natives.FirstOrDefault(n => InputFiles.SamePath(n.FilePath, full) && n.SliceName == sliceName);
         if (existing != null) return existing;
-        var baseId = Path.GetFileName(full);
+        var baseId = Path.GetFileName(full) + (sliceName != null ? $"[{sliceName}]" : "");
         var id = baseId;
         for (int n = 2; IdTaken(id); n++) id = $"{baseId}#{n}";
         var native = new LoadedNative(id, full, image);
@@ -269,7 +286,7 @@ public sealed class AssemblyWorkspace : IDisposable
     /// <summary>Re-reads a native image from disk, discarding its analysis state.</summary>
     public LoadedNative ReloadNative(LoadedNative native)
     {
-        var image = Native.NativeImageLoader.Open(native.FilePath);
+        var image = Native.NativeImageLoader.Open(native.FilePath, native.SliceName);
         var fresh = Write(() =>
         {
             int index = _natives.IndexOf(native);
