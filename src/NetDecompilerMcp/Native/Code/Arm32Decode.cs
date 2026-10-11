@@ -6,7 +6,7 @@ namespace NetDecompilerMcp.Native.Code;
 /// Table-driven decoding of A32 (ARM) and T32 (Thumb / Thumb-2) instructions in the classes compilers emit: data
 /// processing, multiplies and divides, loads and stores (single, dual, exclusive, multiple), branches (CBZ / CBNZ, IT,
 /// table branches), MOVW / MOVT, system and hint instructions, VFP and NEON loads, stores and moves, VFP arithmetic.
-/// Other NEON data processing decodes as a valid "simd" instruction without operands; anything unallocated is invalid.
+/// NEON data processing goes to <see cref="Arm32Neon"/>; anything unallocated is invalid.
 /// </summary>
 internal static class Arm32Decode
 {
@@ -1328,7 +1328,7 @@ internal static class Arm32Decode
     private static void Coprocessor(ref ArmInstruction i, uint w)
     {
         bool unconditional = w >> 28 == 15;
-        if (unconditional && (w & 0xFE000000) == 0xF2000000) { Set(ref i, "simd"); return; }
+        if (unconditional && (w & 0xFE000000) == 0xF2000000) { Arm32Neon.DataProcessing(ref i, w); return; }
         if (unconditional && (w & 0xFF100000) == 0xF4000000) { NeonLoadStore(ref i, w); return; }
         uint coproc = (w >> 8) & 15;
         bool vfp = (coproc & 0xE) == 0xA && !unconditional;
@@ -1363,7 +1363,7 @@ internal static class Arm32Decode
                 long imm8 = w & 0xFF;
                 if (!vfp)
                 {
-                    Set(ref i, (l ? "ldc" : "stc") + ((w & 0x400000) != 0 ? "l" : ""));
+                    Set(ref i, (l ? "ldc" : "stc") + (unconditional ? "2" : "") + ((w & 0x400000) != 0 ? "l" : ""));
                     i.Text($"p{coproc}"); i.Text($"c{rt}");
                     i.MemImm(rn, u ? imm8 * 4 : -imm8 * 4, !p ? ArmIndexing.PostIndex : wb ? ArmIndexing.PreIndex : ArmIndexing.Offset);
                     return;

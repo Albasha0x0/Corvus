@@ -73,6 +73,32 @@ public class Arm32DecodeTests
         Assert.Equal(text, Decode(true, hex, address).Format());
 
     [Theory]
+    [InlineData("C0EF5000", 0x3164A, "vmov.i32 q8, #0")]
+    [InlineData("24EFF4E1", 0x3D948, "vorr   q7, q10, q10")]
+    [InlineData("10FFF2E1", 0x3D94C, "vbsl   q7, q8, q9")]
+    [InlineData("F0EFE408", 0x3EA1A, "vext.64 q8, q8, q10, #1")]
+    [InlineData("C8FF300A", 0x47F6C, "vmovl.u8 q8, d16")]
+    [InlineData("40EF720D", 0x47FCC, "vmla.f32 q8, q0, q9")]
+    [InlineData("F9FF6024", 0x47FD4, "vcgt.f32 q9, q8, #0")]
+    [InlineData("F6FF2002", 0x47FE0, "vmovn.i32 d16, q8")]
+    [InlineData("40EFC02F", 0x62FB8, "vmax.f32 q9, q8, q0")]
+    [InlineData("C7FF3F0B", 0x632CC, "vbic.i16 d16, #0xFF00")]
+    [InlineData("F8FF7040", 0x63EB8, "vshr.u32 q10, q8, #8")]
+    [InlineData("F0FFE225", 0x662B4, "vmvn   q9, q9")]
+    [InlineData("48FFF081", 0x66A26, "veor   q12, q12, q8")]
+    [InlineData("F3FF7861", 0x67BE4, "vsra.u32 q11, q12, #0xD")]
+    [InlineData("F4FFA308", 0x75C4E, "vtbl.8 d16, {d20}, d19")]
+    [InlineData("F6FF2003", 0x246B1A, "vshll.i16 q8, d16, #0x10")]
+    [InlineData("D1FFA00C", 0x276446, "vmull.u16 q8, d17, d16")]
+    [InlineData("CAFFADE1", 0x2D4B82, "vaddw.u8 q15, q13, d29")]
+    [InlineData("F2FF6A62", 0x2E34D0, "vqmovun.s16 d22, q13")]
+    [InlineData("9DFF2D48", 0x2F490C, "vmlal.u16 q2, d13, d29")]
+    [InlineData("D0EF7C78", 0x2FA7E2, "vrshrn.i32 d23, q14, #0x10")]
+    [InlineData("85EE901B", 0x3D938, "vdup.32 d21, r1")]
+    public void Neon_text_matches_reference(string hex, uint address, string text) =>
+        Assert.Equal(text, Decode(true, hex, address).Format());
+
+    [Theory]
     [InlineData("F04F2DE9", 0x10000, "push   {r4, r5, r6, r7, r8, r9, r10, r11, lr}")]
     [InlineData("F08FBDE8", 0x10000, "pop    {r4, r5, r6, r7, r8, r9, r10, r11, pc}")]
     [InlineData("10009FE5", 0x10000, "ldr    r0, [pc, #0x10]")]
@@ -164,7 +190,7 @@ public class Arm32DecodeTests
         Assert.False(Decode(true, "FFF7", 0).IsValid);           // half of a 32-bit encoding
         Assert.Equal("nop", Decode(true, "00BF", 0).Mnemonic);
         Assert.False(Decode(false, "F0F0F0F6", 0).IsValid);       // unallocated media space
-        Assert.Equal("simd", Decode(false, "5000C0F3", 0).Mnemonic); // NEON data processing: valid, operands not decoded
+        Assert.Equal("simd", Decode(false, "400C00F2", 0).Mnemonic); // NEON data processing outside the decoded classes: valid, no operands
         Assert.Equal(2, Arm32Decode.ThumbLength(0xBF00));
         Assert.Equal(4, Arm32Decode.ThumbLength(0xF000));
     }
