@@ -440,9 +440,13 @@ public sealed partial class CSharpPatcher
 
         public override SyntaxNode? Visit(SyntaxNode? node) => node != null && node.HasAnnotation(UserCode) ? node : base.Visit(node);
 
-        public override SyntaxNode? VisitMethodDeclaration(MethodDeclarationSyntax node) =>
-            node.Body == null && node.ExpressionBody == null ? node
-                : node.WithBody(BodyFor(node)).WithExpressionBody(null).WithSemicolonToken(default);
+        public override SyntaxNode? VisitMethodDeclaration(MethodDeclarationSyntax node)
+        {
+            if (node.Body == null && node.ExpressionBody == null) return node;
+            var rewritten = node.WithBody(BodyFor(node)).WithExpressionBody(null).WithSemicolonToken(default);
+            // A stub compiled as async gets a state machine, which would be merged as a new, unused type.
+            return node == target ? rewritten : rewritten.WithModifiers(SF.TokenList(rewritten.Modifiers.Where(m => !m.IsKind(SyntaxKind.AsyncKeyword))));
+        }
 
         public override SyntaxNode? VisitConstructorDeclaration(ConstructorDeclarationSyntax node) =>
             node.Body == null && node.ExpressionBody == null ? node

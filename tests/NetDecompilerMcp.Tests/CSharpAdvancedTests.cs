@@ -142,6 +142,16 @@ public class CSharpAdvancedTests : IDisposable
         Assert.Equal("R:110/3/3", run.Call(run.New("Fixture.Model.Shop"), "Describe"));
     }
 
+    /// <summary>The stubbed async methods of the shadow type compiled to state machines, merged as unused copies (&lt;LoadAsync&gt;d__5$ndm1).</summary>
+    [Fact]
+    public void AddMembersToATypeWithAsyncMethodsAddsNoStateMachines()
+    {
+        var account = (dnlib.DotNet.TypeDef)_env.One("Fixture.Model.Account", SymbolKind.Type).Member;
+        var nested = account.NestedTypes.Select(t => t.Name.String).ToList();
+        AddMembers("Fixture.Model.Account", "public int Twice(int x) { return x * 2; }");
+        Assert.Equal(nested, account.NestedTypes.Select(t => t.Name.String).ToList());
+    }
+
     [Fact]
     public void AddMembersRejectsDuplicatesAndInitializers()
     {
