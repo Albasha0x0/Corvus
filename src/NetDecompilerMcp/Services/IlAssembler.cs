@@ -255,6 +255,10 @@ public sealed class IlAssembler(AssemblyWorkspace workspace)
         throw Error(line, $"'{text}' is not an integer");
     }
 
+    /// <summary>The module's own definitions when a name also matches in other loaded assemblies (another build of it).</summary>
+    private static IReadOnlyList<ResolvedSymbol> Own(ModuleDef module, IReadOnlyList<ResolvedSymbol> hits) =>
+        hits.Count > 1 && hits.Where(h => ReferenceEquals(h.Member.Module, module)).ToList() is { Count: > 0 } own ? own : hits;
+
     private object ResolveMember(ModuleDef module, Importer importer, ParsedLine line, SymbolKind kind)
     {
         // 1. Token comment copied from get_il output (refers to this module).
@@ -282,6 +286,7 @@ public sealed class IlAssembler(AssemblyWorkspace workspace)
             return ResolveThroughTypeRefs(module, symbol, kind, line)
                    ?? throw Error(line, $"cannot resolve '{symbol}': {ex.Message} Load the assembly that defines it, or use a token.");
         }
+        hits = Own(module, hits);
         if (hits.Count > 1)
             throw Error(line, $"'{symbol}' is ambiguous: {string.Join("; ", hits.Take(5))}. Add a parameter list or use a token.");
         return hits[0].Member switch
@@ -444,6 +449,7 @@ public sealed class IlAssembler(AssemblyWorkspace workspace)
                 IReadOnlyList<ResolvedSymbol> hits;
                 try { hits = SymbolResolver.Resolve(workspace, null, t, SymbolKind.Type); }
                 catch (ToolError ex) { throw Error(line, $"cannot resolve type '{t}': {ex.Message}"); }
+                hits = Own(module, hits);
                 if (hits.Count > 1) throw Error(line, $"type '{t}' is ambiguous; use a token.");
                 var td = (TypeDef)hits[0].Member;
                 sig = (ReferenceEquals(td.Module, module) ? td : (ITypeDefOrRef)importer.Import(td)).ToTypeSig();
