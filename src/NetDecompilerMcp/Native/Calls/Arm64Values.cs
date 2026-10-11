@@ -30,6 +30,7 @@ internal sealed class Arm64Resolver(Arm64Trace host, A64Function code)
     public const int MaxPaths = 16;
     private readonly Dictionary<(A64Loc, int), A64Val> _atStart = [];
     private readonly HashSet<(A64Loc, int)> _open = [];
+    private readonly HashSet<A64Val> _acyclic = new(ReferenceEqualityComparer.Instance);
     public int Budget { get; init; } = 6000;
     public int Steps { get; private set; }
 
@@ -95,11 +96,21 @@ internal sealed class Arm64Resolver(Arm64Trace host, A64Function code)
                 { Inputs = [.. values], Truncated = truncated },
         };
         // a value that depends on an unfinished loop head is not final: do not keep it
-        if (!ContainsCycle(result)) _atStart[key] = result;
+        if (!ContainsCycle(result, _acyclic)) _atStart[key] = result;
         return result;
     }
 
-    private static bool ContainsCycle(A64Val v) => v.Kind == A64Kind.Cycle || v.Inputs?.Any(ContainsCycle) == true;
+    /// <summary>Whether a cycle value is among <paramref name="v"/>'s inputs. Merges share inputs, so each value is walked once
+    /// (<paramref name="acyclic"/> holds the ones already found free of cycles); a plain walk is exponential in the merge depth.</summary>
+    internal static bool ContainsCycle(A64Val v, HashSet<A64Val> acyclic)
+    {
+        if (v.Kind == A64Kind.Cycle) return true;
+        if (v.Inputs == null || acyclic.Contains(v)) return false;
+        foreach (var input in v.Inputs)
+            if (ContainsCycle(input, acyclic)) return true;
+        acyclic.Add(v);
+        return false;
+    }
 
     private A64Val Incoming(A64Loc loc)
     {

@@ -22,6 +22,18 @@ public class Arm64TraceTests
     private static uint CmpImm(int n, uint imm) => 0x7100001F | imm << 10 | (uint)n << 5;
     private const uint StpFrame32 = 0xA9BE7BFD, LdpFrame32 = 0xA8C27BFD;
 
+    [Fact]
+    public void Cycle_check_walks_shared_merge_inputs_once()
+    {
+        // 200 levels of merges whose two inputs are the same value: 2^200 paths for a plain walk
+        var v = new A64Val(A64Kind.Const, 0, "") { Num = 1 };
+        for (int i = 0; i < 200; i++) v = new A64Val(A64Kind.Merge, 0, "") { Inputs = [v, v with { Why = "b" }] };
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        Assert.False(Arm64Resolver.ContainsCycle(v, new(ReferenceEqualityComparer.Instance)));
+        Assert.True(Arm64Resolver.ContainsCycle(new A64Val(A64Kind.Merge, 0, "") { Inputs = [v, new A64Val(A64Kind.Cycle, 0, "")] }, new(ReferenceEqualityComparer.Instance)));
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5));
+    }
+
     private sealed record Sample(NativeCodeIndex Index, Dictionary<string, uint> At);
 
     /// <summary>
