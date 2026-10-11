@@ -123,7 +123,8 @@ public static class Guide
             """,
         ["native"] = """
             Native files (PE .exe/.dll/.sys without .NET metadata, ELF, Mach-O; x86, x64 and ARM64): load_assembly the file, or pass its path as image.
-            Overview: get_pe_info (headers, mitigations, PDB, version, rich header, signature, anything malformed), list_imports
+            Overview: get_pe_info (headers, mitigations, PDB, version, rich header, signature, anything malformed; capability groups;
+            code statistics once the index is built), list_imports
             (includeDynamic=true adds GetProcAddress imports; bind=true shows each binding), list_exports (MSVC names demangled),
             list_resources / get_resource, survey_features.
             Code: list_functions, disassemble, inspect_instruction (operands, registers, flags, flow; mid-instruction and data

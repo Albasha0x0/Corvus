@@ -37,7 +37,9 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                  "security mitigations (ASLR, DEP, CFG, SafeSEH, GS cookie, CET...), import/export counts, TLS callbacks, debug info (PDB path and GUID), " +
                  "load config, version resource, manifest, rich header (toolchain), checksum, overlay, Authenticode signature, and anything malformed. " +
                  "ELF: program headers, soname, NDK note, build id, relocations, hardening. Mach-O: slice, segments, libraries, fixups, code signature, " +
-                 "entitlements, FairPlay encryption.")]
+                 "entitlements, FairPlay encryption. Capability groups the imports imply (files, registry, network, crypto, processes, UI, services, COM, " +
+                 "debugging, dynamic loading). Once the code index is built (never waited for): functions, coverage, switch tables, unresolved jumps, " +
+                 "virtual call sites, RTTI classes, the most called and the largest functions.")]
     public Task<string> GetPeInfo(
         [Description(ImageDescription)] string image,
         [Description(OffsetDescription)] int offset = 0,
@@ -45,8 +47,15 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         CancellationToken cancellationToken = default) => OnImage(image, native =>
     {
         var index = code?.Ready(native);
-        return StructuredOutput.With(pager.Page(pager.GetOrCreate($"peinfo|{native.Id}|{native.Image.Sha256}|{PdbTools.Status(native)}|{index != null}",
-            () => PeInfo(native, code == null ? "" : NativeCallTools.DynamicSection(index, cancellationToken))), offset, maxChars), Summary(native));
+        var capabilities = Capabilities(native.Image, index, cancellationToken);
+        var decoded = index is { Support: not CodeSupport.DeclaredFunctionsOnly } ? index : null;
+        var text = pager.GetOrCreate($"peinfo|{native.Id}|{native.Image.Sha256}|{PdbTools.Status(native)}|{index != null}|{index?.Sourced.Version}",
+            () => PeInfo(native, code == null ? "" : NativeCallTools.DynamicSection(index, cancellationToken)) + (code == null ? "" : CodeText(index, capabilities)));
+        return StructuredOutput.With(pager.Page(text, offset, maxChars), Summary(native) with
+        {
+            Capabilities = capabilities.Select(c => new CapabilityEntry(c.Group, c.Count, c.Apis)).ToList(),
+            Code = decoded != null ? Overview(decoded) : null,
+        });
     }, cancellationToken);
 
     private static string PeInfo(LoadedNative native, string dynamicImports = "")

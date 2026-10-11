@@ -899,7 +899,7 @@ Native PE analysis, symbols and decompilation.
 
 **Native image overview** (read-only, idempotent)
 
-Overview of a native image. PE: machine, kind, subsystem, image base, entry point, timestamps, linker, sections (with flags and entropy), security mitigations (ASLR, DEP, CFG, SafeSEH, GS cookie, CET...), import/export counts, TLS callbacks, debug info (PDB path and GUID), load config, version resource, manifest, rich header (toolchain), checksum, overlay, Authenticode signature, and anything malformed. ELF: program headers, soname, NDK note, build id, relocations, hardening. Mach-O: slice, segments, libraries, fixups, code signature, entitlements, FairPlay encryption.
+Overview of a native image. PE: machine, kind, subsystem, image base, entry point, timestamps, linker, sections (with flags and entropy), security mitigations (ASLR, DEP, CFG, SafeSEH, GS cookie, CET...), import/export counts, TLS callbacks, debug info (PDB path and GUID), load config, version resource, manifest, rich header (toolchain), checksum, overlay, Authenticode signature, and anything malformed. ELF: program headers, soname, NDK note, build id, relocations, hardening. Mach-O: slice, segments, libraries, fixups, code signature, entitlements, FairPlay encryption. Capability groups the imports imply (files, registry, network, crypto, processes, UI, services, COM, debugging, dynamic loading). Once the code index is built (never waited for): functions, coverage, switch tables, unresolved jumps, virtual call sites, RTTI classes, the most called and the largest functions.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -907,7 +907,7 @@ Overview of a native image. PE: machine, kind, subsystem, image base, entry poin
 | `offset` | integer |  | `0` | Character offset for paging long output (use the value from the truncation footer). |
 | `maxChars` | integer |  |  | Max characters in this page (default from server config, ~60000). |
 
-Structured output: `image`, `path`, `machine`, `kind`, `format`, `subsystem`, `fileSize`, `sha256`, `imageBase`, `entryPoint`, `timestamp`, `dotNet`, `mitigationsOn`, `mitigationsOff`, `sections`, `importModules`, `importFunctions`, `delayImportModules`, `exports`, `tlsCallbacks`, `pdbPath`, `pdbGuid`, `pdbAge`, `signer`, `checksumMatches`, `overlaySize`, `issues`.
+Structured output: `image`, `path`, `machine`, `kind`, `format`, `subsystem`, `fileSize`, `sha256`, `imageBase`, `entryPoint`, `timestamp`, `dotNet`, `mitigationsOn`, `mitigationsOff`, `sections`, `importModules`, `importFunctions`, `delayImportModules`, `exports`, `tlsCallbacks`, `pdbPath`, `pdbGuid`, `pdbAge`, `signer`, `checksumMatches`, `overlaySize`, `issues`, `capabilities`, `code`.
 
 ### list_imports
 

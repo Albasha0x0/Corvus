@@ -259,4 +259,6 @@ public sealed record PeSummary(
     string? Signer,
     [property: Description("Stored checksum matches the computed one; null when none is stored.")] bool? ChecksumMatches,
     long? OverlaySize,
-    [property: Description("Malformed parts found while parsing.")] int Issues);
+    [property: Description("Malformed parts found while parsing.")] int Issues,
+    [property: Description("Capability groups the imports imply (late-bound imports included once the code index is ready).")] IReadOnlyList<CapabilityEntry>? Capabilities = null,
+    CodeOverview? Code = null);
