@@ -7,6 +7,7 @@ using static NetDecompilerMcp.Tests.AndroidSamples;
 namespace NetDecompilerMcp.Tests;
 
 /// <summary>Smali output of the Dalvik disassembler, and (with NDM_DEX_DISASSEMBLER) the same text as baksmali's.</summary>
+[Collection(ExternalToolEnvironmentCollection.Name)]
 public sealed class DalvikDisassemblerTests(Xunit.Abstractions.ITestOutputHelper output) : IDisposable
 {
     private readonly TempDir _dir = new();
