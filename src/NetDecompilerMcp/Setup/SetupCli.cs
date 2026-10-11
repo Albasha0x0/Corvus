@@ -11,7 +11,7 @@ internal static class SetupCli
     /// <summary>Flags each command accepts; anything else is a usage error, so a mistyped --dry-run never writes.</summary>
     private static readonly Dictionary<string, string[]> Accepted = new()
     {
-        ["install"] = ["--no-check", "--check", "--dry-run", "--json", "--yes", "-y", "--all-detected", "--strict", "--client", "--refresh-only", "--command", "--dev-reload"],
+        ["install"] = ["--no-check", "--check", "--dry-run", "--json", "--yes", "-y", "--all-detected", "--strict", "--client", "--refresh-only", "--command", "--dev-reload", "--skill"],
         ["uninstall"] = ["--keep-files", "--purge-data", "--dry-run", "--json", "--client"],
         ["status"] = ["--json", "--client", "--engine", "--target", "--deep"],
         ["config"] = ["--client", "--dev-reload"],
@@ -71,12 +71,16 @@ internal static class SetupCli
                                 --command PATH  register this program instead of the running one
                                 --dev-reload DIR  local development: register the relay, which runs the server
                                                 published in DIR (./publish.ps1) and switches to each new publish
+                                --skill         also write the agent skill for clients that read skills; skills
+                                                written earlier are kept current by every install and update
           uninstall [client...] Remove the registration from every client (or the named ones). With no names it
                                 also deletes an installed copy's program files; --keep-files keeps them. Your data
                                 (annotations, caches, symbols) is kept; --purge-data deletes it as well.
+                                Skill folders written by install --skill are removed.
                                 --dry-run and --json as for install.
           status | doctor       Read-only check. Starts each client's registered command with that entry's own args
-                                and env, checks this build's server and tool catalog (digest), and the engines.
+                                and env, checks this build's server and tool catalog (digest), the engines, and
+                                installed skills (aligned with this build, or stale).
                                 --client X      only these clients (fails only for them)
                                 --engine E      only ida, python, ghidra or all (--deep also starts IDA's worker)
                                 --target PATH   what the file is and which engines read it
@@ -224,6 +228,7 @@ internal static class SetupCli
             SetupPlan.Write(text, env, rows);
             if (dryRun)
             {
+                Skills(text, env, report, rows, a.Has("--skill"), dryRun: true);
                 if (pending.Any(r => r.NeedsConsent)) text.WriteLine("New clients are added after confirmation, or with --yes / --all-detected.");
                 text.WriteLine("Dry run: nothing was written.");
                 return Finish(0);
@@ -264,11 +269,43 @@ internal static class SetupCli
             var mark = row.Action == SetupAction.Blocked ? "!! " : row.Action == SetupAction.Skip ? "-- " : "ok ";
             text.WriteLine($"  {mark} {row.Name,-20} {row.Message,-20} {SetupPlan.Short(env, row.ConfigPath)}");
         }
+        Skills(text, env, report, rows, a.Has("--skill"), dryRun: false);
         foreach (var note in report.Notes) text.WriteLine(note);
         if (changed > 0) text.WriteLine("Restart the clients above (or reload their MCP servers) to load it.");
         report.Applied = changed > 0;
         report.Healthy = failed == 0;
         return Finish(failed == 0 ? 0 : 1);
+    }
+
+    /// <summary>
+    /// Skill folders of the registered clients: folders this program wrote are kept current; --skill also writes new ones.
+    /// A folder of the same name that we did not write is never touched.
+    /// </summary>
+    private static void Skills(TextWriter text, SetupEnvironment env, SetupReport report, IEnumerable<ClientReport> rows, bool add, bool dryRun)
+    {
+        var clients = rows.Where(r => r.Action is SetupAction.Add or SetupAction.Refresh or SetupAction.Unchanged).Select(r => r.Id).ToList();
+        var folders = Skill.FoldersOf(env, clients);
+        if (add && folders.Count == 0)
+            report.Notes.Add($"--skill: none of these clients reads skills ({string.Join(", ", Skill.Targets(env).Select(t => t.Client).Distinct())} do).");
+        foreach (var (folder, served) in folders)
+        {
+            var state = Skill.StateOf(folder);
+            if (!add && state != Skill.Stale) continue;
+            string message;
+            if (dryRun) message = state switch { Skill.Aligned => "already current", Skill.Stale => "would update", Skill.Foreign => $"left unchanged: no {Skill.Marker}", _ => "would write" };
+            else
+            {
+                try
+                {
+                    var result = Skill.Write(folder);
+                    message = result.Message;
+                    report.Applied |= result.Changed;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { message = $"left unchanged: {ex.Message}"; }
+            }
+            report.Skills.Add(new SkillReport(folder, served, state, message));
+            text.WriteLine($"  skill      {string.Join(", ", served),-20} {SetupPlan.Short(env, folder)}  {message}");
+        }
     }
 
     private static int Uninstall(TextWriter output, SetupEnvironment env, SetupArgs a)
@@ -302,6 +339,30 @@ internal static class SetupCli
             row.Message = result.Message;
             report.Applied |= result.Changed;
             text.WriteLine($"  {client.Name,-20} {result.Message,-20} {SetupPlan.Short(env, client.Target.Path)}");
+        }
+
+        // A shared skill folder stays while a client not named here still has the server registered.
+        List<string> stillRegistered = named.Count == 0 ? [] : [.. all.Where(c => !named.Contains(c) && c.Target.Current(ClientCatalog.ServerName) != null).Select(c => c.Id)];
+        foreach (var (folder, served) in Skill.FoldersOf(env, (named.Count > 0 ? named : all).Select(c => c.Id)))
+        {
+            var state = Skill.StateOf(folder);
+            if (state is Skill.Missing or Skill.Foreign) continue;
+            var sharedWith = Skill.FoldersOf(env, stillRegistered).Where(f => f.Folder.Equals(folder, StringComparison.OrdinalIgnoreCase)).SelectMany(f => f.Clients).ToList();
+            string message;
+            if (sharedWith.Count > 0) message = $"kept: also read by {string.Join(", ", sharedWith)}";
+            else if (dryRun) message = "would remove";
+            else
+            {
+                try
+                {
+                    var result = Skill.Remove(folder);
+                    message = result.Message;
+                    report.Applied |= result.Changed;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { message = $"left unchanged: {ex.Message}"; }
+            }
+            report.Skills.Add(new SkillReport(folder, served, state, message));
+            text.WriteLine($"  skill      {SetupPlan.Short(env, folder)}  {message}");
         }
 
         var dataRoot = Installation.DataRoot(env);
@@ -363,6 +424,24 @@ internal static class SetupCli
                 report.Clients.Add(row);
                 text.WriteLine($"  {client.Name,-20} {row.Message}");
                 if (Doctor.Fails(row.State) || (named.Count > 0 && row.State == Doctor.NotRegistered)) failed = true;
+            }
+        }
+
+        if (audit || named.Count > 0)
+        {
+            var readers = named.Count > 0 ? named : all.Where(c => c.Present || c.Target.Current(ClientCatalog.ServerName) != null);
+            foreach (var (folder, served) in Skill.FoldersOf(env, readers.Select(c => c.Id)))
+            {
+                var state = Skill.StateOf(folder);
+                report.Skills.Add(new SkillReport(folder, served, state, null));
+                if (state == Skill.Missing) continue;
+                var note = state switch
+                {
+                    Skill.Stale => " - written by another build; run: NetDecompilerMcp install --skill",
+                    Skill.Foreign => $" - not written by NetDecompilerMcp (no {Skill.Marker})",
+                    _ => "",
+                };
+                text.WriteLine($"Skill {SetupPlan.Short(env, folder)}: {state}{note}");
             }
         }
 

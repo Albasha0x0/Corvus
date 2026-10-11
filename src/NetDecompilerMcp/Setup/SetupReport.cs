@@ -20,6 +20,8 @@ internal sealed class SetupReport
     public CheckReport? Target { get; set; }
     /// <summary>Program files uninstall deletes and data it keeps.</summary>
     public RemovalReport? Removal { get; set; }
+    /// <summary>Skill folders: what install wrote, uninstall removed, or status found.</summary>
+    public List<SkillReport> Skills { get; } = [];
     /// <summary>Follow-up commands, such as the one that adds clients a non-interactive install left out.</summary>
     public List<string> Notes { get; } = [];
     public bool Healthy { get; set; } = true;
@@ -103,3 +105,6 @@ internal sealed record ServerReport(bool Ok, string Detail, double Seconds, stri
 internal sealed record CheckReport(string Name, bool Ok, string Classification, string Detail, string? Remediation);
 
 internal sealed record RemovalReport(IReadOnlyList<string> Delete, string DataRoot, IReadOnlyList<string> Kept);
+
+/// <summary>One skill folder, the clients that read it, its <see cref="Skill"/> state and what the command did.</summary>
+internal sealed record SkillReport(string Path, IReadOnlyList<string> Clients, string State, string? Message);

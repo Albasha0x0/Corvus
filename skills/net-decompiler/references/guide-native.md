@@ -1,0 +1,31 @@
+# Guide: native
+
+<!-- Generated from src/NetDecompilerMcp/Mcp/Guide.cs; run the tests with NDM_UPDATE_DOCS=1 to update. -->
+
+Native files (PE .exe/.dll/.sys without .NET metadata, ELF, Mach-O; x86, x64 and ARM64): load_assembly the file, or pass its path as image.
+Overview: get_pe_info (headers, mitigations, PDB, version, rich header, signature, anything malformed), list_imports
+(includeDynamic=true adds GetProcAddress imports; bind=true shows each binding), list_exports (MSVC names demangled),
+list_resources / get_resource, survey_features.
+Code: list_functions, disassemble, inspect_instruction (operands, registers, flags, flow; mid-instruction and data
+addresses classified), get_cfg, find_xrefs (every call site of an import: 'kernel32!CreateFileW'; struct
+members through IDA: Type::member), native_call_tree, get_call_arguments (recovered arguments as data),
+trace_native_values (where a value comes from or goes, across callers, callees and globals), resolve_call_targets
+(targets of indirect calls with their basis; scope=image lists the unresolved ones), search_native_strings, search_bytes (?? wildcards), read_bytes, resolve_address, list_cpp_classes (RTTI classes, bases,
+vftables), get_native_type (a type's layout from the PDB, RTTI, Il2Cpp or the engine by name, id or typed address; at=0x48 names a field), get_exception_info (MSVC try / catch, SEH scopes, funclets), find_virtual_calls (obj->vfunc() sites resolved
+through RTTI; crossCheck=true compares with IDA or Ghidra), decompile_native (C pseudocode through IDA or Ghidra when installed).
+Addresses: hex VA or RVA, rva:/va:/off: prefixes, export names, module!import, sub_<rva>.
+Symbols: a matching local PDB is read with the code index; load_pdb loads one by path or downloads it (download=true);
+search_pdb_symbols lists its symbols. Names from load_pdb and apply_il2cpp_names are saved per file SHA-256 and reapplied
+when the same file loads again; list_native_edits shows the layers, clear=true on either tool removes one.
+NativeAOT images name themselves from their metadata when the code index builds (methods, vtable slots, MethodTables,
+frozen strings); get_nativeaot_info shows the version, recovery stages, types, methods and strings.
+Cross-image: load the DLLs an image imports (or load_assembly loadProviders=true) and the call tools follow imports,
+forwarders and thunks into them.
+Engines: list_functions, disassemble, get_cfg, find_xrefs and native_call_tree take engine=auto|ours|ida|ghidra. auto
+(default) uses an engine's analysis once it has finished in this session (IDA's before Ghidra's), else the built-in index,
+and never starts an engine; every result has an "Engine: ours|ida|ghidra (why)" line. ARM (Thumb) images work through IDA,
+else Ghidra (NDM_GHIDRA_DIR and a JDK). inspect_instruction takes auto|ours|ida (auto: the built-in decoder for x86 / x64).
+Name priority: user > pdb > nativeaot > il2cpp > ida > discovered; our names win in engine output. decompile_native pushes
+names, patches, Il2Cpp prototypes, RTTI and PDB types into the engine's database; --prewarm ida|ghidra|auto analyzes images
+as they load. Code indexes are saved on disk by file SHA-256 (--index-cache off disables it).
+Editing and engine type edits: the edits topic. Build-to-build: the builds topic.
