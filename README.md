@@ -628,6 +628,9 @@ scans answer with what they found, marked partial with where to continue, and on
 is killed (the next request restarts it from the saved database). `server_status` reports both limits.
 For huge or hostile inputs, `NDM_ENGINE_ANALYSIS=none` opens images in IDA without auto-analysis: functions are made where a
 tool asks for one, the database is kept apart from the fully analyzed one, and output headers say so.
+A second server process opening an image whose IDA database another process holds gets a read-only snapshot of the last
+saved database (edits are neither journaled nor saved; decompile headers and `server_status` say so), or, when none is
+saved yet, a conflict naming the owning process.
 
 Ghidra (12.0 or newer) is found through `NDM_GHIDRA_DIR` (else `GHIDRA_INSTALL_DIR`) and a JDK through `NDM_GHIDRA_JAVA` (else
 `JAVA_HOME`, else `PATH`); the worker is compiled from its embedded sources on first use. `NDM_GHIDRA_ANALYSIS` picks the

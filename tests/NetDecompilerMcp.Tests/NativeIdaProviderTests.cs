@@ -326,6 +326,45 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     }
 
     [IdaFact]
+    public async Task A_database_held_by_another_process_opens_as_a_read_only_snapshot()
+    {
+        var path = System64;
+        var rva = ExportRva(path, Export);
+        var dir = new TempDir();
+        _owned.Add(dir);
+        using var owner = new IdaProvider(new IdaProviderOptions { CacheRoot = dir.Path });
+        await using var held = (IdaSession)await owner.OpenAsync(path, null, Offline);
+        await held.SetNameAsync(rva, "ndm_owner_name");
+        await held.SaveAsync();
+        // as if another server process held the entry
+        var entryDir = Path.GetDirectoryName(held.DatabasePath)!;
+        File.WriteAllText(Path.Combine(entryDir, ".owner"), "4242");
+
+        using var second = new IdaProvider(new IdaProviderOptions { CacheRoot = dir.Path });
+        string snapshotDb;
+        await using (var s = (IdaSession)await second.OpenAsync(path, null, Offline))
+        {
+            snapshotDb = s.DatabasePath;
+            Assert.NotEqual(held.DatabasePath, snapshotDb);
+            Assert.True(s.ReusedDatabase);
+            Assert.Contains("read-only snapshot", ((INativeDecompilerSession)s).DatabaseNote);
+            Assert.Contains("4242", ((INativeDecompilerSession)s).DatabaseNote);
+            Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "ndm_owner_name");
+            await s.SetNameAsync(rva, "ndm_snapshot_name");
+            Assert.Equal(0, s.UnsavedCount);
+            Assert.Contains("read-only snapshot", Assert.Single(second.SessionStates()).Note);
+        }
+        Assert.False(Directory.Exists(Path.GetDirectoryName(snapshotDb)));
+        Assert.Contains(await held.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "ndm_owner_name");
+
+        // no saved database of the asked profile: the conflict names the owner
+        File.WriteAllText(Path.Combine(entryDir, ".owner"), "4242");
+        var e = await Assert.ThrowsAsync<ToolError>(() => second.OpenAsync(path, null, new NativeOpenOptions()));
+        Assert.Equal(ErrorCode.Conflict, e.Code);
+        Assert.Contains("process 4242", e.Message);
+    }
+
+    [IdaFact]
     public async Task The_worker_runs_in_batch_mode()
     {
         await using var s = await Provider.OpenAsync(System64, null, Offline);

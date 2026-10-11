@@ -53,6 +53,8 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     /// <summary>The limit of a request on the current flow: the tool call's (<see cref="EngineRequestLimit"/>), else the session's.</summary>
     protected TimeSpan RequestTimeout => EngineRequestLimit.Current ?? Options.RequestTimeout;
     protected CacheEntry? Entry { get; private set; }
+    /// <summary>A copy of a database another process holds: edits are neither journaled nor saved, and the copy goes with the session.</summary>
+    protected bool ReadOnlySnapshot => Entry?.SnapshotOf != null;
 
     public abstract string ProviderId { get; }
     /// <summary>Engine name in messages ("IDA").</summary>
@@ -81,6 +83,9 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         get { lock (_sync) return _unsaved.Count; }
     }
 
+    /// <summary>What sets the database apart (no auto-analysis, read-only snapshot), or null.</summary>
+    protected virtual string? Note => null;
+
     /// <summary>The database (file or project directory) the session works on, once chosen.</summary>
     protected virtual string? DatabaseLocation => null;
 
@@ -106,7 +111,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         else state = "idle";
         int queued = Math.Max(0, Volatile.Read(ref _calls) - running.Count - (starting != null ? 1 : 0));
         return new EngineSessionState(ProviderId, ImagePath, WorkerProcessId, state, op, Math.Round(seconds, 1), stage, queued, UnsavedCount,
-            Volatile.Read(ref _restarts), DatabaseLocation, ReusedDatabase);
+            Volatile.Read(ref _restarts), DatabaseLocation, ReusedDatabase, Note);
     }
 
     /// <summary>Notes the worker's progress stage while the session starts (open, load, analysis).</summary>
@@ -227,6 +232,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
             throw;
         }
         var held = true;
+        if (ReadOnlySnapshot) journal = false;
         try
         {
             if (_closed) throw new ToolError(ErrorCode.NotLoaded, $"The {EngineName} session for {ImagePath} is closed.", "Open the image again.");
@@ -258,7 +264,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
                     _failures = 0;
                     if (journal) _unsaved.Add((op, args));
                     if (saves) _unsaved.Clear();
-                    saveNow = held && !saves && _unsaved.Count >= JournalSaveThreshold;
+                    saveNow = held && !saves && !ReadOnlySnapshot && _unsaved.Count >= JournalSaveThreshold;
                 }
                 if (saveNow)
                 {
@@ -323,7 +329,7 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
         }
         if (w != null)
         {
-            try { await w.ShutdownAsync("close", CloseArgs(save), ShutdownGrace).ConfigureAwait(false); }
+            try { await w.ShutdownAsync("close", CloseArgs(save && !ReadOnlySnapshot), ShutdownGrace).ConfigureAwait(false); }
             finally { w.Dispose(); }
         }
         Entry?.Dispose();
@@ -350,5 +356,5 @@ internal abstract class WorkerSessionBase(NativeOpenOptions options) : IAsyncDis
     }
 
     public Task SaveAsync(CancellationToken cancellationToken = default) =>
-        CallAsync("save", new JsonObject(), cancellationToken, saves: true);
+        ReadOnlySnapshot ? Task.CompletedTask : CallAsync("save", new JsonObject(), cancellationToken, saves: true);
 }

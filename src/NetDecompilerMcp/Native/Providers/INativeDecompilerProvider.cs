@@ -36,7 +36,7 @@ public interface INativeDecompilerProvider : IDisposable
 /// requests waiting, edits a restart would replay, restarts, and the database.
 /// </summary>
 public sealed record EngineSessionState(string Engine, string ImagePath, int? WorkerPid, string State, string? BusyOp, double BusySeconds,
-    string? Stage, int Queued, int Unsaved, int Restarts, string? Database, bool ReusedDatabase);
+    string? Stage, int Queued, int Unsaved, int Restarts, string? Database, bool ReusedDatabase, string? Note = null);
 
 /// <summary>
 /// One analyzed image. Requests that change the database run one at a time in arrival order; an engine may run reads

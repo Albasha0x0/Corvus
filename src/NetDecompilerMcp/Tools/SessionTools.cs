@@ -26,7 +26,8 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
         [property: Description("The request running (or open/restart), its seconds and the worker's last stage.")] string? BusyOp, double BusySeconds, string? Stage,
         [property: Description("Requests waiting for this session.")] int Queued,
         [property: Description("Unsaved edits a restart would replay.")] int Unsaved,
-        int Restarts, string? Database, bool ReusedDatabase);
+        int Restarts, string? Database, bool ReusedDatabase,
+        [property: Description("no auto-analysis, or a read-only snapshot of a database another process holds.")] string? Note);
 
     [Description("Seconds per IDA or Ghidra request (NDM_ENGINE_REQUEST_TIMEOUT) and per engine start plus analysis (NDM_ENGINE_OPEN_TIMEOUT).")]
     public sealed record EngineLimits(int RequestSeconds, int OpenSeconds);
@@ -147,7 +148,7 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
             NoteCountsOf(notes),
             new EngineLimits(options.EngineRequestTimeoutSeconds, options.EngineOpenTimeoutSeconds),
             (engines?.SessionStates() ?? []).Select(e => new EngineSession(e.Image, e.State.Engine, e.State.WorkerPid, e.State.State, e.State.BusyOp,
-                e.State.BusySeconds, e.State.Stage, e.State.Queued, e.State.Unsaved, e.State.Restarts, e.State.Database, e.State.ReusedDatabase)).ToList());
+                e.State.BusySeconds, e.State.Stage, e.State.Queued, e.State.Unsaved, e.State.Restarts, e.State.Database, e.State.ReusedDatabase, e.State.Note)).ToList());
     }
 
     /// <summary>One capability per external program the server runs (test oracles left out), probed once per file.</summary>

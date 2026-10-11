@@ -23,16 +23,36 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
     internal string DatabasePath => _databasePath;
     /// <summary>False when opened without auto-analysis: the engine's function list is not complete.</summary>
     public bool AnalysisComplete => Options.Analysis != EngineAnalysis.None;
-    public string? DatabaseNote => AnalysisComplete ? null : "no auto-analysis: functions made where asked";
+    public string? DatabaseNote => Note;
+
+    protected override string? Note => string.Join("; ", new[]
+    {
+        AnalysisComplete ? null : "no auto-analysis: functions made where asked",
+        Entry?.SnapshotOf is { } pid ? $"read-only snapshot of the database process {pid} has open: edits are not saved" : null,
+    }.Where(n => n != null)) is { Length: > 0 } note ? note : null;
     protected override string? DatabaseLocation => _databasePath.Length > 0 ? _databasePath : null;
 
-    protected override CacheEntry AcquireEntry(string imagePath, string? sha256) => provider.Cache.Acquire(ProviderId, imagePath, sha256);
+    private string Profile => (Options.Symbols == SymbolMode.Off ? "nopdb" : "default") + (Options.Analysis == EngineAnalysis.None ? "-noauto" : "");
+
+    /// <summary>
+    /// The image's cache entry; when another server process holds it, a read-only snapshot of its last saved database,
+    /// else Conflict naming that process.
+    /// </summary>
+    protected override CacheEntry AcquireEntry(string imagePath, string? sha256) =>
+        provider.Cache.Acquire(ProviderId, imagePath, sha256, (locked, sha) =>
+        {
+            if (locked.OwnerPid is not { } pid || pid == Environment.ProcessId) throw locked.Conflict;
+            var saved = Path.Combine(locked.Directory, IdaProvider.DatabaseFileName(ida, Profile));
+            if (!File.Exists(saved))
+                throw new ToolError(ErrorCode.Conflict, $"{locked.Conflict.Message} It has no saved database of this image to take a read-only snapshot of yet.",
+                    locked.Conflict.Remediation);
+            return provider.Cache.Snapshot(ProviderId, locked, sha, Path.GetFullPath(imagePath), [saved]);
+        });
 
     protected override void PrepareOpen()
     {
         (Arch, _headerImageBase) = ReadHeader(Entry!.InputCopy, ImagePath);
-        var profile = (Options.Symbols == SymbolMode.Off ? "nopdb" : "default") + (Options.Analysis == EngineAnalysis.None ? "-noauto" : "");
-        _databasePath = Path.Combine(Entry.Directory, IdaProvider.DatabaseFileName(ida, profile));
+        _databasePath = Path.Combine(Entry.Directory, IdaProvider.DatabaseFileName(ida, Profile));
     }
 
     /// <summary>

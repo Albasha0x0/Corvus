@@ -24,7 +24,10 @@ public sealed class AnalysisCache(string root)
     /// <paramref name="expectedSha256"/> (the source's hash when null). Throws NotFound, IoError, InvalidArgument or
     /// Conflict (bytes differ from the expected hash, or the entry is open in another session or process).
     /// </summary>
-    public CacheEntry Acquire(string providerId, string imagePath, string? expectedSha256)
+    public CacheEntry Acquire(string providerId, string imagePath, string? expectedSha256) => Acquire(providerId, imagePath, expectedSha256, null);
+
+    /// <param name="whenLocked">Called instead of throwing Conflict when the entry is locked: may return another entry (a snapshot).</param>
+    public CacheEntry Acquire(string providerId, string imagePath, string? expectedSha256, Func<LockedEntry, string, CacheEntry>? whenLocked)
     {
         var source = Path.GetFullPath(imagePath);
         if (!File.Exists(source))
@@ -40,10 +43,15 @@ public sealed class AnalysisCache(string root)
 
         var dir = Path.Combine(Root, providerId, sha);
         Io(dir, () => Directory.CreateDirectory(Path.Combine(dir, "input")));
-        var lockFile = OpenLock(dir);
+        FileStream lockFile;
+        try { lockFile = OpenLock(dir); }
+        catch (LockedError locked) when (whenLocked != null) { return whenLocked(locked.Entry, sha); }
+        catch (LockedError locked) { throw locked.Entry.Conflict; }
         try
         {
             var copy = Io(dir, () => EnsureCopy(source, Path.Combine(dir, "input"), sha));
+            try { File.WriteAllText(Path.Combine(dir, OwnerFile), Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture)); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* only names the owner in another process's conflict */ }
             return new CacheEntry(dir, copy, sha, source, lockFile);
         }
         catch
@@ -59,6 +67,9 @@ public sealed class AnalysisCache(string root)
         return Convert.ToHexStringLower(SHA256.HashData(s));
     }
 
+    /// <summary>The process holding an entry's lock writes its id here, so a conflict can name it.</summary>
+    internal const string OwnerFile = ".owner";
+
     private static FileStream OpenLock(string dir)
     {
         var path = Path.Combine(dir, ".lock");
@@ -69,9 +80,59 @@ public sealed class AnalysisCache(string root)
         catch (IOException ex) when (ex is not FileNotFoundException and not DirectoryNotFoundException
             && (!OperatingSystem.IsWindows() || (ex.HResult & 0xFFFF) is 32 or 33)) // sharing / lock violation
         {
-            throw new ToolError(ErrorCode.Conflict, $"The analysis database in {dir} is open in another session or process.",
-                "Close the other session (or the other server process) first, or work in that session.");
+            var owner = Owner(dir);
+            var who = owner == null ? "another session or process" : owner == Environment.ProcessId ? "another session of this process" : $"process {owner}";
+            throw new LockedError(new LockedEntry(dir, owner, new ToolError(ErrorCode.Conflict, $"The analysis database in {dir} is open in {who}.",
+                "Close the other session (or the other server process) first, or work in that session.")));
         }
+    }
+
+    private sealed class LockedError(LockedEntry entry) : Exception(entry.Conflict.Message)
+    {
+        public LockedEntry Entry { get; } = entry;
+    }
+
+    private static int? Owner(string dir)
+    {
+        try { return int.TryParse(File.ReadAllText(Path.Combine(dir, OwnerFile)).Trim(), out var pid) ? pid : null; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    /// <summary>
+    /// A private copy of a locked entry's input and of <paramref name="files"/> (its saved database), for a read-only
+    /// session beside the process that holds the entry; the copy is deleted when the entry is disposed. Throws IoError
+    /// when a file cannot be read (the owner may hold it open).
+    /// </summary>
+    public CacheEntry Snapshot(string providerId, LockedEntry locked, string sha256, string source, IReadOnlyList<string> files)
+    {
+        var dir = Path.Combine(Root, providerId, "snapshots", $"{sha256[..16]}-{Environment.ProcessId}-{Guid.NewGuid():N}"[..48]);
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(dir, "input"));
+            var lockFile = new FileStream(Path.Combine(dir, ".lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose);
+            var input = Directory.GetFiles(Path.Combine(locked.Directory, "input")).FirstOrDefault(f => !f.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase))
+                ?? throw locked.Conflict;
+            var copy = Path.Combine(dir, "input", Path.GetFileName(input));
+            CopyShared(input, copy);
+            foreach (var f in files) CopyShared(f, Path.Combine(dir, Path.GetFileName(f)));
+            if (HashFile(copy) != sha256) throw locked.Conflict;
+            return new CacheEntry(dir, copy, sha256, source, lockFile) { SnapshotOf = locked.OwnerPid };
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ToolError)
+        {
+            try { Directory.Delete(dir, true); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+            if (ex is ToolError t) throw t;
+            throw new ToolError(ErrorCode.Conflict, $"{locked.Conflict.Message} Its saved database could not be copied for a read-only snapshot: {ex.Message}",
+                locked.Conflict.Remediation);
+        }
+    }
+
+    private static void CopyShared(string from, string to)
+    {
+        using var input = new FileStream(from, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1 << 16, FileOptions.SequentialScan);
+        using var output = new FileStream(to, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16);
+        input.CopyTo(output);
     }
 
     private static string EnsureCopy(string source, string inputDir, string sha)
@@ -135,14 +196,26 @@ public sealed class AnalysisCache(string root)
     }
 }
 
-/// <summary>A locked cache entry; disposing releases the lock.</summary>
+/// <summary>An entry locked by another session or process (<see cref="OwnerPid"/> when it recorded itself), and the conflict to report.</summary>
+public sealed record LockedEntry(string Directory, int? OwnerPid, ToolError Conflict);
+
+/// <summary>A locked cache entry; disposing releases the lock (and deletes a snapshot).</summary>
 public sealed class CacheEntry(string directory, string inputCopy, string sha256, string source, FileStream lockFile) : IDisposable
 {
+    /// <summary>For a read-only snapshot of an entry another process holds: that process's id (0 when unknown); null otherwise.</summary>
+    public int? SnapshotOf { get; init; }
+
     public string Directory { get; } = directory;
     /// <summary>The verified private copy of the input.</summary>
     public string InputCopy { get; } = inputCopy;
     public string Sha256 { get; } = sha256;
     public string SourcePath { get; } = source;
 
-    public void Dispose() => lockFile.Dispose();
+    public void Dispose()
+    {
+        lockFile.Dispose();
+        if (SnapshotOf == null) return;
+        try { System.IO.Directory.Delete(Directory, true); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* a worker still exiting; the next snapshot uses another directory */ }
+    }
 }

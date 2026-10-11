@@ -123,6 +123,34 @@ public class NativeProviderTests
         Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => cache.Acquire("test", tmp.File("missing.bin"), null)).Code);
     }
 
+    [Fact]
+    public void A_locked_entry_names_its_owner_and_can_be_snapshotted()
+    {
+        using var tmp = new TempDir();
+        var cache = new AnalysisCache(tmp.File("cache"));
+        var input = tmp.File("sample.bin");
+        File.WriteAllBytes(input, [1, 2, 3, 4, 5]);
+        string snapshotDir;
+        using (var entry = cache.Acquire("test", input, null))
+        {
+            File.WriteAllText(Path.Combine(entry.Directory, "db.i64"), "saved");
+            // as if another server process held it
+            File.WriteAllText(Path.Combine(entry.Directory, ".owner"), "4242");
+            var e = Assert.Throws<ToolError>(() => cache.Acquire("test", input, null));
+            Assert.Equal(ErrorCode.Conflict, e.Code);
+            Assert.Contains("process 4242", e.Message);
+
+            using var snapshot = cache.Acquire("test", input, null, (locked, sha) =>
+                cache.Snapshot("test", locked, sha, input, [Path.Combine(locked.Directory, "db.i64")]));
+            Assert.Equal(4242, snapshot.SnapshotOf);
+            Assert.NotEqual(entry.Directory, snapshot.Directory);
+            Assert.Equal("saved", File.ReadAllText(Path.Combine(snapshot.Directory, "db.i64")));
+            Assert.Equal(File.ReadAllBytes(input), File.ReadAllBytes(snapshot.InputCopy));
+            snapshotDir = snapshot.Directory;
+        }
+        Assert.False(Directory.Exists(snapshotDir));
+    }
+
     [WindowsFact]
     public void Job_close_kills_the_whole_tree()
     {
