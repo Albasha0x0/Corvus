@@ -5,13 +5,13 @@ namespace NetDecompilerMcp.Native.NativeAot;
 
 /// <summary>
 /// An object preinitialized by the compiler. <see cref="Rva"/> is the object reference (its MethodTable pointer, as code
-/// loads it); the 8-byte object header precedes it. <see cref="Text"/> is set for strings.
+/// loads it); the pointer-sized object header precedes it. <see cref="Text"/> is set for strings.
 /// </summary>
 public sealed record NativeAotFrozenObject(uint Rva, uint MethodTable, string TypeName, uint Size, string? Text = null);
 
 /// <summary>
 /// Linear walk of the frozen object region (section 206): contiguous objects [header][MethodTable*][payload] of
-/// BaseSize + ComponentSize × length bytes, 8-byte aligned; zero padding between them is skipped.
+/// BaseSize + ComponentSize × length bytes, pointer aligned; zero padding between them is skipped.
 /// </summary>
 public sealed class NativeAotFrozen
 {
@@ -29,36 +29,32 @@ public sealed class NativeAotFrozen
         const string name = "frozen objects";
         var region = aot.Header.Section(SectionId.FrozenObjectRegion);
         if (region is not { Length: > 0 }) return frozen;
-        if (!aot.Image.Is64Bit)
-        {
-            frozen.Stage = new(name, NativeAotStage.Unsupported, "32-bit images are not read yet");
-            return frozen;
-        }
         var image = aot.Hydrated;
         var types = aot.Types;
         var objects = new List<NativeAotFrozenObject>();
-        uint at = region.StartRva;
+        uint p = (uint)image.PointerSize, at = region.StartRva;
         string? stop = null;
         Span<byte> head = stackalloc byte[24];
-        while (at + 16 <= region.EndRva)
+        while (at + 2 * p <= region.EndRva)
         {
             if ((objects.Count & 0xFFF) == 0) ct.ThrowIfCancellationRequested();
             if (objects.Count >= MaxObjects) { stop = "the object limit"; break; }
-            int n = image.Read(at, head);
-            if (n < 16) { stop = $"unmapped bytes at RVA 0x{at:X}"; break; }
-            if (BinaryPrimitives.ReadUInt64LittleEndian(head) == 0 && BinaryPrimitives.ReadUInt64LittleEndian(head[8..]) == 0)
+            int n = image.Read(at, head[..(int)(2 * p + 4)]);
+            if (n < 2 * p) { stop = $"unmapped bytes at RVA 0x{at:X}"; break; }
+            if (!head[..(int)(2 * p)].ContainsAnyExcept((byte)0))
             {
-                at += 8;
+                at += p;
                 continue;
             }
-            var mt = image.PointerAt(at + 8) is { } rva ? types.At(rva) : null;
-            if (mt == null) { stop = $"no MethodTable for the object at RVA 0x{at + 8:X}"; break; }
-            uint length = mt.ComponentSize != 0 && n >= 20 ? BinaryPrimitives.ReadUInt32LittleEndian(head[16..]) : 0;
+            uint obj = at + p;
+            var mt = image.PointerAt(obj) is { } rva ? types.At(rva) : null;
+            if (mt == null) { stop = $"no MethodTable for the object at RVA 0x{obj:X}"; break; }
+            uint length = mt.ComponentSize != 0 && n >= 2 * p + 4 ? BinaryPrimitives.ReadUInt32LittleEndian(head[(int)(2 * p)..]) : 0;
             ulong size = mt.BaseSize + (ulong)mt.ComponentSize * length;
-            size = (size + 7) & ~7ul;
-            if (size < 16 || at + size > region.EndRva) { stop = $"the object at RVA 0x{at + 8:X} runs past the region"; break; }
-            string? text = mt.Name == "System.String" && mt.ComponentSize == 2 && length <= MaxStringChars ? String(image, at + 20, length) : null;
-            objects.Add(new NativeAotFrozenObject(at + 8, mt.Rva, mt.Name, (uint)size, text));
+            size = (size + p - 1) & ~(p - 1ul);
+            if (size < 2 * p || at + size > region.EndRva) { stop = $"the object at RVA 0x{obj:X} runs past the region"; break; }
+            string? text = mt.Name == "System.String" && mt.ComponentSize == 2 && length <= MaxStringChars ? String(image, obj + p + 4, length) : null;
+            objects.Add(new NativeAotFrozenObject(obj, mt.Rva, mt.Name, (uint)size, text));
             at += (uint)size;
         }
         frozen.Objects = objects;

@@ -88,13 +88,14 @@ public static class NativeAotNames
         if (aot.Types.ByRva.TryGetValue(rva, out var mt))
             lines.Add($"NativeAOT MethodTable of {mt.Name} ({mt.Kind}, name from {mt.NameOrigin}); get_nativeaot_info view=type shows its vtable");
         var objects = aot.Frozen.Objects;
+        uint header = (uint)aot.Hydrated.PointerSize;
         int lo = 0, hi = objects.Count - 1;
         while (lo <= hi)
         {
             int mid = (lo + hi) >>> 1;
             var o = objects[mid];
-            if (rva < o.Rva - 8) hi = mid - 1;
-            else if (rva >= o.Rva - 8 + o.Size) lo = mid + 1;
+            if (rva < o.Rva - header) hi = mid - 1;
+            else if (rva >= o.Rva - header + o.Size) lo = mid + 1;
             else
             {
                 string what = o.Text != null ? $"String {Il2CppNativeNames.Quote(o.Text)}" : $"{o.TypeName} ({o.Size} bytes)";

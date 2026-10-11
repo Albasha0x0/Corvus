@@ -8,12 +8,12 @@ using Xunit.Abstractions;
 
 namespace NetDecompilerMcp.Tests;
 
-/// <summary>Runs only with NDM_NATIVEAOT_SAMPLES=1 on Windows: needs the .NET SDK and the C++ build tools NativeAOT links with.</summary>
+/// <summary>Runs only with NDM_NATIVEAOT_SAMPLES=1 on Windows: needs the .NET SDK and the C++ build tools (x64 and x86) NativeAOT links with.</summary>
 public sealed class NativeAotSamplesTheoryAttribute : TheoryAttribute
 {
     public NativeAotSamplesTheoryAttribute()
     {
-        if (!OperatingSystem.IsWindows()) Skip = "NativeAOT samples are built for win-x64.";
+        if (!OperatingSystem.IsWindows()) Skip = "NativeAOT samples are built for Windows.";
         else if (Environment.GetEnvironmentVariable(NativeAotSampleTests.Variable) != "1")
             Skip = $"Set {NativeAotSampleTests.Variable}=1 to build the NativeAOT samples with the SDK.";
     }
@@ -28,14 +28,15 @@ public class NativeAotSampleTests(ITestOutputHelper log)
 {
     public const string Variable = "NDM_NATIVEAOT_SAMPLES";
 
-    /// <summary>Build matrix: target framework and the MSBuild properties passed to dotnet publish.</summary>
-    private static readonly Dictionary<string, (string Tfm, string Runtime, string[] Properties)> Variants = new()
+    /// <summary>Build matrix: target framework, runtime identifier and the MSBuild properties passed to dotnet publish.</summary>
+    private static readonly Dictionary<string, (string Tfm, string Runtime, string Rid, string[] Properties)> Variants = new()
     {
-        ["net8"] = ("net8.0", ".NET 8", []),
-        ["net9"] = ("net9.0", ".NET 9", []),
-        ["net10"] = ("net10.0", ".NET 10", []),
-        ["net10-dehydrated"] = ("net10.0", ".NET 10", ["IlcDehydrate=true"]),
-        ["net10-nostacktrace"] = ("net10.0", ".NET 10", ["StackTraceSupport=false"]),
+        ["net8"] = ("net8.0", ".NET 8", "win-x64", []),
+        ["net9"] = ("net9.0", ".NET 9", "win-x64", []),
+        ["net10"] = ("net10.0", ".NET 10", "win-x64", []),
+        ["net10-x86"] = ("net10.0", ".NET 10", "win-x86", []),
+        ["net10-dehydrated"] = ("net10.0", ".NET 10", "win-x64", ["IlcDehydrate=true"]),
+        ["net10-nostacktrace"] = ("net10.0", ".NET 10", "win-x64", ["StackTraceSupport=false"]),
     };
 
     public static readonly TheoryData<string> Names = new(Variants.Keys);
@@ -56,11 +57,11 @@ public class NativeAotSampleTests(ITestOutputHelper log)
     [MemberData(nameof(Names))]
     public async Task Sample_NamesMatchThePdb(string variant)
     {
-        var (tfm, runtime, properties) = Variants[variant];
+        var (tfm, runtime, rid, properties) = Variants[variant];
         using var dir = new TempDir();
         File.Copy(Path.Combine(AppContext.BaseDirectory, "NativeAotSample", "Program.cs"), dir.File("Program.cs"));
         File.WriteAllText(dir.File("app.csproj"), Project.Replace("TFM", tfm));
-        string[] args = ["publish", "app.csproj", "-c", "Release", "-r", "win-x64", "-o", "out", .. properties.Select(p => "-p:" + p)];
+        string[] args = ["publish", "app.csproj", "-c", "Release", "-r", rid, "-o", "out", .. properties.Select(p => "-p:" + p)];
         var (code, output) = Tools.Dotnet(dir.Path, args);
         Assert.True(code == 0, $"dotnet publish failed ({code}):\n{output}");
 

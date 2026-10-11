@@ -15,12 +15,12 @@ public class NativeAotTypeTests
     private const uint KindCanonical = 0, KindGenericDefinition = 3;
     private const uint IsGeneric = 0x02000000, IsGeneric7 = 0x400;
 
-    /// <summary>Writes a 64-bit MethodTable of <paramref name="layout"/> into .data; returns its RVA.</summary>
+    /// <summary>Writes a MethodTable of <paramref name="layout"/> and the builder's pointer size into .data; returns its RVA.</summary>
     private static uint Mt(B b, MethodTableLayout layout, E element, uint kind, uint baseSize, uint related, uint[] vtable, uint[] interfaces,
         ushort componentSize = 0, uint genericDefinition = 0, uint genericArgument = 0, uint dispatchMap = 0, uint sealedVTable = 0)
     {
         var d = b.Data;
-        d.Align(8);
+        d.Align(b.PointerSize);
         bool generic = genericDefinition != 0;
         if (layout == MethodTableLayout.Net7)
         {
@@ -35,7 +35,7 @@ public class NativeAotTypeTests
         }
         uint at = d.Rva + (uint)d.Length - 4;
         d.U32(baseSize);
-        if (related != 0) b.Pointer(d, related); else d.U64(0);
+        if (related != 0) b.Pointer(d, related); else d.Ptr(!b.Is32, 0);
         d.U16((ushort)vtable.Length);
         d.U16((ushort)interfaces.Length);
         d.U32(0x1234);
@@ -61,16 +61,21 @@ public class NativeAotTypeTests
         public uint String { get; init; }
     }
 
-    internal static World Build(ushort major)
+    /// <summary>Sizes of the fixture's objects: Object, Dog (one field more) and String (two pointers, the length and a character).</summary>
+    internal static (uint Object, uint Dog, uint String) Sizes(bool is32) => is32 ? (12u, 16u, 14u) : (0x18u, 0x20u, 0x16u);
+
+    internal static World Build(ushort major, bool is32 = false)
     {
         var m = NativeAotMetadataTests.Model(major);
         var md = new NativeAotMetadata(m.Blob, m.Format);
         var layout = m.Format.Layout;
-        var b = new B { Major = major };
+        var b = new B { Major = major, Is32 = is32 };
+        int p = b.PointerSize;
+        var size = Sizes(is32);
         b.Text = new byte[0x200];
         b.Blob(BlobId.EmbeddedMetadata, m.Blob);
 
-        uint obj = Mt(b, layout, E.Class, KindCanonical, 0x18, 0, [ToStringCode, EqualsCode, HashCode], []);
+        uint obj = Mt(b, layout, E.Class, KindCanonical, size.Object, 0, [ToStringCode, EqualsCode, HashCode], []);
         uint speaker = Mt(b, layout, E.Interface, KindCanonical, 0, 0, [], []);
         // Dog's dispatch map (.NET 8+): the interface's slot 0 is vtable slot 0 (Speak), slot 1 is slot 3, the sealed vtable's first.
         uint dogMap = 0, dogSealed = 0;
@@ -82,26 +87,27 @@ public class NativeAotTypeTests
             dogSealed = b.Data.Here;
             b.Data.U32(SealedCode - dogSealed);
         }
-        uint dog = Mt(b, layout, E.Class, KindCanonical, 0x20, obj, [SpeakCode, EqualsCode, HashCode], [speaker], dispatchMap: dogMap, sealedVTable: dogSealed);
-        uint dogArray = Mt(b, layout, E.SzArray, KindCanonical, 0x18, dog, [ToStringCode, EqualsCode, HashCode], [], componentSize: 8);
+        uint dog = Mt(b, layout, E.Class, KindCanonical, size.Dog, obj, [SpeakCode, EqualsCode, HashCode], [speaker], dispatchMap: dogMap, sealedVTable: dogSealed);
+        uint dogArray = Mt(b, layout, E.SzArray, KindCanonical, size.Object, dog, [ToStringCode, EqualsCode, HashCode], [], componentSize: (ushort)p);
         // .NET 9+: a generic definition's BaseSize is its arity; .NET 8: its component size.
         uint boxDef = Mt(b, layout, E.Class, KindGenericDefinition, 1, 0, [], [], componentSize: (ushort)(layout == MethodTableLayout.Net8 ? 1 : 0));
-        uint boxOfDog = Mt(b, layout, E.Class, KindCanonical, 0x20, obj, [ToStringCode, EqualsCode, HashCode], [], genericDefinition: boxDef, genericArgument: dog);
-        uint str = Mt(b, layout, E.Class, KindCanonical, 0x16, obj, [ToStringCode, EqualsCode, HashCode], [], componentSize: 2);
+        uint boxOfDog = Mt(b, layout, E.Class, KindCanonical, size.Dog, obj, [ToStringCode, EqualsCode, HashCode], [], genericDefinition: boxDef, genericArgument: dog);
+        uint str = Mt(b, layout, E.Class, KindCanonical, size.String, obj, [ToStringCode, EqualsCode, HashCode], [], componentSize: 2);
         // Frozen region: padding, a Dog (header, MethodTable pointer, fields) and the string "hi". Their +8 points at a
         // MethodTable, like a statics base after it does: none of them is a MethodTable.
         b.Data.Align(8);
-        uint region = b.Data.Zero(16);
-        uint frozen = b.Data.Zero(8);
+        uint region = b.Data.Zero(2 * p);
+        uint frozen = b.Data.Zero(p);
         b.Pointer(b.Data, dog);
-        b.Data.Zero(16);
-        uint text = b.Data.Zero(8);
+        b.Data.Zero((int)size.Dog - 2 * p);
+        uint text = b.Data.Zero(p);
         b.Pointer(b.Data, str);
         b.Data.U32(2);
         b.Data.U16('h');
         b.Data.U16('i');
-        b.Data.Zero(12);
+        b.Data.Zero(p + 4);
         b.Row(SectionId.FrozenObjectRegion, region, b.Data.Here);
+        b.Data.Align(p);
         uint lookAlike = b.Data.U32(layout == MethodTableLayout.Net7 ? 0x4000_0000u : (uint)E.Int32 << 26);
         b.Data.U32(0x40);
         b.Pointer(b.Data, dog);
@@ -197,6 +203,33 @@ public class NativeAotTypeTests
         Assert.Equal(2, frozen.Objects.Count);
         Assert.Equal((w.Frozen + 8, "Sample.Zoo.Dog", 0x20u, (string?)null), (frozen.Objects[0].Rva, frozen.Objects[0].TypeName, frozen.Objects[0].Size, frozen.Objects[0].Text));
         Assert.Equal((w.Text + 8, w.String, "hi", 0x20u), (frozen.Objects[1].Rva, frozen.Objects[1].MethodTable, frozen.Objects[1].Text, frozen.Objects[1].Size));
+    }
+
+    /// <summary>x86: 4-byte pointers in the header rows, MethodTables (vtable at +20), fixups and frozen objects.</summary>
+    [Theory]
+    [InlineData((ushort)9)]
+    [InlineData((ushort)16)]
+    public void Image32_MethodTablesAndFrozenObjects(ushort major)
+    {
+        var w = Build(major, is32: true);
+        Assert.False(w.Aot.Image.Is64Bit);
+        var types = w.Aot.Types.ByRva;
+        Assert.Equal(NativeAotStage.Complete, w.Aot.Types.Stage.Status);
+        Assert.Equal(("System.Object", "typemap"), (types[w.Object].Name, types[w.Object].NameOrigin));
+        Assert.Equal(("Sample.Zoo.Dog", "vtable"), (types[w.Dog].Name, types[w.Dog].NameOrigin));
+        Assert.Equal("Sample.Zoo.Dog[]", types[w.DogArray].Name);
+        Assert.Equal("Sample.Zoo.Box<Sample.Zoo.Dog>", types[w.BoxOfDog].Name);
+        Assert.Equal([SpeakCode, EqualsCode, HashCode], types[w.Dog].Vtable);
+        Assert.Equal([w.Speaker], types[w.Dog].Interfaces);
+        Assert.Equal(SealedCode, w.Aot.Types.SlotCode(types[w.Dog], 3));
+        Assert.False(types.ContainsKey(w.Frozen) || types.ContainsKey(w.Text) || types.ContainsKey(w.LookAlike));
+        Assert.Equal(7, types.Count);
+        Assert.Contains(w.Aot.Names.Methods, m => m.Rva == SpeakCode && m.Name.Name == "Speak");
+
+        var frozen = w.Aot.Frozen;
+        Assert.Equal(NativeAotStage.Complete, frozen.Stage.Status);
+        Assert.Equal((w.Frozen + 4, "Sample.Zoo.Dog", 16u), (frozen.Objects[0].Rva, frozen.Objects[0].TypeName, frozen.Objects[0].Size));
+        Assert.Equal((w.Text + 4, "hi", 20u), (frozen.Objects[1].Rva, frozen.Objects[1].Text, frozen.Objects[1].Size));
     }
 
     [Fact]

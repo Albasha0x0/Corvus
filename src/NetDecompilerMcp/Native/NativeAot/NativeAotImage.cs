@@ -82,6 +82,18 @@ public sealed class NativeAotImage
     /// <summary>The objects of the frozen object region, strings with their text.</summary>
     public NativeAotFrozen Frozen => frozen.Value;
 
+    /// <summary>The start of the code a pointer or relative pointer to code targets: ARM32 code pointers carry the Thumb bit.</summary>
+    public static uint CodeAddress(INativeImage image, uint target) => image.Arch == NativeArch.Arm ? target & ~1u : target;
+
+    public uint CodeAddress(uint target) => CodeAddress(Image, target);
+
+    /// <summary>Function starts from the image's unwind tables (.pdata, .eh_frame, .ARM.exidx, compact unwind); empty for x86 PE.</summary>
+    public HashSet<uint> UnwindStarts() =>
+    [
+        .. Image.RuntimeFunctions.Select(f => CodeAddress(f.BeginRva)),
+        .. Image.DeclaredFunctions.Where(d => d.Source == DeclaredSource.Unwind).Select(d => CodeAddress(d.Rva)),
+    ];
+
     /// <summary>The bytes of a module section, or null when it is empty, too large or not fully mapped.</summary>
     public byte[]? ReadSection(NativeAotSection? section)
     {

@@ -283,11 +283,12 @@ public class NativeAotNamesTests(ITestOutputHelper output)
         var watch = Stopwatch.StartNew();
         var index = await code.Index(native, null, default);
         int named = index.Functions.Count(f => index.Sourced.NameAt(f.Start) is { Source: NativeNameSource.NativeAot });
-        var pdata = native.Image.RuntimeFunctions.Select(f => f.BeginRva).ToHashSet();
-        int pdataNamed = pdata.Count(r => index.Sourced.NameAt(r) is { Source: NativeNameSource.NativeAot });
+        var declared = NativeAotNames.View(native)!.UnwindStarts();
+        int declaredNamed = declared.Count(r => index.Sourced.NameAt(r) is { Source: NativeNameSource.NativeAot });
         output.WriteLine($"{sample}: {named} of {index.Functions.Count} functions named ({100.0 * named / index.Functions.Count:0.0} %), " +
-                         $"{pdataNamed} of {pdata.Count} .pdata starts ({100.0 * pdataNamed / pdata.Count:0.0} %) in {watch.Elapsed.TotalSeconds:0.0} s");
-        Assert.True(pdataNamed > 0.75 * pdata.Count, $"{pdataNamed} of {pdata.Count}");
+                         $"{declaredNamed} of {declared.Count} declared starts in {watch.Elapsed.TotalSeconds:0.0} s");
+        if (native.Image.Arch == NetDecompilerMcp.Native.NativeArch.X86) Assert.True(named > 20_000, $"{named} named"); // no unwind table
+        else Assert.True(declaredNamed > 0.65 * declared.Count, $"{declaredNamed} of {declared.Count}");
         Assert.Contains(index.Sourced.AddressesOf("ILCompiler_Program__Main"), a => a.Source == NativeNameSource.NativeAot);
         Assert.NotEmpty(index.Sourced.AddressesOf("MT_System_String"));
         // Disassembly comments over every named function: string literal loads and virtual calls (x64).

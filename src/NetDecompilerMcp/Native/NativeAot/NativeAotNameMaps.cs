@@ -67,11 +67,10 @@ public sealed class NativeAotNameMaps
         var fixups = new List<uint>();
         var blob = aot.Header.Blob(BlobId.CommonFixupsTable);
         if (aot.ReadSection(blob) is not { } bytes) return fixups;
-        bool relative = aot.Image.Is64Bit; // relative pointers on 64-bit targets, absolute addresses on 32-bit ones
         for (int i = 0; i + 4 <= bytes.Length; i += 4)
         {
             int value = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(i));
-            long target = relative ? blob!.StartRva + (long)i + value : (long)(uint)value - (long)aot.Image.ImageBase;
+            long target = blob!.StartRva + (long)i + value; // relative pointers on every target but WebAssembly
             fixups.Add(target > 0 && target < aot.Image.SizeOfImage ? (uint)target : 0);
         }
         return fixups;
@@ -90,7 +89,7 @@ public sealed class NativeAotNameMaps
             for (uint at = blob.StartRva; at + 8 <= blob.EndRva; at += 8)
             {
                 if ((at & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
-                methods.Add(new NativeAotMethod(Relative(view, at), md.FormatMethod(md.FromToken(view.U32(at + 4))), "stacktrace"));
+                methods.Add(new NativeAotMethod(aot.CodeAddress(Relative(view, at)), md.FormatMethod(md.FromToken(view.U32(at + 4))), "stacktrace"));
             }
             return new(name, NativeAotStage.Complete, $"{methods.Count - before} methods named (.NET 7 token pairs)");
         }
@@ -133,7 +132,7 @@ public sealed class NativeAotNameMaps
             }
             bool isHidden = (command & 0x10) != 0;
             if (isHidden) hidden++;
-            uint code = Relative(view, p);
+            uint code = aot.CodeAddress(Relative(view, p));
             p += 4;
             read++;
             // Hidden startup wrappers may precede the first owner and name: nothing to name them with.
@@ -192,7 +191,7 @@ public sealed class NativeAotNameMaps
             at = NativeFormat.DecodeUnsigned(view, at, out uint owningType);
             if ((flags & InvokeHasEntrypoint) == 0) continue;
             NativeFormat.DecodeUnsigned(view, at, out uint entryIndex);
-            uint code = entryIndex < fixups.Count ? fixups[(int)entryIndex] : 0;
+            uint code = entryIndex < fixups.Count ? aot.CodeAddress(fixups[(int)entryIndex]) : 0;
             if (code == 0) continue;
             // Before .NET 10 an entry without HasMetadataHandle holds a native-layout name-and-signature instead.
             if (!aot.Format.InvokeMapAlwaysHasMethodHandle && (flags & InvokeHasMetadataHandle) == 0) { withoutHandle++; continue; }

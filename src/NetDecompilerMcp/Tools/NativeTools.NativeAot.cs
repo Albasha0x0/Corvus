@@ -59,7 +59,7 @@ public sealed partial class NativeTools
         foreach (var st in s.Stages) sb.AppendLine($"  {st.Name}: {st.Status}{(st.Detail != null ? $" ({st.Detail})" : "")}");
         sb.AppendLine("Counts: " + string.Join(", ", s.Counts.Select(c => $"{c.Key} {c.Value}")));
 
-        var starts = image.RuntimeFunctions.Select(f => f.BeginRva).ToHashSet();
+        var starts = aot.UnwindStarts();
         int namedStarts = aot.Names.MethodAt.Keys.Count(starts.Contains);
         var coverage = new Dictionary<string, int> { ["functionStarts"] = starts.Count, ["functionStartsNamed"] = namedStarts };
         if (starts.Count > 0) sb.AppendLine($"Names: {namedStarts} of {starts.Count} unwind-table function starts ({100.0 * namedStarts / starts.Count:0.0} %) have a metadata name");

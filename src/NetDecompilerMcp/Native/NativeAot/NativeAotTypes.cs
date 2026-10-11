@@ -69,7 +69,7 @@ public sealed class NativeAotTypes
         if (slot < mt.Vtable.Count) return mt.Vtable[slot];
         int sealedSlot = slot - mt.Vtable.Count;
         if (mt.SealedVTable == 0 || hydrated == null || sealedSlot >= MaxSlots) return 0;
-        return hydrated.RelativeAt(mt.SealedVTable + 4 * (uint)sealedSlot) is { } code && hydrated.Image.SectionAt(code) is { IsExecutable: true } ? code : 0;
+        return hydrated.RelativeAt(mt.SealedVTable + 4 * (uint)sealedSlot) is { } code && hydrated.Image.SectionAt(code) is { IsExecutable: true } ? NativeAotImage.CodeAddress(hydrated.Image, code) : 0;
     }
 
     /// <summary>
@@ -99,11 +99,6 @@ public sealed class NativeAotTypes
     public static NativeAotTypes Read(NativeAotImage aot, CancellationToken ct = default)
     {
         var types = new NativeAotTypes();
-        if (!aot.Image.Is64Bit)
-        {
-            types.Stage = new("method tables", NativeAotStage.Unsupported, "32-bit images are not read yet");
-            return types;
-        }
         var reader = types.reader = new Reader(aot);
         types.hydrated = aot.Hydrated;
         var found = reader.Crawl(ct);
@@ -128,9 +123,14 @@ public sealed class NativeAotTypes
         };
     }
 
+    /// <summary>Offset of vtable slot 0: flags, BaseSize, RelatedType, slot and interface counts, hash code (MethodTable.h).</summary>
+    public static uint VtableOffset(int pointerSize) => 16 + (uint)pointerSize;
+
     private sealed class Reader(NativeAotImage aot)
     {
         private readonly HydratedImage image = aot.Hydrated;
+        private readonly uint ptr = (uint)aot.Hydrated.PointerSize;
+        private uint VtableStart => VtableOffset((int)ptr);
         private readonly MethodTableLayout layout = aot.Format.Layout;
         private readonly Masks masks = Masks.For(aot.Format.Layout);
         private readonly NativeAotSection? frozen = aot.Header.Section(SectionId.FrozenObjectRegion);
@@ -190,7 +190,7 @@ public sealed class NativeAotTypes
             return true;
         }
 
-        /// <summary>System.Object: a class with BaseSize 0x18, no related type, no interfaces and three virtual slots (ToString, Equals, GetHashCode) into code.</summary>
+        /// <summary>System.Object: a class with a BaseSize of three pointers, no related type, no interfaces and three virtual slots (ToString, Equals, GetHashCode) into code.</summary>
         private IEnumerable<uint> ObjectCandidates(CancellationToken ct)
         {
             var found = new List<uint>();
@@ -200,11 +200,13 @@ public sealed class NativeAotTypes
                 ct.ThrowIfCancellationRequested();
                 var bytes = new byte[NativeAotLocator.FileBytes(image.Image, section)];
                 int n = image.Read(section.Rva, bytes);
-                for (int at = 0; at + 48 <= n; at += 8)
+                int counts = 8 + (int)ptr;
+                for (int at = 0; at + VtableStart + 3 * ptr <= n; at += (int)ptr)
                 {
                     var b = bytes.AsSpan(at);
-                    if (BinaryPrimitives.ReadUInt32LittleEndian(b[4..]) != 0x18 || BinaryPrimitives.ReadUInt64LittleEndian(b[8..]) != 0
-                        || BinaryPrimitives.ReadUInt16LittleEndian(b[16..]) != 3 || BinaryPrimitives.ReadUInt16LittleEndian(b[18..]) != 0) continue;
+                    ulong related = ptr == 8 ? BinaryPrimitives.ReadUInt64LittleEndian(b[8..]) : BinaryPrimitives.ReadUInt32LittleEndian(b[8..]);
+                    if (BinaryPrimitives.ReadUInt32LittleEndian(b[4..]) != 3 * ptr || related != 0
+                        || BinaryPrimitives.ReadUInt16LittleEndian(b[counts..]) != 3 || BinaryPrimitives.ReadUInt16LittleEndian(b[(counts + 2)..]) != 0) continue;
                     uint rva = section.Rva + (uint)at;
                     if (InFrozen(rva) || !TryRead(rva, out var mt) || mt.ElementType != NativeAotElementType.Class || mt.Vtable.Any(v => v == 0)) continue;
                     found.Add(rva);
@@ -230,8 +232,9 @@ public sealed class NativeAotTypes
         private uint? Pointer(uint rva)
         {
             Span<byte> b = stackalloc byte[8];
-            if (image.Read(rva, b) != 8) return null;
-            ulong v = BinaryPrimitives.ReadUInt64LittleEndian(b);
+            var slot = b[..(int)ptr];
+            if (image.Read(rva, slot) != slot.Length) return null;
+            ulong v = ptr == 8 ? BinaryPrimitives.ReadUInt64LittleEndian(slot) : BinaryPrimitives.ReadUInt32LittleEndian(slot);
             if (v == 0) return 0;
             return image.PointerAt(rva);
         }
@@ -263,14 +266,15 @@ public sealed class NativeAotTypes
             uint kind = flags & masks.KindMask;
             uint baseSize = U32(rva + 4);
             if (Pointer(rva + 8) is not { } related || related != 0 && !IsData(related)) return false;
-            ushort slots = U16(rva + 16), interfaces = U16(rva + 18);
+            ushort slots = U16(rva + 8 + ptr), interfaces = U16(rva + 10 + ptr);
             if (slots > MaxSlots || interfaces > MaxInterfaces) return false;
             bool canonical = kind == 0;
-            if (canonical && element is not NativeAotElementType.Interface && (baseSize < 0x10 || baseSize > 1 << 24)) return false; // String's is 0x16
+            if (canonical && element is not NativeAotElementType.Interface && (baseSize < (ptr == 8 ? 0x10u : 12u) || baseSize > 1 << 24)) return false; // String's is 2 pointers + 6
             // Statics bases and generic instantiation cells next to pointers are the usual look-alikes: a boxed primitive
-            // or enum is exactly header + MethodTable pointer + 8 bytes, and only classes, structs and interfaces are generic.
+            // or enum is exactly header + MethodTable pointer + 8 bytes (4 or 8 on 32-bit), and only classes, structs and
+            // interfaces are generic.
             if (element == NativeAotElementType.Unknown) return false;
-            if (element <= NativeAotElementType.Double && (!canonical || baseSize != 0x18)) return false;
+            if (element <= NativeAotElementType.Double && (!canonical || (ptr == 8 ? baseSize != 0x18 : baseSize is not (12 or 16)))) return false;
             if (kind == masks.KindGenericDefinition && element is not (NativeAotElementType.Class or NativeAotElementType.ValueType
                     or NativeAotElementType.Interface or NativeAotElementType.Nullable)) return false;
 
@@ -278,17 +282,17 @@ public sealed class NativeAotTypes
             for (int i = 0; i < slots; i++)
             {
                 // Code, or data for the generic dictionary slot of types deriving from a generic instantiation.
-                if (Pointer(rva + 24 + 8 * (uint)i) is not { } target) return false;
-                vtable[i] = target;
+                if (Pointer(rva + VtableStart + ptr * (uint)i) is not { } target) return false;
+                vtable[i] = IsCode(target) ? aot.CodeAddress(target) : target;
             }
-            uint at = rva + 24 + 8 * (uint)slots;
+            uint at = rva + VtableStart + ptr * (uint)slots;
             var ifaces = new uint[interfaces];
             for (int i = 0; i < interfaces; i++)
             {
-                if (Pointer(at + 8 * (uint)i) is not { } target || target == 0 || !IsData(target)) return false;
+                if (Pointer(at + ptr * (uint)i) is not { } target || target == 0 || !IsData(target)) return false;
                 ifaces[i] = target;
             }
-            at += 8 * (uint)interfaces;
+            at += ptr * (uint)interfaces;
             string kindName = Kind(kind, element);
             mt = new NativeAotMethodTable(rva, flags, component, baseSize, element, kindName, related, vtable, ifaces)
             {

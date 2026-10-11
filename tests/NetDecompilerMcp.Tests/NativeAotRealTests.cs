@@ -1,12 +1,12 @@
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native.NativeAot;
-using NetDecompilerMcp.Native.Pe;
+using NetDecompilerMcp.Native;
 
 namespace NetDecompilerMcp.Tests;
 
 /// <summary>
-/// NativeAOT recovery on production binaries: tools/ilc.exe of the ILCompiler runtime packs is itself compiled with
-/// NativeAOT (.NET 8, 9, 10; x64 and ARM64). Restored only for the full suite (NDM_ALL_TESTS=1).
+/// NativeAOT recovery on production binaries: tools/ilc of the ILCompiler runtime packs is itself compiled with
+/// NativeAOT (.NET 8, 9, 10; x64, ARM64, x86 and ARM). Restored only for the full suite (NDM_ALL_TESTS=1).
 /// </summary>
 [Trait("Speed", "Slow")]
 public class NativeAotRealTests
@@ -14,7 +14,8 @@ public class NativeAotRealTests
     public sealed record Sample(string Rid, string Version, string ReadyToRun, string Runtime, int DebugHeader, bool Dehydrated)
     {
         public override string ToString() => $"{Rid} {Version}";
-        public string Path => RealPackages.File($"runtime.{Rid}.Microsoft.DotNet.ILCompiler", Version, "tools", "ilc.exe");
+        public bool IsPe => Rid.StartsWith("win-", StringComparison.Ordinal);
+        public string Path => RealPackages.File($"runtime.{Rid}.Microsoft.DotNet.ILCompiler", Version, "tools", IsPe ? "ilc.exe" : "ilc");
     }
 
     private static readonly Sample[] All =
@@ -23,6 +24,8 @@ public class NativeAotRealTests
         new("win-x64", "9.0.19", "10.1", ".NET 9", 4, true),
         new("win-x64", "10.0.11", "16.0", ".NET 10", 5, false),
         new("win-arm64", "10.0.11", "16.0", ".NET 10", 5, false),
+        new("win-x86", "10.0.11", "16.0", ".NET 10", 5, false),
+        new("linux-arm", "10.0.11", "16.0", ".NET 10", 5, true),
     ];
 
     public static readonly TheoryData<string> Samples = new(All.Select(s => s.ToString()));
@@ -37,7 +40,7 @@ public class NativeAotRealTests
         lock (Opened)
         {
             if (!Opened.TryGetValue(name, out var aot))
-                Opened[name] = aot = NativeAotImage.Open(PeFile.Open(s.Path)) ?? throw new InvalidOperationException($"{s}: no NativeAOT header");
+                Opened[name] = aot = NativeAotImage.Open(NativeImageLoader.Open(s.Path)) ?? throw new InvalidOperationException($"{s}: no NativeAOT header");
             return (s, aot);
         }
     }
@@ -56,8 +59,24 @@ public class NativeAotRealTests
         Assert.NotNull(aot.Header.Blob(BlobId.EmbeddedMetadata));
         Assert.NotNull(aot.Header.Section(SectionId.FrozenObjectRegion));
 
-        var bytes = File.ReadAllBytes(s.Path);
-        Assert.Equal("NativeAOT executable", Blob.Identify(bytes));
+        if (s.IsPe) Assert.Equal("NativeAOT executable", Blob.Identify(File.ReadAllBytes(s.Path)));
+    }
+
+    /// <summary>32-bit images: 4-byte MethodTable pointers, frozen objects with 4-byte headers, ARM code pointers without the Thumb bit.</summary>
+    [Theory]
+    [InlineData("win-x86 10.0.11")]
+    [InlineData("linux-arm 10.0.11")]
+    public void Image32_ReadLikeTheOthers(string sample)
+    {
+        var (_, aot) = Open(sample);
+        Assert.False(aot.Image.Is64Bit);
+        Assert.Equal(4, aot.Hydrated.PointerSize);
+        var str = aot.Types.ByRva.Values.Single(t => t.Name == "System.String");
+        Assert.Equal((14u, (ushort)2), (str.BaseSize, str.ComponentSize));
+        Assert.Equal(12u, aot.Types.ByRva.Values.Single(t => t.Name == "System.Object").BaseSize);
+        Assert.All(aot.Names.MethodAt.Keys.Take(5000), rva => Assert.True(aot.Image.SectionAt(rva) is { IsExecutable: true }));
+        if (aot.Image.Arch == NativeArch.Arm) Assert.All(aot.Names.MethodAt.Keys, rva => Assert.Equal(0u, rva & 1));
+        Assert.Contains(aot.Frozen.Objects, o => o.Text == "System.Private.CoreLib");
     }
 
     [Theory]
@@ -97,9 +116,11 @@ public class NativeAotRealTests
         var (_, aot) = Open(sample);
         var names = aot.Names;
         Assert.All(names.Stages, st => Assert.Equal(NativeAotStage.Complete, st.Status));
-        var starts = aot.Image.RuntimeFunctions.Select(f => f.BeginRva).ToHashSet();
+        var starts = aot.UnwindStarts();
         int covered = names.MethodAt.Keys.Count(starts.Contains);
-        Assert.True(covered > 0.70 * starts.Count, $"{covered} of {starts.Count} function starts named");
+        if (aot.Image.Arch == NativeArch.X86) Assert.Empty(starts); // x86 PE has no unwind table: no coverage to measure
+        else Assert.True(covered > 0.70 * starts.Count, $"{covered} of {starts.Count} function starts named");
+        Assert.InRange(names.MethodAt.Count, 20_000, 40_000);
         Assert.Contains(names.Methods, m => m.Name.Short == "ILCompiler.Program::Main");
         Assert.Contains(names.Methods, m => m.Name.Full == "System.String::Concat(string, string)");
         Assert.InRange(names.TypeNames.Count, 2000, 5000);
