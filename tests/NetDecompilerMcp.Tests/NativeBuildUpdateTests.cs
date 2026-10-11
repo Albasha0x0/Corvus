@@ -26,15 +26,19 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         public readonly NativeCodeService Code;
         public readonly NativeEditService Edits;
         public readonly BuildUpdateTools Tools;
+        public readonly NotesService Notes;
         private readonly Dictionary<LoadedNative, uint[]> _starts = new();
 
         public Harness()
         {
-            Code = new NativeCodeService(Env.Workspace, Env.Options, null, new AnnotationStore(Dir.File("ann")));
+            var store = new AnnotationStore(Dir.File("ann"));
+            Code = new NativeCodeService(Env.Workspace, Env.Options, null, store);
             var pdb = new PdbService(Code);
             Code.SymbolStarts = (n, _) => _starts.TryGetValue(n, out var s) ? s : null;
             Edits = new NativeEditService(Env.Workspace, Code);
-            Tools = new BuildUpdateTools(Env.Workspace, Code, Edits, pdb, Env.Il2Cpp, Env.Il2CppNavigator, new Il2CppNativeNames(Env.Il2Cpp, Env.Il2CppNavigator, Code));
+            Notes = new NotesService(store);
+            Tools = new BuildUpdateTools(Env.Workspace, Code, Edits, pdb, Env.Il2Cpp, Env.Il2CppNavigator, new Il2CppNativeNames(Env.Il2Cpp, Env.Il2CppNavigator, Code),
+                noteStore: Notes);
         }
 
         public async Task<(LoadedNative, NativeCodeIndex)> Load(byte[] image, string name, uint[]? starts)
@@ -129,6 +133,35 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         Assert.True(found.Count == 1, $"{category}: {found.Count} matching items among\n" + string.Join("\n", r.Items.Where(i => i.Category == category)
             .Select(i => $"  {i.Kind} {i.OldAddress} -> {i.NewAddress} {i.Value}: {i.Outcome} {i.Reason} ({i.Detail})")));
         return found[0];
+    }
+
+    [Fact]
+    public async Task Notes_follow_their_address_to_the_new_build()
+    {
+        using var h = new Harness();
+        var (oldN, _) = await h.Load(Image(false, 0), "old.dll", OldStarts);
+        var (newN, _) = await h.Load(Image(true, Shift), "new.dll", NewStarts(Shift));
+        NoteAnchor At(uint rva) => new(NoteAnchor.Native, Sha256: oldN.OriginalSha256, Rva: rva, Label: "old.dll@" + Va(rva));
+        h.Notes.Record("bias added here", null, null, At(F1 + 6), ["bias"], null, null);
+        h.Notes.Record("loop removed later", "question", null, At(F5 + 2), null, null, null);
+        h.Notes.Record("whole file packed?", "question", null, new NoteAnchor(NoteAnchor.File, Sha256: oldN.OriginalSha256, Label: "old.dll"), null, null, null);
+
+        var dry = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, include: "notes");
+        Assert.Equal(("would_carry", Va(F1 + Shift + 6)), One(dry, "notes", i => i.Value == "bias added here") is var b ? (b.Outcome, b.NewAddress) : default);
+        Assert.Equal("refused", One(dry, "notes", i => i.Value == "loop removed later").Outcome);
+        Assert.Equal(("would_carry", "file"), One(dry, "notes", i => i.Value == "whole file packed?") is var f ? (f.Outcome, f.Reason) : default);
+        Assert.Empty(h.Notes.Read(newN.OriginalSha256));
+
+        var run = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, dryRun: false, include: "notes");
+        Assert.Equal(2, run.Categories.Single(c => c.Category == "notes").Carried);
+        var carried = h.Notes.Read(newN.OriginalSha256).Single(n => n.Text == "bias added here");
+        Assert.Equal((F1 + Shift + 6, "new.dll@" + Va(F1 + Shift + 6)), (carried.Anchor.Rva!.Value, carried.Anchor.Label));
+        Assert.Equal(["bias"], carried.Tags);
+        Assert.StartsWith("carried from old.dll@" + Va(F1 + 6), carried.Evidence[^1]);
+
+        var again = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, dryRun: false, include: "notes");
+        Assert.Equal(2, again.Items.Count(i => i is { Category: "notes", Outcome: "already_present" }));
+        Assert.Equal(2, h.Notes.Read(newN.OriginalSha256).Count);
     }
 
     [Fact]

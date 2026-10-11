@@ -22,18 +22,18 @@ namespace NetDecompilerMcp.Tools;
 /// </summary>
 [McpServerToolType]
 public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEditService edits, PdbService pdb,
-    Il2CppService il2cpp, Il2CppNavigator navigator, Il2CppNativeNames il2cppNames, Il2CppRawLoader? il2cppRaw = null)
+    Il2CppService il2cpp, Il2CppNavigator navigator, Il2CppNativeNames il2cppNames, Il2CppRawLoader? il2cppRaw = null, NotesService? noteStore = null)
 {
     public const string Names = "names", Pdb = "pdb", Il2CppNames = "il2cpp_names", Patches = "patches", Patterns = "patterns",
-        Il2CppMapping = "il2cpp_mapping", DotNet = "dotnet";
-    private static readonly string[] CategoryOrder = [Names, Pdb, Il2CppNames, Patches, Patterns, Il2CppMapping, DotNet];
+        Il2CppMapping = "il2cpp_mapping", NoteCategory = "notes", DotNet = "dotnet";
+    private static readonly string[] CategoryOrder = [Names, Pdb, Il2CppNames, Patches, Patterns, Il2CppMapping, NoteCategory, DotNet];
     private static readonly string[] Outcomes = ["carried", "would_carry", "already_present", "refused", "not_applicable", "ambiguous"];
     private const int MaxIl2CppItems = 200_000;
 
     public sealed record ReasonCount(string Reason, int Count);
 
     public sealed record UpdateCategory(
-        [property: Description("names, pdb, il2cpp_names, patches, patterns, il2cpp_mapping or dotnet.")] string Category,
+        [property: Description("names, pdb, il2cpp_names, patches, patterns, il2cpp_mapping, notes or dotnet.")] string Category,
         [property: Description("applied, previewed (dryRun), reported (patterns and the Il2Cpp mapping change nothing), not_applicable, not_included or out_of_scope.")] string Status,
         int Considered,
         [property: Description("Carried to the new build (or would be, in a dry run).")] int Carried,
@@ -45,7 +45,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
 
     public sealed record UpdateItem(
         string Category,
-        [property: Description("name, comment, layer, patch, pattern, method; user types: declarations, type, local, stack_var.")] string Kind,
+        [property: Description("name, comment, layer, patch, pattern, method, note; user types: declarations, type, local, stack_var.")] string Kind,
         string? OldAddress,
         string? NewAddress,
         [property: Description("The name, comment, patch description, new pattern or method identity.")] string Value,
@@ -92,7 +92,8 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
                  "(migrate_native_patches rules; stub extensions and grown-file patches are re-created at the mapped site through the extend path after " +
                  "the displaced original instructions are verified), code patterns (made at every carried name and patch site on the old build, " +
                  "searched in the new build for drift — still_unique, now_ambiguous, not_found, points_elsewhere — and made again on the new build), " +
-                 "and for Il2Cpp titles the method -> RVA mapping by metadata identity cross-checked with the matcher. dryRun (default true) previews " +
+                 "and for Il2Cpp titles the method -> RVA mapping by metadata identity cross-checked with the matcher, and notes (record_note) at mapped " +
+                 "addresses. dryRun (default true) previews " +
                  "everything and changes nothing; dryRun=false applies in the order names, imported layers, patches; a re-run reports already_present. " +
                  "Returns a summary, per-category counts with reason codes, and a paged item list (filter by category / outcome). .NET assemblies are " +
                  "out of scope (compare_assemblies, find_counterpart, export_edits + apply_edits).")]
@@ -100,14 +101,14 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         [Description("The old build: native image id or path (its names, layers and in-memory patches are the source).")] string oldImage,
         [Description("The new build: native image id or path. Load both builds; the second gets an id like name#2.")] string newImage,
         [Description("Preview only (default true): report what would carry over without changing the new build.")] bool dryRun = true,
-        [Description("Comma-separated categories: names, pdb, il2cpp (names layer and method mapping), patches, patterns; all (default).")] string? include = null,
+        [Description("Comma-separated categories: names, pdb, il2cpp (names layer and method mapping), patches, patterns, notes; all (default).")] string? include = null,
         [Description("Patches from a json patch set (export_native_patches format=json: a path or the JSON text) instead of the old build's in-memory patches.")] string? patchSet = null,
         [Description("Where re-created patch stubs go: auto (a cave, else a new section; default), cave, section.")] string? stubPlacement = null,
         [Description("The old build's Il2Cpp dummy assemblies (comma-separated ids); omit to find them (the dump made from this binary, the game's metadata beside it, or what apply_il2cpp_names used).")] string? oldIl2Cpp = null,
         [Description("The new build's Il2Cpp dummy assemblies (comma-separated ids); omit to find them the same way.")] string? newIl2Cpp = null,
         [Description("Match functions by names (exports, PDB, Il2Cpp, user); false matches on code alone.")] bool useNames = true,
         [Description("Most items (names and patch sites) to make code patterns for (default 100, 0-1000).")] int maxPatterns = 100,
-        [Description("Only items of this category: names, pdb, il2cpp_names, patches, patterns, il2cpp_mapping.")] string? category = null,
+        [Description("Only items of this category: names, pdb, il2cpp_names, patches, patterns, il2cpp_mapping, notes.")] string? category = null,
         [Description("Only items with this outcome: carried, would_carry, already_present, refused, not_applicable, ambiguous.")] string? outcome = null,
         [Description("Items to skip.")] int offset = 0,
         [Description("Items to return (default 100, max 2000).")] int limit = 100,
@@ -223,6 +224,8 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         if (included.Contains(Patterns))
             await Task.Run(() => PatternStep(match, patternTargets, maxPatterns, items, categories, notes, ct), ct);
 
+        if (included.Contains(NoteCategory)) await Task.Run(() => NoteStep(oldNative, newNative, mapper, dryRun, items, categories, ct), ct);
+
         categories[DotNet] = ("out_of_scope", "native images only: for .NET builds use compare_assemblies, find_counterpart, export_edits + apply_edits", null);
         Phase(6, "report");
 
@@ -247,17 +250,78 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         {
             switch (part.ToLowerInvariant())
             {
-                case "all": set.UnionWith([Names, Pdb, Il2CppNames, Il2CppMapping, Patches, Patterns]); break;
+                case "all": set.UnionWith([Names, Pdb, Il2CppNames, Il2CppMapping, Patches, Patterns, NoteCategory]); break;
+                case "notes": set.Add(NoteCategory); break;
                 case "names": set.Add(Names); break;
                 case "pdb": set.Add(Pdb); break;
                 case "il2cpp" or "il2cpp_names" or "il2cpp_mapping": set.Add(Il2CppNames); set.Add(Il2CppMapping); break;
                 case "patches": set.Add(Patches); break;
                 case "patterns": set.Add(Patterns); break;
                 default:
-                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown category '{part}' in include.", "use names, pdb, il2cpp, patches, patterns or all, comma-separated");
+                    throw new ToolError(ErrorCode.InvalidArgument, $"Unknown category '{part}' in include.", "use names, pdb, il2cpp, patches, patterns, notes or all, comma-separated");
             }
         }
         return set;
+    }
+
+    /// <summary>
+    /// Notes on the old build's addresses (and on the whole file) recorded again on the new build at the mapped address, with
+    /// the old address as evidence; a note already there with the same text is already_present.
+    /// </summary>
+    private void NoteStep(LoadedNative oldNative, LoadedNative newNative, AddressMapper mapper, bool dryRun, List<Item> items,
+        Dictionary<string, (string Status, string Detail, int? Carried)> categories, CancellationToken ct)
+    {
+        if (noteStore == null)
+        {
+            categories[NoteCategory] = ("not_applicable", "notes are not available in this server", null);
+            return;
+        }
+        var old = noteStore.Read(oldNative.OriginalSha256.ToLowerInvariant()).Where(n => n.Anchor.Kind is NoteAnchor.Native or NoteAnchor.File).ToList();
+        if (old.Count == 0)
+        {
+            categories[NoteCategory] = ("not_applicable", $"{oldNative.Id} has no notes", null);
+            return;
+        }
+        var existing = noteStore.Read(newNative.OriginalSha256.ToLowerInvariant());
+        var carried = new List<Note>();
+        var newImage = mapper.Match.New.Index.Image;
+        foreach (var n in old)
+        {
+            ct.ThrowIfCancellationRequested();
+            var text = n.Text.Length > 80 ? n.Text[..77] + "..." : n.Text;
+            uint? newRva = null;
+            string reason = "file", detail = "a note on the whole file";
+            double confidence = 1;
+            int? tier = null;
+            if (n.Anchor.Kind == NoteAnchor.Native)
+            {
+                var mapped = mapper.Map(n.Anchor.Rva!.Value, ct);
+                (reason, detail, confidence, tier) = (mapped.Reason, mapped.Detail, mapped.Confidence, mapped.Pair?.Tier);
+                if (mapped.NewRva is not { } to)
+                {
+                    items.Add(new Item(NoteCategory, "note", n.Anchor.Rva, null, text, mapped.Reason == "ambiguous" ? "ambiguous" : "refused", reason, confidence, tier, detail));
+                    continue;
+                }
+                newRva = to;
+            }
+            if (existing.Any(e => e.Text == n.Text && e.Anchor.Kind == n.Anchor.Kind && e.Anchor.Rva == newRva))
+            {
+                items.Add(new Item(NoteCategory, "note", n.Anchor.Rva, newRva, text, "already_present", "same_note", confidence, tier, detail));
+                continue;
+            }
+            var from = n.Anchor.Rva is { } r ? $"{oldNative.Id}@{NativeAddress.Va(mapper.Match.Old.Index.Image, r)}" : oldNative.Id;
+            carried.Add(n with
+            {
+                Id = NotesService.NewId(),
+                Anchor = n.Anchor with { Sha256 = newNative.OriginalSha256, Rva = newRva, Label = newRva is { } at ? $"{newNative.Id}@{NativeAddress.Va(newImage, at)}" : newNative.Id },
+                Evidence = [.. n.Evidence.Take(NotesService.MaxEvidence - 1), $"carried from {from} ({reason})"],
+                Revision = 1,
+                Updated = DateTime.UtcNow,
+            });
+            items.Add(new Item(NoteCategory, "note", n.Anchor.Rva, newRva, text, dryRun ? "would_carry" : "carried", reason, confidence, tier, detail));
+        }
+        if (!dryRun && carried.Count > 0) noteStore.Import(carried);
+        categories[NoteCategory] = (dryRun ? "previewed" : "applied", $"{old.Count} note(s) on {oldNative.Id}", null);
     }
 
     private static UpdateCategory Summarize(string name, List<Item> items, Dictionary<string, (string Status, string Detail, int? Carried)> categories, HashSet<string> included)

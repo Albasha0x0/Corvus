@@ -65,7 +65,7 @@ public sealed class NotesService(AnnotationStore store)
 
     private string FileFor(string key) => Path.Combine(Root, key + ".json");
 
-    private static string NewId()
+    public static string NewId()
     {
         const string alphabet = "abcdefghijklmnopqrstuvwxyz234567";
         Span<byte> bytes = stackalloc byte[8];
@@ -232,6 +232,13 @@ public sealed class NotesService(AnnotationStore store)
     /// <summary>The notes anchored to <paramref name="keys"/> (store keys), or every note when null.</summary>
     public List<Note> All(IEnumerable<string>? keys = null) =>
         keys == null ? Files().SelectMany(f => f.Notes).ToList() : keys.Distinct().SelectMany(Read).ToList();
+
+    /// <summary>Open notes of one store file that <paramref name="match"/> accepts (a decompile header; cheap when the file does not exist).</summary>
+    public int OpenCount(string key, Func<NoteAnchor, bool> match) => Read(key).Count(n => n.Status == "open" && match(n.Anchor));
+
+    /// <summary>The header line decompile output gets when open notes exist, else empty.</summary>
+    public static string Header(int open, string anchor) =>
+        open == 0 ? "" : $"// notes: {open} open (list_notes anchor={anchor})\n";
 
     /// <summary>Open and total counts across the store.</summary>
     public (int Open, int Total) Counts()

@@ -96,7 +96,8 @@ public static class Guide
             ida_python runs IDAPython in the image's IDA worker, off unless --ida-scripting.
             Notes: record_note anchors a finding, question, hypothesis or todo to '<image>@<address>', '<assembly>:<symbol>', a file or
             a dump; notes persist per user by file SHA-256 / module MVID. update_note changes one in part (expectedRevision; a conflict
-            returns the current note); list_notes filters by status, kind, anchor, tag and text.
+            returns the current note); list_notes filters by status, kind, anchor, tag and text. decompile_member and decompile_native
+            start with a "// notes: N open" line when the target has open notes.
             Sessions: save_session writes the loaded files (path, SHA-256), edits, patches, names, comments and notes to one JSON file;
             load_session restores it (dryRun first), finding moved files by SHA-256 under searchRoots; targetBuild=other carries the
             work to the build now at the recorded path.
@@ -105,7 +106,7 @@ public static class Guide
             New builds: load both (the second gets an id like app.dll#2).
             .NET: compare_assemblies, then find_counterpart carries renamed types/members and changed offsets forward; export_edits +
             apply_edits re-applies a patch set to the new build.
-            Native: update_to_new_build (dryRun=true first) carries names, comments, PDB / Il2Cpp layers, patches, code patterns and
+            Native: update_to_new_build (dryRun=true first) carries names, comments, PDB / Il2Cpp layers, patches, code patterns, notes and
             the Il2Cpp method mapping in one call, with a reason code for everything that did not carry. The single steps:
             compare_native_images, diff_function (what changed in one function: aligned instructions, or pseudocode with view=pseudocode),
             map_address_between_builds, migrate_native_names, migrate_native_patches, make_code_pattern

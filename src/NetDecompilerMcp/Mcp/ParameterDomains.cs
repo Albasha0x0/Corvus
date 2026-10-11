@@ -89,7 +89,7 @@ public static class ParameterDomains
         ["update_to_new_build"] = new Dictionary<string, Domain>
         {
             ["stubPlacement"] = Placement,
-            ["category"] = Of(["names", "pdb", "il2cpp_names", "patches", "patterns", "il2cpp_mapping", "dotnet"]),
+            ["category"] = Of(["names", "pdb", "il2cpp_names", "patches", "patterns", "il2cpp_mapping", "notes", "dotnet"]),
             ["outcome"] = Of(["carried", "would_carry", "already_present", "refused", "not_applicable", "ambiguous"]),
         },
     };

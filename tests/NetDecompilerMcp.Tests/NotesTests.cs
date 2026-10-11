@@ -75,6 +75,22 @@ public sealed class NotesTests : IDisposable
     }
 
     [Fact]
+    public async Task DecompileOutputCountsOpenNotes()
+    {
+        using var env = new Env();
+        var notes = new NotesService(new AnnotationStore(_dir.File("annotations")));
+        var tools = new DecompileTools(env.Workspace, env.Decompiler, env.Pager, notes);
+        Assert.DoesNotContain("// notes:", await tools.DecompileMember("Account::Score"));
+        var score = env.One("Account::Score");
+        var anchor = new NoteAnchor(NoteAnchor.DotNet, Sha256: env.Fixture.OriginalSha256, Mvid: env.Fixture.Module.Mvid!.ToString(), Token: score.Member.MDToken.Raw);
+        notes.Record("capped at 100", null, null, anchor, null, null, null);
+        notes.Record("old idea", null, "dropped", anchor, null, null, null);
+        Assert.StartsWith($"// notes: 1 open (list_notes anchor=TestFixture:{Format.Token(score.Member)})", await tools.DecompileMember("Account::Score"));
+        Assert.StartsWith("// notes: 1 open", await tools.DecompileMember("Fixture.Model.Account"));
+        Assert.DoesNotContain("// notes:", await tools.DecompileMember("Account::Charge"));
+    }
+
+    [Fact]
     public async Task AnchorsResolveAndFilter()
     {
         var (tools, workspace, notes) = Tools();

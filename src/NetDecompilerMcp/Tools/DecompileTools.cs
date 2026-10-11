@@ -12,7 +12,7 @@ using static NetDecompilerMcp.Tools.ToolSupport;
 namespace NetDecompilerMcp.Tools;
 
 [McpServerToolType]
-public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerService decompiler, OutputPager pager)
+public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerService decompiler, OutputPager pager, NotesService? notes = null)
 {
     private const int MaxMembersPerCall = 25;
 
@@ -46,8 +46,9 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var all = SymbolResolver.Resolve(workspace, assembly, member, SymbolResolver.ParseKind(kind));
+        var header = offset == 0 ? NotesHeader(all) : "";
         if (all.Count == 1 && all[0].Member is TypeDef)
-            return pager.Page((provenance ? Provenance(all[0].Assembly, [all[0].Member]) : "") + TypeSource(all[0], simplified, cancellationToken), offset, maxChars);
+            return header + pager.Page((provenance ? Provenance(all[0].Assembly, [all[0].Member]) : "") + TypeSource(all[0], simplified, cancellationToken), offset, maxChars);
         RequireFew(all, member);
 
         var text = pager.GetOrCreate(CacheKey((simplified ? "member-simplified" : "member") + (provenance ? "-provenance" : ""), all), () =>
@@ -55,8 +56,25 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
                 $"// [{g.Key.Id}]\n" + (provenance ? Provenance(g.Key, g.Select(s => s.Member)) : "") + (simplified
                     ? decompiler.DecompileSimplified(g.Key, g.Select(s => s.Member).ToList(), new SimplifyOptions(), cancellationToken)
                     : decompiler.DecompileMembers(g.Key, g.Select(s => s.Member), cancellationToken)))));
-        return pager.Page(text, offset, maxChars);
+        return header + pager.Page(text, offset, maxChars);
     }, cancellationToken);
+
+    /// <summary>One line when the members (a type: and its members) have open notes; empty otherwise, so it costs nothing without notes.</summary>
+    private string NotesHeader(IReadOnlyList<ResolvedSymbol> symbols)
+    {
+        if (notes == null) return "";
+        int open = 0;
+        foreach (var g in symbols.GroupBy(s => s.Assembly))
+        {
+            if (g.Key.Module.Mvid is not { } mvid) continue;
+            var tokens = g.SelectMany(s => s.Member is TypeDef t
+                ? t.Methods.Cast<IMemberDef>().Concat(t.Fields).Concat(t.Properties).Concat(t.Events).Append(t)
+                : [s.Member]).Select(m => m.MDToken.Raw).ToHashSet();
+            open += notes.OpenCount(new NoteAnchor(NoteAnchor.DotNet, Mvid: mvid.ToString()).StoreKey, a => a.Token is { } token && tokens.Contains(token));
+        }
+        var first = symbols.Count > 0 ? symbols[0] : null;
+        return first == null ? "" : NotesService.Header(open, symbols.Count == 1 ? $"{first.Assembly.Id}:{Format.Token(first.Member)}" : first.Assembly.Id);
+    }
 
     /// <summary>Comment lines tying decompiled output to its build; hashes in full (docs/il-hash.md).</summary>
     private static string Provenance(LoadedAssembly asm, IEnumerable<IMemberDef> members)

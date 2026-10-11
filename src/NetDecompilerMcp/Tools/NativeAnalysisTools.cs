@@ -16,7 +16,7 @@ namespace NetDecompilerMcp.Tools;
 /// <summary>Native analysis built on the PE model: decompilation through an engine, C++ classes, P/Invoke checks.</summary>
 [McpServerToolType]
 public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngineService engines, OutputPager pager, NativeNamePush? names = null,
-    NativeCodeService? code = null, NativeTypePush? types = null, NativeUserTypePush? userTypes = null)
+    NativeCodeService? code = null, NativeTypePush? types = null, NativeUserTypePush? userTypes = null, NotesService? notes = null)
 {
     [McpServerTool(Name = "decompile_native", Title = "Decompile native function")]
     [Description("C pseudocode of the native function containing an address, through IDA (idalib; Hex-Rays). The first call on an image runs IDA's " +
@@ -68,7 +68,15 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
                   .AppendLine(lines[i].TrimEnd('\r'));
             return sb.ToString();
         });
-        return (pushed != null ? $"// {pushed}\n" : "") + pager.Page(text, offset, maxChars);
+        string header = "";
+        if (notes != null && offset == 0)
+        {
+            var fn = code?.Ready(native)?.FunctionAt(rva);
+            uint start = fn?.Start ?? rva, end = fn != null ? fn.Start + Math.Max(1u, fn.Size) : rva + 1;
+            header = NotesService.Header(notes.OpenCount(native.OriginalSha256.ToLowerInvariant(), a => a.Kind == NoteAnchor.Native && a.Rva >= start && a.Rva < end),
+                $"{native.Id}@{NativeAddress.Va(native.Image, start)}");
+        }
+        return header + (pushed != null ? $"// {pushed}\n" : "") + pager.Page(text, offset, maxChars);
     });
 
     private (LoadedNative Native, uint Rva) Resolve(string image, string address) => Resolve(workspace, code, image, address);
