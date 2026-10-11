@@ -213,10 +213,10 @@ public sealed class Il2CppExporter(Il2CppService il2cpp)
             if (!s.IsValueType && !s.Statics)
             {
                 sb.AppendLine("    nd_ptr klass;  /* 0x0 */");
-                sb.AppendLine("    nd_ptr monitor;  /* 0x8 */");
+                sb.AppendLine($"    nd_ptr monitor;  /* 0x{layout.PointerSize:X} */");
                 members.Add("klass");
                 members.Add("monitor");
-                position = Il2CppLayout.ObjectHeader;
+                position = layout.ObjectHeader;
             }
             int pad = 0;
             foreach (var m in s.Members)

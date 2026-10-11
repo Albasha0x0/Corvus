@@ -109,6 +109,26 @@ public sealed class Il2CppNativeNamesTests : IDisposable
         return (native, await _code.Index(native, null, default));
     }
 
+    /// <summary>A 32-bit game gets prototypes and a header with 4-byte pointers (klass, monitor), not names alone.</summary>
+    [Fact]
+    public async Task Types32BitGetPrototypesWithFourBytePointers()
+    {
+        var b = new PeBuilder { ImageBase = 0x10000000, Is64 = false, Machine = 0x14C };
+        var code = Enumerable.Repeat((byte)0xC3, 0x400).ToArray();
+        var text = b.Add(".text", code, 0x60000020);
+        b.EntryPoint = text.Rva;
+        b.Add(".data", new byte[0x100], 0xC0000040).Rva = 0x5000;
+        var binary = Path.Combine(Path.GetDirectoryName(_binary)!, "GameAssembly32.dll");
+        File.WriteAllBytes(binary, b.Build());
+        var native = _env.Workspace.LoadAny(binary).Native!;
+        var index = await _code.Index(native, null, default);
+        _names.Apply(native, index, _env.Workspace.Assemblies, default);
+        var batch = NativeTypePush.Build(native, Il2CppNativeNames.Of(native), null, default);
+        Assert.Equal(4, batch.PointerSize);
+        Assert.Contains(batch.Prototypes, p => p.Rva == 0x1000 && p.Declaration.Contains("struct Fixture_Native_NativeThing* __this"));
+        Assert.Contains("nd_ptr monitor;  /* 0x4 */", batch.Declarations);
+    }
+
     [Fact]
     public void IdentifiersAreValidNames()
     {

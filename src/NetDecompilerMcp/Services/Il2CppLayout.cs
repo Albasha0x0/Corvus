@@ -6,15 +6,16 @@ using static NetDecompilerMcp.Core.MetadataUtil;
 namespace NetDecompilerMcp.Services;
 
 /// <summary>
-/// C layouts of Il2Cpp types (64-bit): the dumped offsets where the dummy DLLs have them, and for instances of generic
+/// C layouts of Il2Cpp types (64-bit, or 32-bit with a pointer size of 4): the dumped offsets where the dummy DLLs have them, and for instances of generic
 /// types, whose definitions are dumped with offset 0, the fields of the instantiation laid out in declaration order at
 /// their natural alignment, as Il2Cpp lays them out, after the base type's fields. A dumped offset wins over a computed
 /// one. Structs are created on demand and listed with the structs they embed first.
 /// </summary>
-internal sealed class Il2CppLayout
+internal sealed class Il2CppLayout(ulong pointerSize = 8)
 {
-    public const ulong PointerSize = 8;
-    public const ulong ObjectHeader = 0x10;
+    public ulong PointerSize { get; } = pointerSize;
+    /// <summary>klass and monitor.</summary>
+    public ulong ObjectHeader => 2 * PointerSize;
 
     /// <summary>A C member: <see cref="Count"/> elements of <see cref="CType"/> when it is a fixed buffer. <see cref="Computed"/>: laid out here, not dumped.</summary>
     public sealed record Member(string Name, string Owner, ulong Offset, string CType, ulong Size, ulong Align, string Managed, bool Computed, ulong Count = 0);
@@ -252,7 +253,7 @@ internal sealed class Il2CppLayout
         return attr != null && attr.Values.TryGetValue("Offset", out var v) ? Il2CppService.ParseNumber(v) : null;
     }
 
-    private static CType? Primitive(string name) => name switch
+    private CType? Primitive(string name) => name switch
     {
         "Boolean" or "Byte" => new("nd_u8", 1, 1), "SByte" => new("nd_i8", 1, 1), "Char" or "UInt16" => new("nd_u16", 2, 2),
         "Int16" => new("nd_i16", 2, 2), "Int32" => new("nd_i32", 4, 4), "UInt32" => new("nd_u32", 4, 4), "Int64" => new("nd_i64", 8, 8),

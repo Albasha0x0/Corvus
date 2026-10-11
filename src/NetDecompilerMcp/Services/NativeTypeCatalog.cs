@@ -823,8 +823,8 @@ public sealed class NativeTypeCatalog(AssemblyWorkspace workspace, NativeCodeSer
         var fields = new List<NativeTypeField>();
         if (!statics && !type.IsValueType)
         {
-            fields.Add(new NativeTypeField(0, (long)Il2CppLayout.PointerSize, "klass", "Il2CppClass *", null, "header", null, null, null));
-            fields.Add(new NativeTypeField((long)Il2CppLayout.PointerSize, (long)Il2CppLayout.PointerSize, "monitor", "void *", null, "header", null, null, null));
+            fields.Add(new NativeTypeField(0, (long)layout.PointerSize, "klass", "Il2CppClass *", null, "header", null, null, null));
+            fields.Add(new NativeTypeField((long)layout.PointerSize, (long)layout.PointerSize, "monitor", "void *", null, "header", null, null, null));
         }
         foreach (var m in s.Members)
         {
