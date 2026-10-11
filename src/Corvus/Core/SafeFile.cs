@@ -122,8 +122,12 @@ public static class SafeFile
                 stream.Flush(flushToDisk: true);
             }
             beforeReplace?.Invoke(temp);
-            // Without overwrite the rename itself refuses an existing target, so a file created since the check is never replaced.
-            try { File.Move(temp, full, overwrite); }
+            // Without overwrite the placement itself refuses an existing target, so a file created since the check is never
+            // replaced: on Windows the move does, on Unix a hard link (File.Move there checks, then renames over the target).
+            try
+            {
+                if (overwrite || OperatingSystem.IsWindows() || !Posix.TryLink(temp, full)) File.Move(temp, full, overwrite);
+            }
             catch (IOException) when (!overwrite && Path.Exists(full)) { throw Exists(full); }
         }
         finally
