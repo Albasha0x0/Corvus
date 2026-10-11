@@ -32,7 +32,7 @@ public sealed class AndroidPackageTests : IDisposable
         var main = C("com.example.app.Main");
         Assert.True(main.Launcher);
         Assert.Equal((true, "explicit"), (main.EffectiveExported, main.ExportedReason));
-        var link = C("crc64a1b2c3d4e5f60718.LinkActivity");
+        var link = C(AndroidSamples.LinkPackage + ".LinkActivity");
         Assert.Null(link.Exported);
         Assert.True(link.EffectiveExported);
         Assert.Contains("implied by an intent filter", link.ExportedReason);

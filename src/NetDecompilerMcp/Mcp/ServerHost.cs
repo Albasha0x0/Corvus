@@ -67,6 +67,7 @@ public static class ServerHost
             .AddSingleton<SessionService>()
             .AddSingleton<StackTextService>()
             .AddSingleton<LiveProcessService>()
+            .AddSingleton<Services.Mobile.JavaDotNetMap>()
             .AddSingleton<Services.Mobile.AndroidPackageService>()
             .AddSingleton<Services.Mobile.DexService>()
             .AddSingleton<Services.Mobile.JavaDecompilerService>()

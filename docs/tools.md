@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
-132 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+133 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -18,7 +18,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
 | [engine](#engine) | no | 7: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
-| [android](#android) | no | 9: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
+| [android](#android) | no | 10: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
 | [dumps](#dumps) | no | 7: crash dumps and crash text |
 | [live](#live) | no | 1: read-only inspection of a running process |
 
@@ -1788,7 +1788,7 @@ Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET
 
 **Android manifest** (read-only, idempotent)
 
-AndroidManifest.xml of an Android package, decoded natively (no Java tools): package, versions, min / target / compile SDK; permissions (also -sdk-23 and maxSdkVersion) and declared permissions with protection levels; application flags (debuggable, allowBackup, usesCleartextTraffic, networkSecurityConfig with its file, extractNativeLibs); every activity, alias, service, receiver and provider with its explicit and effective exported state and why, permissions, intent filters, launcher, deep links and meta-data; queries, features, libraries; highlights. Resource references are resolved. The XML itself: get_android_resource name=AndroidManifest.xml.
+AndroidManifest.xml of an Android package, decoded natively (no Java tools): package, versions, min / target / compile SDK; permissions (also -sdk-23 and maxSdkVersion) and declared permissions with protection levels; application flags (debuggable, allowBackup, usesCleartextTraffic, networkSecurityConfig with its file, extractNativeLibs); every activity, alias, service, receiver and provider with its explicit and effective exported state and why, permissions, intent filters, launcher, deep links and meta-data (in a .NET for Android app also the .NET type behind it); queries, features, libraries; highlights. Resource references are resolved. The XML itself: get_android_resource name=AndroidManifest.xml.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1918,6 +1918,19 @@ Cross-references in DEX code with the method and code offset of each instruction
 | `limit` | integer |  | `500` | Most references to return (default 500). |
 
 Structured output: `target`, `targetKind`, `direction`, `items`, `offset`, `total`, `truncated`, `notes`.
+
+### map_java_dotnet
+
+**Map Java and .NET** (read-only, idempotent)
+
+The other side of a Xamarin / .NET for Android binding. A Java class (Lpkg/C;, crc64.../MainActivity) or method id gives the .NET type or method, ready for decompile_member; a .NET type or member (Ns.Type, Ns.Type::Method) gives its Java class or method. Java callable wrapper names are computed as the build does (crc64 of namespace and assembly, or the Name of [Register] / [Activity] / [Service] / [BroadcastReceiver] / [ContentProvider]); methods by their [Register] or the registered base method they override. Uses the loaded assemblies, and the package's own when path is given.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `symbol` | string | yes |  | A Java class descriptor, Java method id (Lpkg/C;->onCreate(Landroid/os/Bundle;)V), or a .NET type or member. |
+| `path` | string |  |  | The .apk / .aab whose assemblies to read (without loading them); optional when they are loaded. |
+
+Structured output: `query`, `direction`, `items`, `notes`.
 
 ## dumps
 

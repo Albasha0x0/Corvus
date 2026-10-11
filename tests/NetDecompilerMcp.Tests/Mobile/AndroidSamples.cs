@@ -47,7 +47,7 @@ internal static class AndroidSamples
                             .Add(new Node("intent-filter").Add(
                                 new Node("action", String("name", "android.intent.action.MAIN", 0x01010003)),
                                 new Node("category", String("name", "android.intent.category.LAUNCHER", 0x01010003)))),
-                        new Node("activity", String("name", "crc64a1b2c3d4e5f60718.LinkActivity", 0x01010003)).Add(filter("https", "example.com")),
+                        new Node("activity", String("name", LinkPackage + ".LinkActivity", 0x01010003)).Add(filter("https", "example.com")),
                         new Node("activity-alias", String("name", ".Alias", 0x01010003), String("targetActivity", ".Main", 0x01010202), Bool("exported", false, 0x01010010)),
                         new Node("service", String("name", "com.example.app.Sync", 0x01010003), String("permission", "com.example.app.PRIVATE", 0x01010006),
                             Bool("exported", true, 0x01010010)),
@@ -76,7 +76,11 @@ internal static class AndroidSamples
             .. extra]);
     }
 
-    public const string Main = "Lcom/example/app/Main;", Helper = "Lcom/example/app/Helper;", Link = "Lcrc64a1b2c3d4e5f60718/LinkActivity;";
+    public const string Main = "Lcom/example/app/Main;", Helper = "Lcom/example/app/Helper;";
+
+    /// <summary>The Java callable wrapper of MyApp.LinkActivity in assembly MyApp, named as the .NET for Android build names it.</summary>
+    public static readonly string LinkPackage = "crc64" + NetDecompilerMcp.Services.Mobile.JavaDotNetMap.Crc64("MyApp:MyApp");
+    public static readonly string Link = $"L{LinkPackage}/LinkActivity;";
     public const string NameField = Main + "->name:Ljava/lang/String;", CountField = Main + "->COUNT:I";
     public const string Log = Helper + "->log(Ljava/lang/String;)V", ComputeInt = Main + "->compute(I)I", ComputeString = Main + "->compute(Ljava/lang/String;)I";
 
@@ -143,6 +147,14 @@ internal static class AndroidSamples
             Asm.Invoke(0x70, Link + "->n_onCreate(Landroid/os/Bundle;)V", 1, 2), Asm.ReturnVoid()).Registers = 3;
         link.Method("n_onCreate", "V", ["Landroid/os/Bundle;"], 0x102);
         return b.Build();
+    }
+
+    /// <summary>A .NET for Android shaped package: the sample DEX, a Mono.Android with bindings and an app assembly (XALZ compressed).</summary>
+    public static string SaveXamarin(TempDir dir)
+    {
+        var (mono, app) = XamarinSample.Build();
+        return Save(dir, "xamarin.apk", Apk(30, ("classes.dex", Dex()), ("assemblies/Mono.Android.dll", mono), ("assemblies/MyApp.dll", ContainerFixtures.Xalz(app)),
+            ("lib/arm64-v8a/libmonodroid.so", [0x7F, (byte)'E', (byte)'L', (byte)'F'])));
     }
 
     public static string Save(TempDir dir, string name, byte[] bytes)

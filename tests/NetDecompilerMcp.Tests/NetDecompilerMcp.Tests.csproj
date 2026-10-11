@@ -67,6 +67,7 @@
     <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-arm64" Version="[10.0.11]" />
     <PackageDownload Include="Microsoft.NETCore.App.Runtime.osx-arm64" Version="[10.0.11]" />
     <PackageDownload Include="SkiaSharp.NativeAssets.Linux" Version="[3.119.4]" />
+    <PackageDownload Include="Microsoft.Android.Runtime.35.android-arm64" Version="[35.0.105]" />
   </ItemGroup>
 
   <ItemGroup>

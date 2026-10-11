@@ -17,12 +17,22 @@ public sealed record AndroidPackageFacts(string Kind, string Package, string? Ve
     IReadOnlyList<string> SplitApks, IReadOnlyList<string> Highlights);
 
 /// <summary>Android packages: manifest, resources and package facts, read natively from .apk / .aab / split sets.</summary>
-public sealed class AndroidPackageService(OutputPager pager)
+public sealed class AndroidPackageService(OutputPager pager, JavaDotNetMap? dotnet = null)
 {
-    public AndroidManifestSummary Manifest(string path)
+    /// <summary>The manifest summary; in a .NET for Android package each component names the .NET type that implements it.</summary>
+    public AndroidManifestSummary Manifest(string path, CancellationToken ct = default)
     {
-        using var p = AndroidPackage.Open(path);
-        return AndroidManifestSummary.Of(p.Manifest, p.Resources);
+        AndroidManifestSummary summary;
+        bool dotnetApp;
+        using (var p = AndroidPackage.Open(path))
+        {
+            summary = AndroidManifestSummary.Of(p.Manifest, p.Resources);
+            dotnetApp = AndroidRuntime.Detect(p).Any(r => r.Family == "dotnet-android");
+        }
+        if (dotnet == null || !dotnetApp) return summary;
+        var types = dotnet.ComponentTypes(path, ct);
+        if (types.Count == 0) return summary;
+        return summary with { Components = [.. summary.Components.Select(c => types.TryGetValue(c.Name, out var t) ? c with { DotNetType = t } : c)] };
     }
 
     public AndroidResourceList Resources(string path, string? type, string? name, string? config, int offset, int limit)
