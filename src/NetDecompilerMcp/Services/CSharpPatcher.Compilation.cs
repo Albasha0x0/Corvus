@@ -30,8 +30,32 @@ public sealed partial class CSharpPatcher
     /// <param name="clashing">Simple names of types a compilation found in two references (CS0433); see <see cref="HideClashingTypes"/>.</param>
     private List<MetadataReference> BuildReferences(LoadedAssembly asm, byte[]? targetImage, out List<string> missing, IReadOnlySet<string>? clashing = null)
     {
-        missing = new List<string>();
-        var references = new List<MetadataReference>();
+        var targetBytes = targetImage ?? asm.GetImageBytes();
+        var closure = Closure(asm, targetBytes);
+        missing = [.. closure.Missing];
+        var images = closure.Images.ToList();
+        var friend = FriendImage(targetBytes, asm.AssemblyName + PatchSuffix, closure.StandIns);
+        images[0] = (images[0].Name, friend, images[0].Path);
+        var references = images.Select(i => Reference(i.Image)).ToList();
+        if (clashing is { Count: > 0 }) HideClashingTypes(asm, images, references, clashing);
+        // A stand-in has no public key, so a reference naming one by its token does not bind to it (CS0012).
+        for (int i = 1; i < images.Count && closure.StandIns.Count > 0; i++)
+            if (WithoutTokens(images[i].Image, closure.StandIns) is { } image)
+                references[i] = Reference(image);
+        return SingleCoreLibrary(references, images);
+    }
+
+    /// <summary>The images of a target and its reference closure (the target's own first), the names not found, and those resolved to stand-ins.</summary>
+    private sealed record ReferenceClosure(int Generation, IReadOnlyList<(string Name, byte[] Image, string Path)> Images, IReadOnlyList<string> Missing,
+        HashSet<string> StandIns);
+
+    // Per target image: one patch compiles several times, and the same reference bytes let Roslyn reuse what it read.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], ReferenceClosure> Closures = new();
+
+    private ReferenceClosure Closure(LoadedAssembly asm, byte[] targetBytes)
+    {
+        if (Closures.TryGetValue(targetBytes, out var cached) && cached.Generation == workspace.Generation) return cached;
+        var missing = new List<string>();
         var images = new List<(string Name, byte[] Image, string Path)>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var stubbed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -41,12 +65,11 @@ public sealed partial class CSharpPatcher
         void Enqueue(string name, byte[] image, ModuleDef module, bool owned, string path)
         {
             if (!seen.Add(name)) { if (owned) module.Dispose(); return; }
-            references.Add(MetadataReference.CreateFromImage(image));
             images.Add((name, image, path));
             queue.Enqueue((module, owned, path));
         }
 
-        Enqueue(asm.AssemblyName, FriendImage(targetImage ?? asm.GetImageBytes(), asm.AssemblyName + PatchSuffix), asm.Module, owned: false, asm.FilePath);
+        Enqueue(asm.AssemblyName, targetBytes, asm.Module, owned: false, asm.FilePath);
         bool netFramework = Frameworks.TargetsNetFramework(asm.Module); // applies to the whole reference closure
         var targetFramework = Frameworks.TargetFrameworkOf(asm.Module);
         while (queue.Count > 0)
@@ -78,12 +101,21 @@ public sealed partial class CSharpPatcher
             }
             if (owned) module.Dispose();
         }
-        if (clashing is { Count: > 0 }) HideClashingTypes(asm, images, references, clashing);
-        // A stand-in has no public key, so a reference naming one by its token does not bind to it (CS0012).
-        for (int i = 0; i < images.Count && stubbed.Count > 0; i++)
-            if (WithoutTokens(images[i].Image, stubbed) is { } image)
-                references[i] = MetadataReference.CreateFromImage(image);
-        return SingleCoreLibrary(references, images);
+        var closure = new ReferenceClosure(workspace.Generation, images, missing, stubbed);
+        Closures.AddOrUpdate(targetBytes, closure);
+        return closure;
+    }
+
+    /// <summary>
+    /// Writes the target's reference copy (<see cref="FriendImage"/>) on another thread while the caller decompiles the
+    /// shadow: for a large assembly both take seconds. The compile that needs it waits for it on the cache lock.
+    /// </summary>
+    private void PrefetchFriendImage(LoadedAssembly asm)
+    {
+        var bytes = asm.GetImageBytes();
+        var standIns = Closure(asm, bytes).StandIns;
+        var friend = asm.AssemblyName + PatchSuffix;
+        _ = Task.Run(() => FriendImage(bytes, friend, standIns));
     }
 
     /// <summary>
@@ -115,7 +147,7 @@ public sealed partial class CSharpPatcher
             if (WithTypesRenamed(images[i].Image, names) is { } renamed)
             {
                 images[i] = (images[i].Name, renamed, images[i].Path);
-                references[i] = MetadataReference.CreateFromImage(renamed);
+                references[i] = Reference(renamed);
             }
     }
 
@@ -163,6 +195,11 @@ public sealed partial class CSharpPatcher
         }
     }
 
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], MetadataReference> References = new();
+
+    /// <summary>One reference object per image: Roslyn reuses the symbols it read from it in later compilations.</summary>
+    private static MetadataReference Reference(byte[] image) => References.GetValue(image, i => MetadataReference.CreateFromImage(i));
+
     /// <summary>The image with the public key tokens of its references to <paramref name="names"/> removed; null when it has none.</summary>
     private static byte[]? WithoutTokens(byte[] image, HashSet<string> names)
     {
@@ -206,41 +243,59 @@ public sealed partial class CSharpPatcher
     /// <summary>Name suffix of the assembly a patch is compiled into (it references the target).</summary>
     internal const string PatchSuffix = ".__patch";
 
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], byte[]> FriendImages = new();
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], TokenFreeImage> FriendImages = new();
 
     /// <summary>
     /// The target image as a compile reference that grants the patch assembly access to its internals
     /// ([InternalsVisibleTo]). The decompiled declaration compiled with the patch is a separate assembly: its internal
     /// members using internal types of the target failed the accessibility consistency checks (CS0050-CS0061), which
-    /// ignoring access checks does not cover. Only the reference copy changes; cached per image.
+    /// ignoring access checks does not cover. References to <paramref name="standIns"/> lose their public key token
+    /// (see <see cref="WithoutTokens"/>). Only metadata is written: Roslyn reads no method body or resource of a
+    /// reference, and rewriting them made the first patch of a large assembly take seconds. Cached per image.
     /// </summary>
-    private static byte[] FriendImage(byte[] image, string friend)
+    internal static byte[] FriendImage(byte[] image, string friend, HashSet<string> standIns)
     {
+        var key = friend + "|" + string.Join(",", standIns.Order(StringComparer.OrdinalIgnoreCase));
         lock (FriendImages)
         {
-            if (FriendImages.TryGetValue(image, out var cached)) return cached;
-            byte[] result;
-            try
-            {
-                using var module = ModuleDefMD.Load(image);
-                if (module.Assembly is not { } assembly) return image;
-                // The core library defines the attribute: a reference to it would give the core library an assembly reference, and Roslyn none.
-                ICustomAttributeType ctor = module.Find("System.Runtime.CompilerServices.InternalsVisibleToAttribute", isReflectionName: false)?
-                                                .FindMethod(".ctor", MethodSig.CreateInstance(module.CorLibTypes.Void, module.CorLibTypes.String)) is { } own
-                    ? own
-                    : new MemberRefUser(module, ".ctor", MethodSig.CreateInstance(module.CorLibTypes.Void, module.CorLibTypes.String),
-                        new TypeRefUser(module, "System.Runtime.CompilerServices", "InternalsVisibleToAttribute", module.CorLibTypes.AssemblyRef));
-                assembly.CustomAttributes.Add(new CustomAttribute(ctor, [new CAArgument(module.CorLibTypes.String, friend)]));
-                using var ms = new MemoryStream();
-                FaithfulWriter.WritePlain(module, ms);
-                result = ms.ToArray();
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                result = image; // unwritable image: compile against it as it is
-            }
-            FriendImages.AddOrUpdate(image, result);
+            if (FriendImages.TryGetValue(image, out var cached) && cached.Names == key) return cached.Image!;
+            // Metadata only, as a plain IL image (also for ReadyToRun and mixed-mode targets); else written as it is.
+            var result = Friend(image, friend, standIns, metadataOnly: true) ?? Friend(image, friend, standIns, metadataOnly: false) ?? image;
+            FriendImages.AddOrUpdate(image, new TokenFreeImage(key, result));
             return result;
+        }
+    }
+
+    private static byte[]? Friend(byte[] image, string friend, HashSet<string> standIns, bool metadataOnly)
+    {
+        try
+        {
+            using var module = ModuleDefMD.Load(image);
+            if (module.Assembly is not { } assembly) return image;
+            foreach (var r in module.GetAssemblyRefs().Where(r => standIns.Contains(r.Name)))
+                r.PublicKeyOrToken = new PublicKeyToken(Array.Empty<byte>());
+            // The core library defines the attribute: a reference to it would give the core library an assembly reference, and Roslyn none.
+            ICustomAttributeType ctor = module.Find("System.Runtime.CompilerServices.InternalsVisibleToAttribute", isReflectionName: false)?
+                                            .FindMethod(".ctor", MethodSig.CreateInstance(module.CorLibTypes.Void, module.CorLibTypes.String)) is { } own
+                ? own
+                : new MemberRefUser(module, ".ctor", MethodSig.CreateInstance(module.CorLibTypes.Void, module.CorLibTypes.String),
+                    new TypeRefUser(module, "System.Runtime.CompilerServices", "InternalsVisibleToAttribute", module.CorLibTypes.AssemblyRef));
+            assembly.CustomAttributes.Add(new CustomAttribute(ctor, [new CAArgument(module.CorLibTypes.String, friend)]));
+            using var ms = new MemoryStream();
+            if (metadataOnly)
+            {
+                foreach (var m in module.GetTypes().SelectMany(t => t.Methods))
+                    m.Body = null;
+                module.Resources.Clear();
+                // Compiled code names the target's members by name, so its tokens need not be kept.
+                module.Write(ms, new dnlib.DotNet.Writer.ModuleWriterOptions(module));
+            }
+            else FaithfulWriter.WritePlain(module, ms);
+            return ms.ToArray();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return null;
         }
     }
 
@@ -262,12 +317,7 @@ public sealed partial class CSharpPatcher
         var dir = Path.GetDirectoryName(images[keep].Path);
         if (dir == null) return references;
 
-        byte[]? Sibling(string name)
-        {
-            var file = Path.Combine(dir, name + ".dll");
-            try { return File.Exists(file) ? File.ReadAllBytes(file) : null; }
-            catch (IOException) { return null; }
-        }
+        byte[]? Sibling(string name) => RuntimeFile(Path.Combine(dir, name + ".dll"));
 
         var replaced = new Dictionary<int, byte[]?>();
         foreach (int i in cores.Where(i => i != keep))
@@ -285,6 +335,23 @@ public sealed partial class CSharpPatcher
             else result.RemoveAt(i);
         }
         return result;
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime Written, byte[]? Bytes)> RuntimeFiles = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>A file of the runtime folder, read once while unchanged: the same bytes keep their Roslyn reference (see <see cref="Reference"/>).</summary>
+    private static byte[]? RuntimeFile(string file)
+    {
+        try
+        {
+            if (!File.Exists(file)) return null;
+            var written = File.GetLastWriteTimeUtc(file);
+            if (RuntimeFiles.TryGetValue(file, out var cached) && cached.Written == written) return cached.Bytes;
+            var bytes = File.ReadAllBytes(file);
+            RuntimeFiles[file] = (written, bytes);
+            return bytes;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
     }
 
     /// <summary>Whether an image references no other assembly and defines System.Object.</summary>

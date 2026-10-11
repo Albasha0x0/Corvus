@@ -51,6 +51,25 @@ public class CSharpAdvancedTests : IDisposable
 
     private string AddTypes(string code) => _env.Edit(() => _env.Edits.AddTypesCSharp(_env.Fixture, code, false, default));
 
+    /// <summary>
+    /// The target's reference copy carries only metadata (writing every body and resource made the first patch of a large
+    /// assembly take seconds), grants the patch assembly its internals, drops stand-in tokens, and is written once.
+    /// </summary>
+    [Fact]
+    public void TheTargetsReferenceCopyIsMetadataOnlyAndCached()
+    {
+        var image = _env.Fixture.GetImageBytes();
+        var friend = Services.CSharpPatcher.FriendImage(image, "Fixture.__patch", ["System.Runtime"]);
+        Assert.Same(friend, Services.CSharpPatcher.FriendImage(image, "Fixture.__patch", ["System.Runtime"]));
+        using var module = dnlib.DotNet.ModuleDefMD.Load(friend);
+        Assert.Contains(module.Assembly.CustomAttributes, ca => ca.TypeFullName == "System.Runtime.CompilerServices.InternalsVisibleToAttribute"
+                                                                && ca.ConstructorArguments[0].Value?.ToString() == "Fixture.__patch");
+        Assert.All(module.GetTypes().SelectMany(t => t.Methods), m => Assert.Equal(0u, (uint)m.RVA));
+        Assert.Empty(module.Resources);
+        Assert.Empty(module.GetAssemblyRefs().Single(r => r.Name == "System.Runtime").PublicKeyOrToken?.Data ?? []);
+        Assert.True(friend.Length < image.Length);
+    }
+
     /// <summary>A generic method is labeled Echo&lt;T&gt;(T); it is still listed as added, while closures stay hidden.</summary>
     [Fact]
     public void AddedGenericMembersAreListed()

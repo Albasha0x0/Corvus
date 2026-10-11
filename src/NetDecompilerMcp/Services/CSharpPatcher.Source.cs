@@ -15,6 +15,7 @@ public sealed partial class CSharpPatcher
     /// <summary>Decompiles the top-level type containing <paramref name="type"/> and applies <paramref name="transform"/>.</summary>
     private SyntaxTree ShadowTree(LoadedAssembly asm, TypeDef type, Func<CompilationUnitSyntax, TypeDeclarationSyntax, CompilationUnitSyntax> transform, CancellationToken ct)
     {
+        PrefetchFriendImage(asm);
         var source = decompiler.DecompileType(asm, TopLevel(type), ct, compilable: true);
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         var root = CSharpSyntaxTree.ParseText(source, parseOptions, cancellationToken: ct).GetCompilationUnitRoot(ct);
