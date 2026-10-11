@@ -406,15 +406,16 @@ public static class UnityOverview
             return ("encrypted", $"starts with 0x{magic:X8}, not the metadata magic 0x{MetadataMagic:X8} (encrypted or obfuscated; the running game holds it decrypted)", null, size);
         if (version is < 16 or > 64)
             return ("header_tampered", $"magic present but the version field is {version} (0x{version:X8}): the header after the magic is encrypted or scrambled", version, size);
-        // The header is (offset, size) pairs; the first section starts right after it.
+        // The header is (offset, size) pairs, (offset, size, count) from version 38; the first section starts right after it.
+        int stride = SectionStride(version);
         int headerSize = BinaryPrimitives.ReadInt32LittleEndian(head.AsSpan(8));
         if (headerSize is < 0x40 or > 0x200 || headerSize % 4 != 0 || headerSize > head.Length)
             return ("header_tampered", $"magic and version {version} present, but the first section offset 0x{headerSize:X} is not a header size", version, size);
-        int bad = 0, pairs = (headerSize - 8) / 8;
+        int bad = 0, pairs = (headerSize - 8) / stride;
         for (int i = 0; i < pairs; i++)
         {
-            long offset = BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(8 + i * 8));
-            long length = BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(12 + i * 8));
+            long offset = BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(8 + i * stride));
+            long length = BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(12 + i * stride));
             if (length != 0 && (offset < headerSize || offset + length > size)) bad++;
         }
         if (bad > 0)
@@ -424,12 +425,15 @@ public static class UnityOverview
         return ("readable", null, version, size);
     }
 
-    /// <summary>Identifier statistics and marker names from the metadata string heap (header pair 3, bounded).</summary>
+    private static int SectionStride(int version) => version >= 38 ? 12 : 8;
+
+    /// <summary>Identifier statistics and marker names from the metadata string heap (header section 3, bounded).</summary>
     private static (double? Ratio, int Names) MetadataNames(string metadata, List<MarkerFact> markers, CancellationToken ct)
     {
-        var head = ReadHead(metadata, 32);
-        uint offset = BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(24));
-        int length = (int)Math.Min(BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(28)), MaxStringHeap);
+        var head = ReadHead(metadata, 40);
+        int at = 8 + 2 * SectionStride(BinaryPrimitives.ReadInt32LittleEndian(head.AsSpan(4)));
+        uint offset = BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(at));
+        int length = (int)Math.Min(BinaryPrimitives.ReadUInt32LittleEndian(head.AsSpan(at + 4)), MaxStringHeap);
         byte[] heap;
         try
         {

@@ -301,7 +301,7 @@ public sealed class Il2CppStringIndex
 
     private NativeReferences? ScanReferences()
     {
-        if (Files.GameAssembly == null) { ReferenceProblem = $"no {Il2CppDumpFiles.GameAssemblyFileName} next to the dump"; return null; }
+        if (Files.GameAssembly == null) { ReferenceProblem = "no game binary next to the dump"; return null; }
         var watch = System.Diagnostics.Stopwatch.StartNew();
         Il2CppScript? script;
         try { script = Script; }
@@ -312,7 +312,13 @@ public sealed class Il2CppStringIndex
         if (addresses.Length == 0) { ReferenceProblem = "the dump has no literals"; return null; }
         List<NativeCodeScanner.Section> sections;
         try { sections = NativeCodeScanner.Sections(Files.GameAssembly); }
-        catch (Exception ex) when (ex is ToolError or IOException or UnauthorizedAccessException) { ReferenceProblem = ex.Message; return null; }
+        catch (Exception ex) when (ex is ToolError or IOException or UnauthorizedAccessException)
+        {
+            ReferenceProblem = Native.NativeImageLoader.DetectFile(Files.GameAssembly) is Native.NativeFileKind.Elf or Native.NativeFileKind.MachO or Native.NativeFileKind.MachOFat
+                ? $"code loads of literal slots are scanned in x64 PE builds; on {Path.GetFileName(Files.GameAssembly)} load it, apply_il2cpp_names, then find_xrefs on a literal's slot"
+                : ex.Message;
+            return null;
+        }
         ulong low = addresses[0], high = addresses[^1];
         if (high > uint.MaxValue || !sections.Any(s => !s.Executable && s.Contains(low)) || !sections.Any(s => !s.Executable && s.Contains(high)))
         {

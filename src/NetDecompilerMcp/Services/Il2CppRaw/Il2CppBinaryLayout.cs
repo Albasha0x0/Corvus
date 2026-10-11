@@ -58,6 +58,24 @@ public sealed class Il2CppBinaryLayout
 
     public bool InCode(ulong pointer) => CodeRva(pointer) is { } rva && AreaAt(rva) is { Executable: true };
 
+    /// <summary>Whether the file at <paramref name="path"/> is a 32-bit ARM ELF or thin Mach-O, from its header.</summary>
+    public static bool IsArm32(string path)
+    {
+        try
+        {
+            using var f = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            Span<byte> head = stackalloc byte[20];
+            if (RandomAccess.Read(f, head, 0) < head.Length) return false;
+            return NativeImageLoader.Detect(head) switch
+            {
+                NativeFileKind.Elf => head[4] == 1 && BinaryPrimitives.ReadUInt16LittleEndian(head[18..]) == 40, // ELFCLASS32, EM_ARM
+                NativeFileKind.MachO => BinaryPrimitives.ReadUInt32LittleEndian(head) == 0xFEEDFACE && BinaryPrimitives.ReadUInt32LittleEndian(head[4..]) == 12, // CPU_TYPE_ARM
+                _ => false,
+            };
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; }
+    }
+
     /// <summary>A PE layout: <paramref name="header"/> as the library reads the bytes, <paramref name="original"/> as the file was built.</summary>
     public static Il2CppBinaryLayout FromPe(MappedPeLayout.Header header, MappedPeLayout.Header original) =>
         new(ImageFormat.Pe, header.Machine switch { 0x14C => NativeArch.X86, 0x8664 => NativeArch.X64, 0xAA64 => NativeArch.Arm64, 0x1C4 => NativeArch.Arm, _ => NativeArch.Unknown },

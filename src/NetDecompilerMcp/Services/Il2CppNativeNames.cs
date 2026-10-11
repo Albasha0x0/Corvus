@@ -209,7 +209,7 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
         AppliedTable.TryGetValue(native, out var applied) && NativeNameLayers.OfOrNull(native)?.Get(NativeNameSource.Il2Cpp) != null ? applied : null;
 
     /// <summary>
-    /// The dump image describing <paramref name="native"/>: the one whose GameAssembly.dll is this file, else the only
+    /// The dump image describing <paramref name="native"/>: the one made from this file (by path, build id or SHA-256), else the only
     /// one in scope. Refuses when no dummy assembly is loaded, when several dumps are and none names this file, and
     /// when none of the dump's function starts falls in an executable section of the image.
     /// </summary>
@@ -221,8 +221,7 @@ public sealed class Il2CppNativeNames(Il2CppService il2cpp, Il2CppNavigator navi
                                                      (scope.Count > 0 ? " in the selected assemblies." : "."),
                 "load_assembly the game folder or its global-metadata.dat (built-in reader; apply_il2cpp_names does it when the metadata is beside the image), or a DummyDll folder (script.json and stringliteral.json beside it add generic instantiations, metadata slots and strings)");
         var images = navigator.ImagesFor(withMetadata);
-        var image = images.FirstOrDefault(i => i.Dump?.Files.GameAssembly is { } g
-                                               && string.Equals(Path.GetFullPath(g), native.FilePath, StringComparison.OrdinalIgnoreCase))
+        var image = images.FirstOrDefault(i => i.Dump?.Files.Describes(native) == true)
                     ?? (images.Count == 1 ? images[0] : null)
                     ?? throw new ToolError(ErrorCode.Ambiguous, $"{images.Count} Il2Cpp dumps are loaded and none was made from {native.FilePath}: " +
                                                                 string.Join("; ", images.Select(i => i.Dump?.Files.Directory ?? string.Join(", ", i.Assemblies.Select(a => a.Id)))),

@@ -426,7 +426,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         }
         if (FromDumps(native) is { } found) return found;
         Il2CppGameFiles? game = null;
-        try { game = Il2CppGameFiles.Find(native.FilePath); }
+        try { game = Il2CppGameFiles.Find(native.FilePath, native.SliceName); }
         catch (ToolError ex) { notes.Add($"{native.Id}: {ex.Message}"); }
         if (game != null && string.Equals(Path.GetFullPath(game.Binary), native.FilePath, StringComparison.OrdinalIgnoreCase))
         {
@@ -445,8 +445,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
     {
         var all = workspace.Assemblies.Where(a => il2cpp.GetIndex(a).Count > 0).ToList();
         if (all.Count == 0) return ((List<LoadedAssembly>, string)?)null;
-        var image = navigator.ImagesFor(all).FirstOrDefault(i => i.Dump?.Files.GameAssembly is { } g
-                                                                 && string.Equals(Path.GetFullPath(g), native.FilePath, StringComparison.OrdinalIgnoreCase));
+        var image = navigator.ImagesFor(all).FirstOrDefault(i => i.Dump?.Files.Describes(native) == true);
         return image == null ? null : (image.Assemblies.ToList(), $"the Il2Cpp metadata in {image.Dump!.Files.Directory}");
     });
 

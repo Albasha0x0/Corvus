@@ -15,7 +15,7 @@ namespace NetDecompilerMcp.Tools;
 public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeService code, Il2CppNativeNames names, Il2CppRawLoader? il2cppRaw = null)
 {
     [McpServerTool(Name = "apply_il2cpp_names", Title = "Name a native Il2Cpp binary from its metadata")]
-    [Description("Names the functions and data of a native Il2Cpp game binary (GameAssembly.dll) from the loaded Il2CppDumper / Cpp2IL dummy assemblies " +
+    [Description("Names the functions and data of a native Il2Cpp game binary (GameAssembly, libil2cpp.so) from the loaded Il2CppDumper / Cpp2IL dummy assemblies " +
                  "([Address] RVAs) and the dump's script.json (every function start, generic instantiations, Ns_Type_TypeInfo metadata and MethodInfo slots) " +
                  "and stringliteral.json (StringLiteral_<n> slots commented with the text). Functions are named Ns_Type__Method (the Il2CppDumper name " +
                  "Ns.Type$$Method as a C identifier, as IDA accepts it: '$$' becomes '__', '.', '<', '>', ',' and spaces '_'; a name used twice gets _<RVA>), commented with the C# form Ns.Type::Method(args) " +
@@ -50,7 +50,7 @@ public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeSer
         var report = await Task.Run(() =>
         {
             try { return workspace.Read(() => names.Apply(native, index, workspace.Scope(assembly), cancellationToken)); }
-            catch (ToolError e) when (e.Code == ErrorCode.NotLoaded && assembly == null && Il2CppGame(native.FilePath) is { } game)
+            catch (ToolError e) when (e.Code == ErrorCode.NotLoaded && assembly == null && Il2CppGame(native.FilePath, native.SliceName) is { } game)
             {
                 // No dummy assemblies loaded: read the Il2Cpp metadata with the built-in reader first.
                 var loaded = (il2cppRaw ?? new Il2CppRawLoader(workspace)).Load(game, loadBinary: false,
@@ -62,10 +62,10 @@ public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeSer
         return read + Render(native.Id, report);
     });
 
-    /// <summary>The game files around a GameAssembly.dll, when its metadata is found; null otherwise.</summary>
-    private static Il2CppGameFiles? Il2CppGame(string binary)
+    /// <summary>The game files around a game binary, when its metadata is found; null otherwise.</summary>
+    private static Il2CppGameFiles? Il2CppGame(string binary, string? slice)
     {
-        try { return Il2CppGameFiles.Find(binary) is { } g && string.Equals(Path.GetFullPath(g.Binary), Path.GetFullPath(binary), StringComparison.OrdinalIgnoreCase) ? g : null; }
+        try { return Il2CppGameFiles.Find(binary, slice) is { } g && string.Equals(Path.GetFullPath(g.Binary), Path.GetFullPath(binary), StringComparison.OrdinalIgnoreCase) ? g : null; }
         catch (ToolError) { return null; }
     }
 

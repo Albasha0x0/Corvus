@@ -45,6 +45,10 @@ public sealed class Il2CppNavigator(AssemblyWorkspace workspace, Il2CppService i
         public uint[] Starts => Script?.FunctionStarts ?? Methods.Starts;
         public List<NativeCodeScanner.Section>? Sections => Dump?.Binary?.Sections;
 
+        /// <summary>The game binary is 32-bit ARM: odd code addresses are Thumb pointers to the function one byte lower.</summary>
+        public bool ThumbCode => _thumb ??= Dump?.Files.GameAssembly is { } binary && Il2CppBinaryLayout.IsArm32(binary);
+        private bool? _thumb;
+
         /// <summary>Image bases a VA may be relative to: the dumper's (from the methods' VAs) and the binary's preferred one.</summary>
         public IEnumerable<ulong> ImageBases => new[] { Methods.ImageBase, Dump?.Binary?.ImageBase }.OfType<ulong>().Where(b => b > 0).Distinct();
 
@@ -143,6 +147,7 @@ public sealed class Il2CppNavigator(AssemblyWorkspace workspace, Il2CppService i
     {
         if (rva > uint.MaxValue) return null;
         var r = (uint)rva;
+        if ((r & 1) != 0 && image.ThumbCode && Slot(image, r) == null) r--;
         if (Slot(image, r) is { } slot)
             return new AddressResult(image, kind, address, rva, null, slot, [], []);
         if (Function(image, r) is not { } function) return null;

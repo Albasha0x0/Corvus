@@ -243,6 +243,31 @@ public sealed class Il2CppMobileTests(ITestOutputHelper output) : IDisposable
             new NetDecompilerMcp.Services.Analysis.UnpackService(ws));
     }
 
+    [Fact]
+    public void DumpsNameAnyGameBinaryAndMatchCopiesByIdentity()
+    {
+        // An Il2CppDumper dump beside libil2cpp.so.
+        Put("dump/script.json", "{}"u8.ToArray());
+        var lib = Put("dump/libil2cpp.so", File.ReadAllBytes(NativeFixtures.LinuxArm64DbgShim));
+        Assert.Equal(lib, Il2CppDumpFiles.Locate(_dir.File("dump/DummyDll"))!.GameAssembly);
+
+        // A built-in reader cache entry made from another copy of the same build: recognized by its build id.
+        var entry = _dir.File("cache-entry");
+        Directory.CreateDirectory(Path.Combine(entry, Il2CppRawLoader.DummyFolder));
+        new Il2CppGameModel { BinaryPath = "x", MetadataPath = "y", MetadataVersion = 39, HeaderVersion = 39, UnityVersion = "6000.0.0f1", UnityVersionSource = "test", ImageBase = 0, MemoryImage = false }.Write(Path.Combine(entry, Il2CppGameModel.FileName));
+        var image = ElfFile.FromBytes(File.ReadAllBytes(lib));
+        var marker = new Il2CppRawLoader.Marker(_dir.File("elsewhere/libil2cpp.so"), "m", "-", "-", 2, "r", DateTime.UtcNow, BinaryIdentity: image.BuildId);
+        File.WriteAllText(Path.Combine(entry, Il2CppRawLoader.MarkerFileName), System.Text.Json.JsonSerializer.Serialize(marker));
+        var files = Il2CppDumpFiles.Locate(Path.Combine(entry, Il2CppRawLoader.DummyFolder))!;
+        Assert.Null(files.GameAssembly); // the original copy is gone
+        using var ws = new AssemblyWorkspace();
+        Assert.True(files.Describes(ws.LoadAny(lib).Native!));
+        Assert.False(files.Describes(ws.LoadAny(NativeFixtures.LinuxMuslArm64DbgShim).Native!));
+
+        Assert.True(Il2CppBinaryLayout.IsArm32(NativeFixtures.LinuxArmDbgShim));
+        Assert.False(Il2CppBinaryLayout.IsArm32(lib));
+    }
+
     private const string MobileVariable = "NDM_IL2CPP_MOBILE";
 
     /// <summary>
@@ -277,6 +302,7 @@ public sealed class Il2CppMobileTests(ITestOutputHelper output) : IDisposable
                                          $"{ws.Assemblies.Count} dummy assemblies, native {ws.Natives.FirstOrDefault()?.Image.Arch}");
                         Assert.True(model.MethodsWithCode > 0);
                         Assert.Contains("Read Il2Cpp game", text);
+                        Downstream(ws, model, abi);
                     }
                     catch (ToolError e)
                     {
@@ -287,5 +313,40 @@ public sealed class Il2CppMobileTests(ITestOutputHelper output) : IDisposable
         }
         finally { Environment.SetEnvironmentVariable(Il2CppRawLoader.RootVariable, previous); }
         Assert.True(read > 0);
+    }
+
+    /// <summary>apply_il2cpp_names on the loaded binary, find_method_by_address round trips (Thumb pointers on 32-bit ARM) and unity_overview.</summary>
+    private void Downstream(AssemblyWorkspace ws, Il2CppGameModel model, string? abi)
+    {
+        var native = Assert.Single(ws.Natives);
+        var il2cpp = new Il2CppService(ws);
+        var navigator = new Il2CppNavigator(ws, il2cpp, new Il2CppStringService(ws, il2cpp));
+        var code = new NativeCodeService(ws, new ServerOptions { BackgroundIndexing = false }, annotations: new NetDecompilerMcp.Native.Annotations.AnnotationStore(_dir.File($"ann-{Guid.NewGuid():N}")));
+        bool thumb = native.Image.Arch == NetDecompilerMcp.Native.NativeArch.Arm;
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        // The code index (ARM64 only; 32-bit ARM code is not decoded) shows how many method starts its own discovery found.
+        var index = thumb ? null : code.Index(native, null, default).GetAwaiter().GetResult();
+        if (index != null) output.WriteLine($"  code index: {index.Functions.Count} functions ({watch.Elapsed.TotalSeconds:0.0} s)");
+        watch.Restart();
+        var names = ws.Read(() => new Il2CppNativeNames(il2cpp, navigator, code).Apply(native, index, ws.Assemblies, default));
+        output.WriteLine($"  apply_il2cpp_names: {names.Functions} functions ({names.FunctionsNotDiscovered} not discovered by the code index), {names.SharedFunctions} shared, " +
+                         $"{names.MetadataSlots} metadata and {names.MethodInfoSlots} MethodInfo slots ({watch.Elapsed.TotalSeconds:0.0} s)");
+        Assert.True(names.Functions > 0);
+
+        var rng = new Random(11);
+        var methods = ws.Assemblies.SelectMany(il2cpp.GetIndex).Where(e => e.Rva is > 0 and <= uint.MaxValue).ToList();
+        int trips = 0, tried = Math.Min(300, methods.Count);
+        foreach (var e in Enumerable.Range(0, tried).Select(_ => methods[rng.Next(methods.Count)]))
+        {
+            ulong address = model.ImageBase + e.Rva!.Value + (thumb ? 1UL : 0);
+            if (ws.Read(() => navigator.Locate(address, "auto", ws.Assemblies)) is [{ Function.IsExactStart: true } r] && r.Methods.Any(m => m.Method == e.Method)) trips++;
+        }
+        output.WriteLine($"  find_method_by_address round trips{(thumb ? " (Thumb pointers)" : "")}: {trips}/{tried}");
+        Assert.Equal(tried, trips);
+
+        var root = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(native.FilePath)!)!)!;
+        var overview = NetDecompilerMcp.Services.Analysis.UnityOverview.Inspect(root, false, default);
+        output.WriteLine($"  unity_overview: {overview.Platform} {overview.Architecture}, backend {overview.Backend.Kind}, metadata {overview.Backend.MetadataState}, next {string.Join(", ", overview.NextSteps.Select(s => s.Action))}");
+        if (abi == null && overview.Platform == "android") Assert.Contains(overview.NextSteps, s => s.Action == "apply_il2cpp_names");
     }
 }

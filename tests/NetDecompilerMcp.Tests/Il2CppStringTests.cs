@@ -309,9 +309,9 @@ public sealed class Il2CppStringTests : IDisposable
         using var env = LoadDummy();
         var (search, il2cpp, _) = Tools(env);
         var text = await search.SearchStrings("hello");
-        Assert.Contains("code references unknown: no GameAssembly.dll next to the dump", text);
+        Assert.Contains("code references unknown: no game binary next to the dump", text);
         Assert.Contains("Il2Cpp literal, slot RVA 0x3000" + Environment.NewLine, text);
-        Assert.Contains("string literals: unknown (no GameAssembly.dll next to the dump)", await il2cpp.GetIl2CppInfo("Fixture.Native.NativeThing::First"));
+        Assert.Contains("string literals: unknown (no game binary next to the dump)", await il2cpp.GetIl2CppInfo("Fixture.Native.NativeThing::First"));
     }
 
     [Fact]
