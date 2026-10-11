@@ -59,8 +59,23 @@ public class ResponseBudgetTests
         var options = new ServerOptions { MaxOutputChars = 2_000 };
         var big = JsonSerializer.SerializeToElement(new { items = Enumerable.Range(0, 5_000).Select(i => $"item {i}").ToArray() });
         var result = new CallToolResult { Content = [new TextContentBlock { Text = "{}" }], StructuredContent = big };
-        var limited = ResponseBudget.Enforce(result, "extract_strings", options, new ResultStore(), null);
+        var limited = ResponseBudget.Enforce(result, "search_strings", options, new ResultStore(), null);
         Assert.True(limited.IsError);
+    }
+
+    /// <summary>simplify_methods applied its edit and then reported limit_exceeded, which reads as if nothing had changed.</summary>
+    [Fact]
+    public void OversizedResultOfAToolThatChangesStateStaysASuccess()
+    {
+        var options = new ServerOptions { MaxOutputChars = 10_000 };
+        var store = new ResultStore();
+        var limited = ResponseBudget.Enforce(TextResult(100_000), "simplify_methods", options, store, null);
+        Assert.NotEqual(true, limited.IsError);
+        var text = ((TextContentBlock)limited.Content[0]).Text;
+        Assert.StartsWith(new string('x', 10_000) + "\n\n[The call completed.", text);
+        Assert.Contains("read_result id=r1", text);
+        Assert.True(ResponseBudget.Size(limited) <= ResponseBudget.Budget(options, null));
+        Assert.Equal(100_000, store.Get("r1").Text.Length);
     }
 
     [Fact]

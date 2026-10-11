@@ -46,7 +46,8 @@ command line such errors exit with code 3.
 
 ## A result says limit_exceeded, or the text ends with a paging footer
 
-A result over the response limit is kept, and the error names its id: `read_result id=<id>` pages through it. Long
+A result over the response limit is kept, and the error names its id: `read_result id=<id>` pages through it. A tool
+that changes state (an edit, a save) still succeeds: it sends the head of its result and the id. Long
 text pages end with a footer naming the next `offset`. Narrow the call where you can (one member instead of a type, a
 `limit`, a filter). The page size is the server option `--max-output`. From the command line, whole results are
 printed unless `--max-output` is given.

@@ -7,7 +7,8 @@ namespace NetDecompilerMcp.Mcp;
 /// <summary>
 /// Bounds every tool result, errors included. A result larger than the page size the call asked for (plus room for
 /// headers and footers) is kept in the <see cref="ResultStore"/>: a success becomes a limit_exceeded error naming the
-/// kept result, an error keeps its code and sends the head of its message with the kept result's id.
+/// kept result, an error keeps its code and sends the head of its message with the kept result's id. A tool that can
+/// change state stays a success with the head of its result, since an error would read as if nothing had changed.
 /// No tool can send a frame the client would truncate or reject.
 /// </summary>
 internal static class ResponseBudget
@@ -46,6 +47,7 @@ internal static class ResponseBudget
         var size = Size(result);
         if (size <= limit) return result;
         if (result.IsError == true) return BoundError(result, tool, store, size, limit);
+        if (tool != null && !ToolEffects.Of(tool).ReadOnly) return Head(result, tool, store, size, budget, limit);
 
         var text = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(b => b.Text));
         if (text.Length == 0 && result.StructuredContent is { } s)
@@ -58,6 +60,23 @@ internal static class ResponseBudget
             Details = new { resultId = id, chars = size, limit },
         };
         return ErrorResult.From(error, tool);
+    }
+
+    private static CallToolResult Head(CallToolResult result, string tool, ResultStore store, long size, int budget, long limit)
+    {
+        var text = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(b => b.Text));
+        if (text.Length == 0 && result.StructuredContent is { } s)
+            text = JsonSerializer.Serialize(s, IndentedJson);
+        var id = store.Add(tool, text);
+        int keep = Math.Min(text.Length, budget - Slack);
+        if (keep > 0 && keep < text.Length && char.IsHighSurrogate(text[keep - 1])) keep--;
+        return new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = text[..keep] + $"\n\n[The call completed. Its result is {size:N0} characters, over the {limit:N0}-character response limit, " +
+                                                     $"so it is cut here; the whole result is kept as {id}: read_result id={id} pages through it.]" }],
+            StructuredContent = result.StructuredContent is { } structured && structured.GetRawText().Length <= budget ? structured : null,
+            Meta = result.Meta,
+        };
     }
 
     /// <summary>The same error (code, retryable) with the head of its message; the full error text is kept for read_result.</summary>
