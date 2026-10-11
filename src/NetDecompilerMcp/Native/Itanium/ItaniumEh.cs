@@ -117,6 +117,8 @@ public static class ItaniumEh
                 var sites = e.Lsda is { } at ? lsda.CallSites(at, e.Start, out _) : null;
                 list.Add(new ItaniumEhFunction(e.Start, e.End, "compact unwind", personality, e.Lsda, sites ?? [], []));
             }
+        if (image.Arch == NativeArch.Arm && image.Sections.Any(s => s.Name == ".ARM.exidx"))
+            notes.Add("32-bit ARM unwinds through .ARM.exidx / .ARM.extab (EHABI), whose personalities and LSDAs are not decoded here");
         list.Sort((a, b) => a.Begin.CompareTo(b.Begin));
         var distinct = list.DistinctBy(f => f.Begin).ToArray();
         return new ItaniumEhTable(distinct, fdes.Count, compact, notes);

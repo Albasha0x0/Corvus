@@ -2,6 +2,7 @@ using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native;
 using NetDecompilerMcp.Native.Annotations;
 using NetDecompilerMcp.Native.Calls;
+using NetDecompilerMcp.Native.Elf;
 using NetDecompilerMcp.Native.Itanium;
 using NetDecompilerMcp.Services;
 using NetDecompilerMcp.Tests.NativeFormats;
@@ -77,6 +78,16 @@ public class ItaniumEhTests
     }
 
     [Fact]
+    public void Arm32_images_say_their_EHABI_tables_are_not_decoded()
+    {
+        var w = new ElfWriter { Is64 = false, Machine = ElfWriter.EmArm, UseRel = true, Text = [0x70, 0x47] };
+        w.Exidx.Add((ElfWriter.TextRva | 1, false));
+        var table = ItaniumEh.Of(ElfFile.FromBytes(w.Build(), "lib.so"));
+        Assert.Equal(0, table.Fdes);
+        Assert.Contains(table.Notes, n => n.Contains("EHABI", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Get_exception_info_and_the_dossier_report_the_tables()
     {
         using var dir = new TempDir();
@@ -89,7 +100,8 @@ public class ItaniumEhTests
         var summary = await tools.GetExceptionInfo(path);
         Assert.Contains("121 FDEs (.eh_frame); 21 functions with an LSDA", summary);
         Assert.Contains("Personality __gxx_personality_v0: 21 functions", summary);
-        Assert.Contains("std::exception (", summary);
+        Assert.Matches(@"Caught: .*\bstd::exception \(\d+\)", summary);
+        Assert.DoesNotContain("(std::exception", summary);
 
         var image = NativeImageLoader.Open(path);
         var fn = ItaniumEh.Of(image).Functions.First(f => f.CallSites.Any(c => c.Actions.Contains("catch (std::exception)")));

@@ -93,7 +93,7 @@ public sealed class NativeExceptionTools(AssemblyWorkspace workspace, NativeCode
                 sb.AppendLine($"Personality {g.Key}: {Plural(g.Count(), "function")}");
             var caught = withLsda.SelectMany(f => f.CallSites).SelectMany(c => c.Actions).Where(a => a.StartsWith("catch", StringComparison.Ordinal))
                 .GroupBy(a => a).OrderByDescending(g => g.Count()).Take(20).ToList();
-            if (caught.Count > 0) sb.AppendLine("Caught: " + string.Join(", ", caught.Select(g => $"{g.Key[6..^1]} ({g.Count()})")));
+            if (caught.Count > 0) sb.AppendLine("Caught: " + string.Join(", ", caught.Select(g => $"{g.Key[7..^1]} ({g.Count()})")));
             foreach (var note in table.Notes) sb.AppendLine($"Note: {note}");
             sb.AppendLine("Pass an address for one function's call sites and landing pads.");
             return sb.ToString();
