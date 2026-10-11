@@ -85,6 +85,63 @@ public class WorkerConnectionTests
     }
 
     [Fact]
+    public async Task Serial_connection_with_grace_cancels_in_the_worker_and_keeps_it()
+    {
+        using var worker = new FakeWorkerProcess();
+        using var c = worker.Connect(new WorkerConnectionOptions { CancelGrace = TimeSpan.FromSeconds(10) });
+        var e = await Assert.ThrowsAsync<ToolError>(() => c.RequestAsync("sleep", new JsonObject { ["ms"] = 60_000 }, TimeSpan.FromMilliseconds(200), default));
+        Assert.Equal(ErrorCode.Timeout, e.Code);
+        Assert.True(c.IsAlive);
+        Assert.Equal(1, worker.Cancelled);
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => c.RequestAsync("sleep", new JsonObject { ["ms"] = 60_000 }, TimeSpan.FromMinutes(1), cts.Token));
+        Assert.True(c.IsAlive);
+        Assert.Equal(2, worker.Cancelled);
+        Assert.Empty(c.Running);
+        Assert.Equal(3, (await c.RequestAsync("echo", new JsonObject { ["v"] = 3 }, TimeSpan.FromSeconds(5), default)).GetProperty("v").GetInt32());
+    }
+
+    [Fact]
+    public async Task Timed_out_request_answered_within_the_grace_returns_its_partial_result()
+    {
+        using var worker = new FakeWorkerProcess();
+        using var c = worker.Connect(new WorkerConnectionOptions { CancelGrace = TimeSpan.FromSeconds(10) });
+        var r = await c.RequestAsync("partial", null, TimeSpan.FromMilliseconds(200), default);
+        Assert.Equal("cancelled", r.GetProperty("partial").GetString());
+        Assert.Equal(42, r.GetProperty("next").GetInt32());
+        Assert.True(c.IsAlive);
+    }
+
+    [Fact]
+    public async Task Requests_carry_their_time_limit_and_show_while_running()
+    {
+        using var worker = new FakeWorkerProcess();
+        using var c = worker.Connect(Concurrent);
+        Assert.Equal(90, (await c.RequestAsync("timeout", null, TimeSpan.FromSeconds(90), default)).GetProperty("timeout").GetDouble());
+        var running = c.RequestAsync("sleep", new JsonObject { ["ms"] = 500 }, TimeSpan.FromSeconds(10), default);
+        await Task.Delay(100);
+        Assert.Equal("sleep", Assert.Single(c.Running).Op);
+        await running;
+        Assert.Empty(c.Running);
+    }
+
+    [Fact]
+    public async Task Function_lists_cut_short_continue_from_the_cursor()
+    {
+        static Task<System.Text.Json.JsonElement> Json(string text) => Task.FromResult(System.Text.Json.JsonDocument.Parse(text).RootElement.Clone());
+        var starts = new List<uint?>();
+        var list = await WorkerRows.FunctionsPaged(start =>
+        {
+            starts.Add(start);
+            return Json(start == null ? """{"rows":[[16,32,"a",0]],"partial":"deadline","next":32}""" : """[[32,48,"b",0]]""");
+        });
+        Assert.Equal(["a", "b"], list.Select(f => f.Name));
+        Assert.Equal([null, 32u], starts);
+        var e = await Assert.ThrowsAsync<ToolError>(() => WorkerRows.FunctionsPaged(_ => Json("""{"rows":[],"partial":"deadline","next":0}""")));
+        Assert.Equal(ErrorCode.Timeout, e.Code);
+    }
+
+    [Fact]
     public async Task Worker_errors_map_to_tool_errors()
     {
         using var worker = new FakeWorkerProcess();

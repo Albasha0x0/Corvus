@@ -436,7 +436,12 @@ public sealed record NativeCallTarget(uint Site, string Kind, uint? Target, stri
 
 /// <summary>Result of <see cref="INativeDecompilerSession.GetCallTargetsAsync"/>: functions decompiled, failed (with the reason) and not reached in time.</summary>
 public sealed record NativeCallTargets(IReadOnlyList<NativeCallTarget> Targets, int Decompiled, IReadOnlyList<(uint Function, string Reason)> Failed, int Skipped,
-    bool DecompilerAvailable);
+    bool DecompilerAvailable)
+{
+    /// <summary>Why functions were skipped (budget, deadline or cancelled), or null; <see cref="Next"/>: the first one skipped.</summary>
+    public string? Partial { get; init; }
+    public uint? Next { get; init; }
+}
 
 /// <summary>
 /// A decompiler local of the function at <see cref="Function"/>, found by its stack offset when it has one, else by
@@ -546,7 +551,12 @@ public sealed record NativeFieldAccess(uint Rva, string Kind, uint? FunctionRva)
 /// scanned, failed and not reached in time.
 /// </summary>
 public sealed record NativeFieldXrefs(string Type, string Member, int Offset, int Size, string MemberType, IReadOnlyList<NativeFieldAccess> Accesses,
-    int Candidates, int Scanned, int Failed, int Skipped, bool DecompilerAvailable);
+    int Candidates, int Scanned, int Failed, int Skipped, bool DecompilerAvailable)
+{
+    /// <summary>Why functions were skipped (budget, deadline or cancelled), or null; <see cref="Next"/>: the first one skipped.</summary>
+    public string? Partial { get; init; }
+    public uint? Next { get; init; }
+}
 
 /// <summary>What a script printed and returned (the value of a final expression), or the exception it raised.</summary>
 public sealed record NativeScriptResult(string? Result, string Stdout, string Stderr, string? Error);

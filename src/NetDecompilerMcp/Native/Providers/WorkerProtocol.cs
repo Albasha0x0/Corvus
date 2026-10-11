@@ -10,16 +10,18 @@ namespace NetDecompilerMcp.Native.Providers;
 /// Request <c>{"id":n,"op":"...","args":{...}}</c>; response <c>{"id":n,"ok":true,"result":...}</c> or
 /// <c>{"id":n,"ok":false,"error":{"code":"...","message":"..."}}</c>; events <c>{"event":"...",...}</c> carry no id.
 /// Lines that are not JSON objects are noise (an engine printing to stdout) and are kept with stderr.
-/// A worker that runs requests concurrently answers in any order and takes <see cref="CancelOp"/> with
-/// <c>{"id":n}</c>, after which request n ends early with an error.
+/// A worker answers in any order and takes <see cref="CancelOp"/> with <c>{"id":n}</c>, after which request n ends
+/// early (with an error, or a result marked partial). A request may carry <c>"timeout"</c> (seconds): the worker
+/// stops it a little before then so that a partial result arrives in time.
 /// </summary>
 public static class WorkerProtocol
 {
     public const string CancelOp = "cancel";
 
-    public static string EncodeRequest(long id, string op, JsonObject? args)
+    public static string EncodeRequest(long id, string op, JsonObject? args, TimeSpan? timeout = null)
     {
         var o = new JsonObject { ["id"] = id, ["op"] = op, ["args"] = args ?? new JsonObject() };
+        if (timeout is { } t && t > TimeSpan.Zero && t < TimeSpan.MaxValue) o["timeout"] = Math.Round(t.TotalSeconds, 3);
         // Default JsonSerializerOptions escape non-ASCII, so a request never contains a raw line break or invalid UTF-8.
         var line = o.ToJsonString();
         if (line.Contains('\n') || line.Contains('\r')) throw new InvalidOperationException("encoded request contains a line break");

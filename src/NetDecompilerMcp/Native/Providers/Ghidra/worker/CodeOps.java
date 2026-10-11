@@ -29,6 +29,7 @@ import ghidra.program.model.listing.CodeUnitFormat;
 import ghidra.program.model.listing.CodeUnitIterator;
 import ghidra.program.model.listing.CommentType;
 import ghidra.program.model.listing.Function;
+import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.InstructionIterator;
 import ghidra.program.model.listing.Listing;
@@ -61,15 +62,25 @@ final class CodeOps {
         return max.getOffset() + 1 - w.base;
     }
 
-    /** [start, end, name, flags (1 thunk, 8 typed: a signature not of default source), refs?]: refs counts code references to the start. */
+    /**
+     * [start, end, name, flags (1 thunk, 8 typed: a signature not of default source), refs?]: refs counts code references to
+     * the start; from rva start when given. Stopped early: {rows, partial, next} where next is the start rva of the following call.
+     */
     static JsonElement functions(Worker w, Worker.Request r) throws Exception {
         boolean refs = r.args.has("refs") && r.args.get("refs").getAsBoolean();
         ReferenceManager rm = w.program.getReferenceManager();
         JsonArray out = new JsonArray();
-        for (Function f : w.program.getFunctionManager().getFunctions(true)) {
-            r.monitor.checkCancelled();
+        boolean from = r.args.has("start") && !r.args.get("start").isJsonNull();
+        FunctionIterator functions = from ? w.program.getFunctionManager().getFunctions(w.addr(r.args, "start"), true)
+            : w.program.getFunctionManager().getFunctions(true);
+        for (Function f : functions) {
             Long start = w.rva(f.getEntryPoint());
             if (start == null) continue;
+            if (out.size() > 0 && r.stopped()) {
+                JsonObject o = new JsonObject();
+                o.add("rows", out);
+                return r.partial(o, start);
+            }
             JsonArray row = new JsonArray();
             row.add(start);
             row.add(Math.min(end(w, f), 0xFFFFFFFFL));
@@ -243,8 +254,12 @@ final class CodeOps {
         if (first != null && !first.getAddress().equals(a)) a = first.getAddress();
         CodeUnitIterator it = listing.getCodeUnits(a, true);
         Address expected = a;
+        boolean cut = false;
         while (it.hasNext() && insns.size() < count) {
-            r.monitor.checkCancelled();
+            if (insns.size() > 0 && r.stopped()) {
+                cut = true;
+                break;
+            }
             CodeUnit cu = it.next();
             if (!cu.getAddress().equals(expected) || w.rva(cu.getAddress()) == null) break;
             insns.add(row(w, cu));
@@ -253,7 +268,8 @@ final class CodeOps {
         }
         JsonObject o = new JsonObject();
         o.add("insns", insns);
-        o.addProperty("truncated", insns.size() >= count);
+        o.addProperty("truncated", cut || insns.size() >= count);
+        if (cut) o.addProperty("partial", r.stop != null ? r.stop : "cancelled");
         return o;
     }
 

@@ -123,7 +123,8 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
             var display = NativeEngineService.DisplayName(choice.Engine);
             if (!rows.DecompilerAvailable) notes.Add($"the {display} decompiler is not available: only {display}'s code references are merged");
             if (rows.Failed.Count > 0) notes.Add($"{display} could not decompile {rows.Failed.Count} functions");
-            if (rows.Skipped > 0) notes.Add($"{display} had no time for {rows.Skipped} functions");
+            if (rows.Skipped > 0) notes.Add($"{display} had no time for {rows.Skipped} functions" +
+                (rows.Partial != null ? $" (PARTIAL: {NativeCodeTools.PartialReason(rows.Partial)}; call again, or with a smaller limit)" : ""));
         }
         notes.Add(choice.Line);
         if (start + page.Count < filtered.Count) notes.Add($"{filtered.Count - start - page.Count} more: offset={start + page.Count}");

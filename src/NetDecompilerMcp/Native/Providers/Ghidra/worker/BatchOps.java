@@ -12,6 +12,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import ghidra.program.model.listing.Function;
+import ghidra.util.exception.CancelledException;
 
 /** Requests over many functions with partial results; callers hold the read lock. */
 final class BatchOps {
@@ -54,18 +55,16 @@ final class BatchOps {
         finally {
             pool.shutdownNow();
         }
-        r.monitor.checkCancelled();
         JsonArray out = new JsonArray();
         for (JsonObject item : items) out.add(item);
         JsonObject o = new JsonObject();
         o.add("items", out);
-        return o;
+        return r.stop != null ? r.partial(o, null) : o;
     }
 
     private static JsonObject item(Worker w, Worker.Request r, long rva, double perItem, double left) throws Exception {
-        r.monitor.checkCancelled();
         JsonObject item;
-        if (left < 1) {
+        if (left < 1 || r.stopped()) {
             item = new JsonObject();
             item.addProperty("status", "skipped");
         }
@@ -80,6 +79,10 @@ final class BatchOps {
                 item.addProperty("status", "error");
                 item.addProperty("code", ex.code);
                 item.addProperty("message", ex.getMessage());
+            }
+            catch (CancelledException ex) {
+                item = new JsonObject();
+                item.addProperty("status", "skipped");
             }
         }
         item.addProperty("rva", rva);

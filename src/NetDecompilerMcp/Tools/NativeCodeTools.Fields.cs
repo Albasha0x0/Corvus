@@ -37,6 +37,14 @@ public sealed partial class NativeCodeTools
             : $"list_native_types filter={shortName} kind=struct finds the type's name in the engine (C++ names may use __ for ::), then list_native_types name=<it> lists its members";
     }
 
+    /// <summary>Why an engine scan stopped early, in words.</summary>
+    internal static string PartialReason(string reason) => reason switch
+    {
+        "cancelled" => "cancelled",
+        "deadline" => "the request time limit was reached",
+        _ => "the time budget ran out",
+    };
+
     private static bool IsAddress(NativeCodeIndex index, string text)
     {
         try { Address(index, text); return true; }
@@ -76,7 +84,8 @@ public sealed partial class NativeCodeTools
         var target = $"{r.Type}::{r.Member}";
         var scan = !r.DecompilerAvailable ? "the decompiler is not available, so only typed operands are listed"
             : $"pseudocode of {r.Scanned} of {r.Candidates} function(s) naming {r.Type} scanned" +
-              (r.Skipped > 0 ? $", {r.Skipped} not reached in time" : "") + (r.Failed > 0 ? $", {r.Failed} failed to decompile" : "");
+              (r.Skipped > 0 ? $", {r.Skipped} not reached in time" : "") + (r.Failed > 0 ? $", {r.Failed} failed to decompile" : "") +
+              (r.Partial != null ? $"; PARTIAL ({PartialReason(r.Partial)}): call again to scan the rest, the first not scanned is {(r.Next is { } n ? NativeAddress.Va(native.Image, n) : "unknown")}" : "");
         var choice = new EngineChoice(session.ProviderId, $"struct members come from the engine's types; {scan}");
         var header = $"References to member {target} (+0x{r.Offset:X}, {r.MemberType}, {r.Size} bytes):\n{choice.Line}\n";
         return StructuredOutput.With(header + pager.PageRows(rows, offset, limit, "reference"), Xrefs(native.Id, target, rows, offset, limit, null, choice));

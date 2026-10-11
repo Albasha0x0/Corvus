@@ -27,6 +27,8 @@ public sealed record IdaProviderOptions
     public long? MemoryLimitBytes { get; init; }
     /// <summary>Unsaved edits after which the database is saved, so a restart replays a bounded journal.</summary>
     public int JournalSaveThreshold { get; init; } = 100;
+    /// <summary>Time a request that timed out or was cancelled gets to stop after the worker is asked to; then the worker is killed.</summary>
+    public TimeSpan CancelGrace { get; init; } = TimeSpan.FromSeconds(10);
 }
 
 /// <summary>
@@ -185,7 +187,7 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
         };
         try
         {
-            return WorkerConnection.Start("IDA worker", start, Remediation);
+            return WorkerConnection.Start("IDA worker", start, Remediation, new WorkerConnectionOptions { CancelGrace = _options.CancelGrace });
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException)
         {
@@ -227,7 +229,7 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
             return $"Raise {EngineMemoryLimit.Variable} (MB; 0 turns the limit off) and retry.";
         return code switch
         {
-            ErrorCode.Timeout => "Retry; the next request restarts IDA from the saved database. Raise the time limit for large images.",
+            ErrorCode.Timeout => "The request was stopped and IDA keeps running; retry, or raise the time limit for large functions or images.",
             ErrorCode.ProviderUnavailable => "Retry once (the session restarts IDA from the saved database); if it persists, run the provider probe and check the IDA install, its license and the Python it uses.",
             ErrorCode.Unsupported => "Use the built-in disassembly for this architecture.",
             ErrorCode.NotFound => "List the functions to find a valid address.",

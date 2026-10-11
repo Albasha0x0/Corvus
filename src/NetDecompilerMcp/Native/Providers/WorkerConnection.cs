@@ -13,9 +13,13 @@ public sealed record WorkerConnectionOptions
     /// <summary>
     /// A request that times out or is cancelled is first asked to stop with a <see cref="WorkerProtocol.CancelOp"/>
     /// request; the worker is killed only when no response arrives within this time. Null: killed at once.
+    /// A timed-out request whose worker answers within the grace returns that answer (a result marked partial).
     /// </summary>
     public TimeSpan? CancelGrace { get; init; }
 }
+
+/// <summary>A request the worker is running: its op, when it was sent, and the last progress the worker reported for it.</summary>
+public sealed record WorkerRequestState(long Id, string Op, DateTime StartedUtc, string? Stage);
 
 /// <summary>
 /// A running worker process and its request channel (see <see cref="WorkerProtocol"/>). By default requests are
@@ -37,7 +41,9 @@ public sealed class WorkerConnection : IDisposable
     private readonly object _sync = new();
     private readonly object _writeSync = new();
     private readonly Dictionary<long, TaskCompletionSource<WorkerMessage.Response>> _pending = [];
+    private readonly Dictionary<long, WorkerRequestState> _running = [];
     private long _nextId;
+    private int _waiting;
     private string? _killReason;
     private int _disposed;
 
@@ -88,6 +94,15 @@ public sealed class WorkerConnection : IDisposable
     }
 
     public string StderrText => _stderr.Text;
+
+    /// <summary>Requests sent and not yet answered, oldest first.</summary>
+    public IReadOnlyList<WorkerRequestState> Running
+    {
+        get { lock (_sync) return _running.Values.OrderBy(r => r.Id).ToList(); }
+    }
+
+    /// <summary>Requests waiting for a serial connection to finish the running one.</summary>
+    public int Waiting => Volatile.Read(ref _waiting);
     public IReadOnlyList<int> TreeProcessIds() => _process.TreeProcessIds();
     public Task Closed => _closed.Task;
 
@@ -107,15 +122,24 @@ public sealed class WorkerConnection : IDisposable
     public async Task<JsonElement> RequestAsync(string op, JsonObject? args, TimeSpan timeout, CancellationToken cancellationToken)
     {
         var serial = !_options.Concurrent;
-        if (serial) await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (serial)
+        {
+            Interlocked.Increment(ref _waiting);
+            try { await _gate.WaitAsync(cancellationToken).ConfigureAwait(false); }
+            finally { Interlocked.Decrement(ref _waiting); }
+        }
         long id = 0;
         try
         {
             if (!IsAlive) throw Died(op);
             id = Interlocked.Increment(ref _nextId);
             var tcs = new TaskCompletionSource<WorkerMessage.Response>(TaskCreationOptions.RunContinuationsAsynchronously);
-            lock (_sync) _pending[id] = tcs;
-            var write = Send(WorkerProtocol.EncodeRequest(id, op, args));
+            lock (_sync)
+            {
+                _pending[id] = tcs;
+                _running[id] = new WorkerRequestState(id, op, DateTime.UtcNow, null);
+            }
+            var write = Send(WorkerProtocol.EncodeRequest(id, op, args, timeout));
 
             using var timer = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timer.CancelAfter(timeout);
@@ -134,6 +158,7 @@ public sealed class WorkerConnection : IDisposable
             if (await CancelAsync(id, write, tcs.Task).ConfigureAwait(false))
             {
                 if (cancelled) throw new OperationCanceledException(cancellationToken);
+                if (tcs.Task.Result.Ok) return tcs.Task.Result.Result;
                 throw new ToolError(ErrorCode.Timeout, $"{_name} did not finish '{op}' within {Seconds(timeout)}; the request was cancelled.",
                     _remediation(ErrorCode.Timeout, op));
             }
@@ -148,7 +173,11 @@ public sealed class WorkerConnection : IDisposable
         }
         finally
         {
-            lock (_sync) _pending.Remove(id);
+            lock (_sync)
+            {
+                _pending.Remove(id);
+                _running.Remove(id);
+            }
             if (serial) _gate.Release();
         }
     }
@@ -264,6 +293,7 @@ public sealed class WorkerConnection : IDisposable
                         _ready.TrySetResult(e.Body);
                         break;
                     case WorkerMessage.Event e:
+                        if (e.Name == "progress") Progressed(e.Body);
                         try { EventReceived?.Invoke(e); } catch (Exception ex) { _stderr.Append($"[event handler failed: {ex.Message}]\n"); }
                         break;
                     case WorkerMessage.Noise n:
@@ -290,4 +320,17 @@ public sealed class WorkerConnection : IDisposable
     }
 
     private void OnClosed() => _closed.TrySetResult();
+
+    /// <summary>Keeps the stage of a progress event on its request (the only one running when the event names none).</summary>
+    private void Progressed(JsonElement body)
+    {
+        long? id = body.TryGetProperty("id", out var i) && i.TryGetInt64(out var n) ? n : null;
+        var stage = body.TryGetProperty("stage", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString() : null;
+        if (string.IsNullOrEmpty(stage)) return;
+        lock (_sync)
+        {
+            var key = id ?? (_running.Count == 1 ? _running.Keys.First() : -1);
+            if (_running.TryGetValue(key, out var r)) _running[key] = r with { Stage = stage };
+        }
+    }
 }

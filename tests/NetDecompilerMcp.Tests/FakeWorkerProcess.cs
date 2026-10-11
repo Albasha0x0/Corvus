@@ -8,7 +8,8 @@ namespace NetDecompilerMcp.Tests;
 
 /// <summary>
 /// A worker thread behind anonymous pipes, speaking <see cref="WorkerProtocol"/> with concurrent requests. Ops: echo,
-/// save, sleep {ms} (cancellable), stubborn (ignores cancel), set {key,value} / get {key} (per-process state), crash, close, cancel.
+/// save, sleep {ms} (cancellable), partial (until cancelled, then a result marked partial), stubborn (ignores cancel),
+/// timeout (the request's time limit), set {key,value} / get {key} (per-process state), crash, close, cancel.
 /// </summary>
 internal sealed class FakeWorkerProcess : ChildProcess
 {
@@ -50,6 +51,7 @@ internal sealed class FakeWorkerProcess : ChildProcess
                 var id = (long)req["id"]!;
                 var op = (string)req["op"]!;
                 var args = req["args"]!.AsObject();
+                if (req["timeout"] is { } timeout) args["_timeout"] = timeout.DeepClone();
                 if (op == WorkerProtocol.CancelOp)
                 {
                     if (_running.TryGetValue((long)args["id"]!, out var target))
@@ -84,6 +86,13 @@ internal sealed class FakeWorkerProcess : ChildProcess
                 case "sleep":
                     if (!cts.Token.WaitHandle.WaitOne((int)args["ms"]!)) Reply(Ok(id, args.DeepClone()));
                     else if (!_stop.IsCancellationRequested) Reply(Error(id, "failed", "cancelled"));
+                    break;
+                case "partial":
+                    cts.Token.WaitHandle.WaitOne();
+                    if (!_stop.IsCancellationRequested) Reply(Ok(id, new JsonObject { ["partial"] = "cancelled", ["next"] = 42 }));
+                    break;
+                case "timeout":
+                    Reply(Ok(id, new JsonObject { ["timeout"] = args["_timeout"]?.DeepClone() }));
                     break;
                 case "stubborn":
                     _stop.Token.WaitHandle.WaitOne();

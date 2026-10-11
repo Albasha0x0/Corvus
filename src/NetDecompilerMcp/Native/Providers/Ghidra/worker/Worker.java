@@ -76,11 +76,36 @@ public class Worker implements GhidraLaunchable {
         final JsonObject args;
         final long started = System.nanoTime();
         final Monitor monitor = new Monitor();
+        /** System.nanoTime() the request answers by: its time limit less a margin that carries a partial result back in time. */
+        final long deadline;
+        /** Null, "cancelled" (a cancel op) or "deadline". */
+        volatile String stop;
 
-        Request(long id, String op, JsonObject args) {
+        Request(long id, String op, JsonObject args, double timeoutSeconds) {
             this.id = id;
             this.op = op;
             this.args = args;
+            double answerBy = timeoutSeconds > 0 ? Math.max(0.1, timeoutSeconds - Math.min(5.0, Math.max(0.25, timeoutSeconds * 0.1))) : 0;
+            this.deadline = answerBy > 0 ? started + (long) (answerBy * 1e9) : Long.MAX_VALUE;
+        }
+
+        void stop(String reason) {
+            if (stop == null) stop = reason;
+            monitor.cancel();
+        }
+
+        /** Whether the request was cancelled or reached its deadline: long loops stop and return what they have. */
+        boolean stopped() {
+            if (stop == null && System.nanoTime() - deadline >= 0) stop("deadline");
+            return stop != null || monitor.isCancelled();
+        }
+
+        /** Marks a result cut short with why and where to continue. */
+        JsonObject partial(JsonObject o, Long next) {
+            o.addProperty("partial", stop != null ? stop : "budget");
+            if (next != null) o.addProperty("next", next);
+            else o.add("next", null);
+            return o;
         }
     }
 
@@ -140,7 +165,8 @@ public class Worker implements GhidraLaunchable {
             try {
                 JsonObject req = JsonParser.parseString(line).getAsJsonObject();
                 r = new Request(req.get("id").getAsLong(), req.get("op").getAsString(),
-                    req.has("args") && req.get("args").isJsonObject() ? req.getAsJsonObject("args") : new JsonObject());
+                    req.has("args") && req.get("args").isJsonObject() ? req.getAsJsonObject("args") : new JsonObject(),
+                    req.has("timeout") && req.get("timeout").isJsonPrimitive() ? req.get("timeout").getAsDouble() : 0);
             }
             catch (RuntimeException e) {
                 emit(error(null, "invalid_argument", "bad request line: " + e.getMessage()));
@@ -148,7 +174,7 @@ public class Worker implements GhidraLaunchable {
             }
             if (r.op.equals("cancel")) {
                 Request target = running.get(r.args.get("id").getAsLong());
-                if (target != null) target.monitor.cancel();
+                if (target != null) target.stop("cancelled");
                 continue;
             }
             running.put(r.id, r); // registered before it runs, so a cancel that follows at once finds it
@@ -159,13 +185,15 @@ public class Worker implements GhidraLaunchable {
     }
 
     private void heartbeat() {
-        while (true) {
+        for (long tick = 1;; tick++) {
             try {
-                Thread.sleep(2000);
+                Thread.sleep(250);
             }
             catch (InterruptedException e) {
                 return;
             }
+            for (Request r : running.values()) r.stopped(); // a deadline cancels the monitor, which stops a running decompiler
+            if (tick % 8 != 0) continue;
             for (Request r : running.values()) {
                 double elapsed = (System.nanoTime() - r.started) / 1e9;
                 if (elapsed < 2) continue;
@@ -195,7 +223,10 @@ public class Worker implements GhidraLaunchable {
             response = error(r.id, e.code, e.getMessage());
         }
         catch (CancelledException e) {
-            response = error(r.id, "failed", "'" + r.op + "' was cancelled");
+            double seconds = (System.nanoTime() - r.started) / 1e9;
+            response = "deadline".equals(r.stop)
+                ? error(r.id, "timeout", String.format("'%s' reached its time limit after %.1f s", r.op, seconds))
+                : error(r.id, "cancelled", String.format("'%s' was cancelled after %.1f s", r.op, seconds));
         }
         catch (IllegalArgumentException | NullPointerException | ClassCastException | IllegalStateException e) {
             e.printStackTrace(System.err);
@@ -606,9 +637,13 @@ public class Worker implements GhidraLaunchable {
 
     /** Test hook: holds a request for the given seconds unless cancelled. */
     private JsonElement sleep(Request r) throws Exception {
-        long end = System.nanoTime() + (long) (r.args.get("seconds").getAsDouble() * 1e9);
+        long start = System.nanoTime(), end = start + (long) (r.args.get("seconds").getAsDouble() * 1e9);
         while (System.nanoTime() < end) {
-            r.monitor.checkCancelled();
+            if (r.stopped()) {
+                JsonObject o = new JsonObject();
+                o.addProperty("slept", (System.nanoTime() - start) / 1e9);
+                return r.partial(o, null);
+            }
             Thread.sleep(20);
         }
         return new JsonObject();

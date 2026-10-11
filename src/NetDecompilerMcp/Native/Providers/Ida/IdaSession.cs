@@ -147,8 +147,8 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
 
     public async Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(bool withReferences, CancellationToken cancellationToken = default)
     {
-        var r = await CallAsync("functions", IdaProvider.Args(("refs", withReferences)), cancellationToken).ConfigureAwait(false);
-        return WorkerRows.Functions(r);
+        return await WorkerRows.FunctionsPaged(start =>
+            CallAsync("functions", IdaProvider.Args(("refs", withReferences), ("start", start)), cancellationToken)).ConfigureAwait(false);
     }
 
     public async Task<DecompiledFunction> DecompileAsync(uint rva, CancellationToken cancellationToken = default)
@@ -212,7 +212,9 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
             });
         }
         var failed = r.GetProperty("failed").EnumerateArray().Select(f => (f[0].GetUInt32(), f[1].GetString() ?? "")).ToList();
-        return new NativeCallTargets(targets, r.GetProperty("decompiled").GetInt32(), failed, r.GetProperty("skipped").GetInt32(), r.GetProperty("decompiler").GetBoolean());
+        var (partial, next) = WorkerRows.Partial(r);
+        return new NativeCallTargets(targets, r.GetProperty("decompiled").GetInt32(), failed, r.GetProperty("skipped").GetInt32(), r.GetProperty("decompiler").GetBoolean())
+            { Partial = partial, Next = next };
     }
 
     public async Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default) =>
@@ -321,7 +323,8 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
             .Select(x => new NativeFieldAccess(x[0].GetUInt32(), x[1].GetString() ?? "", x[2].ValueKind == JsonValueKind.Number ? x[2].GetUInt32() : null)).ToList();
         return new NativeFieldXrefs(r.GetProperty("type").GetString() ?? "", r.GetProperty("member").GetString() ?? "", r.GetProperty("offset").GetInt32(),
             r.GetProperty("size").GetInt32(), r.GetProperty("member_type").GetString() ?? "", rows, r.GetProperty("candidates").GetInt32(),
-            r.GetProperty("scanned").GetInt32(), r.GetProperty("failed").GetInt32(), r.GetProperty("skipped").GetInt32(), r.GetProperty("decompiler").GetBoolean());
+            r.GetProperty("scanned").GetInt32(), r.GetProperty("failed").GetInt32(), r.GetProperty("skipped").GetInt32(), r.GetProperty("decompiler").GetBoolean())
+            { Partial = WorkerRows.Partial(r).Partial, Next = WorkerRows.Partial(r).Next };
     }
 
     public async Task<NativeScriptResult> RunScriptAsync(string code, bool reset = false, CancellationToken cancellationToken = default)

@@ -1,11 +1,14 @@
 # idalib worker for NetDecompilerMcp.
 # Protocol: one JSON object per line. Requests on stdin: {"id": n, "op": "...", "args": {...}}.
 # Responses on stdout: {"id": n, "ok": true, "result": ...} or {"id": n, "ok": false, "error": {"code": ..., "message": ...}}.
-# Unsolicited lines: {"event": "progress", "op": ..., "elapsed": seconds}.
+# A request may carry "timeout" (seconds); {"op": "cancel", "args": {"id": n}} stops request n. A stopped request answers
+# with what it has, marked {"partial": reason, "next": cursor}, or with a timeout / cancelled error.
+# Unsolicited lines: {"event": "progress", "id": n, "op": ..., "elapsed": seconds}.
 # Anything IDA or Python prints goes to stderr: fd 1 is redirected there before idalib loads.
 # Addresses on the wire are RVAs relative to the database image base.
 import json
 import os
+import queue
 import sys
 import threading
 import time
@@ -18,7 +21,6 @@ os.dup2(2, 1)
 sys.stdout = sys.stderr
 sys.stdin.reconfigure(encoding="utf-8", errors="replace")
 _write_lock = threading.Lock()
-_busy = None  # (op, start time) while a request runs
 
 
 def send(obj):
@@ -34,12 +36,112 @@ class WorkerError(Exception):
         self.code = code
 
 
+class Request:
+    # stop: None, "cancelled" (a cancel op) or "deadline" (the request's time limit, less a margin for the reply)
+    def __init__(self, rid, op, args, timeout):
+        self.id, self.op, self.args, self.timeout = rid, op, args, timeout
+        self.start = self.deadline = None
+        self.stop = None
+
+
+_queue = queue.Queue()
+_requests = {}  # id -> Request, queued or running
+_current = None  # the Request running
+_requests_lock = threading.Lock()
+
+
+def read_requests():
+    # stdin is read on its own thread so a cancel reaches the request it names while that request runs
+    while True:
+        line = sys.stdin.readline()
+        if not line:
+            _queue.put(None)  # parent closed the pipe or died
+            return
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            req = json.loads(line)
+            rid, op, args = req.get("id"), req.get("op"), req.get("args") or {}
+            timeout = req.get("timeout")
+        except (ValueError, AttributeError) as e:
+            send({"id": None, "ok": False, "error": {"code": "invalid_argument", "message": "bad request line: %s" % e}})
+            continue
+        if op == "cancel":
+            stop_request(args.get("id"), "cancelled")
+            continue
+        r = Request(rid, op, args, timeout if isinstance(timeout, (int, float)) and timeout > 0 else None)
+        with _requests_lock:
+            _requests[rid] = r
+        _queue.put(r)
+
+
+def stop_request(rid, reason):
+    # Only flags the request: idalib's set_cancelled blocks when called off the main thread, so the main thread notices
+    # through cancelled() in loops, the Hex-Rays stage hook and the script profile hook.
+    with _requests_lock:
+        r = _requests.get(rid)
+        if r is not None and r.stop is None:
+            r.stop = reason
+
+
+def clear_cancel():
+    # a script may have set IDA's cancel flag, which is sticky
+    m = _ida
+    if m is not None and m.ida_kernwin is not None:
+        try:
+            m.ida_kernwin.clr_cancelled()
+        except BaseException:
+            pass
+
+
+def deadline():
+    # absolute time.time() the running request must answer by, or None
+    r = _current
+    return r.deadline if r is not None else None
+
+
+def cancelled():
+    # whether the running request was cancelled or reached its deadline: long loops stop and return what they have
+    r = _current
+    if r is None:
+        return False
+    if r.stop is None and r.deadline is not None and time.time() >= r.deadline:
+        stop_request(r.id, "deadline")
+    return r.stop is not None
+
+
+def stop_reason():
+    r = _current
+    return r.stop if r is not None else None
+
+
+def stopped_error():
+    r = _current
+    seconds = time.time() - r.start
+    if r.stop == "deadline":
+        return WorkerError("timeout", "'%s' reached its time limit after %.1f s" % (r.op, seconds))
+    return WorkerError("cancelled", "'%s' was cancelled after %.1f s" % (r.op, seconds))
+
+
+def check_stop():
+    if cancelled():
+        raise stopped_error()
+
+
+def partial(result, cursor):
+    # marks a result cut short: why ("cancelled", "deadline" or "budget") and where to continue
+    result["partial"] = stop_reason() or "budget"
+    result["next"] = cursor
+    return result
+
+
 def heartbeat():
     while True:
         time.sleep(2.0)
-        busy = _busy
-        if busy is not None:
-            send({"event": "progress", "op": busy[0], "elapsed": round(time.time() - busy[1], 1)})
+        r = _current
+        if r is not None and r.start is not None:
+            send({"event": "progress", "id": r.id, "op": r.op, "elapsed": round(time.time() - r.start, 1)})
 
 
 # idalib is loaded on the first request so that load and license failures come back as responses.
@@ -63,11 +165,11 @@ def ida():
     mods = dict(idapro=idapro, ida_auto=ida_auto, ida_bytes=ida_bytes, ida_entry=ida_entry, ida_funcs=ida_funcs,
                 ida_ida=ida_ida, ida_lines=ida_lines, ida_loader=ida_loader, ida_nalt=ida_nalt, ida_name=ida_name,
                 ida_segment=ida_segment, ida_ua=ida_ua, ida_xref=ida_xref, idautils=idautils)
-    try:
-        import ida_hexrays
-        mods["ida_hexrays"] = ida_hexrays
-    except BaseException:
-        mods["ida_hexrays"] = None
+    for optional in ("ida_hexrays", "ida_kernwin"):
+        try:
+            mods[optional] = __import__(optional)
+        except BaseException:
+            mods[optional] = None
     _ida = type("Ida", (), mods)
     return _ida
 
@@ -97,12 +199,27 @@ def func_at(m, ea):
     return f
 
 
+_stop_hooks = None
+
+
 def hexrays_ready(m):
+    global _stop_hooks
     hr = m.ida_hexrays
     try:
-        return hr is not None and bool(hr.init_hexrays_plugin())
+        ready = hr is not None and bool(hr.init_hexrays_plugin())
     except BaseException:
         return False
+    if ready and _stop_hooks is None:
+        # every decompilation checks at each stage whether its request was cancelled or reached its deadline
+        class StopHooks(hr.Hexrays_Hooks):
+            def _check(self, *unused):
+                return hr.MERR_CANCELED if cancelled() else 0
+
+            microcode = preoptimized = locopt = prealloc = glbopt = _check
+
+        _stop_hooks = StopHooks()
+        _stop_hooks.hook()
+    return ready
 
 
 def op_hello(args):
@@ -197,12 +314,16 @@ def op_rebase(args):
 
 
 def op_functions(args):
-    # [start, end, name, flags (1 thunk, 2 library, 4 thumb, 8 typed)] plus, with refs, the number of code references to the start
+    # [start, end, name, flags (1 thunk, 2 library, 4 thumb, 8 typed)] plus, with refs, the number of code references to the
+    # start; from rva start when given. Stopped early: {rows, partial, next} where next is the start rva of the following call.
     m = need_open()
     import ida_typeinf
     refs = bool(args.get("refs"))
+    start = args.get("start")
     out = []
-    for ea in m.idautils.Functions():
+    for ea in m.idautils.Functions(_state["base"] + start if isinstance(start, int) else None):
+        if out and len(out) % 64 == 0 and cancelled() and rva_of(ea) is not None:
+            return partial({"rows": out}, rva_of(ea))
         f = m.ida_funcs.get_func(ea)
         start, end = rva_of(f.start_ea), rva_of(f.end_ea)
         if start is None or end is None:
@@ -287,6 +408,8 @@ def op_disasm_range(args):
     max_ea = m.ida_ida.inf_get_max_ea()
     insns = []
     while len(insns) < count and ea != badaddr and ea < max_ea and m.ida_bytes.is_loaded(ea):
+        if insns and len(insns) % 1024 == 0 and cancelled():
+            return {"insns": insns, "truncated": True, "partial": stop_reason()}
         end = m.ida_bytes.get_item_end(ea)
         size = end - ea if end > ea else 1
         raw = m.ida_bytes.get_bytes(ea, size) or b""
@@ -754,9 +877,11 @@ def op_virtual_targets(args):
                 rows.append([rva_of(e.ea), "other", x.opname])
             return 0
 
+    resume = None
     for rva in args.get("functions") or []:
-        if time.time() > deadline:
+        if time.time() > deadline or cancelled():
             skipped += 1
+            resume = rva if resume is None else resume
             continue
         try:
             cf = hr.decompile(base + rva, hr.hexrays_failure_t(), hr.DECOMP_NO_WAIT)
@@ -768,7 +893,8 @@ def op_virtual_targets(args):
             continue
         decompiled += 1
         Calls().apply_to(cf.body, None)
-    return {"rows": rows, "decompiled": decompiled, "failed": failed, "skipped": skipped, "decompiler": True}
+    result = {"rows": rows, "decompiled": decompiled, "failed": failed, "skipped": skipped, "decompiler": True}
+    return partial(result, resume) if resume is not None else result
 
 
 USER_NODE = "$ netdecompilermcp user types"  # altval(rva) = 1: a type set by the user; blob 'D': the user's declarations
@@ -1236,9 +1362,11 @@ def op_field_xrefs(args):
             return bad
 
     deadline = time.time() + float(args.get("seconds") or 30)
+    resume = None
     for ea in sorted(funcs):
-        if time.time() > deadline:
+        if time.time() > deadline or cancelled():
             result["skipped"] += 1
+            resume = ea if resume is None else resume
             continue
         cf, why = decompile_function(m, ea)
         if cf is None:
@@ -1247,7 +1375,7 @@ def op_field_xrefs(args):
         result["scanned"] += 1
         Members().apply_to(cf.body, None)
     rows.sort(key=lambda r: (r[0], r[1]))
-    return result
+    return partial(result, rva_of(resume)) if resume is not None else result
 
 
 def reapply_user_decls():
@@ -1426,8 +1554,14 @@ def op_python(args):
     out, err = io.StringIO(), io.StringIO()
     saved = sys.stdout, sys.stderr
     value = error = None
+    def stop_hook(frame, event, arg):
+        if cancelled():
+            sys.setprofile(None)
+            raise stopped_error()
+
     try:
         sys.stdout, sys.stderr = out, err
+        sys.setprofile(stop_hook)  # a script that calls functions stops on cancel or at the deadline
         tree = ast.parse(args.get("code") or "", "<ida_python>", "exec")
         last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
         exec(compile(tree, "<ida_python>", "exec"), g)
@@ -1437,8 +1571,10 @@ def op_python(args):
     except BaseException:
         error = traceback.format_exc(limit=8)
     finally:
+        sys.setprofile(None)
         sys.stdout, sys.stderr = saved
     changed(m)
+    check_stop()
     return {"result": clip(value), "stdout": clip(out.getvalue()), "stderr": clip(err.getvalue()), "error": clip(error)}
 
 
@@ -1609,9 +1745,17 @@ def op_insn(args):
 
 
 def op_sleep(args):
-    # Test hook: holds the worker busy.
-    time.sleep(float(args.get("seconds") or 0))
-    return {}
+    # Test hook: holds the worker busy; stops early on cancel or at the deadline unless ignore_cancel.
+    seconds = float(args.get("seconds") or 0)
+    if args.get("ignore_cancel"):
+        time.sleep(seconds)
+        return {"slept": seconds}
+    start = time.time()
+    while time.time() - start < seconds:
+        if cancelled():
+            return partial({"slept": round(time.time() - start, 3)}, None)
+        time.sleep(0.05)
+    return {"slept": seconds}
 
 
 # ---- user edits beyond types (apply_user_types): enum members, analysis, stack deletes, operand display ----
@@ -2143,7 +2287,7 @@ def op_decompile_many(args):
     try:
         for rva in args.get("rvas") or []:
             now = time.time()
-            if now - start >= budget:
+            if now - start >= budget or cancelled():
                 items.append({"rva": rva, "status": "skipped"})
                 continue
             deadline[0] = min(now + per_item, start + budget)
@@ -2157,7 +2301,7 @@ def op_decompile_many(args):
             items.append(item)
     finally:
         hooks.unhook()
-    return {"items": items}
+    return partial({"items": items}, None) if stop_reason() else {"items": items}
 
 
 OPS["decompile_many"] = op_decompile_many
@@ -2670,7 +2814,7 @@ def watch_parent(parent):
 
 
 def main():
-    global _busy
+    global _current
     if os.name != "nt":
         parent = os.getppid()
         try:
@@ -2679,38 +2823,42 @@ def main():
             pass
         threading.Thread(target=watch_parent, args=(parent,), daemon=True).start()
     threading.Thread(target=heartbeat, daemon=True).start()
+    threading.Thread(target=read_requests, daemon=True).start()
     send({"event": "ready", "protocol": PROTOCOL, "pid": os.getpid()})
     while True:
-        line = sys.stdin.readline()
-        if not line:
-            break  # parent closed the pipe or died
-        line = line.strip()
-        if not line:
-            continue
+        r = _queue.get()
+        if r is None:
+            break
+        fn = OPS.get(r.op)
+        with _requests_lock:
+            r.start = time.time()
+            if r.timeout is not None:
+                # answer before the server's limit: the margin carries a partial result back in time
+                r.deadline = r.start + max(0.1, r.timeout - min(5.0, max(0.25, r.timeout * 0.1)))
+            _current = r
         try:
-            req = json.loads(line)
-            rid = req.get("id")
-            op = req.get("op")
-            args = req.get("args") or {}
-        except (ValueError, AttributeError) as e:
-            send({"id": None, "ok": False, "error": {"code": "invalid_argument", "message": "bad request line: %s" % e}})
-            continue
-        fn = OPS.get(op)
-        if fn is None:
-            send({"id": rid, "ok": False, "error": {"code": "invalid_argument", "message": "unknown op %r" % op}})
-            continue
-        _busy = (op, time.time())
-        try:
-            send({"id": rid, "ok": True, "result": fn(args)})
+            if fn is None:
+                raise WorkerError("invalid_argument", "unknown op %r" % r.op)
+            if r.stop is not None:
+                raise stopped_error()  # cancelled while queued
+            clear_cancel()
+            send({"id": r.id, "ok": True, "result": fn(r.args)})
         except WorkerError as e:
-            send({"id": rid, "ok": False, "error": {"code": e.code, "message": str(e)}})
+            send({"id": r.id, "ok": False, "error": {"code": e.code, "message": str(e)}})
         except BaseException as e:
-            sys.stderr.write(traceback.format_exc())
-            sys.stderr.flush()
-            send({"id": rid, "ok": False, "error": {"code": "failed", "message": "%s: %s" % (type(e).__name__, e)}})
+            if r.stop is not None:
+                stopped = stopped_error()
+                send({"id": r.id, "ok": False, "error": {"code": stopped.code, "message": "%s (%s)" % (stopped, e)}})
+            else:
+                sys.stderr.write(traceback.format_exc())
+                sys.stderr.flush()
+                send({"id": r.id, "ok": False, "error": {"code": "failed", "message": "%s: %s" % (type(e).__name__, e)}})
         finally:
-            _busy = None
-        if op == "close":
+            with _requests_lock:
+                _current = None
+                _requests.pop(r.id, None)
+            clear_cancel()
+        if r.op == "close":
             break
     if _state["open"]:
         try:

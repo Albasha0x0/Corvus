@@ -21,6 +21,7 @@ import ghidra.program.model.pcode.PcodeOp;
 import ghidra.program.model.pcode.PcodeOpAST;
 import ghidra.program.model.pcode.Varnode;
 import ghidra.program.model.symbol.Reference;
+import ghidra.util.exception.CancelledException;
 
 /** Call targets as the program and its decompiler see them; callers hold the read lock. */
 final class CallOps {
@@ -56,12 +57,14 @@ final class CallOps {
             o.addProperty("decompiler", false);
             return o;
         }
+        Long resume = null;
         for (JsonElement e : Worker.array(r.args, "functions")) {
             long rva = e.getAsLong();
             long left = deadline - System.nanoTime();
             Function f = fm.getFunctionAt(w.space().getAddress(w.base + rva));
-            if (left <= 0) {
+            if (left <= 0 || r.stopped()) {
                 skipped++;
+                if (resume == null) resume = rva;
                 continue;
             }
             if (f == null) {
@@ -74,6 +77,11 @@ final class CallOps {
             }
             catch (Worker.WorkerError ex) {
                 failed.add(failure(rva, ex.getMessage()));
+                continue;
+            }
+            catch (CancelledException ex) {
+                skipped++;
+                if (resume == null) resume = rva;
                 continue;
             }
             HighFunction hf = res.getHighFunction();
@@ -100,7 +108,7 @@ final class CallOps {
         o.add("failed", failed);
         o.addProperty("skipped", skipped);
         o.addProperty("decompiler", true);
-        return o;
+        return resume != null ? r.partial(o, resume) : o;
     }
 
     /** CALLIND(LOAD(base + offset)) with base a pointer to a struct: that struct's member; else how the target is computed. */

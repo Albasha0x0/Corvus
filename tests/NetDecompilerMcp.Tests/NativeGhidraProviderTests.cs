@@ -259,9 +259,10 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
         using (var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500)))
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => s.CallAsync("sleep", new JsonObject { ["seconds"] = 60 }, cts.Token));
         var clock = Stopwatch.StartNew();
-        var e = await Assert.ThrowsAsync<ToolError>(() => s.CallAsync("sleep", new JsonObject { ["seconds"] = 60 }, default));
-        Assert.Equal(ErrorCode.Timeout, e.Code);
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(10), $"timeout took {clock.Elapsed}");
+        // the worker stops the request before the time limit and answers with what it has
+        var r = await s.CallAsync("sleep", new JsonObject { ["seconds"] = 60 }, default);
+        Assert.Contains(r.GetProperty("partial").GetString(), (string[])["deadline", "cancelled"]);
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(10), $"the partial answer took {clock.Elapsed}");
         Assert.Equal(pid, s.WorkerProcessId);
         Assert.NotEmpty(await s.ListFunctionsAsync());
         Assert.Equal(pid, s.WorkerProcessId);

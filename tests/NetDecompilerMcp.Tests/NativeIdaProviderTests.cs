@@ -213,26 +213,49 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     }
 
     [IdaFact]
-    public async Task Timeout_stops_the_worker_and_the_next_request_restarts_it()
+    public async Task Timeout_returns_a_partial_result_and_keeps_the_worker()
     {
         var path = System64;
         var rva = ExportRva(path, Export);
-        await using var s = (IdaSession)await Isolated().OpenAsync(path, null, Offline with { RequestTimeout = TimeSpan.FromSeconds(2) });
-        await s.SetNameAsync(rva, "ndm_before_timeout"); // unsaved: replayed after the restart
+        await using var s = (IdaSession)await Isolated().OpenAsync(path, null, Offline with { RequestTimeout = TimeSpan.FromSeconds(3) });
+        await s.SetNameAsync(rva, "ndm_before_timeout");
+        var pid = s.WorkerProcessId!.Value;
+
+        var clock = Stopwatch.StartNew();
+        var r = await s.CallAsync("sleep", new JsonObject { ["seconds"] = 60 }, default);
+        Assert.Contains(r.GetProperty("partial").GetString(), (string[])["deadline", "cancelled"]);
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(10), $"the partial answer took {clock.Elapsed}");
+        Assert.Equal(pid, s.WorkerProcessId);
+
+        // a script stops at the deadline as well
+        var e = await Assert.ThrowsAsync<ToolError>(() => s.RunScriptAsync("import time\nwhile True: time.sleep(0.01)"));
+        Assert.Equal(ErrorCode.Timeout, e.Code);
+        Assert.Equal(pid, s.WorkerProcessId);
+        Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "ndm_before_timeout");
+    }
+
+    [IdaFact]
+    public async Task Request_that_ignores_cancel_is_killed_and_the_next_request_restarts()
+    {
+        var path = System64;
+        var rva = ExportRva(path, Export);
+        var dir = new TempDir();
+        _owned.Add(dir);
+        var provider = new IdaProvider(new IdaProviderOptions { CacheRoot = dir.Path, CancelGrace = TimeSpan.FromSeconds(1) });
+        _owned.Add(provider);
+        await using var s = (IdaSession)await provider.OpenAsync(path, null, Offline with { RequestTimeout = TimeSpan.FromSeconds(2) });
+        await s.SetNameAsync(rva, "ndm_before_kill"); // unsaved: replayed after the restart
         var pid = s.WorkerProcessId!.Value;
         using var process = Process.GetProcessById(pid);
 
         var clock = Stopwatch.StartNew();
-        var e = await Assert.ThrowsAsync<ToolError>(() => s.CallAsync("sleep", new JsonObject { ["seconds"] = 60 }, default));
+        var e = await Assert.ThrowsAsync<ToolError>(() => s.CallAsync("sleep", new JsonObject { ["seconds"] = 60, ["ignore_cancel"] = true }, default));
         Assert.Equal(ErrorCode.Timeout, e.Code);
-        Assert.True(e.Retryable);
-        Assert.NotNull(e.Remediation);
+        Assert.Contains("stopped", e.Message);
         Assert.True(clock.Elapsed < TimeSpan.FromSeconds(15), $"timeout took {clock.Elapsed}");
-        Assert.True(process.WaitForExit(5000), "timed-out worker still running");
+        Assert.True(process.WaitForExit(5000), "the worker that ignored the cancel is still running");
 
-        clock.Restart();
-        Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "ndm_before_timeout");
-        output.WriteLine($"restart after timeout: {clock.ElapsedMilliseconds} ms");
+        Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "ndm_before_kill");
         Assert.NotEqual(pid, s.WorkerProcessId);
     }
 
@@ -255,11 +278,15 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     public async Task Cancellation_stops_the_running_request()
     {
         await using var s = (IdaSession)await Provider.OpenAsync(System64, null, Offline);
-        using var process = Process.GetProcessById(s.WorkerProcessId!.Value);
+        var pid = s.WorkerProcessId!.Value;
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+        var clock = Stopwatch.StartNew();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => s.CallAsync("sleep", new JsonObject { ["seconds"] = 60 }, cts.Token));
-        Assert.True(process.WaitForExit(5000));
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5), $"cancel took {clock.Elapsed}");
+        // the worker stopped the request itself and keeps the database open
+        Assert.Equal(pid, s.WorkerProcessId);
         Assert.NotEmpty(await s.ListFunctionsAsync());
+        Assert.Equal(pid, s.WorkerProcessId);
     }
 
     [IdaFact]

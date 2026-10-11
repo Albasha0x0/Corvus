@@ -23,6 +23,36 @@ internal static class WorkerRows
         return list;
     }
 
+    /// <summary>
+    /// Every function: a worker that reaches its deadline answers {rows, partial, next}, and the list continues from next
+    /// in another request (each with its own time limit).
+    /// </summary>
+    public static async Task<List<NativeFunctionInfo>> FunctionsPaged(Func<uint?, Task<JsonElement>> request)
+    {
+        var all = new List<NativeFunctionInfo>();
+        uint? start = null;
+        while (true)
+        {
+            var r = await request(start).ConfigureAwait(false);
+            if (r.ValueKind == JsonValueKind.Array)
+            {
+                all.AddRange(Functions(r));
+                return all;
+            }
+            var rows = Functions(r.GetProperty("rows"));
+            var next = r.GetProperty("next").GetUInt32();
+            if (rows.Count == 0 || (start is { } s && next <= s))
+                throw new Core.ToolError(Core.ErrorCode.Timeout, "The engine listed no functions within the request time limit.", "Raise the engine request time limit.");
+            all.AddRange(rows);
+            start = next;
+        }
+    }
+
+    /// <summary>The partial marker and cursor of a result cut short ("partial", "next"), or nulls.</summary>
+    public static (string? Partial, uint? Next) Partial(JsonElement r) =>
+        (r.TryGetProperty("partial", out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null,
+         r.TryGetProperty("next", out var n) && n.ValueKind == JsonValueKind.Number ? n.GetUInt32() : null);
+
     public static DecompiledFunction Decompiled(JsonElement r)
     {
         var lines = r.GetProperty("lines").EnumerateArray().Select(l => new PseudocodeLineAddress(l[0].GetInt32(), l[1].GetUInt32())).ToList();
@@ -223,7 +253,9 @@ internal static class WorkerRows
             });
         }
         var failed = r.GetProperty("failed").EnumerateArray().Select(f => (f[0].GetUInt32(), f[1].GetString() ?? "")).ToList();
-        return new NativeCallTargets(targets, r.GetProperty("decompiled").GetInt32(), failed, r.GetProperty("skipped").GetInt32(), r.GetProperty("decompiler").GetBoolean());
+        var (partial, next) = Partial(r);
+        return new NativeCallTargets(targets, r.GetProperty("decompiled").GetInt32(), failed, r.GetProperty("skipped").GetInt32(), r.GetProperty("decompiler").GetBoolean())
+            { Partial = partial, Next = next };
     }
 
     /// <summary>

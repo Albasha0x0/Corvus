@@ -245,7 +245,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         ListFunctionsAsync(false, cancellationToken);
 
     public async Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(bool withReferences, CancellationToken cancellationToken = default) =>
-        WorkerRows.Functions(await CallAsync("functions", WorkerRows.Args(("refs", withReferences)), cancellationToken).ConfigureAwait(false));
+        await WorkerRows.FunctionsPaged(start => CallAsync("functions", WorkerRows.Args(("refs", withReferences), ("start", start)), cancellationToken)).ConfigureAwait(false);
 
     public Task<DecompiledFunction> DecompileAsync(uint rva, CancellationToken cancellationToken = default) =>
         DecompileWithinAsync(rva, null, cancellationToken);
