@@ -466,7 +466,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
             var resources = await _client.ListResourcesAsync();
             Assert.Contains(resources, r => r.Uri == "netdecomp://assemblies");
             var templates = await _client.ListResourceTemplatesAsync();
-            Assert.Equal(4, templates.Count);
+            Assert.Equal(7, templates.Count);
 
             async Task<string> Read(string uri) =>
                 string.Join("", (await _client.ReadResourceAsync(uri)).Contents.OfType<TextResourceContents>().Select(c => c.Text));
@@ -485,6 +485,9 @@ public abstract class McpProtocolTests : IAsyncLifetime
             await Call("patch_bytes", new() { ["image"] = "native.dll", ["address"] = "First", ["hex"] = "90" });
             Assert.Contains("native.dll\tnative\t", await Read("netdecomp://assemblies"));
             Assert.Contains("[1 unsaved patches]", await Read("netdecomp://assemblies"));
+            Assert.Matches(@"\.text\t0x[0-9A-F]+-0x[0-9A-F]+\t0x[0-9A-F]+\tr-x", await Read("netdecomp://native/native.dll/segments"));
+            Assert.Matches(@"0x[0-9A-F]+\texport\tFirst\t#\d+", await Read("netdecomp://native/native.dll/entrypoints"));
+            await Assert.ThrowsAnyAsync<McpException>(() => Read("netdecomp://native/native.dll/type/NoSuchType"));
         }
 
         [Fact]

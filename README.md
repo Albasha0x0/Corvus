@@ -172,7 +172,9 @@ server instructions (a core under 2,048 characters; the details in the `guide` p
 | Notes | `record_note` (a finding, question, hypothesis or todo anchored to a native address, a .NET member, a file or a dump; kept per user by file SHA-256 / module MVID across sessions and server processes) · `update_note` (partial update guarded by the note's revision; a conflict returns the current note) · `list_notes` (by status, kind, anchor, tag and text; an address lists its function's notes) |
 
 **Resources:** `netdecomp://assemblies`, `netdecomp://assembly/{assembly}/info`, `netdecomp://assembly/{assembly}/type/{type}`
-(decompiled C#), `netdecomp://assembly/{assembly}/il/{symbol}`, `netdecomp://guide/{topic}` (the guide topics).
+(decompiled C#), `netdecomp://assembly/{assembly}/il/{symbol}`, `netdecomp://native/{image}/segments` (sections with exclusive
+ends and r/w/x), `netdecomp://native/{image}/entrypoints` (entry point, TLS callbacks, exports with ordinals),
+`netdecomp://native/{image}/type/{name}` (as `get_native_type`), `netdecomp://guide/{topic}` (the guide topics).
 
 **Prompts:** `analyze_assembly`, `find_feature`, `explain_type`, `plan_patch`, `map_native_address`, `analyze_native`,
 `trace_native_feature`, `find_api_usage`, `patch_native`, `compare_builds`, `triage_crash`, `guide` (one topic of the full guidance: `dotnet`, `native`, `il2cpp`, `containers`, `edits`, `builds`, `dumps`, `errors`), `getting_started`.
