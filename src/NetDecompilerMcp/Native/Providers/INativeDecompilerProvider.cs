@@ -68,6 +68,10 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     Task<FunctionDisassembly> DisassembleRangeAsync(uint rva, int count, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not disassemble address ranges.");
 
+    /// <summary>What is at <paramref name="rva"/> and at most <paramref name="count"/> items after it, as the engine has them.</summary>
+    Task<IReadOnlyList<EngineInstructionItem>> InspectAsync(uint rva, int count, CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not inspect instructions.");
+
     /// <summary>Basic blocks of the function containing <paramref name="rva"/>, as the engine splits them.</summary>
     Task<NativeBlockGraph> GetBlocksAsync(uint rva, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not report basic blocks.");

@@ -524,7 +524,7 @@ public sealed class ContractSweepTests(Xunit.Abstractions.ITestOutputHelper outp
                             || t.InputSchema.GetProperty("properties").EnumerateObject().Any(p => ContractSweep.OpenWorldParameters.Contains(p.Name));
             if (reaching != e.OpenWorld) problems.Add($"{t.Name}: open-world is {e.OpenWorld} in ToolEffects.Table, but the rule says {reaching}");
         }
-        foreach (var name in new[] { "list_functions", "disassemble", "get_cfg", "find_xrefs", "native_call_tree", "decompile_native", "find_virtual_calls", "load_pdb" })
+        foreach (var name in new[] { "list_functions", "disassemble", "inspect_instruction", "get_cfg", "find_xrefs", "native_call_tree", "decompile_native", "find_virtual_calls", "load_pdb" })
             if (!table[name].OpenWorld) problems.Add($"{name}: can start IDA or reach the network but is not open-world");
         // The table is the only source: no [McpServerTool] attribute sets an annotation.
         var flags = typeof(ModelContextProtocol.Server.McpServerToolAttribute).GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)

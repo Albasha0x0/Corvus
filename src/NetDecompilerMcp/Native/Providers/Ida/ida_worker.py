@@ -1369,6 +1369,149 @@ def op_close(args):
     return {}
 
 
+INSN_OPERAND_TYPES = {1: "register", 2: "memory", 3: "memory", 4: "memory", 5: "immediate", 6: "far_branch", 7: "near_branch"}
+
+
+def insn_operand(m, ida_idp, insn, ea, i, op, feature, width):
+    o = {"index": i, "kind": INSN_OPERAND_TYPES.get(op.type, "other"),
+         "text": m.ida_lines.tag_remove(m.ida_ua.print_operand(ea, i) or ""), "size": m.ida_ua.get_dtype_size(op.dtype)}
+    use = feature & getattr(ida_idp, "CF_USE%d" % (i + 1), 0)
+    chg = feature & getattr(ida_idp, "CF_CHG%d" % (i + 1), 0)
+    o["access"] = "read_write" if use and chg else "write" if chg else "read" if use else "none"
+    if op.type == m.ida_ua.o_reg:
+        o["register"] = ida_idp.get_reg_name(op.reg, o["size"] or width)
+    elif op.type in (m.ida_ua.o_phrase, m.ida_ua.o_displ):
+        if m.ida_ida.inf_get_procname() == "metapc" and op.specflag1:
+            # x86 SIB byte in specflag2; REX.X / REX.B in insnpref on x64
+            rex = insn.insnpref if m.ida_ida.inf_is_64bit() else 0
+            sib = op.specflag2
+            base, index = (sib & 7) | (8 if rex & 1 else 0), ((sib >> 3) & 7) | (8 if rex & 2 else 0)
+            if index != 4:
+                o["index_register"] = ida_idp.get_reg_name(index, width)
+                o["scale"] = 1 << ((sib >> 6) & 3)
+            if not ((base & 7) == 5 and op.type == m.ida_ua.o_phrase):
+                o["base"] = ida_idp.get_reg_name(base, width)
+        else:
+            o["base"] = ida_idp.get_reg_name(op.reg, width)
+        if op.type == m.ida_ua.o_displ:
+            d = op.addr
+            o["displacement"] = d - (1 << 64) if d >= 1 << 63 else d
+    elif op.type == m.ida_ua.o_mem:
+        o["target"] = rva_of(op.addr)
+    elif op.type == m.ida_ua.o_imm:
+        o["value"] = op.value
+    elif op.type in (m.ida_ua.o_near, m.ida_ua.o_far):
+        o["target"] = rva_of(op.addr)
+    return o
+
+
+def insn_decode(m, ea):
+    import ida_idp
+    insn = m.ida_ua.insn_t()
+    size = m.ida_ua.decode_insn(insn, ea)
+    if size <= 0:
+        return None
+    feature = insn.get_canon_feature()
+    width = 8 if m.ida_ida.inf_is_64bit() else 4
+    ops = []
+    for i in range(8):
+        op = insn.ops[i]
+        if op.type == m.ida_ua.o_void:
+            break
+        ops.append(insn_operand(m, ida_idp, insn, ea, i, op, feature, width))
+    target = next((o.get("target") for o in ops if o["kind"] == "near_branch"), None)
+    if ida_idp.is_ret_insn(insn):
+        flow = "return"
+    elif feature & ida_idp.CF_CALL:
+        flow = "call" if target is not None else "indirect_call"
+    elif target is not None:
+        flow = "jump" if feature & ida_idp.CF_STOP else "conditional_jump"
+    elif feature & ida_idp.CF_JUMP:
+        flow = "indirect_jump"
+    elif feature & ida_idp.CF_STOP:
+        flow = "trap"
+    else:
+        flow = "next"
+    fallthrough = None if flow in ("return", "jump", "indirect_jump", "trap") else rva_of(ea + size)
+    if flow in ("call", "indirect_call") and m.ida_bytes.is_code(m.ida_bytes.get_flags(ea)) \
+            and not any(x.type == m.ida_xref.fl_F for x in m.idautils.XrefsFrom(ea, 0)):
+        fallthrough = None  # a call IDA knows does not return
+    raw = m.ida_bytes.get_bytes(ea, size) or b""
+    refs = [r for r in (xref_row(m, x) for x in m.idautils.XrefsFrom(ea, 0)) if r is not None]
+    return {"size": size, "bytes": raw.hex(), "text": m.ida_lines.generate_disasm_line(ea, m.ida_lines.GENDSM_REMOVE_TAGS) or "",
+            "mnemonic": insn.get_canon_mnem() or "", "operands": ops, "flow": flow, "target": target, "fallthrough": fallthrough,
+            "references": [[r[1], r[2]] for r in refs]}
+
+
+def insn_data(m, head):
+    f = m.ida_bytes.get_flags(head)
+    end = m.ida_bytes.get_item_end(head)
+    name = m.ida_name.get_name(head) or ""
+    if m.ida_bytes.is_strlit(f):
+        raw = m.ida_bytes.get_strlit_contents(head, -1, m.ida_nalt.get_str_type(head)) or b""
+        return "string", end, '"%s"' % raw.decode("utf-8", "replace")[:120]
+    if m.ida_bytes.is_off0(f):
+        width = end - head
+        value = m.ida_bytes.get_qword(head) if width == 8 else m.ida_bytes.get_dword(head)
+        return "pointer", end, "pointer to %s" % (m.ida_name.get_name(value) or "0x%X" % value)
+    if m.ida_bytes.is_struct(f):
+        return "struct", end, name
+    for test, kind in ((m.ida_bytes.is_byte, "byte"), (m.ida_bytes.is_word, "word"), (m.ida_bytes.is_dword, "dword"), (m.ida_bytes.is_qword, "qword")):
+        if test(f):
+            return kind, end, name
+    return "data", end, name
+
+
+def op_insn(args):
+    # what is at rva and the items after it: status, item head and extent, decoded operands, flow and references
+    m = need_open()
+    ea = ea_of(args)
+    count = max(1, min(int(args.get("count") or 1), 64))
+    items = []
+    n = 0
+    while n < count:
+        rva = rva_of(ea)
+        if rva is None or not m.ida_bytes.is_loaded(ea):
+            items.append({"rva": rva_of(ea) or 0, "status": "unmapped"})
+            break
+        head = m.ida_bytes.get_item_head(ea)
+        hf = m.ida_bytes.get_flags(head)
+        func = m.ida_funcs.get_func(ea)
+        item = {"rva": rva, "head": rva_of(head), "function": rva_of(func.start_ea) if func else None}
+        items.append(item)
+        if not (m.ida_bytes.is_code(hf) and head != ea):
+            n += 1
+        if m.ida_bytes.is_code(hf):
+            if head != ea:
+                item["status"] = "mid_instruction"
+                item["end"] = rva_of(m.ida_bytes.get_item_end(head))
+                if count == 1:
+                    break
+                ea = head  # a walk starts at the covering instruction
+                continue
+            decoded = insn_decode(m, ea)
+            if decoded is None:
+                item["status"] = "invalid"
+                break
+            item["status"] = "decoded" if func else "not_in_function"
+            item["insn"] = decoded
+            ea += decoded["size"]
+        elif m.ida_bytes.is_data(hf):
+            kind, end, text = insn_data(m, head)
+            item.update({"status": "data", "kind": kind, "end": rva_of(end), "text": text})
+            ea = end
+        else:
+            decoded = insn_decode(m, ea)
+            if decoded is None:
+                item["status"] = "invalid"
+                break
+            item["status"] = "not_in_function"
+            item["note"] = "bytes IDA has not defined as code or data"
+            item["insn"] = decoded
+            ea += decoded["size"]
+    return {"items": items}
+
+
 def op_sleep(args):
     # Test hook: holds the worker busy.
     time.sleep(float(args.get("seconds") or 0))
@@ -1380,7 +1523,7 @@ OPS = {"hello": op_hello, "open": op_open, "rebase": op_rebase, "functions": op_
        "set_comment": op_set_comment, "apply_names": op_apply_names, "get_stamp": op_get_stamp, "save": op_save,
        "sync_patches": op_sync_patches, "apply_types": op_apply_types, "load_pdb": op_load_pdb, "virtual_targets": op_virtual_targets,
        "apply_user_types": op_apply_user_types, "frame": op_frame, "types": op_types, "type": op_type, "field_xrefs": op_field_xrefs,
-       "python": op_python, "close": op_close, "sleep": op_sleep}
+       "python": op_python, "close": op_close, "sleep": op_sleep, "insn": op_insn}
 
 
 def watch_parent(parent):

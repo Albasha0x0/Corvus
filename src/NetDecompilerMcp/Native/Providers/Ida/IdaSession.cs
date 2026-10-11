@@ -152,6 +152,9 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
     public async Task<FunctionDisassembly> DisassembleRangeAsync(uint rva, int count, CancellationToken cancellationToken = default) =>
         WorkerRows.Range(rva, await CallAsync("disasm_range", IdaProvider.Args(("rva", rva), ("count", Math.Clamp(count, 1, 200_000))), cancellationToken).ConfigureAwait(false));
 
+    public async Task<IReadOnlyList<EngineInstructionItem>> InspectAsync(uint rva, int count, CancellationToken cancellationToken = default) =>
+        EngineInstructions.Parse(await CallAsync("insn", IdaProvider.Args(("rva", rva), ("count", Math.Clamp(count, 1, 64))), cancellationToken).ConfigureAwait(false));
+
     public async Task<NativeBlockGraph> GetBlocksAsync(uint rva, CancellationToken cancellationToken = default) =>
         WorkerRows.Blocks(await CallAsync("blocks", IdaProvider.Args(("rva", rva)), cancellationToken).ConfigureAwait(false));
 

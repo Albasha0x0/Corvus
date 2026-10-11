@@ -122,7 +122,8 @@ public static class Guide
             forwarders and thunks into them.
             Engines: list_functions, disassemble, get_cfg, find_xrefs and native_call_tree take engine=auto|ours|ida. auto (default)
             uses IDA's analysis once it has finished in this session, else the built-in index, and never starts IDA; every result has
-            an "Engine: ours|ida (why)" line. ARM64 / ARM images work through IDA. Name priority: user > pdb > il2cpp > ida > discovered.
+            an "Engine: ours|ida (why)" line. ARM64 / ARM images work through IDA. inspect_instruction takes the same values (auto: the
+            built-in decoder for x86 / x64). Name priority: user > pdb > il2cpp > ida > discovered.
             decompile_native pushes names, patches, Il2Cpp prototypes, RTTI and PDB types into the IDA database; --ida-prewarm analyzes
             images in IDA as they load. Code indexes are saved on disk by file SHA-256 (--index-cache off disables it).
             Editing and engine type edits: the edits topic. Build-to-build: the builds topic.
