@@ -71,11 +71,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## Ghidra servers (designs adapted, no code copied)
+## Ghidra servers
 
-The Ghidra worker (`src/NetDecompilerMcp/Native/Providers/Ghidra/worker/*.java`) is original code. Some of its
-designs follow these Apache License 2.0 projects (https://www.apache.org/licenses/LICENSE-2.0), and the files
-concerned say so in their headers.
+Parts of the Ghidra worker (`src/NetDecompilerMcp/Native/Providers/Ghidra/worker/*.java`) follow designs or adapt code
+from these Apache License 2.0 projects (https://www.apache.org/licenses/LICENSE-2.0).
 
 - [clearbluejar/pyghidra-mcp](https://github.com/clearbluejar/pyghidra-mcp), Copyright clearbluejar and contributors:
   the decompiler pool in `Decompilers.java` (LIFO reuse, bounded slots, one deadline over both the wait and the
