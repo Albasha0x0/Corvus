@@ -8,6 +8,7 @@ using NetDecompilerMcp.Mcp;
 using NetDecompilerMcp.Native;
 using NetDecompilerMcp.Native.Code;
 using NetDecompilerMcp.Native.Msvc;
+using NetDecompilerMcp.Native.Providers;
 using NetDecompilerMcp.Services;
 using static NetDecompilerMcp.Tools.ToolSupport;
 
@@ -15,13 +16,17 @@ namespace NetDecompilerMcp.Tools;
 
 /// <summary>trace_native_feature: from a text to the native functions behind a behaviour.</summary>
 [McpServerToolType]
-public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeService code, OutputPager pager)
+public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeService code, OutputPager pager, NativeEngineService? engines = null)
 {
+    private const int TopPseudocode = 3;
+    private const int MaxEngineStrings = 50_000;
+
     [Description("A match of the query.")]
-    public sealed record FeatureSeedRecord(int Id, [property: Description("string, name, import, export or class.")] string Kind, string Address, string Text,
+    public sealed record FeatureSeedRecord(int Id, [property: Description("string, name, import, export, class or constant.")] string Kind, string Address, string Text,
         [property: Description("References followed from it.")] int References, [property: Description("Why following it failed; the trace went on.")] string? Error);
 
-    public sealed record FeatureEvidenceRecord(string Site, [property: Description("string, table, named, data, call, pointer, resolve, exported, vftable or method.")] string Kind,
+    public sealed record FeatureEvidenceRecord(string Site,
+        [property: Description("string, table, named, data, call, pointer, resolve, exported, vftable, method, constant, engine_xref or pseudocode.")] string Kind,
         string Detail, int Seed);
 
     public sealed record FeatureFunctionRecord(string Address, string Name, int Score, IReadOnlyList<int> Seeds, [property: Description("The first 20.")] IReadOnlyList<FeatureEvidenceRecord> Evidence,
@@ -35,17 +40,17 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
         int TotalFunctions, int Offset, bool Truncated, IReadOnlyList<FeatureHubRecord> Hubs, IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "trace_native_feature", Title = "Trace a native feature", UseStructuredContent = true, OutputSchemaType = typeof(FeatureReport))]
-    [Description("Finds the native code behind a behaviour from a text: seeds are the strings (ASCII, UTF-16), function and data names, imports " +
-                 "(static and GetProcAddress), exports and RTTI classes matching query; their references (inside a string too, and through one table " +
-                 "of pointers to it; import calls with their decoded arguments; a class's vftable users and methods) are grouped by function and ranked " +
-                 "(distinct seeds, decoded API calls, exported, minus library and very large functions). Hubs are callers within callerDepth that reach " +
-                 "several ranked functions. A seed that fails records its error; the trace goes on. Pages of functions reuse the computed trace. " +
-                 "x86 / x64 / ARM64 (call arguments on x86 / x64).")]
+    [Description("Finds the native code behind a behaviour from a text or value: seeds are the strings (ASCII, UTF-16), function and data names, imports " +
+                 "(static and late-bound), exports, RTTI classes and, for a number, constants in code matching query (\"quoted\": exact); their references " +
+                 "(string interiors, one pointer table, import calls and the calls constants feed, with decoded arguments, a class's vftable users) are " +
+                 "grouped by function and ranked (distinct seeds, decoded API calls, exported, minus library and very large functions). Hubs are callers " +
+                 "within callerDepth reaching several ranked functions. An open IDA / Ghidra session adds its strings, its references where the index has " +
+                 "none, and the matching pseudocode lines of the top functions. A failing seed records its error. Pages reuse the computed trace.")]
     public Task<string> TraceNativeFeature(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Text to find (case-insensitive substring), or a regex with regex=true.")] string query,
         [Description("Treat query as a regular expression.")] bool regex = false,
-        [Description("Comma-separated seed kinds (default all): strings, names, imports, exports, classes.")] string? kinds = null,
+        [Description("Comma-separated seed kinds (default all): strings, names, imports, exports, classes, constants.")] string? kinds = null,
         [Description("Matches followed (default 50, 1-500); the rest are counted.")] int maxSeeds = 50,
         [Description("Caller levels searched for hubs (default 1, 0-3).")] int callerDepth = 1,
         [Description("Index of the first function.")] int offset = 0,
@@ -61,17 +66,62 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
         {
             Progress = (float)waited.Elapsed.TotalSeconds, Message = $"indexing {native.Id}: {p.Phase}",
         })), cancellationToken);
-        return await Task.Run(() =>
+        var session = engines?.OpenSession(native);
+        var engine = session != null ? await Engine(session, cancellationToken) : null;
+        var result = await Task.Run(() =>
         {
             var classes = wanted.HasFlag(FeatureKinds.Classes) && index.Image.Format == ImageFormat.Pe
                 ? native.GetAnalysis(n => MsvcRtti.Analyze(n.Image, ct: cancellationToken)).Classes
                     .SelectMany(c => c.Vtables.Take(1).Select(v => new FeatureClass(c.Name, v.VftableRva, v.SlotRvas))).ToList()
                 : [];
-            var result = FeatureTrace.Run(index, query.Trim(), regex, wanted, Math.Clamp(maxSeeds, 1, 500), Math.Clamp(callerDepth, 0, 3), classes, cancellationToken);
-            var report = Report(native.Id, index, result, Math.Max(0, offset), Math.Clamp(limit, 1, 500));
-            return StructuredOutput.With(Text(index, report, result), report);
+            return FeatureTrace.Run(index, query.Trim(), regex, wanted, Math.Clamp(maxSeeds, 1, 500), Math.Clamp(callerDepth, 0, 3), classes, cancellationToken, engine);
         }, cancellationToken);
+        if (session != null) result = await Pseudocode(session, result, query.Trim(), regex, cancellationToken);
+        var report = Report(native.Id, index, result, Math.Max(0, offset), Math.Clamp(limit, 1, 500));
+        return StructuredOutput.With(Text(index, report, result), report);
     });
+
+    /// <summary>The open session's strings and references (references are read on demand, by the trace's thread).</summary>
+    private static async Task<FeatureEngine> Engine(INativeDecompilerSession session, CancellationToken ct)
+    {
+        IReadOnlyList<(uint, string)> strings;
+        try { strings = (await session.ListStringsAsync(MaxEngineStrings, ct)).Select(s => (s.Rva, s.Text)).ToList(); }
+        catch (Exception e) when (e is ToolError or NotSupportedException) { strings = []; }
+        return new FeatureEngine(session.ProviderId, strings, rva =>
+        {
+            try
+            {
+                return session.GetXrefsToAsync(rva, ct).GetAwaiter().GetResult()
+                    .Where(x => x.Kind is not (NativeXrefKind.Call or NativeXrefKind.Jump)).Select(x => x.FromRva).Distinct().ToList();
+            }
+            catch (Exception e) when (e is ToolError or NotSupportedException) { return []; }
+        });
+    }
+
+    /// <summary>The pseudocode lines of the top functions that hold the query, as evidence (one decompile batch).</summary>
+    private static async Task<FeatureTraceResult> Pseudocode(INativeDecompilerSession session, FeatureTraceResult r, string query, bool regex, CancellationToken ct)
+    {
+        var top = r.Functions.Take(TopPseudocode).ToList();
+        if (top.Count == 0 || !session.DecompilerAvailable) return r;
+        IReadOnlyList<DecompileOutcome> outcomes;
+        try { outcomes = await session.DecompileManyAsync([.. top.Select(f => f.Function.Start)], 30, 30 * top.Count, ct); }
+        catch (ToolError e) { return r with { Notes = [.. r.Notes, $"pseudocode of the top functions: {e.Message}"] }; }
+        var needle = query.Trim('"');
+        System.Text.RegularExpressions.Regex? pattern = null;
+        if (regex)
+            try { pattern = new System.Text.RegularExpressions.Regex(query, System.Text.RegularExpressions.RegexOptions.IgnoreCase, RegexTimeouts.Limit); }
+            catch (ArgumentException) { return r; }
+        var functions = r.Functions.ToList();
+        for (int i = 0; i < top.Count && i < outcomes.Count; i++)
+        {
+            if (outcomes[i].Function is not { } d) continue;
+            var lines = d.Text.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0 && (pattern?.IsMatch(l) ?? l.Contains(needle, StringComparison.OrdinalIgnoreCase))).Take(10)
+                .Select(l => new FeatureEvidence(top[i].Function.Start, "pseudocode", $"{Format.Clip(l, 200)} ({session.ProviderId})", -1)).ToList();
+            if (lines.Count == 0) continue;
+            functions[i] = top[i] with { Evidence = [.. top[i].Evidence, .. lines], EvidenceTotal = top[i].EvidenceTotal + lines.Count };
+        }
+        return r with { Functions = functions };
+    }
 
     private static FeatureKinds Kinds(string? list)
     {
@@ -85,7 +135,8 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
                 "imports" or "import" => FeatureKinds.Imports,
                 "exports" or "export" => FeatureKinds.Exports,
                 "classes" or "class" => FeatureKinds.Classes,
-                _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown seed kind '{k}'.", "kinds: strings, names, imports, exports, classes"),
+                "constants" or "constant" => FeatureKinds.Constants,
+                _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown seed kind '{k}'.", "kinds: strings, names, imports, exports, classes, constants"),
             };
         return kinds;
     }

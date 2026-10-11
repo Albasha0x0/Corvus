@@ -13,8 +13,13 @@ public enum FeatureKinds
     Imports = 4,
     Exports = 8,
     Classes = 16,
-    All = Strings | Names | Imports | Exports | Classes,
+    /// <summary>Immediates and displacements in code equal to the query's number (only when the query is one).</summary>
+    Constants = 32,
+    All = Strings | Names | Imports | Exports | Classes | Constants,
 }
+
+/// <summary>An open engine session's view for a trace: its defined strings and its references to an address (blocking calls).</summary>
+public sealed record FeatureEngine(string Id, IReadOnlyList<(uint Rva, string Text)> Strings, Func<uint, IReadOnlyList<uint>> RefsTo);
 
 /// <summary>A polymorphic class for seeding: its name, vftable and slot targets (from RTTI).</summary>
 public sealed record FeatureClass(string Name, uint Vftable, IReadOnlyList<uint> Slots);
@@ -49,8 +54,11 @@ public sealed class FeatureTrace
     private const int MaxTableSlots = 64;
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<NativeCodeIndex, Dictionary<string, FeatureTraceResult>> Cache = new();
 
+    private const int MaxConstantFunctions = 2000;
+    private const int MaxScannedInstructions = 2_000_000;
     private readonly NativeCodeIndex _index;
     private readonly CallAnalysis? _calls;
+    private FeatureEngine? _engine;
     private readonly Func<string, bool> _match;
     private readonly List<FeatureSeed> _seeds = [];
     private readonly List<FeatureEvidence> _evidence = [];
@@ -68,14 +76,21 @@ public sealed class FeatureTrace
         _maxSeeds = maxSeeds;
     }
 
+    /// <param name="query">Text to find; "quoted" matches whole strings and names exactly; a number also seeds the constants in code.</param>
+    /// <param name="engine">An open engine session: its strings join the seeds, its references stand in where the built-in index has none.</param>
     public static FeatureTraceResult Run(NativeCodeIndex index, string query, bool regex, FeatureKinds kinds, int maxSeeds, int callerDepth, IReadOnlyList<FeatureClass> classes,
-        CancellationToken ct)
+        CancellationToken ct, FeatureEngine? engine = null)
     {
-        var key = $"{query}|{regex}|{kinds}|{maxSeeds}|{callerDepth}|{classes.Count}|{index.Sourced.Version}";
+        var key = $"{query}|{regex}|{kinds}|{maxSeeds}|{callerDepth}|{classes.Count}|{index.Sourced.Version}|{engine?.Id}";
         var cache = Cache.GetValue(index, _ => []);
         lock (cache) if (cache.TryGetValue(key, out var hit)) return hit;
         Func<string, bool> match;
-        if (regex)
+        if (!regex && query.Length >= 2 && query[0] == '"' && query[^1] == '"')
+        {
+            var exact = query[1..^1];
+            match = t => t.Equals(exact, StringComparison.OrdinalIgnoreCase);
+        }
+        else if (regex)
         {
             Regex pattern;
             try { pattern = new Regex(query, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit); }
@@ -84,7 +99,7 @@ public sealed class FeatureTrace
             match = t => timeouts.IsMatch(pattern, t);
         }
         else match = t => t.Contains(query, StringComparison.OrdinalIgnoreCase);
-        var trace = new FeatureTrace(index, match, maxSeeds);
+        var trace = new FeatureTrace(index, match, maxSeeds) { _engine = engine };
         var result = trace.Execute(query, kinds, callerDepth, classes, ct);
         lock (cache)
         {
@@ -103,6 +118,7 @@ public sealed class FeatureTrace
         if (kinds.HasFlag(FeatureKinds.Imports)) Imports(ct);
         if (kinds.HasFlag(FeatureKinds.Exports)) Exports(ct);
         if (kinds.HasFlag(FeatureKinds.Classes)) Classes(classes, ct);
+        if (kinds.HasFlag(FeatureKinds.Constants) && !query.StartsWith('"') && Number(query) is { } value) Constants(value, ct);
         if (_total > _seeds.Count) _notes.Add($"{_total} matches; the first {_seeds.Count} were followed (maxSeeds)");
         var functions = Aggregate();
         var (hubs, cut) = callerDepth > 0 ? Hubs(functions, callerDepth, ct) : ([], false);
@@ -151,8 +167,147 @@ public sealed class FeatureTrace
                         Add(x.From, "string", $"{(x.Kind == XrefKind.Read ? "reads" : "uses")} {quoted}{(x.To != s.Rva ? $" at +0x{x.To - s.Rva:X}" : "")}", id);
                     else if (x.Kind == XrefKind.Pointer) Table(x.From, quoted, id);
                 }
+                if (_perSeed.GetValueOrDefault(id) == 0) EngineRefs(s.Rva, $"uses {quoted}", id);
             }, ct);
         }
+        if (_engine == null) return;
+        // strings only the engine defines
+        foreach (var (rva, text) in _engine.Strings)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (_seeded.Contains(rva) || !_match(text)) continue;
+            var quoted = $"\"{Format.Clip(text, 120)}\"";
+            Seed("string", rva, quoted, id => EngineRefs(rva, $"uses {quoted}", id), ct);
+        }
+    }
+
+    /// <summary>The engine's code references to <paramref name="rva"/>, where the built-in index found none.</summary>
+    private void EngineRefs(uint rva, string detail, int seed)
+    {
+        if (_engine == null) return;
+        foreach (var from in _engine.RefsTo(rva))
+            if (_index.FunctionAt(from) != null) Add(from, "engine_xref", $"{detail} ({_engine.Id})", seed);
+    }
+
+    private static ulong? Number(string query)
+    {
+        var t = query.Trim();
+        if (t.Length == 0 || t.Length > 20) return null;
+        if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase) || t.EndsWith('h') || t.EndsWith('H')) return NativeAddress.Number(t);
+        if (t.StartsWith('-') && long.TryParse(t, System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out long negative))
+            return (ulong)negative;
+        return t.All(char.IsAsciiDigit) && ulong.TryParse(t, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out ulong n) ? n : null;
+    }
+
+    /// <summary>The instructions with an immediate or displacement equal to <paramref name="value"/>, with the call each one feeds.</summary>
+    private void Constants(ulong value, CancellationToken ct)
+    {
+        var text = value < 10 ? value.ToString(System.Globalization.CultureInfo.InvariantCulture) : $"0x{value:X}";
+        List<(uint Site, string Detail)> hits;
+        Exception? failure = null;
+        try { hits = _calls != null ? X86Constants(value, ct) : Arm64Trace.Supports(_index) ? Arm64Constants(value, ct) : []; }
+        catch (Exception e) when (e is not OperationCanceledException) { (hits, failure) = ([], e); }
+        Seed("constant", hits.Count > 0 ? hits[0].Site : 0, text, id =>
+        {
+            if (failure != null) throw failure;
+            foreach (var (site, detail) in hits) Add(site, "constant", detail, id);
+        }, ct);
+    }
+
+    private List<(uint, string)> X86Constants(ulong value, CancellationToken ct)
+    {
+        var functions = new List<NativeFunction>();
+        bool fits32 = value <= uint.MaxValue || value >> 31 == 0x1_FFFF_FFFF;
+        if (value >= 0x100)
+        {
+            // the encoded immediate or displacement: 4 bytes (sign-extended to 64 bits when needed), else 8
+            var pattern = fits32 ? BitConverter.GetBytes((uint)value) : BitConverter.GetBytes(value);
+            var seen = new HashSet<uint>();
+            foreach (var section in _index.Image.Sections.Where(s => s.IsExecutable))
+            {
+                var bytes = new byte[section.MappedSize];
+                int n = _index.Image.Read(section.Rva, bytes);
+                for (int at = bytes.AsSpan(0, n).IndexOf(pattern); at >= 0; )
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (_index.FunctionAt(section.Rva + (uint)at) is { } f && seen.Add(f.Start)) functions.Add(f);
+                    int next = bytes.AsSpan(at + 1, n - at - 1).IndexOf(pattern);
+                    at = next < 0 ? -1 : at + 1 + next;
+                }
+            }
+        }
+        else functions.AddRange(_index.Functions);
+        var result = new List<(uint, string)>();
+        int scanned = 0;
+        foreach (var f in functions.Take(MaxConstantFunctions))
+        {
+            ct.ThrowIfCancellationRequested();
+            var code = _calls!.Code(f, ct);
+            IReadOnlyList<CallSiteInfo>? calls = null;
+            foreach (var d in code.Blocks.SelectMany(b => b).DistinctBy(d => d.Rva).OrderBy(d => d.Rva))
+            {
+                if (++scanned > MaxScannedInstructions) { _notes.Add($"the constant search stopped after {MaxScannedInstructions:N0} instructions"); return result; }
+                if (!Holds(d.I, value, fits32)) continue;
+                calls ??= _calls.CallsIn(f, ct);
+                result.Add((d.Rva, Feeds(d.I.ToString(), d.Rva, value, calls)));
+                if (result.Count >= MaxEvidencePerSeed) return result;
+            }
+        }
+        if (functions.Count > MaxConstantFunctions) _notes.Add($"the constant is in {functions.Count} functions; the first {MaxConstantFunctions} were searched");
+        return result;
+    }
+
+    private static bool Holds(in Iced.Intel.Instruction x, ulong value, bool fits32)
+    {
+        for (int k = 0; k < x.OpCount; k++)
+            switch (x.GetOpKind(k))
+            {
+                case Iced.Intel.OpKind.Immediate8 or Iced.Intel.OpKind.Immediate8to16 or Iced.Intel.OpKind.Immediate8to32 or Iced.Intel.OpKind.Immediate8to64
+                    or Iced.Intel.OpKind.Immediate16 or Iced.Intel.OpKind.Immediate32 or Iced.Intel.OpKind.Immediate32to64 or Iced.Intel.OpKind.Immediate64:
+                    ulong imm = x.GetImmediate(k);
+                    if (imm == value || fits32 && (uint)imm == (uint)value) return true;
+                    break;
+                case Iced.Intel.OpKind.Memory when x.MemoryBase is not (Iced.Intel.Register.RIP or Iced.Intel.Register.EIP) && x.MemoryDisplacement64 != 0:
+                    if (x.MemoryDisplacement64 == value || fits32 && (uint)x.MemoryDisplacement64 == (uint)value) return true;
+                    break;
+            }
+        return false;
+    }
+
+    /// <summary>The instruction, and the call whose argument it sets when one does.</summary>
+    private string Feeds(string instruction, uint site, ulong value, IReadOnlyList<CallSiteInfo> calls)
+    {
+        var va = Va(site);
+        var call = calls.FirstOrDefault(c => c.Arguments.Any(a => a.Value is { } v && (v == value || (uint)v == (uint)value) && a.Derivation.Contains(va, StringComparison.OrdinalIgnoreCase)));
+        return call != null ? $"{instruction} -> {call.Display}" : instruction;
+    }
+
+    private List<(uint, string)> Arm64Constants(ulong value, CancellationToken ct)
+    {
+        var trace = Arm64Trace.For(_index);
+        var result = new List<(uint, string)>();
+        int scanned = 0;
+        foreach (var f in _index.Functions)
+        {
+            ct.ThrowIfCancellationRequested();
+            var code = trace.Code(f, ct);
+            IReadOnlyList<CallSiteInfo>? calls = null;
+            foreach (var s in code.Blocks.SelectMany(b => b))
+            {
+                if (++scanned > MaxScannedInstructions) { _notes.Add($"the constant search stopped after {MaxScannedInstructions:N0} instructions"); return result; }
+                bool holds = false;
+                var insn = s.I;
+                for (int k = 1; k < insn.OperandCount && !holds; k++) holds = A64Function.Imm(in insn, k) is { } imm && (ulong)imm == value;
+                // mov / movk sequences build wider constants
+                if (!holds && s.I.Mnemonic == AsmArm64.Arm64Mnemonic.MOVK && A64Function.Gpr(s.I, 0) is var r and >= 0 and < 31)
+                    holds = trace.ConstantAfter(f, s.Rva, $"x{r}", ct) is { } built && (built == value || (uint)built == (uint)value && value <= uint.MaxValue);
+                if (!holds) continue;
+                calls ??= trace.Calls.CallsIn(f, ct);
+                result.Add((s.Rva, Feeds(s.Text, s.Rva, value, calls)));
+                if (result.Count >= MaxEvidencePerSeed) return result;
+            }
+        }
+        return result;
     }
 
     /// <summary>One indirection: a pointer to the string in a table of pointers, and the code that uses the table's start.</summary>
@@ -191,6 +346,7 @@ public sealed class FeatureTrace
             {
                 foreach (var x in _index.RefsTo(rva).Where(x => _index.FunctionAt(x.From) != null))
                     Add(x.From, "data", $"{x.Kind.ToString().ToLowerInvariant()} [{name}]", id);
+                if (_perSeed.GetValueOrDefault(id) == 0) EngineRefs(rva, $"uses [{name}]", id);
             }, ct);
         }
     }

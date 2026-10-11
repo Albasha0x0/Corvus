@@ -127,6 +127,62 @@ public sealed class FeatureTraceTests : IDisposable
     }
 
     [Fact]
+    public async Task Constants_and_exact_strings_seed_the_trace()
+    {
+        byte[] Code(Dictionary<string, uint> slots)
+        {
+            var a = new Assembler(64);
+            a.sub(rsp, 0x28);
+            a.mov(edx, 0xC0000000);
+            a.AddInstruction(Instruction.Create(Iced.Intel.Code.Lea_r64_m, Register.RCX, new MemoryOperand(Register.RIP, (long)(Base + slots["name"]), 8)));
+            a.AddInstruction(Instruction.Create(Iced.Intel.Code.Call_rm64, new MemoryOperand(Register.RIP, (long)(Base + slots["KERNEL32.dll!CreateFileW"]), 8)));
+            a.add(rsp, 0x28);
+            a.ret();
+            var stream = new MemoryStream();
+            a.Assemble(new StreamCodeWriter(stream), Base + LinkedImages.Text);
+            return stream.ToArray();
+        }
+        var path = _dir.File("constant.dll");
+        File.WriteAllBytes(path, LinkedImages.Build("constant.dll", [("Open", 0)], [("KERNEL32.dll", ["CreateFileW"])], Code,
+            (blob, _) => { blob.Align(2); return new() { ["name"] = blob.Utf16("settings.ini\0") }; }));
+        var (ws, _, tools) = Rig();
+        using var _ = ws;
+        var text = await tools.TraceNativeFeature(path, "0xC0000000");
+        NativeLinkTests.Has(text, "constant 0x");
+        NativeLinkTests.Has(text, "0xC0000000  (1 reference)");
+        NativeLinkTests.Has(text, "-> CreateFileW(L\"settings.ini\", GENERIC_READ|GENERIC_WRITE");
+
+        var exact = await tools.TraceNativeFeature(Sample(), "\"settings saved\"");
+        NativeLinkTests.Has(exact, "1 match, 1 seed followed");
+        Assert.DoesNotContain("open settings file", exact.Split("Functions (")[0]);
+    }
+
+    [Fact]
+    public async Task An_open_engine_adds_its_references_and_the_matching_pseudocode()
+    {
+        var path = _dir.File("engine.dll");
+        uint token = 0;
+        File.WriteAllBytes(path, LinkedImages.Build("engine.dll", [("First", 0), ("User", 0x20)], [],
+            slots => new LinkedImages.Code(slots).Ret().Pad(0x20).Raw(0x90, 0x90, 0x90, 0x90).Ret().ToArray(),
+            (blob, _) => new() { ["token"] = token = blob.Ascii("magic token") }));
+        var options = new ServerOptions { BackgroundIndexing = false };
+        var ws = new AssemblyWorkspace(options);
+        using var _ = ws;
+        var native = ws.LoadAny(path).Native!;
+        var code = new NativeCodeService(ws, options, null, new AnnotationStore(_dir.File("ann")));
+        var engine = new ScriptedEngine();
+        engine.Strings.Add(new NetDecompilerMcp.Native.Providers.EngineString(token, 12, "c", "magic token"));
+        engine.Add(LinkedImages.Text, "First", "void First(void) { }");
+        engine.Add(LinkedImages.Text + 0x20, "User", "void User(void)", "{", "  use(\"magic token\");", "}");
+        engine.Xrefs.Add(new NetDecompilerMcp.Native.Providers.NativeXref(LinkedImages.Text + 0x24, token, NetDecompilerMcp.Native.Providers.NativeXrefKind.Read, LinkedImages.Text + 0x20));
+        using var engines = new NativeEngineService([engine], _dir.File("cache"), null, ws, options);
+        await engines.Session(native, NetDecompilerMcp.Native.Providers.Ida.IdaProvider.ProviderId, null, default);
+        var text = await new NativeFeatureTools(ws, code, new OutputPager(options), engines).TraceNativeFeature(path, "magic");
+        NativeLinkTests.Has(text, "engine_xref: uses \"magic token\" (ida)");
+        NativeLinkTests.Has(text, "pseudocode: use(\"magic token\"); (ida)");
+    }
+
+    [Fact]
     public async Task A_failing_seed_keeps_the_others_and_results_are_cached()
     {
         var (ws, code, _) = Rig();

@@ -19,6 +19,7 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
     /// <summary>Seconds each decompilation of these functions takes.</summary>
     public Dictionary<uint, double> Slow { get; } = [];
     public List<NativeXref> Xrefs { get; } = [];
+    public List<EngineString> Strings { get; } = [];
     public int Lanes { get; set; } = 1;
     public int Decompiles;
     /// <summary>Functions asked per batch request, in order.</summary>
@@ -96,6 +97,8 @@ internal sealed class ScriptedEngine : INativeDecompilerProvider
             Task.FromResult(new PatchSyncResult(wanted.Count, 0, 0, 0, 0, 0, [], TimeSpan.Zero));
         public Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<NativeXref>>(e.Xrefs.Where(x => x.ToRva == rva).ToList());
+        public Task<IReadOnlyList<EngineString>> ListStringsAsync(int max, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<EngineString>>(e.Strings.Take(max).ToList());
         public Task<IReadOnlyList<NativeXref>> GetXrefsFromAsync(uint rva, bool wholeFunction = false, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<NativeXref>>([]);
         public Task<string> SetNameAsync(uint rva, string name, CancellationToken cancellationToken = default) => Task.FromResult(name);

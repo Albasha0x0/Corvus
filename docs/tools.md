@@ -1279,14 +1279,14 @@ Structured output: `image`, `address`, `name`, `size`, `end`, `sections`, `next`
 
 **Trace a native feature** (read-only, idempotent, long-running)
 
-Finds the native code behind a behaviour from a text: seeds are the strings (ASCII, UTF-16), function and data names, imports (static and GetProcAddress), exports and RTTI classes matching query; their references (inside a string too, and through one table of pointers to it; import calls with their decoded arguments; a class's vftable users and methods) are grouped by function and ranked (distinct seeds, decoded API calls, exported, minus library and very large functions). Hubs are callers within callerDepth that reach several ranked functions. A seed that fails records its error; the trace goes on. Pages of functions reuse the computed trace. x86 / x64 / ARM64 (call arguments on x86 / x64).
+Finds the native code behind a behaviour from a text or value: seeds are the strings (ASCII, UTF-16), function and data names, imports (static and late-bound), exports, RTTI classes and, for a number, constants in code matching query ("quoted": exact); their references (string interiors, one pointer table, import calls and the calls constants feed, with decoded arguments, a class's vftable users) are grouped by function and ranked (distinct seeds, decoded API calls, exported, minus library and very large functions). Hubs are callers within callerDepth reaching several ranked functions. An open IDA / Ghidra session adds its strings, its references where the index has none, and the matching pseudocode lines of the top functions. A failing seed records its error. Pages reuse the computed trace.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
 | `query` | string | yes |  | Text to find (case-insensitive substring), or a regex with regex=true. |
 | `regex` | boolean |  | `false` | Treat query as a regular expression. |
-| `kinds` | string |  |  | Comma-separated seed kinds (default all): strings, names, imports, exports, classes. |
+| `kinds` | string |  |  | Comma-separated seed kinds (default all): strings, names, imports, exports, classes, constants. |
 | `maxSeeds` | integer |  | `50` | Matches followed (default 50, 1-500); the rest are counted. |
 | `callerDepth` | integer |  | `1` | Caller levels searched for hubs (default 1, 0-3). |
 | `offset` | integer |  | `0` | Index of the first function. |
