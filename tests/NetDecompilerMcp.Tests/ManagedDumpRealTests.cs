@@ -116,6 +116,29 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         // native frames stay: the runtime's exception dispatch below the managed frames
         Assert.Contains(stack.Frames, f => f.SymbolSource != "clr" && f.Module != null);
         AssertSortedBySp(stack);
+
+        var heap = await service.Heap(dump, "stats", null, 0, 0, 1000, MinidumpService.DefaultMaxHeapObjects, default);
+        Assert.False(heap.WalkStopped);
+        var strings = heap.Types.Single(t => t.Type == "System.String");
+        Assert.True(strings.Count > 10 && strings.TotalSize > 0);
+        Assert.Contains(heap.Types, t => t.Type == "System.ApplicationException");
+        var probeType = await service.Heap(dump, "stats", "System.*Exception", 0, 0, 50, MinidumpService.DefaultMaxHeapObjects, default);
+        Assert.All(probeType.Types, t => Assert.EndsWith("Exception", t.Type, StringComparison.Ordinal));
+        var objects = await service.Heap(dump, "objects", "System.String", 0, 0, 5, MinidumpService.DefaultMaxHeapObjects, default);
+        Assert.Equal(5, objects.Objects.Count);
+        Assert.True(objects.Truncated);
+        Assert.All(objects.Objects, o => Assert.NotNull(o.Value));
+
+        var outer = await service.Object(dump, e.Address, 2, 100, 32, default);
+        output.WriteLine(string.Join("\n", outer.Fields.Select(f => $"{new string(' ', f.Depth * 2)}{f.Path}: {f.Type} = {f.Value} {f.Address}")));
+        Assert.Equal("System.ApplicationException", outer.Type);
+        Assert.Equal("\"ndm-outer\"", outer.Fields.Single(f => f.Path == "_message").Value);
+        Assert.Equal(inner.Address, outer.Fields.Single(f => f.Path == "_innerException").Address);
+        Assert.Equal("\"ndm-probe\"", outer.Fields.Single(f => f.Path == "_innerException._message").Value);
+        Assert.Equal("-2146232832", outer.Fields.Single(f => f.Path == "_HResult").Value); // COR_E_APPLICATION
+        var message = await service.Object(dump, outer.Fields.Single(f => f.Path == "_message").Address!, 1, 100, 32, default);
+        Assert.Equal("ndm-outer", message.Value);
+        await Assert.ThrowsAsync<ToolError>(() => service.Object(dump, "0x10", 1, 100, 32, default));
         Assert.DoesNotContain(stack.Frames.GroupBy(f => f.StackPointer), g => g.Count() > 1 && g.Any(f => f.SymbolSource == "clr")); // one frame per stack pointer
     }
 
@@ -131,6 +154,8 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.Equal("loaded", m.Dac.Status);
         Assert.False(m.Heap!.Walkable);
         Assert.StartsWith("heap_not_captured", m.Heap.Reason);
+        var error = await Assert.ThrowsAsync<ToolError>(() => service.Heap(dump, "stats", null, 0, 0, 50, MinidumpService.DefaultMaxHeapObjects, default));
+        Assert.StartsWith("heap_not_captured", error.Message);
         Assert.Equal("ndm-probe", m.Exception!.Inner.Single().Message);
         var stack = await service.Stack(dump, m.Exception.ThreadId?.ToString(System.Globalization.CultureInfo.InvariantCulture), true, 256, 0, 256, null, default);
         Assert.Contains(stack.Frames, f => f.SymbolSource == "clr" && f.Function!.Contains("Inner", StringComparison.Ordinal));

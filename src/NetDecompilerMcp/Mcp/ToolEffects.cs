@@ -173,6 +173,8 @@ public static class ToolEffects
         // Crash dumps (an open dump gets an id, as loading an image does)
         ["open_minidump"] = Reads(longRunning: true, openWorld: true), // downloadDac=true fetches the runtime's DAC from a symbol server
         ["dump_stack"] = Reads(),
+        ["dump_heap"] = Reads(longRunning: true),
+        ["dump_object"] = Reads(),
         ["read_dump_memory"] = Reads(),
         // Notes (kept per user beside the annotation sidecars)
         ["record_note"] = Changes(destructive: false, idempotent: false),

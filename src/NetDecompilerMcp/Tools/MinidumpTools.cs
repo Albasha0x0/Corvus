@@ -56,6 +56,35 @@ public sealed class MinidumpTools(MinidumpService dumps)
         Task.Run(() => dumps.Stack(dump, thread, exceptionContext, maxFrames, offset, limit, imageDirectories,
             !string.Equals(managed?.Trim(), "off", StringComparison.OrdinalIgnoreCase), cancellationToken), cancellationToken);
 
+    [McpServerTool(Name = "dump_heap", Title = "Crash dump .NET heap", UseStructuredContent = true)]
+    [Description("The .NET GC heap of a minidump through the runtime's DAC. stats: count and total size per type, largest first, each with the " +
+                 "loaded assembly and type token of that build; objects: matching objects in heap order (address, type, size, a string's value). " +
+                 "type filters by full name ('*' and '?' wildcards, else the exact name). Needs a dump with heap memory (full or private read/write); " +
+                 "a stacks-only dump is an error naming heap_not_captured. The walk is bounded by maxObjects and says when it stopped early.")]
+    public Task<MinidumpService.HeapReport> DumpHeap(
+        [Description(DumpDescription)] string dump,
+        [Description("stats (per type) or objects (one row per object).")] string? mode = "stats",
+        [Description("Type full name, with '*' / '?' wildcards (System.Collections.Generic.List*); default all.")] string? type = null,
+        [Description("Only objects of at least this many bytes.")] long minSize = 0,
+        [Description("Index of the first row returned.")] int offset = 0,
+        [Description("Max rows returned (default 50, up to 1000).")] int limit = MinidumpService.DefaultListLimit,
+        [Description("Max objects walked (default 5,000,000).")] long maxObjects = MinidumpService.DefaultMaxHeapObjects,
+        CancellationToken cancellationToken = default) =>
+        Task.Run(() => dumps.Heap(dump, mode, type, (ulong)Math.Max(0, minSize), offset, limit, maxObjects, cancellationToken), cancellationToken);
+
+    [McpServerTool(Name = "dump_object", Title = "Crash dump .NET object", UseStructuredContent = true)]
+    [Description("One .NET object of a minidump through the runtime's DAC: type, size, fields (name, type, offset, value; references expanded " +
+                 "depth levels, structs inline), a string's or boxed value, or an array's elements. The type's loaded assembly and token " +
+                 "lead to get_type_info / decompile_type. Exception objects come from open_minidump's managed exception address.")]
+    public Task<MinidumpService.ObjectReport> DumpObject(
+        [Description(DumpDescription)] string dump,
+        [Description("Hex address of the object.")] string address,
+        [Description("Levels of referenced objects expanded (default 1, up to 3).")] int depth = 1,
+        [Description("Max fields listed, nested ones included (default 100).")] int maxFields = 100,
+        [Description("Max array elements listed (default 32).")] int maxArrayItems = 32,
+        CancellationToken cancellationToken = default) =>
+        Task.Run(() => dumps.Object(dump, address, depth, maxFields, maxArrayItems, cancellationToken), cancellationToken);
+
     [McpServerTool(Name = "read_dump_memory", Title = "Read crash dump memory", UseStructuredContent = true)]
     [Description("Hex dump of the dumped process's memory at an address: the bytes the dump captured, with what is there (module!function, " +
                  "captured range, page protection). Bytes the dump does not hold are read from the module image when imageFallback is true (code and " +

@@ -152,7 +152,25 @@ public sealed class ManagedDumpTests
     {
         var (pe, _, _, _) = Image();
         Assert.Null(await ClrDecoder.Open(MinidumpFile.FromBytes(Dump(pe).Build()), _ => pe, [], new DacRequest(), default));
+        using var dir = new TempDir();
+        var path = dir.File("native.dmp");
+        File.WriteAllBytes(path, Dump(pe).Build());
+        var service = new MinidumpService();
+        Assert.Null((await service.Summarize(path, null, 0, 50, 0, 50, default)).Managed);
+        Assert.Null((await service.Stack(path, null, true, 16, 0, 16, null, default)).Managed);
+        var error = await Assert.ThrowsAsync<ToolError>(() => service.Object(path, "0x1000", 1, 10, 10, default));
+        Assert.Contains("no .NET runtime", error.Message);
     }
+
+    [Theory]
+    [InlineData("System.String", "System.String", true)]
+    [InlineData("System.String", "system.string", true)]
+    [InlineData("System.String[]", "System.String", false)]
+    [InlineData("System.Collections.Generic.List<System.Int32>", "System.Collections.Generic.List*", true)]
+    [InlineData("Probe.Program", "*.Prog?am", true)]
+    [InlineData("Probe.Program", "*Exception", false)]
+    [InlineData("A", "**", true)]
+    public void TypeFilterIsWildcardOrExact(string name, string pattern, bool expected) => Assert.Equal(expected, ClrHeapView.Matches(name, pattern));
 
     /// <summary>A CoreCLR module whose build is nowhere on this machine: not found locally, a refused download offline, a rejected unsigned DAC.</summary>
     [Fact]
@@ -183,6 +201,12 @@ public sealed class ManagedDumpTests
         summary = await service.Summarize(path, null, 0, 50, 0, 50, new DacRequest(dir.Path), default); // the folder works too
         Assert.Equal("signature_invalid", summary.Managed!.Dac.Status);
         await Assert.ThrowsAsync<ToolError>(() => service.Summarize(path, null, 0, 50, 0, 50, new DacRequest(dir.File("missing.dll")), default));
+
+        var noDac = await Assert.ThrowsAsync<ToolError>(() => service.Heap(path, "stats", null, 0, 0, 50, 100, default));
+        Assert.Equal(ErrorCode.Unsupported, noDac.Code);
+        Assert.Contains("DAC is not loaded", noDac.Message);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => service.Heap(path, "tree", null, 0, 0, 50, 100, default))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => service.Object(path, "nowhere", 1, 10, 10, default))).Code);
 
         var previous = Environment.GetEnvironmentVariable("NDM_OFFLINE");
         Environment.SetEnvironmentVariable("NDM_OFFLINE", "1");

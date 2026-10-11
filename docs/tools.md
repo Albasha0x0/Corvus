@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
-119 tools in 12 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+121 tools in 12 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -18,7 +18,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
 | [engine](#engine) | no | 7: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
-| [dumps](#dumps) | no | 3: crash dumps |
+| [dumps](#dumps) | no | 5: crash dumps |
 | [live](#live) | no | 1: read-only inspection of a running process |
 
 ## session
@@ -1820,6 +1820,40 @@ Call stack of a thread in a minidump. x64: virtual unwind with the modules' .pda
 | `managed` | string |  | `auto` | auto: decode .NET frames through a local DAC (or the one open_minidump loaded); off: native walk only. Values: auto, off. |
 
 Structured output: `dump`, `threadId`, `threadName`, `context`, `architecture`, `registers`, `total`, `offset`, `truncated`, `frames`, `stop`, `heuristicFrames`, `managed`, `notes`.
+
+### dump_heap
+
+**Crash dump .NET heap** (read-only, idempotent, long-running)
+
+The .NET GC heap of a minidump through the runtime's DAC. stats: count and total size per type, largest first, each with the loaded assembly and type token of that build; objects: matching objects in heap order (address, type, size, a string's value). type filters by full name ('*' and '?' wildcards, else the exact name). Needs a dump with heap memory (full or private read/write); a stacks-only dump is an error naming heap_not_captured. The walk is bounded by maxObjects and says when it stopped early.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `dump` | string | yes |  | A minidump: the path of a .dmp file, or the id open_minidump returned (its file name). |
+| `mode` | string |  | `stats` | stats (per type) or objects (one row per object). Values: stats, objects. |
+| `type` | string |  |  | Type full name, with '*' / '?' wildcards (System.Collections.Generic.List*); default all. |
+| `minSize` | integer |  | `0` | Only objects of at least this many bytes. |
+| `offset` | integer |  | `0` | Index of the first row returned. |
+| `limit` | integer |  | `50` | Max rows returned (default 50, up to 1000). |
+| `maxObjects` | integer |  | `5000000` | Max objects walked (default 5,000,000). |
+
+Structured output: `dump`, `mode`, `type`, `minSize`, `walked`, `walkStopped`, `total`, `offset`, `truncated`, `matchedBytes`, `types`, `objects`, `notes`.
+
+### dump_object
+
+**Crash dump .NET object** (read-only, idempotent)
+
+One .NET object of a minidump through the runtime's DAC: type, size, fields (name, type, offset, value; references expanded depth levels, structs inline), a string's or boxed value, or an array's elements. The type's loaded assembly and token lead to get_type_info / decompile_type. Exception objects come from open_minidump's managed exception address.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `dump` | string | yes |  | A minidump: the path of a .dmp file, or the id open_minidump returned (its file name). |
+| `address` | string | yes |  | Hex address of the object. |
+| `depth` | integer |  | `1` | Levels of referenced objects expanded (default 1, up to 3). |
+| `maxFields` | integer |  | `100` | Max fields listed, nested ones included (default 100). |
+| `maxArrayItems` | integer |  | `32` | Max array elements listed (default 32). |
+
+Structured output: `dump`, `address`, `type`, `size`, `assembly`, `token`, `buildCheck`, `value`, `length`, `fields`, `truncated`, `notes`.
 
 ### read_dump_memory
 
