@@ -54,6 +54,8 @@ internal static class SelfTest
                 Send(p, new JsonObject { ["jsonrpc"] = "2.0", ["id"] = 2, ["method"] = "tools/list" });
                 var tools = Receive(p, 2, timeout - clock.Elapsed)?["result"]?["tools"]?.AsArray();
                 if (tools == null) return Fail("no reply to tools/list", stderr);
+                // A development relay adds its own tool; the catalog is the server's.
+                foreach (var added in tools.Where(t => t?["name"]?.GetValue<string>() == NetDecompilerMcp.Relay.DevRelay.ApplyTool).ToList()) tools.Remove(added);
                 var names = tools.Select(t => t?["name"]?.GetValue<string>() ?? "").Where(n => n.Length > 0).ToList();
                 // Older servers may have no prompts: an empty list then.
                 Send(p, new JsonObject { ["jsonrpc"] = "2.0", ["id"] = 3, ["method"] = "prompts/list" });

@@ -215,6 +215,54 @@ public sealed class SetupTests : IDisposable
     private static readonly ServerLaunch DotnetLaunch = new("dotnet", [Path.Combine(Path.GetTempPath(), "build", "NetDecompilerMcp.dll")]);
 
     [Fact]
+    public void Install_DevReload_RegistersTheRelayFromAStagedCopy_AndBack()
+    {
+        var program = Home("src", "bin", "NetDecompilerMcp.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(program)!);
+        File.WriteAllText(program, "apphost");
+        File.WriteAllText(Home("src", "bin", "NetDecompilerMcp.dll"), "server");
+        var publish = Home("publish");
+        Directory.CreateDirectory(publish);
+        var state = Home("relay-state");
+        var env = new SetupEnvironment
+        {
+            Os = _env.Os, Home = _env.Home, AppData = _env.AppData, LocalAppData = _env.LocalAppData, XdgConfig = _env.XdgConfig,
+            Variable = name => name == "NDM_RELAY_DIR" ? state : null,
+        };
+        Directory.CreateDirectory(Home(".cursor"));
+        File.WriteAllText(Home(".cursor", "mcp.json"), """{ "mcpServers": { "net-decompiler": { "command": "old", "args": ["--load", "x"] } } }""");
+        JsonNode Entry() => ReadJson(Home(".cursor", "mcp.json"))["mcpServers"]!["net-decompiler"]!;
+        string[] Args() => [.. Entry()["args"]!.AsArray().Select(a => a!.GetValue<string>())];
+
+        var output = new StringWriter();
+        Assert.Equal(0, SetupCli.TryRun(["install", "--no-check", "--dev-reload", publish], output, env, new ServerLaunch(program, [])));
+        var staged = Entry()["command"]!.GetValue<string>();
+        Assert.StartsWith(Path.Combine(state, "host"), staged);
+        Assert.Equal("apphost", File.ReadAllText(staged));
+        Assert.Equal(["relay", "--target", publish, "--load", "x"], Args());
+        // Again: unchanged; another folder replaces the relay's options instead of stacking them.
+        Assert.Contains("already registered", Run2("install", "--no-check", "--dev-reload", publish));
+        Assert.Equal(0, SetupCli.TryRun(["install", "--no-check", "--dev-reload", Home(".cursor")], new StringWriter(), env, new ServerLaunch(program, [])));
+        Assert.Equal(["relay", "--target", Home(".cursor"), "--load", "x"], Args());
+        // A plain install switches back to the server.
+        Assert.Equal(0, SetupCli.TryRun(["install", "--no-check"], new StringWriter(), env, Launch));
+        Assert.Equal(Launch.Command, Entry()["command"]!.GetValue<string>());
+        Assert.Equal(["--load", "x"], Args());
+
+        Assert.Equal(2, SetupCli.TryRun(["install", "--no-check", "--dev-reload", Home("missing")], new StringWriter(), env, Launch));
+        var config = new StringWriter();
+        Assert.Equal(0, SetupCli.TryRun(["config", "--dev-reload", publish], config, env, new ServerLaunch(program, [])));
+        Assert.Contains("\"relay\"", config.ToString());
+
+        string Run2(params string[] args)
+        {
+            var o = new StringWriter();
+            Assert.Equal(0, SetupCli.TryRun(args, o, env, new ServerLaunch(program, [])));
+            return o.ToString();
+        }
+    }
+
+    [Fact]
     public void Install_KeepsTheUsersArgumentsEnvAndKeys_OnJsonEntries()
     {
         Directory.CreateDirectory(Home(".cursor"));

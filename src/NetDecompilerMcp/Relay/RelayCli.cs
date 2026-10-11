@@ -75,14 +75,18 @@ public static class RelayCli
             ? dir
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), "NetDecompilerMcp", "relay");
 
-    /// <summary>A registration's arguments without a leading relay command and its own options (what remains is the server's).</summary>
+    /// <summary>
+    /// A registration's arguments without the relay command and its own options (what remains is the server's); the
+    /// command may follow the NetDecompilerMcp.dll of a dotnet launch.
+    /// </summary>
     public static List<string> WithoutRelayPrefix(IEnumerable<string> args)
     {
         var list = args.ToList();
-        if (list.Count == 0 || list[0] != Command) return list;
-        int i = 1;
+        int start = list.Count > 1 && Path.GetFileName(list[0]).Equals("NetDecompilerMcp.dll", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        if (list.Count <= start || list[start] != Command) return list;
+        int i = start + 1;
         while (i < list.Count && ValueOptions.Contains(list[i])) i += 2;
         if (i < list.Count && list[i] == "--") i++;
-        return list.Skip(Math.Min(i, list.Count)).ToList();
+        return [.. list.Take(start), .. list.Skip(Math.Min(i, list.Count))];
     }
 }

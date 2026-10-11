@@ -57,11 +57,12 @@ internal abstract class ConfigTarget(string path)
 
     /// <summary>
     /// The user's arguments, with ours in front unless already there. Another launch's program argument (the
-    /// NetDecompilerMcp.dll of a dotnet launch) is dropped so switching launchers does not carry it over.
+    /// NetDecompilerMcp.dll of a dotnet launch) is dropped so switching launchers does not carry it over, and so is a
+    /// development relay prefix (relay --target dir), so a registration switches between the relay and the server.
     /// </summary>
     public static List<string> MergeArgs(IEnumerable<string> user, IReadOnlyList<string> ours)
     {
-        var kept = user.Where(a => ours.Contains(a) || !System.IO.Path.GetFileName(a).Equals("NetDecompilerMcp.dll", StringComparison.OrdinalIgnoreCase)).ToList();
+        var kept = NetDecompilerMcp.Relay.RelayCli.WithoutRelayPrefix(user).Where(a => ours.Contains(a) || !System.IO.Path.GetFileName(a).Equals("NetDecompilerMcp.dll", StringComparison.OrdinalIgnoreCase)).ToList();
         return kept.Take(ours.Count).SequenceEqual(ours) ? kept : [.. ours, .. kept];
     }
 

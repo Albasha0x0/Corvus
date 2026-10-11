@@ -11,10 +11,10 @@ internal static class SetupCli
     /// <summary>Flags each command accepts; anything else is a usage error, so a mistyped --dry-run never writes.</summary>
     private static readonly Dictionary<string, string[]> Accepted = new()
     {
-        ["install"] = ["--no-check", "--check", "--dry-run", "--json", "--yes", "-y", "--all-detected", "--strict", "--client", "--refresh-only", "--command"],
+        ["install"] = ["--no-check", "--check", "--dry-run", "--json", "--yes", "-y", "--all-detected", "--strict", "--client", "--refresh-only", "--command", "--dev-reload"],
         ["uninstall"] = ["--keep-files", "--purge-data", "--dry-run", "--json", "--client"],
         ["status"] = ["--json", "--client", "--engine", "--target", "--deep"],
-        ["config"] = ["--client"],
+        ["config"] = ["--client", "--dev-reload"],
         ["update"] = ["--version", "--dry-run"],
     };
 
@@ -38,7 +38,9 @@ internal static class SetupCli
             case "install": return Install(output, env, launch, parsed);
             case "uninstall": return Uninstall(output, env, parsed);
             case "status": return Status(output, env, launch, parsed);
-            case "config": return Config(output, env, launch, parsed.Clients);
+            case "config":
+                if (DevReload(output, env, launch, parsed, dryRun: false) is not { } configured) return 2;
+                return Config(output, env, configured, parsed.Clients);
             case "update" when parsed.Clients.Count > 0:
                 output.WriteLine("update takes no client names; it refreshes every existing registration.");
                 return 2;
@@ -62,6 +64,8 @@ internal static class SetupCli
                                 --strict        write nothing when any client's file cannot be read
                                 --no-check      skip the server check
                                 --command PATH  register this program instead of the running one
+                                --dev-reload DIR  local development: register the relay, which runs the server
+                                                published in DIR (./publish.ps1) and switches to each new publish
           uninstall [client...] Remove the registration from every client (or the named ones). With no names it
                                 also deletes an installed copy's program files; --keep-files keeps them. Your data
                                 (annotations, caches, symbols) is kept; --purge-data deletes it as well.
@@ -73,6 +77,7 @@ internal static class SetupCli
                                 --target PATH   what the file is and which engines read it
                                 --json          the report as JSON
           config [client]       Print the configuration to add by hand (for clients not listed).
+                                --dev-reload DIR  the relay's configuration (see install)
           update                Install the latest release (installed copies only) and refresh existing registrations;
                                 it never adds clients.
                                 --version X     install release X instead, also an older one (rollback)
@@ -113,6 +118,38 @@ internal static class SetupCli
         return chosen;
     }
 
+    /// <summary>
+    /// With --dev-reload DIR: the relay, started from a staged copy of <paramref name="launch"/>'s program (a publish then never
+    /// replaces the running relay), watching DIR. Without it: <paramref name="launch"/>. Null after reporting a usage error.
+    /// </summary>
+    private static ServerLaunch? DevReload(TextWriter output, SetupEnvironment env, ServerLaunch launch, SetupArgs a, bool dryRun)
+    {
+        if (a.Value("--dev-reload") is not { } target) return launch;
+        target = Path.GetFullPath(target);
+        if (!Directory.Exists(target))
+        {
+            output.WriteLine($"--dev-reload: {target} does not exist; publish first (./publish.ps1).");
+            return null;
+        }
+        var state = env.Variable("NDM_RELAY_DIR") is { Length: > 0 } dir ? dir : Installation.DataRoot(env) is { } root ? Path.Combine(root, "relay") : null;
+        if (state == null)
+        {
+            output.WriteLine("--dev-reload: no per-user data folder; set NDM_RELAY_DIR.");
+            return null;
+        }
+        bool dotnet = launch.Args.Count > 0 && Path.GetFileName(launch.Args[0]).Equals("NetDecompilerMcp.dll", StringComparison.OrdinalIgnoreCase);
+        var program = dotnet ? launch.Args[0] : launch.Command;
+        string staged;
+        try { staged = NetDecompilerMcp.Relay.RelayBuilds.StageHost(program, state, dryRun); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            output.WriteLine($"--dev-reload: cannot copy {program} to {state}: {ex.Message}");
+            return null;
+        }
+        string[] relay = [NetDecompilerMcp.Relay.RelayCli.Command, "--target", target];
+        return dotnet ? new ServerLaunch(launch.Command, [staged, .. relay]) : new ServerLaunch(staged, relay);
+    }
+
     private static LaunchReport Describe(ServerLaunch launch) => new(launch.Command, launch.Args);
 
     private static int Install(TextWriter output, SetupEnvironment env, ServerLaunch launch, SetupArgs a)
@@ -122,6 +159,8 @@ internal static class SetupCli
         bool check = dryRun ? a.Has("--check") : !a.Has("--no-check");
         // The install scripts plan with a staged copy, for the program they are about to put in place.
         if (a.Value("--command") is { } command) launch = new ServerLaunch(Path.GetFullPath(command), []);
+        if (DevReload(output, env, launch, a, dryRun) is not { } relayed) return 2;
+        launch = relayed;
         var text = json ? TextWriter.Null : output;
         var all = ClientCatalog.All(env);
         if (Named(output, all, a.Clients) is not { } named) return 2;
@@ -369,7 +408,7 @@ internal static class SetupCli
 /// <summary>Parsed setup arguments: flags, option values (--name value or --name=value) and positional client names.</summary>
 internal sealed class SetupArgs
 {
-    private static readonly string[] ValueOptions = ["--client", "--engine", "--target", "--version", "--command"];
+    private static readonly string[] ValueOptions = ["--client", "--engine", "--target", "--version", "--command", "--dev-reload"];
     private readonly HashSet<string> _flags = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<string>> _values = new(StringComparer.OrdinalIgnoreCase);
 

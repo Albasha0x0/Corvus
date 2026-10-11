@@ -59,12 +59,29 @@ Amazon Q, Kiro, Antigravity, Devin, Command Code, Grok Build, OMP and Pi. Any ot
 | Command | What it does |
 |---|---|
 | `NetDecompilerMcp status` | Read-only check (alias `doctor`): which clients have it registered and with which copy, each registration started with its own args and env, the tool catalog against this build, and the engines (IDA, Python, Ghidra). `--client X`, `--engine ida\|python\|ghidra\|all` (`--deep` starts IDA's worker) and `--target PATH` narrow it, and only what is in scope can fail; `--json` prints the report. Exit codes: 0 healthy, 1 a failure in scope, 2 usage error. |
-| `NetDecompilerMcp install [client...]` | Register again, e.g. after installing a new client; names (or `--client a,b`) register clients not detected. `--dry-run` prints the plan and writes nothing, `--json` prints the plan and result as JSON, `--yes` / `--all-detected` add new clients without asking, `--strict` writes nothing when a client's file cannot be read. |
+| `NetDecompilerMcp install [client...]` | Register again, e.g. after installing a new client; names (or `--client a,b`) register clients not detected. `--dry-run` prints the plan and writes nothing, `--json` prints the plan and result as JSON, `--yes` / `--all-detected` add new clients without asking, `--strict` writes nothing when a client's file cannot be read, `--dev-reload DIR` registers the development relay (below). |
 | `NetDecompilerMcp update` | Install the latest release and refresh existing registrations (it never adds clients); client settings point at a stable path and need no change. `--version X` installs release X, also an older one; `--dry-run` shows what it would install. |
 | `NetDecompilerMcp config [client]` | Print the configuration for a client, or the generic `mcpServers` JSON. |
 | `NetDecompilerMcp uninstall` | Remove it from every client and delete the program files (`--keep-files` keeps them). Your annotations, caches and symbols are kept; `--purge-data` deletes them too; `--dry-run` lists what it would remove. |
 
 From source instead: `./publish.ps1`, then `publish/NetDecompilerMcp install`.
+
+### Development reload
+
+For work on the server itself: `publish/NetDecompilerMcp install --dev-reload publish` registers a relay instead of the
+server (`config --dev-reload publish` prints it). The relay runs from a staged copy under
+`<LocalAppData>/NetDecompilerMcp/relay` (`NDM_RELAY_DIR`), speaks MCP to the client and runs the server published in
+that folder as a child, itself from a staged copy. Each `./publish.ps1` writes `publish/.build-complete` last; once
+it is stable and no call is in flight, the relay starts the new build, repeats the client's `initialize`, replays
+the workspace calls that succeeded (`load_assembly`, `unload_assembly`, `add_search_directory`, `load_pdb`,
+`unpack_container`, log level, resource subscriptions), switches over and sends `tools`, `prompts` and `resources`
+`list_changed`, so the client sees the new build without reconnecting. A `[relay]` line on the next tool result names
+the build, its catalog digest and what was replayed. In-memory edits, native engine sessions and kept results are not
+carried over: with unsaved edits or patches the switch waits until they are saved or reverted, and the added tool
+`relay_apply` switches at once. A build that fails to start or to replay is reported and the old server stays.
+Arguments after the relay's own (`relay --target <dir> [--state <dir>] [--poll-ms <n>] [--] ...`) go to the server;
+a plain `install` switches the registration back. publish.ps1 renames files of a running server aside
+(`*.aside-*`) and deletes them once free.
 
 ## What it covers
 

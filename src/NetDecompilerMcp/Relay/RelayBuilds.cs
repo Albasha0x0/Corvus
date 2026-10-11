@@ -95,22 +95,25 @@ public static class RelayBuilds
         return ChildProcess.Start(new ChildProcessStart(DotnetHost(), [Path.Combine(directory, "NetDecompilerMcp.dll"), .. serverArgs]));
     }
 
-    /// <summary>Copies this program's folder to a versioned, content-addressed folder under <paramref name="state"/>; returns its program.</summary>
-    public static string StageHost(string state, bool dryRun)
+    /// <summary>
+    /// Copies the folder of <paramref name="program"/> (this server's apphost or dll) to a versioned, content-addressed folder
+    /// under <paramref name="state"/>, so a registered relay never runs from files a publish replaces; returns the copy's program.
+    /// </summary>
+    public static string StageHost(string program, string state, bool dryRun)
     {
-        var source = AppContext.BaseDirectory;
+        var source = Path.GetDirectoryName(Path.GetFullPath(program))!;
         var main = Path.Combine(source, "NetDecompilerMcp.dll");
-        var hash = File.Exists(main) ? Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(main)))[..12] : "unknown";
+        var hash = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(File.Exists(main) ? main : program)))[..12];
         var version = typeof(RelayBuilds).Assembly.GetName().Version?.ToString(3) ?? "0";
         var dir = Path.Combine(state, "host", $"{version}-{hash}");
-        var program = File.Exists(Path.Combine(source, ProgramName)) ? Path.Combine(dir, ProgramName) : Path.Combine(dir, "NetDecompilerMcp.dll");
-        if (dryRun || File.Exists(program)) return program;
+        var staged = Path.Combine(dir, Path.GetFileName(program));
+        if (dryRun || File.Exists(staged)) return staged;
         var temp = dir + ".tmp-" + Environment.ProcessId;
         TryDelete(temp);
         CopyTree(source, temp, skip: name => name == MarkerName || name.Contains(AsideInfix, StringComparison.Ordinal));
         try { Directory.Move(temp, dir); }
-        catch (IOException) when (File.Exists(program)) { TryDelete(temp); } // another install staged it first
-        return program;
+        catch (IOException) when (File.Exists(staged)) { TryDelete(temp); } // another install staged it first
+        return staged;
     }
 
     /// <summary>Whether <paramref name="path"/> is <paramref name="directory"/> or inside it.</summary>
