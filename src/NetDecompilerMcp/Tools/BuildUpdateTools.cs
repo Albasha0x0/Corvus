@@ -578,10 +578,12 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
     {
         List<MigratablePatch> patches;
         string source;
-        if ((oldNative.Pe == null && string.IsNullOrWhiteSpace(patchSet)) || newNative.Pe == null)
+        // a json patch set is written for PE images; in-memory patches carry between builds of one format
+        if (string.IsNullOrWhiteSpace(patchSet) ? oldNative.Image.Format != newNative.Image.Format : newNative.Pe == null)
         {
-            var other = newNative.Pe == null ? newNative : oldNative;
-            categories[Patches] = ("not_applicable", $"byte patches apply to PE images; {other.Id} is {other.Image.Format}", null);
+            categories[Patches] = ("not_applicable", string.IsNullOrWhiteSpace(patchSet)
+                ? $"{oldNative.Id} is {oldNative.Image.Format} and {newNative.Id} is {newNative.Image.Format}"
+                : $"a patch set applies to PE images; {newNative.Id} is {newNative.Image.Format}", null);
             return [];
         }
         if (!string.IsNullOrWhiteSpace(patchSet))

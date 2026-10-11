@@ -162,7 +162,7 @@ public sealed class NativeCodeService
     /// </summary>
     public NativeCodeIndex IndexOfOriginal(LoadedNative native, CancellationToken ct)
     {
-        var original = Native.Pe.PeFile.FromBytes(native.Patches.OriginalBytes(), native.FilePath);
+        var original = native.Patches.OriginalImage(native.Image, native.FilePath);
         return LoadOrBuild(original, BuildOptions(native, ct), null, ct);
     }
 

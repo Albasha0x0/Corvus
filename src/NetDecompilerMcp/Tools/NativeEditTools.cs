@@ -61,7 +61,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     private const string ExtendDescription =
         "Place the new code in a stub (a code cave or a new section, see placement): the site becomes a near jump to it and control returns " +
         "after the site. For code larger than the site, or to keep the site intact. Refused with a reason code when unsafe (branch_target_in_site, " +
-        "displaced_absolute_reloc, unwind_data, no_space, no_space_at_site, no_header_space, stub_needs_reloc, unreachable_section, arm64_unsupported). One undoable edit.";
+        "displaced_absolute_reloc, unwind_data, no_space, no_space_at_site, no_header_space, stub_needs_reloc, unreachable_section, arm64_unsupported). One undoable edit; PE only.";
 
     private const string StubModeDescription =
         "With extend=true: replace (default; the new code instead of the displaced instructions), before (new code, then them) or after.";
@@ -387,10 +387,11 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     });
 
     [McpServerTool(Name = "patch_bytes", Title = "Patch native bytes")]
-    [Description("Replace bytes at an address of a PE image with a hex string, in memory (ELF and Mach-O are not patched). The patch is recorded as an undoable edit and every read path " +
+    [Description("Replace bytes at an address of a native image with a hex string, in memory. The patch is recorded as an undoable edit and every read path " +
                  "(disassemble, strings, search_bytes, read_bytes) then sees the patched bytes. Over code, trailing bytes of a partly overwritten " +
                  "instruction are padded with NOPs; refused mid-instruction, past the function end or on zero-fill/header bytes unless force=true. " +
-                 "Relocations under the patch are planned (see relocations). dryRun previews without recording.")]
+                 "PE: relocations under the patch are planned (see relocations). ELF / Mach-O: loader-rewritten bytes need force, encrypted ones are refused, " +
+                 "signatures become invalid. dryRun previews without recording.")]
     public Task<string> PatchBytes(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -423,9 +424,9 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
 
     [McpServerTool(Name = "patch_asm", Title = "Assemble and patch native code")]
     [Description("Assemble x86/x64 instructions (multi-line; labels, numeric and symbol branch targets; a 'db <hex>' escape) and write them at an " +
-                 "address of a PE image, in memory. Branch displacements and RIP-relative references are computed for the target address. Same safety rules " +
-                 "and NOP padding as patch_bytes; the patch is recorded as an undoable edit. Absolute addresses (x86 [addr] operands, 'offset name' / " +
-                 "symbol immediates, x64 imm64 addresses) get base relocations and overwritten ones are neutralized (see relocations). dryRun previews.")]
+                 "address of a native image, in memory. Branch displacements and RIP-relative references are computed for the target address. Same safety rules " +
+                 "and NOP padding as patch_bytes; the patch is recorded as an undoable edit. PE: absolute addresses ([addr], 'offset name', imm64) " +
+                 "get base relocations, overwritten ones are neutralized (see relocations). dryRun previews.")]
     public Task<string> PatchAsm(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,

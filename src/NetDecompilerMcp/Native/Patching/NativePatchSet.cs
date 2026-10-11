@@ -122,6 +122,27 @@ public sealed class NativePatchSet
         return bytes;
     }
 
-    /// <summary>A <see cref="PeFile"/> parsed from the patched bytes, carrying the original path.</summary>
-    public PeFile ApplyTo(string path) => PeFile.FromBytes(PatchedBytes(), path);
+    /// <summary>The image parsed from the patched bytes in the format of <paramref name="like"/>, carrying the original path.</summary>
+    public INativeImage ApplyTo(INativeImage like, string path) => Open(PatchedBytes(), like, path);
+
+    /// <summary>The image parsed from the original bytes, in the format of <paramref name="like"/>.</summary>
+    public INativeImage OriginalImage(INativeImage like, string path) => Open(_original, like, path);
+
+    /// <summary>Parses <paramref name="bytes"/> (an image's own bytes: the slice of a universal Mach-O) as <paramref name="like"/> is.</summary>
+    public static INativeImage Open(byte[] bytes, INativeImage like, string path) => like switch
+    {
+        Elf.ElfFile => Elf.ElfFile.FromBytes(bytes, path),
+        MachO.MachOFile { Slice: { } slice } macho => MachO.MachOFile.FromSlice(bytes, path, macho.Slices, slice),
+        MachO.MachOFile => MachO.MachOFile.FromBytes(bytes, path),
+        _ => PeFile.FromBytes(bytes, path),
+    };
+
+    /// <summary>The bytes of a file in its own format: a PE, ELF or Mach-O image's own bytes (a universal Mach-O's slice).</summary>
+    public static ReadOnlySpan<byte> FileBytesOf(INativeImage image) => image switch
+    {
+        PeFile pe => pe.FileBytes.Span,
+        Elf.ElfFile elf => elf.FileBytes.Span,
+        MachO.MachOFile macho => macho.FileBytes.Span,
+        _ => throw new Core.ToolError(Core.ErrorCode.Unsupported, $"Byte patching is not supported for {System.IO.Path.GetFileName(image.Path)}."),
+    };
 }

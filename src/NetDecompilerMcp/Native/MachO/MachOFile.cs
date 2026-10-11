@@ -64,6 +64,9 @@ public sealed partial class MachOFile : INativeImage
         return new MachOFile(bytes.ToArray(), path, [], null);
     }
 
+    /// <summary>A slice's bytes parsed as that slice of its universal file (a patched slice keeps its identity).</summary>
+    internal static MachOFile FromSlice(byte[] bytes, string path, IReadOnlyList<MachOSlice> slices, MachOSlice slice) => new(bytes.ToArray(), path, slices, slice);
+
     private MachOFile(byte[] bytes, string path, IReadOnlyList<MachOSlice> slices, MachOSlice? slice)
     {
         data = bytes;

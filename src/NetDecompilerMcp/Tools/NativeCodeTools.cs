@@ -298,8 +298,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     private static partial Regex XrefRow();
 
     [McpServerTool(Name = "native_call_tree", Title = "Native call tree")]
-    [Description("Callers or callees of a native function, several levels deep (calls through thunks and import slots included); callers of module!import " +
-                 "are the functions calling through it, whether or not its library is loaded. Across images: " +
+    [Description("Callers or callees of a native function, several levels deep (calls through thunks and import slots included); callers of module!import: " +
+                 "the functions calling through it. Across images: " +
                  "a call through module!import continues into the provider's function when that image is loaded (shown as module!import -> " +
                  "PROVIDER.dll!export at VA [image], forwarders and jump thunks followed; otherwise the provider's path, or why it does not resolve), " +
                  "and callers include call sites in other loaded images that import the function. Callees include late-bound imports called " +

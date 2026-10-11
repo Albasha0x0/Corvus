@@ -136,7 +136,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task Elf_builds_carry_names_and_report_patches_not_applicable()
+    public async Task Elf_builds_carry_names_and_patches()
     {
         using var h = new Harness();
         byte[] Elf(byte extra) => new NativeFormats.ElfWriter
@@ -147,11 +147,11 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         var (oldN, _) = await h.Load(Elf(5), "old.so", null);
         var (newN, _) = await h.Load(Elf(6), "new.so", null);
         h.Code.Annotations(oldN).SetName(NativeFormats.ElfWriter.TextRva, "entry_renamed");
+        var index = await h.Code.Index(oldN, null, default);
+        h.Edits.ApplyPatch(oldN, index, h.Edits.PreparePatch(index, NativeFormats.ElfWriter.TextRva + 10, [0xB8, 0x03, 0, 0, 0], false, "patch_bytes 5 bytes"), dryRun: false);
         var report = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id);
-        var patches = report.Categories.Single(c => c.Category == "patches");
-        Assert.Equal("not_applicable", patches.Status);
-        Assert.Contains("byte patches apply to PE images", patches.Detail);
         Assert.Contains(report.Items, i => i is { Category: "names", Value: "entry_renamed", Outcome: "would_carry" });
+        Assert.Contains(report.Items, i => i is { Category: "patches", Outcome: "would_carry" });
     }
 
     [Fact]

@@ -96,7 +96,7 @@ public sealed class LoadedNative
     {
         get
         {
-            lock (_gate) return _patches ??= new NativePatchSet(RequirePe("byte patching").FileBytes.Span);
+            lock (_gate) return _patches ??= new NativePatchSet(NativePatchSet.FileBytesOf(Image));
         }
     }
     private NativePatchSet? _patches;

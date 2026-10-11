@@ -22,7 +22,7 @@ public sealed class InspectionTools(InspectionService inspection, AssemblyWorksp
                  "(framework libraries last, translations skipped); an apphost launcher's .dll next to it is summarized as the app. For a NativeAOT " +
                  "executable, nativeAot gives the runtime version, module sections, recovery stages and counts of named methods, MethodTables and " +
                  "frozen strings. ELF / Mach-O: nativeImage gives format, slices, build id, libraries, platform, code signature, entitlements and FairPlay encryption. " +
-                 "Native images: packers lists packers and protectors with evidence. " +
+                 "packers: packers and protectors, with evidence. " +
                  "Android packages: android gives package, versions, SDKs, runtimes with evidence (dotnet-android, unity-il2cpp, unity-mono, flutter, " +
                  "react-native, kotlin / java), ABIs, DEX files, exported components and the APK signature verdict. A loaded native image adds triage" +
                  " (entry points, top functions with roles, top strings, import groups, roots).")]

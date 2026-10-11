@@ -116,7 +116,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         if (!image.TryRvaToFileOffset(rva, out var fileOffset))
             throw new ToolError(ErrorCode.InvalidArgument, $"{NativeAddress.Va(image, rva)} is not backed by file bytes (zero-fill or outside the image); there is nothing to patch there.");
         if (!force && rva < image.Sections.Where(s => s.Rva > 0).DefaultIfEmpty().Min(s => s?.Rva ?? uint.MaxValue))
-            throw new ToolError(ErrorCode.InvalidArgument, $"{NativeAddress.Va(image, rva)} is in the PE headers.", "pass force=true to patch header bytes");
+            throw new ToolError(ErrorCode.InvalidArgument, $"{NativeAddress.Va(image, rva)} is in the file headers.", "pass force=true to patch header bytes");
 
         // Require [rva, rva+newLength) to be contiguous in the file.
         if (!image.TryRvaToFileOffset(rva + (uint)newLength - 1, out var lastOffset) || lastOffset != fileOffset + newLength - 1)
@@ -164,6 +164,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
     public PatchResult PrepareExtendedPatch(NativeCodeIndex index, uint rva, byte[] newBytes, string? assembly,
         StubMode mode, string description, Func<string, ulong?>? resolve, StubPlacement placement = StubPlacement.Auto)
     {
+        if (index.Image is not PeFile) throw LoadedNative.PeOnly(index.Image, "extending a patch with a stub");
         var ext = PatchExtension.Build(index, rva, newBytes, assembly, mode, description, resolve, placement);
         var image = index.Image;
         var before = Disasm(index, rva, ext.Patch.Length);
@@ -226,6 +227,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         if (read < paddedLength) throw new ToolError(ErrorCode.InvalidArgument, $"Only {read} of {paddedLength} bytes at {NativeAddress.Va(image, rva)} are mapped.");
 
         var plan = RelocationPlan.None;
+        if (image is not PeFile) RefuseLoaderWritten(image, rva, paddedLength, force);
         if (image is PeFile pe)
         {
             bool x86 = image.Arch is NativeArch.X86 or NativeArch.X64;
@@ -239,6 +241,41 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         var after = DisasmBytes(image, rva, replacement);
         return new PatchResult(patch, before, after, note ?? "");
     }
+
+    /// <summary>
+    /// ELF and Mach-O: bytes the loader rewrites (dynamic relocations, rebases, binds, import slots) would not keep a patch,
+    /// and encrypted bytes (FairPlay) are not the code; both are refused, the first unless <paramref name="force"/>.
+    /// </summary>
+    private static void RefuseLoaderWritten(INativeImage image, uint rva, int length, bool force)
+    {
+        uint end = rva + (uint)length;
+        foreach (var e in image.EncryptedRanges)
+            if (rva < e.Rva + e.Size && e.Rva < end)
+                throw new ToolError(ErrorCode.Unsupported, $"encrypted_range: {NativeAddress.Va(image, rva)} is in the FairPlay-encrypted range (cryptid {e.CryptId}); the file holds ciphertext there.",
+                    "patch a decrypted copy of the image");
+        if (force) return;
+        uint ptr = image.Is64Bit ? 8u : 4u;
+        var relocs = image.RelocationRvas;
+        int i = BinarySearchFirst(relocs, rva >= ptr ? rva - ptr + 1 : 0);
+        uint? hit = i < relocs.Count && relocs[i] < end ? relocs[i] : null;
+        hit ??= image.Imports.Where(m => m.SlotRva < end && m.SlotRva + ptr > rva).Select(m => (uint?)m.SlotRva).FirstOrDefault();
+        if (hit is { } at)
+            throw new ToolError(ErrorCode.Conflict, $"relocated_range: the loader writes the pointer at {NativeAddress.Va(image, at)} " +
+                $"({(image.Format == ImageFormat.Elf ? "a dynamic relocation" : "a rebase or bind")}), so a patch there is overwritten at load.",
+                "patch elsewhere, or pass force=true to write the file bytes anyway");
+    }
+
+    private static int BinarySearchFirst(IReadOnlyList<uint> sorted, uint value)
+    {
+        int lo = 0, hi = sorted.Count;
+        while (lo < hi) { int mid = (lo + hi) >>> 1; if (sorted[mid] < value) lo = mid + 1; else hi = mid; }
+        return lo;
+    }
+
+    /// <summary>The code signature note of a patched Mach-O image, or null.</summary>
+    private static string? SignatureNote(INativeImage image) => image is Native.MachO.MachOFile { CodeSignature: not null }
+        ? "The Mach-O code signature no longer matches the patched bytes (invalid until re-signed, e.g. codesign -f -s -)."
+        : null;
 
     public string ApplyPatch(LoadedNative native, NativeCodeIndex index, PatchResult prepared, bool dryRun)
     {
@@ -255,6 +292,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         sb.Append(prepared.AfterDisasm);
         AppendRelocations(sb, image, prepared.Patch.Relocations, "  ");
         if (prepared.StubPreview.Length > 0) sb.Append(prepared.StubPreview);
+        if (SignatureNote(image) is { } signature) sb.AppendLine(signature);
         if (dryRun) return sb.ToString();
 
         workspace.Write(() =>
@@ -271,7 +309,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
     private void Rebuild(LoadedNative native)
     {
         var previous = code.Provisional(native);
-        native.ReplaceImage(native.Patches.ApplyTo(native.FilePath));
+        native.ReplaceImage(native.Patches.ApplyTo(native.Image, native.FilePath));
         code.Patched(native, previous);
     }
 
@@ -349,12 +387,20 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
     {
         if (string.IsNullOrWhiteSpace(outputPath))
             throw new ToolError(ErrorCode.InvalidArgument, "An output path is required.");
-        var (target, isOriginal) = SaveTarget.Resolve(outputPath, native.FilePath, native.OriginalSha256, overwrite);
+        var container = Container(native);
+        var (target, isOriginal) = SaveTarget.Resolve(outputPath, native.FilePath,
+            container is { } c ? Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(c.File)) : native.OriginalSha256, overwrite);
 
         var notes = new List<string>();
         var bytes = OutputBytes(native, stripSignature, notes);
+        if (container is { } outer)
+        {
+            var whole = (byte[])outer.File.Clone();
+            bytes.CopyTo(whole, outer.Offset);
+            bytes = whole;
+        }
 
-        string? backup = isOriginal ? SaveTarget.Backup(target, native.Patches.OriginalBytes()) : null;
+        string? backup = isOriginal ? SaveTarget.Backup(target, container?.File ?? native.Patches.OriginalBytes()) : null;
         string verify = "";
         // Verified on the written temp file, so a file that does not read back or parse never replaces the target.
         SafeFile.WriteAllBytes(target, bytes, overwrite, temp =>
@@ -362,7 +408,9 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
             var written = File.ReadAllBytes(temp);
             if (!written.AsSpan().SequenceEqual(bytes))
                 throw new ToolError(ErrorCode.IoError, $"The bytes written for {target} did not read back as written. Nothing was replaced.");
-            verify = Verify(native, written, stripSignature);
+            verify = Verify(native, container is { } outer ? written.AsSpan(outer.Offset, (int)native.Image.FileSize).ToArray() : written, stripSignature);
+            if (container is { } whole && !OutsideSliceUnchanged(whole, written))
+                throw new ToolError(ErrorCode.IoError, $"The universal file written for {target} changed outside the patched slice. Nothing was replaced.");
             if (verify.StartsWith(UnparsableNote, StringComparison.Ordinal))
                 throw new ToolError(ErrorCode.Conflict, $"Not saved: {verify} Nothing was replaced.");
         });
@@ -371,6 +419,31 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
                (notes.Count > 0 ? "\n  " + string.Join("\n  ", notes) : "") +
                $"\n{verify}";
     }
+
+    /// <summary>
+    /// A universal Mach-O slice: the whole file as loaded (read again from disk; its slice must still be the loaded one) and
+    /// the slice's offset, so save_native writes the whole file with the patched slice. Null for other images.
+    /// </summary>
+    private static (byte[] File, int Offset, int Length)? Container(LoadedNative native)
+    {
+        if (native.Image is not Native.MachO.MachOFile { Slice: { } slice }) return null;
+        byte[] file;
+        try { file = File.ReadAllBytes(native.FilePath); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new ToolError(ErrorCode.IoError, $"Cannot read the universal file {native.FilePath} to write the patched slice into: {ex.Message}");
+        }
+        if (slice.Offset + slice.Size > file.Length
+            || !string.Equals(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(file.AsSpan((int)slice.Offset, (int)slice.Size))), native.OriginalSha256, StringComparison.Ordinal))
+            throw new ToolError(ErrorCode.ChangedOnDisk, $"{native.FilePath} changed on disk since load: its {slice.Name} slice is not the one patched. Nothing was written.",
+                "reload the file and apply the edits again");
+        return (file, (int)slice.Offset, (int)slice.Size);
+    }
+
+    private static bool OutsideSliceUnchanged((byte[] File, int Offset, int Length) container, byte[] written) =>
+        written.Length == container.File.Length
+        && written.AsSpan(0, container.Offset).SequenceEqual(container.File.AsSpan(0, container.Offset))
+        && written.AsSpan(container.Offset + container.Length).SequenceEqual(container.File.AsSpan(container.Offset + container.Length));
 
     /// <summary>The image's patches in an export format (export_native_patches); the caller holds the workspace lock.</summary>
     public static PatchExportResult RenderPatches(LoadedNative native, PatchExport.Format format)
@@ -398,6 +471,12 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
     public static byte[] OutputBytes(LoadedNative native, bool stripSignature, List<string> notes)
     {
         var bytes = native.Patches.PatchedBytes();
+        if (native.Image is not PeFile)
+        {
+            if (stripSignature) notes.Add("stripSignature applies to PE Authenticode signatures; nothing was removed.");
+            if (native.Patches.IsDirty && SignatureNote(native.Image) is { } signature) notes.Add(signature);
+            return bytes;
+        }
         var patchedImage = PeFile.FromBytes(bytes, native.FilePath);
 
         if (stripSignature) StripSignature(ref bytes, patchedImage, notes);
@@ -446,9 +525,10 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
     {
         try
         {
-            var reparsed = PeFile.FromBytes(written, native.FilePath);
+            var reparsedImage = NativePatchSet.Open(written, native.Image, native.FilePath);
+            var reparsed = reparsedImage as PeFile;
             var originalBytes = native.Patches.OriginalBytes();
-            long checksumField = reparsed.OptionalHeaderOffset + 64;
+            long checksumField = reparsed != null ? reparsed.OptionalHeaderOffset + 64 : -8;
             var patched = native.Patches.Patches;
             var ranges = patched.Select(p => (Start: p.FileOffset, Length: (long)p.Length))
                 .Concat(patched.Where(p => p.Stub != null).Select(p => (Start: p.Stub!.FileOffset, Length: (long)p.Stub!.Length)))
@@ -468,7 +548,8 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
             var bytesLine = mismatches == 0
                 ? $"Verified: every byte outside the patched ranges (and the checksum field) matches the original{grown}."
                 : $"WARNING: {mismatches} byte(s) outside the patched ranges differ from the original{grown}.";
-            return bytesLine + "\n" + VerifyRelocations(reparsed, PeFile.FromBytes(originalBytes, native.FilePath), patched);
+            return bytesLine + "\n" + (reparsed != null ? VerifyRelocations(reparsed, PeFile.FromBytes(originalBytes, native.FilePath), patched)
+                : $"Re-parsed as {reparsedImage.KindText()}; {(native.Image.Format == ImageFormat.Elf ? "dynamic relocations" : "fixups")} were not touched (patches over them are refused).");
         }
         catch (Exception ex) when (ex is ToolError or IOException)
         {
