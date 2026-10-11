@@ -140,6 +140,35 @@ public class NativeArm64Tests
     }
 
     [Fact]
+    public void Call_arguments_follow_the_arm64_convention()
+    {
+        uint slotFopen = Data + 0x10, slotMalloc = Data + 0x18;
+        var a = new A64(Code);
+        uint plt = 0;
+        a.Word(A64.StpFpLrPre).Word(A64.MovFpSp);
+        // fopen("log.txt", "rb") through the GOT; malloc(0x12345) through a PLT stub; then an unknown callee with x0 = the result
+        a.Word(A64.Adrp(a.Here, Data + 0x100, 0, Base)).Word(A64.AddImm(0, 0, (Data + 0x100) & 0xFFF));
+        a.Word(A64.Adr(a.Here, Data + 0x108, 1)); // adr reaches the data section in this synthetic layout? keep it in range below
+        a.Word(A64.Adrp(a.Here, slotFopen, 16, Base)).Word(A64.LdrX(17, 16, slotFopen & 0xFFF)).Word(A64.Blr(17));
+        a.Word(0x52846AA0 /* mov w0, #0x2355 */).Word(0x72A00020 /* movk w0, #1, lsl #16 */);
+        a.Later(at => A64.Bl(at, plt));
+        a.Word(A64.LdpFpLrPost).Word(A64.Ret);
+        plt = a.Here;
+        a.Word(A64.Adrp(a.Here, slotMalloc, 16, Base)).Word(A64.LdrX(17, 16, slotMalloc & 0xFFF)).Word(A64.AddImm(16, 16, slotMalloc & 0xFFF)).Word(A64.Br(17));
+        var data = new byte[0x200];
+        Encoding.ASCII.GetBytes("log.txt\0rb\0").CopyTo(data, 0x100);
+        var image = CodeTestImage.Synthetic(NativeArch.Arm64, a.Bytes(), data, entry: Code,
+            imports: [Import("fopen", slotFopen), Import("malloc", slotMalloc)]);
+        var index = NativeCodeIndex.Build(image);
+        var sites = Native.Calls.Arm64CallSites.For(index).CallsIn(index.FunctionByStart(Code)!);
+        Assert.Equal(2, sites.Count);
+        Assert.Equal("fopen(\"log.txt\", \"rb\")", sites[0].Display);
+        Assert.Equal(["filename", "mode"], sites[0].Arguments.Select(x => x.Name!));
+        Assert.Equal("malloc(0x12355)", sites[1].Display);
+        Assert.Equal(Native.Calls.CalleeKind.Import, sites[1].Kind);
+    }
+
+    [Fact]
     public void Relocated_words_and_zero_fill_are_not_code()
     {
         var a = new A64(Code);

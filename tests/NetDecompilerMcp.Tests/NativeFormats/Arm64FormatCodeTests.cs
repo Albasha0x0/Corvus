@@ -49,6 +49,19 @@ public sealed class Arm64FormatCodeTests(ITestOutputHelper output)
         Assert.Contains(index.Functions, f => (f.Flags & FunctionFlags.NoReturn) != 0);
     }
 
+    /// <summary>Call arguments on a real library: imports called with signatures, string arguments recovered through ADRP pairs.</summary>
+    [Fact]
+    public void Call_arguments_on_a_real_library()
+    {
+        var index = Index(NativeFixtures.LinuxArm64DbgShim);
+        var analysis = Native.Calls.Arm64CallSites.For(index);
+        var sites = index.Functions.SelectMany(f => analysis.CallsIn(f)).ToList();
+        int strings = sites.Count(s => s.Arguments.Any(a => a.Kind == Native.Calls.ArgKind.String));
+        output.WriteLine($"{sites.Count} call sites, {sites.Count(s => !s.Guessed)} with a signature, {strings} with a string argument");
+        Assert.True(sites.Count(s => s.Kind == Native.Calls.CalleeKind.Import && !s.Guessed) > 20);
+        Assert.True(strings > 20, $"{strings} call sites with a string argument");
+    }
+
     /// <summary>A dylib whose code takes the address of a CFString constant: the disassembly shows the string; data in code is not decoded.</summary>
     [Fact]
     public void CfString_references_and_data_in_code()

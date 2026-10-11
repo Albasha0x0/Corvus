@@ -58,14 +58,14 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         }, ct);
         var index = await code.Index(native, new Progress<CodeIndexProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = p.Done, Total = p.Total > 0 ? p.Total : null, Message = $"indexing {native.Id}: {p.Phase}" })), ct);
-        if (!CallAnalysis.Supports(index))
-            throw new ToolError(ErrorCode.Unsupported, $"Call arguments are recovered for x86 / x64 code, not {index.Image.Arch}.", "decompile_native shows calls through IDA");
+        if (Sites(index) == null)
+            throw new ToolError(ErrorCode.Unsupported, $"Call arguments are recovered for x86, x64 and ARM64 code, not {index.Image.Arch}.", "decompile_native shows calls through IDA");
         return index;
     }
 
     [McpServerTool(Name = "get_call_arguments", Title = "Native call arguments", UseStructuredContent = true)]
-    [Description("Call sites of a native image (x86 / x64) with their argument values, recovered by backward constant propagation in the calling " +
-                 "function under the platform conventions (x64 rcx, rdx, r8, r9 / xmm0-3, then [rsp+20h+8*i]; x86 pushed / stored stack slots): " +
+    [Description("Call sites of a native image (x86 / x64 / ARM64) with their argument values, recovered by backward constant propagation in the calling " +
+                 "function under the platform conventions (x64 rcx, rdx, r8, r9 / xmm0-3, then [rsp+20h+8*i]; x86 pushed / stored stack slots; ARM64 x0-x7 within the call's block): " +
                  "immediates, string literals, named addresses, results of earlier calls, globals; merges of different values are unknown. " +
                  "Known Win32 / CRT APIs give parameter names and decoded constants (GENERIC_READ, PAGE_EXECUTE_READWRITE, HKEY_LOCAL_MACHINE, printf formats). " +
                  "Pass address (a call instruction, or any address in a function for all its calls) and/or callee (an API or function name: all calls to it).")]
@@ -84,9 +84,20 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         return await Task.Run(() => Report(index, address, callee, offset, limit, cancellationToken), cancellationToken);
     });
 
+    /// <summary>The call sites of an index: the x86 / x64 analysis or the ARM64 one; null for other instruction sets.</summary>
+    internal static ICallSites? Sites(NativeCodeIndex index) =>
+        CallAnalysis.Supports(index) ? new X86Sites(CallAnalysis.For(index)) : Arm64CallSites.Supports(index) ? Arm64CallSites.For(index) : null;
+
+    private sealed class X86Sites(CallAnalysis analysis) : ICallSites
+    {
+        public CallSiteInfo? CallAt(uint rva, CancellationToken ct = default) => analysis.CallAt(rva, ct);
+        public IReadOnlyList<CallSiteInfo> CallsIn(NativeFunction f, CancellationToken ct = default) => analysis.CallsIn(f, ct);
+        public IEnumerable<CallSiteInfo> CallsTo(NativeImport import, int max, CancellationToken ct = default) => analysis.CallsTo(import, max, ct);
+    }
+
     private CallArgumentsReport Report(NativeCodeIndex index, string? address, string? callee, int offset, int limit, CancellationToken ct)
     {
-        var analysis = CallAnalysis.For(index);
+        var analysis = Sites(index)!;
         var notes = new List<string>();
         List<CallSiteInfo> sites;
         string scope;
@@ -145,7 +156,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     /// <summary>Calls to imports and functions named <paramref name="callee"/>.</summary>
-    internal static List<CallSiteInfo> CallsTo(NativeCodeIndex index, CallAnalysis analysis, string callee, int max, CancellationToken ct)
+    internal static List<CallSiteInfo> CallsTo(NativeCodeIndex index, ICallSites analysis, string callee, int max, CancellationToken ct)
     {
         var result = new Dictionary<uint, CallSiteInfo>();
         foreach (var imp in index.Image.Imports.Where(i => ImportMatches(i, callee)))
@@ -181,9 +192,9 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
     {
         string Va(uint r) => NativeAddress.Va(index.Image, r);
         var callers = index.Callers(import);
-        if (!CallAnalysis.Supports(index))
+        if (Sites(index) is not { } analysis)
             return callers.Select(c => $"{Va(c.From)}  {c.Kind,-10} {where(c.From)}").ToList();
-        var sites = CallAnalysis.For(index).CallsTo(import, MaxAnalyzedRows, ct).ToDictionary(s => s.Rva);
+        var sites = analysis.CallsTo(import, MaxAnalyzedRows, ct).ToDictionary(s => s.Rva);
         var rows = new List<(uint From, string Text)>();
         foreach (var c in callers)
             rows.Add((c.From, $"{Va(c.From)}  {c.Kind,-10} {where(c.From)}" + (sites.TryGetValue(c.From, out var s) ? "  " + s.Display : "")));
@@ -195,7 +206,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
     /// <summary>Rows "address  kind  where", with the call's arguments for calls (the first <see cref="MaxAnalyzedRows"/>).</summary>
     internal static List<string> WithArguments(NativeCodeIndex index, IEnumerable<(uint From, string Kind, bool IsCall)> refs, Func<uint, string> where, CancellationToken ct)
     {
-        var analysis = CallAnalysis.Supports(index) ? CallAnalysis.For(index) : null;
+        var analysis = Sites(index);
         int analyzed = 0;
         var rows = new List<string>();
         foreach (var (from, kind, isCall) in refs)
@@ -299,8 +310,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
     /// <summary>Call comments for a function's disassembly: call RVA -> "CreateFileW(...)"; empty when the analysis fails.</summary>
     internal static IReadOnlyDictionary<uint, string> CallComments(NativeCodeIndex index, NativeFunction fn, CancellationToken ct)
     {
-        if (!CallAnalysis.Supports(index)) return new Dictionary<uint, string>();
-        var analysis = CallAnalysis.For(index);
+        if (Sites(index) is not { } analysis) return new Dictionary<uint, string>();
         return analysis.CallsIn(fn, ct).Where(s => s.Arguments.Count > 0 || !s.Guessed).ToDictionary(s => s.Rva, s => s.Display);
     }
 }
