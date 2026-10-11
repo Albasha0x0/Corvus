@@ -57,6 +57,20 @@ public sealed class JavaDecompilerTests(Xunit.Abstractions.ITestOutputHelper out
     }
 
     [Fact]
+    public async Task SmaliFallbackHint_NamesOurParameter()
+    {
+        var (service, env) = Fake();
+        using (env)
+        using (service)
+        {
+            _fake.Set("mcp", new JsonObject { ["get_class_source"] = "// (Java body was an anti-decompile stub; showing smali. Pass smali_fallback=false for the partial Java.)\n.class public Lx;" });
+            var text = await service.Decompile(Apk(), "com.example.app.Main", true, default);
+            Assert.Contains("Pass smaliFallback=false for the partial Java.", text);
+            Assert.DoesNotContain("smali_fallback", text);
+        }
+    }
+
+    [Fact]
     public async Task ServerCrash_IsProviderUnavailable_AndTheNextCallStartsAgain()
     {
         var (service, env) = Fake();
