@@ -321,7 +321,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             if (!calls.Is64 && rets.Count > 0)
                 x.Add(null, rets.All(r => r == 0) ? "plain ret: the caller cleans the stack (cdecl) or there are no stack arguments"
                     : $"ret {string.Join(" / ", rets)}: pops {rets.Max()} bytes ({rets.Max() / 4} stack arguments; stdcall, thiscall or fastcall)", "ret");
-            var read = ArgumentRegisters(fc, calls.Is64);
+            var read = ArgumentRegisters(fc, calls);
             if (read.Count > 0) x.Add(null, $"argument registers read before written: {string.Join(", ", read)}", "registers");
             else x.Add(null, calls.Is64 ? "no argument register is read before written (no register arguments, or they are only passed on)" : "ecx / edx not read before written", "registers");
             foreach (var cls in slots.Select(s => s.Class.Name).Distinct()) x.Add(null, $"this: {cls} (a slot of its vftable)", "this");
@@ -584,7 +584,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
 
     /// <summary>
     /// The parameters a function reads as they arrive (0-based position, entry location): argument registers read before
-    /// written, and caller stack slots read (x64 [rsp+28h] up, x86 [esp+4h] up, ARM64 [sp+0h] up at entry), through the
+    /// written, and caller stack slots read (x64 [rsp+28h] up, System V [rsp+8h] up, x86 [esp+4h] up, ARM64 [sp+0h] up at entry), through the
     /// frame pointer and pushes too.
     /// </summary>
     internal static List<(int Index, string Location)> IncomingParameters(NativeCodeIndex index, NativeFunction f, CancellationToken ct)
@@ -594,7 +594,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         {
             var calls = CallAnalysis.For(index);
             var fc = calls.Code(f, ct);
-            foreach (var name in ArgumentRegisters(fc, calls.Is64))
+            foreach (var name in ArgumentRegisters(fc, calls))
                 if (OursSliceProvider.ParseLocation(name, calls.Is64) is { } r && calls.Slices.ParameterIndex(r) is var k and >= 0) found.TryAdd(k, name);
             int checkedReads = 0;
             for (int b = 0; b < fc.Blocks.Length && checkedReads < 400; b++)
@@ -654,10 +654,10 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         graph.Blocks.Sum(b => b.Successors.Count(e => e.Kind != EdgeKind.TailCall && graph.BlockAt(e.To) != null)) - graph.Blocks.Count + 2;
 
     /// <summary>The argument registers the function reads before it writes them, in address order up to its first call.</summary>
-    private static List<string> ArgumentRegisters(FunctionCode fc, bool is64)
+    private static List<string> ArgumentRegisters(FunctionCode fc, CallAnalysis calls)
     {
-        Register[] candidates = is64
-            ? [Register.RCX, Register.RDX, Register.R8, Register.R9, Register.XMM0, Register.XMM1, Register.XMM2, Register.XMM3]
+        Register[] candidates = calls.Is64
+            ? [.. calls.Abi.IntArgs, .. Enumerable.Range(0, calls.Abi.FloatArgs).Select(k => Register.XMM0 + k)]
             : [Register.ECX, Register.EDX];
         var written = new HashSet<Register>();
         var read = new List<string>();

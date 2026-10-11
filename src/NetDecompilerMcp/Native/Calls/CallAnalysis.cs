@@ -79,8 +79,8 @@ public sealed record CallSiteInfo(uint Rva, NativeFunction Caller, string Callee
 
 /// <summary>
 /// Call sites of a native image with their targets and argument values, recovered by backward constant propagation
-/// (<see cref="ValueResolver"/>) under the platform calling conventions: x64 rcx / rdx / r8 / r9 (xmm0-3 for floating
-/// point) then [rsp+20h+8*i]; x86 the stack slots pushed (or stored) before the call. Known APIs
+/// (<see cref="ValueResolver"/>) under the platform calling conventions: x64 per <see cref="X64Abi"/> (Microsoft on PE,
+/// System V on ELF and Mach-O); x86 the stack slots pushed (or stored) before the call. Known APIs
 /// (<see cref="ApiSignatures"/>) give parameter names, counts and constant decoding; other callees get the
 /// registers and slots set just before the call. One instance per code index (<see cref="For"/>), thread-safe.
 /// </summary>
@@ -102,11 +102,14 @@ public sealed partial class CallAnalysis : ITraceHost
     public NativeCodeIndex Index { get; }
     public INativeImage Image => Index.Image;
     public bool Is64 { get; }
+    /// <summary>The x64 convention of the image (unused on x86).</summary>
+    internal X64Abi Abi { get; }
 
     private CallAnalysis(NativeCodeIndex index)
     {
         Index = index;
         Is64 = index.Image.Arch == NativeArch.X64;
+        Abi = X64Abi.Of(index.Image);
         _relocs = index.Image.RelocationRvas.ToArray();
         if (!IsSorted(_relocs)) Array.Sort(_relocs);
         foreach (var imp in index.Image.Imports) _slots.TryAdd(imp.SlotRva, imp);
@@ -301,7 +304,7 @@ public sealed partial class CallAnalysis : ITraceHost
     internal static ApiSignature? SignatureOf(in Callee c) =>
         ApiSignatures.Find(c.Import?.Name ?? c.Dynamic?.Name ?? (c.Kind == CalleeKind.Function ? c.Name : null));
 
-    /// <summary>Where the parameters of <paramref name="sig"/> are passed at a call (x64 floating point in xmm registers).</summary>
+    /// <summary>Where the parameters of <paramref name="sig"/> are passed at a call.</summary>
     internal List<(Loc Loc, string Label)> ParameterLocations(ApiSignature sig, bool tail) => Locations([.. sig.Params], int.MaxValue, tail);
 
     internal bool IsTransparentCall(in Decoded d) => d.HasMem && d.I.Op0Kind == OpKind.Memory && _checkSlots.Contains(d.MemRva);
@@ -448,8 +451,6 @@ public sealed partial class CallAnalysis : ITraceHost
 
     internal string Va(uint rva) => $"0x{Image.ImageBase + rva:X}";
 
-    private static readonly Register[] IntRegs64 = [Register.RCX, Register.RDX, Register.R8, Register.R9];
-
     /// <summary>
     /// 0: not a call site; 1: a call; 2: a tail call (jmp through an import slot, or to another function's start), whose
     /// stack arguments sit above the caller's return address. Guard-check calls and thunks are not call sites.
@@ -508,32 +509,16 @@ public sealed partial class CallAnalysis : ITraceHost
         return end > start ? text[start..end] : "";
     }
 
-    /// <summary>Where each parameter is passed; variadic floating-point arguments go in integer registers on x64.</summary>
+    /// <summary>Where each parameter is passed (<see cref="X64Abi.Assign"/> on x64).</summary>
     private List<(Loc Loc, string Label)> Locations(List<ApiParam> ps, int variadicFrom, bool tail)
     {
+        if (Is64) return Abi.Assign(ps.Select(p => p.IsFloat).ToList(), variadicFrom, tail);
         var result = new List<(Loc, string)>(ps.Count);
         int offset = 0;
-        for (int k = 0; k < ps.Count; k++)
+        foreach (var p in ps)
         {
-            var p = ps[k];
-            if (Is64)
-            {
-                if (k < 4)
-                {
-                    var reg = p.IsFloat && k < variadicFrom ? Register.XMM0 + k : IntRegs64[k];
-                    result.Add((Loc.Of(reg), reg.ToString().ToLowerInvariant()));
-                }
-                else
-                {
-                    int slot = 0x20 + 8 * (k - 4);
-                    result.Add((Loc.Stack(slot + (tail ? 8 : 0)), $"[rsp+{slot + (tail ? 8 : 0):X}h]"));
-                }
-            }
-            else
-            {
-                result.Add((Loc.Stack(offset + (tail ? 4 : 0)), $"[esp+{offset + (tail ? 4 : 0):X}h]"));
-                offset += 4 * p.Slots32;
-            }
+            result.Add((Loc.Stack(offset + (tail ? 4 : 0)), $"[esp+{offset + (tail ? 4 : 0):X}h]"));
+            offset += 4 * p.Slots32;
         }
         return result;
     }
@@ -548,24 +533,30 @@ public sealed partial class CallAnalysis : ITraceHost
         var result = new List<(int, Loc, string)>();
         if (Is64)
         {
-            int highest = -1, highestSlot = -1;
+            var regs = Abi.IntArgs;
+            int home = Abi.HomeArea, highest = -1, highestSlot = -1;
             for (int i = index - 1; i >= 0; i--)
             {
                 ref readonly var d = ref insns[i];
                 if (d.I.FlowControl is FlowControl.Call or FlowControl.IndirectCall && !IsTransparentCall(in d)) break;
-                for (int k = 0; k < 4; k++)
-                    if ((d.Writes & (1UL << FunctionCode.Bit(IntRegs64[k]))) != 0) highest = Math.Max(highest, k);
+                for (int k = 0; k < regs.Length; k++)
+                    if ((d.Writes & (1UL << FunctionCode.Bit(regs[k]))) != 0) highest = Math.Max(highest, k);
                 if (d.I.Op0Kind == OpKind.Memory && d.I.MemoryBase == Register.RSP && d.I.MemoryIndex == Register.None
                     && d.I.Mnemonic is Mnemonic.Mov or Mnemonic.And or Mnemonic.Or)
                 {
                     long disp = (long)d.I.MemoryDisplacement64;
-                    if (disp >= 0x20 && disp < 0x20 + 8 * MaxGuessedArguments && (disp - 0x20) % 8 == 0)
-                        highestSlot = Math.Max(highestSlot, (int)(disp - 0x20) / 8);
+                    if (disp >= home && disp < home + 8 * MaxGuessedArguments && (disp - home) % 8 == 0)
+                        highestSlot = Math.Max(highestSlot, (int)(disp - home) / 8);
                 }
             }
-            int count = highestSlot >= 0 ? 4 + highestSlot + 1 : highest + 1;
+            // System V: [rsp] also holds locals, so stack slots count only once every register argument is set
+            if (Abi.IsSystemV && highest < regs.Length - 1) highestSlot = -1;
+            int count = highestSlot >= 0 ? regs.Length + highestSlot + 1 : highest + 1;
             for (int k = 0; k < Math.Min(count, MaxGuessedArguments); k++)
-                result.Add(k < 4 ? (k, Loc.Of(IntRegs64[k]), IntRegs64[k].ToString().ToLowerInvariant()) : (k, Loc.Stack(0x20 + 8 * (k - 4)), $"[rsp+{0x20 + 8 * (k - 4):X}h]"));
+            {
+                int slot = home + 8 * (k - regs.Length);
+                result.Add(k < regs.Length ? (k, Loc.Of(regs[k]), regs[k].ToString().ToLowerInvariant()) : (k, Loc.Stack(slot), $"[rsp+{slot:X}h]"));
+            }
             return result;
         }
         // x86: pushes (and esp stores) since the previous call, contiguous from [esp]

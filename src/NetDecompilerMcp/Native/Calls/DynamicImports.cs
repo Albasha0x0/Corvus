@@ -96,23 +96,42 @@ public sealed partial class CallAnalysis
         }
     }
 
+    /// <summary>An API name without the Mach-O symbol underscore ("_dlsym" is dlsym).</summary>
+    internal static string? ApiName(ImageFormat format, string? name) => name is ['_', _, ..] && format == ImageFormat.MachO ? name[1..] : name;
+
+    private string? ApiName(string? name) => ApiName(Image.Format, name);
+
+    /// <summary>
+    /// The calls to each of <paramref name="apis"/>: through imports, and to local functions of that name (a statically
+    /// linked platform layer such as GetProcAddress over dlsym).
+    /// </summary>
+    private IEnumerable<(string Api, IEnumerable<CallSiteInfo> Calls)> ApiCalls(string[] apis, CancellationToken ct)
+    {
+        foreach (var imp in Image.Imports)
+            if (ApiName(imp.Name) is { } api && apis.Contains(api))
+                yield return (api, CallsTo(imp, MaxDynamicSites, ct));
+        foreach (var f in Index.Functions)
+            if (f.ThunkImport == null && ApiName(f.KnownName) is { } api && apis.Contains(api))
+                yield return (api, Index.Callers(f).Take(MaxDynamicSites).Select(c => CallAt(c.From, ct)).OfType<CallSiteInfo>().DistinctBy(s => s.Rva).ToList());
+    }
+
     private DynamicImportSet BuildDynamic(CancellationToken ct)
     {
         var notes = new List<string>();
         var modules = new List<DynamicModule>();
-        foreach (var imp in Image.Imports.Where(i => i.Name != null && ModuleApis.Contains(i.Name)))
-            foreach (var s in CallsTo(imp, MaxDynamicSites, ct))
+        foreach (var (api, calls) in ApiCalls(ModuleApis, ct))
+            foreach (var s in calls)
             {
                 if (modules.Count >= MaxDynamicSites) break;
-                int p = imp.Name!.StartsWith("GetModuleHandleEx", StringComparison.Ordinal) ? 1 : 0;
+                int p = api.StartsWith("GetModuleHandleEx", StringComparison.Ordinal) ? 1 : 0;
                 if (p < s.Arguments.Count && s.Arguments[p].Kind == ArgKind.String)
-                    modules.Add(new DynamicModule(Unquote(s.Arguments[p].Text), s.Rva, s.Caller, imp.Name));
+                    modules.Add(new DynamicModule(Unquote(s.Arguments[p].Text), s.Rva, s.Caller, api));
             }
 
         var imports = new List<DynamicImport>();
         int sites = 0, unresolved = 0;
-        foreach (var gpa in Image.Imports.Where(i => i.Name != null && ResolverApis.Contains(i.Name)))
-            foreach (var s in CallsTo(gpa, MaxDynamicSites, ct))
+        foreach (var (api, calls) in ApiCalls(ResolverApis, ct))
+            foreach (var s in calls)
             {
                 sites++;
                 if (s.Arguments.Count < 2) { unresolved++; continue; }
@@ -123,13 +142,13 @@ public sealed partial class CallAnalysis
                 var moduleText = module != null ? $"; module: {moduleHow}" : "; module: not traced";
                 var confidence = module == null ? "low" : medium ? "medium" : "high";
                 if (nameArg.Kind == ArgKind.String) { name = Unquote(nameArg.Text); how = "name: string literal"; }
-                else if (gpa.Name == "GetProcAddress" && nameArg.Kind == ArgKind.Immediate && nameArg.Value is < 0x10000 and > 0) { name = $"#{nameArg.Value}"; how = "name: ordinal"; }
+                else if (api == "GetProcAddress" && nameArg.Kind == ArgKind.Immediate && nameArg.Value is < 0x10000 and > 0) { name = $"#{nameArg.Value}"; how = "name: ordinal"; }
                 else
                 {
                     var wrapped = Wrapped(s, ct);
                     if (wrapped.Count == 0) { unresolved++; continue; }
                     foreach (var (site, caller, passed) in wrapped)
-                        imports.Add(new DynamicImport(module, passed, site, caller, $"name: string literal passed to {s.Caller.Name}, which returns {gpa.Name}'s result" + moduleText,
+                        imports.Add(new DynamicImport(module, passed, site, caller, $"name: string literal passed to {s.Caller.Name}, which returns {api}'s result" + moduleText,
                             confidence, StoreOfResult(Code(caller, ct), site), []));
                     continue;
                 }
@@ -189,7 +208,7 @@ public sealed partial class CallAnalysis
                 var (b, i) = code.Position(v.Site);
                 if (b < 0) break;
                 var c = ResolveCallee(code, b, i, new ValueResolver(this, code) { Budget = 1500 });
-                var api = c.Import?.Name ?? c.Dynamic?.Name;
+                var api = ApiName(c.Import?.Name ?? c.Dynamic?.Name ?? (c.Kind == CalleeKind.Function ? c.Name : null));
                 if (api == null || !ModuleApis.Contains(api))
                 {
                     // a local wrapper such as LoadSystemLibrary(L"x.dll"): the module-like string it is passed
@@ -308,11 +327,7 @@ public sealed partial class CallAnalysis
             if (x.FlowControl is FlowControl.Call or FlowControl.IndirectCall)
             {
                 if (IsTransparentCall(in d)) continue;
-                ulong volatileRegs = 0;
-                foreach (var r in Is64 ? new[] { Register.RAX, Register.RCX, Register.RDX, Register.R8, Register.R9, Register.R10, Register.R11 }
-                                       : [Register.RAX, Register.RCX, Register.RDX])
-                    volatileRegs |= 1UL << FunctionCode.Bit(r);
-                regs &= ~volatileRegs;
+                regs &= ~VolatileMask;
                 if (regs == 0) return null;
                 continue;
             }
@@ -406,10 +421,9 @@ public sealed partial class CallAnalysis
     {
         get
         {
+            if (Is64) return Abi.VolatileMask;
             ulong m = 0;
-            foreach (var r in Is64 ? new[] { Register.RAX, Register.RCX, Register.RDX, Register.R8, Register.R9, Register.R10, Register.R11 }
-                                   : [Register.RAX, Register.RCX, Register.RDX])
-                m |= 1UL << FunctionCode.Bit(r);
+            foreach (var r in new[] { Register.RAX, Register.RCX, Register.RDX }) m |= 1UL << FunctionCode.Bit(r);
             return m;
         }
     }

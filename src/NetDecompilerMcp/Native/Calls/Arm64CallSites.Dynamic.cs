@@ -44,7 +44,8 @@ internal sealed partial class Arm64CallSites
     {
         var imports = new List<DynamicImport>();
         int sites = 0, unresolved = 0;
-        foreach (var api in _index.Image.Imports.Where(i => i.Name != null && ResolverApis.Contains(i.Name)))
+        var format = _index.Image.Format;
+        foreach (var api in _index.Image.Imports.Where(i => ResolverApis.Contains(CallAnalysis.ApiName(format, i.Name))))
             foreach (var s in CallsTo(api, MaxDynamicSites, ct))
             {
                 sites++;
@@ -54,7 +55,7 @@ internal sealed partial class Arm64CallSites
                 var module = ModuleOf(s, ct);
                 var moduleText = module != null ? $"; module: {module.Value.How}" : "; module: not traced";
                 if (nameArg.Kind == ArgKind.String) { name = Unquote(nameArg.Text); how = "name: string literal"; }
-                else if (api.Name == "GetProcAddress" && nameArg.Kind == ArgKind.Immediate && nameArg.Value is > 0 and < 0x10000) { name = $"#{nameArg.Value}"; how = "name: ordinal"; }
+                else if (CallAnalysis.ApiName(format, api.Name) == "GetProcAddress" && nameArg.Kind == ArgKind.Immediate && nameArg.Value is > 0 and < 0x10000) { name = $"#{nameArg.Value}"; how = "name: ordinal"; }
                 else
                 {
                     var wrapped = Wrapped(s, ct);
@@ -117,7 +118,7 @@ internal sealed partial class Arm64CallSites
         var (b, i) = code.Position(s.Rva);
         if (b < 0) return null;
         var v = new Arm64Resolver(trace, code) { Budget = 1500 }.Before(A64Loc.Reg(0), b, i);
-        if (v.Kind != A64Kind.Result || CallAt(v.Rva, ct) is not { Import.Name: { } api } loader || !ModuleApis.Contains(api) || loader.Arguments.Count == 0) return null;
+        if (v.Kind != A64Kind.Result || CallAt(v.Rva, ct) is not { Import.Name: { } api } loader || !ModuleApis.Contains(CallAnalysis.ApiName(_index.Image.Format, api)) || loader.Arguments.Count == 0) return null;
         var a = loader.Arguments[0];
         if (a.Kind == ArgKind.String) return (Unquote(a.Text), $"{api}({a.Text}) at {Va(loader.Rva)}");
         if (a.Kind == ArgKind.Immediate && a.Value == 0) return (Path.GetFileName(_index.Image.Path), $"{api}(NULL) at {Va(loader.Rva)}: this image");

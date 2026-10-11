@@ -17,6 +17,7 @@ public sealed class CodeTestImage : INativeImage
     private readonly List<(NativeSection Section, byte[] Raw)> _sections = [];
     private readonly byte[] _headers;
 
+    public ImageFormat Format { get; private init; } = ImageFormat.Pe;
     public string Path { get; private init; } = "";
     public string Sha256 { get; private init; } = "";
     public NativeArch Arch { get; private init; }
@@ -80,10 +81,11 @@ public sealed class CodeTestImage : INativeImage
     /// </summary>
     public static CodeTestImage Synthetic(NativeArch arch, byte[] code, byte[]? data = null, IEnumerable<NativeImport>? imports = null,
         IEnumerable<RuntimeFunction>? pdata = null, IEnumerable<uint>? relocations = null, uint entry = 0, IEnumerable<NativeExport>? exports = null,
-        uint dataVirtualSize = 0)
+        uint dataVirtualSize = 0, ImageFormat format = ImageFormat.Pe)
     {
         var image = new CodeTestImage(new byte[0x400])
         {
+            Format = format,
             Path = "synthetic",
             Arch = arch,
             IsDll = true,

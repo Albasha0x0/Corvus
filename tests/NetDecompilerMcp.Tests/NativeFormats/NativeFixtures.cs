@@ -12,6 +12,8 @@ public static class NativeFixtures
     public static string LinuxMuslArm64DbgShim => RealPackages.File("Microsoft.Diagnostics.DbgShim.linux-musl-arm64", DbgShim, "runtimes/linux-musl-arm64/native/libdbgshim.so");
     public static string LinuxArmDbgShim => RealPackages.File("Microsoft.Diagnostics.DbgShim.linux-arm", DbgShim, "runtimes/linux-arm/native/libdbgshim.so");
     public static string OsxArm64DbgShim => RealPackages.File("Microsoft.Diagnostics.DbgShim.osx-arm64", DbgShim, "runtimes/osx-arm64/native/libdbgshim.dylib");
+    public static string LinuxX64DbgShim => RealPackages.File("Microsoft.Diagnostics.DbgShim.linux-x64", DbgShim, "runtimes/linux-x64/native/libdbgshim.so");
+    public static string OsxX64DbgShim => RealPackages.File("Microsoft.Diagnostics.DbgShim.osx-x64", DbgShim, "runtimes/osx-x64/native/libdbgshim.dylib");
     public static string WinArm64DbgShim => RealPackages.File("Microsoft.Diagnostics.DbgShim.win-arm64", DbgShim, "runtimes/win-arm64/native/dbgshim.dll");
     public static string OsxArm64AppHost => RealPackages.File("Microsoft.NETCore.App.Host.osx-arm64", "10.0.11", "runtimes/osx-arm64/native/apphost");
     /// <summary>Universal x86_64 + arm64 dylib with classic dyld info opcodes.</summary>

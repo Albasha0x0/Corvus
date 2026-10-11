@@ -343,8 +343,7 @@ internal sealed class ValueResolver
 
 
     private bool IsVolatile(Register full) => _is64
-        ? full is Register.RAX or Register.RCX or Register.RDX or Register.R8 or Register.R9 or Register.R10 or Register.R11
-          || (full >= Register.ZMM0 && full <= Register.ZMM5)
+        ? _owner.Abi.IsVolatile(full)
         : full is Register.RAX or Register.RCX or Register.RDX || (full >= Register.ZMM0 && full <= Register.ZMM7);
 
     private static bool IsImmediate(OpKind k) => k is OpKind.Immediate8 or OpKind.Immediate8to16 or OpKind.Immediate8to32 or OpKind.Immediate8to64

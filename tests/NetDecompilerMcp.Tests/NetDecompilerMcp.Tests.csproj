@@ -65,6 +65,8 @@
     <PackageDownload Include="Microsoft.Diagnostics.DbgShim.linux-arm64" Version="[9.0.621003]" />
     <PackageDownload Include="Microsoft.Diagnostics.DbgShim.linux-musl-arm64" Version="[9.0.621003]" />
     <PackageDownload Include="Microsoft.Diagnostics.DbgShim.linux-arm" Version="[9.0.621003]" />
+    <PackageDownload Include="Microsoft.Diagnostics.DbgShim.linux-x64" Version="[9.0.621003]" />
+    <PackageDownload Include="Microsoft.Diagnostics.DbgShim.osx-x64" Version="[9.0.621003]" />
     <PackageDownload Include="Microsoft.Diagnostics.DbgShim.osx-arm64" Version="[9.0.621003]" />
     <PackageDownload Include="Microsoft.Diagnostics.DbgShim.win-arm64" Version="[9.0.621003]" />
     <PackageDownload Include="Microsoft.Diagnostics.DbgShim.win-arm" Version="[9.0.553101]" />

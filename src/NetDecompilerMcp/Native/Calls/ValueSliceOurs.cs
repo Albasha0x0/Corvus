@@ -259,27 +259,16 @@ internal sealed class OursSliceProvider(CallAnalysis analysis) : IFunctionSliceP
         return long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
     }
 
-    private static readonly Register[] IntArgs64 = [Register.RCX, Register.RDX, Register.R8, Register.R9];
-
-    /// <summary>The 0-based parameter position of an entry location (x64 rcx / xmm0 .. r9 / xmm3, then [rsp+28h+8i]; x86 [esp+4+4i]); -1 for none.</summary>
+    /// <summary>The 0-based parameter position of an entry location (x64 per <see cref="X64Abi.ParameterIndex"/>; x86 [esp+4+4i]); -1 for none.</summary>
     internal int ParameterIndex(Loc entry)
     {
-        if (entry.Kind == LocKind.Stack)
-        {
-            int first = Is64 ? 0x28 : 4;
-            if (entry.Slot < first || (entry.Slot - first) % Ptr != 0) return -1;
-            return (entry.Slot - first) / Ptr + (Is64 ? 4 : 0);
-        }
-        if (entry.Kind != LocKind.Register || !Is64) return -1;
-        int i = Array.IndexOf(IntArgs64, entry.Reg);
-        if (i >= 0) return i;
-        return entry.Reg >= Register.ZMM0 && entry.Reg <= Register.ZMM3 ? entry.Reg - Register.ZMM0 : -1;
+        if (Is64) return analysis.Abi.ParameterIndex(entry);
+        if (entry.Kind != LocKind.Stack || entry.Slot < 4 || entry.Slot % 4 != 0) return -1;
+        return (entry.Slot - 4) / 4;
     }
 
     /// <summary>The entry location of the 0-based parameter <paramref name="index"/>.</summary>
-    internal Loc ParameterEntry(int index, bool isFloat = false) =>
-        Is64 ? index < 4 ? Loc.Of(isFloat ? Register.ZMM0 + index : IntArgs64[index]) : Loc.Stack(0x28 + 8 * (index - 4))
-             : Loc.Stack(4 + 4 * index);
+    internal Loc ParameterEntry(int index, bool isFloat = false) => Is64 ? analysis.Abi.ParameterEntry(index, isFloat) : Loc.Stack(4 + 4 * index);
 
     /// <summary>Where an entry location is at a call (the return address not pushed yet) or a tail jump (already there).</summary>
     internal Loc EntryToCall(Loc entry, bool tail) => entry.Kind == LocKind.Stack && !tail ? Loc.Stack(entry.Slot - Ptr) : entry;
@@ -304,7 +293,6 @@ internal sealed class OursSliceProvider(CallAnalysis analysis) : IFunctionSliceP
     }
 
     internal bool IsVolatile(Register full) => Is64
-        ? full is Register.RAX or Register.RCX or Register.RDX or Register.R8 or Register.R9 or Register.R10 or Register.R11
-          || (full >= Register.ZMM0 && full <= Register.ZMM5)
+        ? analysis.Abi.IsVolatile(full)
         : full is Register.RAX or Register.RCX or Register.RDX || (full >= Register.ZMM0 && full <= Register.ZMM7);
 }

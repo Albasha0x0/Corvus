@@ -19,7 +19,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         [property: Description("0-based position.")] int Index,
         [property: Description("Parameter name from the API signature; null for callees without one.")] string? Name,
         [property: Description("Parameter type (str, int, ptr, an enumeration or flags name...); null without a signature.")] string? Type,
-        [property: Description("Where it is passed: rcx, rdx, r8, r9, xmm0-3, [rsp+20h], [esp+4h], ecx; ARM64 x0-x7, s0-s7 / d0-d7, stack.")] string Location,
+        [property: Description("Where it is passed: rcx, rdi, xmm0, [rsp+20h], [esp+4h], ecx; ARM64 x0-x7, s0-s7 / d0-d7, stack.")] string Location,
         [property: Description("immediate, string, address, name, result (of an earlier call), global (contents of a variable) or unknown.")] string Kind,
         [property: Description("The value as shown in the call: decoded flags, quoted string, name, ? when unknown.")] string Text,
         [property: Description("The number for immediates (hex).")] string? Value,
@@ -65,7 +65,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
 
     [McpServerTool(Name = "get_call_arguments", Title = "Native call arguments", UseStructuredContent = true)]
     [Description("Call sites of a native image (x86 / x64 / ARM) with their argument values, recovered by backward constant propagation in the calling " +
-                 "function under the platform conventions (x64 rcx, rdx, r8, r9 / xmm0-3, then [rsp+20h+8*i]; x86 pushed / stored stack slots; ARM x0-x7 / r0-r3): " +
+                 "function under the platform conventions (x64 Microsoft on PE, System V on ELF / Mach-O; x86 pushed / stored stack slots; ARM x0-x7 / r0-r3): " +
                  "immediates, string literals, named addresses, results of earlier calls, globals; merges of different values are unknown. " +
                  "Known Win32 / CRT APIs give parameter names and decoded constants (GENERIC_READ, PAGE_EXECUTE_READWRITE, HKEY_LOCAL_MACHINE, printf formats). " +
                  "Pass address (a call instruction, or any address in a function for all its calls) and/or callee (an API or function name: all calls to it).")]
