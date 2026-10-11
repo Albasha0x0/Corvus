@@ -4,11 +4,14 @@ namespace NetDecompilerMcp.Native.Code;
 /// An index known to be below <see cref="Count"/> (unsigned) on some path: register <see cref="Reg"/>, or with
 /// <see cref="SlotBase"/> set the frame slot [SlotBase + SlotDisp]. Registers are the decoder's own ids; 0 is none.
 /// <see cref="Default"/> is where the bounding branch goes for an index out of range; the switched value is index + <see cref="Bias"/>.
+/// <see cref="FlagsReg"/>: the flags on entry come from comparing that register with <see cref="FlagsImm"/> (ARM64, where a
+/// bounding branch can follow the compare in another block).
 /// </summary>
-internal readonly record struct IndexBound(int Reg, uint Count, int SlotBase = 0, ulong SlotDisp = 0, uint? Default = null, long Bias = 0)
+internal readonly record struct IndexBound(int Reg, uint Count, int SlotBase = 0, ulong SlotDisp = 0, uint? Default = null, long Bias = 0,
+    int FlagsReg = 0, ulong FlagsImm = 0)
 {
     public static readonly IndexBound None = new(0, 0);
-    public bool IsKnown => Reg != 0 || SlotBase != 0;
+    public bool IsKnown => Reg != 0 || SlotBase != 0 || FlagsReg != 0;
 }
 
 /// <summary>Facts of one decoded instruction, in the form the analysis loops use. Addresses are RVAs.</summary>
@@ -40,6 +43,10 @@ internal sealed record SwitchMatch(uint TableRva, int EntrySize, bool Absolute, 
     public uint? Default { get; init; }
     public long Bias { get; init; }
     public bool BoundByMask { get; init; }
+    /// <summary>ARM64: targets are <see cref="Base"/> + (entry &lt;&lt; <see cref="Shift"/>), the entry sign-extended when <see cref="Signed"/>.</summary>
+    public uint? Base { get; init; }
+    public int Shift { get; init; }
+    public bool Signed { get; init; }
 
     /// <summary>The reason when the instructions before an indirect jump are no table dispatch at all.</summary>
     public const string NoDispatch = "no recognized table dispatch";
@@ -53,6 +60,9 @@ internal interface ICodeDecoder
 {
     /// <summary>The image has 64-bit pointers.</summary>
     bool Is64 { get; }
+
+    /// <summary>Starts the walk of a new function (forgets what was learned about the previous one).</summary>
+    void BeginFunction() { }
 
     /// <summary>Starts a new linear run; <paramref name="incoming"/> is a bound known on entry.</summary>
     void BeginRun(IndexBound incoming);

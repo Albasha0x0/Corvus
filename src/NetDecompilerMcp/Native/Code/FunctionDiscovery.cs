@@ -176,6 +176,7 @@ internal sealed class FunctionDiscovery
     private void Explore(uint root)
     {
         List<(uint Begin, uint End)>? own = _ctx.PdataRanges.TryGetValue(root, out var r) ? r : null;
+        _dec.BeginFunction();
         _work.Clear();
         _work.Push((root, IndexBound.None));
         while (_work.Count > 0)

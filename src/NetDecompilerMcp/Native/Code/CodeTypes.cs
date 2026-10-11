@@ -253,6 +253,8 @@ public enum SwitchTableKind : byte
     Rva,
     /// <summary>The target's offset from the table.</summary>
     TableRelative,
+    /// <summary>ARM64: the target's offset from a base address, scaled (base + entry * 4).</summary>
+    BaseRelative,
 }
 
 /// <summary>
@@ -269,6 +271,9 @@ public sealed record SwitchTable(uint JumpRva, uint TableRva, int EntryCount, in
     public SwitchTableKind Kind { get; init; }
     /// <summary>False when the values are table indexes whose bound is not a compare (an and-mask, or an assumed image base).</summary>
     public bool ValuesExact { get; init; } = true;
+    /// <summary><see cref="SwitchTableKind.BaseRelative"/>: target = Base + (entry &lt;&lt; Shift).</summary>
+    public uint? Base { get; init; }
+    public int Shift { get; init; }
 }
 
 /// <summary>An indirect jump whose targets are unknown, and why.</summary>

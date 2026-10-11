@@ -68,6 +68,7 @@ internal sealed class FunctionWalker
         _visited.Clear(); _insns.Clear(); _lengths.Clear(); _runs.Clear(); _leaders.Clear(); _work.Clear(); _xrefs.Clear(); _callees.Clear();
         _branches.Clear(); _conditionals.Clear(); _switches.Clear(); _unresolved.Clear(); _tails.Clear(); _fallsInto.Clear(); _pending.Clear(); _pendingRun.Clear();
         var result = new WalkResult();
+        _dec.BeginFunction();
         // chained .pdata fragments only say which jumps stay inside the function: a fragment can begin with data
         // (a switch table), so fragments are reached by flow, never decoded from their begin
         var bodyOwn = _ctx.PdataRanges.GetValueOrDefault(start);

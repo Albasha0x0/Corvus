@@ -497,13 +497,19 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(1, asm.Changed);
     }
 
-    /// <summary>Our switch cases (values per target, default) against IDA's on the switches of a system DLL.</summary>
+    /// <summary>Our switch cases (values per target, default) against IDA's: x64 switches of a system DLL, ARM64 jump tables.</summary>
     [Trait("Speed", "Slow")]
     [IdaFact]
-    public async Task Switch_cases_agree_with_IDA()
+    public Task Switch_cases_agree_with_IDA() =>
+        SwitchesAgree(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "kernel32.dll"));
+
+    [Trait("Speed", "Slow")]
+    [IdaFact]
+    public Task Arm64_switch_cases_agree_with_IDA() => SwitchesAgree(NativeFormats.NativeFixtures.WinArm64DbgShim);
+
+    private async Task SwitchesAgree(string path)
     {
         var rig = Setup();
-        var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "kernel32.dll");
         await rig.Tools.ListFunctions(path, engine: "ours");
         var native = rig.Workspace.Read(() => rig.Workspace.Natives[0]);
         var index = await rig.Code.Index(native, null, default);

@@ -31,7 +31,7 @@ public sealed record CfgSuccessor([property: Description("VA.")] string To, [pro
 public sealed record CfgSwitch(
     [property: Description("The indirect jump (VA).")] string Jump,
     [property: Description("Jump table (VA); null when the engine does not say.")] string? Table,
-    [property: Description("absolute, rva or table_relative entries.")] string? TableKind,
+    [property: Description("absolute, rva, table_relative or base_relative (ARM64: base + entry << shift) entries.")] string? TableKind,
     int? EntrySize,
     int? Entries,
     [property: Description("Byte index table in front of the jump table (VA).")] string? IndexTable,
@@ -50,13 +50,18 @@ public sealed record CfgUnresolvedJump([property: Description("VA.")] string Add
 internal sealed record SwitchView(uint Jump, uint? Table, string? TableKind, int? EntrySize, int? Entries, uint? IndexTable, int? IndexEntries, long Bias,
     uint? Default, IReadOnlyList<long> DefaultValues, bool ValuesExact, IReadOnlyList<(uint Target, IReadOnlyList<long> Values)> Cases)
 {
+    /// <summary>Base-relative tables: target = Base + (entry &lt;&lt; Shift).</summary>
+    public uint? Base { get; init; }
+    public int Shift { get; init; }
+
     public static SwitchView Of(SwitchTable t) => new(t.JumpRva, t.TableRva, t.Kind switch
         {
             SwitchTableKind.Absolute => "absolute",
             SwitchTableKind.TableRelative => "table_relative",
+            SwitchTableKind.BaseRelative => "base_relative",
             _ => "rva",
         }, t.EntrySize, t.EntryCount, t.IndexTableRva, t.IndexTableRva != null ? t.IndexEntryCount : null, t.Bias, t.Default, t.DefaultValues, t.ValuesExact,
-        [.. t.Cases.Select(c => (c.Target, c.Values))]);
+        [.. t.Cases.Select(c => (c.Target, c.Values))]) { Base = t.Base, Shift = t.Shift };
 }
 
 public sealed partial class NativeCodeTools
@@ -89,6 +94,7 @@ public sealed partial class NativeCodeTools
             head.Append($" {s.TableKind ?? ""} table {va(table)}".Replace("  ", " ") + (s.EntrySize != null || s.Entries != null
                 ? $" ({(s.EntrySize is { } size ? $"{size}-byte entries, " : "")}{s.Entries})" : ""));
         if (s.IndexTable is { } index) head.Append($", byte index {va(index)} ({s.IndexEntries})");
+        if (s.Base is { } b) head.Append($"; target = {va(b)} + entry" + (s.Shift > 0 ? $" * {1 << s.Shift}" : ""));
         if (s.Bias != 0) head.Append($"; value = index {(s.Bias > 0 ? "+" : "-")} {Math.Abs(s.Bias)}");
         head.Append(s.Default is { } d ? $"; default {va(d)}" : s.ValuesExact ? "" : "; no default (the index is masked, values are table indexes)");
         sb.AppendLine(head.ToString());

@@ -289,36 +289,49 @@ internal sealed class CodeContext
             count = (uint)index.Max() + 1;
         }
         if (count == 0 || count > Options.MaxSwitchEntries) { reason = $"table of {count} entries (limit {Options.MaxSwitchEntries})"; return null; }
-        var raw = new byte[count * 4];
+        int size = m.EntrySize;
+        var raw = new byte[count * size];
         if (Read(m.TableRva, raw) < raw.Length) { reason = "table outside the image"; return null; }
         var targets = new List<uint>((int)count);
         var entries = new uint[count];
         var seen = new HashSet<uint>();
+        bool aligned = Image.Arch == NativeArch.Arm64;
         for (int i = 0; i < count; i++)
         {
-            uint entry = BinaryPrimitives.ReadUInt32LittleEndian(raw.AsSpan(i * 4));
+            var e = raw.AsSpan(i * size, size);
+            long entry = size switch
+            {
+                1 => m.Signed ? (sbyte)e[0] : e[0],
+                2 => m.Signed ? BinaryPrimitives.ReadInt16LittleEndian(e) : BinaryPrimitives.ReadUInt16LittleEndian(e),
+                8 => (long)BinaryPrimitives.ReadUInt64LittleEndian(e),
+                _ => m.Signed ? BinaryPrimitives.ReadInt32LittleEndian(e) : BinaryPrimitives.ReadUInt32LittleEndian(e),
+            };
             uint target;
             if (m.Absolute)
             {
-                if (Relocations.Length > 0 && !IsRelocated(m.TableRva + (uint)i * 4)) { reason = $"entry {i} is not relocated"; return null; }
-                ulong va = entry;
+                if (Relocations.Length > 0 && !IsRelocated(m.TableRva + (uint)(i * size))) { reason = $"entry {i} is not relocated"; return null; }
+                ulong va = size == 8 ? (ulong)entry : (uint)entry;
                 if (va < Image.ImageBase || va - Image.ImageBase >= Image.SizeOfImage) { reason = $"entry {i} points outside the image"; return null; }
                 target = (uint)(va - Image.ImageBase);
             }
+            else if (m.Base is { } b) target = (uint)(b + (entry << m.Shift));
             else if (m.RelativeToTable) target = (uint)(m.TableRva + (int)entry);
-            else target = entry;
+            else target = (uint)entry;
             if (!Code.IsCode(target)) { reason = $"entry {i} ({target:X}) is not in executable code"; return null; }
+            if (aligned && (target & 3) != 0) { reason = $"entry {i} ({target:X}) is not an instruction address"; return null; }
             if (m.BaseAssumed && !ownRanges!.Any(r => target >= r.Begin && target < r.End)) { reason = $"entry {i} ({target:X}) is outside the function"; return null; }
             entries[i] = target;
             if (seen.Add(target)) targets.Add(target);
         }
-        return new SwitchTable(jumpRva, m.TableRva, (int)count, 4, m.IndexTableRva, (int)m.IndexTableCount, targets)
+        return new SwitchTable(jumpRva, m.TableRva, (int)count, size, m.IndexTableRva, (int)m.IndexTableCount, targets)
         {
             Cases = Cases(entries, index, targets, m, out var defaultValues),
             DefaultValues = defaultValues,
             Default = m.Default,
             Bias = m.Bias,
-            Kind = m.Absolute ? SwitchTableKind.Absolute : m.RelativeToTable ? SwitchTableKind.TableRelative : SwitchTableKind.Rva,
+            Kind = m.Absolute ? SwitchTableKind.Absolute : m.Base != null ? SwitchTableKind.BaseRelative : m.RelativeToTable ? SwitchTableKind.TableRelative : SwitchTableKind.Rva,
+            Base = m.Base,
+            Shift = m.Shift,
             ValuesExact = !m.BoundByMask && !m.BaseAssumed,
         };
     }
