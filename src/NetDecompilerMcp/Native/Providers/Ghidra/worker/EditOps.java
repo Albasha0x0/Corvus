@@ -7,6 +7,9 @@ import java.util.Set;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonNull;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 import ghidra.app.cmd.disassemble.DisassembleCommand;
 import ghidra.app.cmd.function.CallDepthChangeInfo;
@@ -15,10 +18,14 @@ import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.data.ArrayDataType;
 import ghidra.program.model.data.ByteDataType;
+import ghidra.program.model.data.CategoryPath;
 import ghidra.program.model.data.DWordDataType;
 import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.DataTypeConflictHandler;
+import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.data.DataUtilities;
 import ghidra.program.model.data.DoubleDataType;
+import ghidra.program.model.data.EnumDataType;
 import ghidra.program.model.data.FloatDataType;
 import ghidra.program.model.data.QWordDataType;
 import ghidra.program.model.data.TerminatedStringDataType;
@@ -44,8 +51,26 @@ final class EditOps {
     private EditOps() {
     }
 
-    /** Edits applied after the declarations and before the types: analysis [[rva, kind, end or null, type or null]] in the order made. */
+    /** Program option: the user's enum member edits as JSON {"enum::member": value or null}, applied again after declarations. */
+    static final String USER_ENUMS = "ndm_user_enums";
+
+    /**
+     * Edits applied after the declarations and before the types: enums [[enum, member, value or null]], then analysis
+     * [[rva, kind, end or null, type or null]] in the order made.
+     */
     static void before(Worker w, Worker.Request r, JsonArray items) throws Exception {
+        for (JsonElement e : Worker.array(r.args, "enums")) {
+            JsonArray m = e.getAsJsonArray();
+            Long value = m.get(2).isJsonNull() ? null : m.get(2).getAsLong();
+            JsonArray item = enumMember(w, m.get(0).getAsString(), m.get(1).getAsString(), value);
+            if (item.get(3).getAsBoolean()) {
+                JsonObject kept = userEnums(w);
+                if (value == null) kept.add(item.get(2).getAsString(), JsonNull.INSTANCE);
+                else kept.addProperty(item.get(2).getAsString(), value);
+                w.program.getOptions(Worker.STAMPS).setString(USER_ENUMS, kept.toString());
+            }
+            items.add(item);
+        }
         for (JsonElement e : Worker.array(r.args, "analysis")) {
             JsonArray a = e.getAsJsonArray();
             long rva = a.get(0).getAsLong();
@@ -62,8 +87,49 @@ final class EditOps {
         }
     }
 
-    /** Edits applied after the locals: operands [[rva, operand, display, detail or null]]. */
+    private static JsonObject userEnums(Worker w) {
+        String kept = w.program.getOptions(Worker.STAMPS).getString(USER_ENUMS, "");
+        return kept == null || kept.isEmpty() ? new JsonObject() : JsonParser.parseString(kept).getAsJsonObject();
+    }
+
+    /** The user's enum member edits again, after declarations replaced the enums. */
+    static void reapplyEnums(Worker w) {
+        for (var entry : userEnums(w).entrySet()) {
+            String key = entry.getKey();
+            int sep = key.indexOf("::");
+            if (sep > 0) enumMember(w, key.substring(0, sep), key.substring(sep + 2), entry.getValue().isJsonNull() ? null : entry.getValue().getAsLong());
+        }
+    }
+
+    /** Adds, changes or (null value) removes an enum member; a missing enum is created (4 bytes). */
+    static JsonArray enumMember(Worker w, String enumName, String member, Long value) {
+        String target = enumName + "::" + member;
+        DataTypeManager dtm = w.program.getDataTypeManager();
+        DataType dt = TypeOps.parseType(w, enumName);
+        if (dt != null && !(dt instanceof ghidra.program.model.data.Enum))
+            return FrameOps.item("enum", 0, target, false, enumName + " is a " + TypeOps.kind(dt) + ", not an enum", null, null, null);
+        if (dt == null) {
+            if (value == null) return FrameOps.item("enum", 0, target, true, null, null, null, "no enum " + enumName);
+            dt = dtm.addDataType(new EnumDataType(CategoryPath.ROOT, enumName, 4, dtm), DataTypeConflictHandler.DEFAULT_HANDLER);
+        }
+        var en = (ghidra.program.model.data.Enum) dt;
+        try {
+            if (en.contains(member)) en.remove(member);
+            if (value == null) return FrameOps.item("enum", 0, target, true, null, null, null, "removed");
+            en.add(member, value);
+        }
+        catch (IllegalArgumentException e) {
+            return FrameOps.item("enum", 0, target, false, "Ghidra refused " + target + ": " + e.getMessage(), null, null, null);
+        }
+        return FrameOps.item("enum", 0, target, true, null, null, null, target + " = 0x" + hex(value));
+    }
+
+    /** Edits applied after the locals: stack_deletes [[function, offset]], then operands [[rva, operand, display, detail or null]]. */
     static void after(Worker w, Worker.Request r, JsonArray items) throws Exception {
+        for (JsonElement e : Worker.array(r.args, "stack_deletes")) {
+            JsonArray s = e.getAsJsonArray();
+            items.add(stackDelete(w, s.get(0).getAsLong(), s.get(1).getAsInt()));
+        }
         for (JsonElement e : Worker.array(r.args, "operands")) {
             JsonArray o = e.getAsJsonArray();
             long rva = o.get(0).getAsLong();
@@ -84,6 +150,23 @@ final class EditOps {
 
     private static String hex(long v) {
         return Long.toHexString(v).toUpperCase();
+    }
+
+    /** Removes the stack frame member at a frame offset; the return address slot is refused, a missing member is no change. */
+    static JsonArray stackDelete(Worker w, long rva, int offset) {
+        String target = "+0x" + Integer.toHexString(offset).toUpperCase();
+        Function f = w.program.getFunctionManager().getFunctionContaining(w.space().getAddress(w.base + rva));
+        if (f == null) return FrameOps.item("stack_delete", rva, target, false, "no function contains rva 0x" + hex(rva), null, offset, null);
+        rva = w.rva(f.getEntryPoint());
+        var sf = f.getStackFrame();
+        int at = offset + FrameOps.low(sf);
+        if (FrameOps.returnAddressOnStack(w) && at >= sf.getReturnAddressOffset() && at < sf.getReturnAddressOffset() + w.program.getDefaultPointerSize())
+            return FrameOps.item("stack_delete", rva, target, false, target + " is the return address", "__return_address", offset, null);
+        ghidra.program.model.listing.Variable v = sf.getVariableContaining(at);
+        if (v == null || v.getStackOffset() != at) return FrameOps.item("stack_delete", rva, target, true, null, null, offset, "no member at " + target);
+        String old = v.getName();
+        sf.clearVariable(at);
+        return FrameOps.item("stack_delete", rva, target, true, null, old, offset, "deleted");
     }
 
     /**

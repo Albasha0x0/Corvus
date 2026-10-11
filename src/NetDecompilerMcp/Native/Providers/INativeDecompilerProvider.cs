@@ -417,8 +417,17 @@ public sealed record NativeCallTargets(IReadOnlyList<NativeCallTarget> Targets, 
 /// </summary>
 public sealed record NativeLocalEdit(uint Function, string Local, int? Stack, string? Name, string? Type);
 
-/// <summary>The stack frame member at <see cref="Offset"/> (bytes from the frame's lowest address) gets <see cref="Name"/> and/or <see cref="Type"/>; created when none is there.</summary>
-public sealed record NativeStackVarEdit(uint Function, int Offset, string? Name, string? Type);
+/// <summary>
+/// The stack frame member at <see cref="Offset"/> (bytes from the frame's lowest address) gets <see cref="Name"/> and/or
+/// <see cref="Type"/>; created when none is there. With <see cref="Delete"/> the member is removed instead.
+/// </summary>
+public sealed record NativeStackVarEdit(uint Function, int Offset, string? Name, string? Type)
+{
+    public bool Delete { get; init; }
+}
+
+/// <summary>Member <see cref="Member"/> of enum <see cref="Enum"/> (created when missing) gets <see cref="Value"/>; a null value removes the member.</summary>
+public sealed record NativeEnumMemberEdit(string Enum, string Member, long? Value);
 
 /// <summary>
 /// A change to the engine's analysis at <see cref="Rva"/>: <see cref="Kind"/> code (instructions from there), function (a
@@ -442,21 +451,23 @@ public sealed record NativeOperandEdit(uint Rva, int Operand, string Display, st
 }
 
 /// <summary>
-/// User types, applied in this order: C declarations; analysis edits in the order made; types of functions (prototypes)
-/// and globals by RVA, an empty one clearing it; stack frame members; decompiler locals; operand display formats.
+/// User types, applied in this order: C declarations; enum members; analysis edits in the order made; types of functions
+/// (prototypes) and globals by RVA, an empty one clearing it; stack frame members; decompiler locals; stack member
+/// deletions; operand display formats.
 /// </summary>
 public sealed record NativeUserTypeBatch(IReadOnlyList<string> Declarations, IReadOnlyList<NativePrototype> Types, IReadOnlyList<NativeStackVarEdit> StackVars,
     IReadOnlyList<NativeLocalEdit> Locals)
 {
     public static readonly NativeUserTypeBatch Empty = new([], [], [], []);
 
+    public IReadOnlyList<NativeEnumMemberEdit> EnumMembers { get; init; } = [];
     public IReadOnlyList<NativeAnalysisEdit> Analysis { get; init; } = [];
     public IReadOnlyList<NativeOperandEdit> Operands { get; init; } = [];
 }
 
 /// <summary>
-/// One item of a user type batch: <see cref="Kind"/> type, stack, local, analysis or operand (with the operand index as
-/// <see cref="Stack"/>), at <see cref="Rva"/> (the address or function);
+/// One item of a user type batch: <see cref="Kind"/> type, stack, stack_delete, local, enum (at RVA 0), analysis or operand
+/// (with the operand index as <see cref="Stack"/>), at <see cref="Rva"/> (the address or function);
 /// <see cref="Target"/> as asked; for a local the name it had before (<see cref="Resolved"/>) and its stack offset;
 /// <see cref="Text"/>: the type or name now in effect.
 /// </summary>

@@ -1210,6 +1210,7 @@ def reapply_user_decls():
     if blob:
         import idc
         idc.parse_decls(blob.decode("utf-8", "replace"), idc.PT_SILENT | idc.PT_REPLACE)
+    reapply_user_enums()
 
 
 def op_apply_user_types(args):
@@ -1563,20 +1564,101 @@ def op_sleep(args):
     return {}
 
 
-# ---- user edits beyond types (apply_user_types): analysis, operand display ----
-# Adapted from mrexodia/ida-pro-mcp define_func / define_code / undefine / make_data / set_op_type (MIT); see THIRD-PARTY-NOTICES.md.
+# ---- user edits beyond types (apply_user_types): enum members, analysis, stack deletes, operand display ----
+# Adapted from mrexodia/ida-pro-mcp enum_upsert / define_func / define_code / undefine / make_data / delete_stack / set_op_type (MIT);
+# see THIRD-PARTY-NOTICES.md.
 
 DATA_SIZES = {"byte": 1, "word": 2, "dword": 4, "qword": 8, "float": 4, "double": 8}
 
 
 def apply_edits_before(m, ti, args):
-    # analysis: [[rva, kind, end or null, type or null]] in the order made
-    return [apply_analysis(m, ti, a[0], a[1], a[2], a[3]) for a in args.get("analysis") or []]
+    # enums: [[enum, member, value or null]]; analysis: [[rva, kind, end or null, type or null]] in the order made
+    items = [apply_enum_member(m, ti, e[0], e[1], e[2]) for e in args.get("enums") or []]
+    return items + [apply_analysis(m, ti, a[0], a[1], a[2], a[3]) for a in args.get("analysis") or []]
 
 
 def apply_edits_after(m, ti, args):
-    # operands: [[rva, operand, display, detail or null]]
-    return [apply_operand(m, ti, o[0], o[1], o[2], o[3]) for o in args.get("operands") or []]
+    # stack_deletes: [[function, offset]]; operands: [[rva, operand, display, detail or null]]
+    items = [apply_stack_delete(m, rva, offset) for rva, offset in args.get("stack_deletes") or []]
+    return items + [apply_operand(m, ti, o[0], o[1], o[2], o[3]) for o in args.get("operands") or []]
+
+
+def user_enums():
+    # blob 'E' of USER_NODE: {"enum::member": value or null}, applied again after declarations replace enums
+    n = user_node(False)
+    blob = n.getblob(0, "E") if n is not None else None
+    return json.loads(blob.decode("utf-8")) if blob else {}
+
+
+def reapply_user_enums():
+    edits = user_enums()
+    if edits:
+        m = ida()
+        import ida_typeinf as ti
+        for key, value in edits.items():
+            enum, _, member = key.partition("::")
+            edit_enum_member(m, ti, enum, member, value)
+
+
+def apply_enum_member(m, ti, enum, member, value):
+    item = edit_enum_member(m, ti, enum, member, value)
+    if item[3]:
+        edits = user_enums()
+        edits[item[2]] = value
+        user_node(True).setblob(json.dumps(edits).encode("utf-8"), 0, "E")
+    return item
+
+
+def edit_enum_member(m, ti, enum, member, value):
+    # adds, changes or (value None) removes a member; a missing enum is created
+    target = "%s::%s" % (enum, member)
+
+    def item(applied, error, text=None):
+        return ["enum", 0, target, applied, error, None, None, text]
+
+    t = ti.tinfo_t()
+    if not t.get_named_type(None, enum):
+        if value is None:
+            return item(True, None, "no enum %s" % enum)
+        t = ti.tinfo_t()
+        if not t.create_enum(ti.enum_type_data_t()) or t.set_named_type(None, enum) != ti.TERR_OK:
+            return item(False, "IDA did not create the enum %s" % enum)
+        t = ti.tinfo_t()
+        t.get_named_type(None, enum)
+    elif not t.is_enum():
+        return item(False, "%s is a %s, not an enum" % (enum, type_kind(ti, t)))
+    idx, _ = t.get_edm(member)
+    try:
+        if value is None:
+            if idx >= 0 and t.del_edm(idx) != ti.TERR_OK:
+                return item(False, "IDA did not remove %s" % target)
+            return item(True, None, "removed")
+        code = t.edit_edm(idx, value, ti.DEFMASK64, 0) if idx >= 0 else t.add_edm(member, value)
+        if code != ti.TERR_OK:
+            return item(False, "IDA refused %s = %d: %s" % (target, value, ti.tinfo_errstr(code)))
+    except ValueError as e:
+        return item(False, "IDA refused %s = %d: %s" % (target, value, e))
+    return item(True, None, "%s = 0x%X" % (target, value & 0xFFFFFFFFFFFFFFFF))
+
+
+def apply_stack_delete(m, rva, offset):
+    import ida_frame
+    target = "+0x%X" % offset
+    f = m.ida_funcs.get_func(_state["base"] + rva)
+    if f is None:
+        return ["stack_delete", rva, target, False, "no function contains rva 0x%X" % rva, None, offset, None]
+    rva = rva_of(f.start_ea)
+    frame, members = frame_members(m, f)
+    u = next((x for x in members if x.offset == offset), None)
+    if u is None:
+        return ["stack_delete", rva, target, True, None, None, offset, "no member at %s" % target]
+    if frame_kind(f, frame, u.index, offset) == "special":
+        return ["stack_delete", rva, target, False, "%s is %s (return address or saved registers)" % (target, u.name), u.name, offset, None]
+    if not ida_frame.delete_frame_members(f, offset, offset + max(1, u.size)):
+        return ["stack_delete", rva, target, False, "IDA did not delete the stack member at %s" % target, u.name, offset, None]
+    if hexrays_ready(m):
+        m.ida_hexrays.mark_cfunc_dirty(f.start_ea, False)
+    return ["stack_delete", rva, target, True, None, u.name, offset, "deleted"]
 
 
 def apply_operand(m, ti, rva, n, display, detail):

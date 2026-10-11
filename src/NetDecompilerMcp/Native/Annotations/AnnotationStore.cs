@@ -38,9 +38,21 @@ public sealed class AnnotationDocument
         [JsonPropertyName("offset")] public int Offset { get; set; }
         [JsonPropertyName("name")] public string? Name { get; set; }
         [JsonPropertyName("type")] public string? Type { get; set; }
+        /// <summary>Format 3: the member is deleted.</summary>
+        [JsonPropertyName("delete"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public bool Delete { get; set; }
     }
 
-    // Format 3: analysis edits in the order made, operand display formats.
+    // Format 3: enum members, analysis edits in the order made, operand display formats.
+    [JsonPropertyName("enumMembers"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<EnumMemberEntry>? EnumMembers { get; set; }
+
+    public sealed class EnumMemberEntry
+    {
+        [JsonPropertyName("enum")] public string Enum { get; set; } = "";
+        [JsonPropertyName("member")] public string Member { get; set; } = "";
+        /// <summary>Null: the member is removed.</summary>
+        [JsonPropertyName("value")] public long? Value { get; set; }
+    }
+
     [JsonPropertyName("analysis"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<AnalysisEntry>? Analysis { get; set; }
     [JsonPropertyName("operands"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<OperandEntry>? Operands { get; set; }
 
@@ -61,7 +73,8 @@ public sealed class AnnotationDocument
     }
 
     /// <summary>Holds what format 3 added; older builds must leave such a file alone.</summary>
-    public bool HasFormat3 => Analysis is { Count: > 0 } || Operands is { Count: > 0 };
+    public bool HasFormat3 => Analysis is { Count: > 0 } || Operands is { Count: > 0 } || EnumMembers is { Count: > 0 }
+                              || StackVars?.Values.Any(l => l.Any(s => s.Delete)) == true;
 
     public bool HasUserTypes => Declarations is { Count: > 0 } || Types is { Count: > 0 } || Locals is { Count: > 0 } || StackVars is { Count: > 0 } || HasFormat3;
 

@@ -153,6 +153,75 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         Assert.Single(fresh.Code.Annotations(fresh.Native).UserTypes.Operands);
     }
 
+    [IdaFact]
+    public async Task Enum_members_stack_deletes_and_batch_types_apply_in_IDA_and_reach_a_new_database()
+    {
+        var rig = Setup("ida-e");
+        var path = Image();
+        var fn = rig.Native.Image.Exports.First(e => e.Name == Function).Rva;
+        var data = rig.Native.Image.Sections.First(s => !s.IsExecutable && s.Name == ".data").Rva;
+        await rig.Types.DeclareNativeTypes(path, "enum NdmMode { NdmSlow = 1 };");
+        var upsert = await rig.Types.DeclareNativeTypes(path, enumName: "NdmMode", members: "NdmFast=0x10, NdmSlow=2");
+        output.WriteLine(upsert);
+        Assert.Contains("NdmMode::NdmFast = 0x10", upsert);
+        Assert.Contains("NdmCreated::NdmOne = 0x1", await rig.Types.DeclareNativeTypes(path, enumName: "NdmCreated", members: "NdmOne=1"));
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.DeclareNativeTypes(path, enumName: "NdmMode", members: "bad name=1"))).Code);
+        var ida = await rig.Session("ida");
+        // a recovered type push declares the user's enums again; the upserts stay
+        await ida.ApplyTypesAsync(new NativeTypeBatch("struct NdmUnrelated { int a; };", [], [], [], 8));
+        var mode = await ida.GetTypeAsync("NdmMode");
+        output.WriteLine(mode.Declaration);
+        Assert.Contains("NdmFast = 0x10", mode.Declaration);
+        Assert.Matches(@"NdmSlow = (0x)?2\b", mode.Declaration);
+
+        var frame = await ida.GetFrameAsync(fn);
+        var member = frame.Members.First(m => m.Kind == "arg");
+        Assert.Contains("deleted", await rig.Types.SetNativeStackVar(path, Function, member.Name, delete: true));
+        // an instruction that addresses the slot gets a default member there again when IDA reanalyzes it
+        Assert.DoesNotContain((await ida.GetFrameAsync(fn)).Members, m => m.Offset == member.Offset && m.Name == member.Name);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeStackVar(path, Function, "__return_address", delete: true))).Code);
+
+        var batch = await rig.Types.SetNativeType(path, items: $"rva:0x{data:X} = unsigned int[2]\nrva:0x{data + 0x10:X} = NdmMode\nrva:0x{data + 0x20:X} = no_such_ndm_t\nnot an address = int");
+        output.WriteLine(batch);
+        Assert.StartsWith("2 of 4 type(s) applied", batch);
+        Assert.Contains("not applied: the type does not parse", batch);
+        Assert.Equal(2, rig.Code.Annotations(rig.Native).UserTypes.Types.Count);
+
+        Restart();
+        var fresh = Setup("ida-f");
+        await fresh.Types.GetNativeFrame(path, Function);
+        var again = await fresh.Session("ida");
+        Assert.Contains("NdmFast = 0x10", (await again.GetTypeAsync("NdmMode")).Declaration);
+        Assert.DoesNotContain((await again.GetFrameAsync(fn)).Members, m => m.Offset == member.Offset && m.Name == member.Name);
+        Assert.Contains("NdmMode", (await again.RunScriptAsync($"idc.get_type(base + 0x{data + 0x10:X})")).Result);
+    }
+
+    [GhidraFact]
+    public async Task Enum_members_stack_deletes_and_batch_types_apply_in_Ghidra()
+    {
+        var rig = Setup("ghidra-e");
+        var path = Image();
+        var fn = rig.Native.Image.Exports.First(e => e.Name == Function).Rva;
+        var data = rig.Native.Image.Sections.First(s => !s.IsExecutable && s.Name == ".data").Rva;
+        await rig.Types.DeclareNativeTypes(path, "enum NdmMode { NdmSlow = 1 };", engine: "ghidra");
+        Assert.Contains("NdmMode::NdmFast = 0x10", await rig.Types.DeclareNativeTypes(path, enumName: "NdmMode", members: "NdmFast=0x10, NdmSlow=2", engine: "ghidra"));
+        var ghidra = await rig.Session("ghidra");
+        await ghidra.ApplyTypesAsync(new NativeTypeBatch("struct NdmUnrelated { int a; };", [], [], [], 8));
+        var mode = await ghidra.GetTypeAsync("NdmMode");
+        output.WriteLine(mode.Declaration);
+        Assert.Contains("NdmFast", mode.Declaration);
+
+        // a user-made member, so the deletion is not undone by analysis
+        Assert.Contains("ndm_temp", await rig.Types.SetNativeStackVar(path, Function, "0x8", newName: "ndm_temp", type: "int", engine: "ghidra"));
+        Assert.Contains("deleted", await rig.Types.SetNativeStackVar(path, Function, "ndm_temp", delete: true, engine: "ghidra"));
+        Assert.DoesNotContain((await ghidra.GetFrameAsync(fn)).Members, m => m.Name == "ndm_temp");
+        Assert.Contains(rig.Code.Annotations(rig.Native).UserTypes.StackVars.Values.SelectMany(s => s), s => s.Delete);
+
+        var batch = await rig.Types.SetNativeType(path, items: $"rva:0x{data:X} = uint[2]\nrva:0x{data + 0x10:X} = NdmMode\nrva:0x{data + 0x20:X} = no_such_ndm_t", engine: "ghidra");
+        output.WriteLine(batch);
+        Assert.StartsWith("2 of 3 type(s) applied", batch);
+    }
+
     [GhidraFact]
     public async Task Operand_display_formats_show_in_Ghidra_as_equates()
     {
@@ -202,5 +271,21 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         var range = await (await fresh.Session("ghidra")).DisassembleRangeAsync(data, 1);
         output.WriteLine(range.Instructions[0].Text);
         Assert.Equal(16, range.Instructions[0].Bytes.Length);
+    }
+}
+
+/// <summary>Arguments of the engine edit tools that are checked before an engine starts.</summary>
+public sealed class NativeEngineEditArgumentTests
+{
+    [Fact]
+    public void Enum_members_parse_hex_decimal_negative_and_removal()
+    {
+        var members = NativeTypeTools.EnumMembers("Mode", "A=1, B=0x10\nC=-3, D=");
+        Assert.Equal([new("Mode", "A", 1), new("Mode", "B", 0x10), new("Mode", "C", -3), new NativeEnumMemberEdit("Mode", "D", null)], members);
+        Assert.Empty(NativeTypeTools.EnumMembers(null, null));
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => NativeTypeTools.EnumMembers("Mode", null)).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => NativeTypeTools.EnumMembers("Mode", "A")).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => NativeTypeTools.EnumMembers("Mode", "A=x")).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => NativeTypeTools.EnumMembers("bad name", "A=1")).Code);
     }
 }

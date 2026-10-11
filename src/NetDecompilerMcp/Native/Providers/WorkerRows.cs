@@ -216,18 +216,25 @@ internal static class WorkerRows
 
     /// <summary>
     /// apply_user_types arguments: decls, types [[rva, declaration]], stack [[function, offset, name, type]], locals [[function,
-    /// local, stack, name, type]]; analysis [[rva, kind, end, type]] and operands [[rva, operand, display, detail]] only when there are any.
+    /// local, stack, name, type]]; only when there are any: enums [[enum, member, value]], analysis [[rva, kind, end, type]],
+    /// stack_deletes [[function, offset]], operands [[rva, operand, display, detail]].
     /// </summary>
     public static JsonObject UserTypeArgs(NativeUserTypeBatch batch, string? stampKey, string? stamp, bool save)
     {
         var types = new JsonArray();
         foreach (var t in batch.Types) types.Add(new JsonArray(t.Rva, t.Declaration));
         var stack = new JsonArray();
-        foreach (var s in batch.StackVars) stack.Add(new JsonArray(s.Function, s.Offset, s.Name, s.Type));
+        var deletes = new JsonArray();
+        foreach (var s in batch.StackVars)
+            if (s.Delete) deletes.Add(new JsonArray(s.Function, s.Offset));
+            else stack.Add(new JsonArray(s.Function, s.Offset, s.Name, s.Type));
         var locals = new JsonArray();
         foreach (var l in batch.Locals) locals.Add(new JsonArray(l.Function, l.Local, l.Stack, l.Name, l.Type));
         var args = Args(("decls", new JsonArray(batch.Declarations.Select(d => (JsonNode)d).ToArray())), ("types", types), ("stack", stack),
             ("locals", locals), ("stamp_key", stampKey), ("stamp", stamp), ("save", save));
+        if (batch.EnumMembers.Count > 0)
+            args["enums"] = new JsonArray(batch.EnumMembers.Select(e => (JsonNode)new JsonArray(e.Enum, e.Member, e.Value)).ToArray());
+        if (deletes.Count > 0) args["stack_deletes"] = deletes;
         if (batch.Analysis.Count > 0)
             args["analysis"] = new JsonArray(batch.Analysis.Select(a => (JsonNode)new JsonArray(a.Rva, a.Kind, a.End, a.Type)).ToArray());
         if (batch.Operands.Count > 0)

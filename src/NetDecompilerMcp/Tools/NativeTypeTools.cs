@@ -71,23 +71,25 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         return sb.ToString();
     });
 
-    [McpServerTool(Name = "set_native_stack_var", Title = "Rename or retype a stack variable")]
+    [McpServerTool(Name = "set_native_stack_var", Title = "Rename, retype or delete a stack variable")]
     [Description("Rename and/or retype a member of a native function's stack frame in the engine, named as get_native_frame lists it (var_28) or by " +
-                 "frame offset (0x20 or +0x20, from the frame's lowest address); a type at an offset with no member creates one. The return address " +
-                 "and saved registers are refused. Stack variables the decompiler has not renamed take the member's name." + KeptNote)]
+                 "frame offset (0x20 or +0x20, from the frame's lowest address); a type at an offset with no member creates one; delete=true removes " +
+                 "it. The return address and saved registers are refused. Stack variables the decompiler has not renamed take the member's name." + KeptNote)]
     public Task<string> SetNativeStackVar(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("The function: " + NativeTools.AddressDescription)] string function,
         [Description("The member: its name, or its frame offset (hex).")] string variable,
         [Description("New name (a C identifier).")] string? newName = null,
         [Description("New C type, e.g. 'int', 'char[16]', 'Packet'.")] string? type = null,
+        [Description("Delete the member instead (no newName or type).")] bool delete = false,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var name = string.IsNullOrWhiteSpace(newName) ? null : newName.Trim();
         var decl = string.IsNullOrWhiteSpace(type) ? null : type.Trim();
-        if (name == null && decl == null) throw new ToolError(ErrorCode.InvalidArgument, "Nothing to change.", "pass newName, type or both");
+        if (delete && (name != null || decl != null)) throw new ToolError(ErrorCode.InvalidArgument, "delete takes no newName or type.", "drop newName and type");
+        if (!delete && name == null && decl == null) throw new ToolError(ErrorCode.InvalidArgument, "Nothing to change.", "pass newName, type or both, or delete=true");
         if (name != null && !Identifier(name))
             throw new ToolError(ErrorCode.InvalidArgument, $"'{name}' is not a C identifier.", "use letters, digits and _, not starting with a digit");
         var (native, rva, session) = await Open(image, function, engine, progress, cancellationToken);
@@ -97,10 +99,12 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             : NativeAddress.Number(v.TrimStart('+')) is { } n && n <= int.MaxValue ? (int)n
             : throw new ToolError(ErrorCode.InvalidArgument, $"The frame of {frame.Name} has no member '{v}'.",
                 $"members: {string.Join(", ", frame.Members.Select(m => m.Name).Take(40))}; or pass a frame offset such as 0x20");
-        var result = await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch([], [], [new NativeStackVarEdit(frame.StartRva, offset, name, decl)], []),
-            (r, layer) => r.Items is [{ Applied: true } item] ? layer.WithStackVar(new NativeStackVarEdit(item.Rva, offset, name, decl)) : null, cancellationToken);
+        var edit = new NativeStackVarEdit(frame.StartRva, offset, name, decl) { Delete = delete };
+        var result = await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch([], [], [edit], []),
+            (r, layer) => r.Items is [{ Applied: true } item] ? layer.WithStackVar(edit with { Function = item.Rva }) : null, cancellationToken);
         var done = Outcome(result);
-        return $"Stack member +0x{offset:X} of {frame.Name} at {Va(native, done.Rva)}{(done.Resolved != null ? $" (was {done.Resolved})" : "")} is now: {done.Text}";
+        return delete ? $"Stack member +0x{offset:X} of {frame.Name} at {Va(native, done.Rva)}: {(done.Resolved != null ? $"{done.Resolved} " : "")}{done.Text}"
+            : $"Stack member +0x{offset:X} of {frame.Name} at {Va(native, done.Rva)}{(done.Resolved != null ? $" (was {done.Resolved})" : "")} is now: {done.Text}";
     });
 
     private static string Va(LoadedNative native, uint rva) => NativeAddress.Va(native.Image, rva);
@@ -108,22 +112,63 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     [McpServerTool(Name = "set_native_type", Title = "Set a native prototype or global type")]
     [Description("Set the type of a native function (its prototype, e.g. 'int __fastcall Parse(Packet *p, int len)') or of a global (e.g. " +
                  "'Config', 'char[64]', 'Handler *[8]') in the decompiler engine (IDA or Ghidra). Named types must exist there (the PDB, RTTI and Il2Cpp types " +
-                 "decompile_native pushes, or declare_native_types). User types win over recovered ones. An empty type clears it." + KeptNote)]
+                 "decompile_native pushes, or declare_native_types). User types win over recovered ones. An empty type clears it. items applies " +
+                 "many in one request, one 'address = type' per line, each reported." + KeptNote)]
     public Task<string> SetNativeType(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("A function start or a global: " + NativeTools.AddressDescription)] string address,
-        [Description("C prototype for a function, C type for a global; empty to clear the user type.")] string type,
+        [Description("A function start or a global: " + NativeTools.AddressDescription)] string? address = null,
+        [Description("C prototype for a function, C type for a global; empty to clear the user type.")] string? type = null,
+        [Description("Instead of address and type: lines 'address = type', e.g. '0x140010000 = Config'.")] string? items = null,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        if (!string.IsNullOrWhiteSpace(items))
+        {
+            if (!string.IsNullOrWhiteSpace(address) || type != null)
+                throw new ToolError(ErrorCode.InvalidArgument, "Pass items, or address and type, not both.");
+            return await SetTypes(image, items, engine, progress, cancellationToken);
+        }
+        if (string.IsNullOrWhiteSpace(address) || type == null)
+            throw new ToolError(ErrorCode.InvalidArgument, "Pass address and type, or items.", "items takes lines 'address = type'");
         var (native, rva, session) = await Open(image, address, engine, progress, cancellationToken);
-        var decl = (type ?? "").Trim();
+        var decl = type.Trim();
         var result = await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch([], [new NativePrototype(rva, decl)], [], []),
             (r, layer) => r.Items is [{ Applied: true }] ? layer.WithType(rva, decl) : null, cancellationToken);
         var item = Outcome(result);
         return decl.Length == 0 ? $"Cleared the user type at {Va(native, rva)}." : $"Type at {Va(native, rva)}: {item.Text ?? decl}";
     });
+
+    /// <summary>Most lines of one set_native_type items call.</summary>
+    private const int MaxTypeItems = 5000;
+
+    /// <summary>set_native_type items: every line in one engine request; the applied ones are recorded.</summary>
+    private async Task<string> SetTypes(string image, string items, string? engine, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    {
+        var lines = items.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (lines.Length > MaxTypeItems) throw new ToolError(ErrorCode.InvalidArgument, $"{lines.Length} lines; at most {MaxTypeItems} per call.", "split the items");
+        var (native, _, session) = await Open(image, "rva:0", engine, progress, ct);
+        var wanted = new List<NativePrototype>();
+        var problems = new List<string>();
+        foreach (var line in lines)
+        {
+            int eq = line.IndexOf('=', StringComparison.Ordinal);
+            if (eq <= 0) { problems.Add($"'{line}': not 'address = type'"); continue; }
+            try
+            {
+                var (_, rva) = NativeAnalysisTools.Resolve(workspace, code, native.Id, line[..eq].Trim());
+                wanted.Add(new NativePrototype(rva, line[(eq + 1)..].Trim()));
+            }
+            catch (ToolError e) { problems.Add($"'{line[..eq].Trim()}': {e.Message}"); }
+        }
+        var result = await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch([], wanted, [], []),
+            (r, layer) => r.Items.Where(i => i.Applied).Aggregate(layer, (l, i) => l.WithType(i.Rva, i.Target)), ct);
+        var sb = new System.Text.StringBuilder($"{result.Items.Count(i => i.Applied)} of {lines.Length} type(s) applied\n");
+        foreach (var i in result.Items)
+            sb.AppendLine($"  {Va(native, i.Rva)}  {(i.Applied ? (i.Target.Length == 0 ? "cleared" : i.Text ?? i.Target) : "not applied: " + i.Error)}");
+        foreach (var p in problems) sb.AppendLine($"  not applied: {p}");
+        return sb.ToString();
+    }
 
     [McpServerTool(Name = "set_native_local", Title = "Rename or retype a decompiler local")]
     [Description("Rename and/or retype a local variable or argument in the pseudocode of a native function (IDA Hex-Rays or Ghidra's decompiler): name it as " +
@@ -157,25 +202,69 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     [Description("Declare C types (structs, unions, enums, typedefs, function pointer types) in the decompiler engine (IDA or Ghidra) from C declarations, " +
                  "e.g. 'struct Packet { int length; char data[256]; };'. A type of the same name is replaced, and user declarations win over the " +
                  "recovered PDB, RTTI and Il2Cpp types of that name. Declarations with errors are reported with the engine's messages and not saved. " +
-                 "Use the types with set_native_type, set_native_local and set_native_stack_var." + KeptNote)]
+                 "Use the types with set_native_type, set_native_local and set_native_stack_var. enumName with members adds, changes or removes " +
+                 "members of an enum (created when missing; also a recovered one), kept over later declarations." + KeptNote)]
     public Task<string> DeclareNativeTypes(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("C declarations, several allowed; types they name must exist or be declared in the same text.")] string declarations,
+        [Description("C declarations, several allowed; types they name must exist or be declared in the same text.")] string? declarations = null,
+        [Description("An enum whose members to upsert.")] string? enumName = null,
+        [Description("With enumName: 'NAME=value' pairs separated by commas or lines (hex or decimal); 'NAME=' removes the member.")] string? members = null,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var text = (declarations ?? "").Trim();
-        if (text.Length == 0) throw new ToolError(ErrorCode.InvalidArgument, "No declarations given.", "pass C declarations such as 'struct S { int a; };'");
+        var enumMembers = EnumMembers(enumName, members);
+        if (text.Length == 0 && enumMembers.Count == 0)
+            throw new ToolError(ErrorCode.InvalidArgument, "No declarations or enum members given.", "pass C declarations such as 'struct S { int a; };', or enumName and members");
         var (native, _, session) = await Open(image, "rva:0", engine, progress, cancellationToken);
-        var result = await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch([text], [], [], []),
-            (r, layer) => r.DeclarationErrors == 0 ? layer.WithDeclarations(text) : null, cancellationToken);
+        var result = await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch(text.Length > 0 ? [text] : [], [], [], []) { EnumMembers = enumMembers },
+            (r, layer) => r.DeclarationErrors > 0 ? null : r.Items.Where(i => i.Applied).Aggregate(text.Length > 0 ? layer.WithDeclarations(text) : layer,
+                (l, i) => enumMembers.FirstOrDefault(e => $"{e.Enum}::{e.Member}" == i.Target) is { } e ? l.WithEnumMember(e) : l), cancellationToken);
         if (result.DeclarationErrors > 0)
             throw new ToolError(ErrorCode.InvalidArgument, $"{result.DeclarationErrors} error(s) in the declarations" +
                 (result.DeclarationMessages.Count > 0 ? ": " + string.Join("; ", result.DeclarationMessages) : "."), "fix the declarations and declare them again");
-        return result.DeclaredTypes.Count == 0 ? "Declared (the engine reported no type names)."
-            : $"Declared {result.DeclaredTypes.Count} type(s): {string.Join(", ", result.DeclaredTypes.Distinct())}";
+        var sb = new System.Text.StringBuilder();
+        if (text.Length > 0)
+            sb.AppendLine(result.DeclaredTypes.Count == 0 ? "Declared (the engine reported no type names)."
+                : $"Declared {result.DeclaredTypes.Count} type(s): {string.Join(", ", result.DeclaredTypes.Distinct())}");
+        foreach (var i in result.Items.Where(i => i.Kind == "enum")) sb.AppendLine(i.Applied ? $"  {i.Text}" : $"  {i.Target} not applied: {i.Error}");
+        if (enumMembers.Count > 0 && result.Items.All(i => !i.Applied))
+            throw new ToolError(ErrorCode.InvalidArgument, "No enum member was applied:\n" + sb, "check the enum's name and the member names");
+        return sb.ToString().TrimEnd();
     });
+
+    /// <summary>"A=1, B=0x10, C=" for an enum: members to set, an empty value removing one.</summary>
+    internal static List<NativeEnumMemberEdit> EnumMembers(string? enumName, string? members)
+    {
+        var name = (enumName ?? "").Trim();
+        var list = (members ?? "").Split([',', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (name.Length == 0 != (list.Length == 0))
+            throw new ToolError(ErrorCode.InvalidArgument, "enumName and members go together.", "pass both, e.g. enumName=Color members='Red=1, Green=2'");
+        if (name.Length > 0 && !Identifier(name)) throw new ToolError(ErrorCode.InvalidArgument, $"'{name}' is not a C identifier.");
+        var result = new List<NativeEnumMemberEdit>();
+        foreach (var pair in list)
+        {
+            int eq = pair.IndexOf('=', StringComparison.Ordinal);
+            var member = (eq < 0 ? pair : pair[..eq]).Trim();
+            var value = eq < 0 ? "" : pair[(eq + 1)..].Trim();
+            if (!Identifier(member)) throw new ToolError(ErrorCode.InvalidArgument, $"'{member}' is not a C identifier.", "members: 'NAME=value, ...'");
+            if (eq < 0) throw new ToolError(ErrorCode.InvalidArgument, $"'{pair}' has no value.", "write NAME=value, or NAME= to remove the member");
+            long? number = null;
+            if (value.Length > 0)
+            {
+                bool negative = value.StartsWith('-');
+                var digits = negative ? value[1..] : value;
+                number = digits.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+                    && ulong.TryParse(digits[2..], System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out var h) ? unchecked((long)h)
+                    : long.TryParse(digits, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d
+                    : throw new ToolError(ErrorCode.InvalidArgument, $"'{value}' is not a number.", "use decimal or 0x hex");
+                if (negative) number = -number;
+            }
+            result.Add(new NativeEnumMemberEdit(name, member, number));
+        }
+        return result;
+    }
 
     [McpServerTool(Name = "define_native", Title = "Redefine code or data in the engine")]
     [Description("Change the engine's analysis (IDA or Ghidra) at an address. kind=code decodes instructions (up to end, else following the flow); " +
@@ -218,7 +307,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     [McpServerTool(Name = "set_native_operand", Title = "Set how an operand displays")]
     [Description("Set how an instruction operand displays in the engine's disassembly and, where the decompiler follows it, the pseudocode: hex, dec, " +
                  "oct, bin, char, offset (the constant as an address), stack (a stack variable), enum (type: the enum, a member of the constant's value; " +
-                 "declare_native_types declares enums), struct (type: 'Packet' or 'Packet+0x10' for a pointer into it; IDA only) or " +
+                 "declare_native_types declares enums and members), struct (type: 'Packet' or 'Packet+0x10' for a pointer into it; IDA only) or " +
                  "default (the engine's own). Ghidra shows numbers and enum members as equates." + KeptNote)]
     public Task<string> SetNativeOperand(
         [Description(NativeTools.ImageDescription)] string image,

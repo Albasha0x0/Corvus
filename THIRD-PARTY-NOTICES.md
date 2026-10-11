@@ -39,7 +39,8 @@ SOFTWARE.
 
 Parts of the IDA worker (`src/NetDecompilerMcp/Native/Providers/Ida/ida_worker.py`: type text parsing, user type,
 local variable and stack frame edits, struct member references, declaration parsing with messages, the Python
-evaluation op, the analysis edits: code, functions, data items and undefined ranges, and operand display formats) are adapted from
+evaluation op, the analysis edits: code, functions, data items and undefined ranges, operand display formats, enum member
+upserts and stack member deletion) are adapted from
 [mrexodia/ida-pro-mcp](https://github.com/mrexodia/ida-pro-mcp); the Ghidra worker's `EditOps.java` follows the same
 operations on Ghidra's listing.
 

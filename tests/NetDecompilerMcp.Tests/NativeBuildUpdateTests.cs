@@ -298,7 +298,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         h.Code.Annotations(oldN).ChangeUserTypes(l => l.WithDeclarations("struct Cfg { int a; };")
             .WithType(F1, "int __fastcall ReadGlobal(void)").WithType(F5, "void Removed(void)").WithType(F2, "int f2(void)")
             .WithLocal(new(F2, "v1", null, "count", "int")).WithStackVar(new(F3, 0x20, "buffer", "char[16]"))
-            .WithAnalysis(new(F1, "function", F1 + 0x10, null)).WithOperand(new(F1, 1, "dec", null)));
+            .WithAnalysis(new(F1, "function", F1 + 0x10, null)).WithOperand(new(F1, 1, "dec", null)).WithEnumMember(new("Mode", "Fast", 2)));
         h.Code.Annotations(newN).ChangeUserTypes(l => l.WithType(F2 + Shift, "int mine(void)"));
         var tools = new NativeDiffTools(h.Env.Workspace, h.Code);
 
@@ -311,6 +311,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         Assert.Equal(("would_set", Va(F2 + Shift)), (Entry("local", Va(F2)).Action, Entry("local", Va(F2)).NewAddress));
         Assert.Equal(("would_set", Va(F3 + Shift)), (Entry("stack_var", Va(F3)).Action, Entry("stack_var", Va(F3)).NewAddress));
         Assert.Equal(("would_set", Va(F1 + Shift)), (Entry("analysis", Va(F1)).Action, Entry("analysis", Va(F1)).NewAddress));
+        Assert.Equal(("would_set", "copied"), (Entry("enum_member", null).Action, Entry("enum_member", null).Reason));
         Assert.Equal("int mine(void)", Assert.Single(h.Code.Annotations(newN).UserTypes.Types).Value);
 
         var preview = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, include: "names", limit: 500);
@@ -327,6 +328,7 @@ public class NativeBuildUpdateTests(ITestOutputHelper output)
         // the edit keeps its length at the mapped start
         Assert.Equal(new NetDecompilerMcp.Native.Providers.NativeAnalysisEdit(F1 + Shift, "function", F1 + Shift + 0x10, null), Assert.Single(carried.Analysis));
         Assert.Equal(new NetDecompilerMcp.Native.Providers.NativeOperandEdit(F1 + Shift, 1, "dec", null), Assert.Single(carried.Operands).Value);
+        Assert.Equal(2, Assert.Single(carried.EnumMembers).Value.Value);
 
         var again = await h.Tools.UpdateToNewBuild(oldN.Id, newN.Id, include: "names", dryRun: false, limit: 500);
         Assert.Equal("already_present", One(again, "names", i => i.Kind == "local").Outcome);

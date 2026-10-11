@@ -1732,13 +1732,14 @@ Edits inside the decompiler engine's database: types, locals, frames, declaratio
 
 **Set a native prototype or global type** (destructive, idempotent, open-world, long-running)
 
-Set the type of a native function (its prototype, e.g. 'int __fastcall Parse(Packet *p, int len)') or of a global (e.g. 'Config', 'char[64]', 'Handler *[8]') in the decompiler engine (IDA or Ghidra). Named types must exist there (the PDB, RTTI and Il2Cpp types decompile_native pushes, or declare_native_types). User types win over recovered ones. An empty type clears it. Saved per file hash with the image's annotations: re-applied to a new database, exported by export_native_annotations and carried by migrate_native_names and update_to_new_build.
+Set the type of a native function (its prototype, e.g. 'int __fastcall Parse(Packet *p, int len)') or of a global (e.g. 'Config', 'char[64]', 'Handler *[8]') in the decompiler engine (IDA or Ghidra). Named types must exist there (the PDB, RTTI and Il2Cpp types decompile_native pushes, or declare_native_types). User types win over recovered ones. An empty type clears it. items applies many in one request, one 'address = type' per line, each reported. Saved per file hash with the image's annotations: re-applied to a new database, exported by export_native_annotations and carried by migrate_native_names and update_to_new_build.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
-| `address` | string | yes |  | A function start or a global: Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them). |
-| `type` | string | yes |  | C prototype for a function, C type for a global; empty to clear the user type. |
+| `address` | string |  |  | A function start or a global: Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them). |
+| `type` | string |  |  | C prototype for a function, C type for a global; empty to clear the user type. |
+| `items` | string |  |  | Instead of address and type: lines 'address = type', e.g. '0x140010000 = Config'. |
 | `engine` | string |  |  | Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra), ida or ghidra. Values: auto, ida, ghidra. |
 
 ### set_native_local
@@ -1758,9 +1759,9 @@ Rename and/or retype a local variable or argument in the pseudocode of a native 
 
 ### set_native_stack_var
 
-**Rename or retype a stack variable** (destructive, idempotent, open-world, long-running)
+**Rename, retype or delete a stack variable** (destructive, idempotent, open-world, long-running)
 
-Rename and/or retype a member of a native function's stack frame in the engine, named as get_native_frame lists it (var_28) or by frame offset (0x20 or +0x20, from the frame's lowest address); a type at an offset with no member creates one. The return address and saved registers are refused. Stack variables the decompiler has not renamed take the member's name. Saved per file hash with the image's annotations: re-applied to a new database, exported by export_native_annotations and carried by migrate_native_names and update_to_new_build.
+Rename and/or retype a member of a native function's stack frame in the engine, named as get_native_frame lists it (var_28) or by frame offset (0x20 or +0x20, from the frame's lowest address); a type at an offset with no member creates one; delete=true removes it. The return address and saved registers are refused. Stack variables the decompiler has not renamed take the member's name. Saved per file hash with the image's annotations: re-applied to a new database, exported by export_native_annotations and carried by migrate_native_names and update_to_new_build.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1769,6 +1770,7 @@ Rename and/or retype a member of a native function's stack frame in the engine, 
 | `variable` | string | yes |  | The member: its name, or its frame offset (hex). |
 | `newName` | string |  |  | New name (a C identifier). |
 | `type` | string |  |  | New C type, e.g. 'int', 'char[16]', 'Packet'. |
+| `delete` | boolean |  | `false` | Delete the member instead (no newName or type). |
 | `engine` | string |  |  | Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra), ida or ghidra. Values: auto, ida, ghidra. |
 
 ### get_native_frame
@@ -1787,12 +1789,14 @@ The stack frame of a native function as the engine has it (members with offsets,
 
 **Declare C types in the engine** (destructive, idempotent, open-world, long-running)
 
-Declare C types (structs, unions, enums, typedefs, function pointer types) in the decompiler engine (IDA or Ghidra) from C declarations, e.g. 'struct Packet { int length; char data[256]; };'. A type of the same name is replaced, and user declarations win over the recovered PDB, RTTI and Il2Cpp types of that name. Declarations with errors are reported with the engine's messages and not saved. Use the types with set_native_type, set_native_local and set_native_stack_var. Saved per file hash with the image's annotations: re-applied to a new database, exported by export_native_annotations and carried by migrate_native_names and update_to_new_build.
+Declare C types (structs, unions, enums, typedefs, function pointer types) in the decompiler engine (IDA or Ghidra) from C declarations, e.g. 'struct Packet { int length; char data[256]; };'. A type of the same name is replaced, and user declarations win over the recovered PDB, RTTI and Il2Cpp types of that name. Declarations with errors are reported with the engine's messages and not saved. Use the types with set_native_type, set_native_local and set_native_stack_var. enumName with members adds, changes or removes members of an enum (created when missing; also a recovered one), kept over later declarations. Saved per file hash with the image's annotations: re-applied to a new database, exported by export_native_annotations and carried by migrate_native_names and update_to_new_build.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
-| `declarations` | string | yes |  | C declarations, several allowed; types they name must exist or be declared in the same text. |
+| `declarations` | string |  |  | C declarations, several allowed; types they name must exist or be declared in the same text. |
+| `enumName` | string |  |  | An enum whose members to upsert. |
+| `members` | string |  |  | With enumName: 'NAME=value' pairs separated by commas or lines (hex or decimal); 'NAME=' removes the member. |
 | `engine` | string |  |  | Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra), ida or ghidra. Values: auto, ida, ghidra. |
 
 ### list_native_types
@@ -1830,7 +1834,7 @@ Change the engine's analysis (IDA or Ghidra) at an address. kind=code decodes in
 
 **Set how an operand displays** (destructive, idempotent, open-world, long-running)
 
-Set how an instruction operand displays in the engine's disassembly and, where the decompiler follows it, the pseudocode: hex, dec, oct, bin, char, offset (the constant as an address), stack (a stack variable), enum (type: the enum, a member of the constant's value; declare_native_types declares enums), struct (type: 'Packet' or 'Packet+0x10' for a pointer into it; IDA only) or default (the engine's own). Ghidra shows numbers and enum members as equates. Saved per file hash with the image's annotations: re-applied to a new database, exported by export_native_annotations and carried by migrate_native_names and update_to_new_build.
+Set how an instruction operand displays in the engine's disassembly and, where the decompiler follows it, the pseudocode: hex, dec, oct, bin, char, offset (the constant as an address), stack (a stack variable), enum (type: the enum, a member of the constant's value; declare_native_types declares enums and members), struct (type: 'Packet' or 'Packet+0x10' for a pointer into it; IDA only) or default (the engine's own). Ghidra shows numbers and enum members as equates. Saved per file hash with the image's annotations: re-applied to a new database, exported by export_native_annotations and carried by migrate_native_names and update_to_new_build.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

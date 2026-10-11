@@ -46,13 +46,18 @@ public static class AnnotationExport
         {
             sb.Append(IdaTypeHelpers);
             foreach (var d in types.Declarations) sb.AppendLine($"ndm_declare({Py(d)})");
+            var batch = types.ToBatch();
+            foreach (var e in batch.EnumMembers)
+                sb.AppendLine($"ndm_enum({Py(e.Enum)}, {Py(e.Member)}, {(e.Value is { } v ? v.ToString(System.Globalization.CultureInfo.InvariantCulture) : "None")})");
             foreach (var a in types.Analysis)
                 sb.AppendLine($"ndm_analysis(0x{a.Rva:X}, {Py(a.Kind)}, {(a.End is { } e ? $"0x{e:X}" : "None")}, {PyOrNone(a.Type)})");
             foreach (var (rva, t) in types.Types.OrderBy(t => t.Key)) sb.AppendLine($"ndm_type(0x{rva:X}, {Py(t)})");
-            foreach (var s in types.StackVars.OrderBy(s => s.Key).SelectMany(s => s.Value))
+            foreach (var s in batch.StackVars.Where(s => !s.Delete))
                 sb.AppendLine($"ndm_stack(0x{s.Function:X}, {s.Offset}, {PyOrNone(s.Name)}, {PyOrNone(s.Type)})");
             foreach (var l in types.Locals.OrderBy(l => l.Key).SelectMany(l => l.Value))
                 sb.AppendLine($"ndm_local(0x{l.Function:X}, {Py(l.Local)}, {(l.Stack is { } k ? k.ToString(System.Globalization.CultureInfo.InvariantCulture) : "None")}, {PyOrNone(l.Name)}, {PyOrNone(l.Type)})");
+            foreach (var s in batch.StackVars.Where(s => s.Delete))
+                sb.AppendLine($"ndm_stack_delete(0x{s.Function:X}, {s.Offset})");
             foreach (var o in types.Operands.OrderBy(o => o.Key).Select(o => o.Value))
                 sb.AppendLine(FormattableString.Invariant($"ndm_operand(0x{o.Rva:X}, {o.Operand}, {Py(o.Display)}, {PyOrNone(o.Detail)})"));
             sb.AppendLine("if ndm_failed: print('NetDecompilerMcp: not applied: ' + '; '.join(ndm_failed))");
@@ -110,6 +115,26 @@ public static class AnnotationExport
             else:
                 ok = ndm_data(ea, stop, text or "")
             if not ok: ndm_failed.append('%s 0x%X' % (kind, rva))
+        def ndm_enum(enum, member, value):
+            t = ida_typeinf.tinfo_t()
+            if not t.get_named_type(None, enum):
+                if value is None: return
+                t.create_enum(ida_typeinf.enum_type_data_t()); t.set_named_type(None, enum)
+                t = ida_typeinf.tinfo_t(); t.get_named_type(None, enum)
+            idx, _ = t.get_edm(member)
+            try:
+                if value is None: ok = idx < 0 or t.del_edm(idx) == 0
+                else: ok = (t.edit_edm(idx, value, ida_typeinf.DEFMASK64, 0) if idx >= 0 else t.add_edm(member, value)) == 0
+            except ValueError: ok = False
+            if not ok: ndm_failed.append('enum %s::%s' % (enum, member))
+        def ndm_stack_delete(rva, offset):
+            f = ida_funcs.get_func(base + rva)
+            frame = ida_typeinf.tinfo_t()
+            if f is None or not ida_frame.get_func_frame(frame, f): ndm_failed.append('stack 0x%X' % rva); return
+            udt = ida_typeinf.udt_type_data_t()
+            frame.get_udt_details(udt)
+            u = next((m for m in udt if m.offset // 8 == offset and not m.is_gap()), None)
+            if u and not ida_frame.delete_frame_members(f, offset, offset + max(1, u.size // 8)): ndm_failed.append('stack 0x%X+%d' % (rva, offset))
         def ndm_operand(rva, n, display, detail):
             ea = base + rva
             if display == "enum": ok = ida_bytes.op_enum(ea, n, idc.get_enum(detail), 0)
@@ -176,7 +201,7 @@ public static class AnnotationExport
         sb.AppendLine("// Ghidra script: apply names and comments exported from NetDecompilerMcp.");
         sb.AppendLine($"// Source: {ann.FilePath}  sha256 {ann.Sha256}");
         sb.AppendLine("// @category NetDecompilerMcp");
-        if (ann.UserTypes.Count > 0) sb.AppendLine($"// {ann.UserTypes.Count} user type(s) (declarations, analysis edits, prototypes, locals, stack variables, operand formats) are in the IDA and JSON exports only.");
+        if (ann.UserTypes.Count > 0) sb.AppendLine($"// {ann.UserTypes.Count} user type(s) (declarations, enum members, analysis edits, prototypes, locals, stack variables, operand formats) are in the IDA and JSON exports only.");
         sb.AppendLine("import ghidra.app.script.GhidraScript;");
         sb.AppendLine("import ghidra.program.model.address.Address;");
         sb.AppendLine("import ghidra.program.model.symbol.SourceType;");
@@ -205,11 +230,12 @@ public static class AnnotationExport
             declarations = ann.UserTypes.Declarations,
             types = ann.UserTypes.Types.OrderBy(t => t.Key).Select(t => new { rva = t.Key, type = t.Value }),
             stackVars = ann.UserTypes.StackVars.OrderBy(s => s.Key).SelectMany(s => s.Value)
-                .Select(s => new { function = s.Function, offset = s.Offset, name = s.Name, type = s.Type }),
+                .Select(s => new { function = s.Function, offset = s.Offset, name = s.Name, type = s.Type, delete = s.Delete }),
             locals = ann.UserTypes.Locals.OrderBy(l => l.Key).SelectMany(l => l.Value)
                 .Select(l => new { function = l.Function, local = l.Local, stack = l.Stack, name = l.Name, type = l.Type }),
             analysis = ann.UserTypes.Analysis.Select(a => new { rva = a.Rva, kind = a.Kind, end = a.End, type = a.Type }),
             operands = ann.UserTypes.Operands.OrderBy(o => o.Key).Select(o => new { rva = o.Value.Rva, operand = o.Value.Operand, display = o.Value.Display, detail = o.Value.Detail }),
+            enumMembers = ann.UserTypes.ToBatch().EnumMembers.Select(e => new { @enum = e.Enum, member = e.Member, value = e.Value }),
         };
         return JsonSerializer.Serialize(doc, IndentedJson);
     }

@@ -183,6 +183,7 @@ final class TypeOps {
     static void reapplyUserDeclarations(Worker w) {
         String kept = w.program.getOptions(Worker.STAMPS).getString(USER_DECLS, "");
         if (kept != null && !kept.isEmpty()) parseDeclarations(w, kept);
+        EditOps.reapplyEnums(w);
     }
 
     /** A C prototype ("int __fastcall f(Foo *p)") as a function definition, parsed against the program's types; null when it does not parse. */

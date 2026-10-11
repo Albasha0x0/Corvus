@@ -4,7 +4,7 @@ using NetDecompilerMcp.Native.Providers;
 namespace NetDecompilerMcp.Native.Diff;
 
 /// <summary>
-/// One user type of the old build and what happens to it: <see cref="Kind"/> declarations, analysis, operand, type, local or stack_var;
+/// One user type of the old build and what happens to it: <see cref="Kind"/> declarations, enum_member, analysis, operand, type, local or stack_var;
 /// <see cref="Apply"/> adds it to a layer of the new build (null when skipped).
 /// </summary>
 public sealed record UserTypeStep(string Kind, uint? OldRva, uint? NewRva, string Value, bool Set, string Reason, int? Tier, double Confidence, string Detail,
@@ -25,6 +25,15 @@ public static class UserTypeMigration
             steps.Add(target.Declarations.Contains(d, StringComparer.Ordinal)
                 ? new("declarations", null, null, value, false, "same_declarations", null, 1, "the new build already has these declarations", null)
                 : new("declarations", null, null, value, true, "copied", null, 1, "declarations have no address", l => l.WithDeclarations(d)));
+        }
+
+        foreach (var e in old.ToBatch().EnumMembers)
+        {
+            var value = $"{e.Enum}::{e.Member}{(e.Value is { } v ? " = " + v.ToString(System.Globalization.CultureInfo.InvariantCulture) : " removed")}";
+            var existing = target.EnumMembers.GetValueOrDefault((e.Enum, e.Member));
+            steps.Add(existing == e ? new("enum_member", null, null, value, false, "same_enum_member", null, 1, "the new build already has this enum member edit", null)
+                : existing != null ? new("enum_member", null, null, value, false, "user_enum_member_exists", null, 1, "the new build has its own edit of this member", null)
+                : new("enum_member", null, null, value, true, "copied", null, 1, "enum members have no address", l => l.WithEnumMember(e)));
         }
 
         // a mapped address passes the tier and score limits, else the reason it does not
@@ -83,7 +92,7 @@ public static class UserTypeMigration
             var map = Map(function, functionStart: true);
             foreach (var s in old.StackVars.GetValueOrDefault(function) ?? [])
             {
-                var value = $"+0x{s.Offset:X} {s.Name}{(s.Type != null ? " : " + s.Type : "")}";
+                var value = s.Delete ? $"+0x{s.Offset:X} deleted" : $"+0x{s.Offset:X} {s.Name}{(s.Type != null ? " : " + s.Type : "")}";
                 if (map.At is not { } at) { steps.Add(Step("stack_var", function, map, value, map.Skip, map.Detail, null)); continue; }
                 var moved = s with { Function = at };
                 var existing = target.StackVars.GetValueOrDefault(at)?.FirstOrDefault(e => e.Offset == s.Offset);

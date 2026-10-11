@@ -204,6 +204,41 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
+    public void EnumMembers_AndStackDeletes_RoundTrip_AndExport()
+    {
+        var ann = Open();
+        ann.ChangeUserTypes(l => l.WithEnumMember(new("Color", "Red", 1)).WithEnumMember(new("Color", "Gone", null)).WithEnumMember(new("Color", "Red", 0x10))
+            .WithStackVar(new(0x2000, 0x20, "buf", "char[8]")).WithStackVar(new(0x2000, 0x20, null, null) { Delete = true }).WithStackVar(new(0x2000, 0x28, "kept", "int")));
+        var again = Open().UserTypes;
+        Assert.Equal(new NetDecompilerMcp.Native.Providers.NativeEnumMemberEdit("Color", "Red", 0x10), again.EnumMembers[("Color", "Red")]);
+        Assert.Null(again.EnumMembers[("Color", "Gone")].Value);
+        // a deletion replaced the earlier edit at that offset
+        Assert.Equal([true, false], again.StackVars[0x2000].Select(s => s.Delete));
+        Assert.Equal(ann.UserTypes.Stamp, again.Stamp);
+        Assert.Equal(3, Parse(Sidecar).GetProperty("formatVersion").GetInt32());
+        // an edit after the deletion replaces it again
+        Assert.False(again.WithStackVar(new(0x2000, 0x20, "back", "int")).StackVars[0x2000][0].Delete);
+
+        var ida = AnnotationExport.Render(ann, AnnotationExport.Format.Ida);
+        Assert.Contains("ndm_enum(\"Color\", \"Gone\", None)", ida);
+        Assert.Contains("ndm_enum(\"Color\", \"Red\", 16)", ida);
+        Assert.Contains("ndm_stack_delete(0x2000, 32)", ida);
+        Assert.DoesNotContain("ndm_stack(0x2000, 32,", ida);
+        var python = NetDecompilerMcp.Native.Providers.PythonLocator.Find([], []);
+        if (python != null)
+        {
+            var script = _dir.File("enums.py");
+            File.WriteAllText(script, ida);
+            var check = NetDecompilerMcp.Native.Providers.PythonLocator.RunCapture(python.Executable,
+                ["-I", "-c", "import sys; compile(open(sys.argv[1]).read(), sys.argv[1], 'exec')", script], TimeSpan.FromSeconds(30));
+            Assert.True(check.ExitCode == 0, check.Stderr);
+        }
+        var json = JsonDocument.Parse(AnnotationExport.Render(ann, AnnotationExport.Format.Json)).RootElement;
+        Assert.Equal("Red", json.GetProperty("enumMembers")[1].GetProperty("member").GetString());
+        Assert.True(json.GetProperty("stackVars")[0].GetProperty("delete").GetBoolean());
+    }
+
+    [Fact]
     public void NewerFormatVersion_IsLeftUntouched()
     {
         var text = "{\"formatVersion\":99,\"sha256\":\"ab12\",\"names\":{\"1000\":\"Future\"},\"comments\":{}}";

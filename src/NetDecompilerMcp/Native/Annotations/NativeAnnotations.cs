@@ -74,7 +74,7 @@ public sealed class NativeAnnotations
                 locals[f] = list.Where(e => e.Local.Length > 0).Select(e => new NativeLocalEdit(f, e.Local, e.Stack, e.Name, e.Type)).ToList();
         var stack = new Dictionary<uint, IReadOnlyList<NativeStackVarEdit>>();
         foreach (var (k, list) in doc.StackVars ?? [])
-            if (Rva(k) is { } f && list is { Count: > 0 }) stack[f] = list.Select(e => new NativeStackVarEdit(f, e.Offset, e.Name, e.Type)).ToList();
+            if (Rva(k) is { } f && list is { Count: > 0 }) stack[f] = list.Select(e => new NativeStackVarEdit(f, e.Offset, e.Name, e.Type) { Delete = e.Delete }).ToList();
         var analysis = new List<NativeAnalysisEdit>();
         foreach (var a in doc.Analysis ?? [])
             if (Rva(a.Rva) is { } r && a.Kind.Length > 0)
@@ -82,10 +82,15 @@ public sealed class NativeAnnotations
         var operands = new Dictionary<(uint, int), NativeOperandEdit>();
         foreach (var o in doc.Operands ?? [])
             if (Rva(o.Rva) is { } r && o.Display.Length > 0) operands[(r, o.Operand)] = new NativeOperandEdit(r, o.Operand, o.Display, o.Detail);
-        return new UserTypeLayer(doc.Declarations?.Where(d => !string.IsNullOrWhiteSpace(d)).ToList() ?? [], types, locals, stack, analysis, operands);
+        var enums = new Dictionary<(string, string), NativeEnumMemberEdit>();
+        foreach (var e in doc.EnumMembers ?? [])
+            if (e.Enum.Length > 0 && e.Member.Length > 0) enums[(e.Enum, e.Member)] = new NativeEnumMemberEdit(e.Enum, e.Member, e.Value);
+        return new UserTypeLayer(doc.Declarations?.Where(d => !string.IsNullOrWhiteSpace(d)).ToList() ?? [], types, locals, stack, analysis, operands, enums);
     }
 
     private static string OperandKey(AnnotationDocument.OperandEntry o) => FormattableString.Invariant($"{o.Rva}:{o.Operand}");
+
+    private static string EnumKey(AnnotationDocument.EnumMemberEntry e) => e.Enum + "::" + e.Member;
 
     private static AnnotationDocument.AnalysisEntry Entry(NativeAnalysisEdit a) =>
         new() { Rva = Hex(a.Rva), Kind = a.Kind, End = a.End is { } e ? Hex(e) : null, Type = a.Type };
@@ -272,7 +277,11 @@ public sealed class NativeAnnotations
         if (u.Locals.Count > 0)
             doc.Locals = u.Locals.ToDictionary(l => Hex(l.Key), l => l.Value.Select(e => new AnnotationDocument.LocalEntry { Local = e.Local, Stack = e.Stack, Name = e.Name, Type = e.Type }).ToList());
         if (u.StackVars.Count > 0)
-            doc.StackVars = u.StackVars.ToDictionary(s => Hex(s.Key), s => s.Value.Select(e => new AnnotationDocument.StackVarEntry { Offset = e.Offset, Name = e.Name, Type = e.Type }).ToList());
+            doc.StackVars = u.StackVars.ToDictionary(s => Hex(s.Key), s => s.Value.Select(e => new AnnotationDocument.StackVarEntry
+                { Offset = e.Offset, Name = e.Name, Type = e.Type, Delete = e.Delete }).ToList());
+        if (u.EnumMembers.Count > 0)
+            doc.EnumMembers = u.EnumMembers.Values.OrderBy(e => e.Enum, StringComparer.Ordinal).ThenBy(e => e.Member, StringComparer.Ordinal)
+                .Select(e => new AnnotationDocument.EnumMemberEntry { Enum = e.Enum, Member = e.Member, Value = e.Value }).ToList();
         if (u.Analysis.Count > 0) doc.Analysis = u.Analysis.Select(Entry).ToList();
         if (u.Operands.Count > 0)
             doc.Operands = u.Operands.OrderBy(o => o.Key).Select(o => new AnnotationDocument.OperandEntry
@@ -312,8 +321,8 @@ public sealed class NativeAnnotations
     // ---- merge ----
 
     private const int NameSection = 0, CommentSection = 1, TypeSection = 2, LocalSection = 3, StackSection = 4, DeclarationSection = 5, AnalysisSection = 6,
-        OperandSection = 7;
-    private static readonly string[] SectionLabels = ["name", "comment", "type", "locals", "stack members", "declaration", "analysis edit", "operand"];
+        OperandSection = 7, EnumSection = 8;
+    private static readonly string[] SectionLabels = ["name", "comment", "type", "locals", "stack members", "declaration", "analysis edit", "operand", "enum member"];
 
     /// <summary>The sidecar as one comparable text value per key in each section (lists as their JSON).</summary>
     private sealed class Snapshot
@@ -347,6 +356,7 @@ public sealed class NativeAnnotations
         foreach (var d in doc.Declarations ?? []) s.Sections[DeclarationSection][d] = d;
         foreach (var a in doc.Analysis ?? []) s.Sections[AnalysisSection][a.Rva] = JsonSerializer.Serialize(a);
         foreach (var o in doc.Operands ?? []) s.Sections[OperandSection][OperandKey(o)] = JsonSerializer.Serialize(o);
+        foreach (var e in doc.EnumMembers ?? []) s.Sections[EnumSection][EnumKey(e)] = JsonSerializer.Serialize(e);
         return s;
     }
 
@@ -367,6 +377,8 @@ public sealed class NativeAnnotations
             doc.Analysis = s.Sections[AnalysisSection].Values.Select(v => JsonSerializer.Deserialize<AnnotationDocument.AnalysisEntry>(v)!).ToList();
         if (s.Sections[OperandSection].Count > 0)
             doc.Operands = s.Sections[OperandSection].Values.Select(v => JsonSerializer.Deserialize<AnnotationDocument.OperandEntry>(v)!).ToList();
+        if (s.Sections[EnumSection].Count > 0)
+            doc.EnumMembers = s.Sections[EnumSection].Values.Select(v => JsonSerializer.Deserialize<AnnotationDocument.EnumMemberEntry>(v)!).ToList();
         return doc;
     }
 
