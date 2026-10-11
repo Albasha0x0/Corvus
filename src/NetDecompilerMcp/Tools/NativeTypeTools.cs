@@ -177,6 +177,44 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             : $"Declared {result.DeclaredTypes.Count} type(s): {string.Join(", ", result.DeclaredTypes.Distinct())}";
     });
 
+    [McpServerTool(Name = "define_native", Title = "Redefine code or data in the engine")]
+    [Description("Change the engine's analysis (IDA or Ghidra) at an address. kind=code decodes instructions (up to end, else following the flow); " +
+                 "function makes a function (with end: its extent; on an existing function: moves its end); undefine turns items back into unknown " +
+                 "bytes (up to end, else the item there; at a function start the whole function); data makes a data item of type: byte, word, dword, " +
+                 "qword, float, double, string (C string, ends at end or its terminator), string16 (UTF-16) or a C type ('Packet', 'char[16]'), each " +
+                 "with an optional [count] such as dword[8]. Data and undefine replace a user type set on a global there." + KeptNote)]
+    public Task<string> DefineNative(
+        [Description(NativeTools.ImageDescription)] string image,
+        [Description("Start: " + NativeTools.AddressDescription)] string address,
+        [Description("code, function, undefine or data.")] string kind,
+        [Description("Exclusive end address (same forms as address).")] string? end = null,
+        [Description("kind=data: byte, word, dword, qword, float, double, string, string16 or a C type, optionally with [count].")] string? type = null,
+        [Description(EngineDescription)] string? engine = null,
+        RequestContext<CallToolRequestParams> context = null!,
+        CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
+    {
+        var k = (kind ?? "").Trim().ToLowerInvariant();
+        if (k is not (NativeAnalysisEdit.Code or NativeAnalysisEdit.Function or NativeAnalysisEdit.Undefine or NativeAnalysisEdit.Data))
+            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown kind '{kind}'.", "use code, function, undefine or data");
+        var t = string.IsNullOrWhiteSpace(type) ? null : type.Trim();
+        if (k == NativeAnalysisEdit.Data && t == null)
+            throw new ToolError(ErrorCode.InvalidArgument, "kind=data needs a type.", "pass type, e.g. dword, dword[8], string or a C type such as Packet");
+        if (k != NativeAnalysisEdit.Data && t != null)
+            throw new ToolError(ErrorCode.InvalidArgument, $"type applies to kind=data, not {k}.", "drop type, or use kind=data");
+        var (native, rva, session) = await Open(image, address, engine, progress, cancellationToken);
+        uint? stop = null;
+        if (!string.IsNullOrWhiteSpace(end))
+        {
+            stop = workspace.Read(() => NativeAddress.Parse(native.Image, end, code?.Ready(native) is { } index ? index.AddressesOfName : null));
+            if (stop <= rva) throw new ToolError(ErrorCode.InvalidArgument, $"end {Va(native, stop.Value)} is not after {Va(native, rva)}.", "pass an end above the start");
+        }
+        var edit = new NativeAnalysisEdit(rva, k, stop, t);
+        var result = await userTypes.ApplyAsync(native, session, NativeUserTypeBatch.Empty with { Analysis = [edit] },
+            (r, layer) => r.Items is [{ Applied: true }] ? layer.WithAnalysis(edit) : null, cancellationToken);
+        var done = Outcome(result);
+        return $"{k} at {Va(native, rva)}{(stop is { } s ? $"-{Va(native, s)}" : "")}: {done.Text}";
+    });
+
     [McpServerTool(Name = "list_native_types", Title = "Browse the engine's types")]
     [Description("The named types of the decompiler engine's database (IDA local types, Ghidra data types: from the PDB, RTTI classes, Il2Cpp, the " +
                  "engine's type libraries and declare_native_types), filtered by name and kind, with size and member count; name= shows one type as a C " +

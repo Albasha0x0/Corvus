@@ -1234,6 +1234,7 @@ def op_apply_user_types(args):
             if errors == 0 and d not in kept:
                 kept += d + "\n"
         node.setblob(kept.encode("utf-8"), 0, "D")
+    result["items"] += apply_edits_before(m, ti, args)
     for rva, decl in args.get("types") or []:
         result["items"].append(apply_user_type(m, ti, rva, decl or ""))
     for rva, offset, name, typ in args.get("stack") or []:
@@ -1559,6 +1560,149 @@ def op_sleep(args):
     # Test hook: holds the worker busy.
     time.sleep(float(args.get("seconds") or 0))
     return {}
+
+
+# ---- user edits beyond types (apply_user_types): analysis ----
+# Adapted from mrexodia/ida-pro-mcp define_func / define_code / undefine / make_data (MIT); see THIRD-PARTY-NOTICES.md.
+
+DATA_SIZES = {"byte": 1, "word": 2, "dword": 4, "qword": 8, "float": 4, "double": 8}
+
+
+def apply_edits_before(m, ti, args):
+    # analysis: [[rva, kind, end or null, type or null]] in the order made
+    return [apply_analysis(m, ti, a[0], a[1], a[2], a[3]) for a in args.get("analysis") or []]
+
+
+def data_spec(text):
+    # ("dword", 8) for "dword[8]"; (text, None) without a count
+    t = text.strip()
+    if t.endswith("]") and "[" in t:
+        try:
+            n = int(t[t.rindex("[") + 1:-1].strip(), 0)
+            if n > 0:
+                return t[:t.rindex("[")].strip(), n
+        except ValueError:
+            pass
+    return t, None
+
+
+def make_data(m, ti, ea, end, typ):
+    # (applied, error)
+    b = m.ida_bytes
+    badaddr = m.idautils.ida_idaapi.BADADDR
+    base, count = data_spec(typ)
+    low = base.lower()
+    if low in ("string", "string16"):
+        width = 1 if low == "string" else 2
+        length = count * width if count else (end - ea if end else 0)
+        b.del_items(ea, b.DELIT_SIMPLE, max(length, 1))
+        strtype = m.ida_nalt.STRTYPE_C if width == 1 else m.ida_nalt.STRTYPE_C_16
+        return (True, None) if b.create_strlit(ea, length, strtype) else (False, "IDA did not make a string at rva 0x%X" % rva_of(ea))
+    if low in DATA_SIZES:
+        total = DATA_SIZES[low] * (count or 1)
+        flag = {"byte": b.byte_flag, "word": b.word_flag, "dword": b.dword_flag, "qword": b.qword_flag, "float": b.float_flag,
+                "double": b.double_flag}[low]()
+        b.del_items(ea, b.DELIT_SIMPLE, total)
+        return (True, None) if b.create_data(ea, flag, total, badaddr) else (False, "IDA did not make %s at rva 0x%X" % (typ, rva_of(ea)))
+    tif = parse_type(ti, typ, False)
+    if tif is None:
+        return False, "the type does not parse (types it names must be declared first)"
+    size = tif.get_size()
+    if size in (0, ti.BADSIZE):
+        return False, "%s has no size" % typ
+    b.del_items(ea, b.DELIT_SIMPLE, size)
+    if not ti.apply_tinfo(ea, tif, ti.TINFO_DEFINITE):
+        return False, "IDA did not apply %s at rva 0x%X" % (typ, rva_of(ea))
+    if b.get_item_size(ea) != size and tif.is_udt():
+        b.create_struct(ea, size, tif.get_tid())
+    user_node(True).altset(rva_of(ea), 1)
+    return True, None
+
+
+def item_text(m, ea):
+    # what the database holds at ea now: "dword[4], 16 bytes", "code, 5 bytes"
+    import idc
+    b = m.ida_bytes
+    f = b.get_flags(ea)
+    size = b.get_item_size(ea)
+    if b.is_code(f):
+        return "code, %d bytes" % size
+    if not b.is_data(f):
+        return "unknown bytes"
+    t = idc.get_type(ea)
+    if not t:
+        for test, name, width in ((b.is_strlit, "string", 0), (b.is_float, "float", 4), (b.is_double, "double", 8), (b.is_byte, "byte", 1),
+                                  (b.is_word, "word", 2), (b.is_dword, "dword", 4), (b.is_qword, "qword", 8)):
+            if test(f):
+                t = name + ("[%d]" % (size // width) if width and size > width else "")
+                break
+    return "%s%s, %d bytes" % (t or "data", " (offset)" if b.is_off0(f) else "", size)
+
+
+def apply_analysis(m, ti, rva, kind, end, typ):
+    # [kind, rva, target, applied, error, resolved, stack, text]
+    b = m.ida_bytes
+    ea = _state["base"] + rva
+    end_ea = _state["base"] + end if end is not None else None
+    target = kind + (" " + typ if typ else "") + (" to 0x%X" % end if end is not None else "")
+
+    def item(applied, error, text=None):
+        return ["analysis", rva, target, applied, error, None, None, text]
+
+    if not b.is_loaded(ea) or (end_ea is not None and (end_ea <= ea or not b.is_loaded(end_ea - 1))):
+        return item(False, "rva 0x%X%s is not in the image" % (rva, "" if end is None else "-0x%X" % end))
+    if kind == "undefine":
+        # at a function start without an end: the whole function
+        f = m.ida_funcs.get_func(ea)
+        start = ea if end_ea is not None else b.get_item_head(ea)
+        if f is not None and f.start_ea == ea:
+            if end_ea is None:
+                end_ea = f.end_ea
+            m.ida_funcs.del_func(ea)
+        n = end_ea - start if end_ea is not None else max(1, b.get_item_size(start))
+        b.del_items(start, b.DELIT_EXPAND, n)
+        return item(True, None, "%d byte(s) undefined" % n)
+    if kind == "code":
+        if b.is_code(b.get_flags(ea)) and b.get_item_head(ea) == ea and end_ea is None:
+            return item(True, None, "already code")
+        stop = end_ea if end_ea is not None else ea + 1
+        b.del_items(ea, b.DELIT_SIMPLE, stop - ea)
+        count, at = 0, ea
+        while at < stop:
+            n = m.ida_ua.create_insn(at)
+            if n <= 0:
+                break
+            count, at = count + 1, at + n
+        if count == 0:
+            return item(False, "the bytes at rva 0x%X do not decode as an instruction" % rva)
+        if end_ea is None:
+            m.ida_auto.auto_make_code(ea)
+            m.ida_auto.auto_wait()
+        return item(True, None, "%d instruction(s) to rva 0x%X" % (count, rva_of(at)) if end_ea is not None else "code from rva 0x%X" % rva)
+    if kind == "function":
+        f = m.ida_funcs.get_func(ea)
+        if f is not None and f.start_ea == ea:
+            if end_ea is not None and f.end_ea != end_ea and not m.ida_funcs.set_func_end(ea, end_ea):
+                return item(False, "IDA did not move the end of the function at rva 0x%X" % rva)
+        elif f is not None:
+            return item(False, "rva 0x%X is inside the function at rva 0x%X" % (rva, rva_of(f.start_ea) or 0))
+        else:
+            if end_ea is None and not b.is_code(b.get_flags(ea)):
+                m.ida_auto.auto_make_code(ea)  # decode the flow first so the function gets its extent
+                m.ida_auto.auto_wait()
+            if not m.ida_funcs.add_func(ea, end_ea if end_ea is not None else m.idautils.ida_idaapi.BADADDR):
+                return item(False, "IDA did not make a function at rva 0x%X" % rva)
+        m.ida_auto.auto_wait()
+        f = m.ida_funcs.get_func(ea)
+        if hexrays_ready(m):
+            m.ida_hexrays.mark_cfunc_dirty(ea, False)
+        return item(True, None, "function %s, rva 0x%X-0x%X" % (m.ida_funcs.get_func_name(ea) or "", rva, rva_of(f.end_ea) or 0))
+    if kind == "data":
+        if not typ:
+            return item(False, "data needs a type")
+        ok, error = make_data(m, ti, ea, end_ea, typ)
+        return item(True, None, item_text(m, ea)) if ok else item(False, error)
+    return item(False, "unknown analysis edit %r" % kind)
 
 
 OPS = {"hello": op_hello, "open": op_open, "rebase": op_rebase, "functions": op_functions, "decompile": op_decompile,

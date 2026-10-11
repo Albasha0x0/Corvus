@@ -439,6 +439,7 @@ final class TypeOps {
             }
             stamps.setString(USER_DECLS, kept.toString());
         }
+        EditOps.before(w, r, items);
         Set<Long> user = userTyped(w);
         for (JsonElement e : Worker.array(a, "types")) {
             JsonArray t = e.getAsJsonArray();

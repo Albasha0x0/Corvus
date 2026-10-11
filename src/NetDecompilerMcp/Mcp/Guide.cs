@@ -101,7 +101,8 @@ public static class Guide
             list_native_edits, undo_native_edit, save_native to a new file (checksum recomputed, an invalidated signature reported).
             export_native_annotations writes IDA / Ghidra scripts; export_native_patches writes IDAPython, IDA .dif, IPS or JSON.
             Engine edits (IDA or Ghidra): set_native_type (prototypes), set_native_local (decompiler locals), get_native_frame and
-            set_native_stack_var (stack frames), declare_native_types and list_native_types (C declarations kept per image);
+            set_native_stack_var (stack frames), declare_native_types and list_native_types (C declarations kept per image),
+            define_native (code, functions, data items, undefined bytes);
             ida_python runs IDAPython in the image's IDA worker, off unless --ida-scripting.
             Notes: record_note anchors a finding, question, hypothesis or todo to '<image>@<address>', '<assembly>:<symbol>', a file or
             a dump; notes persist per user by file SHA-256 / module MVID. update_note changes one in part (expectedRevision; a conflict

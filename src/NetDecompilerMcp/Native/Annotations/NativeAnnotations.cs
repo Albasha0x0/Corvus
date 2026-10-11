@@ -75,8 +75,15 @@ public sealed class NativeAnnotations
         var stack = new Dictionary<uint, IReadOnlyList<NativeStackVarEdit>>();
         foreach (var (k, list) in doc.StackVars ?? [])
             if (Rva(k) is { } f && list is { Count: > 0 }) stack[f] = list.Select(e => new NativeStackVarEdit(f, e.Offset, e.Name, e.Type)).ToList();
-        return new UserTypeLayer(doc.Declarations?.Where(d => !string.IsNullOrWhiteSpace(d)).ToList() ?? [], types, locals, stack);
+        var analysis = new List<NativeAnalysisEdit>();
+        foreach (var a in doc.Analysis ?? [])
+            if (Rva(a.Rva) is { } r && a.Kind.Length > 0)
+                analysis.Add(new NativeAnalysisEdit(r, a.Kind, a.End != null ? Rva(a.End) : null, a.Type));
+        return new UserTypeLayer(doc.Declarations?.Where(d => !string.IsNullOrWhiteSpace(d)).ToList() ?? [], types, locals, stack, analysis);
     }
+
+    private static AnnotationDocument.AnalysisEntry Entry(NativeAnalysisEdit a) =>
+        new() { Rva = Hex(a.Rva), Kind = a.Kind, End = a.End is { } e ? Hex(e) : null, Type = a.Type };
 
     /// <summary>The user's engine types (prototypes, global types, locals, stack members, declarations).</summary>
     public UserTypeLayer UserTypes { get { lock (_gate) return _userTypes; } }
@@ -261,6 +268,7 @@ public sealed class NativeAnnotations
             doc.Locals = u.Locals.ToDictionary(l => Hex(l.Key), l => l.Value.Select(e => new AnnotationDocument.LocalEntry { Local = e.Local, Stack = e.Stack, Name = e.Name, Type = e.Type }).ToList());
         if (u.StackVars.Count > 0)
             doc.StackVars = u.StackVars.ToDictionary(s => Hex(s.Key), s => s.Value.Select(e => new AnnotationDocument.StackVarEntry { Offset = e.Offset, Name = e.Name, Type = e.Type }).ToList());
+        if (u.Analysis.Count > 0) doc.Analysis = u.Analysis.Select(Entry).ToList();
         return doc;
     }
 
@@ -295,8 +303,8 @@ public sealed class NativeAnnotations
 
     // ---- merge ----
 
-    private const int NameSection = 0, CommentSection = 1, TypeSection = 2, LocalSection = 3, StackSection = 4, DeclarationSection = 5;
-    private static readonly string[] SectionLabels = ["name", "comment", "type", "locals", "stack members", "declaration"];
+    private const int NameSection = 0, CommentSection = 1, TypeSection = 2, LocalSection = 3, StackSection = 4, DeclarationSection = 5, AnalysisSection = 6;
+    private static readonly string[] SectionLabels = ["name", "comment", "type", "locals", "stack members", "declaration", "analysis edit"];
 
     /// <summary>The sidecar as one comparable text value per key in each section (lists as their JSON).</summary>
     private sealed class Snapshot
@@ -328,6 +336,7 @@ public sealed class NativeAnnotations
         foreach (var (k, v) in doc.Locals ?? []) s.Sections[LocalSection][k] = JsonSerializer.Serialize(v);
         foreach (var (k, v) in doc.StackVars ?? []) s.Sections[StackSection][k] = JsonSerializer.Serialize(v);
         foreach (var d in doc.Declarations ?? []) s.Sections[DeclarationSection][d] = d;
+        foreach (var a in doc.Analysis ?? []) s.Sections[AnalysisSection][a.Rva] = JsonSerializer.Serialize(a);
         return s;
     }
 
@@ -344,6 +353,8 @@ public sealed class NativeAnnotations
         if (s.Sections[StackSection].Count > 0)
             doc.StackVars = s.Sections[StackSection].ToDictionary(kv => kv.Key, kv => JsonSerializer.Deserialize<List<AnnotationDocument.StackVarEntry>>(kv.Value)!);
         if (s.Sections[DeclarationSection].Count > 0) doc.Declarations = [.. s.Sections[DeclarationSection].Keys];
+        if (s.Sections[AnalysisSection].Count > 0)
+            doc.Analysis = s.Sections[AnalysisSection].Values.Select(v => JsonSerializer.Deserialize<AnnotationDocument.AnalysisEntry>(v)!).ToList();
         return doc;
     }
 
@@ -385,11 +396,18 @@ public sealed class NativeAnnotations
             comments[key] = Cap(comments.TryGetValue(key, out var c) ? c + "\n" + line : line);
         }
         // Declarations apply in order: theirs first, then ours that are new.
-        var declarations = merged.Sections[DeclarationSection];
-        var ordered = disk.Sections[DeclarationSection].Keys.Concat(mine.Sections[DeclarationSection].Keys).Where(declarations.ContainsKey).Distinct(StringComparer.Ordinal).ToList();
-        declarations.Clear();
-        foreach (var d in ordered) declarations[d] = d;
+        Reorder(merged.Sections[DeclarationSection], disk.Sections[DeclarationSection].Keys.Concat(mine.Sections[DeclarationSection].Keys));
+        // Analysis edits: ours in our order (an edit made again moved to the end), then theirs.
+        Reorder(merged.Sections[AnalysisSection], mine.Sections[AnalysisSection].Keys.Concat(disk.Sections[AnalysisSection].Keys));
         return (merged, conflicts);
+    }
+
+    /// <summary>Rebuilds an order-carrying section in <paramref name="order"/> (keys not in it are dropped from the order).</summary>
+    private static void Reorder(Dictionary<string, string> section, IEnumerable<string> order)
+    {
+        var ordered = order.Where(section.ContainsKey).Distinct(StringComparer.Ordinal).Select(k => (k, section[k])).ToList();
+        section.Clear();
+        foreach (var (k, v) in ordered) section[k] = v;
     }
 
     private static string Short(string text) => text.Length > 60 ? text[..57] + "..." : text;

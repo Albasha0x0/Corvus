@@ -40,7 +40,21 @@ public sealed class AnnotationDocument
         [JsonPropertyName("type")] public string? Type { get; set; }
     }
 
-    public bool HasUserTypes => Declarations is { Count: > 0 } || Types is { Count: > 0 } || Locals is { Count: > 0 } || StackVars is { Count: > 0 };
+    // Format 3: analysis edits in the order made.
+    [JsonPropertyName("analysis"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<AnalysisEntry>? Analysis { get; set; }
+
+    public sealed class AnalysisEntry
+    {
+        [JsonPropertyName("rva")] public string Rva { get; set; } = "";
+        [JsonPropertyName("kind")] public string Kind { get; set; } = "";
+        [JsonPropertyName("end"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? End { get; set; }
+        [JsonPropertyName("type"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Type { get; set; }
+    }
+
+    /// <summary>Holds what format 3 added; older builds must leave such a file alone.</summary>
+    public bool HasFormat3 => Analysis is { Count: > 0 };
+
+    public bool HasUserTypes => Declarations is { Count: > 0 } || Types is { Count: > 0 } || Locals is { Count: > 0 } || StackVars is { Count: > 0 } || HasFormat3;
 
     public bool IsEmpty => Names.Count == 0 && Comments.Count == 0 && !HasUserTypes;
 }
@@ -58,7 +72,7 @@ public sealed class AnnotationStore
     public const string RootVariable = "NDM_ANNOTATIONS_DIR";
 
     /// <summary>The newest sidecar format this build reads; a newer one is left untouched.</summary>
-    public const int FormatVersion = 2;
+    public const int FormatVersion = 3;
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
@@ -147,8 +161,8 @@ public sealed class AnnotationStore
             written = merge(current);
             if (written.IsEmpty) return LockedJsonFile.Change.Remove();
             written.Revision = (current.Document?.Revision ?? 0) + 1;
-            // version 2 adds user types; without them the file stays version 1, which older builds still read and write
-            written.FormatVersion = written.HasUserTypes ? FormatVersion : 1;
+            // the lowest version that holds the content, so older builds still read and write files they understand
+            written.FormatVersion = written.HasFormat3 ? 3 : written.HasUserTypes ? 2 : 1;
             return LockedJsonFile.Change.Write(JsonSerializer.SerializeToUtf8Bytes(written, Json));
         }, LockTimeout, () => stamp = Stamp(sha256));
         return problem == null ? new(written, stamp, null) : new(null, default, problem);

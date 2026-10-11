@@ -214,7 +214,10 @@ internal static class WorkerRows
         return new NativeCallTargets(targets, r.GetProperty("decompiled").GetInt32(), failed, r.GetProperty("skipped").GetInt32(), r.GetProperty("decompiler").GetBoolean());
     }
 
-    /// <summary>apply_user_types arguments: decls, types [[rva, declaration]], stack [[function, offset, name, type]], locals [[function, local, stack, name, type]].</summary>
+    /// <summary>
+    /// apply_user_types arguments: decls, types [[rva, declaration]], stack [[function, offset, name, type]], locals [[function,
+    /// local, stack, name, type]]; analysis [[rva, kind, end, type]] only when there are any.
+    /// </summary>
     public static JsonObject UserTypeArgs(NativeUserTypeBatch batch, string? stampKey, string? stamp, bool save)
     {
         var types = new JsonArray();
@@ -223,8 +226,11 @@ internal static class WorkerRows
         foreach (var s in batch.StackVars) stack.Add(new JsonArray(s.Function, s.Offset, s.Name, s.Type));
         var locals = new JsonArray();
         foreach (var l in batch.Locals) locals.Add(new JsonArray(l.Function, l.Local, l.Stack, l.Name, l.Type));
-        return Args(("decls", new JsonArray(batch.Declarations.Select(d => (JsonNode)d).ToArray())), ("types", types), ("stack", stack),
+        var args = Args(("decls", new JsonArray(batch.Declarations.Select(d => (JsonNode)d).ToArray())), ("types", types), ("stack", stack),
             ("locals", locals), ("stamp_key", stampKey), ("stamp", stamp), ("save", save));
+        if (batch.Analysis.Count > 0)
+            args["analysis"] = new JsonArray(batch.Analysis.Select(a => (JsonNode)new JsonArray(a.Rva, a.Kind, a.End, a.Type)).ToArray());
+        return args;
     }
 
     /// <summary>Items [kind, rva, target, applied, error, resolved, stack, text] with the declaration outcome.</summary>

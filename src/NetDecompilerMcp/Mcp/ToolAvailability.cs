@@ -20,6 +20,7 @@ public static class ToolAvailability
         ["get_native_frame"] = ["ida", "ghidra"],
         ["declare_native_types"] = ["ida", "ghidra"],
         ["list_native_types"] = ["ida", "ghidra"],
+        ["define_native"] = ["ida", "ghidra"],
         ["ida_python"] = ["ida"],
     };
 

@@ -5,8 +5,8 @@ using NetDecompilerMcp.Native.Providers;
 namespace NetDecompilerMcp.Native.Annotations;
 
 /// <summary>
-/// The user's engine types of one image: C declarations, types of functions and globals by RVA, stack frame members and
-/// decompiler locals by function. Immutable; every change makes a new layer.
+/// The user's engine types of one image: C declarations, analysis edits (code, functions, data, undefined ranges), types of
+/// functions and globals by RVA, stack frame members and decompiler locals by function. Immutable; every change makes a new layer.
 /// </summary>
 public sealed class UserTypeLayer
 {
@@ -18,26 +18,34 @@ public sealed class UserTypeLayer
     public IReadOnlyDictionary<uint, string> Types { get; }
     public IReadOnlyDictionary<uint, IReadOnlyList<NativeLocalEdit>> Locals { get; }
     public IReadOnlyDictionary<uint, IReadOnlyList<NativeStackVarEdit>> StackVars { get; }
+    /// <summary>Analysis edits in the order made, one per start address.</summary>
+    public IReadOnlyList<NativeAnalysisEdit> Analysis { get; }
 
     public UserTypeLayer(IReadOnlyList<string> declarations, IReadOnlyDictionary<uint, string> types, IReadOnlyDictionary<uint, IReadOnlyList<NativeLocalEdit>> locals,
-        IReadOnlyDictionary<uint, IReadOnlyList<NativeStackVarEdit>> stackVars)
+        IReadOnlyDictionary<uint, IReadOnlyList<NativeStackVarEdit>> stackVars, IReadOnlyList<NativeAnalysisEdit>? analysis = null)
     {
         Declarations = declarations;
         Types = types;
         Locals = locals;
         StackVars = stackVars;
+        Analysis = analysis ?? [];
     }
 
-    public bool IsEmpty => Declarations.Count == 0 && Types.Count == 0 && Locals.Count == 0 && StackVars.Count == 0;
+    private UserTypeLayer With(IReadOnlyList<string>? declarations = null, IReadOnlyDictionary<uint, string>? types = null,
+        IReadOnlyDictionary<uint, IReadOnlyList<NativeLocalEdit>>? locals = null, IReadOnlyDictionary<uint, IReadOnlyList<NativeStackVarEdit>>? stackVars = null,
+        IReadOnlyList<NativeAnalysisEdit>? analysis = null) =>
+        new(declarations ?? Declarations, types ?? Types, locals ?? Locals, stackVars ?? StackVars, analysis ?? Analysis);
 
-    /// <summary>Declaration blocks, types, locals and stack members.</summary>
-    public int Count => Declarations.Count + Types.Count + Locals.Values.Sum(l => l.Count) + StackVars.Values.Sum(s => s.Count);
+    public bool IsEmpty => Declarations.Count == 0 && Types.Count == 0 && Locals.Count == 0 && StackVars.Count == 0 && Analysis.Count == 0;
+
+    /// <summary>Declaration blocks, analysis edits, types, locals and stack members.</summary>
+    public int Count => Declarations.Count + Analysis.Count + Types.Count + Locals.Values.Sum(l => l.Count) + StackVars.Values.Sum(s => s.Count);
 
     /// <summary>Everything, in the order an engine applies it.</summary>
     public NativeUserTypeBatch ToBatch() => new(Declarations,
         Types.OrderBy(t => t.Key).Select(t => new NativePrototype(t.Key, t.Value)).ToList(),
         StackVars.OrderBy(s => s.Key).SelectMany(s => s.Value).ToList(),
-        Locals.OrderBy(l => l.Key).SelectMany(l => l.Value).ToList());
+        Locals.OrderBy(l => l.Key).SelectMany(l => l.Value).ToList()) { Analysis = Analysis };
 
     private string? _stamp;
 
@@ -50,6 +58,7 @@ public sealed class UserTypeLayer
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         void Add(string s) => hash.AppendData(Encoding.UTF8.GetBytes(s + "\0"));
         foreach (var d in Declarations) Add("D" + d);
+        foreach (var a in Analysis) Add(FormattableString.Invariant($"A{a.Rva:X}:{a.Kind}:{a.End:X}:{a.Type}"));
         foreach (var (rva, type) in Types.OrderBy(t => t.Key)) Add(FormattableString.Invariant($"T{rva:X}:{type}"));
         foreach (var s in StackVars.OrderBy(s => s.Key).SelectMany(s => s.Value)) Add(FormattableString.Invariant($"S{s.Function:X}:{s.Offset}:{s.Name}:{s.Type}"));
         foreach (var l in Locals.OrderBy(l => l.Key).SelectMany(l => l.Value)) Add(FormattableString.Invariant($"L{l.Function:X}:{l.Local}:{l.Stack}:{l.Name}:{l.Type}"));
@@ -62,7 +71,7 @@ public sealed class UserTypeLayer
         var types = new Dictionary<uint, string>(Types);
         if (string.IsNullOrWhiteSpace(type)) types.Remove(rva);
         else types[rva] = type.Trim();
-        return new(Declarations, types, Locals, StackVars);
+        return With(types: types);
     }
 
     /// <summary>With a declaration block added (an identical block is kept once).</summary>
@@ -70,7 +79,24 @@ public sealed class UserTypeLayer
     {
         var text = block.Trim();
         if (text.Length == 0 || Declarations.Contains(text, StringComparer.Ordinal)) return this;
-        return new([.. Declarations, text], Types, Locals, StackVars);
+        return With(declarations: [.. Declarations, text]);
+    }
+
+    /// <summary>
+    /// With an analysis edit appended; it replaces an earlier edit at the same address. Data or an undefined range drops the
+    /// user types of globals it covers (applied after the analysis edits, they would undo it).
+    /// </summary>
+    public UserTypeLayer WithAnalysis(NativeAnalysisEdit edit)
+    {
+        var list = Analysis.Where(a => a.Rva != edit.Rva).Append(edit).ToList();
+        var types = Types;
+        if (edit.Kind is NativeAnalysisEdit.Data or NativeAnalysisEdit.Undefine)
+        {
+            uint end = edit.End is { } e && e > edit.Rva ? e : edit.Rva + 1;
+            if (Types.Keys.Any(k => k >= edit.Rva && k < end))
+                types = Types.Where(t => t.Key < edit.Rva || t.Key >= end).ToDictionary(t => t.Key, t => t.Value);
+        }
+        return With(analysis: list, types: types);
     }
 
     /// <summary>
@@ -84,7 +110,7 @@ public sealed class UserTypeLayer
         if (i >= 0)
             list[i] = list[i] with { Stack = list[i].Stack ?? edit.Stack, Name = edit.Name ?? list[i].Name, Type = edit.Type ?? list[i].Type };
         else list.Add(edit);
-        return new(Declarations, Types, new Dictionary<uint, IReadOnlyList<NativeLocalEdit>>(Locals) { [edit.Function] = list }, StackVars);
+        return With(locals: new Dictionary<uint, IReadOnlyList<NativeLocalEdit>>(Locals) { [edit.Function] = list });
     }
 
     /// <summary>With a stack member edit merged into the edit at the same offset.</summary>
@@ -94,6 +120,6 @@ public sealed class UserTypeLayer
         int i = list.FindIndex(e => e.Offset == edit.Offset);
         if (i >= 0) list[i] = list[i] with { Name = edit.Name ?? list[i].Name, Type = edit.Type ?? list[i].Type };
         else list.Add(edit);
-        return new(Declarations, Types, Locals, new Dictionary<uint, IReadOnlyList<NativeStackVarEdit>>(StackVars) { [edit.Function] = list });
+        return With(stackVars: new Dictionary<uint, IReadOnlyList<NativeStackVarEdit>>(StackVars) { [edit.Function] = list });
     }
 }

@@ -136,6 +136,46 @@ public class AnnotationStoreTests : IDisposable
     }
 
     [Fact]
+    public void AnalysisEdits_KeepTheirOrder_AsVersion3_MergeAcrossWriters_AndExport()
+    {
+        var a = Open();
+        a.ChangeUserTypes(l => l.WithType(0x5000, "int[4]").WithAnalysis(new(0x4000, "function", 0x4100, null)).WithAnalysis(new(0x5000, "data", null, "dword[8]"))
+            .WithAnalysis(new(0x4000, "undefine", null, null)));
+        // the later edit at 0x4000 replaced the earlier one and moved to the end; data at 0x5000 dropped the global's user type
+        Assert.Equal([0x5000u, 0x4000u], a.UserTypes.Analysis.Select(x => x.Rva));
+        Assert.Empty(a.UserTypes.Types);
+        Assert.Equal(3, Parse(Sidecar).GetProperty("formatVersion").GetInt32());
+
+        var b = Open();
+        b.ChangeUserTypes(l => l.WithAnalysis(new(0x6000, "code", 0x6010, null)));
+        a.ChangeUserTypes(l => l.WithAnalysis(new(0x7000, "data", 0x7010, "string")));
+        var merged = Open().UserTypes;
+        Assert.Equal([0x5000u, 0x4000u, 0x7000u, 0x6000u], merged.Analysis.Select(x => x.Rva));
+        Assert.Equal(new NetDecompilerMcp.Native.Providers.NativeAnalysisEdit(0x7000, "data", 0x7010, "string"), merged.Analysis[2]);
+        Assert.Equal(4, merged.Count);
+
+        var ida = AnnotationExport.Render(a, AnnotationExport.Format.Ida);
+        Assert.Contains("ndm_analysis(0x5000, \"data\", None, \"dword[8]\")", ida);
+        Assert.Contains("ndm_analysis(0x6000, \"code\", 0x6010, None)", ida);
+        Assert.True(ida.IndexOf("ndm_analysis(0x4000", StringComparison.Ordinal) < ida.IndexOf("ndm_analysis(0x7000", StringComparison.Ordinal));
+        var python = NetDecompilerMcp.Native.Providers.PythonLocator.Find([], []);
+        if (python != null)
+        {
+            var script = _dir.File("analysis.py");
+            File.WriteAllText(script, ida);
+            var check = NetDecompilerMcp.Native.Providers.PythonLocator.RunCapture(python.Executable,
+                ["-I", "-c", "import sys; compile(open(sys.argv[1]).read(), sys.argv[1], 'exec')", script], TimeSpan.FromSeconds(30));
+            Assert.True(check.ExitCode == 0, check.Stderr);
+        }
+        var json = JsonDocument.Parse(AnnotationExport.Render(a, AnnotationExport.Format.Json)).RootElement;
+        Assert.Equal("undefine", json.GetProperty("analysis")[1].GetProperty("kind").GetString());
+
+        // without analysis edits the file is version 2 again, which older builds read
+        a.ChangeUserTypes(_ => UserTypeLayer.Empty.WithType(0x1000, "int"));
+        Assert.Equal(2, Parse(Sidecar).GetProperty("formatVersion").GetInt32());
+    }
+
+    [Fact]
     public void NewerFormatVersion_IsLeftUntouched()
     {
         var text = "{\"formatVersion\":99,\"sha256\":\"ab12\",\"names\":{\"1000\":\"Future\"},\"comments\":{}}";

@@ -46,6 +46,8 @@ public static class AnnotationExport
         {
             sb.Append(IdaTypeHelpers);
             foreach (var d in types.Declarations) sb.AppendLine($"ndm_declare({Py(d)})");
+            foreach (var a in types.Analysis)
+                sb.AppendLine($"ndm_analysis(0x{a.Rva:X}, {Py(a.Kind)}, {(a.End is { } e ? $"0x{e:X}" : "None")}, {PyOrNone(a.Type)})");
             foreach (var (rva, t) in types.Types.OrderBy(t => t.Key)) sb.AppendLine($"ndm_type(0x{rva:X}, {Py(t)})");
             foreach (var s in types.StackVars.OrderBy(s => s.Key).SelectMany(s => s.Value))
                 sb.AppendLine($"ndm_stack(0x{s.Function:X}, {s.Offset}, {PyOrNone(s.Name)}, {PyOrNone(s.Type)})");
@@ -59,8 +61,53 @@ public static class AnnotationExport
 
     // Mirrors the worker's apply_user_types (Native/Providers/Ida/ida_worker.py) for a database outside the server.
     private const string IdaTypeHelpers = """
-        import ida_frame, ida_funcs, ida_hexrays, ida_nalt, ida_typeinf
+        import ida_auto, ida_bytes, ida_frame, ida_funcs, ida_hexrays, ida_nalt, ida_typeinf, ida_ua
         ndm_failed = []
+        def ndm_data(ea, stop, text):
+            base_t, n = text.strip(), None
+            if base_t.endswith("]") and "[" in base_t:
+                try: n, base_t = int(base_t[base_t.rindex("[") + 1:-1], 0), base_t[:base_t.rindex("[")].strip()
+                except ValueError: n = None
+            low = base_t.lower()
+            if low in ("string", "string16"):
+                w = 1 if low == "string" else 2
+                length = n * w if n else (stop - ea if stop else 0)
+                ida_bytes.del_items(ea, ida_bytes.DELIT_SIMPLE, max(length, 1))
+                return ida_bytes.create_strlit(ea, length, ida_nalt.STRTYPE_C if w == 1 else ida_nalt.STRTYPE_C_16)
+            sizes = {"byte": (1, ida_bytes.byte_flag), "word": (2, ida_bytes.word_flag), "dword": (4, ida_bytes.dword_flag), "qword": (8, ida_bytes.qword_flag),
+                     "float": (4, ida_bytes.float_flag), "double": (8, ida_bytes.double_flag)}
+            if low in sizes:
+                total = sizes[low][0] * (n or 1)
+                ida_bytes.del_items(ea, ida_bytes.DELIT_SIMPLE, total)
+                return ida_bytes.create_data(ea, sizes[low][1](), total, idaapi.BADADDR)
+            t = ndm_parse(text)
+            if t is None: return False
+            ida_bytes.del_items(ea, ida_bytes.DELIT_SIMPLE, max(1, t.get_size()))
+            return ida_typeinf.apply_tinfo(ea, t, ida_typeinf.TINFO_DEFINITE)
+        def ndm_analysis(rva, kind, end, text):
+            ea = base + rva
+            stop = base + end if end is not None else None
+            f = ida_funcs.get_func(ea)
+            if kind == "undefine":
+                if f is not None and f.start_ea == ea:
+                    stop = stop or f.end_ea
+                    ida_funcs.del_func(ea)
+                ok = ida_bytes.del_items(ea, ida_bytes.DELIT_EXPAND, (stop - ea) if stop else 1)
+            elif kind == "code":
+                ida_bytes.del_items(ea, ida_bytes.DELIT_SIMPLE, (stop - ea) if stop else 1)
+                at = ea
+                while at < (stop or ea + 1):
+                    n = ida_ua.create_insn(at)
+                    if n <= 0: break
+                    at += n
+                ok = at > ea
+                if ok and stop is None: ida_auto.auto_make_code(ea); ida_auto.auto_wait()
+            elif kind == "function":
+                if f is not None and f.start_ea == ea: ok = stop is None or ida_funcs.set_func_end(ea, stop)
+                else: ok = ida_funcs.add_func(ea, stop if stop is not None else idaapi.BADADDR)
+            else:
+                ok = ndm_data(ea, stop, text or "")
+            if not ok: ndm_failed.append('%s 0x%X' % (kind, rva))
         def ndm_parse(text):
             text = text.strip().rstrip(";").strip()
             named = text.replace("(*)", "(*__ndm_x)", 1) if "(*)" in text else \
@@ -116,7 +163,7 @@ public static class AnnotationExport
         sb.AppendLine("// Ghidra script: apply names and comments exported from NetDecompilerMcp.");
         sb.AppendLine($"// Source: {ann.FilePath}  sha256 {ann.Sha256}");
         sb.AppendLine("// @category NetDecompilerMcp");
-        if (ann.UserTypes.Count > 0) sb.AppendLine($"// {ann.UserTypes.Count} user type(s) (declarations, prototypes, locals, stack variables) are in the IDA and JSON exports only.");
+        if (ann.UserTypes.Count > 0) sb.AppendLine($"// {ann.UserTypes.Count} user type(s) (declarations, analysis edits, prototypes, locals, stack variables) are in the IDA and JSON exports only.");
         sb.AppendLine("import ghidra.app.script.GhidraScript;");
         sb.AppendLine("import ghidra.program.model.address.Address;");
         sb.AppendLine("import ghidra.program.model.symbol.SourceType;");
@@ -148,6 +195,7 @@ public static class AnnotationExport
                 .Select(s => new { function = s.Function, offset = s.Offset, name = s.Name, type = s.Type }),
             locals = ann.UserTypes.Locals.OrderBy(l => l.Key).SelectMany(l => l.Value)
                 .Select(l => new { function = l.Function, local = l.Local, stack = l.Stack, name = l.Name, type = l.Type }),
+            analysis = ann.UserTypes.Analysis.Select(a => new { rva = a.Rva, kind = a.Kind, end = a.End, type = a.Type }),
         };
         return JsonSerializer.Serialize(doc, IndentedJson);
     }

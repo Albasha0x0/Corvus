@@ -4,7 +4,7 @@ using NetDecompilerMcp.Native.Providers;
 namespace NetDecompilerMcp.Native.Diff;
 
 /// <summary>
-/// One user type of the old build and what happens to it: <see cref="Kind"/> declarations, type, local or stack_var;
+/// One user type of the old build and what happens to it: <see cref="Kind"/> declarations, analysis, type, local or stack_var;
 /// <see cref="Apply"/> adds it to a layer of the new build (null when skipped).
 /// </summary>
 public sealed record UserTypeStep(string Kind, uint? OldRva, uint? NewRva, string Value, bool Set, string Reason, int? Tier, double Confidence, string Detail,
@@ -42,6 +42,19 @@ public static class UserTypeMigration
         UserTypeStep Step(string kind, uint oldRva, (uint? At, MappedAddress Mapped, string? Skip, string Detail) map, string value, string? skip, string detail,
             Func<UserTypeLayer, UserTypeLayer>? apply) =>
             new(kind, oldRva, map.Mapped.NewRva, value, skip == null, skip ?? map.Mapped.Reason, map.Mapped.Pair?.Tier, map.Mapped.Confidence, detail, skip == null ? apply : null);
+
+        // analysis edits keep their order and length
+        foreach (var a in old.Analysis)
+        {
+            var value = $"{a.Kind}{(a.Type != null ? " " + a.Type : "")}{(a.End is { } e ? $" ({e - a.Rva} bytes)" : "")}";
+            var map = Map(a.Rva, functionStart: false);
+            if (map.At is not { } at) { steps.Add(Step("analysis", a.Rva, map, value, map.Skip, map.Detail, null)); continue; }
+            var moved = a with { Rva = at, End = a.End is { } end ? at + (end - a.Rva) : null };
+            var existing = target.Analysis.FirstOrDefault(x => x.Rva == at);
+            steps.Add(existing == moved ? Step("analysis", a.Rva, map, value, "same_analysis", "the new build already has this analysis edit", null)
+                : existing != null ? Step("analysis", a.Rva, map, value, "user_analysis_exists", $"the new build has the analysis edit '{existing.Kind}' there", null)
+                : Step("analysis", a.Rva, map, value, null, map.Detail, l => l.WithAnalysis(moved)));
+        }
 
         foreach (var (rva, type) in old.Types.OrderBy(t => t.Key))
         {

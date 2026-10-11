@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
-144 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+145 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -17,7 +17,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [native-edit](#native-edit) | yes | 9: native names, comments, patches and saving |
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
-| [engine](#engine) | no | 7: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
+| [engine](#engine) | no | 8: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
 | [android](#android) | no | 19: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
 | [dumps](#dumps) | no | 7: crash dumps and crash text |
 | [live](#live) | no | 1: read-only inspection of a running process |
@@ -1809,6 +1809,21 @@ The named types of the decompiler engine's database (IDA local types, Ghidra dat
 | `name` | string |  |  | Show this one type in full instead of a list. |
 | `offset` | integer |  | `0` | Index of the first row. |
 | `limit` | integer |  | `200` | Max rows (default 200, max 5000). |
+| `engine` | string |  |  | Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra), ida or ghidra. Values: auto, ida, ghidra. |
+
+### define_native
+
+**Redefine code or data in the engine** (destructive, idempotent, open-world, long-running)
+
+Change the engine's analysis (IDA or Ghidra) at an address. kind=code decodes instructions (up to end, else following the flow); function makes a function (with end: its extent; on an existing function: moves its end); undefine turns items back into unknown bytes (up to end, else the item there; at a function start the whole function); data makes a data item of type: byte, word, dword, qword, float, double, string (C string, ends at end or its terminator), string16 (UTF-16) or a C type ('Packet', 'char[16]'), each with an optional [count] such as dword[8]. Data and undefine replace a user type set on a global there. Saved per file hash with the image's annotations: re-applied to a new database, exported by export_native_annotations and carried by migrate_native_names and update_to_new_build.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
+| `address` | string | yes |  | Start: Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them). |
+| `kind` | string | yes |  | code, function, undefine or data. Values: code, function, undefine, data. |
+| `end` | string |  |  | Exclusive end address (same forms as address). |
+| `type` | string |  |  | kind=data: byte, word, dword, qword, float, double, string, string16 or a C type, optionally with [count]. |
 | `engine` | string |  |  | Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra), ida or ghidra. Values: auto, ida, ghidra. |
 
 ### ida_python

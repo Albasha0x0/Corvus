@@ -421,17 +421,30 @@ public sealed record NativeLocalEdit(uint Function, string Local, int? Stack, st
 public sealed record NativeStackVarEdit(uint Function, int Offset, string? Name, string? Type);
 
 /// <summary>
-/// User types, applied in this order: C declarations; types of functions (prototypes) and globals by RVA, an empty one
-/// clearing it; stack frame members; decompiler locals.
+/// A change to the engine's analysis at <see cref="Rva"/>: <see cref="Kind"/> code (instructions from there), function (a
+/// function there, ending at <see cref="End"/> when given), undefine (the items in [Rva, End), or the item at Rva, back to
+/// unknown bytes) or data (an item of <see cref="Type"/>: byte, word, dword, qword, float, double, string, string16 or a C
+/// type, each with an optional [count]; a string without a count ends at End or at its terminator).
+/// </summary>
+public sealed record NativeAnalysisEdit(uint Rva, string Kind, uint? End, string? Type)
+{
+    public const string Code = "code", Function = "function", Undefine = "undefine", Data = "data";
+}
+
+/// <summary>
+/// User types, applied in this order: C declarations; analysis edits in the order made; types of functions (prototypes)
+/// and globals by RVA, an empty one clearing it; stack frame members; decompiler locals.
 /// </summary>
 public sealed record NativeUserTypeBatch(IReadOnlyList<string> Declarations, IReadOnlyList<NativePrototype> Types, IReadOnlyList<NativeStackVarEdit> StackVars,
     IReadOnlyList<NativeLocalEdit> Locals)
 {
     public static readonly NativeUserTypeBatch Empty = new([], [], [], []);
+
+    public IReadOnlyList<NativeAnalysisEdit> Analysis { get; init; } = [];
 }
 
 /// <summary>
-/// One item of a user type batch: <see cref="Kind"/> type, stack or local, at <see cref="Rva"/> (the address or function);
+/// One item of a user type batch: <see cref="Kind"/> type, stack, local or analysis, at <see cref="Rva"/> (the address or function);
 /// <see cref="Target"/> as asked; for a local the name it had before (<see cref="Resolved"/>) and its stack offset;
 /// <see cref="Text"/>: the type or name now in effect.
 /// </summary>

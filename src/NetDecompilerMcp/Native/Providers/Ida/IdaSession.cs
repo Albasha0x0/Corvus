@@ -292,19 +292,8 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(batch);
-        var types = new JsonArray();
-        foreach (var t in batch.Types) types.Add(new JsonArray(t.Rva, t.Declaration));
-        var stack = new JsonArray();
-        foreach (var s in batch.StackVars) stack.Add(new JsonArray(s.Function, s.Offset, s.Name, s.Type));
-        var locals = new JsonArray();
-        foreach (var l in batch.Locals) locals.Add(new JsonArray(l.Function, l.Local, l.Stack, l.Name, l.Type));
-        var args = IdaProvider.Args(("decls", new JsonArray(batch.Declarations.Select(d => (JsonNode)d).ToArray())), ("types", types), ("stack", stack),
-            ("locals", locals), ("stamp_key", stampKey), ("stamp", stamp), ("save", save));
-        var r = await CallAsync("apply_user_types", args, cancellationToken, journal: !save, saves: save).ConfigureAwait(false);
-        var items = r.GetProperty("items").EnumerateArray().Select(i => new NativeUserTypeOutcome(i[0].GetString() ?? "", i[1].GetUInt32(), i[2].GetString() ?? "",
-            i[3].GetBoolean(), Text(i[4]), Text(i[5]), i[6].ValueKind == JsonValueKind.Number ? i[6].GetInt32() : null, Text(i[7]))).ToList();
-        return new UserTypeResult(r.GetProperty("decl_errors").GetInt32(), r.GetProperty("decl_messages").EnumerateArray().Select(m => m.GetString() ?? "").ToList(),
-            r.GetProperty("declared").EnumerateArray().Select(m => m.GetString() ?? "").ToList(), items, TimeSpan.FromSeconds(r.GetProperty("seconds").GetDouble()));
+        return WorkerRows.UserTypes(await CallAsync("apply_user_types", WorkerRows.UserTypeArgs(batch, stampKey, stamp, save), cancellationToken,
+            journal: !save, saves: save).ConfigureAwait(false));
     }
 
     public async Task<NativeTypeList> ListTypesAsync(string? filter, string? kind, int offset, int limit, CancellationToken cancellationToken = default)
