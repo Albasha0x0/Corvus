@@ -131,7 +131,10 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             return await FunctionCandidates(image, mode, offset, limit, context, progress, cancellationToken);
         var (native, index) = await Open(image, context, progress, cancellationToken);
         uint? Bound(string? text) => string.IsNullOrWhiteSpace(text) ? null : Address(index, text);
-        var query = FunctionQuery.Create(filter, minSize, maxSize, Bound(from), Bound(to), hasType, sort, descending);
+        // an end at or past the image's end (a VA or an RVA) means to the end
+        uint? End(string? text) => text?.Trim().StartsWith("0x", StringComparison.OrdinalIgnoreCase) == true && NativeAddress.Number(text) is { } n
+            && n >= index.Image.SizeOfImage && (n < index.Image.ImageBase || n - index.Image.ImageBase >= index.Image.SizeOfImage) ? index.Image.SizeOfImage : Bound(text);
+        var query = FunctionQuery.Create(filter, minSize, maxSize, Bound(from), End(to), hasType, sort, descending);
         var choice = Choose(mode, native, index);
         if (choice.External)
             return await _engine!.ListFunctions(native, index, query, offset, limit, choice, progress, cancellationToken);

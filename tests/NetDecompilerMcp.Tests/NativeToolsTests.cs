@@ -147,6 +147,20 @@ public class NativeToolsTests
         Assert.Contains("find_xrefs address=KERNEL32!ExitProcess", error.Remediation);
     }
 
+    [Fact]
+    public async Task FunctionRangeEndingPastTheImageListsToItsEnd()
+    {
+        using var env = new Env();
+        using var dir = new TempDir();
+        var tools = new NativeCodeTools(env.Workspace, new NetDecompilerMcp.Services.NativeCodeService(env.Workspace, env.Options), env.Pager);
+        var all = await tools.ListFunctions(McpProtocolTests.NativeSample(dir));
+        var count = System.Text.RegularExpressions.Regex.Match(all, @"\n(\d+) functions? \(").Groups[1].Value;
+        Assert.NotEqual("", count);
+        foreach (var end in new[] { "0x7FFFFFFFFFFF", "0x10000000" })
+            Assert.Contains($"\n{count} function", await tools.ListFunctions("native.dll", from: "rva:0", to: end));
+        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => tools.ListFunctions("native.dll", from: "0x7FFFFFFFFFFF"))).Code);
+    }
+
     /// <summary>ReadyToRun images clear the IL-only flag too; they are not mixed-mode and get no native view.</summary>
     [Fact]
     public void ReadyToRunAssembliesGetNoNativeView()
