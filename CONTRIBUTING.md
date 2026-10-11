@@ -52,6 +52,14 @@ catalog, the client catalog, the guide) and checked by tests: after changing the
 - Commit messages are short and mechanical: `area: what changed` (e.g. `find_xrefs: struct member targets through IDA`).
 - A pull request describes what changed and how it was tested, and keeps the README and docs in sync.
 
+## Releasing
+
+Write the version's section at the top of `docs/release-notes.md` ("Changes in behaviour" first), then run
+`./release.ps1 -Version X.Y.Z` on a clean `main`: it bumps the version, regenerates the generated docs, runs the full
+suite, commits and tags. `-Push` also pushes, waits for the release workflow, checks that every archive and
+`SHA256SUMS` is attached and matches, sets the release body from the notes and prints the manual checklist;
+`-VerifyOnly` does the checks for a release already pushed.
+
 ## Reporting problems
 
 Bugs and feature requests: the issue forms. Security problems: privately, as described in [SECURITY.md](SECURITY.md).
