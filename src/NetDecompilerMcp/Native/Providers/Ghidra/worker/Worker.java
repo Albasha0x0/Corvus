@@ -227,6 +227,7 @@ public class Worker implements GhidraLaunchable {
             case "blocks": return read(() -> CodeOps.blocks(this, r));
             case "xrefs_to": return read(() -> CodeOps.xrefsTo(this, r));
             case "xrefs_from": return read(() -> CodeOps.xrefsFrom(this, r));
+            case "names": return read(() -> CodeOps.names(this, r));
             case "set_name": return write("set name", () -> NameOps.setName(this, r));
             case "set_comment": return write("set comment", () -> NameOps.setComment(this, r));
             case "apply_names": return applyNames(r);

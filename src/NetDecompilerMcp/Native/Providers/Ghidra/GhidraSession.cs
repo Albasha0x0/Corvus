@@ -391,4 +391,23 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         return WorkerRows.PdbLoad(await CallAsync("load_pdb", WorkerRows.Args(("path", pdbPath), ("stamp_key", stampKey), ("stamp", stamp),
             ("trust_analysis", trustAnalysisLoad)), cancellationToken, saves: true, timeout: Options.OpenTimeout).ConfigureAwait(false));
     }
+
+    /// <summary>A name Ghidra has from its loader or analysis (Function ID library names included); never one this server pushed.</summary>
+    internal sealed record GhidraName(uint Rva, string Name, bool Imported, bool Function);
+
+    /// <summary>Every name Ghidra's loader and analysis gave, except its generated defaults, in pages of 50,000.</summary>
+    internal async Task<IReadOnlyList<GhidraName>> ListNamesAsync(CancellationToken cancellationToken = default)
+    {
+        var list = new List<GhidraName>();
+        for (int total = int.MaxValue; list.Count < total;)
+        {
+            var r = await CallAsync("names", WorkerRows.Args(("offset", list.Count), ("limit", 50_000)), cancellationToken).ConfigureAwait(false);
+            total = r.GetProperty("total").GetInt32();
+            int before = list.Count;
+            foreach (var x in r.GetProperty("rows").EnumerateArray())
+                list.Add(new GhidraName(x[0].GetUInt32(), x[1].GetString() ?? "", x[2].GetString() == "imported", x[3].GetBoolean()));
+            if (list.Count == before) break;
+        }
+        return list;
+    }
 }

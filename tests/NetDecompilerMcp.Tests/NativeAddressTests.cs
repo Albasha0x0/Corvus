@@ -39,6 +39,22 @@ public class NativeAddressTests
     }
 
     [Fact]
+    public void EngineDefaultNamesResolveToTheirAddress()
+    {
+        var image = Image();
+        foreach (var name in new[] { "FUN_140001010", "thunk_FUN_140001010", "LAB_140001010", "DAT_140001010", "PTR_DAT_140001010", "PTR_FUN_140001010", "sub_1010",
+                     "sub_140001010", "loc_140001010" })
+            Assert.Equal(Second, NativeAddress.Parse(image, name));
+        // a real name wins over the default form, and a malformed default name is not found
+        var index = NativeCodeIndex.Build(image);
+        index.SetSourceName(Third, "FUN_140001010", NativeNameSource.User);
+        Assert.Equal(Third, NativeCodeTools.Address(index, "FUN_140001010"));
+        Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => NativeAddress.Parse(image, "FUN_14000101g")).Code);
+        Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => NativeAddress.Parse(image, "FUN_150001010")).Code);
+        Assert.Null(NativeAddress.DefaultName("switchD_140001010"));
+    }
+
+    [Fact]
     public void NameOnSeveralAddressesIsAmbiguousAndListsThem()
     {
         var image = Image();

@@ -9,8 +9,8 @@ public readonly record struct AddressCandidate(uint Rva, string Source);
 /// <summary>
 /// Parses addresses given to native tools into RVAs. Forms: a number (hex with 0x or a trailing h, or plain hex
 /// digits; a value inside [ImageBase, ImageBase + SizeOfImage) is a VA, otherwise an RVA), prefixed "rva:", "va:" or
-/// "off:" / "offset:" (file offset), an export name, "module!import" for an IAT slot, or a name the caller resolves
-/// (function names such as sub_1800012340). A name on several addresses is an ambiguous error listing them.
+/// "off:" / "offset:" (file offset), an export name, "module!import" for an IAT slot, a name the caller resolves, or an
+/// engine's default name (sub_1800012340, FUN_180001234, DAT_180020000). A name on several addresses is an ambiguous error listing them.
 /// </summary>
 public static class NativeAddress
 {
@@ -52,9 +52,27 @@ public static class NativeAddress
         }
         if (candidates.Count == 1) return candidates[0].Rva;
         if (candidates.Count > 1) throw Ambiguous(image, t, candidates);
+        if (DefaultName(t) is { } named) return FromNumber(image, named, t);
         if (Number(t) is { } plain) return FromNumber(image, plain, t);
         throw new ToolError(ErrorCode.NotFound, $"'{t}' is neither an address nor a known name in {Path.GetFileName(image.Path)}.",
             "pass a hex address, an export name, module!import, or a function name from list_functions");
+    }
+
+    /// <summary>Engines' default names (Ghidra's FUN_, LAB_, DAT_, thunk_FUN_, PTR_..._; IDA's sub_, loc_, off_, unk_, byte_ ...).</summary>
+    private static readonly string[] DefaultPrefixes =
+        ["thunk_FUN_", "FUN_", "LAB_", "DAT_", "PTR_", "sub_", "j_sub_", "loc_", "locret_", "off_", "unk_", "byte_", "word_", "dword_", "qword_", "stru_", "asc_"];
+
+    /// <summary>The address in an engine's default name: the hex after the prefix (PTR_: the last _ part, as in PTR_DAT_140012000), else null.</summary>
+    public static ulong? DefaultName(string name)
+    {
+        foreach (var p in DefaultPrefixes)
+        {
+            if (!name.StartsWith(p, StringComparison.Ordinal)) continue;
+            var hex = p == "PTR_" ? name[(name.LastIndexOf('_') + 1)..] : name[p.Length..];
+            return hex.Length is > 0 and <= 16 && hex.All(Uri.IsHexDigit)
+                ? ulong.Parse(hex, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) : null;
+        }
+        return null;
     }
 
     internal static ToolError Ambiguous(INativeImage image, string name, IEnumerable<AddressCandidate> found)

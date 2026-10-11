@@ -295,7 +295,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         var ann = native.AnnotationsOrNull ?? code.Annotations(native);
         var layers = NativeNameLayers.OfOrNull(native)?.Layers ?? [];
         if (ann.NameCount == 0 && ann.CommentCount == 0 && layers.Count == 0) return;
-        sb.AppendLine("Names (priority user > pdb > nativeaot > il2cpp > ida > discovered):");
+        sb.AppendLine("Names (priority user > pdb > nativeaot > il2cpp > ida > ghidra > discovered):");
         if (ann.NameCount > 0 || ann.CommentCount > 0)
             sb.AppendLine($"  user: {ann.NameCount} name(s), {ann.CommentCount} comment(s), saved per file hash in {code.AnnotationRoot}");
         foreach (var l in layers)

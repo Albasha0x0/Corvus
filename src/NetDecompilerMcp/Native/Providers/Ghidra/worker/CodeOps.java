@@ -37,6 +37,9 @@ import ghidra.program.model.symbol.FlowType;
 import ghidra.program.model.symbol.RefType;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.ReferenceManager;
+import ghidra.program.model.symbol.SourceType;
+import ghidra.program.model.symbol.Symbol;
+import ghidra.program.model.symbol.SymbolType;
 
 /** Read operations; callers hold the read lock. Row shapes match the IDA worker's. */
 final class CodeOps {
@@ -373,5 +376,48 @@ final class CodeOps {
             }
         }
         return out;
+    }
+
+    /**
+     * Names Ghidra has that are neither its defaults nor ours: functions and labels from the loader and analysis (IMPORTED,
+     * ANALYSIS, including Function ID library names); USER_DEFINED names are what this server pushed. Rows [rva, name,
+     * source (imported, analysis), function]; offset/limit page them, total counts all.
+     */
+    static JsonElement names(Worker w, Worker.Request r) throws Exception {
+        int offset = Math.max(0, r.args.has("offset") ? r.args.get("offset").getAsInt() : 0);
+        int limit = Math.max(1, r.args.has("limit") ? r.args.get("limit").getAsInt() : 50_000);
+        JsonArray rows = new JsonArray();
+        int total = 0;
+        for (Symbol s : w.program.getSymbolTable().getAllSymbols(false)) {
+            r.monitor.checkCancelled();
+            SymbolType t = s.getSymbolType();
+            SourceType src = s.getSource();
+            if (t != SymbolType.FUNCTION && t != SymbolType.LABEL || !s.isPrimary() || s.isExternal()) continue;
+            if (src != SourceType.IMPORTED && src != SourceType.ANALYSIS) continue;
+            String name = s.getName(true);
+            if (generated(name)) continue;
+            Long rva = w.rva(s.getAddress());
+            if (rva == null) continue;
+            if (total++ < offset || rows.size() >= limit) continue;
+            JsonArray row = new JsonArray();
+            row.add(rva);
+            row.add(name);
+            row.add(src == SourceType.IMPORTED ? "imported" : "analysis");
+            row.add(t == SymbolType.FUNCTION);
+            rows.add(row);
+        }
+        JsonObject o = new JsonObject();
+        o.addProperty("total", total);
+        o.add("rows", rows);
+        return o;
+    }
+
+    /** Names Ghidra generates that analysis records under its own source: switch tables, cases, strings, pointers. */
+    private static final String[] GENERATED = { "FUN_", "LAB_", "DAT_", "PTR_", "thunk_FUN_", "switchD_", "caseD_", "switchdataD_", "s_", "u_" };
+
+    private static boolean generated(String name) {
+        for (String p : GENERATED)
+            if (name.startsWith(p)) return true;
+        return false;
     }
 }

@@ -406,12 +406,17 @@ public sealed class NativeEngineService : IDisposable
             holder.Opening = native.Image is Native.MachO.MachOFile { Slice: { } slice } thin
                 ? OpenBytes(provider, native, $"{Path.GetFileName(native.FilePath)}-{slice.Name}", thin.FileBytes.ToArray(), progress, holder.OpenedPdb)
                 : provider.OpenAsync(native.FilePath, native.OriginalSha256, new NativeOpenOptions { Progress = progress, PdbPath = holder.OpenedPdb }, native.Released);
-            // Once open, the library functions IDA recognized become the image's ida name layer.
-            if (id == IdaProvider.ProviderId)
+            // Once open, the library functions IDA recognized become the image's ida name layer, Ghidra's own names its ghidra layer.
+            if (id is IdaProvider.ProviderId or GhidraProvider.ProviderId)
                 holder.LibraryNames = holder.Opening.ContinueWith(async opened =>
                 {
                     if (!opened.IsCompletedSuccessfully) return -1;
-                    try { return await EngineLibraryNames.ImportAsync(native, opened.Result, _code, native.Released); }
+                    try
+                    {
+                        return opened.Result is GhidraSession ghidra
+                            ? await GhidraNames.ImportAsync(native, ghidra, _code, native.Released)
+                            : await EngineLibraryNames.ImportAsync(native, opened.Result, _code, native.Released);
+                    }
                     catch (Exception ex) when (ex is ToolError or OperationCanceledException) { return -1; }
                 }, TaskScheduler.Default).Unwrap();
             return Wait(native, holder.Opening, ct);
@@ -458,6 +463,9 @@ public sealed class NativeEngineService : IDisposable
     /// session was opened for the image; does not open one.
     /// </summary>
     public Task<int>? LibraryNames(LoadedNative native) => Existing(native, IdaProvider.ProviderId)?.LibraryNames;
+
+    /// <summary>The import of the open Ghidra session's names (the number imported, -1 when it failed), or null when no Ghidra session was opened; does not open one.</summary>
+    public Task<int>? GhidraNameLayer(LoadedNative native) => Existing(native, GhidraProvider.ProviderId)?.LibraryNames;
 
     /// <summary>The last patch application into the image's database of engine <paramref name="id"/>, or null when none ran.</summary>
     public PatchSyncResult? LastPatchSync(LoadedNative native, string id) => Existing(native, id)?.LastSync;

@@ -486,7 +486,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     }
 
     /// <summary>
-    /// Every address <paramref name="name"/> is in effect at: names set by a source (user, pdb, il2cpp, ida), and the
+    /// Every address <paramref name="name"/> is in effect at: names set by a source (user, pdb, il2cpp, ida, ghidra), and the
     /// discovered names (exports, import thunks) of functions no source renamed.
     /// </summary>
     public IReadOnlyList<AddressCandidate> AddressesOfName(string name)

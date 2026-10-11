@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Native;
+using NetDecompilerMcp.Native.Code;
 using NetDecompilerMcp.Native.Pdb;
 using NetDecompilerMcp.Native.Pe;
 using NetDecompilerMcp.Native.Providers;
@@ -101,6 +103,32 @@ public sealed class NativeGhidraEngineTests(ITestOutputHelper output) : IDisposa
         var session = await rig.Engines.Session(native, "ghidra", null, default);
         Assert.DoesNotContain("0x5a17", (await session.DecompileAsync(rva)).Text);
         Assert.True(rig.Engines.LastPatchSync(native, "ghidra")!.Reverted > 0);
+    }
+
+    [GhidraFact]
+    public async Task Ghidra_names_form_a_layer_and_its_default_names_are_addresses()
+    {
+        var rig = Setup(_dir.File("cache"));
+        rig.Workspace.LoadAny(Sample());
+        var native = rig.Workspace.Read(() => rig.Workspace.Natives[0]);
+        var index = await rig.Code.Index(native, null, default);
+        var session = (GhidraSession)await rig.Engines.Session(native, "ghidra", null, default);
+        Assert.True(await rig.Engines.GhidraNameLayer(native)! > 0);
+        var names = await session.ListNamesAsync();
+        output.WriteLine($"{names.Count} Ghidra names, e.g. {string.Join(", ", names.Where(n => n.Function).Take(8).Select(n => $"{n.Name} ({(n.Imported ? "imported" : "analysis")})"))}");
+        // the ghidra layer holds Ghidra's names below the others; without the PDB layer a name only Ghidra has left resolves through it
+        var exports = native.Image.Exports.Select(e => e.Rva).ToHashSet();
+        var only = names.First(n => n.Function && !exports.Contains(n.Rva) && index.FunctionAt(n.Rva)?.Start == n.Rva);
+        Assert.Equal(only.Name, index.Sourced.NameAt(only.Rva, NativeNameSource.Ghidra));
+        NativeNameLayers.Of(native).Remove(NativeNameSource.Pdb, index);
+        Assert.Equal((only.Name, NativeNameSource.Ghidra), index.Sourced.NameAt(only.Rva));
+        Assert.Equal(only.Rva, index.AddressOfName(only.Name));
+        Assert.Contains(only.Name, await rig.Analysis.DecompileNative(native.Id, only.Name, engine: "ghidra"));
+        // Ghidra's default names (FUN_<va>, thunk_FUN_<va>) are addresses
+        var other = (await session.ListFunctionsAsync()).First(f => f.StartRva != only.Rva && !exports.Contains(f.StartRva) && f.EndRva - f.StartRva > 16);
+        var va = native.Image.ImageBase + other.StartRva;
+        foreach (var form in new[] { $"FUN_{va:x}", $"thunk_FUN_{va:x}" })
+            Assert.Contains($"at {NativeAddress.Va(native.Image, other.StartRva)}", await rig.Analysis.DecompileNative(native.Id, form, engine: "ghidra"));
     }
 
     [GhidraFact]
