@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native.Providers;
+using NetDecompilerMcp.Native.Providers.Ghidra;
 using NetDecompilerMcp.Native.Providers.Ida;
 
 namespace NetDecompilerMcp.Tools;
@@ -45,9 +46,9 @@ internal static class NativeEngineQueries
                 x[2].GetInt64(), x[3].GetInt32(), x.GetArrayLength() > 4 ? x[4].EnumerateArray().Select(m => new NativeTypeMember(m[0].GetInt64(), m[1].GetString() ?? "",
                     m[2].ValueKind == JsonValueKind.String ? m[2].GetString()! : "", m[3].GetInt64())).ToList() : null)).ToList());
         }
-        if (q.Kind == "ptr")
-            throw new ToolError(ErrorCode.Unsupported, $"kind=ptr is known from IDA's types; {session.ProviderId} lists structs, unions, enums, typedefs and functions.",
-                "use engine=ida, or kind=typedef");
+        if (q.Kind == "ptr" && session is not GhidraSession)
+            throw new ToolError(ErrorCode.Unsupported, $"kind=ptr is known from IDA's and Ghidra's types; {session.ProviderId} lists structs, unions, enums, typedefs and functions.",
+                "use engine=ida or engine=ghidra, or kind=typedef");
         var all = await session.ListTypesAsync(q.Filter is { Pattern: null } ? q.Filter.Text : null, q.Kind == "udt" ? null : q.Kind, 0, 1_000_000, ct).ConfigureAwait(false);
         IEnumerable<NativeTypeEntry> rows = all.Types.Where(t => (q.Kind != "udt" || t.Kind is "struct" or "union") && (q.Filter is not { Pattern: not null } || q.Filter.IsMatch(t.Name)));
         rows = q.Sort switch

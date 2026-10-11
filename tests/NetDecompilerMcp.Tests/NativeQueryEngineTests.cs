@@ -175,7 +175,7 @@ public sealed class NativeQueryEngineTests(ITestOutputHelper output) : IDisposab
     public async Task List_native_types_through_Ghidra_by_pattern_kind_order_and_members()
     {
         var rig = Setup();
-        await rig.Types.DeclareNativeTypes(rig.Native.Id, "struct QzPkt { int len; char data[12]; }; union QzWord { int i; float f; };", engine: "ghidra");
+        await rig.Types.DeclareNativeTypes(rig.Native.Id, "struct QzPkt { int len; char data[12]; }; union QzWord { int i; float f; }; typedef struct QzPkt *PQzPkt;", engine: "ghidra");
         static List<string> Names(string text) => [.. text.Split('\n').Where(l => l.StartsWith("  ", StringComparison.Ordinal) && !l.StartsWith("    ", StringComparison.Ordinal))
             .Select(l => l.Trim().Split(' ')[1])];
         Assert.Equal(["QzPkt", "QzWord"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "qz*", kind: "udt", engine: "ghidra", sort: "name")));
@@ -183,6 +183,6 @@ public sealed class NativeQueryEngineTests(ITestOutputHelper output) : IDisposab
         var members = await rig.Types.ListNativeTypes(rig.Native.Id, "QzPkt", engine: "ghidra", members: true);
         output.WriteLine(members);
         Assert.Matches(@"      \+0x4  data  char\[12\]  12", members);
-        Assert.Equal(ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.ListNativeTypes(rig.Native.Id, kind: "ptr", engine: "ghidra"))).Code);
+        Assert.Equal(["PQzPkt"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "/qz/", kind: "ptr", engine: "ghidra")));
     }
 }

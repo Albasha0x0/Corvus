@@ -1896,7 +1896,7 @@ The named types of the decompiler engine's database (IDA local types, Ghidra dat
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
 | `filter` | string |  |  | Name filter: substring (case-insensitive), glob with * and ?, or /regex/ (flags i, m, s). |
-| `kind` | string |  |  | struct, union, udt (either), enum, typedef, func or ptr (IDA). Values: struct, union, udt, enum, typedef, func, ptr. |
+| `kind` | string |  |  | struct, union, udt (either), enum, typedef, func or ptr. Values: struct, union, udt, enum, typedef, func, ptr. |
 | `name` | string |  |  | Show this one type in full instead of a list. |
 | `offset` | integer |  | `0` | Index of the first row. |
 | `limit` | integer |  | `200` | Max rows (default 200, max 5000). |

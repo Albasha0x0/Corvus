@@ -531,7 +531,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     public Task<string> ListNativeTypes(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Name filter: " + NameFilter.Description + ".")] string? filter = null,
-        [Description("struct, union, udt (either), enum, typedef, func or ptr (IDA).")] string? kind = null,
+        [Description("struct, union, udt (either), enum, typedef, func or ptr.")] string? kind = null,
         [Description("Show this one type in full instead of a list.")] string? name = null,
         [Description("Index of the first row.")] int offset = 0,
         [Description("Max rows (default 200, max 5000).")] int limit = 200,

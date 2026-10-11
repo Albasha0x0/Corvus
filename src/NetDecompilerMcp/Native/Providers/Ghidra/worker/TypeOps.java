@@ -40,6 +40,7 @@ import ghidra.program.model.data.DataTypeManager;
 import ghidra.program.model.data.DataUtilities;
 import ghidra.program.model.data.FunctionDefinition;
 import ghidra.program.model.data.FunctionDefinitionDataType;
+import ghidra.program.model.data.Pointer;
 import ghidra.program.model.data.PointerDataType;
 import ghidra.program.model.data.Structure;
 import ghidra.program.model.data.StructureDataType;
@@ -640,7 +641,7 @@ final class TypeOps {
         return 0;
     }
 
-    /** Named types whose name contains filter (case-insensitive), of kind when given, by name: rows [name, kind, size, members]. */
+    /** Named types whose name contains filter (case-insensitive), of kind when given (ptr: typedefs of pointers), by name: rows [name, kind, size, members]. */
     static JsonElement listTypes(Worker w, Worker.Request r) throws Exception {
         String filter = text(r.args.get("filter"));
         String wanted = filter == null ? null : filter.toLowerCase();
@@ -653,7 +654,8 @@ final class TypeOps {
         for (DataType dt : all) {
             r.monitor.checkCancelled();
             String k = kind(dt);
-            if (k == null || (kind != null && !k.equals(kind)) || (wanted != null && !dt.getName().toLowerCase().contains(wanted))) continue;
+            boolean match = kind == null || ("ptr".equals(kind) ? dt instanceof TypeDef td && td.getBaseDataType() instanceof Pointer : kind.equals(k));
+            if (k == null || !match || (wanted != null && !dt.getName().toLowerCase().contains(wanted))) continue;
             rows.add(dt);
         }
         rows.sort((x, y) -> {
