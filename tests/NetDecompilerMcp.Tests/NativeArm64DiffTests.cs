@@ -62,6 +62,7 @@ public class NativeArm64DiffTests
     }
 
     /// <summary>The glibc and musl builds of one library: most functions match, exports by name and many by masked bytes.</summary>
+    [Trait("Speed", "Slow")]
     [Fact]
     public void Glibc_and_musl_builds_of_one_library_match()
     {

@@ -234,6 +234,7 @@ public sealed class StackTextTests : IDisposable
         Assert.Equal(ErrorCode.NotFound, await Code(() => _service.Symbolize("x", null, null, "missing.dll", null, 0, 10, default)));
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public async Task LargeLogsAreReadFromTheirEnd()
     {

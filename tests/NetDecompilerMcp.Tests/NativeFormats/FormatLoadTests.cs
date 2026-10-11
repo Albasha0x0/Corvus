@@ -120,6 +120,7 @@ public sealed class FormatLoadTests
         Assert.Equal(((ElfFile)NativeImageLoader.Open(NativeFixtures.LinuxArm64DbgShim)).BuildId, so.BuildId);
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public void SurveyFeatures_TakesElfAndMachOPaths()
     {
@@ -142,6 +143,7 @@ public sealed class FormatLoadTests
     }
 
     /// <summary>Every native tool on ELF and Mach-O images: results or typed errors (pe_only), never an unexpected exception.</summary>
+    [Trait("Speed", "Slow")]
     [Fact]
     public async Task EveryNativeTool_AnswersOnElfAndMachO()
     {

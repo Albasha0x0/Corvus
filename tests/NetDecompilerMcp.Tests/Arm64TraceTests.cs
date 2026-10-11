@@ -207,6 +207,7 @@ public class Arm64TraceTests
         Assert.Contains(image, x => x.Rva == s.At["virtualCall"]);
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public async Task Real_arm64_image_traces_and_resolves_through_the_tools()
     {

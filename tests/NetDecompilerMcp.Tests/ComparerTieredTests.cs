@@ -138,6 +138,7 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("-> ambiguous: 2 candidates share the IL hash, other type key", await tools.FindCounterpart("Source::Dup", env.Fixture.Id, newer.Id));
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public async Task Counterpart_DiffOfDecompiledCodeAndNormalizedIl_Bounded()
     {

@@ -50,6 +50,7 @@ public sealed class Arm64FormatCodeTests(ITestOutputHelper output)
     }
 
     /// <summary>Call arguments on a real library: imports called with signatures, string arguments recovered through ADRP pairs.</summary>
+    [Trait("Speed", "Slow")]
     [Fact]
     public void Call_arguments_on_a_real_library()
     {

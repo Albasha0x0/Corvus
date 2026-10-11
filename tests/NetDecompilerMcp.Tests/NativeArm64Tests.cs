@@ -181,6 +181,7 @@ public class NativeArm64Tests
         Assert.Equal(FlowKind.Next, index.Decode(Code)!.Flow);
     }
 
+    [Trait("Speed", "Slow")]
     [Fact]
     public async Task Arm64_pe_is_decoded_end_to_end()
     {

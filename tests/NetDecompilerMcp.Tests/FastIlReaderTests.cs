@@ -7,10 +7,14 @@ namespace NetDecompilerMcp.Tests;
 /// <summary>The fast System.Reflection.Metadata decoder must agree with dnlib's own body reader on every method.</summary>
 public class FastIlReaderTests
 {
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void MatchesDnlibOnEveryMethod(bool largeRealAssembly)
+    [Fact]
+    public void MatchesDnlibOnEveryMethod() => MatchesDnlib(largeRealAssembly: false);
+
+    [Trait("Speed", "Slow")]
+    [Fact]
+    public void MatchesDnlibOnEveryMethodOfALargeAssembly() => MatchesDnlib(largeRealAssembly: true);
+
+    private static void MatchesDnlib(bool largeRealAssembly)
     {
         using var env = new Env(largeRealAssembly ? typeof(ModuleDefMD).Assembly.Location : null);
         int methods = 0;
