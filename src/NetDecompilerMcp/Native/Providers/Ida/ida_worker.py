@@ -171,7 +171,17 @@ def ida():
         except BaseException:
             mods[optional] = None
     _ida = type("Ida", (), mods)
+    batch_mode()
     return _ida
+
+
+def batch_mode():
+    # no dialog may wait for an answer that never comes: IDA takes the default of every question
+    try:
+        import idc
+        idc.batch(1)
+    except BaseException:
+        pass
 
 
 def need_open():
@@ -245,6 +255,7 @@ def op_open(args):
     if rc != 0:
         raise WorkerError("provider_unavailable", "open_database returned %d for %s" % (rc, path))
     _state["open"] = True
+    batch_mode()
     m.ida_auto.auto_wait()
     _state["base"] = m.ida_nalt.get_imagebase()
     ftype = m.ida_ida.inf_get_filetype()

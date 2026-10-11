@@ -305,6 +305,14 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
     }
 
     [IdaFact]
+    public async Task The_worker_runs_in_batch_mode()
+    {
+        await using var s = await Provider.OpenAsync(System64, null, Offline);
+        // idc.batch returns the mode before the call: already on
+        Assert.Contains((await s.RunScriptAsync("import idc\nidc.batch(1)")).Result, (string[])["1", "True"]);
+    }
+
+    [IdaFact]
     public async Task Concurrent_requests_are_serialized()
     {
         await using var s = await Provider.OpenAsync(System64, null, Offline);
