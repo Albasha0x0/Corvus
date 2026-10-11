@@ -79,6 +79,18 @@ public class CSharpAdvancedTests : IDisposable
         Assert.DoesNotContain("<>", result);
     }
 
+    /// <summary>Added members all have the token (new): decompile_member and get_il cached one's text under it and showed it for the others.</summary>
+    [Fact]
+    public async Task EachAddedMemberDecompilesToItself()
+    {
+        AddMembers("Shop", "public static int Aaa(int x) => x + 1; public static int Bbb(int x) => x + 2;");
+        var tools = new NetDecompilerMcp.Tools.DecompileTools(_env.Workspace, _env.Decompiler, _env.Pager);
+        Assert.Contains("x + 2", await tools.DecompileMember("Fixture.Model.Shop::Bbb"));
+        Assert.Contains("x + 1", await tools.DecompileMember("Fixture.Model.Shop::Aaa"));
+        Assert.Contains("ldc.i4.2", await tools.GetIL("Fixture.Model.Shop::Bbb"));
+        Assert.Contains("ldc.i4.1", await tools.GetIL("Fixture.Model.Shop::Aaa"));
+    }
+
     /// <summary>
     /// Added members of a type with a nullable context are marked oblivious (an added T Same&lt;T&gt;(T) read as where T : notnull),
     /// and attributes of added type parameters are kept.

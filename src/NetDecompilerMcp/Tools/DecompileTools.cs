@@ -192,7 +192,7 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
             : decompiler.DecompileType(sym.Assembly, (TypeDef)sym.Member, ct)));
 
     private string CacheKey(string kind, IEnumerable<ResolvedSymbol> symbols) =>
-        $"{workspace.Generation}|{kind}|{string.Join(",", symbols.Select(s => s.Assembly.Id + Format.Token(s.Member)))}";
+        $"{workspace.Generation}|{kind}|{string.Join(",", symbols.Select(s => s.Assembly.Id + (s.Member.MDToken.Rid != 0 ? Format.Token(s.Member) : Format.MemberLabel(s.Member))))}"; // added members share token (new)
 
     private static void RequireFew(IReadOnlyList<ResolvedSymbol> all, string query)
     {
