@@ -240,6 +240,34 @@ public class NativeArm32Tests
     }
 
     [Fact]
+    public void Fixed_address_executables_take_literals_as_addresses()
+    {
+        // ET_EXEC at 0x10000 without relocations: main passes helper (a Thumb pointer) and a string through literal pools
+        const uint baseVa = 0x10000;
+        var a = new A32Code(Text);
+        uint helper = 0, sink = 0, litFn = 0, litStr = 0;
+        a.H(A32Code.PushLr(0x80));
+        a.Later(2, at => A32Code.LdrLit(0, at, litFn)).Later(2, at => A32Code.LdrLit(1, at, litStr));
+        a.Later(-4, at => A32Code.Bl(at, sink));
+        a.H(A32Code.PopPc(0x80)).Align4();
+        litFn = a.Here; a.Later(4, _ => baseVa + helper + 1);
+        litStr = a.Here; a.Later(4, _ => baseVa + Data);
+        helper = a.Here; a.H(A32Code.MovImm(0, 1)).H(A32Code.BxLr);
+        sink = a.Here; a.H(A32Code.BxLr).H(A32Code.Nop);
+        var image = Elf(a.Bytes(), w =>
+        {
+            w.Type = 2;
+            w.Base = baseVa;
+            w.Entry = Text | 1;
+        });
+        var index = NativeCodeIndex.Build(image);
+        Assert.Contains(index.Functions, f => f.Start == helper && (f.Sources & FunctionSource.CodeAddress) != 0);
+        Assert.True(index.CreateDisassembler().ThumbAt(helper));
+        Assert.Contains(index.RefsTo(Data), x => x.Kind == XrefKind.Address && x.From == Text + 4);
+        Assert.Equal("Hello, thumb", index.ReadString(index.StringAt(Data)!.Value));
+    }
+
+    [Fact]
     public void Veneers_and_unwind_starts_get_their_state()
     {
         // main (Thumb) tail-jumps to a bx pc veneer whose ARM half jumps on with add pc, ip, pc to an ARM function that

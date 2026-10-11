@@ -28,6 +28,8 @@ internal sealed class Arm32Decoder : ICodeDecoder
     private readonly uint[] _value = new uint[16];
     // a MOVW whose relocation (PE THUMB_MOV32 / ARM_MOV32) makes the MOVT that completes it an address
     private readonly bool[] _relocatedLow = new bool[16];
+    // an address read from an unrelocated literal of a fixed-address image: a PC-relative offset when added to the PC
+    private readonly bool[] _literal = new bool[16];
     private ArmInstruction _last;
     private bool _thumb = true;
     private bool _pinned;
@@ -359,7 +361,7 @@ internal sealed class Arm32Decoder : ICodeDecoder
                 break;
             case "movt" when rd >= 0 && _kind[rd] == Known.Constant:
                 value = (_value[rd] & 0xFFFF) | (uint)i.Op(1).Value << 16;
-                kind = _relocatedLow[rd] ? Known.Address : Known.Constant;
+                kind = _relocatedLow[rd] || FixedAddress && TryRva(value & ~1u, out _) ? Known.Address : Known.Constant;
                 break;
             case "mov" when i.OperandCount == 2:
                 (kind, value) = Operand(in i, 1);
@@ -374,6 +376,7 @@ internal sealed class Arm32Decoder : ICodeDecoder
                     (Known.Address, Known.Constant) => (Known.Address, add ? v1 + v2 : v1 - v2),
                     (Known.Constant, Known.Address) when add => (Known.Address, v1 + v2),
                     (Known.Constant, Known.Constant) => (Known.Constant, add ? v1 + v2 : v1 - v2),
+                    (Known.Address, Known.Address) when add && PcPlusLiteral(in i) => (Known.Address, v1 + v2),
                     _ => (Known.None, 0u),
                 };
                 break;
@@ -394,6 +397,16 @@ internal sealed class Arm32Decoder : ICodeDecoder
         }
         else if (kind != Known.None) Set(rd, kind, value);
         _relocatedLow[rd] = relocatedLow;
+    }
+
+    /// <summary>add rd, pc / add rd, rX, pc where the other register came from an unrelocated literal.</summary>
+    private bool PcPlusLiteral(in ArmInstruction i)
+    {
+        int first = i.OperandCount == 2 ? 0 : 1;
+        var a = i.Op(first);
+        var b = i.Op(first + 1);
+        return a.Kind == ArmOperandKind.Register && b.Kind == ArmOperandKind.Register
+            && (a.Reg == Pc && _literal[b.Reg] || b.Reg == Pc && _literal[a.Reg]);
     }
 
     /// <summary>What operand <paramref name="k"/> holds: a constant, an address (the PC included) or nothing known.</summary>
@@ -419,12 +432,13 @@ internal sealed class Arm32Decoder : ICodeDecoder
         if (Modes.LocalSlots.TryGetValue(slot, out uint local)) { Set(dest, Known.Address, _imageBase + local); return; }
         if (_image.Read(slot, _scratch) < 4) return;
         uint value = BinaryPrimitives.ReadUInt32LittleEndian(_scratch);
-        if (Array.BinarySearch(_relocs, slot) >= 0)
+        if (Array.BinarySearch(_relocs, slot) >= 0 || FixedAddress && _code?.IsCode(slot) == true && TryRva(value & ~1u, out _))
         {
             if (!TryRva(value & ~1u, out uint target)) return;
             if (_code?.IsCode(target) == true && (value & 1) != 0) Modes.Hint(target, true);
             if (!insn.HasImm) { insn.HasImm = true; insn.ImmTarget = _code?.IsCode(target) == true ? target : value - _imageBase; }
             Set(dest, Known.Address, value);
+            _literal[dest] = Array.BinarySearch(_relocs, slot) < 0;
             return;
         }
         if (_code?.IsCode(slot) == true) Set(dest, Known.Constant, value);
@@ -455,6 +469,7 @@ internal sealed class Arm32Decoder : ICodeDecoder
         _kind[reg] = kind;
         _value[reg] = value;
         _relocatedLow[reg] = false;
+        _literal[reg] = false;
     }
 
     private void SetAddress(int reg, uint value)
@@ -491,6 +506,10 @@ internal sealed class Arm32Decoder : ICodeDecoder
         if (i < 0) i = ~i;
         return i < _relocs.Length && _relocs[i] < rva + (uint)length;
     }
+
+    /// <summary>A fixed-address image (an ELF executable, or one without relocations) (a static executable): literal and MOVW / MOVT values inside it are addresses.</summary>
+    private bool FixedAddress => _fixed ??= _image is Elf.ElfFile { Type: 2 } || _relocs.Length == 0 && _imageBase >= 0x1000 && _image.Format != ImageFormat.Pe;
+    private bool? _fixed;
 
     public bool TryRva(uint va, out uint rva)
     {
