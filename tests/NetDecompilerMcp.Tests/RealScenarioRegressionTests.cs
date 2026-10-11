@@ -407,6 +407,31 @@ public sealed class RealScenarioRegressionTests
     }
 
     /// <summary>
+    /// Two references with an internal System.SR, neither public nor used by the target: none was hidden, so SR in code of
+    /// namespace App.Sub (usings inside it) was ambiguous instead of the target's App.SR (System.Web.SR in System.Web.Security).
+    /// </summary>
+    [Fact]
+    public void CSharpPatchesBindTypesOfEnclosingNamespacesBeforeImportedOnes()
+    {
+        using var dir = new TempDir();
+        var lib = ReferenceResolutionTests.Compile("Lib", "namespace System { internal static class SR { public static string Name = \"lib\"; } } public class Marker { }");
+        var other = ReferenceResolutionTests.Compile("Other", "namespace System { internal static class SR { public static string Name = \"other\"; } } public class OtherMarker { }");
+        File.WriteAllBytes(dir.File("Lib.dll"), lib);
+        File.WriteAllBytes(dir.File("Other.dll"), other);
+        File.WriteAllBytes(dir.File("App.dll"), ReferenceResolutionTests.Compile("App", """
+            namespace App { internal static class SR { public static string Name = "app"; } }
+            namespace App.Sub { public class C { public Marker M; public OtherMarker O; public string Run() { return SR.Name; } } }
+            """, lib, other));
+        using var env = new Env(dir.File("App.dll"));
+        foreach (var code in new[] { "return SR.Name + \"!\";", "string s = SR.Name; System.Func<string> f = () => s + SR.Name; return f();" })
+        {
+            env.Edit(() => env.Edits.PatchMethodCSharp(env.One("App.Sub.C::Run"), code, dryRun: false, default));
+            var field = env.Def<MethodDef>("App.Sub.C::Run").Body.Instructions.Select(i => i.Operand).OfType<IField>().First(f => f.Name == "Name");
+            Assert.Equal("App.SR", Assert.IsAssignableFrom<TypeDef>(field.DeclaringType).FullName);
+        }
+    }
+
+    /// <summary>
     /// The CS0433 retry read [NonVersionable] as a type named NonVersionable, so an attribute the target and mscorlib both define
     /// kept failing (System.Collections.Immutable 1.3.1); a public framework type the target defines again was never hidden
     /// (Lazy&lt;T&gt; of NUnit 3 for .NET 3.5, compiled against mscorlib 4).
