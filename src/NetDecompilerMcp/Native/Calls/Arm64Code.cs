@@ -4,7 +4,10 @@ using NetDecompilerMcp.Native.Code;
 
 namespace NetDecompilerMcp.Native.Calls;
 
-/// <summary>An ARM64 value location: an X register (W views included), or a stack slot as an offset from the stack pointer at function entry.</summary>
+/// <summary>
+/// An ARM64 value location: an X register (W views included), a v register from <see cref="A64Function.VBase"/> on (its
+/// b / h / s / d / q views), or a stack slot as an offset from the stack pointer at function entry.
+/// </summary>
 internal readonly record struct A64Loc(bool IsSlot, int Value)
 {
     public static A64Loc Reg(int index) => new(false, index);
@@ -148,6 +151,19 @@ internal sealed class A64Function
         return ((Arm64ImmediateOperand)op).Value << shift;
     }
 
+    /// <summary>Location numbers of v0-v31 start here.</summary>
+    public const int VBase = 32;
+
+    public static bool IsVector(Arm64RegisterAny r) =>
+        r.Kind is not (Arm64RegisterKind.Invalid or Arm64RegisterKind.X or Arm64RegisterKind.W or Arm64RegisterKind.SP or Arm64RegisterKind.WSP or Arm64RegisterKind.C);
+
+    /// <summary>The location number of a register: X / W index (31 for the zero register), <see cref="VBase"/> + n for a v register view, else -1.</summary>
+    public static int Number(Arm64RegisterAny r) => r.Kind is Arm64RegisterKind.X or Arm64RegisterKind.W ? r.Index : IsVector(r) ? VBase + r.Index : -1;
+
+    /// <summary>The location number (<see cref="Number(Arm64RegisterAny)"/>) of register operand <paramref name="k"/>, else -1.</summary>
+    public static int Reg(in Arm64Instruction i, int k) =>
+        k < i.OperandCount && i.GetOperand(k) is { Kind: Arm64OperandKind.Register } op ? Number(((Arm64RegisterOperand)op).Value) : -1;
+
     /// <summary>X / W register index of register operand <paramref name="k"/> (31 for the zero register), else -1.</summary>
     public static int Gpr(in Arm64Instruction i, int k)
     {
@@ -162,8 +178,8 @@ internal sealed class A64Function
     public static bool IsCall(in Arm64Instruction i) =>
         i.Mnemonic is Arm64Mnemonic.BL or Arm64Mnemonic.BLR or Arm64Mnemonic.BLRAA or Arm64Mnemonic.BLRAAZ or Arm64Mnemonic.BLRAB or Arm64Mnemonic.BLRABZ;
 
-    /// <summary>Caller-saved under the AAPCS64: x0-x18 and x30.</summary>
-    public static bool IsVolatile(int reg) => reg is >= 0 and <= 18 or 30;
+    /// <summary>Caller-saved under the AAPCS64: x0-x18, x30, v0-v7 and v16-v31 (v8-v15 keep their low 64 bits).</summary>
+    public static bool IsVolatile(int reg) => reg is >= 0 and <= 18 or 30 || reg >= VBase && (reg - VBase < 8 || reg - VBase >= 16);
 
     /// <summary>The memory operand: its index, the address mode and the stack slot it addresses (entry-relative), when based on sp or a known x29.</summary>
     public static (int Operand, Arm64MemoryAccessorAny Accessor, bool Post, int? Slot)? Memory(A64Step s)
@@ -186,7 +202,7 @@ internal sealed class A64Function
         return null;
     }
 
-    /// <summary>"x3", "w3", "fp", "lr", or a slot "[sp+10h]" / "[sp, #16]" / "[x29-8]" relative to sp or x29 at <paramref name="at"/>; null when not one.</summary>
+    /// <summary>"x3", "w3", "fp", "lr", "d0" / "s1" / "v2" (b, h, q views too), or a slot "[sp+10h]" / "[sp, #16]" / "[x29-8]" relative to sp or x29 at <paramref name="at"/>; null when not one.</summary>
     public static A64Loc? Parse(string? text, A64Step? at)
     {
         if (string.IsNullOrWhiteSpace(text)) return null;
@@ -211,6 +227,8 @@ internal sealed class A64Function
         if (t is "lr") return A64Loc.Reg(30);
         if (t.Length >= 2 && t[0] is 'x' or 'w' && int.TryParse(t.AsSpan(1), NumberStyles.None, CultureInfo.InvariantCulture, out int n) && n is >= 0 and <= 30)
             return A64Loc.Reg(n);
+        if (t.Length >= 2 && t[0] is 'b' or 'h' or 's' or 'd' or 'q' or 'v' && int.TryParse(t.AsSpan(1), NumberStyles.None, CultureInfo.InvariantCulture, out int v) && v is >= 0 and <= 31)
+            return A64Loc.Reg(VBase + v);
         return null;
     }
 
@@ -225,7 +243,7 @@ internal sealed class A64Function
     /// <summary>A location as text at <paramref name="at"/> (slots relative to sp there; at entry when null).</summary>
     public static string Name(A64Loc loc, A64Step? at)
     {
-        if (!loc.IsSlot) return $"x{loc.Value}";
+        if (!loc.IsSlot) return loc.Value >= VBase ? $"d{loc.Value - VBase}" : $"x{loc.Value}";
         int origin = at == null ? 0 : at.Sp ?? 0;
         int off = loc.Value - origin;
         return off < 0 ? $"[sp-{-off:X}h]" : $"[sp+{off:X}h]";

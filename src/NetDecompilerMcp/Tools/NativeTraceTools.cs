@@ -81,7 +81,7 @@ public sealed class NativeTraceTools(AssemblyWorkspace workspace, NativeCodeServ
         [property: Description("More nodes follow (call again with offset).")] bool Truncated,
         IReadOnlyList<string> Notes);
 
-    private const string LocationHelp = "a register (rdx, ecx, xmm1; ARM64 x1, w2), a stack or frame slot ([rsp+28h], [ebp-8]; ARM64 [sp+10h], [x29-8]), " +
+    private const string LocationHelp = "a register (rdx, ecx, xmm1; ARM64 x1, w2, d0), a stack or frame slot ([rsp+28h], [ebp-8]; ARM64 [sp+10h], [x29-8]), " +
                                         "op1 / op2 (an operand of the instruction) or result (the value the call at address returns)";
 
     [McpServerTool(Name = "trace_native_values", Title = "Native value trace", UseStructuredContent = true, OutputSchemaType = typeof(ValueTraceReport))]

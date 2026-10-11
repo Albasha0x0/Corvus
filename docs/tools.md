@@ -1221,7 +1221,7 @@ Traces a value through native code (x86 / x64 / ARM) across functions. Backward 
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
 | `address` | string | yes |  | An instruction, a call, a function start (with argument) or a writable global. Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them). |
-| `location` | string |  |  | The value at address: a register (rdx, ecx, xmm1; ARM64 x1, w2), a stack or frame slot ([rsp+28h], [ebp-8]; ARM64 [sp+10h], [x29-8]), op1 / op2 (an operand of the instruction) or result (the value the call at address returns). |
+| `location` | string |  |  | The value at address: a register (rdx, ecx, xmm1; ARM64 x1, w2, d0), a stack or frame slot ([rsp+28h], [ebp-8]; ARM64 [sp+10h], [x29-8]), op1 / op2 (an operand of the instruction) or result (the value the call at address returns). |
 | `argument` | string |  |  | An argument of the call at address, or a parameter of the function starting at address: its 1-based position or its API parameter name (dwDesiredAccess). |
 | `direction` | string |  |  | backward (default: the values that reach it), forward (its uses) or both. Values: backward, forward, both. |
 | `maxDepth` | integer |  | `3` | Function boundaries to cross (default 3, 0-8). |

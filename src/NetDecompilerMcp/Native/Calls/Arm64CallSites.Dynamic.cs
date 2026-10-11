@@ -149,8 +149,7 @@ internal sealed partial class Arm64CallSites
         return null;
     }
 
-    private static bool IsVector(Arm64RegisterAny r) =>
-        r.Kind is not (Arm64RegisterKind.Invalid or Arm64RegisterKind.X or Arm64RegisterKind.W or Arm64RegisterKind.SP or Arm64RegisterKind.WSP or Arm64RegisterKind.C);
+    private static bool IsVector(Arm64RegisterAny r) => A64Function.IsVector(r);
 
     /// <summary>Without a signature: the v registers set in the block before the call, up to the highest one, with the width last written.</summary>
     private static List<(int Register, string Width)> GuessedFloats(List<Step> steps, int k)

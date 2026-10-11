@@ -325,7 +325,7 @@ internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
                 break;
             case SliceSeedKind.Loaded:
                 (block, index) = code.Position(seed.Address);
-                if (block >= 0 && A64Function.Gpr(code.Blocks[block][index].I, 0) is var d and >= 0 and < 31)
+                if (block >= 0 && A64Function.Reg(code.Blocks[block][index].I, 0) is var d and >= 0 and not 31)
                 {
                     live[A64Loc.Reg(d)] = new Live(false, "");
                     origin = $"{code.Blocks[block][index].Text} @{host.Va(seed.Address)}";
@@ -351,7 +351,7 @@ internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
     private static bool Defines(A64Step s, A64Loc loc)
     {
         if (loc.IsSlot) return Arm64Resolver.IsStore(s.I) && A64Function.Memory(s)?.Slot == loc.Value;
-        return A64Function.Dest(s.I) is { Kind: Arm64RegisterKind.X or Arm64RegisterKind.W } d && d.Index == loc.Value;
+        return A64Function.Dest(s.I) is { } d && A64Function.Number(d) == loc.Value;
     }
 
     private void Walk(int startBlock, int startIndex, Dictionary<A64Loc, Live> start, CancellationToken ct)
@@ -414,6 +414,8 @@ internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
             {
                 if (live.TryGetValue(A64Loc.Reg(0), out var r0))
                     Use(new SliceNode(SliceNodeKind.Return, s.Rva, "returned in x0", r0.Path) { Location = "x0", Derived = r0.Derived });
+                if (live.TryGetValue(A64Loc.Reg(A64Function.VBase), out var v0))
+                    Use(new SliceNode(SliceNodeKind.Return, s.Rva, "returned in d0", v0.Path) { Location = "d0", Derived = v0.Derived });
                 return false;
             }
             if (i.Mnemonic is Arm64Mnemonic.CBZ or Arm64Mnemonic.CBNZ or Arm64Mnemonic.TBZ or Arm64Mnemonic.TBNZ)
@@ -452,8 +454,8 @@ internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
         for (int k = firstRead; k < i.OperandCount; k++)
         {
             if (i.GetOperand(k) is not { Kind: Arm64OperandKind.Register } op || (op.Flags & Arm64OperandFlags.Read) == 0 && !store) continue;
-            var r = ((Arm64RegisterOperand)op).Value;
-            if (r.Kind is Arm64RegisterKind.X or Arm64RegisterKind.W && r.Index < 31 && live.TryGetValue(A64Loc.Reg(r.Index), out var l)) { source ??= l; if (store) break; }
+            int n = A64Function.Number(((Arm64RegisterOperand)op).Value);
+            if (n is >= 0 and not 31 && live.TryGetValue(A64Loc.Reg(n), out var l)) { source ??= l; if (store) break; }
         }
         // a live base or index register: the value is a pointer used here
         if (mem is { } m && m.Slot == null)
@@ -507,14 +509,14 @@ internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
         else if (store && mem is { Slot: { } over }) live.Remove(A64Loc.Slot(over));
 
         // destinations: written registers get the value (derived unless a copy) or lose it
-        bool copy = i.Mnemonic is Arm64Mnemonic.MOV or Arm64Mnemonic.SXTW or Arm64Mnemonic.SXTH or Arm64Mnemonic.SXTB
+        bool copy = i.Mnemonic is Arm64Mnemonic.MOV or Arm64Mnemonic.FMOV or Arm64Mnemonic.SXTW or Arm64Mnemonic.SXTH or Arm64Mnemonic.SXTB
             or Arm64Mnemonic.UXTB or Arm64Mnemonic.UXTH || load && mem is { Slot: not null };
         for (int k = 0; k < i.OperandCount && !store; k++)
         {
             if (i.GetOperand(k) is not { Kind: Arm64OperandKind.Register } op || (op.Flags & Arm64OperandFlags.Write) == 0) continue;
-            var r = ((Arm64RegisterOperand)op).Value;
-            if (r.Kind is not (Arm64RegisterKind.X or Arm64RegisterKind.W) || r.Index >= 31) continue;
-            var dest = A64Loc.Reg(r.Index);
+            int n = A64Function.Number(((Arm64RegisterOperand)op).Value);
+            if (n is < 0 or 31) continue;
+            var dest = A64Loc.Reg(n);
             if (source is { } src && (k == 0 || load && mem is { Slot: not null }))
             {
                 long? delta = copy ? src.Delta
@@ -554,7 +556,7 @@ internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
         foreach (var (loc, l) in live.OrderBy(l => l.Key.IsSlot).ThenBy(l => l.Key.Value).ToList())
         {
             A64Loc entry;
-            if (!loc.IsSlot) { if (loc.Value >= 8) continue; entry = loc; }
+            if (!loc.IsSlot) { if (loc.Value is >= 8 and < A64Function.VBase or >= A64Function.VBase + 8) continue; entry = loc; }
             else if (s.Sp is { } sp && loc.Value - sp is var off and >= 0 && off < 8 * 16 && off % 8 == 0) entry = A64Loc.Slot(off);
             else continue;
             if (!looked) { call = host.CallAt(s.Rva, default); looked = true; }
@@ -564,7 +566,8 @@ internal sealed class Arm64Forward(Arm64Trace host, A64Function code)
             var calleeName = call?.Callee ?? s.Text;
             var name = sig != null && index >= 0 && index < sig.Params.Count ? $" {sig.Params[index].Name}" : "";
             uint? target = call is { Kind: CalleeKind.Function } ? call.Target : null;
-            Use(new SliceNode(SliceNodeKind.Argument, s.Rva, $"argument {index + 1}{name} of {calleeName}", Step(l.Path, s))
+            var what = index >= 0 ? $"argument {index + 1}{name}" : $"argument in {A64Function.Name(entry, null)}";
+            Use(new SliceNode(SliceNodeKind.Argument, s.Rva, $"{what} of {calleeName}", Step(l.Path, s))
             {
                 Offset = l.Delta,
                 Site = s.Rva, Location = A64Function.Name(entry, null), Index = index, Callee = calleeName, CallKind = call?.Kind ?? CalleeKind.Indirect,

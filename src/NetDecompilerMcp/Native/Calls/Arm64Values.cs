@@ -50,7 +50,7 @@ internal sealed class Arm64Resolver(Arm64Trace host, A64Function code)
             }
             if (A64Function.IsCall(s.I))
             {
-                if (!loc.IsSlot && loc.Value == 0) return new A64Val(A64Kind.Result, s.Rva, $"{s.Text} @{host.Va(s.Rva)}") { Rva = s.Rva };
+                if (!loc.IsSlot && loc.Value is 0 or A64Function.VBase) return new A64Val(A64Kind.Result, s.Rva, $"{s.Text} @{host.Va(s.Rva)}") { Rva = s.Rva };
                 if (!loc.IsSlot && A64Function.IsVolatile(loc.Value)) return A64Val.Unknown($"clobbered by the call {s.Text} @{host.Va(s.Rva)}", s.Rva);
                 continue;
             }
@@ -64,9 +64,9 @@ internal sealed class Arm64Resolver(Arm64Trace host, A64Function code)
     {
         var s = code.Blocks[block][k];
         if (!IsStore(s.I)) return A64Val.Unknown($"not a store: {s.Text}", s.Rva);
-        int reg = A64Function.Gpr(s.I, 0);
-        if (s.I.Mnemonic is Arm64Mnemonic.STP or Arm64Mnemonic.STNP && target is { } t && s.Facts.HasMem && t != s.Facts.MemTarget) reg = A64Function.Gpr(s.I, 1);
-        if (reg < 0) return A64Val.Unknown($"stores a floating-point or vector register: {s.Text}", s.Rva);
+        int reg = A64Function.Reg(s.I, 0);
+        if (s.I.Mnemonic is Arm64Mnemonic.STP or Arm64Mnemonic.STNP && target is { } t && s.Facts.HasMem && t != s.Facts.MemTarget) reg = A64Function.Reg(s.I, 1);
+        if (reg < 0) return A64Val.Unknown($"stores no register: {s.Text}", s.Rva);
         if (reg == 31) return new A64Val(A64Kind.Const, s.Rva, $"{s.Text} @{host.Va(s.Rva)}");
         return Before(A64Loc.Reg(reg), block, k);
     }
@@ -115,7 +115,8 @@ internal sealed class Arm64Resolver(Arm64Trace host, A64Function code)
     private A64Val Incoming(A64Loc loc)
     {
         if (loc.IsSlot && loc.Value < 0) return A64Val.Unknown($"local {A64Function.Name(loc, null)} not written on this path");
-        if (!loc.IsSlot && loc.Value is >= 9 and <= 18) return A64Val.Unknown($"x{loc.Value} is not set in the function before here");
+        if (!loc.IsSlot && loc.Value is >= 9 and <= 18 or >= A64Function.VBase + 16)
+            return A64Val.Unknown($"{A64Function.Name(loc, null)} is not set in the function before here");
         return new A64Val(A64Kind.Incoming, code.Function.Start, "") { Loc = loc };
     }
 
@@ -132,11 +133,11 @@ internal sealed class Arm64Resolver(Arm64Trace host, A64Function code)
             bool pair = i.Mnemonic is Arm64Mnemonic.STP or Arm64Mnemonic.STNP;
             int each = pair ? size / 2 : size;
             int reg;
-            if (loc.Value == slot) reg = A64Function.Gpr(i, 0);
-            else if (pair && loc.Value == slot + each) reg = A64Function.Gpr(i, 1);
+            if (loc.Value == slot) reg = A64Function.Reg(i, 0);
+            else if (pair && loc.Value == slot + each) reg = A64Function.Reg(i, 1);
             else if (loc.Value >= slot && loc.Value < slot + size) return A64Val.Unknown($"partly overwritten by {at}", s.Rva);
             else return null;
-            if (reg < 0) return A64Val.Unknown($"a vector register is stored there by {at}", s.Rva);
+            if (reg < 0) return A64Val.Unknown($"set by {at}", s.Rva);
             if (reg == 31) return new A64Val(A64Kind.Const, s.Rva, at);
             return Chain(Before(A64Loc.Reg(reg), block, k, depth), at);
         }
@@ -146,11 +147,12 @@ internal sealed class Arm64Resolver(Arm64Trace host, A64Function code)
         if (A64Function.Memory(s) is { } mem && (mem.Accessor.IsPreIncrement || mem.Post)
             && mem.Accessor.BaseRegister is { Kind: Arm64RegisterKind.X } b && b.Index == r)
             return A64Val.Unknown($"advanced by the writeback of {at}", s.Rva);
-        bool writes = A64Function.Dest(in i) is { Kind: Arm64RegisterKind.X or Arm64RegisterKind.W } d && d.Index == r
-                      || IsLoad(i) && i.Mnemonic is Arm64Mnemonic.LDP or Arm64Mnemonic.LDPSW or Arm64Mnemonic.LDNP && A64Function.Gpr(i, 1) == r;
+        bool writes = A64Function.Dest(in i) is { } d && A64Function.Number(d) == r
+                      || IsLoad(i) && i.Mnemonic is Arm64Mnemonic.LDP or Arm64Mnemonic.LDPSW or Arm64Mnemonic.LDNP && A64Function.Reg(i, 1) == r;
         if (!writes) return null;
         bool w = A64Function.IsW(i, 0);
         ulong mask = w ? 0xFFFF_FFFFUL : ulong.MaxValue;
+        if (r >= A64Function.VBase && Vector(loc, block, k, depth, at) is { } vector) return vector;
 
         switch (i.Mnemonic)
         {
@@ -173,9 +175,11 @@ internal sealed class Arm64Resolver(Arm64Trace host, A64Function code)
                 var src = ((Arm64RegisterOperand)i.GetOperand(1)).Value;
                 if (src.Kind == Arm64RegisterKind.SP) return s.Sp is { } sp ? new A64Val(A64Kind.StackAddr, s.Rva, at) { Num = (ulong)(long)sp } : A64Val.Unknown($"sp unknown at {at}", s.Rva);
                 if (((Arm64RegisterOperand)i.GetOperand(1)).IsZeroRegister) return new A64Val(A64Kind.Const, s.Rva, at);
-                if (src.Kind is not (Arm64RegisterKind.X or Arm64RegisterKind.W)) return A64Val.Unknown($"copied from {src}: {at}", s.Rva);
-                return Chain(Before(A64Loc.Reg(src.Index), block, k, depth), at);
+                if (A64Function.Number(src) < 0) return A64Val.Unknown($"copied from {src}: {at}", s.Rva);
+                return Chain(Before(A64Loc.Reg(A64Function.Number(src)), block, k, depth), at);
             }
+            case Arm64Mnemonic.FMOV or Arm64Mnemonic.UMOV when A64Function.Reg(in i, 1) is var bits and >= A64Function.VBase:
+                return Chain(Before(A64Loc.Reg(bits), block, k, depth), at);
             case Arm64Mnemonic.ADRP or Arm64Mnemonic.ADR when s.I.Flags.HasFlag(Arm64InstructionFlags.HasLabel):
             {
                 long off = ((Arm64LabelOperand)i.GetOperand(1)).Offset;
@@ -214,7 +218,7 @@ internal sealed class Arm64Resolver(Arm64Trace host, A64Function code)
             int size = Arm64Inspector.AccessSize(in i);
             bool pair = i.Mnemonic is Arm64Mnemonic.LDP or Arm64Mnemonic.LDPSW or Arm64Mnemonic.LDNP;
             int each = pair ? size / 2 : size;
-            int extra = pair && A64Function.Gpr(i, 1) == r ? each : 0;
+            int extra = pair && A64Function.Reg(i, 1) == r ? each : 0;
             if (m.Slot is { } slot)
             {
                 if (each != 8 && each != 4) return A64Val.Unknown($"a partial load of a local: {at}", s.Rva);
@@ -233,6 +237,42 @@ internal sealed class Arm64Resolver(Arm64Trace host, A64Function code)
             return new A64Val(A64Kind.Field, s.Rva, at) { Num = (ulong)disp, Inputs = [bv] };
         }
         return A64Val.Unknown($"set by {at}", s.Rva);
+    }
+
+    /// <summary>
+    /// A v register written by step <paramref name="k"/>: fmov of an immediate (its bits) or of a register, movi #0, scvtf / ucvtf
+    /// of a constant; null for loads and stores, which the general path reads.
+    /// </summary>
+    private A64Val? Vector(A64Loc loc, int block, int k, int depth, string at)
+    {
+        var s = code.Blocks[block][k];
+        var i = s.I;
+        if (IsLoad(i) || i.OperandCount < 2) return null;
+        bool single = A64Function.Dest(in i) is { VKind: Arm64RegisterVKind.S };
+        ulong Bits(double value) => single ? BitConverter.SingleToUInt32Bits((float)value) : BitConverter.DoubleToUInt64Bits(value);
+        var src = i.GetOperand(1);
+        switch (i.Mnemonic)
+        {
+            case Arm64Mnemonic.FMOV when src.Kind == Arm64OperandKind.Immediate && ((Arm64ImmediateOperand)src).IsFloat:
+                return new A64Val(A64Kind.Const, s.Rva, at) { Num = Bits(((Arm64ImmediateOperand)src).ValueAsFloat) };
+            case Arm64Mnemonic.MOVI when A64Function.Imm(in i, 1) == 0:
+                return new A64Val(A64Kind.Const, s.Rva, at);
+            case Arm64Mnemonic.FMOV or Arm64Mnemonic.MOV or Arm64Mnemonic.ORR or Arm64Mnemonic.DUP or Arm64Mnemonic.INS when src.Kind == Arm64OperandKind.Register:
+            {
+                if (((Arm64RegisterOperand)src).IsZeroRegister) return new A64Val(A64Kind.Const, s.Rva, at);
+                int from = A64Function.Reg(in i, 1);
+                return from < 0 ? A64Val.Unknown($"set by {at}", s.Rva) : Chain(Before(A64Loc.Reg(from), block, k, depth), at);
+            }
+            case Arm64Mnemonic.SCVTF or Arm64Mnemonic.UCVTF when src.Kind == Arm64OperandKind.Register && A64Function.Reg(in i, 1) is var g and >= 0 and < A64Function.VBase:
+            {
+                var v = g == 31 ? new A64Val(A64Kind.Const, s.Rva, "zero register") : Before(A64Loc.Reg(g), block, k, depth);
+                if (v.Kind != A64Kind.Const) return A64Val.Unknown($"converted from {Describe(v)}: {at}", s.Rva);
+                bool w = ((Arm64RegisterOperand)src).Value.Kind == Arm64RegisterKind.W;
+                double converted = i.Mnemonic == Arm64Mnemonic.UCVTF ? w ? (uint)v.Num : (double)v.Num : w ? (int)(uint)v.Num : (long)v.Num;
+                return new A64Val(A64Kind.Const, s.Rva, $"{v.Why}; {at}") { Num = Bits(converted) };
+            }
+        }
+        return A64Val.Unknown($"computed by {at}", s.Rva);
     }
 
     private A64Val Operand(Arm64Instruction i, int k, int block, int step, int depth)

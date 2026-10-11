@@ -163,7 +163,7 @@ internal sealed class ValueResolver
                     {
                         case LocKind.Register:
                             if (IsVolatile(loc.Reg))
-                                return loc.Reg == Register.RAX
+                                return loc.Reg == Register.RAX || _is64 && loc.Reg == Register.ZMM0
                                     ? new Val(VKind.Result, 0, 0, d.Rva, $"result of the call at {Va(d.Rva)}")
                                     : Val.Unknown($"{Name(loc.Reg)} is clobbered by the call at {Va(d.Rva)}");
                             continue;
