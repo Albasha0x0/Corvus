@@ -160,18 +160,32 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         if (image.EntryPointRva != 0) Add(image.EntryPointRva, FunctionSource.EntryPoint);
         foreach (var t in image.TlsCallbackRvas) Add(t, FunctionSource.TlsCallback);
         foreach (var t in symbolStarts ?? []) Add(t, FunctionSource.Symbol);
+        foreach (var d in image.DeclaredFunctions) Add(d.Rva, FunctionDiscovery.Source(d.Source));
         var ends = image.RuntimeFunctions.GroupBy(r => r.BeginRva).ToDictionary(g => g.Key, g => g.Max(r => r.EndRva));
+        foreach (var d in image.DeclaredFunctions)
+            if (d.Size is { } size && !ends.ContainsKey(d.Rva)) ends[d.Rva] = d.Rva + size;
         var functions = sources.OrderBy(kv => kv.Key).Select((kv, i) => new NativeFunction
         {
             Start = kv.Key, Sources = kv.Value, Index = i,
             End = ends.TryGetValue(kv.Key, out var end) && end > kv.Key ? end : kv.Key,
         }).ToArray();
         foreach (var f in functions) f.Size = f.End - f.Start;
-        var exportNames = image.Exports.Where(e => e.ForwardedTo == null && e.Name != null).GroupBy(e => e.Rva).ToDictionary(g => g.Key, g => g.First().Name);
-        foreach (var f in functions) if (exportNames.TryGetValue(f.Start, out var n)) f.KnownName = n;
+        var names = FunctionNames(image);
+        foreach (var f in functions) if (names.TryGetValue(f.Start, out var n)) f.KnownName = n;
         report.Done();
         var stats = new CodeIndexStats(functions.Length, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, sw.Elapsed);
         return new NativeCodeIndex(image, CodeSupport.DeclaredFunctionsOnly, note, null, functions, [], [], [], [], [], stats);
+    }
+
+    /// <summary>Names the image gives function starts: exports, then function symbols (ELF .dynsym / .symtab, Mach-O nlist).</summary>
+    private static Dictionary<uint, string> FunctionNames(INativeImage image)
+    {
+        var names = new Dictionary<uint, string>();
+        foreach (var e in image.Exports)
+            if (e.ForwardedTo == null && e.Name != null) names.TryAdd(e.Rva, e.Name);
+        foreach (var s in image.Symbols)
+            if (s.Kind == ImageSymbolKind.Function && s.Name.Length > 0) names.TryAdd(s.Rva, s.Name);
+        return names;
     }
 
     public NativeFunction? FunctionByStart(uint start) => _byStart.GetValueOrDefault(start);
@@ -497,9 +511,23 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     public string? CommentFor(uint rva)
     {
         if (_sourced.CommentAt(rva) is { } comment) return comment.Text;
-        if (StringAt(rva) is not { } s) return null;
         const int max = 120;
+        if (StringAt(rva) is not { } s) return CfStringAt(rva) is { } cf ? "@" + StringDetector.Quote(ReadString(cf, max), cf.Length > max) : null;
         return (s.Encoding == StringEncoding.Utf16 ? "L" : "") + StringDetector.Quote(ReadString(s, max), s.Length > max);
+    }
+
+    /// <summary>The C string of a Mach-O CFString constant (__cfstring: isa, flags, chars, length) at <paramref name="rva"/>, or null.</summary>
+    public StringLiteral? CfStringAt(uint rva)
+    {
+        if (Image.Format != ImageFormat.MachO || Image.SectionAt(rva) is not { } section || !section.Name.EndsWith(",__cfstring", StringComparison.Ordinal)) return null;
+        int ptr = Image.Is64Bit ? 8 : 4;
+        if ((rva - section.Rva) % (uint)(ptr * 4) != 0) return null;
+        Span<byte> b = stackalloc byte[8];
+        if (Image.Read(rva + (uint)(2 * ptr), b[..ptr]) < ptr) return null;
+        ulong va = ptr == 8 ? System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(b) : System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(b);
+        if (va < Image.ImageBase || va - Image.ImageBase >= Image.SizeOfImage) return null;
+        uint chars = (uint)(va - Image.ImageBase);
+        return StringAt(chars) ?? StringDetector.Detect(Image, chars, 4096, new byte[(4096 + 1) * 2]);
     }
 
     public static string ImportName(NativeImport imp)
@@ -721,9 +749,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
             report.Report("indexing cross-references", 0, 0);
             var sources = _sources;
             var functions = new NativeFunction[starts.Length];
-            var exportNames = new Dictionary<uint, string>();
-            foreach (var e in image.Exports)
-                if (e.ForwardedTo == null && e.Name != null) exportNames.TryAdd(e.Rva, e.Name);
+            var exportNames = FunctionNames(image);
             int totalRanges = results.Sum(r => r.RangeStarts.Length);
             var rangeStarts = new uint[totalRanges];
             var rangeEnds = new uint[totalRanges];

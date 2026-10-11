@@ -90,10 +90,11 @@ internal static class CodeDecoders
 {
     /// <param name="code">Executable code for <see cref="ICodeDecoder.Decode(uint, out Insn)"/>; null when only DecodeMapped is used.</param>
     /// <param name="sortedRelocations">x86: relocations inside code (operand checks); ARM64: every relocated pointer location.</param>
-    public static ICodeDecoder Create(INativeImage image, ImageCode? code, uint[] sortedRelocations, IReadOnlySet<uint>? importSlots = null) => image.Arch switch
+    public static ICodeDecoder Create(INativeImage image, ImageCode? code, uint[] sortedRelocations, IReadOnlySet<uint>? importSlots = null,
+        (uint Start, uint End)[]? dataInCode = null) => image.Arch switch
     {
         NativeArch.X86 or NativeArch.X64 => new X86Decoder(image, code, sortedRelocations),
-        NativeArch.Arm64 => new Arm64Decoder(image, code, sortedRelocations, importSlots),
+        NativeArch.Arm64 => new Arm64Decoder(image, code, sortedRelocations, importSlots, dataInCode),
         _ => throw new NotSupportedException(InstructionSets.For(image.Arch).Reason),
     };
 }

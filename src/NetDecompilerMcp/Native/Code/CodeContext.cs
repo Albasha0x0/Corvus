@@ -66,15 +66,47 @@ internal sealed class CodeContext
         if (!IsSorted(relocs)) Array.Sort(relocs);
         Relocations = relocs;
         CodeRelocations = relocs.Where(code.IsCode).ToArray();
+        bool underscore = image.Format == ImageFormat.MachO;
         foreach (var imp in image.Imports)
         {
             ImportSlots.TryAdd(imp.SlotRva, imp);
-            if (imp.Name != null && NoReturnNames.IsNoReturn(imp.Name)) NoReturn.Add(imp.SlotRva);
+            if (imp.Name != null && NoReturnNames.IsNoReturn(imp.Name, underscore)) NoReturn.Add(imp.SlotRva);
         }
+        foreach (var s in image.Symbols)
+            if (s.Kind == ImageSymbolKind.Function && code.IsCode(s.Rva) && NoReturnNames.IsNoReturn(s.Name, underscore)) NoReturn.Add(s.Rva);
+        DataInCode = DataRanges(image);
         if (image.Arch is NativeArch.X64 or NativeArch.Arm64) ReadPdata();
         ReadGuardCfTable();
         IsKernelMode = KernelModeByName(image.Path)
             || image.Imports.Any(i => i.Module.Equals("ntoskrnl.exe", StringComparison.OrdinalIgnoreCase) || i.Module.Equals("hal.dll", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Byte ranges inside code sections that hold data (Mach-O LC_DATA_IN_CODE, ELF $d mapping symbols), sorted.</summary>
+    public (uint Start, uint End)[] DataInCode { get; }
+
+    private static (uint Start, uint End)[] DataRanges(INativeImage image)
+    {
+        var ranges = new List<(uint, uint)>();
+        switch (image)
+        {
+            case MachO.MachOFile m:
+                foreach (var d in m.DataInCode) if (d.Length > 0) ranges.Add((d.Rva, d.Rva + d.Length));
+                break;
+            case Elf.ElfFile e:
+                var marks = e.MappingSymbols;
+                for (int i = 0; i < marks.Count; i++)
+                {
+                    if (marks[i].Kind != 'd') continue;
+                    uint start = marks[i].Rva;
+                    // a data run ends at the next mapping symbol, or at the end of its section
+                    uint end = i + 1 < marks.Count ? marks[i + 1].Rva : image.SectionAt(start) is { } s ? s.Rva + s.MappedSize : start;
+                    if (image.SectionAt(start) is { } sec && end > sec.Rva + sec.MappedSize) end = sec.Rva + sec.MappedSize;
+                    if (end > start) ranges.Add((start, end));
+                }
+                break;
+        }
+        ranges.Sort();
+        return [.. ranges];
     }
 
     /// <summary>The file name alone marks a kernel-mode image (a driver, or the kernel): the one input besides the bytes.</summary>
@@ -210,7 +242,7 @@ internal sealed class CodeContext
         {
             ComputeAccess = computeAccess, RejectImplausible = !IsKernelMode, CheckRelocations = true, ImageHasRelocations = Relocations.Length > 0,
         },
-        _ => CodeDecoders.Create(Image, Code, Relocations, ImportSlotSet),
+        _ => CodeDecoders.Create(Image, Code, Relocations, ImportSlotSet, DataInCode),
     };
 
     private HashSet<uint>? _importSlotSet;
@@ -348,6 +380,12 @@ internal static class NoReturnNames
         "_CxxThrowException", "_invalid_parameter_noinfo_noreturn", "_invoke_watson",
         "__report_gsfailure", "__report_rangecheckfailure", "__std_terminate", "terminate", "_amsg_exit",
         "longjmp", "_longjmp", "__longjmp_chk", "__stack_chk_fail", "__assert_fail", "_assert", "_wassert",
+        "siglongjmp", "__stack_chk_fail_local", "__assert", "__assert2", "__assert_rtn", "__chk_fail", "__fortify_fail", "__libc_fatal",
+        "pthread_exit", "err", "errx", "verr", "verrx", "__cxa_throw", "__cxa_rethrow", "__cxa_bad_cast", "__cxa_bad_typeid",
+        "__cxa_throw_bad_array_new_length", "__cxa_call_unexpected", "_Unwind_Resume", "_ZSt9terminatev", "__clang_call_terminate",
+        "_ZSt17__throw_bad_allocv", "_ZSt20__throw_length_errorPKc", "_ZSt24__throw_out_of_range_fmtPKcz", "_ZSt20__throw_out_of_rangePKc",
+        "_ZSt19__throw_logic_errorPKc", "_ZSt25__throw_bad_function_callv", "_ZSt16__throw_bad_castv",
+        "_ZNSt3__120__throw_length_errorB8ne180000EPKc", "_ZNSt3__120__throw_out_of_rangeB8ne180000EPKc",
         "?terminate@@YAXXZ", "?_Xbad_alloc@std@@YAXXZ", "?_Xlength_error@std@@YAXPEBD@Z", "?_Xlength_error@std@@YAXPBD@Z",
         "?_Xout_of_range@std@@YAXPEBD@Z", "?_Xout_of_range@std@@YAXPBD@Z", "?_Xinvalid_argument@std@@YAXPEBD@Z",
         "?_Xinvalid_argument@std@@YAXPBD@Z", "?_Xbad_function_call@std@@YAXXZ", "?_Xruntime_error@std@@YAXPEBD@Z",
@@ -355,5 +393,7 @@ internal static class NoReturnNames
         "?_Throw_Cpp_error@std@@YAXH@Z", "?_Throw_C_error@std@@YAXH@Z", "?_Xregex_error@std@@YAXW4error_type@regex_constants@1@@Z",
     };
 
-    public static bool IsNoReturn(string name) => Names.Contains(name);
+    /// <param name="underscore">Mach-O: C names carry an extra leading underscore.</param>
+    public static bool IsNoReturn(string name, bool underscore = false) =>
+        Names.Contains(name) || (underscore && name.Length > 1 && name[0] == '_' && Names.Contains(name[1..]));
 }

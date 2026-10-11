@@ -65,6 +65,8 @@ internal sealed class FunctionDiscovery
         if (_ctx.Options.SymbolStarts is { } symbols)
             foreach (var t in symbols)
                 if (_ctx.Code.IsCode(t)) Add(t, FunctionSource.Symbol, strong: true);
+        foreach (var d in image.DeclaredFunctions)
+            if (_ctx.Code.IsCode(d.Rva)) Add(d.Rva, Source(d.Source), strong: true);
         var exports = image.Exports.Where(e => e.ForwardedTo == null && _ctx.Code.IsCode(e.Rva)).ToList();
         foreach (var e in exports)
             if (ExportKind(e.Name) == true) Add(e.Rva, FunctionSource.Export, strong: true);
@@ -93,6 +95,14 @@ internal sealed class FunctionDiscovery
         }
         return _functions;
     }
+
+    internal static FunctionSource Source(DeclaredSource source) => source switch
+    {
+        DeclaredSource.Unwind => FunctionSource.Unwind,
+        DeclaredSource.FunctionStarts => FunctionSource.FunctionStarts,
+        DeclaredSource.Symbol => FunctionSource.Symbol,
+        _ => FunctionSource.Initializer,
+    };
 
     /// <summary>
     /// What an export name says about its target: MSVC-decorated names ending in 'Z' (the throw specification) are

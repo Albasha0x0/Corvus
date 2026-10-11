@@ -21,14 +21,18 @@ internal sealed class Arm64Decoder : ICodeDecoder
     private readonly uint _sizeOfImage;
     private readonly uint[] _relocs;
     private readonly IReadOnlySet<uint> _importSlots;
+    private readonly (uint Start, uint End)[] _data;
     private readonly byte[] _scratch = new byte[8];
     private readonly Known[] _kind = new Known[Registers];
     private readonly ulong[] _value = new ulong[Registers];
     private Arm64Instruction _last;
 
     /// <param name="sortedRelocations">Every relocated pointer location: code words a relocation touches are data, and loads from them yield addresses.</param>
-    public Arm64Decoder(INativeImage image, ImageCode? code, uint[] sortedRelocations, IReadOnlySet<uint>? importSlots = null)
+    /// <param name="dataInCode">Sorted ranges inside code that hold data (literal pools, jump tables): never decoded.</param>
+    public Arm64Decoder(INativeImage image, ImageCode? code, uint[] sortedRelocations, IReadOnlySet<uint>? importSlots = null,
+        (uint Start, uint End)[]? dataInCode = null)
     {
+        _data = dataInCode ?? [];
         _image = image;
         _code = code;
         _imageBase = image.ImageBase;
@@ -83,7 +87,7 @@ internal sealed class Arm64Decoder : ICodeDecoder
         insn = new Insn { Rva = rva, Length = 4 };
         _last = Arm64Instruction.Decode(word);
         // zero fill, and words a relocation patches (literal pools, pointer tables), are data
-        if (word == 0 || _last.Id == Arm64InstructionId.Invalid || TouchedByRelocation(rva))
+        if (word == 0 || _last.Id == Arm64InstructionId.Invalid || TouchedByRelocation(rva) || InData(rva))
         {
             insn.Flow = FlowKind.Invalid;
             Array.Clear(_kind);
@@ -281,6 +285,19 @@ internal sealed class Arm64Decoder : ICodeDecoder
         for (int k = 0; k < i.OperandCount; k++)
             if (i.GetOperand(k) is { Kind: Arm64OperandKind.Label } op) return ((Arm64LabelOperand)op).Offset;
         return null;
+    }
+
+    private bool InData(uint rva)
+    {
+        int lo = 0, hi = _data.Length - 1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) >>> 1;
+            if (rva < _data[mid].Start) hi = mid - 1;
+            else if (rva >= _data[mid].End) lo = mid + 1;
+            else return true;
+        }
+        return false;
     }
 
     private bool TouchedByRelocation(uint rva)

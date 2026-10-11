@@ -180,7 +180,7 @@ public sealed class NativeDisassembler
         if (!i.TryFormat(_armOptions, _armText, out int n, Label)) return i.ToString();
         var text = _armText.AsSpan(0, n);
         int space = text.IndexOf(' ');
-        return space < 0 ? text.ToString() : string.Concat(text[..space].ToString().PadRight(7), text[(space + 1)..].ToString());
+        return space < 0 ? text.ToString() : string.Concat(text[..space].ToString().PadRight(6), " ", text[(space + 1)..].ToString());
     }
 
     internal static InstructionFacts Facts(in Insn i) => new(

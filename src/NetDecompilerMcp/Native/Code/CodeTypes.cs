@@ -69,8 +69,14 @@ public enum FunctionSource : uint
     GuardCf = 512,
     /// <summary>x64: language-specific exception handler named by unwind information.</summary>
     ExceptionHandler = 1024,
-    /// <summary>A function a loaded PDB names (<see cref="CodeIndexOptions.SymbolStarts"/>).</summary>
+    /// <summary>A function a loaded PDB names (<see cref="CodeIndexOptions.SymbolStarts"/>), or a function symbol of the image (ELF, Mach-O).</summary>
     Symbol = 2048,
+    /// <summary>Unwind tables of ELF and Mach-O images (.eh_frame, .ARM.exidx, compact unwind).</summary>
+    Unwind = 4096,
+    /// <summary>Mach-O LC_FUNCTION_STARTS.</summary>
+    FunctionStarts = 8192,
+    /// <summary>An initializer or finalizer array entry (.init_array, __mod_init_func).</summary>
+    Initializer = 16384,
 }
 
 [Flags]
