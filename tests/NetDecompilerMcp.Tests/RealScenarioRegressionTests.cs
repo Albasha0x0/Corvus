@@ -385,6 +385,7 @@ public sealed class RealScenarioRegressionTests
     /// another reference (System.SR in Microsoft.VisualBasic.Core and Microsoft.Win32.Registry) failed every C# patch
     /// using it with CS0433. Between two other references, the one the target references by that name wins.
     /// </summary>
+    [Trait("Speed", "Slow")]
     [Fact]
     public void CSharpPatchesBindSameNamedInternalTypesToTheAssemblyTheTargetUses()
     {
@@ -410,6 +411,7 @@ public sealed class RealScenarioRegressionTests
     /// A .NET 2.0 library with its own Func&lt;T, TResult&gt; compiled against mscorlib 4 made every patch of a type using it fail
     /// with CS0104 (ambiguous with System.Func); the target's own type is the one its code meant.
     /// </summary>
+    [Trait("Speed", "Slow")]
     [Fact]
     public void CSharpPatchesPreferTheTargetsOwnTypeOverANewerFrameworkTypeOfTheSameName()
     {
@@ -447,6 +449,7 @@ public sealed class RealScenarioRegressionTests
     /// Two references with an internal System.SR, neither public nor used by the target: none was hidden, so SR in code of
     /// namespace App.Sub (usings inside it) was ambiguous instead of the target's App.SR (System.Web.SR in System.Web.Security).
     /// </summary>
+    [Trait("Speed", "Slow")]
     [Fact]
     public void CSharpPatchesBindTypesOfEnclosingNamespacesBeforeImportedOnes()
     {
@@ -489,6 +492,7 @@ public sealed class RealScenarioRegressionTests
     /// The decompiled types were made public in the compiled copy, so an internal type deriving from or exposing another
     /// internal type of the target failed every C# patch with CS0060 or CS0053 (Newtonsoft.Json's JSON path classes).
     /// </summary>
+    [Trait("Speed", "Slow")]
     [Fact]
     public void CSharpPatchesCompileWhenAnInternalTypeUsesInternalTypesOfItsAssembly()
     {
