@@ -8,7 +8,7 @@ using Xunit.Abstractions;
 
 namespace NetDecompilerMcp.Tests;
 
-/// <summary>The introspection workflows through a real IDA and a real Ghidra: batch decompilation.</summary>
+/// <summary>The introspection workflows through a real IDA and a real Ghidra: batch decompilation, the dossier's pseudocode.</summary>
 [Trait("Speed", "Slow")]
 public sealed class NativeEngineWorkflowTests(ITestOutputHelper output) : IDisposable
 {
@@ -64,8 +64,27 @@ public sealed class NativeEngineWorkflowTests(ITestOutputHelper output) : IDispo
         Assert.True(clock.Elapsed < TimeSpan.FromSeconds(2), $"cached single call took {clock.Elapsed}");
     }
 
+    private async Task DossierPseudocode(string engine)
+    {
+        var rig = Setup();
+        var path = Sample();
+        var tools = new NativeFunctionTools(rig.Workspace, rig.Code, new OutputPager(new ServerOptions()), null, rig.Engines, new NativeNamePush(rig.Code));
+        var text = await tools.AnalyzeNativeFunction(path, "CheckSumMappedFile", sections: "identity,callees", pseudocode: true, engine: engine);
+        output.WriteLine(string.Join('\n', text.Split('\n').Take(30)));
+        Assert.Contains("== pseudocode (", text);
+        Assert.Contains($"// {engine}", text);
+        Assert.Contains("CheckSumMappedFile(", text);
+        Assert.Contains("== callees (", text);
+    }
+
     [IdaFact]
     public Task Batch_decompile_through_IDA() => BatchDecompiles("ida");
+
+    [IdaFact]
+    public Task Dossier_pseudocode_through_IDA() => DossierPseudocode("ida");
+
+    [GhidraFact]
+    public Task Dossier_pseudocode_through_Ghidra() => DossierPseudocode("ghidra");
 
     [GhidraFact]
     public Task Batch_decompile_through_Ghidra() => BatchDecompiles("ghidra");

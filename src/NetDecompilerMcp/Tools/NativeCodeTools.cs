@@ -78,7 +78,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
 
     private static string Flags(NativeFunction f, NativeCodeIndex? index = null) => FlagList(f, index) is { Count: > 0 } flags ? $"  [{string.Join(", ", flags)}]" : "";
 
-    private static List<string> FlagList(NativeFunction f, NativeCodeIndex? index = null)
+    internal static List<string> FlagList(NativeFunction f, NativeCodeIndex? index = null)
     {
         var flags = new List<string>();
         if (index != null && EngineLibraryNames.IsLibrary(index, f.Start)) flags.Add("library");

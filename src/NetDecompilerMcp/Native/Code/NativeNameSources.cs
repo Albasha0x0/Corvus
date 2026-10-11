@@ -155,6 +155,25 @@ public sealed class SourcedNames
         }
     }
 
+    /// <summary>The names and comments in effect at addresses in [<paramref name="start"/>, <paramref name="end"/>), ascending.</summary>
+    public List<(uint Rva, string? Name, string? Comment, NativeNameSource Source)> In(uint start, uint end)
+    {
+        lock (_gate)
+        {
+            var at = new SortedSet<uint>();
+            foreach (var d in _names) foreach (var r in d.Keys) if (r >= start && r < end) at.Add(r);
+            foreach (var d in _comments) foreach (var r in d.Keys) if (r >= start && r < end) at.Add(r);
+            var result = new List<(uint, string?, string?, NativeNameSource)>(at.Count);
+            foreach (var r in at)
+            {
+                var name = NameCore(r);
+                var comment = Priority.Select(s => (Text: _comments[(int)s].GetValueOrDefault(r), Source: s)).FirstOrDefault(c => c.Text != null);
+                result.Add((r, name?.Name, comment.Text, name?.Source ?? comment.Source));
+            }
+            return result;
+        }
+    }
+
     public int Count(NativeNameSource source)
     {
         lock (_gate) return _names[(int)source].Count;

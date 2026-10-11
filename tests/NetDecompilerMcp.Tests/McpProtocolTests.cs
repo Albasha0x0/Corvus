@@ -263,6 +263,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["resolve_call_targets"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["scope"] = "function" }, "sites (showing"),
         ["trace_native_values"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["location"] = "rcx" }, "Value trace (backward) of rcx"),
         ["native_call_tree"] = (new() { ["image"] = NativeSample(dir), ["function"] = "First" }, "First"),
+        ["analyze_native_function"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "== callers"),
         ["find_virtual_calls"] = (new() { ["image"] = NativeSample(dir), ["status"] = "exact" }, "\"sites\":0"),
         ["search_native_strings"] = (new() { ["image"] = NativeSample(dir) }, "string"),
         ["decompile_native"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["engine"] = "bogus" }, "Error (invalid_argument) in decompile_native: parameter 'engine' must be one of auto, ida"),

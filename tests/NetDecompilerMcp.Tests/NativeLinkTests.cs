@@ -18,9 +18,10 @@ internal static class LinkedImages
 
     /// <param name="exports">Name and either a code offset into <paramref name="code"/> or a forwarder ("module.name").</param>
     /// <param name="imports">Module and names ("#n" imports by ordinal).</param>
-    /// <param name="code">Code bytes, given the slot RVA of each "module!name" import.</param>
+    /// <param name="code">Code bytes, given the slot RVA of each "module!name" import (and of each item <paramref name="data"/> adds).</param>
+    /// <param name="data">Adds read-only data (strings) and returns their RVAs by name.</param>
     public static byte[] Build(string dllName, (string Name, object Target)[] exports, (string Module, string[] Names)[] imports,
-        Func<Dictionary<string, uint>, byte[]> code)
+        Func<Dictionary<string, uint>, byte[]> code, Func<PeBlob, Dictionary<string, uint>>? data = null)
     {
         var blob = new PeBlob(Data);
         var slots = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
@@ -50,6 +51,9 @@ internal static class LinkedImages
             blob.Patch32(d + 12, moduleName);
             blob.Patch32(d + 16, iat);
         }
+
+        if (data != null)
+            foreach (var (k, v) in data(blob)) slots[k] = v;
 
         uint exportDir = 0, exportSize = 0;
         if (exports.Length > 0)

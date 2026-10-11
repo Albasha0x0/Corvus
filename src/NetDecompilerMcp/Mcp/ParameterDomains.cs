@@ -94,6 +94,7 @@ public static class ParameterDomains
             ["status"] = Of(["all", "resolved", "possible", "ambiguous", "unresolved", "indirect"]),
             ["engine"] = Engine,
         },
+        ["analyze_native_function"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["search_pdb_symbols"] = new Dictionary<string, Domain> { ["kind"] = Of(["function", "data", "public", "all"], "functions", "publics") },
         ["make_code_pattern"] = new Dictionary<string, Domain> { ["anchor"] = Of(["auto", "address", "reference", "xrefs"]), ["engine"] = Engine },
         ["compare_native_images"] = new Dictionary<string, Domain> { ["view"] = Of(["pairs", "changed", "unmatched", "ambiguous"]) },
