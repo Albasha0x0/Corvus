@@ -142,7 +142,15 @@ public abstract class DevRelayTests(string protocol) : IAsyncLifetime
         File.Delete(Path.Combine(Publish, RelayBuilds.MarkerName));
         File.WriteAllText(Path.Combine(Publish, "NetDecompilerMcp.dll"), "stand-in");
         File.WriteAllText(Path.Combine(Publish, "tag.txt"), tag);
-        File.WriteAllText(Path.Combine(Publish, RelayBuilds.MarkerName), JsonSerializer.Serialize(new { buildId = tag }));
+        WriteMarker(Publish, tag);
+    }
+
+    /// <summary>Writes the marker whole, through a temporary file as publish.ps1 does: the relay would take a marker caught half written for a build of its own.</summary>
+    internal static void WriteMarker(string directory, string buildId)
+    {
+        var marker = Path.Combine(directory, RelayBuilds.MarkerName);
+        File.WriteAllText(marker + ".tmp", JsonSerializer.Serialize(new { buildId }));
+        File.Move(marker + ".tmp", marker, overwrite: true);
     }
 
     private FakeMcpServer Server(string tag) => _servers.Last(s => s.Tag == tag);
@@ -325,7 +333,7 @@ public sealed class DevRelayRealServerTests
             Directory.CreateDirectory(Path.GetDirectoryName(to)!);
             File.Copy(file, to);
         }
-        void Mark(string id) => File.WriteAllText(Path.Combine(publish, RelayBuilds.MarkerName), JsonSerializer.Serialize(new { buildId = id }));
+        void Mark(string id) => DevRelayTests.WriteMarker(publish, id);
         Mark("one");
 
         var toRelay = new Pipe();
