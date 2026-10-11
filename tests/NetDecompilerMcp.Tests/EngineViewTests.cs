@@ -82,6 +82,18 @@ public sealed class EngineViewTests : IDisposable
         Assert.Contains("g_engine_table", await rig.Tools.ListGlobals(rig.Image, filter: "engine_t", engine: "ghidra"));
     }
 
+    [Fact]
+    public async Task Native_strings_with_an_engine_add_the_strings_only_it_defined()
+    {
+        var rig = Setup();
+        await Loaded(rig);
+        Assert.DoesNotContain("only in the engine", await rig.Tools.SearchNativeStrings(rig.Image));
+        var text = await rig.Tools.SearchNativeStrings(rig.Image, "engine", engine: "ghidra");
+        Assert.Contains("Engine: ghidra", text);
+        Assert.Matches(@"0x[0-9A-F]+3020  ghidra:utf8 ""only in the engine""  0 refs", text);
+        Assert.DoesNotContain("zzz", text);
+    }
+
     /// <summary>A Ghidra-like engine whose sessions answer the read views from fixed data.</summary>
     internal sealed class ViewProvider : INativeDecompilerProvider
     {
@@ -123,6 +135,9 @@ public sealed class EngineViewTests : IDisposable
         public Task<EngineDataList> ListDataAsync(int max, CancellationToken cancellationToken = default) =>
             Task.FromResult(new EngineDataList(3, [new EngineDataItem(0x3000, 8, "pointer", "g_engine_table", "180001000h", false),
                 new EngineDataItem(0x3010, 6, "string", null, "\"hello\"", true)]));
+
+        public Task<IReadOnlyList<EngineString>> ListStringsAsync(int max, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<EngineString>>([new EngineString(0x3020, 12, "utf8", "only in the engine"), new EngineString(0x3040, 8, "unicode", "zzz")]);
 
         public Task<EngineImageInfo> GetEngineInfoAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(new EngineImageInfo("12.1", "x86", "x86:LE:64:default", "windows", "PE", 8, "little", 3, 2, [0x1000], "d41d", "abc",

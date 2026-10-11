@@ -49,6 +49,17 @@ public sealed class NativeGhidraViewTests(ITestOutputHelper output, GhidraCacheF
         Assert.Contains(data.Items, d => d.Label != null && d.Type.Length > 0);
         Assert.Equal(5, (await s.ListDataAsync(5)).Items.Count);
     }
+
+    [GhidraFact]
+    public async Task Defined_strings_include_unreferenced_ones()
+    {
+        await using var s = await Open();
+        var strings = await s.ListStringsAsync(100_000);
+        output.WriteLine($"{strings.Count} strings; " + string.Join("; ", strings.Take(6).Select(x => $"0x{x.Rva:X} {x.Type} {x.Text}")));
+        Assert.True(strings.Count > 20);
+        Assert.Contains(strings, x => x.Type == "unicode" && x.Text.Length > 2);
+        Assert.Contains(strings, x => x.Text == Export);
+    }
 }
 
 /// <summary>The engine read views against a real IDA (idalib), on a system DLL analyzed once for the class.</summary>
@@ -90,5 +101,16 @@ public sealed class NativeIdaViewTests(ITestOutputHelper output, IdaCacheFixture
         Assert.Contains(data.Items, d => d.IsString && d.Value != null && d.Size > 1);
         Assert.Contains(data.Items, d => d.Label != null && d.Type.Length > 0);
         Assert.Equal(5, (await s.ListDataAsync(5)).Items.Count);
+    }
+
+    [IdaFact]
+    public async Task Defined_strings_include_unreferenced_ones()
+    {
+        await using var s = await Open();
+        var strings = await s.ListStringsAsync(100_000);
+        output.WriteLine($"{strings.Count} strings; " + string.Join("; ", strings.Take(6).Select(x => $"0x{x.Rva:X} {x.Type} {x.Text}")));
+        Assert.True(strings.Count > 20);
+        Assert.Contains(strings, x => x.Type == "C_16" && x.Text.Length > 2);
+        Assert.Contains(strings, x => x.Type == "C" && x.Text == Export);
     }
 }

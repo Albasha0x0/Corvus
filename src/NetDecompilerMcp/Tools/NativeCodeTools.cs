@@ -357,13 +357,15 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     [McpServerTool(Name = "search_native_strings", Title = "Search native strings", UseStructuredContent = true, OutputSchemaType = typeof(NativeStringList))]
     [Description("Strings (ASCII and UTF-16) a native image's code or data references, with the address, the number of references and the first " +
                  "referencing function; filter by substring or regex. After apply_il2cpp_names also the Il2Cpp string literals, by the slot code loads them from; " +
-                 "in a NativeAOT image the string literals (frozen String objects), by the object code loads. " + IndexNote)]
+                 "in a NativeAOT image the string literals (frozen String objects), by the object code loads. With an engine also the strings it " +
+                 "defined that nothing references, in its string types (UTF-8 and others). " + IndexNote)]
     public Task<string> SearchNativeStrings(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Text to find (case-insensitive substring), or a regex with regex=true; omit to list all.")] string? query = null,
         [Description("Treat query as a regular expression.")] bool regex = false,
         [Description("Index of the first row.")] int offset = 0,
         [Description("Max rows (default 300).")] int limit = 300,
+        [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -373,7 +375,12 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             try { pattern = new Regex(query, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeouts.Limit); }
             catch (ArgumentException ex) { throw new ToolError(ErrorCode.InvalidArgument, $"Invalid regex: {ex.Message}"); }
         }
+        var mode = Mode(engine);
         var (native, index) = await Open(image, context, progress, cancellationToken);
+        var choice = Choose(mode, native, index);
+        IReadOnlyList<Native.Providers.EngineString> engineStrings = [];
+        if (choice.External)
+            engineStrings = await (await _engine!.Session(native, choice, progress, cancellationToken)).ListStringsAsync(MaxEngineData, cancellationToken);
         var timeouts = new RegexTimeouts();
         var rows = new List<string>();
         var items = new List<NativeStringEntry>();
@@ -418,7 +425,20 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
                      $"{index.CountRefsTo(o.Rva)} refs{(first != null ? $", first in {first}" : "")}");
             if (rows.Count - 1 >= pageStart && rows.Count - 1 < pageEnd) items.Add(new NativeStringEntry(NativeAddress.Va(index.Image, o.Rva), "nativeaot", Format.Clip(o.Text!, 400), index.CountRefsTo(o.Rva), first));
         }
-        return StructuredOutput.With(timeouts.Note("string") + pager.PageRows(rows, offset, limit, "string"),
+        // the engine's strings the built-in index has not listed (unreferenced, or of other string types)
+        var listed = index.Strings.Select(s => s.Rva).ToHashSet();
+        foreach (var s in engineStrings)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (listed.Contains(s.Rva)) continue;
+            if (query != null && !(pattern != null ? timeouts.IsMatch(pattern, s.Text) : s.Text.Contains(query, StringComparison.OrdinalIgnoreCase))) continue;
+            var refs = index.RefsTo(s.Rva, 1);
+            var first = refs.Count > 0 && index.FunctionAt(refs[0].From) is { } f ? f.Name : null;
+            var kind = $"{choice.Engine}:{s.Type}";
+            rows.Add($"{NativeAddress.Va(index.Image, s.Rva)}  {kind} \"{Format.Clip(Escape(s.Text), 200)}\"  {index.CountRefsTo(s.Rva)} refs{(first != null ? $", first in {first}" : "")}");
+            if (rows.Count - 1 >= pageStart && rows.Count - 1 < pageEnd) items.Add(new NativeStringEntry(NativeAddress.Va(index.Image, s.Rva), kind, s.Text, index.CountRefsTo(s.Rva), first));
+        }
+        return StructuredOutput.With((choice.External ? choice.Line + "\n" : "") + timeouts.Note("string") + pager.PageRows(rows, offset, limit, "string"),
             new NativeStringList(native.Id, items, pageStart, rows.Count, pageStart + items.Count < rows.Count) { NotEvaluated = timeouts.Count });
     });
 

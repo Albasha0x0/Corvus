@@ -2900,7 +2900,30 @@ def data_flag_type(m, flags, size):
     return "data"
 
 
+STRTYPE_NAMES = {0: "C", 1: "C_16", 2: "C_32"}
+
+
+def op_defined_strings(args):
+    # string literal items in address order: rows [rva, size, type, text] up to max
+    m = need_open()
+    limit = int(args.get("max") or 200000)
+    rows = []
+    for n in range(m.ida_segment.get_segm_qty()):
+        seg = m.ida_segment.getnseg(n)
+        ea = seg.start_ea
+        while ea != m.idautils.ida_idaapi.BADADDR and ea < seg.end_ea and len(rows) < limit:
+            if m.ida_bytes.is_strlit(m.ida_bytes.get_flags(ea)) and rva_of(ea) is not None:
+                strtype = m.ida_nalt.get_str_type(ea)
+                width = strtype & 3 if strtype is not None and strtype >= 0 else 0
+                raw = m.ida_bytes.get_strlit_contents(ea, -1, strtype if strtype is not None and strtype >= 0 else 0) or b""
+                text = raw.decode("utf-8", "replace")
+                rows.append([rva_of(ea), m.ida_bytes.get_item_size(ea), STRTYPE_NAMES.get(width, "C"), text[:400]])
+            ea = m.ida_bytes.next_head(ea, seg.end_ea)
+    return {"rows": rows}
+
+
 OPS["defined_data"] = op_defined_data
+OPS["defined_strings"] = op_defined_strings
 OPS["image_info"] = op_image_info
 
 

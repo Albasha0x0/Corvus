@@ -1178,9 +1178,9 @@ Structured output: `image`, `sites`, `exact`, `possible`, `unresolved`, `edges`,
 
 ### search_native_strings
 
-**Search native strings** (read-only, idempotent, long-running)
+**Search native strings** (read-only, idempotent, open-world, long-running)
 
-Strings (ASCII and UTF-16) a native image's code or data references, with the address, the number of references and the first referencing function; filter by substring or regex. After apply_il2cpp_names also the Il2Cpp string literals, by the slot code loads them from; in a NativeAOT image the string literals (frozen String objects), by the object code loads. The first call on an image waits for its code index (built in the background after loading; seconds for a typical DLL, one to two minutes for a 300 MB browser DLL; progress is reported).
+Strings (ASCII and UTF-16) a native image's code or data references, with the address, the number of references and the first referencing function; filter by substring or regex. After apply_il2cpp_names also the Il2Cpp string literals, by the slot code loads them from; in a NativeAOT image the string literals (frozen String objects), by the object code loads. With an engine also the strings it defined that nothing references, in its string types (UTF-8 and others). The first call on an image waits for its code index (built in the background after loading; seconds for a typical DLL, one to two minutes for a 300 MB browser DLL; progress is reported).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1189,6 +1189,7 @@ Strings (ASCII and UTF-16) a native image's code or data references, with the ad
 | `regex` | boolean |  | `false` | Treat query as a regular expression. |
 | `offset` | integer |  | `0` | Index of the first row. |
 | `limit` | integer |  | `300` | Max rows (default 300). |
+| `engine` | string |  |  | auto (default: IDA's or Ghidra's analysis when complete in this session, else the built-in index; never starts an engine), ours (built-in index only), ida or ghidra (that engine, started when needed). Server default: --engine / NDM_ENGINE. Values: auto, ours, ida, ghidra. |
 
 Structured output: `image`, `items`, `offset`, `total`, `truncated`, `notEvaluated`.
 

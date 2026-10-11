@@ -153,7 +153,7 @@ public static class ToolEffects
         ["find_xrefs"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
         ["native_call_tree"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
         ["find_virtual_calls"] = Reads(longRunning: true, openWorld: true), // crossCheck=true runs IDA
-        ["search_native_strings"] = Reads(longRunning: true),
+        ["search_native_strings"] = Reads(longRunning: true, openWorld: true), // engine=ida or ghidra runs that engine
         ["get_call_arguments"] = Reads(longRunning: true),
         ["trace_native_values"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
         ["resolve_call_targets"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA

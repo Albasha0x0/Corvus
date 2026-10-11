@@ -349,4 +349,8 @@ internal static class WorkerRows
     public static EngineDataList DataList(JsonElement r) =>
         new(r.GetProperty("total").GetInt32(), r.GetProperty("rows").EnumerateArray()
             .Select(x => new EngineDataItem(x[0].GetUInt32(), x[1].GetInt64(), x[2].GetString() ?? "", Text(x[3]), Text(x[4]), x[5].GetBoolean())).ToList());
+
+    /// <summary>defined_strings: rows [rva, size, type, text].</summary>
+    public static List<EngineString> Strings(JsonElement r) =>
+        r.GetProperty("rows").EnumerateArray().Select(x => new EngineString(x[0].GetUInt32(), x[1].GetInt64(), x[2].GetString() ?? "", x[3].GetString() ?? "")).ToList();
 }

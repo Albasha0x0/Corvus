@@ -95,6 +95,29 @@ final class InfoOps {
         return o;
     }
 
+    /** Defined data holding a string, any string type (defined_strings): rows [rva, size, type, text] up to max. */
+    static JsonElement strings(Worker w, Worker.Request r) throws Exception {
+        int max = r.args.has("max") ? r.args.get("max").getAsInt() : 200_000;
+        JsonArray rows = new JsonArray();
+        DataIterator it = w.program.getListing().getDefinedData(true);
+        while (it.hasNext() && rows.size() < max) {
+            r.monitor.checkCancelled();
+            Data d = it.next();
+            if (!d.hasStringValue() || !(d.getValue() instanceof String text)) continue;
+            Long rva = w.rva(d.getAddress());
+            if (rva == null) continue;
+            JsonArray row = new JsonArray();
+            row.add(rva);
+            row.add(d.getLength());
+            row.add(d.getDataType().getName());
+            row.add(clip(text, 400));
+            rows.add(row);
+        }
+        JsonObject o = new JsonObject();
+        o.add("rows", rows);
+        return o;
+    }
+
     static String clip(String s, int max) {
         return s.length() <= max ? s : s.substring(0, max) + "...";
     }

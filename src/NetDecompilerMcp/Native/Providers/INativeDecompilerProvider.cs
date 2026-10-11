@@ -213,6 +213,10 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     Task<EngineDataList> ListDataAsync(int max, CancellationToken cancellationToken = default) =>
         throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not list defined data.");
 
+    /// <summary>The engine's defined strings in address order, at most <paramref name="max"/>, whether code references them or not.</summary>
+    Task<IReadOnlyList<EngineString>> ListStringsAsync(int max, CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not list strings.");
+
     /// <summary>References to <paramref name="rva"/> (ordinary flow excluded).</summary>
     Task<IReadOnlyList<NativeXref>> GetXrefsToAsync(uint rva, CancellationToken cancellationToken = default);
 
@@ -610,3 +614,6 @@ public sealed record EngineDataItem(uint Rva, long Size, string Type, string? La
 
 /// <summary>Defined data items, the first <see cref="Items"/> of <see cref="Total"/>.</summary>
 public sealed record EngineDataList(int Total, IReadOnlyList<EngineDataItem> Items);
+
+/// <summary>A string the engine defined: its size in bytes, the engine's string type (e.g. string, unicode, utf8, C, C_16) and its text (clipped at 400 characters).</summary>
+public sealed record EngineString(uint Rva, long Size, string Type, string Text);

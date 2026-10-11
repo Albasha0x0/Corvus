@@ -72,6 +72,7 @@ public static class ParameterDomains
         ["inspect_instruction"] = new Dictionary<string, Domain> { ["engine"] = Engine },
         ["search_instructions"] = new Dictionary<string, Domain> { ["engine"] = Engine },
         ["list_globals"] = new Dictionary<string, Domain> { ["engine"] = Engine },
+        ["search_native_strings"] = new Dictionary<string, Domain> { ["engine"] = Engine },
         ["get_cfg"] = new Dictionary<string, Domain> { ["engine"] = Engine },
         ["find_xrefs"] = new Dictionary<string, Domain> { ["engine"] = Engine, ["direction"] = Of(["to", "from", "both"]), ["kind"] = Of(["any", "code", "data"]) },
         ["native_call_tree"] = new Dictionary<string, Domain> { ["direction"] = Direction, ["calls"] = Of(["all", "direct", "virtual"]), ["engine"] = Engine },

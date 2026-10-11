@@ -402,4 +402,7 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
 
     public async Task<EngineDataList> ListDataAsync(int max, CancellationToken cancellationToken = default) =>
         WorkerRows.DataList(await CallAsync("defined_data", WorkerRows.Args(("max", Math.Clamp(max, 1, 500_000))), cancellationToken).ConfigureAwait(false));
+
+    public async Task<IReadOnlyList<EngineString>> ListStringsAsync(int max, CancellationToken cancellationToken = default) =>
+        WorkerRows.Strings(await CallAsync("defined_strings", WorkerRows.Args(("max", Math.Clamp(max, 1, 500_000))), cancellationToken).ConfigureAwait(false));
 }
