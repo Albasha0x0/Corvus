@@ -70,6 +70,9 @@ public sealed class AssemblyWorkspace : IDisposable
 
     private static CancellationToken CallToken => Call.Value?.Token ?? default;
 
+    /// <summary>Threads queued for the exclusive and the shared lock (tests order lock waits with these).</summary>
+    internal (int Writers, int Readers) Waiting => (_lock.WaitingWriteCount, _lock.WaitingReadCount);
+
     /// <summary>Waits in slices of this length when the wait can be cancelled.</summary>
     private const int WaitSliceMs = 50;
 

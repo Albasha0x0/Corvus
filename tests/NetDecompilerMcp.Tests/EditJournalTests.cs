@@ -31,6 +31,30 @@ public sealed class EditJournalTests : IDisposable
         File.WriteAllText(file, doc.ToJsonString());
     }
 
+    /// <summary>
+    /// A save (under the shared lock, then the journal's gate), a queued writer and a sync after another call (the gate, then the
+    /// shared lock) used to deadlock: the sync held the gate while the queued writer kept it out of the shared lock.
+    /// </summary>
+    [Fact]
+    public async Task SaveSyncAndAQueuedWriterDoNotDeadlock()
+    {
+        using var env = new Env(Copy());
+        var journal = new EditJournal(env.Workspace, Store(), env.History);
+        var ws = env.Workspace;
+        using var held = new ManualResetEventSlim();
+        using var go = new ManualResetEventSlim();
+        static async Task Until(Func<bool> condition) { while (!condition()) await Task.Delay(5); }
+
+        var save = Task.Run(() => ws.Read(() => { held.Set(); go.Wait(); journal.Saved(env.Fixture); return 0; }));
+        held.Wait();
+        var writer = Task.Run(() => ws.Write(() => 0));
+        await Until(() => ws.Waiting.Writers == 1).WaitAsync(TimeSpan.FromMinutes(1));
+        var sync = Task.Run(journal.Sync);
+        await Until(() => ws.Waiting.Readers == 1 || sync.IsCompleted).WaitAsync(TimeSpan.FromMinutes(1));
+        go.Set();
+        await Task.WhenAll(save, writer, sync).WaitAsync(TimeSpan.FromMinutes(1)); // a deadlock never ends
+    }
+
     [Fact]
     public void EditsAreJournaledAndOfferedToTheNextSession()
     {

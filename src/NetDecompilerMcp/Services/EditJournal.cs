@@ -68,73 +68,76 @@ public sealed class EditJournal
     private string FileFor(string sha256, string id, string suffix) => Path.Combine(Root, $"{sha256.ToLowerInvariant()}.{Session}.{Safe(id)}{suffix}");
 
     /// <summary>Writes or removes the journal of every loaded target whose edits changed since the last call; never throws.</summary>
-    public void Sync()
+    /// <remarks>
+    /// The shared lock is taken before the gate, as by <see cref="Saved"/>, which runs under it: the other order deadlocked
+    /// with a save waiting for the gate while a queued writer kept the gate holder out of the shared lock.
+    /// </remarks>
+    public void Sync() => _workspace.Read(() =>
+    {
+        lock (_gate) SyncLocked();
+        return 0;
+    });
+
+    private void SyncLocked()
     {
         List<(object Target, int Version, string File, byte[]? Content)> pending = [];
         HashSet<object> live = [];
-        lock (_gate)
+        foreach (var asm in _workspace.Assemblies)
         {
-            _workspace.Read(() =>
+            live.Add(asm);
+            var state = _states.GetValue(asm, _ => new State());
+            int version = asm.IsDirty && asm.Version != state.Saved ? asm.Version : -1;
+            if (version == state.Journaled) continue;
+            var file = state.File ??= FileFor(asm.OriginalSha256, asm.Id, EditsSuffix);
+            byte[]? content = version < 0 ? null : Envelope(JsonNode.Parse(EditHistoryService.Serialize(_history.BuildScript(asm)))!);
+            pending.Add((asm, version, file, content));
+        }
+        foreach (var native in _workspace.Natives)
+        {
+            live.Add(native);
+            var state = _states.GetValue(native, _ => new State());
+            int version = native.HasPatches && native.Patches.Version != state.Saved ? native.Patches.Version : -1;
+            if (version == state.Journaled) continue;
+            var file = state.File ??= FileFor(native.OriginalSha256, native.Id, PatchesSuffix);
+            byte[]? content;
+            // a patch set that cannot be rendered is not journaled; the tool call that made it must not fail for that
+            try { content = version < 0 ? null : Envelope(JsonNode.Parse(NativeEditService.RenderPatches(native, PatchExport.Format.Json).Content)!); }
+            catch (ToolError ex)
             {
-                foreach (var asm in _workspace.Assemblies)
+                if (_lastProblem != ex.Message) _workspace.Notify($"The edit journal could not be written ({ex.Message}); unsaved edits are not crash-safe until it can.");
+                _lastProblem = ex.Message;
+                continue;
+            }
+            pending.Add((native, version, file, content));
+        }
+        // Targets unloaded or reloaded since: their edits were discarded deliberately.
+        foreach (var (file, target) in _files.ToList())
+            if (!live.Contains(target))
+            {
+                Delete(file);
+                _files.Remove(file);
+            }
+        foreach (var (target, version, file, content) in pending)
+        {
+            try
+            {
+                if (content is { } bytes)
                 {
-                    live.Add(asm);
-                    var state = _states.GetValue(asm, _ => new State());
-                    int version = asm.IsDirty && asm.Version != state.Saved ? asm.Version : -1;
-                    if (version == state.Journaled) continue;
-                    var file = state.File ??= FileFor(asm.OriginalSha256, asm.Id, EditsSuffix);
-                    byte[]? content = version < 0 ? null : Envelope(JsonNode.Parse(EditHistoryService.Serialize(_history.BuildScript(asm)))!);
-                    pending.Add((asm, version, file, content));
+                    Directory.CreateDirectory(Root);
+                    SafeFile.WriteAllBytes(file, bytes, overwrite: true);
+                    _files[file] = target;
                 }
-                foreach (var native in _workspace.Natives)
-                {
-                    live.Add(native);
-                    var state = _states.GetValue(native, _ => new State());
-                    int version = native.HasPatches && native.Patches.Version != state.Saved ? native.Patches.Version : -1;
-                    if (version == state.Journaled) continue;
-                    var file = state.File ??= FileFor(native.OriginalSha256, native.Id, PatchesSuffix);
-                    byte[]? content;
-                    // a patch set that cannot be rendered is not journaled; the tool call that made it must not fail for that
-                    try { content = version < 0 ? null : Envelope(JsonNode.Parse(NativeEditService.RenderPatches(native, PatchExport.Format.Json).Content)!); }
-                    catch (ToolError ex)
-                    {
-                        if (_lastProblem != ex.Message) _workspace.Notify($"The edit journal could not be written ({ex.Message}); unsaved edits are not crash-safe until it can.");
-                        _lastProblem = ex.Message;
-                        continue;
-                    }
-                    pending.Add((native, version, file, content));
-                }
-                return 0;
-            });
-            // Targets unloaded or reloaded since: their edits were discarded deliberately.
-            foreach (var (file, target) in _files.ToList())
-                if (!live.Contains(target))
+                else
                 {
                     Delete(file);
                     _files.Remove(file);
                 }
-            foreach (var (target, version, file, content) in pending)
+                _states.GetValue(target, _ => new State()).Journaled = version;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ToolError)
             {
-                try
-                {
-                    if (content is { } bytes)
-                    {
-                        Directory.CreateDirectory(Root);
-                        SafeFile.WriteAllBytes(file, bytes, overwrite: true);
-                        _files[file] = target;
-                    }
-                    else
-                    {
-                        Delete(file);
-                        _files.Remove(file);
-                    }
-                    _states.GetValue(target, _ => new State()).Journaled = version;
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ToolError)
-                {
-                    if (_lastProblem != ex.Message) _workspace.Notify($"The edit journal could not be written ({ex.Message}); unsaved edits are not crash-safe until it can.");
-                    _lastProblem = ex.Message;
-                }
+                if (_lastProblem != ex.Message) _workspace.Notify($"The edit journal could not be written ({ex.Message}); unsaved edits are not crash-safe until it can.");
+                _lastProblem = ex.Message;
             }
         }
     }
