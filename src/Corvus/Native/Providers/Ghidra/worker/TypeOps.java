@@ -1,7 +1,7 @@
 // Type creation: C declarations through CParser resolved into the program's data type manager with the replace
 // handler, prototypes through Ghidra's signature parsing, and types parsed against the program's manager so pointer
 // sizes follow its data organization.
-package ndm.ghidra;
+package corvus.ghidra;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -60,12 +60,12 @@ import ghidra.util.data.DataTypeParser;
 /** Types in the program's data type manager; callers run the writes inside {@link Worker#write}. */
 final class TypeOps {
     /** Program option: the RVAs the user typed (hex, comma separated); recovered types leave them alone. */
-    static final String USER_TYPED = "ndm_user_typed";
+    static final String USER_TYPED = "user_typed";
     /** Program option: the user's declarations, applied again after recovered types so they win. */
-    static final String USER_DECLS = "ndm_user_decls";
+    static final String USER_DECLS = "user_decls";
     /** Where class and vftable types the server builds are kept. */
-    static final CategoryPath CLASSES = new CategoryPath("/ndm/classes");
-    private static final CategoryPath SLOTS = new CategoryPath("/ndm/slots");
+    static final CategoryPath CLASSES = new CategoryPath("/corvus/classes");
+    private static final CategoryPath SLOTS = new CategoryPath("/corvus/slots");
 
     private TypeOps() {
     }

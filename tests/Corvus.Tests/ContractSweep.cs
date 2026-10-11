@@ -97,11 +97,11 @@ public static class ContractSweep
                 yield return ("whitespace", "  \t\n ");
                 yield return ("100k chars", Long);
                 yield return ("nonexistent", "No.Such.Ns.Missing::Nothing(int)");
-                yield return ("traversal", @"..\..\..\..\ndm-no-such-dir\x.dll");
-                yield return ("posix traversal", "../../../../ndm-no-such-dir/x.dll");
+                yield return ("traversal", @"..\..\..\..\no-such-dir\x.dll");
+                yield return ("posix traversal", "../../../../no-such-dir/x.dll");
                 yield return ("invalid path chars", "a<>:\"|?*\0b");
                 yield return ("device name", @"C:\nul\con.dll");
-                yield return ("unc", @"\\ndm-no-such-host\share\x.dll");
+                yield return ("unc", @"\\no-such-host\share\x.dll");
                 yield return ("invisible chars", Invisible);
                 yield return ("emoji and surrogates", "😀\uD800x");
                 yield return ("wildcards", "*");
@@ -225,7 +225,7 @@ public static class ContractSweep
                 Add("no arguments", outputs.ToDictionary(o => o, o => (object?)Fresh()));
             if (depth == Depth.Full)
             {
-                Add("unknown parameter", With(Base(), "ndmNoSuchParameter", 1));
+                Add("unknown parameter", With(Base(), "noSuchParameter", 1));
                 foreach (var q in required)
                     Add($"missing {q}", Without(Base(), q));
             }

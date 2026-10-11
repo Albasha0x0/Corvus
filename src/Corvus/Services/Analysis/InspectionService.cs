@@ -225,7 +225,7 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
         }
         if (!save && !load && outputDirectory == null) return new EmbeddedReport(label, contents, null, notes);
 
-        var root = UnpackService.PrepareOutput(outputDirectory ?? UnpackService.DefaultOutput(source, sha, "netdecomp-embedded"), source, sha);
+        var root = UnpackService.PrepareOutput(outputDirectory ?? UnpackService.DefaultOutput(source, sha, "corvus-embedded"), source, sha);
         var written = new List<EmbeddedContent>();
         for (int i = 0; i < contents.Count; i++)
         {

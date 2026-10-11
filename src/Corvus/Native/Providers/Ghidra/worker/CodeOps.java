@@ -1,5 +1,5 @@
 // A decompiler timeout is its own error, not a failure.
-package ndm.ghidra;
+package corvus.ghidra;
 
 import java.util.HexFormat;
 import java.util.LinkedHashSet;

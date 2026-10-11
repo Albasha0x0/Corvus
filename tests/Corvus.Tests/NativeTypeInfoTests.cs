@@ -167,7 +167,7 @@ public sealed class NativeTypeInfoTests : IDisposable
         var tools = new NativeCodeTools(_env.Workspace, _code, _env.Pager);
         await tools.ListGlobals(_image); // loads the image and its PDB
         var native = _env.Workspace.Read(() => _env.Workspace.Natives[0]);
-        _code.Annotations(native).SetName(0x3150, "ndm_flag");
+        _code.Annotations(native).SetName(0x3150, "sample_flag");
         _code.Annotations(native).ChangeUserTypes(l => l.WithType(0x3150, "int").WithAnalysis(new(0x3160, "data", null, "dword[2]")));
         var collector = StructuredOutput.Begin();
         var text = await tools.ListGlobals(_image);
@@ -176,14 +176,14 @@ public sealed class NativeTypeInfoTests : IDisposable
         var game = Assert.Single(list.Items, g => g.Name == "g_Game");
         Assert.Equal(("0x140003010", "Game", 0x108L, ".data", "pdb"), (game.Address, game.Type, game.Size, game.Section, string.Join(",", game.Sources)));
         var flag = Assert.Single(list.Items, g => g.Address == "0x140003150");
-        Assert.Equal(("ndm_flag", "int", "user"), (flag.Name, flag.Type, string.Join(",", flag.Sources)));
+        Assert.Equal(("sample_flag", "int", "user"), (flag.Name, flag.Type, string.Join(",", flag.Sources)));
         Assert.Contains(list.Items, g => g.Address == "0x140003160" && g.Type == "dword[2]");
         // code is not a global
         Assert.DoesNotContain(list.Items, g => g.Section == ".text");
 
         var filtered = StructuredOutput.Begin();
-        await tools.ListGlobals(_image, filter: "ndm", section: ".DATA");
-        Assert.Equal(["ndm_flag"], Assert.IsType<GlobalList>(filtered.Value).Items.Select(g => g.Name));
+        await tools.ListGlobals(_image, filter: "sample", section: ".DATA");
+        Assert.Equal(["sample_flag"], Assert.IsType<GlobalList>(filtered.Value).Items.Select(g => g.Name));
     }
 
     [Fact]
@@ -385,18 +385,18 @@ public sealed class NativeTypeInfoIdaTests(ITestOutputHelper output) : IDisposab
         _owned.Add(workspace);
         var user = new NativeUserTypePush(code);
         workspace.LoadAny(image);
-        await new NativeTypeTools(workspace, engines, user, code).DeclareNativeTypes(image, "struct NdmTyped { int length; struct { short a, b; } pair; char data[16]; };");
+        await new NativeTypeTools(workspace, engines, user, code).DeclareNativeTypes(image, "struct SampleTyped { int length; struct { short a, b; } pair; char data[16]; };");
         var tools = new NativeTypeInfoTools(workspace, code, engines, user);
 
         var collector = StructuredOutput.Begin();
-        var text = await tools.GetNativeType(image, "NdmTyped", source: "engine", at: "0x6");
+        var text = await tools.GetNativeType(image, "SampleTyped", source: "engine", at: "0x6");
         output.WriteLine(text);
         var report = Assert.IsType<NativeTypeInfoTools.NativeTypeReport>(collector.Value);
-        Assert.Equal(("ida:NdmTyped", "ida", 24L), (report.Type!.Id, report.Type.Source, report.Type.Size));
+        Assert.Equal(("ida:SampleTyped", "ida", 24L), (report.Type!.Id, report.Type.Source, report.Type.Size));
         Assert.Equal(["+0x0 length", "+0x4 pair", "+0x8 data"], report.Type.Fields.Select(f => $"+0x{f.Offset:X} {f.Name}"));
         Assert.Equal("pair", Assert.Single(report.Paths).Path);
         // auto reads the engine once its analysis is complete, for names the other sources lack
-        Assert.Contains("[ida:NdmTyped, ida]", await tools.GetNativeType(image, "NdmTyped"));
-        Assert.Contains("ida:NdmTyped", await tools.GetNativeType(image, "dmTyp", source: "engine"));
+        Assert.Contains("[ida:SampleTyped, ida]", await tools.GetNativeType(image, "SampleTyped"));
+        Assert.Contains("ida:SampleTyped", await tools.GetNativeType(image, "dmTyp", source: "engine"));
     }
 }

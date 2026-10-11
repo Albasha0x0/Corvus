@@ -64,7 +64,7 @@ public sealed class CallTrace
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
                 _failed = true;
-                Console.Error.WriteLine($"NetDecompilerMcp: the call trace stopped: {e.Message}");
+                Console.Error.WriteLine($"The call trace stopped: {e.Message}");
             }
         }
     }

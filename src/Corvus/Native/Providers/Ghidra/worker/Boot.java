@@ -1,4 +1,4 @@
-package ndm.ghidra;
+package corvus.ghidra;
 
 import ghidra.GhidraApplicationLayout;
 import ghidra.GhidraClassLoader;
@@ -12,8 +12,8 @@ public class Boot implements GhidraLaunchable {
     @Override
     public void launch(GhidraApplicationLayout layout, String[] args) throws Exception {
         GhidraClassLoader loader = (GhidraClassLoader) ClassLoader.getSystemClassLoader();
-        loader.addPath(System.getProperty("ndm.worker.jar"));
-        GhidraLaunchable worker = (GhidraLaunchable) Class.forName("ndm.ghidra.Worker", true, loader).getDeclaredConstructor().newInstance();
+        loader.addPath(System.getProperty("corvus.worker.jar"));
+        GhidraLaunchable worker = (GhidraLaunchable) Class.forName("corvus.ghidra.Worker", true, loader).getDeclaredConstructor().newInstance();
         worker.launch(layout, args);
     }
 }

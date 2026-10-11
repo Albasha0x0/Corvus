@@ -96,7 +96,7 @@ public class ImportedNamesTests(ITestOutputHelper output)
             Assert.Contains("removed 3 PDB names and the saved copy", await Call(second, "load_pdb", new() { ["image"] = "tiny.dll", ["clear"] = true }));
             Assert.Contains("and the saved copy", await Call(second, "apply_il2cpp_names", new() { ["image"] = "tiny.dll", ["clear"] = true }));
         }
-        Assert.Empty(Directory.GetFiles(Path.Combine(dir.Path, ".ndm-annotations"), "*.names"));
+        Assert.Empty(Directory.GetFiles(Path.Combine(dir.Path, ".corvus-annotations"), "*.names"));
     }
 
     private static async Task<string> Call(McpClient client, string tool, Dictionary<string, object?> args)

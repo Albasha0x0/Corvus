@@ -243,7 +243,7 @@ public sealed class PipelineRoundTripTests(ITestOutputHelper output) : IDisposab
         File.Copy(sample.Path, Path.Combine(work, file));
         var project = Path.Combine(work, "project.crproj");
         File.WriteAllText(project,
-            $"<project outputDir=\"{outDir}\" baseDir=\"{work}\" seed=\"ndm-{name}-{seed}\" xmlns=\"{ToolIds.ProjectNamespace}\">\n" +
+            $"<project outputDir=\"{outDir}\" baseDir=\"{work}\" seed=\"corvus-test-{name}-{seed}\" xmlns=\"{ToolIds.ProjectNamespace}\">\n" +
             $"  <rule pattern=\"true\" preset=\"none\">\n{option.Rule}  </rule>\n" + option.Packer +
             $"  <module path=\"{file}\" />\n</project>\n");
         Row Result(string outcome, Metrics? processed = null, Metrics? simplified = null, int changed = 0, string fallbacks = "") =>

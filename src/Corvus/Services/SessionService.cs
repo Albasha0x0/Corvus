@@ -8,7 +8,7 @@ using Corvus.Native.Patching;
 namespace Corvus.Services;
 
 /// <summary>
-/// A session file (net-decompiler-session/1): the loaded files by path and SHA-256, each assembly's edit script (the
+/// A session file (corvus-session/1): the loaded files by path and SHA-256, each assembly's edit script (the
 /// export_edits format), each native image's patch set (the export_native_patches json) and user names and comments,
 /// notes, the Il2Cpp games read by the built-in reader (their input, binary and metadata, not the generated dummy assemblies)
 /// and the open minidumps. Everything is re-derived from the files themselves on load; nothing in it is executed.
@@ -16,7 +16,10 @@ namespace Corvus.Services;
 public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryService history, NativeCodeService code, NotesService? notes = null,
     MinidumpService? dumps = null)
 {
-    public const string Format = "net-decompiler-session/1";
+    public const string Format = "corvus-session/1";
+
+    // Migration only: the format of session files written before the rename, still read.
+    private const string LegacyFormat = "net-decompiler-session/1";
     public const long MaxBytes = 64L << 20;
     public const int MaxFiles = 10_000;
     /// <summary>Files hashed per search root when looking for a moved file.</summary>
@@ -161,8 +164,8 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
         Document? doc;
         try { doc = JsonSerializer.Deserialize<Document>(File.ReadAllBytes(full), Json); }
         catch (JsonException ex) { throw new ToolError(ErrorCode.MalformedInput, $"{full} is not a valid session file: {ex.Message}"); }
-        if (doc == null || doc.Format != Format || doc.Files == null)
-            throw new ToolError(ErrorCode.MalformedInput, $"{full} is not a corvus session file (expected format '{Format}').");
+        if (doc == null || doc.Format is not (Format or LegacyFormat) || doc.Files == null)
+            throw new ToolError(ErrorCode.MalformedInput, $"{full} is not a session file (expected format '{Format}').");
         if (doc.Files.Count > MaxFiles) throw new ToolError(ErrorCode.LimitExceeded, $"{full} lists {doc.Files.Count:N0} files; the limit is {MaxFiles:N0}.");
         return doc with { DotNet = doc.DotNet ?? [], Native = doc.Native ?? [], SearchDirectories = doc.SearchDirectories ?? [] };
     }

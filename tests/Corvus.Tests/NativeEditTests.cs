@@ -429,7 +429,7 @@ public class NativeEditTests(ITestOutputHelper output)
             Assert.Equal("returns 1\nchecked\nchecked", code2.Annotations(fresh).PseudoCommentAt(inside));
         }
         Assert.Contains("\"formatVersion\": 4", File.ReadAllText(Directory.GetFiles(h.Store.Root, "*.json").Single()));
-        foreach (var (format, expected) in new[] { ("ida", $"ndm_pseudo(0x{inside:X}, \"returns 1\\nchecked\\nchecked\")"), ("ghidra", "setPreComment"), ("json", "pseudoComments") })
+        foreach (var (format, expected) in new[] { ("ida", $"apply_pseudo(0x{inside:X}, \"returns 1\\nchecked\\nchecked\")"), ("ghidra", "setPreComment"), ("json", "pseudoComments") })
         {
             var file = h.Dir.File("export." + format);
             Assert.Contains("1 pseudocode comment(s)", await tools.ExportNativeAnnotations(h.Path, file, format));

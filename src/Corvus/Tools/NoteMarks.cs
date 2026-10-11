@@ -10,7 +10,7 @@ using Corvus.Services;
 namespace Corvus.Tools;
 
 /// <summary>
-/// The image's anchored notes as engine markers (Ghidra bookmarks of category NDM, IDA marked positions), pushed once per
+/// The image's anchored notes as engine markers (Ghidra bookmarks of category Corvus, IDA marked positions), pushed once per
 /// change of the notes; and the search over the names and comments in effect for an image.
 /// </summary>
 internal static class NoteMarks

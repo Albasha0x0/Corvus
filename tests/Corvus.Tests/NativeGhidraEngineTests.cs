@@ -83,12 +83,12 @@ public sealed class NativeGhidraEngineTests(ITestOutputHelper output) : IDisposa
         var index = await rig.Code.Index(native, null, default);
         var callee = Regex.Match(tree, @"\n  (\S+)  0x([0-9A-F]+)").Groups[2].Value;
         var calleeRva = (uint)(Convert.ToUInt64(callee, 16) - native.Image.ImageBase);
-        new NativeEditService(rig.Workspace, rig.Code).Rename(native, index, calleeRva, "NdmRenamedHelper", false);
+        new NativeEditService(rig.Workspace, rig.Code).Rename(native, index, calleeRva, "SampleRenamedHelper", false);
         var decompiled = await rig.Analysis.DecompileNative(native.Id, Export, engine: "ghidra");
         output.WriteLine(decompiled);
         Assert.Contains("(ghidra, ", decompiled.Split('\n').First(l => l.StartsWith("// " + Export, StringComparison.Ordinal)));
-        Assert.Contains("NdmRenamedHelper", decompiled);
-        Assert.Contains("NdmRenamedHelper", await rig.Tools.NativeCallTree(native.Id, Export, depth: 1));
+        Assert.Contains("SampleRenamedHelper", decompiled);
+        Assert.Contains("SampleRenamedHelper", await rig.Tools.NativeCallTree(native.Id, Export, depth: 1));
 
         // a patch goes into the project; undo reverts it
         var edits = new NativeEditService(rig.Workspace, rig.Code);
@@ -165,22 +165,22 @@ public sealed class NativeGhidraEngineTests(ITestOutputHelper output) : IDisposa
         var path = Sample();
         var user = new NativeUserTypePush(rig.Code);
         var types = new NativeTypeTools(rig.Workspace, rig.Engines, user, rig.Code, new NativeNamePush(rig.Code), new NativeTypePush());
-        Assert.Contains("Declared 1 type(s): NdmHeader", await types.DeclareNativeTypes(path, "struct NdmHeader { unsigned short magic; int size; };", engine: "ghidra"));
-        var set = await types.SetNativeType(path, Export, "int __fastcall CheckSumMappedFile(NdmHeader *base, ulonglong length, uint *header, uint *sum)", engine: "ghidra");
+        Assert.Contains("Declared 1 type(s): SampleHeader", await types.DeclareNativeTypes(path, "struct SampleHeader { unsigned short magic; int size; };", engine: "ghidra"));
+        var set = await types.SetNativeType(path, Export, "int __fastcall CheckSumMappedFile(SampleHeader *base, ulonglong length, uint *header, uint *sum)", engine: "ghidra");
         output.WriteLine(set);
-        Assert.Contains("NdmHeader * base", set);
-        Assert.Contains("struct NdmHeader, 8 bytes", await types.ListNativeTypes(path, name: "NdmHeader", engine: "ghidra"));
+        Assert.Contains("SampleHeader * base", set);
+        Assert.Contains("struct SampleHeader, 8 bytes", await types.ListNativeTypes(path, name: "SampleHeader", engine: "ghidra"));
         var frame = await types.GetNativeFrame(path, Export, engine: "ghidra");
         output.WriteLine(frame);
-        Assert.Contains("base  NdmHeader *", frame);
-        Assert.Contains("NdmHeader *base", await rig.Analysis.DecompileNative(path, Export, engine: "ghidra"));
+        Assert.Contains("base  SampleHeader *", frame);
+        Assert.Contains("SampleHeader *base", await rig.Analysis.DecompileNative(path, Export, engine: "ghidra"));
         // ida is the only other engine; an unknown one fails before the image is opened
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => types.ListNativeTypes(path, engine: "binja"))).Code);
 
         // the edits are kept with the image's annotations: a new project (another cache) gets them again
         var again = Setup(_dir.File("cache-new"));
         var decompiled = await again.Analysis.DecompileNative(path, Export, engine: "ghidra");
-        Assert.Contains("NdmHeader *base", decompiled);
+        Assert.Contains("SampleHeader *base", decompiled);
     }
 
     /// <summary>Before the built-in index exists, the refs footer reads Ghidra's data references' strings from the image.</summary>

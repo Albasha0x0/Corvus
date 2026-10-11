@@ -66,7 +66,7 @@ public sealed class Env : IDisposable
 /// <summary>Temporary directory deleted on dispose.</summary>
 public sealed class TempDir : IDisposable
 {
-    public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ndm-" + Guid.NewGuid().ToString("N"));
+    public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "corvus-test-" + Guid.NewGuid().ToString("N"));
 
     public TempDir() => Directory.CreateDirectory(Path);
 

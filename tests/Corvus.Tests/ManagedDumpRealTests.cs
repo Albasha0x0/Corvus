@@ -30,11 +30,11 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
             public static void Main()
             {
                 try { Inner(); }
-                catch (Exception e) { throw new ApplicationException("ndm-outer", e); }
+                catch (Exception e) { throw new ApplicationException("sample-outer", e); }
             }
 
             [MethodImpl(MethodImplOptions.NoInlining)]
-            public static void Inner() => throw new InvalidOperationException("ndm-probe");
+            public static void Inner() => throw new InvalidOperationException("sample-probe");
         }
         """;
 
@@ -94,14 +94,14 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         output.WriteLine($"{m.Runtime}: DAC {m.Dac.Status} {m.Dac.Path} ({m.Dac.Detail}); heap {m.Heap}");
         Assert.Equal("loaded", m.Dac.Status);
         Assert.True(m.Heap!.Walkable, m.Heap.Reason);
-        Assert.Equal("throw new InvalidOperationException(\"ndm-probe\");",
+        Assert.Equal("throw new InvalidOperationException(\"sample-probe\");",
             m.Exception!.Inner.Single().Stack.First(f => f.Function.Contains("Inner", StringComparison.Ordinal)).Statement); // the IL offset as a C# statement
         var e = m.Exception!;
         Assert.Equal("System.ApplicationException", e.Type);
-        Assert.Equal("ndm-outer", e.Message);
+        Assert.Equal("sample-outer", e.Message);
         var inner = Assert.Single(e.Inner);
         Assert.Equal("System.InvalidOperationException", inner.Type);
-        Assert.Equal("ndm-probe", inner.Message);
+        Assert.Equal("sample-probe", inner.Message);
         Assert.Equal("0x80131509", inner.HResult);
         var thrower = inner.Stack.First(f => f.Function.Contains("Inner", StringComparison.Ordinal));
         Assert.Equal($"0x{MethodToken(dll, "Inner"):X8}", thrower.Token);
@@ -135,12 +135,12 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         var outer = await service.Object(dump, e.Address, 2, 100, 32, default);
         output.WriteLine(string.Join("\n", outer.Fields.Select(f => $"{new string(' ', f.Depth * 2)}{f.Path}: {f.Type} = {f.Value} {f.Address}")));
         Assert.Equal("System.ApplicationException", outer.Type);
-        Assert.Equal("\"ndm-outer\"", outer.Fields.Single(f => f.Path == "_message").Value);
+        Assert.Equal("\"sample-outer\"", outer.Fields.Single(f => f.Path == "_message").Value);
         Assert.Equal(inner.Address, outer.Fields.Single(f => f.Path == "_innerException").Address);
-        Assert.Equal("\"ndm-probe\"", outer.Fields.Single(f => f.Path == "_innerException._message").Value);
+        Assert.Equal("\"sample-probe\"", outer.Fields.Single(f => f.Path == "_innerException._message").Value);
         Assert.Equal("-2146232832", outer.Fields.Single(f => f.Path == "_HResult").Value); // COR_E_APPLICATION
         var message = await service.Object(dump, outer.Fields.Single(f => f.Path == "_message").Address!, 1, 100, 32, default);
-        Assert.Equal("ndm-outer", message.Value);
+        Assert.Equal("sample-outer", message.Value);
         await Assert.ThrowsAsync<ToolError>(() => service.Object(dump, "0x10", 1, 100, 32, default));
         Assert.DoesNotContain(stack.Frames.GroupBy(f => f.StackPointer), g => g.Count() > 1 && g.Any(f => f.SymbolSource == "clr")); // one frame per stack pointer
     }
@@ -159,7 +159,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.StartsWith("heap_not_captured", m.Heap.Reason);
         var error = await Assert.ThrowsAsync<ToolError>(() => service.Heap(dump, "stats", null, 0, 0, 50, MinidumpService.DefaultMaxHeapObjects, default));
         Assert.StartsWith("heap_not_captured", error.Message);
-        Assert.Equal("ndm-probe", m.Exception!.Inner.Single().Message);
+        Assert.Equal("sample-probe", m.Exception!.Inner.Single().Message);
         var stack = await service.Stack(dump, m.Exception.ThreadId?.ToString(System.Globalization.CultureInfo.InvariantCulture), true, 256, 0, 256, null, default);
         Assert.Contains(stack.Frames, f => f.SymbolSource == "clr" && f.Function!.Contains("Inner", StringComparison.Ordinal));
     }
@@ -203,7 +203,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.Equal("loaded", m.Dac.Status);
         Assert.StartsWith(dir.File("cache"), m.Dac.Path);
         Assert.Contains("downloaded from https://msdl.microsoft.com", m.Dac.Detail);
-        Assert.Equal("ndm-probe", m.Exception!.Inner.Single().Message);
+        Assert.Equal("sample-probe", m.Exception!.Inner.Single().Message);
         Assert.Null(DacLocatorVerify(m.Dac.Path!));
 
         var written = File.GetLastWriteTimeUtc(m.Dac.Path!);
@@ -252,7 +252,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.Contains("32-bit decoder process", m.Dac.Detail);
         Assert.Contains(m.Notes, n => n.StartsWith("A 32-bit process", StringComparison.Ordinal));
         var inner = Assert.Single(m.Exception!.Inner);
-        Assert.Equal("ndm-probe", inner.Message);
+        Assert.Equal("sample-probe", inner.Message);
         // the exception's own stack trace array is not resolved to methods for x86 here; the thread's walk is
         var stack = await service.Stack(dump, m.Exception.ThreadId?.ToString(System.Globalization.CultureInfo.InvariantCulture), true, 256, 0, 256, null, default);
         Assert.Equal("decoded", stack.Managed);
@@ -300,7 +300,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
             }
 
             [MethodImpl(MethodImplOptions.NoInlining)]
-            public static void Inner() => throw new InvalidOperationException("ndm-probe");
+            public static void Inner() => throw new InvalidOperationException("sample-probe");
 
             private static bool DumpSelf(string path, int type)
             {
@@ -359,7 +359,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.Equal(3, calls.Count);
         Assert.Equal("Validate(depth - 1);", calls[^1].Statement);
         Assert.Equal("Inner();", calls[0].Statement);
-        Assert.Equal("throw new InvalidOperationException(\"ndm-probe\");", whole.Exception.Stack.First(f => f.Function.Contains("Inner", StringComparison.Ordinal)).Statement);
+        Assert.Equal("throw new InvalidOperationException(\"sample-probe\");", whole.Exception.Stack.First(f => f.Function.Contains("Inner", StringComparison.Ordinal)).Statement);
     }
 
     /// <summary>The CLR exception code's description names the decoded exception instead of calling it unreadable.</summary>
@@ -373,7 +373,7 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.Equal("0xE0434352", summary.Exception!.Code);
         Assert.Equal("System.InvalidOperationException", summary.Managed!.Exception!.Type);
         Assert.DoesNotContain("managed debugger", summary.Exception.Description);
-        Assert.Contains("System.InvalidOperationException: ndm-probe", summary.Exception.Description);
+        Assert.Contains("System.InvalidOperationException: sample-probe", summary.Exception.Description);
     }
 
     /// <summary>A dbghelp dump without memory still lets the DAC list the GC segments; none of their memory is in it, so there is no heap to walk.</summary>

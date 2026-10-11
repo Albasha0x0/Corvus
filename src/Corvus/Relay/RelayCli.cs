@@ -3,7 +3,7 @@ using System.Globalization;
 namespace Corvus.Relay;
 
 /// <summary>
-/// "NetDecompilerMcp relay --target &lt;publishDir&gt; [--state &lt;dir&gt;] [--poll-ms &lt;n&gt;] [--] [server args]": the development
+/// "corvus relay --target &lt;publishDir&gt; [--state &lt;dir&gt;] [--poll-ms &lt;n&gt;] [--] [server args]": the development
 /// reload relay. Arguments it does not know go to the server.
 /// </summary>
 public static class RelayCli
@@ -23,7 +23,7 @@ public static class RelayCli
         }
         if (RelayBuilds.IsInside(AppContext.BaseDirectory, options.Target))
             Console.Error.WriteLine($"corvus relay: running from inside {options.Target}; publish.ps1 renames these files aside while they run, " +
-                                    "other publish tools may fail on them. A staged copy avoids that: NetDecompilerMcp install --dev-reload <publishDir>.");
+                                    "other publish tools may fail on them. A staged copy avoids that: corvus install --dev-reload <publishDir>.");
         var relay = new DevRelay(options, Console.OpenStandardInput(), Console.OpenStandardOutput(), Console.Error);
         return relay.RunAsync().GetAwaiter().GetResult();
     }

@@ -27,7 +27,7 @@ internal static partial class ToolCli
         if (shell == "pwsh")
         {
             sb.Append($"# {Program} completion for PowerShell. Load: {Program} completion pwsh | Out-String | Invoke-Expression\n");
-            sb.Append("Register-ArgumentCompleter -Native -CommandName NetDecompilerMcp, corvus.exe -ScriptBlock {\n");
+            sb.Append("Register-ArgumentCompleter -Native -CommandName corvus, corvus.exe -ScriptBlock {\n");
             sb.Append("    param($wordToComplete, $commandAst, $cursorPosition)\n");
             sb.Append($"    $commands = @({Quoted(words, "'")})\n");
             sb.Append($"    $tools = @({Quoted(tools, "'")})\n");
@@ -57,7 +57,7 @@ internal static partial class ToolCli
         }
         sb.Append($"# {Program} completion for {shell}. Load: source <({Program} completion {shell})\n");
         if (shell == "zsh") sb.Append("autoload -U +X bashcompinit && bashcompinit\n");
-        sb.Append("_netdecompilermcp() {\n");
+        sb.Append("_corvus() {\n");
         sb.Append("    local cur=\"${COMP_WORDS[COMP_CWORD]}\" prev=\"${COMP_WORDS[COMP_CWORD-1]}\" tool=\"${COMP_WORDS[1]}\" params=\"\"\n");
         sb.Append($"    local commands=\"{string.Join(' ', words)}\"\n");
         sb.Append($"    local tools=\"{string.Join(' ', tools)}\"\n");
@@ -78,7 +78,7 @@ internal static partial class ToolCli
         sb.Append($"    COMPREPLY=($(compgen -W \"$params {string.Join(' ', CallOptions)}\" -- \"$cur\"))\n");
         sb.Append("    [[ \"${COMPREPLY[0]}\" == *= ]] && compopt -o nospace 2>/dev/null\n");
         sb.Append("}\n");
-        sb.Append("complete -F _netdecompilermcp NetDecompilerMcp\n");
+        sb.Append("complete -F _corvus corvus\n");
         return sb.ToString();
     }
 

@@ -164,7 +164,7 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
     public bool HasSavedProject(string sha256)
     {
         var dir = Path.Combine(Cache.Root, ProviderId, sha256.ToLowerInvariant());
-        return Directory.Exists(dir) && Directory.EnumerateDirectories(dir, "p-*").Any(p => File.Exists(Path.Combine(p, GhidraSession.ProjectName + ".gpr")));
+        return Directory.Exists(dir) && Directory.EnumerateDirectories(dir, "p-*").Any(GhidraSession.HasProject);
     }
 
     /// <summary>Builds the worker when needed and starts a JVM (inside a job on Windows); Ghidra initializes before the ready event.</summary>

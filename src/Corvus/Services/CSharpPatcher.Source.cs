@@ -404,7 +404,7 @@ public sealed partial class CSharpPatcher
     {
         if (string.IsNullOrWhiteSpace(code))
             throw new ToolError(ErrorCode.InvalidArgument, "No member declarations given.");
-        var unit = SF.ParseCompilationUnit("class __NetDecompMembers__ {\n" + code + "\n}", options: new CSharpParseOptions(LanguageVersion.Preview));
+        var unit = SF.ParseCompilationUnit("class __PatchMembers__ {\n" + code + "\n}", options: new CSharpParseOptions(LanguageVersion.Preview));
         var errors = unit.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
         var holder = unit.Members.OfType<ClassDeclarationSyntax>().FirstOrDefault();
         if (errors.Count > 0 || holder == null || unit.Members.Count != 1)

@@ -113,7 +113,7 @@ public static class SafeFile
         if (root != null) CheckNoLinksUnder(root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, full);
         else RefuseLink(full);
         if (!overwrite && Path.Exists(full)) throw Exists(full);
-        var temp = Path.Combine(dir, ".ndm-" + Guid.NewGuid().ToString("N") + ".tmp");
+        var temp = Path.Combine(dir, ".save-" + Guid.NewGuid().ToString("N") + ".tmp");
         try
         {
             using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16))

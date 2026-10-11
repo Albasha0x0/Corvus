@@ -1,7 +1,7 @@
-// Ghidra worker for NetDecompilerMcp: one program per process, requests as JSON lines on stdio.
+// Ghidra worker: one program per process, requests as JSON lines on stdio.
 // fd 1 is kept for the protocol and System.out goes to stderr; a BundleHost is acquired before analysis and the
 // program is saved before project disposal on shutdown.
-package ndm.ghidra;
+package corvus.ghidra;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -45,6 +45,8 @@ import ghidra.framework.options.OptionType;
 import ghidra.framework.options.Options;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSpace;
+import ghidra.program.model.data.Category;
+import ghidra.program.model.data.CategoryPath;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
 import ghidra.program.util.GhidraProgramUtilities;
@@ -55,8 +57,8 @@ import ghidra.util.task.TaskMonitorAdapter;
 public class Worker implements GhidraLaunchable {
     static final int PROTOCOL = 1;
     /** Program options category holding the server's stamps; saved with the program. */
-    static final String STAMPS = "NetDecompilerMcp";
-    static final String ANALYSIS_STAMP = "ndm_analysis";
+    static final String STAMPS = "Corvus";
+    static final String ANALYSIS_STAMP = "analysis";
     private static final long MAX_RESPONSE_CHARS = 32L << 20;
     private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().serializeNulls().create();
 
@@ -132,7 +134,7 @@ public class Worker implements GhidraLaunchable {
     private PrintStream out;
     private final ConcurrentHashMap<Long, Request> running = new ConcurrentHashMap<>();
     private final ExecutorService executor = Executors.newCachedThreadPool(r -> {
-        Thread t = new Thread(r, "ndm request");
+        Thread t = new Thread(r, "worker request");
         t.setDaemon(true);
         return t;
     });
@@ -161,7 +163,7 @@ public class Worker implements GhidraLaunchable {
         ready.addProperty("version", Application.getApplicationVersion());
         ready.addProperty("pid", ProcessHandle.current().pid());
         emit(ready);
-        Thread heartbeat = new Thread(this::heartbeat, "ndm heartbeat");
+        Thread heartbeat = new Thread(this::heartbeat, "worker heartbeat");
         heartbeat.setDaemon(true);
         heartbeat.start();
 
@@ -399,6 +401,36 @@ public class Worker implements GhidraLaunchable {
      * and saves. Args: input, project_dir, project_name, program_name, loader_args [[k,v]], options [[k,v]],
      * budget_seconds, pdb, decompilers, decompile_timeout, decompile_payload_mb, analysis ("none": load only).
      */
+    // Migration only: a project saved before the rename keeps its stamps under these names and its types under /ndm.
+    private static final String LEGACY_STAMPS = "NetDecompilerMcp", LEGACY_KEY_PREFIX = "ndm_", LEGACY_CATEGORY = "ndm";
+
+    /** Moves stamps and the data type category of a project saved before the rename to the current names. */
+    static void migrateLegacy(Program program, List<String> warnings) {
+        Options old = program.getOptions(LEGACY_STAMPS);
+        List<String> names = old.getOptionNames();
+        Category category = program.getDataTypeManager().getCategory(new CategoryPath(CategoryPath.ROOT, LEGACY_CATEGORY));
+        if (names.isEmpty() && category == null) return;
+        int tx = program.startTransaction("rename stamps");
+        boolean done = false;
+        try {
+            Options now = program.getOptions(STAMPS);
+            for (String name : names) {
+                String key = name.startsWith(LEGACY_KEY_PREFIX) ? name.substring(LEGACY_KEY_PREFIX.length()) : name;
+                if (!now.contains(key)) now.setString(key, old.getString(name, null));
+                old.removeOption(name);
+            }
+            if (category != null && program.getDataTypeManager().getCategory(TypeOps.CLASSES.getParent()) == null)
+                category.setName(TypeOps.CLASSES.getParent().getName());
+            done = true;
+        }
+        catch (Exception e) {
+            warnings.add("the stamps saved before the rename were not moved: " + e.getMessage());
+        }
+        finally {
+            program.endTransaction(tx, done);
+        }
+    }
+
     private JsonElement open(Request r) throws Exception {
         lock.writeLock().lock();
         try {
@@ -420,6 +452,7 @@ public class Worker implements GhidraLaunchable {
                 DomainFile df = project.getProjectData().getFile("/" + programName);
                 if (df == null) throw new WorkerError("failed", "the project in " + dir + " holds no program " + programName);
                 program = (Program) df.getDomainObject(this, true, false, r.monitor);
+                migrateLegacy(program, warnings);
                 complete = !noAuto && "complete".equals(program.getOptions(STAMPS).getString(ANALYSIS_STAMP, null));
             }
             else {
@@ -501,7 +534,7 @@ public class Worker implements GhidraLaunchable {
             catch (RuntimeException e) {
                 // the live listing serves
             }
-        }, "ndm function pass");
+        }, "worker function pass");
         t.setDaemon(true);
         t.start();
     }
@@ -537,7 +570,7 @@ public class Worker implements GhidraLaunchable {
                 catch (InterruptedException e) {
                     // finished in time
                 }
-            }, "ndm analysis budget");
+            }, "worker analysis budget");
             timer.setDaemon(true);
             timer.start();
         }
@@ -686,7 +719,7 @@ public class Worker implements GhidraLaunchable {
         lock.writeLock().lock();
         try {
             needProgram();
-            if (program.isChanged()) program.save("NetDecompilerMcp", monitor);
+            if (program.isChanged()) program.save("Corvus", monitor);
         }
         finally {
             lock.writeLock().unlock();
@@ -700,7 +733,7 @@ public class Worker implements GhidraLaunchable {
             if (program != null) {
                 boolean save = !r.args.has("save") || r.args.get("save").getAsBoolean();
                 try {
-                    if (save && program.isChanged()) program.save("NetDecompilerMcp", TaskMonitor.DUMMY);
+                    if (save && program.isChanged()) program.save("Corvus", TaskMonitor.DUMMY);
                 }
                 finally {
                     if (decompilers != null) decompilers.dispose();
@@ -795,7 +828,7 @@ public class Worker implements GhidraLaunchable {
                 catch (InterruptedException e) {
                     // finished in time
                 }
-            }, "ndm reanalysis budget");
+            }, "worker reanalysis budget");
             timer.setDaemon(true);
             if (budget > 0) timer.start();
             GhidraScriptUtil.acquireBundleHostReference();

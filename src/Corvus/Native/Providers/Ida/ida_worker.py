@@ -1,4 +1,4 @@
-# idalib worker for NetDecompilerMcp.
+# idalib worker.
 # Protocol: one JSON object per line. Requests on stdin: {"id": n, "op": "...", "args": {...}}.
 # Responses on stdout: {"id": n, "ok": true, "result": ...} or {"id": n, "ok": false, "error": {"code": ..., "message": ...}}.
 # A request may carry "timeout" (seconds); {"op": "cancel", "args": {"id": n}} stops request n. A stopped request answers
@@ -267,6 +267,8 @@ def op_open(args):
         raise WorkerError("unsupported", "IDA loaded the file with a loader other than its PE, ELF or Mach-O loader (file type %d, processor %s)"
                           % (ftype, m.ida_ida.inf_get_procname()))
     sha = args.get("sha256") or ""
+    if reuse:
+        rename_legacy_nodes()
     if reuse and sha:
         node = stamp_node(False)
         made_from = node.hashstr_buf(INPUT_STAMP) if node is not None else None
@@ -912,7 +914,7 @@ def op_virtual_targets(args):
     return partial(result, resume) if resume is not None else result
 
 
-USER_NODE = "$ netdecompilermcp user types"  # altval(rva) = 1: a type set by the user; blob 'D': the user's declarations
+USER_NODE = "$ corvus user types"  # altval(rva) = 1: a type set by the user; blob 'D': the user's declarations
 
 
 def user_node(create):
@@ -934,8 +936,8 @@ def parse_type(ti, text, function):
         if t.get_named_type(None, text):
             return t
     # an abstract type gets a declarator name where C wants it: "int[4]" -> "int x[4]", "int (*)(int)" -> "int (*x)(int)"
-    named = text.replace("(*)", "(*__ndm_x)", 1) if "(*)" in text else \
-        text[:text.index("[")] + " __ndm_x" + text[text.index("["):] if "[" in text else text + " __ndm_x"
+    named = text.replace("(*)", "(*__parsed_x)", 1) if "(*)" in text else \
+        text[:text.index("[")] + " __parsed_x" + text[text.index("["):] if "[" in text else text + " __parsed_x"
     for candidate in (text + ";", named + ";"):
         for flags in (ti.PT_SIL, ti.PT_SIL | ti.PT_TYP):
             t = ti.tinfo_t()
@@ -1462,7 +1464,18 @@ def op_apply_user_types(args):
     return result
 
 
-STAMP_NODE = "$ netdecompilermcp stamps"
+STAMP_NODE = "$ corvus stamps"
+
+# Migration only: the nodes' names before the rename; a database saved then has them renamed when opened.
+LEGACY_NODES = (("$ netdecompilermcp user types", USER_NODE), ("$ netdecompilermcp stamps", STAMP_NODE))
+
+
+def rename_legacy_nodes():
+    import ida_netnode
+    for old, new in LEGACY_NODES:
+        n = ida_netnode.netnode(old, 0, False)
+        if n != ida_netnode.BADNODE and ida_netnode.netnode(new, 0, False) == ida_netnode.BADNODE:
+            n.rename(new)
 
 
 def stamp_node(create):
@@ -1575,7 +1588,7 @@ def op_python(args):
     import ast
     import io
     if _py_globals is None or args.get("reset"):
-        g = {"__builtins__": __builtins__, "__name__": "__ndm_script__"}
+        g = {"__builtins__": __builtins__, "__name__": "__user_script__"}
         for name in PY_MODULES:
             try:
                 g[name] = __import__(name)
@@ -3294,11 +3307,13 @@ def op_function_candidates(args):
     return {"rows": rows, "scanned": scanned, "truncated": truncated}
 
 
-MARK_PREFIX = "NDM: "
+MARK_PREFIX = "Corvus: "
+# Migration only: the marks' prefix before the rename; such marks are replaced like ours.
+LEGACY_MARK_PREFIX = "NDM: "
 
 
 def op_set_marks(args):
-    # replaces the marked positions titled "NDM: ..." with items [[rva, text]] and records the stamp (stamp_key, stamp).
+    # replaces the marked positions titled with MARK_PREFIX with items [[rva, text]] and records the stamp (stamp_key, stamp).
     # Removing a slot (mark_position at BADADDR) shifts the later ones down, so slots are cleared from the top.
     m = need_open()
     import ida_idc, ida_moves
@@ -3308,7 +3323,7 @@ def op_set_marks(args):
         used += 1
     removed = 0
     for slot in range(used - 1, -1, -1):
-        if (ida_idc.get_mark_comment(slot) or "").startswith(MARK_PREFIX):
+        if (ida_idc.get_mark_comment(slot) or "").startswith((MARK_PREFIX, LEGACY_MARK_PREFIX)):
             ida_idc.mark_position(badaddr, 0, 0, 0, slot, "")
             removed += 1
     slot = used - removed

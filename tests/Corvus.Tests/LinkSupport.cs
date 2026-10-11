@@ -16,7 +16,7 @@ public static class Links
 
     private static string? Probe(Action<string, string> create)
     {
-        var root = Path.Combine(Path.GetTempPath(), "ndm-link-probe-" + Guid.NewGuid().ToString("N"));
+        var root = Path.Combine(Path.GetTempPath(), "corvus-test-link-probe-" + Guid.NewGuid().ToString("N"));
         try
         {
             var target = Directory.CreateDirectory(Path.Combine(root, "target")).FullName;

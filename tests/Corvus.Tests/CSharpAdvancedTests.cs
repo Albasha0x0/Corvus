@@ -199,7 +199,7 @@ public class CSharpAdvancedTests : IDisposable
         Assert.Equal("R:110/3/3", run.Call(run.New("Fixture.Model.Shop"), "Describe"));
     }
 
-    /// <summary>The stubbed async methods of the shadow type compiled to state machines, merged as unused copies (&lt;LoadAsync&gt;d__5$ndm1).</summary>
+    /// <summary>The stubbed async methods of the shadow type compiled to state machines, merged as unused copies (&lt;LoadAsync&gt;d__5$merged1).</summary>
     [Fact]
     public void AddMembersToATypeWithAsyncMethodsAddsNoStateMachines()
     {

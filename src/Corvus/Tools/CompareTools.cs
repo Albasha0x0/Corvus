@@ -117,7 +117,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         {
             var map = AssemblyComparer.TokenMap(cmp);
             mapFile = SafeFile.WriteAllText(tokenMapPath, System.Text.Json.JsonSerializer.Serialize(
-                new TokenMapFile("ndm-token-map", 1, IlHash.Version, BuildRef.Of(oldAsm), BuildRef.Of(newAsm), map), MapJson), overwrite);
+                new TokenMapFile("token-map", 1, IlHash.Version, BuildRef.Of(oldAsm), BuildRef.Of(newAsm), map), MapJson), overwrite);
             mapEntries = map.Count;
             sb.AppendLine($"Token map: {map.Count} old types and members written to {mapFile}.");
         }

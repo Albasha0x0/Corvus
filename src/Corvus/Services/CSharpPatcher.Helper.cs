@@ -18,7 +18,7 @@ namespace Corvus.Services;
 /// </summary>
 public sealed partial class CSharpPatcher
 {
-    private const string HelperClass = "__NetDecompPatch__";
+    private const string HelperClass = "__PatchHelpers__";
 
     /// <summary>One body to compile: its block inside the bound shadow tree and the target method that receives it.</summary>
     private sealed record HelperJob(BlockSyntax Body, MethodDef Target);
@@ -59,7 +59,7 @@ public sealed partial class CSharpPatcher
             if (symbol.ReturnsByRef || symbol.ReturnsByRefReadonly)
                 throw new ToolError(ErrorCode.Unsupported, "ref returns are not supported by helper compilation.");
             ns ??= symbol.ContainingType.ContainingNamespace;
-            var name = $"{Sanitize(symbol.Name)}__ndm{i}";
+            var name = $"{Sanitize(symbol.Name)}__patch{i}";
             methods.Add((symbol, name));
             var rewritten = (BlockSyntax)new ThisRewriter(model, symbol.ContainingType).Visit(jobs[i].Body)!;
             body.AppendLine(HelperMethod(symbol, name, rewritten));

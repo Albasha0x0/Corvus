@@ -230,7 +230,7 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
 
         using var json = System.Text.Json.JsonDocument.Parse(File.ReadAllText(mapPath));
         var root = json.RootElement;
-        Assert.Equal("ndm-token-map", root.GetProperty("format").GetString());
+        Assert.Equal("token-map", root.GetProperty("format").GetString());
         Assert.Equal(env.Fixture.OriginalSha256, root.GetProperty("old").GetProperty("sha256").GetString());
         var entries = root.GetProperty("entries").EnumerateArray().ToDictionary(e => e.GetProperty("old").GetString()!);
         Assert.Equal(result.TokenMapEntries, entries.Count);

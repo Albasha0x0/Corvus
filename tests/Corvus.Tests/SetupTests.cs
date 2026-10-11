@@ -9,7 +9,7 @@ public sealed class SetupTests : IDisposable
     private readonly TempDir _home = new();
     private readonly SetupEnvironment _env;
     private static readonly ServerLaunch Launch = new(
-        OperatingSystem.IsWindows() ? @"C:\Tools\NetDecompilerMcp\current\corvus.exe" : "/opt/ndm/current/NetDecompilerMcp", []);
+        OperatingSystem.IsWindows() ? @"C:\Tools\Corvus\current\corvus.exe" : "/opt/corvus/current/corvus", []);
 
     public SetupTests()
     {
@@ -151,7 +151,7 @@ public sealed class SetupTests : IDisposable
     [Fact]
     public void Codex_PathsWithQuotesAndBackslashesRoundTrip()
     {
-        var launch = new ServerLaunch(@"C:\Users\O""Brien\ndm\corvus.exe", ["--load", @"D:\App\Managed"]);
+        var launch = new ServerLaunch(@"C:\Users\O""Brien\corvus\corvus.exe", ["--load", @"D:\App\Managed"]);
         var target = new CodexTomlTarget(Home("config.toml"));
         Assert.True(target.Install("corvus", launch).Changed);
         Assert.Equal(launch.Command, target.Registered("corvus"));
@@ -376,7 +376,7 @@ public sealed class SetupTests : IDisposable
     [Fact]
     public void Uninstall_RemovesProgramFiles_AndKeepsDataInASharedRoot()
     {
-        var root = FakeInstall(Home("Local", "NetDecompilerMcp"), Home("Local", "NetDecompilerMcp"));
+        var root = FakeInstall(Home("Local", "Corvus"), Home("Local", "Corvus"));
         var plan = Installation.PlanRemoval(root, root, purgeData: false);
         Assert.Equal(["analysis", "annotations", "code-index"], plan.Kept);
         var output = new StringWriter();
@@ -396,8 +396,8 @@ public sealed class SetupTests : IDisposable
     [Fact]
     public void Uninstall_RemovesAnEmptiedInstallRoot_AndPurgeRemovesASeparateDataRoot()
     {
-        var root = FakeInstall(Home("share", "net-decompiler-mcp"), Home("share", "NetDecompilerMcp"));
-        var dataRoot = Home("share", "NetDecompilerMcp");
+        var root = FakeInstall(Home("opt", "corvus"), Home("share", "Corvus"));
+        var dataRoot = Home("share", "Corvus");
         Installation.Apply(Installation.PlanRemoval(root, dataRoot, purgeData: false));
         Assert.False(Directory.Exists(root));
         Assert.True(File.Exists(Path.Combine(dataRoot, "annotations", "a.json")));
@@ -414,7 +414,7 @@ public sealed class SetupTests : IDisposable
     public void Uninstall_DeferredWindowsCommand_RemovesTheJunctionWithoutFollowingIt()
     {
         if (!OperatingSystem.IsWindows()) return;
-        var root = @"C:\Users\u\AppData\Local\NetDecompilerMcp";
+        var root = @"C:\Users\u\AppData\Local\Corvus";
         var command = Installation.DeferredWindowsCommand(Installation.PlanRemoval(root, root, purgeData: false));
         Assert.Equal($"ping -n 3 127.0.0.1 >nul & rmdir \"{root}\\current\" 2>nul & rmdir /s /q \"{root}\\versions\" 2>nul & rmdir \"{root}\" 2>nul", command);
         command = Installation.DeferredWindowsCommand(Installation.PlanRemoval(root, root, purgeData: true));
@@ -442,13 +442,13 @@ public sealed class SetupTests : IDisposable
     {
         var data = "release archive"u8.ToArray();
         var hash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(data));
-        var manifest = $"{new string('0', 64)}  NetDecompilerMcp-linux-x64.tar.gz\r\n{hash}  NetDecompilerMcp-win-x64.zip\n{hash.ToUpperInvariant()} *NetDecompilerMcp-osx-arm64.tar.gz\n";
-        Assert.Null(Installation.VerifyChecksum(manifest, "NetDecompilerMcp-win-x64.zip", data));
-        Assert.Null(Installation.VerifyChecksum(manifest, "NetDecompilerMcp-osx-arm64.tar.gz", data));
-        Assert.Contains("Checksum mismatch for NetDecompilerMcp-linux-x64.tar.gz", Installation.VerifyChecksum(manifest, "NetDecompilerMcp-linux-x64.tar.gz", data));
-        Assert.Contains("lists no NetDecompilerMcp-win-arm64.zip", Installation.VerifyChecksum(manifest, "NetDecompilerMcp-win-arm64.zip", data));
-        Assert.Contains("lists no NetDecompilerMcp-win-x64.zip", Installation.VerifyChecksum("", "NetDecompilerMcp-win-x64.zip", data));
-        Assert.NotNull(Installation.VerifyChecksum(manifest, "NetDecompilerMcp-win-x64.zip", "altered"u8));
+        var manifest = $"{new string('0', 64)}  corvus-linux-x64.tar.gz\r\n{hash}  corvus-win-x64.zip\n{hash.ToUpperInvariant()} *corvus-osx-arm64.tar.gz\n";
+        Assert.Null(Installation.VerifyChecksum(manifest, "corvus-win-x64.zip", data));
+        Assert.Null(Installation.VerifyChecksum(manifest, "corvus-osx-arm64.tar.gz", data));
+        Assert.Contains("Checksum mismatch for corvus-linux-x64.tar.gz", Installation.VerifyChecksum(manifest, "corvus-linux-x64.tar.gz", data));
+        Assert.Contains("lists no corvus-win-arm64.zip", Installation.VerifyChecksum(manifest, "corvus-win-arm64.zip", data));
+        Assert.Contains("lists no corvus-win-x64.zip", Installation.VerifyChecksum("", "corvus-win-x64.zip", data));
+        Assert.NotNull(Installation.VerifyChecksum(manifest, "corvus-win-x64.zip", "altered"u8));
     }
 
     [Fact]

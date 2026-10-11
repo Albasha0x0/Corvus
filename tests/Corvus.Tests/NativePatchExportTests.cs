@@ -236,7 +236,7 @@ public class NativePatchExportTests(ITestOutputHelper output)
         output[0x94] = (byte)(original[0x94] + 1);                 // a header edit no patch body covers -> extraEdits
         for (int i = 0x600; i < 0x800; i++) output[i] = (byte)(i & 0xFF); // the appended section bytes
         var src = new PatchExportSource("grown.dll", "", 0x400000, NativeArch.X64, [], original, output, -1, _ => null,
-            [new AppendedSection(".ndm", 0x5000, 0x200, 0x600, output[0x600..])]);
+            [new AppendedSection(".patch", 0x5000, 0x200, 0x600, output[0x600..])]);
 
         // .dif cannot grow the file: refused with a typed reason
         var ex = Assert.Throws<ToolError>(() => PatchExport.Render(src, PatchExport.Format.Dif));
@@ -257,13 +257,13 @@ public class NativePatchExportTests(ITestOutputHelper output)
         Assert.Equal(0x800, doc.RootElement.GetProperty("image").GetProperty("outputFileSize").GetInt32());
         Assert.Equal("0x600", doc.RootElement.GetProperty("append").GetProperty("fileOffset").GetString());
         Assert.Contains(doc.RootElement.GetProperty("extraEdits").EnumerateArray(), e => e.GetProperty("fileOffset").GetString() == "0x94");
-        Assert.Contains(doc.RootElement.GetProperty("appendedSections").EnumerateArray(), e => e.GetProperty("name").GetString() == ".ndm");
+        Assert.Contains(doc.RootElement.GetProperty("appendedSections").EnumerateArray(), e => e.GetProperty("name").GetString() == ".patch");
 
         // the IDAPython script renders, creates the segment and still parses structurally
         var ida = Encoding.UTF8.GetString(PatchExport.Render(src, PatchExport.Format.Ida).Content);
         Assert.Contains("ida_segment", ida);
         Assert.Contains("add_segments()", ida);
-        Assert.Contains("(\".ndm\", 0x5000,", ida);
+        Assert.Contains("(\".patch\", 0x5000,", ida);
     }
 
     [Fact]

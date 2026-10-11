@@ -1,5 +1,5 @@
 // Decompiler variables are renamed and retyped through HighFunctionDBUtil.updateDBVariable.
-package ndm.ghidra;
+package corvus.ghidra;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -325,7 +325,7 @@ final class FrameOps {
     // ---- clearing user edits ----
 
     private static String originalKey(long rva, int offset) {
-        return "ndm_stack_original_" + Long.toHexString(rva) + "_" + offset;
+        return "stack_original_" + Long.toHexString(rva) + "_" + offset;
     }
 
     /** The member Ghidra had before the first user edit at this offset ("null" when none), so a clear restores it. */

@@ -225,6 +225,6 @@ public class NativeDiffRealTests(ITestOutputHelper output)
             if (judged >= 100) Assert.True(s.Correct.Sum() >= 0.95 * judged, text);
             if (s.MapTried > 0) Assert.Equal(s.MapTried, s.MapCorrect);
         }
-        File.WriteAllText(Path.Combine(Path.GetTempPath(), "ndm-native-diff-eval.txt"), report.ToString());
+        File.WriteAllText(Path.Combine(Path.GetTempPath(), "corvus-test-native-diff-eval.txt"), report.ToString());
     }
 }

@@ -1,6 +1,6 @@
 // The user's analysis edits (code, functions, data, undefined ranges) and operand display formats as apply_user_types
 // items, on Ghidra's listing.
-package ndm.ghidra;
+package corvus.ghidra;
 
 import java.util.Set;
 
@@ -51,7 +51,7 @@ final class EditOps {
     }
 
     /** Program option: the user's enum member edits as JSON {"enum::member": value or null}, applied again after declarations. */
-    static final String USER_ENUMS = "ndm_user_enums";
+    static final String USER_ENUMS = "user_enums";
 
     /**
      * Edits applied after the declarations and before the types: type edits, enums [[enum, member, value or null]], fields, then analysis

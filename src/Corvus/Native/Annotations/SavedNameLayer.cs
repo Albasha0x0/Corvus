@@ -12,7 +12,10 @@ namespace Corvus.Native.Annotations;
 /// </summary>
 public static class SavedNameLayer
 {
-    private const string Magic = "ndm-names";
+    private const string Magic = "name-layer";
+
+    // Migration only: the magic of layers saved before the rename, still read.
+    private const string LegacyMagic = "ndm-names";
     private const int Version = 1;
     /// <summary>Written last: a file cut short reads as no layer.</summary>
     private const string End = "end";
@@ -46,7 +49,7 @@ public static class SavedNameLayer
         {
             using var gz = new GZipStream(input, CompressionMode.Decompress, leaveOpen: true);
             using var r = new BinaryReader(gz, Encoding.UTF8, leaveOpen: true);
-            if (r.ReadString() != Magic || r.ReadInt32() != Version) return null;
+            if (r.ReadString() is not (Magic or LegacyMagic) || r.ReadInt32() != Version) return null;
             if (!string.Equals(r.ReadString(), sha256, StringComparison.OrdinalIgnoreCase)) return null;
             r.ReadString(); // image path
             int source = r.ReadInt32();

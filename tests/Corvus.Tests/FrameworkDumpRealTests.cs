@@ -38,7 +38,7 @@ public sealed class FrameworkDumpRealTests(ITestOutputHelper output)
                     try { Inner(); }
                     catch (Exception e)
                     {
-                        Kept = new ApplicationException("ndm-outer", e);
+                        Kept = new ApplicationException("sample-outer", e);
                         try { throw Kept; }
                         catch (ApplicationException) { return DumpSelf(args[0]); }
                     }
@@ -46,7 +46,7 @@ public sealed class FrameworkDumpRealTests(ITestOutputHelper output)
                 }
 
                 [MethodImpl(MethodImplOptions.NoInlining)]
-                public static void Inner() { throw new InvalidOperationException("ndm-probe"); }
+                public static void Inner() { throw new InvalidOperationException("sample-probe"); }
 
                 [MethodImpl(MethodImplOptions.NoInlining)]
                 public static int DumpSelf(string path)
@@ -116,9 +116,9 @@ public sealed class FrameworkDumpRealTests(ITestOutputHelper output)
         Assert.EndsWith("mscordacwks.dll", m.Dac.Path, StringComparison.OrdinalIgnoreCase);
         Assert.True(m.Heap!.Walkable, m.Heap.Reason);
         var e = m.Exception!;
-        Assert.Equal(("System.ApplicationException", "ndm-outer"), (e.Type, e.Message));
+        Assert.Equal(("System.ApplicationException", "sample-outer"), (e.Type, e.Message));
         var inner = Assert.Single(e.Inner);
-        Assert.Equal(("System.InvalidOperationException", "ndm-probe"), (inner.Type, inner.Message));
+        Assert.Equal(("System.InvalidOperationException", "sample-probe"), (inner.Type, inner.Message));
         var thrower = inner.Stack.First(f => f.Function.Contains("Inner", StringComparison.Ordinal));
         Assert.Equal($"0x{MethodToken(exe, "Inner"):X8}", thrower.Token);
         Assert.Equal(probe.Id, thrower.Assembly);
@@ -132,7 +132,7 @@ public sealed class FrameworkDumpRealTests(ITestOutputHelper output)
 
         var heap = await service.Heap(dump, "objects", "System.ApplicationException", 0, 0, 10, MinidumpService.DefaultMaxHeapObjects, default);
         var kept = await service.Object(dump, heap.Objects.Single().Address, 1, 100, 32, default);
-        Assert.Equal("\"ndm-outer\"", kept.Fields.Single(f => f.Path == "_message").Value);
+        Assert.Equal("\"sample-outer\"", kept.Fields.Single(f => f.Path == "_message").Value);
     }
 
     [Fact]

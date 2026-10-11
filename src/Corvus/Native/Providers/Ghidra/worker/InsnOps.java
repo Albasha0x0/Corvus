@@ -1,4 +1,4 @@
-package ndm.ghidra;
+package corvus.ghidra;
 
 import java.util.ArrayList;
 import java.util.HexFormat;

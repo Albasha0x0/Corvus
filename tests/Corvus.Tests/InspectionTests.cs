@@ -315,7 +315,7 @@ public class InspectionTests : IDisposable
         Assert.All(saved.Contents, p => Assert.Matches(@"^embedded_\d\d\.\w+$", Path.GetFileName(p.SavedTo!)));
 
         var byDefault = Inspection.ExtractEmbedded(null, path, true, null, false, default);
-        try { Assert.Equal("netdecomp-embedded", Path.GetFileName(Path.GetDirectoryName(byDefault.OutputDirectory!))); }
+        try { Assert.Equal("corvus-embedded", Path.GetFileName(Path.GetDirectoryName(byDefault.OutputDirectory!))); }
         finally { Directory.Delete(byDefault.OutputDirectory!, recursive: true); }
 
         var url = Assert.Single(Inspection.ExtractStrings(null, path, ["url"], null, null, false, default).Values);

@@ -34,16 +34,16 @@ internal static class Doctor
         {
             var preview = client.Target.Preview(ClientCatalog.ServerName, ours);
             if (preview.Action == SetupAction.Blocked && File.Exists(client.Target.Path))
-                Set(row, ConfigUnreadable, $"configuration unreadable: {preview.Reason}", "Fix the file, or remove it and run: NetDecompilerMcp install");
+                Set(row, ConfigUnreadable, $"configuration unreadable: {preview.Reason}", "Fix the file, or remove it and run: corvus install");
             else
-                Set(row, NotRegistered, "not registered (run: NetDecompilerMcp install)", $"NetDecompilerMcp install --client {client.Id}");
+                Set(row, NotRegistered, "not registered (run: corvus install)", $"corvus install --client {client.Id}");
             return;
         }
         bool own = SameCommand(entry.Command, ours.Command);
         // A bare name is looked up on PATH by the start itself.
         if (entry.Command.IndexOfAny(['/', '\\']) >= 0 && !File.Exists(entry.Command))
         {
-            Set(row, MissingProgram, $"registered with a missing program: {entry.Command} (run: NetDecompilerMcp install)", $"NetDecompilerMcp install --client {client.Id}");
+            Set(row, MissingProgram, $"registered with a missing program: {entry.Command} (run: corvus install)", $"corvus install --client {client.Id}");
             return;
         }
         var server = row.Server = Test(new ServerLaunch(entry.Command, entry.Args), entry.Env, tests);
@@ -54,11 +54,11 @@ internal static class Doctor
             Set(row, SlowStart, $"registered, but it started in {server.Seconds:0.0} s and {client.Name} waits {limit:0} s",
                 "Set startup_timeout_sec = 30 in the server's table.");
         else if (own && server.MatchesThisBuild != true)
-            Set(row, StaleCatalog, $"registered, but its tool catalog differs from this build: {string.Join("; ", server.Differences)}", "NetDecompilerMcp install");
+            Set(row, StaleCatalog, $"registered, but its tool catalog differs from this build: {string.Join("; ", server.Differences)}", "corvus install");
         else if (entry.Disabled)
             Set(row, Disabled, "registered (disabled: the client does not start it)", $"Turn {ClientCatalog.ServerName} on in {client.Name}'s settings.");
         else if (!own)
-            Set(row, OtherCopy, $"registered with another copy: {entry.Command} (version {server.Version})", $"NetDecompilerMcp install --client {client.Id} to use this copy.");
+            Set(row, OtherCopy, $"registered with another copy: {entry.Command} (version {server.Version})", $"corvus install --client {client.Id} to use this copy.");
         else
             Set(row, Healthy, $"registered ({server.Detail})", null);
     }

@@ -1,4 +1,4 @@
-package ndm.ghidra;
+package corvus.ghidra;
 
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;

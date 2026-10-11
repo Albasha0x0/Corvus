@@ -11,12 +11,12 @@ public sealed class StatusTests : IDisposable
     public void Dispose() => _home.Dispose();
 
     private static string Q(string s) => JsonSerializer.Serialize(s);
-    private static readonly string Gone = OperatingSystem.IsWindows() ? @"C:\gone\corvus.exe" : "/gone/NetDecompilerMcp";
+    private static readonly string Gone = OperatingSystem.IsWindows() ? @"C:\gone\corvus.exe" : "/gone/corvus";
 
     private void Registrations()
     {
         _home.Write($$"""{ "mcpServers": { "corvus": { "command": {{Q(Gone)}} } } }""", ".cursor", "mcp.json");
-        _home.Write("""{ "mcpServers": { "corvus": { "command": "ndm-test-no-such-tool", "args": ["x"] } } }""", ".kiro", "settings", "mcp.json");
+        _home.Write("""{ "mcpServers": { "corvus": { "command": "corvus-test-test-no-such-tool", "args": ["x"] } } }""", ".kiro", "settings", "mcp.json");
         Directory.CreateDirectory(_home.Path(".lmstudio"));
     }
 

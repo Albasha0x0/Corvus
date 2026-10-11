@@ -21,7 +21,7 @@ namespace Corvus.Services;
 /// </summary>
 public sealed partial class CSharpPatcher(AssemblyWorkspace workspace, DecompilerService decompiler)
 {
-    private static readonly SyntaxAnnotation UserCode = new("netdecomp-user-code");
+    private static readonly SyntaxAnnotation UserCode = new("user-code");
     private static readonly string[] StateMachineAttributes =
         ["AsyncStateMachineAttribute", "IteratorStateMachineAttribute", "AsyncIteratorStateMachineAttribute", "DebuggerStepThroughAttribute"];
 

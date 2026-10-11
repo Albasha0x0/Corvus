@@ -283,7 +283,7 @@ public sealed class EnginePreferenceTests(ITestOutputHelper output) : IDisposabl
         var (native, _) = await Loaded(rig);
         var project = Path.Combine(_dir.File("cache"), "ghidra", native.OriginalSha256, "p-0123456789abcdef");
         Directory.CreateDirectory(project);
-        File.WriteAllBytes(Path.Combine(project, "ndm.gpr"), [0]);
+        File.WriteAllBytes(Path.Combine(project, "corvus.gpr"), [0]);
         rig.Engines.SavedCheckInterval = 0;
         Assert.Contains("Ghidra's saved analysis of this image is not loaded in this session; engine=ghidra loads it without analyzing again",
             await rig.Tools.ListFunctions(rig.Image));

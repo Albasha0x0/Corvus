@@ -44,7 +44,7 @@ internal static class SelfTest
                     {
                         ["protocolVersion"] = "2025-06-18",
                         ["capabilities"] = new JsonObject(),
-                        ["clientInfo"] = new JsonObject { ["name"] = "net-decompiler-check", ["version"] = Installation.Version },
+                        ["clientInfo"] = new JsonObject { ["name"] = "corvus-check", ["version"] = Installation.Version },
                     },
                 });
                 var init = Receive(p, 1, timeout - clock.Elapsed);

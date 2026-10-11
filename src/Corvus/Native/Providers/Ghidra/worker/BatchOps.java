@@ -1,4 +1,4 @@
-package ndm.ghidra;
+package corvus.ghidra;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -34,7 +34,7 @@ final class BatchOps {
         // The read lock held by this thread covers the helpers: they take no lock of their own.
         int threads = Math.max(1, Math.min(w.decompilers.size(), rvas.size()));
         ExecutorService pool = Executors.newFixedThreadPool(threads, t -> {
-            Thread th = new Thread(t, "ndm decompile_many");
+            Thread th = new Thread(t, "worker decompile_many");
             th.setDaemon(true);
             return th;
         });

@@ -164,7 +164,7 @@ public static class PatchExport
             notes.Add("the IDAPython script applies the in-place changes; the appended bytes have no section metadata here, so no segment is created");
 
         var sb = new StringBuilder();
-        sb.Append("# IDAPython: apply native patches exported from NetDecompilerMcp.\n");
+        sb.Append("# IDAPython: apply exported native patches.\n");
         sb.Append($"# Source: {Comment(System.IO.Path.GetFileName(s.Path))}  sha256 {s.Sha256}  preferred image base 0x{s.ImageBase:X}\n");
         sb.Append("# Each entry is applied at its RVA rebased to this database's image base, only when the database holds the\n");
         sb.Append("# original bytes there; entries already applied are skipped. Relocation-table and header entries are applied when\n");
@@ -196,12 +196,12 @@ public static class PatchExport
                         s.bitness = 2 if idaapi.get_inf_structure().is_64bit() else 1
                         s.perm = idaapi.SEGPERM_EXEC | idaapi.SEGPERM_READ
                         if not ida_segment.add_segm_ex(s, name, "CODE", ida_segment.ADDSEG_NOSREG):
-                            print("NetDecompilerMcp: could not add segment %s at 0x%X" % (name, start)); continue
+                            print("could not add segment %s at 0x%X" % (name, start)); continue
                         created += 1
                     raw = bytes.fromhex(data)
                     ida_bytes.patch_bytes(start, raw)
                     ida_auto.plan_range(start, start + len(raw))
-                if SEGMENTS: print("NetDecompilerMcp: %d segment(s) created" % created)
+                if SEGMENTS: print("%d segment(s) created" % created)
                 return created
 
 
@@ -219,7 +219,7 @@ public static class PatchExport
                     new = bytes.fromhex(replacement)
                     if not _loaded(ea, len(new)):
                         missing += 1
-                        print("NetDecompilerMcp: %s at 0x%X: not loaded in the database, skipped" % (label, ea))
+                        print("%s at 0x%X: not loaded in the database, skipped" % (label, ea))
                         continue
                     found = ida_bytes.get_bytes(ea, len(new))
                     if found == new:
@@ -227,13 +227,13 @@ public static class PatchExport
                         continue
                     if found != orig:
                         differ += 1
-                        print("NetDecompilerMcp: %s at 0x%X: original bytes differ (expected %s, found %s), skipped" % (label, ea, original, found.hex().upper() if found else "none"))
+                        print("%s at 0x%X: original bytes differ (expected %s, found %s), skipped" % (label, ea, original, found.hex().upper() if found else "none"))
                         continue
                     ida_bytes.patch_bytes(ea, new)
                     ida_auto.plan_range(ea, ea + len(new))
                     applied += 1
                 ida_auto.auto_wait()
-                print("NetDecompilerMcp: %d applied, %d already applied, %d with different original bytes, %d not loaded (of %d)" % (applied, already, differ, missing, len(PATCHES)))
+                print("%d applied, %d already applied, %d with different original bytes, %d not loaded (of %d)" % (applied, already, differ, missing, len(PATCHES)))
                 return applied, already, differ, missing
 
             CORVUS_SEGMENTS_RESULT = add_segments()
@@ -306,7 +306,10 @@ public static class PatchExport
         return (ms.ToArray(), records.Count);
     }
 
-    public const string JsonKind = "netdecompilermcp.native_patches";
+    public const string JsonKind = "corvus.native_patches";
+
+    // Migration only: the kind of patch sets exported before the rename, still read.
+    public const string LegacyJsonKind = "netdecompilermcp.native_patches";
 
     private static (byte[], int) Json(PatchExportSource s, bool checksum, bool grew, long appendOffset, int appendLength, List<(long Offset, int Length)> runs)
     {

@@ -43,14 +43,14 @@ public class GhidraWorkerBuildTests
         var java = JdkFactAttribute.Jdk!;
         (string, byte[])[] sources =
         [
-            ("Boot.java", "package ndm.ghidra; public class Boot { }"u8.ToArray()),
-            ("Other.java", "package ndm.ghidra; class Other { }"u8.ToArray()),
+            ("Boot.java", "package corvus.ghidra; public class Boot { }"u8.ToArray()),
+            ("Other.java", "package corvus.ghidra; class Other { }"u8.ToArray()),
         ];
         var dir = tmp.File("worker (x)");
         var jars = await WorkerBuild.EnsureAsync(java, [], sources, dir, default);
-        Assert.Equal(["META-INF/MANIFEST.MF", "ndm/ghidra/Boot.class"], Entries(jars.Boot));
-        Assert.Equal(["META-INF/MANIFEST.MF", "ndm/ghidra/Other.class"], Entries(jars.Worker));
-        Assert.Equal(["ndm-ghidra-boot.jar", "ndm-ghidra-worker.jar"], Directory.GetFileSystemEntries(dir).Select(Path.GetFileName).Order());
+        Assert.Equal(["META-INF/MANIFEST.MF", "corvus/ghidra/Boot.class"], Entries(jars.Boot));
+        Assert.Equal(["META-INF/MANIFEST.MF", "corvus/ghidra/Other.class"], Entries(jars.Worker));
+        Assert.Equal(["ghidra-boot.jar", "ghidra-worker.jar"], Directory.GetFileSystemEntries(dir).Select(Path.GetFileName).Order());
 
         var written = File.GetLastWriteTimeUtc(jars.Worker);
         await WorkerBuild.EnsureAsync(java, [], sources, dir, default);
@@ -63,7 +63,7 @@ public class GhidraWorkerBuildTests
     {
         using var tmp = new TempDir();
         var e = await Assert.ThrowsAsync<ToolError>(() => WorkerBuild.EnsureAsync(JdkFactAttribute.Jdk!, [],
-            [("Boot.java", "package ndm.ghidra; public class Boot { int x = missing; }"u8.ToArray())], tmp.File("w"), default));
+            [("Boot.java", "package corvus.ghidra; public class Boot { int x = missing; }"u8.ToArray())], tmp.File("w"), default));
         Assert.Equal(ErrorCode.ProviderUnavailable, e.Code);
         Assert.Contains("missing", e.Message);
         Assert.NotNull(e.Remediation);

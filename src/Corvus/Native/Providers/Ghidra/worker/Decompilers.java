@@ -1,5 +1,5 @@
 // Pool: LIFO reuse, bounded slots, one deadline over wait and run, flushCache after writes.
-package ndm.ghidra;
+package corvus.ghidra;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;

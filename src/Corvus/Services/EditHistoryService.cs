@@ -12,7 +12,10 @@ namespace Corvus.Services;
 /// </summary>
 public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService edits, DecompilerService decompiler, AssemblyComparer comparer)
 {
-    public const string ScriptFormat = "net-decompiler-edits/1";
+    public const string ScriptFormat = "corvus-edits/1";
+
+    // Migration only: the format of edit scripts written before the rename, still read.
+    private const string LegacyScriptFormat = "net-decompiler-edits/1";
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -96,8 +99,8 @@ public sealed class EditHistoryService(AssemblyWorkspace workspace, EditService 
         Script? script;
         try { script = JsonSerializer.Deserialize<Script>(File.ReadAllText(full), Json); }
         catch (JsonException ex) { throw new ToolError(ErrorCode.MalformedInput, $"{full} is not a valid edit script: {ex.Message}"); }
-        if (script == null || script.Format != ScriptFormat || script.Edits == null)
-            throw new ToolError(ErrorCode.MalformedInput, $"{full} is not a corvus edit script (expected format '{ScriptFormat}').");
+        if (script == null || script.Format is not (ScriptFormat or LegacyScriptFormat) || script.Edits == null)
+            throw new ToolError(ErrorCode.MalformedInput, $"{full} is not an edit script (expected format '{ScriptFormat}').");
         return script;
     }
 

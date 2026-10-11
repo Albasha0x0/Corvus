@@ -52,7 +52,10 @@ public sealed record CodeIndexCacheStatus(string Root, int Entries, long Bytes, 
 /// </summary>
 public sealed class CodeIndexCache(CodeIndexCacheOptions options)
 {
-    private const ulong Magic = 0x3158444943_4D444EUL; // "NDMCIDX1"
+    private const ulong Magic = 0x3158444945_444F43UL; // "CODEIDX1"
+
+    // Migration only: the magic of indexes saved before the rename, still read.
+    private const ulong LegacyMagic = 0x3158444943_4D444EUL;
     private const int HeaderSize = 8 + 4 + 4 + 32 + 32 + 8 + 8;
     private const string Extension = ".cidx";
 
@@ -79,7 +82,7 @@ public sealed class CodeIndexCache(CodeIndexCacheOptions options)
             using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.SequentialScan);
             Span<byte> header = stackalloc byte[HeaderSize];
             if (file.ReadAtLeast(header, HeaderSize, throwOnEndOfStream: false) < HeaderSize) return Reject("header truncated");
-            if (BinaryPrimitives.ReadUInt64LittleEndian(header) != Magic) return Reject("not a code index file");
+            if (BinaryPrimitives.ReadUInt64LittleEndian(header) is not (Magic or LegacyMagic)) return Reject("not a code index file");
             if (BinaryPrimitives.ReadInt32LittleEndian(header[8..]) != NativeCodeIndex.PersistFormatVersion) return Reject("other format version");
             if (!header.Slice(16, 32).SequenceEqual(Convert.FromHexString(image.Sha256)) || !header.Slice(48, 32).SequenceEqual(Convert.FromHexString(digest)))
                 return Reject("other image or options");

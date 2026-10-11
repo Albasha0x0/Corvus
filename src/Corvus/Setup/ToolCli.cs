@@ -31,7 +31,7 @@ internal static partial class ToolCli
     /// <summary>The CLI's commands; any other first word that is not a setup command is a tool name.</summary>
     public static readonly string[] Commands = ["call", "tools", "describe", "help", "batch", "prompts", "prompt", "resources", "read", "completion"];
 
-    private const string Program = "NetDecompilerMcp";
+    private const string Program = "corvus";
 
     /// <summary>Runs a CLI command with the console and Ctrl+C, or returns null when the arguments are not one.</summary>
     public static int? TryRun(string[] args)

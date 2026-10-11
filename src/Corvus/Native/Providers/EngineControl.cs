@@ -25,7 +25,7 @@ public sealed record NativeFunctionCandidate(uint Start, uint End, int Instructi
 /// <summary>Function candidates in address order; <see cref="Truncated"/> when the scan budget ended first.</summary>
 public sealed record NativeCandidateScan(IReadOnlyList<NativeFunctionCandidate> Items, int Scanned, bool Truncated);
 
-/// <summary>A marker the engine shows at an address: a Ghidra bookmark (category NDM), an IDA marked position.</summary>
+/// <summary>A marker the engine shows at an address: a Ghidra bookmark (category Corvus), an IDA marked position.</summary>
 public sealed record NativeMark(uint Rva, string Text);
 
 /// <summary>Marks the engine holds now (<see cref="Set"/>), earlier ones removed, and those it could not take.</summary>
@@ -57,7 +57,7 @@ public interface INativeEngineControl
 public static class EngineControl
 {
     /// <summary>Stamp key of the marks pushed into a database.</summary>
-    public const string MarksStampKey = "ndm_marks";
+    public const string MarksStampKey = "marks";
 
     private static readonly ConditionalWeakTable<INativeDecompilerSession, StrongBox<int>> Generations = new();
 

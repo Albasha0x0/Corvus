@@ -61,7 +61,7 @@ public sealed class JadxServer : IDisposable
     /// <summary>Starts the server and begins loading <paramref name="package"/>; <see cref="Loaded"/> completes when it is indexed.</summary>
     public static JadxServer Start(string java, string jar, string package, TimeSpan loadTimeout, IReadOnlyDictionary<string, string?>? environment = null)
     {
-        var temp = Path.Combine(Path.GetTempPath(), "ndm-jadx", $"{Environment.ProcessId}-{Guid.NewGuid():N}");
+        var temp = Path.Combine(Path.GetTempPath(), "corvus-jadx", $"{Environment.ProcessId}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(temp);
         var env = new Dictionary<string, string?>(environment ?? new Dictionary<string, string?>()) { ["TMP"] = temp, ["TEMP"] = temp, ["TMPDIR"] = temp, ["JADX_TMP_DIR"] = temp };
         var threads = Math.Min(4, Environment.ProcessorCount).ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -80,7 +80,7 @@ public sealed class JadxServer : IDisposable
         {
             ["protocolVersion"] = "2025-06-18",
             ["capabilities"] = new JsonObject(),
-            ["clientInfo"] = new JsonObject { ["name"] = "NetDecompilerMcp", ["version"] = typeof(JadxServer).Assembly.GetName().Version?.ToString(3) ?? "1" },
+            ["clientInfo"] = new JsonObject { ["name"] = "corvus", ["version"] = typeof(JadxServer).Assembly.GetName().Version?.ToString(3) ?? "1" },
         }, TimeSpan.FromMinutes(2), CancellationToken.None).ConfigureAwait(false);
         Send(new JsonObject { ["jsonrpc"] = "2.0", ["method"] = "notifications/initialized" });
         var load = await Call("load_apk", new JsonObject { ["path"] = Package }, loadTimeout, CancellationToken.None).ConfigureAwait(false);

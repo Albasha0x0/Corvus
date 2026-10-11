@@ -1,4 +1,4 @@
-package ndm.ghidra;
+package corvus.ghidra;
 
 import java.io.File;
 import java.io.PrintWriter;
@@ -37,8 +37,8 @@ final class ScriptOps {
     static JsonElement run(Worker w, Worker.Request r) throws Exception {
         String code = r.args.has("code") ? r.args.get("code").getAsString() : "";
         double timeout = r.args.has("timeout") ? r.args.get("timeout").getAsDouble() : 120;
-        File dir = new File(System.getProperty("user.home"), "ndm_scripts" + File.separator + Long.toHexString(System.nanoTime()));
-        String className = "NdmScript_" + Long.toHexString(System.nanoTime());
+        File dir = new File(System.getProperty("user.home"), "scripts" + File.separator + Long.toHexString(System.nanoTime()));
+        String className = "UserScript_" + Long.toHexString(System.nanoTime());
         String source;
         if (code.contains("extends GhidraScript")) {
             Matcher m = PUBLIC_CLASS.matcher(code);
@@ -61,7 +61,7 @@ final class ScriptOps {
         try {
             if (w.program == null) throw new Worker.WorkerError("invalid_argument", "no program is open");
             host.enable(bundleDir);
-            int tx = w.program.startTransaction("NetDecompilerMcp script");
+            int tx = w.program.startTransaction("script");
             try {
                 ResourceFile scriptFile = new ResourceFile(file);
                 GhidraScriptProvider provider = GhidraScriptUtil.getProvider(scriptFile);
@@ -83,7 +83,7 @@ final class ScriptOps {
             finally {
                 w.program.endTransaction(tx, committed);
             }
-            if (committed && w.program.isChanged()) w.program.save("NetDecompilerMcp script", ghidra.util.task.TaskMonitor.DUMMY);
+            if (committed && w.program.isChanged()) w.program.save("Corvus script", ghidra.util.task.TaskMonitor.DUMMY);
         }
         finally {
             try {
@@ -133,7 +133,7 @@ final class ScriptOps {
             catch (InterruptedException e) {
                 // finished in time
             }
-        }, "ndm script deadline");
+        }, "script deadline");
         t.setDaemon(true);
         t.start();
         return t;

@@ -162,7 +162,7 @@ public sealed class ItaniumDemangleTests(ITestOutputHelper output)
                 report.AppendLine(names[i]).AppendLine("  llvm " + llvm).AppendLine("  ours " + got);
             }
         }
-        var reportPath = Path.Combine(Path.GetTempPath(), "ndm-itanium-demangle-report.txt");
+        var reportPath = Path.Combine(Path.GetTempPath(), "corvus-test-itanium-demangle-report.txt");
         File.WriteAllText(reportPath, report.ToString());
         output.WriteLine($"{names.Count} names, {agree} agree, {nulls} not demangled; report {reportPath}");
         Assert.True(agree >= names.Count * 0.995, $"{names.Count - agree} of {names.Count} differ; see {reportPath}");

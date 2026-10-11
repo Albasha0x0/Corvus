@@ -158,10 +158,10 @@ public class AnnotationStoreTests : IDisposable
         ann.ChangeUserTypes(l => l.WithDeclarations("struct S { int a; };").WithType(0x1000, "int __fastcall Parse(S *s)")
             .WithLocal(new(0x1000, "v3", 0x28, "count", null)).WithStackVar(new(0x1000, 0x20, null, "char[16]")));
         var ida = AnnotationExport.Render(ann, AnnotationExport.Format.Ida);
-        Assert.Contains("ndm_declare(\"struct S { int a; };\")", ida);
-        Assert.Contains("ndm_type(0x1000, \"int __fastcall Parse(S *s)\")", ida);
-        Assert.Contains("ndm_stack(0x1000, 32, None, \"char[16]\")", ida);
-        Assert.Contains("ndm_local(0x1000, \"v3\", 40, \"count\", None)", ida);
+        Assert.Contains("apply_declare(\"struct S { int a; };\")", ida);
+        Assert.Contains("apply_type(0x1000, \"int __fastcall Parse(S *s)\")", ida);
+        Assert.Contains("apply_stack(0x1000, 32, None, \"char[16]\")", ida);
+        Assert.Contains("apply_local(0x1000, \"v3\", 40, \"count\", None)", ida);
         Assert.Contains("1 name(s), 0 comment(s), 0 pseudocode comment(s) and 4 user type(s)", ida);
         var python = Corvus.Native.Providers.PythonLocator.Find([], []);
         if (python != null)
@@ -200,9 +200,9 @@ public class AnnotationStoreTests : IDisposable
         Assert.Equal(4, merged.Count);
 
         var ida = AnnotationExport.Render(a, AnnotationExport.Format.Ida);
-        Assert.Contains("ndm_analysis(0x5000, \"data\", None, \"dword[8]\")", ida);
-        Assert.Contains("ndm_analysis(0x6000, \"code\", 0x6010, None)", ida);
-        Assert.True(ida.IndexOf("ndm_analysis(0x4000", StringComparison.Ordinal) < ida.IndexOf("ndm_analysis(0x7000", StringComparison.Ordinal));
+        Assert.Contains("apply_analysis(0x5000, \"data\", None, \"dword[8]\")", ida);
+        Assert.Contains("apply_analysis(0x6000, \"code\", 0x6010, None)", ida);
+        Assert.True(ida.IndexOf("apply_analysis(0x4000", StringComparison.Ordinal) < ida.IndexOf("apply_analysis(0x7000", StringComparison.Ordinal));
         var python = Corvus.Native.Providers.PythonLocator.Find([], []);
         if (python != null)
         {
@@ -234,8 +234,8 @@ public class AnnotationStoreTests : IDisposable
         var batch = again.ToBatch();
         Assert.Equal(2, batch.Operands.Count);
         var ida = AnnotationExport.Render(ann, AnnotationExport.Format.Ida);
-        Assert.Contains("ndm_operand(0x1010, 1, \"enum\", \"Magic\")", ida);
-        Assert.Contains("ndm_operand(0x1020, 1, \"struct\", \"Hdr+0x8\")", ida);
+        Assert.Contains("apply_operand(0x1010, 1, \"enum\", \"Magic\")", ida);
+        Assert.Contains("apply_operand(0x1020, 1, \"struct\", \"Hdr+0x8\")", ida);
         var python = Corvus.Native.Providers.PythonLocator.Find([], []);
         if (python != null)
         {
@@ -265,10 +265,10 @@ public class AnnotationStoreTests : IDisposable
         Assert.False(again.WithStackVar(new(0x2000, 0x20, "back", "int")).StackVars[0x2000][0].Delete);
 
         var ida = AnnotationExport.Render(ann, AnnotationExport.Format.Ida);
-        Assert.Contains("ndm_enum(\"Color\", \"Gone\", None)", ida);
-        Assert.Contains("ndm_enum(\"Color\", \"Red\", 16)", ida);
-        Assert.Contains("ndm_stack_delete(0x2000, 32)", ida);
-        Assert.DoesNotContain("ndm_stack(0x2000, 32,", ida);
+        Assert.Contains("apply_enum(\"Color\", \"Gone\", None)", ida);
+        Assert.Contains("apply_enum(\"Color\", \"Red\", 16)", ida);
+        Assert.Contains("apply_stack_delete(0x2000, 32)", ida);
+        Assert.DoesNotContain("apply_stack(0x2000, 32,", ida);
         var python = Corvus.Native.Providers.PythonLocator.Find([], []);
         if (python != null)
         {

@@ -81,10 +81,10 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         var data = rig.Native.Image.Sections.First(s => !s.IsExecutable && s.Name == ".data").Rva;
         var fn = rig.Native.Image.Exports.First(e => e.Name == Function).Rva;
         output.WriteLine(await rig.Types.DefineNative(path, Rva(data), "data", type: "dword[4]"));
-        await rig.Types.DeclareNativeTypes(path, "struct NdmRec { int a; short b; char c[10]; };");
-        Assert.Contains("NdmRec", await rig.Types.DefineNative(path, Rva(data + 0x40), "data", type: "NdmRec"));
+        await rig.Types.DeclareNativeTypes(path, "struct SampleRec { int a; short b; char c[10]; };");
+        Assert.Contains("SampleRec", await rig.Types.DefineNative(path, Rva(data + 0x40), "data", type: "SampleRec"));
         // an engine type read at an address from the image's bytes
-        var read = await rig.Info.GetNativeType(path, name: "NdmRec", address: Rva(data + 0x40), source: "engine", read: true);
+        var read = await rig.Info.GetNativeType(path, name: "SampleRec", address: Rva(data + 0x40), source: "engine", read: true);
         output.WriteLine(read);
         Assert.Matches(@"\+0x4  2  b  .*= -?\d+", read);
         Assert.Contains("string", await rig.Types.DefineNative(path, Rva(data + 0x60), "data", end: Rva(data + 0x68), type: "string"));
@@ -95,7 +95,7 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
 
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.DefineNative(path, Rva(data), "data"))).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.DefineNative(path, Rva(data + 8), "undefine", end: Rva(data)))).Code);
-        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.DefineNative(path, Rva(data), "data", type: "no_such_ndm_t"))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.DefineNative(path, Rva(data), "data", type: "no_such_sample_t"))).Code);
         // the function edit replaced the undefine at the same address
         var layer = rig.Code.Annotations(rig.Native).UserTypes;
         Assert.Equal([data, data + 0x40, data + 0x60, fn], layer.Analysis.Select(a => a.Rva));
@@ -131,16 +131,16 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         var ida = await rig.Session("ida");
         var magic = await Instruction(ida, fn, "10Bh"); // mov ecx, 10Bh: the PE32 optional header magic
         Assert.Contains("267", await rig.Types.SetNativeOperand(path, Rva(magic), 1, "dec"));
-        await rig.Types.DeclareNativeTypes(path, "enum NdmMagic { CORVUS_PE32 = 0x10B, CORVUS_PE64 = 0x20B };");
-        Assert.Contains("CORVUS_PE32", await rig.Types.SetNativeOperand(path, Rva(magic), 1, "enum", type: "NdmMagic"));
+        await rig.Types.DeclareNativeTypes(path, "enum SampleMagic { CORVUS_PE32 = 0x10B, CORVUS_PE64 = 0x20B };");
+        Assert.Contains("CORVUS_PE32", await rig.Types.SetNativeOperand(path, Rva(magic), 1, "enum", type: "SampleMagic"));
         var load = await Instruction(ida, fn, "[rdi+18h]");
-        await rig.Types.DeclareNativeTypes(path, "struct NdmHdr { char pad[0x18]; unsigned short Magic; };");
-        Assert.Contains("NdmHdr.Magic", await rig.Types.SetNativeOperand(path, Rva(load), 1, "struct", type: "NdmHdr"));
+        await rig.Types.DeclareNativeTypes(path, "struct SampleHdr { char pad[0x18]; unsigned short Magic; };");
+        Assert.Contains("SampleHdr.Magic", await rig.Types.SetNativeOperand(path, Rva(load), 1, "struct", type: "SampleHdr"));
 
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeOperand(path, Rva(magic), 1, "enum"))).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeOperand(path, Rva(magic), 5, "hex"))).Code);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeOperand(path, Rva(magic + 1), 0, "hex"))).Code);
-        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeOperand(path, Rva(magic), 1, "enum", type: "NoSuchNdmEnum"))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeOperand(path, Rva(magic), 1, "enum", type: "NoSuchSampleEnum"))).Code);
         Assert.Equal(2, rig.Code.Annotations(rig.Native).UserTypes.Operands.Count);
 
         await WorkerKill.KillAsync(ida);
@@ -150,7 +150,7 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         var fresh = Setup("ida-p");
         await fresh.Types.GetNativeFrame(path, Function);
         var again = await fresh.Session("ida");
-        Assert.Contains("NdmHdr.Magic", await TextAt(again, fn, load));
+        Assert.Contains("SampleHdr.Magic", await TextAt(again, fn, load));
         // default clears it, in the database and the sidecar
         await fresh.Types.SetNativeOperand(path, Rva(load), 1, "default");
         Assert.Contains("18h", await TextAt(again, fn, load));
@@ -164,19 +164,19 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         var path = Image();
         var fn = rig.Native.Image.Exports.First(e => e.Name == Function).Rva;
         var data = rig.Native.Image.Sections.First(s => !s.IsExecutable && s.Name == ".data").Rva;
-        await rig.Types.DeclareNativeTypes(path, "enum NdmMode { NdmSlow = 1 };");
-        var upsert = await rig.Types.DeclareNativeTypes(path, typeName: "NdmMode", members: "NdmFast=0x10, NdmSlow=2");
+        await rig.Types.DeclareNativeTypes(path, "enum SampleMode { SampleSlow = 1 };");
+        var upsert = await rig.Types.DeclareNativeTypes(path, typeName: "SampleMode", members: "SampleFast=0x10, SampleSlow=2");
         output.WriteLine(upsert);
-        Assert.Contains("NdmMode::NdmFast = 0x10", upsert);
-        Assert.Contains("NdmCreated::NdmOne = 0x1", await rig.Types.DeclareNativeTypes(path, typeName: "NdmCreated", members: "NdmOne=1"));
-        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.DeclareNativeTypes(path, typeName: "NdmMode", members: "bad name=1"))).Code);
+        Assert.Contains("SampleMode::SampleFast = 0x10", upsert);
+        Assert.Contains("SampleCreated::SampleOne = 0x1", await rig.Types.DeclareNativeTypes(path, typeName: "SampleCreated", members: "SampleOne=1"));
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.DeclareNativeTypes(path, typeName: "SampleMode", members: "bad name=1"))).Code);
         var ida = await rig.Session("ida");
         // a recovered type push declares the user's enums again; the upserts stay
-        await ida.ApplyTypesAsync(new NativeTypeBatch("struct NdmUnrelated { int a; };", [], [], [], 8));
-        var mode = await ida.GetTypeAsync("NdmMode");
+        await ida.ApplyTypesAsync(new NativeTypeBatch("struct SampleUnrelated { int a; };", [], [], [], 8));
+        var mode = await ida.GetTypeAsync("SampleMode");
         output.WriteLine(mode.Declaration);
-        Assert.Contains("NdmFast = 0x10", mode.Declaration);
-        Assert.Matches(@"NdmSlow = (0x)?2\b", mode.Declaration);
+        Assert.Contains("SampleFast = 0x10", mode.Declaration);
+        Assert.Matches(@"SampleSlow = (0x)?2\b", mode.Declaration);
 
         var frame = await ida.GetFrameAsync(fn);
         var member = frame.Members.First(m => m.Kind == "arg");
@@ -185,7 +185,7 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         Assert.DoesNotContain((await ida.GetFrameAsync(fn)).Members, m => m.Offset == member.Offset && m.Name == member.Name);
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeStackVar(path, Function, "__return_address", delete: true))).Code);
 
-        var batch = await rig.Types.SetNativeType(path, items: $"rva:0x{data:X} = unsigned int[2]\nrva:0x{data + 0x10:X} = NdmMode\nrva:0x{data + 0x20:X} = no_such_ndm_t\nnot an address = int");
+        var batch = await rig.Types.SetNativeType(path, items: $"rva:0x{data:X} = unsigned int[2]\nrva:0x{data + 0x10:X} = SampleMode\nrva:0x{data + 0x20:X} = no_such_sample_t\nnot an address = int");
         output.WriteLine(batch);
         Assert.StartsWith("2 of 4 type(s) applied", batch);
         Assert.Contains("not applied: the type does not parse", batch);
@@ -195,9 +195,9 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         var fresh = Setup("ida-f");
         await fresh.Types.GetNativeFrame(path, Function);
         var again = await fresh.Session("ida");
-        Assert.Contains("NdmFast = 0x10", (await again.GetTypeAsync("NdmMode")).Declaration);
+        Assert.Contains("SampleFast = 0x10", (await again.GetTypeAsync("SampleMode")).Declaration);
         Assert.DoesNotContain((await again.GetFrameAsync(fn)).Members, m => m.Offset == member.Offset && m.Name == member.Name);
-        Assert.Contains("NdmMode", (await again.RunScriptAsync($"idc.get_type(base + 0x{data + 0x10:X})")).Result);
+        Assert.Contains("SampleMode", (await again.RunScriptAsync($"idc.get_type(base + 0x{data + 0x10:X})")).Result);
     }
 
     [GhidraFact]
@@ -207,21 +207,21 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         var path = Image();
         var fn = rig.Native.Image.Exports.First(e => e.Name == Function).Rva;
         var data = rig.Native.Image.Sections.First(s => !s.IsExecutable && s.Name == ".data").Rva;
-        await rig.Types.DeclareNativeTypes(path, "enum NdmMode { NdmSlow = 1 };", engine: "ghidra");
-        Assert.Contains("NdmMode::NdmFast = 0x10", await rig.Types.DeclareNativeTypes(path, typeName: "NdmMode", members: "NdmFast=0x10, NdmSlow=2", engine: "ghidra"));
+        await rig.Types.DeclareNativeTypes(path, "enum SampleMode { SampleSlow = 1 };", engine: "ghidra");
+        Assert.Contains("SampleMode::SampleFast = 0x10", await rig.Types.DeclareNativeTypes(path, typeName: "SampleMode", members: "SampleFast=0x10, SampleSlow=2", engine: "ghidra"));
         var ghidra = await rig.Session("ghidra");
-        await ghidra.ApplyTypesAsync(new NativeTypeBatch("struct NdmUnrelated { int a; };", [], [], [], 8));
-        var mode = await ghidra.GetTypeAsync("NdmMode");
+        await ghidra.ApplyTypesAsync(new NativeTypeBatch("struct SampleUnrelated { int a; };", [], [], [], 8));
+        var mode = await ghidra.GetTypeAsync("SampleMode");
         output.WriteLine(mode.Declaration);
-        Assert.Contains("NdmFast", mode.Declaration);
+        Assert.Contains("SampleFast", mode.Declaration);
 
         // a user-made member, so the deletion is not undone by analysis
-        Assert.Contains("ndm_temp", await rig.Types.SetNativeStackVar(path, Function, "0x8", newName: "ndm_temp", type: "int", engine: "ghidra"));
-        Assert.Contains("deleted", await rig.Types.SetNativeStackVar(path, Function, "ndm_temp", delete: true, engine: "ghidra"));
-        Assert.DoesNotContain((await ghidra.GetFrameAsync(fn)).Members, m => m.Name == "ndm_temp");
+        Assert.Contains("sample_temp", await rig.Types.SetNativeStackVar(path, Function, "0x8", newName: "sample_temp", type: "int", engine: "ghidra"));
+        Assert.Contains("deleted", await rig.Types.SetNativeStackVar(path, Function, "sample_temp", delete: true, engine: "ghidra"));
+        Assert.DoesNotContain((await ghidra.GetFrameAsync(fn)).Members, m => m.Name == "sample_temp");
         Assert.Contains(rig.Code.Annotations(rig.Native).UserTypes.StackVars.Values.SelectMany(s => s), s => s.Delete);
 
-        var batch = await rig.Types.SetNativeType(path, items: $"rva:0x{data:X} = uint[2]\nrva:0x{data + 0x10:X} = NdmMode\nrva:0x{data + 0x20:X} = no_such_ndm_t", engine: "ghidra");
+        var batch = await rig.Types.SetNativeType(path, items: $"rva:0x{data:X} = uint[2]\nrva:0x{data + 0x10:X} = SampleMode\nrva:0x{data + 0x20:X} = no_such_sample_t", engine: "ghidra");
         output.WriteLine(batch);
         Assert.StartsWith("2 of 3 type(s) applied", batch);
     }
@@ -262,14 +262,14 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         var ghidra = await rig.Session("ghidra");
         var magic = await Instruction(ghidra, fn, "0x10b");
         Assert.Contains("267", await rig.Types.SetNativeOperand(path, Rva(magic), 1, "dec", engine: "ghidra"));
-        await rig.Types.DeclareNativeTypes(path, "enum NdmMagic { CORVUS_PE32 = 0x10B, CORVUS_PE64 = 0x20B };", engine: "ghidra");
-        var shown = await rig.Types.SetNativeOperand(path, Rva(magic), 1, "enum", type: "NdmMagic", engine: "ghidra");
+        await rig.Types.DeclareNativeTypes(path, "enum SampleMagic { CORVUS_PE32 = 0x10B, CORVUS_PE64 = 0x20B };", engine: "ghidra");
+        var shown = await rig.Types.SetNativeOperand(path, Rva(magic), 1, "enum", type: "SampleMagic", engine: "ghidra");
         output.WriteLine(shown);
         Assert.Contains("CORVUS_PE32", shown);
         var pseudocode = await rig.Analysis.DecompileNative(path, Function, engine: "ghidra");
         output.WriteLine(pseudocode);
         Assert.Contains("!= CORVUS_PE32", pseudocode);
-        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeOperand(path, Rva(magic), 1, "struct", type: "NdmMagic", engine: "ghidra"))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeOperand(path, Rva(magic), 1, "struct", type: "SampleMagic", engine: "ghidra"))).Code);
 
         Restart();
         var fresh = Setup("ghidra-p");

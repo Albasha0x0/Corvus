@@ -378,7 +378,7 @@ public sealed partial class DeviceService(ServerOptions options)
             else if (full.EndsWith(".apk", StringComparison.OrdinalIgnoreCase)) apks = [full];
             else
             {
-                temp = Directory.CreateTempSubdirectory("ndm-install-").FullName;
+                temp = Directory.CreateTempSubdirectory("corvus-install-").FullName;
                 using var zip = ZipFile.OpenRead(full);
                 apks = [];
                 foreach (var e in zip.Entries.Where(e => e.FullName.EndsWith(".apk", StringComparison.OrdinalIgnoreCase)))

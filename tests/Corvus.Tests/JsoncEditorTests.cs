@@ -11,7 +11,7 @@ public sealed class JsoncEditorTests : IDisposable
     private readonly TempDir _dir = new();
     public void Dispose() => _dir.Dispose();
 
-    private static readonly ServerLaunch Launch = new("/opt/ndm/current/NetDecompilerMcp", []);
+    private static readonly ServerLaunch Launch = new("/opt/corvus/current/corvus", []);
     private static readonly JsonDocumentOptions LenientOptions = new() { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
 
     private JsonTarget Target(string text, string[]? container = null, Func<ServerLaunch, JsonObject>? entry = null, bool bom = false)

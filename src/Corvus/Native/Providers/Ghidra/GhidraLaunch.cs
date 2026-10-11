@@ -24,8 +24,8 @@ public sealed record GhidraDirectories(string Root)
 /// <summary>The JVM command of a worker: Ghidra's own VM arguments, heap, private directories and the two worker jars.</summary>
 public static class GhidraLaunch
 {
-    public const string BootClass = "ndm.ghidra.Boot";
-    public const string WorkerJarProperty = "ndm.worker.jar";
+    public const string BootClass = "corvus.ghidra.Boot";
+    public const string WorkerJarProperty = "corvus.worker.jar";
 
     private static readonly ConcurrentDictionary<(string, DateTime), IReadOnlyList<string>> VmArgsCache = new();
 

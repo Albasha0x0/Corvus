@@ -75,7 +75,7 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
         Assert.StartsWith("12.", a.Details["version"]);
         output.WriteLine(string.Join("\n", a.Details.Select(d => $"{d.Key}: {d.Value}")));
         var workers = Directory.GetDirectories(Provider.Directories.Workers);
-        Assert.Contains(Directory.GetFiles(Assert.Single(workers)), f => f.EndsWith("ndm-ghidra-worker.jar", StringComparison.Ordinal));
+        Assert.Contains(Directory.GetFiles(Assert.Single(workers)), f => f.EndsWith("ghidra-worker.jar", StringComparison.Ordinal));
     }
 
     [GhidraFact]
@@ -194,30 +194,30 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
         var provider = Isolated();
         await using (var s = (GhidraSession)await provider.OpenAsync(path, null, Offline))
         {
-            Assert.Equal("ndm_checksum", await s.SetNameAsync(rva, "ndm_checksum"));
+            Assert.Equal("sample_checksum", await s.SetNameAsync(rva, "sample_checksum"));
             Assert.Equal("first line\nsecond", await s.SetCommentAsync(rva, "first line\nsecond"));
-            Assert.Contains("ndm_checksum", (await s.DecompileAsync(rva)).Text);
-            Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "ndm_checksum");
+            Assert.Contains("sample_checksum", (await s.DecompileAsync(rva)).Text);
+            Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "sample_checksum");
             Assert.Equal("first line\nsecond", (await s.DisassembleAsync(rva)).Instructions[0].Comment);
 
             var other = (await s.ListFunctionsAsync()).First(f => f.StartRva != rva && !f.Flags.HasFlag(NativeFunctionFlags.Thunk));
-            Assert.Equal(ErrorCode.Conflict, (await Assert.ThrowsAsync<ToolError>(() => s.SetNameAsync(other.StartRva, "ndm_checksum"))).Code);
+            Assert.Equal(ErrorCode.Conflict, (await Assert.ThrowsAsync<ToolError>(() => s.SetNameAsync(other.StartRva, "sample_checksum"))).Code);
             Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => s.SetNameAsync(other.StartRva, "bad name;{}"))).Code);
 
-            var batch = await s.ApplyNamesAsync([new NativeNameItem(other.StartRva, "ndm_batch", "batch comment")], "names", "v1");
+            var batch = await s.ApplyNamesAsync([new NativeNameItem(other.StartRva, "sample_batch", "batch comment")], "names", "v1");
             Assert.Equal(1, batch.Named);
             Assert.Equal("v1", await s.GetStampAsync("names"));
 
             // Unsaved changes are journaled: a killed worker is restarted from the saved project and they are applied again.
             var pid = s.WorkerProcessId!.Value;
             await WorkerKill.KillAsync(s);
-            Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == other.StartRva && f.Name == "ndm_batch");
+            Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == other.StartRva && f.Name == "sample_batch");
             Assert.NotEqual(pid, s.WorkerProcessId);
         }
         await using (var s = await provider.OpenAsync(path, null, Offline))
         {
             Assert.True(s.ReusedDatabase);
-            Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "ndm_checksum");
+            Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "sample_checksum");
             Assert.Equal("first line\nsecond", (await s.DisassembleAsync(rva)).Instructions[0].Comment);
             Assert.Equal("v1", await s.GetStampAsync("names"));
             Assert.Equal("", await s.SetCommentAsync(rva, ""));
@@ -228,7 +228,7 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
         using (var bounded = new GhidraProvider(provider.Options with { JournalSaveThreshold = 2 }))
         await using (var s = (GhidraSession)await bounded.OpenAsync(path, null, Offline))
         {
-            await s.SetNameAsync(rva, "ndm_bounded");
+            await s.SetNameAsync(rva, "sample_bounded");
             Assert.Equal(1, s.UnsavedCount);
             await s.SetCommentAsync(rva, "bounded");
             Assert.Equal(0, s.UnsavedCount);
@@ -398,17 +398,17 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
         Assert.Equal(2, plain.Count);
         var vftable = RdataRva(path) + 0x40;
         var batch = new NativeTypeBatch(
-            "struct NdmPoint { int x; int y; };\ntypedef struct NdmPoint *PNdmPoint;\nstruct NdmBroken { int };\n",
-            [new NativePrototype(exportRva, "int __fastcall NdmProto(PNdmPoint point, int count);")],
-            [new NativeClassType("NdmBase", [new NativeVftableType(0, vftable, [plain[0].StartRva, plain[1].StartRva])], []),
-             new NativeClassType("NdmDerived", [], [new NativeBaseType("NdmBase", 0)])],
-            [new NativeMethodOwner(plain[0].StartRva, "NdmBase"), new NativeMethodOwner(exportRva, "NdmMissing")], 8);
+            "struct SamplePoint { int x; int y; };\ntypedef struct SamplePoint *PSamplePoint;\nstruct SampleBroken { int };\n",
+            [new NativePrototype(exportRva, "int __fastcall SampleProto(PSamplePoint point, int count);")],
+            [new NativeClassType("SampleBase", [new NativeVftableType(0, vftable, [plain[0].StartRva, plain[1].StartRva])], []),
+             new NativeClassType("SampleDerived", [], [new NativeBaseType("SampleBase", 0)])],
+            [new NativeMethodOwner(plain[0].StartRva, "SampleBase"), new NativeMethodOwner(exportRva, "SampleMissing")], 8);
         var r = await s.ApplyTypesAsync(batch, "types", "t1");
         output.WriteLine($"{r.DeclarationErrors} declaration errors, {r.Typed} typed, {r.Structs} structs, {r.VftablesTyped} vftables, {r.MethodsTyped} methods, " +
                          $"skips {string.Join(", ", r.MethodSkips.Select(k => $"{k.Key} {k.Value}"))}, failures {string.Join("; ", r.Failures)}");
         Assert.Equal(1, r.DeclarationErrors);
         Assert.Equal((1, 0), (r.Typed, r.TypeFailures));
-        Assert.Equal(3, r.Structs); // NdmBase_vftable, NdmBase, NdmDerived
+        Assert.Equal(3, r.Structs); // SampleBase_vftable, SampleBase, SampleDerived
         Assert.Equal(1, r.VftablesTyped);
         Assert.Equal(1, r.MethodsTyped);
         Assert.Equal(1, r.MethodSkips["no_class_type"]);
@@ -416,9 +416,9 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
 
         var proto = await s.DecompileAsync(exportRva);
         output.WriteLine(proto.Text.Split('\n').FirstOrDefault(l => l.Contains('(')));
-        Assert.Contains("PNdmPoint point", proto.Text);
+        Assert.Contains("PSamplePoint point", proto.Text);
         Assert.Contains(Export, proto.Text); // the prototype does not rename
-        Assert.Contains("NdmBase *this", (await s.DecompileAsync(plain[0].StartRva)).Text);
+        Assert.Contains("SampleBase *this", (await s.DecompileAsync(plain[0].StartRva)).Text);
         // a failed prototype is counted, not thrown
         var bad = await s.ApplyTypesAsync(new NativeTypeBatch(null, [new NativePrototype(exportRva, "int f(NoSuchType x);")], [], [], 8));
         Assert.Equal(1, bad.TypeFailures);
@@ -458,53 +458,53 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
         Assert.Contains(frame.Locals, l => l.IsArgument);
 
         // declarations: errors with the parser's message, the names made, the types listed and shown
-        var declared = await s.ApplyUserTypesAsync(new NativeUserTypeBatch(["struct NdmPacket { int length; char data[16]; };", "struct NdmBad { int };"], [], [], []),
+        var declared = await s.ApplyUserTypesAsync(new NativeUserTypeBatch(["struct SamplePacket { int length; char data[16]; };", "struct SampleBad { int };"], [], [], []),
             "user_types", "u1");
         Assert.Equal(1, declared.DeclarationErrors);
-        Assert.Contains("NdmPacket", declared.DeclaredTypes);
-        Assert.Contains(declared.DeclarationMessages, m => m.StartsWith("struct NdmBad", StringComparison.Ordinal));
+        Assert.Contains("SamplePacket", declared.DeclaredTypes);
+        Assert.Contains(declared.DeclarationMessages, m => m.StartsWith("struct SampleBad", StringComparison.Ordinal));
         Assert.Equal("u1", await s.GetStampAsync("user_types"));
-        var list = await s.ListTypesAsync("ndmpacket", "struct", 0, 10);
+        var list = await s.ListTypesAsync("samplepacket", "struct", 0, 10);
         Assert.Equal(1, list.Total);
-        Assert.Equal(new NativeTypeEntry("NdmPacket", "struct", 20, 2), list.Types[0]);
+        Assert.Equal(new NativeTypeEntry("SamplePacket", "struct", 20, 2), list.Types[0]);
         Assert.True((await s.ListTypesAsync(null, null, 0, 5)).Total > 5);
-        var type = await s.GetTypeAsync("NdmPacket");
+        var type = await s.GetTypeAsync("SamplePacket");
         output.WriteLine(type.Declaration);
         Assert.Contains("char data[16];", type.Declaration);
         Assert.Equal(new NativeTypeMember(4, "data", "char[16]", 16), type.Members[1]);
-        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => s.GetTypeAsync("NdmNoSuchType"))).Code);
+        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => s.GetTypeAsync("SampleNoSuchType"))).Code);
 
         // a decompiler local by its name, then the prototype, a global, a stack member
         var arg = frame.Locals.First(l => l.IsArgument);
-        var local = await s.ApplyUserTypesAsync(new NativeUserTypeBatch([], [], [], [new NativeLocalEdit(exportRva, arg.Name, arg.Stack, "ndm_image", "NdmPacket *")]));
+        var local = await s.ApplyUserTypesAsync(new NativeUserTypeBatch([], [], [], [new NativeLocalEdit(exportRva, arg.Name, arg.Stack, "sample_image", "SamplePacket *")]));
         var edit = Assert.Single(local.Items);
         Assert.True(edit.Applied, edit.Error);
         Assert.Equal(arg.Name, edit.Resolved);
-        Assert.Equal("NdmPacket * ndm_image", edit.Text);
-        Assert.Contains("NdmPacket *ndm_image", (await s.DecompileAsync(exportRva)).Text);
+        Assert.Equal("SamplePacket * sample_image", edit.Text);
+        Assert.Contains("SamplePacket *sample_image", (await s.DecompileAsync(exportRva)).Text);
 
         var global = RdataRva(path) + 0x80;
         var typed = await s.ApplyUserTypesAsync(new NativeUserTypeBatch([],
-            [new NativePrototype(exportRva, "int __fastcall NdmUserProto(NdmPacket *packet, ulonglong size, uint *header, int *sum)"),
-             new NativePrototype(global, "NdmPacket"), new NativePrototype(exportRva + 2, "int")], [], []));
+            [new NativePrototype(exportRva, "int __fastcall SampleUserProto(SamplePacket *packet, ulonglong size, uint *header, int *sum)"),
+             new NativePrototype(global, "SamplePacket"), new NativePrototype(exportRva + 2, "int")], [], []));
         foreach (var i in typed.Items) output.WriteLine($"{i.Kind} 0x{i.Rva:X} {i.Target}: {i.Applied} {i.Error} {i.Text}");
         Assert.True(typed.Items[0].Applied, typed.Items[0].Error);
-        Assert.Contains("NdmPacket * packet", typed.Items[0].Text);
-        Assert.Equal((true, "NdmPacket"), (typed.Items[1].Applied, typed.Items[1].Text));
+        Assert.Contains("SamplePacket * packet", typed.Items[0].Text);
+        Assert.Equal((true, "SamplePacket"), (typed.Items[1].Applied, typed.Items[1].Text));
         Assert.Contains("inside the function", typed.Items[2].Error);
-        Assert.Contains("NdmPacket *packet", (await s.DecompileAsync(exportRva)).Text);
+        Assert.Contains("SamplePacket *packet", (await s.DecompileAsync(exportRva)).Text);
         // recovered prototypes leave the user's alone
         var recovered = await s.ApplyTypesAsync(new NativeTypeBatch(null, [new NativePrototype(exportRva, "int __fastcall Other(int a);")], [], [], 8));
         Assert.Equal((0, 0), (recovered.Typed, recovered.TypeFailures));
-        Assert.Contains("NdmPacket *packet", (await s.DecompileAsync(exportRva)).Text);
+        Assert.Contains("SamplePacket *packet", (await s.DecompileAsync(exportRva)).Text);
 
         var slot = frame.Members.First(m => m.Kind == "local");
-        var stack = await s.ApplyUserTypesAsync(new NativeUserTypeBatch([], [], [new NativeStackVarEdit(exportRva, slot.Offset, "ndm_slot", null),
-            new NativeStackVarEdit(exportRva, frame.ReturnAddressOffset, "ndm_ret", "int")], []));
+        var stack = await s.ApplyUserTypesAsync(new NativeUserTypeBatch([], [], [new NativeStackVarEdit(exportRva, slot.Offset, "sample_slot", null),
+            new NativeStackVarEdit(exportRva, frame.ReturnAddressOffset, "sample_ret", "int")], []));
         Assert.True(stack.Items[0].Applied, stack.Items[0].Error);
-        Assert.EndsWith(" ndm_slot", stack.Items[0].Text);
+        Assert.EndsWith(" sample_slot", stack.Items[0].Text);
         Assert.Contains("return address", stack.Items[1].Error);
-        Assert.Contains((await s.GetFrameAsync(exportRva)).Members, m => m.Offset == slot.Offset && m.Name == "ndm_slot");
+        Assert.Contains((await s.GetFrameAsync(exportRva)).Members, m => m.Offset == slot.Offset && m.Name == "sample_slot");
 
         var cleared = await s.ApplyUserTypesAsync(new NativeUserTypeBatch([], [new NativePrototype(global, "")], [], []));
         Assert.True(cleared.Items[0].Applied);
@@ -524,16 +524,16 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
         output.WriteLine(string.Join(", ", args.Select(a => $"{a.Type} {a.Name} {a.Location}")));
         Assert.True(args.Count >= 2);
         var second = args[1];
-        var edit = await s.ApplyUserTypesAsync(new NativeUserTypeBatch([], [], [], [new NativeLocalEdit(exportRva, second.Name, second.Stack, "ndm_second", "uint")]));
+        var edit = await s.ApplyUserTypesAsync(new NativeUserTypeBatch([], [], [], [new NativeLocalEdit(exportRva, second.Name, second.Stack, "sample_second", "uint")]));
         var item = Assert.Single(edit.Items);
         Assert.True(item.Applied, item.Error);
-        Assert.Equal("uint ndm_second", item.Text);
+        Assert.Equal("uint sample_second", item.Text);
         var text = (await s.DecompileAsync(exportRva)).Text;
         output.WriteLine(text);
-        Assert.Contains("uint ndm_second", text);
+        Assert.Contains("uint sample_second", text);
         var after = (await s.GetFrameAsync(exportRva)).Locals.Where(l => l.IsArgument).ToList();
         Assert.Equal(args.Count, after.Count);
-        Assert.Equal([args[0].Name, "ndm_second", .. args.Skip(2).Select(a => a.Name)], after.Select(a => a.Name));
+        Assert.Equal([args[0].Name, "sample_second", .. args.Skip(2).Select(a => a.Name)], after.Select(a => a.Name));
     }
 
     [GhidraFact]
@@ -547,7 +547,7 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
             ("DWORD", null), ("dword", "dword"), ("unsigned int", "uint"), ("PVOID", "PVOID"), ("uchar *", "uchar *"), ("char *", "char *"),
             ("size_t", null), ("unsigned __int64", "ulonglong"), ("LPCSTR", "LPCSTR"), ("struct _IMAGE_DOS_HEADER *", "IMAGE_DOS_HEADER *"),
             ("BYTE[16]", null), ("__int64", "longlong"), ("ULONG_PTR", "ULONG_PTR"), ("LPCWSTR", "LPCWSTR"), ("PIMAGE_DOS_HEADER", "IMAGE_DOS_HEADER *"),
-            ("image_dos_header", "IMAGE_DOS_HEADER"), ("const char *", "char *"), ("unsigned __int64 *[2]", "ulonglong *[2]"), ("NdmNoSuchType", null),
+            ("image_dos_header", "IMAGE_DOS_HEADER"), ("const char *", "char *"), ("unsigned __int64 *[2]", "ulonglong *[2]"), ("SampleNoSuchType", null),
         ];
         var global = RdataRva(path) + 0x100;
         var result = await s.ApplyUserTypesAsync(new NativeUserTypeBatch([], [.. table.Select((t, i) => new NativePrototype(global + (uint)i * 0x80, t.Type))], [], []));
@@ -556,7 +556,7 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
         for (int i = 0; i < table.Length; i++)
         {
             var item = result.Items[i];
-            if (table[i].Type == "NdmNoSuchType") { Assert.False(item.Applied); continue; }
+            if (table[i].Type == "SampleNoSuchType") { Assert.False(item.Applied); continue; }
             Assert.True(item.Applied, $"{table[i].Type}: {item.Error}");
             if (table[i].Shown is { } shown) Assert.True(shown == item.Text, $"{table[i].Type}: {item.Text}");
         }
@@ -575,15 +575,15 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
         var ghidra = GhidraInstallation.Locate(null, out _, out _)!;
         var dir = new TempDir();
         _owned.Add(dir);
-        GhidraExtensionTests.ExtensionZip(dir.File("ext"), "NdmProbe", ghidra.Version);
+        GhidraExtensionTests.ExtensionZip(dir.File("ext"), "SampleProbe", ghidra.Version);
         var provider = new GhidraProvider(new GhidraProviderOptions { CacheRoot = dir.File("cache"), ExtensionsDirectory = dir.File("ext") });
         _owned.Add(provider);
-        Assert.Equal("NdmProbe", provider.CheckAvailability().Details["extensions"]);
+        Assert.Equal("SampleProbe", provider.CheckAvailability().Details["extensions"]);
         var userFiles = UserGhidraFiles();
         var a = await provider.ProbeAsync();
         Assert.True(a.IsAvailable, a.Reason);
-        Assert.Equal("NdmProbe", a.Details["extensions_loaded"]);
-        Assert.True(File.Exists(Path.Combine(GhidraExtensions.InstallDirectory(provider.Directories, ghidra), "NdmProbe", "lib", "NdmProbe.jar")));
+        Assert.Equal("SampleProbe", a.Details["extensions_loaded"]);
+        Assert.True(File.Exists(Path.Combine(GhidraExtensions.InstallDirectory(provider.Directories, ghidra), "SampleProbe", "lib", "SampleProbe.jar")));
         Assert.Equal(userFiles.Keys.Order(), UserGhidraFiles().Keys.Order());
     }
 

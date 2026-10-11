@@ -8,7 +8,7 @@ internal sealed class SetupHome : IDisposable
 {
     private readonly TempDir _dir = new();
     public static readonly ServerLaunch Launch = new(
-        OperatingSystem.IsWindows() ? @"C:\Tools\NetDecompilerMcp\current\corvus.exe" : "/opt/ndm/current/NetDecompilerMcp", []);
+        OperatingSystem.IsWindows() ? @"C:\Tools\Corvus\current\corvus.exe" : "/opt/corvus/current/corvus", []);
 
     public string Root => _dir.Path;
     public string Path(params string[] parts) => System.IO.Path.Combine([_dir.Path, .. parts]);
@@ -61,7 +61,7 @@ public sealed class SetupPlanTests : IDisposable
     public void Dispose() => _home.Dispose();
 
     private static JsonNode ReadJson(string path) => JsonNode.Parse(File.ReadAllText(path))!;
-    private static readonly string Old = OperatingSystem.IsWindows() ? @"C:\Old\corvus.exe" : "/old/NetDecompilerMcp";
+    private static readonly string Old = OperatingSystem.IsWindows() ? @"C:\Old\corvus.exe" : "/old/corvus";
 
     /// <summary>Cursor registered with an old copy; Codex and Kiro detected and not registered.</summary>
     private void ExistingAndNew()
@@ -92,7 +92,7 @@ public sealed class SetupPlanTests : IDisposable
     }
 
     [Fact]
-    public void NdmYes_AddsNewClientsUnattended()
+    public void CorvusYes_AddsNewClientsUnattended()
     {
         ExistingAndNew();
         var (code, output) = _home.Run(_home.Env(variables: new Dictionary<string, string> { ["CORVUS_YES"] = "1" }), "install", "--no-check");

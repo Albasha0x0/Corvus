@@ -15,7 +15,7 @@ namespace Corvus.Setup;
 /// </summary>
 internal sealed class ToolSession : IAsyncDisposable
 {
-    public const string ClientName = "net-decompiler-cli";
+    public const string ClientName = "corvus-cli";
 
     private readonly IHost _host;
     private readonly Pipe _toServer;

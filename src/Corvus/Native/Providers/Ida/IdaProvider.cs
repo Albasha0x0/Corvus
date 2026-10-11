@@ -63,7 +63,7 @@ public sealed class IdaProvider(IdaProviderOptions? options = null) : INativeDec
         if (!result.IsAvailable) return result;
         var details = new Dictionary<string, string>(result.Details)
         {
-            ["version"] = Version ?? "not probed yet (reported by the first IDA session, or NetDecompilerMcp status --deep)",
+            ["version"] = Version ?? "not probed yet (reported by the first IDA session, or corvus status --deep)",
         };
         return ProviderAvailability.Ok(Id, details);
     }

@@ -87,10 +87,10 @@ public sealed class NativeTypeEditTests : IDisposable
         Assert.Equal("[]", WorkerRows.UserTypeArgs(NativeUserTypeBatch.Empty with { TypeEdits = [] }, null, null, false)["type_edits"]!.ToJsonString());
 
         var ida = AnnotationExport.Render(ann, AnnotationExport.Format.Ida);
-        Assert.True(ida.IndexOf("ndm_type_edit(\"Packet\", \"Msg\")", StringComparison.Ordinal) > ida.IndexOf("ndm_declare(", StringComparison.Ordinal));
-        Assert.Contains("ndm_type_edit(\"Mode\", None)", ida);
-        // AnnotationStoreTests compiles the helpers; ndm_type_edit is one of them
-        Assert.Contains("def ndm_type_edit(name, new_name):", ida);
+        Assert.True(ida.IndexOf("apply_type_edit(\"Packet\", \"Msg\")", StringComparison.Ordinal) > ida.IndexOf("apply_declare(", StringComparison.Ordinal));
+        Assert.Contains("apply_type_edit(\"Mode\", None)", ida);
+        // AnnotationStoreTests compiles the helpers; apply_type_edit is one of them
+        Assert.Contains("def apply_type_edit(name, new_name):", ida);
         var json = JsonDocument.Parse(AnnotationExport.Render(ann, AnnotationExport.Format.Json)).RootElement;
         Assert.Equal("Msg", json.GetProperty("typeEdits")[0].GetProperty("newName").GetString());
     }
@@ -188,9 +188,9 @@ public sealed class NativeTypeEditTests : IDisposable
         Assert.Equal("[[\"Packet\",null,8,\"PacketSize\"],[\"PacketSize\",\"p\",null,\"Packet *\"],[\"Packet\",\"len\",4,\"short\"],[\"PacketSize\",\"gone\",null,null]]",
             WorkerRows.UserTypeArgs(again.ToBatch(), null, null, false)["fields"]!.ToJsonString());
         var ida = AnnotationExport.Render(ann, AnnotationExport.Format.Ida);
-        Assert.Contains("ndm_field(\"Packet\", None, 8, \"PacketSize\")", ida);
-        Assert.Contains("ndm_field(\"PacketSize\", \"gone\", None, None)", ida);
-        Assert.True(ida.IndexOf("ndm_field(", StringComparison.Ordinal) < ida.IndexOf("ndm_type(", StringComparison.Ordinal));
+        Assert.Contains("apply_field(\"Packet\", None, 8, \"PacketSize\")", ida);
+        Assert.Contains("apply_field(\"PacketSize\", \"gone\", None, None)", ida);
+        Assert.True(ida.IndexOf("apply_field(", StringComparison.Ordinal) < ida.IndexOf("apply_type(", StringComparison.Ordinal));
         Assert.Equal("len", JsonDocument.Parse(AnnotationExport.Render(ann, AnnotationExport.Format.Json)).RootElement.GetProperty("fields")[2].GetProperty("name").GetString());
     }
 

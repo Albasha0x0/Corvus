@@ -167,7 +167,7 @@ public class GhidraSetupTests
         foreach (var property in new[] { "user.home", "application.settingsdir", "application.cachedir", "application.tempdir", "java.io.tmpdir" })
             Assert.Contains(args, a => a.StartsWith($"-D{property}={dirs.Root}", StringComparison.Ordinal));
         Assert.Contains("-Xmx4G", args);
-        Assert.Contains("-Dndm.worker.jar=worker.jar", args);
+        Assert.Contains("-Dcorvus.worker.jar=worker.jar", args);
         Assert.Equal(["ghidra.Ghidra", GhidraLaunch.BootClass], args.TakeLast(2));
         Assert.Equal(g.UtilityJar + Path.PathSeparator + "boot.jar", args[^3]);
     }

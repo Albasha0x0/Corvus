@@ -219,7 +219,7 @@ public class NativeStubTests(ITestOutputHelper output)
         var script = File.ReadAllText(idaPath);
         Assert.Contains("ida_segment", script);
         Assert.Contains("add_segments()", script);
-        Assert.Contains(".ndm", script);
+        Assert.Contains(".patch", script);
     }
 
     [Fact]

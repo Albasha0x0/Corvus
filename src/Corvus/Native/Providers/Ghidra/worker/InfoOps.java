@@ -1,4 +1,4 @@
-package ndm.ghidra;
+package corvus.ghidra;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -230,7 +230,7 @@ final class InfoOps {
         w.lock.writeLock().lock();
         try {
             if (w.program == null) throw new Worker.WorkerError("invalid_argument", "no program is open");
-            if (w.program.isChanged()) w.program.save("NetDecompilerMcp", r.monitor);
+            if (w.program.isChanged()) w.program.save("Corvus", r.monitor);
             if (out.exists() && !out.delete()) throw new Worker.WorkerError("io_error", "cannot replace " + out);
             w.program.getDomainFile().packFile(out, r.monitor);
         }

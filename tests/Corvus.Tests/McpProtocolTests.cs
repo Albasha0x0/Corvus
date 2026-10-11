@@ -26,7 +26,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
     private static string ServerDll => typeof(Corvus.Core.AssemblyWorkspace).Assembly.Location;
 
     /// <summary>A per-run temp folder for annotation sidecars, so tests never touch the real per-user folder.</summary>
-    private static readonly string AnnotationsDir = Path.Combine(Path.GetTempPath(), "ndm-annotations-" + Guid.NewGuid().ToString("N"));
+    private static readonly string AnnotationsDir = Path.Combine(Path.GetTempPath(), "corvus-test-annotations-" + Guid.NewGuid().ToString("N"));
 
     internal static Task<McpClient> StartServerAsync(params string[] args) => StartServerInAsync(null, args);
 
@@ -49,10 +49,10 @@ public abstract class McpProtocolTests : IAsyncLifetime
             EnvironmentVariables = new Dictionary<string, string?>(FakeDevice.ServerEnvironment)
             {
                 ["CORVUS_ANNOTATIONS_DIR"] = workingDirectory != null
-                    ? Path.Combine(workingDirectory, ".ndm-annotations")
+                    ? Path.Combine(workingDirectory, ".corvus-annotations")
                     : Path.Combine(AnnotationsDir, Guid.NewGuid().ToString("N")),
                 // the dump bucketing cache is private: outside the working directory the contract sweep watches
-                [Corvus.Services.MinidumpService.BucketCacheVariable] = Path.Combine(AnnotationsDir, ".ndm-dumpbuckets"),
+                [Corvus.Services.MinidumpService.BucketCacheVariable] = Path.Combine(AnnotationsDir, ".corvus-dumpbuckets"),
             }.Concat(environment ?? new Dictionary<string, string?>()).ToDictionary(),
             // The SDK waits this long for the server to exit before it closes the server's input, then ends it; the
             // server exits on end of input (ServerExitsWhenItsInputCloses), so waiting longer only delays each test.

@@ -52,8 +52,8 @@ public static class PatchMigration
         using (doc)
         {
             var root = doc.RootElement;
-            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("kind", out var kind) || kind.GetString() != PatchExport.JsonKind)
-                throw new ToolError(ErrorCode.InvalidArgument, "The JSON is not a NetDecompilerMcp patch set.", "pass a file written by export_native_patches with format=json");
+            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("kind", out var kind) || kind.GetString() is not (PatchExport.JsonKind or PatchExport.LegacyJsonKind))
+                throw new ToolError(ErrorCode.InvalidArgument, $"The JSON is not a patch set (kind {PatchExport.JsonKind}).", "pass a file written by export_native_patches with format=json");
             if (!root.TryGetProperty("patches", out var arr) || arr.ValueKind != JsonValueKind.Array)
                 return patches;
             foreach (var p in arr.EnumerateArray())

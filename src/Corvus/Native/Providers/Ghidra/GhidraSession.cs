@@ -15,7 +15,27 @@ namespace Corvus.Native.Providers.Ghidra;
 internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation ghidra, JavaRuntime java, NativeOpenOptions options)
     : WorkerSessionBase(options), INativeDecompilerSession
 {
-    internal const string ProjectName = "ndm";
+    internal const string ProjectName = "corvus";
+
+    // Migration only: the project name before the rename; such a project is renamed (its .gpr file and .rep folder) when opened.
+    private const string LegacyProjectName = "ndm";
+
+    /// <summary>Whether <paramref name="directory"/> holds a saved project, under the current name or the one before the rename.</summary>
+    internal static bool HasProject(string directory) =>
+        File.Exists(Path.Combine(directory, ProjectName + ".gpr")) || File.Exists(Path.Combine(directory, LegacyProjectName + ".gpr"));
+
+    /// <summary>Renames a project saved under the name before the rename, unless it is open (locked) or ours exists.</summary>
+    internal static void RenameLegacyProject(string directory)
+    {
+        string Of(string name, string extension) => Path.Combine(directory, name + extension);
+        if (!File.Exists(Of(LegacyProjectName, ".gpr")) || File.Exists(Of(ProjectName, ".gpr")) || File.Exists(Of(LegacyProjectName, ".lock"))) return;
+        try
+        {
+            if (Directory.Exists(Of(LegacyProjectName, ".rep"))) Directory.Move(Of(LegacyProjectName, ".rep"), Of(ProjectName, ".rep"));
+            File.Move(Of(LegacyProjectName, ".gpr"), Of(ProjectName, ".gpr"));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
 
     private ulong? _headerImageBase;
     private string _projectDirectory = "";
@@ -55,6 +75,7 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         var key = GhidraOptions.ProfileKey(ghidra, profile, _loaderArguments, _analyzerOptions, provider.Extensions);
         // a load-only project is its own profile, as in IDA
         _projectDirectory = Path.Combine(Entry.Directory, "p-" + key + (Options.Analysis == EngineAnalysis.None ? "-noauto" : ""));
+        RenameLegacyProject(_projectDirectory);
     }
 
     internal readonly record struct Header(NativeArch Arch, ulong? ImageBase, bool IsElf);

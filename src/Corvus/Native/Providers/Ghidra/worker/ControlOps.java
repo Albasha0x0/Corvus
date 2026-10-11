@@ -1,4 +1,4 @@
-package ndm.ghidra;
+package corvus.ghidra;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -22,7 +22,10 @@ import ghidra.program.model.symbol.ReferenceManager;
 /** Function candidates and the server's bookmarks; callers hold the read lock (candidates) or the write lock (marks). */
 final class ControlOps {
     /** Bookmark category of the server's marks. */
-    static final String MARK_CATEGORY = "NDM";
+    static final String MARK_CATEGORY = "Corvus";
+
+    // Migration only: the category before the rename; its bookmarks are replaced like ours.
+    private static final String LEGACY_MARK_CATEGORY = "NDM";
 
     private ControlOps() {
     }
@@ -96,7 +99,7 @@ final class ControlOps {
     }
 
     /**
-     * Replaces the bookmarks of category NDM with items [[rva, text]] (Note bookmarks) and records the stamp
+     * Replaces the bookmarks of the server's category with items [[rva, text]] (Note bookmarks) and records the stamp
      * (stamp_key, stamp). Result: set, removed, failed, failures.
      */
     static JsonElement setMarks(Worker w, Worker.Request r) throws Exception {
@@ -104,7 +107,7 @@ final class ControlOps {
         List<Bookmark> old = new ArrayList<>();
         for (Iterator<Bookmark> it = bm.getBookmarksIterator(BookmarkType.NOTE); it.hasNext();) {
             Bookmark b = it.next();
-            if (MARK_CATEGORY.equals(b.getCategory())) old.add(b);
+            if (MARK_CATEGORY.equals(b.getCategory()) || LEGACY_MARK_CATEGORY.equals(b.getCategory())) old.add(b);
         }
         for (Bookmark b : old) bm.removeBookmark(b);
         int set = 0;

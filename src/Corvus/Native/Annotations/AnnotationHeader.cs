@@ -22,7 +22,7 @@ public static class AnnotationHeader
     {
         var types = ann.UserTypes;
         var sb = new StringBuilder();
-        sb.AppendLine("// C declarations and prototypes exported from NetDecompilerMcp; addresses are RVAs.");
+        sb.AppendLine("// Exported C declarations and prototypes; addresses are RVAs.");
         sb.AppendLine($"// Source: {ann.FilePath}  sha256 {ann.Sha256}");
         sb.AppendLine("#pragma once");
         if (types.Declarations.Count > 0)

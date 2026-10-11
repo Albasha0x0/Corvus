@@ -199,7 +199,7 @@ public static class Guide
             Symbols: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method', 'Ns.Type::Method(int, string)', a generic one 'Method<T>(string)', 'Ns.Type::.ctor', short names, or
             tokens like '0x06000123'. The assembly parameter is optional unless a name is ambiguous; errors list candidates.
             server_status: version and commit, program path, install kind, client, limits, engines, toolsets, and the tools or modes that
-            cannot work here with the fix; expectedCatalogDigest detects a stale server (`NetDecompilerMcp doctor` checks too) and
+            cannot work here with the fix; expectedCatalogDigest detects a stale server (`corvus doctor` checks too) and
             expectedExecutable a client that started another copy than the one it was registered with.
             Toolsets: every tool is registered by default. --toolsets (or CORVUS_TOOLSETS) narrows the catalog for small-context clients:
             all, core (without engine edits, dumps and live processes), or names such as core,dumps; tools of other families are not listed.

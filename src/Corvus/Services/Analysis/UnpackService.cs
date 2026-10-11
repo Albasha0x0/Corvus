@@ -11,7 +11,7 @@ namespace Corvus.Services.Analysis;
 /// </summary>
 public sealed class UnpackService(AssemblyWorkspace workspace)
 {
-    private const string Marker = ".netdecomp-unpack";
+    private const string Marker = ".corvus-unpack";
     private const string DotNet = ".NET assembly";
     internal const string HostOrigin = "the file itself (container host)";
 
@@ -324,7 +324,7 @@ public sealed class UnpackService(AssemblyWorkspace workspace)
         }
     }
 
-    internal static string DefaultOutput(string source, string sha, string folder = "netdecomp-unpacked") =>
+    internal static string DefaultOutput(string source, string sha, string folder = "corvus-unpacked") =>
         Path.Combine(Path.GetTempPath(), folder, $"{Blob.SafeRelativePath(Path.GetFileNameWithoutExtension(source), "file")}-{sha[..12]}");
 
     /// <summary>Creates the output directory, or reuses it if empty or marked as an earlier unpack of the same file.</summary>

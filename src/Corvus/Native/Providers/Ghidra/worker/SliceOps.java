@@ -1,7 +1,7 @@
 // Value slices over the decompiler's high p-code: getDef() backward and getDescendants() forward, parameters through
 // HighParam.getSlot(). The bridge of REA (MIT, Copyright (c) 2026 morluto) reads the same model with getDef() only;
 // see THIRD-PARTY-NOTICES.md.
-package ndm.ghidra;
+package corvus.ghidra;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;

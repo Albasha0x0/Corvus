@@ -146,20 +146,20 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         var provider = Isolated();
         await using (var s = await provider.OpenAsync(path, null, Offline))
         {
-            Assert.Equal("ndm_checksum", await s.SetNameAsync(rva, "ndm_checksum"));
+            Assert.Equal("sample_checksum", await s.SetNameAsync(rva, "sample_checksum"));
             Assert.Equal("first line\nsecond", await s.SetCommentAsync(rva, "first line\nsecond"));
-            Assert.Contains("ndm_checksum", (await s.DecompileAsync(rva)).Text);
-            Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "ndm_checksum");
+            Assert.Contains("sample_checksum", (await s.DecompileAsync(rva)).Text);
+            Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "sample_checksum");
             Assert.Equal("first line\nsecond", (await s.DisassembleAsync(rva)).Instructions[0].Comment);
 
             var other = (await s.ListFunctionsAsync()).First(f => f.StartRva != rva && !f.Flags.HasFlag(NativeFunctionFlags.Thunk));
-            Assert.Equal(ErrorCode.Conflict, (await Assert.ThrowsAsync<ToolError>(() => s.SetNameAsync(other.StartRva, "ndm_checksum"))).Code);
+            Assert.Equal(ErrorCode.Conflict, (await Assert.ThrowsAsync<ToolError>(() => s.SetNameAsync(other.StartRva, "sample_checksum"))).Code);
             Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => s.SetNameAsync(other.StartRva, "bad name;{}"))).Code);
         }
         await using (var s = await provider.OpenAsync(path, null, Offline))
         {
             Assert.True(s.ReusedDatabase);
-            Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "ndm_checksum");
+            Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "sample_checksum");
             Assert.Equal("first line\nsecond", (await s.DisassembleAsync(rva)).Instructions[0].Comment);
             Assert.Equal("", await s.SetCommentAsync(rva, ""));
         }
@@ -218,7 +218,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         var path = System64;
         var rva = ExportRva(path, Export);
         await using var s = (IdaSession)await Isolated().OpenAsync(path, null, Offline with { RequestTimeout = TimeSpan.FromSeconds(3) });
-        await s.SetNameAsync(rva, "ndm_before_timeout");
+        await s.SetNameAsync(rva, "sample_before_timeout");
         var pid = s.WorkerProcessId!.Value;
 
         var clock = Stopwatch.StartNew();
@@ -231,7 +231,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         var e = await Assert.ThrowsAsync<ToolError>(() => s.RunScriptAsync("import time\nwhile True: time.sleep(0.01)"));
         Assert.Equal(ErrorCode.Timeout, e.Code);
         Assert.Equal(pid, s.WorkerProcessId);
-        Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "ndm_before_timeout");
+        Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "sample_before_timeout");
     }
 
     [IdaFact]
@@ -244,7 +244,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         var provider = new IdaProvider(new IdaProviderOptions { CacheRoot = dir.Path, CancelGrace = TimeSpan.FromSeconds(1) });
         _owned.Add(provider);
         await using var s = (IdaSession)await provider.OpenAsync(path, null, Offline with { RequestTimeout = TimeSpan.FromSeconds(2) });
-        await s.SetNameAsync(rva, "ndm_before_kill"); // unsaved: replayed after the restart
+        await s.SetNameAsync(rva, "sample_before_kill"); // unsaved: replayed after the restart
         var pid = s.WorkerProcessId!.Value;
         using var process = Process.GetProcessById(pid);
 
@@ -255,7 +255,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         Assert.True(clock.Elapsed < TimeSpan.FromSeconds(15), $"timeout took {clock.Elapsed}");
         Assert.True(process.WaitForExit(5000), "the worker that ignored the cancel is still running");
 
-        Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "ndm_before_kill");
+        Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "sample_before_kill");
         Assert.NotEqual(pid, s.WorkerProcessId);
     }
 
@@ -334,7 +334,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         _owned.Add(dir);
         using var owner = new IdaProvider(new IdaProviderOptions { CacheRoot = dir.Path });
         await using var held = (IdaSession)await owner.OpenAsync(path, null, Offline);
-        await held.SetNameAsync(rva, "ndm_owner_name");
+        await held.SetNameAsync(rva, "sample_owner_name");
         await held.SaveAsync();
         // as if another server process held the entry
         var entryDir = Path.GetDirectoryName(held.DatabasePath)!;
@@ -349,13 +349,13 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
             Assert.True(s.ReusedDatabase);
             Assert.Contains("read-only snapshot", ((INativeDecompilerSession)s).DatabaseNote);
             Assert.Contains("4242", ((INativeDecompilerSession)s).DatabaseNote);
-            Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "ndm_owner_name");
-            await s.SetNameAsync(rva, "ndm_snapshot_name");
+            Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "sample_owner_name");
+            await s.SetNameAsync(rva, "sample_snapshot_name");
             Assert.Equal(0, s.UnsavedCount);
             Assert.Contains("read-only snapshot", Assert.Single(second.SessionStates()).Note);
         }
         Assert.False(Directory.Exists(Path.GetDirectoryName(snapshotDb)));
-        Assert.Contains(await held.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "ndm_owner_name");
+        Assert.Contains(await held.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "sample_owner_name");
 
         // no saved database of the asked profile: the conflict names the owner
         File.WriteAllText(Path.Combine(entryDir, ".owner"), "4242");
@@ -487,13 +487,13 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         _owned.Add(provider);
         var rva = ExportRva(System64, Export);
         await using var s = (IdaSession)await provider.OpenAsync(System64, null, Offline);
-        await s.SetNameAsync(rva, "ndm_first");
+        await s.SetNameAsync(rva, "sample_first");
         Assert.Equal(1, s.UnsavedCount);
         await s.SetCommentAsync(rva, "saved with the second edit");
         Assert.Equal(0, s.UnsavedCount);
         // nothing to replay: the restarted worker reads both from the saved database
         await WorkerKill.KillAsync(s);
-        Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "ndm_first");
+        Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "sample_first");
         Assert.Equal("saved with the second edit", (await s.DisassembleAsync(rva)).Instructions[0].Comment);
     }
 

@@ -158,13 +158,13 @@ internal sealed class ModuleMerger
         return f;
     }
 
-    /// <summary>A name not yet used by <paramref name="existing"/>: "&lt;&gt;c" becomes "&lt;&gt;c$ndm1", "$ndm2", ...</summary>
+    /// <summary>A name not yet used by <paramref name="existing"/>: "&lt;&gt;c" becomes "&lt;&gt;c$merged1", "$merged2", ...</summary>
     public static string UniqueName(string name, IEnumerable<string> existing)
     {
         var used = existing.ToHashSet(StringComparer.Ordinal);
         if (!used.Contains(name)) return name;
         for (int i = 1; ; i++)
-            if (!used.Contains($"{name}$ndm{i}")) return $"{name}$ndm{i}";
+            if (!used.Contains($"{name}$merged{i}")) return $"{name}$merged{i}";
     }
 
     /// <summary>Fills signatures, base types, interfaces, attributes, properties and events of everything declared.</summary>

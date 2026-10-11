@@ -1,4 +1,4 @@
-package ndm.ghidra;
+package corvus.ghidra;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -29,9 +29,9 @@ import ghidra.program.model.mem.MemoryBlockSourceInfo;
 /** Byte patches in the program; callers run them inside {@link Worker#write}. */
 final class PatchOps {
     /** Program option: the RVAs whose bytes differ from the file because of a sync, as "rva:length" ranges. */
-    private static final String PATCHED = "ndm_patched";
+    private static final String PATCHED = "patched";
     /** Program option: entries of functions that held patched code, so a revert restores their bodies. */
-    private static final String PATCH_FUNCTIONS = "ndm_patch_functions";
+    private static final String PATCH_FUNCTIONS = "patch_functions";
 
     private PatchOps() {
     }

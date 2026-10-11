@@ -96,7 +96,7 @@ internal sealed record ServerReport(bool Ok, string Detail, double Seconds, stri
     {
         if (MatchesThisBuild == true) return $"Tool catalog: matches this build ({Tools} tools); digest {Digest}";
         var (tools, prompts) = Corvus.Mcp.Catalog.OfThisBuild();
-        return "Tool catalog differs from this build (the registered server is another version; run: NetDecompilerMcp install): " +
+        return "Tool catalog differs from this build (the registered server is another version; run: corvus install): " +
                $"digest {Digest}, this build {Corvus.Mcp.Catalog.Digest(tools, prompts)}; {string.Join("; ", Differences)}";
     }
 }

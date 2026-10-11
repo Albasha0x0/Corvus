@@ -47,7 +47,10 @@ public sealed record NoteChange(string? Status = null, string? Text = null, stri
 /// </summary>
 public sealed class NotesService(AnnotationStore store)
 {
-    public const string Format = "net-decompiler-notes/1";
+    public const string Format = "corvus-notes/1";
+
+    // Migration only: the format of note files written before the rename; read, and rewritten in the current one.
+    private const string LegacyFormat = "net-decompiler-notes/1";
     public const int MaxText = 4_000, MaxTags = 10, MaxEvidence = 10, MaxEvidenceChars = 400, MaxTagChars = 64;
     public const int MaxPerFile = 10_000, MaxTotal = 50_000;
     public static readonly string[] Kinds = ["finding", "question", "hypothesis", "todo"];
@@ -195,8 +198,9 @@ public sealed class NotesService(AnnotationStore store)
         var (written, problem) = LockedJsonFile.Update<NoteFile>(path, current =>
         {
             var file = current ?? new NoteFile();
-            if (file.Format != Format)
+            if (file.Format is not (Format or LegacyFormat))
                 throw new ToolError(ErrorCode.Conflict, $"{path} has format '{file.Format}', not {Format}; it is left untouched.");
+            file.Format = Format;
             change(file);
             return file;
         }, Json);
@@ -225,7 +229,7 @@ public sealed class NotesService(AnnotationStore store)
     {
         if (!Directory.Exists(Root)) yield break;
         foreach (var path in Directory.EnumerateFiles(Root, "*.json"))
-            if (LockedJsonFile.Read<NoteFile>(path, Json).Value is { Format: Format } file)
+            if (LockedJsonFile.Read<NoteFile>(path, Json).Value is { Format: Format or LegacyFormat } file)
                 yield return (Path.GetFileNameWithoutExtension(path), file.Notes);
     }
 

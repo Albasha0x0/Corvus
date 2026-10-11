@@ -1,6 +1,6 @@
 // The user's type renames and deletions and struct and union member edits as apply_user_types items, kept in the
 // program and applied again after declarations.
-package ndm.ghidra;
+package corvus.ghidra;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -25,7 +25,7 @@ final class TypeEditOps {
     }
 
     /** Program option: the user's type edits as JSON [[name, new name or null]], applied again after declarations. */
-    static final String USER_TYPE_EDITS = "ndm_user_type_edits";
+    static final String USER_TYPE_EDITS = "user_type_edits";
 
     /** type_edits, when given, is the whole kept list [[name, new name or null]]: applied in order, and the ones that applied are kept. */
     static void apply(Worker w, Worker.Request r, JsonArray items) {
@@ -110,7 +110,7 @@ final class TypeEditOps {
     }
 
     /** Program option: the user's struct and union member edits as JSON {"type::member or @0xoffset": [name, offset, type or null]} in the order made. */
-    static final String USER_FIELDS = "ndm_user_fields";
+    static final String USER_FIELDS = "user_fields";
 
     private static JsonObject userFields(Worker w) {
         String kept = w.program.getOptions(Worker.STAMPS).getString(USER_FIELDS, "");

@@ -16,7 +16,10 @@ public sealed record GhidraExtension(string Name, string Hash, string Source);
 /// </summary>
 public static class GhidraExtensions
 {
-    private const string Marker = ".ndm-extension";
+    private const string Marker = ".corvus-extension";
+
+    // Migration only: the marker of extensions installed before the rename, so they are still managed.
+    private const string LegacyMarker = ".ndm-extension";
 
     /// <summary>The extensions in <paramref name="directory"/> (none when null or empty); a missing directory or an unreadable zip is InvalidArgument.</summary>
     public static IReadOnlyList<GhidraExtension> Configured(string? directory)
@@ -86,7 +89,7 @@ public static class GhidraExtensions
     {
         Directory.CreateDirectory(target);
         foreach (var dir in Directory.EnumerateDirectories(target))
-            if (File.Exists(Path.Combine(dir, Marker)) && !wanted.Any(w => w.Name.Equals(Path.GetFileName(dir), StringComparison.OrdinalIgnoreCase)))
+            if ((File.Exists(Path.Combine(dir, Marker)) || File.Exists(Path.Combine(dir, LegacyMarker))) && !wanted.Any(w => w.Name.Equals(Path.GetFileName(dir), StringComparison.OrdinalIgnoreCase)))
                 Directory.Delete(dir, recursive: true);
         foreach (var e in wanted)
         {

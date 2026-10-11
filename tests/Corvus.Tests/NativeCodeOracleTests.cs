@@ -9,7 +9,7 @@ namespace Corvus.Tests;
 /// <summary>
 /// Function starts and direct call edges compared with IDA (idalib, auto-analysis, PDB loading off) on a few system
 /// DLLs. Skipped when IDA or a Python that can import idapro is missing. CORVUS_IDA_ORACLE_FILES (paths separated by
-/// ';') replaces the default sample. IDA results are cached per file hash under %TEMP%\ndm-ida-oracle.
+/// ';') replaces the default sample. IDA results are cached per file hash under %TEMP%\corvus-test-ida-oracle.
 /// </summary>
 [Trait("Speed", "Slow")]
 public class NativeCodeOracleTests(ITestOutputHelper output)
@@ -85,7 +85,7 @@ public class NativeCodeOracleTests(ITestOutputHelper output)
     {
         var ida = IdaDirectory();
         if (ida == null) { output.WriteLine("IDA not found: skipped"); return; }
-        var cache = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "ndm-ida-oracle")).FullName;
+        var cache = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "corvus-test-ida-oracle")).FullName;
         File.WriteAllText(Path.Combine(cache, "oracle.py"), Script);
 
         var totals = new Dictionary<NativeArch, (int Ours, int Ida, int Both, int InIda, int OurCalls, int IdaCalls, int BothCalls)>();

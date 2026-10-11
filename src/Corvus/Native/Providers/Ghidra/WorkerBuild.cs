@@ -16,7 +16,7 @@ public sealed record WorkerJars(string Boot, string Worker);
 public static class WorkerBuild
 {
     public const string ResourcePrefix = "Corvus.Native.Providers.Ghidra.worker.";
-    private const string BootClassFile = "ndm/ghidra/Boot.class";
+    private const string BootClassFile = "corvus/ghidra/Boot.class";
     private static readonly SemaphoreSlim Gate = new(1, 1);
 
     public static IReadOnlyList<(string Name, byte[] Bytes)> EmbeddedSources() =>
@@ -41,7 +41,7 @@ public static class WorkerBuild
     internal static async Task<WorkerJars> EnsureAsync(JavaRuntime java, IReadOnlyList<string> classpath, IReadOnlyList<(string Name, byte[] Bytes)> sources,
         string directory, CancellationToken cancellationToken)
     {
-        var jars = new WorkerJars(Path.Combine(directory, "ndm-ghidra-boot.jar"), Path.Combine(directory, "ndm-ghidra-worker.jar"));
+        var jars = new WorkerJars(Path.Combine(directory, "ghidra-boot.jar"), Path.Combine(directory, "ghidra-worker.jar"));
         if (File.Exists(jars.Boot) && File.Exists(jars.Worker)) return jars;
         await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -127,7 +127,7 @@ public static class WorkerBuild
         using var zip = ZipFile.Open(path, ZipArchiveMode.Create);
         var manifest = zip.CreateEntry("META-INF/MANIFEST.MF");
         using (var w = new StreamWriter(manifest.Open(), new UTF8Encoding(false)))
-            w.Write("Manifest-Version: 1.0\r\nCreated-By: NetDecompilerMcp\r\n\r\n");
+            w.Write("Manifest-Version: 1.0\r\nCreated-By: Corvus\r\n\r\n");
         foreach (var file in Directory.EnumerateFiles(classes, "*.class", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
         {
             var name = Path.GetRelativePath(classes, file).Replace('\\', '/');

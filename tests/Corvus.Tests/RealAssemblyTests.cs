@@ -199,7 +199,7 @@ public class RealAssemblyTests(ITestOutputHelper output)
             && !t.IsNested && t.Methods.Any(m => m.HasBody) && !t.Name.String.Contains('<')));
         var symbol = env.Workspace.Read(() => SymbolResolver.ResolveOne(env.Workspace, app.Id, type.FullName, SymbolKind.Type));
         var added = env.Edit(() => env.Edits.AddMembersCSharp(symbol,
-            "public static int NdmProbe(int x) { var list = new System.Collections.Generic.List<int> { x, x }; return list.Count; }", true, default));
+            "public static int SampleProbe(int x) { var list = new System.Collections.Generic.List<int> { x, x }; return list.Count; }", true, default));
         output.WriteLine($"{app.Id} {type.FullName}: {added.Split('\n')[0]}");
 
         var dummyCorlib = env.Workspace.Assemblies.First(a => a.AssemblyName == "mscorlib");

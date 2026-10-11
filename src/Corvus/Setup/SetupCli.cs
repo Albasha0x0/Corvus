@@ -35,7 +35,7 @@ internal static class SetupCli
         try { parsed = SetupArgs.Parse(args.Skip(1), Accepted.GetValueOrDefault(command, [])); }
         catch (ArgumentException ex)
         {
-            output.WriteLine($"{ex.Message} Run: NetDecompilerMcp help");
+            output.WriteLine($"{ex.Message} Run: corvus help");
             return 2;
         }
         // A copy started from the install layout used before the rename moves itself first.
@@ -58,7 +58,7 @@ internal static class SetupCli
     }
 
     private const string Help = """
-        NetDecompilerMcp: .NET decompiler MCP server. Without a command it serves MCP over stdio.
+        Corvus: .NET and native decompiler MCP server. Without a command it serves MCP over stdio.
 
         Commands:
           install [client...]   Register the server with MCP clients, then start it once to check it works.
@@ -98,7 +98,7 @@ internal static class SetupCli
         Exit codes: 0 success (a dry run always), 1 a check or a registration failed, 2 usage error.
 
         Tools from the terminal (each call runs the server in this process; docs/cli.md):
-          <tool> [name=value ...]  Call a tool, e.g. NetDecompilerMcp decompile_member --load app.dll member=Ns.T::M
+          <tool> [name=value ...]  Call a tool, e.g. corvus decompile_member --load app.dll member=Ns.T::M
           call <tool> ...       The same. Values: name=value (typed by the parameter), name:=<json>, name=@file,
                                 name=@- (stdin); or --args '<json object>' (also --json '{...}'), --args-file F|-.
                                 --load PATH preloads (repeatable); any server option applies (see the README).
@@ -238,7 +238,7 @@ internal static class SetupCli
             return code;
         }
 
-        text.WriteLine($"NetDecompilerMcp {Installation.Version}: {string.Join(" ", [launch.Command, .. launch.Args])}");
+        text.WriteLine($"Corvus {Installation.Version}: {string.Join(" ", [launch.Command, .. launch.Args])}");
         if (check)
         {
             report.Server = ServerReport.From(SelfTest.Run(launch, TimeSpan.FromSeconds(60)));
@@ -259,8 +259,8 @@ internal static class SetupCli
         var rows = SetupPlan.Shown(report.Clients).ToList();
         if (rows.Count == 0 && legacy.Count == 0)
         {
-            text.WriteLine("No supported MCP client found. Install one, then run: NetDecompilerMcp install");
-            text.WriteLine("For any other client, add the output of: NetDecompilerMcp config");
+            text.WriteLine("No supported MCP client found. Install one, then run: corvus install");
+            text.WriteLine("For any other client, add the output of: corvus config");
             return Finish(0);
         }
         var pending = rows.Where(r => r.NeedsConsent).ToList();
@@ -294,7 +294,7 @@ internal static class SetupCli
             else
             {
                 SetupPlan.Decide(pending, add: false);
-                report.Notes.Add($"Not registered with detected clients {string.Join(", ", pending.Select(p => p.Id))}; to add them run: NetDecompilerMcp install --all-detected");
+                report.Notes.Add($"Not registered with detected clients {string.Join(", ", pending.Select(p => p.Id))}; to add them run: corvus install --all-detected");
             }
         }
 
@@ -484,7 +484,7 @@ internal static class SetupCli
         var text = json ? TextWriter.Null : output;
         var report = new SetupReport { Command = "status", Launch = Describe(launch) };
         bool failed = false;
-        text.WriteLine($"NetDecompilerMcp {Installation.Version}");
+        text.WriteLine($"Corvus {Installation.Version}");
         text.WriteLine($"Server command: {string.Join(" ", [launch.Command, .. launch.Args])}");
 
         var tests = new Dictionary<string, ServerReport>();
@@ -520,8 +520,8 @@ internal static class SetupCli
                 if (state == Skill.Missing) continue;
                 var note = state switch
                 {
-                    Skill.Stale => " - written by another build; run: NetDecompilerMcp install --skill",
-                    Skill.Foreign => $" - not written by NetDecompilerMcp (no {Skill.Marker})",
+                    Skill.Stale => " - written by another build; run: corvus install --skill",
+                    Skill.Foreign => $" - not written by Corvus (no {Skill.Marker})",
                     _ => "",
                 };
                 text.WriteLine($"Skill {SetupPlan.Short(env, folder)}: {state}{note}");

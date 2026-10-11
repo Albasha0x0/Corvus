@@ -48,7 +48,7 @@ internal static class ReferencePacks
         try
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("NetDecompilerMcp");
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("Corvus/" + (typeof(ReferencePacks).Assembly.GetName().Version?.ToString(3) ?? "0"));
             using var index = JsonDocument.Parse(http.GetStringAsync($"{FeedBase}{id}/index.json").GetAwaiter().GetResult());
             var version = index.RootElement.GetProperty("versions").EnumerateArray()
                 .Select(v => v.GetString()!)

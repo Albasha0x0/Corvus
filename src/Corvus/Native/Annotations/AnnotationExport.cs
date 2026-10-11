@@ -35,7 +35,7 @@ public static class AnnotationExport
     private static string Ida(NativeAnnotations ann, ImportedNames imported)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("# IDAPython: apply names and comments exported from NetDecompilerMcp.");
+        sb.AppendLine("# IDAPython: apply exported names and comments.");
         sb.AppendLine($"# Source: {ann.FilePath}  sha256 {ann.Sha256}");
         sb.AppendLine("import idaapi, idc");
         sb.AppendLine("base = idaapi.get_imagebase()");
@@ -54,44 +54,44 @@ public static class AnnotationExport
         if (ann.PseudoCommentCount > 0)
         {
             sb.Append(IdaPseudoHelper);
-            foreach (var (rva, comment) in ann.PseudoComments()) sb.AppendLine($"ndm_pseudo(0x{rva:X}, {Py(comment)})");
+            foreach (var (rva, comment) in ann.PseudoComments()) sb.AppendLine($"apply_pseudo(0x{rva:X}, {Py(comment)})");
         }
         var types = ann.UserTypes;
         if (!types.IsEmpty)
         {
             sb.Append(IdaTypeHelpers);
-            foreach (var d in types.Declarations) sb.AppendLine($"ndm_declare({Py(d)})");
+            foreach (var d in types.Declarations) sb.AppendLine($"apply_declare({Py(d)})");
             var batch = types.ToBatch();
-            foreach (var r in types.TypeEdits) sb.AppendLine($"ndm_type_edit({Py(r.Name)}, {PyOrNone(r.NewName)})");
+            foreach (var r in types.TypeEdits) sb.AppendLine($"apply_type_edit({Py(r.Name)}, {PyOrNone(r.NewName)})");
             foreach (var e in batch.EnumMembers)
-                sb.AppendLine($"ndm_enum({Py(e.Enum)}, {Py(e.Member)}, {(e.Value is { } v ? v.ToString(System.Globalization.CultureInfo.InvariantCulture) : "None")})");
+                sb.AppendLine($"apply_enum({Py(e.Enum)}, {Py(e.Member)}, {(e.Value is { } v ? v.ToString(System.Globalization.CultureInfo.InvariantCulture) : "None")})");
             foreach (var f in types.Fields)
-                sb.AppendLine($"ndm_field({Py(f.Type)}, {PyOrNone(f.Name)}, {(f.Offset is { } o ? o.ToString(System.Globalization.CultureInfo.InvariantCulture) : "None")}, {PyOrNone(f.FieldType)})");
+                sb.AppendLine($"apply_field({Py(f.Type)}, {PyOrNone(f.Name)}, {(f.Offset is { } o ? o.ToString(System.Globalization.CultureInfo.InvariantCulture) : "None")}, {PyOrNone(f.FieldType)})");
             foreach (var a in types.Analysis)
-                sb.AppendLine($"ndm_analysis(0x{a.Rva:X}, {Py(a.Kind)}, {(a.End is { } e ? $"0x{e:X}" : "None")}, {PyOrNone(a.Type)})");
-            foreach (var (rva, t) in types.Types.OrderBy(t => t.Key)) sb.AppendLine($"ndm_type(0x{rva:X}, {Py(t)})");
+                sb.AppendLine($"apply_analysis(0x{a.Rva:X}, {Py(a.Kind)}, {(a.End is { } e ? $"0x{e:X}" : "None")}, {PyOrNone(a.Type)})");
+            foreach (var (rva, t) in types.Types.OrderBy(t => t.Key)) sb.AppendLine($"apply_type(0x{rva:X}, {Py(t)})");
             foreach (var s in batch.StackVars.Where(s => !s.Delete))
-                sb.AppendLine($"ndm_stack(0x{s.Function:X}, {s.Offset}, {PyOrNone(s.Name)}, {PyOrNone(s.Type)})");
+                sb.AppendLine($"apply_stack(0x{s.Function:X}, {s.Offset}, {PyOrNone(s.Name)}, {PyOrNone(s.Type)})");
             foreach (var l in types.Locals.OrderBy(l => l.Key).SelectMany(l => l.Value))
-                sb.AppendLine($"ndm_local(0x{l.Function:X}, {Py(l.Local)}, {(l.Stack is { } k ? k.ToString(System.Globalization.CultureInfo.InvariantCulture) : "None")}, {PyOrNone(l.Name)}, {PyOrNone(l.Type)})");
+                sb.AppendLine($"apply_local(0x{l.Function:X}, {Py(l.Local)}, {(l.Stack is { } k ? k.ToString(System.Globalization.CultureInfo.InvariantCulture) : "None")}, {PyOrNone(l.Name)}, {PyOrNone(l.Type)})");
             foreach (var s in batch.StackVars.Where(s => s.Delete))
-                sb.AppendLine($"ndm_stack_delete(0x{s.Function:X}, {s.Offset})");
+                sb.AppendLine($"apply_stack_delete(0x{s.Function:X}, {s.Offset})");
             foreach (var o in types.Operands.OrderBy(o => o.Key).Select(o => o.Value))
-                sb.AppendLine(FormattableString.Invariant($"ndm_operand(0x{o.Rva:X}, {o.Operand}, {Py(o.Display)}, {PyOrNone(o.Detail)})"));
-            sb.AppendLine("if ndm_failed: print('NetDecompilerMcp: not applied: ' + '; '.join(ndm_failed))");
+                sb.AppendLine(FormattableString.Invariant($"apply_operand(0x{o.Rva:X}, {o.Operand}, {Py(o.Display)}, {PyOrNone(o.Detail)})"));
+            sb.AppendLine("if failures: print('not applied: ' + '; '.join(failures))");
         }
-        sb.AppendLine($"print('NetDecompilerMcp: applied {ann.NameCount} name(s), {ann.CommentCount} comment(s), {ann.PseudoCommentCount} pseudocode comment(s) and {types.Count} user type(s)')");
+        sb.AppendLine($"print('applied {ann.NameCount} name(s), {ann.CommentCount} comment(s), {ann.PseudoCommentCount} pseudocode comment(s) and {types.Count} user type(s)')");
         return sb.ToString();
     }
 
     // The worker's pseudo_comments (Native/Providers/Ida/ida_worker.py) for a database outside the server.
     private const string IdaPseudoHelper = """
         import ida_funcs, ida_hexrays
-        def ndm_pseudo(rva, text):
+        def apply_pseudo(rva, text):
             ea = base + rva
             f = ida_funcs.get_func(ea)
             cf = ida_hexrays.decompile(f.start_ea) if f is not None and ida_hexrays.init_hexrays_plugin() else None
-            if cf is None: print('NetDecompilerMcp: no pseudocode for the comment at 0x%X' % rva); return
+            if cf is None: print('no pseudocode for the comment at 0x%X' % rva); return
             eamap = cf.get_eamap()
             lower = [k for k in eamap.keys() if k <= ea]
             if not lower: return
@@ -101,15 +101,15 @@ public static class AnnotationExport
                 cf.set_user_cmt(tl, text); cf.save_user_cmts(); cf.refresh_func_ctext()
                 if not cf.has_orphan_cmts(): return
                 cf.del_orphan_cmts(); cf.save_user_cmts()
-            print('NetDecompilerMcp: the pseudocode comment at 0x%X found no place' % rva)
+            print('the pseudocode comment at 0x%X found no place' % rva)
 
         """;
 
     // Mirrors the worker's apply_user_types (Native/Providers/Ida/ida_worker.py) for a database outside the server.
     private const string IdaTypeHelpers = """
         import ida_auto, ida_bytes, ida_frame, ida_funcs, ida_hexrays, ida_nalt, ida_typeinf, ida_ua
-        ndm_failed = []
-        def ndm_data(ea, stop, text):
+        failures = []
+        def make_data(ea, stop, text):
             base_t, n = text.strip(), None
             if base_t.endswith("]") and "[" in base_t:
                 try: n, base_t = int(base_t[base_t.rindex("[") + 1:-1], 0), base_t[:base_t.rindex("[")].strip()
@@ -126,11 +126,11 @@ public static class AnnotationExport
                 total = sizes[low][0] * (n or 1)
                 ida_bytes.del_items(ea, ida_bytes.DELIT_SIMPLE, total)
                 return ida_bytes.create_data(ea, sizes[low][1](), total, idaapi.BADADDR)
-            t = ndm_parse(text)
+            t = parse_type(text)
             if t is None: return False
             ida_bytes.del_items(ea, ida_bytes.DELIT_SIMPLE, max(1, t.get_size()))
             return ida_typeinf.apply_tinfo(ea, t, ida_typeinf.TINFO_DEFINITE)
-        def ndm_analysis(rva, kind, end, text):
+        def apply_analysis(rva, kind, end, text):
             ea = base + rva
             stop = base + end if end is not None else None
             f = ida_funcs.get_func(ea)
@@ -152,21 +152,21 @@ public static class AnnotationExport
                 if f is not None and f.start_ea == ea: ok = stop is None or ida_funcs.set_func_end(ea, stop)
                 else: ok = ida_funcs.add_func(ea, stop if stop is not None else idaapi.BADADDR)
             else:
-                ok = ndm_data(ea, stop, text or "")
-            if not ok: ndm_failed.append('%s 0x%X' % (kind, rva))
-        def ndm_type_edit(name, new_name):
+                ok = make_data(ea, stop, text or "")
+            if not ok: failures.append('%s 0x%X' % (kind, rva))
+        def apply_type_edit(name, new_name):
             t = ida_typeinf.tinfo_t()
             if not t.get_named_type(None, name): return
             if new_name is None or ida_typeinf.tinfo_t().get_named_type(None, new_name): ok = ida_typeinf.del_named_type(None, name, ida_typeinf.NTF_TYPE)
             else: ok = t.rename_type(new_name) == 0
-            if not ok: ndm_failed.append('type %s' % name)
-        def ndm_field(tname, name, offset, text):
+            if not ok: failures.append('type %s' % name)
+        def apply_field(tname, name, offset, text):
             t = ida_typeinf.tinfo_t()
-            if not t.get_named_type(None, tname) or not t.is_udt(): ndm_failed.append('member %s' % tname); return
+            if not t.get_named_type(None, tname) or not t.is_udt(): failures.append('member %s' % tname); return
             udt = ida_typeinf.udt_type_data_t(); t.get_udt_details(udt)
             idx = t.get_udm(name)[0] if name else -1
             if idx < 0 and offset is not None: idx = next((i for i, u in enumerate(udt) if not u.is_gap() and u.offset // 8 == offset), -1)
-            ft = ndm_parse(text) if text is not None else None
+            ft = parse_type(text) if text is not None else None
             if text is None: ok = idx < 0 or t.del_udm(idx) == 0
             elif ft is None: ok = False
             elif idx >= 0 and (offset is None or t.is_union() or udt[idx].offset // 8 == offset):
@@ -175,8 +175,8 @@ public static class AnnotationExport
                 if idx >= 0: t.del_udm(idx)
                 at = 0 if t.is_union() else offset if offset is not None else t.get_size()
                 ok = t.add_udm(name or 'field_%X' % at, ft, at * 8, ida_typeinf.ETF_MAY_DESTROY) == 0
-            if not ok: ndm_failed.append('member %s.%s' % (tname, name or offset))
-        def ndm_enum(enum, member, value):
+            if not ok: failures.append('member %s.%s' % (tname, name or offset))
+        def apply_enum(enum, member, value):
             t = ida_typeinf.tinfo_t()
             if not t.get_named_type(None, enum):
                 if value is None: return
@@ -187,16 +187,16 @@ public static class AnnotationExport
                 if value is None: ok = idx < 0 or t.del_edm(idx) == 0
                 else: ok = (t.edit_edm(idx, value, ida_typeinf.DEFMASK64, 0) if idx >= 0 else t.add_edm(member, value)) == 0
             except ValueError: ok = False
-            if not ok: ndm_failed.append('enum %s::%s' % (enum, member))
-        def ndm_stack_delete(rva, offset):
+            if not ok: failures.append('enum %s::%s' % (enum, member))
+        def apply_stack_delete(rva, offset):
             f = ida_funcs.get_func(base + rva)
             frame = ida_typeinf.tinfo_t()
-            if f is None or not ida_frame.get_func_frame(frame, f): ndm_failed.append('stack 0x%X' % rva); return
+            if f is None or not ida_frame.get_func_frame(frame, f): failures.append('stack 0x%X' % rva); return
             udt = ida_typeinf.udt_type_data_t()
             frame.get_udt_details(udt)
             u = next((m for m in udt if m.offset // 8 == offset and not m.is_gap()), None)
-            if u and not ida_frame.delete_frame_members(f, offset, offset + max(1, u.size // 8)): ndm_failed.append('stack 0x%X+%d' % (rva, offset))
-        def ndm_operand(rva, n, display, detail):
+            if u and not ida_frame.delete_frame_members(f, offset, offset + max(1, u.size // 8)): failures.append('stack 0x%X+%d' % (rva, offset))
+        def apply_operand(rva, n, display, detail):
             ea = base + rva
             if display == "enum": ok = ida_bytes.op_enum(ea, n, idc.get_enum(detail), 0)
             elif display == "struct":
@@ -206,11 +206,11 @@ public static class AnnotationExport
             elif display == "offset": ok = idc.op_plain_offset(ea, n, 0)
             else: ok = {"hex": ida_bytes.op_hex, "dec": ida_bytes.op_dec, "oct": ida_bytes.op_oct, "bin": ida_bytes.op_bin, "char": ida_bytes.op_chr,
                         "stack": ida_bytes.op_stkvar}[display](ea, n)
-            if not ok: ndm_failed.append('operand %d at 0x%X' % (n, rva))
-        def ndm_parse(text):
+            if not ok: failures.append('operand %d at 0x%X' % (n, rva))
+        def parse_type(text):
             text = text.strip().rstrip(";").strip()
-            named = text.replace("(*)", "(*__ndm_x)", 1) if "(*)" in text else \
-                text[:text.index("[")] + " __ndm_x" + text[text.index("["):] if "[" in text else text + " __ndm_x"
+            named = text.replace("(*)", "(*__parsed_x)", 1) if "(*)" in text else \
+                text[:text.index("[")] + " __parsed_x" + text[text.index("["):] if "[" in text else text + " __parsed_x"
             for c in (text + ";", named + ";"):
                 for f in (ida_typeinf.PT_SIL, ida_typeinf.PT_SIL | ida_typeinf.PT_TYP):
                     t = ida_typeinf.tinfo_t()
@@ -218,39 +218,39 @@ public static class AnnotationExport
                         return t
             t = ida_typeinf.tinfo_t()
             return t if t.get_named_type(None, text) else None
-        def ndm_declare(text):
-            if idc.parse_decls(text, idc.PT_SILENT | idc.PT_REPLACE): ndm_failed.append('declarations ' + text[:40])
-        def ndm_type(rva, text):
-            t = ndm_parse(text)
-            if t is None or not ida_typeinf.apply_tinfo(base + rva, t, ida_typeinf.TINFO_DEFINITE): ndm_failed.append('type 0x%X' % rva)
-        def ndm_stack(rva, offset, name, text):
+        def apply_declare(text):
+            if idc.parse_decls(text, idc.PT_SILENT | idc.PT_REPLACE): failures.append('declarations ' + text[:40])
+        def apply_type(rva, text):
+            t = parse_type(text)
+            if t is None or not ida_typeinf.apply_tinfo(base + rva, t, ida_typeinf.TINFO_DEFINITE): failures.append('type 0x%X' % rva)
+        def apply_stack(rva, offset, name, text):
             f = ida_funcs.get_func(base + rva)
             frame = ida_typeinf.tinfo_t()
-            if f is None or not ida_frame.get_func_frame(frame, f): ndm_failed.append('stack 0x%X' % rva); return
+            if f is None or not ida_frame.get_func_frame(frame, f): failures.append('stack 0x%X' % rva); return
             udt = ida_typeinf.udt_type_data_t()
             frame.get_udt_details(udt)
             u = next((m for m in udt if m.offset // 8 == offset and not m.is_gap()), None)
-            t = ndm_parse(text) if text else (ida_typeinf.tinfo_t(u.type) if u else None)
-            if t is None: ndm_failed.append('stack 0x%X+%d' % (rva, offset)); return
+            t = parse_type(text) if text else (ida_typeinf.tinfo_t(u.type) if u else None)
+            if t is None: failures.append('stack 0x%X+%d' % (rva, offset)); return
             old = u.name if u else 'var_%X' % offset
             if u: ida_frame.delete_frame_members(f, offset, offset + max(1, u.size // 8))
             if not ida_frame.define_stkvar(f, name or old, offset - ida_frame.frame_off_retaddr(f), t):
-                ndm_failed.append('stack 0x%X+%d' % (rva, offset))
-        def ndm_local(rva, local, stack, name, text):
+                failures.append('stack 0x%X+%d' % (rva, offset))
+        def apply_local(rva, local, stack, name, text):
             ea = base + rva
             cf = ida_hexrays.decompile(ea) if ida_hexrays.init_hexrays_plugin() else None
             lvars = list(cf.get_lvars()) if cf else []
             lv = next((v for v in lvars if stack is not None and v.is_stk_var() and v.get_stkoff() == stack), None) \
                 or next((v for v in lvars if v.name == local), None) or next((v for v in lvars if name and v.name == name), None)
-            if lv is None: ndm_failed.append('local %s at 0x%X' % (local, rva)); return
+            if lv is None: failures.append('local %s at 0x%X' % (local, rva)); return
             if name:
                 s = ida_hexrays.lvar_saved_info_t(); s.ll = lv; s.name = name
                 ida_hexrays.modify_user_lvar_info(ea, ida_hexrays.MLI_NAME, s)
             if text:
-                t = ndm_parse(text)
+                t = parse_type(text)
                 s = ida_hexrays.lvar_saved_info_t(); s.ll = lv
                 if t is not None: s.type = t
-                if t is None or not ida_hexrays.modify_user_lvar_info(ea, ida_hexrays.MLI_TYPE, s): ndm_failed.append('local %s type at 0x%X' % (local, rva))
+                if t is None or not ida_hexrays.modify_user_lvar_info(ea, ida_hexrays.MLI_TYPE, s): failures.append('local %s type at 0x%X' % (local, rva))
 
         """;
 
@@ -259,9 +259,9 @@ public static class AnnotationExport
     private static string Ghidra(NativeAnnotations ann, ImportedNames imported)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("// Ghidra script: apply names and comments exported from NetDecompilerMcp.");
+        sb.AppendLine("// Ghidra script: apply exported names and comments.");
         sb.AppendLine($"// Source: {ann.FilePath}  sha256 {ann.Sha256}");
-        sb.AppendLine("// @category NetDecompilerMcp");
+        sb.AppendLine("// @category Corvus");
         if (ann.UserTypes.Count > 0) sb.AppendLine($"// {ann.UserTypes.Count} user type(s) (declarations, type edits, enum and struct members, analysis edits, prototypes, locals, stack variables, operand formats) are in the IDA and JSON exports only.");
         sb.AppendLine("import ghidra.app.script.GhidraScript;");
         sb.AppendLine("import ghidra.program.model.address.Address;");
@@ -281,7 +281,7 @@ public static class AnnotationExport
             sb.AppendLine($"    set{ann.CommentKindAt(rva) switch { NativeCommentKinds.Eol => "EOL", NativeCommentKinds.Pre => "Pre", _ => "Plate" }}Comment(base.add(0x{rva:X}L), {Java(comment)});");
         foreach (var (rva, comment) in ann.PseudoComments())
             sb.AppendLine($"    setPreComment(base.add(0x{rva:X}L), {Java(comment)});");
-        sb.AppendLine($"    println(\"NetDecompilerMcp: applied {ann.NameCount} name(s) and {ann.CommentCount} comment(s)\");");
+        sb.AppendLine($"    println(\"applied {ann.NameCount} name(s) and {ann.CommentCount} comment(s)\");");
         sb.AppendLine("  }");
         sb.AppendLine("}");
         return sb.ToString();

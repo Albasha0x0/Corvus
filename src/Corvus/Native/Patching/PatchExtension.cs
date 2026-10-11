@@ -267,14 +267,14 @@ public static class PatchExtension
         return new HeaderEdit(fileOffset, original, replacement);
     }
 
-    /// <summary>A distinct 8-byte section name (".ndm", then ".ndm1", ".ndm2", ... when taken).</summary>
+    /// <summary>A distinct 8-byte section name (".patch", then ".patch1", ".patch2", ... when taken).</summary>
     private static string NewSectionName(PeFile pe)
     {
         var taken = pe.Sections.Select(s => s.Name).ToHashSet(StringComparer.Ordinal);
-        if (!taken.Contains(".ndm")) return ".ndm";
-        for (int i = 1; i < 1000; i++)
-            if (!taken.Contains($".ndm{i}")) return $".ndm{i}";
-        return ".ndm";
+        if (!taken.Contains(".patch")) return ".patch";
+        for (int i = 1; i < 100; i++)
+            if (!taken.Contains($".patch{i}")) return $".patch{i}";
+        return ".patch";
     }
 
     private static byte[] BuildSectionHeader(string name, uint rva, uint virtualSize, uint rawSize, uint rawOffset)

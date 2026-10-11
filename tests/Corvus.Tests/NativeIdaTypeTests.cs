@@ -100,30 +100,30 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
     {
         var rig = Setup("cache-l");
         var local = FirstDefaultLocal(await rig.Analysis.DecompileNative(Image, Function));
-        output.WriteLine(await rig.Types.SetNativeLocal(Image, Function, local, newName: "ndm_count", type: "unsigned __int64"));
+        output.WriteLine(await rig.Types.SetNativeLocal(Image, Function, local, newName: "sample_count", type: "unsigned __int64"));
         var text = await rig.Analysis.DecompileNative(Image, Function);
         output.WriteLine(text);
-        Assert.Contains("unsigned __int64 ndm_count", text);
+        Assert.Contains("unsigned __int64 sample_count", text);
         // named by its new name: the same edit
-        await rig.Types.SetNativeLocal(Image, Function, "ndm_count", newName: "ndm_total");
+        await rig.Types.SetNativeLocal(Image, Function, "sample_count", newName: "sample_total");
         var edit = Assert.Single(Assert.Single(rig.Code.Annotations(rig.Native).UserTypes.Locals).Value);
-        Assert.Equal((local, "ndm_total", "unsigned __int64"), (edit.Local, edit.Name, edit.Type));
+        Assert.Equal((local, "sample_total", "unsigned __int64"), (edit.Local, edit.Name, edit.Type));
 
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeLocal(Image, Function, "no_such_local", newName: "x"))).Code);
-        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeLocal(Image, Function, "ndm_total", newName: "bad name"))).Code);
-        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeLocal(Image, Function, "ndm_total"))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeLocal(Image, Function, "sample_total", newName: "bad name"))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeLocal(Image, Function, "sample_total"))).Code);
 
         // journaled: a killed worker replays the edits
         var session = await rig.Session();
         await WorkerKill.KillAsync(session);
         var rva = rig.Native.Image.Exports.First(e => e.Name == Function).Rva;
-        Assert.Contains("ndm_total", (await session.DecompileAsync(rva)).Text);
+        Assert.Contains("sample_total", (await session.DecompileAsync(rva)).Text);
 
         foreach (var d in _owned) d.Dispose();
         _owned.Clear();
         var fresh = Setup("cache-m");
         var again = await fresh.Analysis.DecompileNative(Image, Function);
-        Assert.Contains("unsigned __int64 ndm_total", again);
+        Assert.Contains("unsigned __int64 sample_total", again);
     }
 
     [IdaFact]
@@ -139,69 +139,69 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         var member = frame.Members.First(m => m.Kind == "local" && m.Size >= 4);
         Assert.Contains(frame.Members, m => m.Kind == "special" && m.Offset == frame.ReturnAddressOffset);
 
-        output.WriteLine(await rig.Types.SetNativeStackVar(Image, Function, member.Name, newName: "ndm_slot", type: "int"));
-        output.WriteLine(await rig.Types.SetNativeStackVar(Image, Function, $"0x{member.Offset:X}", newName: "ndm_slot2"));
+        output.WriteLine(await rig.Types.SetNativeStackVar(Image, Function, member.Name, newName: "sample_slot", type: "int"));
+        output.WriteLine(await rig.Types.SetNativeStackVar(Image, Function, $"0x{member.Offset:X}", newName: "sample_slot2"));
         var after = await session.GetFrameAsync(frame.StartRva);
-        Assert.Equal(("ndm_slot2", "int", 4), after.Members.Single(m => m.Offset == member.Offset) is var x ? (x.Name, x.Type, x.Size) : default);
+        Assert.Equal(("sample_slot2", "int", 4), after.Members.Single(m => m.Offset == member.Offset) is var x ? (x.Name, x.Type, x.Size) : default);
         var edit = Assert.Single(Assert.Single(rig.Code.Annotations(rig.Native).UserTypes.StackVars).Value);
-        Assert.Equal((member.Offset, "ndm_slot2", "int"), (edit.Offset, edit.Name, edit.Type));
+        Assert.Equal((member.Offset, "sample_slot2", "int"), (edit.Offset, edit.Name, edit.Type));
         var special = await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeStackVar(Image, Function, "__return_address", newName: "ret"));
         Assert.Equal(ErrorCode.InvalidArgument, special.Code);
 
         // a decompiler local addressed by its stack offset
         if (frame.Locals.FirstOrDefault(l => l.Stack != null) is { } stackLocal)
         {
-            await rig.Types.SetNativeLocal(Image, Function, $"stack:0x{stackLocal.Stack:X}", newName: "ndm_onstack");
-            Assert.Contains("ndm_onstack", await rig.Analysis.DecompileNative(Image, Function));
+            await rig.Types.SetNativeLocal(Image, Function, $"stack:0x{stackLocal.Stack:X}", newName: "sample_onstack");
+            Assert.Contains("sample_onstack", await rig.Analysis.DecompileNative(Image, Function));
         }
 
         foreach (var d in _owned) d.Dispose();
         _owned.Clear();
         var fresh = Setup("cache-t");
-        Assert.Contains("ndm_slot2  int  4", await fresh.Types.GetNativeFrame(Image, Function));
+        Assert.Contains("sample_slot2  int  4", await fresh.Types.GetNativeFrame(Image, Function));
     }
 
     [IdaFact]
     public async Task Declared_types_list_win_over_recovered_types_and_reach_a_new_database()
     {
         var rig = Setup("cache-d");
-        var declared = await rig.Types.DeclareNativeTypes(Image, "struct NdmPacket { int length; char data[16]; };\nenum NdmKind { NdmA = 1, NdmB = 2 };");
+        var declared = await rig.Types.DeclareNativeTypes(Image, "struct SamplePacket { int length; char data[16]; };\nenum SampleKind { SampleA = 1, SampleB = 2 };");
         output.WriteLine(declared);
-        Assert.Contains("NdmPacket", declared);
-        Assert.Contains("NdmKind", declared);
-        var bad = await Assert.ThrowsAsync<ToolError>(() => rig.Types.DeclareNativeTypes(Image, "struct NdmBad { unknown_t x; };"));
+        Assert.Contains("SamplePacket", declared);
+        Assert.Contains("SampleKind", declared);
+        var bad = await Assert.ThrowsAsync<ToolError>(() => rig.Types.DeclareNativeTypes(Image, "struct SampleBad { unknown_t x; };"));
         output.WriteLine(bad.Message);
         Assert.Equal(ErrorCode.InvalidArgument, bad.Code);
         Assert.Contains("unknown_t", bad.Message);
         Assert.Single(rig.Code.Annotations(rig.Native).UserTypes.Declarations);
 
-        var list = await rig.Types.ListNativeTypes(Image, filter: "ndm");
+        var list = await rig.Types.ListNativeTypes(Image, filter: "sample");
         output.WriteLine(list);
-        Assert.Contains("struct NdmPacket  20 bytes  2 members", list);
-        Assert.Contains("enum NdmKind", list);
-        Assert.DoesNotContain("NdmBad", await rig.Types.ListNativeTypes(Image, filter: "ndm", kind: "struct"));
-        var detail = await rig.Types.ListNativeTypes(Image, name: "NdmPacket");
+        Assert.Contains("struct SamplePacket  20 bytes  2 members", list);
+        Assert.Contains("enum SampleKind", list);
+        Assert.DoesNotContain("SampleBad", await rig.Types.ListNativeTypes(Image, filter: "sample", kind: "struct"));
+        var detail = await rig.Types.ListNativeTypes(Image, name: "SamplePacket");
         output.WriteLine(detail);
         Assert.Contains("+0x4  data  char[16]  16", detail);
-        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.ListNativeTypes(Image, name: "NoSuchNdmType"))).Code);
+        Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.ListNativeTypes(Image, name: "NoSuchSampleType"))).Code);
         // declared with the database's packing, as a replay declares it: the pointer is 8-aligned
-        await rig.Types.DeclareNativeTypes(Image, "struct NdmAligned { short tag; void *next; };");
-        var aligned = await rig.Types.ListNativeTypes(Image, name: "NdmAligned");
+        await rig.Types.DeclareNativeTypes(Image, "struct SampleAligned { short tag; void *next; };");
+        var aligned = await rig.Types.ListNativeTypes(Image, name: "SampleAligned");
         output.WriteLine(aligned);
-        Assert.Contains("struct NdmAligned, 16 bytes", aligned);
+        Assert.Contains("struct SampleAligned, 16 bytes", aligned);
         Assert.Contains("+0x8  next  void *  8", aligned);
 
         // the declared type is usable, and a recovered type of the same name does not replace it
         var data = rig.Native.Image.Sections.First(s => !s.IsExecutable && s.Name == ".data");
-        Assert.Contains("NdmPacket", await rig.Types.SetNativeType(Image, $"rva:0x{data.Rva:X}", "NdmPacket"));
+        Assert.Contains("SamplePacket", await rig.Types.SetNativeType(Image, $"rva:0x{data.Rva:X}", "SamplePacket"));
         var session = await rig.Session();
-        await session.ApplyTypesAsync(new NativeTypeBatch("struct NdmPacket { char replaced; };", [], [], [], 8));
-        Assert.Contains(session.GetTypeAsync("NdmPacket").Result.Members, m => m.Name == "length");
+        await session.ApplyTypesAsync(new NativeTypeBatch("struct SamplePacket { char replaced; };", [], [], [], 8));
+        Assert.Contains(session.GetTypeAsync("SamplePacket").Result.Members, m => m.Name == "length");
 
         foreach (var d in _owned) d.Dispose();
         _owned.Clear();
         var fresh = Setup("cache-e");
-        Assert.Contains("+0x4  data  char[16]  16", await fresh.Types.ListNativeTypes(Image, name: "NdmPacket"));
+        Assert.Contains("+0x4  data  char[16]  16", await fresh.Types.ListNativeTypes(Image, name: "SamplePacket"));
     }
 
     /// <summary>get_native_type through IDA: bit fields with their bits, member comments, the type's alignment and packing.</summary>
@@ -209,20 +209,20 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
     public async Task Engine_type_details_show_bit_fields_comments_and_alignment()
     {
         var rig = Setup("cache-details");
-        output.WriteLine(await rig.Types.DeclareNativeTypes(Image, "struct NdmBits { unsigned int lo : 3; unsigned int hi : 5; int whole; }; " +
-                                                                  "struct __attribute__((packed)) NdmPacked { char c; int i; };", engine: "ida"));
+        output.WriteLine(await rig.Types.DeclareNativeTypes(Image, "struct SampleBits { unsigned int lo : 3; unsigned int hi : 5; int whole; }; " +
+                                                                  "struct __attribute__((packed)) SamplePacked { char c; int i; };", engine: "ida"));
         var session = await rig.Session();
-        var script = await session.RunScriptAsync("import ida_typeinf as ti\nt = ti.tinfo_t()\nt.get_named_type(None, 'NdmBits')\n" +
+        var script = await session.RunScriptAsync("import ida_typeinf as ti\nt = ti.tinfo_t()\nt.get_named_type(None, 'SampleBits')\n" +
                                                   "u = ti.udm_t()\nu.name = 'whole'\nidx = t.find_udm(u, ti.STRMEM_NAME)\nt.set_udm_cmt(idx, 'the whole count')\n");
         Assert.Null(script.Error);
         var tools = new NativeTypeInfoTools(rig.Workspace, rig.Code, rig.Engines);
-        var bits = await tools.GetNativeType(Image, name: "NdmBits", source: "engine");
+        var bits = await tools.GetNativeType(Image, name: "SampleBits", source: "engine");
         output.WriteLine(bits);
         Assert.Contains("align 4", bits);
         Assert.Matches(@"\+0x0\s+4\s+lo : 3 \(bit 0\)", bits);
         Assert.Matches(@"\+0x0\s+4\s+hi : 5 \(bit 3\)", bits);
         Assert.Contains("// the whole count", bits);
-        var packed = await tools.GetNativeType(Image, name: "NdmPacked", source: "engine");
+        var packed = await tools.GetNativeType(Image, name: "SamplePacked", source: "engine");
         output.WriteLine(packed);
         Assert.Contains("packed", packed);
     }
@@ -301,7 +301,7 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
     public async Task Database_export_writes_a_copy_and_the_worker_keeps_its_own()
     {
         var rig = Setup("cache-e");
-        await rig.Types.DeclareNativeTypes(Image, "struct NdmShipped { int a; };");
+        await rig.Types.DeclareNativeTypes(Image, "struct SampleShipped { int a; };");
         var export = new EngineExportTools(rig.Workspace, rig.Engines, rig.Code);
         var target = _dir.File("out/copy");
         var r = await export.ExportEngineDatabase(Image, target);
@@ -321,7 +321,7 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         Assert.Equal(own, session.DatabasePath);
         Assert.Equal(copyTime, File.GetLastWriteTimeUtc(r.Path));
         Assert.Equal(r.Path, (await export.ExportEngineDatabase(Image, r.Path, force: true)).Path);
-        Assert.Contains((await session.GetTypeAsync("NdmShipped")).Members, m => m.Name == "a");
+        Assert.Contains((await session.GetTypeAsync("SampleShipped")).Members, m => m.Name == "a");
     }
 
     [IdaFact]
@@ -329,12 +329,12 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
     {
         var rig = Setup("cache-x");
         var local = FirstDefaultLocal(await rig.Analysis.DecompileNative(Image, Function));
-        await rig.Types.DeclareNativeTypes(Image, "struct NdmExported { int a; int b; };");
+        await rig.Types.DeclareNativeTypes(Image, "struct SampleExported { int a; int b; };");
         await rig.Types.SetNativeType(Image, Function, "int __fastcall CheckSumMappedFile(void *exportedBase, unsigned int n, unsigned int *a, unsigned int *b)");
-        await rig.Types.SetNativeLocal(Image, Function, local, newName: "ndm_exported_local");
+        await rig.Types.SetNativeLocal(Image, Function, local, newName: "sample_exported_local");
         var frame = await (await rig.Session()).GetFrameAsync(rig.Native.Image.Exports.First(e => e.Name == Function).Rva);
         var member = frame.Members.First(m => m.Kind == "local");
-        await rig.Types.SetNativeStackVar(Image, Function, member.Name, newName: "ndm_exported_slot", type: "int");
+        await rig.Types.SetNativeStackVar(Image, Function, member.Name, newName: "sample_exported_slot", type: "int");
         var script = _dir.File("apply.py");
         File.WriteAllText(script, Native.Annotations.AnnotationExport.Render(rig.Code.Annotations(rig.Native), Native.Annotations.AnnotationExport.Format.Ida));
         foreach (var d in _owned) d.Dispose();
@@ -348,10 +348,10 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("4 user type(s)", run);
         var text = await other.Analysis.DecompileNative(Image, Function);
         Assert.Contains("exportedBase", text);
-        Assert.Contains("ndm_exported_local", text);
+        Assert.Contains("sample_exported_local", text);
         var session = await other.Session();
-        Assert.Contains((await session.GetFrameAsync(frame.StartRva)).Members, m => m.Name == "ndm_exported_slot" && m.Type == "int");
-        Assert.Contains((await session.GetTypeAsync("NdmExported")).Members, m => m.Name == "b");
+        Assert.Contains((await session.GetFrameAsync(frame.StartRva)).Members, m => m.Name == "sample_exported_slot" && m.Type == "int");
+        Assert.Contains((await session.GetTypeAsync("SampleExported")).Members, m => m.Name == "b");
     }
 
     [IdaFact]

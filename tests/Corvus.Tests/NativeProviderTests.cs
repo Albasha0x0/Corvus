@@ -191,7 +191,7 @@ public class NativeProviderTests
         Process? other = null;
         WindowsJobProcess.PipesCreated = start =>
         {
-            if (!start.Arguments.Contains("echo ndm-pipes")) return;
+            if (!start.Arguments.Contains("echo sample-pipes")) return;
             // Process.Start on another thread while our child ends are inheritable: it either waits for them to close
             // (blocked on the shared lock) or starts at once and inherits them.
             var starter = new Thread(() => other = Process.Start(new ProcessStartInfo(cmd, "/d /c ping -n 30 127.0.0.1 >nul") { UseShellExecute = false, CreateNoWindow = true }));
@@ -201,8 +201,8 @@ public class NativeProviderTests
         try
         {
             // With the long-lived process holding the write end, the output never ends and the run comes back empty.
-            var run = PythonLocator.RunCapture(cmd, ["/d", "/c", "echo ndm-pipes"], TimeSpan.FromSeconds(30));
-            Assert.Equal("ndm-pipes", run.Stdout.Trim());
+            var run = PythonLocator.RunCapture(cmd, ["/d", "/c", "echo sample-pipes"], TimeSpan.FromSeconds(30));
+            Assert.Equal("sample-pipes", run.Stdout.Trim());
         }
         finally
         {

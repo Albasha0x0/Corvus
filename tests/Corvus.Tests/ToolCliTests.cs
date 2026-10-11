@@ -31,7 +31,7 @@ public class ToolCliTests
             Assert.StartsWith(name + ": ", text, StringComparison.Ordinal);
             Assert.Contains(ToolCli.Parameters(tool).Count == 0 ? "Parameters: none." : "Parameters:\n", text, StringComparison.Ordinal);
             foreach (var p in ToolCli.Parameters(tool)) Assert.Contains($"  {p.Name} (", text, StringComparison.Ordinal);
-            Assert.Contains("NetDecompilerMcp " + name, text, StringComparison.Ordinal);
+            Assert.Contains("corvus " + name, text, StringComparison.Ordinal);
         }
     }
 

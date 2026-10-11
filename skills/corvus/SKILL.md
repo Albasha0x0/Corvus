@@ -1,6 +1,6 @@
 ---
 name: corvus
-description: "Reverse engineering of compiled .NET assemblies and native PE, ELF and Mach-O binaries with the corvus MCP server or its NetDecompilerMcp command line: decompile, search, follow calls, compare builds, read crash dumps, patch and save a copy. Use when an answer depends on what a compiled program does (an .exe or .dll, a Unity or Il2Cpp game build, a package without source, a crash dump, two builds of one app). Skip it when the source code is at hand."
+description: "Reverse engineering of compiled .NET assemblies and native PE, ELF and Mach-O binaries with the Corvus MCP server or its corvus command line: decompile, search, follow calls, compare builds, read crash dumps, patch and save a copy. Use when an answer depends on what a compiled program does (an .exe or .dll, a Unity or Il2Cpp game build, a package without source, a crash dump, two builds of one app). Skip it when the source code is at hand."
 ---
 
 # corvus
@@ -22,21 +22,21 @@ More: the guide prompt or corvus://guide/{topic} (dotnet, native, il2cpp, contai
 
 If the corvus tools are available, use them. If they are not:
 
-1. `NetDecompilerMcp status --client <id>` says whether this client has the server registered and whether it starts.
-2. `NetDecompilerMcp install --client <id> --yes` registers it; then restart the client and call `server_status`.
+1. `corvus status --client <id>` says whether this client has the server registered and whether it starts.
+2. `corvus install --client <id> --yes` registers it; then restart the client and call `server_status`.
 
-Without the `NetDecompilerMcp` command, install it first (see the project README); this skill does not include the server.
+Without the `corvus` command, install it first (see the project README); this skill does not include the server.
 
 ## Terminal fallback
 
 With only a shell, every tool runs from the command line through the same server code:
 
 ```sh
-NetDecompilerMcp tools                                   # the tools by toolset
-NetDecompilerMcp describe decompile_member               # parameters and an example
-NetDecompilerMcp decompile_member --load app.dll member=Ns.Type::Method
-NetDecompilerMcp find_references --load app.dll symbol=Ns.Type::Method --json
-NetDecompilerMcp batch steps.jsonl                       # several calls in one session
+corvus tools                                   # the tools by toolset
+corvus describe decompile_member               # parameters and an example
+corvus decompile_member --load app.dll member=Ns.Type::Method
+corvus find_references --load app.dll symbol=Ns.Type::Method --json
+corvus batch steps.jsonl                       # several calls in one session
 ```
 
 A batch file holds one `{"tool": "...", "args": {...}}` object per line; ids such as `app.dll#2` and unsaved
