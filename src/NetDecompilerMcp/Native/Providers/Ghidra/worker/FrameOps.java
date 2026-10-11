@@ -13,12 +13,15 @@ import com.google.gson.JsonObject;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.listing.Function;
+import ghidra.program.model.listing.Parameter;
 import ghidra.program.model.listing.StackFrame;
 import ghidra.program.model.listing.Variable;
 import ghidra.program.model.listing.VariableStorage;
 import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.model.pcode.HighFunctionDBUtil;
+import ghidra.program.model.pcode.HighFunctionDBUtil.ReturnCommitOption;
 import ghidra.program.model.pcode.HighSymbol;
+import ghidra.program.model.pcode.LocalSymbolMap;
 import ghidra.program.model.symbol.SourceType;
 
 /**
@@ -239,6 +242,23 @@ final class FrameOps {
         return out;
     }
 
+    /**
+     * Whether a parameter edit needs the decompiler's parameters committed first: when the database has another count or
+     * storage, committing only the edited one would lock a prototype that drops the others.
+     */
+    private static boolean paramsDiffer(HighSymbol s, HighFunction hf) {
+        if (!s.isParameter()) return false;
+        Parameter[] db = hf.getFunction().getParameters();
+        LocalSymbolMap map = hf.getLocalSymbolMap();
+        if (map.getNumParams() != db.length) return true;
+        for (int i = 0; i < db.length; i++) {
+            HighSymbol p = map.getParamSymbol(i);
+            if (p.getCategoryIndex() != i || p.getStorage().compareTo(db[i].getVariableStorage()) != 0) return true;
+        }
+        return false;
+    }
+
+    /** Renames and/or retypes a decompiler local or parameter; the decompiler's view after the edit is the check. */
     static JsonArray applyLocal(Worker w, Worker.Request r, long rva, String local, Integer stack, String name, String type) throws Exception {
         return applyLocal(w, r, rva, local, stack, name, type, null);
     }
@@ -282,6 +302,7 @@ final class FrameOps {
             if (dt == null) return item("local", rva, local, false, "the type does not parse (types it names must be declared first)", resolved, stk, null);
         }
         try {
+            if (paramsDiffer(s, hf)) HighFunctionDBUtil.commitParamsToDatabase(hf, false, ReturnCommitOption.NO_COMMIT, f.getSignatureSource());
             HighFunctionDBUtil.updateDBVariable(s, name, dt, SourceType.USER_DEFINED);
         }
         catch (Exception e) {

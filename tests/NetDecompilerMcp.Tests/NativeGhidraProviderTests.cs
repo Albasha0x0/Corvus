@@ -492,6 +492,32 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
     }
 
     [GhidraFact]
+    public async Task Parameters_only_the_decompiler_knows_are_committed_before_an_edit()
+    {
+        // the minimal profile runs no parameter analysis, so the database holds no parameters the decompiler shows
+        var path = shared.Copy(NativeIdaProviderTests.System64);
+        var exportRva = NativeIdaProviderTests.ExportRva(path, Export);
+        var dir = new TempDir();
+        _owned.Add(dir);
+        using var provider = new GhidraProvider(new GhidraProviderOptions { CacheRoot = dir.File("cache"), Profile = GhidraAnalysisProfile.Minimal });
+        await using var s = await provider.OpenAsync(path, null, Offline);
+        var args = (await s.GetFrameAsync(exportRva)).Locals.Where(l => l.IsArgument).ToList();
+        output.WriteLine(string.Join(", ", args.Select(a => $"{a.Type} {a.Name} {a.Location}")));
+        Assert.True(args.Count >= 2);
+        var second = args[1];
+        var edit = await s.ApplyUserTypesAsync(new NativeUserTypeBatch([], [], [], [new NativeLocalEdit(exportRva, second.Name, second.Stack, "ndm_second", "uint")]));
+        var item = Assert.Single(edit.Items);
+        Assert.True(item.Applied, item.Error);
+        Assert.Equal("uint ndm_second", item.Text);
+        var text = (await s.DecompileAsync(exportRva)).Text;
+        output.WriteLine(text);
+        Assert.Contains("uint ndm_second", text);
+        var after = (await s.GetFrameAsync(exportRva)).Locals.Where(l => l.IsArgument).ToList();
+        Assert.Equal(args.Count, after.Count);
+        Assert.Equal([args[0].Name, "ndm_second", .. args.Skip(2).Select(a => a.Name)], after.Select(a => a.Name));
+    }
+
+    [GhidraFact]
     public async Task Type_names_resolve_through_C_and_Windows_spellings()
     {
         // Windows typedefs the PE loader defines are taken as they are; the others resolve through aliases, prefixes and case

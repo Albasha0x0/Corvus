@@ -81,7 +81,8 @@ concerned say so in their headers.
 - [LaurieWired/GhidraMCP](https://github.com/LaurieWired/GhidraMCP), Copyright 2025 LaurieWired: keeping fd 1 for
   the protocol and sending `System.out` to stderr (`Worker.java`); type names resolved after Ghidra's parser through
   C and Windows aliases, `P`-prefixed pointer typedefs and a case-insensitive search over every category
-  (`TypeOps.java`).
+  (`TypeOps.java`); the decompiler's parameters committed before a parameter edit when they differ from the
+  database's, as Ghidra's own decompiler actions do (`FrameOps.java`).
 - [bethington/ghidra-mcp](https://github.com/bethington/ghidra-mcp): a `BundleHost` acquired before analysis in a
   custom headless host, and the program saved before it and the project are released on shutdown (`Worker.java`);
   a decompilation that times out retried once with a longer limit inside the same request (`CodeOps.java`).
