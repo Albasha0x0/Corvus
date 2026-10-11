@@ -215,6 +215,46 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Analysis.DecompileNative(rig.Native.Id, functions: ["First"], refs: true))).Code);
     }
 
+    [Theory]
+    [InlineData("u32be", "u32", true)]
+    [InlineData("i16_le", "i16", false)]
+    [InlineData("f64:be", "f64", true)]
+    [InlineData("ptr be", "ptr", true)]
+    [InlineData("double", "double", false)]
+    [InlineData("unsigned short", "unsigned short", false)]
+    public void Byte_order_suffixes_parse(string type, string core, bool big) => Assert.Equal((core, big), NativeTools.ByteOrder(type));
+
+    [Fact]
+    public async Task Read_bytes_types_read_both_byte_orders_string_runs_and_zero_fill()
+    {
+        var b = new PeBuilder();
+        b.Add(".text", [0xC3], 0x60000020);
+        byte[] data = [.. "abc\0de\0"u8, 0x11, 0x22, 0x33, 0x44, .. "w\0i\0\0\0"u8, 0x3F, 0xF8, 0, 0, 0, 0, 0, 0];
+        var section = b.Add(".data", data, 0xC0000040, virtualSize: 0x2000);
+        var path = _dir.File("values.dll");
+        File.WriteAllBytes(path, b.Build());
+        var options = new ServerOptions { BackgroundIndexing = false };
+        var workspace = new AssemblyWorkspace(options);
+        _owned.Add(workspace);
+        var tools = new NativeTools(workspace, new OutputPager(options));
+        string At(uint off) => $"rva:0x{section.Rva + off:X}";
+
+        var strings = await tools.ReadBytes(path, At(0), length: 2, type: "cstr");
+        Assert.Contains("2 strings", strings);
+        Assert.Contains("\"abc\"", strings);
+        Assert.Contains("\"de\"", strings);
+        var be = await tools.ReadBytes(path, At(7), type: "u32be");
+        Assert.Contains("1 x u32 big-endian", be);
+        Assert.Contains("287454020 (0x11223344)", be);
+        Assert.Contains("(0x44332211)", (await tools.ReadBytes(path, At(7), type: "u32")));
+        Assert.Contains("\"wi\"", (await tools.ReadBytes(path, At(11), type: "wstr")));
+        Assert.Contains("  1.5", (await tools.ReadBytes(path, At(17), type: "f64be")).Replace("big-endian", ""));
+        // past the section's file data: zeros, marked
+        var bss = await tools.ReadBytes(path, At(0x1000), length: 2, type: "u64");
+        Assert.Contains("0  [zero fill]", bss);
+        Assert.DoesNotContain("[zero fill]", be);
+    }
+
     internal sealed class FakeProvider : INativeDecompilerProvider
     {
         public List<(uint Start, uint End, string Name)> Functions { get; set; } = [];

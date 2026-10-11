@@ -533,9 +533,10 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     }
 
     [McpServerTool(Name = "read_bytes", Title = "Read native bytes or values")]
-    [Description("Hex dump (with ASCII) of a native image's mapped bytes at an address, as the loader maps them. type= reads values instead: " +
-                 "length of them, each with its address: u8-u64, i8-i64, f32, f64, ptr (with the target's name), C names (int, unsigned short, " +
-                 "DWORD, float, char *...), string or string16 (one string to its terminator). get_native_type read=true reads structs.")]
+    [Description("Hex dump (with ASCII) of a native image's mapped bytes at an address, as the loader maps them. type= reads length values " +
+                 "instead, each with its address: u8-u64, i8-i64 (le or be suffix: u32be), f32, f64, ptr (with the target's name), C names " +
+                 "(int, DWORD, char *...), cstr or wstr (strings one after another). Zero fill past a section's file data reads as 0, marked. " +
+                 "get_native_type read=true reads structs.")]
     public Task<string> ReadBytes(
         [Description(ImageDescription)] string image,
         [Description(AddressDescription)] string address,
@@ -565,28 +566,80 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         return pager.Page(sb.ToString(), offset, maxChars);
     }, cancellationToken);
 
-    /// <summary>read_bytes type=: <paramref name="count"/> values of a scalar type, or one string.</summary>
+    /// <summary>read_bytes type=: <paramref name="count"/> values of a scalar type (le / be suffix for the byte order), or strings one after another.</summary>
     private string ReadValues(LoadedNative native, uint rva, string type, int count)
     {
         var pe = native.Image;
         var index = code?.Ready(native);
         Func<uint, string?> nameAt = r => index?.NameAt(r);
         var head = NativeAddress.Describe(pe, rva);
-        if (type is "string" or "string16" || NativeValues.Classify(type, pe.Is64Bit ? 8 : 4) is { Kind: "string" or "string16" })
-            return $"{head}, {type}\n{NativeValues.ReadString(pe, rva, type == "string16") ?? "(not mapped)"}\n";
-        var scalar = NativeValues.Classify(type, pe.Is64Bit ? 8 : 4)
-            ?? throw new ToolError(ErrorCode.InvalidArgument, $"'{type}' is not a scalar type read_bytes knows.",
-                "use u8-u64, i8-i64, f32, f64, ptr, string, string16 or a C scalar name; get_native_type read=true reads structs and enums");
         count = Math.Clamp(count, 1, 4096);
-        var sb = new StringBuilder($"{head}, {count} x {type} ({scalar.Size} byte(s) each)\n");
+        // zero fill past a section's file data reads as 0 here and holds what the program stores at run time
+        string Fill(uint at, int size) => !pe.TryRvaToFileOffset(at, out _) || !pe.TryRvaToFileOffset(at + (uint)size - 1, out _) ? "  [zero fill]" : "";
+        var (name, bigEndian) = ByteOrder(type);
+        if (StringWidth(name, pe) is { } width)
+        {
+            var sb = new StringBuilder($"{head}, {Plural(count, width == 2 ? "UTF-16 string" : "string")}\n");
+            uint at = rva;
+            for (int i = 0; i < count; i++)
+            {
+                if (NativeValues.ReadString(pe, at, width == 2) is not { } text) { sb.AppendLine($"{pe.ImageBase + at:X}  (not mapped)"); break; }
+                int units = Terminator(pe, at, width);
+                sb.AppendLine($"{pe.ImageBase + at:X}  {text}{Fill(at, Math.Max(width, units * width))}");
+                if (units < 0) break;
+                at += (uint)((units + 1) * width);
+            }
+            return sb.ToString();
+        }
+        var scalar = NativeValues.Classify(name, pe.Is64Bit ? 8 : 4)
+            ?? throw new ToolError(ErrorCode.InvalidArgument, $"'{type}' is not a scalar type read_bytes knows.",
+                "use u8-u64 or i8-i64 (le or be suffix: u32be), f32, f64, ptr, cstr, wstr or a C scalar name; get_native_type read=true reads structs and enums");
+        var values = new StringBuilder();
         var bytes = new byte[scalar.Size];
         for (int i = 0; i < count; i++)
         {
             uint at = rva + (uint)(i * scalar.Size);
-            if (pe.Read(at, bytes) < bytes.Length) { sb.AppendLine($"{pe.ImageBase + at:X}  (not mapped)"); break; }
-            sb.AppendLine($"{pe.ImageBase + at:X}  {NativeValues.Format(pe, bytes, scalar, nameAt)}");
+            if (pe.Read(at, bytes) < bytes.Length) { values.AppendLine($"{pe.ImageBase + at:X}  (not mapped)"); break; }
+            if (bigEndian) Array.Reverse(bytes);
+            values.AppendLine($"{pe.ImageBase + at:X}  {NativeValues.Format(pe, bytes, scalar, nameAt)}{Fill(at, scalar.Size)}");
         }
-        return sb.ToString();
+        return $"{head}, {count} x {name}{(bigEndian ? " big-endian" : "")} ({scalar.Size} byte(s) each)\n" + values;
+    }
+
+    /// <summary>The type without a byte-order suffix (u32be, i16_le, f64:be) and whether it is big-endian; other types as given.</summary>
+    internal static (string Type, bool BigEndian) ByteOrder(string type)
+    {
+        var t = type.Trim();
+        if (t.Length > 2 && (t.EndsWith("be", StringComparison.OrdinalIgnoreCase) || t.EndsWith("le", StringComparison.OrdinalIgnoreCase)))
+        {
+            var core = t[..^2].TrimEnd('_', ':', ' ', '.');
+            bool numeric = core.Length > 1 && core[0] is 'u' or 'i' or 'f' && core[1..].All(char.IsAsciiDigit);
+            if (numeric || core == "ptr")
+                return (core, t.EndsWith("be", StringComparison.OrdinalIgnoreCase));
+        }
+        return (t, false);
+    }
+
+    /// <summary>1 for a C string type (string, cstr, char[]), 2 for UTF-16 (string16, wstr, wchar_t[]); null for other types.</summary>
+    private static int? StringWidth(string type, INativeImage pe) => type switch
+    {
+        "string" or "cstr" or "str" => 1,
+        "string16" or "wstr" or "wstring" => 2,
+        _ => NativeValues.Classify(type, pe.Is64Bit ? 8 : 4) switch { { Kind: "string" } => 1, { Kind: "string16" } => 2, _ => null },
+    };
+
+    /// <summary>Characters before the terminator of the string at <paramref name="rva"/> (at most 1 MB is scanned); -1 when none is found.</summary>
+    private static int Terminator(INativeImage pe, uint rva, int width)
+    {
+        var chunk = new byte[4096];
+        for (int done = 0; done < 1 << 20; done += chunk.Length)
+        {
+            int read = pe.Read(rva + (uint)done, chunk);
+            for (int i = 0; i + width <= read; i += width)
+                if (chunk[i] == 0 && (width == 1 || chunk[i + 1] == 0)) return (done + i) / width;
+            if (read < chunk.Length) return -1;
+        }
+        return -1;
     }
 
     private static readonly Lazy<ApiSetSchema?> ApiSets = new(() => ApiSetSchema.FromSystem(PeFile.Open));
