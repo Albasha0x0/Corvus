@@ -22,35 +22,36 @@ public sealed partial class CSharpPatcher
                        ?? throw new ToolError(ErrorCode.Unsupported, IsDelegate(type)
                            ? $"{type.FullName} is a delegate that also declares methods or fields (a code transformer construct); C# cannot declare those, so its code cannot be patched in C#: use patch_method_il instead."
                            : $"Could not locate {type.FullName} in its decompiled source; use patch_method_il instead.");
-        return CSharpSyntaxTree.Create((CompilationUnitSyntax)new PublicTypes().Visit(transform(root, typeNode))!, parseOptions);
+        return CSharpSyntaxTree.Create((CompilationUnitSyntax)new InternalTypes().Visit(transform(root, typeNode))!, parseOptions);
     }
 
     private static bool IsDelegate(TypeDef type) => type.BaseType?.FullName is "System.MulticastDelegate" or "System.Delegate";
 
     /// <summary>
-    /// Makes the decompiled types public. IL allows a member to use a type less accessible than itself; C# reports it
-    /// as an error (CS0050-CS0061) that fails the compilation. Access is not checked when compiling patches, and only
-    /// bodies and added members are taken from the result, so the types' accessibility in the shadow tree is moot.
+    /// Makes the decompiled types internal. IL allows a member to use a type less accessible than itself; C# reports it
+    /// as an error (CS0050-CS0061) that fails the compilation. Internal is consistent with every type of the declaration
+    /// and with the target's internal types, which the reference copy grants the patch assembly. Access is not checked
+    /// when compiling patches, and only bodies and added members are taken from the result.
     /// </summary>
-    private sealed class PublicTypes : CSharpSyntaxRewriter
+    private sealed class InternalTypes : CSharpSyntaxRewriter
     {
-        private static SyntaxTokenList Public(SyntaxTokenList modifiers)
+        private static SyntaxTokenList Internal(SyntaxTokenList modifiers)
         {
-            var kept = modifiers.Where(m => !m.IsKind(SyntaxKind.PrivateKeyword) && !m.IsKind(SyntaxKind.ProtectedKeyword) && !m.IsKind(SyntaxKind.InternalKeyword)
+            var kept = modifiers.Where(m => !m.IsKind(SyntaxKind.PrivateKeyword) && !m.IsKind(SyntaxKind.ProtectedKeyword) && !m.IsKind(SyntaxKind.PublicKeyword)
                                             && !m.IsKind(SyntaxKind.FileKeyword)).ToList();
-            if (!kept.Any(m => m.IsKind(SyntaxKind.PublicKeyword)))
-                kept.Insert(0, SF.Token(SyntaxKind.PublicKeyword).WithTrailingTrivia(SF.Space));
+            if (!kept.Any(m => m.IsKind(SyntaxKind.InternalKeyword)))
+                kept.Insert(0, SF.Token(SyntaxKind.InternalKeyword).WithTrailingTrivia(SF.Space));
             return SF.TokenList(kept);
         }
 
         public override SyntaxNode? Visit(SyntaxNode? node) => node != null && node.HasAnnotation(UserCode) ? node : base.Visit(node);
 
-        public override SyntaxNode? VisitClassDeclaration(ClassDeclarationSyntax node) => ((ClassDeclarationSyntax)base.VisitClassDeclaration(node)!).WithModifiers(Public(node.Modifiers));
-        public override SyntaxNode? VisitStructDeclaration(StructDeclarationSyntax node) => ((StructDeclarationSyntax)base.VisitStructDeclaration(node)!).WithModifiers(Public(node.Modifiers));
-        public override SyntaxNode? VisitInterfaceDeclaration(InterfaceDeclarationSyntax node) => ((InterfaceDeclarationSyntax)base.VisitInterfaceDeclaration(node)!).WithModifiers(Public(node.Modifiers));
-        public override SyntaxNode? VisitRecordDeclaration(RecordDeclarationSyntax node) => ((RecordDeclarationSyntax)base.VisitRecordDeclaration(node)!).WithModifiers(Public(node.Modifiers));
-        public override SyntaxNode? VisitEnumDeclaration(EnumDeclarationSyntax node) => ((EnumDeclarationSyntax)base.VisitEnumDeclaration(node)!).WithModifiers(Public(node.Modifiers));
-        public override SyntaxNode? VisitDelegateDeclaration(DelegateDeclarationSyntax node) => ((DelegateDeclarationSyntax)base.VisitDelegateDeclaration(node)!).WithModifiers(Public(node.Modifiers));
+        public override SyntaxNode? VisitClassDeclaration(ClassDeclarationSyntax node) => ((ClassDeclarationSyntax)base.VisitClassDeclaration(node)!).WithModifiers(Internal(node.Modifiers));
+        public override SyntaxNode? VisitStructDeclaration(StructDeclarationSyntax node) => ((StructDeclarationSyntax)base.VisitStructDeclaration(node)!).WithModifiers(Internal(node.Modifiers));
+        public override SyntaxNode? VisitInterfaceDeclaration(InterfaceDeclarationSyntax node) => ((InterfaceDeclarationSyntax)base.VisitInterfaceDeclaration(node)!).WithModifiers(Internal(node.Modifiers));
+        public override SyntaxNode? VisitRecordDeclaration(RecordDeclarationSyntax node) => ((RecordDeclarationSyntax)base.VisitRecordDeclaration(node)!).WithModifiers(Internal(node.Modifiers));
+        public override SyntaxNode? VisitEnumDeclaration(EnumDeclarationSyntax node) => ((EnumDeclarationSyntax)base.VisitEnumDeclaration(node)!).WithModifiers(Internal(node.Modifiers));
+        public override SyntaxNode? VisitDelegateDeclaration(DelegateDeclarationSyntax node) => ((DelegateDeclarationSyntax)base.VisitDelegateDeclaration(node)!).WithModifiers(Internal(node.Modifiers));
     }
 
     /// <summary>A semantic model of <paramref name="tree"/> (not emitted; errors are irrelevant for binding).</summary>

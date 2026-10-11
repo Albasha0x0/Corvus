@@ -275,6 +275,19 @@ public sealed class RealScenarioRegressionTests
     }
 
     /// <summary>
+    /// The decompiled types were made public in the compiled copy, so an internal type deriving from or exposing another
+    /// internal type of the target failed every C# patch with CS0060 or CS0053 (Newtonsoft.Json's JSON path classes).
+    /// </summary>
+    [Fact]
+    public void CSharpPatchesCompileWhenAnInternalTypeUsesInternalTypesOfItsAssembly()
+    {
+        using var env = new Env(RealPackages.Lib("newtonsoft.json", "13.0.4", "netstandard2.0", "Newtonsoft.Json.dll"));
+        const string member = "public static int Twice(int x) { return x * 2; }";
+        Assert.Contains("compiled OK", env.Edit(() => env.Edits.AddMembersCSharp(env.One("Newtonsoft.Json.Linq.JsonPath.ScanFilter"), member, dryRun: true, default)));
+        Assert.Contains("compiled OK", env.Edit(() => env.Edits.AddMembersCSharp(env.One("Newtonsoft.Json.Linq.JsonPath.JPath"), member, dryRun: true, default)));
+    }
+
+    /// <summary>
     /// apply_edits onto a transformed rebuild matched targets against the source build as edited: after the script's
     /// own stub, that body no longer resembled its counterpart (now renamed), so the replay failed and rolled back.
     /// </summary>
