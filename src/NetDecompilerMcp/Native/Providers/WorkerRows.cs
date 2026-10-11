@@ -29,6 +29,24 @@ internal static class WorkerRows
         return new DecompiledFunction(r.GetProperty("start").GetUInt32(), r.GetProperty("name").GetString() ?? "", r.GetProperty("text").GetString() ?? "", lines);
     }
 
+    /// <summary>"items" of {rva, status ok|error|skipped}: ok carries a decompile result, error its code and message.</summary>
+    public static List<DecompileOutcome> DecompiledMany(JsonElement r)
+    {
+        var list = new List<DecompileOutcome>();
+        foreach (var i in r.GetProperty("items").EnumerateArray())
+        {
+            uint rva = i.GetProperty("rva").GetUInt32();
+            list.Add(i.GetProperty("status").GetString() switch
+            {
+                "ok" => new DecompileOutcome(rva, DecompileStatus.Ok, Decompiled(i), null, null),
+                "skipped" => new DecompileOutcome(rva, DecompileStatus.Skipped, null, null, null),
+                _ => new DecompileOutcome(rva, DecompileStatus.Error, null, i.TryGetProperty("code", out var c) ? c.GetString() ?? "failed" : "failed",
+                    i.TryGetProperty("message", out var m) ? m.GetString() : null),
+            });
+        }
+        return list;
+    }
+
     /// <summary>[rva, hex bytes, text, comment or null] rows under "insns".</summary>
     public static List<DisassembledInstruction> Instructions(JsonElement r) =>
         r.GetProperty("insns").EnumerateArray()

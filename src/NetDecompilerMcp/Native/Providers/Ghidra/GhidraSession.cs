@@ -255,6 +255,16 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
             WorkerRows.Args(("rva", rva), ("timeout", (int)GhidraOptions.DecompileTimeout.TotalSeconds)), cancellationToken).ConfigureAwait(false));
     }
 
+    public async Task<IReadOnlyList<DecompileOutcome>> DecompileManyAsync(IReadOnlyList<uint> rvas, double secondsPerItem, double budgetSeconds,
+        CancellationToken cancellationToken = default)
+    {
+        if (!DecompilerAvailable)
+            throw new ToolError(ErrorCode.Unsupported, $"Ghidra's native decompiler is not built for {GhidraInstallation.PlatformName} in {ghidra.Directory}.",
+                ghidra.DecompilerRemediation);
+        var args = WorkerRows.Args(("rvas", new JsonArray(rvas.Select(r => (JsonNode)r).ToArray())), ("seconds_per_item", secondsPerItem), ("budget_seconds", budgetSeconds));
+        return WorkerRows.DecompiledMany(await CallAsync("decompile_many", args, cancellationToken, timeout: TimeSpan.FromSeconds(budgetSeconds + 60)).ConfigureAwait(false));
+    }
+
     public async Task<FunctionDisassembly> DisassembleAsync(uint rva, CancellationToken cancellationToken = default) =>
         WorkerRows.Disassembly(await CallAsync("disasm", WorkerRows.Args(("rva", rva)), cancellationToken).ConfigureAwait(false));
 

@@ -1569,6 +1569,51 @@ OPS = {"hello": op_hello, "open": op_open, "rebase": op_rebase, "functions": op_
        "python": op_python, "close": op_close, "sleep": op_sleep, "insn": op_insn}
 
 
+def op_decompile_many(args):
+    # the function containing each rva, in order; each item within seconds_per_item, all within budget_seconds.
+    # Hex-Rays has no timeout: the deadline is checked at every optimization stage and cancels the decompilation there.
+    m = need_open()
+    if not hexrays_ready(m):
+        raise WorkerError("unsupported", "the Hex-Rays decompiler for %s (%d-bit) is not available: not installed or not licensed"
+                          % (m.ida_ida.inf_get_procname(), 64 if m.ida_ida.inf_is_64bit() else 32))
+    hr = m.ida_hexrays
+    per_item = max(1.0, float(args.get("seconds_per_item") or 60))
+    budget = max(1.0, float(args.get("budget_seconds") or 600))
+    start = time.time()
+    deadline = [start + per_item]
+
+    class Deadline(hr.Hexrays_Hooks):
+        def _check(self, *unused):
+            return hr.MERR_CANCELED if time.time() > deadline[0] else 0
+
+        microcode = preoptimized = locopt = prealloc = glbopt = _check
+
+    hooks = Deadline()
+    hooks.hook()
+    items = []
+    try:
+        for rva in args.get("rvas") or []:
+            now = time.time()
+            if now - start >= budget:
+                items.append({"rva": rva, "status": "skipped"})
+                continue
+            deadline[0] = min(now + per_item, start + budget)
+            try:
+                item = op_decompile({"rva": rva})
+                item.update({"rva": rva, "status": "ok"})
+            except WorkerError as e:
+                late = time.time() > deadline[0]
+                item = {"rva": rva, "status": "error", "code": "timeout" if late else e.code,
+                        "message": "not decompiled within %g s" % per_item if late else str(e)}
+            items.append(item)
+    finally:
+        hooks.unhook()
+    return {"items": items}
+
+
+OPS["decompile_many"] = op_decompile_many
+
+
 def watch_parent(parent):
     # POSIX has no job object: exit when the server dies, even while a request runs (stdin EOF is only seen between requests)
     try:

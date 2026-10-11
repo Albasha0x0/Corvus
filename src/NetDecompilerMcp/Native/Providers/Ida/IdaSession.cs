@@ -159,6 +159,17 @@ internal sealed class IdaSession(IdaProvider provider, IdaInstallation ida, Pyth
         return WorkerRows.Decompiled(await CallAsync("decompile", IdaProvider.Args(("rva", rva)), cancellationToken).ConfigureAwait(false));
     }
 
+    public async Task<IReadOnlyList<DecompileOutcome>> DecompileManyAsync(IReadOnlyList<uint> rvas, double secondsPerItem, double budgetSeconds,
+        CancellationToken cancellationToken = default)
+    {
+        if (!DecompilerAvailable)
+            throw new ToolError(ErrorCode.Unsupported, $"The Hex-Rays decompiler is not available for {Arch} in this IDA install (not installed or not licensed).",
+                IdaProvider.Remediation(ErrorCode.Unsupported, ""));
+        var args = IdaProvider.Args(("rvas", new JsonArray(rvas.Select(r => (JsonNode)r).ToArray())), ("seconds_per_item", secondsPerItem), ("budget_seconds", budgetSeconds));
+        // the worker keeps the budget; the request limit only catches a stuck worker
+        return WorkerRows.DecompiledMany(await CallAsync("decompile_many", args, cancellationToken, timeout: TimeSpan.FromSeconds(budgetSeconds + 60)).ConfigureAwait(false));
+    }
+
     public async Task<FunctionDisassembly> DisassembleAsync(uint rva, CancellationToken cancellationToken = default) =>
         WorkerRows.Disassembly(await CallAsync("disasm", IdaProvider.Args(("rva", rva)), cancellationToken).ConfigureAwait(false));
 

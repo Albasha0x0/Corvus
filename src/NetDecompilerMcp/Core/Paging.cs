@@ -8,6 +8,19 @@ public sealed class OutputPager(ServerOptions options)
     private const int CacheCapacity = 24;
     private readonly LinkedList<(string Key, string Text)> _cache = new();
 
+    public bool TryGet(string key, out string text)
+    {
+        lock (_cache)
+            for (var node = _cache.First; node != null; node = node.Next)
+                if (node.Value.Key == key)
+                {
+                    text = node.Value.Text;
+                    return true;
+                }
+        text = "";
+        return false;
+    }
+
     public string GetOrCreate(string key, Func<string> produce)
     {
         lock (_cache)

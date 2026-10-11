@@ -1231,16 +1231,21 @@ Structured output: `image`, `query`, `type`, `candidates`, `totalCandidates`, `o
 
 **Decompile native function** (read-only, idempotent, open-world, long-running)
 
-C pseudocode of the native function containing an address, through IDA (idalib; Hex-Rays) or Ghidra (its decompiler, through a Java worker). The first call on an image runs the engine's auto-analysis (seconds for a small DLL, minutes for a large game executable; progress is reported) and keeps the database per file hash, so later calls and later sessions are fast. The header names the engine. Lines are annotated with the address they come from. Names and comments in effect (rename_native / comment_native, apply_il2cpp_names, PDB names) are pushed into the database first, once per change, and saved with it. When the image has a PDB (found next to it or in the symbol cache, or loaded with load_pdb), its structs, enums, typedefs and prototypes are loaded into the database through the engine's PDB loader (the server's own PDB type reader when that loader is not available), once per PDB; the first line says which type source applies. The user's types (declare_native_types, set_native_type, set_native_local, set_native_stack_var) are applied last and win over recovered ones.
+C pseudocode of the native function containing an address, through IDA (idalib; Hex-Rays) or Ghidra (its decompiler, through a Java worker). The first call on an image runs the engine's auto-analysis (seconds for a small DLL, minutes for a large game executable; progress is reported) and keeps the database per file hash, so later calls and later sessions are fast. The header names the engine. Lines are annotated with the address they come from. Names and comments in effect (rename_native / comment_native, apply_il2cpp_names, PDB names) are pushed into the database first, once per change, and saved with it. When the image has a PDB (found next to it or in the symbol cache, or loaded with load_pdb), its structs, enums, typedefs and prototypes are loaded into the database through the engine's PDB loader (the server's own PDB type reader when that loader is not available), once per PDB; the first line says which type source applies. The user's types (declare_native_types, set_native_type, set_native_local, set_native_stack_var) are applied last and win over recovered ones. functions decompiles several in one request: inputs are deduplicated by function, each gets perFunctionSeconds, and a failure, a timeout or the budget affects only its own item; the others are kept.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
-| `address` | string | yes |  | Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them). |
+| `address` | string |  |  | Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them). Required unless functions is given. |
 | `engine` | string |  |  | Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra; the server default --engine when it names one), ida or ghidra. Values: auto, ida, ghidra. |
 | `addresses` | boolean |  | `false` | Prefix each line with the address it was generated from. |
 | `offset` | integer |  | `0` | Character offset for paging long output (use the value from the truncation footer). |
 | `maxChars` | integer |  |  | Max characters in this page (default from server config, ~60000). |
+| `functions` | string[] |  |  | Several functions instead of address: addresses or names, in the order wanted. |
+| `perFunctionSeconds` | integer |  | `60` | With functions: seconds per function (default 60, 1-600). |
+| `maxFunctions` | integer |  | `32` | With functions: functions decompiled (default 32, 1-200); the rest are skipped with a follow-up call. |
+
+Structured output: `image`, `engine`, `items`, `total`, `succeeded`, `failed`, `skipped`, `next`.
 
 ### verify_native_imports
 

@@ -4,6 +4,7 @@ using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Mcp;
 using NetDecompilerMcp.Native;
 using NetDecompilerMcp.Native.Msvc;
 using NetDecompilerMcp.Native.Pe;
@@ -18,7 +19,29 @@ namespace NetDecompilerMcp.Tools;
 public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngineService engines, OutputPager pager, NativeNamePush? names = null,
     NativeCodeService? code = null, NativeTypePush? types = null, NativeUserTypePush? userTypes = null, NotesService? notes = null)
 {
-    [McpServerTool(Name = "decompile_native", Title = "Decompile native function")]
+    [Description("One function of the call.")]
+    public sealed record DecompileItem(
+        [property: Description("The address or name as given.")] string Input,
+        [property: Description("Its VA; null when it did not resolve.")] string? Address,
+        [property: Description("Start VA of the function decompiled.")] string? Function,
+        string? Name,
+        [property: Description("ok, error, skipped (time budget or maxFunctions) or duplicate (the same function as an earlier item).")] string Status,
+        string? ErrorCode,
+        string? Error,
+        int Lines,
+        int Chars);
+
+    public sealed record DecompileReport(
+        string Image,
+        [property: Description("ida or ghidra.")] string Engine,
+        IReadOnlyList<DecompileItem> Items,
+        int Total,
+        int Succeeded,
+        int Failed,
+        int Skipped,
+        [property: Description("The call that decompiles the skipped items, when there are any.")] string? Next);
+
+    [McpServerTool(Name = "decompile_native", Title = "Decompile native function", UseStructuredContent = true, OutputSchemaType = typeof(DecompileReport))]
     [Description("C pseudocode of the native function containing an address, through IDA (idalib; Hex-Rays) or Ghidra (its decompiler, through a " +
                  "Java worker). The first call on an image runs the engine's auto-analysis (seconds for a small DLL, minutes for a large game executable; " +
                  "progress is reported) and keeps the database per file hash, so later calls and later sessions are fast. The header names the engine. " +
@@ -27,73 +50,213 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
                  "When the image has a PDB (found next to it or in the symbol cache, or loaded with load_pdb), its structs, enums, typedefs and " +
                  "prototypes are loaded into the database through the engine's PDB loader (the server's own PDB type reader when that loader is not " +
                  "available), once per PDB; the first line says which type source applies. The user's types (declare_native_types, set_native_type, set_native_local, set_native_stack_var) are applied last " +
-                 "and win over recovered ones.")]
+                 "and win over recovered ones. functions decompiles several in one request: inputs are deduplicated by function, each gets " +
+                 "perFunctionSeconds, and a failure, a timeout or the budget affects only its own item; the others are kept.")]
     public Task<string> DecompileNative(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description(NativeTools.AddressDescription)] string address,
+        [Description(NativeTools.AddressDescription + " Required unless functions is given.")] string? address = null,
         [Description("Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra; the server default " +
                      "--engine when it names one), ida or ghidra.")] string? engine = null,
         [Description("Prefix each line with the address it was generated from.")] bool addresses = false,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
+        [Description("Several functions instead of address: addresses or names, in the order wanted.")] string[]? functions = null,
+        [Description("With functions: seconds per function (default 60, 1-600).")] int perFunctionSeconds = 60,
+        [Description("With functions: functions decompiled (default 32, 1-200); the rest are skipped with a follow-up call.")] int maxFunctions = 32,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        var (native, rva) = await Task.Run(() => Resolve(image, address), cancellationToken);
-        var session = await engines.Session(native, engine, new Progress<NativeProviderProgress>(p =>
+        bool batch = functions is { Length: > 0 };
+        if (batch == !string.IsNullOrWhiteSpace(address))
+            throw new ToolError(ErrorCode.InvalidArgument, batch ? "Pass address or functions, not both." : "address is required (or functions for several).",
+                "address=<one function>, or functions=[...] for several");
+        var native = batch ? await Task.Run(() => ResolveImage(workspace, image), cancellationToken) : null;
+        uint rva = 0;
+        if (!batch) (native, rva) = await Task.Run(() => Resolve(image, address!), cancellationToken);
+        var session = await engines.Session(native!, engine, new Progress<NativeProviderProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), cancellationToken);
         if (!session.DecompilerAvailable)
             throw new ToolError(ErrorCode.Unsupported, $"The {session.ProviderId} decompiler is not available for {session.Arch} code here.",
                 "disassemble the function instead, or install/license the decompiler for this architecture");
+        var pushed = await Push(native!, session, cancellationToken);
+        if (batch)
+        {
+            var (text, report) = await Batch(native!, session, functions!, addresses, Math.Clamp(perFunctionSeconds, 1, 600), Math.Clamp(maxFunctions, 1, 200), cancellationToken);
+            return StructuredOutput.With((pushed != null ? $"// {pushed}\n" : "") + pager.Page(text, offset, maxChars), report);
+        }
+        if (types != null) await types.EnsureMethodAsync(native!, session, code?.Ready(native!)?.FunctionAt(rva)?.Start ?? rva, cancellationToken);
+        DecompiledFunction? decompiled = null;
+        var single = pager.GetOrCreate(TextKey(native!, session, rva, addresses), () =>
+        {
+            decompiled = session.DecompileAsync(rva, cancellationToken).GetAwaiter().GetResult();
+            return FunctionText(native!, session, decompiled, addresses);
+        });
+        string header = "";
+        if (notes != null && offset == 0)
+        {
+            var fn = code?.Ready(native!)?.FunctionAt(rva);
+            uint start = fn?.Start ?? rva, end = fn != null ? fn.Start + Math.Max(1u, fn.Size) : rva + 1;
+            header = NotesService.Header(notes.OpenCount(native!.OriginalSha256.ToLowerInvariant(), a => a.Kind == NoteAnchor.Native && a.Rva >= start && a.Rva < end),
+                $"{native.Id}@{NativeAddress.Va(native.Image, start)}");
+        }
+        var known = code?.Ready(native!)?.FunctionAt(rva);
+        uint? functionStart = decompiled?.StartRva ?? known?.Start;
+        var item = new DecompileItem(address!, NativeAddress.Va(native!.Image, rva), functionStart is { } fs ? NativeAddress.Va(native.Image, fs) : null,
+            decompiled?.Name ?? known?.Name, "ok", null, null, single.Count(c => c == '\n'), single.Length);
+        return StructuredOutput.With(header + (pushed != null ? $"// {pushed}\n" : "") + pager.Page(single, offset, maxChars),
+            new DecompileReport(native.Id, session.ProviderId, [item], 1, 1, 0, 0, null));
+    });
+
+    /// <summary>Pushes names, recovered and user types into the session (each once per change); what was pushed, for the header.</summary>
+    private async Task<string?> Push(LoadedNative native, INativeDecompilerSession session, CancellationToken ct)
+    {
         var pushed = NativePdbTypes.Describe(NativePdbTypes.Report(session));
-        if (names != null && NativeNamePush.Describe(await names.EnsureAsync(native, session, cancellationToken)) is { } named)
+        if (names != null && NativeNamePush.Describe(await names.EnsureAsync(native, session, ct)) is { } named)
             pushed = (pushed != null ? pushed + "\n// " : "") + named;
-        if (types != null && NativeTypePush.Describe(await types.EnsureAsync(native, session, cancellationToken)) is { } typed)
+        if (types != null && NativeTypePush.Describe(await types.EnsureAsync(native, session, ct)) is { } typed)
             pushed = (pushed != null ? pushed + "\n// " : "") + typed;
-        if (types != null) await types.EnsureMethodAsync(native, session, code?.Ready(native)?.FunctionAt(rva)?.Start ?? rva, cancellationToken);
-        if (userTypes != null && NativeUserTypePush.Describe(await userTypes.EnsureAsync(native, session, cancellationToken)) is { } user)
+        if (userTypes != null && NativeUserTypePush.Describe(await userTypes.EnsureAsync(native, session, ct)) is { } user)
             pushed = (pushed != null ? pushed + "\n// " : "") + user;
         if (native.HasPatches)
             pushed = (pushed != null ? pushed + "\n// " : "") + (engines.ServesPatchedCopy(native, session.ProviderId)
                 ? $"patched image: analyzed as a patched copy (the database could not take {Plural(native.Patches.Patches.Count, "patch")})"
                 : $"patched image: {Plural(native.Patches.Patches.Count, "patch")} applied in the database");
-        var key = $"decompile|{native.Image.Sha256}|{rva:X}|{addresses}|{NativeNamePush.CurrentStamp(session)}|{NativeTypePush.CurrentStamp(session)}|{NativePdbTypes.CurrentStamp(session)}|{NativeUserTypePush.CurrentStamp(session)}";
-        var text = pager.GetOrCreate(key, () =>
+        return pushed;
+    }
+
+    /// <summary>The text cache key of one function's pseudocode: single and batch calls share it.</summary>
+    private static string TextKey(LoadedNative native, INativeDecompilerSession session, uint rva, bool addresses) =>
+        $"decompile|{native.Image.Sha256}|{rva:X}|{addresses}|{NativeNamePush.CurrentStamp(session)}|{NativeTypePush.CurrentStamp(session)}|" +
+        $"{NativePdbTypes.CurrentStamp(session)}|{NativeUserTypePush.CurrentStamp(session)}";
+
+    private static string FunctionText(LoadedNative native, INativeDecompilerSession session, DecompiledFunction function, bool addresses)
+    {
+        var lines = function.Text.Split('\n');
+        var byLine = function.LineAddresses.GroupBy(l => l.Line).ToDictionary(g => g.Key, g => g.Min(l => l.Rva));
+        var sb = new StringBuilder($"// {function.Name} at {NativeAddress.Va(native.Image, function.StartRva)} ({session.ProviderId}" +
+                                   $"{(session.ReusedDatabase ? ", saved analysis" : $", analyzed in {session.OpenTime.TotalSeconds:0.0} s")})\n");
+        for (int i = 0; i < lines.Length; i++)
+            sb.Append(addresses ? (byLine.TryGetValue(i, out var at) ? $"/* {native.Image.ImageBase + at:X} */ " : new string(' ', 6 + 16 - 2)) : "")
+              .AppendLine(lines[i].TrimEnd('\r'));
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Several functions in one engine request: inputs resolve one by one (a bad one is its item's error), duplicates of an
+    /// earlier function are marked, texts already cached are reused, and the engine's per-item outcomes are kept as they come.
+    /// </summary>
+    private async Task<(string Text, DecompileReport Report)> Batch(LoadedNative native, INativeDecompilerSession session, string[] inputs, bool addresses,
+        int perItem, int max, CancellationToken ct)
+    {
+        var image = native.Image;
+        var index = code?.Ready(native);
+        string Va(uint r) => NativeAddress.Va(image, r);
+        int n = inputs.Length;
+        var rvas = new uint?[n];
+        var errors = new (string Code, string Message)?[n];
+        var starts = new uint?[n];
+        for (int i = 0; i < n; i++)
         {
-            var function = session.DecompileAsync(rva, cancellationToken).GetAwaiter().GetResult();
-            var lines = function.Text.Split('\n');
-            var byLine = function.LineAddresses.GroupBy(l => l.Line).ToDictionary(g => g.Key, g => g.Min(l => l.Rva));
-            var sb = new StringBuilder($"// {function.Name} at {NativeAddress.Va(native.Image, function.StartRva)} ({session.ProviderId}" +
-                                       $"{(session.ReusedDatabase ? ", saved analysis" : $", analyzed in {session.OpenTime.TotalSeconds:0.0} s")})\n");
-            for (int i = 0; i < lines.Length; i++)
-                sb.Append(addresses ? (byLine.TryGetValue(i, out var at) ? $"/* {native.Image.ImageBase + at:X} */ " : new string(' ', 6 + 16 - 2)) : "")
-                  .AppendLine(lines[i].TrimEnd('\r'));
-            return sb.ToString();
-        });
-        string header = "";
-        if (notes != null && offset == 0)
-        {
-            var fn = code?.Ready(native)?.FunctionAt(rva);
-            uint start = fn?.Start ?? rva, end = fn != null ? fn.Start + Math.Max(1u, fn.Size) : rva + 1;
-            header = NotesService.Header(notes.OpenCount(native.OriginalSha256.ToLowerInvariant(), a => a.Kind == NoteAnchor.Native && a.Rva >= start && a.Rva < end),
-                $"{native.Id}@{NativeAddress.Va(native.Image, start)}");
+            try
+            {
+                rvas[i] = NativeAddress.Parse(image, inputs[i], index != null ? index.AddressesOfName : null);
+                starts[i] = index?.FunctionAt(rvas[i]!.Value)?.Start;
+            }
+            catch (ToolError e) { errors[i] = (ToolError.CodeName(e.Code), e.Message); }
         }
-        return header + (pushed != null ? $"// {pushed}\n" : "") + pager.Page(text, offset, maxChars);
-    });
+        var status = new string[n];
+        var texts = new string?[n];
+        var outcomes = new DecompileOutcome?[n];
+        var firstOf = new Dictionary<uint, int>();
+        var asked = new List<int>();
+        int taken = 0;
+        for (int i = 0; i < n; i++)
+        {
+            if (errors[i] != null) { status[i] = "error"; continue; }
+            if (starts[i] is { } s && firstOf.ContainsKey(s)) { status[i] = "duplicate"; continue; }
+            if (taken >= max) { status[i] = "skipped"; continue; }
+            taken++;
+            if (starts[i] is { } st) firstOf[st] = i;
+            if (pager.TryGet(TextKey(native, session, rvas[i]!.Value, addresses), out var cached)) { texts[i] = cached; status[i] = "ok"; continue; }
+            asked.Add(i);
+        }
+        if (asked.Count > 0)
+        {
+            if (types != null)
+                foreach (var i in asked) await types.EnsureMethodAsync(native, session, starts[i] ?? rvas[i]!.Value, ct);
+            var results = await session.DecompileManyAsync(asked.Select(i => rvas[i]!.Value).ToList(), perItem, (double)perItem * asked.Count, ct);
+            for (int k = 0; k < asked.Count; k++)
+            {
+                int i = asked[k];
+                var o = k < results.Count ? results[k] : new DecompileOutcome(rvas[i]!.Value, DecompileStatus.Skipped, null, null, null);
+                outcomes[i] = o;
+                status[i] = o.Status switch { DecompileStatus.Ok => "ok", DecompileStatus.Skipped => "skipped", _ => "error" };
+                if (o.Function is not { } f) continue;
+                // without the code index, duplicates show only in the engine's answer
+                if (starts[i] == null && firstOf.TryGetValue(f.StartRva, out int earlier) && earlier != i) { status[i] = "duplicate"; starts[i] = f.StartRva; continue; }
+                starts[i] = f.StartRva;
+                firstOf.TryAdd(f.StartRva, i);
+                texts[i] = FunctionText(native, session, f, addresses);
+                pager.GetOrCreate(TextKey(native, session, rvas[i]!.Value, addresses), () => texts[i]!);
+            }
+        }
+
+        var items = new List<DecompileItem>(n);
+        var sb = new StringBuilder();
+        var skipped = new List<string>();
+        for (int i = 0; i < n; i++)
+        {
+            var o = outcomes[i];
+            var name = o?.Function?.Name ?? (starts[i] is { } s ? index?.NameAt(s) : null);
+            var where = starts[i] is { } st ? Va(st) : rvas[i] is { } r ? Va(r) : null;
+            var head = $"// [{i + 1}/{n}] {name ?? where ?? inputs[i]}{(where != null && name != null ? $" at {where}" : "")} (input \"{inputs[i]}\")";
+            string? code = null, message = null;
+            switch (status[i])
+            {
+                case "ok":
+                    sb.AppendLine(head).Append(texts[i]).AppendLine();
+                    break;
+                case "duplicate":
+                    var first = Array.FindIndex(starts, x => x == starts[i]);
+                    sb.AppendLine($"{head}: the same function as [{first + 1}]");
+                    break;
+                case "skipped":
+                    skipped.Add(inputs[i]);
+                    sb.AppendLine($"{head}: skipped ({(outcomes[i] != null ? "time budget used" : $"maxFunctions={max}")})");
+                    break;
+                default:
+                    (code, message) = errors[i] ?? (o?.ErrorCode ?? "failed", o?.Error ?? "failed");
+                    sb.AppendLine($"{head}: error {code}: {message}");
+                    break;
+            }
+            items.Add(new DecompileItem(inputs[i], rvas[i] is { } a ? Va(a) : null, starts[i] is { } fs ? Va(fs) : null, name, status[i], code, message,
+                texts[i]?.Count(c => c == '\n') ?? 0, texts[i]?.Length ?? 0));
+        }
+        int ok = items.Count(x => x.Status == "ok"), failed = items.Count(x => x.Status == "error");
+        string? next = skipped.Count > 0
+            ? $"decompile_native image={native.Id} functions=[{string.Join(", ", skipped.Select(x => $"\"{x}\""))}]"
+            : null;
+        var summary = $"// {Plural(n, "input")}: {ok} decompiled, {failed} failed, {skipped.Count} skipped, {items.Count(x => x.Status == "duplicate")} duplicate ({session.ProviderId})\n";
+        if (next != null) sb.AppendLine($"// Next: {next}");
+        return (summary + sb, new DecompileReport(native.Id, session.ProviderId, items, n, ok, failed, skipped.Count, next));
+    }
+
+    /// <summary>The native image named by id or path (loaded by path when needed).</summary>
+    internal static LoadedNative ResolveImage(AssemblyWorkspace workspace, string image)
+    {
+        var id = workspace.Read(() => workspace.FindNative(image)?.Id);
+        if (id == null && !string.IsNullOrWhiteSpace(image) && Path.IsPathFullyQualified(image.Trim()) && File.Exists(image.Trim()))
+            id = workspace.LoadAny(image.Trim()).Native?.Id ?? throw new ToolError(ErrorCode.Unsupported, $"{image} is a .NET assembly, not a native image.");
+        return workspace.Read(() => workspace.GetNative(id ?? image));
+    }
 
     private (LoadedNative Native, uint Rva) Resolve(string image, string address) => Resolve(workspace, code, image, address);
 
     /// <summary>The native image (loaded by path when needed) and an address in it; names resolve through the code index when it is ready.</summary>
     internal static (LoadedNative Native, uint Rva) Resolve(AssemblyWorkspace workspace, NativeCodeService? code, string image, string address)
     {
-        var id = workspace.Read(() => workspace.FindNative(image)?.Id);
-        if (id == null && !string.IsNullOrWhiteSpace(image) && Path.IsPathFullyQualified(image.Trim()) && File.Exists(image.Trim()))
-            id = workspace.LoadAny(image.Trim()).Native?.Id ?? throw new ToolError(ErrorCode.Unsupported, $"{image} is a .NET assembly, not a native image.");
-        return workspace.Read(() =>
-        {
-            var native = workspace.GetNative(id ?? image);
-            return (native, NativeAddress.Parse(native.Image, address, code?.Ready(native) is { } index ? index.AddressesOfName : null));
-        });
+        var native = ResolveImage(workspace, image);
+        return (native, workspace.Read(() => NativeAddress.Parse(native.Image, address, code?.Ready(native) is { } index ? index.AddressesOfName : null)));
     }
 
     [McpServerTool(Name = "list_cpp_classes", Title = "C++ classes from RTTI")]

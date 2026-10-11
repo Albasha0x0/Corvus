@@ -110,7 +110,11 @@ final class CodeOps {
     static JsonElement decompile(Worker w, Worker.Request r) throws Exception {
         Function f = functionAt(w, w.addr(r.args, "rva"));
         int timeout = r.args.has("timeout") ? r.args.get("timeout").getAsInt() : w.decompileTimeout;
-        DecompileResults res = results(w, f, timeout, r.monitor);
+        return decompiled(w, f, timeout, r.monitor);
+    }
+
+    static JsonObject decompiled(Worker w, Function f, int timeout, Worker.Monitor monitor) throws Exception {
+        DecompileResults res = results(w, f, timeout, monitor);
         List<ClangLine> lines = DecompilerUtils.toLines(res.getCCodeMarkup());
         StringBuilder text = new StringBuilder();
         JsonArray addresses = new JsonArray();

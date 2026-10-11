@@ -63,6 +63,41 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     /// <summary>Pseudocode of the function containing <paramref name="rva"/>.</summary>
     Task<DecompiledFunction> DecompileAsync(uint rva, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Pseudocode of the functions containing each RVA, in order, each within <paramref name="secondsPerItem"/> and all within
+    /// <paramref name="budgetSeconds"/>: a failure is that item's, and items the budget does not reach are skipped. The default
+    /// asks <see cref="DecompileAsync"/> once per item.
+    /// </summary>
+    async Task<IReadOnlyList<DecompileOutcome>> DecompileManyAsync(IReadOnlyList<uint> rvas, double secondsPerItem, double budgetSeconds,
+        CancellationToken cancellationToken = default)
+    {
+        var results = new List<DecompileOutcome>(rvas.Count);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        foreach (var rva in rvas)
+        {
+            if (clock.Elapsed.TotalSeconds >= budgetSeconds)
+            {
+                results.Add(new DecompileOutcome(rva, DecompileStatus.Skipped, null, null, null));
+                continue;
+            }
+            using var item = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            item.CancelAfter(TimeSpan.FromSeconds(Math.Min(secondsPerItem, Math.Max(1, budgetSeconds - clock.Elapsed.TotalSeconds))));
+            try
+            {
+                results.Add(new DecompileOutcome(rva, DecompileStatus.Ok, await DecompileAsync(rva, item.Token).ConfigureAwait(false), null, null));
+            }
+            catch (Core.ToolError e)
+            {
+                results.Add(new DecompileOutcome(rva, DecompileStatus.Error, null, Core.ToolError.CodeName(e.Code), e.Message));
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                results.Add(new DecompileOutcome(rva, DecompileStatus.Error, null, "timeout", $"not decompiled within {secondsPerItem:0.#} s"));
+            }
+        }
+        return results;
+    }
+
     /// <summary>Instructions of the function containing <paramref name="rva"/>, in address order including chunks.</summary>
     Task<FunctionDisassembly> DisassembleAsync(uint rva, CancellationToken cancellationToken = default);
 
@@ -236,6 +271,11 @@ public sealed record NativeFunctionInfo(uint StartRva, uint EndRva, string Name,
 public sealed record PseudocodeLineAddress(int Line, uint Rva);
 
 public sealed record DecompiledFunction(uint StartRva, string Name, string Text, IReadOnlyList<PseudocodeLineAddress> LineAddresses);
+
+public enum DecompileStatus : byte { Ok, Error, Skipped }
+
+/// <summary>One item of <see cref="INativeDecompilerSession.DecompileManyAsync"/>: the function, or the error's code and message, or skipped.</summary>
+public sealed record DecompileOutcome(uint Rva, DecompileStatus Status, DecompiledFunction? Function, string? ErrorCode, string? Error);
 
 public sealed record DisassembledInstruction(uint Rva, byte[] Bytes, string Text, string? Comment);
 
