@@ -18,8 +18,10 @@ public sealed class AnnotationDocument
     [JsonPropertyName("imageBase")] public ulong ImageBase { get; set; }
     [JsonPropertyName("names")] public Dictionary<string, string> Names { get; set; } = new();
     [JsonPropertyName("comments")] public Dictionary<string, string> Comments { get; set; } = new();
-    /// <summary>Format 3: the user's decompiler (pseudocode) comments by RVA; absent when there are none.</summary>
+    /// <summary>Format 4: the user's decompiler (pseudocode) comments by RVA; absent when there are none.</summary>
     [JsonPropertyName("pseudoComments"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public Dictionary<string, string>? PseudoComments { get; set; }
+    /// <summary>Format 4: the engine comment kind of a comment (eol, pre, plate) by RVA; absent: repeatable (earlier formats).</summary>
+    [JsonPropertyName("commentKinds"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public Dictionary<string, string>? CommentKinds { get; set; }
 
     // The user's engine types (UserTypeLayer); absent when there are none.
     [JsonPropertyName("declarations"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<string>? Declarations { get; set; }
@@ -75,12 +77,15 @@ public sealed class AnnotationDocument
     }
 
     /// <summary>Holds what format 3 added; older builds must leave such a file alone.</summary>
-    public bool HasFormat3 => PseudoComments is { Count: > 0 } || Analysis is { Count: > 0 } || Operands is { Count: > 0 } || EnumMembers is { Count: > 0 }
+    /// <summary>Holds what format 4 added (pseudocode comments, comment kinds); older builds must leave such a file alone.</summary>
+    public bool HasFormat4 => PseudoComments is { Count: > 0 } || CommentKinds is { Count: > 0 };
+
+    public bool HasFormat3 => Analysis is { Count: > 0 } || Operands is { Count: > 0 } || EnumMembers is { Count: > 0 }
                               || StackVars?.Values.Any(l => l.Any(s => s.Delete)) == true;
 
     public bool HasUserTypes => Declarations is { Count: > 0 } || Types is { Count: > 0 } || Locals is { Count: > 0 } || StackVars is { Count: > 0 } || HasFormat3;
 
-    public bool IsEmpty => Names.Count == 0 && Comments.Count == 0 && !HasUserTypes;
+    public bool IsEmpty => Names.Count == 0 && Comments.Count == 0 && !HasUserTypes && !HasFormat4;
 }
 
 /// <summary>
@@ -96,7 +101,7 @@ public sealed class AnnotationStore
     public const string RootVariable = "NDM_ANNOTATIONS_DIR";
 
     /// <summary>The newest sidecar format this build reads; a newer one is left untouched.</summary>
-    public const int FormatVersion = 3;
+    public const int FormatVersion = 4;
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
@@ -186,7 +191,7 @@ public sealed class AnnotationStore
             if (written.IsEmpty) return LockedJsonFile.Change.Remove();
             written.Revision = (current.Document?.Revision ?? 0) + 1;
             // the lowest version that holds the content, so older builds still read and write files they understand
-            written.FormatVersion = written.HasFormat3 ? 3 : written.HasUserTypes ? 2 : 1;
+            written.FormatVersion = written.HasFormat4 ? 4 : written.HasFormat3 ? 3 : written.HasUserTypes ? 2 : 1;
             return LockedJsonFile.Change.Write(JsonSerializer.SerializeToUtf8Bytes(written, Json));
         }, LockTimeout, () => stamp = Stamp(sha256));
         return problem == null ? new(written, stamp, null) : new(null, default, problem);

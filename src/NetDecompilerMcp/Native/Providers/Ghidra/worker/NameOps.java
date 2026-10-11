@@ -74,6 +74,16 @@ final class NameOps {
         return o;
     }
 
+    /** A comment kind on the wire (eol, pre, plate); null for anything else. */
+    private static CommentType kind(String kind) {
+        return switch (kind) {
+            case "eol" -> CommentType.EOL;
+            case "pre" -> CommentType.PRE;
+            case "plate" -> CommentType.PLATE;
+            default -> null;
+        };
+    }
+
     /**
      * items: [[rva, text; "" removes]]: the decompiler shows pre-comments above the statement made from the instruction
      * holding the address. Rows [rva, applied, anchor rva, error].
@@ -109,7 +119,7 @@ final class NameOps {
     }
 
     /**
-     * items: [[rva, name or null, comment or null, make_function]]; an empty name or comment removes it. Names are
+     * items: [[rva, name or null, comment or null, make_function, comment kind (optional: eol, pre, plate)]]; an empty name or comment removes it. Names are
      * forced (Ghidra allows the same label name at several addresses); a comment at a function start is the function's.
      */
     static JsonObject applyNames(Worker w, Worker.Request r) {
@@ -137,8 +147,10 @@ final class NameOps {
             }
             if (!item.get(2).isJsonNull()) {
                 String comment = item.get(2).getAsString();
+                CommentType kind = item.size() > 4 && !item.get(4).isJsonNull() ? kind(item.get(4).getAsString()) : null;
                 Function f = fm.getFunctionAt(a);
-                if (f != null) f.setComment(comment.isEmpty() ? null : comment);
+                if (kind != null) listing.setComment(a, kind, comment.isEmpty() ? null : comment);
+                else if (f != null) f.setComment(comment.isEmpty() ? null : comment);
                 else listing.setComment(a, CommentType.REPEATABLE, comment.isEmpty() ? null : comment);
                 commented++;
             }

@@ -41,7 +41,9 @@ public static class AnnotationExport
         foreach (var (rva, name) in ann.Names())
             sb.AppendLine($"idc.set_name(base + 0x{rva:X}, {Py(name)}, idc.SN_NOWARN)");
         foreach (var (rva, comment) in ann.Comments())
-            sb.AppendLine($"idc.set_cmt(base + 0x{rva:X}, {Py(comment)}, 0)");
+            sb.AppendLine(ann.CommentKindAt(rva) is NativeCommentKinds.Pre or NativeCommentKinds.Plate
+                ? $"idaapi.update_extra_cmt(base + 0x{rva:X}, idaapi.E_PREV, {Py(comment)})"
+                : $"idc.set_cmt(base + 0x{rva:X}, {Py(comment)}, 0)");
         if (ann.PseudoCommentCount > 0)
         {
             sb.Append(IdaPseudoHelper);
@@ -238,7 +240,7 @@ public static class AnnotationExport
         foreach (var (rva, name) in ann.Names())
             sb.AppendLine($"    createLabel(base.add(0x{rva:X}L), {Java(name)}, true, SourceType.USER_DEFINED);");
         foreach (var (rva, comment) in ann.Comments())
-            sb.AppendLine($"    setPlateComment(base.add(0x{rva:X}L), {Java(comment)});");
+            sb.AppendLine($"    set{ann.CommentKindAt(rva) switch { NativeCommentKinds.Eol => "EOL", NativeCommentKinds.Pre => "Pre", _ => "Plate" }}Comment(base.add(0x{rva:X}L), {Java(comment)});");
         foreach (var (rva, comment) in ann.PseudoComments())
             sb.AppendLine($"    setPreComment(base.add(0x{rva:X}L), {Java(comment)});");
         sb.AppendLine($"    println(\"NetDecompilerMcp: applied {ann.NameCount} name(s) and {ann.CommentCount} comment(s)\");");
@@ -255,7 +257,7 @@ public static class AnnotationExport
             sha256 = ann.Sha256,
             imageBase = ann.ImageBase,
             names = ann.Names().Select(n => new { rva = n.Rva, name = n.Name }),
-            comments = ann.Comments().Select(c => new { rva = c.Rva, comment = c.Comment }),
+            comments = ann.Comments().Select(c => new { rva = c.Rva, comment = c.Comment, kind = ann.CommentKindAt(c.Rva) }),
             pseudoComments = ann.PseudoComments().Select(c => new { rva = c.Rva, comment = c.Comment }),
             declarations = ann.UserTypes.Declarations,
             types = ann.UserTypes.Types.OrderBy(t => t.Key).Select(t => new { rva = t.Key, type = t.Value }),

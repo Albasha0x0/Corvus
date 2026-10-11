@@ -1313,7 +1313,7 @@ def stamp_node(create):
 
 
 def op_apply_names(args):
-    # items: [[rva, name or null, comment or null, make_function]]; empty name/comment removes it.
+    # items: [[rva, name or null, comment or null, make_function, comment kind (optional: eol, pre, plate)]]; empty name/comment removes it.
     m = need_open()
     start = time.time()
     badaddr = m.idautils.ida_idaapi.BADADDR
@@ -1322,6 +1322,7 @@ def op_apply_names(args):
     failures = []
     for item in args.get("items") or []:
         rva, name, comment, make_function = item[0], item[1], item[2], item[3]
+        kind = item[4] if len(item) > 4 else None
         ea = _state["base"] + rva
         f = m.ida_funcs.get_func(ea)
         if make_function and f is None:
@@ -1336,7 +1337,9 @@ def op_apply_names(args):
                 if len(failures) < 20:
                     failures.append("rva 0x%X: %s" % (rva, name))
         if comment is not None:
-            if f is not None and f.start_ea == ea:
+            if kind is not None:
+                ok = put_comment_kind(m, f, ea, comment, kind)
+            elif f is not None and f.start_ea == ea:
                 ok = m.ida_funcs.set_func_cmt(f, comment, True)
             else:
                 ok = m.ida_bytes.set_cmt(ea, comment, True)
@@ -1980,6 +1983,19 @@ def clear_stack(m, ti, rva, offset):
     got = [x for x in now if x.offset == offset]
     text = ("%s %s" % (got[0].type, got[0].name)) if got else "no member"
     return ["stack_clear", rva, target, True, None, old, offset, text + ("; " + note if note else "")]
+
+
+def put_comment_kind(m, f, ea, comment, kind):
+    # eol: the regular comment; pre: anterior lines; plate: the function comment at a function start, else anterior lines
+    import ida_lines
+    if kind == "eol":
+        return m.ida_bytes.set_cmt(ea, comment, False)
+    if kind == "plate" and f is not None and f.start_ea == ea:
+        return m.ida_funcs.set_func_cmt(f, comment, False)
+    ida_lines.delete_extra_cmts(ea, ida_lines.E_PREV)
+    for i, line in enumerate(comment.split("\n") if comment else []):
+        ida_lines.update_extra_cmt(ea, ida_lines.E_PREV + i, line)
+    return True
 
 
 def pseudo_anchor(cf, ea):

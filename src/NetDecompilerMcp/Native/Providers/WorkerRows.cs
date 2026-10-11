@@ -135,7 +135,7 @@ internal static class WorkerRows
     {
         var rows = new JsonArray();
         foreach (var i in items)
-            rows.Add(new JsonArray(i.Rva, i.Name, i.Comment, i.MakeFunction ? 1 : 0));
+            rows.Add(i.CommentKind == null ? new JsonArray(i.Rva, i.Name, i.Comment, i.MakeFunction ? 1 : 0) : new JsonArray(i.Rva, i.Name, i.Comment, i.MakeFunction ? 1 : 0, i.CommentKind));
         return rows;
     }
 

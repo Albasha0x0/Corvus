@@ -103,7 +103,7 @@ public static class ParameterDomains
         ["diff_function"] = new Dictionary<string, Domain> { ["side"] = Of(["old", "new"]), ["view"] = Of(["asm", "pseudocode"]), ["engine"] = DecompilerEngine },
         ["export_native_patches"] = new Dictionary<string, Domain> { ["format"] = Of(["ida", "dif", "ips", "ips32", "json"], "idapython", "py", "diff") },
         ["export_native_annotations"] = new Dictionary<string, Domain> { ["format"] = Of(["ida", "ghidra", "json", "header"], "idapython", "idc", "h") },
-        ["comment_native"] = new Dictionary<string, Domain> { ["scope"] = Of(["auto", "line", "pseudocode", "function"], "disassembly", "decompiler", "func"), ["engine"] = DecompilerEngine },
+        ["comment_native"] = new Dictionary<string, Domain> { ["scope"] = Of(["auto", "line", "eol", "pre", "plate", "pseudocode", "function"], "disassembly", "repeatable", "decompiler", "func"), ["engine"] = DecompilerEngine },
         ["patch_bytes"] = new Dictionary<string, Domain> { ["relocations"] = Relocations, ["stubMode"] = StubMode, ["placement"] = Placement },
         ["patch_asm"] = new Dictionary<string, Domain> { ["relocations"] = Relocations, ["stubMode"] = StubMode, ["placement"] = Placement },
         ["record_note"] = new Dictionary<string, Domain> { ["kind"] = NoteKind, ["status"] = NoteStatus },

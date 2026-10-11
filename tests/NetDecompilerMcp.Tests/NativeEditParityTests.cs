@@ -103,6 +103,36 @@ public sealed class NativeEditParityTests(ITestOutputHelper output) : IDisposabl
         Assert.Contains("ndm inside", again);
     }
 
+    [GhidraFact]
+    public async Task Comment_kinds_reach_Ghidra_and_a_pre_comment_shows_in_its_pseudocode()
+    {
+        var rig = Setup("ghidra-k");
+        var path = Image();
+        var session = await rig.Session("ghidra");
+        var lines = (await session.DecompileAsync(rig.Start)).LineAddresses.Where(l => l.Rva > rig.Start).ToList();
+        var at = lines[lines.Count / 2].Rva;
+        await rig.Edits.CommentNative(path, Rva(at), "ndm kind note", scope: "pre", engine: "ghidra");
+        Assert.Contains("ndm kind note", await rig.Analysis.DecompileNative(path, Function, engine: "ghidra"));
+        // another kind: the pre comment is removed (the decompiler does not print end-of-line comments)
+        await rig.Edits.CommentNative(path, Rva(at), "ndm kind note", scope: "eol", engine: "ghidra");
+        Assert.DoesNotContain("ndm kind note", await rig.Analysis.DecompileNative(path, Function, engine: "ghidra"));
+    }
+
+    [IdaFact]
+    public async Task Comment_kinds_reach_IDA_as_regular_and_anterior_comments()
+    {
+        var rig = Setup("ida-k");
+        var path = Image();
+        var session = await rig.Session("ida");
+        var at = (await session.DisassembleAsync(rig.Start)).Instructions[3].Rva;
+        async Task<string> Ida(string expr) => (await session.RunScriptAsync(expr)).Result ?? "";
+        await rig.Edits.CommentNative(path, Rva(at), "ndm pre", scope: "pre", engine: "ida");
+        Assert.Contains("ndm pre", await Ida($"__import__('ida_lines').get_extra_cmt(base + 0x{at:X}, __import__('ida_lines').E_PREV)"));
+        await rig.Edits.CommentNative(path, Rva(at), "ndm eol", scope: "eol", engine: "ida");
+        Assert.Contains("ndm eol", await Ida($"ida_bytes.get_cmt(base + 0x{at:X}, False)"));
+        Assert.DoesNotContain("ndm pre", await Ida($"__import__('ida_lines').get_extra_cmt(base + 0x{at:X}, __import__('ida_lines').E_PREV)"));
+    }
+
     [IdaFact]
     public Task Local_and_stack_edits_clear_in_IDA() => LocalAndStackEditsClear("ida");
 

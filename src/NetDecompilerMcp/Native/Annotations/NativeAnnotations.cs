@@ -19,6 +19,7 @@ public sealed class NativeAnnotations
     private readonly Dictionary<uint, string> _names = new();
     private readonly Dictionary<uint, string> _comments = new();
     private readonly Dictionary<uint, string> _pseudo = new();
+    private readonly Dictionary<uint, string> _kinds = new();
     private UserTypeLayer _userTypes = UserTypeLayer.Empty;
 
     // The sidecar as last read or written: the change set of this process is the difference between it and the live maps.
@@ -139,6 +140,9 @@ public sealed class NativeAnnotations
 
     public int PseudoCommentCount { get { lock (_gate) return _pseudo.Count; } }
 
+    /// <summary>The engine comment kind of the comment at <paramref name="rva"/> (eol, pre, plate), or null: repeatable.</summary>
+    public string? CommentKindAt(uint rva) { lock (_gate) return _kinds.GetValueOrDefault(rva); }
+
     /// <summary>The user's decompiler (pseudocode) comment at <paramref name="rva"/>, or null.</summary>
     public string? PseudoCommentAt(uint rva) { lock (_gate) return _pseudo.GetValueOrDefault(rva); }
 
@@ -154,7 +158,7 @@ public sealed class NativeAnnotations
     /// change); nothing is recorded when one is refused.
     /// </summary>
     public void Apply(IReadOnlyList<(uint Rva, string? Name)> names, IReadOnlyList<(uint Rva, string? Text)> comments,
-        IReadOnlyList<(uint Rva, string? Text)> pseudo, bool allowDuplicate = false)
+        IReadOnlyList<(uint Rva, string? Text)> pseudo, bool allowDuplicate = false, IReadOnlyList<(uint Rva, string? Kind)>? kinds = null)
     {
         Merged? merged;
         lock (_gate)
@@ -176,6 +180,11 @@ public sealed class NativeAnnotations
                 else _names[rva] = name;
             Put(_comments, comments);
             Put(_pseudo, pseudo);
+            foreach (var (rva, kind) in kinds ?? [])
+                if (string.IsNullOrEmpty(kind) || !_comments.ContainsKey(rva)) _kinds.Remove(rva);
+                else _kinds[rva] = kind;
+            foreach (var (rva, _) in comments)
+                if (!_comments.ContainsKey(rva)) _kinds.Remove(rva);
             merged = Persist();
         }
         Raise(merged);
@@ -326,14 +335,16 @@ public sealed class NativeAnnotations
         return merged;
     }
 
-    private AnnotationDocument Current() => Compose(_names, _comments, _pseudo, _userTypes);
+    private AnnotationDocument Current() => Compose(_names, _comments, _pseudo, _kinds, _userTypes);
 
-    private static AnnotationDocument Compose(Dictionary<uint, string> names, Dictionary<uint, string> comments, Dictionary<uint, string> pseudo, UserTypeLayer u)
+    private static AnnotationDocument Compose(Dictionary<uint, string> names, Dictionary<uint, string> comments, Dictionary<uint, string> pseudo,
+        Dictionary<uint, string> kinds, UserTypeLayer u)
     {
         var doc = new AnnotationDocument();
         foreach (var (r, n) in names) doc.Names[Hex(r)] = n;
         foreach (var (r, c) in comments) doc.Comments[Hex(r)] = c;
         if (pseudo.Count > 0) doc.PseudoComments = pseudo.ToDictionary(p => Hex(p.Key), p => p.Value);
+        if (kinds.Count > 0) doc.CommentKinds = kinds.ToDictionary(p => Hex(p.Key), p => p.Value);
         if (u.Declarations.Count > 0) doc.Declarations = [.. u.Declarations];
         if (u.Types.Count > 0) doc.Types = u.Types.ToDictionary(t => Hex(t.Key), t => t.Value);
         if (u.Locals.Count > 0)
@@ -354,23 +365,26 @@ public sealed class NativeAnnotations
     /// <summary>Replaces the live maps with <paramref name="doc"/>; returns the names and comments that changed.</summary>
     private Merged Adopt(AnnotationDocument doc)
     {
-        var (names, comments, pseudo) = Maps(doc);
+        var (names, comments, pseudo, kinds) = Maps(doc);
         var result = new Merged(Replace(_names, names), Replace(_comments, comments));
         Replace(_pseudo, pseudo);
+        Replace(_kinds, kinds);
         var types = UserTypesOf(doc);
         if (types.Stamp != _userTypes.Stamp) _userTypes = types;
         return result;
     }
 
-    private static (Dictionary<uint, string> Names, Dictionary<uint, string> Comments, Dictionary<uint, string> Pseudo) Maps(AnnotationDocument doc)
+    private static (Dictionary<uint, string> Names, Dictionary<uint, string> Comments, Dictionary<uint, string> Pseudo, Dictionary<uint, string> Kinds) Maps(AnnotationDocument doc)
     {
         var names = new Dictionary<uint, string>();
         var comments = new Dictionary<uint, string>();
         var pseudo = new Dictionary<uint, string>();
+        var kinds = new Dictionary<uint, string>();
         foreach (var (k, v) in doc.Names) if (Rva(k) is { } r) names[r] = v;
         foreach (var (k, v) in doc.Comments) if (Rva(k) is { } r) comments[r] = v;
         foreach (var (k, v) in doc.PseudoComments ?? []) if (Rva(k) is { } r && !string.IsNullOrWhiteSpace(v)) pseudo[r] = v;
-        return (names, comments, pseudo);
+        foreach (var (k, v) in doc.CommentKinds ?? []) if (Rva(k) is { } r && comments.ContainsKey(r) && NativeCommentKinds.IsKind(v)) kinds[r] = v;
+        return (names, comments, pseudo, kinds);
     }
 
     private static List<(uint, string?)> Replace(Dictionary<uint, string> live, Dictionary<uint, string> next)
@@ -386,8 +400,8 @@ public sealed class NativeAnnotations
     // ---- merge ----
 
     private const int NameSection = 0, CommentSection = 1, TypeSection = 2, LocalSection = 3, StackSection = 4, DeclarationSection = 5, AnalysisSection = 6,
-        OperandSection = 7, EnumSection = 8, PseudoSection = 9;
-    private static readonly string[] SectionLabels = ["name", "comment", "type", "locals", "stack members", "declaration", "analysis edit", "operand", "enum member", "pseudocode comment"];
+        OperandSection = 7, EnumSection = 8, PseudoSection = 9, KindSection = 10;
+    private static readonly string[] SectionLabels = ["name", "comment", "type", "locals", "stack members", "declaration", "analysis edit", "operand", "enum member", "pseudocode comment", "comment kind"];
 
     /// <summary>The sidecar as one comparable text value per key in each section (lists as their JSON).</summary>
     private sealed class Snapshot
@@ -406,8 +420,8 @@ public sealed class NativeAnnotations
     /// <summary>A document read from disk in the shape this build writes, so unchanged entries compare equal.</summary>
     private static Snapshot Normalize(AnnotationDocument doc)
     {
-        var (names, comments, pseudo) = Maps(doc);
-        return ToSnapshot(Compose(names, comments, pseudo, UserTypesOf(doc)));
+        var (names, comments, pseudo, kinds) = Maps(doc);
+        return ToSnapshot(Compose(names, comments, pseudo, kinds, UserTypesOf(doc)));
     }
 
     private static Snapshot ToSnapshot(AnnotationDocument doc)
@@ -423,6 +437,7 @@ public sealed class NativeAnnotations
         foreach (var o in doc.Operands ?? []) s.Sections[OperandSection][OperandKey(o)] = JsonSerializer.Serialize(o);
         foreach (var e in doc.EnumMembers ?? []) s.Sections[EnumSection][EnumKey(e)] = JsonSerializer.Serialize(e);
         foreach (var (k, v) in doc.PseudoComments ?? []) s.Sections[PseudoSection][k] = v;
+        foreach (var (k, v) in doc.CommentKinds ?? []) s.Sections[KindSection][k] = v;
         return s;
     }
 
@@ -435,6 +450,7 @@ public sealed class NativeAnnotations
         };
         if (s.Sections[TypeSection].Count > 0) doc.Types = new(s.Sections[TypeSection]);
         if (s.Sections[PseudoSection].Count > 0) doc.PseudoComments = new(s.Sections[PseudoSection]);
+        if (s.Sections[KindSection].Count > 0) doc.CommentKinds = new(s.Sections[KindSection]);
         if (s.Sections[LocalSection].Count > 0)
             doc.Locals = s.Sections[LocalSection].ToDictionary(kv => kv.Key, kv => JsonSerializer.Deserialize<List<AnnotationDocument.LocalEntry>>(kv.Value)!);
         if (s.Sections[StackSection].Count > 0)
@@ -502,4 +518,12 @@ public sealed class NativeAnnotations
     }
 
     private static string Short(string text) => text.Length > 60 ? text[..57] + "..." : text;
+}
+
+/// <summary>Engine comment kinds of a disassembly comment; none given is repeatable (shown where the address is referenced).</summary>
+public static class NativeCommentKinds
+{
+    public const string Eol = "eol", Pre = "pre", Plate = "plate";
+
+    public static bool IsKind(string? kind) => kind is Eol or Pre or Plate;
 }

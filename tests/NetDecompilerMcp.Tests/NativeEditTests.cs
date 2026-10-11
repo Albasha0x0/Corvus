@@ -415,7 +415,7 @@ public class NativeEditTests(ITestOutputHelper output)
             var fresh = env2.Workspace.LoadAny(h.Path).Native!;
             Assert.Equal("returns 1\nchecked\nchecked", code2.Annotations(fresh).PseudoCommentAt(inside));
         }
-        Assert.Contains("\"formatVersion\": 3", File.ReadAllText(Directory.GetFiles(h.Store.Root, "*.json").Single()));
+        Assert.Contains("\"formatVersion\": 4", File.ReadAllText(Directory.GetFiles(h.Store.Root, "*.json").Single()));
         foreach (var (format, expected) in new[] { ("ida", $"ndm_pseudo(0x{inside:X}, \"returns 1\\nchecked\\nchecked\")"), ("ghidra", "setPreComment"), ("json", "pseudoComments") })
         {
             var file = h.Dir.File("export." + format);
@@ -424,6 +424,32 @@ public class NativeEditTests(ITestOutputHelper output)
         }
         await tools.CommentNative(h.Path, At(inside), "", scope: "pseudocode");
         Assert.Equal(0, ann.PseudoCommentCount);
+    }
+
+    [Fact]
+    public async Task CommentNative_Kinds_AreKept_PushedWithTheOldKindRemoved_AndExported()
+    {
+        using var h = new Harness();
+        var (native, index) = await h.Open();
+        uint inside = native.Image.EntryPointRva + 5;
+        var tools = new NativeEditTools(h.Env.Workspace, h.Code, h.Edits);
+        var ann = h.Code.Annotations(native);
+        await tools.CommentNative(h.Path, $"rva:0x{inside:X}", "ends here", scope: "eol");
+        Assert.Equal(("ends here", "eol"), (ann.CommentAt(inside), ann.CommentKindAt(inside)));
+        var before = NativeNamePush.Effective(ann, [], native.Image);
+        // the same text as a pre comment is a change of kind, not "unchanged"
+        Assert.Contains("pre comment set", await tools.CommentNative(h.Path, $"rva:0x{inside:X}", "ends here", scope: "pre"));
+        Assert.Equal("pre", ann.CommentKindAt(inside));
+        Assert.NotEqual(NativeNamePush.StampOf(before), NativeNamePush.StampOf(NativeNamePush.Effective(ann, [], native.Image)));
+        var file = h.Dir.File("export.java");
+        await tools.ExportNativeAnnotations(h.Path, file, "ghidra");
+        Assert.Contains($"setPreComment(base.add(0x{inside:X}L), \"ends here\")", File.ReadAllText(file));
+        // back to line: the kind is dropped; a removed comment takes its kind with it
+        await tools.CommentNative(h.Path, $"rva:0x{inside:X}", "ends here", scope: "line");
+        Assert.Null(ann.CommentKindAt(inside));
+        await tools.CommentNative(h.Path, $"rva:0x{inside:X}", "x", scope: "plate");
+        await tools.CommentNative(h.Path, $"rva:0x{inside:X}", "", scope: "line");
+        Assert.Equal((null, null), (ann.CommentAt(inside), ann.CommentKindAt(inside)));
     }
 
     [Fact]

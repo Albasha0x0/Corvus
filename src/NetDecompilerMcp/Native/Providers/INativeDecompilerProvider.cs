@@ -405,7 +405,11 @@ public enum NativeXrefKind
 /// one removed; <see cref="MakeFunction"/> creates a function at <see cref="Rva"/> when none contains it. A comment at
 /// a function start becomes the function comment.
 /// </summary>
-public sealed record NativeNameItem(uint Rva, string? Name, string? Comment, bool MakeFunction = false);
+public sealed record NativeNameItem(uint Rva, string? Name, string? Comment, bool MakeFunction = false)
+{
+    /// <summary>The comment's engine kind: eol, pre or plate; null: repeatable (the function comment at a function start).</summary>
+    public string? CommentKind { get; init; }
+}
 
 /// <summary>One pseudocode comment: whether it attached, the address of the statement it is on, or why not.</summary>
 public sealed record PseudoCommentOutcome(uint Rva, bool Applied, uint? Anchor, string? Error);

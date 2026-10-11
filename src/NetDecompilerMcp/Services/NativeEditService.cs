@@ -52,7 +52,11 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
     }
 
     /// <summary>A comment change at an address: <see cref="Line"/> the disassembly / function comment, <see cref="Pseudo"/> the decompiler comment; null leaves one, "" removes it.</summary>
-    public sealed record CommentChange(uint Rva, string? Line, string? Pseudo);
+    public sealed record CommentChange(uint Rva, string? Line, string? Pseudo)
+    {
+        /// <summary>With <see cref="Line"/>: the engine comment kind (<see cref="NativeCommentKinds"/>); null: repeatable.</summary>
+        public string? Kind { get; init; }
+    }
 
     /// <summary>Records <paramref name="changes"/> with one sidecar write and shows the line comments in the code index.</summary>
     public void ApplyComments(LoadedNative native, NativeCodeIndex index, IReadOnlyList<CommentChange> changes)
@@ -62,7 +66,7 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         var pseudo = changes.Where(c => c.Pseudo != null).Select(c => (c.Rva, (string?)c.Pseudo)).ToList();
         workspace.Write(() =>
         {
-            ann.Apply([], lines, pseudo);
+            ann.Apply([], lines, pseudo, kinds: changes.Where(c => c.Line != null).Select(c => (c.Rva, c.Kind)).ToList());
             foreach (var (rva, text) in lines)
             {
                 var shown = string.IsNullOrEmpty(text) ? null : ann.CommentAt(rva);

@@ -77,14 +77,15 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
 
     [McpServerTool(Name = "comment_native", Title = "Comment a native address")]
     [Description("Comment a native address, saved to the per-user sidecar keyed by the file's SHA-256 and pushed into the engine's database. scope: line " +
-                 "(disassembly; also shown where the address is referenced), pseudocode (the decompiler statement made from the address, or the nearest " +
-                 "before it), function (the containing function's comment) or auto (default: function at a function start, else line and pseudocode). " +
+                 "(repeatable: also shown where the address is referenced), eol, pre or plate (engine comment kinds; Ghidra's decompiler shows pre), " +
+                 "pseudocode (the decompiler statement made from the address, or the nearest before it), function (the containing function's) or " +
+                 "auto (default: function at a function start, else line and pseudocode). " +
                  "append adds a line to the comment there (dedupe skips a line it already has). An empty text clears it.")]
     public Task<string> CommentNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
         [Description("The comment text; empty to clear it.")] string text,
-        [Description("auto, line, pseudocode or function.")] string? scope = null,
+        [Description("auto, line, eol, pre, plate, pseudocode or function.")] string? scope = null,
         [Description("Add text as a new line of the existing comment.")] bool append = false,
         [Description("With append: skip a line the comment already has (default true).")] bool dedupe = true,
         [Description("Engine to push pseudocode comments to now (default: one with this image open; else at its next use): auto, ida or ghidra.")] string? engine = null,
@@ -95,7 +96,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         var rva = Address(index, address);
         var plan = PlanComment(native, index, rva, text ?? "", CommentScopes.Parse(scope), append, dedupe);
         edits.ApplyComments(native, index, plan.Change is { } c ? [c] : []);
-        var pushed = plan.Change?.Pseudo != null ? await PushComments(native, engine, progress, cancellationToken) : null;
+        var pushed = plan.Change != null ? await PushComments(native, engine, progress, cancellationToken) : null;
         return plan.Text + (plan.Change?.Pseudo != null ? PushNote(pushed, [plan.Rva]) : "");
     });
 
@@ -103,15 +104,18 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     internal static class CommentScopes
     {
         public const string Auto = "auto", Line = "line", Pseudocode = "pseudocode", Function = "function";
-        public static readonly string[] All = [Auto, Line, Pseudocode, Function];
+        public static readonly string[] All = [Auto, Line, NativeCommentKinds.Eol, NativeCommentKinds.Pre, NativeCommentKinds.Plate, Pseudocode, Function];
 
         public static string Parse(string? scope) => (scope ?? "").Trim().ToLowerInvariant() switch
         {
             "" or Auto => Auto,
-            Line or "disassembly" => Line,
+            Line or "disassembly" or "repeatable" => Line,
+            NativeCommentKinds.Eol => NativeCommentKinds.Eol,
+            NativeCommentKinds.Pre => NativeCommentKinds.Pre,
+            NativeCommentKinds.Plate => NativeCommentKinds.Plate,
             Pseudocode or "decompiler" => Pseudocode,
             Function or "func" => Function,
-            _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown scope '{scope}'.", "use auto, line, pseudocode or function"),
+            _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown scope '{scope}'.", "use auto, line, eol, pre, plate, pseudocode or function"),
         };
     }
 
@@ -131,13 +135,15 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         uint at = scope == CommentScopes.Function ? fn!.Start : rva;
         var ann = edits.Annotations(native);
         var parts = new List<string>();
-        string? Next(string? current, string label)
+        string? kind = scope is NativeCommentKinds.Eol or NativeCommentKinds.Pre or NativeCommentKinds.Plate ? scope : null;
+        bool kindChanges = scope is not (CommentScopes.Pseudocode or "both" or CommentScopes.Function) && ann.CommentAt(at) != null && ann.CommentKindAt(at) != kind;
+        string? Next(string? current, string label, bool changes = false)
         {
             if (!append)
             {
                 var t = text.Trim();
                 if (t.Length == 0 && current == null) { parts.Add($"{label}: no comment to clear"); return null; }
-                if (t == current) { parts.Add($"{label}: unchanged"); return null; }
+                if (t == current && !changes) { parts.Add($"{label}: unchanged"); return null; }
                 parts.Add(t.Length == 0 ? $"{label} comment cleared" : $"{label} comment set");
                 return t;
             }
@@ -146,11 +152,11 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
             return next;
         }
         string? line = null, pseudo = null;
-        if (scope is CommentScopes.Line or CommentScopes.Function or "both")
-            line = Next(index.Sourced.CommentAt(at)?.Text, scope == CommentScopes.Function ? $"function {fn!.Name}" : "line");
+        if (scope is not CommentScopes.Pseudocode)
+            line = Next(index.Sourced.CommentAt(at)?.Text, scope == CommentScopes.Function ? $"function {fn!.Name}" : kind ?? "line", kindChanges);
         if (scope is CommentScopes.Pseudocode or "both")
             pseudo = Next(ann.PseudoCommentAt(at), "pseudocode");
-        return new CommentPlan(at, line == null && pseudo == null ? null : new NativeEditService.CommentChange(at, line, pseudo),
+        return new CommentPlan(at, line == null && pseudo == null ? null : new NativeEditService.CommentChange(at, line, pseudo) { Kind = kind },
             $"{NativeAddress.Va(index.Image, at)}: {string.Join("; ", parts)}.");
     }
 
