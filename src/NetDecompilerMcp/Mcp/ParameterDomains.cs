@@ -62,6 +62,7 @@ public static class ParameterDomains
         ["symbolize_stack_text"] = new Dictionary<string, Domain> { ["format"] = Of(["auto", "unity", "dotnet", "wer", "eventlog", "windbg"]) },
         ["disassemble_dex"] = new Dictionary<string, Domain> { ["format"] = Of(["smali", "annotated"]) },
         ["decompile_java"] = new Dictionary<string, Domain> { ["engine"] = Of(["jadx"]) },
+        ["read_android_log"] = new Dictionary<string, Domain> { ["priority"] = Of(["V", "D", "I", "W", "E", "F"], "verbose", "debug", "info", "warn", "warning", "error", "fatal") },
         ["search_dex"] = new Dictionary<string, Domain> { ["kind"] = Of(["string", "type", "method", "field", "const", "opcode"], "class") },
         ["find_dex_references"] = new Dictionary<string, Domain> { ["direction"] = Of(["to", "from"]), ["kind"] = Of(["auto", "class", "method", "field", "string"]) },
         ["inspect_process"] = new Dictionary<string, Domain> { ["regionFilter"] = Of(["committed", "all", "executable", "writable", "image", "private", "mapped"]) },

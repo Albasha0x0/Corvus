@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
-133 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+142 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -18,7 +18,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
 | [engine](#engine) | no | 7: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
-| [android](#android) | no | 10: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
+| [android](#android) | no | 19: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
 | [dumps](#dumps) | no | 7: crash dumps and crash text |
 | [live](#live) | no | 1: read-only inspection of a running process |
 
@@ -1931,6 +1931,130 @@ The other side of a Xamarin / .NET for Android binding. A Java class (Lpkg/C;, c
 | `path` | string |  |  | The .apk / .aab whose assemblies to read (without loading them); optional when they are loaded. |
 
 Structured output: `query`, `direction`, `items`, `notes`.
+
+### list_android_devices
+
+**List Android devices** (read-only, idempotent, open-world)
+
+Android devices and emulators adb sees (adb devices -l): serial, state (device, unauthorized, offline), product, model, transport. adb comes from NDM_ADB, else PATH, else the Android SDK's platform-tools.
+
+No parameters.
+
+Structured output: `items`, `unparsed`.
+
+### get_android_device_info
+
+**Android device info** (read-only, idempotent, open-world)
+
+A device's properties (getprop), paged and filterable, with a summary: SDK, release, manufacturer, model, ABIs, fingerprint, security patch, build type, ro.debuggable, ro.secure, and whether it is an emulator with the evidence.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `serial` | string |  |  | Device serial from list_android_devices; optional when exactly one device is ready. |
+| `query` | string |  |  | Only properties whose name or value contains this. |
+| `offset` | integer |  | `0` | Properties to skip. |
+| `limit` | integer |  | `200` | Most properties to return (default 200). |
+
+Structured output: `serial`, `summary`, `properties`, `offset`, `total`, `truncated`.
+
+### list_android_packages
+
+**List installed packages** (read-only, idempotent, open-world)
+
+Packages installed on a device (pm list packages -f -U -i): name, APK path, uid and installer.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `serial` | string |  |  | Device serial from list_android_devices; optional when exactly one device is ready. |
+| `query` | string |  |  | Only package names containing this. |
+| `user` | integer |  |  | Android user id (default: the current user). |
+| `offset` | integer |  | `0` | Packages to skip. |
+| `limit` | integer |  | `500` | Most packages to return (default 500). |
+
+Structured output: `serial`, `items`, `offset`, `total`, `truncated`.
+
+### get_android_package_info
+
+**Installed package info** (read-only, idempotent, open-world)
+
+One installed package from dumpsys package: versions, SDKs, code path, data directory, ABI, flags, install and update times, installer, uid, every requested permission with its install or runtime grant state and flags, and per-user state.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `package` | string | yes |  | Package name, e.g. com.example.app. |
+| `serial` | string |  |  | Device serial from list_android_devices; optional when exactly one device is ready. |
+
+Structured output: `serial`, `package`, `versionName`, `versionCode`, `minSdk`, `targetSdk`, `codePath`, `dataDir`, `primaryCpuAbi`, `flags`, `firstInstallTime`, `lastUpdateTime`, `installer`, `uid`, `permissions`, `users`.
+
+### pull_android_package
+
+**Pull installed package** (edit, idempotent, open-world, long-running)
+
+Copies every APK of an installed package (base and splits, from pm path) into a new or empty directory, with size and SHA-256 each, then reads the base APK as summarize_file does (manifest facts, runtimes, signature). A failed pull leaves no files.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `package` | string | yes |  | Package name, e.g. com.example.app. |
+| `outputDirectory` | string | yes |  | A new or empty directory to write the APKs to. |
+| `serial` | string |  |  | Device serial from list_android_devices; optional when exactly one device is ready. |
+
+Structured output: `serial`, `package`, `files`, `summary`.
+
+### pull_android_file
+
+**Pull device file** (destructive, idempotent, open-world, long-running)
+
+Copies one file from a device (directories are refused) to outputPath, with its size and SHA-256; a failed pull leaves nothing behind.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `remotePath` | string | yes |  | The file's path on the device, e.g. /sdcard/Download/app.log. |
+| `outputPath` | string | yes |  | The local file to write. |
+| `overwrite` | boolean |  | `false` | Replace outputPath if it exists. |
+| `serial` | string |  |  | Device serial from list_android_devices; optional when exactly one device is ready. |
+
+Structured output: `remote`, `local`, `size`, `sha256`.
+
+### read_android_log
+
+**Read device log** (read-only, idempotent, open-world)
+
+The device log so far (logcat -d, threadtime format), narrowed by process, tag, priority and start time; beyond maxBytes it is cut and says truncated=true instead of failing.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `serial` | string |  |  | Device serial from list_android_devices; optional when exactly one device is ready. |
+| `pid` | integer |  |  | Only this process id. |
+| `tag` | string |  |  | Only this log tag. |
+| `priority` | string |  |  | Lowest priority: V, D, I, W, E or F. Values: V, D, I, W, E, F. |
+| `since` | string |  |  | Only lines since this time, as logcat -t takes it ('01-31 12:00:00.000') or a line count. |
+| `maxBytes` | integer |  | `262144` | Most bytes of log to return (default 262144). |
+
+### install_android_package
+
+**Install package on device** (destructive, open-world, long-running)
+
+Installs an APK, every APK of a split set (.apks, .xapk, .apkm) or of a directory on a device in one session (adb install-multiple); install failures come back by their code (INSTALL_FAILED_...). Changes the device: off unless the server runs with --allow-device-changes.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `path` | string | yes |  | An .apk, a split set (.apks, .xapk, .apkm) or a directory of APKs. |
+| `replace` | boolean |  | `true` | Replace an installed app (default true). |
+| `downgrade` | boolean |  | `false` | Allow a lower version code. |
+| `grantPermissions` | boolean |  | `false` | Grant every runtime permission the manifest requests. |
+| `serial` | string |  |  | Device serial from list_android_devices; optional when exactly one device is ready. |
+
+### uninstall_android_package
+
+**Uninstall package from device** (destructive, idempotent, open-world)
+
+Removes an app from a device, with its data unless keepData. Changes the device: off unless the server runs with --allow-device-changes.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `package` | string | yes |  | Package name, e.g. com.example.app. |
+| `keepData` | boolean |  | `false` | Keep the app's data and cache. |
+| `serial` | string |  |  | Device serial from list_android_devices; optional when exactly one device is ready. |
 
 ## dumps
 

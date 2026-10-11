@@ -38,7 +38,19 @@ public static class ToolAvailability
             var probe = ExternalTools.Probe(tool);
             yield return ("decompile_java", null, probe.Usable, $"{probe.Name}: {probe.Problem}", probe.Remediation);
         }
+        var adb = ExternalTools.Probe(ExternalTools.Adb);
+        foreach (var tool in DeviceTools) yield return (tool, null, adb.Usable, $"{adb.Name}: {adb.Problem}", adb.Remediation);
     }
+
+    /// <summary>The Android device tools: each runs adb.</summary>
+    public static readonly IReadOnlyList<string> DeviceTools =
+    [
+        "list_android_devices", "get_android_device_info", "list_android_packages", "get_android_package_info", "pull_android_package",
+        "pull_android_file", "read_android_log", "install_android_package", "uninstall_android_package",
+    ];
+
+    /// <summary>Device tools that change the device, allowed only with --allow-device-changes.</summary>
+    public static readonly IReadOnlyList<string> DeviceChanging = ["install_android_package", "uninstall_android_package"];
 
     /// <summary>Tools whose availability depends on programs found on this machine.</summary>
     public static IEnumerable<string> ExternalProgramTools => ExternalPrograms().Select(p => p.Tool).Distinct();
@@ -48,7 +60,8 @@ public static class ToolAvailability
         EngineOnly.Keys.Concat(EngineModes.Select(m => m.Tool)).Concat(WindowsOnly).Concat(ExternalPrograms().Select(p => p.Tool)).Distinct();
 
     /// <summary>What does not work here among <paramref name="registered"/> tools, given the engines' static availability.</summary>
-    public static List<Unavailable> Of(IReadOnlySet<string> registered, IReadOnlyList<ProviderAvailability> engines, bool idaScripting, bool isWindows)
+    public static List<Unavailable> Of(IReadOnlySet<string> registered, IReadOnlyList<ProviderAvailability> engines, bool idaScripting, bool isWindows,
+        bool allowDeviceChanges = false)
     {
         var result = new List<Unavailable>();
         ProviderAvailability? Missing(string provider) => engines.FirstOrDefault(e => e.ProviderId == provider && !e.IsAvailable)
@@ -82,6 +95,9 @@ public static class ToolAvailability
                 result.Add(new(tool, null, "it uses the Windows process API; this server is not running on Windows", "inspect a minidump instead, or run the server on Windows"));
         foreach (var (tool, mode, found, reason, fix) in ExternalPrograms())
             if (registered.Contains(tool) && !found) result.Add(new(tool, mode, reason, fix));
+        foreach (var tool in DeviceChanging.Where(registered.Contains).Where(_ => !allowDeviceChanges))
+            result.Add(new(tool, null, "off: it changes a connected device",
+                $"start the server with {Core.ServerOptions.AllowDeviceChangesOption} (or {Core.ServerOptions.AllowDeviceChangesVariable}=1)"));
         return result;
     }
 }

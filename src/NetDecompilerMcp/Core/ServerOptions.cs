@@ -21,6 +21,7 @@ namespace NetDecompilerMcp.Core;
 ///   --index-cache-days &lt;n&gt; entries unused for this many days are deleted (default 30)
 ///   --log-level &lt;l&gt;     stderr log level: trace, debug (adds one line per tool call), information (default), warning, error or none
 ///   --toolsets &lt;list&gt;   register only these tool families (see <see cref="Core.Toolsets"/>; default all): core, or names such as core,dumps
+///   --allow-device-changes  allow the Android device tools that install or uninstall apps (NDM_ALLOW_DEVICE_CHANGES=1)
 /// The NETDECOMP_LOAD environment variable (';'-separated paths) is also honored; NDM_PREWARM sets --prewarm (NDM_IDA_PREWARM=1: ida); NDM_ENGINE sets --engine;
 /// NDM_CODE_INDEX_CACHE, NDM_CODE_INDEX_CACHE_MB and NDM_CODE_INDEX_CACHE_DAYS set the code index cache defaults; NDM_LOG_LEVEL sets --log-level;
 /// NDM_TOOLSETS sets --toolsets.
@@ -59,6 +60,12 @@ public sealed class ServerOptions
     public bool IdaScripting { get; set; }
 
     public const string IdaScriptingVariable = "NDM_IDA_SCRIPTING";
+
+    /// <summary>Allow the device tools that change a connected Android device (install, uninstall); default off.</summary>
+    public bool AllowDeviceChanges { get; set; }
+
+    public const string AllowDeviceChangesOption = "--allow-device-changes";
+    public const string AllowDeviceChangesVariable = "NDM_ALLOW_DEVICE_CHANGES";
 
     /// <summary>Default engine of the native code tools when a call names none (see <see cref="EngineMode"/>).</summary>
     public EngineMode Engine { get; set; } = EngineMode.Auto;
@@ -116,6 +123,7 @@ public sealed class ServerOptions
                 case "--ida-prewarm": prewarm = "ida"; break;
                 case "--prewarm": prewarm = Next(); break;
                 case "--ida-scripting": o.IdaScripting = true; break;
+                case AllowDeviceChangesOption: o.AllowDeviceChanges = true; break;
                 case "--engine": engine = Next(); break;
                 case "--index-cache": cacheRoot = Next(); break;
                 case "--index-cache-mb": cacheMb = long.TryParse(Next(), out var mb) && mb > 0 ? mb : throw new ArgumentException("--index-cache-mb must be a positive number"); break;
@@ -144,6 +152,7 @@ public sealed class ServerOptions
                 : prewarm.Trim().ToLowerInvariant() is "off" or "0" or "none" ? null
                 : throw new ArgumentException($"--prewarm (or {PrewarmVariable}) must be ida, ghidra, auto or off, not '{prewarm.Trim()}'");
         if (Environment.GetEnvironmentVariable(IdaScriptingVariable)?.Trim() is "1" or "true" or "on") o.IdaScripting = true;
+        if (Environment.GetEnvironmentVariable(AllowDeviceChangesVariable)?.Trim() is "1" or "true" or "on") o.AllowDeviceChanges = true;
         if (engine != null)
             o.Engine = EngineModes.TryParse(engine) ?? throw new ArgumentException($"--engine (or {EngineVariable}) must be auto, ours, ida or ghidra, not '{engine.Trim()}'");
         var env = Environment.GetEnvironmentVariable("NETDECOMP_LOAD");

@@ -95,6 +95,17 @@ public static class ToolEffects
         ["search_dex"] = Reads(longRunning: true), // the first call builds the package's code index
         ["find_dex_references"] = Reads(longRunning: true),
 
+        // Android devices through adb (open-world: they reach a device); install and uninstall need --allow-device-changes
+        ["list_android_devices"] = Reads(openWorld: true),
+        ["get_android_device_info"] = Reads(openWorld: true),
+        ["list_android_packages"] = Reads(openWorld: true),
+        ["get_android_package_info"] = Reads(openWorld: true),
+        ["read_android_log"] = Reads(openWorld: true),
+        ["pull_android_package"] = Changes(destructive: false, idempotent: true, longRunning: true, openWorld: true), // writes into a new or empty directory
+        ["pull_android_file"] = Changes(destructive: true, idempotent: true, longRunning: true, openWorld: true), // overwrite=true replaces a file
+        ["install_android_package"] = Changes(destructive: true, idempotent: false, longRunning: true, openWorld: true), // replaces an installed app
+        ["uninstall_android_package"] = Changes(destructive: true, idempotent: true, openWorld: true),
+
         // Builds
         ["compare_assemblies"] = Changes(destructive: true, idempotent: true, longRunning: true), // tokenMapPath; overwrite=true replaces a file
         ["find_counterpart"] = Reads(longRunning: true),

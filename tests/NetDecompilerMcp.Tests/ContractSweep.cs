@@ -33,6 +33,8 @@ public static class ContractSweep
         ["unpack_container"] = ["outputDirectory"],
         ["get_resource"] = ["savePath"],
         ["get_android_resource"] = ["savePath"],
+        ["pull_android_package"] = ["outputDirectory"],
+        ["pull_android_file"] = ["outputPath"],
         ["extract_strings"] = ["savePath"],
         ["export_native_annotations"] = ["outputPath"],
         ["save_native"] = ["outputPath"],
@@ -43,7 +45,7 @@ public static class ContractSweep
     public static readonly string[] OpenWorldParameters = ["engine", "crossCheck", "download", "server", "detectItEasy", "downloadDac"];
 
     /// <summary>Open-world whatever the arguments: server_status probes Python, inspect_process reads another process.</summary>
-    public static readonly string[] AlwaysOpenWorld = ["server_status", "inspect_process"];
+    public static readonly string[] AlwaysOpenWorld = ["server_status", "inspect_process", .. NetDecompilerMcp.Mcp.ToolAvailability.DeviceTools];
 
 
     /// <summary>A parameter that names a file or directory the tool writes.</summary>

@@ -45,7 +45,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
             // Annotation sidecars and edit journals stay out of the real per-user folder, one folder per server so one test's
             // renames or unsaved-edit journal never reach another test's server; a working directory keeps its own folder
             // (a restart there finds the first server's sidecars).
-            EnvironmentVariables = new Dictionary<string, string?>
+            EnvironmentVariables = new Dictionary<string, string?>(FakeDevice.ServerEnvironment)
             {
                 ["NDM_ANNOTATIONS_DIR"] = workingDirectory != null
                     ? Path.Combine(workingDirectory, ".ndm-annotations")
@@ -200,6 +200,15 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["disassemble_dex"] = (new() { ["path"] = dir.File("app.apk"), ["symbol"] = AndroidSamples.ComputeInt }, "add-int/lit8 v0, p0, 0x2a"),
         ["decompile_java"] = (new() { ["path"] = dir.File("app.apk"), ["symbol"] = "com.example.app.Main" }, "Error (provider_unavailable) in decompile_java"),
         ["map_java_dotnet"] = (new() { ["symbol"] = AndroidSamples.Link, ["path"] = AndroidSamples.SaveXamarin(dir) }, "MyApp.LinkActivity"),
+        ["list_android_devices"] = (new(), "\"serial\":\"emulator-5554\""),
+        ["get_android_device_info"] = (new() { ["query"] = "sdk" }, "\"emulator\":true"),
+        ["list_android_packages"] = (new() { ["query"] = "example" }, "\"uid\":10123"),
+        ["get_android_package_info"] = (new() { ["package"] = FakeDevice.Package }, "\"granted\":false"),
+        ["pull_android_package"] = (new() { ["package"] = FakeDevice.Package, ["outputDirectory"] = dir.File("pulled") }, "split_config.arm64_v8a.apk"),
+        ["pull_android_file"] = (new() { ["remotePath"] = "/data/local/tmp/notes.txt", ["outputPath"] = dir.File("notes.txt") }, "\"size\":22"),
+        ["read_android_log"] = (new() { ["priority"] = "E" }, "boom"),
+        ["install_android_package"] = (new() { ["path"] = dir.File("app.apk") }, "Error (unsupported) in install_android_package"),
+        ["uninstall_android_package"] = (new() { ["package"] = FakeDevice.Package }, "Error (unsupported) in uninstall_android_package"),
         ["search_dex"] = (new() { ["path"] = dir.File("app.apk"), ["kind"] = "string", ["query"] = "api.example" }, "https://api.example.com/v1"),
         ["find_dex_references"] = (new() { ["path"] = dir.File("app.apk"), ["target"] = AndroidSamples.Log }, "onCreate"),
         ["list_android_resources"] = (new() { ["path"] = dir.File("app.apk"), ["type"] = "string" }, "\"Exemplo\""),
