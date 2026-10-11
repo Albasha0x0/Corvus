@@ -147,6 +147,9 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         {
             if (member is Dn.MethodDef { IsConstructor: true } ctor && ConstructorInContext(asm, ctor, decompiler) is { } inContext)
                 return header + "\n" + inContext;
+            // An accessor decompiles to a bare block; its property or event names it.
+            if (member is Dn.MethodDef accessor && AccessorOwner(accessor) is { } owner)
+                return header + $"\n// accessor of {owner.Name}, shown in it\n" + decompiler.DecompileAsString(Handle(asm, owner)).TrimEnd() + "\n";
             return header + "\n" + decompiler.DecompileAsString(Handle(asm, member)).TrimEnd() + "\n";
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -159,6 +162,11 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
             return sb.ToString();
         }
     }
+
+    private static Dn.IMemberDef? AccessorOwner(Dn.MethodDef method) =>
+        !method.IsSpecialName || method.DeclaringType is not { } type ? null
+            : (Dn.IMemberDef?)type.Properties.FirstOrDefault(p => p.GetMethods.Contains(method) || p.SetMethods.Contains(method))
+              ?? type.Events.FirstOrDefault(e => e.AddMethod == method || e.RemoveMethod == method || e.InvokeMethod == method);
 
     public string DecompileAssemblyAttributes(LoadedAssembly asm, CancellationToken ct) => WithTimeout(token =>
     {

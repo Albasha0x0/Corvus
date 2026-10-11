@@ -23,6 +23,8 @@ public class DecompilerTests : IDisposable
     [InlineData("Account::Range", "yield return 1")]
     [InlineData("Account::SumPositive", "v > 0")]
     [InlineData("Account::Balance", "get")]
+    [InlineData("Account::get_Balance", "public int Balance")] // an accessor alone was a bare block
+    [InlineData("Account::add_Closed", "event EventHandler")]
     [InlineData("Account::Closed", "event EventHandler")]
     [InlineData("Account::_balance", "private int _balance")]
     [InlineData("Account::.ctor", "AccountCount++")]
