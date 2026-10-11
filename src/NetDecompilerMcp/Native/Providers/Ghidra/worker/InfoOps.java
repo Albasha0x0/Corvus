@@ -1,5 +1,8 @@
 package ndm.ghidra;
 
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 import java.util.TreeMap;
 
 import com.google.gson.JsonArray;
@@ -10,6 +13,16 @@ import com.google.gson.JsonPrimitive;
 
 import ghidra.framework.Application;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.data.ArchiveType;
+import ghidra.program.model.data.Array;
+import ghidra.program.model.data.BuiltInDataType;
+import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.DataTypeConflictHandler;
+import ghidra.program.model.data.DataTypeManager;
+import ghidra.program.model.data.DataTypeWriter;
+import ghidra.program.model.data.FileDataTypeManager;
+import ghidra.program.model.data.Pointer;
+import ghidra.program.model.data.SourceArchive;
 import ghidra.program.model.address.AddressIterator;
 import ghidra.program.model.address.AddressRange;
 import ghidra.program.model.lang.Language;
@@ -227,6 +240,52 @@ final class InfoOps {
         JsonObject o = new JsonObject();
         o.addProperty("path", out.getAbsolutePath());
         o.addProperty("size", out.length());
+        return o;
+    }
+
+    /**
+     * The program's own data types (declared, pushed, from the PDB or the analysis; not those of type archives or built in)
+     * written to path as a C header (format h) or a data type archive (format gdt) the GUI opens (export_types). Result:
+     * path, size, types.
+     */
+    static JsonElement exportTypes(Worker w, Worker.Request r) throws Exception {
+        java.io.File out = new java.io.File(r.args.get("path").getAsString());
+        boolean archive = "gdt".equals(r.args.get("format").getAsString());
+        DataTypeManager dtm = w.program.getDataTypeManager();
+        List<DataType> own = new ArrayList<>();
+        for (Iterator<DataType> all = dtm.getAllDataTypes(); all.hasNext();) {
+            r.monitor.checkCancelled();
+            DataType dt = all.next();
+            if (dt instanceof BuiltInDataType || dt instanceof Pointer || dt instanceof Array) continue;
+            SourceArchive source = dt.getSourceArchive();
+            if (source != null && source.getArchiveType() != ArchiveType.PROGRAM) continue;
+            own.add(dt);
+        }
+        if (out.exists() && !out.delete()) throw new Worker.WorkerError("io_error", "cannot replace " + out);
+        if (archive) {
+            FileDataTypeManager file = FileDataTypeManager.createFileArchive(out);
+            try {
+                int tx = file.startTransaction("export");
+                try {
+                    for (DataType dt : own) file.resolve(dt, DataTypeConflictHandler.REPLACE_HANDLER);
+                }
+                finally {
+                    file.endTransaction(tx, true);
+                }
+                file.save();
+            }
+            finally {
+                file.close();
+            }
+        }
+        else
+            try (java.io.Writer writer = new java.io.OutputStreamWriter(new java.io.FileOutputStream(out), java.nio.charset.StandardCharsets.UTF_8)) {
+                new DataTypeWriter(dtm, writer).write(own, r.monitor);
+            }
+        JsonObject o = new JsonObject();
+        o.addProperty("path", out.getAbsolutePath());
+        o.addProperty("size", out.length());
+        o.addProperty("types", own.size());
         return o;
     }
 

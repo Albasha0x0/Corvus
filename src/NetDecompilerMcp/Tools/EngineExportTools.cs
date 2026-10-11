@@ -19,11 +19,11 @@ public sealed class EngineExportTools(AssemblyWorkspace workspace, NativeEngineS
 
     [McpServerTool(Name = "export_engine_database", Title = "Export the engine database", UseStructuredContent = true)]
     [Description("Write a native image's engine database (analysis plus the names, comments and types pushed from here) for the engine's GUI: " +
-                 "IDA a compressed .i64 copy, Ghidra a packed .gzf archive (File > Open in a project). The worker keeps its own. force=true " +
-                 "replaces an existing file.")]
+                 "IDA a compressed .i64 copy, Ghidra a packed .gzf archive; Ghidra's own types also as a .h header " +
+                 "or .gdt archive. The worker keeps its own. force=true replaces an existing file.")]
     public Task<DatabaseExport> ExportEngineDatabase(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("The .i64 (IDA) or .gzf (Ghidra) file to write.")] string outputPath,
+        [Description("The .i64 (IDA), .gzf, .h or .gdt (Ghidra) file to write.")] string outputPath,
         [Description("Replace outputPath if it exists.")] bool force = false,
         [Description("Engine: auto (default: IDA, or the extension's engine), ida or ghidra.")] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
@@ -31,9 +31,11 @@ public sealed class EngineExportTools(AssemblyWorkspace workspace, NativeEngineS
     {
         var full = SafeFile.FullPath(outputPath);
         bool auto = string.IsNullOrWhiteSpace(engine) || engine.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase);
-        var id = !auto ? engine!.Trim().ToLowerInvariant() : Path.GetExtension(full).Equals(".gzf", StringComparison.OrdinalIgnoreCase) ? "ghidra" : "ida";
+        var given = Path.GetExtension(full).ToLowerInvariant();
+        var id = !auto ? engine!.Trim().ToLowerInvariant() : given is ".gzf" or ".h" or ".gdt" ? "ghidra" : "ida";
         if (id is not ("ida" or "ghidra")) throw new ToolError(ErrorCode.InvalidArgument, $"Unknown engine '{engine}'.", "omit engine or pass engine=ida or ghidra");
-        var extension = id == "ghidra" ? ".gzf" : ".i64";
+        // Ghidra also writes its types alone: a C header or a data type archive
+        var extension = id == "ghidra" ? given is ".h" or ".gdt" ? given : ".gzf" : ".i64";
         if (Path.GetExtension(full).Length == 0) full += extension;
         if (!Path.GetExtension(full).Equals(extension, StringComparison.OrdinalIgnoreCase))
             throw new ToolError(ErrorCode.InvalidArgument, $"{full} is not a {extension} file.", $"name the output file *{extension} for {NativeEngineService.DisplayName(id)}");
@@ -69,6 +71,13 @@ public sealed class EngineExportTools(AssemblyWorkspace workspace, NativeEngineS
             throw new ToolError(ErrorCode.InvalidArgument, $"{full} is inside the worker's own project.", "pick a path outside it");
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         if (File.Exists(full)) File.Delete(full);
+        var kind = Path.GetExtension(full).ToLowerInvariant();
+        if (kind is ".h" or ".gdt")
+        {
+            var (typesPath, typesBytes, count) = await ghidra.ExportTypesAsync(full, kind[1..], ct);
+            return new DatabaseExport(native.Id, "ghidra", typesPath, typesBytes, $"{count} type(s) of the program (declared, pushed, from the PDB or the analysis; " +
+                (kind == ".gdt" ? "open the archive in Ghidra's Data Type Manager)" : "a C header)"));
+        }
         var (path, bytes) = await ghidra.ExportPackedAsync(full, ct);
         return new DatabaseExport(native.Id, "ghidra", path, bytes,
             "open it in Ghidra (File > Open File System or Import into a project); the server's own project is unchanged and stays in its analysis cache");

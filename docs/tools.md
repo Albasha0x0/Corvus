@@ -2031,12 +2031,12 @@ Run Java in the Ghidra worker that holds a native image's program: a GhidraScrip
 
 **Export the engine database** (destructive, idempotent, open-world, long-running)
 
-Write a native image's engine database (analysis plus the names, comments and types pushed from here) for the engine's GUI: IDA a compressed .i64 copy, Ghidra a packed .gzf archive (File > Open in a project). The worker keeps its own. force=true replaces an existing file.
+Write a native image's engine database (analysis plus the names, comments and types pushed from here) for the engine's GUI: IDA a compressed .i64 copy, Ghidra a packed .gzf archive; Ghidra's own types also as a .h header or .gdt archive. The worker keeps its own. force=true replaces an existing file.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
-| `outputPath` | string | yes |  | The .i64 (IDA) or .gzf (Ghidra) file to write. |
+| `outputPath` | string | yes |  | The .i64 (IDA), .gzf, .h or .gdt (Ghidra) file to write. |
 | `force` | boolean |  | `false` | Replace outputPath if it exists. |
 | `engine` | string |  |  | Engine: auto (default: IDA, or the extension's engine), ida or ghidra. Values: auto, ida, ghidra. |
 

@@ -289,6 +289,7 @@ public class Worker implements GhidraLaunchable {
             case "script": return ScriptOps.run(this, r);
             case "field_xrefs": return read(() -> FieldOps.fieldXrefs(this, r));
             case "export_gzf": return InfoOps.exportPacked(this, r);
+            case "export_types": return read(() -> InfoOps.exportTypes(this, r));
             case "analyzers": return read(() -> analyzers());
             case "reanalyze": return reanalyze(r);
             case "function_candidates": return read(() -> ControlOps.functionCandidates(this, r));

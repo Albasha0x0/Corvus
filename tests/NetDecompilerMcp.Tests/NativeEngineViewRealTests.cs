@@ -148,6 +148,23 @@ public sealed class NativeGhidraViewTests(ITestOutputHelper output, GhidraCacheF
     }
 
     [GhidraFact]
+    public async Task The_program_types_export_as_a_header_and_an_archive()
+    {
+        await using var s = await Open();
+        var declared = await s.ApplyUserTypesAsync(new NativeUserTypeBatch(["struct NdmExported { int len; char tag[4]; struct NdmExported *next; };"], [], [], []));
+        Assert.Equal(0, declared.DeclarationErrors);
+        using var dir = new TempDir();
+        var (header, headerBytes, count) = await s.ExportTypesAsync(dir.File("types.h"), "h");
+        var text = File.ReadAllText(header);
+        output.WriteLine($"{count} types, {headerBytes:N0} bytes");
+        Assert.Contains("struct NdmExported {", text);
+        Assert.Contains("char tag[4];", text);
+        var (archive, archiveBytes, archived) = await s.ExportTypesAsync(dir.File("types.gdt"), "gdt");
+        Assert.Equal(count, archived);
+        Assert.True(archiveBytes > 1000 && new FileInfo(archive).Length == archiveBytes);
+    }
+
+    [GhidraFact]
     public async Task Function_record_has_prototype_convention_storage_and_thunk_target()
     {
         await using var s = await Open();

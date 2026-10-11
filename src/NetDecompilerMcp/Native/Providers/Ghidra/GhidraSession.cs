@@ -481,6 +481,13 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         return (r.GetProperty("path").GetString() ?? path, r.GetProperty("size").GetInt64());
     }
 
+    /// <summary>The program's own data types as a C header ("h") or a data type archive ("gdt") at <paramref name="path"/>.</summary>
+    internal async Task<(string Path, long Bytes, int Types)> ExportTypesAsync(string path, string format, CancellationToken cancellationToken = default)
+    {
+        var r = await CallAsync("export_types", WorkerRows.Args(("path", path), ("format", format)), cancellationToken).ConfigureAwait(false);
+        return (r.GetProperty("path").GetString() ?? path, r.GetProperty("size").GetInt64(), r.GetProperty("types").GetInt32());
+    }
+
     // --- analysis control (EngineControl) ---
 
     /// <summary>Size of the worker's decompiler pool: decompile requests that run at once.</summary>
