@@ -159,6 +159,7 @@ public sealed class FunctionDiff(MatchResult match)
             return "\"" + Regex.Replace(text.Length > 40 ? text[..40] + "…" : text, @"[\x00-\x1F\""]", m => $"\\x{(int)m.Value[0]:X2}") + "\"";
         }
         if (index.NameAt(rva) is { } named) return named;
+        if (rva == 0) return "__ImageBase"; // switch tables address their entries from the image base
         if (!old) return $"data_{rva:X}";
         if (_dataLabels.TryGetValue(rva, out var known)) return known;
         string labelText = _dataLabels.Count < MaxDataMaps && _mapper.Map(rva, ct).NewRva is { } mapped ? $"data_{mapped:X}" : $"old:data_{rva:X}";
