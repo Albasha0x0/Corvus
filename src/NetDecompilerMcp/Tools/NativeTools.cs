@@ -290,7 +290,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                  "For an IAT slot, the export it is bound to (in a loaded image: its address and image); for an export, the loaded images importing it. " +
                  "With the code index built: the containing function and offset; whether the address is an instruction start, inside an instruction " +
                  "(with the instruction covering it) or in a data item (string, IAT slot, switch table, relocated pointer; with its extent); the comment; " +
-                 "and the references to it by kind.")]
+                 "and the references to it by kind. In a PDB global, the field there (g_Game+0xD8 = g_Game.players[3].pos.y; get_native_type shows the layout).")]
     public Task<string> ResolveAddress(
         [Description(ImageDescription)] string image,
         [Description(AddressDescription)] string address,
@@ -303,6 +303,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
         var named = index?.Sourced.NameAt(rva);
         if (named is { } n) sb.AppendLine($"  name {n.Name} ({n.Source.Id()})");
         foreach (var line in Il2CppNativeNames.Describe(native, index, rva)) sb.AppendLine("  " + line);
+        if (NativeTypeCatalog.DescribeTypedData(native, rva) is { } typed) sb.AppendLine("  " + typed);
         var section = pe.SectionAt(rva);
         sb.AppendLine(section != null
             ? $"  section {section.Name} ({Access(section.Access)}), +0x{rva - section.Rva:X} into it"

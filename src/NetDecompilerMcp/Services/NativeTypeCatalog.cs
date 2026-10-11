@@ -379,7 +379,9 @@ public sealed class NativeTypeCatalog(AssemblyWorkspace workspace, NativeCodeSer
         if (PdbService.StateOf(native)?.Pdb is not { } pdb) return null;
         // the type stream is read only when a data symbol starts before the address
         if (!pdb.Symbols.Any(s => s.Kind is PdbSymbolKind.GlobalData or PdbSymbolKind.LocalData && s.TypeIndex != 0 && s.Rva <= rva)) return null;
-        var model = PdbTypeModel.Of(pdb, PointerSize(native));
+        PdbTypeModel model;
+        try { model = PdbTypeModel.Of(pdb, PointerSize(native)); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException) { return null; }
         if (GlobalAt(pdb, model, rva) is not { } g) return null;
         var c = new Context { Native = native, PdbFile = pdb, Model = model, Sources = new HashSet<string> { Pdb } };
         var start = g.Symbol.Rva!.Value;

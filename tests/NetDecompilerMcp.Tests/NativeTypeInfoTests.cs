@@ -112,6 +112,13 @@ public sealed class NativeTypeInfoTests : IDisposable
         Assert.Equal(1, r.Type.GlobalsOfType);
         Assert.Equal(["g_Game at 0x140003010"], r.Type.Globals);
         Assert.Equal(ErrorCode.NotFound, (await Assert.ThrowsAsync<ToolError>(() => Get(address: "rva:0x1000"))).Code);
+
+        var resolve = new NativeTools(_env.Workspace, _env.Pager, _code);
+        var inside = await resolve.ResolveAddress(_image, $"rva:0x{PdbTypeFixture.GameRva + 0xDA:X}");
+        _output.WriteLine(inside);
+        Assert.Contains("typed data: g_Game+0xDA = g_Game.players[3].pos.y (float, +0x2 into it)", inside);
+        Assert.Contains("typed data: g_Game = g_Game.count (int)", await resolve.ResolveAddress(_image, "g_Game"));
+        Assert.DoesNotContain("typed data", await resolve.ResolveAddress(_image, $"rva:0x{PdbTypeFixture.GameRva + 0x108:X}"));
     }
 
     [Fact]
