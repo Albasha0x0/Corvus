@@ -39,6 +39,23 @@ public class GhidraProviderTests
     }
 
     [Fact]
+    public void Decompiler_limits_parse_and_the_retry_fits_the_request()
+    {
+        Assert.Equal(TimeSpan.FromSeconds(60), GhidraOptions.DecompileTimeout(null));
+        Assert.Equal(TimeSpan.FromSeconds(90), GhidraOptions.DecompileTimeout(" 90 "));
+        Assert.Equal(200, GhidraOptions.DecompilePayloadMb(""));
+        Assert.Equal(512, GhidraOptions.DecompilePayloadMb("512"));
+        foreach (var bad in new[] { "0", "601", "1m" })
+            Assert.Contains(GhidraOptions.DecompileTimeoutVariable, Assert.Throws<ToolError>(() => GhidraOptions.DecompileTimeout(bad)).Remediation);
+        foreach (var bad in new[] { "8", "4096", "x" })
+            Assert.Contains(GhidraOptions.DecompilePayloadVariable, Assert.Throws<ToolError>(() => GhidraOptions.DecompilePayloadMb(bad)).Remediation);
+        Assert.Equal(TimeSpan.FromSeconds(240), GhidraOptions.RetryTimeout(TimeSpan.FromSeconds(60)));
+        Assert.Equal(TimeSpan.FromSeconds(600), GhidraOptions.RetryTimeout(TimeSpan.FromSeconds(300)));
+        Assert.Equal(TimeSpan.FromSeconds(330), GhidraOptions.DecompileRequestTimeout(TimeSpan.FromSeconds(60), TimeSpan.FromMinutes(2)));
+        Assert.Equal(TimeSpan.FromMinutes(2), GhidraOptions.DecompileRequestTimeout(TimeSpan.FromSeconds(5), TimeSpan.FromMinutes(2)));
+    }
+
+    [Fact]
     public void A_worker_stopped_by_the_memory_cap_points_at_both_limits()
     {
         var fix = GhidraProvider.Remediation(ErrorCode.ProviderUnavailable, $"Ghidra worker exited after reaching its memory limit of 4096 MB ({EngineMemoryLimit.Variable})");

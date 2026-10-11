@@ -19,6 +19,10 @@ public sealed record GhidraProviderOptions
     public string? ExtraOptions { get; init; }
     /// <summary>Directory of Ghidra extensions to install for the workers; null: NDM_GHIDRA_EXTENSIONS.</summary>
     public string? ExtensionsDirectory { get; init; }
+    /// <summary>Per-function decompiler limit; null: NDM_GHIDRA_DECOMPILE_TIMEOUT, else 60 s.</summary>
+    public TimeSpan? DecompileTimeout { get; init; }
+    /// <summary>Decompiler response limit in MB; null: NDM_GHIDRA_DECOMPILE_PAYLOAD_MB, else 200.</summary>
+    public int? DecompilePayloadMb { get; init; }
     /// <summary>Time the worker gets to save and exit on close before it is killed.</summary>
     public TimeSpan ShutdownGrace { get; init; } = TimeSpan.FromSeconds(30);
     /// <summary>Time for the JVM to start and initialize Ghidra.</summary>
@@ -58,6 +62,8 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
 
     internal GhidraAnalysisProfile Profile => _options.Profile ?? GhidraOptions.Profile(Environment.GetEnvironmentVariable(GhidraOptions.ProfileVariable));
     internal string? ExtraOptions => _options.ExtraOptions ?? Environment.GetEnvironmentVariable(GhidraOptions.OptionsVariable);
+    internal TimeSpan DecompileTimeout => _options.DecompileTimeout ?? GhidraOptions.DecompileTimeout(Environment.GetEnvironmentVariable(GhidraOptions.DecompileTimeoutVariable));
+    internal int DecompilePayloadMb => _options.DecompilePayloadMb ?? GhidraOptions.DecompilePayloadMb(Environment.GetEnvironmentVariable(GhidraOptions.DecompilePayloadVariable));
 
     /// <summary>The extensions the workers load (read with the static checks).</summary>
     internal IReadOnlyList<GhidraExtension> Extensions { get; private set; } = [];
@@ -95,6 +101,7 @@ public sealed class GhidraProvider(GhidraProviderOptions? options = null) : INat
         {
             details["profile"] = Profile.ToString().ToLowerInvariant();
             GhidraOptions.ParseExtra(ExtraOptions);
+            details["decompile"] = $"{DecompileTimeout.TotalSeconds:0} s, {DecompilePayloadMb} MB";
             Extensions = GhidraExtensions.Configured(_options.ExtensionsDirectory ?? Environment.GetEnvironmentVariable(GhidraOptions.ExtensionsVariable));
             if (Extensions.Count > 0) details["extensions"] = string.Join(", ", Extensions.Select(e => e.Name));
         }

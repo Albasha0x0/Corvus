@@ -626,7 +626,9 @@ Ghidra (12.0 or newer) is found through `NDM_GHIDRA_DIR` (else `GHIDRA_INSTALL_D
 analysis profile (`standard`, `full` or `minimal`), `NDM_GHIDRA_MAXMEM` the JVM heap, `NDM_GHIDRA_OPTIONS` extra analyzer
 options (`Name=value;...`), and `NDM_GHIDRA_EXTENSIONS` a directory of Ghidra extension zips built for that Ghidra (a NativeAOT
 analyzer, for example), installed into the workers' private settings; nothing is downloaded. Projects are kept per file hash
-and configuration, so a changed profile or extension set analyzes again once.
+and configuration, so a changed profile or extension set analyzes again once. `NDM_GHIDRA_DECOMPILE_TIMEOUT` (seconds, default 60)
+and `NDM_GHIDRA_DECOMPILE_PAYLOAD_MB` (default 200) bound one decompilation; a timeout or an oversized result is retried once
+with four times the time and twice the payload.
 
 Other external programs are optional and each is found through one variable (a file or its folder), then as listed;
 `server_status` reports where each was found, its version, or the fix. They run in their own process tree with a minimal

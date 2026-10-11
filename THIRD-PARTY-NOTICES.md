@@ -81,7 +81,8 @@ concerned say so in their headers.
 - [LaurieWired/GhidraMCP](https://github.com/LaurieWired/GhidraMCP), Copyright 2025 LaurieWired: keeping fd 1 for
   the protocol and sending `System.out` to stderr (`Worker.java`).
 - [bethington/ghidra-mcp](https://github.com/bethington/ghidra-mcp): a `BundleHost` acquired before analysis in a
-  custom headless host, and the program saved before it and the project are released on shutdown (`Worker.java`).
+  custom headless host, and the program saved before it and the project are released on shutdown (`Worker.java`);
+  a decompilation that times out retried once with a longer limit inside the same request (`CodeOps.java`).
   Its NOTICE file reads:
 
   ```

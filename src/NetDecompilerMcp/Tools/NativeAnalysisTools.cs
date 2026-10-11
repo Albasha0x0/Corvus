@@ -51,13 +51,13 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         [property: Description("The call that decompiles the skipped items, when there are any.")] string? Next);
 
     [McpServerTool(Name = "decompile_native", Title = "Decompile native function", UseStructuredContent = true, OutputSchemaType = typeof(DecompileReport))]
-    [Description("C pseudocode of the native function containing an address, through IDA (Hex-Rays) or Ghidra. The first call on an image runs the engine's auto-analysis (seconds for a small DLL, minutes for a large executable; " +
-                 "progress is reported); the database is kept per file hash, so later calls and sessions are fast. Names and comments in effect " +
-                 "(rename_native, comment_native, apply_il2cpp_names, PDB names) are pushed first, once per change. A PDB (beside the image, in " +
+    [Description("C pseudocode of the native function containing an address, through IDA (Hex-Rays) or Ghidra. The first call on an image runs the engine's auto-analysis (seconds to " +
+                 "minutes, with progress) and keeps the database per file hash. Names and comments in effect " +
+                 "(rename_native, comment_native, Il2Cpp, PDB) are pushed first, once per change. A PDB (beside the image, in " +
                  "the symbol cache, or from load_pdb) has its types and prototypes loaded once through the engine's PDB loader (else the server's " +
                  "reader); the first line names the type source. User types (declare_native_types, set_native_type, set_native_local, " +
-                 "set_native_stack_var) apply last and win. functions decompiles several in one request: deduplicated by function, each within " +
-                 "perFunctionSeconds; a failure or timeout affects only its own item.")]
+                 "set_native_stack_var) apply last and win. functions decompiles several in one request: deduplicated, each within " +
+                 "perFunctionSeconds; a failure affects only its item.")]
     public Task<string> DecompileNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription + " Required unless functions is given.")] string? address = null,
@@ -69,6 +69,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         [Description("With functions: seconds per function (default 60, 1-600).")] int perFunctionSeconds = 60,
         [Description("With functions: functions decompiled (default 32, 1-200); the rest are skipped with a follow-up call.")] int maxFunctions = 32,
         [Description("With address: a footer on the first page listing the globals, functions, strings and imports used.")] bool refs = false,
+        [Description("Ghidra: decompiler seconds (1-600, default 60), retried once with 4x.")] int? timeoutSeconds = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
@@ -76,6 +77,9 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         if (batch == !string.IsNullOrWhiteSpace(address))
             throw new ToolError(ErrorCode.InvalidArgument, batch ? "Pass address or functions, not both." : "address is required (or functions for several).",
                 "address=<one function>, or functions=[...] for several");
+        if (timeoutSeconds is { } ts && (ts < 1 || ts > 600))
+            throw new ToolError(ErrorCode.InvalidArgument, $"timeoutSeconds {ts} is outside 1-600.", "timeoutSeconds=120");
+        TimeSpan? limit = timeoutSeconds is { } t ? TimeSpan.FromSeconds(t) : null;
         var native = batch ? await Task.Run(() => ResolveImage(workspace, image), cancellationToken) : null;
         uint rva = 0;
         if (!batch) (native, rva) = await Task.Run(() => Resolve(image, address!), cancellationToken);
@@ -95,7 +99,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         DecompiledFunction? decompiled = null;
         var single = pager.GetOrCreate(TextKey(native!, session, rva, addresses), () =>
         {
-            decompiled = session.DecompileAsync(rva, cancellationToken).GetAwaiter().GetResult();
+            decompiled = session.DecompileWithinAsync(rva, limit, cancellationToken).GetAwaiter().GetResult();
             return FunctionText(native!, session, decompiled, addresses);
         });
         string header = "";

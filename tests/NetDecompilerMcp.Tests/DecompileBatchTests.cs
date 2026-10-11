@@ -88,6 +88,18 @@ public sealed class DecompileBatchTests : IDisposable
     }
 
     [Fact]
+    public async Task TimeoutSeconds_reaches_the_engine_and_is_range_checked()
+    {
+        var (tools, provider, native, _, _) = await Setup();
+        await tools.DecompileNative(native.Id, "First", timeoutSeconds: 120);
+        Assert.Equal(TimeSpan.FromSeconds(120), provider.LastTimeout);
+        await tools.DecompileNative(native.Id, "Second");
+        Assert.Null(provider.LastTimeout);
+        var e = await Assert.ThrowsAsync<ToolError>(() => tools.DecompileNative(native.Id, "First", timeoutSeconds: 0));
+        Assert.Equal(ErrorCode.InvalidArgument, e.Code);
+    }
+
+    [Fact]
     public async Task The_default_batch_gives_each_item_its_own_deadline_and_skips_past_the_budget()
     {
         var provider = new BatchProvider { Functions = [(0x1000, 0x1010, "a"), (0x1010, 0x1020, "slow"), (0x1020, 0x1030, "c")] };
@@ -120,6 +132,7 @@ public sealed class DecompileBatchTests : IDisposable
         public HashSet<uint> Failing { get; } = [];
         public HashSet<uint> Slow { get; } = [];
         public int Decompiles;
+        public TimeSpan? LastTimeout;
         public string Id => IdaProvider.ProviderId;
         public string DisplayName => "fake engine";
         public ProviderAvailability CheckAvailability() => ProviderAvailability.Ok(Id, new Dictionary<string, string>());
@@ -152,6 +165,12 @@ public sealed class DecompileBatchTests : IDisposable
             if (provider.Failing.Contains(f.Start)) throw new ToolError(ErrorCode.Failed, $"decompilation failed at 0x{f.Start:X}: fake");
             Interlocked.Increment(ref provider.Decompiles);
             return new DecompiledFunction(f.Start, f.Name, $"int {f.Name}(void) {{ return 0; }}", []);
+        }
+
+        public Task<DecompiledFunction> DecompileWithinAsync(uint rva, TimeSpan? timeout, CancellationToken cancellationToken = default)
+        {
+            provider.LastTimeout = timeout;
+            return DecompileAsync(rva, cancellationToken);
         }
 
         public Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(CancellationToken cancellationToken = default) =>

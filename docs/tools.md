@@ -1331,7 +1331,7 @@ Structured output: `image`, `query`, `type`, `candidates`, `totalCandidates`, `o
 
 **Decompile native function** (read-only, idempotent, open-world, long-running)
 
-C pseudocode of the native function containing an address, through IDA (Hex-Rays) or Ghidra. The first call on an image runs the engine's auto-analysis (seconds for a small DLL, minutes for a large executable; progress is reported); the database is kept per file hash, so later calls and sessions are fast. Names and comments in effect (rename_native, comment_native, apply_il2cpp_names, PDB names) are pushed first, once per change. A PDB (beside the image, in the symbol cache, or from load_pdb) has its types and prototypes loaded once through the engine's PDB loader (else the server's reader); the first line names the type source. User types (declare_native_types, set_native_type, set_native_local, set_native_stack_var) apply last and win. functions decompiles several in one request: deduplicated by function, each within perFunctionSeconds; a failure or timeout affects only its own item.
+C pseudocode of the native function containing an address, through IDA (Hex-Rays) or Ghidra. The first call on an image runs the engine's auto-analysis (seconds to minutes, with progress) and keeps the database per file hash. Names and comments in effect (rename_native, comment_native, Il2Cpp, PDB) are pushed first, once per change. A PDB (beside the image, in the symbol cache, or from load_pdb) has its types and prototypes loaded once through the engine's PDB loader (else the server's reader); the first line names the type source. User types (declare_native_types, set_native_type, set_native_local, set_native_stack_var) apply last and win. functions decompiles several in one request: deduplicated, each within perFunctionSeconds; a failure affects only its item.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1345,6 +1345,7 @@ C pseudocode of the native function containing an address, through IDA (Hex-Rays
 | `perFunctionSeconds` | integer |  | `60` | With functions: seconds per function (default 60, 1-600). |
 | `maxFunctions` | integer |  | `32` | With functions: functions decompiled (default 32, 1-200); the rest are skipped with a follow-up call. |
 | `refs` | boolean |  | `false` | With address: a footer on the first page listing the globals, functions, strings and imports used. |
+| `timeoutSeconds` | integer |  |  | Ghidra: decompiler seconds (1-600, default 60), retried once with 4x. |
 
 Structured output: `image`, `engine`, `items`, `total`, `succeeded`, `failed`, `skipped`, `next`.
 

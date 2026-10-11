@@ -15,27 +15,34 @@ import ghidra.program.model.listing.Program;
 final class Decompilers {
     private final Program program;
     private final Semaphore slots;
+    private final int size;
+    /** Decompiler response limit (DecompileOptions' max payload, MB); Ghidra's default 50 is too small for large functions. */
+    final int payloadMb;
     private final ArrayDeque<DecompInterface> idle = new ArrayDeque<>();
     private final List<DecompInterface> created = new ArrayList<>();
     private boolean closed;
 
-    Decompilers(Program program, int size) {
+    Decompilers(Program program, int size, int payloadMb) {
         this.program = program;
-        this.slots = new Semaphore(Math.max(1, size));
+        this.size = Math.max(1, size);
+        this.slots = new Semaphore(this.size);
+        this.payloadMb = payloadMb;
+    }
+
+    int size() {
+        return size;
     }
 
     /** Waits up to the deadline for a free decompiler; the caller gives it back with {@link #release}. */
     DecompInterface acquire(long deadlineNanos) throws InterruptedException {
-        long wait = deadlineNanos - System.nanoTime();
-        if (wait <= 0 || !slots.tryAcquire(wait, TimeUnit.NANOSECONDS))
-            throw new Worker.WorkerError("timeout", "timed out waiting for a free decompiler");
+        slot(deadlineNanos);
         try {
             synchronized (this) {
                 if (closed) throw new Worker.WorkerError("failed", "the program is closed");
                 DecompInterface d = idle.pollLast();
                 if (d != null) return d;
             }
-            DecompInterface d = create();
+            DecompInterface d = create(payloadMb);
             synchronized (this) {
                 if (closed) {
                     d.dispose();
@@ -51,6 +58,41 @@ final class Decompilers {
         }
     }
 
+    private void slot(long deadlineNanos) throws InterruptedException {
+        long wait = deadlineNanos - System.nanoTime();
+        if (wait <= 0 || !slots.tryAcquire(wait, TimeUnit.NANOSECONDS))
+            throw new Worker.WorkerError("timeout", "timed out waiting for a free decompiler");
+    }
+
+    /** A new decompiler with its own payload limit in a pool slot; the caller ends it with {@link #discard}. */
+    DecompInterface acquireFresh(long deadlineNanos, int payload) throws InterruptedException {
+        slot(deadlineNanos);
+        try {
+            DecompInterface d = create(payload);
+            synchronized (this) {
+                if (closed) {
+                    d.dispose();
+                    throw new Worker.WorkerError("failed", "the program is closed");
+                }
+                created.add(d);
+            }
+            return d;
+        }
+        catch (RuntimeException e) {
+            slots.release();
+            throw e;
+        }
+    }
+
+    void discard(DecompInterface d) {
+        boolean mine;
+        synchronized (this) {
+            mine = created.remove(d);
+        }
+        if (mine) d.dispose();
+        slots.release();
+    }
+
     void release(DecompInterface d) {
         synchronized (this) {
             if (!closed) idle.addLast(d);
@@ -58,10 +100,11 @@ final class Decompilers {
         slots.release();
     }
 
-    private DecompInterface create() {
+    private DecompInterface create(int payload) {
         DecompInterface d = new DecompInterface();
         DecompileOptions options = new DecompileOptions();
         options.grabFromProgram(program);
+        options.setMaxPayloadMBytes(payload);
         d.setOptions(options);
         d.toggleCCode(true);
         d.toggleSyntaxTree(true);

@@ -63,6 +63,10 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     /// <summary>Pseudocode of the function containing <paramref name="rva"/>.</summary>
     Task<DecompiledFunction> DecompileAsync(uint rva, CancellationToken cancellationToken = default);
 
+    /// <summary>As <see cref="DecompileAsync"/> with the engine's per-function limit set to <paramref name="timeout"/> (null: its default); engines without one ignore it.</summary>
+    Task<DecompiledFunction> DecompileWithinAsync(uint rva, TimeSpan? timeout, CancellationToken cancellationToken = default) =>
+        DecompileAsync(rva, cancellationToken);
+
     /// <summary>
     /// Pseudocode of the functions containing each RVA, in order, each within <paramref name="secondsPerItem"/> and all within
     /// <paramref name="budgetSeconds"/>: a failure is that item's, and items the budget does not reach are skipped. The default

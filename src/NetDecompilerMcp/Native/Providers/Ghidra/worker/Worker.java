@@ -115,7 +115,7 @@ public class Worker implements GhidraLaunchable {
     volatile Program program;
     long base;
     Decompilers decompilers;
-    int decompileTimeout = 30;
+    int decompileTimeout = 60;
 
     @Override
     public void launch(GhidraApplicationLayout layout, String[] args) throws Exception {
@@ -343,7 +343,7 @@ public class Worker implements GhidraLaunchable {
     /**
      * Opens the saved program of the project, or imports the input into a new project, analyzes it within the budget
      * and saves. Args: input, project_dir, project_name, program_name, loader_args [[k,v]], options [[k,v]],
-     * budget_seconds, pdb, decompilers, decompile_timeout.
+     * budget_seconds, pdb, decompilers, decompile_timeout, decompile_payload_mb.
      */
     private JsonElement open(Request r) throws Exception {
         lock.writeLock().lock();
@@ -392,7 +392,8 @@ public class Worker implements GhidraLaunchable {
                 complete = analyze(r, a, warnings);
             }
             base = program.getImageBase().getOffset();
-            decompilers = new Decompilers(program, a.has("decompilers") ? a.get("decompilers").getAsInt() : 2);
+            decompilers = new Decompilers(program, a.has("decompilers") ? a.get("decompilers").getAsInt() : 2,
+                a.has("decompile_payload_mb") ? a.get("decompile_payload_mb").getAsInt() : 200);
             r.monitor.setMessage("ready");
             return info(reused, complete, warnings, (System.nanoTime() - start) / 1e9);
         }

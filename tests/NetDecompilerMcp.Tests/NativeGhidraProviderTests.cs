@@ -250,6 +250,19 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
     }
 
     [GhidraFact]
+    public async Task A_decompile_that_times_out_or_overflows_is_retried_with_more_time_and_payload()
+    {
+        var path = shared.Sample;
+        var exportRva = NativeIdaProviderTests.ExportRva(path, Export);
+        await using var s = (GhidraSession)await Provider.OpenAsync(path, null, Offline);
+        var d = await s.DecompileCoreAsync(exportRva, TimeSpan.FromSeconds(5), failFirst: true, default);
+        Assert.Contains(Export, d.Text);
+        Assert.Equal(1, s.DecompileRetries);
+        Assert.Equal(d.Text, (await s.DecompileWithinAsync(exportRva, TimeSpan.FromSeconds(5))).Text);
+        Assert.Equal(1, s.DecompileRetries);
+    }
+
+    [GhidraFact]
     public async Task Disposing_the_provider_kills_the_worker_and_the_decompilers()
     {
         var provider = shared.NewProvider();

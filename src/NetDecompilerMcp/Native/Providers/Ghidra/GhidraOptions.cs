@@ -33,8 +33,40 @@ public static class GhidraOptions
     /// <summary>Bumped when the worker protocol or what the worker stores in a project changes; part of the profile key.</summary>
     public const int ProtocolVersion = 1;
 
-    /// <summary>Per-call decompiler limit inside the worker, so one pathological function cannot hold a request.</summary>
-    public static readonly TimeSpan DecompileTimeout = TimeSpan.FromSeconds(30);
+    /// <summary>Seconds the decompiler may spend on one function (1-600, default 60); not in the profile key, it does not change the project.</summary>
+    public const string DecompileTimeoutVariable = "NDM_GHIDRA_DECOMPILE_TIMEOUT";
+    /// <summary>Decompiler response limit in MB (16-2048, default 200); Ghidra's own 50 fails on large functions.</summary>
+    public const string DecompilePayloadVariable = "NDM_GHIDRA_DECOMPILE_PAYLOAD_MB";
+
+    public const int MaxDecompileSeconds = 600;
+
+    /// <summary>The per-function decompiler limit: the configured seconds, else 60.</summary>
+    public static TimeSpan DecompileTimeout(string? configured)
+    {
+        if (string.IsNullOrWhiteSpace(configured)) return TimeSpan.FromSeconds(60);
+        if (!int.TryParse(configured.Trim(), out var s) || s < 1 || s > MaxDecompileSeconds)
+            throw new ToolError(ErrorCode.InvalidArgument, $"'{configured}' is not a decompiler timeout.", $"Set {DecompileTimeoutVariable} to seconds from 1 to {MaxDecompileSeconds}.");
+        return TimeSpan.FromSeconds(s);
+    }
+
+    /// <summary>The decompiler payload limit: the configured MB, else 200 (measured: an 18 KB function needs more than 50).</summary>
+    public static int DecompilePayloadMb(string? configured)
+    {
+        if (string.IsNullOrWhiteSpace(configured)) return 200;
+        if (!int.TryParse(configured.Trim(), out var mb) || mb < 16 || mb > 2048)
+            throw new ToolError(ErrorCode.InvalidArgument, $"'{configured}' is not a decompiler payload size.", $"Set {DecompilePayloadVariable} to MB from 16 to 2048.");
+        return mb;
+    }
+
+    /// <summary>The one retry after a timeout or a full response buffer: four times the first limit, at most <see cref="MaxDecompileSeconds"/>.</summary>
+    public static TimeSpan RetryTimeout(TimeSpan first) => TimeSpan.FromSeconds(Math.Min(4 * Math.Ceiling(first.TotalSeconds), MaxDecompileSeconds));
+
+    /// <summary>The request limit of one decompile: both attempts plus a margin for the wait on a decompiler and the reply.</summary>
+    public static TimeSpan DecompileRequestTimeout(TimeSpan first, TimeSpan floor)
+    {
+        var total = first + RetryTimeout(first) + TimeSpan.FromSeconds(30);
+        return total > floor ? total : floor;
+    }
 
     private const string DecompilerTimeout = "Analysis Decompiler Timeout (sec)";
     private const string ParameterId = "Decompiler Parameter ID";

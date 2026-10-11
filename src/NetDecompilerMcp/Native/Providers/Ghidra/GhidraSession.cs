@@ -27,7 +27,6 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     protected override TimeSpan ShutdownGrace => provider.Options.ShutdownGrace;
     protected override int MaxRestarts => provider.Options.MaxRestarts;
     protected override bool ConcurrentRequests => true;
-
     internal string ProjectDirectory => _projectDirectory;
     /// <summary>False when the first analysis ran out of time; the saved project then holds what was analyzed.</summary>
     public bool AnalysisComplete { get; private set; }
@@ -187,7 +186,8 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
                 ("budget_seconds", Math.Max(1, budget.TotalSeconds)),
                 ("pdb", Options.Symbols == SymbolMode.Off ? null : Options.PdbPath),
                 ("decompilers", provider.Options.Decompilers),
-                ("decompile_timeout", (int)GhidraOptions.DecompileTimeout.TotalSeconds));
+                ("decompile_timeout", (int)provider.DecompileTimeout.TotalSeconds),
+                ("decompile_payload_mb", provider.DecompilePayloadMb));
             info = await worker.RequestAsync("open", args, remaining, cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -246,14 +246,33 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
     public async Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(bool withReferences, CancellationToken cancellationToken = default) =>
         WorkerRows.Functions(await CallAsync("functions", WorkerRows.Args(("refs", withReferences)), cancellationToken).ConfigureAwait(false));
 
-    public async Task<DecompiledFunction> DecompileAsync(uint rva, CancellationToken cancellationToken = default)
+    public Task<DecompiledFunction> DecompileAsync(uint rva, CancellationToken cancellationToken = default) =>
+        DecompileWithinAsync(rva, null, cancellationToken);
+
+    /// <summary>
+    /// The decompiler gets <paramref name="timeout"/> (null: the provider's limit); a timeout or a full response buffer is tried once
+    /// more with four times the time and twice the payload, inside the same request.
+    /// </summary>
+    public Task<DecompiledFunction> DecompileWithinAsync(uint rva, TimeSpan? timeout, CancellationToken cancellationToken = default) =>
+        DecompileCoreAsync(rva, timeout, failFirst: false, cancellationToken);
+
+    /// <summary>failFirst: the worker treats the first attempt as timed out (test hook for the retry).</summary>
+    internal async Task<DecompiledFunction> DecompileCoreAsync(uint rva, TimeSpan? timeout, bool failFirst, CancellationToken cancellationToken)
     {
         if (!DecompilerAvailable)
             throw new ToolError(ErrorCode.Unsupported, $"Ghidra's native decompiler is not built for {GhidraInstallation.PlatformName} in {ghidra.Directory}.",
                 ghidra.DecompilerRemediation);
-        return WorkerRows.Decompiled(await CallAsync("decompile",
-            WorkerRows.Args(("rva", rva), ("timeout", (int)GhidraOptions.DecompileTimeout.TotalSeconds)), cancellationToken).ConfigureAwait(false));
+        var first = timeout ?? provider.DecompileTimeout;
+        var args = WorkerRows.Args(("rva", rva), ("timeout", (int)Math.Ceiling(first.TotalSeconds)),
+            ("retry_timeout", (int)GhidraOptions.RetryTimeout(first).TotalSeconds), ("fail_first", failFirst));
+        var r = await CallAsync("decompile", args, cancellationToken, timeout: GhidraOptions.DecompileRequestTimeout(first, Options.RequestTimeout)).ConfigureAwait(false);
+        if (r.TryGetProperty("retried", out var retried) && retried.GetBoolean()) Interlocked.Increment(ref _retries);
+        return WorkerRows.Decompiled(r);
     }
+
+    private int _retries;
+    /// <summary>Decompilations that succeeded only on the retry.</summary>
+    internal int DecompileRetries => Volatile.Read(ref _retries);
 
     public async Task<IReadOnlyList<DecompileOutcome>> DecompileManyAsync(IReadOnlyList<uint> rvas, double secondsPerItem, double budgetSeconds,
         CancellationToken cancellationToken = default)

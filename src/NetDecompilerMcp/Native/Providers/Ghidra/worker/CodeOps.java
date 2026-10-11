@@ -83,37 +83,88 @@ final class CodeOps {
         return out;
     }
 
-    /** Pseudocode built from the decompiler's lines, each with the lowest address among its tokens. */
     /** A pooled decompilation of the function within timeout seconds; a timeout or failure is a WorkerError. */
     static DecompileResults results(Worker w, Function f, int timeout, Worker.Monitor monitor) throws Exception {
+        return results(w, f, timeout, 0, false, monitor).results();
+    }
+
+    record Outcome(DecompileResults results, boolean retried) {
+    }
+
+    /**
+     * As {@link #results(Worker, Function, int, Worker.Monitor)}; with retrySeconds > 0 a timeout or a full response buffer
+     * is tried once more within retrySeconds and twice the payload, on a fresh decompiler that is discarded afterwards.
+     * failFirst (test hook) treats the first attempt as timed out without running it.
+     */
+    static Outcome results(Worker w, Function f, int timeout, int retrySeconds, boolean failFirst, Worker.Monitor monitor) throws Exception {
+        DecompileResults res = failFirst ? null : run(w, f, timeout, 0, monitor);
+        boolean timedOut = failFirst || res != null && res.isTimedOut();
+        if (retrySeconds > 0 && !completed(res) && (timedOut || bufferFull(res))) {
+            int payload = Math.max(1, w.decompilers.payloadMb) * 2;
+            DecompileResults again = run(w, f, retrySeconds, payload, monitor);
+            if (!completed(again)) {
+                boolean late = again != null && again.isTimedOut();
+                throw new Worker.WorkerError(late ? "timeout" : "failed", "decompiling " + f.getName() + " " +
+                    (timedOut ? "did not finish within " + timeout + " s" : "exceeded the " + w.decompilers.payloadMb + " MB response limit") +
+                    ", and a retry with " + retrySeconds + " s and " + payload + " MB " + (late ? "did not finish" : "failed: " + message(again)));
+            }
+            return new Outcome(again, true);
+        }
+        if (!completed(res)) {
+            if (timedOut) throw new Worker.WorkerError("timeout", "decompiling " + f.getName() + " did not finish within " + timeout + " s");
+            throw new Worker.WorkerError("failed", "decompiling " + f.getName() + " failed: " + message(res));
+        }
+        return new Outcome(res, false);
+    }
+
+    /** One attempt; payload 0 uses a pooled decompiler, otherwise a fresh one with that payload. */
+    private static DecompileResults run(Worker w, Function f, int timeout, int payload, Worker.Monitor monitor) throws Exception {
         long deadline = System.nanoTime() + timeout * 1_000_000_000L;
-        DecompInterface d = w.decompilers.acquire(deadline);
+        DecompInterface d = payload > 0 ? w.decompilers.acquireFresh(deadline, payload) : w.decompilers.acquire(deadline);
         DecompileResults res;
         try {
             int left = (int) Math.max(1, (deadline - System.nanoTime()) / 1_000_000_000L);
             res = d.decompileFunction(f, left, monitor);
         }
         finally {
-            w.decompilers.release(d);
+            if (payload > 0) w.decompilers.discard(d);
+            else w.decompilers.release(d);
         }
         monitor.checkCancelled();
-        if (res == null || !res.decompileCompleted() || res.getCCodeMarkup() == null) {
-            String message = res == null ? "no result" : res.getErrorMessage();
-            if (res != null && res.isTimedOut())
-                throw new Worker.WorkerError("timeout", "decompiling " + f.getName() + " did not finish within " + timeout + " s");
-            throw new Worker.WorkerError("failed", "decompiling " + f.getName() + " failed: " + (message == null ? "" : message.trim()));
-        }
         return res;
+    }
+
+    private static boolean completed(DecompileResults res) {
+        return res != null && res.decompileCompleted() && res.getCCodeMarkup() != null;
+    }
+
+    private static String message(DecompileResults res) {
+        String m = res == null ? "no result" : res.getErrorMessage();
+        return m == null ? "" : m.trim();
+    }
+
+    /** The decompiler's answer did not fit its payload limit. */
+    private static boolean bufferFull(DecompileResults res) {
+        return res != null && message(res).toLowerCase().contains("buffer size exceeded");
     }
 
     static JsonElement decompile(Worker w, Worker.Request r) throws Exception {
         Function f = functionAt(w, w.addr(r.args, "rva"));
         int timeout = r.args.has("timeout") ? r.args.get("timeout").getAsInt() : w.decompileTimeout;
-        return decompiled(w, f, timeout, r.monitor);
+        int retry = r.args.has("retry_timeout") ? r.args.get("retry_timeout").getAsInt() : 0;
+        boolean failFirst = r.args.has("fail_first") && r.args.get("fail_first").getAsBoolean();
+        Outcome out = results(w, f, timeout, retry, failFirst, r.monitor);
+        JsonObject o = text(w, f, out.results());
+        if (out.retried()) o.addProperty("retried", true);
+        return o;
     }
 
     static JsonObject decompiled(Worker w, Function f, int timeout, Worker.Monitor monitor) throws Exception {
-        DecompileResults res = results(w, f, timeout, monitor);
+        return text(w, f, results(w, f, timeout, monitor));
+    }
+
+    /** Pseudocode built from the decompiler's lines, each with the lowest address among its tokens. */
+    private static JsonObject text(Worker w, Function f, DecompileResults res) {
         List<ClangLine> lines = DecompilerUtils.toLines(res.getCCodeMarkup());
         StringBuilder text = new StringBuilder();
         JsonArray addresses = new JsonArray();
