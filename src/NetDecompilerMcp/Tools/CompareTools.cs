@@ -191,7 +191,9 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
                  "taking a match only when it is unique on both sides. Shows the new name and token, the matching tier and its confidence (exact, strong, structural), " +
                  "whether a method body changed (normalized IL hash), and Il2Cpp offset/address changes; ambiguous matches list their candidates. " +
                  "Both builds are identified by file SHA-256 and MVID (tokens are only valid within their build). diff=true adds a unified diff of the " +
-                 "pair's decompiled C#, il=true one of their normalized IL. Use it to update FindClass names and offsets after an update.")]
+                 "pair's decompiled C# (for a type, of each changed, added or removed member), il=true one of their normalized IL; names the new build " +
+                 "renamed are rewritten first, so a pure rename is no change, and a method with the same normalized IL is not decompiled. Use it to " +
+                 "update FindClass names and offsets after an update.")]
     public Task<string> FindCounterpart(
         [Description("Symbol in the old build. " + SymbolDescription)] string symbol,
         [Description("The old build (id, name or path).")] string oldAssembly,
@@ -208,6 +210,7 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
         if (cmp.OldSkippedBodies + cmp.NewSkippedBodies > 0)
             sb.AppendLine($"Skipped: {cmp.OldSkippedBodies} old and {cmp.NewSkippedBodies} new method bodies are not valid IL and were not compared; " +
                           "matches by content involving them are less reliable.");
+        Renames? renames = null;
         foreach (var sym in SymbolResolver.Resolve(workspace, oldAsm.Id, symbol).Take(25))
         {
             var found = comparer.FindCounterpart(cmp, sym.Member);
@@ -248,17 +251,109 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
             var newIl2Cpp = Il2CppService.CompactSummary(match);
             if (oldIl2Cpp != null || newIl2Cpp != null)
                 sb.AppendLine($"     il2cpp: {oldIl2Cpp ?? "-"} -> {newIl2Cpp ?? "-"}");
-            if (diff)
-                AppendDiff(sb, "C#", () => Source(oldAsm, sym.Member), () => Source(newAsm, match), $"{oldAsm.Id} {sym.Label}", $"{newAsm.Id} {Format.MemberLabel(match)}");
+            if (!diff && !il) continue;
+            renames ??= Renames.Of(cmp);
+            int budget = DiffLines;
+            if (diff && sym.Member is TypeDef oldType)
+                TypeDiff(sb, cmp, oldType, renames, ref budget);
+            else if (diff && sym.Member is MethodDef om2 && match is MethodDef nm2 && SameBody(oldAsm, om2, newAsm, nm2))
+                sb.AppendLine("     C# diff: none needed (the same normalized IL)");
+            else if (diff)
+                AppendDiff(sb, "C#", () => renames.Apply(Source(oldAsm, sym.Member)), () => renames.Apply(Source(newAsm, match)),
+                    $"{oldAsm.Id} {sym.Label}", $"{newAsm.Id} {Format.MemberLabel(match)}", ref budget, renames);
             if (il && sym.Member is MethodDef im && match is MethodDef jm)
-                AppendDiff(sb, "normalized IL", () => NormalizedIl(oldAsm, im), () => NormalizedIl(newAsm, jm), $"{oldAsm.Id} {sym.Label}", $"{newAsm.Id} {Format.MemberLabel(match)}");
+                AppendDiff(sb, "normalized IL", () => renames.Apply(NormalizedIl(oldAsm, im)), () => renames.Apply(NormalizedIl(newAsm, jm)),
+                    $"{oldAsm.Id} {sym.Label}", $"{newAsm.Id} {Format.MemberLabel(match)}", ref budget, renames);
         }
         return sb.ToString();
 
         string Source(LoadedAssembly asm, IMemberDef member) => member is TypeDef t
             ? decompiler.DecompileType(asm, t, cancellationToken)
             : decompiler.DecompileMembers(asm, [member], cancellationToken);
+
+        // A type: each member that changed, was added or removed, under one line budget.
+        void TypeDiff(StringBuilder sb, Comparison cmp, TypeDef oldType, Renames renames, ref int budget)
+        {
+            var change = cmp.Types.FirstOrDefault(t => t.Old == oldType);
+            var members = change?.Members.Where(m => m.Change != "ambiguous" && !(m.Old is MethodDef a && m.New is MethodDef b && m.Change == "renamed"
+                && m.Dimensions.Count == 1 && SameBody(oldAsm, a, newAsm, b))).ToList() ?? [];
+            if (members.Count == 0)
+            {
+                sb.AppendLine("     C# diff: no member changed (renames aside)");
+                return;
+            }
+            sb.AppendLine($"     C# diff of {members.Count} changed, added or removed member(s):");
+            foreach (var m in members)
+            {
+                if (budget <= 0)
+                {
+                    sb.AppendLine($"       … the line budget is spent; find_counterpart on a member shows its diff.");
+                    break;
+                }
+                var label = m.Old is { } o ? Format.MemberLabel(o) : Format.MemberLabel(m.New!);
+                AppendDiff(sb, $"{m.Change} {label}", () => m.Old is { } o ? renames.Apply(Source(oldAsm, o)) : "",
+                    () => m.New is { } n ? renames.Apply(Source(newAsm, n)) : "", m.Old != null ? $"{oldAsm.Id} {label}" : "(did not exist)",
+                    m.New != null ? $"{newAsm.Id} {Format.MemberLabel(m.New)}" : "(removed)", ref budget, renames);
+            }
+        }
     }, cancellationToken);
+
+    private static bool SameBody(LoadedAssembly oldAsm, MethodDef old, LoadedAssembly newAsm, MethodDef @new) =>
+        IlHash.Of(oldAsm, old) is { } a && a == IlHash.Of(newAsm, @new) && Format.ParameterTypes(old.MethodSig) == Format.ParameterTypes(@new.MethodSig);
+
+    /// <summary>
+    /// The new build's names for what it renamed (types and members), applied to the old side's text before diffing, and the
+    /// per-build "[token 0x...]" marks removed. A name renamed to several names, or also used unchanged elsewhere, is left alone.
+    /// </summary>
+    private sealed class Renames
+    {
+        private static readonly System.Text.RegularExpressions.Regex TokenMark = new(@"\s*\[token (?:0x[0-9A-Fa-f]{8}|\(new\))\]",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2));
+        private readonly Dictionary<string, string> _map;
+        private readonly System.Text.RegularExpressions.Regex? _names;
+
+        private Renames(Dictionary<string, string> map)
+        {
+            _map = map;
+            if (map.Count > 0)
+                _names = new(@"(?<![\w`])(" + string.Join("|", map.Keys.OrderByDescending(k => k.Length).Select(System.Text.RegularExpressions.Regex.Escape)) + @")(?![\w`])",
+                    System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromSeconds(5));
+        }
+
+        public static Renames Of(Comparison cmp)
+        {
+            var pairs = cmp.TypeMap.Select(t => (Old: Simple(t.Key.Name), New: Simple(t.Value.Name)))
+                .Concat(cmp.MemberMap.Where(m => m.Key is not MethodDef { IsConstructor: true }).Select(m => (Old: m.Key.Name.String, New: m.Value.New.Name.String)))
+                .ToList();
+            var kept = pairs.Where(p => p.Old == p.New).Select(p => p.Old).ToHashSet(StringComparer.Ordinal);
+            var map = pairs.Where(p => p.Old != p.New && !kept.Contains(p.Old) && !p.Old.Contains('<') && p.Old.Length > 0)
+                .GroupBy(p => p.Old, StringComparer.Ordinal).Where(g => g.Select(p => p.New).Distinct().Count() == 1)
+                .ToDictionary(g => g.Key, g => g.First().New, StringComparer.Ordinal);
+            return new Renames(map);
+        }
+
+        private static string Simple(string name) => name.IndexOf('`') is var tick and > 0 ? name[..tick] : name;
+
+        public HashSet<string> Used { get; } = new(StringComparer.Ordinal);
+
+        public string Apply(string text)
+        {
+            text = TokenMark.Replace(text, "");
+            if (_names == null) return text;
+            return _names.Replace(text, m =>
+            {
+                Used.Add(m.Value);
+                return _map[m.Value];
+            });
+        }
+
+        /// <summary>The renames applied so far, for the diff header.</summary>
+        public string Describe(int max = 8)
+        {
+            var list = Used.Order(StringComparer.Ordinal).ToList();
+            return string.Join(", ", list.Take(max).Select(n => $"{n} -> {_map[n]}")) + (list.Count > max ? $" (+{list.Count - max} more)" : "");
+        }
+    }
 
     private const int DiffLines = 300;
     private const string DiffLinesText = "300";
@@ -266,10 +361,12 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
     private static string NormalizedIl(LoadedAssembly asm, MethodDef m) =>
         FastIlReader.Read(asm, m) is { } body ? IlHash.Canonical(body) : "(no body)\n";
 
-    /// <summary>A unified diff of one pair, indented under it; cut at <see cref="DiffLines"/> lines with a note.</summary>
-    private static void AppendDiff(StringBuilder sb, string what, Func<string> before, Func<string> after, string beforeLabel, string afterLabel)
+    /// <summary>A unified diff of one pair, indented under it; cut when <paramref name="budget"/> lines are spent, with a note.</summary>
+    private static void AppendDiff(StringBuilder sb, string what, Func<string> before, Func<string> after, string beforeLabel, string afterLabel, ref int budget,
+        Renames renames)
     {
         string text;
+        int used = renames.Used.Count;
         try { text = TextDiff.Unified(before(), after(), beforeLabel, afterLabel); }
         catch (ToolError ex)
         {
@@ -277,10 +374,15 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
             return;
         }
         var lines = text.ReplaceLineEndings("\n").TrimEnd('\n').Split('\n');
-        sb.AppendLine($"     {what} diff:");
-        foreach (var line in lines.Take(DiffLines)) sb.Append("       ").AppendLine(line);
-        if (lines.Length > DiffLines)
-            sb.AppendLine($"       … diff cut at {DiffLines} of {lines.Length} lines; decompile_member / get_il on each build show the rest.");
+        bool same = lines.All(l => l.Length == 0 || l.StartsWith("---", StringComparison.Ordinal) || l.StartsWith("+++", StringComparison.Ordinal)
+            || !(l.StartsWith('+') || l.StartsWith('-')));
+        sb.AppendLine($"     {what} diff:{(same ? " none" : "")}{(renames.Used.Count > used || (same && renames.Used.Count > 0) ? $" (old names read as renamed: {renames.Describe()})" : "")}");
+        if (same) return;
+        int shown = Math.Min(lines.Length, Math.Max(0, budget));
+        foreach (var line in lines.Take(shown)) sb.Append("       ").AppendLine(line);
+        budget -= shown;
+        if (lines.Length > shown)
+            sb.AppendLine($"       … diff cut at {shown} of {lines.Length} lines; decompile_member / get_il on each build show the rest.");
     }
 
     private static string Tier((string Tier, string Confidence) t) => $"tier: {t.Tier}, {t.Confidence}";

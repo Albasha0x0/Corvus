@@ -165,6 +165,48 @@ public class ComparerTieredTests(ITestOutputHelper output) : IDisposable
     }
 
     [Fact]
+    public async Task Counterpart_DiffReadsRenamesAsTheNewBuildAndDiffsATypeByMember()
+    {
+        const string before = """
+            public class Engine
+            {
+                public int Helper(int x) { return x * 3 + 17; }
+                public int Run(int x) { return Helper(x) + 1; }
+                public int Stable(int x) { return x - 9; }
+                public int Gone() { return 5; }
+            }
+            """;
+        const string after = """
+            public class Engine
+            {
+                public int Triple(int x) { return x * 3 + 17; }
+                public int Run(int x) { return Triple(x) + 1; }
+                public int Stable(int x) { return x - 9; }
+                public string Added(string s) { return s + "!"; }
+            }
+            """;
+        using var env = new Env(Write("r1", before));
+        var newer = env.Workspace.Load(Write("r2", after));
+        var tools = new CompareTools(env.Workspace, new AssemblyComparer(env.Workspace), env.Pager, env.Decompiler);
+
+        var run = await tools.FindCounterpart("Engine::Run", env.Fixture.Id, newer.Id, diff: true, il: true);
+        output.WriteLine(run);
+        Assert.Contains("body: changed", run); // the callee's name is part of the IL hash
+        Assert.Contains("C# diff: none (old names read as renamed: Helper -> Triple)", run);
+        Assert.Contains("normalized IL diff: none", run);
+        Assert.DoesNotContain("[token", run);
+
+        Assert.Contains("C# diff: none needed (the same normalized IL)", await tools.FindCounterpart("Engine::Stable", env.Fixture.Id, newer.Id, diff: true));
+
+        var type = await tools.FindCounterpart("Engine", env.Fixture.Id, newer.Id, diff: true);
+        output.WriteLine(type);
+        var lines = type.ReplaceLineEndings("\n").Split('\n').Select(l => l.Replace("\t", "").Trim()).ToList();
+        Assert.Contains(lines, l => l.StartsWith("-public int Gone()", StringComparison.Ordinal));
+        Assert.Contains(lines, l => l.StartsWith("+public string Added(string s)", StringComparison.Ordinal));
+        Assert.DoesNotContain(lines, l => l.StartsWith("-public int Helper", StringComparison.Ordinal)); // a pure rename is no change
+    }
+
+    [Fact]
     public async Task Compare_StructuredResult_AndTokenMapExport()
     {
         using var env = new Env(Write("v1", V1));
