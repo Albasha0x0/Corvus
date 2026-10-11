@@ -53,7 +53,7 @@ public sealed class NativeCallTargetTools(AssemblyWorkspace workspace, NativeCod
 
     [McpServerTool(Name = "resolve_call_targets", Title = "Native call targets", UseStructuredContent = true, OutputSchemaType = typeof(CallTargetsReport))]
     [Description("Targets of call and tail-jump sites in native code (x86 / x64 / ARM), each with its basis and confidence: direct branches, import and GOT " +
-                 "slots, thunks, constant pointers (also through the CFG dispatch), GetProcAddress pointers, RTTI virtual calls, NativeAOT interface calls (the implementations of the dispatch cell's slot), the writers and initial contents " +
+                 "slots, thunks, constant pointers (also through the CFG dispatch), GetProcAddress pointers, RTTI virtual calls, NativeAOT interface dispatch cells, the writers and initial contents " +
                  "of a global function pointer, relocated pointer tables (complete when an index bound is found), and with deep=true the function " +
                  "pointers callers pass in. Several targets are listed, never collapsed; unresolved sites carry the reason and the trace_native_values " +
                  "call to follow. engine=ida or ghidra merges that engine's references and decompiler targets for the sites returned (a disagreement is ambiguous).")]

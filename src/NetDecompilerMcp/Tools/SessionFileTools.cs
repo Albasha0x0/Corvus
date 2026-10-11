@@ -10,7 +10,8 @@ namespace NetDecompilerMcp.Tools;
 /// <summary>save_session / load_session: the analyst's work (edits, patches, names, notes) in one portable file.</summary>
 [McpServerToolType]
 public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService sessions, EditHistoryService history, NativeCodeService code,
-    NativeEditService nativeEdits, NotesService? notes = null, NativeEngineService? engines = null, EditJournal? journal = null)
+    NativeEditService nativeEdits, NotesService? notes = null, NativeEngineService? engines = null, EditJournal? journal = null,
+    Il2CppRawLoader? il2cppRaw = null, MinidumpService? dumps = null)
 {
     public const string Loaded = "loaded", AlreadyLoaded = "already_loaded", WouldLoad = "would_load", Applied = "applied", WouldApply = "would_apply",
         AlreadyPresent = "already_present", Refused = "refused", NotFound = "not_found";
@@ -18,7 +19,7 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
     public sealed record SessionSaved(string Path, int Files, int EditedAssemblies, int Edits, int PatchedImages, int Patches, int Names, int Comments, int Notes);
 
     public sealed record SessionItem(
-        [property: Description("file, edits, patches, names, comments or notes.")] string Kind,
+        [property: Description("file, il2cpp, dump, edits, patches, names, comments or notes.")] string Kind,
         [property: Description("The id the session recorded.")] string Id,
         [property: Description("loaded, already_loaded, would_load, applied, would_apply, already_present, refused or not_found.")] string Outcome,
         [property: Description("How or why: recorded_path, relative_path, search_root, same_build, other_build, sha_mismatch, old_build_needed, " +
@@ -33,7 +34,8 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
     [McpServerTool(Name = "save_session", Title = "Save the session", UseStructuredContent = true)]
     [Description("Write the work of this session to one JSON file (net-decompiler-session/1): every loaded file by path, path relative to the session " +
                  "file and SHA-256; each assembly's unsaved edits (the export_edits script), each native image's patches (the export_native_patches " +
-                 "json) and user names and comments, and the notes on these files. load_session restores it here or on another machine.")]
+                 "json) and user names and comments, the notes on these files, Il2Cpp games (package or metadata, and binary) " +
+                 "and open minidumps. load_session restores it here or on another machine.")]
     public Task<SessionSaved> SaveSession(
         [Description("Output file path (.json).")] string path,
         [Description("Replace the file if it exists.")] bool overwrite = false,
@@ -51,7 +53,8 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
 
     [McpServerTool(Name = "load_session", Title = "Load a session", UseStructuredContent = true)]
     [Description("Restore a save_session file: find each file (recorded path, path relative to the session file, else a file with the same SHA-256 " +
-                 "under searchRoots), load it, then apply names and comments (never replacing a different user name), native patches and .NET edits, " +
+                 "under searchRoots; Il2Cpp games and minidumps first), load it, then apply names and comments " +
+                 "(never replacing a different user name), native patches and .NET edits, " +
                  "and import the notes. Files are checked by SHA-256: targetBuild=same (default) refuses a changed file; other carries the work to the " +
                  "build now at the recorded path (.NET edits re-resolved by name as apply_edits targetBuild=other; native names and patches through " +
                  "the function match, which needs the old build too, found by SHA-256 under searchRoots). dryRun (default true) reports and changes " +
@@ -79,6 +82,68 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
 
         if (!dryRun)
             foreach (var d in doc.SearchDirectories.Where(Directory.Exists)) workspace.AddSearchDirectory(d);
+
+        // Il2Cpp games first: reading one loads its binary, which the files below then find loaded.
+        foreach (var g in doc.Il2Cpp ?? [])
+        {
+            ct.ThrowIfCancellationRequested();
+            if (LoadedId(g.BinarySha256) is { } binaryId)
+            {
+                Add("il2cpp", g.Input.Path, AlreadyLoaded, "same_build", 1, binaryId);
+                continue;
+            }
+            var located = await Task.Run(() => SessionService.Locate(g.Input, sessionDir, roots, ct), ct);
+            if (located.Path == null)
+            {
+                Add("il2cpp", g.Input.Path, located.Other != null ? Refused : NotFound, located.Other != null ? "sha_mismatch" : "not_found", 0,
+                    located.Other != null ? $"{located.Other} has other bytes than the recorded sha256 {g.Input.Sha256}" : "the game's package or metadata was not found");
+                continue;
+            }
+            if (dryRun)
+            {
+                Add("il2cpp", g.Input.Path, WouldLoad, located.How, 1, located.Path);
+                continue;
+            }
+            try
+            {
+                var result = await Task.Run(() =>
+                {
+                    var game = WorkspaceTools.RawIl2CppGame(located.Path, g.Slice)
+                               ?? throw new ToolError(ErrorCode.NotFound, $"{located.Path} is no longer an Il2Cpp game input.");
+                    return (il2cppRaw ?? new Il2CppRawLoader(workspace)).Load(game, loadBinary: true, null, ct);
+                }, ct);
+                bool sameBinary = result.Binary?.OriginalSha256.Equals(g.BinarySha256, StringComparison.OrdinalIgnoreCase) == true;
+                Add("il2cpp", g.Input.Path, Loaded, sameBinary ? located.How : "other_binary", result.Load.Loaded.Count,
+                    $"{located.Path}: {result.Load.Loaded.Count} dummy assemblies" + (result.Binary != null ? $", binary {result.Binary.Id}" : "") +
+                    (sameBinary ? "" : $"; the binary is not the recorded one (sha256 {g.BinarySha256}): names and patches of the recorded binary are not applied to it"));
+            }
+            catch (ToolError ex) { Add("il2cpp", g.Input.Path, Refused, ex.Code.ToString().ToLowerInvariant(), 0, ex.Message); }
+        }
+
+        // Minidumps: reopened under their file name.
+        foreach (var d in doc.Dumps ?? [])
+        {
+            ct.ThrowIfCancellationRequested();
+            if (dumps == null) { notesOut.Add("minidumps are not available in this server"); break; }
+            if (dumps.OpenIds.FirstOrDefault(id => dumps.PathOf(id) is { } p && File.Exists(p) && SessionService.Locate(d.File with { Path = p, RelativePath = null }, sessionDir, [], ct).Path != null) is { } open)
+            {
+                Add("dump", d.File.Id, AlreadyLoaded, "same_build", 1, open);
+                continue;
+            }
+            var located = await Task.Run(() => SessionService.Locate(d.File, sessionDir, roots, ct), ct);
+            if (located.Path == null)
+                Add("dump", d.File.Id, located.Other != null ? Refused : NotFound, located.Other != null ? "sha_mismatch" : "not_found", 0, located.Other ?? d.File.Path);
+            else if (dryRun) Add("dump", d.File.Id, WouldLoad, located.How, 1, located.Path);
+            else
+            {
+                try
+                {
+                    using var session = dumps.Open(located.Path, null);
+                    Add("dump", d.File.Id, Loaded, located.How, 1, $"{located.Path} as {session.Id}");
+                }
+                catch (ToolError ex) { Add("dump", d.File.Id, Refused, ex.Code.ToString().ToLowerInvariant(), 0, ex.Message); }
+            }
+        }
 
         // Files: the same build where it can be found; under targetBuild=other, the build now at the recorded path (old: the same build, for matching).
         var current = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); // recorded sha -> loaded id

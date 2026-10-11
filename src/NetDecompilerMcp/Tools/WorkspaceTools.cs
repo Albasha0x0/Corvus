@@ -102,7 +102,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     /// extracted Android package, iOS .app) or both files side by side, or an .apk / .xapk / .apks / .aab / .ipa holding
     /// one (extracted to the cache). A game binary alone loads as a native image.
     /// </summary>
-    private static Il2CppGameFiles? RawIl2CppGame(string path, string? slice)
+    internal static Il2CppGameFiles? RawIl2CppGame(string path, string? slice)
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
         string full;

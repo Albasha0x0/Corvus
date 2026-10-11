@@ -9,12 +9,12 @@ namespace NetDecompilerMcp.Services;
 /// <summary>
 /// Loads a raw Il2Cpp game (its binary + global-metadata.dat) without an external dumper:
 /// <see cref="Il2CppMetadataReader"/> writes <c>root/&lt;key&gt;/DummyDll/*.dll</c>, <c>il2cpp-model.bin</c> and the
-/// marker <see cref="MarkerFileName"/> into a per-user cache, and the dummy assemblies load like an Il2CppDumper
+/// marker <see cref="MarkerFileName"/> into a per-user cache (or <c>cacheRoot</c>), and the dummy assemblies load like an Il2CppDumper
 /// DummyDll folder. The key is the game files' paths, sizes and write times. The Il2Cpp tools find the model through the marker
 /// (<see cref="Il2CppDumpFiles.Locate"/>). At most <see cref="MaxEntries"/> games are kept, evicting the least recently
 /// used entry that is not loaded.
 /// </summary>
-public sealed class Il2CppRawLoader(AssemblyWorkspace workspace)
+public sealed class Il2CppRawLoader(AssemblyWorkspace workspace, string? cacheRoot = null)
 {
     private static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
 
@@ -77,8 +77,8 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace)
     {
         var watch = Stopwatch.StartNew();
         var notes = new List<string>();
-        var cacheRoot = Path.GetFullPath(root ?? DefaultRoot);
-        var dir = Path.Combine(cacheRoot, Key(files));
+        var entries = Path.GetFullPath(root ?? cacheRoot ?? DefaultRoot);
+        var dir = Path.Combine(entries, Key(files));
         var dummy = Path.Combine(dir, DummyFolder);
         Il2CppGameModel model;
         bool fromCache;
@@ -124,7 +124,7 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace)
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 TryDelete(staging);
-                throw new ToolError(ErrorCode.IoError, $"Cannot write the Il2Cpp cache under {cacheRoot}: {ex.Message}", $"set {RootVariable} to a writable folder");
+                throw new ToolError(ErrorCode.IoError, $"Cannot write the Il2Cpp cache under {entries}: {ex.Message}", $"set {RootVariable} to a writable folder");
             }
             catch
             {
@@ -134,7 +134,7 @@ public sealed class Il2CppRawLoader(AssemblyWorkspace workspace)
             lock (Models) Models[Path.Combine(dir, Il2CppGameModel.FileName)] = new WeakReference<Il2CppGameModel>(model);
             fromCache = false;
             readTime = model.ReadTime;
-            Trim(cacheRoot, dir);
+            Trim(entries, dir);
         }
         loaded:
         progress?.Invoke("loading the dummy assemblies");

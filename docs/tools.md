@@ -113,7 +113,7 @@ Page through a result that was too large to send (a limit_exceeded error names i
 
 **Save the session** (destructive, idempotent)
 
-Write the work of this session to one JSON file (net-decompiler-session/1): every loaded file by path, path relative to the session file and SHA-256; each assembly's unsaved edits (the export_edits script), each native image's patches (the export_native_patches json) and user names and comments, and the notes on these files. load_session restores it here or on another machine.
+Write the work of this session to one JSON file (net-decompiler-session/1): every loaded file by path, path relative to the session file and SHA-256; each assembly's unsaved edits (the export_edits script), each native image's patches (the export_native_patches json) and user names and comments, the notes on these files, Il2Cpp games (package or metadata, and binary) and open minidumps. load_session restores it here or on another machine.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -127,7 +127,7 @@ Structured output: `path`, `files`, `editedAssemblies`, `edits`, `patchedImages`
 
 **Load a session** (destructive, long-running)
 
-Restore a save_session file: find each file (recorded path, path relative to the session file, else a file with the same SHA-256 under searchRoots), load it, then apply names and comments (never replacing a different user name), native patches and .NET edits, and import the notes. Files are checked by SHA-256: targetBuild=same (default) refuses a changed file; other carries the work to the build now at the recorded path (.NET edits re-resolved by name as apply_edits targetBuild=other; native names and patches through the function match, which needs the old build too, found by SHA-256 under searchRoots). dryRun (default true) reports and changes nothing. Returns one outcome per item with a reason.
+Restore a save_session file: find each file (recorded path, path relative to the session file, else a file with the same SHA-256 under searchRoots; Il2Cpp games and minidumps first), load it, then apply names and comments (never replacing a different user name), native patches and .NET edits, and import the notes. Files are checked by SHA-256: targetBuild=same (default) refuses a changed file; other carries the work to the build now at the recorded path (.NET edits re-resolved by name as apply_edits targetBuild=other; native names and patches through the function match, which needs the old build too, found by SHA-256 under searchRoots). dryRun (default true) reports and changes nothing. Returns one outcome per item with a reason.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1239,7 +1239,7 @@ Structured output: `image`, `engine`, `seed`, `direction`, `values`, `nodes`, `e
 
 **Native call targets** (read-only, idempotent, open-world, long-running)
 
-Targets of call and tail-jump sites in native code (x86 / x64 / ARM), each with its basis and confidence: direct branches, import and GOT slots, thunks, constant pointers (also through the CFG dispatch), GetProcAddress pointers, RTTI virtual calls, NativeAOT interface calls (the implementations of the dispatch cell's slot), the writers and initial contents of a global function pointer, relocated pointer tables (complete when an index bound is found), and with deep=true the function pointers callers pass in. Several targets are listed, never collapsed; unresolved sites carry the reason and the trace_native_values call to follow. engine=ida or ghidra merges that engine's references and decompiler targets for the sites returned (a disagreement is ambiguous).
+Targets of call and tail-jump sites in native code (x86 / x64 / ARM), each with its basis and confidence: direct branches, import and GOT slots, thunks, constant pointers (also through the CFG dispatch), GetProcAddress pointers, RTTI virtual calls, NativeAOT interface dispatch cells, the writers and initial contents of a global function pointer, relocated pointer tables (complete when an index bound is found), and with deep=true the function pointers callers pass in. Several targets are listed, never collapsed; unresolved sites carry the reason and the trace_native_values call to follow. engine=ida or ghidra merges that engine's references and decompiler targets for the sites returned (a disagreement is ambiguous).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1439,7 +1439,7 @@ Symbols of the PDB loaded for a native image (load_pdb, or found automatically):
 
 **NativeAOT metadata** (read-only, idempotent, long-running)
 
-What a NativeAOT image's own metadata recovers, read without executing it (.NET 7-10; PE, ELF and Mach-O, 64- and 32-bit). view=summary: runtime and ReadyToRun version, dehydration, module header, each recovery stage with its status (complete / partial / absent / unsupported), counts and the share of function starts named. view=sections: the module sections. view=types: MethodTables with name, name origin (typemap / composition / vtable / element / generated), kind and base. view=type: one MethodTable by name or address with flags, base chain, interfaces and vtable slots and dispatch-map interface implementations with their code. view=methods: named method bodies (origin stacktrace / invoke). view=strings: frozen string literals with their references. view=statics: GC, non-GC and thread statics bases with their type (and how it is known) and the fields the metadata keeps. query filters types / methods / strings / statics by substring. The names also apply automatically as the nativeaot name layer.
+What a NativeAOT image's own metadata recovers, read without executing it (.NET 7-10; PE, ELF and Mach-O, 64- and 32-bit). view=summary: runtime and ReadyToRun version, dehydration, module header, each recovery stage with its status (complete / partial / absent / unsupported), counts and the share of function starts named. view=sections: the module sections. view=types: MethodTables with name, name origin (typemap / composition / vtable / element / generated), kind and base. view=type: one MethodTable by name or address with flags, base chain, interfaces and vtable slots and dispatch-map interface implementations with their code. view=methods: named method bodies (origin stacktrace / invoke). view=strings: frozen string literals with their references. view=statics: GC, non-GC and thread statics with their type and the fields the metadata keeps. query filters types / methods / strings / statics by substring. The names also apply automatically as the nativeaot name layer.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

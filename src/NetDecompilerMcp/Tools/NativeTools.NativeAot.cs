@@ -19,7 +19,7 @@ public sealed partial class NativeTools
                  "function starts named. view=sections: the module sections. view=types: MethodTables with name, name origin (typemap / composition / " +
                  "vtable / element / generated), kind and base. view=type: one MethodTable by name or address with flags, base chain, interfaces and " +
                  "vtable slots and dispatch-map interface implementations with their code. view=methods: named method bodies (origin stacktrace / invoke). view=strings: frozen string literals with " +
-                 "their references. view=statics: GC, non-GC and thread statics bases with their type (and how it is known) and the fields the metadata keeps. query filters types / methods / strings / statics by substring. The names also apply automatically as the nativeaot name layer.")]
+                 "their references. view=statics: GC, non-GC and thread statics with their type and the fields the metadata keeps. query filters types / methods / strings / statics by substring. The names also apply automatically as the nativeaot name layer.")]
     public Task<string> GetNativeAotInfo(
         [Description(ImageDescription)] string image,
         [Description("summary (default), sections, types, type, methods, strings or statics.")] string? view = null,

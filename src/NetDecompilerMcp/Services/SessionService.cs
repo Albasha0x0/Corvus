@@ -10,9 +10,11 @@ namespace NetDecompilerMcp.Services;
 /// <summary>
 /// A session file (net-decompiler-session/1): the loaded files by path and SHA-256, each assembly's edit script (the
 /// export_edits format), each native image's patch set (the export_native_patches json) and user names and comments,
-/// and notes. Everything is re-derived from the files themselves on load; nothing in it is executed.
+/// notes, the Il2Cpp games read by the built-in reader (their input, binary and metadata, not the generated dummy assemblies)
+/// and the open minidumps. Everything is re-derived from the files themselves on load; nothing in it is executed.
 /// </summary>
-public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryService history, NativeCodeService code, NotesService? notes = null)
+public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryService history, NativeCodeService code, NotesService? notes = null,
+    MinidumpService? dumps = null)
 {
     public const string Format = "net-decompiler-session/1";
     public const long MaxBytes = 64L << 20;
@@ -30,8 +32,21 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
 
     public sealed record SessionNative(string Id, string Sha256, JsonElement? Patches, SessionAnnotations? Annotations);
 
+    /// <summary>
+    /// An Il2Cpp game read by the built-in reader: <see cref="Input"/> is what load_assembly reads again (the package, else
+    /// the metadata, which finds the binary beside it); the binary is checked by SHA-256 after the read.
+    /// </summary>
+    public sealed record SessionIl2Cpp(SessionFile Input, string Binary, string BinarySha256, string? Slice);
+
+    /// <summary>An open minidump, reopened under the same file name id.</summary>
+    public sealed record SessionDump(SessionFile File);
+
     public sealed record Document(string Format, DateTime Created, string ServerVersion, List<string> SearchDirectories, List<SessionFile> Files,
-        List<SessionEdits> DotNet, List<SessionNative> Native, List<Note>? Notes);
+        List<SessionEdits> DotNet, List<SessionNative> Native, List<Note>? Notes)
+    {
+        public List<SessionIl2Cpp>? Il2Cpp { get; init; }
+        public List<SessionDump>? Dumps { get; init; }
+    }
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -62,10 +77,18 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
         var files = new List<SessionFile>();
         var dotnet = new List<SessionEdits>();
         var native = new List<SessionNative>();
+        var games = new Dictionary<string, Il2CppRawLoader.Marker>(StringComparer.OrdinalIgnoreCase); // cache entry -> what it was read from
         workspace.Read(() =>
         {
             foreach (var asm in workspace.Assemblies)
             {
+                // Dummy assemblies of the built-in Il2Cpp reader are regenerated from the game, which the session records instead.
+                if (Path.GetDirectoryName(asm.FilePath) is { } folder && Path.GetFileName(folder) == Il2CppRawLoader.DummyFolder
+                    && Path.GetDirectoryName(folder) is { } entry && (games.ContainsKey(entry) || Il2CppRawLoader.ReadMarker(entry) is { } marker && games.TryAdd(entry, marker)))
+                {
+                    if (include.Contains("edits") && asm.IsDirty) dotnet.Add(new SessionEdits(asm.Id, asm.OriginalSha256, history.BuildScript(asm)));
+                    continue;
+                }
                 files.Add(new SessionFile(asm.Id, "dotnet", asm.FilePath, Path.GetRelativePath(dir, asm.FilePath), asm.OriginalSha256, asm.OriginalBytes.LongLength,
                     asm.Module.Mvid?.ToString()));
                 if (include.Contains("edits") && asm.IsDirty) dotnet.Add(new SessionEdits(asm.Id, asm.OriginalSha256, history.BuildScript(asm)));
@@ -95,9 +118,32 @@ public sealed class SessionService(AssemblyWorkspace workspace, EditHistoryServi
                 .Append("global");
             noteList = notes.All(keys);
         }
+        var il2cpp = new List<SessionIl2Cpp>();
+        foreach (var (entry, marker) in games)
+        {
+            string input = marker.Package ?? marker.Metadata;
+            if (SessionFileOf("il2cpp", input, dir) is { } file && Sha256(marker.Binary) is { } binarySha)
+            {
+                il2cpp.Add(new SessionIl2Cpp(file, marker.Binary, binarySha, marker.Slice));
+                continue;
+            }
+            // The game's files are gone: the dummy assemblies are listed like other files.
+            var dummy = Path.Combine(entry, Il2CppRawLoader.DummyFolder) + Path.DirectorySeparatorChar;
+            files.AddRange(workspace.Read(() => workspace.Assemblies.Where(a => a.FilePath.StartsWith(dummy, StringComparison.OrdinalIgnoreCase))
+                .Select(a => new SessionFile(a.Id, "dotnet", a.FilePath, Path.GetRelativePath(dir, a.FilePath), a.OriginalSha256, a.OriginalBytes.LongLength, a.Module.Mvid?.ToString()))
+                .ToList()));
+        }
+        var dumpList = new List<SessionDump>();
+        foreach (string id in dumps?.OpenIds.Order(StringComparer.OrdinalIgnoreCase) ?? Enumerable.Empty<string>())
+            if (dumps!.PathOf(id) is { } dumpPath && SessionFileOf(id, dumpPath, dir) is { } file)
+                dumpList.Add(new SessionDump(file));
         return new Document(Format, DateTime.UtcNow, typeof(SessionService).Assembly.GetName().Version?.ToString(3) ?? "?", [.. workspace.SearchDirectories],
-            files, dotnet, native, noteList);
+            files, dotnet, native, noteList) { Il2Cpp = il2cpp.Count > 0 ? il2cpp : null, Dumps = dumpList.Count > 0 ? dumpList : null };
     }
+
+    /// <summary>A file recorded by path, relative path and SHA-256; null when it cannot be read now.</summary>
+    private static SessionFile? SessionFileOf(string id, string path, string sessionDir) =>
+        File.Exists(path) && Sha256(path) is { } sha ? new SessionFile(id, "file", path, Path.GetRelativePath(sessionDir, path), sha, Length(path), null) : null;
 
     private static long Length(string path)
     {
