@@ -19,7 +19,7 @@ internal sealed class ElfWriter
     public const ushort EmX86 = 3, EmArm = 40, EmX64 = 62, EmAarch64 = 183, EmMips = 8;
 
     /// <summary>A dynamic symbol; <c>Version</c> on a defined one is a version it defines (DT_VERDEF), <c>Hidden</c> for name@VERSION.</summary>
-    public sealed record Symbol(string Name, uint Value = 0, uint Size = 0, byte Type = 2, byte Bind = 1, bool Defined = true, string? Version = null, bool Hidden = false);
+    public sealed record Symbol(string Name, uint Value = 0, uint Size = 0, byte Type = 2, byte Bind = 1, bool Defined = true, string? Version = null, bool Hidden = false, ushort? Section = null);
     public sealed record Reloc(uint Offset, uint Type, string? Symbol = null, long Addend = 0);
     public enum HashKind { None, Sysv, Gnu, Both }
 
@@ -140,7 +140,7 @@ internal sealed class ElfWriter
         var definedVersions = dynsym.Where(s => s.Defined && s.Version != null).Select(s => s.Version!).Distinct().ToList();
         foreach (var v in definedVersions) dynstr.Add(v);
 
-        var dynsymSec = Table(".dynsym", 11, 2, () => { foreach (var s in dynsym) WriteSym(w, s, dynstr, s.Defined ? (ushort)1 : (ushort)0); });
+        var dynsymSec = Table(".dynsym", 11, 2, () => { foreach (var s in dynsym) WriteSym(w, s, dynstr, s.Section ?? (s.Defined ? (ushort)1 : (ushort)0)); });
         dynsymSec.EntSize = (uint)SymSize;
         dynsymSec.Info = (uint)symOffset;
         var dynstrSec = Table(".dynstr", 3, 2, () => w.Bytes(dynstr.Bytes), 1);
@@ -378,7 +378,7 @@ internal sealed class ElfWriter
             symtab.Alloc = false;
             symtab.Offset = (uint)w.Length;
             WriteSym(w, new Symbol("", Defined: false), strtab, 0);
-            foreach (var s in StaticSymbols.OrderBy(s => s.Bind == 0 ? 0 : 1)) WriteSym(w, s, strtab, s.Defined ? (ushort)1 : (ushort)0);
+            foreach (var s in StaticSymbols.OrderBy(s => s.Bind == 0 ? 0 : 1)) WriteSym(w, s, strtab, s.Section ?? (s.Defined ? (ushort)1 : (ushort)0));
             symtab.Size = (uint)w.Length - symtab.Offset;
             symtab.EntSize = (uint)SymSize;
             symtab.Info = 1 + (uint)StaticSymbols.Count(s => s.Bind == 0);

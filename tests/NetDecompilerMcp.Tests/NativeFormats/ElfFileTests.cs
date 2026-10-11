@@ -184,6 +184,18 @@ public sealed class ElfFileTests(ITestOutputHelper output)
         Assert.Equal("*", Assert.Single(elf.Imports, i => i.Name == "memcpy").Module);
     }
 
+    /// <summary>A version-definition symbol (V1.0 = 0, SHN_ABS) names no address in the image: no export, no nearest name at the image start.</summary>
+    [Fact]
+    public void AbsoluteSymbolsAreNeitherExportsNorImageSymbols()
+    {
+        var w = SampleElf();
+        w.Symbols.Add(new ElfWriter.Symbol("V1.0", 0, 0, Type: 1, Version: "V1.0", Section: 0xFFF1));
+        var elf = Parse(w);
+        Assert.DoesNotContain(elf.Exports, e => e.Name == "V1.0");
+        Assert.DoesNotContain(elf.Symbols, s => s.Name == "V1.0");
+        Assert.Contains(elf.Exports, e => e.Name == "sample_run");
+    }
+
     [Fact]
     public async Task Versions_OfExportsTellTwoDefinitionsOfOneNameApart()
     {

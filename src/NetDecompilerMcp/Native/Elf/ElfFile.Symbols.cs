@@ -40,7 +40,8 @@ public sealed partial class ElfFile
         var seen = new HashSet<(string, uint)>();
         foreach (var s in dyn.Concat(result.Static))
         {
-            if (!s.IsDefined || s.Name.Length == 0 || s.Type is ElfSymbol.TypeSection or ElfSymbol.TypeFile or ElfSymbol.TypeTls) continue;
+            // absolute symbols (version definitions such as V1.0 = 0) are values, not addresses in the image
+            if (!s.IsDefined || s.Name.Length == 0 || s.SectionIndex == ElfSymbol.Absolute || s.Type is ElfSymbol.TypeSection or ElfSymbol.TypeFile or ElfSymbol.TypeTls) continue;
             if (!TryVaToRva(s.Value, out uint rva)) continue;
             if (Machine is ElfNames.EmArm or ElfNames.EmAarch64 && s.Name[0] == '$' && s.Name.Length >= 2 && s.Name[1] is 'a' or 't' or 'd' or 'x'
                 && (s.Name.Length == 2 || s.Name[2] == '.'))
@@ -60,7 +61,7 @@ public sealed partial class ElfFile
 
         foreach (var s in dyn)
         {
-            if (!s.IsDefined || s.Name.Length == 0 || s.Binding == ElfSymbol.BindLocal || s.Visibility is 1 or 2) continue;
+            if (!s.IsDefined || s.Name.Length == 0 || s.SectionIndex == ElfSymbol.Absolute || s.Binding == ElfSymbol.BindLocal || s.Visibility is 1 or 2) continue;
             if (s.Type is ElfSymbol.TypeSection or ElfSymbol.TypeFile or ElfSymbol.TypeTls) continue;
             if (!TryVaToRva(s.Value, out uint rva)) continue;
             if (Machine == ElfNames.EmArm && s.IsFunction) rva &= ~1u;
