@@ -1,6 +1,58 @@
 # NetDecompilerMcp
 
-A headless .NET decompiler and native PE analyzer for AI agents, served over the [Model Context Protocol](https://modelcontextprotocol.io).
+Ask your coding agent how a compiled program works: it reads the code of .NET assemblies and native PE, ELF and Mach-O
+binaries, follows calls, compares builds, and can patch and save a copy. Nothing is executed and nothing is uploaded.
+
+## Get started
+
+**Windows** (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/Albasha0x0/NetDecompilerMcp/main/install.ps1 | iex
+```
+
+**Linux / macOS:**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Albasha0x0/NetDecompilerMcp/main/install.sh | sh
+```
+
+While the repository is private, set `GITHUB_TOKEN` to a token with read access first (for example
+`GITHUB_TOKEN=$(gh auth token)`).
+
+The installer checks the download against the release's `SHA256SUMS`, shows which MCP clients it will register with,
+and asks once. **Restart your client**, then paste this prompt:
+
+> Use net-decompiler to load the NetDecompilerMcp.dll of its own installation (`%LOCALAPPDATA%\NetDecompilerMcp\current`
+> on Windows, `~/.local/share/net-decompiler-mcp/current` elsewhere) and explain how its `install` command decides
+> which MCP clients to register. Cite the methods you read.
+
+Expected result: the agent calls `load_assembly`, finds the setup code with `search_symbols`, reads it with
+`decompile_member`, and answers with the plan rules (existing registrations are refreshed, detected new clients wait
+for confirmation, named clients are added), citing `SetupPlan.Build` and `SetupCli.Install`.
+
+From a terminal, without an agent ([docs/cli.md](docs/cli.md)):
+
+```sh
+NetDecompilerMcp tools
+NetDecompilerMcp decompile_member --load app.dll member=Ns.Type::Method
+NetDecompilerMcp batch steps.jsonl
+```
+
+Questions: [docs/faq.md](docs/faq.md). Something not working: `NetDecompilerMcp status`, then
+[docs/troubleshooting.md](docs/troubleshooting.md).
+
+**Documentation:** [installation](docs/installation.md) (clients, options, skill, update, uninstall) ·
+[command line](docs/cli.md) · [tool reference](docs/tools.md) · [errors](docs/errors.md) ·
+[troubleshooting](docs/troubleshooting.md) · [FAQ](docs/faq.md) · [testing](docs/testing.md) ·
+[release notes](docs/release-notes.md)
+
+**Lawful use.** Analyze software you own or are permitted to analyze. Decompiling, patching or redistributing
+third-party code can be restricted by its license and by law where you live; you are responsible for complying.
+
+## About
+
+A headless .NET decompiler and native analyzer for AI agents, served over the [Model Context Protocol](https://modelcontextprotocol.io).
 It decompiles, searches, cross-references and patches .NET assemblies, including Unity Mono builds and
 Il2CppDumper / Cpp2IL dummy DLLs, and analyzes, diffs and patches native PE, ELF and Mach-O files (x86 / x64 / ARM64), with IDA as the
 optional decompiler for native code. No GUI, no dnSpy instance, no admin rights and no network port.
@@ -10,7 +62,7 @@ optional decompiler for native code. No GUI, no dnSpy instance, no admin rights 
 - **C# method patching:** Roslyn.
 - **Transport:** stdio, using the official [MCP C# SDK](https://github.com/modelcontextprotocol/csharp-sdk).
 
-## Install
+## Install details
 
 One command installs everything and registers the server with every MCP client on the machine. Nothing to
 configure, no admin rights, no .NET needed (the download is self-contained).
@@ -65,6 +117,10 @@ Amazon Q, Kiro, Antigravity, Devin, Command Code, Grok Build, OMP and Pi. Any ot
 | `NetDecompilerMcp uninstall` | Remove it from every client and delete the program files (`--keep-files` keeps them). Your annotations, caches and symbols are kept; `--purge-data` deletes them too; `--dry-run` lists what it would remove. |
 
 From source instead: `./publish.ps1`, then `publish/NetDecompilerMcp install`.
+
+`install --skill` also writes an optional agent skill, generated from the server's own guidance, for clients that read
+skills (Claude Code, Codex, Gemini CLI, Cursor, GitHub Copilot CLI, OpenCode, Antigravity); later installs and updates keep
+it current and `uninstall` removes it ([docs/installation.md](docs/installation.md#the-agent-skill)).
 
 ### Development reload
 
@@ -142,23 +198,6 @@ only `decompile_native` needs an external engine (IDA through idalib, or Ghidra 
 | Crash dumps | `open_minidump` (Windows user-mode minidump: the exception, faulting thread, instruction and registers, modules, threads) · `dump_stack` (x64 unwind through `.pdata`, x86 frame pointers; frames named from loaded images, PDBs and exports) · `read_dump_memory` |
 | Live processes | `inspect_process` (read-only view of a running local Windows process: modules, memory regions, threads and call stacks with named addresses; query and read handles only, nothing written or suspended: [docs/live-inspection.md](docs/live-inspection.md)) |
 | Session | `server_status` (version and commit, program path with an `expectedExecutable` check, install kind, start time, negotiated protocol and client, tool catalog digest and `expectedCatalogDigest` check, limits, toolsets, the tools or modes that cannot work here with the reason and fix, long-running tools, which engines are available and how to fix a missing one, IDA background-analysis state, saved native code indexes: directory, size, hits; open and total notes) · `read_result` (pages through a result too large to send; the `limit_exceeded` error names it) |
-
-### Compared with [tuna1999/dnspy-mcp](https://github.com/tuna1999/dnspy-mcp)
-
-| | dnspy-mcp | NetDecompilerMcp |
-|---|---|---|
-| Runs without dnSpy / GUI | headless mode only (36 tools) | always (119 tools) |
-| Cross-references | methods and fields (`get_xrefs_to`) | methods (incl. virtual/interface dispatch), fields (read/write/address), properties, events, types in every position, overrides, hierarchy with derived types |
-| Search | types, methods, strings, `grep` | symbols (wildcard/regex, all member kinds), strings, numeric constants, IL instruction patterns |
-| Method patching | C# statements (`update_method_body`) | C# bodies with lambdas/async/LINQ (Roslyn, private access, ctor initializers preserved), new members and types, IL assembler (accepts edited `get_il` output, prepend hooks), constant stubs |
-| Undo, diffs, edit scripts | — | undo / revert, before/after C# diffs, replayable edit scripts |
-| Call trees, build comparison | — | multi-level call trees and call paths; build-to-build diff with rename matching |
-| Saving patched DLLs | no (in-memory only) | yes: `.bak`, atomic write, stable tokens |
-| Il2Cpp dummy DLLs | not supported | addresses, field offsets, native address ↔ method / generic instantiation / metadata slot, vtable slots, string literals and the methods using them, IDA/Ghidra scripts and C header, C++ bindings |
-| Resources | list and raw bytes | text/hex view, `.resources` entries, extraction |
-| Whole-project export | `decompile_assembly` (first 10 types) | full .csproj with progress |
-| MCP resources / prompts / completion / progress | — | yes |
-| Large output | truncation | paging with cached pages |
 
 ## Reliability
 
