@@ -18,10 +18,9 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
     private const int MaxMembersPerCall = 25;
 
     [McpServerTool(Name = "decompile_type", Title = "Decompile type to C#")]
-    [Description("Decompile a whole type (class/struct/interface/enum/delegate, including nested types) to C#. Long output is paged: call again with the offset from the footer. " +
-                 "If one method breaks the decompiler, the rest is still returned with IL for the broken part.")]
+    [Description("Decompile a whole type (nested types included) to C#; decompile_member is cheaper for one method. A method that breaks the decompiler is shown as IL.")]
     public Task<string> DecompileType(
-        [Description("Type name or token. " + SymbolDescription)] string type,
+        [Description(SymbolDescription)] string type,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description(SimplifiedDescription)] bool simplified = false,
         [Description(OffsetDescription)] int offset = 0,
@@ -33,15 +32,14 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
     }, cancellationToken);
 
     [McpServerTool(Name = "decompile_member", Title = "Decompile member to C#")]
-    [Description("Decompile a method, property, field, event or constructor to C#. When a name has several overloads all are returned, unless a parameter list narrows it ('Ns.Type::Foo(int, string)'). " +
-                 "Async/iterator state machines and lambdas are folded back into the original method. A type name decompiles the whole type.")]
+    [Description("Decompile a method, property, field, event or constructor to C#: every overload unless a parameter list narrows it; async / iterator state " +
+                 "machines and lambdas fold back into the method. A type name decompiles the whole type.")]
     public Task<string> DecompileMember(
         [Description(SymbolDescription)] string member,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("Restrict to: method, field, property, event (default any).")] string? kind = null,
+        [Description("Restrict to this kind (default any).")] string? kind = null,
         [Description(SimplifiedDescription)] bool simplified = false,
-        [Description("Start with comment lines that pin the output to its build: file SHA-256 and MVID, each member's token, and for methods " +
-                     "the normalized IL hash and the raw IL SHA-256 (docs/il-hash.md).")] bool provenance = false,
+        [Description("Start with comments pinning the output to its build: SHA-256, MVID, tokens, IL hashes (docs/il-hash.md).")] bool provenance = false,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
@@ -100,9 +98,8 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
     }
 
     [McpServerTool(Name = "get_il", Title = "IL disassembly")]
-    [Description("IL disassembly (ildasm style, with /* metadata token */ comments, IL offsets and structured try/catch blocks) of a method, field, property, event, or a whole type. " +
-                 "Each method starts with its normalized IL hash (stable across rebuilds), the SHA-256 of its raw IL bytes (exact build) and any invalid exception clause. " +
-                 "Use it when the C# looks wrong, for transformed code, or as the starting point for patch_method_il.")]
+    [Description("IL disassembly (ildasm style, /* token */ comments, offsets, try blocks) of a member or type; each method starts with its normalized IL hash " +
+                 "(stable across rebuilds) and raw IL SHA-256. For when the C# looks wrong, transformed code, or as patch_method_il input.")]
     public Task<string> GetIL(
         [Description(SymbolDescription)] string symbol,
         [Description(AssemblyFilterDescription)] string? assembly = null,
@@ -155,9 +152,8 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
             pager.Page(decompiler.DecompileAssemblyAttributes(workspace.Get(assembly), cancellationToken)), cancellationToken);
 
     [McpServerTool(Name = "export_project", Title = "Export C# project")]
-    [Description("Decompile an assembly into a C# project on disk (a .cs file per type, a .csproj, resources): the way to grep or browse a large " +
-                 "codebase with file tools. An .apk / .aab path gives a Gradle project (manifest and resources decoded, assets, jniLibs, Java through " +
-                 "JADX when configured, else smali). Reports progress.")]
+    [Description("Decompile an assembly into a C# project on disk (.cs per type, .csproj, resources), to grep or browse a large codebase with file tools. " +
+                 "An .apk / .aab path gives a Gradle project (decoded manifest and resources, Java through JADX when configured, else smali).")]
     public Task<string> ExportProject(
         [Description(AssemblyDescription)] string assembly,
         [Description("Empty or new output directory.")] string outputDirectory,
@@ -188,7 +184,7 @@ public sealed class DecompileTools(AssemblyWorkspace workspace, DecompilerServic
     }, cancellationToken));
 
     private const string SimplifiedDescription =
-        "Show the code as simplify_methods would leave it (constant strings folded, dead branches removed, forwarders inlined), without changing the assembly.";
+        "Show the code as simplify_methods would leave it, without changing the assembly.";
 
     private string TypeSource(ResolvedSymbol sym, bool simplified, CancellationToken ct) =>
         pager.GetOrCreate(CacheKey(simplified ? "type-simplified" : "type", [sym]), () => $"// [{sym.Assembly.Id}] {sym.Label}\n" + (simplified

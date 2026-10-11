@@ -15,18 +15,16 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
     NativeCodeService? code = null, NativeEngineService? engines = null)
 {
     [McpServerTool(Name = "get_call_tree", Title = "Call tree (callers / callees)", UseStructuredContent = true, OutputSchemaType = typeof(CallTree))]
-    [Description("Multi-level call tree of a method across all loaded assemblies: direction=callers (who calls it, who calls those...) or callees (what it calls, recursively). " +
-                 "Callers include calls through base/interface methods it overrides or implements. Repeated nodes and recursion are marked instead of expanded again. " +
-                 "Callees continue into native code: a P/Invoke (or a native method body of a mixed-mode C++/CLI assembly) shows 'native: module!export -> " +
-                 "PROVIDER!export at VA [image]' and, when that image is loaded, the native callees below it (disassemble works with the image and VA shown). " +
-                 "Callers of a managed method called from native code (C++/CLI thunks) list those native callers. Given a native export, " +
-                 "callers lists native call sites in loaded images and the P/Invoke declarations bound to it with their managed callers.")]
+    [Description("Multi-level callers or callees of a method across loaded assemblies; callers include calls through base / interface methods it implements, " +
+                 "repeats and recursion are marked. Callees continue through P/Invokes and C++/CLI native bodies into loaded native images " +
+                 "('native: module!export -> PROVIDER!export at VA [image]'); native callers (C++/CLI thunks) are listed too. Given a native export, " +
+                 "callers are its native call sites and its P/Invoke declarations with their managed callers.")]
     public async Task<string> GetCallTree(
-        [Description("Method. " + SymbolOrNativeDescription)] string method,
+        [Description(SymbolOrNativeDescription)] string method,
         [Description("callers or callees.")] string direction = "callers",
-        [Description("Levels to expand (1-8, default 3).")] int depth = 3,
-        [Description("Stop after this many nodes (default 300).")] int maxNodes = 300,
-        [Description("For callees: also list calls into assemblies that are not loaded (framework).")] bool includeExternal = false,
+        [Description("Levels to expand (1-8).")] int depth = 3,
+        [Description("Stop after this many nodes.")] int maxNodes = 300,
+        [Description("Callees: also calls into assemblies not loaded (framework).")] bool includeExternal = false,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
@@ -92,19 +90,16 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
     }
 
     [McpServerTool(Name = "find_call_paths", Title = "Call paths to a method", UseStructuredContent = true, OutputSchemaType = typeof(CallPathList))]
-    [Description("How execution reaches a method: call chains from 'from' to 'to', or — when 'from' is omitted — from entry points (methods nothing in the workspace calls: Main, Unity callbacks, event handlers). " +
-                 "Shortest first, direct calls preferred; a hop that only happens through virtual dispatch (a call to a base/interface method this one overrides) is marked. " +
-                 "'to' may be native code (an export, an import whose library is not loaded, or native:<image>!<address or function>): chains then run through native callers across loaded images " +
-                 "(calls, tail calls, imports bound between images, an open IDA / Ghidra session's call references, RTTI virtual calls, calls through function pointers) back to native roots " +
-                 "(entry point, exports, TLS callbacks, callbacks, uncalled functions) and to managed methods through P/Invoke; 'from' may then be native too. " +
-                 "Each native step carries its call site and edge kind; chains are ranked by length, uncertain hops and image changes.")]
+    [Description("How execution reaches a method: call chains from 'from' to 'to', or from entry points (methods nothing loaded calls: Main, callbacks, event handlers). " +
+                 "Shortest first, direct calls preferred; hops through virtual dispatch are marked. 'to' may be native (an export, an import of an unloaded library, " +
+                 "native:<image>!<address or function>): chains then run through native callers across loaded images (calls, imports, engine references, " +
+                 "RTTI virtual calls, function pointers) back to native roots and to managed callers through P/Invoke, each step with its call site and edge kind.")]
     public async Task<string> FindCallPaths(
-        [Description("Target method. " + SymbolOrNativeDescription)] string to,
-        [Description("Start method (optional): managed, or native (same forms as to) when to is native. " + SymbolDescription)] string? from = null,
-        [Description("Maximum chain length (default 8, max 30).")] int maxDepth = 8,
-        [Description("Maximum number of paths (default 10).")] int maxPaths = 10,
-        [Description("Also follow virtual dispatch: calls to a base/interface method reaching an override (default true). False keeps only direct calls, " +
-                     "which avoids chains through widely overridden methods (ToString, Dispose, interface callbacks). In native code: RTTI virtual calls and resolved function pointers.")] bool includeVirtual = true,
+        [Description("Target. " + SymbolOrNativeDescription)] string to,
+        [Description("Start method, same forms as to (native only when to is native).")] string? from = null,
+        [Description("Max chain length (max 30).")] int maxDepth = 8,
+        [Description("Max paths.")] int maxPaths = 10,
+        [Description("Follow virtual dispatch (native: RTTI virtual calls, resolved function pointers); false avoids chains through widely overridden methods.")] bool includeVirtual = true,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         CancellationToken cancellationToken = default)
     {

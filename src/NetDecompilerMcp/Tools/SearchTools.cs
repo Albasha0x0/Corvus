@@ -12,16 +12,16 @@ namespace NetDecompilerMcp.Tools;
 public sealed class SearchTools(AssemblyWorkspace workspace, SearchService search, Il2CppService il2cpp, Il2CppStringService il2cppStrings, OutputPager pager)
 {
     [McpServerTool(Name = "search_symbols", Title = "Search symbols by name", UseStructuredContent = true, OutputSchemaType = typeof(SymbolList))]
-    [Description("Find types and members by name across loaded assemblies. Query is a case-insensitive substring, a wildcard pattern (Get*Value?) or a regex (regex=true). " +
-                 "Queries containing '.' or '::' also match full names. Exact matches are listed first.")]
+    [Description("Find types and members by name across loaded assemblies: a case-insensitive substring, wildcard (Get*Value?) or regex; queries with '.' or '::' " +
+                 "also match full names; exact matches first.")]
     public Task<string> SearchSymbols(
         [Description("Name, substring, wildcard or regex.")] string query,
-        [Description("Restrict to: any, type, method, field, property, event, member.")] string? kind = null,
+        [Description("Restrict to this kind.")] string? kind = null,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Only types in namespaces starting with this.")] string? @namespace = null,
         [Description("Treat query as a regular expression.")] bool regex = false,
-        [Description("Max results (default 100).")] int limit = 100,
-        [Description("Index of the first result to return.")] int offset = 0,
+        [Description("Max results.")] int limit = 100,
+        [Description("Index of the first result.")] int offset = 0,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         limit = ClampLimit(limit);
@@ -40,16 +40,15 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
     }, cancellationToken);
 
     [McpServerTool(Name = "search_strings", Title = "Search string literals", UseStructuredContent = true, OutputSchemaType = typeof(StringList))]
-    [Description("Find string literals (ldstr in method bodies, and string constants) by substring, wildcard or regex, with the method and IL offset using each. Locates code from UI text, log messages, URLs, keys. " +
-                 "For Il2Cpp dummy DLLs (empty bodies) it searches the game's string literals instead (the dump's stringliteral.json, or the metadata read by the built-in reader): each literal with its slot RVA and, when GameAssembly.dll is next to the dump, " +
-                 "the native functions that load it, named by their dummy-DLL method (or script.json name for generic instantiations).")]
+    [Description("Find string literals (ldstr and string constants) by substring, wildcard or regex, with the method and IL offset using each: code from UI text, " +
+                 "log messages, URLs, keys. For Il2Cpp dummy DLLs: the game's literals with their slot RVA and, with the binary, the native functions that load them, by method name.")]
     public Task<string> SearchStrings(
         [Description("Substring, wildcard or regex.")] string query,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Treat query as a regular expression.")] bool regex = false,
-        [Description("Max results (default 200).")] int limit = 200,
-        [Description("Index of the first result to return.")] int offset = 0,
-        [Description("Il2Cpp literals: max functions listed per literal (default 10).")] int usesPerLiteral = 10,
+        [Description("Max results.")] int limit = 200,
+        [Description("Index of the first result.")] int offset = 0,
+        [Description("Il2Cpp: max functions listed per literal.")] int usesPerLiteral = 10,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         limit = ClampLimit(limit);
@@ -122,12 +121,12 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
     }
 
     [McpServerTool(Name = "search_constants", Title = "Search numeric constants", UseStructuredContent = true, OutputSchemaType = typeof(ConstantList))]
-    [Description("Find a numeric constant (magic number, packet/opcode id, flag, hash seed, crypto constant) wherever it appears: IL literals (ldc.*), const and enum field values, attribute arguments, and static array data (lookup tables, S-boxes, CRC and crypto tables), read element by element as the array's own type. Accepts decimal, 0x hex, negative and floating-point values.")]
+    [Description("Find a numeric constant (magic number, opcode id, flag, crypto constant) in IL literals, const and enum values, attribute arguments and static array data (lookup and crypto tables, read as the array's element type).")]
     public Task<string> SearchConstants(
-        [Description("Number, e.g. 1337, 0xDEADBEEF, -1, 3.14.")] string value,
+        [Description("Decimal, 0x hex, negative or floating-point.")] string value,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("Max results (default 200).")] int limit = 200,
-        [Description("Index of the first result to return.")] int offset = 0,
+        [Description("Max results.")] int limit = 200,
+        [Description("Index of the first result.")] int offset = 0,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         limit = ClampLimit(limit);
@@ -148,14 +147,13 @@ public sealed class SearchTools(AssemblyWorkspace workspace, SearchService searc
     }, cancellationToken);
 
     [McpServerTool(Name = "search_il", Title = "Search IL instruction patterns", UseStructuredContent = true, OutputSchemaType = typeof(IlMatchList))]
-    [Description("Find methods containing an IL instruction sequence. Elements separated by ';' or newlines, each 'opcode [operand]' with * and ? wildcards; '...' skips up to 16 instructions. " +
-                 "Operands match member labels/full names, type names, strings and numbers (decimal or 0x hex). " +
-                 "Examples: 'ldstr *password*; ...; call *::Hash*' | 'callvirt *Socket::Send*' | 'ldc.i4 0x1F4; call *' | 'newobj *Exception::.ctor*; throw'.")]
+    [Description("Find methods containing an IL instruction sequence: elements separated by ';' or newlines, each 'opcode [operand]' with * and ? wildcards " +
+                 "(operands match member and type names, strings, numbers); '...' skips up to 16 instructions. Example: 'ldstr *password*; ...; call *::Hash*'.")]
     public Task<string> SearchIL(
         [Description("Instruction pattern.")] string pattern,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("Max matches (default 100).")] int limit = 100,
-        [Description("Index of the first match to return.")] int offset = 0,
+        [Description("Max matches.")] int limit = 100,
+        [Description("Index of the first match.")] int offset = 0,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         limit = ClampLimit(limit);

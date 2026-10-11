@@ -25,18 +25,15 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
     }
 
     [McpServerTool(Name = "get_r2r_code", Title = "ReadyToRun native code of a method")]
-    [Description("The precompiled native code of a method in a ReadyToRun assembly (crossgen / PublishReadyToRun; the .NET shared framework's " +
-                 "assemblies are ReadyToRun): entry address, every code range (hot body, exception funclets, cold code), the import cells " +
-                 "its fixups resolve before it first runs, and its x86 / x64 disassembly with import cells named by what they resolve to " +
-                 "(called methods as 'call qword ptr [Ns.Type::Method(int)]', type handles, static bases, helpers, string literals). " +
-                 "A generic method has code only for the instantiations compiled into the image (e.g. over __Canon); each is shown. " +
-                 "For a component of a composite image the code is read from the composite file next to it.")]
+    [Description("The precompiled native code of a method in a ReadyToRun assembly (including the shared framework): entry address, code ranges (hot, funclets, cold), " +
+                 "the fixup import cells, and x86 / x64 disassembly with cells named by what they resolve to (methods, type handles, helpers, strings). " +
+                 "Generic methods show each compiled instantiation; composite images are read from the composite file.")]
     public Task<string> GetR2RCode(
-        [Description("Method. " + SymbolDescription)] string method,
+        [Description(SymbolDescription)] string method,
         [Description(AssemblyFilterDescription + AssemblyPathNote)] string? assembly = null,
-        [Description("Only bodies whose name contains this text (case-insensitive), e.g. an instantiation argument such as 'Int32' or '__Canon'.")] string? instantiation = null,
-        [Description("Max method bodies disassembled (default 4); the rest are listed with their addresses.")] int maxBodies = 4,
-        [Description("Max instructions per body (default 5000).")] int maxInstructions = 5000,
+        [Description("Only bodies whose name contains this text ('Int32', '__Canon').")] string? instantiation = null,
+        [Description("Max bodies disassembled; the rest are listed with addresses.")] int maxBodies = 4,
+        [Description("Max instructions per body.")] int maxInstructions = 5000,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>
@@ -126,12 +123,11 @@ public sealed class ReadyToRunTools(AssemblyWorkspace workspace, ReadyToRunServi
     }
 
     [McpServerTool(Name = "find_r2r_method", Title = "Managed method at a ReadyToRun address")]
-    [Description("The managed method whose precompiled ReadyToRun code contains a native address (e.g. from a crash dump, profiler or debugger): " +
-                 "its name and token, which range (hot body, funclet, cold code) and offset, and the instruction there. An import cell address " +
-                 "is described by what it resolves to. Addresses are in the file holding the code (the assembly, or its composite image).")]
+    [Description("The managed method whose ReadyToRun code contains a native address (from a dump, profiler or debugger): name, token, range, offset and " +
+                 "the instruction there; an import cell is described by what it resolves to. Addresses are in the file holding the code.")]
     public Task<string> FindR2RMethod(
         [Description(AssemblyDescription + AssemblyPathNote)] string assembly,
-        [Description("Address in the code image: a VA (0x180012340, inside the image base range), an RVA, or rva:/va:/off: prefixed.")] string address,
+        [Description("A VA or RVA in the code image (rva:/va:/off: prefix).")] string address,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         LoadIfPath(assembly);

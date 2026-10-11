@@ -15,18 +15,13 @@ namespace NetDecompilerMcp.Tools;
 public sealed class Il2CppNativeTools(AssemblyWorkspace workspace, NativeCodeService code, Il2CppNativeNames names, Il2CppRawLoader? il2cppRaw = null)
 {
     [McpServerTool(Name = "apply_il2cpp_names", Title = "Name a native Il2Cpp binary from its metadata")]
-    [Description("Names the functions and data of a native Il2Cpp game binary (GameAssembly, libil2cpp.so) from the loaded Il2CppDumper / Cpp2IL dummy assemblies " +
-                 "([Address] RVAs) and the dump's script.json (every function start, generic instantiations, Ns_Type_TypeInfo metadata and MethodInfo slots) " +
-                 "and stringliteral.json (StringLiteral_<n> slots commented with the text). Functions are named Ns_Type__Method (the Il2CppDumper name " +
-                 "Ns.Type$$Method as a C identifier, as IDA accepts it: '$$' becomes '__', '.', '<', '>', ',' and spaces '_'; a name used twice gets _<RVA>), commented with the C# form Ns.Type::Method(args) " +
-                 "and the other methods sharing the code. The names show in list_functions, disassemble, find_xrefs, native_call_tree, search_native_strings, " +
-                 "resolve_address and as addresses, and decompile_native pushes them into the IDA database. They rank below user names (rename_native) and " +
-                 "PDB names; applying again replaces them, clear=true removes them. Saved with the image's annotations (per file hash) and reapplied " +
-                 "automatically when the same file is loaded again (list_native_edits shows the restored layers); clear=true also deletes the saved copy. Reports counts of functions named, " +
-                 "shared code, strings, slots, collisions and misses. Explicit, not automatic: run it once both the binary and the dummy assemblies are loaded.")]
+    [Description("Name the functions and data of a native Il2Cpp binary (GameAssembly, libil2cpp.so) from the loaded dummy assemblies, script.json (function starts, " +
+                 "generic instantiations, TypeInfo and MethodInfo slots) and stringliteral.json. Functions become Ns_Type__Method (a C identifier; a duplicate " +
+                 "gets _<RVA>), commented with Ns.Type::Method(args) and the methods sharing the code; every native tool and the engines show them, below user and " +
+                 "PDB names. Saved per file hash and reapplied on load; applying again replaces them. Run it once the binary and the dummy assemblies are loaded.")]
     public Task<string> ApplyIl2CppNames(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Dummy assemblies to use (id, name, file name or path); omit to use every loaded one with Il2Cpp metadata.")] string? assembly = null,
+        [Description("Dummy assemblies to use; omit for every loaded one with Il2Cpp metadata.")] string? assembly = null,
         [Description("Remove the il2cpp names (and their saved copy) instead of applying them.")] bool clear = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>

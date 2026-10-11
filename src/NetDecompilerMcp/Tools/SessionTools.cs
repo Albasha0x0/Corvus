@@ -171,9 +171,9 @@ public sealed class SessionTools(AssemblyWorkspace workspace, IndexingService in
     }
 
     [McpServerTool(Name = "read_result", Title = "Read a kept result")]
-    [Description("Page through a result that was too large to send (a limit_exceeded error names it, e.g. r3). Results are kept while memory allows.")]
+    [Description("Page through a result too large to send (named by a limit_exceeded error); kept while memory allows.")]
     public string ReadResult(
-        [Description("Kept result id from the limit_exceeded error, e.g. r3.")] string id,
+        [Description("Result id from the error, e.g. r3.")] string id,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null)
     {

@@ -13,19 +13,16 @@ namespace NetDecompilerMcp.Tools;
 public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService references, OutputPager pager, NativeLinkService? link = null)
 {
     [McpServerTool(Name = "find_references", Title = "Find usages (xrefs to)", UseStructuredContent = true, OutputSchemaType = typeof(ReferenceList))]
-    [Description("Every usage of a symbol across all loaded assemblies ('Used By'). " +
-                 "Method: call sites (call/callvirt/newobj/ldftn/ldtoken). Field: reads, writes, address-taken. Property/event: accessor calls. " +
-                 "Type: base type, interface, generic constraint, field/parameter/return/local types, catch clauses, attributes, instantiations, casts, member accesses. " +
-                 "With includeVirtualCalls (default true) a method's results also include calls made through the base/interface method it overrides or implements. " +
-                 "A native export (kernel32.dll!CreateFileW) lists the P/Invoke declarations bound to it with their call sites, and native call sites in loaded images; " +
-                 "a managed method called from native code (C++/CLI) also lists those native call sites.")]
+    [Description("Every usage of a symbol across loaded assemblies ('Used By'): a method's call sites (also through the base / interface method it implements), " +
+                 "a field's reads, writes and address-taken uses, accessor calls, a type's every use (bases, signatures, locals, casts, attributes, ...). " +
+                 "A native export lists its P/Invoke declarations with their call sites and native call sites in loaded images; C++/CLI native callers are included.")]
     public async Task<string> FindReferences(
         [Description(SymbolOrNativeDescription)] string symbol,
-        [Description("Assembly that defines the symbol (only to disambiguate). References are searched in all loaded assemblies.")] string? assembly = null,
-        [Description("Restrict symbol resolution to: type, method, field, property, event.")] string? kind = null,
-        [Description("For methods: include calls through base/interface declarations that dispatch here.")] bool includeVirtualCalls = true,
-        [Description("Max results (default 300).")] int limit = 300,
-        [Description("Index of the first reference to return.")] int offset = 0,
+        [Description("Assembly defining the symbol (only to disambiguate; all loaded ones are searched).")] string? assembly = null,
+        [Description("Restrict symbol resolution to this kind.")] string? kind = null,
+        [Description("Methods: include calls through base / interface declarations.")] bool includeVirtualCalls = true,
+        [Description("Max results.")] int limit = 300,
+        [Description("Index of the first reference.")] int offset = 0,
         CancellationToken cancellationToken = default)
     {
         limit = ClampLimit(limit);
@@ -102,16 +99,14 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
     }
 
     [McpServerTool(Name = "find_callees", Title = "What a method uses (xrefs from)", UseStructuredContent = true, OutputSchemaType = typeof(CalleeList))]
-    [Description("What a method uses: methods it calls, fields it reads/writes, types it instantiates/casts, and string literals, in IL order with offsets ('Uses'). " +
-                 "Calls to P/Invoke declarations (and native method bodies of mixed-mode assemblies) also show the native code they bind to " +
-                 "('native: module!export -> PROVIDER!export at VA [image]'; disassemble takes that image and VA). For a P/Invoke method itself, or a native " +
-                 "export symbol, the native function's callees.")]
+    [Description("What a method uses ('Uses'): calls, field reads / writes, types instantiated or cast, and strings, in IL order with offsets. P/Invoke calls show " +
+                 "the native code they bind to ('native: module!export -> PROVIDER!export at VA [image]'); for a P/Invoke or native export, its native callees.")]
     public async Task<string> FindCallees(
-        [Description("Method. " + SymbolOrNativeDescription)] string method,
+        [Description(SymbolOrNativeDescription)] string method,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Collapse repeated targets into one line with a count.")] bool distinct = false,
-        [Description("Index of the first entry to return.")] int offset = 0,
-        [Description("Max entries (default 2000).")] int limit = 2000,
+        [Description("Index of the first entry.")] int offset = 0,
+        [Description("Max entries.")] int limit = 2000,
         CancellationToken cancellationToken = default)
     {
         limit = ClampLimit(limit);
@@ -168,12 +163,12 @@ public sealed class ReferenceTools(AssemblyWorkspace workspace, ReferenceService
         text.Split('\n').Select(l => l.TrimEnd('\r')).Where(l => l.Trim().Length > 0).Take(5_000).ToList();
 
     [McpServerTool(Name = "find_overrides", Title = "Find overrides / implementations", UseStructuredContent = true, OutputSchemaType = typeof(OverrideList))]
-    [Description("Methods that override a virtual/abstract method or implement an interface method, across all derived types in loaded assemblies (explicit and implicit implementations).")]
+    [Description("Methods overriding a virtual / abstract method or implementing an interface method (explicitly or implicitly), across loaded assemblies.")]
     public Task<string> FindOverrides(
-        [Description("Virtual, abstract or interface method. " + SymbolDescription)] string method,
+        [Description(SymbolDescription)] string method,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("Max results (default 200).")] int limit = 200,
-        [Description("Index of the first result to return.")] int offset = 0,
+        [Description("Max results.")] int limit = 200,
+        [Description("Index of the first result.")] int offset = 0,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, method, SymbolKind.Method, referenced: true);

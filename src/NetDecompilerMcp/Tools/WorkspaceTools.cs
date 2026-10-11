@@ -37,21 +37,16 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     }
 
     [McpServerTool(Name = "load_assembly", Title = "Load assembly")]
-    [Description("Load a .NET assembly (.dll/.exe) or every assembly in a directory (e.g. an application folder, a Unity *_Data/Managed folder or an Il2CppDumper DummyDll folder). " +
-                 "A native PE (without .NET metadata), ELF or Mach-O file given by path loads as a native image for the native tools (get_pe_info, list_imports, list_exports, list_functions, disassemble); " +
-                 "a universal Mach-O loads one slice (slice=) as name[slice]; " +
-                 "folder loads take only .NET assemblies and list the native files they skipped. " +
-                 "An Il2Cpp game (game folder or global-metadata.dat: Windows, Linux, macOS, extracted Android, iOS .app; an .apk/.xapk/.aab/.ipa; also a memory dump of the binary) " +
-                 "is read by the built-in metadata reader (versions 24-39, no external dumper): " +
-                 "dummy assemblies with method addresses, field offsets and tokens, plus string literals, generic instantiations and metadata slots for the Il2Cpp tools, cached per user (NDM_IL2CPP_CACHE); " +
-                 "the binary is loaded as a native image too. Unreadable metadata is an error with a reason (encrypted_or_obfuscated, unsupported_version, binary_mismatch_or_protected, encrypted_fairplay); unreadable items are listed by reason. " +
-                 "Files are read into memory and never locked. The directory joins the reference search path. Loading the same path twice is a no-op. " +
-                 "loadProviders=true also loads the DLLs a file's imports bind to (one level, never their own dependencies; at most " +
-                 "16 per call), so native_call_tree, find_xrefs and the .NET call tools continue into them.")]
+    [Description("Load a .NET assembly (.dll/.exe) or every assembly in a directory (an application folder, a Unity *_Data/Managed or Il2CppDumper DummyDll folder). " +
+                 "A native PE, ELF or Mach-O file given by path loads as a native image for the native tools (a universal Mach-O: one slice, as name[slice]); " +
+                 "folder loads take only .NET assemblies and list the native files skipped. An Il2Cpp game (its folder or global-metadata.dat, an .apk/.xapk/.aab/.ipa, " +
+                 "an iOS .app, or a memory dump of the binary) is read by the built-in metadata reader (v24-39): dummy assemblies with addresses, offsets and tokens, " +
+                 "cached per user, plus the binary as a native image; unreadable metadata is an error with a reason. Files are read into memory, never locked; " +
+                 "the directory joins the reference search path; loading a path twice is a no-op.")]
     public Task<string> LoadAssembly(
         [Description("Absolute path to an assembly file or a directory.")] string path,
         [Description("When path is a directory, also load assemblies in subdirectories.")] bool recursive = false,
-        [Description("For a file: also load the DLLs its imports bind to, one level deep (at most 16).")] bool loadProviders = false,
+        [Description("For a file: also load the DLLs its imports bind to (one level, at most 16), so the call tools continue into them.")] bool loadProviders = false,
         [Description("Universal Mach-O slice (name or index; default arm64e, arm64, x86_64), or an Android Il2Cpp game's ABI (default arm64-v8a).")] string? slice = null,
         RequestContext<CallToolRequestParams> context = null!, // bound by the SDK
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, progress => Task.Run(() =>
@@ -173,16 +168,14 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
     }
 
     [McpServerTool(Name = "list_assemblies", Title = "List loaded assemblies", UseStructuredContent = true)]
-    [Description("Loaded assemblies with their ids (use the id in other tools), versions, paths, whether they are Il2Cpp dummy DLLs, " +
-                 "ReadyToRun (precompiled native code next to the IL), merged (ILMerge / ILRepack output, with the original module count), " +
-                 "and unsaved edits (paged: filter, offset, limit — total has the full count); plus the reference search directories. Pass path instead to list the managed assemblies inside a " +
-                 "container file (single-file bundle, .nupkg, .apk / .aab, Costura host, zip) without extracting or loading them " +
-                 "(only the container is listed then, not the workspace, paged the same way); unpack_container extracts and loads them.")]
+    [Description("Loaded assemblies with their ids (for other tools), versions, paths, Il2Cpp dummy, ReadyToRun and merged (ILMerge / ILRepack) flags and unsaved edits; " +
+                 "plus the reference search directories. With path: the managed assemblies inside a container file (single-file bundle, .nupkg, .apk / .aab, " +
+                 "Costura host, zip) without extracting them (unpack_container extracts and loads them).")]
     public Task<WorkspaceState> ListAssemblies(
-        [Description("Optional: a container file whose managed assemblies to list (a plain assembly lists itself).")] string? path = null,
-        [Description("Only assemblies whose id, name or path contains this text (case-insensitive).")] string? filter = null,
-        [Description("Index of the first assembly to return.")] int offset = 0,
-        [Description("Max assemblies to return (default 100; total has the full count).")] int limit = 100,
+        [Description("A container file to list instead of the workspace.")] string? path = null,
+        [Description("Id, name or path substring (case-insensitive).")] string? filter = null,
+        [Description("Index of the first assembly.")] int offset = 0,
+        [Description("Max assemblies.")] int limit = 100,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         var container = path == null ? null : unpacker.List(path, AnalysisLimits.Default, cancellationToken, filter, offset, limit);
@@ -229,7 +222,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         }, cancellationToken);
 
     [McpServerTool(Name = "reload_assembly", Title = "Reload assembly")]
-    [Description("Re-read an assembly from disk (e.g. after an update or after save_assembly overwrote it), discarding unsaved in-memory edits.")]
+    [Description("Re-read an assembly from disk (after an update or an overwriting save_assembly), discarding unsaved edits.")]
     public Task<string> ReloadAssembly([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
         {
@@ -244,7 +237,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         }, cancellationToken);
 
     [McpServerTool(Name = "add_search_directory", Title = "Add reference search directory")]
-    [Description("Add a directory for resolving referenced assemblies that are not loaded (an application folder, a framework directory). Improves decompilation, cross-assembly navigation and C# patching.")]
+    [Description("Add a directory for resolving referenced assemblies that are not loaded (an application or framework folder), for decompilation, navigation and C# patching.")]
     public Task<string> AddSearchDirectory([Description("Directory path.")] string directory, CancellationToken cancellationToken = default) =>
         Task.Run(() =>
         {
@@ -266,7 +259,7 @@ public sealed class WorkspaceTools(AssemblyWorkspace workspace, Il2CppService il
         }, cancellationToken);
 
     [McpServerTool(Name = "get_assembly_info", Title = "Assembly overview", UseStructuredContent = true, OutputSchemaType = typeof(AssemblyReport.Summary))]
-    [Description("Assembly overview: identity (MVID, file SHA-256), target framework, entry point, counts, references (and whether each resolves), PE headers and sections, metadata streams, table row counts and heap sizes, metadata problems (every bad table, coded or heap index, with file offsets), assembly attributes, Il2Cpp detection, invalid IL bodies and exception clauses, unsaved edits.")]
+    [Description("Assembly overview: identity (MVID, SHA-256), target framework, entry point, counts, references (resolved or not), PE headers and sections, metadata streams, tables and heaps, metadata problems with file offsets, attributes, Il2Cpp detection, invalid IL bodies, unsaved edits.")]
     public Task<string> GetAssemblyInfo([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Read(workspace, () =>
         {

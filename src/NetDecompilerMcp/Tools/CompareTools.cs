@@ -57,23 +57,18 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
     };
 
     [McpServerTool(Name = "compare_assemblies", Title = "Compare two builds", UseStructuredContent = true, OutputSchemaType = typeof(AssemblyComparison))]
-    [Description("Compare two builds of an assembly (e.g. before and after an update; load both — the second gets an id like Name#2). " +
-                 "Reports renamed/moved types and members (matched by content, so transformed or refactored names carry forward), added and removed members, " +
-                 "and for each matched member every way it changed: renamed, signature, body (normalized IL hash), metadata (flags, implementation flags, attributes), " +
-                 "field type, and Il2Cpp field offset / address. Members are matched in tiers and only when the match is unique on both sides; " +
-                 "otherwise they are listed as ambiguous with their candidates. tokenMapPath writes every old type and member with its new token, " +
-                 "tier, confidence and whether the method body hash is equal (JSON).")]
+    [Description("Compare two builds of an assembly (load both; the second gets an id like Name#2): renamed / moved types and members (matched by content, " +
+                 "in tiers, only when unique on both sides; else ambiguous with candidates), added and removed ones, and how each matched member changed: " +
+                 "name, signature, body (normalized IL hash), metadata, field type, Il2Cpp field offset / address.")]
     public Task<string> CompareAssemblies(
         [Description("The old build (id, name or path).")] string oldAssembly,
         [Description("The new build (id, name or path).")] string newAssembly,
         [Description("Only types whose old or new full name starts with this.")] string? @namespace = null,
-        [Description("Member change kinds to include, comma-separated: renamed, moved (to another type), signature, body, metadata, type, offset, address, added, removed, ambiguous, unknown (no counterpart, but the evidence to pair it is missing), or all; " +
-                     "a member is listed when any of its changes is included. Default: all except address.")] string? changes = null,
-        [Description("Also list the names of added and removed types (otherwise only counts).")] bool listAddedRemovedTypes = true,
-        [Description("Also show compiler-generated types and members (closures, iterator / async state machines, backing fields, " +
-                     "<PrivateImplementationDetails> data): they change with every recompile, so they are hidden and counted by default.")] bool includeCompilerGenerated = false,
-        [Description("Write the full token map (old token -> new token, status, tier, confidence, body hash equality) to this JSON file; " +
-                     "covers the whole assembly whatever the filters.")] string? tokenMapPath = null,
+        [Description("Change kinds to list, comma-separated: renamed, moved, signature, body, metadata, type, offset, address, added, removed, ambiguous, " +
+                     "unknown (unpaired for lack of evidence) or all; default all except address.")] string? changes = null,
+        [Description("List added and removed type names (else counts).")] bool listAddedRemovedTypes = true,
+        [Description("Also show compiler-generated types and members (closures, state machines, backing fields), which change with every recompile.")] bool includeCompilerGenerated = false,
+        [Description("Write the whole assembly's token map (old -> new token, status, tier, confidence, body hash equality) to this JSON file.")] string? tokenMapPath = null,
         [Description("Replace an existing token map file.")] bool overwrite = false,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
@@ -187,20 +182,16 @@ public sealed class CompareTools(AssemblyWorkspace workspace, AssemblyComparer c
     }
 
     [McpServerTool(Name = "find_counterpart", Title = "Find symbol in another build")]
-    [Description("Where did a type or member of the old build go in the new build? Matches by name, then by content (renamed/transformed members), " +
-                 "taking a match only when it is unique on both sides. Shows the new name and token, the matching tier and its confidence (exact, strong, structural), " +
-                 "whether a method body changed (normalized IL hash), and Il2Cpp offset/address changes; ambiguous matches list their candidates. " +
-                 "Both builds are identified by file SHA-256 and MVID (tokens are only valid within their build). diff=true adds a unified diff of the " +
-                 "pair's decompiled C# (for a type, of each changed, added or removed member), il=true one of their normalized IL; names the new build " +
-                 "renamed are rewritten first, so a pure rename is no change, and a method with the same normalized IL is not decompiled. Use it to " +
-                 "update FindClass names and offsets after an update.")]
+    [Description("Where a type or member of the old build went in the new build: matched by name, then by content (only when unique on both sides; else candidates). " +
+                 "Shows the new name and token, tier and confidence, whether the body changed (normalized IL hash) and Il2Cpp offset / address changes. " +
+                 "diff=true adds a unified diff of the pair's C# (a type: of each changed, added or removed member), il=true of their normalized IL; " +
+                 "renames are rewritten first, so a pure rename is no change.")]
     public Task<string> FindCounterpart(
-        [Description("Symbol in the old build. " + SymbolDescription)] string symbol,
+        [Description("In the old build. " + SymbolDescription)] string symbol,
         [Description("The old build (id, name or path).")] string oldAssembly,
         [Description("The new build (id, name or path).")] string newAssembly,
         [Description("Add a unified diff of the old and new decompiled C# of each matched pair (cut at " + DiffLinesText + " lines).")] bool diff = false,
-        [Description("Add a unified diff of the matched methods' normalized IL (the canonical text of docs/il-hash.md: names instead of tokens, " +
-                     "instruction indexes instead of offsets).")] bool il = false,
+        [Description("Add a unified diff of the matched methods' normalized IL (docs/il-hash.md).")] bool il = false,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var oldAsm = workspace.Get(oldAssembly);

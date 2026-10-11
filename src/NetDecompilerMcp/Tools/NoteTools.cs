@@ -13,8 +13,7 @@ namespace NetDecompilerMcp.Tools;
 public sealed class NoteTools(AssemblyWorkspace workspace, NotesService notes, NativeCodeService code, MinidumpService dumps)
 {
     public const string AnchorDescription =
-        "What the note is about: '<image>@<address>' (a native address), '<assembly>:<symbol or token>' (a .NET type or member), an image or " +
-        "assembly id (the whole file), 'dump:<id or path>', or empty (session-wide). Stored by file SHA-256 or module MVID, so it follows the binary.";
+        "'<image>@<address>', '<assembly>:<symbol or token>', an image or assembly id (the whole file), 'dump:<id or path>', or empty (session-wide).";
 
     public sealed record NoteList(
         [property: Description("Notes, newest first.")] IReadOnlyList<Note> Items,
@@ -22,16 +21,15 @@ public sealed class NoteTools(AssemblyWorkspace workspace, NotesService notes, N
         [property: Description("How the filters were applied (e.g. the function an address was widened to).")] IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "record_note", Title = "Record a note", UseStructuredContent = true)]
-    [Description("Record a finding, question, hypothesis or todo, anchored to a native address, a .NET member, a file or a dump. Notes persist per " +
-                 "user across sessions and processes, keyed by the binary's SHA-256 (MVID for .NET members); decompile_member and decompile_native " +
-                 "show how many open notes a target has. Returns the note with id and revision 1.")]
+    [Description("Record a finding, question, hypothesis or todo anchored to a native address, a .NET member, a file or a dump; notes persist per user, " +
+                 "keyed by SHA-256 / MVID so they follow the binary, and decompile_member / decompile_native count a target's open ones.")]
     public Task<Note> RecordNote(
-        [Description("The note (at most 4,000 characters).")] string text,
-        [Description("finding (default), question, hypothesis or todo.")] string? kind = null,
-        [Description("open (default), confirmed, refuted, answered or dropped.")] string? status = null,
+        [Description("At most 4,000 characters.")] string text,
+        [Description("Default finding.")] string? kind = null,
+        [Description("Default open.")] string? status = null,
         [Description(AnchorDescription)] string? anchor = null,
         [Description("Comma-separated tags (at most 10).")] string? tags = null,
-        [Description("Where it was seen, ';'-separated (at most 10): e.g. 'decompile_native image=app.dll address=0x140001000'.")] string? evidence = null,
+        [Description("Where it was seen, ';'-separated (at most 10), e.g. a tool call.")] string? evidence = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
@@ -40,13 +38,12 @@ public sealed class NoteTools(AssemblyWorkspace workspace, NotesService notes, N
     }, cancellationToken);
 
     [McpServerTool(Name = "update_note", Title = "Update a note", UseStructuredContent = true)]
-    [Description("Change a note in part: status, text (replace or append), tags (add / remove), evidence (add). expectedRevision must be the " +
-                 "revision last read; when the note changed meanwhile the call fails with a conflict that carries the current note (details.current).")]
+    [Description("Change a note in part: status, kind, text, tags, evidence. A note changed since expectedRevision fails with a conflict carrying it (details.current).")]
     public Task<Note> UpdateNote(
-        [Description("The note id (from record_note or list_notes).")] string id,
-        [Description("The note's revision as last read.")] int expectedRevision,
-        [Description("New status: open, confirmed, refuted, answered or dropped.")] string? status = null,
-        [Description("New kind: finding, question, hypothesis or todo.")] string? kind = null,
+        [Description("Note id.")] string id,
+        [Description("The revision last read.")] int expectedRevision,
+        [Description("New status.")] string? status = null,
+        [Description("New kind.")] string? kind = null,
         [Description("Replacement text.")] string? text = null,
         [Description("Text appended on a new line.")] string? appendText = null,
         [Description("Comma-separated tags to add.")] string? addTags = null,
@@ -57,17 +54,16 @@ public sealed class NoteTools(AssemblyWorkspace workspace, NotesService notes, N
             new NoteChange(status, text, appendText, Split(addTags, ','), Split(removeTags, ','), Split(addEvidence, ';'), kind)), cancellationToken);
 
     [McpServerTool(Name = "list_notes", Title = "List notes", UseStructuredContent = true)]
-    [Description("Notes, newest first, filtered by status (default open; all for every status), kind, anchor, tag and text. An anchor naming an " +
-                 "image or assembly lists all of its notes; '<image>@<address>' lists the notes in the function containing the address; " +
-                 "'<assembly>:<type>' includes the notes on its members.")]
+    [Description("Notes, newest first, by status, kind, anchor, tag and text. A file anchor lists all its notes, '<image>@<address>' those in the containing function, " +
+                 "'<assembly>:<type>' those on its members too.")]
     public Task<NoteList> ListNotes(
-        [Description("open (default), confirmed, refuted, answered, dropped, or all.")] string? status = null,
-        [Description("finding, question, hypothesis or todo.")] string? kind = null,
+        [Description("Default open; all for every status.")] string? status = null,
+        [Description("Only this kind.")] string? kind = null,
         [Description(AnchorDescription)] string? anchor = null,
         [Description("Only notes with this tag.")] string? tag = null,
-        [Description("Only notes whose text contains this (case-insensitive).")] string? text = null,
+        [Description("Text substring (case-insensitive).")] string? text = null,
         [Description("Notes to skip.")] int offset = 0,
-        [Description("Notes to return (default 50, max 500).")] int limit = 50,
+        [Description("Notes to return (max 500).")] int limit = 50,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         var st = string.IsNullOrWhiteSpace(status) ? "open" : status.Trim().ToLowerInvariant();

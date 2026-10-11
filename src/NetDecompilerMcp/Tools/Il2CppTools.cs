@@ -15,17 +15,16 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
     private const int DefaultListLimit = 20;
 
     [McpServerTool(Name = "get_il2cpp_info", Title = "Il2Cpp addresses and offsets")]
-    [Description("For Il2Cpp dummy DLLs (Il2CppDumper/Cpp2IL output, or those the built-in reader makes when load_assembly is given the game folder or its global-metadata.dat): native addresses (RVA, VA, file offset, vtable slot) of a method or of every method in a type, plus field offsets and metadata tokens. Use them to jump to the function in IDA/Ghidra. " +
-                 "With the dump's script.json next to the DummyDll folder (always, for the built-in reader), also: a method's function bounds, the methods sharing its code, its MethodInfo slot and its generic instantiations (same-named overloads told apart by the C signature, or reported as ambiguous); " +
-                 "a type's metadata slots (Ns.Type_TypeInfo class pointer, _var); and the native code of names that only script.json has, such as generic instantiations " +
-                 "('List`1<int>::Add', 'System.Collections.Generic.List<int>$$Add'), metadata names ('Ns.Type_TypeInfo', 'Method$Ns.Type.M()'). " +
-                 "For a method, also the string literals its native code loads, when stringliteral.json and GameAssembly.dll are there too (search_strings finds a literal's slot).")]
+    [Description("Il2Cpp dummy DLLs (built-in reader, Il2CppDumper or Cpp2IL): native addresses (RVA, VA, file offset, vtable slot) of a method or every method of a type, " +
+                 "field offsets and tokens. With script.json (always for the built-in reader): function bounds, methods sharing the code, MethodInfo slot, " +
+                 "generic instantiations, a type's metadata slots (Ns.Type_TypeInfo), and names only script.json has ('List`1<int>::Add', 'Method$Ns.Type.M()'). " +
+                 "With stringliteral.json and the binary: the string literals a method's code loads.")]
     public Task<string> GetIl2CppInfo(
-        [Description("Type or method. " + SymbolDescription + " Or a script.json name of a generic instantiation or metadata slot.")] string symbol,
+        [Description(SymbolDescription + " Or a script.json name of an instantiation or metadata slot.")] string symbol,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("With a type: the vtable slot number to resolve to the implementing method (searching base types), or 'all' for the whole vtable.")] string? slot = null,
-        [Description("Index of the first entry of long lists (instantiations, metadata slots, vtable, script.json matches).")] int offset = 0,
-        [Description("Max entries of each long list (default 20).")] int limit = DefaultListLimit,
+        [Description("With a type: a vtable slot number to resolve to its implementing method, or 'all'.")] string? slot = null,
+        [Description("Index of the first entry of each long list.")] int offset = 0,
+        [Description("Max entries of each long list.")] int limit = DefaultListLimit,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         offset = Math.Max(0, offset);
@@ -244,13 +243,12 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
     }
 
     [McpServerTool(Name = "export_il2cpp_symbols", Title = "Export IDA/Ghidra scripts")]
-    [Description("Export Il2Cpp dummy-DLL metadata for native analysis: an IDA Python script and a Ghidra script that create every function, name it Namespace.Type$$Method " +
-                 "and comment it with the managed signature, a C header with struct layouts at the dumped field offsets (the IDA script imports it), and an Il2CppDumper-style script.json. " +
-                 "Addresses are RVAs added to the database's image base, so the scripts work on any load address.")]
+    [Description("Export Il2Cpp dummy-DLL metadata for native analysis: IDA Python and Ghidra scripts that create, name (Ns.Type$$Method) and comment every function " +
+                 "(RVAs, so any image base works), a C header of struct layouts, and an Il2CppDumper-style script.json.")]
     public Task<string> ExportIl2CppSymbols(
         [Description("Output directory.")] string outputDirectory,
-        [Description("Formats, comma-separated: ida, ghidra, header, json, or all (default).")] string formats = "all",
-        [Description("Base name for the generated files (default il2cpp).")] string baseName = "il2cpp",
+        [Description("Comma-separated: ida, ghidra, header, json or all.")] string formats = "all",
+        [Description("Base name of the generated files.")] string baseName = "il2cpp",
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Replace files of the same names if they exist.")] bool overwrite = false,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
@@ -261,16 +259,15 @@ public sealed class Il2CppTools(AssemblyWorkspace workspace, Il2CppService il2cp
     }, cancellationToken);
 
     [McpServerTool(Name = "find_method_by_address", Title = "Native address to method")]
-    [Description("Map a native address from IDA/Ghidra/a crash log back to what is there: the method(s) whose function starts at or contains it, or the string literal, " +
-                 "type metadata (Ns.Type_TypeInfo) or MethodInfo slot at it. With the dump's script.json next to the DummyDll folder, functions end where the next one starts " +
-                 "and generic instantiations (which have no dummy-DLL method) are named, with the dummy method each instantiates; without it, only dummy-DLL methods are known and a containing method is a guess. " +
-                 "Code shared by many methods (shared generics, identical code folding) is listed with a total and paged.")]
+    [Description("Map a native address (from IDA, Ghidra or a crash log) of an Il2Cpp game to the method(s) whose function contains it, or the string literal, " +
+                 "type metadata or MethodInfo slot at it; generic instantiations are named with script.json (without it a containing method is a guess). " +
+                 "Code shared by many methods is paged.")]
     public Task<string> FindMethodByAddress(
-        [Description("Address in hex as IDA/Ghidra show it: '0x1A2B3C', '1A2B3C', '1A2B3Ch' or '00000001`8001A2B3'. Prefix 'd:' for decimal.")] string address,
-        [Description("rva, va, offset (file offset), or auto: a VA when at or above the image base, else an RVA, else a file offset if the RVA finds nothing.")] string kind = "auto",
+        [Description("Hex as IDA / Ghidra show it ('0x1A2B3C', '1A2B3Ch', '00000001`8001A2B3'); 'd:' prefix for decimal.")] string address,
+        [Description("auto: a VA at or above the image base, else an RVA, else a file offset.")] string kind = "auto",
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Index of the first method to list when many share the code.")] int offset = 0,
-        [Description("Max methods listed (default 20).")] int limit = DefaultListLimit,
+        [Description("Max methods listed.")] int limit = DefaultListLimit,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var value = Il2CppService.ParseAddress(address) ?? throw new ToolError(ErrorCode.InvalidArgument, $"'{address}' is not a valid hex address.");

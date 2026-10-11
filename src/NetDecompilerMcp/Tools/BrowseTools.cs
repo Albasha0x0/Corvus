@@ -15,12 +15,12 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
     private const string CompilerGenerated = "System.Runtime.CompilerServices.CompilerGeneratedAttribute";
 
     [McpServerTool(Name = "list_namespaces", Title = "List namespaces", UseStructuredContent = true, OutputSchemaType = typeof(NamespaceList))]
-    [Description("List namespaces with their type counts (nested types counted under their outer type's namespace, as list_types lists them; the counts add up to get_assembly_info's total).")]
+    [Description("List namespaces with their type counts (nested types under their outer type's namespace).")]
     public Task<string> ListNamespaces(
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("Only namespaces containing this text (case-insensitive).")] string? filter = null,
-        [Description("Index of the first namespace to return.")] int offset = 0,
-        [Description("Max namespaces (default 2000).")] int limit = 2000,
+        [Description("Substring (case-insensitive).")] string? filter = null,
+        [Description("Index of the first namespace.")] int offset = 0,
+        [Description("Max namespaces.")] int limit = 2000,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         limit = ClampLimit(limit);
@@ -56,16 +56,16 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
     }, cancellationToken);
 
     [McpServerTool(Name = "list_types", Title = "List types", UseStructuredContent = true, OutputSchemaType = typeof(TypeList))]
-    [Description("List types, optionally restricted to a namespace, a name filter and a kind. Paged by offset/limit.")]
+    [Description("List types, optionally by namespace, name filter and kind.")]
     public Task<string> ListTypes(
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("Exact namespace ('' or '<global>' for the global namespace). Omit for all.")] string? @namespace = null,
-        [Description("Name filter: substring, wildcard (*, ?) or regex if regex=true.")] string? filter = null,
+        [Description("Exact namespace ('' or '<global>' for the global one).")] string? @namespace = null,
+        [Description("Name substring or wildcard (*, ?), or a regex with regex=true.")] string? filter = null,
         [Description("Treat filter as a regular expression.")] bool regex = false,
-        [Description("Only this kind: class, struct, interface, enum, delegate.")] string? kind = null,
+        [Description("Only this kind.")] string? kind = null,
         [Description("Include nested types.")] bool includeNested = true,
-        [Description("Index of the first result to return.")] int offset = 0,
-        [Description("Max results (default 300).")] int limit = 300,
+        [Description("Index of the first result.")] int offset = 0,
+        [Description("Max results.")] int limit = 300,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var timeouts = new RegexTimeouts();
@@ -92,7 +92,7 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
     [McpServerTool(Name = "get_type_info", Title = "Type outline", UseStructuredContent = true, OutputSchemaType = typeof(TypeOutline))]
     [Description("Outline of a type without decompiling: declaration, attributes, nested types, fields (constants, enum values with hex, Il2Cpp offsets), properties, events and method signatures with tokens, IL sizes and Il2Cpp RVAs.")]
     public Task<string> GetTypeInfo(
-        [Description("Type name or token. " + SymbolDescription)] string type,
+        [Description(SymbolDescription)] string type,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description("Include compiler-generated members (backing fields, lambdas, state machines).")] bool includeCompilerGenerated = false,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
@@ -162,11 +162,11 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
     }
 
     [McpServerTool(Name = "get_type_hierarchy", Title = "Type hierarchy")]
-    [Description("Base-type chain, all implemented interfaces (including inherited), and the types that directly derive from it (or implement it, for an interface) across all loaded assemblies.")]
+    [Description("A type's base chain, all implemented interfaces, and the types deriving from (or implementing) it directly across loaded assemblies.")]
     public Task<string> GetTypeHierarchy(
-        [Description("Type name or token. " + SymbolDescription)] string type,
+        [Description(SymbolDescription)] string type,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("Max derived types to list (default 200).")] int limit = 200,
+        [Description("Max derived types listed.")] int limit = 200,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, type, SymbolKind.Type, referenced: true);
@@ -185,10 +185,10 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
     }, cancellationToken);
 
     [McpServerTool(Name = "get_attributes", Title = "Custom attributes")]
-    [Description("Custom attributes with arguments on a type, method (including parameter and return attributes), field, property or event — or on the assembly/module when symbol is omitted. " +
-                 "To find everything carrying an attribute, use find_references on the attribute type.")]
+    [Description("Custom attributes with arguments on a type, member (with parameter and return attributes), or the assembly / module when symbol is omitted. " +
+                 "Everything carrying an attribute: find_references on the attribute type.")]
     public Task<string> GetAttributes(
-        [Description("Symbol to inspect; omit for assembly-level attributes. " + SymbolDescription)] string? symbol = null,
+        [Description(SymbolDescription + " Omit for assembly-level attributes.")] string? symbol = null,
         [Description(AssemblyFilterDescription + " Required when symbol is omitted.")] string? assembly = null,
         [Description("Only attributes whose type name contains this text.")] string? filter = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
@@ -225,11 +225,11 @@ public sealed class BrowseTools(AssemblyWorkspace workspace, ReferenceService re
     }, cancellationToken);
 
     [McpServerTool(Name = "resolve_symbol", Title = "Resolve symbol", UseStructuredContent = true, OutputSchemaType = typeof(SymbolList))]
-    [Description("Show what a symbol string or metadata token resolves to (every match, with kind, assembly, token and signature). Use it to disambiguate before other calls.")]
+    [Description("What a symbol string or token resolves to: every match with kind, assembly, token and signature, to disambiguate before other calls.")]
     public Task<string> ResolveSymbol(
         [Description(SymbolDescription)] string symbol,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("Restrict to: any, type, method, field, property, event, member.")] string? kind = null,
+        [Description("Restrict to this kind.")] string? kind = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var all = SymbolResolver.Resolve(workspace, assembly, symbol, SymbolResolver.ParseKind(kind));

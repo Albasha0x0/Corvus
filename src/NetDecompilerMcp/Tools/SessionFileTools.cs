@@ -32,14 +32,12 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
         int Offset, int Total, bool Truncated, IReadOnlyList<SessionItem> Items, IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "save_session", Title = "Save the session", UseStructuredContent = true)]
-    [Description("Write the work of this session to one JSON file (net-decompiler-session/1): every loaded file by path, path relative to the session " +
-                 "file and SHA-256; each assembly's unsaved edits (the export_edits script), each native image's patches (the export_native_patches " +
-                 "json) and user names and comments, the notes on these files, Il2Cpp games (package or metadata, and binary) " +
-                 "and open minidumps. load_session restores it here or on another machine.")]
+    [Description("Write this session's work to one JSON file: every loaded file (path, relative path, SHA-256), .NET edits, native patches, names and comments, " +
+                 "notes, Il2Cpp games and open minidumps. load_session restores it here or on another machine.")]
     public Task<SessionSaved> SaveSession(
         [Description("Output file path (.json).")] string path,
         [Description("Replace the file if it exists.")] bool overwrite = false,
-        [Description("Parts to include, comma-separated: edits, patches, annotations, notes; all (default). Files are always listed.")] string? include = null,
+        [Description("Comma-separated parts: edits, patches, annotations, notes or all (default); files are always listed.")] string? include = null,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         var parts = SessionService.ParseInclude(include);
@@ -52,21 +50,18 @@ public sealed class SessionFileTools(AssemblyWorkspace workspace, SessionService
     }, cancellationToken);
 
     [McpServerTool(Name = "load_session", Title = "Load a session", UseStructuredContent = true)]
-    [Description("Restore a save_session file: find each file (recorded path, path relative to the session file, else a file with the same SHA-256 " +
-                 "under searchRoots; Il2Cpp games and minidumps first), load it, then apply names and comments " +
-                 "(never replacing a different user name), native patches and .NET edits, " +
-                 "and import the notes. Files are checked by SHA-256: targetBuild=same (default) refuses a changed file; other carries the work to the " +
-                 "build now at the recorded path (.NET edits re-resolved by name as apply_edits targetBuild=other; native names and patches through " +
-                 "the function match, which needs the old build too, found by SHA-256 under searchRoots). dryRun (default true) reports and changes " +
-                 "nothing. Returns one outcome per item with a reason.")]
+    [Description("Restore a save_session file: find each file (recorded path, relative path, else by SHA-256 under searchRoots), load it, then apply names and " +
+                 "comments (never replacing a different user name), patches and edits, and import notes; one outcome per item with a reason. " +
+                 "A changed file is refused unless targetBuild=other, which carries the work to the build now at the recorded path (edits by name, " +
+                 "native work through the function match, which needs the old build found under searchRoots).")]
     public async Task<SessionLoadReport> LoadSession(
         [Description("The session file.")] string path,
-        [Description("Report only (default true).")] bool dryRun = true,
-        [Description("same (default): only the recorded builds; other: carry the work to the build now at the recorded path.")] string? targetBuild = null,
-        [Description("';'-separated folders searched (recursively) for files that moved, by SHA-256.")] string? searchRoots = null,
-        [Description("Parts to restore, comma-separated: edits, patches, annotations, notes; all (default). Files are always loaded.")] string? include = null,
+        [Description("Report only.")] bool dryRun = true,
+        [Description("same (default) or other.")] string? targetBuild = null,
+        [Description("';'-separated folders searched recursively for moved files, by SHA-256.")] string? searchRoots = null,
+        [Description("Comma-separated parts: edits, patches, annotations, notes or all (default); files are always loaded.")] string? include = null,
         [Description("Items to skip.")] int offset = 0,
-        [Description("Items to return (default 200, max 2000).")] int limit = 200,
+        [Description("Items to return (max 2000).")] int limit = 200,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default)
     {

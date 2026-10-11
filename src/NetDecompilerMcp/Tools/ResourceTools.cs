@@ -37,13 +37,13 @@ public sealed class ResourceTools(AssemblyWorkspace workspace, ResourceService r
     }, cancellationToken);
 
     [McpServerTool(Name = "get_resource", Title = "Read / extract resource")]
-    [Description("Read a resource: text as text, binary as a hex preview, .resources containers as an entry list (pass entry to read one; WPF .baml entries come back as XAML). Pass savePath to extract the raw bytes to disk (images, asset bundles, configs). " +
-                 "For a native image, name is TYPE/NAME[/LANGUAGE] from list_resources: version info and string tables are decoded, manifests shown as text.")]
+    [Description("Read a resource: text as text, binary as hex preview, .resources as an entry list (entry reads one; .baml as XAML); savePath extracts the raw bytes. " +
+                 "Native images: TYPE/NAME[/LANGUAGE], version info and string tables decoded.")]
     public Task<string> GetResource(
         [Description(AssemblyDescription)] string assembly,
-        [Description("Resource name as shown by list_resources.")] string name,
-        [Description("Entry name inside a .resources container.")] string? entry = null,
-        [Description("Write the raw bytes of the resource (or entry) to this file path.")] string? savePath = null,
+        [Description("Name from list_resources.")] string name,
+        [Description("Entry inside a .resources container.")] string? entry = null,
+        [Description("Write the raw bytes to this file.")] string? savePath = null,
         [Description("Replace savePath if it exists.")] bool overwrite = false,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,

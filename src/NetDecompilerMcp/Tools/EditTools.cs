@@ -15,12 +15,12 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     EditJournal? journal = null)
 {
     [McpServerTool(Name = "rename_symbol", Title = "Rename symbol")]
-    [Description("Rename a type, method, field, property (with its accessors) or event in memory — e.g. to give transformed names meaning. Other assemblies that reference the old name are not updated.")]
+    [Description("Rename a type, method, field, property (with its accessors) or event in memory. Other assemblies referencing the old name are not updated.")]
     public Task<string> RenameSymbol(
         [Description(SymbolDescription)] string symbol,
         [Description("New name (for a type: the simple name without namespace).")] string newName,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description("Restrict symbol resolution to: type, method, field, property, event.")] string? kind = null,
+        [Description("Restrict symbol resolution to this kind.")] string? kind = null,
         [Description(DryRunDescription)] bool dryRun = false,
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
@@ -29,7 +29,7 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken);
 
     [McpServerTool(Name = "rename_namespace", Title = "Rename namespace")]
-    [Description("Move every type in a namespace (optionally including sub-namespaces) to a new namespace, in memory.")]
+    [Description("Move every type of a namespace (optionally its sub-namespaces) to a new namespace, in memory.")]
     public Task<string> RenameNamespace(
         [Description(AssemblyDescription)] string assembly,
         [Description("Existing namespace ('' for the global namespace).")] string oldNamespace,
@@ -43,11 +43,10 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken);
 
     [McpServerTool(Name = "stub_method", Title = "Stub method (return constant)")]
-    [Description("Replace a method's body with 'return <value>;' (or 'return;' for void) in memory — force a check to return true, disable a call. " +
-                 "value: true/false, an integer (decimal or 0x hex), a float, a \"quoted string\", null, or default (omit).")]
+    [Description("Replace a method's body with 'return <value>;' (or 'return;' for void) in memory: force a check to return true, disable a call.")]
     public Task<string> StubMethod(
-        [Description("Method. " + SymbolDescription)] string method,
-        [Description("Return value; omit for void methods or default(T).")] string? value = null,
+        [Description(SymbolDescription)] string method,
+        [Description("true/false, an integer (decimal or 0x hex), a float, a \"quoted string\" or null; omit for void or default(T).")] string? value = null,
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description(DryRunDescription)] bool dryRun = false,
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
@@ -57,15 +56,14 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken);
 
     [McpServerTool(Name = "patch_method_csharp", Title = "Replace method body with C#")]
-    [Description("Replace a method's body with C# statements, compiled against the assembly and its references (private/internal members are accessible, like in dnSpy's Edit Method). " +
-                 "Pass only the body (statements), e.g. 'if (amount <= 0) return; _balance -= amount;'. Works for methods, constructors and property/indexer/event accessors. " +
-                 "Lambdas, LINQ, local functions, async/await and yield work: the compiler-generated helpers are copied into the assembly. " +
-                 "Compile errors are reported with line numbers relative to your code. Returns the decompiled result. Persisted only by save_assembly.")]
+    [Description("Replace a method's body with C# statements compiled against the assembly and its references (private / internal members accessible). " +
+                 "Methods, constructors and accessors; lambdas, LINQ, local functions, async and yield work. Compile errors give lines relative to your code. " +
+                 "Returns the decompiled result.")]
     public Task<string> PatchMethodCSharp(
-        [Description("Method. " + SymbolDescription)] string method,
-        [Description("C# statements forming the new body.")] string code,
+        [Description(SymbolDescription)] string method,
+        [Description("The new body's statements only.")] string code,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description(DryRunDescription + " Compiles and shows the IL that would be written.")] bool dryRun = false,
+        [Description(DryRunDescription + " Shows the IL that would be written.")] bool dryRun = false,
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, method, SymbolKind.Method);
@@ -76,15 +74,13 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken);
 
     [McpServerTool(Name = "add_members_csharp", Title = "Add members to a type (C#)")]
-    [Description("Add new members written in C# to an existing class or struct: methods (incl. overloads), fields, properties, events, constructors, nested types. " +
-                 "Code is compiled against the assembly (private/internal members accessible; lambdas/async/LINQ fine). " +
-                 "Example: 'public int Twice(int x) { return x * 2; }  private static int _counter;'. Field/property initializers are not supported (initialize from a method). " +
-                 "Persisted only by save_assembly.")]
+    [Description("Add members written in C# to an existing class or struct: methods, fields, properties, events, constructors, nested types; " +
+                 "compiled against the assembly (private / internal members accessible). Field and property initializers are not supported (initialize from a method).")]
     public Task<string> AddMembersCSharp(
-        [Description("Type to extend. " + SymbolDescription)] string type,
+        [Description("The type to extend. " + SymbolDescription)] string type,
         [Description("C# member declarations.")] string code,
         [Description(AssemblyFilterDescription)] string? assembly = null,
-        [Description(DryRunDescription + " Compiles and lists what would be added.")] bool dryRun = false,
+        [Description(DryRunDescription)] bool dryRun = false,
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
         var sym = SymbolResolver.ResolveOne(workspace, assembly, type, SymbolKind.Type);
@@ -92,12 +88,12 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken);
 
     [McpServerTool(Name = "add_types_csharp", Title = "Add new types (C#)")]
-    [Description("Add new classes, structs, interfaces, enums or delegates written in C# (with their namespace) to an assembly. They can use the assembly's own types, including private/internal ones. " +
-                 "Combine with patch_method_csharp to call into the new code from existing methods. Persisted only by save_assembly.")]
+    [Description("Add classes, structs, interfaces, enums or delegates written in C# (with their namespace) to an assembly; they can use its private / internal types. " +
+                 "patch_method_csharp then calls into them from existing methods.")]
     public Task<string> AddTypesCSharp(
         [Description(AssemblyDescription)] string assembly,
-        [Description("C# source declaring the new types (e.g. 'namespace Extensions { public static class Helpers { ... } }').")] string code,
-        [Description(DryRunDescription + " Compiles and lists what would be added.")] bool dryRun = false,
+        [Description("C# source declaring the new types.")] string code,
+        [Description(DryRunDescription)] bool dryRun = false,
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
         var asm = workspace.Get(assembly);
@@ -105,29 +101,29 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken);
 
     [McpServerTool(Name = "list_edits", Title = "List unsaved edits")]
-    [Description("The unsaved in-memory edits of an assembly, numbered in the order they were applied (numbers are used by undo_edit and diff_edits).")]
+    [Description("The unsaved edits of an assembly, numbered in order (for undo_edit and diff_edits).")]
     public Task<string> ListEdits([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Read(workspace, () => history.List(workspace.Get(assembly)), cancellationToken);
 
     [McpServerTool(Name = "undo_edit", Title = "Undo an edit")]
-    [Description("Undo one edit — the last one by default, or any earlier one by number (from list_edits). The assembly is rebuilt from its original image " +
-                 "and the remaining edits are re-applied; if one of them depended on the undone edit, nothing changes and the conflict is reported.")]
+    [Description("Undo the last edit or any earlier one by number: the remaining edits are re-applied to the original image; " +
+                 "if one depended on the undone edit, nothing changes and the conflict is reported.")]
     public Task<string> UndoEdit(
         [Description(AssemblyDescription)] string assembly,
-        [Description("Edit number (1-based, from list_edits). Omit to undo the last edit.")] int? number = null,
+        [Description("Edit number from list_edits; omit for the last.")] int? number = null,
         CancellationToken cancellationToken = default) => Write(workspace, () =>
             edits.Undo(workspace.Get(assembly), number, cancellationToken), cancellationToken);
 
     [McpServerTool(Name = "revert_edits", Title = "Discard all edits")]
-    [Description("Discard every unsaved edit of an assembly (back to the image it was loaded from). Use export_edits first to keep them as a script.")]
+    [Description("Discard every unsaved edit of an assembly (export_edits first keeps them as a script).")]
     public Task<string> RevertEdits([Description(AssemblyDescription)] string assembly, CancellationToken cancellationToken = default) =>
         Write(workspace, () => edits.RevertAll(workspace.Get(assembly), cancellationToken), cancellationToken);
 
     [McpServerTool(Name = "diff_edits", Title = "Diff edits (before/after C#)")]
-    [Description("Unified diff of the decompiled C# before and after the edits: every member touched by every edit, or one edit by number. Review this before save_assembly.")]
+    [Description("Unified diff of the decompiled C# of every member the edits touched (or one edit's), before and after. Review before save_assembly.")]
     public Task<string> DiffEdits(
         [Description(AssemblyDescription)] string assembly,
-        [Description("Only this edit (1-based, from list_edits). Omit for all edits.")] int? number = null,
+        [Description("Only this edit (number from list_edits).")] int? number = null,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
@@ -137,8 +133,8 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
         }, cancellationToken);
 
     [McpServerTool(Name = "export_edits", Title = "Export edits as a script")]
-    [Description("Save the edits of an assembly as a JSON edit script, bound to the build they were made on (file SHA-256, MVID, assembly identity). " +
-                 "apply_edits replays it on that build, or deliberately on another one (targetBuild=other, e.g. the next build after an update), where symbols are re-resolved by name.")]
+    [Description("Save an assembly's edits as a JSON edit script bound to its build (SHA-256, MVID, identity), for apply_edits on that build or, " +
+                 "with targetBuild=other, on another one.")]
     public Task<string> ExportEdits(
         [Description(AssemblyDescription)] string assembly,
         [Description("Output .json path.")] string path,
@@ -147,18 +143,15 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
             history.Export(workspace.Get(assembly), path, overwrite), cancellationToken);
 
     [McpServerTool(Name = "apply_edits", Title = "Apply an edit script")]
-    [Description("Replay a JSON edit script (from export_edits) onto an assembly. The script is bound to the build it was made from (SHA-256, MVID, identity): " +
-                 "by default (targetBuild=same) another build is refused with a conflict error naming both; targetBuild=other carries the edits across deliberately: " +
-                 "symbols are re-resolved by name (renamed targets followed when the source build is loaded too) and the report lists what was remapped. " +
-                 "Scripts without the binding are applied with a warning. On the same build, recorded tokens are used; each edit reports ok/FAILED. " +
-                 "dryRun applies every edit for real (C# compiled, IL stack-checked) and then rolls back, so it reports exactly what would fail, with the full compiler errors. " +
-                 "With stopOnError (default) a failure rolls the assembly back to its state before the script.")]
+    [Description("Replay a JSON edit script (export_edits) onto an assembly; each edit reports ok/FAILED. On its own build recorded tokens are used; another build is " +
+                 "refused unless targetBuild=other, which re-resolves symbols by name (following renames when the source build is loaded) and lists what was remapped. " +
+                 "Scripts without a build binding apply with a warning.")]
     public Task<string> ApplyEdits(
-        [Description("Path to the .json edit script.")] string path,
-        [Description("Target assembly. Omit to use the assembly named in the script.")] string? assembly = null,
-        [Description("Apply and compile every edit, report, then roll back: nothing changes.")] bool dryRun = false,
-        [Description("Roll back everything on the first failure (default true).")] bool stopOnError = true,
-        [Description("same (default): only the build the script was made from; other: carry the edits to a different build, re-resolving symbols by name.")] string targetBuild = "same",
+        [Description("The .json edit script.")] string path,
+        [Description("Target assembly; omit for the one named in the script.")] string? assembly = null,
+        [Description("Apply every edit for real (compiled, stack-checked), report, then roll back.")] bool dryRun = false,
+        [Description("Roll everything back on the first failure.")] bool stopOnError = true,
+        [Description("same: only the script's build; other: another build, symbols re-resolved by name.")] string targetBuild = "same",
         CancellationToken cancellationToken = default) => Write(workspace, () => // dry runs apply and roll back, so they also need the write lock
     {
         var report = history.Apply(path, assembly, dryRun, stopOnError, cancellationToken, EditHistoryService.ParseTargetBuild(targetBuild));
@@ -167,13 +160,14 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken);
 
     [McpServerTool(Name = "patch_method_il", Title = "Rewrite method body in IL")]
-    [Description("Rewrite a method body from IL text, in memory. Easiest: get_il the method, edit the instruction lines, pass them back (header lines are ignored; the /* token */ comments resolve operands exactly). " +
-                 "Line syntax: '[label:] opcode [operand]'. Operands: numbers, \"strings\", labels, switch (L1, L2), arg/local index or name, members as 'Ns.Type::Method(int, string)' (framework members included) or tokens. '.local <type>' adds a local. " +
-                 "mode=replace swaps the whole body (no try/catch); mode=prepend inserts before the original code and can branch to its IL_xxxx labels. Stack-validated before applying.")]
+    [Description("Rewrite a method body from IL text, in memory (stack-validated first). Easiest: edit get_il's lines and pass them back (header lines ignored; " +
+                 "/* token */ comments resolve operands exactly). Lines: '[label:] opcode [operand]'; operands are numbers, \"strings\", labels, switch (L1, L2), " +
+                 "arg / local index or name, members ('Ns.Type::Method(int)') or tokens; '.local <type>' adds a local. " +
+                 "mode=replace swaps the whole body (no try/catch); prepend inserts before the original code and can branch to its IL_xxxx labels.")]
     public Task<string> PatchMethodIL(
-        [Description("Method. " + SymbolDescription)] string method,
+        [Description(SymbolDescription)] string method,
         [Description("IL instructions, one per line.")] string il,
-        [Description("replace (default) or prepend.")] string mode = "replace",
+        [Description("replace or prepend.")] string mode = "replace",
         [Description(AssemblyFilterDescription)] string? assembly = null,
         [Description(DryRunDescription)] bool dryRun = false,
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
@@ -183,30 +177,20 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken);
 
     [McpServerTool(Name = "simplify_methods", Title = "Simplify method bodies")]
-    [Description("Compiler-style cleanup of method bodies in memory, e.g. for transformed code. Passes (all by default): " +
-                 "fold: calls that compute a string from constant inputs (string decoders and their char, array, StringBuilder, Encoding and Base64 " +
-                 "helpers) run in a safe IL interpreter and become the string literal; calls outside the safe subset (I/O, reflection, exceptions, " +
-                 "instance objects, native code, mutable statics) or over budget are kept and reported. " +
-                 "cfg: branches and switches on constant conditions fold (constant propagation through locals, readonly statics and calls with " +
-                 "constant arguments); dead stores, branch chains, empty try/finally, dead handlers and unreachable code are removed; flattened " +
-                 "control flow (a loop over a state switch) becomes sequential code, and a dispatcher whose state differs between runs is kept (flattened-shape). " +
-                 "inline: call sites of forwarders and of static delegate fields (call proxies) call the real target when it is always the same (else delegate-target). " +
-                 "Scope: a method, a type (nested types included), or omit symbol for the whole assembly. Each rewritten body is stack-verified or left unchanged; " +
-                 "every call left alone and every method left unchanged is reported with a reason code (docs/simplify.md lists the evaluated instructions, " +
-                 "the limits and the codes; the guide's edits topic summarizes the passes). Limits: per-evaluation and per-method budgets, 16 MB of " +
-                 "simulated memory, 5 s per method. Persisted only by save_assembly. To preview the C# without editing, use decompile_member / " +
-                 "decompile_type with simplified=true.")]
+    [Description("Compiler-style cleanup of method bodies in memory, for transformed code. Passes: fold (string decoder calls with constant inputs run in a " +
+                 "safe IL interpreter and become literals), cfg (constant branches and switches, dead code, flattened control flow made sequential), " +
+                 "inline (forwarders and static delegate call proxies call their real target). Each body is stack-verified or left unchanged; " +
+                 "everything left alone is reported with a reason code (guide edits topic, docs/simplify.md). 5 s and 16 MB simulated memory per method. " +
+                 "Preview without editing: decompile_member / decompile_type simplified=true.")]
     public Task<string> SimplifyMethods(
-        [Description("Method or type. " + SymbolDescription + " Omit to simplify every method of the assembly.")] string? symbol = null,
+        [Description("A method, or a type (nested types included). " + SymbolDescription + " Omit for the whole assembly.")] string? symbol = null,
         [Description(AssemblyFilterDescription + " Required when symbol is omitted.")] string? assembly = null,
         [Description("Comma-separated passes: fold, cfg, inline (default: all).")] string? passes = null,
-        [Description("Max call depth when evaluating, the evaluated call included (default 8).")] int? maxDepth = null,
-        [Description("Max IL instructions executed per evaluated call, nested calls included (default 100000).")] int? budget = null,
-        [Description(DryRunDescription + " Reports folded constants, removed blocks and inlined forwarders.")] bool dryRun = false,
-        [Description("Opt-in (default false). Pin what evaluated code reads of the machine it runs on - the module's own path, the base and current " +
-                     "directories, special folders, a fixed set of environment variables, the machine and user names - to fixed stand-ins, and read the " +
-                     "module's own file as the loaded image, so initialization code that depends on them evaluates the same on every run. Results then hold " +
-                     "for that stand-in environment; docs/simplify.md lists the values. Without it such reads are reported (external-io).")] bool deterministicEnvironment = false,
+        [Description("Max evaluation call depth (default 8).")] int? maxDepth = null,
+        [Description("Max IL instructions per evaluated call, nested calls included (default 100000).")] int? budget = null,
+        [Description(DryRunDescription)] bool dryRun = false,
+        [Description("Evaluate machine reads (module path, directories, special folders, environment, machine / user names) against fixed stand-ins " +
+                     "(docs/simplify.md), so code depending on them folds; results then hold for that environment. Without it they are reported (external-io).")] bool deterministicEnvironment = false,
         CancellationToken cancellationToken = default) => Edit(workspace, dryRun, () =>
     {
         var options = SimplifyOptions.Parse(passes, maxDepth, budget, deterministicEnvironment);
@@ -227,19 +211,14 @@ public sealed class EditTools(AssemblyWorkspace workspace, EditService edits, Ed
     }, cancellationToken);
 
     [McpServerTool(Name = "save_assembly", Title = "Save patched assembly")]
-    [Description("Write an assembly with its in-memory edits to disk. Default output: '<name>.patched.dll' next to the original. " +
-                 "Replacing an existing file requires overwrite=true; when that file is the original (also through a link), it is first copied to '<file>.bak', " +
-                 "and an original changed on disk since load is refused. Writes atomically. " +
-                 "Without edits the original bytes are written; with edits, every method body and signature no edit touched keeps its original bytes, " +
-                 "and the written image is compared with the original. The result lists, one line per member with a reason code: " +
-                 "'Changed by the writer' (bytes differ from the original without an edit asking for it, e.g. a body whose header lies outside the image) " +
-                 "and 'Kept byte-for-byte although invalid in the original' (invalid IL or signatures, saved unchanged). " +
-                 "strict=true refuses the save when the first list is not empty, writing nothing. Reason codes: docs/saving.md.")]
+    [Description("Write an assembly with its edits to a new file, atomically. Overwriting needs overwrite=true; the original is first copied to '<file>.bak', " +
+                 "and one changed on disk since load is refused. Bodies and signatures no edit touched keep their original bytes; the result lists, with reason " +
+                 "codes (docs/saving.md), members 'Changed by the writer' without an edit asking for it and those 'Kept byte-for-byte although invalid in the original'.")]
     public Task<string> SaveAssembly(
         [Description(AssemblyDescription)] string assembly,
         [Description("Output file path. Omit for '<original>.patched.dll'.")] string? outputPath = null,
         [Description("Allow replacing an existing file.")] bool overwrite = false,
-        [Description("Refuse the save (writing nothing) when any member would be written differently from the original without an edit asking for it. Default: save and list them.")] bool strict = false,
+        [Description("Write nothing when any member would be changed by the writer (default: save and list them).")] bool strict = false,
         CancellationToken cancellationToken = default) => Read(workspace, () =>
     {
         var asm = workspace.Get(assembly);
