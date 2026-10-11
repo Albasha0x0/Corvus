@@ -314,6 +314,9 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         return WorkerRows.NameBatch(await CallAsync("apply_names", args, cancellationToken, journal: !save, saves: save).ConfigureAwait(false));
     }
 
+    public async Task<NativeTypeGuess> GuessTypeAsync(uint rva, CancellationToken cancellationToken = default) =>
+        WorkerRows.TypeGuess(await CallAsync("type_guess", WorkerRows.Args(("rva", rva)), cancellationToken).ConfigureAwait(false));
+
     public async Task<IReadOnlyList<PseudoCommentOutcome>> SetPseudoCommentsAsync(IReadOnlyList<(uint Rva, string Text)> items, CancellationToken cancellationToken = default) =>
         WorkerRows.PseudoComments(await CallAsync("pseudo_comments", WorkerRows.PseudoCommentArgs(items), cancellationToken, journal: true).ConfigureAwait(false));
 

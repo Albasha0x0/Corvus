@@ -21,7 +21,8 @@ public static class ParameterDomains
     private static readonly Domain DecompilerEngine = Of(["auto", "ida", "ghidra"]);
     /// <summary>Tools only IDA serves.</summary>
     private static readonly Domain IdaEngine = Of(["auto", "ida"]);
-    private static readonly Domain Relocations = Of(["auto", "keep", "neutralize"], "neutralise");
+    private static readonly Domain ShowDecompile = Of(["none", "after", "diff"], "true", "false");
+    private static readonly Domain Relocations =Of(["auto", "keep", "neutralize"], "neutralise");
     private static readonly Domain StubMode = Of(["replace", "before", "after"]);
     private static readonly Domain Placement = Of(["auto", "cave", "section"]);
     private static readonly string[] KindAliases = ["all", "class", "types", "methods", "fields", "properties", "events", "members"];
@@ -77,9 +78,9 @@ public static class ParameterDomains
         ["get_native_frame"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["define_native"] = new Dictionary<string, Domain> { ["kind"] = Of(["code", "function", "undefine", "data"]), ["engine"] = DecompilerEngine },
         ["set_native_operand"] = new Dictionary<string, Domain> { ["display"] = Of(Native.Providers.NativeOperandEdit.Displays), ["engine"] = DecompilerEngine },
-        ["set_native_stack_var"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
-        ["set_native_type"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
-        ["set_native_local"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
+        ["set_native_stack_var"] = new Dictionary<string, Domain> { ["showDecompile"] = ShowDecompile, ["engine"] = DecompilerEngine },
+        ["set_native_type"] = new Dictionary<string, Domain> { ["showDecompile"] = ShowDecompile, ["engine"] = DecompilerEngine },
+        ["set_native_local"] = new Dictionary<string, Domain> { ["showDecompile"] = ShowDecompile, ["engine"] = DecompilerEngine },
         ["declare_native_types"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["list_native_types"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine, ["kind"] = Of(["struct", "union", "udt", "enum", "typedef", "func", "ptr"]), ["sort"] = Of(["name", "size"], "ordinal") },
         ["get_native_type"] = new Dictionary<string, Domain>
@@ -103,9 +104,9 @@ public static class ParameterDomains
         ["diff_function"] = new Dictionary<string, Domain> { ["side"] = Of(["old", "new"]), ["view"] = Of(["asm", "pseudocode"]), ["engine"] = DecompilerEngine },
         ["export_native_patches"] = new Dictionary<string, Domain> { ["format"] = Of(["ida", "dif", "ips", "ips32", "json"], "idapython", "py", "diff") },
         ["export_native_annotations"] = new Dictionary<string, Domain> { ["format"] = Of(["ida", "ghidra", "json", "header"], "idapython", "idc", "h") },
-        ["rename_native"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
+        ["rename_native"] = new Dictionary<string, Domain> { ["showDecompile"] = ShowDecompile, ["engine"] = DecompilerEngine },
         ["comment_native"] = new Dictionary<string, Domain> { ["scope"] = Of(["auto", "line", "eol", "pre", "plate", "pseudocode", "function"], "disassembly", "repeatable", "decompiler", "func"), ["engine"] = DecompilerEngine },
-        ["patch_bytes"] = new Dictionary<string, Domain> { ["relocations"] = Relocations, ["stubMode"] = StubMode, ["placement"] = Placement },
+        ["patch_bytes"] = new Dictionary<string, Domain> { ["type"] = Of(["i8", "u8", "i16", "u16", "i32", "u32", "i64", "u64", "f32", "f64", "ptr", "i16be", "u16be", "i32be", "u32be", "i64be", "u64be", "f32be", "f64be"]), ["relocations"] = Relocations, ["stubMode"] = StubMode, ["placement"] = Placement },
         ["patch_asm"] = new Dictionary<string, Domain> { ["relocations"] = Relocations, ["stubMode"] = StubMode, ["placement"] = Placement },
         ["record_note"] = new Dictionary<string, Domain> { ["kind"] = NoteKind, ["status"] = NoteStatus },
         ["update_note"] = new Dictionary<string, Domain> { ["kind"] = NoteKind, ["status"] = NoteStatus },

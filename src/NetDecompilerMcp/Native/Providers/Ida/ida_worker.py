@@ -2076,6 +2076,35 @@ def set_pseudo_comment(m, rva, text):
     return [rva, False, rva_of(anchors[0]), "Hex-Rays found no place for a comment at rva 0x%X" % rva_of(anchors[0])]
 
 
+SIZE_TYPES = {1: "uint8_t", 2: "uint16_t", 4: "uint32_t", 8: "uint64_t"}
+
+
+def op_type_guess(args):
+    # {type, method, confidence}: at a function start the decompiler's prototype, else IDA's guess, else the type
+    # applied there, else one from the item's size; nothing is applied
+    m = need_open()
+    import ida_typeinf as ti
+    ea = ea_of(args)
+    f = m.ida_funcs.get_func(ea)
+    name = m.ida_name.get_name(ea) or ""
+    if f is not None and f.start_ea == ea:
+        cf, _ = decompile_function(m, ea)
+        if cf is not None:
+            t = ti.tinfo_t()
+            if cf.get_func_type(t):
+                return {"type": type_text(ti, t, name), "method": "decompiler", "confidence": "high"}
+    t = ti.tinfo_t()
+    if ti.guess_tinfo(t, ea) == ti.GUESS_FUNC_OK and not t.empty():
+        return {"type": type_text(ti, t, name if t.is_func() else ""), "method": "ida", "confidence": "high"}
+    t = ti.tinfo_t()
+    if m.ida_nalt.get_tinfo(t, ea):
+        return {"type": type_text(ti, t, name if t.is_func() else ""), "method": "existing", "confidence": "high"}
+    size = m.ida_bytes.get_item_size(ea) if m.ida_bytes.is_loaded(ea) else 0
+    if size > 0 and not m.ida_bytes.is_code(m.ida_bytes.get_flags(ea)):
+        return {"type": SIZE_TYPES.get(size, "uint8_t[%d]" % size), "method": "size", "confidence": "low"}
+    return {"type": None, "method": None, "confidence": "none"}
+
+
 def op_pseudo_comments(args):
     # items: [[rva, text; "" removes]]
     m = need_open()
@@ -2090,7 +2119,7 @@ OPS = {"hello": op_hello, "open": op_open, "rebase": op_rebase, "functions": op_
        "sync_patches": op_sync_patches, "apply_types": op_apply_types, "load_pdb": op_load_pdb, "virtual_targets": op_virtual_targets,
        "apply_user_types": op_apply_user_types, "frame": op_frame, "types": op_types, "type": op_type, "field_xrefs": op_field_xrefs,
        "python": op_python, "close": op_close, "sleep": op_sleep, "insn": op_insn}
-OPS.update({"pseudo_comments": op_pseudo_comments})
+OPS.update({"pseudo_comments": op_pseudo_comments, "type_guess": op_type_guess})
 
 
 def op_decompile_many(args):

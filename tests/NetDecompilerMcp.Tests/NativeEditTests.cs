@@ -452,6 +452,70 @@ public class NativeEditTests(ITestOutputHelper output)
         Assert.Equal((null, null), (ann.CommentAt(inside), ann.CommentKindAt(inside)));
     }
 
+    [Theory]
+    [InlineData("int __fastcall Parse(Packet *p, int len)", "Parse")]
+    [InlineData("void __cdecl ns::Run(void)", "ns::Run")]
+    [InlineData("char *Name(void)", "Name")]
+    [InlineData("void (*)(int)", null)]
+    [InlineData("int (__fastcall *)(int)", null)]
+    [InlineData("Handler *[8]", null)]
+    [InlineData("Config", null)]
+    public void PrototypeName_IsTheDeclaredFunctionName(string decl, string? name) => Assert.Equal(name, NativeTypeTools.PrototypeName(decl));
+
+    [Theory]
+    [InlineData("u32", "0x10", false, "10000000")]
+    [InlineData("i8", "-1", false, "FF")]
+    [InlineData("i16be", "-2", false, "FFFE")]
+    [InlineData("u64", "18446744073709551615", false, "FFFFFFFFFFFFFFFF")]
+    [InlineData("ptr", "0x140001000", true, "0010004001000000")]
+    [InlineData("ptr", "0x401000", false, "00104000")]
+    [InlineData("f32", "1.5", false, "0000C03F")]
+    [InlineData("f64be", "-2", false, "C000000000000000")]
+    public void TypedValue_Encodes(string type, string value, bool is64, string hex) => Assert.Equal(hex, Convert.ToHexString(TypedValue.Encode(type, value, is64)));
+
+    [Fact]
+    public void TypedValue_TypesAreTheAdvertisedDomain() =>
+        Assert.Equal(TypedValue.Types, NetDecompilerMcp.Mcp.ParameterDomains.Find("patch_bytes", "type")!.Values);
+
+    [Theory]
+    [InlineData("u8", "256")]
+    [InlineData("i8", "128")]
+    [InlineData("u16", "-1")]
+    [InlineData("u32", "zz")]
+    [InlineData("u24", "1")]
+    [InlineData("f32", "x")]
+    public void TypedValue_RefusesOutOfRangeAndUnknown(string type, string value) =>
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => TypedValue.Encode(type, value, false)).Code);
+
+    [Fact]
+    public async Task PatchBytes_TypedValue_IsAnUndoablePatch_WithDryRun()
+    {
+        using var h = new Harness();
+        var (native, _) = await h.Open();
+        uint entry = native.Image.EntryPointRva;
+        var tools = new NativeEditTools(h.Env.Workspace, h.Code, h.Edits);
+        var at = $"rva:0x{entry:X}";
+        await tools.PatchBytes(h.Path, at, value: "0xB8", type: "u8", dryRun: true);
+        Assert.False(native.HasPatches);
+        // mov eax, 1 -> mov eax, 7: the immediate is a u32 inside the instruction
+        _output.WriteLine(await tools.PatchBytes(h.Path, $"rva:0x{entry + 1:X}", value: "7", type: "u32", force: true));
+        Assert.True(native.HasPatches);
+        Assert.Matches(@"mov\s+eax,\s*7\b", await new NativeCodeTools(h.Env.Workspace, h.Code, h.Env.Pager).Disassemble(h.Path, at));
+        await tools.UndoNativeEdit(h.Path);
+        Assert.False(native.HasPatches);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.PatchBytes(h.Path, at, hex: "90", value: "1", type: "u8"))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.PatchBytes(h.Path, at, value: "1"))).Code);
+    }
+
+    [Fact]
+    public void ShowDecompile_Modes()
+    {
+        Assert.Equal([null, null, "after", "diff", "diff"], new[] { null, "none", "after", "diff", "DIFF" }.Select(DecompileDiff.Parse));
+        Assert.Equal(ErrorCode.InvalidArgument, Assert.Throws<ToolError>(() => DecompileDiff.Parse("both")).Code);
+        Assert.Contains("--- before", DecompileDiff.Render("diff", ("a\nb", null), ("a\nc", null), "f"));
+        Assert.Contains("not available (no decompiler)", DecompileDiff.Render("diff", (null, "x"), (null, "no decompiler"), "f"));
+    }
+
     private static ulong Revision(Harness h) =>
         System.Text.Json.JsonDocument.Parse(File.ReadAllText(Directory.GetFiles(h.Store.Root, "*.json").Single())).RootElement.GetProperty("revision").GetUInt64();
 

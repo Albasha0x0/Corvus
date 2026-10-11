@@ -169,6 +169,68 @@ public sealed class NativeEditParityTests(ITestOutputHelper output) : IDisposabl
     }
 
     [IdaFact]
+    public Task Edits_show_the_pseudocode_diff_and_a_prototype_names_the_function_in_IDA() => DiffAndPrototypeName("ida");
+
+    [GhidraFact]
+    public Task Edits_show_the_pseudocode_diff_and_a_prototype_names_the_function_in_Ghidra() => DiffAndPrototypeName("ghidra");
+
+    private async Task DiffAndPrototypeName(string engine)
+    {
+        var rig = Setup(engine + "-d");
+        var path = Image();
+        var session = await rig.Session(engine);
+        var local = (await session.GetFrameAsync(rig.Start)).Locals.First(l => l.Name.Length > 0 && !l.IsArgument && !l.UserName).Name;
+
+        var diff = await rig.Types.SetNativeLocal(path, Function, local, newName: "ndm_diffed", showDecompile: "diff", engine: engine);
+        output.WriteLine(diff);
+        Assert.Contains("--- before", diff);
+        Assert.Matches($@"(?m)^-.*\b{local}\b", diff);
+        Assert.Matches(@"(?m)^\+.*\bndm_diffed\b", diff);
+        var after = await rig.Types.SetNativeLocal(path, Function, "ndm_diffed", clear: true, showDecompile: "after", engine: engine);
+        Assert.Contains("after the edit", after);
+        Assert.DoesNotContain("ndm_diffed;", after);
+
+        // a callee renamed: the caller's pseudocode is the one shown
+        var callee = (await session.GetXrefsFromAsync(rig.Start, wholeFunction: true)).First(x => x.Kind == NativeXrefKind.Call
+            && rig.Native.Image.SectionAt(x.ToRva) is { IsExecutable: true }).ToRva;
+        var renamed = await rig.Edits.RenameNative(path, Rva(callee), "ndm_target", showDecompile: "diff", engine: engine);
+        output.WriteLine(renamed);
+        Assert.Matches(@"(?m)^\+.*ndm_target", renamed);
+
+        // the prototype's name becomes the function's name in our layer and the engine; rename=false keeps it
+        var proto = await rig.Types.SetNativeType(path, Rva(callee), "int __fastcall ndm_proto_name(void *a, void *b, unsigned int n)", engine: engine);
+        output.WriteLine(proto);
+        Assert.Contains("now named ndm_proto_name", proto);
+        Assert.Equal("ndm_proto_name", rig.Code.Annotations(rig.Native).NameAt(callee));
+        Assert.Contains("ndm_proto_name", await rig.Analysis.DecompileNative(path, Function, engine: engine));
+        var kept = await rig.Types.SetNativeType(path, Rva(callee), "int __fastcall other_name(void *a, void *b, unsigned int n)", rename: false, engine: engine);
+        Assert.DoesNotContain("now named", kept);
+        Assert.Equal("ndm_proto_name", rig.Code.Annotations(rig.Native).NameAt(callee));
+    }
+
+    [IdaFact]
+    public Task Type_guesses_come_from_the_decompiler_and_the_data_in_IDA() => TypeGuesses("ida");
+
+    [GhidraFact]
+    public Task Type_guesses_come_from_the_decompiler_and_the_data_in_Ghidra() => TypeGuesses("ghidra");
+
+    private async Task TypeGuesses(string engine)
+    {
+        var rig = Setup(engine + "-g");
+        var path = Image();
+        var function = await rig.Types.SetNativeType(path, Function, guess: true, engine: engine);
+        output.WriteLine(function);
+        Assert.Matches(@"Guess at 0x[0-9A-F]+: .*CheckSumMappedFile\(.*\(from decompiler, high confidence; not applied", function);
+        Assert.Empty(rig.Code.Annotations(rig.Native).UserTypes.Types);
+        var data = rig.Native.Image.Sections.First(s => !s.IsExecutable && s.Name == ".data").Rva;
+        await rig.Types.DefineNative(path, Rva(data), "data", type: "dword", engine: engine);
+        var global = await rig.Types.SetNativeType(path, Rva(data), guess: true, engine: engine);
+        output.WriteLine(global);
+        Assert.StartsWith("Guess at", global);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeType(path, Function, "int f(void)", guess: true, engine: engine))).Code);
+    }
+
+    [IdaFact]
     public Task Local_and_stack_edits_clear_in_IDA() => LocalAndStackEditsClear("ida");
 
     [GhidraFact]

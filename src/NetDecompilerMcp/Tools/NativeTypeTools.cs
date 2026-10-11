@@ -21,8 +21,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
 {
     private const string EngineDescription = "Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra), ida or ghidra.";
 
-    private const string KeptNote = " Saved per file hash with the image's annotations: re-applied to a new database, exported by export_native_annotations " +
-                                    "and carried by migrate_native_names and update_to_new_build.";
+    private const string KeptNote = " Kept with the image's annotations: replayed into a new database, exported and carried to new builds.";
 
     /// <summary>The image, an address in it and its engine session, with names and recovered types pushed first so user types apply on top.</summary>
     private async Task<(LoadedNative Native, uint Rva, INativeDecompilerSession Session)> Open(string image, string address, string? engine,
@@ -73,9 +72,9 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     });
 
     [McpServerTool(Name = "set_native_stack_var", Title = "Rename, retype or delete a stack variable")]
-    [Description("Rename and/or retype a member of a native function's stack frame in the engine, named as get_native_frame lists it (var_28) or by " +
-                 "frame offset (0x20 or +0x20, from the frame's lowest address); a type at an offset with no member creates one; delete=true removes " +
-                 "it; clear=true drops the user's edit, restoring the engine's member. The return address and saved registers are refused." + KeptNote)]
+    [Description("Rename and/or retype a member of a native function's stack frame, named as get_native_frame lists it (var_28) or by frame " +
+                 "offset (0x20, from the frame's lowest address); a type at an empty offset creates one; delete=true removes it; clear=true drops the " +
+                 "user's edit, restoring the engine's member. The return address and saved registers are refused." + KeptNote)]
     public Task<string> SetNativeStackVar(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("The function: " + NativeTools.AddressDescription)] string function,
@@ -84,6 +83,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         [Description("New C type, e.g. 'int', 'char[16]', 'Packet'.")] string? type = null,
         [Description("Delete the member instead (no newName or type).")] bool delete = false,
         [Description("Drop the user's edit of the member (no newName or type).")] bool clear = false,
+        [Description(DecompileDiff.Description)] string? showDecompile = null,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -96,7 +96,10 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             throw new ToolError(ErrorCode.InvalidArgument, "Nothing to change.", "pass newName, type or both, delete=true or clear=true");
         if (name != null && !Identifier(name))
             throw new ToolError(ErrorCode.InvalidArgument, $"'{name}' is not a C identifier.", "use letters, digits and _, not starting with a digit");
+        var show = DecompileDiff.Parse(showDecompile);
         var (native, rva, session) = await Open(image, function, engine, progress, cancellationToken);
+        return await WithDecompile(show, session, rva, async () =>
+        {
         var frame = await session.GetFrameAsync(rva, cancellationToken);
         var v = (variable ?? "").Trim();
         int offset = frame.Members.FirstOrDefault(m => m.Name == v) is { } byName ? byName.Offset
@@ -111,20 +114,36 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         if (clear) return $"Stack member +0x{offset:X} of {frame.Name} at {Va(native, done.Rva)}: the user edit is cleared; now {done.Text}";
         return delete ? $"Stack member +0x{offset:X} of {frame.Name} at {Va(native, done.Rva)}: {(done.Resolved != null ? $"{done.Resolved} " : "")}{done.Text}"
             : $"Stack member +0x{offset:X} of {frame.Name} at {Va(native, done.Rva)}{(done.Resolved != null ? $" (was {done.Resolved})" : "")} is now: {done.Text}";
+        }, cancellationToken);
     });
+
+    /// <summary>Runs <paramref name="edit"/>, with the function's pseudocode after it (or before and after) when <paramref name="show"/> asks.</summary>
+    private static async Task<string> WithDecompile(string? show, INativeDecompilerSession session, uint rva, Func<Task<string>> edit, CancellationToken ct)
+    {
+        if (show == null) return await edit();
+        var function = await DecompileDiff.FunctionFor(session, rva, ct);
+        var before = show == "diff" ? await DecompileDiff.Text(session, function, ct) : default;
+        var result = await edit();
+        var after = await DecompileDiff.Text(session, function, ct);
+        return result + DecompileDiff.Render(show, before, after, function is { } f ? $"the function at rva 0x{f:X}" : "the function");
+    }
 
     private static string Va(LoadedNative native, uint rva) => NativeAddress.Va(native.Image, rva);
 
     [McpServerTool(Name = "set_native_type", Title = "Set a native prototype or global type")]
     [Description("Set the type of a native function (its prototype, e.g. 'int __fastcall Parse(Packet *p, int len)') or of a global (e.g. " +
                  "'Config', 'char[64]', 'Handler *[8]') in the decompiler engine (IDA or Ghidra). Named types must exist there (the PDB, RTTI and Il2Cpp types " +
-                 "decompile_native pushes, or declare_native_types). User types win over recovered ones. An empty type clears it. items applies " +
-                 "many in one request, one 'address = type' per line, each reported." + KeptNote)]
+                 "decompile_native pushes, or declare_native_types). User types win over recovered ones. An empty type clears it. A prototype's " +
+                 "name renames the function in every engine unless rename=false. items applies many, one 'address = type' per line. guess=true " +
+                 "reports the engine's guess at address without applying it." + KeptNote)]
     public Task<string> SetNativeType(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("A function start or a global: " + NativeTools.AddressDescription)] string? address = null,
         [Description("C prototype for a function, C type for a global; empty to clear the user type.")] string? type = null,
         [Description("Instead of address and type: lines 'address = type', e.g. '0x140010000 = Config'.")] string? items = null,
+        [Description("Name the function as its prototype does (default true).")] bool rename = true,
+        [Description("Report the engine's guess for address (no type).")] bool guess = false,
+        [Description(DecompileDiff.Description)] string? showDecompile = null,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -135,15 +154,61 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
                 throw new ToolError(ErrorCode.InvalidArgument, "Pass items, or address and type, not both.");
             return await SetTypes(image, items, engine, progress, cancellationToken);
         }
+        if (guess)
+        {
+            if (string.IsNullOrWhiteSpace(address) || type != null) throw new ToolError(ErrorCode.InvalidArgument, "guess takes an address and no type.");
+            var (gn, grva, gs) = await Open(image, address, engine, progress, cancellationToken);
+            var g = await gs.GuessTypeAsync(grva, cancellationToken);
+            return g.Type == null ? $"No type guess at {Va(gn, grva)}."
+                : $"Guess at {Va(gn, grva)}: {g.Type} (from {g.Method}, {g.Confidence} confidence; not applied; pass it as type to apply)";
+        }
         if (string.IsNullOrWhiteSpace(address) || type == null)
             throw new ToolError(ErrorCode.InvalidArgument, "Pass address and type, or items.", "items takes lines 'address = type'");
+        var show = DecompileDiff.Parse(showDecompile);
         var (native, rva, session) = await Open(image, address, engine, progress, cancellationToken);
         var decl = type.Trim();
-        var result = await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch([], [new NativePrototype(rva, decl)], [], []),
-            (r, layer) => r.Items is [{ Applied: true }] ? layer.WithType(rva, decl) : null, cancellationToken);
-        var item = Outcome(result);
-        return decl.Length == 0 ? $"Cleared the user type at {Va(native, rva)}." : $"Type at {Va(native, rva)}: {item.Text ?? decl}";
+        return await WithDecompile(show, session, rva, async () =>
+        {
+            var result = await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch([], [new NativePrototype(rva, decl)], [], []),
+                (r, layer) => r.Items is [{ Applied: true }] ? layer.WithType(rva, decl) : null, cancellationToken);
+            var item = Outcome(result);
+            if (decl.Length == 0) return $"Cleared the user type at {Va(native, rva)}.";
+            var renamed = rename ? await RenameFromPrototype(native, session, rva, decl, cancellationToken) : null;
+            return $"Type at {Va(native, rva)}: {item.Text ?? decl}" + (renamed != null ? $"; the function is now named {renamed} (rename=false keeps its name)" : "");
+        }, cancellationToken);
     });
+
+    private static readonly HashSet<string> NotNames = new(StringComparer.Ordinal)
+    {
+        "void", "int", "char", "short", "long", "unsigned", "signed", "float", "double", "bool", "_BOOL", "struct", "union", "enum", "const", "volatile",
+        "__int8", "__int16", "__int32", "__int64", "__cdecl", "__stdcall", "__fastcall", "__thiscall", "__vectorcall", "__usercall", "__userpurge", "__noreturn",
+    };
+
+    /// <summary>The function name a prototype declares ("int __fastcall Parse(Packet *p)": Parse), or null (a pointer or abstract type).</summary>
+    internal static string? PrototypeName(string decl)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(decl, @"^[^(]*?([A-Za-z_][\w:]*)\s*\(");
+        return m.Success && !NotNames.Contains(m.Groups[1].Value) ? m.Groups[1].Value : null;
+    }
+
+    /// <summary>
+    /// Records the prototype's function name in the user's name layer (so every engine gets it with the names) when it
+    /// differs from the name in effect at a function start; returns it, or null when nothing changed.
+    /// </summary>
+    private async Task<string?> RenameFromPrototype(LoadedNative native, INativeDecompilerSession session, uint rva, string decl, CancellationToken ct)
+    {
+        if (code == null || PrototypeName(decl) is not { } wanted) return null;
+        var index = code.Ready(native) ?? await code.Index(native, null, ct);
+        if (index.FunctionAt(rva)?.Start != rva) return null;
+        string valid;
+        try { valid = NativeName.Validate(wanted.Replace("::", "__", StringComparison.Ordinal)); }
+        catch (ToolError) { return null; }
+        if (index.NameAt(rva) == valid) return null;
+        var ann = code.Annotations(native);
+        workspace.Write(() => { ann.Apply([(rva, valid)], [], [], allowDuplicate: true); index.SetUserName(rva, valid); return 0; });
+        if (names != null) await names.EnsureAsync(native, session, ct);
+        return valid;
+    }
 
     /// <summary>Most lines of one set_native_type items call.</summary>
     private const int MaxTypeItems = 5000;
@@ -177,9 +242,9 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     }
 
     [McpServerTool(Name = "set_native_local", Title = "Rename or retype a decompiler local")]
-    [Description("Rename and/or retype a local variable or argument in the pseudocode of a native function (IDA Hex-Rays or Ghidra's decompiler): name it as " +
-                 "decompile_native shows it (v3, a1), or by stack offset as stack:0x28. Later edits may name it by its new name; it stays one edit; " +
-                 "its first name again, or clear=true, drops the edit. The decompiler can refuse a type that does not fit (reported)." + KeptNote)]
+    [Description("Rename and/or retype a local or argument in a native function's pseudocode, named as decompile_native shows it (v3, a1) or " +
+                 "as stack:0x28. Later edits may use its new name (one edit); its first name again, or clear=true, drops the edit. A type that does " +
+                 "not fit is refused (reported)." + KeptNote)]
     public Task<string> SetNativeLocal(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("The function: " + NativeTools.AddressDescription)] string function,
@@ -187,7 +252,8 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         [Description("New name (a C identifier).")] string? newName = null,
         [Description("New C type, e.g. 'unsigned int', 'Packet *', 'char[16]'.")] string? type = null,
         [Description("Drop the user's name and type of the variable (no newName or type).")] bool clear = false,
-        [Description("Instead of local: several variables of the function, lines 'local = newName', or a JSON array of {local, newName?, type?, clear?}; one engine request, each reported.")] string? items = null,
+        [Description("Instead of local: lines 'local = newName', or JSON [{local, newName?, type?, clear?}].")] string? items = null,
+        [Description(DecompileDiff.Description)] string? showDecompile = null,
         [Description(EngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -196,20 +262,24 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         {
             if (local != null || newName != null || type != null || clear)
                 throw new ToolError(ErrorCode.InvalidArgument, "Pass items, or local with newName/type/clear, not both.");
-            return await SetLocals(image, function, items, engine, progress, cancellationToken);
+            return await SetLocals(image, function, items, DecompileDiff.Parse(showDecompile), engine, progress, cancellationToken);
         }
         var request = LocalRequest(local ?? throw new ToolError(ErrorCode.InvalidArgument, "Pass local, or items."), newName, type, clear);
+        var show = DecompileDiff.Parse(showDecompile);
         var (native, rva, session) = await Open(image, function, engine, progress, cancellationToken);
+        return await WithDecompile(show, session, rva, async () =>
+        {
         var edits = LocalEdits(native, rva, [request]);
         var result = await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch([], [], [], edits), (r, layer) => RecordLocals(r, layer, edits), cancellationToken);
         if (result.Items.FirstOrDefault(i => !i.Applied) is { } failed) Outcome(result with { Items = [failed] });
         var done = result.Items.Count > 0 ? result.Items[^1] : throw new ToolError(ErrorCode.Failed, "The engine did not report the edit.");
         return $"Local {done.Resolved} of the function at {Va(native, done.Rva)}{(done.Stack is { } k ? $" (stack 0x{k:X})" : "")} " +
                (done.Kind == "local_clear" ? $"is cleared; now {done.Text}" : $"is now: {done.Text}");
+        }, cancellationToken);
     });
 
     /// <summary>set_native_local items: the requests that parse in one engine request; every outcome and refusal reported.</summary>
-    private async Task<string> SetLocals(string image, string function, string items, string? engine, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    private async Task<string> SetLocals(string image, string function, string items, string? show, string? engine, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
         var requests = new List<LocalChange>();
         var problems = new List<string>();
@@ -236,6 +306,8 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             }
         if (requests.Count + problems.Count > MaxTypeItems) throw new ToolError(ErrorCode.InvalidArgument, $"At most {MaxTypeItems} items per call.", "split the items");
         var (native, rva, session) = await Open(image, function, engine, progress, ct);
+        return await WithDecompile(show, session, rva, async () =>
+        {
         var edits = LocalEdits(native, rva, requests);
         var result = edits.Count == 0 ? null
             : await userTypes.ApplyAsync(native, session, new NativeUserTypeBatch([], [], [], edits), (r, layer) => RecordLocals(r, layer, edits), ct);
@@ -245,6 +317,7 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
             sb.AppendLine($"  {i.Resolved ?? i.Target}  " + (!i.Applied ? "not applied: " + i.Error : i.Kind == "local_clear" ? "cleared; now " + i.Text : i.Text));
         foreach (var p in problems) sb.AppendLine($"  not applied: {p}");
         return sb.ToString();
+        }, ct);
     }
 
     /// <summary>One local to change: its target (name or stack offset), the new name and type, or a clear.</summary>

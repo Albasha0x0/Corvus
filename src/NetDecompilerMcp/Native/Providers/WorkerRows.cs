@@ -144,6 +144,9 @@ internal static class WorkerRows
             r.GetProperty("functions_created").GetInt32(), TimeSpan.FromSeconds(r.GetProperty("seconds").GetDouble()),
             r.GetProperty("failures").EnumerateArray().Select(f => f.GetString() ?? "").ToList());
 
+    public static NativeTypeGuess TypeGuess(JsonElement r) =>
+        new(Text(r.GetProperty("type")), Text(r.GetProperty("method")), r.GetProperty("confidence").GetString() ?? "none");
+
     /// <summary>[[rva, text]] rows of pseudo_comments.</summary>
     public static JsonObject PseudoCommentArgs(IReadOnlyList<(uint Rva, string Text)> items) =>
         Args(("items", new JsonArray(items.Select(i => (JsonNode)new JsonArray(i.Rva, i.Text)).ToArray())));

@@ -69,19 +69,36 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         [Description("Lines 'address = name', or JSON [{address, name}].")] string? items = null,
         [Description("Check only; record nothing.")] bool dryRun = false,
         [Description("Stop at the first failing item.")] bool stopOnError = false,
+        [Description(DecompileDiff.Description)] string? showDecompile = null,
         [Description(PushEngineDescription)] string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        var show = DecompileDiff.Parse(showDecompile);
+        if (show != null && items != null) throw new ToolError(ErrorCode.InvalidArgument, "showDecompile takes one address, not items.");
         var (native, index) = await Open(image, progress, cancellationToken);
         if (items == null && !dryRun)
         {
             if (string.IsNullOrWhiteSpace(address) || name == null)
                 throw new ToolError(ErrorCode.InvalidArgument, "Pass address and name, or items.", "items takes lines 'address = name'");
             var rva = Address(index, address);
-            var done = string.IsNullOrWhiteSpace(name) ? edits.ClearName(native, index, rva) : edits.Rename(native, index, rva, name, allowDuplicate);
-            await PushNames(native, engine, progress, cancellationToken);
-            return done;
+            if (show == null)
+            {
+                var done = string.IsNullOrWhiteSpace(name) ? edits.ClearName(native, index, rva) : edits.Rename(native, index, rva, name, allowDuplicate);
+                await PushNames(native, engine, progress, cancellationToken);
+                return done;
+            }
+            // the session is opened first so the pseudocode before the rename is the engine's with every earlier name
+            if (engines == null) throw new ToolError(ErrorCode.Unsupported, "showDecompile needs a decompiler engine.");
+            var session = await engines.Session(native, string.IsNullOrWhiteSpace(engine) ? null : engine, new Progress<NativeProviderProgress>(p =>
+                progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), cancellationToken);
+            await EnsurePushed(native, session, cancellationToken);
+            var function = await DecompileDiff.FunctionFor(session, rva, cancellationToken);
+            var before = show == "diff" ? await DecompileDiff.Text(session, function, cancellationToken) : default;
+            var text = string.IsNullOrWhiteSpace(name) ? edits.ClearName(native, index, rva) : edits.Rename(native, index, rva, name, allowDuplicate);
+            await EnsurePushed(native, session, cancellationToken);
+            var after = await DecompileDiff.Text(session, function, cancellationToken);
+            return text + DecompileDiff.Render(show, before, after, function is { } f ? $"the function at rva 0x{f:X}" : "the function");
         }
         var list = BatchItems(items, address, name, "name");
         var results = new List<BatchResult>();
@@ -297,11 +314,16 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         var session = string.IsNullOrWhiteSpace(engine) ? engines.CompletedSession(native)
             : await engines.Session(native, engine, new Progress<NativeProviderProgress>(p =>
                 progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), ct);
-        if (session == null) return null;
-        var pushed = await names.EnsureAsync(native, session, ct);
+        return session == null ? null : await EnsurePushed(native, session, ct) ?? new NativeNamePush.PushResult(0, 0, null, true, "", TimeSpan.Zero);
+    }
+
+    /// <summary>Brings the session's names, recovered types and user types up to date (in that order); the names push's result.</summary>
+    private async Task<NativeNamePush.PushResult?> EnsurePushed(LoadedNative native, INativeDecompilerSession session, CancellationToken ct)
+    {
+        var pushed = names != null ? await names.EnsureAsync(native, session, ct) : null;
         if (types != null) await types.EnsureAsync(native, session, ct);
         if (userTypes != null) await userTypes.EnsureAsync(native, session, ct);
-        return pushed ?? new NativeNamePush.PushResult(0, 0, null, true, "", TimeSpan.Zero);
+        return pushed;
     }
 
     /// <summary>Where the pseudocode comments went: placed by the engine now, refused (with the reason), or kept for its next use.</summary>
@@ -344,7 +366,9 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     public Task<string> PatchBytes(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
-        [Description("Replacement bytes as hex (e.g. '90 90' or '9090' or '0x90,0x90').")] string hex,
+        [Description("Replacement bytes as hex (e.g. '90 90' or '9090' or '0x90,0x90').")] string? hex = null,
+        [Description("Instead of hex: a number written as type (range-checked).")] string? value = null,
+        [Description("With value: i8-i64, u8-u64, f32, f64 or ptr; a be suffix for big-endian.")] string? type = null,
         [Description("Override the safety checks (mid-instruction, past function end, header bytes, a new address with no free relocation slot).")] bool force = false,
         [Description("Preview only; do not record the patch.")] bool dryRun = false,
         [Description(RelocationsDescription)] string? relocations = null,
@@ -356,14 +380,16 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     {
         var (native, index) = await Open(image, progress, cancellationToken);
         var rva = Address(index, address);
-        var bytes = ParseHex(hex);
+        if ((hex == null) == (value == null) || (value == null) != (type == null))
+            throw new ToolError(ErrorCode.InvalidArgument, "Pass hex, or value with type.", "e.g. value=0x10 type=u32");
+        var bytes = value != null ? TypedValue.Encode(type!, value, index.Image.Is64Bit) : ParseHex(hex!);
         if (extend)
         {
             var extended = edits.PrepareExtendedPatch(index, rva, bytes, null, PatchExtension.ParseMode(stubMode), $"patch_bytes {bytes.Length} bytes (stub)", null, PatchExtension.ParsePlacement(placement));
             return edits.ApplyPatch(native, index, extended, dryRun);
         }
         var mode = NativeEditService.ParseRelocationMode(relocations);
-        var prepared = edits.PreparePatch(index, rva, bytes, force, $"patch_bytes {bytes.Length} bytes", mode);
+        var prepared = edits.PreparePatch(index, rva, bytes, force, value != null ? $"patch_bytes {type} {value}" : $"patch_bytes {bytes.Length} bytes", mode);
         return edits.ApplyPatch(native, index, prepared, dryRun);
     });
 

@@ -210,6 +210,10 @@ public interface INativeDecompilerSession : IAsyncDisposable, IDisposable
     Task<NameBatchResult> ApplyNamesAsync(IReadOnlyList<NativeNameItem> items, string? stampKey = null, string? stamp = null, bool save = false,
         CancellationToken cancellationToken = default);
 
+    /// <summary>The engine's guess of the type at <paramref name="rva"/> (nothing is applied).</summary>
+    Task<NativeTypeGuess> GuessTypeAsync(uint rva, CancellationToken cancellationToken = default) =>
+        throw new Core.ToolError(Core.ErrorCode.Unsupported, $"The {ProviderId} engine does not guess types.");
+
     /// <summary>
     /// Sets (empty text: removes) the decompiler comment at each address, on the pseudocode statement generated from it or,
     /// when none is, from the nearest address before it in the function (<see cref="PseudoCommentOutcome.Anchor"/>).
@@ -410,6 +414,9 @@ public sealed record NativeNameItem(uint Rva, string? Name, string? Comment, boo
     /// <summary>The comment's engine kind: eol, pre or plate; null: repeatable (the function comment at a function start).</summary>
     public string? CommentKind { get; init; }
 }
+
+/// <summary>A guessed type: <see cref="Method"/> decompiler, ida, existing or size (null: none), <see cref="Confidence"/> high, low or none.</summary>
+public sealed record NativeTypeGuess(string? Type, string? Method, string Confidence);
 
 /// <summary>One pseudocode comment: whether it attached, the address of the statement it is on, or why not.</summary>
 public sealed record PseudoCommentOutcome(uint Rva, bool Applied, uint? Anchor, string? Error);
