@@ -261,6 +261,102 @@ public sealed class ManagedDumpRealTests(ITestOutputHelper output)
         Assert.True(heap.Types.Single().Count > 10);
     }
 
+    /// <summary>A program that writes a stacks-only and a full dump of itself (dbghelp) from an exception filter, as crash reporters do.</summary>
+    private const string SelfDumpSource = """
+        using System;
+        using System.Diagnostics;
+        using System.IO;
+        using System.Runtime.CompilerServices;
+        using System.Runtime.InteropServices;
+
+        namespace Probe;
+
+        public static class Program
+        {
+            [DllImport("dbghelp.dll", SetLastError = true)]
+            private static extern bool MiniDumpWriteDump(IntPtr process, int processId, IntPtr file, int type, IntPtr exception, IntPtr user, IntPtr callback);
+
+            [DllImport("kernel32.dll")]
+            private static extern int GetCurrentThreadId();
+
+            public static int Main(string[] args)
+            {
+                try { Validate(2); }
+                catch (Exception) when (DumpSelf(args[0], 0x4 | 0x20 | 0x100 | 0x1000) & DumpSelf(args[1], 0x2 | 0x4 | 0x800 | 0x1000) & false) { }
+                catch (Exception) { return 0; }
+                return 1;
+            }
+
+            [MethodImpl(MethodImplOptions.NoInlining)]
+            public static void Validate(int depth)
+            {
+                if (depth > 0) Validate(depth - 1);
+                else Inner();
+            }
+
+            [MethodImpl(MethodImplOptions.NoInlining)]
+            public static void Inner() => throw new InvalidOperationException("ndm-probe");
+
+            private static bool DumpSelf(string path, int type)
+            {
+                var info = Marshal.AllocHGlobal(16); // MINIDUMP_EXCEPTION_INFORMATION, packed to 4
+                Marshal.WriteInt32(info, 0, GetCurrentThreadId());
+                Marshal.WriteIntPtr(info, 4, Marshal.GetExceptionPointers());
+                Marshal.WriteInt32(info, 4 + IntPtr.Size, 0);
+                using var file = new FileStream(path, FileMode.Create, FileAccess.ReadWrite);
+                var self = Process.GetCurrentProcess();
+                MiniDumpWriteDump(self.Handle, self.Id, file.SafeFileHandle.DangerousGetHandle(), type, info, IntPtr.Zero, IntPtr.Zero);
+                Marshal.FreeHGlobal(info);
+                return true;
+            }
+        }
+        """;
+
+    private static (string Dll, string Mini, string Full) SelfDumps(TempDir dir)
+    {
+        var dll = dir.File("SelfDump.dll");
+        File.WriteAllBytes(dll, Roslyn.Compile("SelfDump", SelfDumpSource, new CSharpCompilationOptions(OutputKind.ConsoleApplication, optimizationLevel: OptimizationLevel.Debug)));
+        File.WriteAllText(dir.File("SelfDump.runtimeconfig.json"), System.Text.Json.JsonSerializer.Serialize(new
+        {
+            runtimeOptions = new { tfm = $"net{Environment.Version.Major}.0", framework = new { name = "Microsoft.NETCore.App", version = Environment.Version.ToString() } },
+        }));
+        var psi = new ProcessStartInfo("dotnet") { UseShellExecute = false, RedirectStandardError = true, RedirectStandardOutput = true, CreateNoWindow = true };
+        foreach (var a in new[] { dll, dir.File("mini.dmp"), dir.File("full.dmp") }) psi.ArgumentList.Add(a);
+        var (code, log) = Tools.Run(psi, 120_000);
+        Assert.True(code == 0 && File.Exists(dir.File("full.dmp")), $"no dump written (exit {code}): {log}");
+        return (dll, dir.File("mini.dmp"), dir.File("full.dmp"));
+    }
+
+    /// <summary>
+    /// A dbghelp dump without memory holds no JIT IL maps: the frames have no IL offset (not offset 0); the full dump
+    /// of the same moment has them.
+    /// </summary>
+    [Fact]
+    public async Task SelfWrittenDumps_IlOffsetsOnlyWhereTheDumpHoldsTheIlMap()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var dir = new TempDir();
+        var (dll, mini, full) = SelfDumps(dir);
+        using var ws = new AssemblyWorkspace();
+        ws.Load(dll);
+        var service = new MinidumpService(ws, decompiler: new DecompilerService(ws, new ServerOptions()));
+
+        var small = (await service.Summarize(mini, null, 0, 50, 0, 50, default)).Managed!;
+        foreach (var f in small.Exception!.Stack) output.WriteLine($"mini {f.Function} il={f.IlOffset} {f.Statement}");
+        Assert.Contains(small.Exception.Stack, f => f.Function.Contains("Probe.Program.Validate", StringComparison.Ordinal));
+        Assert.All(small.Exception.Stack, f => Assert.Null(f.IlOffset));
+        var thread = await service.Stack(mini, small.Exception.ThreadId?.ToString(System.Globalization.CultureInfo.InvariantCulture), true, 256, 0, 256, null, default);
+        Assert.All(thread.Frames.Where(f => f.SymbolSource == "clr" && f.Function!.StartsWith("Probe.", StringComparison.Ordinal)), f => Assert.Null(f.IlOffset)); // CoreLib's precompiled maps are in its image
+
+        var whole = (await service.Summarize(full, null, 0, 50, 0, 50, default)).Managed!;
+        foreach (var f in whole.Exception!.Stack) output.WriteLine($"full {f.Function} il={f.IlOffset} {f.Statement}");
+        var calls = whole.Exception.Stack.Where(f => f.Function.Contains("Probe.Program.Validate", StringComparison.Ordinal)).ToList();
+        Assert.Equal(3, calls.Count);
+        Assert.Equal("Validate(depth - 1);", calls[^1].Statement);
+        Assert.Equal("Inner();", calls[0].Statement);
+        Assert.Equal("throw new InvalidOperationException(\"ndm-probe\");", whole.Exception.Stack.First(f => f.Function.Contains("Inner", StringComparison.Ordinal)).Statement);
+    }
+
     private static string? DacLocatorVerify(string path) => Native.Dump.Managed.DacLocator.Verify(File.ReadAllBytes(path), path);
 
     private static void AssertSortedBySp(MinidumpService.StackReport stack)

@@ -41,7 +41,7 @@ public sealed class ClrReads(ClrRuntime runtime)
 
     private ManagedException Describe(ClrException e, uint? thread, int depth)
     {
-        var frames = e.StackTrace.Take(MaxExceptionFrames).Select(Frame).ToList();
+        var frames = e.StackTrace.Take(MaxExceptionFrames).Select(f => Frame(f, returnAddress: false)).ToList();
         var inner = depth < MaxInnerExceptions && e.Inner is { } i ? Describe(i, null, depth + 1) : null;
         return new ManagedException(e.Type?.Name ?? "(unknown type)", e.Message, e.HResult, e.Address, thread, frames, inner);
     }
@@ -51,10 +51,14 @@ public sealed class ClrReads(ClrRuntime runtime)
     {
         var thread = Runtime.Threads.FirstOrDefault(t => t.OSThreadId == threadId);
         if (thread == null) return [];
-        return thread.EnumerateStackTrace(false, maxFrames).Select(Frame).ToList();
+        return thread.EnumerateStackTrace(false, maxFrames).Select(f => Frame(f, returnAddress: true)).ToList();
     }
 
-    private ManagedFrame Frame(ClrStackFrame f)
+    /// <summary>
+    /// A frame; <paramref name="returnAddress"/> when its IP is a return address (a thread walk) and the call is the byte
+    /// before it. The runtime's exception trace already stores IPs inside the call.
+    /// </summary>
+    private ManagedFrame Frame(ClrStackFrame f, bool returnAddress)
     {
         var m = f.Method;
         if (f.Kind != ClrStackFrameKind.ManagedMethod || m == null)
@@ -62,13 +66,24 @@ public sealed class ClrReads(ClrRuntime runtime)
         int? il = null;
         if (f.InstructionPointer != 0)
         {
-            int at = m.GetILOffset(f.InstructionPointer > 0 ? f.InstructionPointer - 1 : 0);
-            if (at < 0) at = m.GetILOffset(f.InstructionPointer);
-            if (at >= 0) il = at;
+            var map = m.ILOffsetMap;
+            il = (returnAddress ? IlOffset(map, f.InstructionPointer - 1) : null) ?? IlOffset(map, f.InstructionPointer);
         }
         var module = m.Type?.Module;
         return new ManagedFrame(f.InstructionPointer, f.StackPointer, true, m.Signature ?? m.Name ?? "(unknown method)", m.MetadataToken != 0 ? m.MetadataToken : null, il,
             module?.Name, module != null ? Mvid(module) : null, m.NativeCode != 0 && m.NativeCode != ulong.MaxValue ? m.NativeCode : null);
+    }
+
+    /// <summary>
+    /// The IL offset of the map entry holding <paramref name="ip"/>; null outside mapped code (prolog, epilog, no mapping)
+    /// and without a map: a dump without the runtime's memory has none, which ClrMD's GetILOffset reads as offset 0.
+    /// </summary>
+    private static int? IlOffset(System.Collections.Immutable.ImmutableArray<ILToNativeMap> map, ulong ip)
+    {
+        if (map.IsDefaultOrEmpty) return null;
+        foreach (var e in map)
+            if (ip >= e.StartAddress && ip < e.EndAddress) return e.ILOffset >= 0 ? e.ILOffset : null;
+        return null;
     }
 
     /// <summary>A type with its module's path and MVID.</summary>
