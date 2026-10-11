@@ -16,8 +16,8 @@ public class CatalogAuditTests
     /// <summary>Largest input schema of one tool, compact UTF-8 JSON.</summary>
     private const int MaxInputSchemaBytes = 8 * 1024;
 
-    /// <summary>Model-facing catalog bytes (names, descriptions, input schemas); 222,166 at 150 tools with the native edit parameters (comment scopes and batches, clear, showDecompile, prototype names, type guesses, typed writes). Raise only deliberately.</summary>
-    private const int MaxModelFacingBytes = 222_500;
+    /// <summary>Model-facing catalog bytes (names, descriptions, input schemas); 225,352 at 152 tools with get_engine_status, ghidra_script, the engine= views of list_globals, search_native_strings and list_cpp_classes, native_call_tree direction=both and the Ghidra export. Raise only deliberately.</summary>
+    private const int MaxModelFacingBytes = 225_500;
 
     private static readonly List<JsonNode> Tools = Catalog.OfThisBuild().Tools;
 
