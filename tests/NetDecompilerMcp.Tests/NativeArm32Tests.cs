@@ -339,6 +339,51 @@ public class NativeArm32Tests
         Assert.Equal(2, g.Blocks.Count);
     }
 
+    /// <summary>Thumb b&lt;cond&gt;.w (T3).</summary>
+    private static uint BCondW(uint from, uint to, int cond)
+    {
+        uint off = to - from - 4;
+        return 0xF0008000 | (off >> 20 & 1) << 26 | (uint)cond << 22 | (off >> 12 & 0x3F) << 16 | (off >> 18 & 1) << 13 | (off >> 19 & 1) << 11 | (off >> 1 & 0x7FF);
+    }
+
+    /// <summary>
+    /// A conditional b.w to a linker veneer (movw ip / movt ip / add ip, pc / bx ip) past other functions, and a b.w thunk to it:
+    /// the veneer is a function of its own named j_dst (not a block of the first jumper), the thunk j_j_dst.
+    /// </summary>
+    [Fact]
+    public void Conditional_tail_jumps_to_a_veneer_make_it_a_named_function()
+    {
+        var a = new A32Code(Text);
+        uint veneer = 0, dst = 0, add = 0;
+        a.H(A32Code.CmpImm(0, 0));
+        a.Later(-4, at => BCondW(at, veneer, 1));
+        a.H(A32Code.BxLr);
+        uint thunk = a.Here;
+        a.Later(-4, at => A32Code.Bl(at, veneer) & ~0x4000u); // b.w
+        a.Align4();
+        uint other = a.Here;
+        a.H(A32Code.MovImm(0, 1)).H(A32Code.BxLr);
+        veneer = a.Here;
+        a.Later(-4, _ => A32Code.Movw(12, (dst | 1) - (add + 4) & 0xFFFF));
+        a.Later(-4, _ => A32Code.Movt(12, (dst | 1) - (add + 4) >> 16));
+        add = a.Here;
+        a.H(0x44FC).H(0x4760);
+        dst = a.Here;
+        a.H(A32Code.MovImm(0, 2)).H(A32Code.BxLr);
+        var image = Elf(a.Bytes(), w =>
+        {
+            w.Symbols.Add(new ElfWriter.Symbol("dst", dst | 1, Type: 2));
+            w.Relocations.Add(new ElfWriter.Reloc(Data + 0x40, 23, Addend: Text | 1));
+            w.Relocations.Add(new ElfWriter.Reloc(Data + 0x44, 23, Addend: thunk | 1));
+            w.Relocations.Add(new ElfWriter.Reloc(Data + 0x48, 23, Addend: other | 1));
+        });
+        var index = NativeCodeIndex.Build(image);
+        Assert.Equal(veneer, index.FunctionAt(veneer)?.Start);
+        Assert.Equal("j_dst", index.FunctionByStart(veneer)!.Name);
+        Assert.Equal("j_j_dst", index.FunctionByStart(thunk)!.Name);
+        Assert.Equal(Text, index.FunctionAt(Text + 2)?.Start);
+    }
+
     /// <summary>A vtable slot (Thumb pointer) to ldr; str; bx lr, whose bytes read "IjAbpG" with a NUL after: code, not a string.</summary>
     [Fact]
     public void Thumb_pointer_targets_are_code_even_where_the_bytes_read_as_text()

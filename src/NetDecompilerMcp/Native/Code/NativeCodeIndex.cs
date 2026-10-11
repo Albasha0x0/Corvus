@@ -520,21 +520,27 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     private readonly Dictionary<uint, List<uint>> _thunksTo = [];
 
     /// <summary>
-    /// Functions that are one direct jump to another function (x86 / x64 jmp rel32 / rel8, ARM64 b): incremental-link thunks
+    /// Functions that are one direct jump to another function (x86 / x64 jmp rel32 / rel8, ARM64 b, ARM32 b and veneers): incremental-link thunks
     /// and the like, named j_&lt;target&gt; as IDA names them while they have no name of their own.
     /// </summary>
     private void FindJumpThunks()
     {
-        Span<byte> b = stackalloc byte[5];
+        Span<byte> b = stackalloc byte[12];
         foreach (var f in _functions)
         {
-            if (f.InstructionCount != 1 || f.ThunkImport != null || f.Size is not (2 or 4 or 5) || Image.Read(f.Start, b[..(int)f.Size]) < f.Size) continue;
+            if (f.ThunkImport != null) continue;
+            if (Image.Arch == NativeArch.Arm)
+            {
+                if (f.InstructionCount > 4 || f.Size > 12 || Image.Read(f.Start, b[..(int)f.Size]) < f.Size) continue;
+            }
+            else if (f.InstructionCount != 1 || f.Size is not (2 or 4 or 5) || Image.Read(f.Start, b[..(int)f.Size]) < f.Size) continue;
             long target = (Image.Arch, f.Size, b[0]) switch
             {
                 (NativeArch.X86 or NativeArch.X64, 5, 0xE9) => f.Start + 5L + System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(b[1..]),
                 (NativeArch.X86 or NativeArch.X64, 2, 0xEB) => f.Start + 2L + (sbyte)b[1],
                 (NativeArch.Arm64, 4, _) when (System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(b) & 0xFC000000) == 0x14000000 =>
                     f.Start + ((long)((int)(System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(b) << 6) >> 6) << 2),
+                (NativeArch.Arm, _, _) => Arm32JumpThunkTarget(f.Start, b[..(int)f.Size], _ctx?.ArmModes?.At(f.Start) ?? true),
                 _ => -1,
             };
             if (target < 0 || target > uint.MaxValue || target == f.Start || !_byStart.TryGetValue((uint)target, out var to)) continue;
@@ -551,6 +557,37 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
                     foreach (uint t in thunks)
                         if (_byStart[t].KnownName == null) { _byStart[t].KnownName = "j_" + name; changed = true; }
         }
+    }
+
+    /// <summary>
+    /// ARM32 jump thunks: Thumb b / b.w, ARM b, and the linker's Thumb long-branch veneer (movw ip / movt ip / add ip, pc / bx ip);
+    /// -1 for anything else.
+    /// </summary>
+    internal static long Arm32JumpThunkTarget(uint start, ReadOnlySpan<byte> b, bool thumb)
+    {
+        static ushort H(ReadOnlySpan<byte> s, int at) => System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(s[at..]);
+        static uint W(ReadOnlySpan<byte> s, int at) => System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(s[at..]);
+        if (thumb)
+        {
+            if (b.Length == 2 && (H(b, 0) & 0xF800) == 0xE000) return start + 4L + ((int)((uint)H(b, 0) << 21) >> 20);
+            if (b.Length == 4 && (H(b, 0) & 0xF800) == 0xF000 && (H(b, 2) & 0xD000) == 0x9000)
+            {
+                uint h1 = H(b, 0), h2 = H(b, 2), s = h1 >> 10 & 1;
+                uint i1 = ~(h2 >> 13 ^ s) & 1, i2 = ~(h2 >> 11 ^ s) & 1;
+                uint imm = s << 24 | i1 << 23 | i2 << 22 | (h1 & 0x3FF) << 12 | (h2 & 0x7FF) << 1;
+                return start + 4L + ((int)(imm << 7) >> 7);
+            }
+            if (b.Length == 12 && (H(b, 0) & 0xFBF0) == 0xF240 && (H(b, 2) & 0x8F00) == 0x0C00 && (H(b, 4) & 0xFBF0) == 0xF2C0 && (H(b, 6) & 0x8F00) == 0x0C00
+                && H(b, 8) == 0x44FC && H(b, 10) == 0x4760)
+            {
+                static uint Imm16(ushort h1, ushort h2) => (uint)((h1 & 0xF) << 12 | (h1 >> 10 & 1) << 11 | (h2 >> 12 & 7) << 8 | h2 & 0xFF);
+                uint value = Imm16(H(b, 4), H(b, 6)) << 16 | Imm16(H(b, 0), H(b, 2));
+                return (start + 8L + 4 + value) & 0xFFFFFFFEL;
+            }
+            return -1;
+        }
+        if (b.Length == 4 && W(b, 0) >> 24 == 0xEA) return start + 8L + ((int)(W(b, 0) << 8) >> 6);
+        return -1;
     }
 
     /// <summary>

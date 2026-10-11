@@ -169,6 +169,16 @@ internal sealed class FunctionDiscovery
         return slot;
     }
 
+    /// <summary>ARM32: the linker's Thumb long-branch veneer (movw ip / movt ip / add ip, pc / bx ip) at <paramref name="rva"/>.</summary>
+    private bool IsVeneer(uint rva)
+    {
+        if (_ctx.ArmModes is not { } modes) return false;
+        Span<byte> b = stackalloc byte[12];
+        if (_ctx.Image.Read(rva, b) < 12 || NativeCodeIndex.Arm32JumpThunkTarget(rva, b, thumb: true) < 0) return false;
+        modes.Hint(rva, true);
+        return true;
+    }
+
     private bool IsNoReturnTarget(uint target) =>
         _ctx.NoReturn.Contains(target) || (ThunkSlot(target) is { } slot && _ctx.NoReturn.Contains(slot));
 
@@ -299,6 +309,13 @@ internal sealed class FunctionDiscovery
             case FlowKind.ConditionalJump:
                 if (insn.HasTarget && _ctx.Code.IsCode(insn.Target))
                 {
+                    // a conditional tail call to an import stub or a linker veneer (ARM32 bne.w): exploring it here would make the stub a
+                    // block of this function; other far conditional targets stay blocks (functions larger than any distance rule)
+                    if (own == null && !_functions.ContainsKey(insn.Target) && (ThunkSlot(insn.Target) != null || IsVeneer(insn.Target)))
+                    {
+                        Add(insn.Target, FunctionSource.TailJump, strong: true);
+                        return true;
+                    }
                     _dec.ConditionalBounds(out var taken, out _);
                     Branch(insn.Target, root, own, taken);
                 }
