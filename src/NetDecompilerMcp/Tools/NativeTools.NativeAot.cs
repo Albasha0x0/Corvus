@@ -19,10 +19,10 @@ public sealed partial class NativeTools
                  "function starts named. view=sections: the module sections. view=types: MethodTables with name, name origin (typemap / composition / " +
                  "vtable / element / generated), kind and base. view=type: one MethodTable by name or address with flags, base chain, interfaces and " +
                  "vtable slots and dispatch-map interface implementations with their code. view=methods: named method bodies (origin stacktrace / invoke). view=strings: frozen string literals with " +
-                 "their references. query filters types / methods / strings by substring. The names also apply automatically as the nativeaot name layer.")]
+                 "their references. view=statics: GC, non-GC and thread statics bases with their type (and how it is known) and the fields the metadata keeps. query filters types / methods / strings / statics by substring. The names also apply automatically as the nativeaot name layer.")]
     public Task<string> GetNativeAotInfo(
         [Description(ImageDescription)] string image,
-        [Description("summary (default), sections, types, type, methods or strings.")] string? view = null,
+        [Description("summary (default), sections, types, type, methods, strings or statics.")] string? view = null,
         [Description("view=type: a type name ('System.String', 'MT_System_String') or the MethodTable's address; other list views: substring filter.")] string? query = null,
         [Description("First row for the list views; character offset for summary and type.")] int offset = 0,
         [Description("Max rows for the list views (default 200).")] int limit = 200,
@@ -42,7 +42,8 @@ public sealed partial class NativeTools
             "type" => AotType(native, aot, index, query, offset),
             "methods" => AotMethods(native, aot, query, offset, limit, cancellationToken),
             "strings" => AotStrings(native, aot, index, query, offset, limit, cancellationToken),
-            _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "use summary, sections, types, type, methods or strings"),
+            "statics" => AotStatics(native, aot, query, offset, limit, cancellationToken),
+            _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown view '{view}'.", "use summary, sections, types, type, methods, strings or statics"),
         };
     }, cancellationToken);
 
@@ -128,6 +129,20 @@ public sealed partial class NativeTools
         return Rows(native, "strings", rows, offset, limit, "string");
     }
 
+    private string AotStatics(LoadedNative native, NativeAotImage aot, string? query, int offset, int limit, CancellationToken ct)
+    {
+        var rows = new List<NativeAotRow>();
+        foreach (var b in aot.Statics.Bases)
+        {
+            ct.ThrowIfCancellationRequested();
+            string owner = b.Owner ?? "unknown type";
+            if (query != null && !owner.Contains(query, StringComparison.OrdinalIgnoreCase) && !b.Fields.Any(f => f.Name.Contains(query, StringComparison.OrdinalIgnoreCase))) continue;
+            rows.Add(new NativeAotRow(NativeAddress.Va(native.Image, b.Rva), owner, b.Kind switch { NativeAotStaticsKind.Gc => "gc", NativeAotStaticsKind.NonGc => "nongc", _ => "thread" },
+                NativeAotNames.StaticsComment(b, aot.Hydrated.PointerSize) + (b.Origin != null ? $"; type from the {b.Origin}" : "")));
+        }
+        return Rows(native, "statics", rows, offset, limit, "statics base");
+    }
+
     private string Rows(LoadedNative native, string view, List<NativeAotRow> rows, int offset, int limit, string noun)
     {
         var text = rows.Select(r => $"{r.Address}  {r.Name}  [{r.Kind}]{(r.Detail != null ? "  " + r.Detail : "")}").ToList();
@@ -198,7 +213,7 @@ public sealed partial class NativeTools
 }
 
 /// <summary>One row of a get_nativeaot_info list view.</summary>
-public sealed record NativeAotRow(string Address, string Name, [property: Description("section, MethodTable kind, method origin (stacktrace / invoke), string, slot or interface.")] string Kind,
+public sealed record NativeAotRow(string Address, string Name, [property: Description("section, MethodTable kind, method origin (stacktrace / invoke), string, slot, interface or statics kind (gc / nongc / thread).")] string Kind,
     string? Detail);
 
 public sealed record NativeAotInfo(string Image, string View,

@@ -90,6 +90,14 @@ public class NativeAotSampleTests(ITestOutputHelper log)
             Assert.Contains("Sample.Zoo.Program::Thrower(int)", methods);
             Assert.Contains("Sample.Zoo.Program::Compute(int, int)", methods);
         }
+        // Statics: the types found agree with the PDB's statics symbols (__GCSTATICS / __NONGCSTATICS / thread statics index).
+        static string Plain(string s) => new([.. s.Where(char.IsLetterOrDigit)]);
+        var owned = aot.Statics.Bases.Where(b => b.Owner != null && symbols.TryGetValue(b.Rva, out var n) && n.Any(x => x.Contains("STATIC", StringComparison.Ordinal))).ToList();
+        int ownersAgree = owned.Count(b => symbols[b.Rva].Any(n => Plain(n).Contains(Plain(b.Owner!.Split('<')[0]), StringComparison.Ordinal)));
+        log.WriteLine($"{variant}: statics {aot.Statics.Stage.Detail}; {ownersAgree} of {owned.Count} types agree with the PDB");
+        if (!properties.Contains("StackTraceSupport=false")) // owners come from named methods
+            Assert.True(owned.Count > 20 && ownersAgree >= 0.85 * owned.Count, $"{ownersAgree} of {owned.Count} statics types agree with the PDB");
+
         // Dispatch maps (.NET 7: through the optional fields and the dispatch map table): most implementations are named bodies.
         var impls = aot.Types.ByRva.Values.SelectMany(aot.Types.Implementations).Where(i => i.Code != 0).ToList();
         Assert.True(impls.Count > 100, $"{impls.Count} interface implementations");

@@ -16,7 +16,9 @@ namespace NetDecompilerMcp.Services;
 /// same body; unnamed bodies in a vtable "Ns_Type__BaseMethod" (the overridden method) or "Ns_Type__vslot&lt;k&gt;", unnamed
 /// interface implementations "Ns_Type__Method" or "Ns_Type__IFoo_slot&lt;k&gt;"; MethodTables "MT_Ns_Type"; frozen strings
 /// "str_&lt;n&gt;" (n in address order) commented with the text, other frozen objects "frozen_&lt;n&gt;"; the module header
-/// "__ReadyToRunHeader" and its sections "__&lt;SectionName&gt;". A name already used at another address gets "_&lt;RVA hex&gt;".
+/// "__ReadyToRunHeader" and its sections "__&lt;SectionName&gt;"; statics bases "Ns_Type__GCStatics", "Ns_Type__Statics" and
+/// "Ns_Type__ThreadStaticsIndex" (or "GCStatics_&lt;n&gt;" and so on when the type is unknown), non-GC static fields
+/// "Ns_Type__field". A name already used at another address gets "_&lt;RVA hex&gt;".
 /// </para>
 /// </summary>
 public static class NativeAotNames
@@ -24,13 +26,16 @@ public static class NativeAotNames
     /// <summary>Set to 0 to turn off naming NativeAOT images automatically.</summary>
     public const string AutoVariable = "NDM_AUTO_NATIVEAOT";
     /// <summary>Saved with the layer; a layer saved by another version of this naming is rebuilt.</summary>
-    public const string ReaderIdentity = "nativeaot-names 1";
+    public const string ReaderIdentity = "nativeaot-names 2";
     /// <summary>Most other folded methods listed in a function's comment.</summary>
     private const int FoldedListed = 8;
     private const int MaxSlotDepth = 64;
 
     /// <summary>What a build of the layer named.</summary>
-    public sealed record Report(int Functions, int FoldedFunctions, int VtableSlots, int InterfaceSlots, int MethodTables, int FrozenStrings, int FrozenObjects, int Suffixed, TimeSpan Elapsed);
+    public sealed record Report(int Functions, int FoldedFunctions, int VtableSlots, int InterfaceSlots, int MethodTables, int FrozenStrings, int FrozenObjects, int Suffixed, TimeSpan Elapsed)
+    {
+        public int Statics { get; init; }
+    }
 
     /// <summary>The layer's contents: names and comments by RVA, the function starts it contributes, and counts.</summary>
     public sealed record Built(Dictionary<uint, string> Names, Dictionary<uint, string> Comments, uint[] FunctionStarts, Report Report);
@@ -102,6 +107,12 @@ public static class NativeAotNames
                 lines.Add(rva == o.Rva ? $"NativeAOT frozen {what}" : $"inside the NativeAOT frozen {what} at rva 0x{o.Rva:X} (+0x{rva - o.Rva:X})");
                 break;
             }
+        }
+        if (aot.Statics.At(rva) is { } st)
+        {
+            var field = st.Fields.LastOrDefault(f => st.Rva + f.Offset <= rva);
+            lines.Add(rva == st.Rva ? $"NativeAOT {StaticsComment(st, aot.Hydrated.PointerSize)}"
+                : $"NativeAOT static {(field != null ? $"{st.Owner}::{field.Name}" : $"data of {st.Owner}")} (+0x{rva - st.Rva - (field?.Offset ?? 0):X}) in the non-GC statics at rva 0x{st.Rva:X}");
         }
         foreach (var m in aot.Names.Methods.Where(m => m.Rva == rva).Take(Il2CppNativeNames.SharedListed))
             lines.Add($"NativeAOT method {m.Name.Full} (from the {(m.Origin == "invoke" ? "reflection invoke map" : "stack-trace map")}{(m.Hidden ? ", hidden from stack traces" : "")})");
@@ -208,12 +219,38 @@ public static class NativeAotNames
             if (obj.Text != null) Add(obj.Rva, $"str_{strings++}", Il2CppNativeNames.Quote(obj.Text));
             else Add(obj.Rva, $"frozen_{objects++}", $"frozen {obj.TypeName} ({obj.Size} bytes)");
         }
+        int statics = 0, unowned = 0;
+        foreach (var b in aot.Statics.Bases)
+        {
+            ct.ThrowIfCancellationRequested();
+            string suffix = b.Kind switch { NativeAotStaticsKind.Gc => "GCStatics", NativeAotStaticsKind.NonGc => "Statics", _ => "ThreadStaticsIndex" };
+            Add(b.Rva, b.Owner != null ? NativeName.Identifier($"{b.Owner}$${suffix}") : $"{suffix}_{unowned++}", StaticsComment(b, aot.Hydrated.PointerSize));
+            if (b.Kind == NativeAotStaticsKind.NonGc)
+                foreach (var f in b.Fields.Where(f => f.Offset > 0))
+                    Add(b.Rva + f.Offset, NativeName.Identifier($"{b.Owner}$${f.Name}"), $"static {f.Type} {b.Owner}::{f.Name}");
+            statics++;
+        }
         Add(aot.Header.Rva, "__ReadyToRunHeader", $"NativeAOT module header, ReadyToRun {aot.ReadyToRunVersion} ({aot.Runtime})");
         foreach (var section in aot.Header.Sections.Where(s => s.HasEnd && s.Length > 0))
             Add(section.StartRva, "__" + NativeName.Identifier(section.Name), $"NativeAOT module section {section.Name} ({section.Length} bytes)");
 
         return new Built(names, comments, starts.Distinct().Order().ToArray(),
-            new Report(functions, folded, slots, interfaceSlots, methodTables, strings, objects, suffixed, watch.Elapsed));
+            new Report(functions, folded, slots, interfaceSlots, methodTables, strings, objects, suffixed, watch.Elapsed) { Statics = statics });
+    }
+
+    /// <summary>What a statics base holds and how its type is known, with its fields when the metadata keeps them.</summary>
+    public static string StaticsComment(NativeAotStaticBase b, int pointerSize)
+    {
+        string owner = b.Owner != null ? $"{b.Owner}{(b.Origin is "code" ? " (inferred from the code that references it)" : "")}" : "an unknown type";
+        var sb = new StringBuilder(b.Kind switch
+        {
+            NativeAotStaticsKind.Gc => $"GC statics of {owner}: holds the statics object at run time{(b.Size > 0 ? $" ({b.Size} bytes of fields)" : "")}, fields at [slot] + {pointerSize} + offset" +
+                                       (b.Preinitialized ? "; preinitialized" : ""),
+            NativeAotStaticsKind.NonGc => $"non-GC statics of {owner}",
+            _ => $"thread statics index of {owner}: {(b.ThreadIndex is { } i ? $"offset 0x{i:X} in the module's thread-local block" : "unknown offset")}",
+        });
+        if (b.Fields.Count > 0) sb.Append("; fields: " + string.Join(", ", b.Fields.Select(f => $"{f.Type} {f.Name} +0x{f.Offset:X}")));
+        return sb.ToString();
     }
 
     /// <summary>A type name without its namespace and generic arguments: "System.Collections.Generic.IList&lt;int&gt;" -> "IList".</summary>

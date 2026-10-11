@@ -13,13 +13,15 @@ public class NativeAotMetadataTests
         public MdHandle Box { get; init; }
         public MdHandle Object { get; init; }
         public MdHandle String { get; init; }
+        /// <summary>With statics: the name string of Dog::.cctor.</summary>
+        public MdHandle CctorName { get; init; }
     }
 
     /// <summary>
     /// Scope "app": namespace Sample.Zoo with Dog (method Speak(int, Sample.Zoo.Dog[])), Box`1 and Box`1+Inner;
     /// reference System.Int32; specs Box&lt;int&gt;, Dog[], int*; MemberReference Box&lt;int&gt;::Get(); instantiation Get&lt;int&gt;.
     /// </summary>
-    internal static Sample Model(ushort major)
+    internal static Sample Model(ushort major, bool statics = false)
     {
         var w = new W(major);
         bool net11 = w.Format.Metadata == MetadataDialect.Net11;
@@ -30,11 +32,11 @@ public class NativeAotMetadataTests
         var rootParent = new W.Fwd { Record = MdRecord.NamespaceDefinition };
         var scopeParent = new W.Fwd { Record = MdRecord.ScopeDefinition };
 
-        MdHandle Type(string name, bool nested, uint[] nestedTypes, uint[] methods) => net11
+        MdHandle Type(string name, bool nested, uint[] nestedTypes, uint[] methods, uint[]? fields = null) => net11
             ? w.Record(MdRecord.TypeDefinition, 0u, default(MdHandle), nested ? boxParent.H : zoo.H, w.String(name), 0u, 0u,
-                nestedTypes, methods, null, null, null, null, null, null)
+                nestedTypes, methods, fields, null, null, null, null, null)
             : w.Record(MdRecord.TypeDefinition, 0u, default(MdHandle), nested ? 0u : zoo.T, w.String(name), 0u, 0u, nested ? boxParent.T : 0u,
-                nestedTypes, methods, null, null, null, null, null, null);
+                nestedTypes, methods, fields, null, null, null, null, null);
 
         var corlib = w.Record(MdRecord.ScopeReference, 0u, w.String("System.Runtime"), 8u, 0u, 0u, 0u, null, 0u);
         var system = w.Record(MdRecord.NamespaceReference, corlib, w.String("System"));
@@ -50,7 +52,16 @@ public class NativeAotMetadataTests
         var dogArray = w.Record(MdRecord.TypeSpecification, w.Record(MdRecord.SZArraySignature, dogRef));
         var speakSig = w.Record(MdRecord.MethodSignature, 0x20u, 0, pointer, new[] { int32, dogArray }, null);
         var speak = w.Record(MdRecord.Method, 0x86u, 0u, w.String("Speak"), speakSig, null, null, null);
-        var dog = Type("Dog", false, [], [speak.Offset]);
+        // Statics: static string Name; const int Max (no storage); static int Count.
+        uint[]? fields = null;
+        var cctorName = statics ? w.String(".cctor") : default;
+        if (statics)
+        {
+            MdHandle Field(int flags, string name, MdHandle type) =>
+                w.Record(MdRecord.Field, (uint)flags, w.String(name), w.Record(MdRecord.FieldSignature, type), default(MdHandle), 0u, null);
+            fields = [Field(0x16, "Name", stringRef).Offset, Field(0x56, "Max", int32).Offset, Field(0x16, "Count", int32).Offset, Field(0x06, "legs", int32).Offset];
+        }
+        var dog = Type("Dog", false, [], [speak.Offset], fields);
         dogRef.Value = dog.Offset;
 
         var boxOfInt = w.Record(MdRecord.TypeSpecification, w.Record(MdRecord.TypeInstantiationSignature, box, new[] { int32 }));
@@ -73,6 +84,7 @@ public class NativeAotMetadataTests
             Box = box,
             Object = objectRef,
             String = stringRef,
+            CctorName = cctorName,
         };
     }
 

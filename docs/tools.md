@@ -1439,12 +1439,12 @@ Symbols of the PDB loaded for a native image (load_pdb, or found automatically):
 
 **NativeAOT metadata** (read-only, idempotent, long-running)
 
-What a NativeAOT image's own metadata recovers, read without executing it (.NET 7-10; PE, ELF and Mach-O, 64- and 32-bit). view=summary: runtime and ReadyToRun version, dehydration, module header, each recovery stage with its status (complete / partial / absent / unsupported), counts and the share of function starts named. view=sections: the module sections. view=types: MethodTables with name, name origin (typemap / composition / vtable / element / generated), kind and base. view=type: one MethodTable by name or address with flags, base chain, interfaces and vtable slots and dispatch-map interface implementations with their code. view=methods: named method bodies (origin stacktrace / invoke). view=strings: frozen string literals with their references. query filters types / methods / strings by substring. The names also apply automatically as the nativeaot name layer.
+What a NativeAOT image's own metadata recovers, read without executing it (.NET 7-10; PE, ELF and Mach-O, 64- and 32-bit). view=summary: runtime and ReadyToRun version, dehydration, module header, each recovery stage with its status (complete / partial / absent / unsupported), counts and the share of function starts named. view=sections: the module sections. view=types: MethodTables with name, name origin (typemap / composition / vtable / element / generated), kind and base. view=type: one MethodTable by name or address with flags, base chain, interfaces and vtable slots and dispatch-map interface implementations with their code. view=methods: named method bodies (origin stacktrace / invoke). view=strings: frozen string literals with their references. view=statics: GC, non-GC and thread statics bases with their type (and how it is known) and the fields the metadata keeps. query filters types / methods / strings / statics by substring. The names also apply automatically as the nativeaot name layer.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
-| `view` | string |  |  | summary (default), sections, types, type, methods or strings. Values: summary, sections, types, type, methods, strings. |
+| `view` | string |  |  | summary (default), sections, types, type, methods, strings or statics. Values: summary, sections, types, type, methods, strings, statics. |
 | `query` | string |  |  | view=type: a type name ('System.String', 'MT_System_String') or the MethodTable's address; other list views: substring filter. |
 | `offset` | integer |  | `0` | First row for the list views; character offset for summary and type. |
 | `limit` | integer |  | `200` | Max rows for the list views (default 200). |
