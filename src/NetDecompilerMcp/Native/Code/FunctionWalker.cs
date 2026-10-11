@@ -37,7 +37,6 @@ internal sealed class FunctionWalker
     private readonly ICodeDecoder _dec;
     private readonly HashSet<uint> _visited = [];
     private readonly List<uint> _insns = [];
-    private readonly List<byte> _lengths = [];
     private readonly List<Run> _runs = [];
     private readonly HashSet<uint> _leaders = [];
     private readonly Stack<(uint Rva, IndexBound Bound)> _work = new();
@@ -67,7 +66,7 @@ internal sealed class FunctionWalker
     /// </param>
     public WalkResult Walk(NativeFunction? function, uint start, bool buildGraph, CancellationToken ct, IReadOnlyList<uint>? chunks = null)
     {
-        _visited.Clear(); _insns.Clear(); _lengths.Clear(); _runs.Clear(); _leaders.Clear(); _work.Clear(); _xrefs.Clear(); _callees.Clear();
+        _visited.Clear(); _insns.Clear(); _runs.Clear(); _leaders.Clear(); _work.Clear(); _xrefs.Clear(); _callees.Clear();
         _branches.Clear(); _conditionals.Clear(); _switches.Clear(); _unresolved.Clear(); _tails.Clear(); _fallsInto.Clear(); _pending.Clear(); _pendingRun.Clear();
         var result = new WalkResult();
         _conditionalReturn = false;
@@ -108,7 +107,6 @@ internal sealed class FunctionWalker
                 if (insn.Flow == FlowKind.Invalid) { run.EndKind = RunEnd.Invalid; result.Flags |= FunctionFlags.InvalidCode; break; }
                 _visited.Add(a);
                 _insns.Add(a);
-                _lengths.Add((byte)insn.Length);
                 RecordData(in insn);
                 bool stop = Step(in insn, root, own, ref run, result);
                 a = insn.Next;
@@ -358,18 +356,29 @@ internal sealed class FunctionWalker
         if (_unresolved.Count > 0) result.Flags |= FunctionFlags.UnresolvedJumps;
 
         // extents: runs merged into sorted, non-overlapping ranges
-        var spans = new List<(uint S, uint E)>(_runs.Count);
-        foreach (var r in _runs) if (r.End > r.Start) spans.Add((r.Start, r.End));
-        spans.Sort((x, y) => x.S.CompareTo(y.S));
+        int count = 0;
+        foreach (var r in _runs) if (r.End > r.Start) count++;
+        var spans = new ulong[count];
+        count = 0;
+        foreach (var r in _runs) if (r.End > r.Start) spans[count++] = (ulong)r.Start << 32 | r.End;
+        Array.Sort(spans);
         var starts = new List<uint>();
         var ends = new List<uint>();
-        foreach (var (s, e) in spans)
+        // no address is decoded twice, so two runs that intersect decode one byte range at two offsets
+        bool overlapping = false;
+        foreach (ulong span in spans)
         {
-            if (ends.Count > 0 && s <= ends[^1]) { if (e > ends[^1]) ends[^1] = e; continue; }
+            uint s = (uint)(span >> 32), e = (uint)span;
+            if (ends.Count > 0 && s <= ends[^1])
+            {
+                overlapping |= s < ends[^1];
+                if (e > ends[^1]) ends[^1] = e;
+                continue;
+            }
             starts.Add(s);
             ends.Add(e);
         }
-        if (HasOverlappingInstructions()) result.Flags |= FunctionFlags.OverlappingCode;
+        if (overlapping) result.Flags |= FunctionFlags.OverlappingCode;
         result.RangeStarts = starts.ToArray();
         result.RangeEnds = ends.ToArray();
         int blocks = 0;
@@ -379,18 +388,6 @@ internal sealed class FunctionWalker
         result.FallsInto = _fallsInto.ToArray();
         _callees.Remove(start);
         result.Callees = _callees.Where(c => !_ctx.ImportSlots.ContainsKey(c)).ToArray();
-    }
-
-    /// <summary>Some instruction starts inside another one (code decoded at two offsets).</summary>
-    private bool HasOverlappingInstructions()
-    {
-        if (_runs.Count < 2) return false;
-        var all = new (uint Start, uint End)[_insns.Count];
-        for (int i = 0; i < all.Length; i++) all[i] = (_insns[i], _insns[i] + _lengths[i]);
-        Array.Sort(all);
-        for (int i = 1; i < all.Length; i++)
-            if (all[i].Start < all[i - 1].End) return true;
-        return false;
     }
 
     private FunctionGraph BuildGraph(NativeFunction function, WalkResult result)

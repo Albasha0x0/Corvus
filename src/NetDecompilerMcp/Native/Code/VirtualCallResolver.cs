@@ -560,13 +560,25 @@ internal sealed class VirtualCallResolver
         /// <summary>Fields of objects (This / Obj) holding a known value; an Obj field merged with a different value holds Unknown.</summary>
         public readonly Dictionary<(VKind Kind, uint Id, int Off), Val> Cells = [];
 
-        public State Clone()
+        /// <summary>Becomes a copy of <paramref name="o"/>, reusing this state's storage.</summary>
+        public State CopyFrom(State o)
         {
-            var s = new State();
-            Array.Copy(Regs, s.Regs, Regs.Length);
-            foreach (var (k, v) in Slots) s.Slots[k] = v;
-            foreach (var (k, v) in Cells) s.Cells[k] = v;
-            return s;
+            Array.Copy(o.Regs, Regs, Regs.Length);
+            Slots.Clear();
+            foreach (var (k, v) in o.Slots) Slots[k] = v;
+            Cells.Clear();
+            foreach (var (k, v) in o.Cells) Cells[k] = v;
+            return this;
+        }
+
+        public void Reset()
+        {
+            Array.Clear(Regs);
+            Slots.Clear();
+            Cells.Clear();
+            // clearing costs the capacity: do not carry one large function's tables into every later one
+            if (Slots.EnsureCapacity(0) > 256) Slots.TrimExcess();
+            if (Cells.EnsureCapacity(0) > 256) Cells.TrimExcess();
         }
 
         /// <summary>Merges <paramref name="other"/> in; true when this state changed.</summary>
@@ -642,7 +654,8 @@ internal sealed class VirtualCallResolver
             catch (Exception ex) when (ex is not OperationCanceledException) { return null; }
             if (graph == null || graph.Blocks.Count == 0 || !Decode(graph)) return null;
 
-            var entry = new State();
+            _rented = 0;
+            var entry = Rent();
             entry.Regs[Rsp] = new Val(VKind.Stack);
             entry.Regs[ThisReg] = new Val(VKind.This);
             // arguments whose class the decorated name gives (and x86 this passed on the stack)
@@ -664,7 +677,7 @@ internal sealed class VirtualCallResolver
                 work.Enqueue(b);
             }
             Seed(f.Start, entry);
-            foreach (var c in f.Chunks) Seed(c.Start, new State());
+            foreach (var c in f.Chunks) Seed(c.Start, Rent());
             int budget = 8 * _blocks.Count + 64;
             while (work.Count > 0)
             {
@@ -675,12 +688,12 @@ internal sealed class VirtualCallResolver
                 }
                 int b = work.Dequeue();
                 queued[b] = false;
-                var s = ins[b]!.Clone();
+                var s = _scratch.CopyFrom(ins[b]!);
                 foreach (ref readonly var x in _blocks[b].AsSpan()) Step(in x, s);
                 foreach (int succ in _succs[b])
                 {
                     bool changed;
-                    if (ins[succ] == null) { ins[succ] = s.Clone(); changed = true; }
+                    if (ins[succ] == null) { ins[succ] = Rent().CopyFrom(s); changed = true; }
                     else changed = ins[succ]!.Join(s);
                     if (changed && !queued[succ]) { queued[succ] = true; work.Enqueue(succ); }
                 }
@@ -691,7 +704,7 @@ internal sealed class VirtualCallResolver
                 for (int b = 0; b < _blocks.Count; b++)
                 {
                     if (ins[b] == null) continue;
-                    var s = ins[b]!.Clone();
+                    var s = _scratch.CopyFrom(ins[b]!);
                     foreach (ref readonly var x in _blocks[b].AsSpan())
                     {
                         if (x.FlowControl == FlowControl.Return) Returned(s);
@@ -706,7 +719,7 @@ internal sealed class VirtualCallResolver
                 for (int b = 0; b < _blocks.Count; b++)
                 {
                     if (ins[b] == null) continue;
-                    var s = ins[b]!.Clone();
+                    var s = _scratch.CopyFrom(ins[b]!);
                     foreach (ref readonly var x in _blocks[b].AsSpan()) Step(in x, s);
                 }
                 _record = false;
@@ -730,6 +743,19 @@ internal sealed class VirtualCallResolver
         }
 
         private bool _seenReturn;
+
+        // states of one analysis, reused by the next: a fresh state per block costs two dictionaries
+        private readonly List<State> _pool = [];
+        private readonly State _scratch = new();
+        private int _rented;
+
+        private State Rent()
+        {
+            if (_rented == _pool.Count) _pool.Add(new State());
+            var s = _pool[_rented++];
+            s.Reset();
+            return s;
+        }
 
         private bool Decode(FunctionGraph graph)
         {

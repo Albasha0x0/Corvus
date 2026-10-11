@@ -33,6 +33,10 @@ internal sealed class FunctionDiscovery
     private readonly HashSet<uint> _rejected = [];
     private readonly SortedSet<uint> _sortedStarts = [];
     private readonly HashSet<uint> _farJumps = [];
+    private readonly Verifier _verifier;
+    // speculative verification of a batch of candidates: results by candidate, and functions added since
+    private readonly Dictionary<uint, (bool Ok, bool Funclet, uint[] Consulted)> _speculated = [];
+    private HashSet<uint> _batch = [];
     private readonly Dictionary<uint, uint?> _thunkCache = [];
     private readonly CancellationToken _ct;
     private readonly Action<long>? _progress;
@@ -52,6 +56,7 @@ internal sealed class FunctionDiscovery
         _x86Peek = _peek as X86Decoder;
         _starts = new CodeBitmap(ctx.Code.TotalBytes);
         _covered = new CodeBitmap(ctx.Code.TotalBytes);
+        _verifier = new Verifier(this);
     }
 
     /// <summary>Function starts and how each was found.</summary>
@@ -86,11 +91,15 @@ internal sealed class FunctionDiscovery
         while (changed && iterations++ < 16)
         {
             int before = _functions.Count;
-            foreach (var t in DataPointerTargets(inCode: false)) TryCandidate(t, FunctionSource.DataPointer);
+            var pointers = DataPointerTargets(inCode: false);
+            Speculate(pointers);
+            foreach (var t in pointers) TryCandidate(t, FunctionSource.DataPointer);
+            _speculated.Clear();
             Drain();
             foreach (var t in _addressCandidates.ToList()) TryCandidate(t, FunctionSource.CodeAddress);
             Drain();
             if (_ctx.Options.ScanPrologues && _x86Peek != null) ScanGaps(image.Arch == NativeArch.X86 && image.Format == ImageFormat.Pe);
+           
             if (_functions.Count != before) continue;
             // pointers stored inside code sections last: by now the functions owning switch tables there are
             // decoded, so case labels are covered
@@ -387,14 +396,11 @@ internal sealed class FunctionDiscovery
     {
         var result = new List<uint>();
         var tableEntries = inCode ? TableEntries() : null;
-        int i = 0;
-        foreach (var reloc in _ctx.Relocations)
+        foreach (var (reloc, bit, t) in _ctx.RelocatedCodePointers(_ct))
         {
-            if ((++i & 0xFFFF) == 0) Heartbeat();
-            long bit = _ctx.Code.BitIndex(reloc);
             if ((bit >= 0) != inCode) continue;
             if (bit >= 0 && (_covered[bit] || tableEntries!.Contains(reloc))) continue;
-            if (!_ctx.TryReadPointer(reloc, out uint target) || !_ctx.Code.IsCode(target)) continue;
+            uint target = t;
             // ARM32: bit 0 of a code pointer selects Thumb state
             if (_ctx.ArmModes is { } modes && (target & 1) != 0)
             {
@@ -460,6 +466,52 @@ internal sealed class FunctionDiscovery
         return true;
     }
 
+    private bool Verify(uint rva, out bool funclet)
+    {
+        // the speculative run took every batch candidate as a function: valid when each address it asked about is a
+        // function now exactly when it is a batch candidate
+        if (_speculated.Remove(rva, out var spec) && spec.Consulted.All(c => _functions.ContainsKey(c) == _batch.Contains(c)))
+        {
+            funclet = spec.Funclet;
+            return spec.Ok;
+        }
+        return _verifier.Run(rva, out funclet);
+    }
+
+    /// <summary>
+    /// Verifies a large batch of candidates in parallel before they are tried one by one (trying them only adds functions,
+    /// all from the batch): TryCandidate takes a result as it is where the functions it asked about are the same.
+    /// x86 / x64 PE only: elsewhere verification reads more state that a batch changes (ELF far jumps).
+    /// </summary>
+    private void Speculate(List<uint> targets)
+    {
+        _speculated.Clear();
+        if (_x86Peek == null || _ctx.Image.Format != ImageFormat.Pe || targets.Count < _ctx.Options.ParallelVerifyBatch) return;
+        var batch = new List<uint>();
+        var distinct = new HashSet<uint>();
+        foreach (uint t in targets)
+        {
+            long bit = _ctx.Code.BitIndex(t);
+            if (bit < 0 || _covered[bit] || _functions.ContainsKey(t) || _rejected.Contains(t) || _dataInCode.Contains(t) || !distinct.Add(t)) continue;
+            batch.Add(t);
+        }
+        if (batch.Count == 0) return;
+        _batch = distinct;
+        var results = new (bool, bool, uint[])[batch.Count];
+        var po = new ParallelOptions { CancellationToken = _ct, MaxDegreeOfParallelism = _ctx.Options.MaxParallelism > 0 ? _ctx.Options.MaxParallelism : Environment.ProcessorCount };
+        Parallel.ForEach(System.Collections.Concurrent.Partitioner.Create(0, batch.Count, 256), po, () => new Verifier(this) { Consulted = [], Batch = distinct }, (range, _, v) =>
+        {
+            for (int i = range.Item1; i < range.Item2; i++)
+            {
+                v.Consulted!.Clear();
+                bool ok = v.Run(batch[i], out bool funclet);
+                results[i] = (ok, funclet, [.. v.Consulted]);
+            }
+            return v;
+        }, _ => { });
+        for (int i = 0; i < batch.Count; i++) _speculated[batch[i]] = results[i];
+    }
+
     /// <summary>x86: a call just after leaving an SEH scope to a block shortly after it (the __finally block).</summary>
     private bool LocalFinallyCall(in Insn call) =>
         call.Target > call.Rva && call.Target - call.Rva < 0x400 && _x86Dec?.PreviousLeavesSehScope() == true;
@@ -481,13 +533,6 @@ internal sealed class FunctionDiscovery
             rva = insn.Next;
         }
         return false;
-    }
-
-    /// <summary>A decoded instruction that is not a function start.</summary>
-    private bool IsInsideFunction(uint rva)
-    {
-        long bit = _ctx.Code.BitIndex(rva);
-        return bit >= 0 && _starts[bit] && !_functions.ContainsKey(rva);
     }
 
     /// <summary>
@@ -517,85 +562,140 @@ internal sealed class FunctionDiscovery
         return false;
     }
 
-    /// <param name="funclet">x86: the code runs in another function's frame (exception filter, handler or catch block).</param>
-    private bool Verify(uint root, out bool funclet)
+    /// <summary>
+    /// Verification of weak candidates with its own decoders and scratch, so candidates can be verified on several threads
+    /// against a state nothing writes meanwhile. With a <see cref="Batch"/>, <see cref="Consulted"/> collects the addresses
+    /// not yet functions whose being one the result depended on.
+    /// </summary>
+    private sealed class Verifier
     {
-        funclet = false;
-        bool frame = false;
-        var seen = new HashSet<uint>();
-        var work = new Stack<uint>();
-        work.Push(root);
-        int count = 0;
-        _peek.BeginFunction(root);
-        while (work.Count > 0)
+        private readonly FunctionDiscovery d;
+        private readonly ICodeDecoder _peek;
+        private readonly X86Decoder? _x86Peek;
+        private readonly ICodeDecoder _thunks;
+        private readonly Dictionary<uint, uint?> _thunkCache = [];
+        private readonly HashSet<uint> _seen = [];
+        private readonly Stack<uint> _work = new();
+        public List<uint>? Consulted;
+
+        public Verifier(FunctionDiscovery owner)
         {
-            uint a = work.Pop();
-            _peek.BeginRun(IndexBound.None);
-            var previous = FlowKind.Jump;
-            bool returnsAddress = false;
-            while (true)
-            {
-                if (!seen.Add(a)) break;
-                long bit = _ctx.Code.BitIndex(a);
-                if (bit < 0) return false;
-                // a function never flows into the middle of another one (case labels of an unresolved switch do)
-                if (_starts[bit]) { if (!_functions.ContainsKey(a)) return false; break; }
-                if (_covered[bit]) return false;
-                if (++count > VerifyLimit) return false;
-                if (!_peek.Decode(a, out var insn) || insn.Flow is FlowKind.Invalid || _peek.LastIsImplausible() || _peek.LastHasImplausibleDisplacement(a)
-                    || (_x86Peek != null && UnlikelyInNewFunction(in _x86Peek.Last, _ctx.Image.Format == ImageFormat.Pe))) return false;
-                // int3 ends code only as padding after a call that does not return
-                if (insn.Flow == FlowKind.Trap && _x86Peek?.Last.Mnemonic == Iced.Intel.Mnemonic.Int3 && previous is not (FlowKind.Call or FlowKind.IndirectCall)) return false;
-                previous = insn.Flow;
-                // x86: [ebp+x] before the code sets up ebp is the frame of another function (SEH filter or handler)
-                if (_x86Peek is { Is64: false } && !frame)
-                {
-                    ref readonly var x = ref _x86Peek.Last;
-                    if (x.Op0Kind == Iced.Intel.OpKind.Register && x.Op0Register == Iced.Intel.Register.EBP && x.Mnemonic != Iced.Intel.Mnemonic.Push) frame = true;
-                    else if (UsesEbpMemory(in x)) funclet = true;
-                }
-                if (insn.HasMem && _ctx.Code.IsCode(insn.MemTarget) && insn.MemAccess != OperandAccess.Address && _starts[_ctx.Code.BitIndex(insn.MemTarget)])
-                    return false; // reads or writes known instructions as data
-                // takes the address of an instruction inside another function (x86 catch blocks return their
-                // continuation address): part of that function's exception handling, not a function
-                if ((insn.HasImm && IsInsideFunction(insn.ImmTarget)) || (insn.HasMem && insn.MemAccess == OperandAccess.Address && IsInsideFunction(insn.MemTarget)))
-                    return false;
-                // "mov eax, offset x; ret" returning a code address that is no function: a catch block's continuation
-                if (returnsAddress && insn.Flow == FlowKind.Return) funclet = true;
-                returnsAddress = insn.HasImm && _x86Peek != null && _x86Peek.Last.Mnemonic == Iced.Intel.Mnemonic.Mov && _x86Peek.Last.Op0Register == Iced.Intel.Register.EAX
-                    && _ctx.Code.IsCode(insn.ImmTarget) && !_functions.ContainsKey(insn.ImmTarget);
-                for (int k = 1; k < insn.Length; k++)
-                    if (_covered[_ctx.Code.BitIndex(a + (uint)k)]) return false;
-                switch (insn.Flow)
-                {
-                    case FlowKind.Call:
-                        if (!insn.HasTarget || !_ctx.Code.IsCode(insn.Target)) return false;
-                        if (insn.Target != insn.Next && IsNoReturnTarget(insn.Target)) goto endRun;
-                        break;
-                    case FlowKind.Jump:
-                        if (!insn.HasTarget || !_ctx.Code.IsCode(insn.Target)) return false;
-                        if (!_functions.ContainsKey(insn.Target) && !IsFarJump(in insn, root)) work.Push(insn.Target);
-                        goto endRun;
-                    case FlowKind.ConditionalJump:
-                        if (!insn.HasTarget || !_ctx.Code.IsCode(insn.Target)) return false;
-                        if (!_functions.ContainsKey(insn.Target)) work.Push(insn.Target);
-                        break;
-                    case FlowKind.IndirectCall:
-                        if (insn.HasMem && _ctx.NoReturn.Contains(insn.MemTarget)) goto endRun;
-                        break;
-                    case FlowKind.IndirectJump:
-                    case FlowKind.Return:
-                        if (insn.Conditional) break;
-                        goto endRun;
-                    case FlowKind.Trap:
-                        goto endRun;
-                }
-                a = insn.Next;
-                if (_functions.ContainsKey(a)) break;
-            }
-            endRun:;
+            d = owner;
+            _peek = owner._ctx.NewDecoder(computeAccess: false);
+            _x86Peek = _peek as X86Decoder;
+            _thunks = owner._ctx.NewDecoder(computeAccess: false);
         }
-        return true;
+
+        /// <summary>Speculation: the candidates of the batch, taken as functions already.</summary>
+        public HashSet<uint>? Batch;
+
+        private bool Known(uint rva)
+        {
+            if (d._functions.ContainsKey(rva)) return true;
+            if (Batch == null) return false;
+            Consulted!.Add(rva);
+            return Batch.Contains(rva);
+        }
+
+        /// <summary>A decoded instruction that is not a function start.</summary>
+        private bool IsInsideFunction(uint rva)
+        {
+            long bit = d._ctx.Code.BitIndex(rva);
+            return bit >= 0 && d._starts[bit] && !Known(rva);
+        }
+
+        private bool IsNoReturnTarget(uint target)
+        {
+            if (d._ctx.NoReturn.Contains(target)) return true;
+            if (!_thunkCache.TryGetValue(target, out var slot)) _thunkCache[target] = slot = _thunks.ThunkSlot(target, d._ctx.ImportSlots.ContainsKey);
+            return slot is { } s && d._ctx.NoReturn.Contains(s);
+        }
+
+        /// <param name="funclet">x86: the code runs in another function's frame (exception filter, handler or catch block).</param>
+            public bool Run(uint root, out bool funclet)
+        {
+            funclet = false;
+            bool frame = false;
+            // reused across candidates (hundreds of thousands in a large image); clearing costs the capacity, so a large one is dropped
+            var seen = _seen;
+            if (seen.Count > 4096) seen.TrimExcess();
+            seen.Clear();
+            var work = _work;
+            work.Clear();
+            work.Push(root);
+            int count = 0;
+            _peek.BeginFunction(root);
+            while (work.Count > 0)
+            {
+                uint a = work.Pop();
+                _peek.BeginRun(IndexBound.None);
+                var previous = FlowKind.Jump;
+                bool returnsAddress = false;
+                while (true)
+                {
+                    if (!seen.Add(a)) break;
+                    long bit = d._ctx.Code.BitIndex(a);
+                    if (bit < 0) return false;
+                    // a function never flows into the middle of another one (case labels of an unresolved switch do)
+                    if (d._starts[bit]) { if (!Known(a)) return false; break; }
+                    if (d._covered[bit]) return false;
+                    if (++count > VerifyLimit) return false;
+                    if (!_peek.Decode(a, out var insn) || insn.Flow is FlowKind.Invalid || _peek.LastIsImplausible() || _peek.LastHasImplausibleDisplacement(a)
+                        || (_x86Peek != null && UnlikelyInNewFunction(in _x86Peek.Last, d._ctx.Image.Format == ImageFormat.Pe))) return false;
+                    // int3 ends code only as padding after a call that does not return
+                    if (insn.Flow == FlowKind.Trap && _x86Peek?.Last.Mnemonic == Iced.Intel.Mnemonic.Int3 && previous is not (FlowKind.Call or FlowKind.IndirectCall)) return false;
+                    previous = insn.Flow;
+                    // x86: [ebp+x] before the code sets up ebp is the frame of another function (SEH filter or handler)
+                    if (_x86Peek is { Is64: false } && !frame)
+                    {
+                        ref readonly var x = ref _x86Peek.Last;
+                        if (x.Op0Kind == Iced.Intel.OpKind.Register && x.Op0Register == Iced.Intel.Register.EBP && x.Mnemonic != Iced.Intel.Mnemonic.Push) frame = true;
+                        else if (UsesEbpMemory(in x)) funclet = true;
+                    }
+                    if (insn.HasMem && d._ctx.Code.IsCode(insn.MemTarget) && insn.MemAccess != OperandAccess.Address && d._starts[d._ctx.Code.BitIndex(insn.MemTarget)])
+                        return false; // reads or writes known instructions as data
+                    // takes the address of an instruction inside another function (x86 catch blocks return their
+                    // continuation address): part of that function's exception handling, not a function
+                    if ((insn.HasImm && IsInsideFunction(insn.ImmTarget)) || (insn.HasMem && insn.MemAccess == OperandAccess.Address && IsInsideFunction(insn.MemTarget)))
+                        return false;
+                    // "mov eax, offset x; ret" returning a code address that is no function: a catch block's continuation
+                    if (returnsAddress && insn.Flow == FlowKind.Return) funclet = true;
+                    returnsAddress = insn.HasImm && _x86Peek != null && _x86Peek.Last.Mnemonic == Iced.Intel.Mnemonic.Mov && _x86Peek.Last.Op0Register == Iced.Intel.Register.EAX
+                        && d._ctx.Code.IsCode(insn.ImmTarget) && !Known(insn.ImmTarget);
+                    for (int k = 1; k < insn.Length; k++)
+                        if (d._covered[d._ctx.Code.BitIndex(a + (uint)k)]) return false;
+                    switch (insn.Flow)
+                    {
+                        case FlowKind.Call:
+                            if (!insn.HasTarget || !d._ctx.Code.IsCode(insn.Target)) return false;
+                            if (insn.Target != insn.Next && IsNoReturnTarget(insn.Target)) goto endRun;
+                            break;
+                        case FlowKind.Jump:
+                            if (!insn.HasTarget || !d._ctx.Code.IsCode(insn.Target)) return false;
+                            if (!Known(insn.Target) && !d.IsFarJump(in insn, root)) work.Push(insn.Target);
+                            goto endRun;
+                        case FlowKind.ConditionalJump:
+                            if (!insn.HasTarget || !d._ctx.Code.IsCode(insn.Target)) return false;
+                            if (!Known(insn.Target)) work.Push(insn.Target);
+                            break;
+                        case FlowKind.IndirectCall:
+                            if (insn.HasMem && d._ctx.NoReturn.Contains(insn.MemTarget)) goto endRun;
+                            break;
+                        case FlowKind.IndirectJump:
+                        case FlowKind.Return:
+                            if (insn.Conditional) break;
+                            goto endRun;
+                        case FlowKind.Trap:
+                            goto endRun;
+                    }
+                    a = insn.Next;
+                    if (Known(a)) break;
+                }
+                endRun:;
+            }
+            return true;
+        }
+
     }
 
     /// <summary>

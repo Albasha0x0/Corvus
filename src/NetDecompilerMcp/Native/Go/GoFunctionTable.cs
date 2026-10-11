@@ -56,17 +56,19 @@ public sealed class GoFunctionTable
                 if (Read(image, s.Rva, s.MappedSize) is { } t) return t;
             if (named.Count > 0) return null;
             // stripped of section names (PE keeps runtime.pclntab in .rdata): look for the header in data, then in code
+            byte[]? buffer = null;
             foreach (var s in image.Sections.OrderBy(s => s.IsExecutable))
-                if (Scan(image, s) is { } t) return t;
+                if (s.MappedSize >= 64 && Scan(image, s, buffer ??= new byte[ScanChunk + 16]) is { } t) return t;
         }
         catch (Exception ex) when (ex is ArgumentException or IndexOutOfRangeException or OverflowException) { }
         return null;
     }
 
-    private static GoFunctionTable? Scan(INativeImage image, NativeSection s)
+    private const int ScanChunk = 1 << 16;
+
+    private static GoFunctionTable? Scan(INativeImage image, NativeSection s, byte[] bytes)
     {
-        const int Chunk = 1 << 20;
-        var bytes = new byte[Chunk + 16];
+        const int Chunk = ScanChunk;
         for (uint offset = 0; offset < s.MappedSize; offset += Chunk)
         {
             int n = image.Read(s.Rva + offset, bytes);

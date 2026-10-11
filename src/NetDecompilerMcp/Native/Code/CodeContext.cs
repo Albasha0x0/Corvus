@@ -22,6 +22,8 @@ public sealed record CodeIndexOptions
     public bool ResolveVirtualCalls { get; init; } = true;
     /// <summary>A virtual call site with more possible implementations than this gets no edges (counted as too_many_targets).</summary>
     public int MaxVirtualTargets { get; init; } = 64;
+    /// <summary>Weak candidates in one batch from which they are verified in parallel first (the result is the same either way).</summary>
+    internal int ParallelVerifyBatch { get; init; } = 4096;
 }
 
 /// <summary>What the analysis knows about the image while it runs: shared, read-only during each pass.</summary>
@@ -111,6 +113,26 @@ internal sealed class CodeContext
         }
         ranges.Sort();
         return [.. ranges];
+    }
+
+    private (uint Slot, long Bit, uint Target)[]? _relocatedCodePointers;
+
+    /// <summary>
+    /// Relocated pointers whose target is in code, with the slot's bit in the code index (-1 outside code); read once,
+    /// shared by the discovery passes. ARM32 targets keep their Thumb bit.
+    /// </summary>
+    public (uint Slot, long Bit, uint Target)[] RelocatedCodePointers(CancellationToken ct)
+    {
+        if (_relocatedCodePointers != null) return _relocatedCodePointers;
+        var result = new List<(uint, long, uint)>();
+        int i = 0;
+        foreach (var reloc in Relocations)
+        {
+            if ((++i & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
+            if (!TryReadPointer(reloc, out uint target) || !Code.IsCode(target)) continue;
+            result.Add((reloc, Code.BitIndex(reloc), target));
+        }
+        return _relocatedCodePointers = [.. result];
     }
 
     private (uint Slot, uint Target)[]? _unrelocatedPointers;
