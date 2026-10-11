@@ -2182,7 +2182,7 @@ Structured output: `target`, `targetKind`, `direction`, `items`, `offset`, `tota
 
 **Map Java and .NET** (read-only, idempotent)
 
-The other side of a Xamarin / .NET for Android binding. A Java class (Lpkg/C;, crc64.../MainActivity) or method id gives the .NET type or method, ready for decompile_member; a .NET type or member (Ns.Type, Ns.Type::Method) gives its Java class or method. Java callable wrapper names are computed as the build does (crc64 of namespace and assembly, or the Name of [Register] / [Activity] / [Service] / [BroadcastReceiver] / [ContentProvider]); methods by their [Register] or the registered base method they override. Uses the loaded assemblies, and the package's own when path is given.
+The other side of a Java / .NET bridge, ready for decompile_member or get_dex_class. Xamarin / .NET for Android: a Java class or method id gives the .NET type or method and back (wrapper names computed as the build does: crc64 of namespace and assembly, or the Name of [Register] / [Activity] / ...; methods by [Register] or the registered method they override). Unity Mono: the C# reaching a Java class or member through AndroidJavaClass / AndroidJavaObject, AndroidJavaProxy or AndroidJNI, and back, with a confidence. Reads the loaded assemblies, and the package's with path.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

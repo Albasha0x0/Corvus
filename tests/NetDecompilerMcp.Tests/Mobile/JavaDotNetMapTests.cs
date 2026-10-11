@@ -156,6 +156,113 @@ public sealed class JavaDotNetMapTests : IDisposable
         Assert.Contains(map.Map("Android.App.Activity::OnCreate", null, default).Items, i => i.Java == "Landroid/app/Activity;->onCreate(Landroid/os/Bundle;)V");
     }
 
+    private const string UnitySource = """
+        namespace UnityEngine
+        {
+            public class AndroidJavaObject : System.IDisposable
+            {
+                public AndroidJavaObject(string className, params object[] args) { }
+                public void Call(string methodName, params object[] args) { }
+                public T Call<T>(string methodName, params object[] args) => default;
+                public void CallStatic(string methodName, params object[] args) { }
+                public T CallStatic<T>(string methodName, params object[] args) => default;
+                public T GetStatic<T>(string fieldName) => default;
+                public void Dispose() { }
+            }
+            public class AndroidJavaClass : AndroidJavaObject { public AndroidJavaClass(string className) : base(className) { } }
+            public class AndroidJavaProxy { public AndroidJavaProxy(string javaInterface) { } }
+            public static class AndroidJNI
+            {
+                public static System.IntPtr FindClass(string name) => default;
+                public static System.IntPtr GetStaticMethodID(System.IntPtr clazz, string name, string sig) => default;
+            }
+        }
+        namespace Game
+        {
+            using UnityEngine;
+            public class Bridge
+            {
+                private AndroidJavaObject _plugin;
+                public void Init()
+                {
+                    using (var unity = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+                    {
+                        var activity = unity.GetStatic<AndroidJavaObject>("currentActivity");
+                        _plugin = new AndroidJavaObject("com.example.plugin.Bridge", activity);
+                    }
+                }
+                public void Send(string message) => _plugin.Call("send", message);
+                public int Count() => _plugin.Call<int>("count");
+                public static void Vibrate()
+                {
+                    var haptics = new AndroidJavaClass("com.example.plugin.Haptics");
+                    haptics.CallStatic("vibrate", 50L, 2);
+                }
+                public static void Raw() => AndroidJNI.GetStaticMethodID(AndroidJNI.FindClass("com/example/plugin/Haptics"), "vibrate", "(JI)V");
+            }
+            public class Listener : AndroidJavaProxy
+            {
+                public Listener() : base("com.example.plugin.Bridge$Callback") { }
+                public void onResult(string value) { }
+            }
+        }
+        """;
+
+    /// <summary>A Unity Mono player's package: Assembly-CSharp under assets/bin/Data/Managed and the plugin's Java side in DEX.</summary>
+    private string UnityApk()
+    {
+        var b = new DexBuilder();
+        b.Class("Lcom/unity3d/player/UnityPlayer;").Field("currentActivity", "Landroid/app/Activity;", 9);
+        var bridge = b.Class("Lcom/example/plugin/Bridge;");
+        bridge.Method("<init>", "V", ["Landroid/app/Activity;"], 1, Asm.ReturnVoid()).Registers = 2;
+        bridge.Method("send", "V", ["Ljava/lang/String;"], 1, Asm.ReturnVoid()).Registers = 2;
+        bridge.Method("count", "I", [], 1, Asm.Const4(0, 0), Asm.Return(0x0f, 0)).Registers = 1;
+        var haptics = b.Class("Lcom/example/plugin/Haptics;");
+        haptics.Method("vibrate", "V", ["J", "I"], 9, Asm.ReturnVoid()).Registers = 3;
+        haptics.Method("vibrate", "V", ["J"], 9, Asm.ReturnVoid()).Registers = 2;
+        b.Class("Lcom/example/plugin/Bridge$Callback;", 0x601).Method("onResult", "V", ["Ljava/lang/String;"], 0x401);
+        var game = Roslyn.Release("Assembly-CSharp", UnitySource);
+        return AndroidSamples.Save(_dir, "unity.apk", AndroidSamples.Apk(30, ("classes.dex", b.Build()), ("assets/bin/Data/Managed/Assembly-CSharp.dll", game)));
+    }
+
+    [Fact]
+    public void Unity_JavaToCSharp_CallSitesProxiesAndJni()
+    {
+        var map = new JavaDotNetMap(_workspace, new DexService());
+        var apk = UnityApk();
+        string Pairs(string symbol) => string.Join(" | ", map.Map(symbol, apk, default).Items.Select(i => $"{i.DotNet} {i.Basis} {i.Confidence}"));
+        Assert.Equal("Game.Bridge::Send(string) unity_call name_and_arity", Pairs("Lcom/example/plugin/Bridge;->send(Ljava/lang/String;)V"));
+        Assert.Equal("Game.Bridge::Count() unity_call name_and_arity", Pairs("Lcom/example/plugin/Bridge;->count()I"));
+        Assert.Equal("Game.Bridge::Vibrate() unity_call name_and_arity | Game.Bridge::Raw() unity_jni descriptor", Pairs("Lcom/example/plugin/Haptics;->vibrate(JI)V"));
+        Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => map.Map("Lcom/example/plugin/Haptics;->vibrate(J)V", apk, default)).Code);
+        Assert.Equal("Game.Listener::onResult(string) unity_proxy name_and_arity", Pairs("Lcom/example/plugin/Bridge$Callback;->onResult(Ljava/lang/String;)V"));
+        Assert.Equal("Game.Listener unity_proxy name_match", Pairs("Lcom/example/plugin/Bridge$Callback;"));
+        Assert.Contains("Game.Bridge::Init() unity_new", Pairs("Lcom/example/plugin/Bridge;"));
+        Assert.Equal("assets/bin/Data/Managed/Assembly-CSharp.dll", map.Map("Lcom/example/plugin/Bridge;", apk, default).Items[0].Assembly);
+    }
+
+    [Fact]
+    public void Unity_CSharpToJava_ExactDexIdsWhenThePackageHasThem()
+    {
+        var map = new JavaDotNetMap(_workspace, new DexService());
+        var apk = UnityApk();
+        string Pairs(string symbol, string? path) => string.Join(" | ", map.Map(symbol, path, default).Items.Select(i => $"{i.Java} {i.Basis} {i.Confidence}"));
+        Assert.Equal("Lcom/example/plugin/Haptics; unity_new name_match | Lcom/example/plugin/Haptics;->vibrate(JI)V unity_call name_and_arity",
+            Pairs("Game.Bridge::Vibrate", apk));
+        var init = Pairs("Game.Bridge::Init", apk);
+        Assert.Contains("Lcom/unity3d/player/UnityPlayer; unity_new name_match", init);
+        Assert.Contains("Lcom/unity3d/player/UnityPlayer;->currentActivity:Landroid/app/Activity; unity_call name_and_arity", init);
+        Assert.Contains("Lcom/example/plugin/Bridge; unity_new name_match", init);
+        Assert.Equal("Lcom/example/plugin/Bridge$Callback;->onResult(Ljava/lang/String;)V unity_proxy name_and_arity", Pairs("Game.Listener::onResult", apk));
+        Assert.Contains("Lcom/example/plugin/Haptics;->vibrate(JI)V unity_jni descriptor", Pairs("Game.Bridge", apk));
+
+        // loaded without the package: names, not DEX ids
+        File.WriteAllBytes(_dir.File("Assembly-CSharp.dll"), Roslyn.Release("Assembly-CSharp", UnitySource));
+        _workspace.Load(_dir.File("Assembly-CSharp.dll"));
+        Assert.Equal("Lcom/example/plugin/Bridge;->send unity_call name_match", Pairs("Game.Bridge::Send", null));
+        Assert.True(map.Map("Game.Bridge::Send", null, default).Items.Single().Loaded);
+    }
+
     [Fact]
     public void Manifest_NamesTheDotNetTypeOfEachComponent()
     {

@@ -13,7 +13,9 @@ public sealed record JavaDotNetPair(
     [property: Description("The assembly: its workspace id when loaded, else its path inside the package.")] string Assembly,
     bool Loaded,
     [property: Description("register_attribute, component_name, crc64_package (the Java callable wrapper name computed from namespace and assembly), " +
-                           "mono_android_package, or override (a .NET override of a registered Java method).")] string Basis);
+                           "mono_android_package, override (a .NET override of a registered Java method); Unity C#: unity_call (Call / CallStatic / " +
+                           "Get / Set by name), unity_new (AndroidJavaClass / AndroidJavaObject), unity_proxy (an AndroidJavaProxy of the interface), unity_jni (AndroidJNI).")] string Basis,
+    [property: Description("Unity pairs: descriptor (a JNI signature), name_and_arity (the only Java method of that name and argument count), or name_match.")] string? Confidence = null);
 
 public sealed record JavaDotNetResult(string Query, string Direction, IReadOnlyList<JavaDotNetPair> Items, IReadOnlyList<string> Notes);
 
@@ -22,7 +24,7 @@ public sealed record JavaDotNetResult(string Query, string Direction, IReadOnlyL
 /// build does, or the Name of [Register] / [Activity] / [Service] / ... attributes) and bound Java types ([Register] with
 /// DoNotGenerateAcw); methods through their own [Register] or the registered base method they override.
 /// </summary>
-public sealed class JavaDotNetMap(AssemblyWorkspace workspace)
+public sealed class JavaDotNetMap(AssemblyWorkspace workspace, DexService? dex = null)
 {
     private sealed record Source(ModuleDef Module, string Label, bool Loaded);
 
@@ -33,6 +35,7 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace)
         public readonly Dictionary<string, TypeDef> ByName = new(StringComparer.Ordinal);
         public readonly Dictionary<TypeDef, Source> SourceOf = [];
         public readonly List<string> Notes = [];
+        public readonly List<(UnityJavaCall Call, Source Source)> Unity = [];
     }
 
     private readonly object _lock = new();
@@ -56,7 +59,9 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace)
             var arrow = symbol.IndexOf("->", StringComparison.Ordinal);
             var cls = arrow > 0 ? symbol[..arrow] : symbol;
             var javaName = cls.StartsWith('L') && cls.EndsWith(';') ? cls[1..^1] : cls.Replace('.', '/');
-            if (!index.ByJava.TryGetValue(javaName, out var hit))
+            if (!index.ByJava.TryGetValue(javaName, out var hit) && UnityToDotNet(index, javaName, arrow > 0 ? symbol[(arrow + 2)..] : null) is { Count: > 0 } unity)
+                return new JavaDotNetResult(symbol, "java_to_dotnet", unity, index.Notes);
+            if (hit.Type == null)
                 throw new ToolError(ErrorCode.NotFound, $"no .NET type is bound to {javaName} in {Describe(path)}.",
                     "load the app's assemblies (unpack_container) or pass path=the package; Java-only classes have no .NET side") { Details = new { index.Notes } };
             if (arrow < 0) items.Add(new($"L{javaName};", TypeLabel(hit.Type), hit.Source.Label, hit.Source.Loaded, hit.Basis));
@@ -76,7 +81,9 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace)
         var type = index.ByName.GetValueOrDefault(typeName)
                    ?? index.ByName.Values.Where(t => t.Name == typeName || t.FullName.EndsWith("." + typeName, StringComparison.Ordinal)).Take(2).ToList() switch { [var one] => one, _ => null }
                    ?? throw new ToolError(ErrorCode.NotFound, $"no type {typeName} among the assemblies of {Describe(path)}.");
-        if (!index.ByType.TryGetValue(type, out var bound))
+        if (!index.ByType.TryGetValue(type, out var bound) && DotNetToUnity(index, type, sep > 0 ? symbol[(sep + 2)..] : null, path, ct) is { Count: > 0 } calls)
+            return new JavaDotNetResult(symbol, "dotnet_to_java", calls, index.Notes);
+        if (bound.Java == null)
             throw new ToolError(ErrorCode.NotFound, $"{TypeLabel(type)} is not a Java peer (no [Register] binding and no registered base type): it has no Java side.");
         var source = index.SourceOf[type];
         if (sep < 0) items.Add(new($"L{bound.Java};", TypeLabel(type), source.Label, source.Loaded, bound.Basis));
@@ -105,6 +112,103 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace)
     }
 
     private static string Describe(string? path) => path ?? "the loaded assemblies";
+
+    private static string UnityBasis(string kind) => kind switch
+    {
+        "new" => "unity_new",
+        "proxy" => "unity_proxy",
+        "jni" => "unity_jni",
+        _ => "unity_call",
+    };
+
+    /// <summary>Unity C# that reaches a Java class or member by name: the calling methods, and an AndroidJavaProxy's methods of that name.</summary>
+    private static List<JavaDotNetPair> UnityToDotNet(Index index, string javaClass, string? member)
+    {
+        var pairs = new List<JavaDotNetPair>();
+        string? name = member, signature = null;
+        int? arity = null;
+        if (member != null && member.IndexOf('(') is var paren and > 0 && member.IndexOf(')') is var close and > 0)
+        {
+            name = member[..paren];
+            signature = member[paren..];
+            arity = DexIndex.SplitParameters(member[(paren + 1)..close]).Count;
+        }
+        var java = member == null ? $"L{javaClass};" : $"L{javaClass};->{member}";
+        foreach (var (call, source) in index.Unity)
+        {
+            if (call.Class != javaClass) continue;
+            if (call.Kind == "proxy")
+            {
+                var proxy = call.Caller.DeclaringType;
+                if (member == null) pairs.Add(new(java, TypeLabel(proxy), source.Label, source.Loaded, "unity_proxy", "name_match"));
+                else
+                    foreach (var m in proxy.Methods.Where(m => m.Name == name && (arity == null || m.MethodSig.Params.Count == arity)))
+                        pairs.Add(new(java, Format.MemberLabel(m), source.Label, source.Loaded, "unity_proxy", arity != null ? "name_and_arity" : "name_match"));
+                continue;
+            }
+            if (member == null ? call.Member != null : call.Member != name) continue;
+            if (call.Signature != null && signature != null && call.Signature != signature) continue;
+            if (call.Arity != null && arity != null && call.Arity != arity) continue;
+            string confidence = call.Signature != null ? "descriptor" : call.Arity != null && arity != null ? "name_and_arity" : "name_match";
+            var label = Format.MemberLabel(call.Caller);
+            if (!pairs.Any(p => p.DotNet == label))
+                pairs.Add(new(java, label, source.Label, source.Loaded, UnityBasis(call.Kind), confidence));
+        }
+        return pairs;
+    }
+
+    /// <summary>The Java classes and members a Unity C# type or method reaches, as exact DEX ids when the package's DEX code has them.</summary>
+    private List<JavaDotNetPair> DotNetToUnity(Index index, TypeDef type, string? member, string? path, CancellationToken ct)
+    {
+        var simple = member?.Split('(')[0];
+        var calls = index.Unity.Where(u => u.Call.Caller.DeclaringType == type && (simple == null || u.Call.Caller.Name == simple || u.Call.Kind == "proxy")).ToList();
+        if (calls.Count == 0) return [];
+        DexIndex? code = null;
+        if (dex != null && path != null)
+        {
+            try { code = dex.Index(path, ct); }
+            catch (ToolError ex) { index.Notes.Add($"The package's DEX code is not read ({ex.Message}); Java members are named, not resolved to exact ids."); }
+        }
+        var pairs = new List<JavaDotNetPair>();
+        void Add(JavaDotNetPair pair) { if (!pairs.Any(p => p.Java == pair.Java && p.DotNet == pair.DotNet)) pairs.Add(pair); }
+        foreach (var (call, source) in calls)
+        {
+            if (call.Class == null) continue;
+            if (call.Kind == "proxy")
+            {
+                if (simple == null) Add(new($"L{call.Class};", TypeLabel(type), source.Label, source.Loaded, "unity_proxy", "name_match"));
+                else
+                    foreach (var m in type.Methods.Where(m => m.Name == simple))
+                        foreach (var (id, confidence) in JavaMembers(code, call.Class, m.Name, m.MethodSig.Params.Count, null))
+                            Add(new(id, Format.MemberLabel(m), source.Label, source.Loaded, "unity_proxy", confidence));
+                continue;
+            }
+            var label = Format.MemberLabel(call.Caller);
+            if (call.Member == null) Add(new($"L{call.Class};", label, source.Label, source.Loaded, UnityBasis(call.Kind), "name_match"));
+            else
+                foreach (var (id, confidence) in JavaMembers(code, call.Class, call.Member, call.Arity, call.Signature, call.Kind is "get" or "set" or "get_static" or "set_static"))
+                    Add(new(id, label, source.Label, source.Loaded, UnityBasis(call.Kind), confidence));
+        }
+        return pairs;
+    }
+
+    /// <summary>The DEX methods (or fields) of a class or its nearest DEX superclass with that name and arity; the bare name without DEX code.</summary>
+    private static List<(string Id, string Confidence)> JavaMembers(DexIndex? code, string cls, string name, int? arity, string? signature, bool field = false)
+    {
+        var bare = $"L{cls};->{name}{signature}";
+        var found = new List<string>();
+        for (var c = $"L{cls};"; code != null && c != null && code.Classes.TryGetValue(c, out var entry); c = entry.Class.SuperClass)
+        {
+            if (field) found.AddRange(code.FindFields($"{c}->{name}"));
+            else
+                found.AddRange(code.Methods.Values.Where(m => m.Ref.Class == c && m.Ref.Name == name
+                    && (signature != null ? m.Ref.Proto.Descriptor == signature : arity == null || m.Ref.Proto.Parameters.Count == arity)).Select(m => m.Descriptor));
+            if (found.Count > 0) break;
+        }
+        if (found.Count == 0) return [(bare, signature != null ? "descriptor" : "name_match")];
+        string confidence = signature != null ? "descriptor" : found.Count == 1 && (arity != null || field) ? "name_and_arity" : "name_match";
+        return [.. found.Select(f => (f, confidence))];
+    }
 
     private static string TypeLabel(TypeDef t) => t.FullName.Replace('/', '+');
 
@@ -174,22 +278,25 @@ public sealed class JavaDotNetMap(AssemblyWorkspace workspace)
             }
             // A loaded copy of an assembly wins: its id is what decompile_member takes.
             sources.AddRange(fromPackage.Where(s => !loadedNames.Contains(s.Module.Assembly?.Name ?? s.Module.Name)));
-            return BuildIndex(sources, notes);
+            return BuildIndex(sources, notes, ct);
         }
         if (sources.Count == 0) throw new ToolError(ErrorCode.NotLoaded, "no assemblies are loaded.", "pass path=the .apk, or load its assemblies with unpack_container");
-        return BuildIndex(sources, notes);
+        return BuildIndex(sources, notes, ct);
     }
 
-    private static Index BuildIndex(List<Source> sources, List<string> notes)
+    private static Index BuildIndex(List<Source> sources, List<string> notes, CancellationToken ct)
     {
         var index = new Index();
         index.Notes.AddRange(notes);
         foreach (var s in sources)
+        {
             foreach (var t in s.Module.GetTypes())
             {
                 index.ByName.TryAdd(t.FullName, t);
                 index.SourceOf.TryAdd(t, s);
             }
+            index.Unity.AddRange(UnityJavaCalls.Scan(s.Module, ct).Select(c => (c, s)));
+        }
         var peer = new Dictionary<TypeDef, bool>();
         bool IsPeer(TypeDef t, int depth)
         {
