@@ -10,7 +10,7 @@ body:
     id: version
     attributes:
       label: Version
-      description: Output of `NetDecompilerMcp version`, or `informationalVersion` from server_status.
+      description: Output of `corvus version`, or `informationalVersion` from server_status.
     validations:
       required: true
   - type: dropdown
@@ -64,7 +64,7 @@ body:
     id: status
     attributes:
       label: Server status
-      description: For install, start or engine problems, the output of `NetDecompilerMcp status`, or the server_status result.
+      description: For install, start or engine problems, the output of `corvus status`, or the server_status result.
       render: text
   - type: checkboxes
     id: redaction

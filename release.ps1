@@ -10,7 +10,7 @@ param(
     [switch]$Push,
     [switch]$VerifyOnly,
     [switch]$SkipTests,
-    [string]$Repo = 'Albasha0x0/NetDecompilerMcp'
+    [string]$Repo = 'Albasha0x0/Corvus'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -32,7 +32,8 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') { Fail "version '$Version' is not majo
 # The release targets are the release workflow's matrix; the archives and SHA256SUMS are what it attaches.
 $rids = [regex]::Matches((Get-Content $workflow -Raw), 'rid: ([a-z0-9-]+)') | ForEach-Object { $_.Groups[1].Value }
 if (-not $rids) { Fail "no rid entries in $workflow" }
-$assets = @($rids | ForEach-Object { if ($_ -like 'win-*') { "NetDecompilerMcp-$_.zip" } else { "NetDecompilerMcp-$_.tar.gz" } }) + 'SHA256SUMS'
+# Migration only: each archive also ships under its name from before the rename, for the update of installs made then.
+$assets = @(foreach ($name in 'corvus', 'NetDecompilerMcp') { $rids | ForEach-Object { if ($_ -like 'win-*') { "$name-$_.zip" } else { "$name-$_.tar.gz" } } }) + 'SHA256SUMS'
 
 # The notes section of this version: from its heading to the next version heading.
 function Get-Notes {
@@ -65,7 +66,7 @@ if (-not $VerifyOnly) {
 
         Run 'git' @('add', '-A')
         Run 'git' @('commit', '-m', "release: $Version")
-        Run 'git' @('tag', '-a', $tag, '-m', "NetDecompilerMcp $Version")
+        Run 'git' @('tag', '-a', $tag, '-m', "Corvus $Version")
         Write-Host "Committed and tagged $tag."
         if (-not $Push) {
             Write-Host "Next: ./release.ps1 -Version $Version -VerifyOnly after 'git push origin main $tag', or run again with -Push."
@@ -92,7 +93,7 @@ if ($LASTEXITCODE -ne 0) { Fail "no release $tag" }
 $missing = @($assets | Where-Object { $_ -notin $listed })
 if ($missing) { Fail "release $tag lacks $($missing -join ', ')" }
 
-$work = Join-Path ([IO.Path]::GetTempPath()) "ndm-release-$Version"
+$work = Join-Path ([IO.Path]::GetTempPath()) "corvus-release-$Version"
 if (Test-Path $work) { Remove-Item $work -Recurse -Force }
 New-Item -ItemType Directory $work | Out-Null
 Run 'gh' @('release', 'download', $tag, '--repo', $Repo, '--dir', $work)
@@ -115,8 +116,8 @@ Run 'gh' @('release', 'edit', $tag, '--repo', $Repo, '--notes-file', $body)
 Write-Host ""
 Write-Host "Release $tag is published. Manual channel steps:"
 Write-Host "  [ ] Install check: run the install script on a clean machine or account (GITHUB_TOKEN while the repository is private),"
-Write-Host "      then 'NetDecompilerMcp version' (expect $Version) and 'NetDecompilerMcp status'."
-Write-Host "  [ ] Update check: 'NetDecompilerMcp update --dry-run' on an older install names $tag and SHA256SUMS."
+Write-Host "      then 'corvus version' (expect $Version) and 'corvus status'."
+Write-Host "  [ ] Update check: 'corvus update --dry-run' on an older install names $tag and SHA256SUMS."
 Write-Host "  [ ] Announce: the release notes link, https://github.com/$Repo/releases/tag/$tag"
 Write-Host "  Archive hashes for package manifests:"
 foreach ($asset in $assets | Where-Object { $_ -ne 'SHA256SUMS' }) { Write-Host ("    {0}  {1}" -f $sums[$asset], $asset) }

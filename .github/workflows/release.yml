@@ -57,23 +57,34 @@ jobs:
         if: matrix.smoke
         shell: bash
         run: |
-          exe=out/NetDecompilerMcp; [ -f "$exe.exe" ] && exe="$exe.exe"
+          exe=out/corvus; [ -f "$exe.exe" ] && exe="$exe.exe"
           test "$("$exe" version | tr -d '\r')" = "${GITHUB_REF_NAME#v}"
           "$exe" status
 
       - name: Package (zip)
         if: startsWith(matrix.rid, 'win-')
         shell: pwsh
-        run: Compress-Archive -Path out/* -DestinationPath NetDecompilerMcp-${{ matrix.rid }}.zip
+        run: |
+          Compress-Archive -Path out/* -DestinationPath corvus-${{ matrix.rid }}.zip
+          # Migration only: an install made before the rename updates from the asset under its old name and runs
+          # NetDecompilerMcp(.exe) install from it, a copy of corvus that moves the install to Corvus.
+          Copy-Item out/corvus.exe out/NetDecompilerMcp.exe
+          Compress-Archive -Path out/* -DestinationPath NetDecompilerMcp-${{ matrix.rid }}.zip
 
       - name: Package (tar.gz)
         if: ${{ !startsWith(matrix.rid, 'win-') }}
-        run: tar -czf NetDecompilerMcp-${{ matrix.rid }}.tar.gz -C out .
+        run: |
+          tar -czf corvus-${{ matrix.rid }}.tar.gz -C out .
+          # Migration only: as for the zip above.
+          cp -p out/corvus out/NetDecompilerMcp
+          tar -czf NetDecompilerMcp-${{ matrix.rid }}.tar.gz -C out .
 
       - uses: actions/upload-artifact@v7
         with:
           name: package-${{ matrix.rid }}
-          path: NetDecompilerMcp-${{ matrix.rid }}.*
+          path: |
+            corvus-${{ matrix.rid }}.*
+            NetDecompilerMcp-${{ matrix.rid }}.*
 
   release:
     needs: package
@@ -85,10 +96,11 @@ jobs:
           merge-multiple: true
       # The installers and `update` refuse a build whose SHA-256 is not listed here.
       - name: Checksums
-        run: sha256sum NetDecompilerMcp-* > SHA256SUMS && cat SHA256SUMS
+        run: sha256sum corvus-* NetDecompilerMcp-* > SHA256SUMS && cat SHA256SUMS
       - uses: softprops/action-gh-release@v3
         with:
           files: |
+            corvus-*
             NetDecompilerMcp-*
             SHA256SUMS
           generate_release_notes: true

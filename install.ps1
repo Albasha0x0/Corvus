@@ -1,10 +1,10 @@
-# Installs NetDecompilerMcp for the current user and registers it with the MCP clients it finds: existing
+# Installs Corvus for the current user and registers it with the MCP clients it finds: existing
 # registrations are refreshed, new clients are listed and registered after one confirmation (Enter = yes).
-#   irm https://raw.githubusercontent.com/Albasha0x0/NetDecompilerMcp/main/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1 | iex
 # With options (-Version 1.2.0 -DryRun -Yes -Client cursor,codex):
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Albasha0x0/NetDecompilerMcp/main/install.ps1))) -Yes
+#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1))) -Yes
 # Uninstall (keeps your data; add -PurgeData to delete it too):
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Albasha0x0/NetDecompilerMcp/main/install.ps1))) -Uninstall
+#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1))) -Uninstall
 # -Version installs that release (pinning or rolling back), -DryRun shows what would be installed and registered and
 # changes nothing, -Yes registers new clients without asking, -Client registers only the named clients.
 # Environment: CORVUS_VERSION (as -Version), CORVUS_YES=1 (as -Yes), CORVUS_REPO (owner/name), CORVUS_ARCHIVE (local release
@@ -17,12 +17,15 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-$repo = if ($env:CORVUS_REPO) { $env:CORVUS_REPO } else { 'Albasha0x0/NetDecompilerMcp' }
-$root = Join-Path $env:LOCALAPPDATA 'NetDecompilerMcp'
+$repo = if ($env:CORVUS_REPO) { $env:CORVUS_REPO } else { 'Albasha0x0/Corvus' }
+$root = Join-Path $env:LOCALAPPDATA 'Corvus'
 $current = Join-Path $root 'current'
 $exe = Join-Path $current 'corvus.exe'
+# Migration only: the install made before the rename; the program's install command moves its registrations and data.
+$legacyExe = Join-Path $env:LOCALAPPDATA 'NetDecompilerMcp\current\NetDecompilerMcp.exe'
 if (-not $Version) { $Version = $env:CORVUS_VERSION }
 if ($Version) { $Version = $Version.TrimStart('v') }
+if ($Version -and [version](($Version -split '[+-]')[0]) -lt [version]'1.2.0') { throw "Release $Version predates Corvus (1.2.0 is the first)." }
 
 # Options passed on to the program's install (or uninstall) command.
 $setupArgs = @()
@@ -33,22 +36,21 @@ if ($Client) { $setupArgs += @('--client', ($Client -join ',')) }
 if ($Uninstall) {
     $removeArgs = @($setupArgs | Where-Object { $_ -eq '--dry-run' })
     if ($PurgeData) { $removeArgs += '--purge-data' }
-    if (Test-Path $exe) { & $exe uninstall @removeArgs } else { Write-Host 'NetDecompilerMcp is not installed.' }
+    if (Test-Path $exe) { & $exe uninstall @removeArgs }
+    elseif (Test-Path $legacyExe) { & $legacyExe uninstall @removeArgs }
+    else { Write-Host 'Corvus is not installed.' }
     return
 }
 
 $arch = $env:PROCESSOR_ARCHITEW6432
 if (-not $arch) { $arch = $env:PROCESSOR_ARCHITECTURE }
 $rid = if ($arch -eq 'ARM64') { 'win-arm64' } else { 'win-x64' }
-$asset = "NetDecompilerMcp-$rid.zip"
-$archive = Join-Path ([IO.Path]::GetTempPath()) ("ndm-" + [guid]::NewGuid().ToString('N') + '.zip')
+$asset = "corvus-$rid.zip"
+$archive = Join-Path ([IO.Path]::GetTempPath()) ("corvus-" + [guid]::NewGuid().ToString('N') + '.zip')
 $sums = "$archive.sha256sums"
 $dryStaging = "$archive.staged"
 $unverified = 'refusing to install an unverified build'
 $release = if ($Version) { "v$Version" } else { 'the latest release' }
-
-# Releases before 1.2.0 take no setup options (no plan, -Yes or -Client): this script may be newer than the release.
-function Test-PlansSetup([string] $v) { [version](($v -split '[+-]')[0]) -ge [version]'1.2.0' }
 
 try {
     if ($env:CORVUS_ARCHIVE) {
@@ -56,7 +58,7 @@ try {
         if ($env:CORVUS_SHA256SUMS) { Copy-Item $env:CORVUS_SHA256SUMS $sums; $source = $env:CORVUS_SHA256SUMS } else { $sums = $null; $source = 'none (local archive)' }
         $release = $env:CORVUS_ARCHIVE
     } elseif ($env:GITHUB_TOKEN) {
-        $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; 'User-Agent' = 'NetDecompilerMcp-installer' }
+        $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; 'User-Agent' = 'Corvus-installer' }
         $api = if ($Version) { "https://api.github.com/repos/$repo/releases/tags/v$Version" } else { "https://api.github.com/repos/$repo/releases/latest" }
         $info = Invoke-RestMethod $api -Headers $headers
         $item = $info.assets | Where-Object { $_.name -eq $asset } | Select-Object -First 1
@@ -91,15 +93,11 @@ try {
         $staged = Join-Path $dryStaging 'corvus.exe'
         $version = (& $staged version).Trim()
         if ($LASTEXITCODE -ne 0 -or -not $version) { throw 'The downloaded build does not run on this machine.' }
-        Write-Host "Release: $release ($asset, NetDecompilerMcp $version)"
+        Write-Host "Release: $release ($asset, Corvus $version)"
         Write-Host "Checksum: $source"
         Write-Host "Would install to: $(Join-Path $root "versions\$version"), linked as $current"
         $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
         if (-not (($userPath -split ';') -contains $current)) { Write-Host "Would add to the user PATH: $current" }
-        if (-not (Test-PlansSetup $version)) {
-            Write-Host 'Would register with every MCP client it detects (a registration plan needs NetDecompilerMcp 1.2.0 or newer).'
-            return
-        }
         & $staged install --command $exe @setupArgs
         if ($LASTEXITCODE -ne 0) { throw 'The registration plan reported a problem (see above).' }
         return
@@ -131,15 +129,11 @@ try {
         $env:Path = "$env:Path;$current"
     }
 
-    Write-Host "Installed NetDecompilerMcp $version to $target"
-    if (Test-PlansSetup $version) { & $exe install @setupArgs }
-    else {
-        if ($setupArgs.Count -gt 0) { Write-Host "NetDecompilerMcp $version takes no setup options; registering with every client it detects." }
-        & $exe install
-    }
+    Write-Host "Installed Corvus $version to $target"
+    & $exe install @setupArgs
     if ($LASTEXITCODE -ne 0) { throw 'Registration reported a problem (see above).' }
     Write-Host ''
-    Write-Host 'Done. Commands: NetDecompilerMcp status | update | uninstall (new terminals have it on PATH).'
+    Write-Host 'Done. Commands: corvus status | update | uninstall (new terminals have it on PATH).'
 } finally {
     Remove-Item $archive, "$archive.sha256sums" -Force -ErrorAction SilentlyContinue
     Remove-Item $dryStaging -Recurse -Force -ErrorAction SilentlyContinue

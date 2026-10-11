@@ -13,7 +13,7 @@ namespace Corvus.Setup;
 /// </summary>
 internal static class Installation
 {
-    public const string DefaultRepository = "Albasha0x0/NetDecompilerMcp";
+    public const string DefaultRepository = "Albasha0x0/Corvus";
     public static string ExeName => OperatingSystem.IsWindows() ? "corvus.exe" : "corvus";
     public static string Version => typeof(Installation).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
@@ -28,6 +28,13 @@ internal static class Installation
         return null;
     }
 
+    /// <summary>Where the install scripts put the program: CORVUS_HOME, else %LOCALAPPDATA%\Corvus, else $XDG_DATA_HOME/Corvus (~/.local/share).</summary>
+    public static string DefaultRoot(SetupEnvironment env) =>
+        env.Set("CORVUS_HOME") ?? (env.Os == HostOs.Windows ? Path.Combine(env.LocalAppData, "Corvus") : Path.Combine(XdgData(env), "Corvus"));
+
+    /// <summary>$XDG_DATA_HOME, else ~/.local/share.</summary>
+    public static string XdgData(SetupEnvironment env) => env.Set("XDG_DATA_HOME") ?? env.InHome(".local", "share");
+
     /// <summary>How clients should start this server: the stable "current" path for an installed build.</summary>
     public static ServerLaunch Launch()
     {
@@ -40,7 +47,10 @@ internal static class Installation
     }
 
     private static string Rid => RuntimeInformation.RuntimeIdentifier;
-    private static string AssetName => $"NetDecompilerMcp-{Rid}" + (OperatingSystem.IsWindows() ? ".zip" : ".tar.gz");
+    private static string AssetName => $"corvus-{Rid}" + (OperatingSystem.IsWindows() ? ".zip" : ".tar.gz");
+
+    /// <summary>The first release published as Corvus; older releases have other asset and program names.</summary>
+    public static readonly Version FirstRelease = new(1, 2, 0);
 
     /// <summary>The release asset listing every other asset's SHA-256, in sha256sum format.</summary>
     public const string ChecksumManifest = "SHA256SUMS";
@@ -83,7 +93,7 @@ internal static class Installation
         }
         var repo = Environment.GetEnvironmentVariable("CORVUS_REPO") is { Length: > 0 } r ? r : DefaultRepository;
         using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("NetDecompilerMcp/" + Version);
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("Corvus/" + Version);
         var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
         if (!string.IsNullOrEmpty(token)) http.DefaultRequestHeaders.Authorization = new("Bearer", token);
 
@@ -101,6 +111,11 @@ internal static class Installation
         {
             output.WriteLine($"Up to date ({Version}).");
             return 0;
+        }
+        if (System.Version.TryParse(latest, out var requested) && requested < FirstRelease)
+        {
+            output.WriteLine($"Release {tag} predates Corvus ({FirstRelease} is the first); it cannot replace this install.");
+            return 1;
         }
         JsonNode? Asset(string name) => release["assets"]?.AsArray().FirstOrDefault(a => a?["name"]?.GetValue<string>() == name);
         var asset = Asset(AssetName);
@@ -173,6 +188,31 @@ internal static class Installation
         using var p = Process.Start(new ProcessStartInfo(exe, "install --refresh-only") { UseShellExecute = false })!;
         p.WaitForExit();
         return p.ExitCode;
+    }
+
+    /// <summary>
+    /// Puts &lt;root&gt;/current on the user's PATH (Windows) or links ~/.local/bin/corvus to the program in it, and removes
+    /// <paramref name="dropRoot"/>'s entry or link (<paramref name="dropExe"/>), as the install scripts do.
+    /// </summary>
+    public static void PutOnPath(string root, string? dropRoot = null, string? dropExe = null)
+    {
+        var current = Path.Combine(root, "current");
+        if (OperatingSystem.IsWindows())
+        {
+            var drop = dropRoot == null ? null : Path.Combine(dropRoot, "current");
+            var entries = (Environment.GetEnvironmentVariable("Path", EnvironmentVariableTarget.User) ?? "")
+                .Split(';', StringSplitOptions.RemoveEmptyEntries).Where(p => drop == null || !p.TrimEnd('\\').Equals(drop, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (!entries.Any(p => p.TrimEnd('\\').Equals(current, StringComparison.OrdinalIgnoreCase))) entries.Add(current);
+            Environment.SetEnvironmentVariable("Path", string.Join(';', entries), EnvironmentVariableTarget.User);
+            return;
+        }
+        var bin = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "bin");
+        Directory.CreateDirectory(bin);
+        var link = Path.Combine(bin, ExeName);
+        if (File.Exists(link) || new FileInfo(link).LinkTarget != null) File.Delete(link);
+        File.CreateSymbolicLink(link, Path.Combine(current, ExeName));
+        if (dropRoot != null && dropExe != null && Path.Combine(bin, dropExe) is var old && new FileInfo(old).LinkTarget is { } t && t.StartsWith(dropRoot, StringComparison.Ordinal))
+            File.Delete(old);
     }
 
     /// <summary>Makes &lt;root&gt;/current a link to <paramref name="target"/> (a junction on Windows: no privileges needed).</summary>

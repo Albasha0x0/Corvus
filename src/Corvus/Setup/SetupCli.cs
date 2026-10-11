@@ -38,6 +38,8 @@ internal static class SetupCli
             output.WriteLine($"{ex.Message} Run: NetDecompilerMcp help");
             return 2;
         }
+        // A copy started from the install layout used before the rename moves itself first.
+        if (command is "install" or "update" && !parsed.Has("--dry-run") && LegacyInstall.Relocate(args, output, env) is { } moved) return moved;
         switch (command)
         {
             case "install": return Install(output, env, launch, parsed);
@@ -320,6 +322,8 @@ internal static class SetupCli
         Skills(text, env, report, [.. rows, .. renamed], a.Has("--skill"), dryRun: false);
         foreach (var note in report.Notes) text.WriteLine(note);
         if (changed > 0) text.WriteLine("Restart the clients above (or reload their MCP servers) to load it.");
+        // An installed copy takes over from an install made before the rename, whose registrations were renamed above.
+        if (Installation.Root() is { } installed && LegacyInstall.Remove(env, installed) is { } old) text.WriteLine($"Removed the old program files from {old}.");
         report.Applied = changed > 0;
         report.Healthy = failed == 0;
         return Finish(failed == 0 ? 0 : 1);

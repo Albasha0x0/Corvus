@@ -8,7 +8,7 @@ $out = Join-Path $PSScriptRoot 'publish'
 $project = Join-Path $PSScriptRoot 'src/Corvus/Corvus.csproj'
 $marker = Join-Path $out '.build-complete'
 
-# A development relay (NetDecompilerMcp relay) starts a new server only once the marker is back; it is written last.
+# A development relay (corvus relay) starts a new server only once the marker is back; it is written last.
 if (Test-Path $marker) { Remove-Item $marker -Force }
 
 # A running server's files cannot be overwritten on Windows, but they can be renamed: move them aside, delete earlier ones once free.

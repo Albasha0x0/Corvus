@@ -1,11 +1,11 @@
 #!/bin/sh
-# Installs NetDecompilerMcp for the current user and registers it with the MCP clients it finds: existing
+# Installs Corvus for the current user and registers it with the MCP clients it finds: existing
 # registrations are refreshed, new clients are listed and registered after one confirmation (Enter = yes).
-#   curl -fsSL https://raw.githubusercontent.com/Albasha0x0/NetDecompilerMcp/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh
 # With options:
-#   curl -fsSL https://raw.githubusercontent.com/Albasha0x0/NetDecompilerMcp/main/install.sh | sh -s -- --yes
+#   curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh -s -- --yes
 # Uninstall (keeps your data; add --purge-data to delete it too):
-#   curl -fsSL https://raw.githubusercontent.com/Albasha0x0/NetDecompilerMcp/main/install.sh | sh -s -- --uninstall
+#   curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh -s -- --uninstall
 # Options: --version X installs that release (pinning or rolling back), --dry-run shows what would be installed and
 # registered and changes nothing, --yes registers new clients without asking, --client a,b registers only those.
 # The confirmation is read from the terminal (/dev/tty) even when the script itself arrives on stdin.
@@ -15,16 +15,20 @@
 # Downloads are verified against the release's SHA256SUMS; a missing manifest or a mismatch stops the install.
 set -eu
 
-REPO="${CORVUS_REPO:-Albasha0x0/NetDecompilerMcp}"
-ROOT="${CORVUS_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/net-decompiler-mcp}"
+REPO="${CORVUS_REPO:-Albasha0x0/Corvus}"
+ROOT="${CORVUS_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/Corvus}"
 BIN="$HOME/.local/bin"
-EXE="$ROOT/current/NetDecompilerMcp"
+EXE="$ROOT/current/corvus"
+# Migration only: the install made before the rename; the program's install command moves its registrations and data.
+LEGACY_EXE="${XDG_DATA_HOME:-$HOME/.local/share}/net-decompiler-mcp/current/NetDecompilerMcp"
 
 fail() { echo "error: $*" >&2; exit 1; }
 
 if [ "${1:-}" = "--uninstall" ]; then
     shift
-    if [ -x "$EXE" ]; then "$EXE" uninstall "$@"; else echo "NetDecompilerMcp is not installed."; fi
+    if [ -x "$EXE" ]; then "$EXE" uninstall "$@"
+    elif [ -x "$LEGACY_EXE" ]; then "$LEGACY_EXE" uninstall "$@"
+    else echo "Corvus is not installed."; fi
     exit 0
 fi
 
@@ -45,6 +49,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 version="${version#v}"
+case "$version" in 0.*|1.[01]|1.[01].*) fail "release $version predates Corvus (1.2.0 is the first)" ;; esac
 case "$setup_args" in *[!A-Za-z0-9_\ ,.-]*) fail "client names may use letters, digits, '-', '_', '.' and ','" ;; esac
 
 case "$(uname -s)" in
@@ -59,7 +64,7 @@ case "$(uname -m)" in
     aarch64|arm64) arch=arm64 ;;
     *) fail "unsupported processor $(uname -m)" ;;
 esac
-asset="NetDecompilerMcp-$os-$arch.tar.gz"
+asset="corvus-$os-$arch.tar.gz"
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -107,20 +112,8 @@ if [ -n "$sums" ]; then
     [ "$expected" = "$actual" ] || fail "checksum mismatch for $asset (expected $expected, got $actual); the download is corrupt or was altered"
 fi
 
-# Releases before 1.2.0 take no setup options (no plan, --yes or --client): this script may be newer than the release.
-plans_setup() {
-    v=${version_found%%[+-]*}
-    major=${v%%.*}; rest=${v#*.}; minor=${rest%%.*}
-    [ "$major" -gt 1 ] 2>/dev/null || { [ "$major" -eq 1 ] 2>/dev/null && [ "$minor" -ge 2 ] 2>/dev/null; }
-}
-
 # Runs the program's install with the terminal as input when there is one: piped into sh, stdin is this script.
 register() {
-    if ! plans_setup; then
-        [ -z "$setup_args" ] || echo "NetDecompilerMcp $version_found takes no setup options; registering with every client it detects."
-        "$@"
-        return
-    fi
     if [ ! -t 0 ] && (: < /dev/tty) 2>/dev/null; then
         # shellcheck disable=SC2086
         "$@" $setup_args < /dev/tty
@@ -141,16 +134,12 @@ if [ -n "$dry_run" ]; then
     # A staged copy outside the install root plans the registration for the program that would be installed.
     mkdir -p "$tmp/staged"
     tar -xzf "$archive" -C "$tmp/staged"
-    chmod +x "$tmp/staged/NetDecompilerMcp"
-    check_runs "$tmp/staged/NetDecompilerMcp"
-    echo "Release: $release ($asset, NetDecompilerMcp $version_found)"
+    chmod +x "$tmp/staged/corvus"
+    check_runs "$tmp/staged/corvus"
+    echo "Release: $release ($asset, Corvus $version_found)"
     echo "Checksum: $source"
-    echo "Would install to: $ROOT/versions/$version_found, linked as $ROOT/current, with $BIN/NetDecompilerMcp pointing at it"
-    if ! plans_setup; then
-        echo "Would register with every MCP client it detects (a registration plan needs NetDecompilerMcp 1.2.0 or newer)."
-        exit 0
-    fi
-    register "$tmp/staged/NetDecompilerMcp" install --command "$EXE"
+    echo "Would install to: $ROOT/versions/$version_found, linked as $ROOT/current, with $BIN/corvus pointing at it"
+    register "$tmp/staged/corvus" install --command "$EXE"
     exit 0
 fi
 
@@ -159,8 +148,8 @@ staging="$ROOT/versions/.new-$$"
 rm -rf "$staging"
 mkdir -p "$staging"
 tar -xzf "$archive" -C "$staging"
-chmod +x "$staging/NetDecompilerMcp"
-if ! version_found=$("$staging/NetDecompilerMcp" version); then
+chmod +x "$staging/corvus"
+if ! version_found=$("$staging/corvus" version); then
     rm -rf "$staging"
     if [ "$os" = linux-musl ]; then fail "the build needs the C++ runtime: apk add libstdc++ libgcc, then run this again"; fi
     fail "the downloaded build does not run on this machine"
@@ -175,13 +164,13 @@ for dir in "$ROOT"/versions/*; do
 done
 
 mkdir -p "$BIN"
-ln -sf "$EXE" "$BIN/NetDecompilerMcp"
+ln -sf "$EXE" "$BIN/corvus"
 
-echo "Installed NetDecompilerMcp $version_found to $target"
+echo "Installed Corvus $version_found to $target"
 register "$EXE" install
 echo
-echo "Done. Commands: NetDecompilerMcp status | update | uninstall"
+echo "Done. Commands: corvus status | update | uninstall"
 case ":$PATH:" in
     *":$BIN:"*) ;;
-    *) echo "Add $BIN to PATH to run NetDecompilerMcp from a terminal (the MCP clients do not need it)." ;;
+    *) echo "Add $BIN to PATH to run corvus from a terminal (the MCP clients do not need it)." ;;
 esac

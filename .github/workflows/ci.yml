@@ -96,8 +96,8 @@ jobs:
         run: |
           rid=$(dotnet --info | grep -m1 'RID:' | awk '{print $2}')
           dotnet publish src/Corvus/Corvus.csproj -c Release -r "$rid" --self-contained true -p:Version=9.9.9 -o out
-          if [ "$RUNNER_OS" = Windows ]; then pwsh -c 'Compress-Archive -Path out/* -DestinationPath package.zip'; package=package.zip; asset="NetDecompilerMcp-$rid.zip"
-          else tar -czf package.tar.gz -C out .; package=package.tar.gz; asset="NetDecompilerMcp-$rid.tar.gz"; fi
+          if [ "$RUNNER_OS" = Windows ]; then pwsh -c 'Compress-Archive -Path out/* -DestinationPath package.zip'; package=package.zip; asset="corvus-$rid.zip"
+          else tar -czf package.tar.gz -C out .; package=package.tar.gz; asset="corvus-$rid.tar.gz"; fi
           # Manifests under the release asset name: the real one and one that must be rejected.
           hash=$( (sha256sum "$package" 2>/dev/null || shasum -a 256 "$package") | awk '{ print $1 }')
           echo "$hash  $asset" > SHA256SUMS
@@ -119,24 +119,24 @@ jobs:
           # A dry run plans and changes nothing.
           $plan = & $install -DryRun -Yes *>&1 | Out-String
           if ($plan -notmatch 'Dry run: nothing was written') { throw "no plan: $plan" }
-          if ((Test-Path "$env:LOCALAPPDATA\NetDecompilerMcp\current") -or (Test-Path "$HOME\.cursor\mcp.json")) { throw 'the dry run changed something' }
+          if ((Test-Path "$env:LOCALAPPDATA\Corvus\current") -or (Test-Path "$HOME\.cursor\mcp.json")) { throw 'the dry run changed something' }
           # No terminal and no -Yes: new clients are listed, not registered.
           & $install
           if (Test-Path "$HOME\.cursor\mcp.json") { throw 'registered without consent' }
           & $install -Yes -Client cursor
           Remove-Item Env:CORVUS_SHA256SUMS
-          $exe = "$env:LOCALAPPDATA\NetDecompilerMcp\current\corvus.exe"
-          $entry = (Get-Content "$HOME\.cursor\mcp.json" -Raw | ConvertFrom-Json).mcpServers.'net-decompiler'
+          $exe = "$env:LOCALAPPDATA\Corvus\current\corvus.exe"
+          $entry = (Get-Content "$HOME\.cursor\mcp.json" -Raw | ConvertFrom-Json).mcpServers.'corvus'
           if ($entry.command -ne $exe) { throw "Cursor entry: $($entry.command)" }
           & $exe status
           if ($LASTEXITCODE -ne 0) { throw 'status failed' }
           Get-Content install.ps1 -Raw | Invoke-Expression
-          $root = "$env:LOCALAPPDATA\NetDecompilerMcp"
+          $root = "$env:LOCALAPPDATA\Corvus"
           New-Item -ItemType Directory -Force "$root\annotations" | Out-Null
           Set-Content "$root\annotations\marker.json" '{}'
           & ([scriptblock]::Create((Get-Content install.ps1 -Raw))) -Uninstall
           Start-Sleep -Seconds 5
-          if ((Get-Content "$HOME\.cursor\mcp.json" -Raw) -match 'net-decompiler') { throw 'still registered' }
+          if ((Get-Content "$HOME\.cursor\mcp.json" -Raw) -match '"corvus"') { throw 'still registered' }
           if ((Test-Path "$root\versions") -or (Test-Path "$root\current")) { throw 'program files left behind' }
           if (-not (Test-Path "$root\annotations\marker.json")) { throw 'user data was deleted' }
           Get-Content install.ps1 -Raw | Invoke-Expression
@@ -155,24 +155,26 @@ jobs:
           # A dry run plans and changes nothing.
           CORVUS_ARCHIVE="$PWD/package.tar.gz" CORVUS_SHA256SUMS="$PWD/SHA256SUMS" sh -s -- --dry-run --yes < install.sh > plan.txt
           grep -q 'Dry run: nothing was written' plan.txt
-          test ! -e ~/.local/share/net-decompiler-mcp
+          test ! -e ~/.local/share/Corvus
           test ! -e ~/.cursor/mcp.json
           # No terminal and no --yes: new clients are listed, not registered.
           CORVUS_ARCHIVE="$PWD/package.tar.gz" CORVUS_SHA256SUMS="$PWD/SHA256SUMS" sh < install.sh
           test ! -e ~/.cursor/mcp.json
           CORVUS_ARCHIVE="$PWD/package.tar.gz" CORVUS_SHA256SUMS="$PWD/SHA256SUMS" sh -s -- --yes --client cursor < install.sh
-          grep -q "$HOME/.local/share/net-decompiler-mcp/current/NetDecompilerMcp" ~/.cursor/mcp.json
-          ~/.local/bin/NetDecompilerMcp status
+          grep -q "$HOME/.local/share/Corvus/current/corvus" ~/.cursor/mcp.json
+          ~/.local/bin/corvus status
           CORVUS_ARCHIVE="$PWD/package.tar.gz" sh < install.sh
           # The data root is .NET's local application data folder.
-          if [ "$RUNNER_OS" = macOS ]; then data="$HOME/Library/Application Support/NetDecompilerMcp"; else data="$HOME/.local/share/NetDecompilerMcp"; fi
+          # On Linux it is also the install folder, which keeps the data after an uninstall.
+          if [ "$RUNNER_OS" = macOS ]; then data="$HOME/Library/Application Support/Corvus"; else data="$HOME/.local/share/Corvus"; fi
           mkdir -p "$data/annotations" && echo '{}' > "$data/annotations/marker.json"
           sh -s -- --uninstall < install.sh
-          ! grep -q net-decompiler ~/.cursor/mcp.json
-          test ! -e ~/.local/share/net-decompiler-mcp
-          test ! -e ~/.local/bin/NetDecompilerMcp
+          ! grep -q '"corvus"' ~/.cursor/mcp.json
+          test ! -e ~/.local/share/Corvus/versions
+          test ! -e ~/.local/share/Corvus/current
+          test ! -e ~/.local/bin/corvus
           test -f "$data/annotations/marker.json"
           CORVUS_ARCHIVE="$PWD/package.tar.gz" sh < install.sh
           sh -s -- --uninstall --purge-data < install.sh
-          test ! -e ~/.local/share/net-decompiler-mcp
+          test ! -e ~/.local/share/Corvus
           test ! -e "$data"
