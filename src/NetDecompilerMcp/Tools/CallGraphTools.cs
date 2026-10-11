@@ -12,7 +12,7 @@ namespace NetDecompilerMcp.Tools;
 
 [McpServerToolType]
 public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService graph, OutputPager pager, NativeLinkService? link = null,
-    NativeCodeService? code = null)
+    NativeCodeService? code = null, NativeEngineService? engines = null)
 {
     [McpServerTool(Name = "get_call_tree", Title = "Call tree (callers / callees)", UseStructuredContent = true, OutputSchemaType = typeof(CallTree))]
     [Description("Multi-level call tree of a method across all loaded assemblies: direction=callers (who calls it, who calls those...) or callees (what it calls, recursively). " +
@@ -95,7 +95,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
     [Description("How execution reaches a method: call chains from 'from' to 'to', or — when 'from' is omitted — from entry points (methods nothing in the workspace calls: Main, Unity callbacks, event handlers). " +
                  "Shortest first, direct calls preferred; a hop that only happens through virtual dispatch (a call to a base/interface method this one overrides) is marked. " +
                  "'to' may be native code (an export, or native:<image>!<address or function>): chains then run through native callers across loaded images " +
-                 "(calls, tail calls, imports bound between images, RTTI virtual calls, function pointers resolve_call_targets resolved) back to native roots " +
+                 "(calls, tail calls, imports bound between images, an open IDA / Ghidra session's call references, RTTI virtual calls, calls through function pointers) back to native roots " +
                  "(entry point, exports, TLS callbacks, callbacks, uncalled functions) and to managed methods through P/Invoke; 'from' may then be native too. " +
                  "Each native step carries its call site and edge kind; chains are ranked by length, uncertain hops and image changes.")]
     public async Task<string> FindCallPaths(
@@ -187,7 +187,7 @@ public sealed class CallGraphTools(AssemblyWorkspace workspace, CallGraphService
     private string NativePaths(NativeSymbol symbol, (LoadedNative Image, Native.Code.NativeFunction Function) goal, NativeSymbol? nativeFrom, string? from, int deepest,
         int limit, bool includeVirtual, CancellationToken ct)
     {
-        var paths = new NativeCallPaths(link!, code!);
+        var paths = new NativeCallPaths(link!, code!) { EngineCallers = engines != null ? NativeCallPaths.FromEngines(engines, code!, ct) : null };
         var goalNode = new NativeNode(goal.Image, goal.Function.Start);
         var label = $"native {symbol} ([{goal.Image.Id}] {NativeName(goalNode)} at {NativeAddress.Va(goal.Image.Image, goalNode.Start)})";
         NativeNode? fromNode = null;

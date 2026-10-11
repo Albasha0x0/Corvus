@@ -115,6 +115,49 @@ public sealed class NativeCallPathTests : IDisposable
         NativeLinkTests.Has(text, "root: export");
     }
 
+    [Fact]
+    public async Task Calls_through_a_pointer_in_data_are_found_without_an_image_scan()
+    {
+        var path = _dir.File("ptrs.dll");
+        File.WriteAllBytes(path, LinkedImages.Build("ptrs.dll", [("Run", 0), ("Cb", 0x20)], [],
+            slots => new LinkedImages.Code(slots).CallImport("table").Ret().Pad(0x20).Ret().ToArray(),
+            (blob, relocations) =>
+            {
+                blob.Align(8);
+                uint table = blob.U64(Base + LinkedImages.Text + 0x20);
+                relocations.Add(table);
+                return new Dictionary<string, uint> { ["table"] = table };
+            }));
+        var (ws, tools) = Rig(_dir, path);
+        using var _ = ws;
+        var text = await tools.FindCallPaths("native:ptrs.dll!Cb");
+        NativeLinkTests.Has(text, "[ptrs.dll] Run at 0x180001000  (entry point)");
+        NativeLinkTests.Has(text, "-> [ptrs.dll] Cb at 0x180001020  (pointer at 0x180001000)");
+        Assert.DoesNotContain("resolve_call_targets", text);
+    }
+
+    [Fact]
+    public async Task An_open_engine_sessions_call_references_are_edges()
+    {
+        var path = _dir.File("eng.dll");
+        File.WriteAllBytes(path, LinkedImages.Build("eng.dll", [("Hidden", 0), ("Goal", 0x20)], [],
+            slots => new LinkedImages.Code(slots).Raw(0xFF, 0xD0).Ret().Pad(0x20).Ret().ToArray()));
+        var options = new ServerOptions { BackgroundIndexing = false };
+        var ws = new AssemblyWorkspace(options);
+        using var _ = ws;
+        var native = ws.LoadAny(path).Native!;
+        var code = new NativeCodeService(ws, options, null, new AnnotationStore(_dir.File("ann")));
+        var engine = new ScriptedEngine();
+        engine.Add(LinkedImages.Text, "Hidden");
+        engine.Add(LinkedImages.Text + 0x20, "Goal");
+        engine.Xrefs.Add(new NetDecompilerMcp.Native.Providers.NativeXref(LinkedImages.Text, LinkedImages.Text + 0x20, NetDecompilerMcp.Native.Providers.NativeXrefKind.Call, LinkedImages.Text));
+        using var engines = new NativeEngineService([engine], _dir.File("cache"), null, ws, options);
+        await engines.Session(native, NetDecompilerMcp.Native.Providers.Ida.IdaProvider.ProviderId, null, default);
+        var tools = new CallGraphTools(ws, new CallGraphService(ws), new OutputPager(options), new NativeLinkService(ws, code), code, engines);
+        var text = await tools.FindCallPaths("native:eng.dll!Goal");
+        NativeLinkTests.Has(text, "-> [eng.dll] Goal at 0x180001020  (engine at 0x180001000)");
+    }
+
     [WindowsFact("P/Invoke DLL lookup is done on Windows hosts only.")]
     public async Task Managed_methods_reach_native_code_through_PInvoke()
     {

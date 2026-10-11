@@ -3,6 +3,7 @@ using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native;
 using NetDecompilerMcp.Native.Calls;
 using NetDecompilerMcp.Native.Code;
+using NetDecompilerMcp.Native.Providers;
 
 namespace NetDecompilerMcp.Services;
 
@@ -11,8 +12,8 @@ public readonly record struct NativeNode(LoadedNative Image, uint Start);
 
 /// <summary>
 /// A call from <see cref="From"/> to <see cref="To"/> at <see cref="Site"/> (in From's image). Edge: call, tail, import
-/// (through an import bound to the other image), virtual_exact, virtual_possible or pointer (a function pointer
-/// resolve_call_targets resolved).
+/// (through an import bound to the other image), virtual_exact, virtual_possible, pointer (a call through a function
+/// pointer held in data, a global or a register) or engine (a call reference only the open IDA / Ghidra session has).
 /// </summary>
 public sealed record NativeHop(NativeNode From, NativeNode To, string Edge, uint Site);
 
@@ -97,7 +98,7 @@ public sealed class NativeCallGraph
         return cut;
     }
 
-    private static int EdgeRank(string edge) => edge switch { "call" or "tail" => 0, "import" => 1, "virtual_exact" => 2, "pointer" => 3, _ => 4 };
+    private static int EdgeRank(string edge) => edge switch { "call" or "tail" => 0, "import" or "engine" => 1, "virtual_exact" => 2, "pointer" => 3, _ => 4 };
 
     internal static int RootRank(string root) => root switch
     {
@@ -107,13 +108,37 @@ public sealed class NativeCallGraph
 
 /// <summary>
 /// Shortest call chains to a native function across loaded images: a backward search over the in-memory call graph
-/// (direct and tail calls, imports bound between images, RTTI virtual calls and resolved function pointers when asked),
-/// then a bounded enumeration over distance-decreasing edges (<see cref="NativeCallGraph.Chains"/>).
+/// (direct and tail calls, imports bound between images, the open engine session's call references, RTTI virtual calls
+/// and calls through function pointers when asked), then a bounded enumeration over distance-decreasing edges
+/// (<see cref="NativeCallGraph.Chains"/>).
 /// </summary>
 public sealed class NativeCallPaths(NativeLinkService link, NativeCodeService code)
 {
     public const int MaxVisited = 50_000;
+    /// <summary>Functions searched for calls through the pointers to one function.</summary>
+    private const int MaxPointerUsers = 64;
     private static readonly ConditionalWeakTable<CallAnalysis, Tuple<int, Dictionary<uint, List<(uint Site, uint Caller)>>>> PointerCallers = new();
+    private static readonly ConditionalWeakTable<NativeCodeIndex, Dictionary<(int, uint), List<(uint Site, uint Caller)>>> TargetedPointers = new();
+
+    /// <summary>Call references of an engine session open on an image: (site, caller start) of the calls to a function start.</summary>
+    public Func<LoadedNative, uint, IReadOnlyList<(uint Site, uint Caller)>>? EngineCallers { get; init; }
+
+    /// <summary>The call and jump references to a function in the IDA or Ghidra session already open on its image (none is started).</summary>
+    public static Func<LoadedNative, uint, IReadOnlyList<(uint Site, uint Caller)>> FromEngines(NativeEngineService engines, NativeCodeService code, CancellationToken ct) =>
+        (native, start) =>
+        {
+            if (engines.OpenSession(native) is not { } session) return [];
+            var index = code.Ready(native);
+            var result = new List<(uint, uint)>();
+            foreach (var x in session.GetXrefsToAsync(start, ct).GetAwaiter().GetResult())
+            {
+                if (x.Kind is not (NativeXrefKind.Call or NativeXrefKind.Jump)) continue;
+                uint caller = index?.FunctionAt(x.FromRva)?.Start ?? x.FromFunctionRva ?? x.FromRva;
+                if (x.Kind == NativeXrefKind.Jump && caller == start) continue;
+                result.Add((x.FromRva, caller));
+            }
+            return result;
+        };
 
     /// <summary>Explores the callers of <paramref name="goal"/> backward up to <paramref name="maxDepth"/> calls and <see cref="MaxVisited"/> functions.</summary>
     public NativeCallGraph Explore(NativeNode goal, int maxDepth, bool indirect, CancellationToken ct)
@@ -151,7 +176,7 @@ public sealed class NativeCallPaths(NativeLinkService link, NativeCodeService co
         }
         if (g.Cut) g.Notes.Add($"the search stopped at {MaxVisited:N0} functions");
         if (unscanned.Count > 0)
-            g.Notes.Add($"calls through function pointers are not followed in {string.Join(", ", unscanned.Order(StringComparer.Ordinal))}: " +
+            g.Notes.Add($"calls through function pointers were searched in part in {string.Join(", ", unscanned.Order(StringComparer.Ordinal))}: " +
                         "resolve_call_targets scope=image resolves them once per image, and later searches use them");
         return g;
     }
@@ -173,7 +198,18 @@ public sealed class NativeCallPaths(NativeLinkService link, NativeCodeService co
     private List<NativeHop> Predecessors(NativeNode n, bool indirect, List<string> notes, HashSet<string> unscanned, CancellationToken ct)
     {
         var result = new List<NativeHop>();
-        if (code.Ready(n.Image) is not { } index)
+        var index = code.Ready(n.Image);
+        if (EngineCallers != null)
+        {
+            try
+            {
+                var known = index?.FunctionByStart(n.Start) is { } own ? index.Callers(own).Select(c => c.From).ToHashSet() : [];
+                foreach (var (site, caller) in EngineCallers(n.Image, n.Start))
+                    if (!known.Contains(site)) result.Add(new NativeHop(new NativeNode(n.Image, caller), n, "engine", site));
+            }
+            catch (ToolError e) { if (notes.Count < 10) notes.Add($"{n.Image.Id}: the engine's references were not read: {e.Message}"); }
+        }
+        if (index == null)
         {
             if (notes.Count < 10) notes.Add($"{n.Image.Id}: the code index is not built yet; its callers are not known");
             return result;
@@ -188,18 +224,75 @@ public sealed class NativeCallPaths(NativeLinkService link, NativeCodeService co
                     XrefKind.VirtualPossible => "virtual_possible",
                     _ => "call",
                 }, c.From));
-        if (indirect && CallAnalysis.Supports(index))
+        if (indirect)
         {
-            if (Pointers(CallAnalysis.For(index)) is { } pointers)
-                foreach (var (site, caller) in pointers.GetValueOrDefault(n.Start) ?? [])
-                    result.Add(new NativeHop(new NativeNode(n.Image, caller), n, "pointer", site));
-            else unscanned.Add(n.Image.Id);
+            var pointers = CallAnalysis.Supports(index) && Pointers(CallAnalysis.For(index)) is { } scanned ? scanned.GetValueOrDefault(n.Start) ?? [] : Targeted(index, fn, unscanned, n.Image.Id, ct);
+            foreach (var (site, caller) in pointers)
+                result.Add(new NativeHop(new NativeNode(n.Image, caller), n, "pointer", site));
         }
         foreach (var (importer, import) in link.ImportersOf(n.Image, n.Start, ct))
             if (code.Ready(importer) is { } other)
                 foreach (var c in other.Callers(import))
                     if (c.Caller is { } caller)
                         result.Add(new NativeHop(new NativeNode(importer, caller.Start), n, "import", c.From));
+        return result;
+    }
+
+    /// <summary>
+    /// Calls through pointers to <paramref name="fn"/>, found from its references: the data holding its address (a global, a table
+    /// entry and the table's start) and the code taking it; the functions reading those places have their call sites resolved
+    /// and the ones reaching <paramref name="fn"/> are kept. Bounded by <see cref="MaxPointerUsers"/> functions.
+    /// </summary>
+    private static List<(uint Site, uint Caller)> Targeted(NativeCodeIndex index, NativeFunction fn, HashSet<string> cut, string image, CancellationToken ct)
+    {
+        var cache = TargetedPointers.GetValue(index, _ => []);
+        var key = (index.Sourced.Version, fn.Start);
+        lock (cache) if (cache.TryGetValue(key, out var hit)) return hit;
+        Func<NativeFunction, IEnumerable<CallTargetSite>>? sitesIn = CallAnalysis.Supports(index) ? f => CallTargets.In(CallAnalysis.For(index), f, false, ct)
+            : Arm64Trace.Supports(index) ? f => Arm64CallTargets.In(Arm64Trace.For(index), f, false, ct) : null;
+        var result = new List<(uint, uint)>();
+        if (sitesIn == null) return result;
+        int ptr = index.Image.Is64Bit ? 8 : 4;
+        var places = new HashSet<uint>();
+        var users = new List<NativeFunction>();
+        void Use(NativeFunction f)
+        {
+            if (!users.Contains(f)) users.Add(f);
+        }
+        foreach (var x in index.RefsTo(fn.Start))
+        {
+            if (x.Kind is XrefKind.Call or XrefKind.TailCall or XrefKind.Jump or XrefKind.ConditionalJump) continue;
+            if (index.FunctionAt(x.From) is { } taker)
+            {
+                // the address taken in code: called there, or stored to a global that is read elsewhere
+                Use(taker);
+                foreach (var (s, e) in index.Ranges(taker))
+                    foreach (var w in index.RefsFrom(s, e).Where(r => r.Kind == XrefKind.Write && index.FunctionAt(r.To) == null)) places.Add(w.To);
+                continue;
+            }
+            // a pointer in data, and the start of the table it is in
+            places.Add(x.From);
+            for (uint at = x.From, k = 0; k < 64 && at >= (uint)ptr && index.RefsFrom(at - (uint)ptr, at).Any(r => r.Kind == XrefKind.Pointer); k++)
+            {
+                at -= (uint)ptr;
+                places.Add(at);
+            }
+        }
+        foreach (var place in places)
+            foreach (var r in index.RefsTo(place))
+                if (index.FunctionAt(r.From) is { } reader) Use(reader);
+        if (users.Count > MaxPointerUsers) cut.Add($"{image} (more than {MaxPointerUsers} functions use pointers to {fn.Name})");
+        foreach (var f in users.Take(MaxPointerUsers))
+        {
+            ct.ThrowIfCancellationRequested();
+            foreach (var s in sitesIn(f))
+                if (s.IsIndirect && s.Status is not ("import" or "unresolved") && s.Targets.Any(t => t.Address == fn.Start)) result.Add((s.Rva, f.Start));
+        }
+        lock (cache)
+        {
+            if (cache.Count > 4096) cache.Clear();
+            cache[key] = result;
+        }
         return result;
     }
 
