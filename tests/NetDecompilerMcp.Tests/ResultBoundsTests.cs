@@ -18,8 +18,10 @@ public abstract class ResultBoundsTests : IAsyncLifetime
     /// <summary>The protocol version the client speaks (null: the SDK's newest).</summary>
     protected virtual string? ProtocolVersion => null;
 
+    private string Trace => _dir.File("trace.jsonl");
+
     public async Task InitializeAsync() => _client = await McpProtocolTests.StartServerAsync(null, ProtocolVersion,
-        ["--no-index", "--no-watch", "--max-output", MaxOutput.ToString(), "--load", Library]);
+        ["--no-index", "--no-watch", "--max-output", MaxOutput.ToString(), "--trace", Trace, "--load", Library]);
 
     public async Task DisposeAsync()
     {
@@ -99,15 +101,10 @@ public abstract class ResultBoundsTests : IAsyncLifetime
             await _client.SendNotificationAsync(NotificationMethods.CancelledNotification,
                 new CancelledNotificationParams { RequestId = id, Reason = "test" }, ModelContextProtocol.McpJsonUtilities.DefaultOptions);
 
-            // The export stops: its output stops growing soon after (it kept writing for seconds when the transport had no thread).
-            var stopping = Stopwatch.StartNew();
-            for (int last = Files(), now; ; last = now)
-            {
-                await Task.Delay(300);
-                now = Files();
-                if (now == last) break;
-                Assert.True(stopping.Elapsed < TimeSpan.FromSeconds(2), $"the cancelled export was still writing files after {stopping.Elapsed.TotalSeconds:0.0} s ({now})");
-            }
+            // The export's handler ends as cancelled (it ran to the end when the transport had no thread to read the
+            // notification with), and writes nothing after that.
+            Assert.Equal("cancelled", await McpProtocolTests.TracedOutcome(Trace, "export_project", TimeSpan.FromMinutes(2)));
+            int files = Files();
 
             // A read and an edit (which needs the exclusive lock, so waits for the export to let go) both answer; the time is
             // logged rather than asserted, as a machine busy with other tests can make the first calls slow.
@@ -118,6 +115,7 @@ public abstract class ResultBoundsTests : IAsyncLifetime
             var edit = await _client.CallToolAsync("stub_method",
                 new Dictionary<string, object?> { ["method"] = "Newtonsoft.Json.JsonConvert::ToString(bool)", ["value"] = "\"x\"" }, cancellationToken: limit.Token);
             Assert.True(edit.IsError != true, Text(edit));
+            Assert.Equal(files, Files());
             output.WriteLine($"read and edit after the cancellation: {watch.ElapsedMilliseconds} ms");
         }
     }

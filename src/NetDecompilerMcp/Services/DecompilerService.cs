@@ -306,7 +306,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
             new FrameworkClassifier(Frameworks.TargetsNetFramework(asm.Module), Frameworks.NetCoreMajor(Frameworks.TargetFrameworkOf(asm.Module)),
                 Frameworks.NetFrameworkReferenceDirs(Frameworks.TargetFrameworkOf(asm.Module))), null);
         if (onProgress != null)
-            exporter.ProgressIndicator = new Progress<DecompilationProgress>(p => onProgress(p.UnitsCompleted, p.TotalUnits, p.Status ?? "Decompiling"));
+            exporter.ProgressIndicator = new InlineProgress<DecompilationProgress>(p => onProgress(p.UnitsCompleted, p.TotalUnits, p.Status ?? "Decompiling"));
         try
         {
             exporter.DecompileProject(asm.GetPEFile(), dir, cts.Token);
@@ -485,5 +485,11 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
     {
         int nl = s.IndexOf('\n');
         return (nl >= 0 ? s[..nl] : s).Trim();
+    }
+
+    /// <summary>Reports on the reporting thread: <see cref="Progress{T}"/> posts to the pool, so a report could arrive after the export returned or was cancelled.</summary>
+    private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
     }
 }

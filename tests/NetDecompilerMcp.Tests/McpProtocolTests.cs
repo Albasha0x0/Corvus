@@ -63,6 +63,28 @@ public abstract class McpProtocolTests : IAsyncLifetime
 
     private static string Text(CallToolResult r) => string.Join("\n", r.Content.OfType<TextContentBlock>().Select(c => c.Text));
 
+    /// <summary>
+    /// Waits for the server's --trace line of a call to <paramref name="tool"/>, written once its handler has ended, and
+    /// returns its error ("cancelled", a code, or null for success).
+    /// </summary>
+    internal static async Task<string?> TracedOutcome(string tracePath, string tool, TimeSpan limit)
+    {
+        for (var waited = System.Diagnostics.Stopwatch.StartNew(); ; await Task.Delay(50))
+        {
+            if (File.Exists(tracePath))
+            {
+                using var stream = new FileStream(tracePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                foreach (var line in new StreamReader(stream).ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    using var record = JsonDocument.Parse(line);
+                    if (record.RootElement.GetProperty("tool").GetString() == tool)
+                        return record.RootElement.GetProperty("error").GetString();
+                }
+            }
+            if (waited.Elapsed > limit) throw new TimeoutException($"no {tool} call ended within {limit.TotalSeconds:0} s");
+        }
+    }
+
     private async Task<string> Call(string tool, Dictionary<string, object?> args, bool expectError = false)
     {
         var result = await _client.CallToolAsync(tool, args);
@@ -706,26 +728,28 @@ public abstract class McpProtocolTests : IAsyncLifetime
             var psi = new System.Diagnostics.ProcessStartInfo("dotnet") { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
             foreach (var arg in new[] { ServerDll, "--load", Env.FixturePath, "--load", library }) psi.ArgumentList.Add(arg);
             psi.Environment["NDM_ANNOTATIONS_DIR"] = AnnotationsDir;
+            var trace = _dir.File("trace.jsonl");
+            psi.ArgumentList.Add("--trace");
+            psi.ArgumentList.Add(trace);
             using var server = System.Diagnostics.Process.Start(psi)!;
             server.ErrorDataReceived += (_, _) => { };
             server.BeginErrorReadLine();
-            var clock = System.Diagnostics.Stopwatch.StartNew();
-            var messages = new ConcurrentQueue<(long Ms, JsonElement Message)>();
+            var messages = new ConcurrentQueue<JsonElement>();
             var reader = Task.Run(async () =>
             {
                 while (await server.StandardOutput.ReadLineAsync() is { } line)
-                    messages.Enqueue((clock.ElapsedMilliseconds, JsonDocument.Parse(line).RootElement.Clone()));
+                    messages.Enqueue(JsonDocument.Parse(line).RootElement.Clone());
             });
             void Send(object message) { server.StandardInput.WriteLine(JsonSerializer.Serialize(message)); server.StandardInput.Flush(); }
-            async Task<long> Until(Func<JsonElement, bool> match)
+            async Task Until(Func<JsonElement, bool> match)
             {
-                for (int i = 0; i < 1_500; i++, await Task.Delay(20))
-                    foreach (var (ms, m) in messages)
-                        if (match(m)) return ms;
-                throw new TimeoutException("no such message in 30 s");
+                for (var waited = System.Diagnostics.Stopwatch.StartNew(); !messages.Any(match); await Task.Delay(20))
+                    if (waited.Elapsed > ContractSweep.CallLimit) throw new TimeoutException($"no such message in {ContractSweep.CallLimit.TotalSeconds:0} s");
             }
             static bool Is(JsonElement m, int id) => m.TryGetProperty("id", out var i) && i.ValueKind == JsonValueKind.Number && i.GetInt32() == id;
             static bool Progress(JsonElement m) => m.TryGetProperty("method", out var method) && method.GetString() == "notifications/progress";
+            static int Files(string dir) => Directory.Exists(dir) ? Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Count() : 0;
+            void Read(int id) => Send(new { jsonrpc = "2.0", id, method = "tools/call", @params = new { name = "get_type_info", arguments = new { type = "Account" } } });
             try
             {
                 Send(new { jsonrpc = "2.0", id = 1, method = "initialize", @params = new { protocolVersion = "2025-06-18", capabilities = new { }, clientInfo = new { name = "test", version = "1" } } });
@@ -734,21 +758,22 @@ public abstract class McpProtocolTests : IAsyncLifetime
                 Send(new { jsonrpc = "2.0", id = 2, method = "tools/call", @params = new { name = "export_project", arguments = new { assembly = "Newtonsoft.Json", outputDirectory = output }, _meta = new { progressToken = "export" } } });
                 await Until(Progress);
                 Send(new { jsonrpc = "2.0", method = "notifications/cancelled", @params = new { requestId = 2, reason = "test" } });
-                var cancelledAt = clock.ElapsedMilliseconds;
+                Read(3);
+                await Until(m => Is(m, 3)); // the server stays responsive
 
-                Send(new { jsonrpc = "2.0", id = 3, method = "tools/call", @params = new { name = "get_type_info", arguments = new { type = "Account" } } });
-                var answeredAt = await Until(m => Is(m, 3));
-                Assert.True(answeredAt - cancelledAt < 5_000, $"the next call took {answeredAt - cancelledAt} ms after a cancellation");
-
-                // The export stops: progress ends (one trailing update may be flushed) and no more files are written.
-                static int Files(string dir) => Directory.Exists(dir) ? Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Count() : 0;
-                await Task.Delay(Math.Max(0, 500 - (int)(clock.ElapsedMilliseconds - cancelledAt)));
-                int progress = messages.Count(m => Progress(m.Message)), files = Files(output);
-                await Task.Delay(1_500);
-                Assert.True(progress == messages.Count(m => Progress(m.Message)),
-                    $"progress went on after the cancellation at {cancelledAt} ms: {string.Join(" ", messages.Where(m => Progress(m.Message)).Select(m => m.Ms))}");
+                // The handler ends as cancelled; had the notification been read only after the export, it would end ok.
+                Assert.Equal("cancelled", await TracedOutcome(trace, "export_project", TimeSpan.FromMinutes(2)));
+                // Nothing comes from it after that: no files, no progress, no result. Replies are written in order, so
+                // whatever it sent before ending has arrived once a later call's answer has.
+                int files = Files(output);
+                Read(4);
+                await Until(m => Is(m, 4));
+                int progress = messages.Count(Progress);
+                Read(5);
+                await Until(m => Is(m, 5));
+                Assert.Equal(progress, messages.Count(Progress));
                 Assert.Equal(files, Files(output));
-                Assert.DoesNotContain(messages, m => Is(m.Message, 2) && m.Message.TryGetProperty("result", out _));
+                Assert.DoesNotContain(messages, m => Is(m, 2) && m.TryGetProperty("result", out _));
             }
             finally
             {
