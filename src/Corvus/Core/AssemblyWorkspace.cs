@@ -657,18 +657,18 @@ public sealed class AssemblyWorkspace : IDisposable
         if (FindReference(name, version, token, requesterPath, sameMajor: true, netFramework) is { } loaded) return new(loaded, null, null, null);
         if (FindAssemblyFile(name, requesterPath, token, version, netFramework) is { } file)
         {
-            // Prefer the NuGet package for the requester's TFM over a newer shared-framework copy.
-            if (Frameworks.NetCoreMajor(requesterFramework) is { } targetMajor && Frameworks.SharedFrameworkMajor(file) is { } fileMajor
+            // Prefer the NuGet package for the requester's TFM over a newer shared-framework or targeting-pack copy.
+            if (Frameworks.NetCoreMajor(requesterFramework) is { } targetMajor && Frameworks.ModernFrameworkMajor(file) is { } fileMajor
                 && fileMajor > targetMajor && Frameworks.SharedFrameworkOf(name, targetMajor) != "Microsoft.NETCore.App"
                 && Frameworks.NuGetFile(name, version, netFramework, requesterFramework) is { } fitting)
                 return new(null, fitting, null, null);
             // A major-version mismatch, or a modern runtime copy for a .NET Framework requester, ranks below
             // embedded images and matching NuGet packages.
             // Likewise a .NET Framework copy for a .NET Standard or .NET requester (System.Numerics.Vectors there lacks
-            // Vector<T>), and a runtime copy for a .NET Standard one (it needs that runtime's System.Runtime, CS1705).
+            // Vector<T>), and a runtime or targeting-pack copy for a .NET Standard one (it needs that runtime's System.Runtime, CS1705).
             bool standardRequester = requesterFramework?.StartsWith(".NETStandard", StringComparison.OrdinalIgnoreCase) == true;
             bool exact = (version == null || Frameworks.IsWildcard(version) || FileVersion(file) is not { } v || Frameworks.IsWildcard(v) || v.Major == version.Major)
-                         && !((netFramework || standardRequester) && Frameworks.SharedFrameworkMajor(file) != null)
+                         && !((netFramework || standardRequester) && Frameworks.ModernFrameworkMajor(file) != null)
                          && !(!netFramework && requesterFramework != null && Frameworks.InNetFrameworkDirectory(file));
             if (exact) return new(null, file, null, null);
             if (FindEmbedded(name, token) is { } embeddedFirst) return embeddedFirst;

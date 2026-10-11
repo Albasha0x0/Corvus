@@ -532,6 +532,23 @@ internal static class Frameworks
         return All.Value.FirstOrDefault(s => string.Equals(Path.GetFullPath(s.Dir).TrimEnd(Path.DirectorySeparatorChar), dir, StringComparison.OrdinalIgnoreCase))?.Version.Major;
     }
 
+    /// <summary>Major version of the targeting pack (&lt;Framework&gt;.Ref/&lt;version&gt;/ref/netN.0) containing the file, if any.</summary>
+    public static int? ReferencePackMajor(string file)
+    {
+        var tfm = Path.GetDirectoryName(Path.GetFullPath(file));
+        var refDir = Path.GetDirectoryName(tfm);
+        var pack = Path.GetDirectoryName(Path.GetDirectoryName(refDir));
+        if (pack == null || !string.Equals(Path.GetFileName(refDir), "ref", StringComparison.OrdinalIgnoreCase)
+            || !SharedNames.Any(n => string.Equals(Path.GetFileName(pack), n + ".Ref", StringComparison.OrdinalIgnoreCase)))
+            return null;
+        var name = Path.GetFileName(tfm)!;
+        return name.StartsWith("net", StringComparison.OrdinalIgnoreCase) && name.EndsWith(".0", StringComparison.Ordinal)
+               && int.TryParse(name.AsSpan(3, name.Length - 5), out var major) ? major : null;
+    }
+
+    /// <summary>Major version of the shared framework or targeting pack containing the file: a modern .NET copy, if any.</summary>
+    public static int? ModernFrameworkMajor(string file) => SharedFrameworkMajor(file) ?? ReferencePackMajor(file);
+
     /// <summary>Major version of a ".NETCoreApp,Version=vX.Y" target framework, else null.</summary>
     public static int? NetCoreMajor(string? targetFramework) =>
         targetFramework?.Split(",Version=v", 2) is [var id, var ver] && id.Equals(".NETCoreApp", StringComparison.OrdinalIgnoreCase)

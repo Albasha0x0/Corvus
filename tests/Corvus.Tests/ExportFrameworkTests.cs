@@ -75,6 +75,10 @@ public sealed class ExportFrameworkTests : IDisposable
             Assert.Null(Frameworks.SharedFrameworkMajor(file));
             Assert.Contains("netstandard", file, StringComparison.OrdinalIgnoreCase);
         }
+        // Without a .NET 6 runtime the major-6 references are found first in a targeting pack, which is no better fit.
+        Assert.Equal(6, Frameworks.ReferencePackMajor(Path.Combine(_dir.Path, "packs", "Microsoft.NETCore.App.Ref", "6.0.36", "ref", "net6.0", "a.dll")));
+        Assert.Equal(10, Frameworks.ReferencePackMajor(Path.Combine(_dir.Path, "microsoft.aspnetcore.app.ref", "10.0.1", "ref", "net10.0", "a.dll")));
+        Assert.Null(Frameworks.ReferencePackMajor(Path.Combine(_dir.Path, "system.text.json", "10.0.1", "lib", "net10.0", "a.dll")));
     }
 
     /// <summary>
