@@ -379,6 +379,19 @@ public class NativeEditTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task CommentNative_FunctionScope_TakesTheEngineFunctionWhereTheIndexHasNone()
+    {
+        using var h = new Harness();
+        var (native, index) = await h.Open();
+        var tools = new NativeEditTools(h.Env.Workspace, h.Code, h.Edits);
+        uint entry = native.Image.EntryPointRva, outside = index.Functions.Max(f => f.End) + 0x40;
+        Assert.Null(index.FunctionAt(outside));
+        Assert.Equal(ErrorCode.NotFound, Assert.Throws<ToolError>(() => tools.PlanComment(native, index, outside, "x", "function", false, true)).Code);
+        var plan = tools.PlanComment(native, index, outside, "engine's", "function", false, true, engineStart: entry);
+        Assert.Equal(entry, plan.Rva);
+    }
+
+    [Fact]
     public async Task CommentNative_Scopes_AppendWithDedupe_AndPseudocodeCommentsPersistAndExport()
     {
         using var h = new Harness();

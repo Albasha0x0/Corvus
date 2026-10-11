@@ -221,8 +221,10 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         {
             try
             {
-                var plan = PlanComment(native, index, Address(index, item.Address), item.Value, item.Scope != null ? CommentScopes.Parse(item.Scope) : defaultScope,
-                    item.Append ?? append, dedupe);
+                var rva = Address(index, item.Address);
+                var itemScope = item.Scope != null ? CommentScopes.Parse(item.Scope) : defaultScope;
+                var plan = PlanComment(native, index, rva, item.Value, itemScope, item.Append ?? append, dedupe,
+                    itemScope == CommentScopes.Function ? await EngineFunctionStart(native, index, rva, engine, progress, cancellationToken) : null);
                 if (plan.Change != null && plans.Any(p => p.Change?.Rva == plan.Rva))
                     throw new ToolError(ErrorCode.Conflict, "the address is commented twice in this batch");
                 plans.Add(plan);
@@ -273,13 +275,14 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     /// Resolves the scope (a function start in auto scope is the function comment; elsewhere the line and the pseudocode
     /// comment) and the text (append onto the comment in effect there, which may be an imported one; dedupe).
     /// </summary>
-    internal CommentPlan PlanComment(LoadedNative native, NativeCodeIndex index, uint rva, string text, string scope, bool append, bool dedupe)
+    /// <param name="engineStart">The start of the function an engine places the address in, when the built-in index has none there.</param>
+    internal CommentPlan PlanComment(LoadedNative native, NativeCodeIndex index, uint rva, string text, string scope, bool append, bool dedupe, uint? engineStart = null)
     {
-        var fn = index.FunctionAt(rva);
-        if (scope == CommentScopes.Function && fn == null)
+        uint? start = index.FunctionAt(rva)?.Start ?? engineStart;
+        if (scope == CommentScopes.Function && start == null)
             throw new ToolError(ErrorCode.NotFound, $"No function contains {NativeAddress.Va(index.Image, rva)}.", "use scope=line, or list_functions for the functions");
-        if (scope == CommentScopes.Auto) scope = fn?.Start == rva ? CommentScopes.Function : "both";
-        uint at = scope == CommentScopes.Function ? fn!.Start : rva;
+        if (scope == CommentScopes.Auto) scope = start == rva ? CommentScopes.Function : "both";
+        uint at = scope == CommentScopes.Function ? start!.Value : rva;
         var ann = edits.Annotations(native);
         var parts = new List<string>();
         string? kind = scope is NativeCommentKinds.Eol or NativeCommentKinds.Pre or NativeCommentKinds.Plate ? scope : null;
@@ -300,11 +303,22 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         }
         string? line = null, pseudo = null;
         if (scope is not CommentScopes.Pseudocode)
-            line = Next(index.Sourced.CommentAt(at)?.Text, scope == CommentScopes.Function ? $"function {fn!.Name}" : kind ?? "line", kindChanges);
+            line = Next(index.Sourced.CommentAt(at)?.Text, scope == CommentScopes.Function ? $"function {index.FunctionByStart(at)?.Name ?? index.NameAt(at) ?? $"sub_{at:X}"}" : kind ?? "line", kindChanges);
         if (scope is CommentScopes.Pseudocode or "both")
             pseudo = Next(ann.PseudoCommentAt(at), "pseudocode");
         return new CommentPlan(at, line == null && pseudo == null ? null : new NativeEditService.CommentChange(at, line, pseudo) { Kind = kind },
             $"{NativeAddress.Va(index.Image, at)}: {string.Join("; ", parts)}.");
+    }
+
+    /// <summary>With engine=ida|ghidra and no built-in function at <paramref name="rva"/>: the start of the engine's function there, else null.</summary>
+    private async Task<uint?> EngineFunctionStart(LoadedNative native, NativeCodeIndex index, uint rva, string? engine, IProgress<ProgressNotificationValue> progress,
+        CancellationToken ct)
+    {
+        if (engines == null || string.IsNullOrWhiteSpace(engine) || index.FunctionAt(rva) != null) return null;
+        var session = await engines.Session(native, engine, new Progress<NativeProviderProgress>(p =>
+            progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), ct);
+        try { return (await session.GetFunctionRecordAsync(rva, ct)).Start; }
+        catch (ToolError) { return null; }
     }
 
     /// <summary>Pushes the names and comments into an engine session now: the one asked for, else one open on the image; null when none.</summary>
