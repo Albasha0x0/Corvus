@@ -206,7 +206,24 @@ internal sealed class WindowsJobProcess : ChildProcess
         _processHandle.Dispose();
     }
 
+    /// <summary>
+    /// Process.Start lets its child inherit every inheritable handle of this process, and the child ends of our pipes are
+    /// inheritable from CreatePipe until they are closed after CreateProcess; a server started meanwhile would hold our
+    /// child's output open, so its reader never saw the end. Both take Process.Start's own lock (a private field; a lock
+    /// of our own should a runtime rename it).
+    /// </summary>
+    internal static readonly object CreateLock =
+        typeof(Process).GetField("s_createProcessLock", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)?.GetValue(null) ?? new object();
+
+    /// <summary>Test hook: runs while the child ends are inheritable.</summary>
+    internal static Action<ChildProcessStart>? PipesCreated;
+
     public static WindowsJobProcess Launch(ChildProcessStart start)
+    {
+        lock (CreateLock) return LaunchLocked(start);
+    }
+
+    private static WindowsJobProcess LaunchLocked(ChildProcessStart start)
     {
         var job = CreateJobObjectW(IntPtr.Zero, null);
         if (job.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateJobObject failed");
@@ -237,6 +254,7 @@ internal sealed class WindowsJobProcess : ChildProcess
             CreateInheritablePipe(out inRead, out inWrite, childEndIsRead: true);
             CreateInheritablePipe(out outRead, out outWrite, childEndIsRead: false);
             CreateInheritablePipe(out errRead, out errWrite, childEndIsRead: false);
+            PipesCreated?.Invoke(start);
 
             // Only the three child pipe ends are inherited, not every inheritable handle of this process
             // (such as the stdio pipes of an MCP stdio transport).

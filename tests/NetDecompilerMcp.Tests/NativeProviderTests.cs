@@ -183,6 +183,36 @@ public class NativeProviderTests
     }
 
     [WindowsFact]
+    public void A_process_started_meanwhile_does_not_inherit_the_pipes()
+    {
+        Assert.NotNull(typeof(Process).GetField("s_createProcessLock", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static));
+        var cmd = Path.Combine(Environment.SystemDirectory, "cmd.exe");
+        Process? other = null;
+        WindowsJobProcess.PipesCreated = start =>
+        {
+            if (!start.Arguments.Contains("echo ndm-pipes")) return;
+            // Process.Start on another thread while our child ends are inheritable: it either waits for them to close
+            // (blocked on the shared lock) or starts at once and inherits them.
+            var starter = new Thread(() => other = Process.Start(new ProcessStartInfo(cmd, "/d /c ping -n 30 127.0.0.1 >nul") { UseShellExecute = false, CreateNoWindow = true }));
+            starter.Start();
+            while ((starter.ThreadState & (System.Threading.ThreadState.WaitSleepJoin | System.Threading.ThreadState.Stopped)) == 0) Thread.Sleep(1);
+        };
+        try
+        {
+            // With the long-lived process holding the write end, the output never ends and the run comes back empty.
+            var run = PythonLocator.RunCapture(cmd, ["/d", "/c", "echo ndm-pipes"], TimeSpan.FromSeconds(30));
+            Assert.Equal("ndm-pipes", run.Stdout.Trim());
+        }
+        finally
+        {
+            WindowsJobProcess.PipesCreated = null;
+            for (var clock = Stopwatch.StartNew(); other == null && clock.Elapsed < TimeSpan.FromMinutes(1);) Thread.Sleep(10);
+            try { other?.Kill(); } catch (InvalidOperationException) { }
+            other?.Dispose();
+        }
+    }
+
+    [WindowsFact]
     public void Job_process_reports_exit_code_and_output()
     {
         var cmd = Path.Combine(Environment.SystemDirectory, "cmd.exe");
