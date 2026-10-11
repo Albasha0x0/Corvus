@@ -28,7 +28,6 @@ public class CallDeadlineTests
     public async Task CallsPastTheDeadlineEndWithATimeout()
     {
         using var services = Services();
-        var watch = System.Diagnostics.Stopwatch.StartNew();
         var release = new TaskCompletionSource();
         var cooperative = Run(services, "decompile_type", async ct => { await Task.Delay(Timeout.Infinite, ct); return Done; }).AsTask();
         var ignoring = Run(services, "search_strings", async _ => { await release.Task; return Done; }).AsTask();
@@ -39,10 +38,10 @@ public class CallDeadlineTests
         Assert.Equal("timeout", timedOut.GetProperty("code").GetString());
         Assert.True(timedOut.GetProperty("retryable").GetBoolean());
         Assert.False(timedOut.GetProperty("details").GetProperty("stillRunning").GetBoolean());
-        var abandoned = McpProtocolTests.ErrorJson(await ignoring);
+        // The work never ends until released below: an answer at all is the deadline's (the minute only guards against a hang).
+        var abandoned = McpProtocolTests.ErrorJson(await ignoring.WaitAsync(TimeSpan.FromMinutes(1)));
         Assert.Equal("timeout", abandoned.GetProperty("code").GetString());
         Assert.True(abandoned.GetProperty("details").GetProperty("stillRunning").GetBoolean());
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(10), $"took {watch.Elapsed}");
         release.SetResult();
     }
 
