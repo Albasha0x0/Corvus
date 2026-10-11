@@ -65,7 +65,8 @@ public sealed partial class NativeCodeTools
         }
         var choice = Choose(mode, native, index);
         var parts = new List<XrefPart>();
-        if (dir != "from") parts.Add(await XrefsTo(native, index, address, choice, progress, cancellationToken));
+        // call arguments only for the page: a kind filter moves rows, so it analyzes every row
+        if (dir != "from") parts.Add(await XrefsTo(native, index, address, choice, progress, cancellationToken, code == null ? (offset, limit) : (0, int.MaxValue)));
         if (dir != "to") parts.Add(await XrefsFrom(native, index, address, choice, progress, cancellationToken));
         var filtered = parts.Select(p => p with { Rows = code is { } c ? p.Rows.Where(r => KindOf(r) is { } k && CodeKinds.Contains(k) == c).ToList() : p.Rows }).ToList();
         var rows = filtered.SelectMany(p => p.Rows).ToList();
@@ -82,7 +83,7 @@ public sealed partial class NativeCodeTools
 
     /// <summary>References to the address: the engine's, or the built-in index's (imports, late-bound imports, virtual calls, switch cases, other images).</summary>
     private async Task<XrefPart> XrefsTo(LoadedNative native, NativeCodeIndex index, string address, EngineChoice choice,
-        IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+        IProgress<ProgressNotificationValue> progress, CancellationToken ct, (int First, int Count) page)
     {
         if (choice.External)
         {
@@ -107,7 +108,7 @@ public sealed partial class NativeCodeTools
             // virtual call sites that may reach the address (RTTI resolution) among the instruction references, by source
             var refs = index.RefsTo(rva).Concat(index.VirtualEdgesTo(rva)).OrderBy(x => x.From).ToList();
             var refRows = NativeCallTools.WithArguments(index, refs.Select(x => (x.From, x.Kind.ToString(), x.Kind is XrefKind.Call or XrefKind.TailCall || x.IsVirtualCall)),
-                from => Where(index, from), ct);
+                from => Where(index, from), ct, page.First, page.Count);
             var graphs = new Dictionary<uint, FunctionGraph?>();
             for (int i = 0; i < refs.Count && i < refRows.Count; i++)
                 if (refs[i].Kind == XrefKind.SwitchCase && CaseText(index, refs[i].From, rva, graphs, ct) is { } values)

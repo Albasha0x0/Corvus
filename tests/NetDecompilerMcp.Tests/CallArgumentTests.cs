@@ -85,6 +85,11 @@ public class CallArgumentTests(ITestOutputHelper output)
         Assert.Equal(ArgKind.Unknown, calls[1].Arguments[0].Kind);
         Assert.Contains("differs between paths", calls[1].Arguments[0].Derivation);
         Assert.Equal("Sleep(5)", calls[2].Display);
+
+        // reference rows carry arguments only on the page asked for
+        var rows = NetDecompilerMcp.Tools.NativeCallTools.WithArguments(index, calls.Select(c => (c.Rva, "Call", true)), _ => "f", default, first: 2, count: 1);
+        Assert.Equal([false, false, true], rows.Select(r => r.Contains('(')).ToArray());
+        Assert.EndsWith("Sleep(5)", rows[2]);
     }
 
     [Fact]

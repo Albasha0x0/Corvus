@@ -202,8 +202,12 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         return rows.OrderBy(r => r.From).Select(r => r.Text).ToList();
     }
 
-    /// <summary>Rows "address  kind  where", with the call's arguments for calls (the first <see cref="MaxAnalyzedRows"/>).</summary>
-    internal static List<string> WithArguments(NativeCodeIndex index, IEnumerable<(uint From, string Kind, bool IsCall)> refs, Func<uint, string> where, CancellationToken ct)
+    /// <summary>
+    /// Rows "address  kind  where", with the call's arguments for calls among <paramref name="count"/> rows from <paramref name="first"/>
+    /// (the rows a page shows, as each call's analysis costs; at most <see cref="MaxAnalyzedRows"/>).
+    /// </summary>
+    internal static List<string> WithArguments(NativeCodeIndex index, IEnumerable<(uint From, string Kind, bool IsCall)> refs, Func<uint, string> where, CancellationToken ct,
+        int first = 0, int count = MaxAnalyzedRows)
     {
         var analysis = Sites(index);
         int analyzed = 0;
@@ -211,7 +215,7 @@ public sealed class NativeCallTools(AssemblyWorkspace workspace, NativeCodeServi
         foreach (var (from, kind, isCall) in refs)
         {
             var text = $"{NativeAddress.Va(index.Image, from)}  {kind,-10} {where(from)}";
-            if (isCall && analysis != null && analyzed++ < MaxAnalyzedRows && analysis.CallAt(from, ct) is { } s && (s.Arguments.Count > 0 || !s.Guessed))
+            if (isCall && analysis != null && rows.Count >= first && rows.Count - first < count && analyzed++ < MaxAnalyzedRows && analysis.CallAt(from, ct) is { } s && (s.Arguments.Count > 0 || !s.Guessed))
                 text += "  " + s.Display;
             rows.Add(text);
         }
