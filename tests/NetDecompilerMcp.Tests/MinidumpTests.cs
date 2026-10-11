@@ -128,6 +128,8 @@ internal static class SyntheticCrash
         d.Threads.Add(new MinidumpBuilder.Thread(102, Stack, MinidumpBuilder.ContextX64(moduleBase + CrashRva + 1, Stack + 0x20, rbp: Stack + 0x50)));
         // in code outside any module (JIT): only a scan finds the caller
         d.Threads.Add(new MinidumpBuilder.Thread(103, Stack, MinidumpBuilder.ContextX64(JitCode, Stack, rbp: Stack + 0x50)));
+        // a call to a bad address from Outer's fragment: the return address is at the stack pointer
+        d.Threads.Add(new MinidumpBuilder.Thread(104, Stack, MinidumpBuilder.ContextX64(0x1234, Stack + 0x28, rbp: Stack + 0x50)));
         if (exception) d.Exception = (100, code, moduleBase + CrashRva + faultOffset, [1, 0], crash);
         return d;
     }
@@ -140,8 +142,152 @@ internal static class SyntheticCrash
     }
 }
 
+/// <summary>
+/// Synthetic x86 crashes. synth32.dll: Top (an EBP frame) calls Mid, which calls Leaf; Mid and Leaf keep no frame pointer,
+/// so EBP still holds Top's frame when Leaf faults. Jump calls through eax to a bad address; Trap calls halt.dll!Halt
+/// through its import slot.
+/// </summary>
+internal static class SyntheticCrashX86
+{
+    public const uint Base = 0x1000_0000, HaltBase = 0x2000_0000, Stack = 0x00E0_0000;
+    public const uint LeafRva = 0x1000, MidRva = 0x1020, TopRva = 0x1040, JumpRva = 0x1060, TrapRva = 0x1070;
+
+    /// <summary>A PE32 with .text at 0x1000 and .rdata at 0x2000: exports, and one import whose IAT slot VA the code gets.</summary>
+    private static byte[] Pe32(string dll, uint imageBase, Func<uint, byte[]> text, (string Name, uint Rva)[] exports, (string Module, string Name)? import)
+    {
+        var blob = new PeBlob(0x2000);
+        uint descriptors = 0, slot = 0;
+        if (import is { } imp)
+        {
+            descriptors = blob.Zero(40);
+            uint module = blob.Ascii(imp.Module);
+            blob.Align(2);
+            uint hint = blob.U16(0);
+            blob.Ascii(imp.Name);
+            blob.Align(4);
+            uint ilt = blob.U32(hint);
+            blob.U32(0);
+            slot = blob.U32(hint);
+            blob.U32(0);
+            blob.Patch32(descriptors, ilt);
+            blob.Patch32(descriptors + 12, module);
+            blob.Patch32(descriptors + 16, slot);
+        }
+        blob.Align(4);
+        uint dir = blob.Zero(40);
+        uint name = blob.Ascii(dll);
+        blob.Align(4);
+        uint eat = blob.Here;
+        foreach (var e in exports) blob.U32(e.Rva);
+        var nameRvas = exports.Select(e => blob.Ascii(e.Name)).ToList();
+        blob.Align(4);
+        uint names = blob.Here;
+        foreach (var n in nameRvas) blob.U32(n);
+        uint ordinals = blob.Here;
+        for (int i = 0; i < exports.Length; i++) blob.U16((ushort)i);
+        blob.Patch32(dir + 12, name);
+        blob.Patch32(dir + 16, 1);
+        blob.Patch32(dir + 20, (uint)exports.Length);
+        blob.Patch32(dir + 24, (uint)exports.Length);
+        blob.Patch32(dir + 28, eat);
+        blob.Patch32(dir + 32, names);
+        blob.Patch32(dir + 36, ordinals);
+        var b = new PeBuilder { Is64 = false, Machine = 0x14C, ImageBase = imageBase, Characteristics = 0x2102 };
+        b.Add(".text", text(imageBase + slot), 0x60000020);
+        b.Add(".rdata", blob.ToArray());
+        b.Directories[PeDirectory.Export] = (dir, blob.Here - dir);
+        if (import != null) b.Directories[PeDirectory.Import] = (descriptors, 40);
+        return b.Build();
+    }
+
+    public static byte[] FileImage() => Pe32("synth32.dll", Base, slotVa =>
+    {
+        var text = new byte[0x80];
+        new byte[] { 0x89, 0x08, 0xC3 }.CopyTo(text, 0x00); // Leaf: mov [eax], ecx; ret
+        text[0x20] = 0x56; // Mid: push esi; call Leaf; pop esi; ret
+        text[0x21] = 0xE8;
+        BinaryPrimitives.WriteInt32LittleEndian(text.AsSpan(0x22), (int)LeafRva - (int)(MidRva + 6));
+        new byte[] { 0x5E, 0xC3 }.CopyTo(text, 0x26);
+        new byte[] { 0x55, 0x8B, 0xEC, 0xE8 }.CopyTo(text, 0x40); // Top: push ebp; mov ebp, esp; call Mid; pop ebp; ret
+        BinaryPrimitives.WriteInt32LittleEndian(text.AsSpan(0x44), (int)MidRva - (int)(TopRva + 8));
+        new byte[] { 0x5D, 0xC3 }.CopyTo(text, 0x48);
+        new byte[] { 0xFF, 0xD0, 0xC3 }.CopyTo(text, 0x60); // Jump: call eax; ret
+        new byte[] { 0xFF, 0x15 }.CopyTo(text, 0x70); // Trap: call [halt.dll!Halt]; ret
+        BinaryPrimitives.WriteUInt32LittleEndian(text.AsSpan(0x72), slotVa);
+        text[0x76] = 0xC3;
+        return text;
+    }, [("Leaf", LeafRva), ("Mid", MidRva), ("Top", TopRva), ("Jump", JumpRva), ("Trap", TrapRva)], ("halt.dll", "Halt"));
+
+    public static byte[] HaltImage() => Pe32("halt.dll", HaltBase, _ => [0x8B, 0xFF, 0xCC, 0xC3], [("Halt", 0x1000)], null); // mov edi, edi; int3; ret
+
+    private static byte[] Mapped(byte[] file)
+    {
+        var pe = PeFile.FromBytes(file);
+        var image = new byte[pe.SizeOfImage];
+        for (uint page = 0; page < image.Length; page += 0x1000) pe.Read(page, image.AsSpan((int)page, 0x1000));
+        return image;
+    }
+
+    public static string Write(TempDir dir, string name = "synth32.dmp")
+    {
+        var image = Mapped(FileImage());
+        var halt = Mapped(HaltImage());
+        var stack = new byte[0x300];
+        void Put(int at, uint v) => BinaryPrimitives.WriteUInt32LittleEndian(stack.AsSpan(at), v);
+        Put(0x00, Base + MidRva + 6); // Leaf's return into Mid
+        Put(0x04, 0x6666); // esi saved by Mid
+        Put(0x08, Base + TopRva + 8); // Mid's return into Top
+        Put(0x0C, 0); // Top's saved ebp; EBP points here
+        Put(0x10, 0); // Top's return: the end
+        Put(0x100, Base + JumpRva + 2); // the bad call's return into Jump
+        Put(0x200, Base + TrapRva + 6); // Halt's return into Trap
+        var d = new MinidumpBuilder { FullMemory = true, ProcessorArchitecture = 0 };
+        d.Modules.Add(new MinidumpBuilder.Module(Base, (uint)image.Length, 0, @"Z:\nowhere\synth32.dll"));
+        d.Modules.Add(new MinidumpBuilder.Module(HaltBase, (uint)halt.Length, 0, @"Z:\nowhere\halt.dll"));
+        d.Memory.Add((Base, image));
+        d.Memory.Add((HaltBase, halt));
+        d.Memory.Add((Stack, stack));
+        d.Regions.Add(new MinidumpBuilder.Region(Base, (ulong)image.Length, 0x20));
+        d.Regions.Add(new MinidumpBuilder.Region(HaltBase, (ulong)halt.Length, 0x20));
+        d.Regions.Add(new MinidumpBuilder.Region(Stack, 0x300, 0x04));
+        var crash = MinidumpBuilder.ContextX86(Base + LeafRva, Stack, ebp: Stack + 0xC, ecx: 0x2A);
+        d.Threads.Add(new MinidumpBuilder.Thread(100, Stack, crash, "main"));
+        d.Threads.Add(new MinidumpBuilder.Thread(101, Stack, MinidumpBuilder.ContextX86(0x1234, Stack + 0x100)));
+        d.Threads.Add(new MinidumpBuilder.Thread(102, Stack, MinidumpBuilder.ContextX86(HaltBase + 0x1002, Stack + 0x200)));
+        d.Exception = (100, 0xC0000005, Base + LeafRva, [1, 0], crash);
+        var path = dir.File(name);
+        File.WriteAllBytes(path, d.Build());
+        return path;
+    }
+}
+
 public sealed class MinidumpTests
 {
+    /// <summary>x86 frames without a frame pointer are found by the return address whose call targets the function, not lost to the EBP chain.</summary>
+    [Fact]
+    public async Task X86FramePointerOmittedFramesAreWalked()
+    {
+        using var dir = new TempDir();
+        var path = SyntheticCrashX86.Write(dir);
+        var service = new MinidumpService();
+        var stack = await service.Stack(path, null, true, 64, 0, 64, null, default);
+        Assert.Equal("x86", stack.Architecture);
+        Assert.Equal(["synth32!Leaf", "synth32!Mid+0x6", "synth32!Top+0x8"], stack.Frames.Select(f => f.Symbol));
+        Assert.Equal(["context", "call_target", "call_target"], stack.Frames.Select(f => f.Method));
+        Assert.Equal(0, stack.HeuristicFrames);
+        Assert.Equal("end_of_stack", stack.Stop);
+        // a call to a bad address: the return address is at the stack pointer
+        var bad = await service.Stack(path, "101", true, 64, 0, 64, null, default);
+        Assert.Equal(("leaf", "synth32!Jump+0x2"), (bad.Frames[1].Method, bad.Frames[1].Symbol));
+        // a call through an import slot the dump holds unbound: matched by the import's name
+        var trap = await service.Stack(path, "102", true, 64, 0, 64, null, default);
+        Assert.Equal(["halt!Halt+0x2", "synth32!Trap+0x6"], trap.Frames.Take(2).Select(f => f.Symbol));
+        Assert.Equal("call_target", trap.Frames[1].Method);
+
+        var buckets = await new MinidumpService { BucketCache = dir.File("cache") }.Bucket(dir.Path, false, null, 3, null, false, true, 10, null, 0, 10, null, default);
+        Assert.Equal("0xC0000005 | synth32!Leaf | synth32!Mid > synth32!Top", Assert.Single(buckets.Buckets).Signature);
+    }
+
     [Fact]
     public async Task SyntheticCrashIsSummarizedAndUnwound()
     {
@@ -183,6 +329,9 @@ public sealed class MinidumpTests
         Assert.Equal("scan", jit.Frames[1].Method);
         Assert.True(jit.Frames[1].Heuristic);
         Assert.Equal(["synth!Outer+0x35", "synth!Big+0x14"], jit.Frames.Skip(1).Select(f => f.Symbol));
+        var bad = await service.Stack(path, "104", true, 64, 0, 64, null, default);
+        Assert.Equal(["leaf", "unwind_info"], bad.Frames.Skip(1).Select(f => f.Method));
+        Assert.Equal(["synth!Outer+0x35", "synth!Big+0x14"], bad.Frames.Skip(1).Select(f => f.Symbol));
 
         var memory = await service.ReadMemory(path, "synth+0x1000", 16, true, default);
         Assert.Equal("dump_memory", memory.Source);

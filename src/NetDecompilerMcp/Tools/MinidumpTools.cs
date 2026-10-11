@@ -34,10 +34,10 @@ public sealed class MinidumpTools(MinidumpService dumps)
             new DacRequest(string.IsNullOrWhiteSpace(dacPath) ? null : dacPath, downloadDac), cancellationToken), cancellationToken);
 
     [McpServerTool(Name = "dump_stack", Title = "Crash dump stack", UseStructuredContent = true)]
-    [Description("Call stack of a minidump thread. x64: unwind with the modules' .pdata (image on disk or in dump memory); x86: the EBP chain; " +
-                 "without unwind data (JIT code) a stack scan adds frames marked heuristic. Names from a loaded image's code index, Il2Cpp dummy DLLs, a " +
+    [Description("Call stack of a minidump thread. x64: .pdata unwind (image on disk or in dump memory); x86: call targets, then the EBP chain; " +
+                 "without unwind data (JIT code) a stack scan adds heuristic frames. Names from a loaded image's code index, Il2Cpp dummy DLLs, a " +
                  "matching PDB, or exports (nearest_export is a guess). .NET frames come from the runtime's walk (DAC) with token, IL offset and the " +
-                 "loaded assembly of that build and the C# statement; Mono JIT code from the runtime's report beside the dump. The faulting thread starts at the exception context, like .ecxr.")]
+                 "loaded assembly of that build and the C# statement; Mono JIT code from the runtime's report beside the dump. The faulting thread starts at the exception context (.ecxr).")]
     public Task<MinidumpService.StackReport> DumpStack(
         [Description(DumpDescription)] string dump,
         [Description("Thread id (decimal or 0x hex), '#index', a thread name, or 'exception'. Default: the faulting thread, else the first thread.")] string? thread = null,

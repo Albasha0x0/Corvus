@@ -147,7 +147,7 @@ public sealed class LiveProcessService(MinidumpService dumps)
                 var entries = live.Threads(ct);
                 if (threadFilter is { Length: > 0 }) entries = PickThreads(live, entries, threadFilter);
                 threadCount = entries.Count;
-                var walker = new StackWalker(live, m => session.Code(m).Image);
+                var walker = session.Walker();
                 foreach (var e in entries.Skip(threadsOffset).Take(threadsLimit))
                 {
                     ct.ThrowIfCancellationRequested();

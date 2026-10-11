@@ -12,12 +12,14 @@ public static class FrameMethod
     public const string UnwindInfo = "unwind_info";
     /// <summary>x64 unwind of the top frame from inside an epilog (instructions emulated).</summary>
     public const string Epilog = "epilog";
-    /// <summary>x64 function without .pdata (a leaf): the return address at the stack pointer.</summary>
+    /// <summary>x64 function without .pdata (a leaf), or x86 after a call to an address that is not code: the return address at the stack pointer.</summary>
     public const string Leaf = "leaf";
     /// <summary>x64 UWOP_PUSH_MACHFRAME: an interrupt or exception frame.</summary>
     public const string MachineFrame = "machine_frame";
     /// <summary>x86 saved frame pointer chain (EBP).</summary>
     public const string FramePointer = "frame_pointer";
+    /// <summary>x86 without a frame pointer: the nearest stack slot holding a return address whose call targets this function.</summary>
+    public const string CallTarget = "call_target";
     /// <summary>Stack scan for a value that looks like a return address: heuristic.</summary>
     public const string Scan = "scan";
 }
@@ -36,8 +38,8 @@ public sealed record WalkResult(IReadOnlyList<WalkFrame> Frames, string Stop, IR
 /// Walks a thread's stack in a dump. x64: virtual unwind with the modules' exception data (.pdata RUNTIME_FUNCTION,
 /// UNWIND_INFO codes: push nonvol, alloc small / large, set frame register, save nonvol / xmm128 (near and far),
 /// machine frame, chained info; epilog emulation for the top frame; leaf functions), falling back to a stack scan
-/// (frames marked heuristic) where no unwind data is available (no image, JIT code) or it leads nowhere. x86: the EBP
-/// chain, then a scan. Unwind data and code bytes come from the module images the caller supplies (a matching file
+/// (frames marked heuristic) where no unwind data is available (no image, JIT code) or it leads nowhere. x86: a return
+/// address whose call instruction targets the current function (frames that omit the frame pointer), the EBP chain, then a scan. Unwind data and code bytes come from the module images the caller supplies (a matching file
 /// from disk, or the image rebuilt from dump memory) and from captured memory. Every loop is bounded.
 /// </summary>
 public sealed class StackWalker
@@ -51,13 +53,16 @@ public sealed class StackWalker
 
     private readonly IProcessMemory _dump;
     private readonly Func<DumpModule, PeFile?> _image;
+    private readonly Func<ulong, ulong?>? _functionStart;
     private readonly int _ptr;
 
     /// <param name="image">The module's image (or null when there is none); called once per module, cache it.</param>
-    public StackWalker(IProcessMemory dump, Func<DumpModule, PeFile?> image)
+    /// <param name="functionStart">x86: the start address of the function holding an address (PDB or export names), or null.</param>
+    public StackWalker(IProcessMemory dump, Func<DumpModule, PeFile?> image, Func<ulong, ulong?>? functionStart = null)
     {
         _dump = dump;
         _image = image;
+        _functionStart = functionStart;
         _ptr = dump.Is64Bit ? 8 : 4;
     }
 
@@ -136,6 +141,15 @@ public sealed class StackWalker
             var scan = Scan(ctx.Sp, ulong.MaxValue, ctx);
             return scan != null ? (scan, FrameMethod.Scan, true, $"unwind failed at {module.FileName}+0x{rva:X} ({failure}); scanned")
                 : (null, "", false, "unwind_failed");
+        }
+        // a call to a bad address (the null page, or memory known not to be code) left its return address on top
+        if (top && module == null && (ctx.Ip < 0x10000 || _dump.RegionAt(ctx.Ip) is { IsExecutable: false })
+            && _dump.TryReadU64(ctx.Sp, out ulong returned) && IsPlausibleReturn(returned, strict: true))
+        {
+            var called = ctx.Clone();
+            called.Ip = returned;
+            called.Sp = ctx.Sp + 8;
+            return (called, FrameMethod.Leaf, false, "the instruction address is not code (a call to a bad address): return address read at the stack pointer");
         }
         var fallback = Scan(ctx.Sp, ulong.MaxValue, ctx);
         string why = module == null ? $"0x{ctx.Ip:X} is not in a module (JIT-compiled or generated code has no unwind data here)"
@@ -373,10 +387,31 @@ public sealed class StackWalker
                 if (at == 4 && _dump.TryReadU32(ctx.Sp, out uint savedEbp)) p.Fp = savedEbp;
                 return (p, FrameMethod.FramePointer, false, "in the prolog: return address read at the stack pointer");
             }
+            // a call to a bad address (the null page, or memory known not to be code) left its return address on top
+            if ((ctx.Ip < 0x10000 || _dump.ModuleAt(ctx.Ip) == null && _dump.RegionAt(ctx.Ip) is { IsExecutable: false })
+                && _dump.TryReadU32(ctx.Sp, out uint ra1) && IsPlausibleReturn(ra1, strict: true))
+            {
+                var p = ctx.Clone();
+                p.Ip = ra1;
+                p.Sp = ctx.Sp + 4;
+                return (p, FrameMethod.Leaf, false, "the instruction address is not code (a call to a bad address): return address read at the stack pointer");
+            }
         }
         ulong ebp = ctx.Fp;
-        if (ebp >= ctx.Sp && ebp != 0 && _dump.TryReadU32(ebp, out uint nextEbp) && _dump.TryReadU32(ebp + 4, out uint ret)
-            && (ret == 0 || IsPlausibleReturn(ret, strict: false)))
+        uint nextEbp = 0, ret = 0;
+        bool chain = ebp >= ctx.Sp && ebp != 0 && _dump.TryReadU32(ebp, out nextEbp) && _dump.TryReadU32(ebp + 4, out ret)
+                     && (ret == 0 || IsPlausibleReturn(ret, strict: false));
+        // A function without a frame pointer leaves EBP to an outer frame: its own return address lies below that frame.
+        if (_functionStart?.Invoke(top ? ctx.Ip : ctx.Ip - 1) is { } function
+            && CallerOf(function, ctx.Sp, chain ? ebp + 4 : ctx.Sp + MaxScanSlots * 4UL) is { } slot && (!chain || slot < ebp + 4))
+        {
+            _dump.TryReadU32(slot, out uint ra);
+            var caller = ctx.Clone();
+            caller.Ip = ra;
+            caller.Sp = slot + 4;
+            return (caller, FrameMethod.CallTarget, false, null);
+        }
+        if (chain)
         {
             var next = ctx.Clone();
             next.Ip = ret;
@@ -387,6 +422,62 @@ public sealed class StackWalker
         var scanned = Scan(ctx.Sp, ulong.MaxValue, ctx);
         return scanned != null ? (scanned, FrameMethod.Scan, true, "the EBP chain ends here (frame pointer omitted or not captured); scanned the stack")
             : (null, "", false, "no_return_address");
+    }
+
+    /// <summary>
+    /// The first x86 stack slot in [<paramref name="from"/>, <paramref name="limit"/>] holding a return address whose call
+    /// (call rel32, call [abs32], or through a jmp thunk) targets <paramref name="function"/>; null when none.
+    /// </summary>
+    private ulong? CallerOf(ulong function, ulong from, ulong limit)
+    {
+        var buffer = new byte[0x400];
+        var code = new byte[6];
+        for (ulong at = from & ~3UL; at <= limit && _scanBudget > 0;)
+        {
+            int n = _dump.ReadMemory(at, buffer.AsSpan(0, (int)Math.Min((ulong)buffer.Length, limit - at + 4)));
+            if (n < 4) return null;
+            for (int i = 0; i + 4 <= n && _scanBudget > 0; i += 4, _scanBudget--)
+            {
+                uint v = BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(i));
+                if (v < 0x10000 || v - 6 < 0x10000) continue;
+                var m = _dump.ModuleAt(v - 1);
+                var image = m != null ? _image(m) : null;
+                if (ReadCode(v - 6, code, image, m?.Base ?? 0) < 6) continue;
+                bool calls;
+                if (code[1] == 0xE8)
+                {
+                    ulong t = (uint)(v + BinaryPrimitives.ReadInt32LittleEndian(code.AsSpan(2)));
+                    calls = t == function || JumpTarget(t) == function;
+                }
+                else if (code[0] == 0xFF && code[1] == 0x15)
+                {
+                    uint slot = BinaryPrimitives.ReadUInt32LittleEndian(code.AsSpan(2));
+                    // a bound slot holds the target; one the dump does not hold (or holds unbound) is matched by the import's name
+                    calls = _dump.TryReadU32(slot, out uint bound) && bound == function || ImportName(slot) is { } imported && imported == ExportName(function);
+                }
+                else continue;
+                if (calls && IsPlausibleReturn(v, strict: true)) return at + (ulong)i;
+            }
+            at += (ulong)n;
+        }
+        return null;
+    }
+
+    /// <summary>The name of the import whose IAT slot is at <paramref name="slot"/>, from its module's image.</summary>
+    private string? ImportName(ulong slot) =>
+        _dump.ModuleAt(slot) is { } m && _image(m) is { } image ? image.Imports.FirstOrDefault(i => i.SlotRva == slot - m.Base)?.Name : null;
+
+    /// <summary>The name a module exports <paramref name="function"/> under, or null.</summary>
+    private string? ExportName(ulong function) =>
+        _dump.ModuleAt(function) is { } m && _image(m) is { } image ? image.Exports.FirstOrDefault(e => e.Rva == function - m.Base && e.ForwardedTo == null)?.Name : null;
+
+    /// <summary>The target of a jmp rel32 at <paramref name="address"/> (an incremental-linking thunk), or null.</summary>
+    private ulong? JumpTarget(ulong address)
+    {
+        var m = _dump.ModuleAt(address);
+        Span<byte> b = stackalloc byte[5];
+        if (ReadCode(address, b, m != null ? _image(m) : null, m?.Base ?? 0) < 5 || b[0] != 0xE9) return null;
+        return (uint)(address + 5 + (ulong)(long)BinaryPrimitives.ReadInt32LittleEndian(b[1..]));
     }
 
     /// <summary>The first stack slot at or above <paramref name="from"/> holding a plausible return address.</summary>

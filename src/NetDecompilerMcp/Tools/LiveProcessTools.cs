@@ -11,7 +11,7 @@ public sealed class LiveProcessTools(LiveProcessService live)
     [McpServerTool(Name = "inspect_process", Title = "Inspect a running process (read-only)", UseStructuredContent = true)]
     [Description("Read-only look at a running local process (Windows): modules (path, base, size, timestamp, PDB, whether a matching file is on disk), " +
                  "memory regions (VirtualQuery view: state, protection, type, owning module; paged and filtered), threads (id, name, suspend count, " +
-                 "priority, TEB, stack range, start address, registers, where each one is) and their call stacks (x64 unwind data / x86 EBP chain, " +
+                 "priority, TEB, stack range, start address, registers, where each one is) and their call stacks (x64 unwind data / x86 call targets / EBP, " +
                  "scan frames marked heuristic), every address named as dump_stack names it: a loaded image's code index (user renames, PDB, Il2Cpp, " +
                  "discovered names), Il2Cpp dummy DLLs, a matching local PDB, or exports. Strictly read-only: the process is opened with " +
                  "PROCESS_QUERY_INFORMATION | PROCESS_VM_READ only, each thread briefly with THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION; no memory " +

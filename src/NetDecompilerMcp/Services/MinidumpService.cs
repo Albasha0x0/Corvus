@@ -109,6 +109,10 @@ public sealed partial class MinidumpService(AssemblyWorkspace? workspace = null,
             }
         }
 
+        /// <summary>A stack walker over this session's memory, with function starts from the modules' PDB and export names.</summary>
+        public StackWalker Walker() => new(Memory, m => Code(m).Image,
+            address => Memory.ModuleAt(address) is { } m && Code(m).Names?.Lookup((uint)(address - m.Base)).Start is { } start ? m.Base + start : null);
+
         public IEnumerable<(DumpModule Module, ModuleCode Code)> Loaded
         {
             get { lock (_modules) return _modules.Select(kv => (kv.Key, kv.Value)).ToList(); }

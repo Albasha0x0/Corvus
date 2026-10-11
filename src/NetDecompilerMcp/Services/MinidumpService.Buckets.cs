@@ -236,7 +236,7 @@ public sealed partial class MinidumpService
 
     private async Task<List<(string Label, string? Version, string? Offset)>> SignatureFrames(Session s, DumpThread thread, DumpContext ctx, IReadOnlyList<string> skip, CancellationToken ct)
     {
-        var walker = new StackWalker(s.Dump, m => s.Code(m).Image);
+        var walker = s.Walker();
         var walk = walker.Walk(ctx, thread.StackStart, thread.StackStart + thread.StackSize, BucketWalkFrames, ct);
         var frames = new List<(string, string?, string?)>();
         foreach (var f in walk.Frames)

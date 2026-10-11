@@ -91,7 +91,7 @@ public sealed partial class MinidumpService
         [property: Description("user, pdb, il2cpp, discovered, export, nearest_export (a guess) or none.")] string? SymbolSource,
         string? FunctionAddress,
         [property: Description("native, managed (JIT or ReadyToRun code), unloaded_module or unknown.")] string Kind,
-        [property: Description("How the frame was found: context, unwind_info, epilog, leaf, machine_frame, frame_pointer, scan (heuristic), or clr (the runtime's own stack walk).")] string Method,
+        [property: Description("How the frame was found: context, unwind_info, epilog, leaf, machine_frame, frame_pointer, call_target (x86: the return address whose call targets this function), scan (heuristic), or clr (the runtime's own stack walk).")] string Method,
         [property: Description("Found by scanning the stack for a return address: may be a stale value.")] bool Heuristic,
         string? Note,
         [property: Description("Managed frames: the method token, for decompile_member with assembly.")] string? Token = null,
@@ -312,7 +312,7 @@ public sealed partial class MinidumpService
         offset = Math.Max(0, offset);
         limit = Math.Clamp(limit, 1, StackWalker.MaxFramesLimit);
 
-        var walker = new StackWalker(d, m => s.Code(m).Image);
+        var walker = s.Walker();
         var walk = await Task.Run(() => walker.Walk(ctx, t.StackStart, t.StackStart + t.StackSize, maxFrames, ct), ct);
         var notes = new List<string>(walk.Notes);
         var (clrFrames, managedState) = await ManagedFrames(s, t.Id, managed, maxFrames, notes, ct);

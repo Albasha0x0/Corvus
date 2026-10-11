@@ -34,6 +34,19 @@ internal sealed class MinidumpBuilder
         return c;
     }
 
+    /// <summary>An x86 CONTEXT (0xCC bytes) with the control and integer registers.</summary>
+    public static byte[] ContextX86(uint eip, uint esp, uint ebp = 0, uint eax = 0, uint ecx = 0)
+    {
+        var c = new byte[0xCC];
+        BinaryPrimitives.WriteUInt32LittleEndian(c, 0x10007); // CONTEXT_i386 | CONTROL | INTEGER | SEGMENTS
+        BinaryPrimitives.WriteUInt32LittleEndian(c.AsSpan(0xAC), ecx);
+        BinaryPrimitives.WriteUInt32LittleEndian(c.AsSpan(0xB0), eax);
+        BinaryPrimitives.WriteUInt32LittleEndian(c.AsSpan(0xB4), ebp);
+        BinaryPrimitives.WriteUInt32LittleEndian(c.AsSpan(0xB8), eip);
+        BinaryPrimitives.WriteUInt32LittleEndian(c.AsSpan(0xC4), esp);
+        return c;
+    }
+
     public byte[] Build()
     {
         var streams = new List<(uint Type, Func<int, byte[]> Data)>();
