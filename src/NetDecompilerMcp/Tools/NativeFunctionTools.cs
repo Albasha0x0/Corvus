@@ -143,12 +143,15 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         var slots = rtti?.Classes.SelectMany(c => c.Vtables.SelectMany(v => v.SlotRvas.Select((s, i) => (Class: c, Vtable: v, Slot: i, Target: s))))
             .Where(x => x.Target == f.Start).ToList() ?? [];
         var built = new List<Section>();
+        bool decoded = index.Support != CodeSupport.DeclaredFunctionsOnly;
         foreach (var s in wanted)
         {
             var section = new Section(s, max);
             try
             {
-                switch (s)
+                if (!decoded && s is "signature" or "frame" or "callees" or "data" or "flow" or "params")
+                    section.Error = $"{index.SupportNote ?? $"{image.Arch} instructions are not decoded by the built-in analysis"}; pseudocode=true reads the function through IDA or Ghidra";
+                else switch (s)
                 {
                     case "identity": Identity(section); break;
                     case "signature": Signature(section); break;
@@ -165,7 +168,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
                         break;
                 }
             }
-            catch (Exception e) when (e is ToolError or InvalidOperationException or ArgumentException or IndexOutOfRangeException or NullReferenceException)
+            catch (Exception e) when (e is ToolError or InvalidOperationException or ArgumentException or IndexOutOfRangeException or NullReferenceException or NotSupportedException)
             {
                 section.Error = e.Message;
             }
