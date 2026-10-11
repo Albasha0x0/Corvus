@@ -195,6 +195,41 @@ public sealed class RenameMigrationTests : IDisposable
         Assert.Equal(["relay", "--target", other], entry["args"]!.AsArray().Select(a => a!.GetValue<string>()));
     }
 
+    [Fact]
+    public void Claude_Code_project_entries_are_renamed_too()
+    {
+        var program = _home.Path("src", "bin", "corvus.exe");
+        _home.Write("apphost", "src", "bin", "corvus.exe");
+        _home.Write("server", "src", "bin", "corvus.dll");
+        var publish = _home.Path("publish");
+        Directory.CreateDirectory(publish);
+        var oldHost = _home.Path("AppData", "Local", "NetDecompilerMcp", "relay", "host", "1.1.0-abc", "NetDecompilerMcp.exe");
+        _home.Write($$"""
+            { "mcpServers": { "net-decompiler": { "command": {{JsonSerializer.Serialize(OldExe)}} } },
+              "projects": {
+                "D:/work/a": { "allowedTools": [], "mcpServers": { "net-decompiler": { "type": "stdio", "command": {{JsonSerializer.Serialize(oldHost)}}, "args": ["relay", "--target", {{JsonSerializer.Serialize(publish)}}, "--load", "a.dll"], "env": { "NDM_GHIDRA_DIR": "g" } } } },
+                "D:/work/b": { "mcpServers": { "other": { "command": "x" } } } } }
+            """, ".claude.json");
+
+        var output = new StringWriter();
+        Assert.Equal(0, SetupCli.TryRun(["install", "--no-check", "--dry-run"], output, _home.Env(), new ServerLaunch(program, [])));
+        Assert.Contains("project D:/work/a: would rename from net-decompiler", output.ToString());
+
+        output = new StringWriter();
+        Assert.True(SetupCli.TryRun(["install", "--no-check"], output, _home.Env(), new ServerLaunch(program, [])) == 0, output.ToString());
+        var root = ReadJson(_home.Path(".claude.json"));
+        Assert.Null(root["mcpServers"]!["net-decompiler"]);
+        Assert.NotNull(root["mcpServers"]!["corvus"]);
+        var a = root["projects"]!["D:/work/a"]!;
+        Assert.Null(a["mcpServers"]!["net-decompiler"]);
+        var entry = a["mcpServers"]!["corvus"]!;
+        Assert.StartsWith(_home.Path("AppData", "Local", "Corvus", "relay", "host"), entry["command"]!.GetValue<string>());
+        Assert.Equal(["relay", "--target", publish, "--load", "a.dll"], entry["args"]!.AsArray().Select(x => x!.GetValue<string>()));
+        Assert.Equal("g", entry["env"]!["CORVUS_GHIDRA_DIR"]!.GetValue<string>());
+        Assert.NotNull(a["allowedTools"]);
+        Assert.Equal(["other"], root["projects"]!["D:/work/b"]!["mcpServers"]!.AsObject().Select(p => p.Key));
+    }
+
     [Theory]
     [InlineData(true, new string[0])]
     [InlineData(true, new[] { "install" })]

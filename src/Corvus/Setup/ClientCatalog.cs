@@ -22,6 +22,27 @@ internal static class ClientCatalog
     public static string MigratedEnvKey(string key) =>
         key.StartsWith("NDM_", StringComparison.Ordinal) ? "CORVUS_" + key[4..] : key == "NETDECOMP_LOAD" ? "CORVUS_LOAD" : key;
 
+    /// <summary>
+    /// Migration only: the lists of <paramref name="client"/> holding an entry under the old name: its own, and for Claude
+    /// Code each project's (local scope, edited in the file: the CLI keys a project by its working folder's spelling).
+    /// </summary>
+    public static IEnumerable<(string? Project, ConfigTarget Target)> LegacyTargets(McpClient client)
+    {
+        if (client.Target.Current(LegacyServerName) != null) yield return (null, client.Target);
+        if (client.Id != "claude-code") yield break;
+        JsonObject? projects;
+        try
+        {
+            projects = File.Exists(client.Target.Path)
+                ? JsonNode.Parse(File.ReadAllText(client.Target.Path), documentOptions: new() { CommentHandling = System.Text.Json.JsonCommentHandling.Skip, AllowTrailingCommas = true })?["projects"] as JsonObject
+                : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException) { projects = null; }
+        foreach (var (project, value) in projects ?? [])
+            if (value?["mcpServers"]?[LegacyServerName] is JsonObject)
+                yield return (project, new JsonTarget(client.Target.Path, ["projects", project, "mcpServers"], ClaudeCode));
+    }
+
     private static JsonArray Strings(IEnumerable<string> items) => new([.. items.Select(i => (JsonNode)JsonValue.Create(i)!)]);
 
     private static JsonObject Plain(ServerLaunch l) => new() { ["command"] = l.Command, ["args"] = Strings(l.Args) };

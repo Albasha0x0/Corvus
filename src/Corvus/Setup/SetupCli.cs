@@ -187,26 +187,27 @@ internal static class SetupCli
     {
         var rows = new List<ClientReport>();
         foreach (var client in clients)
+        foreach (var (project, target) in ClientCatalog.LegacyTargets(client))
         {
-            if (client.Target.Current(ClientCatalog.LegacyServerName) is not { } old) continue;
+            if (target.Current(ClientCatalog.LegacyServerName) is not { } old) continue;
             var row = new ClientReport
             {
-                Id = client.Id, Name = client.Name, Detected = client.Present, ConfigPath = client.Target.Path, Registered = old,
-                Action = SetupAction.Rename, Client = client,
+                Id = client.Id, Name = client.Name, Detected = client.Present, ConfigPath = target.Path, Registered = old,
+                Action = SetupAction.Rename, Client = client, Message = project == null ? "" : $"project {project}: ",
             };
             rows.Add(row);
             var entryLaunch = launch;
-            if (Corvus.Relay.RelayCli.TargetOf(old.Args) is { } target)
+            if (Corvus.Relay.RelayCli.TargetOf(old.Args) is { } relayTarget)
             {
-                var (relayed, error) = RelayLaunch(env, launch, target, dryRun);
+                var (relayed, error) = RelayLaunch(env, launch, relayTarget, dryRun);
                 if (relayed != null) entryLaunch = relayed;
-                else row.Message = $"relay not kept ({error}); ";
+                else row.Message += $"relay not kept ({error}); ";
             }
             if (dryRun) row.Message += $"would rename from {ClientCatalog.LegacyServerName}";
             else
             {
                 ConfigChange result;
-                try { result = client.Target.Rename(ClientCatalog.LegacyServerName, ClientCatalog.ServerName, entryLaunch); }
+                try { result = target.Rename(ClientCatalog.LegacyServerName, ClientCatalog.ServerName, entryLaunch); }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { result = new ConfigChange(false, $"left unchanged: {ex.Message}"); }
                 row.Message += result.Message;
                 if (!result.Changed) row.Action = SetupAction.Blocked;
@@ -255,8 +256,8 @@ internal static class SetupCli
         // Named clients replace detection: only they are touched.
         var candidates = named.Count > 0 ? named : all;
         // Entries under the old name are renamed after the plan; one without ours becomes ours, so it is not planned.
-        var legacy = candidates.Where(c => c.Target.Current(ClientCatalog.LegacyServerName) != null).ToList();
-        report.Clients.AddRange(SetupPlan.Build([.. candidates.Where(c => !legacy.Contains(c) || c.Target.Current(ClientCatalog.ServerName) != null)],
+        var legacy = candidates.Where(c => ClientCatalog.LegacyTargets(c).Any()).ToList();
+        report.Clients.AddRange(SetupPlan.Build([.. candidates.Where(c => c.Target.Current(ClientCatalog.LegacyServerName) == null || c.Target.Current(ClientCatalog.ServerName) != null)],
             launch, named, refreshOnly));
         var rows = SetupPlan.Shown(report.Clients).ToList();
         if (rows.Count == 0 && legacy.Count == 0)
