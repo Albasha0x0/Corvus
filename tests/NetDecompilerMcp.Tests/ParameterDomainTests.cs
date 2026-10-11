@@ -47,8 +47,8 @@ public class ParameterDomainTests
     {
         var error = Assert.Throws<ToolError>(() => ArgumentCheck.Apply(Schema("list_functions"), Args(("image", "x"), ("sort", "calers")), "list_functions"));
         Assert.Equal(ErrorCode.InvalidArgument, error.Code);
-        Assert.Equal("parameter 'sort' must be one of address, size, callers, not 'calers'. Did you mean 'callers'?", error.Message);
-        Assert.Equal("Pass one of: address, size, callers.", error.Remediation);
+        Assert.Equal("parameter 'sort' must be one of address, name, size, callers, not 'calers'. Did you mean 'callers'?", error.Message);
+        Assert.Equal("Pass one of: address, name, size, callers.", error.Remediation);
 
         var engine = Assert.Throws<ToolError>(() => ArgumentCheck.Apply(Schema("decompile_native"), Args(("engine", "ours")), "decompile_native"));
         Assert.StartsWith("parameter 'engine' must be one of auto, ida, ghidra, not 'ours'.", engine.Message);

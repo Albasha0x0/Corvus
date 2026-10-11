@@ -140,10 +140,63 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         Assert.Contains((rig.Second + 1, false), rig.Provider.FromAsked);
     }
 
+    [Fact]
+    public async Task List_functions_filters_by_regex_glob_size_and_range_and_sorts()
+    {
+        var (tools, image) = await CodeImage();
+        static List<string> Names(FunctionList list) => list.Items.Select(i => i.Name).ToList();
+        var all = await Structured<FunctionList>(() => tools.ListFunctions(image, engine: "ours"));
+        Assert.Contains("sub_1000", Names(all));
+        Assert.Contains("sub_1100", Names(all));
+        Assert.Equal(Names(all).Count, all.Total);
+
+        Assert.Equal(["sub_1100"], Names(await Structured<FunctionList>(() => tools.ListFunctions(image, "/^sub_11/", engine: "ours"))));
+        Assert.Equal(["sub_1100"], Names(await Structured<FunctionList>(() => tools.ListFunctions(image, "SUB_11*", engine: "ours"))));
+        Assert.Equal(["sub_1000", "sub_1100", "sub_1200"], Names(await Structured<FunctionList>(() => tools.ListFunctions(image, "sub_1?00", engine: "ours"))).Take(3));
+        Assert.Empty(Names(await Structured<FunctionList>(() => tools.ListFunctions(image, "/^SUB_11/s", engine: "ours")))); // a flag drops the default i
+        var ranged = await tools.ListFunctions(image, engine: "ours", from: "rva:0x1100", to: "rva:0x1200");
+        Assert.Contains("Matching (start >= 0x180001100, start < 0x180001200): 1", ranged);
+        Assert.Equal(["sub_1100"], Names(await Structured<FunctionList>(() => tools.ListFunctions(image, engine: "ours", from: "rva:0x1100", to: "rva:0x1200"))));
+
+        var sizes = all.Items.ToDictionary(i => i.Name, i => i.Size);
+        int big = sizes.Values.Max();
+        Assert.All((await Structured<FunctionList>(() => tools.ListFunctions(image, engine: "ours", minSize: big))).Items, i => Assert.Equal(big, i.Size));
+        Assert.All((await Structured<FunctionList>(() => tools.ListFunctions(image, engine: "ours", maxSize: big - 1))).Items, i => Assert.True(i.Size < big));
+
+        var byName = Names(await Structured<FunctionList>(() => tools.ListFunctions(image, sort: "name", descending: true, engine: "ours")));
+        Assert.Equal(byName.OrderByDescending(n => n, StringComparer.OrdinalIgnoreCase), byName);
+        var bySize = (await Structured<FunctionList>(() => tools.ListFunctions(image, sort: "size", descending: false, engine: "ours"))).Items.Select(i => i.Size).ToList();
+        Assert.Equal(bySize.Order(), bySize);
+        var byAddress = (await Structured<FunctionList>(() => tools.ListFunctions(image, descending: true, engine: "ours"))).Items.Select(i => i.Address).ToList();
+        Assert.Equal(byAddress.OrderDescending(StringComparer.Ordinal), byAddress);
+
+        foreach (var call in new Func<Task<string>>[]
+                 {
+                     () => tools.ListFunctions(image, "/[unclosed/", engine: "ours"), () => tools.ListFunctions(image, sort: "weight"),
+                     () => tools.ListFunctions(image, minSize: 10, maxSize: 5), () => tools.ListFunctions(image, from: "rva:0x1200", to: "rva:0x1100", engine: "ours"),
+                     () => tools.ListFunctions(image, hasType: true, engine: "ours"),
+                 })
+            Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(call)).Code);
+    }
+
+    [Fact]
+    public async Task List_functions_through_an_engine_filters_by_type()
+    {
+        var rig = await Setup();
+        rig.Provider.Typed.Add(rig.Second);
+        static List<string> Names(FunctionList list) => list.Items.Select(i => i.Name).ToList();
+        Assert.Equal(["Second"], Names(await Structured<FunctionList>(() => rig.CodeTools.ListFunctions(rig.Native.Id, engine: "ida", hasType: true))));
+        Assert.Equal(["First"], Names(await Structured<FunctionList>(() => rig.CodeTools.ListFunctions(rig.Native.Id, engine: "ida", hasType: false))));
+        Assert.Equal(["Second", "First"], Names(await Structured<FunctionList>(() => rig.CodeTools.ListFunctions(rig.Native.Id, engine: "ida", sort: "name", descending: true))));
+        var text = await rig.CodeTools.ListFunctions(rig.Native.Id, "/^f/", engine: "ida");
+        Assert.Contains("Matching (name '/^f/'): 1", text);
+    }
+
     internal sealed class FakeProvider : INativeDecompilerProvider
     {
         public List<(uint Start, uint End, string Name)> Functions { get; set; } = [];
         public List<NativeXref> From { get; } = [];
+        public HashSet<uint> Typed { get; } = [];
         public List<(uint Rva, bool Whole)> FromAsked { get; } = [];
         public string Id => IdaProvider.ProviderId;
         public string DisplayName => "fake engine";
@@ -184,7 +237,7 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         }
 
         public Task<IReadOnlyList<NativeFunctionInfo>> ListFunctionsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<NativeFunctionInfo>>(provider.Functions.Select(f => new NativeFunctionInfo(f.Start, f.End, f.Name, NativeFunctionFlags.None)).ToList());
+            Task.FromResult<IReadOnlyList<NativeFunctionInfo>>(provider.Functions.Select(f => new NativeFunctionInfo(f.Start, f.End, f.Name, provider.Typed.Contains(f.Start) ? NativeFunctionFlags.Typed : NativeFunctionFlags.None)).ToList());
 
         public Task<FunctionDisassembly> DisassembleAsync(uint rva, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<PatchSyncResult> SyncPatchesAsync(IReadOnlyList<NativeByteRange> wanted, CancellationToken cancellationToken = default) =>

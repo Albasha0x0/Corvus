@@ -59,7 +59,7 @@ final class CodeOps {
         return max.getOffset() + 1 - w.base;
     }
 
-    /** [start, end, name, flags (1 thunk), refs?]: refs counts code references to the start. */
+    /** [start, end, name, flags (1 thunk, 8 typed: a signature not of default source), refs?]: refs counts code references to the start. */
     static JsonElement functions(Worker w, Worker.Request r) throws Exception {
         boolean refs = r.args.has("refs") && r.args.get("refs").getAsBoolean();
         ReferenceManager rm = w.program.getReferenceManager();
@@ -72,7 +72,7 @@ final class CodeOps {
             row.add(start);
             row.add(Math.min(end(w, f), 0xFFFFFFFFL));
             row.add(f.getName());
-            row.add(f.isThunk() ? 1 : 0);
+            row.add((f.isThunk() ? 1 : 0) | (f.getSignatureSource() != ghidra.program.model.symbol.SourceType.DEFAULT ? 8 : 0));
             if (refs) {
                 int n = 0;
                 for (Reference ref : rm.getReferencesTo(f.getEntryPoint()))

@@ -199,8 +199,9 @@ def op_rebase(args):
 
 
 def op_functions(args):
-    # [start, end, name, flags (1 thunk, 2 library)] plus, with refs, the number of code references to the start
+    # [start, end, name, flags (1 thunk, 2 library, 4 thumb, 8 typed)] plus, with refs, the number of code references to the start
     m = need_open()
+    import ida_typeinf
     refs = bool(args.get("refs"))
     out = []
     for ea in m.idautils.Functions():
@@ -208,7 +209,8 @@ def op_functions(args):
         start, end = rva_of(f.start_ea), rva_of(f.end_ea)
         if start is None or end is None:
             continue
-        flags = (1 if f.flags & m.ida_funcs.FUNC_THUNK else 0) | (2 if f.flags & m.ida_funcs.FUNC_LIB else 0) | (4 if is_thumb(m, f.start_ea) else 0)
+        flags = (1 if f.flags & m.ida_funcs.FUNC_THUNK else 0) | (2 if f.flags & m.ida_funcs.FUNC_LIB else 0) | (4 if is_thumb(m, f.start_ea) else 0) \
+            | (8 if m.ida_nalt.get_tinfo(ida_typeinf.tinfo_t(), f.start_ea) else 0)
         row = [start, end, m.ida_funcs.get_func_name(f.start_ea) or "", flags]
         if refs:
             row.append(sum(1 for _ in m.idautils.CodeRefsTo(f.start_ea, 0)))

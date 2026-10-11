@@ -21,10 +21,9 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     /// <summary>Answers through an engine (IDA or Ghidra): for images whose instructions the built-in analysis does not decode, or when the engine preference picks one.</summary>
     private readonly NativeEngineCode? _engine = engines != null ? new NativeEngineCode(engines, pager, names) : null;
 
-    internal const string EngineDescription = "Where functions, references and control flow come from: auto (default: an engine's analysis when one of this " +
-                                              "image is complete in this session, IDA's before Ghidra's, else the built-in index; never starts an engine), ours " +
-                                              "(the built-in index only), ida or ghidra (that engine's analysis, started or waited for when needed). The server " +
-                                              "default is set with --engine or NDM_ENGINE.";
+    internal const string EngineDescription = "Analysis used: auto (default: an engine whose analysis of this image is complete in this session, IDA " +
+                                              "first, else the built-in index; never starts one), ours (the built-in index), ida or ghidra (that engine, " +
+                                              "started or waited for). Server default: --engine or NDM_ENGINE.";
 
     /// <summary>The engine mode a call asks for (checked before the image is opened) and whether it named one.</summary>
     private (EngineMode Mode, bool Named) Mode(string? engine) =>
@@ -103,36 +102,38 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     }
 
     [McpServerTool(Name = "list_functions", Title = "List native functions", UseStructuredContent = true, OutputSchemaType = typeof(FunctionList))]
-    [Description("Functions of a native image (x86 / x64 / ARM64): address, size, name (export name, module!import for thunks, or sub_<rva>), flags " +
-                 "(thunk, noreturn, unresolved jumps, invalid code, funclet, funclet of its parent, exception chunks: catch blocks, unwind funclets, filters " +
-                 "and handlers attached to their function), how it was found and how many call sites reach it. get_exception_info shows the details. " +
-                 "Names from rename_native, PDB symbols and apply_il2cpp_names take precedence in that order. " + IndexNote)]
+    [Description("Functions of a native image (x86 / x64 / ARM64): address, size, name (export, module!import for thunks, or sub_<rva>; names from " +
+                 "rename_native, PDB symbols and apply_il2cpp_names win in that order), flags (thunk, noreturn, unresolved jumps, invalid code, " +
+                 "funclets and exception chunks; get_exception_info details them), how it was found and how many call sites reach it. " + IndexNote)]
     public Task<string> ListFunctions(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Only functions whose name contains this text (case-insensitive).")] string? filter = null,
-        [Description("Order: address (default), size (largest first) or callers (most called first).")] string? sort = null,
+        [Description("Name filter: " + NameFilter.Description + ".")] string? filter = null,
+        [Description("address (default), name, size (largest first) or callers (most called first).")] string? sort = null,
         [Description("Index of the first row.")] int offset = 0,
         [Description("Max rows (default 300).")] int limit = 300,
         [Description(EngineDescription)] string? engine = null,
+        [Description("Smallest size in bytes.")] long? minSize = null,
+        [Description("Largest size in bytes.")] long? maxSize = null,
+        [Description("Lowest start address.")] string? from = null,
+        [Description("Start addresses below this one.")] string? to = null,
+        [Description("Engines: true keeps functions with a type (prototype), false those without.")] bool? hasType = null,
+        [Description("Sort direction instead of the sort's default.")] bool? descending = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        FunctionQuery.Create(filter, minSize, maxSize, null, null, hasType, sort, descending); // bad arguments fail before the image is opened
         var mode = Mode(engine);
         var (native, index) = await Open(image, context, progress, cancellationToken);
+        uint? Bound(string? text) => string.IsNullOrWhiteSpace(text) ? null : Address(index, text);
+        var query = FunctionQuery.Create(filter, minSize, maxSize, Bound(from), Bound(to), hasType, sort, descending);
         var choice = Choose(mode, native, index);
         if (choice.External)
-            return await _engine!.ListFunctions(native, index, filter, sort, offset, limit, choice, progress, cancellationToken);
+            return await _engine!.ListFunctions(native, index, query, offset, limit, choice, progress, cancellationToken);
+        if (hasType != null)
+            throw new ToolError(ErrorCode.InvalidArgument, "hasType needs an engine's types; the built-in index has none.", "pass engine=ida or engine=ghidra");
         // library names of an IDA session already open (none is started for this)
         if (engines?.LibraryNames(native) is { IsCompleted: false } importing) await importing.WaitAsync(cancellationToken);
-        IEnumerable<NativeFunction> list = index.Functions.Where(f => filter == null || f.Name.Contains(filter, StringComparison.OrdinalIgnoreCase));
-        list = (sort?.Trim().ToLowerInvariant()) switch
-        {
-            null or "" or "address" => list,
-            "size" => list.OrderByDescending(f => f.Size),
-            "callers" => list.OrderByDescending(f => index.CountRefsTo(f.Start)),
-            _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown sort '{sort}'.", "use address, size or callers"),
-        };
-        var functions = list.ToList();
+        var functions = query.Apply(index.Functions, f => f.Start, f => f.Size, f => f.Name, f => index.CountRefsTo(f.Start), null);
         string Sources(NativeFunction f) => f.Sources + (EngineLibraryNames.IsLibrary(index, f.Start) ? ", ida" : "");
         var rows = functions.Select(f => $"{NativeAddress.Va(index.Image, f.Start)}  {f.Size,7}  {f.Name}{Flags(f, index)}  ({Sources(f)}; {index.CountRefsTo(f.Start)} refs)").ToList();
         var s = index.Stats;
@@ -143,8 +144,13 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
             o, total, more, coverage.Length > 0 ? coverage.Trim() : null, choice.Engine, choice.Note));
         return StructuredOutput.With($"{native.Id}: {Plural(s.Functions, "function")} ({s.Thunks} thunks, {s.NoReturnFunctions} noreturn" +
                (library > 0 ? $", {library} library functions named by IDA" : "") + $"), {s.Instructions:N0} instructions, " +
-               $"{s.Xrefs:N0} references, {Plural(s.Strings, "string")}\n{choice.Line}\n" + coverage + pager.PageRows(rows, offset, limit, "function"), result);
+               $"{s.Xrefs:N0} references, {Plural(s.Strings, "string")}\n{choice.Line}\n" + coverage + Matching(query, functions.Count, index.Image) +
+               pager.PageRows(rows, offset, limit, "function"), result);
     });
+
+    /// <summary>"Matching (name 'Get*', size >= 64): 12" when the query narrows the list, plus a regex timeout note.</summary>
+    internal static string Matching(FunctionQuery query, int count, INativeImage image) =>
+        (query.Narrows ? $"Matching ({query.Describe(r => NativeAddress.Va(image, r))}): {count:N0}\n" : "") + (query.Filter?.Note("function name") ?? "");
 
     [McpServerTool(Name = "disassemble", Title = "Disassemble native code")]
     [Description("MASM-syntax disassembly of the native function containing an address (with block labels), or of maxInstructions from the address " +

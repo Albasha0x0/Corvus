@@ -7,9 +7,9 @@ using Xunit.Abstractions;
 
 namespace NetDecompilerMcp.Tests;
 
-/// <summary>The native query surface through IDA on a real system DLL: headers, cross-reference directions, function filters, decompiler references, types.</summary>
+/// <summary>The native query surface through IDA and Ghidra on a real system DLL: headers, cross-reference directions, function filters, decompiler references, types.</summary>
 [Trait("Speed", "Slow")]
-public sealed class NativeQueryIdaTests(ITestOutputHelper output) : IDisposable
+public sealed class NativeQueryEngineTests(ITestOutputHelper output) : IDisposable
 {
     private const string Function = "CheckSumMappedFile";
     private readonly TempDir _dir = new();
@@ -25,7 +25,7 @@ public sealed class NativeQueryIdaTests(ITestOutputHelper output) : IDisposable
         NativeCodeTools CodeTools)
     {
         public LoadedNative Native => Workspace.Read(() => Workspace.Natives[0]);
-        public Task<INativeDecompilerSession> Session() => Engines.Session(Native, "ida", null, default);
+        public Task<INativeDecompilerSession> Session(string engine = "ida") => Engines.Session(Native, engine, null, default);
         public async Task<uint> Rva(string name) => (await Code.Index(Native, null, default)).AddressOfName(name)!.Value;
     }
 
@@ -86,5 +86,43 @@ public sealed class NativeQueryIdaTests(ITestOutputHelper output) : IDisposable
         var both = await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ida", direction: "both");
         Assert.Contains("References to ", both);
         Assert.Contains("References from ", both);
+    }
+
+    [IdaFact]
+    public Task List_functions_through_IDA_filters_by_type_name_and_size() => FunctionFilters("ida");
+
+    [GhidraFact]
+    public Task List_functions_through_Ghidra_filters_by_type_name_and_size() => FunctionFilters("ghidra");
+
+    private async Task FunctionFilters(string engine)
+    {
+        var rig = Setup();
+        static List<FunctionEntry> Items(FunctionList list) => [.. list.Items];
+        var all = await NativeQuerySurfaceTests.Structured<FunctionList>(() => rig.CodeTools.ListFunctions(rig.Native.Id, engine: engine, limit: 5000));
+        // a PDB or the exports give the engine prototypes for some functions, not for every one
+        var typed = await NativeQuerySurfaceTests.Structured<FunctionList>(() => rig.CodeTools.ListFunctions(rig.Native.Id, engine: engine, hasType: true, limit: 5000));
+        var untyped = await NativeQuerySurfaceTests.Structured<FunctionList>(() => rig.CodeTools.ListFunctions(rig.Native.Id, engine: engine, hasType: false, limit: 5000));
+        output.WriteLine($"{engine}: {all.Total} functions, {typed.Total} typed, {untyped.Total} untyped");
+        Assert.Equal(all.Total, typed.Total + untyped.Total);
+        Assert.True(typed.Total > 0);
+        var glob = Items(await NativeQuerySurfaceTests.Structured<FunctionList>(() => rig.CodeTools.ListFunctions(rig.Native.Id, "checksum*file", engine: engine)));
+        Assert.Contains(glob, f => f.Name == Function);
+        Assert.All(glob, f => Assert.Matches("(?i)^checksum.*file$", f.Name));
+        var regex = Items(await NativeQuerySurfaceTests.Structured<FunctionList>(() => rig.CodeTools.ListFunctions(rig.Native.Id, "/^CheckSum/", engine: engine)));
+        Assert.Contains(regex, f => f.Name == Function);
+        var large = Items(await NativeQuerySurfaceTests.Structured<FunctionList>(() => rig.CodeTools.ListFunctions(rig.Native.Id, engine: engine, minSize: 256, sort: "size", descending: false)));
+        Assert.All(large, f => Assert.True(f.Size >= 256));
+        Assert.Equal(large.Select(f => f.Size).Order(), large.Select(f => f.Size));
+    }
+
+    [GhidraFact]
+    public async Task Find_xrefs_from_a_function_through_Ghidra()
+    {
+        var rig = Setup();
+        var from = await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ghidra", direction: "from");
+        output.WriteLine(string.Join('\n', from.Split('\n').Take(12)));
+        Assert.Contains("(the whole function) (via Ghidra)", from);
+        Assert.Matches(@"(?m)^\s*0x[0-9A-F]+  Call\s+\S+\+0x[0-9A-F]+  -> 0x[0-9A-F]+", from);
+        Assert.DoesNotMatch(@"(?m)^\s*0x[0-9A-F]+  (Call|Jump|Code)\s", await rig.CodeTools.FindXrefs(rig.Native.Id, Function, engine: "ghidra", direction: "from", kind: "data"));
     }
 }

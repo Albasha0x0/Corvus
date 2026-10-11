@@ -127,23 +127,13 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
     /// <summary>Whether the built-in index decodes the image's instructions (its virtual call edges can be merged in).</summary>
     private static bool Decoded(NativeCodeIndex index) => index.Support != CodeSupport.DeclaredFunctionsOnly;
 
-    public async Task<string> ListFunctions(LoadedNative native, NativeCodeIndex index, string? filter, string? sort, int offset, int limit,
+    public async Task<string> ListFunctions(LoadedNative native, NativeCodeIndex index, FunctionQuery query, int offset, int limit,
         EngineChoice choice, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
-        var order = sort?.Trim().ToLowerInvariant();
-        if (order is not (null or "" or "address" or "size" or "callers"))
-            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown sort '{sort}'.", "use address, size or callers");
         var session = await Session(native, choice, progress, ct);
         var functions = await LoadFunctions(session, references: true, ct);
-        var rows = functions.List.Select(f => (f, Name: Name(index, f.StartRva, f.Name)))
-            .Where(x => filter == null || x.Name.Contains(filter, StringComparison.OrdinalIgnoreCase));
-        rows = order switch
-        {
-            "size" => rows.OrderByDescending(x => x.f.EndRva - x.f.StartRva),
-            "callers" => rows.OrderByDescending(x => x.f.References ?? 0),
-            _ => rows,
-        };
-        var list = rows.ToList();
+        var list = query.Apply(functions.List.Select(f => (f, Name: Name(index, f.StartRva, f.Name))), x => x.f.StartRva, x => x.f.EndRva - x.f.StartRva,
+            x => x.Name, x => x.f.References ?? 0, x => x.f.Flags.HasFlag(NativeFunctionFlags.Typed));
         string Sources(NativeFunctionInfo f) => index.FunctionByStart(f.StartRva)?.Sources is { } declared ? $"{choice.Engine}, {declared}" : choice.Engine;
         var lines = list.Select(x => $"{Va(index, x.f.StartRva)}  {x.f.EndRva - x.f.StartRva,7}  {x.Name}{Flags(x.f.Flags)}  ({Sources(x.f)}; {x.f.References ?? 0} refs)").ToList();
         int thunks = functions.List.Count(f => f.Flags.HasFlag(NativeFunctionFlags.Thunk));
@@ -155,7 +145,7 @@ internal sealed class NativeEngineCode(NativeEngineService engines, OutputPager 
             page.Select(x => new FunctionEntry(Va(index, x.f.StartRva), (int)(x.f.EndRva - x.f.StartRva), x.Name, FlagList(x.f.Flags), Sources(x.f), x.f.References ?? 0)).ToList(),
             o, total, more, coverage, choice.Engine, choice.Note));
         return StructuredOutput.With($"{native.Id}: {Plural(functions.List.Count, "function")} ({thunks} thunks, {library} library) {Via(choice.Engine)}\n{choice.Line}\n" +
-                                     $"Note: {coverage}\n" + pager.PageRows(lines, offset, limit, "function"), structured);
+                                     $"Note: {coverage}\n" + NativeCodeTools.Matching(query, list.Count, index.Image) + pager.PageRows(lines, offset, limit, "function"), structured);
     }
 
     public async Task<string> Disassemble(LoadedNative native, NativeCodeIndex index, uint rva, bool function, int max, int offset, int? maxChars,

@@ -263,6 +263,8 @@ public enum NativeFunctionFlags
     Library = 2,
     /// <summary>32-bit ARM code in Thumb state (IDA's T segment register).</summary>
     Thumb = 4,
+    /// <summary>The engine has a type (prototype) for the function: IDA type info, a Ghidra signature not of default source.</summary>
+    Typed = 8,
 }
 
 /// <summary>
