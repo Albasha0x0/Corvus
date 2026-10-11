@@ -72,8 +72,7 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
 
         // the edits are journaled: a worker killed before any save replays them
         var session = await rig.Session();
-        using (var worker = Process.GetProcessById(session.WorkerProcessId!.Value)) worker.Kill();
-        await Task.Delay(300);
+        await WorkerKill.KillAsync(session);
         var rva = rig.Native.Image.Exports.First(e => e.Name == Function).Rva;
         Assert.Contains("headerSum", (await session.DecompileAsync(rva)).Text);
 
@@ -116,8 +115,7 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
 
         // journaled: a killed worker replays the edits
         var session = await rig.Session();
-        using (var worker = Process.GetProcessById(session.WorkerProcessId!.Value)) worker.Kill();
-        await Task.Delay(300);
+        await WorkerKill.KillAsync(session);
         var rva = rig.Native.Image.Exports.First(e => e.Name == Function).Rva;
         Assert.Contains("ndm_total", (await session.DecompileAsync(rva)).Text);
 

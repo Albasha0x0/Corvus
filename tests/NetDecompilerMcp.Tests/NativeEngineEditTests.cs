@@ -101,8 +101,7 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         Assert.Equal([data, data + 0x40, data + 0x60, fn], layer.Analysis.Select(a => a.Rva));
 
         // journaled: a worker killed before any save replays the edits
-        using (var worker = Process.GetProcessById(((IdaSession)ida).WorkerProcessId!.Value)) worker.Kill();
-        await Task.Delay(300);
+        await WorkerKill.KillAsync(ida);
         Assert.Equal((16L, false), await IdaItem(ida, data));
         Assert.Equal((16L, false), await IdaItem(ida, data + 0x40));
         Assert.True((await IdaItem(ida, fn)).Function);
@@ -144,8 +143,7 @@ public sealed class NativeEngineEditTests(ITestOutputHelper output) : IDisposabl
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.SetNativeOperand(path, Rva(magic), 1, "enum", type: "NoSuchNdmEnum"))).Code);
         Assert.Equal(2, rig.Code.Annotations(rig.Native).UserTypes.Operands.Count);
 
-        using (var worker = Process.GetProcessById(((IdaSession)ida).WorkerProcessId!.Value)) worker.Kill();
-        await Task.Delay(300);
+        await WorkerKill.KillAsync(ida);
         Assert.Contains("NDM_PE32", await TextAt(ida, fn, magic));
 
         Restart();

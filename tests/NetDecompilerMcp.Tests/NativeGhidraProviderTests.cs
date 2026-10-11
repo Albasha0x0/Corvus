@@ -191,8 +191,7 @@ public sealed class NativeGhidraProviderTests(ITestOutputHelper output, GhidraCa
 
             // Unsaved changes are journaled: a killed worker is restarted from the saved project and they are applied again.
             var pid = s.WorkerProcessId!.Value;
-            Process.GetProcessById(pid).Kill();
-            await Task.Delay(500);
+            await WorkerKill.KillAsync(s);
             Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == other.StartRva && f.Name == "ndm_batch");
             Assert.NotEqual(pid, s.WorkerProcessId);
         }

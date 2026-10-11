@@ -492,8 +492,7 @@ public sealed class NativeIdaProviderTests(ITestOutputHelper output, IdaCacheFix
         await s.SetCommentAsync(rva, "saved with the second edit");
         Assert.Equal(0, s.UnsavedCount);
         // nothing to replay: the restarted worker reads both from the saved database
-        Process.GetProcessById(s.WorkerProcessId!.Value).Kill();
-        await Task.Delay(300);
+        await WorkerKill.KillAsync(s);
         Assert.Contains(await s.ListFunctionsAsync(), f => f.StartRva == rva && f.Name == "ndm_first");
         Assert.Equal("saved with the second edit", (await s.DisassembleAsync(rva)).Instructions[0].Comment);
     }
@@ -573,6 +572,20 @@ internal sealed class StageLog : IProgress<NativeProviderProgress>
     public override string ToString()
     {
         lock (_stages) return string.Join(" ", _stages);
+    }
+}
+
+internal static class WorkerKill
+{
+    /// <summary>
+    /// Kills a session's worker process and waits until its connection has seen it go, so the next call restarts it
+    /// (a call sent before that goes to the dying worker and fails).
+    /// </summary>
+    public static async Task KillAsync(object session)
+    {
+        var connection = ((WorkerSessionBase)session).Worker ?? throw new Xunit.Sdk.XunitException("the session has no worker");
+        using (var process = Process.GetProcessById(connection.ProcessId)) process.Kill();
+        await connection.Closed.WaitAsync(TimeSpan.FromMinutes(1));
     }
 }
 
