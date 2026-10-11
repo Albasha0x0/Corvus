@@ -81,7 +81,7 @@ public static class ParameterDomains
         ["set_native_type"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["set_native_local"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
         ["declare_native_types"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
-        ["list_native_types"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine },
+        ["list_native_types"] = new Dictionary<string, Domain> { ["engine"] = DecompilerEngine, ["kind"] = Of(["struct", "union", "udt", "enum", "typedef", "func", "ptr"]), ["sort"] = Of(["name", "size"], "ordinal") },
         ["get_native_type"] = new Dictionary<string, Domain>
         {
             ["source"] = Of(["auto", "pdb", "rtti", "il2cpp", "engine"]), ["format"] = Of(["table", "c"]), ["engine"] = DecompilerEngine,

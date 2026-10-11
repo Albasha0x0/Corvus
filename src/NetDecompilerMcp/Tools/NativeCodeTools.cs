@@ -116,7 +116,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         [Description("Largest size in bytes.")] long? maxSize = null,
         [Description("Lowest start address.")] string? from = null,
         [Description("Start addresses below this one.")] string? to = null,
-        [Description("Engines: true keeps functions with a type (prototype), false those without.")] bool? hasType = null,
+        [Description("Engines: true keeps functions with a prototype, false those without.")] bool? hasType = null,
         [Description("Sort direction instead of the sort's default.")] bool? descending = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>

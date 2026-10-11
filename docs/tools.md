@@ -899,7 +899,7 @@ Native PE analysis, symbols and decompilation.
 
 **Native image overview** (read-only, idempotent)
 
-Overview of a native image. PE: machine, kind, subsystem, image base, entry point, timestamps, linker, sections (with flags and entropy), security mitigations (ASLR, DEP, CFG, SafeSEH, GS cookie, CET...), import/export counts, TLS callbacks, debug info (PDB path and GUID), load config, version resource, manifest, rich header (toolchain), checksum, overlay, Authenticode signature, and anything malformed. ELF: program headers, soname, NDK note, build id, relocations, hardening. Mach-O: slice, segments, libraries, fixups, code signature, entitlements, FairPlay encryption. Capability groups the imports imply (files, registry, network, crypto, processes, UI, services, COM, debugging, dynamic loading). Once the code index is built (never waited for): functions, coverage, switch tables, unresolved jumps, virtual call sites, RTTI classes, the most called and the largest functions.
+Overview of a native image. PE: machine, kind, subsystem, image base, entry point, timestamps, linker, sections (with flags and entropy), security mitigations (ASLR, DEP, CFG, SafeSEH, GS cookie, CET...), import/export counts, TLS callbacks, debug info (PDB path and GUID), load config, version resource, manifest, rich header (toolchain), checksum, overlay, Authenticode signature, and anything malformed. ELF: program headers, soname, NDK note, build id, relocations, hardening. Mach-O: slice, segments, libraries, fixups, code signature, entitlements, FairPlay encryption. Capabilities the imports imply (files, registry, network, crypto, processes, UI, services, COM, debugging, dynamic loading). With the code index (not waited for): functions, coverage, switch tables, unresolved jumps, virtual call sites, RTTI classes, the most called and largest functions.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -931,7 +931,7 @@ Structured output: `image`, `items`, `offset`, `total`, `truncated`, `bindings`.
 
 **List native exports** (read-only, idempotent)
 
-Functions and data a native image exports: ordinal, address (VA), name (with the demangled C++ form of MSVC and Itanium names), and forwarders (Mach-O re-exports).
+A native image's exported functions and data: ordinal, VA, name (with the demangled MSVC or Itanium C++ form), forwarders (Mach-O re-exports).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -946,7 +946,7 @@ Structured output: `image`, `items`, `offset`, `total`, `truncated`.
 
 **Resolve native address** (read-only, idempotent)
 
-What an address in a native image is: RVA, VA and file offset, the section and its permissions, the nearest export or import at or before it, and, once the code index is built, its name and the name's source (user, pdb, nativeaot, il2cpp); after apply_il2cpp_names the managed method or metadata slot; in a NativeAOT image the MethodTable, frozen object or method body there, or its module section. For an IAT slot, the export it is bound to (in a loaded image: its address and image); for an export, the loaded images importing it. With the code index built: the containing function and offset; whether the address is an instruction start, inside an instruction (with the instruction covering it) or in a data item (string, IAT slot, switch table, relocated pointer; with its extent); the comment; and the references to it by kind. In a PDB global, the field there (get_native_type has the layout).
+What an address in a native image is: RVA, VA and file offset, section and permissions, the nearest export or import at or before it; with the code index, its name and the name's source (user, pdb, nativeaot, il2cpp); after apply_il2cpp_names the managed method or metadata slot; in NativeAOT the MethodTable, frozen object, method body or module section. An IAT slot: the export it is bound to; an export: the loaded images importing it. With the code index: the containing function and offset; instruction start, inside an instruction (the covering one) or a data item (string, IAT slot, switch table, relocated pointer; extent); the comment; references by kind. In a PDB global, the field there (get_native_type has the layout).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -989,7 +989,7 @@ Hex dump (with ASCII) of a native image's mapped bytes at an address, as the loa
 
 **Convert a number** (read-only, idempotent)
 
-Exact conversions of numbers, so none is done by hand: unsigned and signed decimal, hex, binary and octal at a width, little- and big-endian bytes, the bytes as ASCII, and the bits as a float or double. Input: decimal, 0x / h-suffixed hex, 0b, 0o, negative, with _ separators and C suffixes (u, l), 'ABCD' (a C multi-character constant) or "text" (its bytes in memory order).
+Exact number conversions instead of mental arithmetic: unsigned and signed decimal, hex, binary and octal at a width, LE and BE bytes, the bytes as ASCII, the bits as float or double. Input: decimal, 0x or h-suffixed hex, 0b, 0o, negative, _ separators, C suffixes, 'ABCD' (C multi-character constant) or "text" (bytes in memory order).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1016,7 +1016,7 @@ Functions of a native image (x86 / x64 / ARM64): address, size, name (export, mo
 | `maxSize` | integer |  |  | Largest size in bytes. |
 | `from` | string |  |  | Lowest start address. |
 | `to` | string |  |  | Start addresses below this one. |
-| `hasType` | boolean |  |  | Engines: true keeps functions with a type (prototype), false those without. |
+| `hasType` | boolean |  |  | Engines: true keeps functions with a prototype, false those without. |
 | `descending` | boolean |  |  | Sort direction instead of the sort's default. |
 
 Structured output: `image`, `functions`, `items`, `offset`, `total`, `truncated`, `coverage`, `engine`, `engineNote`.
@@ -1119,7 +1119,7 @@ What references an address in a native image: calls (direct, through import slot
 | `address` | string | yes |  | Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them). Or a struct member: Type::member, Type.member, Type+0xOFFSET. |
 | `offset` | integer |  | `0` | Index of the first row. |
 | `limit` | integer |  | `500` | Max rows (default 500). |
-| `engine` | string |  |  | Analysis used: auto (default: an engine whose analysis of this image is complete in this session, IDA first, else the built-in index; never starts one), ours (the built-in index), ida or ghidra (that engine, started or waited for). Server default: --engine or NDM_ENGINE. With an engine, the references are the engine's, plus the RTTI-resolved virtual call sites it has none for (marked ours). Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | Analysis used: auto (default: an engine whose analysis of this image is complete in this session, IDA first, else the built-in index; never starts one), ours (the built-in index), ida or ghidra (that engine, started or waited for). Server default: --engine or NDM_ENGINE. An engine's references get the RTTI-resolved virtual calls it lacks (marked ours). Values: auto, ours, ida, ghidra. |
 | `direction` | string |  |  | to (default), from or both. Values: to, from, both. |
 | `kind` | string |  |  | any (default), code (calls, jumps) or data (reads, writes, pointers, address-taken). Values: any, code, data. |
 
@@ -1330,20 +1330,20 @@ Structured output: `image`, `query`, `type`, `candidates`, `totalCandidates`, `o
 
 **Decompile native function** (read-only, idempotent, open-world, long-running)
 
-C pseudocode of the native function containing an address, through IDA (idalib; Hex-Rays) or Ghidra (its decompiler, in a Java worker). The first call on an image runs the engine's auto-analysis (seconds for a small DLL, minutes for a large executable; progress is reported); the database is kept per file hash, so later calls and sessions are fast. Names and comments in effect (rename_native, comment_native, apply_il2cpp_names, PDB names) are pushed first, once per change. A PDB (beside the image, in the symbol cache, or from load_pdb) has its types and prototypes loaded once through the engine's PDB loader (else the server's reader); the first line names the type source. User types (declare_native_types, set_native_type, set_native_local, set_native_stack_var) apply last and win. functions decompiles several in one request: deduplicated by function, each within perFunctionSeconds; a failure or timeout affects only its own item.
+C pseudocode of the native function containing an address, through IDA (Hex-Rays) or Ghidra. The first call on an image runs the engine's auto-analysis (seconds for a small DLL, minutes for a large executable; progress is reported); the database is kept per file hash, so later calls and sessions are fast. Names and comments in effect (rename_native, comment_native, apply_il2cpp_names, PDB names) are pushed first, once per change. A PDB (beside the image, in the symbol cache, or from load_pdb) has its types and prototypes loaded once through the engine's PDB loader (else the server's reader); the first line names the type source. User types (declare_native_types, set_native_type, set_native_local, set_native_stack_var) apply last and win. functions decompiles several in one request: deduplicated by function, each within perFunctionSeconds; a failure or timeout affects only its own item.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
 | `address` | string |  |  | Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them). Required unless functions is given. |
-| `engine` | string |  |  | Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra; the server default --engine when it names one), ida or ghidra. Values: auto, ida, ghidra. |
+| `engine` | string |  |  | auto (default: an engine open on this image, else IDA, else Ghidra; or the server's --engine), ida or ghidra. Values: auto, ida, ghidra. |
 | `addresses` | boolean |  | `false` | Prefix each line with the address it was generated from. |
 | `offset` | integer |  | `0` | Character offset for paging long output (use the value from the truncation footer). |
 | `maxChars` | integer |  |  | Max characters in this page (default from server config, ~60000). |
 | `functions` | string[] |  |  | Several functions instead of address: addresses or names, in the order wanted. |
 | `perFunctionSeconds` | integer |  | `60` | With functions: seconds per function (default 60, 1-600). |
 | `maxFunctions` | integer |  | `32` | With functions: functions decompiled (default 32, 1-200); the rest are skipped with a follow-up call. |
-| `refs` | boolean |  | `false` | With address: list the globals, functions, strings and imports the pseudocode names after the first page. |
+| `refs` | boolean |  | `false` | With address: a footer on the first page listing the globals, functions, strings and imports used. |
 
 Structured output: `image`, `engine`, `items`, `total`, `succeeded`, `failed`, `skipped`, `next`.
 
@@ -1838,7 +1838,7 @@ Rename and/or retype a member of a native function's stack frame in the engine, 
 
 **Native stack frame and locals** (read-only, idempotent, open-world, long-running)
 
-The stack frame of a native function as the engine has it (members with offsets, names, types and sizes: locals, arguments, return address and saved registers; Ghidra counts saved registers among the locals) and its decompiler locals (name, type, register or stack offset, argument, user-named / user-typed). Offsets count from the frame's lowest address; the offset from the return address (IDA's var_/arg_ names use it) is in brackets. set_native_stack_var and set_native_local edit them.
+A native function's stack frame as the engine has it (members: offset, name, type, size; locals, arguments, return address, saved registers, which Ghidra counts as locals) and its decompiler locals (name, type, register or stack offset, argument, user name / type). Offsets count from the frame's lowest address; brackets give the offset from the return address (IDA's var_/arg_). set_native_stack_var and set_native_local edit them.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1864,17 +1864,20 @@ Declare C types (structs, unions, enums, typedefs, function pointer types) in th
 
 **Browse the engine's types** (read-only, idempotent, open-world, long-running)
 
-The named types of the decompiler engine's database (IDA local types, Ghidra data types: from the PDB, RTTI classes, Il2Cpp, the engine's type libraries and declare_native_types), filtered by name and kind, with size and member count; name= shows one type as a C declaration with its members' offsets.
+The named types of the decompiler engine's database (IDA local types, Ghidra data types: from the PDB, RTTI classes, Il2Cpp, the engine's type libraries and declare_native_types) with size and member count; members=true adds each type's first members. name= shows one type as a C declaration with its members' offsets.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
-| `filter` | string |  |  | Only types whose name contains this text (case-insensitive). |
-| `kind` | string |  |  | Only this kind: struct, union, enum, typedef or func. |
+| `filter` | string |  |  | Name filter: substring (case-insensitive), glob with * and ?, or /regex/ (flags i, m, s). |
+| `kind` | string |  |  | struct, union, udt (either), enum, typedef, func or ptr (IDA). Values: struct, union, udt, enum, typedef, func, ptr. |
 | `name` | string |  |  | Show this one type in full instead of a list. |
 | `offset` | integer |  | `0` | Index of the first row. |
 | `limit` | integer |  | `200` | Max rows (default 200, max 5000). |
 | `engine` | string |  |  | Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra), ida or ghidra. Values: auto, ida, ghidra. |
+| `sort` | string |  |  | Order: the engine's (default), name or size. Values: name, size. |
+| `descending` | boolean |  | `false` | Reverse the order. |
+| `members` | boolean |  | `false` | List each type's first 32 members (enums: name = value). |
 
 ### define_native
 

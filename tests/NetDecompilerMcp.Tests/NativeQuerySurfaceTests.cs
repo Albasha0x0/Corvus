@@ -302,6 +302,31 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.ConvertNumber([]))).Code);
     }
 
+    [Fact]
+    public async Task List_native_types_filters_by_glob_regex_and_udt_sorts_and_shows_members()
+    {
+        var rig = await Setup();
+        static List<string> Names(string text) => [.. text.Split('\n').Where(l => l.StartsWith("  ", StringComparison.Ordinal) && !l.StartsWith("    ", StringComparison.Ordinal))
+            .Select(l => l.Trim().Split(' ')[1])];
+        Assert.Equal(["Packet", "PPacket"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "p*")));
+        Assert.Equal(["Packet", "PPacket"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "/packet$/")));
+        Assert.Empty(Names(await rig.Types.ListNativeTypes(rig.Native.Id, "/^packet/s")));
+        Assert.Equal(["Packet", "PPacket"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "pack"))); // substring
+        Assert.Equal(["Packet", "Header"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, kind: "udt")));
+        var bySize = await rig.Types.ListNativeTypes(rig.Native.Id, sort: "size", descending: true);
+        Assert.Equal(["Packet", "PPacket", "Header", "Color", "Callback"], Names(bySize));
+        Assert.Contains("by size descending", bySize);
+        Assert.Equal(["Callback", "Color", "Header", "Packet", "PPacket"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, sort: "name")));
+        var members = await rig.Types.ListNativeTypes(rig.Native.Id, kind: "udt", members: true);
+        Assert.Contains("      +0x4  data  char[12]  12", members);
+        var enums = await rig.Types.ListNativeTypes(rig.Native.Id, kind: "enum", members: true);
+        Assert.Contains("      Green = 2", enums);
+        // pointer kinds come from IDA's type info
+        Assert.Equal(ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.ListNativeTypes(rig.Native.Id, kind: "ptr", engine: "ida"))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.ListNativeTypes(rig.Native.Id, kind: "class"))).Code);
+        Assert.Equal(ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.ListNativeTypes(rig.Native.Id, sort: "members"))).Code);
+    }
+
     internal sealed class FakeProvider : INativeDecompilerProvider
     {
         public List<(uint Start, uint End, string Name)> Functions { get; set; } = [];
@@ -338,6 +363,25 @@ public sealed class NativeQuerySurfaceTests : IDisposable
         {
             var f = provider.At(rva);
             return Task.FromResult(new DecompiledFunction(f.Start, f.Name, $"int {f.Name}(void) {{ return 0; }}", []));
+        }
+
+        private static readonly NativeTypeEntry[] TypeList =
+        [
+            new("Packet", "struct", 16, 2), new("Color", "enum", 4, 3), new("PPacket", "typedef", 8, 0), new("Header", "union", 8, 2), new("Callback", "func", -1, 0),
+        ];
+
+        public Task<NativeTypeList> ListTypesAsync(string? filter, string? kind, int offset, int limit, CancellationToken cancellationToken = default)
+        {
+            var rows = TypeList.Where(t => (filter == null || t.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)) && (kind == null || t.Kind == kind)).ToList();
+            return Task.FromResult(new NativeTypeList(rows.Count, rows.Skip(offset).Take(limit).ToList()));
+        }
+
+        public Task<NativeTypeDetail> GetTypeAsync(string name, CancellationToken cancellationToken = default)
+        {
+            var t = TypeList.First(x => x.Name == name);
+            IReadOnlyList<NativeTypeMember> members = t.Kind == "enum" ? [new(1, "Red", "", 0), new(2, "Green", "", 0), new(4, "Blue", "", 0)]
+                : t.Members > 0 ? [new(0, "length", "int", 4), new(4, "data", "char[12]", 12)] : [];
+            return Task.FromResult(new NativeTypeDetail(t.Name, t.Kind, t.Size, $"{t.Kind} {t.Name};", members));
         }
 
         public Task<NativeFrame> GetFrameAsync(uint rva, CancellationToken cancellationToken = default)

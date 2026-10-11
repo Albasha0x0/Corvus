@@ -36,7 +36,7 @@ public sealed partial class NativeCodeTools
         [Description(NativeTools.AddressDescription + " Or a struct member: Type::member, Type.member, Type+0xOFFSET.")] string address,
         [Description("Index of the first row.")] int offset = 0,
         [Description("Max rows (default 500).")] int limit = 500,
-        [Description(EngineDescription + " With an engine, the references are the engine's, plus the RTTI-resolved virtual call sites it has none for (marked ours).")]
+        [Description(EngineDescription + " An engine's references get the RTTI-resolved virtual calls it lacks (marked ours).")]
         string? engine = null,
         [Description("to (default), from or both.")] string? direction = null,
         [Description("any (default), code (calls, jumps) or data (reads, writes, pointers, address-taken).")] string? kind = null,

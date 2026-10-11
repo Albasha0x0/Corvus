@@ -52,9 +52,9 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
                  "security mitigations (ASLR, DEP, CFG, SafeSEH, GS cookie, CET...), import/export counts, TLS callbacks, debug info (PDB path and GUID), " +
                  "load config, version resource, manifest, rich header (toolchain), checksum, overlay, Authenticode signature, and anything malformed. " +
                  "ELF: program headers, soname, NDK note, build id, relocations, hardening. Mach-O: slice, segments, libraries, fixups, code signature, " +
-                 "entitlements, FairPlay encryption. Capability groups the imports imply (files, registry, network, crypto, processes, UI, services, COM, " +
-                 "debugging, dynamic loading). Once the code index is built (never waited for): functions, coverage, switch tables, unresolved jumps, " +
-                 "virtual call sites, RTTI classes, the most called and the largest functions.")]
+                 "entitlements, FairPlay encryption. Capabilities the imports imply (files, registry, network, crypto, processes, UI, services, COM, " +
+                 "debugging, dynamic loading). With the code index (not waited for): functions, coverage, switch tables, unresolved jumps, virtual " +
+                 "call sites, RTTI classes, the most called and largest functions.")]
     public Task<string> GetPeInfo(
         [Description(ImageDescription)] string image,
         [Description(OffsetDescription)] int offset = 0,
@@ -288,7 +288,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     private static partial System.Text.RegularExpressions.Regex DynamicRow();
 
     [McpServerTool(Name = "list_exports", Title = "List native exports", UseStructuredContent = true, OutputSchemaType = typeof(ExportList))]
-    [Description("Functions and data a native image exports: ordinal, address (VA), name (with the demangled C++ form of MSVC and Itanium names), and forwarders (Mach-O re-exports).")]
+    [Description("A native image's exported functions and data: ordinal, VA, name (with the demangled MSVC or Itanium C++ form), forwarders (Mach-O re-exports).")]
     public Task<string> ListExports(
         [Description(ImageDescription)] string image,
         [Description("Only exports whose name contains this text (case-insensitive; matches the demangled form too).")] string? filter = null,
@@ -317,13 +317,12 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     }, cancellationToken);
 
     [McpServerTool(Name = "resolve_address", Title = "Resolve native address", UseStructuredContent = true, OutputSchemaType = typeof(AddressInfo))]
-    [Description("What an address in a native image is: RVA, VA and file offset, the section and its permissions, the nearest export or import at or before it, " +
-                 "and, once the code index is built, its name and the name's source (user, pdb, nativeaot, il2cpp); after apply_il2cpp_names the managed method or metadata slot; " +
-                 "in a NativeAOT image the MethodTable, frozen object or method body there, or its module section. " +
-                 "For an IAT slot, the export it is bound to (in a loaded image: its address and image); for an export, the loaded images importing it. " +
-                 "With the code index built: the containing function and offset; whether the address is an instruction start, inside an instruction " +
-                 "(with the instruction covering it) or in a data item (string, IAT slot, switch table, relocated pointer; with its extent); the comment; " +
-                 "and the references to it by kind. In a PDB global, the field there (get_native_type has the layout).")]
+    [Description("What an address in a native image is: RVA, VA and file offset, section and permissions, the nearest export or import at or " +
+                 "before it; with the code index, its name and the name's source (user, pdb, nativeaot, il2cpp); after apply_il2cpp_names the managed " +
+                 "method or metadata slot; in NativeAOT the MethodTable, frozen object, method body or module section. An IAT slot: the export it is " +
+                 "bound to; an export: the loaded images importing it. With the code index: the containing function and offset; instruction start, " +
+                 "inside an instruction (the covering one) or a data item (string, IAT slot, switch table, relocated pointer; extent); the comment; " +
+                 "references by kind. In a PDB global, the field there (get_native_type has the layout).")]
     public Task<string> ResolveAddress(
         [Description(ImageDescription)] string image,
         [Description(AddressDescription)] string address,

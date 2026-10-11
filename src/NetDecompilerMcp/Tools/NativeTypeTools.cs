@@ -39,10 +39,10 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
     }
 
     [McpServerTool(Name = "get_native_frame", Title = "Native stack frame and locals")]
-    [Description("The stack frame of a native function as the engine has it (members with offsets, names, types and sizes: locals, arguments, return " +
-                 "address and saved registers; Ghidra counts saved registers among the locals) and its decompiler locals (name, type, register or stack " +
-                 "offset, argument, user-named / user-typed). Offsets count from the frame's lowest address; the offset from the return address " +
-                 "(IDA's var_/arg_ names use it) is in brackets. set_native_stack_var and set_native_local edit them.")]
+    [Description("A native function's stack frame as the engine has it (members: offset, name, type, size; locals, arguments, return address, " +
+                 "saved registers, which Ghidra counts as locals) and its decompiler locals (name, type, register or stack offset, argument, user " +
+                 "name / type). Offsets count from the frame's lowest address; brackets give the offset from the return address (IDA's var_/arg_). " +
+                 "set_native_stack_var and set_native_local edit them.")]
     public Task<string> GetNativeFrame(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("The function: " + NativeTools.AddressDescription)] string function,
@@ -337,22 +337,28 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
 
     [McpServerTool(Name = "list_native_types", Title = "Browse the engine's types")]
     [Description("The named types of the decompiler engine's database (IDA local types, Ghidra data types: from the PDB, RTTI classes, Il2Cpp, the " +
-                 "engine's type libraries and declare_native_types), filtered by name and kind, with size and member count; name= shows one type as a C " +
-                 "declaration with its members' offsets.")]
+                 "engine's type libraries and declare_native_types) with size and member count; members=true adds each type's first members. " +
+                 "name= shows one type as a C declaration with its members' offsets.")]
     public Task<string> ListNativeTypes(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Only types whose name contains this text (case-insensitive).")] string? filter = null,
-        [Description("Only this kind: struct, union, enum, typedef or func.")] string? kind = null,
+        [Description("Name filter: " + NameFilter.Description + ".")] string? filter = null,
+        [Description("struct, union, udt (either), enum, typedef, func or ptr (IDA).")] string? kind = null,
         [Description("Show this one type in full instead of a list.")] string? name = null,
         [Description("Index of the first row.")] int offset = 0,
         [Description("Max rows (default 200, max 5000).")] int limit = 200,
         [Description(EngineDescription)] string? engine = null,
+        [Description("Order: the engine's (default), name or size.")] string? sort = null,
+        [Description("Reverse the order.")] bool descending = false,
+        [Description("List each type's first 32 members (enums: name = value).")] bool members = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
         var k = string.IsNullOrWhiteSpace(kind) ? null : kind.Trim().ToLowerInvariant();
-        if (k is not (null or "struct" or "union" or "enum" or "typedef" or "func"))
-            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown kind '{kind}'.", "use struct, union, enum, typedef or func");
+        if (k is not (null or "struct" or "union" or "udt" or "enum" or "typedef" or "func" or "ptr"))
+            throw new ToolError(ErrorCode.InvalidArgument, $"Unknown kind '{kind}'.", "use struct, union, udt, enum, typedef, func or ptr");
+        var order = string.IsNullOrWhiteSpace(sort) ? "ordinal" : sort.Trim().ToLowerInvariant();
+        if (order is not ("ordinal" or "name" or "size")) throw new ToolError(ErrorCode.InvalidArgument, $"Unknown sort '{sort}'.", "use name or size");
+        var nameFilter = NameFilter.Parse(filter);
         var (_, _, session) = await Open(image, "rva:0", engine, progress, cancellationToken);
         if (!string.IsNullOrWhiteSpace(name))
         {
@@ -367,14 +373,24 @@ public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineSer
         }
         offset = Math.Max(0, offset);
         limit = Math.Clamp(limit, 1, 5000);
-        var list = await session.ListTypesAsync(string.IsNullOrWhiteSpace(filter) ? null : filter.Trim(), k, offset, limit, cancellationToken);
-        var text = new System.Text.StringBuilder($"{list.Total} type(s)" + (filter != null ? $" matching '{filter.Trim()}'" : "") + (k != null ? $" of kind {k}" : "") +
-                                                 (list.Types.Count < list.Total ? $"; rows {offset + 1}-{offset + list.Types.Count}" : "") + "\n");
-        foreach (var t in list.Types)
-            text.AppendLine($"  {t.Kind} {t.Name}" + (t.Size >= 0 ? $"  {t.Size} bytes" : "") + (t.Members > 0 ? $"  {t.Members} members" : ""));
-        if (offset + list.Types.Count < list.Total) text.AppendLine($"More: offset={offset + list.Types.Count}");
+        var (total, rows) = await NativeEngineQueries.Types(session, new NativeEngineQueries.TypeQuery(nameFilter, k, order, descending, members ? MemberRows : 0, offset, limit),
+            cancellationToken);
+        var text = new System.Text.StringBuilder($"{total} type(s)" + (nameFilter != null ? $" matching '{nameFilter.Text}'" : "") + (k != null ? $" of kind {k}" : "") +
+                                                 (order != "ordinal" ? $" by {order}{(descending ? " descending" : "")}" : "") +
+                                                 (rows.Count < total ? $"; rows {offset + 1}-{offset + rows.Count}" : "") + "\n");
+        foreach (var t in rows)
+        {
+            text.AppendLine($"  {t.Kind} {t.Name}" + (t.Size >= 0 ? $"  {t.Size} bytes" : "") + (t.MemberCount > 0 ? $"  {t.MemberCount} members" : ""));
+            foreach (var m in t.Members ?? [])
+                text.AppendLine(t.Kind == "enum" ? $"      {m.Name} = {m.Offset}" : $"      +0x{m.Offset:X}  {m.Name}  {m.Type}  {m.Size}");
+            if (t.Members is { } shown && t.MemberCount > shown.Count) text.AppendLine($"      ... {t.MemberCount - shown.Count} more (name={t.Name} lists them)");
+        }
+        if (offset + rows.Count < total) text.AppendLine($"More: offset={offset + rows.Count}");
         return text.ToString();
     });
+
+    /// <summary>Members listed per type with members=true (the parameter text says 32).</summary>
+    private const int MemberRows = 32;
 
     /// <summary>A local named as "stack:0x28" (by stack offset) or by its name.</summary>
     internal static (string Local, int? Stack) LocalTarget(string text)

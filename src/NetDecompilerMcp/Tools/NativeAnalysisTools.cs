@@ -51,8 +51,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         [property: Description("The call that decompiles the skipped items, when there are any.")] string? Next);
 
     [McpServerTool(Name = "decompile_native", Title = "Decompile native function", UseStructuredContent = true, OutputSchemaType = typeof(DecompileReport))]
-    [Description("C pseudocode of the native function containing an address, through IDA (idalib; Hex-Rays) or Ghidra (its decompiler, in a Java " +
-                 "worker). The first call on an image runs the engine's auto-analysis (seconds for a small DLL, minutes for a large executable; " +
+    [Description("C pseudocode of the native function containing an address, through IDA (Hex-Rays) or Ghidra. The first call on an image runs the engine's auto-analysis (seconds for a small DLL, minutes for a large executable; " +
                  "progress is reported); the database is kept per file hash, so later calls and sessions are fast. Names and comments in effect " +
                  "(rename_native, comment_native, apply_il2cpp_names, PDB names) are pushed first, once per change. A PDB (beside the image, in " +
                  "the symbol cache, or from load_pdb) has its types and prototypes loaded once through the engine's PDB loader (else the server's " +
@@ -62,15 +61,14 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
     public Task<string> DecompileNative(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription + " Required unless functions is given.")] string? address = null,
-        [Description("Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra; the server default " +
-                     "--engine when it names one), ida or ghidra.")] string? engine = null,
+        [Description("auto (default: an engine open on this image, else IDA, else Ghidra; or the server's --engine), ida or ghidra.")] string? engine = null,
         [Description("Prefix each line with the address it was generated from.")] bool addresses = false,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
         [Description("Several functions instead of address: addresses or names, in the order wanted.")] string[]? functions = null,
         [Description("With functions: seconds per function (default 60, 1-600).")] int perFunctionSeconds = 60,
         [Description("With functions: functions decompiled (default 32, 1-200); the rest are skipped with a follow-up call.")] int maxFunctions = 32,
-        [Description("With address: list the globals, functions, strings and imports the pseudocode names after the first page.")] bool refs = false,
+        [Description("With address: a footer on the first page listing the globals, functions, strings and imports used.")] bool refs = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {

@@ -1060,29 +1060,75 @@ def type_kind(ti, t):
     return "other"
 
 
+def type_members(ti, t, limit):
+    # the first limit members: struct / union [offset, name, type, size]; enum [value, name, null, 0]
+    out = []
+    if t.is_udt():
+        udt = ti.udt_type_data_t()
+        t.get_udt_details(udt)
+        for u in udt:
+            if len(out) >= limit:
+                break
+            if not u.is_gap():
+                out.append([u.offset // 8, u.name, str(u.type), u.size // 8])
+    elif t.is_enum():
+        edt = ti.enum_type_data_t()
+        t.get_enum_details(edt)
+        for e in edt:
+            if len(out) >= limit:
+                break
+            out.append([e.value, e.name, None, 0])
+    return out
+
+
 def op_types(args):
-    # named local types: rows [name, kind, size, members]; filter is a case-insensitive substring
+    # named local types: rows [name, kind, size, members, first members (members > 0)]. filter: case-insensitive substring;
+    # pattern: a regex (flags: i, m, s); kind also ptr (resolves to a pointer) and udt (struct or union); sort: ordinal (default), name, size
     need_open()
     import ida_typeinf as ti
+    import re
     til = ti.get_idati()
     wanted = (args.get("filter") or "").lower()
+    pattern = None
+    if args.get("pattern"):
+        flags = 0
+        for f in args.get("flags") or "":
+            flags |= {"i": re.IGNORECASE, "m": re.MULTILINE, "s": re.DOTALL}.get(f, 0)
+        try:
+            pattern = re.compile(args["pattern"], flags)
+        except re.error as e:
+            raise WorkerError("invalid_argument", "invalid regex: %s" % e)
     kind = args.get("kind") or None
+    sort = args.get("sort") or "ordinal"
+    descending = bool(args.get("descending"))
+    member_limit = max(0, min(4096, int(args.get("members") or 0)))
     offset, limit = max(0, int(args.get("offset") or 0)), max(1, int(args.get("limit") or 200))
-    rows, total = [], 0
+    found = []
     for ordinal in range(1, ti.get_ordinal_limit(til)):
         t = ti.tinfo_t()
         if not t.get_numbered_type(til, ordinal):
             continue
         name = t.get_type_name()
-        if not name or (wanted and wanted not in name.lower()):
+        if not name or (wanted and wanted not in name.lower()) or (pattern is not None and not pattern.search(name)):
             continue
         k = type_kind(ti, t)
-        if kind and k != kind:
+        if kind and not (t.is_ptr() if kind == "ptr" else t.is_udt() if kind == "udt" else k == kind):
             continue
-        total += 1
-        if offset < total <= offset + limit:
-            rows.append([name, k, t.get_size() if t.get_size() != ti.BADSIZE else -1, t.get_udt_nmembers() if t.is_udt() else (t.get_enum_nmembers() if t.is_enum() else 0)])
-    return {"total": total, "rows": rows}
+        size = t.get_size()
+        found.append((ordinal, name, k, size if size != ti.BADSIZE else -1, t))
+    if sort == "name":
+        found.sort(key=lambda r: r[1].lower(), reverse=descending)
+    elif sort == "size":
+        found.sort(key=lambda r: r[3], reverse=descending)
+    elif descending:
+        found.reverse()
+    rows = []
+    for ordinal, name, k, size, t in found[offset:offset + limit]:
+        row = [name, k, size, t.get_udt_nmembers() if t.is_udt() else (t.get_enum_nmembers() if t.is_enum() else 0)]
+        if member_limit:
+            row.append(type_members(ti, t, member_limit))
+        rows.append(row)
+    return {"total": len(found), "rows": rows}
 
 
 def op_type(args):

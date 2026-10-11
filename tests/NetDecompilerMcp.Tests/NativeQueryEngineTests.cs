@@ -149,4 +149,40 @@ public sealed class NativeQueryEngineTests(ITestOutputHelper output) : IDisposab
         Assert.Matches(@"// refs: .*import.* \(from ghidra's references\)", text);
         Assert.Contains("!RtlImageNtHeaderEx", text);
     }
+
+    [IdaFact]
+    public async Task List_native_types_through_IDA_by_pattern_kind_order_and_members()
+    {
+        var rig = Setup();
+        await rig.Types.DeclareNativeTypes(rig.Native.Id, "struct QzPkt { int len; char data[12]; }; typedef struct QzPkt *PQzPkt; " +
+                                                          "enum QzColor { QzRed = 1, QzGreen = 2 };", engine: "ida");
+        static List<string> Names(string text) => [.. text.Split('\n').Where(l => l.StartsWith("  ", StringComparison.Ordinal) && !l.StartsWith("    ", StringComparison.Ordinal))
+            .Select(l => l.Trim().Split(' ')[1])];
+        var glob = await rig.Types.ListNativeTypes(rig.Native.Id, "*qz*", engine: "ida", sort: "name");
+        output.WriteLine(glob);
+        Assert.Equal(["PQzPkt", "QzColor", "QzPkt"], Names(glob));
+        Assert.Equal(["PQzPkt"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "/qz/", kind: "ptr", engine: "ida")));
+        Assert.Equal(["QzPkt"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "/^Qz/", kind: "udt", engine: "ida")));
+        Assert.Empty(Names(await rig.Types.ListNativeTypes(rig.Native.Id, "/^qz/s", engine: "ida"))); // a flag drops the default i
+        Assert.Equal(["QzPkt", "PQzPkt", "QzColor"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "*Qz*", engine: "ida", sort: "size", descending: true)));
+        var members = await rig.Types.ListNativeTypes(rig.Native.Id, "/qz(pkt|color)$/", engine: "ida", members: true);
+        output.WriteLine(members);
+        Assert.Contains("      +0x4  data  char[12]  12", members);
+        Assert.Contains("      QzGreen = 2", members);
+    }
+
+    [GhidraFact]
+    public async Task List_native_types_through_Ghidra_by_pattern_kind_order_and_members()
+    {
+        var rig = Setup();
+        await rig.Types.DeclareNativeTypes(rig.Native.Id, "struct QzPkt { int len; char data[12]; }; union QzWord { int i; float f; };", engine: "ghidra");
+        static List<string> Names(string text) => [.. text.Split('\n').Where(l => l.StartsWith("  ", StringComparison.Ordinal) && !l.StartsWith("    ", StringComparison.Ordinal))
+            .Select(l => l.Trim().Split(' ')[1])];
+        Assert.Equal(["QzPkt", "QzWord"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "qz*", kind: "udt", engine: "ghidra", sort: "name")));
+        Assert.Equal(["QzPkt", "QzWord"], Names(await rig.Types.ListNativeTypes(rig.Native.Id, "/^Qz/", engine: "ghidra", sort: "size", descending: true)));
+        var members = await rig.Types.ListNativeTypes(rig.Native.Id, "QzPkt", engine: "ghidra", members: true);
+        output.WriteLine(members);
+        Assert.Matches(@"      \+0x4  data  char\[12\]  12", members);
+        Assert.Equal(ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => rig.Types.ListNativeTypes(rig.Native.Id, kind: "ptr", engine: "ghidra"))).Code);
+    }
 }

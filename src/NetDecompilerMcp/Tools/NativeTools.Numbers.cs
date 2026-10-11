@@ -29,9 +29,9 @@ public sealed partial class NativeTools
     public sealed record NumberConversions(IReadOnlyList<ConvertedNumber> Items);
 
     [McpServerTool(Name = "convert_number", Title = "Convert a number", UseStructuredContent = true, OutputSchemaType = typeof(NumberConversions))]
-    [Description("Exact conversions of numbers, so none is done by hand: unsigned and signed decimal, hex, binary and octal at a width, " +
-                 "little- and big-endian bytes, the bytes as ASCII, and the bits as a float or double. Input: decimal, 0x / h-suffixed hex, 0b, " +
-                 "0o, negative, with _ separators and C suffixes (u, l), 'ABCD' (a C multi-character constant) or \"text\" (its bytes in memory order).")]
+    [Description("Exact number conversions instead of mental arithmetic: unsigned and signed decimal, hex, binary and octal at a width, LE " +
+                 "and BE bytes, the bytes as ASCII, the bits as float or double. Input: decimal, 0x or h-suffixed hex, 0b, 0o, negative, _ " +
+                 "separators, C suffixes, 'ABCD' (C multi-character constant) or \"text\" (bytes in memory order).")]
     public Task<string> ConvertNumber(
         [Description("Numbers to convert, each in any of the input forms.")] string[] numbers,
         [Description("Width in bytes: 1, 2, 4 or 8 (default: the smallest that holds each value).")] int? size = null) => Task.Run(() =>
