@@ -186,6 +186,8 @@ internal sealed class NativeToolHarness : IDisposable
             await Run(path, "native_call_tree", label + " callees", ct => CodeTools.NativeCallTree(id, at, depth: 4, cancellationToken: ct), mustSucceed: true);
             await Run(path, "native_call_tree", label + " callers", ct => CodeTools.NativeCallTree(id, at, direction: "callers", depth: 4, cancellationToken: ct), mustSucceed: true);
             await Run(path, "resolve_address", label + " function", ct => Native.ResolveAddress(id, at, ct), mustSucceed: true);
+            await Run(path, "inspect_instruction", label, ct => CodeTools.InspectInstruction(id, at, count: 64, cancellationToken: ct), mustSucceed: decoded);
+            await Run(path, "inspect_instruction", label + " +1", ct => CodeTools.InspectInstruction(id, Va(f.Start + 1), count: 4, cancellationToken: ct), mustSucceed: decoded);
         }
         if (functions.Count > 0 && functions[0].KnownName == null)
             await Run(path, "disassemble", "sub_ name", ct => CodeTools.Disassemble(id, functions[0].Name, cancellationToken: ct), mustSucceed: decoded);
@@ -196,6 +198,7 @@ internal sealed class NativeToolHarness : IDisposable
             var s = index.Strings[index.Strings.Count / 2];
             await Run(path, "find_xrefs", "string", ct => CodeTools.FindXrefs(id, Va(s.Rva), cancellationToken: ct), mustSucceed: true);
             await Run(path, "disassemble", "raw at string", ct => CodeTools.Disassemble(id, Va(s.Rva), function: false, maxInstructions: 64, cancellationToken: ct), mustSucceed: decoded);
+            await Run(path, "inspect_instruction", "string interior", ct => CodeTools.InspectInstruction(id, Va(s.Rva + 1), count: 8, cancellationToken: ct), mustSucceed: decoded);
         }
         // Arbitrary addresses: every section start and the last byte of the image.
         foreach (var section in pe.Sections.Take(16))
@@ -205,8 +208,10 @@ internal sealed class NativeToolHarness : IDisposable
             await Run(path, "disassemble", "section " + section.Name, ct => CodeTools.Disassemble(id, at, cancellationToken: ct), mustSucceed: decoded);
             await Run(path, "find_xrefs", "section " + section.Name, ct => CodeTools.FindXrefs(id, at, cancellationToken: ct), mustSucceed: true);
             await Run(path, "get_cfg", "section " + section.Name, ct => CodeTools.GetCfg(id, at, cancellationToken: ct));
+            await Run(path, "inspect_instruction", "section " + section.Name, ct => CodeTools.InspectInstruction(id, at, count: 16, cancellationToken: ct), mustSucceed: decoded);
         }
         await Run(path, "disassemble", "image end", ct => CodeTools.Disassemble(id, $"rva:0x{pe.SizeOfImage - 1:X}", function: false, cancellationToken: ct), mustSucceed: decoded);
+        await Run(path, "inspect_instruction", "image end", ct => CodeTools.InspectInstruction(id, $"rva:0x{pe.SizeOfImage - 1:X}", count: 4, cancellationToken: ct), mustSucceed: decoded);
 
         if (ida && Engines.Providers[0].CheckAvailability().IsAvailable && pe.EntryPointRva != 0)
             await Run(path, "decompile_native", "entry", ct => Analysis.DecompileNative(id, Va(pe.EntryPointRva), cancellationToken: ct), limit: TimeSpan.FromMinutes(10));

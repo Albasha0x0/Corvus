@@ -148,7 +148,10 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     [McpServerTool(Name = "disassemble", Title = "Disassemble native code")]
     [Description("MASM-syntax disassembly of the native function containing an address (with block labels), or of maxInstructions from the address " +
                  "when it is in no function or function=false. Calls and data references are named (module!import, exports, sub_<rva>, loc_<rva>) " +
-                 "and string references shown as comments; calls are commented with their recovered arguments (CreateFileW(L\"a.ini\", GENERIC_READ, ...), see get_call_arguments). " + IndexNote)]
+                 "and string references shown as comments; calls are commented with their recovered arguments (CreateFileW(L\"a.ini\", GENERIC_READ, ...), see get_call_arguments). " +
+                 "Warns when the address is inside an instruction, in data or in bss; a listing from an address renders strings, pointers, IAT slots and switch " +
+                 "tables as data and resynchronizes when it runs into a known instruction; a function listing names the gaps between its blocks " +
+                 "(switch table, padding, unreached bytes). Warnings are repeated in a footer. " + IndexNote)]
     public Task<string> Disassemble(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -169,27 +172,30 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         if (index.Support == CodeSupport.DeclaredFunctionsOnly) throw NativeEngineCode.Unsupported(index, engines);
         var rva = Address(index, address);
         var fn = function ? index.FunctionAt(rva) : null;
-        var text = pager.GetOrCreate($"disasm|{index.Image.Sha256}|{(fn != null ? "f" + fn.Start : "r" + rva)}|{max}|{index.Sourced.Version}", () =>
+        var text = pager.GetOrCreate($"disasm|{index.Image.Sha256}|{(fn != null ? "f" + fn.Start : "r")}{rva}|{max}|{index.Sourced.Version}", () =>
         {
             var sb = new StringBuilder();
+            var classifier = new AddressClassifier(index);
+            var warnings = new List<string>();
+            if (StartWarning(classifier, rva, cancellationToken) is { } start && !(function && fn == null && start.StartsWith("note:", StringComparison.Ordinal)))
+            {
+                sb.AppendLine("; " + start);
+                if (start.StartsWith("warning:", StringComparison.Ordinal)) warnings.Add(start);
+            }
             if (fn != null)
             {
                 sb.AppendLine($"; {fn.Name} at {NativeAddress.Va(index.Image, fn.Start)}, {fn.Size} bytes, {Plural(fn.BlockCount, "block")}{Flags(fn)}");
                 if (index.Sourced.CommentAt(fn.Start) is { } fc)
                     foreach (var c in fc.Text.Split('\n')) sb.AppendLine($"; {c}");
                 var calls = NativeCallTools.CallComments(index, fn, cancellationToken);
-                foreach (var (label, line) in index.DisassembleFunction(fn, max, out bool truncated, cancellationToken))
-                {
-                    if (label != null) sb.AppendLine(label.EndsWith(':') ? label : label + ":");
-                    if (line != null) sb.AppendLine(Line(line, calls));
-                    if (truncated && label == null && line == null) break;
-                }
+                AppendFunction(sb, index, classifier, fn, max, calls, warnings, cancellationToken);
             }
             else
             {
                 sb.AppendLine($"; {Plural(max, "instruction")} from {NativeAddress.Va(index.Image, rva)}" + (function ? " (no function contains it)" : ""));
-                foreach (var line in index.Disassemble(rva, max)) sb.AppendLine(Line(line));
+                AppendLinear(sb, index, classifier, rva, max, warnings, cancellationToken);
             }
+            if (warnings.Count > 0) sb.Append("; warnings:\n").AppendJoin("", warnings.Select(w => $";   {w}\n"));
             return sb.ToString();
         });
         return $"; {choice.Line}\n" + Coverage(index) + pager.Page(text + await BoundImports(native, index, fn, cancellationToken), offset, maxChars);
