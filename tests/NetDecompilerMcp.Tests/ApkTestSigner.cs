@@ -47,13 +47,17 @@ internal static class ApkTestSigner
         ("res/raw/data.bin", new byte[100]),
     ];
 
+    private static readonly DateTimeOffset FixedTime = new(2024, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
     public static byte[] Zip(IEnumerable<(string Name, byte[] Data)> entries)
     {
         var ms = new MemoryStream();
         using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
             foreach (var (name, data) in entries)
             {
-                using var s = zip.CreateEntry(name, CompressionLevel.NoCompression).Open();
+                var entry = zip.CreateEntry(name, CompressionLevel.NoCompression);
+                entry.LastWriteTime = FixedTime; // the default (now) makes two builds of one archive differ across a 2-second boundary
+                using var s = entry.Open();
                 s.Write(data);
             }
         return ms.ToArray();
