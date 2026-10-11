@@ -498,7 +498,7 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     }
 
     /// <summary>The one address of <paramref name="name"/> (see <see cref="AddressesOfName"/>): null when none, an ambiguous error when several.</summary>
-    public uint? AddressOfName(string name) => AddressesOfName(name) switch
+    public uint? AddressOfName(string name) => NativeAddress.WithoutJumpThunks(Image, AddressesOfName(name).ToList()) switch
     {
         [] => null,
         [var one] => one.Rva,

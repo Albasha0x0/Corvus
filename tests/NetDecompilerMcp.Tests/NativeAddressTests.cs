@@ -54,6 +54,27 @@ public class NativeAddressTests
         Assert.Null(NativeAddress.DefaultName("switchD_140001010"));
     }
 
+    [Theory]
+    [InlineData(NativeArch.X64)]
+    [InlineData(NativeArch.Arm64)]
+    public void NameOnAJumpThunkAndItsTargetMeansTheTarget(NativeArch arch)
+    {
+        // An incremental-link thunk at First (the export) jumps to Third, which the PDB names the same.
+        var code = new byte[0x40];
+        int at = (int)(First - CodeTestImage.SyntheticCodeRva), rel = (int)(Third - First);
+        if (arch == NativeArch.X64) { code[at] = 0xE9; BitConverter.GetBytes(rel - 5).CopyTo(code, at + 1); }
+        else BitConverter.GetBytes(0x14000000u | (uint)(rel / 4)).CopyTo(code, at);
+        var image = CodeTestImage.Synthetic(arch, code, exports: [new("Body", 1, First, null)], entry: First);
+        var index = NativeCodeIndex.Build(image);
+        index.SetSourceName(Third, "Body", NativeNameSource.Pdb);
+
+        Assert.Equal(Third, NativeCodeTools.Address(index, "Body"));
+        Assert.Equal(Third, index.AddressOfName("Body"));
+        // Two bodies with one name stay ambiguous.
+        index.SetSourceName(Fourth, "Body", NativeNameSource.User);
+        Assert.Equal(ErrorCode.Ambiguous, Assert.Throws<ToolError>(() => NativeCodeTools.Address(index, "Body")).Code);
+    }
+
     [Fact]
     public void NameOnSeveralAddressesIsAmbiguousAndListsThem()
     {

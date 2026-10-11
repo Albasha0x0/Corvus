@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Globalization;
 using NetDecompilerMcp.Core;
 
@@ -50,6 +51,7 @@ public static class NativeAddress
             if (candidates.Count == 0)
                 throw new ToolError(ErrorCode.NotFound, $"{Path.GetFileName(image.Path)} does not import {t}.", "list_imports shows what it imports");
         }
+        candidates = WithoutJumpThunks(image, candidates);
         if (candidates.Count == 1) return candidates[0].Rva;
         if (candidates.Count > 1) throw Ambiguous(image, t, candidates);
         if (DefaultName(t) is { } named) return FromNumber(image, named, t);
@@ -72,6 +74,32 @@ public static class NativeAddress
             return hex.Length is > 0 and <= 16 && hex.All(Uri.IsHexDigit)
                 ? ulong.Parse(hex, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture) : null;
         }
+        return null;
+    }
+
+    /// <summary>
+    /// Drops candidates that are only a direct jump to another candidate: an incremental-link or export thunk and the
+    /// body it jumps to carry the same name, and the name means the body.
+    /// </summary>
+    public static List<AddressCandidate> WithoutJumpThunks(INativeImage image, List<AddressCandidate> candidates)
+    {
+        if (candidates.Count < 2) return candidates;
+        var kept = candidates.Where(c => JumpTarget(image, c.Rva) is not { } to || !candidates.Exists(o => o.Rva == to && o.Rva != c.Rva)).ToList();
+        return kept.Count > 0 ? kept : candidates;
+    }
+
+    /// <summary>Target of the unconditional direct jump at <paramref name="rva"/> (x86/x64 jmp rel32 or rel8, ARM64 b), else null.</summary>
+    private static uint? JumpTarget(INativeImage image, uint rva)
+    {
+        Span<byte> b = stackalloc byte[5];
+        int n = image.Read(rva, b);
+        if (image.Arch is NativeArch.X86 or NativeArch.X64)
+        {
+            if (n >= 5 && b[0] == 0xE9) return unchecked((uint)(rva + 5 + BinaryPrimitives.ReadInt32LittleEndian(b[1..])));
+            if (n >= 2 && b[0] == 0xEB) return unchecked((uint)(rva + 2 + (sbyte)b[1]));
+        }
+        else if (image.Arch == NativeArch.Arm64 && n >= 4 && (BinaryPrimitives.ReadUInt32LittleEndian(b) & 0xFC000000) == 0x14000000)
+            return unchecked((uint)(rva + (((int)BinaryPrimitives.ReadUInt32LittleEndian(b) << 6) >> 6) * 4));
         return null;
     }
 
