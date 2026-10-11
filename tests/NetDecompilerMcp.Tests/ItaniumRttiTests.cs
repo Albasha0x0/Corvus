@@ -135,6 +135,23 @@ public class ItaniumRttiTests
         Assert.Equal([Fn[1]], index.VirtualTargets(site.Rva));
     }
 
+    /// <summary>The saved index keeps the Itanium virtual call sites and edges (x64 data flow and ARM shapes).</summary>
+    [Theory]
+    [InlineData(NativeArch.X64)]
+    [InlineData(NativeArch.Arm64)]
+    public void Saved_index_keeps_the_virtual_calls(NativeArch arch)
+    {
+        using var dir = new TempDir();
+        var cache = new CodeIndexCache(new CodeIndexCacheOptions(dir.File("cache"), 1L << 30, TimeSpan.FromDays(30), TimeSpan.Zero));
+        var bytes = Sample(arch).FileBytes.ToArray();
+        var built = NativeCodeIndex.Build(ElfFile.FromBytes(bytes, "libsample.so"));
+        Assert.Single(built.VirtualCalls.Sites);
+        Assert.True(cache.Save(built, null));
+        var loaded = cache.TryLoad(ElfFile.FromBytes(bytes, "libsample.so"), null);
+        Assert.NotNull(loaded);
+        CodeIndexCacheTests.AssertSameIndex(built, loaded, graphs: int.MaxValue);
+    }
+
     [Fact]
     public async Task Tools_list_classes_type_them_and_report_virtual_calls()
     {
@@ -153,7 +170,8 @@ public class ItaniumRttiTests
         var type = await new NativeTypeInfoTools(workspace, code).GetNativeType(path, name: "C", source: "rtti");
         Assert.Contains("B", type);
 
-        var calls = await new NativeVirtualCallTools(workspace, code, engines, new NativeTypePush(workspace)).FindVirtualCalls(path);
+        var virtualTools = new NativeVirtualCallTools(workspace, code, engines, new NativeTypePush(workspace));
+        var calls = await NativeQuerySurfaceTests.Structured<NativeVirtualCallTools.VirtualCallReport>(() => virtualTools.FindVirtualCalls(path));
         Assert.Equal((1, 1), (calls.Sites, calls.Exact));
     }
 
