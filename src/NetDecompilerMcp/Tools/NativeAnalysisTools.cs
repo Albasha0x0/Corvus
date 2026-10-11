@@ -435,6 +435,8 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         var (native, _) = Resolve(image, "rva:0");
         var result = native.GetAnalysis(n => Native.Itanium.CppRtti.Analyze(n.Image, cancellationToken));
         var pe = native.Image;
+        // slot targets are named from the code index, built for this when it is not yet
+        var index = !slots || code == null ? null : code.Ready(native) ?? code.Index(native, null, cancellationToken).GetAwaiter().GetResult();
         var classes = result.Classes.Where(c => filter == null || c.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
         var sb = new StringBuilder($"{native.Id}: {Plural(result.Classes.Count, "class")} with RTTI, {Plural(result.Stats.Vtables, "vftable")}, " +
                                    $"{Plural(result.TypeDescriptors.Count, pe.Format == ImageFormat.Pe ? "type descriptor" : "typeinfo")}" +
@@ -457,7 +459,8 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
                 sb.AppendLine($"  vftable {NativeAddress.Va(pe, v.VftableRva)} for subobject +0x{v.Offset:X}: {Plural(v.SlotRvas.Count, "slot")}");
                 if (slots)
                     for (int i = 0; i < v.SlotRvas.Count; i++)
-                        sb.AppendLine($"    [{i}] {(v.SlotRvas[i] == 0 ? "(import)" : NativeAddress.Va(pe, v.SlotRvas[i]))}");
+                        sb.AppendLine($"    [{i}] {(v.SlotRvas[i] == 0 ? "(import)" : NativeAddress.Va(pe, v.SlotRvas[i]))}" +
+                                      (v.SlotRvas[i] != 0 && index?.NameAt(v.SlotRvas[i]) is { } name ? "  " + name : ""));
             }
             foreach (var issue in c.Issues) sb.AppendLine($"  issue: {issue}");
         }

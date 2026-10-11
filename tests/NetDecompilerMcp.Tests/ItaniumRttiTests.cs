@@ -162,8 +162,10 @@ public class ItaniumRttiTests
         using var workspace = new AssemblyWorkspace(options);
         var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(dir.File("ann")));
         var engines = new NativeEngineService();
-        var classes = await new NativeAnalysisTools(workspace, engines, new OutputPager(options)).ListCppClasses(path, slots: true);
+        var classes = await new NativeAnalysisTools(workspace, engines, new OutputPager(options), code: code).ListCppClasses(path, slots: true);
         Assert.Contains("3 classes with RTTI, 3 vftables, 3 typeinfos", classes);
+        // slot targets carry their function names
+        Assert.Matches(@"\[0\] 0x[0-9A-F]+  \S+", classes);
         Assert.Contains("class C : virtual A, B @+0x8", classes);
         Assert.Contains("[1] (import)", classes);
 
