@@ -70,8 +70,8 @@ public sealed partial class CSharpPatcher
         }
 
         Enqueue(asm.AssemblyName, targetBytes, asm.Module, owned: false, asm.FilePath);
-        bool netFramework = Frameworks.TargetsNetFramework(asm.Module); // applies to the whole reference closure
-        var targetFramework = Frameworks.TargetFrameworkOf(asm.Module);
+        bool netFramework = Frameworks.ResolvesAsNetFramework(asm.Module); // applies to the whole reference closure
+        var targetFramework = Frameworks.RequesterFramework(asm.Module);
         while (queue.Count > 0)
         {
             var (module, owned, from) = queue.Dequeue();

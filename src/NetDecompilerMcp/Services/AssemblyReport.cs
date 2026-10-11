@@ -98,7 +98,7 @@ public sealed class AssemblyReport(AssemblyWorkspace workspace, Il2CppService il
         var references = new List<ReferenceStatus>();
         foreach (var r in m.GetAssemblyRefs())
         {
-            var target = workspace.LocateReference(r.Name, r.Version, r.PublicKeyOrToken?.Token?.Data, asm.FilePath, Frameworks.TargetsNetFramework(m), Frameworks.TargetFrameworkOf(m));
+            var target = workspace.LocateReference(r.Name, r.Version, r.PublicKeyOrToken?.Token?.Data, asm.FilePath, Frameworks.ResolvesAsNetFramework(m), Frameworks.RequesterFramework(m));
             var status = target?.Describe() ?? "not found";
             // Flag a resolved major version that differs from the requested one; .NET Framework 2.0-4.x unification is expected.
             if (target?.File is { } file && r.Version is { } wanted && !Frameworks.IsWildcard(wanted)

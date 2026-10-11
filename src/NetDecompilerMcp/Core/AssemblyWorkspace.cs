@@ -661,8 +661,12 @@ public sealed class AssemblyWorkspace : IDisposable
                 return new(null, fitting, null, null);
             // A major-version mismatch, or a modern runtime copy for a .NET Framework requester, ranks below
             // embedded images and matching NuGet packages.
+            // Likewise a .NET Framework copy for a .NET Standard or .NET requester (System.Numerics.Vectors there lacks
+            // Vector<T>), and a runtime copy for a .NET Standard one (it needs that runtime's System.Runtime, CS1705).
+            bool standardRequester = requesterFramework?.StartsWith(".NETStandard", StringComparison.OrdinalIgnoreCase) == true;
             bool exact = (version == null || Frameworks.IsWildcard(version) || FileVersion(file) is not { } v || Frameworks.IsWildcard(v) || v.Major == version.Major)
-                         && !(netFramework && Frameworks.SharedFrameworkMajor(file) != null);
+                         && !((netFramework || standardRequester) && Frameworks.SharedFrameworkMajor(file) != null)
+                         && !(!netFramework && requesterFramework != null && Frameworks.InNetFrameworkDirectory(file));
             if (exact) return new(null, file, null, null);
             if (FindEmbedded(name, token) is { } embeddedFirst) return embeddedFirst;
             if (Frameworks.NuGetFile(name, version, netFramework, requesterFramework) is { } packageFirst
@@ -761,7 +765,7 @@ public sealed class AssemblyWorkspace : IDisposable
                 _cacheGeneration = generation;
             }
             var key = string.Join("|", name, assembly.Version, Convert.ToHexString(assembly.PublicKeyOrToken?.Token?.Data ?? []),
-                sourceModule?.Location is { } location ? SafeDirectory(location) : "", sourceModule == null ? "" : Frameworks.TargetFrameworkOf(sourceModule));
+                sourceModule?.Location is { } location ? SafeDirectory(location) : "", sourceModule == null ? "" : Frameworks.RequesterFramework(sourceModule));
             return _cache.GetOrAdd(key, _ => ResolveUncached(name, assembly, sourceModule));
         }
 
@@ -769,7 +773,7 @@ public sealed class AssemblyWorkspace : IDisposable
         {
             var requester = sourceModule?.Location;
             var target = ws.LocateReference(name, assembly.Version, assembly.PublicKeyOrToken?.Token?.Data, requester,
-                sourceModule != null && Frameworks.TargetsNetFramework(sourceModule), sourceModule == null ? null : Frameworks.TargetFrameworkOf(sourceModule));
+                sourceModule != null && Frameworks.ResolvesAsNetFramework(sourceModule), sourceModule == null ? null : Frameworks.RequesterFramework(sourceModule));
             if (target == null) return null;
             if (target.Loaded != null)
                 return target.Loaded.Module.Assembly;
@@ -832,7 +836,7 @@ public sealed class AssemblyWorkspace : IDisposable
         public DecompilerMetadata.MetadataFile? Resolve(DecompilerMetadata.IAssemblyReference reference)
         {
             var target = _ws.LocateReference(reference.Name, reference.Version, reference.PublicKeyToken, _main.FilePath,
-                Frameworks.TargetsNetFramework(_main.Module), Frameworks.TargetFrameworkOf(_main.Module));
+                Frameworks.ResolvesAsNetFramework(_main.Module), Frameworks.RequesterFramework(_main.Module));
             if (target?.Loaded != null)
                 return target.Loaded.GetPEFile();
 

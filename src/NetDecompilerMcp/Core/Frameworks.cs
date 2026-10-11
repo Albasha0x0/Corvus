@@ -380,10 +380,69 @@ internal static class Frameworks
     /// <summary>The TargetFrameworkAttribute value, e.g. ".NETCoreApp,Version=v8.0".</summary>
     public static string? TargetFrameworkOf(ModuleDef module) => Read(module)?.TargetFramework;
 
+    /// <summary>
+    /// The framework of an assembly without a TargetFrameworkAttribute, from the core assemblies it references:
+    /// netstandard 2.x; System.Runtime 4.0 / 4.1 contracts (netstandard 1.x); mscorlib 2.0 (.NET Framework 3.5); mscorlib
+    /// 4.0 next to netstandard or UnityEngine (the Unity .NET 4.x profile, close to .NET Framework 4.8). Null otherwise.
+    /// </summary>
+    public static string? InferTargetFramework(ModuleDef module) => Read(module) is { TargetFramework: null } f ? f.Inferred : null;
+
+    /// <summary>
+    /// The framework references are resolved for: the TargetFrameworkAttribute, else a .NET Standard framework inferred
+    /// from the references (a netstandard1.x contract must not bind to the newest runtime's API, e.g. Volatile.Read(ref readonly)).
+    /// </summary>
+    public static string? RequesterFramework(ModuleDef module) => Read(module) is { } f
+        ? f.TargetFramework ?? (f.Inferred?.StartsWith(".NETStandard", StringComparison.Ordinal) == true ? f.Inferred : null)
+        : null;
+
+    /// <summary>
+    /// .NET Framework, or .NET Standard 1.x, whose contracts .NET Framework 4.5 implements: their references bind to .NET
+    /// Framework, as the newest runtime's facades would change the API (Volatile.Read(ref T) read as ref readonly, shown as 'in').
+    /// </summary>
+    public static bool ResolvesAsNetFramework(ModuleDef module) =>
+        TargetsNetFramework(module) || RequesterFramework(module)?.StartsWith(".NETStandard,Version=v1.", StringComparison.OrdinalIgnoreCase) == true;
+
+    private static string? Infer(IReadOnlyDictionary<string, Version> refs, IEnumerable<string> names)
+    {
+        refs.TryGetValue("netstandard", out var standard);
+        if (refs.TryGetValue("mscorlib", out var corlib))
+        {
+            if (corlib.Major == 2) return ".NETFramework,Version=v3.5";
+            if (corlib.Major == 4 && (standard != null || names.Any(n => n.StartsWith("UnityEngine", StringComparison.OrdinalIgnoreCase))))
+                return ".NETFramework,Version=v4.8";
+            return null;
+        }
+        if (standard != null) return standard is { Major: 2, Minor: >= 1 } ? ".NETStandard,Version=v2.1" : ".NETStandard,Version=v2.0";
+        if (refs.TryGetValue("System.Runtime", out var runtime) && runtime is { Major: 4, Minor: <= 1 })
+            return ".NETStandard,Version=v" + (runtime.Minor == 1 ? "1.5" : runtime.Build switch { >= 20 => "1.3", >= 10 => "1.2", _ => "1.0" });
+        return null;
+    }
+
+    /// <summary>The project file form of a framework name: ".NETStandard,Version=v1.0" -> netstandard1.0, ".NETFramework,Version=v4.8" -> net48.</summary>
+    public static string? ShortName(string? targetFramework)
+    {
+        if (targetFramework?.Split(",Version=v", 2) is not [var id, var ver]) return null;
+        return id.ToUpperInvariant() switch
+        {
+            ".NETSTANDARD" => "netstandard" + ver,
+            ".NETFRAMEWORK" => "net" + ver.Replace(".", ""),
+            ".NETCOREAPP" when Version.TryParse(ver, out var v) => v.Major >= 5 ? $"net{v.Major}.{v.Minor}" : "netcoreapp" + ver,
+            _ => null,
+        };
+    }
+
+    /// <summary>Whether a file lies in a .NET Framework directory (the runtime's, not a reference pack).</summary>
+    public static bool InNetFrameworkDirectory(string file)
+    {
+        var dir = Path.GetDirectoryName(Path.GetFullPath(file))?.TrimEnd(Path.DirectorySeparatorChar);
+        return dir != null && NetFramework.Value.Any(d => string.Equals(Path.GetFullPath(d).TrimEnd(Path.DirectorySeparatorChar), dir, StringComparison.OrdinalIgnoreCase));
+    }
+
     /// <summary>True for 0.0.x and 255.x versions (WinMD "any version"), which carry no framework information.</summary>
     public static bool IsWildcard(Version v) => v is { Major: 0, Minor: 0 } || v.Major == 255;
 
-    private sealed record ImageFacts(string? AssemblyName, string? TargetFramework, HashSet<string> References);
+    /// <param name="Inferred">See <see cref="InferTargetFramework"/>.</param>
+    private sealed record ImageFacts(string? AssemblyName, string? TargetFramework, HashSet<string> References, string? Inferred);
 
     private static readonly ConditionalWeakTable<ModuleDef, ImageFacts> Facts = new();
 
@@ -400,7 +459,13 @@ internal static class Frameworks
             var image = md.Metadata.PEImage.CreateReader().ToArray();
             using var pe = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(image, writable: false));
             var reader = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
-            var refs = reader.AssemblyReferences.Select(h => reader.GetString(reader.GetAssemblyReference(h).Name)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var versions = new Dictionary<string, Version>(StringComparer.OrdinalIgnoreCase);
+            foreach (var h in reader.AssemblyReferences)
+            {
+                var r = reader.GetAssemblyReference(h);
+                versions.TryAdd(reader.GetString(r.Name), r.Version);
+            }
+            var refs = versions.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
             string? name = null, tfm = null;
             if (reader.IsAssembly)
             {
@@ -418,7 +483,7 @@ internal static class Frameworks
                     if (blob.Length >= 3 && blob.ReadUInt16() == 1) tfm = blob.ReadSerializedString(); // 0x0001 prolog, then the framework name
                 }
             }
-            var facts = new ImageFacts(name, tfm, refs);
+            var facts = new ImageFacts(name, tfm, refs, tfm == null ? Infer(versions, refs) : null);
             Facts.AddOrUpdate(module, facts);
             return facts;
         }

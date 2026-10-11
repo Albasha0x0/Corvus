@@ -310,9 +310,11 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         // Method-call LINQ: query syntax reconstruction can leak compiler names (<>h__TransparentIdentifier0).
         var exportSettings = CreateSettings();
         exportSettings.QueryExpressions = false;
-        var exporter = new ProjectExporter(Frameworks.TargetFrameworkOf(asm.Module), exportSettings, workspace.CreateDecompilerResolver(asm), null,
-            new FrameworkClassifier(Frameworks.TargetsNetFramework(asm.Module), Frameworks.NetCoreMajor(Frameworks.TargetFrameworkOf(asm.Module)),
-                Frameworks.NetFrameworkReferenceDirs(Frameworks.TargetFrameworkOf(asm.Module))), null);
+        var inferred = Frameworks.InferTargetFramework(asm.Module);
+        var framework = Frameworks.TargetFrameworkOf(asm.Module) ?? inferred;
+        bool netFramework = framework != null ? framework.StartsWith(".NETFramework", StringComparison.OrdinalIgnoreCase) : Frameworks.TargetsNetFramework(asm.Module);
+        var exporter = new ProjectExporter(framework, exportSettings, workspace.CreateDecompilerResolver(asm), null,
+            new FrameworkClassifier(netFramework, Frameworks.NetCoreMajor(framework), Frameworks.NetFrameworkReferenceDirs(framework)), null);
         if (onProgress != null)
             exporter.ProgressIndicator = new InlineProgress<DecompilationProgress>(p => onProgress(p.UnitsCompleted, p.TotalUnits, p.Status ?? "Decompiling"));
         try
@@ -328,7 +330,9 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
                 Partial = new { outputDirectory = dir, filesWritten = written.Count, files = written.Take(100).ToList() },
             };
         }
+        if (inferred != null) UseInferredFramework(dir, inferred);
         IncludeEmbeddedReferences(asm, dir);
+        AddTransitiveReferences(asm, dir, framework, netFramework);
         ThrowInFailedBodies(dir);
         UseUnionWindowsMetadata(dir);
         KeepIdentity(asm, dir);
@@ -361,7 +365,7 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         bool netFramework = Frameworks.TargetsNetFramework(asm.Module);
         foreach (var r in asm.Module.GetAssemblyRefs())
             if (!embedded.ContainsKey(r.Name) && workspace.LocateReference(r.Name, r.Version, r.PublicKeyOrToken?.Token?.Data, asm.FilePath, netFramework,
-                    Frameworks.TargetFrameworkOf(asm.Module)) is { Stub: not null, Bytes: { } stubBytes })
+                    Frameworks.RequesterFramework(asm.Module)) is { Stub: not null, Bytes: { } stubBytes })
                 stubs[r.Name] = stubBytes;
         if (embedded.Count == 0 && stubs.Count == 0) return;
 
@@ -385,6 +389,102 @@ public sealed class DecompilerService(AssemblyWorkspace workspace, ServerOptions
         if (extra.Count > 0)
             text = text.Replace("</Project>", "  <ItemGroup>\n    <!-- wrapped inside the original assembly (dependencies of its dependencies) -->\n" + string.Join("\n", extra) + "\n  </ItemGroup>\n</Project>");
         File.WriteAllText(project, text);
+    }
+
+    /// <summary>
+    /// Writes the framework inferred from the references (<see cref="Frameworks.InferTargetFramework"/>) where the engine
+    /// wrote .NET Framework 4.0 for every assembly without a TargetFrameworkAttribute. A .NET Standard project gets its
+    /// framework assemblies from the SDK, so references into .NET Framework or shared framework folders are dropped.
+    /// </summary>
+    private static void UseInferredFramework(string dir, string framework)
+    {
+        var project = Directory.GetFiles(dir, "*.csproj").FirstOrDefault();
+        if (project == null || Frameworks.ShortName(framework) is not { } tfm) return;
+        var text = File.ReadAllText(project);
+        var current = System.Text.RegularExpressions.Regex.Match(text, "<TargetFramework>([^<]*)</TargetFramework>");
+        if (!current.Success) return;
+        text = text.Replace(current.Value, $"<TargetFramework>{tfm}</TargetFramework>\n    <!-- inferred from the referenced core assemblies: the assembly has no TargetFrameworkAttribute -->");
+        if (tfm.StartsWith("netstandard", StringComparison.Ordinal))
+            text = System.Text.RegularExpressions.Regex.Replace(text, @"[ \t]*<Reference Include=""[^""]+"">\s*<HintPath>([^<]+)</HintPath>\s*</Reference>\r?\n?",
+                m => IsFrameworkFile(Path.GetFullPath(Path.Combine(dir, m.Groups[1].Value))) ? "" : m.Value);
+        File.WriteAllText(project, text);
+    }
+
+    private static bool IsFrameworkFile(string file) => Frameworks.InNetFrameworkDirectory(file) || Frameworks.SharedFrameworkMajor(file) != null;
+
+    /// <summary>
+    /// References the dependencies of the referenced libraries (CS0012: a type of System.Numerics.Vectors reached
+    /// through System.Memory). Each is taken from the original application's folder when it ships a copy, else as it
+    /// resolves; framework assemblies are left to the framework (by name for .NET Framework).
+    /// </summary>
+    private void AddTransitiveReferences(LoadedAssembly asm, string dir, string? framework, bool netFramework)
+    {
+        var project = Directory.GetFiles(dir, "*.csproj").FirstOrDefault();
+        if (project == null) return;
+        var text = File.ReadAllText(project);
+        var referenced = System.Text.RegularExpressions.Regex.Matches(text, "<Reference Include=\"([^\"]+)\"")
+            .Select(m => m.Groups[1].Value.Split(',')[0]).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var appDir = Path.GetDirectoryName(asm.FilePath);
+        var queue = new Queue<(string Name, Version? Version, byte[]? Token, string From)>(
+            asm.Module.GetAssemblyRefs().Select(r => (r.Name.String, (Version?)r.Version, r.PublicKeyOrToken?.Token?.Data, asm.FilePath)));
+        var seen = new HashSet<string>(asm.Module.GetAssemblyRefs().Select(r => r.Name.String), StringComparer.OrdinalIgnoreCase) { asm.AssemblyName };
+        var added = new List<string>();
+        while (queue.Count > 0)
+        {
+            var (name, version, token, from) = queue.Dequeue();
+            var target = workspace.LocateReference(name, version, token, from, netFramework, framework);
+            var file = target?.Loaded?.FilePath ?? target?.File;
+            if (file == null || IsFrameworkFile(file) || name.Equals("netstandard", StringComparison.OrdinalIgnoreCase)) continue;
+            foreach (var (refName, refVersion, refToken) in ReferencesOf(file))
+            {
+                if (!seen.Add(refName)) continue;
+                queue.Enqueue((refName, refVersion, refToken, file));
+                if (referenced.Contains(refName) || ProvidedByFramework(refName, framework, netFramework)) continue;
+                // An application's own copy (often newer than the framework's, e.g. System.Numerics.Vectors next to System.Memory).
+                var local = appDir == null ? null : Path.Combine(appDir, refName + ".dll");
+                string? found;
+                if (local != null && File.Exists(local)) found = local;
+                else if (netFramework && Frameworks.IsNetFrameworkAssembly(refName))
+                {
+                    added.Add($"    <Reference Include=\"{refName}\" />");
+                    continue;
+                }
+                else found = workspace.LocateReference(refName, refVersion, refToken, file, netFramework, framework) is { Stub: null } t ? t.Loaded?.FilePath ?? t.File : null;
+                if (found == null || IsFrameworkFile(found)) continue;
+                added.Add($"    <Reference Include=\"{refName}\">\n      <HintPath>{System.Security.SecurityElement.Escape(Path.GetRelativePath(dir, found))}</HintPath>\n    </Reference>");
+            }
+        }
+        if (added.Count == 0) return;
+        text = text.Replace("</Project>", "  <ItemGroup>\n    <!-- dependencies of the referenced libraries -->\n" + string.Join("\n", added) + "\n  </ItemGroup>\n</Project>");
+        File.WriteAllText(project, text);
+    }
+
+    /// <summary>Assemblies the project's framework supplies itself: the shared framework (.NET), the .NET Standard surface, mscorlib.</summary>
+    private static bool ProvidedByFramework(string name, string? framework, bool netFramework)
+    {
+        if (name is "mscorlib" or "netstandard" or "System.Private.CoreLib") return true;
+        if (Frameworks.NetCoreMajor(framework) is { } major) return Frameworks.SharedFrameworkOf(name, major) != null;
+        if (!netFramework && framework?.StartsWith(".NETStandard,Version=v2", StringComparison.OrdinalIgnoreCase) == true
+            && Frameworks.NetStandardFile(new Version(2, framework.EndsWith("2.1", StringComparison.Ordinal) ? 1 : 0)) is { } standard)
+            return File.Exists(Path.Combine(Path.GetDirectoryName(standard)!, name + ".dll"));
+        return false;
+    }
+
+    private static List<(string Name, Version Version, byte[]? Token)> ReferencesOf(string file)
+    {
+        try
+        {
+            using var pe = new System.Reflection.PortableExecutable.PEReader(File.OpenRead(file));
+            if (!pe.HasMetadata) return [];
+            var md = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+            return md.AssemblyReferences.Select(h => md.GetAssemblyReference(h)).Select(r =>
+            {
+                var key = md.GetBlobBytes(r.PublicKeyOrToken);
+                byte[]? token = key.Length == 8 ? key : key.Length > 0 ? new Dn.PublicKey(key).Token.Data : null;
+                return (md.GetString(r.Name), r.Version, token);
+            }).ToList();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException or InvalidOperationException) { return []; }
     }
 
     /// <summary>
