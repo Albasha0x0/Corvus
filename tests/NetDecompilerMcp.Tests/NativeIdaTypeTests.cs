@@ -234,6 +234,17 @@ public sealed class NativeIdaTypeTests(ITestOutputHelper output) : IDisposable
         Assert.Contains("NameError", await rig.Scripts.IdaPython(Image, "x", reset: true));
         var printed = await rig.Scripts.IdaPython(Image, "print('hello from ida')");
         Assert.Contains("stdout:\nhello from ida", printed);
+        // a script file, output clipped, the database saved afterwards
+        var script = _dir.File("script.py");
+        File.WriteAllText(script, "print('y' * 500)\n7 * 6");
+        var clipped = await rig.Scripts.IdaPython(Image, file: script, maxOutput: 100);
+        Assert.Contains("Result: 42", clipped);
+        Assert.Contains("[clipped at 100 of 500 characters]", clipped);
+        var database = Directory.EnumerateFiles(_dir.File("cache-q"), "*.i64", SearchOption.AllDirectories).Single();
+        var before = File.GetLastWriteTimeUtc(database);
+        await Task.Delay(1100);
+        Assert.Contains("Database saved.", await rig.Scripts.IdaPython(Image, "1", persist: true));
+        Assert.True(File.GetLastWriteTimeUtc(database) > before);
 
         // a script's change shows in the next decompilation (the cached text is made again)
         Assert.DoesNotContain("scriptedBase", await rig.Analysis.DecompileNative(Image, Function));

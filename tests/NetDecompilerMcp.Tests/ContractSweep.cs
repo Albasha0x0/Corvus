@@ -51,7 +51,7 @@ public static class ContractSweep
     /// <summary>A parameter that names a file or directory the tool writes.</summary>
     public static bool IsOutputPath(string tool, string parameter) =>
         FileWriters.TryGetValue(tool, out var outputs) && outputs.Contains(parameter)
-        || parameter.Contains("output", StringComparison.OrdinalIgnoreCase)
+        || parameter.Contains("output", StringComparison.OrdinalIgnoreCase) && !parameter.StartsWith("max", StringComparison.Ordinal)
         || parameter.Equals("savePath", StringComparison.OrdinalIgnoreCase);
 
     public sealed record Case(string Tool, string Label, Dictionary<string, object?> Args);

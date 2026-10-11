@@ -42,14 +42,12 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
     private static readonly string[] DefaultSections = ["identity", "signature", "frame", "callers", "callees", "data", "flow", "annotations"];
 
     [McpServerTool(Name = "analyze_native_function", Title = "Native function dossier", UseStructuredContent = true, OutputSchemaType = typeof(FunctionDossier))]
-    [Description("Everything known about one native function, in sections, each bounded by maxItems with its total: identity (name and source, " +
-                 "ranges with exclusive ends, flags, discovery, demangled and Il2Cpp names, RTTI vftable slots), signature evidence (ret n, argument " +
-                 "registers read before written, this class, whether callers use the result), frame (stack allocation, saved registers, frame pointer, " +
-                 "address-taken locals, exception handling), callers (with edge kinds, importers in other images, why it is reachable), callees (each " +
-                 "call with its targets, basis and recovered arguments; unresolved ones with the reason), data (strings, globals read and written, " +
-                 "import slots), flow (blocks, loops, switches, unresolved jumps, noreturn and tail calls), annotations. Optional: params (values " +
-                 "callers pass, depth 1) and pseudocode (through IDA or Ghidra). A section that fails reports its error; the others stay. " +
-                 "Ends with follow-up calls.")]
+    [Description("Everything known about one native function, in sections bounded by maxItems with totals: identity (name and source, ranges, " +
+                 "flags, demangled and Il2Cpp names, vftable slots), signature evidence (ret n, argument registers read before written, this class, " +
+                 "result use), frame (stack, saved registers, frame pointer, address-taken locals, EH), callers (edge kinds, importers in other " +
+                 "images, roots), callees (targets, basis, arguments; unresolved with the reason), data (strings, globals read and written, import " +
+                 "slots), flow (blocks, loops, switches, unresolved jumps, noreturn and tail calls), annotations. Optional: params (values callers " +
+                 "pass) and pseudocode (IDA or Ghidra). A failing section reports its error. Ends with follow-up calls.")]
     public Task<string> AnalyzeNativeFunction(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("An address inside the function. " + NativeTools.AddressDescription)] string address,

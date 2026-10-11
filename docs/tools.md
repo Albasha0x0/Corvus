@@ -1242,7 +1242,7 @@ Structured output: `image`, `scope`, `engine`, `total`, `byStatus`, `byMechanism
 
 **Native function dossier** (read-only, idempotent, open-world, long-running)
 
-Everything known about one native function, in sections, each bounded by maxItems with its total: identity (name and source, ranges with exclusive ends, flags, discovery, demangled and Il2Cpp names, RTTI vftable slots), signature evidence (ret n, argument registers read before written, this class, whether callers use the result), frame (stack allocation, saved registers, frame pointer, address-taken locals, exception handling), callers (with edge kinds, importers in other images, why it is reachable), callees (each call with its targets, basis and recovered arguments; unresolved ones with the reason), data (strings, globals read and written, import slots), flow (blocks, loops, switches, unresolved jumps, noreturn and tail calls), annotations. Optional: params (values callers pass, depth 1) and pseudocode (through IDA or Ghidra). A section that fails reports its error; the others stay. Ends with follow-up calls.
+Everything known about one native function, in sections bounded by maxItems with totals: identity (name and source, ranges, flags, demangled and Il2Cpp names, vftable slots), signature evidence (ret n, argument registers read before written, this class, result use), frame (stack, saved registers, frame pointer, address-taken locals, EH), callers (edge kinds, importers in other images, roots), callees (targets, basis, arguments; unresolved with the reason), data (strings, globals read and written, import slots), flow (blocks, loops, switches, unresolved jumps, noreturn and tail calls), annotations. Optional: params (values callers pass) and pseudocode (IDA or Ghidra). A failing section reports its error. Ends with follow-up calls.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1915,14 +1915,17 @@ Set how an instruction operand displays in the engine's disassembly and, where t
 
 **Run IDAPython on a native image** (destructive, open-world, long-running)
 
-Run Python in the IDA worker that holds a native image's database (idalib): IDAPython modules are imported, base is the image base, globals persist between calls (reset=true clears them), and the value of a final expression is returned with stdout and stderr. Disabled unless the server runs with --ida-scripting or NDM_IDA_SCRIPTING=1: the code runs with the server's rights and can change or destroy the analysis database. Changes are not journaled or saved in the annotation sidecar: a worker restart loses unsaved ones (ida_loader.save_database keeps them).
+Run Python in the IDA worker holding a native image's database (idalib): IDAPython modules imported, base is the image base, globals persist between calls (reset=true clears them); returns a final expression's value, stdout and stderr. Off unless the server runs with --ida-scripting (NDM_IDA_SCRIPTING=1): the code has the server's rights and can destroy the database. Changes are not journaled: a worker restart loses them unless persist=true saves the database.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `image` | string | yes |  | Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded. |
-| `code` | string | yes |  | Python source; a final expression's value is returned. |
+| `code` | string |  |  | Python source (or pass file). |
 | `reset` | boolean |  | `false` | Clear the globals earlier calls left. |
 | `engine` | string |  |  | Engine: auto (default) or ida. Values: auto, ida. |
+| `file` | string |  |  | A .py file to run instead of code. |
+| `maxOutput` | integer |  | `20000` | Characters kept of the result, stdout and stderr each (default 20000, 100-200000). |
+| `persist` | boolean |  | `false` | Save the database after the script. |
 
 ## android
 

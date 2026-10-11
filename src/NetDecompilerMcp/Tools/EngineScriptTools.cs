@@ -15,22 +15,35 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
     NativeNamePush? names = null, NativeTypePush? types = null, NativeUserTypePush? userTypes = null)
 {
     [McpServerTool(Name = "ida_python", Title = "Run IDAPython on a native image")]
-    [Description("Run Python in the IDA worker that holds a native image's database (idalib): IDAPython modules are imported, base is the image " +
-                 "base, globals persist between calls (reset=true clears them), and the value of a final expression is returned with stdout and " +
-                 "stderr. Disabled unless the server runs with --ida-scripting or NDM_IDA_SCRIPTING=1: the code runs with the server's rights and " +
-                 "can change or destroy the analysis database. Changes are not journaled or saved in the annotation sidecar: a worker restart " +
-                 "loses unsaved ones (ida_loader.save_database keeps them).")]
+    [Description("Run Python in the IDA worker holding a native image's database (idalib): IDAPython modules imported, base is the image base, " +
+                 "globals persist between calls (reset=true clears them); returns a final expression's value, stdout and stderr. Off unless the " +
+                 "server runs with --ida-scripting (NDM_IDA_SCRIPTING=1): the code has the server's rights and can destroy the database. Changes " +
+                 "are not journaled: a worker restart loses them unless persist=true saves the database.")]
     public Task<string> IdaPython(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("Python source; a final expression's value is returned.")] string code,
+        [Description("Python source (or pass file).")] string? code = null,
         [Description("Clear the globals earlier calls left.")] bool reset = false,
         [Description("Engine: auto (default) or ida.")] string? engine = null,
+        [Description("A .py file to run instead of code.")] string? file = null,
+        [Description("Characters kept of the result, stdout and stderr each (default 20000, 100-200000).")] int maxOutput = 20_000,
+        [Description("Save the database after the script.")] bool persist = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
+        bool hasCode = !string.IsNullOrEmpty(code);
+        if (hasCode == !string.IsNullOrWhiteSpace(file))
+            throw new ToolError(ErrorCode.InvalidArgument, hasCode ? "Pass code or file, not both." : "Pass code or file.");
+        if (maxOutput is < 100 or > 200_000) throw new ToolError(ErrorCode.InvalidArgument, $"maxOutput must be 100-200000, not {maxOutput}.");
         if (!options.IdaScripting)
             throw new ToolError(ErrorCode.Unsupported, "ida_python is disabled on this server.",
                 $"start the server with --ida-scripting or set {ServerOptions.IdaScriptingVariable}=1 to allow scripts");
+        if (file != null)
+        {
+            var path = Path.GetFullPath(file.Trim());
+            if (!File.Exists(path)) throw new ToolError(ErrorCode.NotFound, $"No file {path}.");
+            if (new FileInfo(path).Length > MaxScriptBytes) throw new ToolError(ErrorCode.LimitExceeded, $"{path} is over {MaxScriptBytes / 1024} KB.");
+            code = await File.ReadAllTextAsync(path, cancellationToken);
+        }
         // IDAPython runs in IDA only, whatever the server's default engine
         var ida = string.IsNullOrWhiteSpace(engine) || engine.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase) ? "ida" : engine.Trim();
         if (!ida.Equals("ida", StringComparison.OrdinalIgnoreCase))
@@ -45,11 +58,17 @@ public sealed class EngineScriptTools(AssemblyWorkspace workspace, NativeEngineS
         if (userTypes != null) await userTypes.EnsureAsync(native, session, cancellationToken);
         var r = await session.RunScriptAsync(code ?? "", reset, cancellationToken);
         NativeUserTypePush.Touch(session); // cached engine output may be stale now
+        if (persist) await session.SaveAsync(cancellationToken);
+        string Clip(string text) => text.Length <= maxOutput ? text : text[..maxOutput] + $"\n[clipped at {maxOutput} of {text.Length} characters]";
         var sb = new StringBuilder();
-        if (r.Error != null) sb.Append("Error:\n").Append(r.Error.TrimEnd()).Append('\n');
-        if (r.Result != null) sb.Append("Result: ").Append(r.Result).Append('\n');
-        if (r.Stdout.Length > 0) sb.Append("stdout:\n").Append(r.Stdout.TrimEnd()).Append('\n');
-        if (r.Stderr.Length > 0) sb.Append("stderr:\n").Append(r.Stderr.TrimEnd()).Append('\n');
+        if (r.Error != null) sb.Append("Error:\n").Append(Clip(r.Error.TrimEnd())).Append('\n');
+        if (r.Result != null) sb.Append("Result: ").Append(Clip(r.Result)).Append('\n');
+        if (r.Stdout.Length > 0) sb.Append("stdout:\n").Append(Clip(r.Stdout.TrimEnd())).Append('\n');
+        if (r.Stderr.Length > 0) sb.Append("stderr:\n").Append(Clip(r.Stderr.TrimEnd())).Append('\n');
+        if (persist) sb.Append("Database saved.\n");
         return sb.Length == 0 ? "Done (no result or output)." : sb.ToString();
     });
+
+    /// <summary>Largest script file=; a bigger one is data, not a script.</summary>
+    private const int MaxScriptBytes = 1 << 20;
 }
