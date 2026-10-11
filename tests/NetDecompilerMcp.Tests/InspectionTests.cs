@@ -205,6 +205,25 @@ public class InspectionTests : IDisposable
         return found!;
     }
 
+    /// <summary>
+    /// API rules match each distinct API once (every call was tested per rule: seconds on a large assembly); the count is
+    /// every call, the locations the first in scan order, and a parameter list still tells overloads apart.
+    /// </summary>
+    [Fact]
+    public void Features_CountEveryCallAndListTheFirstInScanOrder()
+    {
+        var source = "using System.Diagnostics; using System.Net.Sockets; public static class Calls {\n" +
+                     string.Concat(Enumerable.Range(0, 7).Select(i => $"public static void M{i}() {{ Process.Start(\"a{i}\"); }}\n")) +
+                     "public static object Tcp() => new TcpClient(\"h\", 1); public static object Plain() => new TcpClient(); }";
+        var report = Inspection.SurveyFeatures(null, Save("Calls.dll", Compile("Calls", source)), null, default);
+        var start = report.Features.Single(f => f.Name == "create processes").Evidence.Single(e => e.Feature == "api:System.Diagnostics.Process::Start");
+        Assert.Equal(7, start.Count);
+        Assert.Equal(Enumerable.Range(0, 5).Select(i => $"Calls::M{i}()"), start.Locations.Select(l => l[..l.IndexOf(" @", StringComparison.Ordinal)]));
+        var tcp = report.Features.Single(f => f.Name == "use raw TCP / UDP sockets").Evidence.Single();
+        Assert.Equal(("api:System.Net.Sockets.TcpClient::.ctor(System.String,System.Int32)", 1), (tcp.Feature, tcp.Count));
+        Assert.StartsWith("Calls::Tcp()", Assert.Single(tcp.Locations));
+    }
+
     [Fact]
     public void Features_OfEverydayFrameworkApis()
     {

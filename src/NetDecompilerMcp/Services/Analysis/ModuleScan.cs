@@ -17,8 +17,11 @@ public sealed record Location(string Where, string? Api = null)
 /// </summary>
 public sealed class ModuleScan
 {
-    /// <summary>A method reference: Api is "Ns.Type::Name", Signature adds parameter types.</summary>
-    public sealed record ApiUse(MethodDef Caller, uint Offset, string Api, string Signature, IMethod Target);
+    /// <summary>A method reference: Api is "Ns.Type::Name", <see cref="Signature"/> adds parameter types; Index is its place in <see cref="Calls"/>.</summary>
+    public sealed record ApiUse(MethodDef Caller, uint Offset, string Api, IMethod Target, int Index)
+    {
+        public string Signature => $"{Api}({string.Join(",", Target.MethodSig?.Params.Select(p => p.FullName) ?? [])})";
+    }
 
     /// <summary>A string literal or constant; Consumers are the next APIs called after it.</summary>
     public sealed record CodeString(string Value, Location Location, MethodDef? Method, IReadOnlyList<string> Consumers);
@@ -43,6 +46,14 @@ public sealed class ModuleScan
     public List<string> Notes { get; } = [];
     public Dictionary<MethodDef, HashSet<string>> ApisByMethod { get; } = [];
     public int MethodsScanned { get; private set; }
+
+    /// <summary>Calls grouped by API, in order of first use: rules match each API name once instead of every call.</summary>
+    public IReadOnlyDictionary<string, List<ApiUse>> CallsByApi => _callsByApi ??= Calls.GroupBy(c => c.Api, StringComparer.Ordinal)
+        .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+
+    private Dictionary<string, List<ApiUse>>? _callsByApi;
+    // A large assembly makes hundreds of thousands of calls to far fewer distinct targets (dnlib keeps one object per token).
+    private readonly Dictionary<IMethod, string?> _apiNames = new(ReferenceEqualityComparer.Instance);
 
     private ModuleScan(ModuleDef module) => Module = module;
 
@@ -93,20 +104,22 @@ public sealed class ModuleScan
         MethodsScanned++;
         var apis = new HashSet<string>(StringComparer.Ordinal);
         ApisByMethod[method] = apis;
+        string? label = null;
         for (int i = 0; i < body.Count; i++)
         {
             var instr = body[i];
             switch (instr.OpCode.Code)
             {
                 case Code.Call or Code.Callvirt or Code.Newobj or Code.Ldftn or Code.Ldvirtftn:
-                    if (MetadataUtil.AsMethod(instr.Operand) is { } target && ApiName(target) is { } api)
+                    if (MetadataUtil.AsMethod(instr.Operand) is { } target && CachedApiName(target) is { } api)
                     {
-                        Calls.Add(new ApiUse(method, instr.Offset, api, $"{api}({string.Join(",", target.MethodSig?.Params.Select(p => p.FullName) ?? [])})", target));
+                        Calls.Add(new ApiUse(method, instr.Offset, api, target, Calls.Count));
                         apis.Add(api);
                     }
                     break;
                 case Code.Ldstr when instr.Operand is string s && s.Length > 0:
-                    Strings.Add(new CodeString(s, new Location($"{Format.MemberLabel(method)} @IL_{instr.Offset:X4}"), method, Consumers(body, i)));
+                    label ??= Format.MemberLabel(method);
+                    Strings.Add(new CodeString(s, new Location($"{label} @IL_{instr.Offset:X4}"), method, Consumers(body, i)));
                     break;
                 case Code.Ldtoken or Code.Ldsfld or Code.Ldsflda when MetadataUtil.AsField(instr.Operand) is { } f
                                                                       && MetadataUtil.Try(() => f.ResolveFieldDef()) is { HasFieldRVA: true } fd:
@@ -117,15 +130,21 @@ public sealed class ModuleScan
         }
     }
 
+    private string? CachedApiName(IMethod method)
+    {
+        if (!_apiNames.TryGetValue(method, out var name)) _apiNames[method] = name = ApiName(method);
+        return name;
+    }
+
     /// <summary>Up to three APIs called shortly after <paramref name="at"/>.</summary>
-    private static List<string> Consumers(IList<Instruction> body, int at)
+    private List<string> Consumers(IList<Instruction> body, int at)
     {
         var list = new List<string>();
         for (int j = at + 1; j < body.Count && j <= at + ConsumerWindow && list.Count < 3; j++)
         {
             var code = body[j].OpCode.Code;
             if (code is Code.Ret or Code.Throw) break;
-            if (code is Code.Call or Code.Callvirt or Code.Newobj && MetadataUtil.AsMethod(body[j].Operand) is { } m && ApiName(m) is { } api)
+            if (code is Code.Call or Code.Callvirt or Code.Newobj && MetadataUtil.AsMethod(body[j].Operand) is { } m && CachedApiName(m) is { } api)
                 list.Add(api);
         }
         return list;

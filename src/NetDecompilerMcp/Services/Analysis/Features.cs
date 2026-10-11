@@ -263,10 +263,22 @@ public static class Features
             case "api":
             {
                 bool withSignature = pattern.Contains('(');
-                var regex = Wildcard(pattern);
-                foreach (var call in scan.Calls)
-                    if (regex.IsMatch(withSignature ? call.Signature : call.Api))
-                        Hit($"{Format.MemberLabel(call.Caller)} @IL_{call.Offset:X4}");
+                var isMatch = WildcardMatcher(pattern);
+                var matched = new List<ModuleScan.ApiUse>();
+                foreach (var (api, calls) in scan.CallsByApi)
+                {
+                    if (!withSignature) { if (isMatch(api)) matched.AddRange(calls); continue; }
+                    foreach (var byTarget in calls.GroupBy(c => c.Target, ReferenceEqualityComparer.Instance))
+                        if (isMatch(byTarget.First().Signature)) matched.AddRange(byTarget);
+                }
+                count = matched.Count;
+                // Locations in scan order, as when every call was tested in turn.
+                foreach (var call in matched.OrderBy(c => c.Index))
+                {
+                    if (locations.Count >= MaxLocations) break;
+                    var where = $"{Format.MemberLabel(call.Caller)} @IL_{call.Offset:X4}";
+                    if (!locations.Contains(where)) locations.Add(where);
+                }
                 break;
             }
             case "native":
@@ -281,7 +293,7 @@ public static class Features
             }
             case "str":
             {
-                var regex = new Regex(pattern, RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+                var regex = StringRule(pattern);
                 foreach (var s in scan.Strings)
                 {
                     try { if (s.Value.Length <= 64 * 1024 && regex.IsMatch(s.Value)) Hit($"{s.Location.Where}: \"{Clip(s.Value)}\""); }
@@ -302,6 +314,29 @@ public static class Features
     {
         var a = Path.GetFileNameWithoutExtension(actual.Trim());
         return a.Equals(expected, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static readonly Dictionary<string, Regex> StringRules = [];
+
+    /// <summary>A "str:" rule's expression, parsed once.</summary>
+    private static Regex StringRule(string pattern)
+    {
+        lock (StringRules)
+        {
+            if (!StringRules.TryGetValue(pattern, out var regex))
+                StringRules[pattern] = regex = new Regex(pattern, RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+            return regex;
+        }
+    }
+
+    /// <summary><see cref="Wildcard"/> as a test, without a regular expression for a plain name or a name with one trailing '*'.</summary>
+    private static Func<string, bool> WildcardMatcher(string pattern)
+    {
+        int star = pattern.IndexOf('*');
+        if (star < 0) return s => s.Equals(pattern, StringComparison.OrdinalIgnoreCase);
+        if (star == pattern.Length - 1) { var prefix = pattern[..^1]; return s => s.StartsWith(prefix, StringComparison.OrdinalIgnoreCase); }
+        var regex = Wildcard(pattern);
+        return regex.IsMatch;
     }
 
     private static readonly Dictionary<string, Regex> WildcardCache = [];
