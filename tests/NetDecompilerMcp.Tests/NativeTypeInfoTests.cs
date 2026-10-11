@@ -244,6 +244,38 @@ public sealed class NativeTypeInfoTests : IDisposable
     }
 }
 
+/// <summary>get_native_type on an MSVC-built image with its PDB (<see cref="PdbIdaTypesTests.Source"/>).</summary>
+[Trait("Speed", "Slow")]
+public sealed class NativeTypeInfoMsvcTests(ITestOutputHelper output) : IDisposable
+{
+    private readonly TempDir _dir = new();
+
+    public void Dispose() => _dir.Dispose();
+
+    [Fact]
+    public async Task Compiler_layouts_match_the_source()
+    {
+        if (PdbIdaTypesTests.Build(_dir) is not { } built) { output.WriteLine("no MSVC build tools"); return; }
+        using var env = new Env();
+        var code = new NativeCodeService(env.Workspace, env.Options, null, new AnnotationStore(_dir.File("ann")));
+        _ = new PdbService(code);
+        var tools = new NativeTypeInfoTools(env.Workspace, code);
+        var collector = StructuredOutput.Begin();
+        var text = await tools.GetNativeType(built.Exe, "Packet", at: "0x24", depth: 1);
+        output.WriteLine(text);
+        var report = Assert.IsType<NativeTypeInfoTools.NativeTypeReport>(collector.Value);
+        var packet = report.Type!;
+        Assert.Equal(0x38L, packet.Size);
+        Assert.Contains(packet.Fields, f => f is { Name: "header.retries", Offset: 8, BitSize: 3, BitOffset: 1 });
+        Assert.Contains(packet.Fields, f => f is { Name: "sender_name", Offset: 0x18, Type: "char[16]" });
+        Assert.Contains(packet.Fields, f => f is { Name: "checksum", Offset: 0x30, Type: "int (__cdecl *)(const Packet *)" });
+        Assert.Equal("sender_name[12]", Assert.Single(report.Paths).Path);
+        var kind = (await tools.GetNativeType(built.Exe, "PacketKind"));
+        Assert.Contains("0x7  7  PK_BYE", kind);
+        Assert.Contains("[pdb:", await tools.GetNativeType(built.Exe, "PPacket"));
+    }
+}
+
 /// <summary>get_native_type reading the engine's types: a struct declared in IDA, by source=engine and by auto once the analysis is complete.</summary>
 [Trait("Speed", "Slow")]
 public sealed class NativeTypeInfoIdaTests(ITestOutputHelper output) : IDisposable
