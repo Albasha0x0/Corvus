@@ -36,6 +36,8 @@ internal sealed class NativeToolHarness : IDisposable
     public NativeTools Native { get; }
     public NativeCodeTools CodeTools { get; }
     public NativeAnalysisTools Analysis { get; }
+    public NativeFunctionTools Functions { get; }
+    public NativeFeatureTools Features { get; }
     public ResourceTools Resources { get; }
     public WorkspaceTools WorkspaceTools { get; }
     public NativeEngineService Engines { get; } = new();
@@ -56,6 +58,8 @@ internal sealed class NativeToolHarness : IDisposable
         Native = new NativeTools(Workspace, Pager);
         CodeTools = new NativeCodeTools(Workspace, Code, Pager);
         Analysis = new NativeAnalysisTools(Workspace, Engines, Pager);
+        Functions = new NativeFunctionTools(Workspace, Code, Pager);
+        Features = new NativeFeatureTools(Workspace, Code, Pager);
         var il2cpp = new Il2CppService(Workspace);
         Resources = new ResourceTools(Workspace, new ResourceService(), new DecompilerService(Workspace, Options), Pager);
         WorkspaceTools = new WorkspaceTools(Workspace, il2cpp, new AssemblyReport(Workspace, il2cpp),
@@ -169,6 +173,9 @@ internal sealed class NativeToolHarness : IDisposable
         await Run(path, "list_functions", "sort callers", ct => CodeTools.ListFunctions(id, sort: "callers", limit: 50, cancellationToken: ct), mustSucceed: true);
         await Run(path, "search_native_strings", "", ct => CodeTools.SearchNativeStrings(id, cancellationToken: ct), mustSucceed: true);
         await Run(path, "search_native_strings", "regex", ct => CodeTools.SearchNativeStrings(id, "^[a-z]+\\.dll$", regex: true, cancellationToken: ct), mustSucceed: true);
+        await Run(path, "trace_native_feature", "dll", ct => Features.TraceNativeFeature(id, "dll", cancellationToken: ct), mustSucceed: true);
+        await Run(path, "trace_native_feature", "regex, deep hubs", ct => Features.TraceNativeFeature(id, "^(Get|Set)", regex: true, maxSeeds: 500, callerDepth: 3,
+            cancellationToken: ct), mustSucceed: true);
 
         var functions = index.Functions;
         var targets = new List<(string Label, NativeFunction F)>();
@@ -191,6 +198,8 @@ internal sealed class NativeToolHarness : IDisposable
             await Run(path, "resolve_address", label + " function", ct => Native.ResolveAddress(id, at, ct), mustSucceed: true);
             await Run(path, "inspect_instruction", label, ct => CodeTools.InspectInstruction(id, at, count: 64, cancellationToken: ct), mustSucceed: operands);
             await Run(path, "inspect_instruction", label + " +1", ct => CodeTools.InspectInstruction(id, Va(f.Start + 1), count: 4, cancellationToken: ct), mustSucceed: operands);
+            await Run(path, "analyze_native_function", label, ct => Functions.AnalyzeNativeFunction(id, at, sections: "identity,signature,frame,callers,callees,data,flow,annotations,params",
+                maxItems: 500, cancellationToken: ct), mustSucceed: true);
         }
         if (functions.Count > 0 && functions[0].KnownName == null)
             await Run(path, "disassemble", "sub_ name", ct => CodeTools.Disassemble(id, functions[0].Name, cancellationToken: ct), mustSucceed: decoded);

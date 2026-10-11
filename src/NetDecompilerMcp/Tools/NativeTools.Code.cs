@@ -9,7 +9,7 @@ using static NetDecompilerMcp.Tools.ToolSupport;
 namespace NetDecompilerMcp.Tools;
 
 [Description("A function ranked by call sites or size.")]
-public sealed record RankedFunction(string Address, string Name, [property: Description("Call sites (most called) or bytes (largest).")] long Value);
+public sealed record RankedFunction(string Address, string Name, [property: Description("References to its start (most called) or bytes (largest).")] long Value);
 
 [Description("The code as the built-in index sees it; present once the index is built (get_pe_info never waits for it).")]
 public sealed record CodeOverview(
@@ -69,7 +69,7 @@ public sealed partial class NativeTools
         string Va(uint r) => NativeAddress.Va(image, r);
         long executable = image.Sections.Where(x => (x.Access & SectionAccess.Execute) != 0).Sum(x => (long)x.VirtualSize);
         long inside = index.Functions.Sum(f => (long)f.Size);
-        var called = index.Functions.Select(f => (f, n: index.Callers(f).Count)).Where(x => x.n > 0)
+        var called = index.Functions.Select(f => (f, n: index.CountRefsTo(f.Start))).Where(x => x.n > 0)
             .OrderByDescending(x => x.n).ThenBy(x => x.f.Start).Take(10).Select(x => new RankedFunction(Va(x.f.Start), index.NameAt(x.f.Start) ?? x.f.Name, x.n)).ToList();
         var largest = index.Functions.OrderByDescending(f => f.Size).ThenBy(f => f.Start).Take(10)
             .Select(f => new RankedFunction(Va(f.Start), index.NameAt(f.Start) ?? f.Name, f.Size)).ToList();
@@ -106,7 +106,7 @@ public sealed partial class NativeTools
                       "resolve_call_targets scope=image lists unresolved indirect calls)");
         if (o.VirtualCallSites > 0 || o.RttiClasses > 0)
             sb.AppendLine($"  virtual calls: {o.VirtualCallSites} sites ({o.VirtualExact} exact, {o.VirtualPossible} possible, {o.VirtualUnresolved} unresolved); {Plural(o.RttiClasses, "RTTI class")}");
-        if (o.MostCalled.Count > 0) sb.AppendLine("  most called: " + string.Join(", ", o.MostCalled.Select(f => $"{f.Name} ({f.Value})")));
+        if (o.MostCalled.Count > 0) sb.AppendLine("  most referenced: " + string.Join(", ", o.MostCalled.Select(f => $"{f.Name} ({f.Value})")));
         if (o.Largest.Count > 0) sb.AppendLine("  largest: " + string.Join(", ", o.Largest.Select(f => $"{f.Name} ({f.Value:N0} bytes)")));
         return sb.ToString();
     }
