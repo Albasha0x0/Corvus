@@ -58,17 +58,23 @@ public sealed class MaskedDecoder
     private readonly ulong _limit;
     private byte[] _buffer = new byte[4096];
     private readonly Arm64Decoder? _arm;
-    // ARM64: the address after the last decoded instruction; decoding on from there keeps ADRP pairs
+    private readonly Arm32Decoder? _arm32;
+    // ARM: the address after the last decoded instruction; decoding on from there keeps address-forming pairs
     private uint _armNext = uint.MaxValue;
 
-    public MaskedDecoder(INativeImage image)
+    /// <summary>ARM32 mnemonics are numbered from here.</summary>
+    public const int Arm32Mnemonics = 0x20000;
+
+    /// <param name="index">32-bit ARM: the code index whose function states decide ARM or Thumb (else read from the image).</param>
+    public MaskedDecoder(INativeImage image, NativeCodeIndex? index = null)
     {
-        if (image.Arch is not (NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64))
+        if (image.Arch is not (NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64 or NativeArch.Arm))
             throw new NotSupportedException(InstructionSets.For(image.Arch).Reason);
         _image = image;
         _relocs = image.RelocationRvas as uint[] ?? image.RelocationRvas.ToArray();
         if (!IsSorted(_relocs)) { _relocs = (uint[])_relocs.Clone(); Array.Sort(_relocs); }
         if (image.Arch == NativeArch.Arm64) _arm = new Arm64Decoder(image, null, _relocs);
+        if (image.Arch == NativeArch.Arm) _arm32 = new Arm32Decoder(image, null, _relocs, index?.ArmModes ?? new Arm32Modes(image));
         _bitness = image.Arch == NativeArch.X64 ? 64 : 32;
         _base = image.ImageBase;
         _limit = image.ImageBase + image.SizeOfImage;
@@ -90,6 +96,7 @@ public sealed class MaskedDecoder
     {
         if (end <= start) return 0;
         if (_arm != null) return DecodeArm64(start, end, output, max);
+        if (_arm32 != null) return DecodeArm32(start, end, output, max);
         long want = Math.Min((long)end - start, 1L << 24);
         if (_buffer.Length < want) _buffer = new byte[Math.Max(want, _buffer.Length * 2L)];
         int read = _image.Read(start, _buffer.AsSpan(0, (int)want));
@@ -112,7 +119,84 @@ public sealed class MaskedDecoder
     public MaskedInsn? DecodeOne(uint rva)
     {
         var list = new List<MaskedInsn>(1);
-        return Decode(rva, rva + (_arm != null ? 4u : 15u), list, 1) == 1 ? list[0] : null;
+        return Decode(rva, rva + (_arm != null || _arm32 != null ? 4u : 15u), list, 1) == 1 ? list[0] : null;
+    }
+
+    private int DecodeArm32(uint start, uint end, List<MaskedInsn> output, int max)
+    {
+        var arm = _arm32!;
+        if (start != _armNext)
+        {
+            arm.BeginRun(IndexBound.None);
+            arm.Pin(arm.Modes.At(start));
+        }
+        int count = 0;
+        var bytes = new byte[4];
+        for (uint rva = start; rva < end && count < max;)
+        {
+            if (!arm.DecodeMapped(rva, out var insn) || insn.Flow == FlowKind.Invalid || rva + (uint)insn.Length > end
+                || _image.Read(rva, bytes.AsSpan(0, insn.Length)) < insn.Length) { _armNext = uint.MaxValue; break; }
+            output.Add(BuildArm32(arm.Last, in insn, bytes.AsSpan(0, insn.Length)));
+            count++;
+            rva += (uint)insn.Length;
+            _armNext = rva;
+        }
+        return count;
+    }
+
+    /// <summary>Masks the bytes of an A32 / T32 instruction whose fields hold a branch, literal or ADR offset, or a relocated MOVW / MOVT address.</summary>
+    private static MaskedInsn BuildArm32(in ArmInstruction i, in Insn insn, ReadOnlySpan<byte> bytes)
+    {
+        ushort wild = 0;
+        void Bytes(params int[] which) { foreach (int b in which) wild |= (ushort)(1 << b); }
+        bool pcRelative = false;
+        for (int k = 0; k < i.OperandCount; k++)
+            if (i.Operands[k].Kind == ArmOperandKind.Label || i.Operands[k].Kind == ArmOperandKind.Memory && i.Operands[k].Reg == 15) pcRelative = true;
+        bool address = pcRelative || i.Mnemonic is "movw" or "movt" && insn.HasImm;
+        if (address)
+        {
+            if (!i.Thumb) Bytes(0, 1, 2);
+            else if (i.Length == 2) Bytes(0, 1);
+            else Bytes(0, 1, 2, 3);
+            // keep the opcode byte of a 16-bit conditional branch and of a literal load
+            if (i.Thumb && i.Length == 2 && (i.Mnemonic == "b" && i.IsConditional || i.Mnemonic == "ldr")) wild &= 1;
+        }
+        long? constant = null;
+        if (!address)
+            for (int k = 0; k < i.OperandCount; k++)
+                if (i.Operands[k].Kind == ArmOperandKind.Immediate && i.Operands[k].Value is var v and (>= 0x100 or <= -0x100)) { constant = v; break; }
+        return new MaskedInsn
+        {
+            Rva = insn.Rva,
+            Bytes = bytes.ToArray(),
+            Wild = wild,
+            Mnemonic = Arm32Mnemonics + (int)(Hash(i.Mnemonic) & 0xFFFF),
+            Flow = insn.Flow,
+            Token = Arm32Token(in i),
+            OperandOffset = 0,
+            OperandSize = 0,
+            OperandKind = AddressOperand.None,
+            Target = insn.HasTarget ? insn.Target : insn.HasMem ? insn.MemTarget : insn.HasImm ? insn.ImmTarget : null,
+            Constant = constant is { } c ? (ulong)c : null,
+        };
+    }
+
+    private static uint Hash(string s)
+    {
+        uint h = 2166136261;
+        foreach (char ch in s) h = (h ^ ch) * 16777619;
+        return h;
+    }
+
+    /// <summary>Mnemonic, encoding width, condition and operand shapes (no register numbers or values).</summary>
+    private static int Arm32Token(in ArmInstruction i)
+    {
+        uint h = Hash(i.Mnemonic);
+        void Mix(int v) { h = (h ^ (uint)v) * 16777619; }
+        Mix(i.Length + (i.Thumb ? 10 : 0));
+        Mix(i.Cond);
+        for (int k = 0; k < i.OperandCount; k++) Mix((int)i.Operands[k].Kind * 10 + (int)i.Operands[k].Vector);
+        return (int)h;
     }
 
     private int DecodeArm64(uint start, uint end, List<MaskedInsn> output, int max)

@@ -91,6 +91,7 @@ public static class InstructionInspector
     public static InspectedInstruction? Inspect(NativeCodeIndex index, uint rva, NativeDisassembler? disassembler = null, uint? runStart = null)
     {
         if (index.Image.Arch == NativeArch.Arm64) return Arm64Inspector.Inspect(index, rva, disassembler, runStart);
+        if (index.Image.Arch == NativeArch.Arm) return Arm32Inspector.Inspect(index, rva, disassembler, runStart);
         var image = index.Image;
         var line = (disassembler ?? index.CreateDisassembler()).DecodeOne(rva);
         if (line == null) return null;

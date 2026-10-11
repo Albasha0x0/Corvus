@@ -97,8 +97,9 @@ Tests on real files now use `PeFile`; the adapters remain for synthetic images b
 - A cancelled index build stops at its next cancellation check: up to about 5 s on the largest images.
 - `load_assembly` on a native file first tries it as .NET (the whole file is read and parsed by dnlib, then
   discarded) before parsing it as PE: one extra read of the file and garbage of its size.
-- Instructions are decoded for x86, x64 and ARM64; ARM (Thumb) images get declared functions (`.pdata`, exports) and
-  `unsupported` from `disassemble` / `get_cfg`.
+- Instructions are decoded for x86, x64, ARM64 and 32-bit ARM (A32 and Thumb-2); NEON data processing decodes as `simd`
+  without operands. A function's ARM / Thumb state comes from symbols, mapping symbols, BL / BLX and code pointers, else from
+  sniffing its first words; a stripped image whose functions are reached only through unmarked pointers can be misjudged.
 - `list_resources` and several .NET tools page with a footer that names an `offset` the tool does not take; for native
   images only `list_resources` is affected (an image with thousands of resources).
 - IDA was exercised on a small sample only (`DecompilesThroughIdaAndRecoversCppClasses`, the unload test, and up to

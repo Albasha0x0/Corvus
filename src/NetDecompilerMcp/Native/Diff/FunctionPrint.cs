@@ -81,7 +81,7 @@ public sealed class ImagePrints
         var prints = new FunctionPrint[functions.Count];
         int failed = 0;
         Parallel.For(0, functions.Count, new ParallelOptions { CancellationToken = ct, MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount) },
-            () => new MaskedDecoder(index.Image),
+            () => new MaskedDecoder(index.Image, index),
             (i, _, decoder) =>
             {
                 prints[i] = Print(index, decoder, functions[i], i, slots, ct);

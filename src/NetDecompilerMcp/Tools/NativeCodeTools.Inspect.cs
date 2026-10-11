@@ -60,12 +60,12 @@ public sealed record InstructionEntry(
     InstructionSwitch? Switch,
     string? Name,
     string? UserComment,
-    [property: Description("ARM64: the other instruction of the ADRP pair (the adrp, or the add / load / store completing it).")] string? Pair = null,
-    [property: Description("ARM64: the address the ADRP pair, adr or literal load forms.")] string? FormedAddress = null);
+    [property: Description("ARM: the other instruction of the address-forming pair (ARM64 adrp + add / load / store; ARM32 the literal load, movw or adr the base register comes from).")] string? Pair = null,
+    [property: Description("ARM: the address the pair, adr or literal load forms.")] string? FormedAddress = null);
 
 public sealed record OperandEntry(
     int Index,
-    [property: Description("register, immediate, memory, near_branch or far_branch; ARM64 also pc_relative, shift, extend, condition, enum, system_register, register_list.")] string Kind,
+    [property: Description("register, immediate, memory, near_branch or far_branch; ARM also pc_relative, shift, extend, condition, enum, system_register, register_list.")] string Kind,
     string Text,
     [property: Description("Bytes accessed.")] int? Size,
     [property: Description("read, write, read_write, cond_read, cond_write, read_cond_write or none.")] string? Access,
@@ -82,8 +82,8 @@ public sealed record OperandEntry(
     [property: Description("Branch target or effective address (absolute or RIP-relative) inside the image, as a VA.")] string? Target,
     string? TargetName,
     [property: Description("The data item or function at the target, with its read / write reference counts for data.")] string? TargetItem,
-    [property: Description("ARM64: the memory index extend or shift (lsl #3, uxtw #2), or the kind of a shift / extend operand.")] string? Extend = null,
-    [property: Description("ARM64: base register writeback, pre or post.")] string? Writeback = null);
+    [property: Description("ARM: the memory index extend or shift (lsl #3, uxtw #2), a shifted register's shift, or the kind of a shift / extend operand.")] string? Extend = null,
+    [property: Description("ARM: base register writeback, pre or post.")] string? Writeback = null);
 
 public sealed record InstructionFlow(
     [property: Description("next, call, indirect_call, jump, indirect_jump, conditional_jump, return, trap or invalid.")] string Kind,
@@ -101,21 +101,21 @@ public sealed partial class NativeCodeTools
     private const int MaxInspectCount = 64;
 
     [McpServerTool(Name = "inspect_instruction", Title = "Inspect native instructions", UseStructuredContent = true, OutputSchemaType = typeof(InstructionReport))]
-    [Description("What is at an address of a native image (x86 / x64 / ARM64), instruction by instruction: decoded (an instruction start in a known function), " +
-                 "mid_instruction (with the covering instruction), data (string, IAT / GOT slot, switch table, relocated pointer, PE directory, ARM64 " +
+    [Description("What is at an address of a native image (x86 / x64 / ARM), instruction by instruction: decoded (an instruction start in a known function), " +
+                 "mid_instruction (with the covering instruction), data (string, IAT / GOT slot, switch table, relocated pointer, PE directory, ARM " +
                  "literal or data in code; with its start and end), not_in_function, unmapped (bss), outside_image or invalid. For an instruction: bytes, " +
                  "prefixes, encoding, CPUID / ARM64 features; each operand's kind, size and access, registers with their full register, memory as base, " +
                  "index, scale or extend, displacement and pre / post-index writeback, with the effective address named; registers and flags read and " +
-                 "written, memory accesses, stack pointer change; flow with target and fallthrough; the ARM64 ADRP pair and the address it forms; " +
+                 "written, memory accesses, stack pointer change; flow with target and fallthrough; the ARM address-forming pair and the address; " +
                  "references from and to; a call's arguments; a switch's table. count > 1 walks forward, skipping data items. With IDA or Ghidra " +
-                 "(ARM32 and other instruction sets): the engine's items, operands, access, flow and references; fields it does not supply are null. " + IndexNote)]
+                 "(other instruction sets): the engine's items, operands, access, flow and references; fields it does not supply are null. " + IndexNote)]
     public Task<string> InspectInstruction(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
         [Description("Instructions to inspect from the address (1-64, default 1).")] int count = 1,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
-        [Description("Engine: auto (default: the built-in decoder for x86 / x64 / ARM64, else IDA, else Ghidra when installed), ours, ida or ghidra.")]
+        [Description("Engine: auto (default: the built-in decoder for x86 / x64 / ARM, else IDA, else Ghidra when installed), ours, ida or ghidra.")]
         string? engine = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
@@ -125,7 +125,7 @@ public sealed partial class NativeCodeTools
         var rva = Address(index, address);
         int n = Math.Clamp(count, 1, MaxInspectCount);
         bool undecoded = index.Support == CodeSupport.DeclaredFunctionsOnly;
-        bool operands = !undecoded && index.Image.Arch is NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64;
+        bool operands = !undecoded && index.Image.Arch is NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64 or NativeArch.Arm;
         var origin = mode.Named ? $"engine={EngineModes.Name(mode.Mode)}" : $"server default {EngineModes.Name(mode.Mode)}";
         var choice = mode.Mode switch
         {
@@ -135,7 +135,7 @@ public sealed partial class NativeCodeTools
             EngineMode.Auto when (engines?.UnavailabilityOf("ida") == null ? "ida" : engines?.UnavailabilityOf("ghidra") == null ? "ghidra" : null) is { } id && engines != null =>
                 new EngineChoice(id, undecoded
                     ? $"{origin}: the built-in analysis does not decode {index.Image.Arch} instructions"
-                    : $"{origin}: the built-in inspector reads x86 / x64 / ARM64 operands"),
+                    : $"{origin}: the built-in inspector reads x86 / x64 / ARM operands"),
             _ => throw NativeEngineCode.Unsupported(index, engines),
         };
         var (text, report) = choice.External
@@ -294,8 +294,8 @@ public sealed partial class NativeCodeTools
         string? pair = insn.PairRva is { } pr ? Va(pr) : null;
         string? formed = insn.FormedAddress is { } fa ? Va(fa) : null;
         if (formed != null)
-            sb.AppendLine($"  forms {formed}{(index.NameAt(insn.FormedAddress!.Value) is { } fn ? " " + fn : "")}" + (pair != null ? $" with the instruction at {pair} (adrp pair)" : ""));
-        else if (pair != null) sb.AppendLine($"  adrp pair with {pair}");
+            sb.AppendLine($"  forms {formed}{(index.NameAt(insn.FormedAddress!.Value) is { } fn ? " " + fn : "")}" + (pair != null ? $" with the instruction at {pair} ({(index.Image.Arch == NativeArch.Arm ? "address-forming" : "adrp")} pair)" : ""));
+        else if (pair != null) sb.AppendLine($"  {(index.Image.Arch == NativeArch.Arm ? "address-forming" : "adrp")} pair with {pair}");
 
         string? Name(uint r) => index.NameAt(r) ?? (index.StringAt(r) != null ? index.CommentFor(r) : null);
         var from = index.RefsFrom(c.Rva, c.Rva + (uint)insn.Length).Select(x => new InstructionReference(Va(x.From), Va(x.To), x.Kind.ToString(), Name(x.To))).ToList();

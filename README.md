@@ -183,7 +183,7 @@ ends and r/w/x), `netdecomp://native/{image}/entrypoints` (entry point, TLS call
 
 ### Native images
 
-Native `.exe` / `.dll` / `.sys` files, ELF (`.so`, executables) and Mach-O (`.dylib`, executables, one slice of a universal file) images (x86, x64 and ARM64 decoded by our own engine; ARM (Thumb) code goes through IDA, else Ghidra, when one is installed, marked "(via IDA)" or "(via Ghidra)") load with
+Native `.exe` / `.dll` / `.sys` files, ELF (`.so`, executables) and Mach-O (`.dylib`, executables, one slice of a universal file) images (x86, x64, ARM64 and 32-bit ARM / Thumb-2 decoded by our own engine; other instruction sets go through IDA, else Ghidra, when one is installed, marked "(via IDA)" or "(via Ghidra)") load with
 `load_assembly` by path, or are loaded by any native tool given a path. Everything below is our own analysis
 (PE parser, Iced disassembler, function discovery, MSVC RTTI / exception data / name demangling, PDB reader);
 only `decompile_native` needs an external engine (IDA through idalib, or Ghidra through a Java worker built on first use). Reliability runs and their numbers:

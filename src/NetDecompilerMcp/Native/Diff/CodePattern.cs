@@ -113,7 +113,7 @@ public static class CodePatterns
     {
         maxBytes = Math.Clamp(maxBytes, 8, MaxPatternBytes);
         var image = index.Image;
-        var decoder = new MaskedDecoder(image);
+        var decoder = new MaskedDecoder(image, index);
         var sections = CodeSections(image);
         MadePattern? direct = null;
         if (!referenceOnly)
@@ -143,7 +143,7 @@ public static class CodePatterns
     public static List<MadePattern> MakeAtReferences(NativeCodeIndex index, uint rva, int maxBytes, int max, IEnumerable<uint> extraSites, CancellationToken ct)
     {
         maxBytes = Math.Clamp(maxBytes, 8, MaxPatternBytes);
-        var decoder = new MaskedDecoder(index.Image);
+        var decoder = new MaskedDecoder(index.Image, index);
         var sections = CodeSections(index.Image);
         var made = new List<MadePattern>();
         foreach (var from in ReferenceSites(index, rva, extraSites).Take(64))

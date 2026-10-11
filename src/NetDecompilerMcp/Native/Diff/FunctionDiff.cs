@@ -32,8 +32,8 @@ public sealed class FunctionDiff(MatchResult match)
         var newIndex = match.New.Index;
         var oldFn = match.Old.Functions[pair.Old].Function;
         var newFn = match.New.Functions[pair.New].Function;
-        var olds = FunctionCode.Instructions(oldIndex, new MaskedDecoder(oldIndex.Image), oldFn, ct, out _);
-        var news = FunctionCode.Instructions(newIndex, new MaskedDecoder(newIndex.Image), newFn, ct, out _);
+        var olds = FunctionCode.Instructions(oldIndex, new MaskedDecoder(oldIndex.Image, oldIndex), oldFn, ct, out _);
+        var news = FunctionCode.Instructions(newIndex, new MaskedDecoder(newIndex.Image, newIndex), newFn, ct, out _);
         foreach (var (list, side) in new[] { (olds, "old"), (news, "new") })
             if (list.Count > MaxInstructions)
             {

@@ -393,6 +393,9 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
     /// <summary>Sorted byte ranges inside code that hold data (Mach-O data in code, ELF $d mapping symbols).</summary>
     internal (uint Start, uint End)[] DataInCode => _ctx?.DataInCode ?? [];
 
+    /// <summary>32-bit ARM: the ARM or Thumb state of each function; null otherwise.</summary>
+    internal Arm32Modes? ArmModes => _ctx?.ArmModes;
+
     /// <summary>A disassembler that names targets through this index. Not thread-safe; create one per caller.</summary>
     public NativeDisassembler CreateDisassembler()
     {

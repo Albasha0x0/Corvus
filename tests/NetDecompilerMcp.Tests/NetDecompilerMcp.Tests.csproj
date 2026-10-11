@@ -52,13 +52,14 @@
     <PackageDownload Include="runtime.win-arm64.Microsoft.DotNet.ILCompiler" Version="[10.0.11]" />
   </ItemGroup>
 
-  <!-- Native images in ELF, Mach-O and ARM64 PE form for the native format readers (runtimes/<rid>/native). -->
+  <!-- Native images in ELF, Mach-O, ARM64 and ARM PE form for the native format readers and code analysis (runtimes/<rid>/native). -->
   <ItemGroup>
     <PackageDownload Include="Microsoft.Diagnostics.DbgShim.linux-arm64" Version="[9.0.621003]" />
     <PackageDownload Include="Microsoft.Diagnostics.DbgShim.linux-musl-arm64" Version="[9.0.621003]" />
     <PackageDownload Include="Microsoft.Diagnostics.DbgShim.linux-arm" Version="[9.0.621003]" />
     <PackageDownload Include="Microsoft.Diagnostics.DbgShim.osx-arm64" Version="[9.0.621003]" />
     <PackageDownload Include="Microsoft.Diagnostics.DbgShim.win-arm64" Version="[9.0.621003]" />
+    <PackageDownload Include="Microsoft.Diagnostics.DbgShim.win-arm" Version="[9.0.553101]" />
     <PackageDownload Include="Microsoft.NETCore.App.Host.osx-arm64" Version="[10.0.11]" />
     <PackageDownload Include="SkiaSharp.NativeAssets.macOS" Version="[2.88.9]" />
   </ItemGroup>
@@ -69,6 +70,7 @@
     <PackageDownload Include="SkiaSharp.NativeAssets.Linux" Version="[3.119.4]" />
     <PackageDownload Include="Microsoft.Android.Runtime.35.android-arm64" Version="[35.0.105]" />
     <PackageDownload Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="[1.0.3]" />
+    <PackageDownload Include="Microsoft.Android.Runtime.35.android-arm" Version="[35.0.105]" />
   </ItemGroup>
 
   <ItemGroup>

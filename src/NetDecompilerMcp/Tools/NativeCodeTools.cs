@@ -13,7 +13,7 @@ using static NetDecompilerMcp.Tools.ToolSupport;
 
 namespace NetDecompilerMcp.Tools;
 
-/// <summary>Native code: functions, disassembly, control flow, cross-references, call trees and strings (x86 / x64 / ARM64).</summary>
+/// <summary>Native code: functions, disassembly, control flow, cross-references, call trees and strings (x86 / x64 / ARM64 / ARM32).</summary>
 [McpServerToolType]
 public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeCodeService code, OutputPager pager, NativeLinkService? link = null,
     NativeEngineService? engines = null, NativeNamePush? names = null, NativeTypePush? types = null, NativeUserTypePush? userTypes = null)
@@ -85,6 +85,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         var flags = new List<string>();
         if (index != null && EngineLibraryNames.IsLibrary(index, f.Start)) flags.Add("library");
         if (f.Flags.HasFlag(FunctionFlags.Thunk)) flags.Add("thunk");
+        if (index?.ArmModes is { } modes && !modes.At(f.Start)) flags.Add("arm");
         if (f.Flags.HasFlag(FunctionFlags.NoReturn)) flags.Add("noreturn");
         if (f.Flags.HasFlag(FunctionFlags.UnresolvedJumps)) flags.Add("unresolved jumps");
         if (f.Flags.HasFlag(FunctionFlags.InvalidCode)) flags.Add("invalid code");
@@ -105,8 +106,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     }
 
     [McpServerTool(Name = "list_functions", Title = "List native functions", UseStructuredContent = true, OutputSchemaType = typeof(FunctionList))]
-    [Description("Functions of a native image (x86 / x64 / ARM64): address, size, name (export, module!import for thunks, or sub_<rva>; names from " +
-                 "rename_native, PDB symbols and apply_il2cpp_names win in that order), flags (thunk, noreturn, unresolved jumps, invalid code, " +
+    [Description("Functions of a native image (x86 / x64 / ARM): address, size, name (export, module!import for thunks, or sub_<rva>; names from " +
+                 "rename_native, PDB symbols and apply_il2cpp_names win in that order), flags (thunk, arm (A32), noreturn, unresolved jumps, invalid code, " +
                  "funclets and exception chunks; get_exception_info details them), how it was found and how many call sites reach it; an exact name filter adds an open engine's function record. " + IndexNote)]
     public Task<string> ListFunctions(
         [Description(NativeTools.ImageDescription)] string image,

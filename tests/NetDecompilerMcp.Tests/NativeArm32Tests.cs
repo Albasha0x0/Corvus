@@ -106,14 +106,16 @@ public class NativeArm32Tests
     private const uint Data = ElfWriter.DataRva;
     private const uint Got = ElfWriter.GotRva;
 
-    private static ElfFile Elf(byte[] code, Action<ElfWriter>? configure = null)
+    private static ElfFile Elf(byte[] code, Action<ElfWriter>? configure = null) => ElfFile.FromBytes(ElfBytes(code, configure), "sample.so");
+
+    private static byte[] ElfBytes(byte[] code, Action<ElfWriter>? configure = null)
     {
         var w = new ElfWriter { Is64 = false, Machine = ElfWriter.EmArm, UseRel = true, Text = code };
         var data = new byte[0x100];
         Encoding.ASCII.GetBytes("Hello, thumb\0").CopyTo(data, 0);
         w.Data = data;
         configure?.Invoke(w);
-        return ElfFile.FromBytes(w.Build(), "sample.so");
+        return w.Build();
     }
 
     /// <summary>
@@ -121,6 +123,13 @@ public class NativeArm32Tests
     /// ARM PLT stub of abort (noreturn), then free through its GOT slot. helper: it eq; bxeq lr. ARM function: bxne lr.
     /// </summary>
     internal static (ElfFile Image, uint Helper, uint ArmFn, uint Plt) Sample()
+    {
+        var (bytes, helper, armFn, plt) = SampleFile();
+        return (ElfFile.FromBytes(bytes, "sample.so"), helper, armFn, plt);
+    }
+
+    /// <summary>The bytes of the <see cref="Sample"/> shared object.</summary>
+    internal static (byte[] Bytes, uint Helper, uint ArmFn, uint Plt) SampleFile()
     {
         var a = new A32Code(Text);
         uint helper = 0, armFn = 0, plt = 0, after = 0, lit1 = 0, lit2 = 0, addStr = 0, addGot = 0;
@@ -148,7 +157,7 @@ public class NativeArm32Tests
         a.W(A32Code.ArmCmp(0, 1)).W(A32Code.ArmBxNeLr).W(A32Code.ArmBxLr);
         plt = a.Here;
         a.PltEntry(Got);
-        var image = Elf(a.Bytes(), w =>
+        var bytes = ElfBytes(a.Bytes(), w =>
         {
             w.Symbols.Add(new ElfWriter.Symbol("main", Text | 1, Type: 2));
             w.Symbols.Add(new ElfWriter.Symbol("abort", Defined: false));
@@ -156,7 +165,7 @@ public class NativeArm32Tests
             w.Relocations.Add(new ElfWriter.Reloc(Got, 22, "abort"));
             w.Relocations.Add(new ElfWriter.Reloc(Got + 4, 21, "free"));
         });
-        return (image, helper, armFn, plt);
+        return (bytes, helper, armFn, plt);
     }
 
     [Fact]

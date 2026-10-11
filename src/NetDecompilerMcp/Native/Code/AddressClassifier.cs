@@ -106,6 +106,9 @@ public sealed class AddressClassifier
             if (_image.Arch == NativeArch.Arm64 && (rva & 3) != 0 && DecodeLength(rva & ~3u) > 0)
                 return new(rva, AddressStatus.MidInstruction, null, null, rva & ~3u, 4, false, null, section,
                     $"ARM64 instructions start on 4-byte boundaries; the instruction at 0x{_image.ImageBase + (rva & ~3u):X} covers it");
+            if (_image.Arch == NativeArch.Arm && (rva & 1) != 0 && DecodeLength(rva & ~1u) is var thumb and > 0)
+                return new(rva, AddressStatus.MidInstruction, null, null, rva & ~1u, thumb, false, null, section,
+                    $"ARM instructions start on 2-byte boundaries (an odd code address is a Thumb pointer); the instruction at 0x{_image.ImageBase + (rva & ~1u):X} covers it");
             int length = DecodeLength(rva);
             return length > 0
                 ? new(rva, AddressStatus.NotInFunction, null, null, rva, length, false, null, section, "no known function contains it: unowned code or data")
@@ -144,6 +147,12 @@ public sealed class AddressClassifier
     private List<(uint Rva, int Length)> Starts(BasicBlock b)
     {
         if (_blockStarts.TryGetValue((b.Start, b.End), out var cached)) return cached;
+        if (_image.Arch == NativeArch.Arm)
+        {
+            // 2 / 4-byte Thumb or 4-byte ARM instructions, in the function's state
+            var lines = _index.CreateDisassembler().Disassemble(b.Start, Math.Max(1, b.InstructionCount), b.End);
+            return _blockStarts[(b.Start, b.End)] = [.. lines.Select(l => (l.Rva, l.Facts.Flow == FlowKind.Invalid ? 0 : l.Facts.Length))];
+        }
         if (_image.Arch == NativeArch.Arm64)
         {
             // fixed 4-byte instructions
@@ -175,6 +184,7 @@ public sealed class AddressClassifier
     private int DecodeLength(uint rva)
     {
         if (_image.Arch == NativeArch.Arm64) return _index.Decode(rva) is { Flow: not FlowKind.Invalid } ? 4 : 0;
+        if (_image.Arch == NativeArch.Arm) return _index.Decode(rva) is { Flow: not FlowKind.Invalid } f ? f.Length : 0;
         var bytes = new byte[15];
         int n = _image.Read(rva, bytes);
         if (n == 0) return 0;
@@ -196,7 +206,7 @@ public sealed class AddressClassifier
             return new DataItem("string", str.Rva, str.Rva + bytes, _index.CommentFor(str.Rva) ?? "");
         }
         if (TableCovering(rva, ct) is { } table) return table;
-        if (_image.Arch == NativeArch.Arm64 && section is { IsExecutable: true } && Arm64DataAt(rva) is { } inCode) return inCode;
+        if (_image.Arch is NativeArch.Arm64 or NativeArch.Arm && section is { IsExecutable: true } && ArmDataAt(rva) is { } inCode) return inCode;
         if (Floor(_relocations, rva) is { } r && rva < _relocations[r] + (uint)_pointerSize && !InFunctionCode(_relocations[r]))
         {
             uint at = _relocations[r];
@@ -214,8 +224,8 @@ public sealed class AddressClassifier
 
     private bool InFunctionCode(uint rva) => _index.FunctionAt(rva) != null;
 
-    /// <summary>ARM64 data inside code: declared data-in-code ranges, and literal pool entries a pc-relative load reads.</summary>
-    private DataItem? Arm64DataAt(uint rva)
+    /// <summary>ARM data inside code: declared data-in-code ranges, and literal pool entries a pc-relative load reads.</summary>
+    private DataItem? ArmDataAt(uint rva)
     {
         foreach (var (start, end) in _index.DataInCode)
         {
@@ -233,6 +243,14 @@ public sealed class AddressClassifier
     /// <summary>The bytes a pc-relative literal load at <paramref name="from"/> reads, or null when it is no literal load.</summary>
     private int? LiteralSize(uint from)
     {
+        if (_image.Arch == NativeArch.Arm)
+        {
+            if (_index.NewDecoder() is not Arm32Decoder dec || !dec.DecodeMapped(from, out _)) return null;
+            var x = dec.Last;
+            for (int k = 0; k < x.OperandCount; k++)
+                if (x.Operands[k] is { Kind: ArmOperandKind.Memory, Reg: 15 } && x.Loads) return x.Mnemonic == "ldrd" ? 8 : x.AccessSize;
+            return null;
+        }
         Span<byte> word = stackalloc byte[4];
         if (_image.Read(from, word) != 4) return null;
         var i = AsmArm64.Arm64Instruction.Decode(BitConverter.ToUInt32(word));

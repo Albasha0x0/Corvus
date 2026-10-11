@@ -1015,7 +1015,7 @@ Structured output: `items`.
 
 **List native functions** (read-only, idempotent, open-world, long-running)
 
-Functions of a native image (x86 / x64 / ARM64): address, size, name (export, module!import for thunks, or sub_<rva>; names from rename_native, PDB symbols and apply_il2cpp_names win in that order), flags (thunk, noreturn, unresolved jumps, invalid code, funclets and exception chunks; get_exception_info details them), how it was found and how many call sites reach it; an exact name filter adds an open engine's function record. The first call on an image waits for its code index (built in the background after loading; seconds for a typical DLL, one to two minutes for a 300 MB browser DLL; progress is reported).
+Functions of a native image (x86 / x64 / ARM): address, size, name (export, module!import for thunks, or sub_<rva>; names from rename_native, PDB symbols and apply_il2cpp_names win in that order), flags (thunk, arm (A32), noreturn, unresolved jumps, invalid code, funclets and exception chunks; get_exception_info details them), how it was found and how many call sites reach it; an exact name filter adds an open engine's function record. The first call on an image waits for its code index (built in the background after loading; seconds for a typical DLL, one to two minutes for a 300 MB browser DLL; progress is reported).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1072,7 +1072,7 @@ MASM-syntax disassembly of the native function containing an address (with block
 
 **Inspect native instructions** (read-only, idempotent, open-world, long-running)
 
-What is at an address of a native image (x86 / x64 / ARM64), instruction by instruction: decoded (an instruction start in a known function), mid_instruction (with the covering instruction), data (string, IAT / GOT slot, switch table, relocated pointer, PE directory, ARM64 literal or data in code; with its start and end), not_in_function, unmapped (bss), outside_image or invalid. For an instruction: bytes, prefixes, encoding, CPUID / ARM64 features; each operand's kind, size and access, registers with their full register, memory as base, index, scale or extend, displacement and pre / post-index writeback, with the effective address named; registers and flags read and written, memory accesses, stack pointer change; flow with target and fallthrough; the ARM64 ADRP pair and the address it forms; references from and to; a call's arguments; a switch's table. count > 1 walks forward, skipping data items. With IDA or Ghidra (ARM32 and other instruction sets): the engine's items, operands, access, flow and references; fields it does not supply are null. The first call on an image waits for its code index (built in the background after loading; seconds for a typical DLL, one to two minutes for a 300 MB browser DLL; progress is reported).
+What is at an address of a native image (x86 / x64 / ARM), instruction by instruction: decoded (an instruction start in a known function), mid_instruction (with the covering instruction), data (string, IAT / GOT slot, switch table, relocated pointer, PE directory, ARM literal or data in code; with its start and end), not_in_function, unmapped (bss), outside_image or invalid. For an instruction: bytes, prefixes, encoding, CPUID / ARM64 features; each operand's kind, size and access, registers with their full register, memory as base, index, scale or extend, displacement and pre / post-index writeback, with the effective address named; registers and flags read and written, memory accesses, stack pointer change; flow with target and fallthrough; the ARM address-forming pair and the address; references from and to; a call's arguments; a switch's table. count > 1 walks forward, skipping data items. With IDA or Ghidra (other instruction sets): the engine's items, operands, access, flow and references; fields it does not supply are null. The first call on an image waits for its code index (built in the background after loading; seconds for a typical DLL, one to two minutes for a 300 MB browser DLL; progress is reported).
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1081,7 +1081,7 @@ What is at an address of a native image (x86 / x64 / ARM64), instruction by inst
 | `count` | integer |  | `1` | Instructions to inspect from the address (1-64, default 1). |
 | `offset` | integer |  | `0` | Character offset for paging long output (use the value from the truncation footer). |
 | `maxChars` | integer |  |  | Max characters in this page (default from server config, ~60000). |
-| `engine` | string |  |  | Engine: auto (default: the built-in decoder for x86 / x64 / ARM64, else IDA, else Ghidra when installed), ours, ida or ghidra. Values: auto, ours, ida, ghidra. |
+| `engine` | string |  |  | Engine: auto (default: the built-in decoder for x86 / x64 / ARM, else IDA, else Ghidra when installed), ours, ida or ghidra. Values: auto, ours, ida, ghidra. |
 
 Structured output: `image`, `engine`, `engineNote`, `items`, `notes`.
 
