@@ -27,6 +27,8 @@ internal sealed class FakeWorkerProcess : ChildProcess
 
     public readonly ConcurrentDictionary<string, string> State = new();
     public int MaxInFlight;
+    /// <summary>Request ids in the order they arrived (cancels excluded).</summary>
+    public readonly ConcurrentQueue<long> Received = new();
     public int Cancelled;
     private readonly ManualResetEventSlim _released = new();
 
@@ -65,6 +67,7 @@ internal sealed class FakeWorkerProcess : ChildProcess
                     }
                     continue;
                 }
+                Received.Enqueue(id);
                 var cts = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
                 _running[id] = cts;
                 // Counted on receipt, so a request is in flight before its thread gets to run.

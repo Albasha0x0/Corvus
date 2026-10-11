@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -39,9 +40,9 @@ public sealed class WorkerConnection : IDisposable
     private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _stdoutDone = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly object _sync = new();
-    private readonly object _writeSync = new();
     private readonly Dictionary<long, TaskCompletionSource<WorkerMessage.Response>> _pending = [];
     private readonly Dictionary<long, WorkerRequestState> _running = [];
+    private readonly BlockingCollection<(byte[] Line, TaskCompletionSource Written)> _writes = [];
     private long _nextId;
     private int _waiting;
     private string? _killReason;
@@ -58,6 +59,7 @@ public sealed class WorkerConnection : IDisposable
         _options = options;
         new Thread(ReadStdout) { IsBackground = true, Name = name + " stdout" }.Start();
         new Thread(ReadStderr) { IsBackground = true, Name = name + " stderr" }.Start();
+        new Thread(WriteStdin) { IsBackground = true, Name = name + " stdin" }.Start();
         // Responses written just before exit are still in the pipe: closed means stdout EOF, or exit plus a short
         // grace for the case where a surviving grandchild holds the pipe open.
         _process.Exited.ContinueWith(async _ =>
@@ -192,24 +194,34 @@ public sealed class WorkerConnection : IDisposable
         throw new ToolError(code, message, _remediation(code, message));
     }
 
+    /// <summary>Queues a line for the worker; written in the order queued by one thread, so a starved pool delays nothing.</summary>
     private Task Send(string line)
     {
-        var bytes = Encoding.UTF8.GetBytes(line);
-        return Task.Run(() =>
+        var written = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        try { _writes.Add((Encoding.UTF8.GetBytes(line), written)); }
+        catch (InvalidOperationException) { written.TrySetException(new IOException($"{_name} input is closed.")); }
+        return written.Task;
+    }
+
+    private void WriteStdin()
+    {
+        foreach (var (line, written) in _writes.GetConsumingEnumerable())
         {
-            lock (_writeSync)
+            try
             {
-                _process.StandardInput.Write(bytes);
+                _process.StandardInput.Write(line);
                 _process.StandardInput.Flush();
+                written.TrySetResult();
             }
-        }, CancellationToken.None);
+            catch (Exception ex) { written.TrySetException(ex); }
+        }
     }
 
     /// <summary>Asks the worker to stop request <paramref name="id"/>; true when it answered within the grace time and is still alive.</summary>
     private async Task<bool> CancelAsync(long id, Task write, Task<WorkerMessage.Response> response)
     {
         if (_options.CancelGrace is not { } grace || !IsAlive) return false;
-        // Writes run on the pool in any order: the cancel must not overtake the request it names.
+        // A request still stuck in the pipe, or whose write failed, cannot be stopped by the worker.
         await Task.WhenAny(write, Task.Delay(grace)).ConfigureAwait(false);
         if (!write.IsCompletedSuccessfully) return false;
         try
@@ -319,7 +331,11 @@ public sealed class WorkerConnection : IDisposable
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
     }
 
-    private void OnClosed() => _closed.TrySetResult();
+    private void OnClosed()
+    {
+        _writes.CompleteAdding();
+        _closed.TrySetResult();
+    }
 
     /// <summary>Keeps the stage of a progress event on its request (the only one running when the event names none).</summary>
     private void Progressed(JsonElement body)

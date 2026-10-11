@@ -27,6 +27,15 @@ public class WorkerConnectionTests
     }
 
     [Fact]
+    public async Task Concurrent_requests_reach_the_worker_in_the_order_sent()
+    {
+        using var worker = new FakeWorkerProcess();
+        using var c = worker.Connect(Concurrent);
+        await Task.WhenAll(Enumerable.Range(0, 200).Select(i => c.RequestAsync("echo", new JsonObject { ["n"] = i }, NoLimit, default)).ToList());
+        Assert.Equal(Enumerable.Range(1, 200).Select(i => (long)i), worker.Received);
+    }
+
+    [Fact]
     public async Task Serial_connection_runs_one_request_at_a_time()
     {
         using var worker = new FakeWorkerProcess();
