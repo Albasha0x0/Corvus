@@ -88,6 +88,70 @@ public static class Toolsets
         return result;
     }
 
+    public const string ToolsFileOption = "--tools-file";
+    public const string ToolsFileVariable = "NDM_TOOLS_FILE";
+
+    /// <summary>
+    /// Tool lists a --tools-file value names instead of a file. readonly: the analysis tools that change nothing loaded and write
+    /// no file (no device or live-process tools); triage: a first look at a binary, small enough for a small model.
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string[]> ToolLists = new Dictionary<string, string[]>(StringComparer.Ordinal)
+    {
+        ["readonly"] =
+        [
+            "list_namespaces", "list_types", "get_type_info", "get_assembly_info", "get_attributes", "get_type_hierarchy", "resolve_symbol", "decompile_type",
+            "decompile_member", "decompile_assembly_attributes", "get_il", "search_symbols", "search_strings", "search_constants", "search_il", "find_references",
+            "find_callees", "find_overrides", "get_call_tree", "find_call_paths", "list_resources", "get_r2r_code", "find_r2r_method",
+            "summarize_file", "survey_features", "search_container", "unity_overview", "list_edits", "diff_edits",
+            "get_il2cpp_info", "find_method_by_address", "generate_cpp_binding",
+            "get_pe_info", "get_nativeaot_info", "list_imports", "list_exports", "resolve_address", "search_bytes", "read_bytes", "list_functions", "disassemble",
+            "inspect_instruction", "get_cfg", "find_xrefs", "native_call_tree", "find_virtual_calls", "search_native_strings", "get_call_arguments",
+            "trace_native_values", "resolve_call_targets", "analyze_native_function", "trace_native_feature", "get_exception_info", "list_cpp_classes",
+            "get_native_type", "decompile_native", "verify_native_imports", "search_pdb_symbols", "list_native_edits", "get_native_frame", "list_native_types",
+            "compare_native_images", "find_counterpart", "map_address_between_builds", "diff_function", "make_code_pattern", "search_code_pattern",
+            "get_android_manifest", "list_android_resources", "list_dex_classes", "get_dex_class", "disassemble_dex", "map_java_dotnet", "decompile_java",
+            "search_dex", "find_dex_references",
+            "open_minidump", "dump_stack", "dump_heap", "dump_object", "read_dump_memory", "symbolize_stack_text", "bucket_minidumps", "list_notes",
+        ],
+        ["triage"] =
+        [
+            "summarize_file", "survey_features", "get_type_info", "search_symbols", "search_strings", "decompile_member", "find_references",
+            "get_pe_info", "list_imports", "list_functions", "search_native_strings", "find_xrefs", "disassemble", "decompile_native", "analyze_native_function",
+        ],
+    };
+
+    /// <summary>
+    /// A --tools-file whitelist: a list name of <see cref="ToolLists"/>, or a file of tool names (one or more per line, '#' starts a comment).
+    /// Applied after the toolsets; the session tools stay. An unknown name is an <see cref="ArgumentException"/>.
+    /// </summary>
+    public static IReadOnlySet<string> LoadToolList(string pathOrName)
+    {
+        var value = pathOrName.Trim();
+        if (ToolLists.TryGetValue(value.ToLowerInvariant(), out var named)) return named.ToHashSet(StringComparer.Ordinal);
+        if (!File.Exists(value))
+            throw new ArgumentException($"{ToolsFileOption} (or {ToolsFileVariable}): no file '{value}' and no list of that name; use {string.Join(", ", ToolLists.Keys)} or a file of tool names");
+        return ParseToolList(File.ReadAllText(value), value);
+    }
+
+    public static IReadOnlySet<string> ParseToolList(string text, string source)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        var unknown = new List<string>();
+        foreach (var line in text.Split('\n'))
+        {
+            var content = line.Split('#')[0];
+            foreach (var name in content.Split([',', ' ', '\t', ';', '\r'], StringSplitOptions.RemoveEmptyEntries))
+                if (FamilyByTool.ContainsKey(name)) names.Add(name);
+                else unknown.Add(name);
+        }
+        if (unknown.Count > 0) throw new ArgumentException($"{ToolsFileOption} {source}: unknown tool(s) {string.Join(", ", unknown.Distinct())}");
+        return names;
+    }
+
+    /// <summary>Whether a server with these toolsets and whitelist (null: none) registers <paramref name="tool"/>.</summary>
+    public static bool Registers(IReadOnlySet<string> enabled, IReadOnlySet<string>? allowed, string tool) =>
+        Registers(enabled, tool) && (allowed == null || allowed.Contains(tool) || FamilyOf(tool) == Session);
+
     /// <summary>The shortest spelling of a set, for a client's args: "all", "core" plus extra names, or the names in table order.</summary>
     public static string Format(IReadOnlySet<string> enabled)
     {

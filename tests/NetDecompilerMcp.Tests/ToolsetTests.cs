@@ -58,4 +58,41 @@ public class ToolsetTests
         Assert.Contains("server_status", tools);
         Assert.DoesNotContain("get_pe_info", tools);
     }
+
+    [Fact]
+    public void ShippedToolListsNameRealTools_AndReadonlyChangesNothing()
+    {
+        foreach (var (name, list) in Toolsets.ToolLists)
+            Assert.True(Toolsets.LoadToolList(name).SetEquals(list), name);
+        Assert.All(Toolsets.ToolLists["readonly"], t => Assert.True(ToolEffects.Of(t).ReadOnly, t));
+        Assert.Subset(Toolsets.ToolLists["readonly"].ToHashSet(), Toolsets.ToolLists["triage"].ToHashSet());
+    }
+
+    [Fact]
+    public void ToolsFile_IsAWhitelistAppliedAfterToolsets()
+    {
+        using var dir = new TempDir();
+        var file = dir.File("tools.txt");
+        File.WriteAllText(file, "# a profile\nget_pe_info, list_imports   # native\n\ndecompile_member\n");
+        var allowed = Toolsets.LoadToolList(file);
+        Assert.Equal(["decompile_member", "get_pe_info", "list_imports"], allowed.Order());
+        Assert.True(Toolsets.Registers(Toolsets.All, allowed, "get_pe_info"));
+        Assert.True(Toolsets.Registers(Toolsets.All, allowed, "server_status")); // session stays
+        Assert.False(Toolsets.Registers(Toolsets.All, allowed, "disassemble"));
+        Assert.False(Toolsets.Registers(Toolsets.Parse("dotnet"), allowed, "get_pe_info")); // toolsets first
+        Assert.Contains("unknown tool(s) nope", Assert.Throws<ArgumentException>(() => Toolsets.ParseToolList("get_pe_info nope", "x")).Message);
+        Assert.Throws<ArgumentException>(() => Toolsets.LoadToolList(dir.File("missing.txt")));
+        Assert.True(ServerOptions.Parse([Toolsets.ToolsFileOption, file]).ToolAllowList!.SetEquals(allowed));
+        Assert.True(ServerOptions.Parse([Toolsets.ToolsFileOption, "triage"]).ToolAllowList!.SetEquals(Toolsets.ToolLists["triage"]));
+        Assert.Null(new ServerOptions().ToolAllowList);
+    }
+
+    [Fact]
+    public async Task ServerRegistersOnlyTheWhitelistedTools()
+    {
+        await using var client = await McpProtocolTests.StartServerAsync(Toolsets.ToolsFileOption, "triage");
+        var tools = (await client.ListToolsAsync()).Select(t => t.Name).ToHashSet();
+        var expected = Toolsets.ToolLists["triage"].Concat(Toolsets.Families.Single(f => f.Name == Toolsets.Session).Tools).ToHashSet();
+        Assert.Equal(expected, tools);
+    }
 }

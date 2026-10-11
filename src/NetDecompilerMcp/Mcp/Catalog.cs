@@ -44,8 +44,9 @@ public static partial class Catalog
         builder.Services.AddOptions<McpServerOptions>().PostConfigure<IServiceProvider>((o, services) =>
         {
             if (o.ToolCollection is not { } tools) return;
-            var enabled = services.GetService<ServerOptions>()?.Toolsets ?? Toolsets.Default;
-            foreach (var tool in tools.Where(t => !Toolsets.Registers(enabled, t.ProtocolTool.Name)).ToList()) tools.Remove(tool);
+            var serverOptions = services.GetService<ServerOptions>();
+            var enabled = serverOptions?.Toolsets ?? Toolsets.Default;
+            foreach (var tool in tools.Where(t => !Toolsets.Registers(enabled, serverOptions?.ToolAllowList, t.ProtocolTool.Name)).ToList()) tools.Remove(tool);
             ToolEffects.Apply(tools);
             ParameterDomains.Apply(tools);
         });
