@@ -90,6 +90,19 @@ final class CodeOps {
         boolean from = r.args.has("start") && !r.args.get("start").isJsonNull();
         FunctionIterator functions = from ? w.program.getFunctionManager().getFunctions(w.addr(r.args, "start"), true)
             : w.program.getFunctionManager().getFunctions(true);
+        // the background pass's table while the program is unchanged
+        Worker.FunctionTable table = w.functionTable;
+        if (!from && table != null && table.modification() == w.program.getModificationNumber()) {
+            for (JsonArray row : table.rows()) {
+                if (refs) out.add(row);
+                else {
+                    JsonArray plain = new JsonArray();
+                    for (int i = 0; i < 4; i++) plain.add(row.get(i));
+                    out.add(plain);
+                }
+            }
+            return out;
+        }
         for (Function f : functions) {
             Long start = w.rva(f.getEntryPoint());
             if (start == null) continue;
@@ -98,20 +111,25 @@ final class CodeOps {
                 o.add("rows", out);
                 return r.partial(o, start);
             }
-            JsonArray row = new JsonArray();
-            row.add(start);
-            row.add(Math.min(end(w, f), 0xFFFFFFFFL));
-            row.add(f.getName());
-            row.add((f.isThunk() ? 1 : 0) | (f.getSignatureSource() != ghidra.program.model.symbol.SourceType.DEFAULT ? 8 : 0));
-            if (refs) {
-                int n = 0;
-                for (Reference ref : rm.getReferencesTo(f.getEntryPoint()))
-                    if (ref.getReferenceType().isFlow() && !ref.getReferenceType().isFallthrough()) n++;
-                row.add(n);
-            }
-            out.add(row);
+            out.add(functionRow(w, rm, f, refs));
         }
         return out;
+    }
+
+    /** [start, end, name, flags (1 thunk, 8 typed), flow references to the start when refs]; the start rva must exist. */
+    static JsonArray functionRow(Worker w, ReferenceManager rm, Function f, boolean refs) {
+        JsonArray row = new JsonArray();
+        row.add(w.rva(f.getEntryPoint()));
+        row.add(Math.min(end(w, f), 0xFFFFFFFFL));
+        row.add(f.getName());
+        row.add((f.isThunk() ? 1 : 0) | (f.getSignatureSource() != ghidra.program.model.symbol.SourceType.DEFAULT ? 8 : 0));
+        if (refs) {
+            int n = 0;
+            for (Reference ref : rm.getReferencesTo(f.getEntryPoint()))
+                if (ref.getReferenceType().isFlow() && !ref.getReferenceType().isFallthrough()) n++;
+            row.add(n);
+        }
+        return row;
     }
 
     /** A pooled decompilation of the function within timeout seconds; a timeout or failure is a WorkerError. */

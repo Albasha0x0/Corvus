@@ -45,6 +45,7 @@ import ghidra.framework.options.OptionType;
 import ghidra.framework.options.Options;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSpace;
+import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
 import ghidra.program.util.GhidraProgramUtilities;
 import ghidra.util.exception.CancelledException;
@@ -141,6 +142,11 @@ public class Worker implements GhidraLaunchable {
     long base;
     /** Opened without auto-analysis: functions are made where they are asked for. */
     volatile boolean noAuto;
+    /** Function rows with their reference counts, built after the open; valid while the program's modification number is unchanged. */
+    volatile FunctionTable functionTable;
+
+    record FunctionTable(long modification, List<JsonArray> rows, double seconds) {
+    }
     Decompilers decompilers;
     int decompileTimeout = 60;
 
@@ -290,6 +296,7 @@ public class Worker implements GhidraLaunchable {
             case "field_xrefs": return read(() -> FieldOps.fieldXrefs(this, r));
             case "export_gzf": return InfoOps.exportPacked(this, r);
             case "export_types": return read(() -> InfoOps.exportTypes(this, r));
+            case "function_table": return functionTableState();
             case "analyzers": return read(() -> analyzers());
             case "reanalyze": return reanalyze(r);
             case "function_candidates": return read(() -> ControlOps.functionCandidates(this, r));
@@ -443,11 +450,70 @@ public class Worker implements GhidraLaunchable {
             decompilers = new Decompilers(program, a.has("decompilers") ? a.get("decompilers").getAsInt() : 2,
                 a.has("decompile_payload_mb") ? a.get("decompile_payload_mb").getAsInt() : 200);
             r.monitor.setMessage("ready");
+            startFunctionPass();
             return info(reused, complete, warnings, (System.nanoTime() - start) / 1e9);
         }
         finally {
             lock.writeLock().unlock();
         }
+    }
+
+    /**
+     * The function pass: every function's row with its reference count, read in the background in chunks under the read lock
+     * (the first listing of a large program loads every function record). A change to the program while it runs drops it;
+     * the live listing serves until a table exists.
+     */
+    private void startFunctionPass() {
+        Program p = program;
+        Thread t = new Thread(() -> {
+            long started = System.nanoTime(), modification = -1;
+            List<JsonArray> rows = new ArrayList<>();
+            Address next = null;
+            try {
+                while (true) {
+                    lock.readLock().lock();
+                    try {
+                        if (program != p) return;
+                        if (modification < 0) modification = p.getModificationNumber();
+                        else if (p.getModificationNumber() != modification) return;
+                        var fm = p.getFunctionManager();
+                        var rm = p.getReferenceManager();
+                        Address from = next;
+                        next = null;
+                        int n = 0;
+                        for (Function f : from == null ? fm.getFunctions(true) : fm.getFunctions(from, true)) {
+                            if (n++ == 2000) {
+                                next = f.getEntryPoint();
+                                break;
+                            }
+                            if (rva(f.getEntryPoint()) != null) rows.add(CodeOps.functionRow(this, rm, f, true));
+                        }
+                        if (next == null) {
+                            functionTable = new FunctionTable(modification, rows, (System.nanoTime() - started) / 1e9);
+                            return;
+                        }
+                    }
+                    finally {
+                        lock.readLock().unlock();
+                    }
+                }
+            }
+            catch (RuntimeException e) {
+                // the live listing serves
+            }
+        }, "ndm function pass");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** Whether the function pass's table is ready and current: ready, functions, seconds. */
+    private JsonElement functionTableState() {
+        FunctionTable t = functionTable;
+        JsonObject o = new JsonObject();
+        o.addProperty("ready", t != null && program != null && t.modification() == program.getModificationNumber());
+        o.addProperty("functions", t != null ? t.rows().size() : 0);
+        o.addProperty("seconds", t != null ? t.seconds() : 0);
+        return o;
     }
 
     /**

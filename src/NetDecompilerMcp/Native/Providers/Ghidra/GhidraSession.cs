@@ -481,6 +481,13 @@ internal sealed class GhidraSession(GhidraProvider provider, GhidraInstallation 
         return (r.GetProperty("path").GetString() ?? path, r.GetProperty("size").GetInt64());
     }
 
+    /// <summary>Whether the worker's background function pass has its table ready for the current program, and its size.</summary>
+    internal async Task<(bool Ready, int Functions)> FunctionTableAsync(CancellationToken cancellationToken = default)
+    {
+        var r = await CallAsync("function_table", new JsonObject(), cancellationToken).ConfigureAwait(false);
+        return (r.GetProperty("ready").GetBoolean(), r.GetProperty("functions").GetInt32());
+    }
+
     /// <summary>The program's own data types as a C header ("h") or a data type archive ("gdt") at <paramref name="path"/>.</summary>
     internal async Task<(string Path, long Bytes, int Types)> ExportTypesAsync(string path, string format, CancellationToken cancellationToken = default)
     {

@@ -147,6 +147,28 @@ public sealed class NativeGhidraViewTests(ITestOutputHelper output, GhidraCacheF
         Assert.NotEmpty(await s.ListFunctionsAsync());
     }
 
+    /// <summary>The background function pass builds the function table after the open; listings come from it until the program changes.</summary>
+    [GhidraFact]
+    public async Task The_function_pass_serves_listings_until_the_program_changes()
+    {
+        await using var s = await Open();
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        (bool Ready, int Functions) table;
+        while (!(table = await s.FunctionTableAsync()).Ready && clock.Elapsed < TimeSpan.FromSeconds(120)) await Task.Delay(200);
+        output.WriteLine($"function table: {table.Functions} functions after {clock.Elapsed.TotalSeconds:0.0} s");
+        Assert.True(table.Ready);
+        var listed = await s.ListFunctionsAsync(withReferences: true);
+        Assert.Equal(table.Functions, listed.Count);
+        Assert.Contains(listed, f => f.References > 0);
+        Assert.Equal(listed.Select(f => f.StartRva), (await s.ListFunctionsAsync()).Select(f => f.StartRva));
+        // a change (a label) makes the table stale: the live listing serves
+        var rva = NativeIdaProviderTests.ExportRva(shared.Sample, Export);
+        await s.RunJavaAsync($"createLabel(toAddr(0x{s.ImageBase + rva + 1:X}L), \"ndm_pass_label\", false, ghidra.program.model.symbol.SourceType.USER_DEFINED);", 60);
+        Assert.False((await s.FunctionTableAsync()).Ready);
+        Assert.Equal(listed.Count, (await s.ListFunctionsAsync()).Count);
+        await s.RunJavaAsync("for (var x : currentProgram.getSymbolTable().getSymbols(\"ndm_pass_label\")) x.delete();", 60);
+    }
+
     [GhidraFact]
     public async Task The_program_types_export_as_a_header_and_an_archive()
     {
