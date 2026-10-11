@@ -108,7 +108,8 @@ public static class Guide
             Overview: get_pe_info (headers, mitigations, PDB, version, rich header, signature, anything malformed), list_imports
             (includeDynamic=true adds GetProcAddress imports; bind=true shows each binding), list_exports (MSVC names demangled),
             list_resources / get_resource, survey_features.
-            Code: list_functions, disassemble, get_cfg, find_xrefs (every call site of an import: 'kernel32!CreateFileW'; struct
+            Code: list_functions, disassemble, inspect_instruction (operands, registers, flags, flow; mid-instruction and data
+            addresses classified), get_cfg, find_xrefs (every call site of an import: 'kernel32!CreateFileW'; struct
             members through IDA: Type::member), native_call_tree, get_call_arguments (recovered arguments as data),
             search_native_strings, search_bytes (?? wildcards), read_bytes, resolve_address, list_cpp_classes (RTTI classes, bases,
             vftables), get_exception_info (MSVC try / catch, SEH scopes, funclets), find_virtual_calls (obj->vfunc() sites resolved

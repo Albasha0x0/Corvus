@@ -225,6 +225,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["get_exception_info"] = (new() { ["image"] = NativeSample(dir) }, "0 frames with exception metadata"),
         ["list_functions"] = (new() { ["image"] = NativeSample(dir) }, "function"),
         ["disassemble"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "First"),
+        ["inspect_instruction"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First", ["count"] = 2 }, "decoded"),
         ["get_cfg"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "block"),
         ["find_xrefs"] = (new() { ["image"] = NativeSample(dir), ["address"] = "KERNEL32!ExitProcess" }, "References to"),
         ["get_call_arguments"] = (new() { ["image"] = NativeSample(dir), ["address"] = "First" }, "\"scope\""),

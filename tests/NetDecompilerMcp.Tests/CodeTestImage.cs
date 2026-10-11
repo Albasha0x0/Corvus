@@ -79,7 +79,8 @@ public sealed class CodeTestImage : INativeImage
     /// at <see cref="SyntheticDataRva"/> holding <paramref name="data"/>.
     /// </summary>
     public static CodeTestImage Synthetic(NativeArch arch, byte[] code, byte[]? data = null, IEnumerable<NativeImport>? imports = null,
-        IEnumerable<RuntimeFunction>? pdata = null, IEnumerable<uint>? relocations = null, uint entry = 0, IEnumerable<NativeExport>? exports = null)
+        IEnumerable<RuntimeFunction>? pdata = null, IEnumerable<uint>? relocations = null, uint entry = 0, IEnumerable<NativeExport>? exports = null,
+        uint dataVirtualSize = 0)
     {
         var image = new CodeTestImage(new byte[0x400])
         {
@@ -91,9 +92,11 @@ public sealed class CodeTestImage : INativeImage
         image._sections.Add((new NativeSection(".text", SyntheticCodeRva, (uint)code.Length, 0x400, (uint)code.Length,
             SectionAccess.Read | SectionAccess.Execute | SectionAccess.Code, 0x60000020), code));
         data ??= new byte[0x100];
-        image._sections.Add((new NativeSection(".data", SyntheticDataRva, (uint)data.Length, 0x400 + (uint)code.Length, (uint)data.Length,
+        // dataVirtualSize past the data: zero fill at load (bss)
+        uint dataSize = Math.Max((uint)data.Length, dataVirtualSize);
+        image._sections.Add((new NativeSection(".data", SyntheticDataRva, dataSize, 0x400 + (uint)code.Length, (uint)data.Length,
             SectionAccess.Read | SectionAccess.Write, 0xC0000040), data));
-        image.SizeOfImage = SyntheticDataRva + (uint)((data.Length + 0xFFF) & ~0xFFF);
+        image.SizeOfImage = SyntheticDataRva + ((dataSize + 0xFFF) & ~0xFFFu);
         image.EntryPointRva = entry;
         image.Imports = imports?.ToList() ?? [];
         image.Exports = exports?.ToList() ?? [];

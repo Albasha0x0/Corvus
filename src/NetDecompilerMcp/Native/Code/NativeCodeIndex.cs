@@ -214,6 +214,16 @@ public sealed partial class NativeCodeIndex : ICodeSymbols
         return result;
     }
 
+    /// <summary>Cross-references whose target is in [<paramref name="start"/>, <paramref name="end"/>), sorted by target.</summary>
+    public List<CodeXref> RefsToRange(uint start, uint end)
+    {
+        var result = new List<CodeXref>();
+        int lo = 0, hi = _byTo.Length;
+        while (lo < hi) { int mid = (lo + hi) >>> 1; if (_xrefs[_byTo[mid]].To < start) lo = mid + 1; else hi = mid; }
+        for (int i = lo; i < _byTo.Length && _xrefs[_byTo[i]].To < end; i++) result.Add(_xrefs[_byTo[i]]);
+        return result;
+    }
+
     /// <summary>Number of cross-references to <paramref name="rva"/>.</summary>
     public int CountRefsTo(uint rva)
     {

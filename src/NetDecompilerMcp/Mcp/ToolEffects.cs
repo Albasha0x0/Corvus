@@ -118,6 +118,7 @@ public static class ToolEffects
         ["read_bytes"] = Reads(),
         ["list_functions"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
         ["disassemble"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
+        ["inspect_instruction"] = Reads(longRunning: true),
         ["get_cfg"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
         ["find_xrefs"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
         ["native_call_tree"] = Reads(longRunning: true, openWorld: true), // engine=ida runs IDA
