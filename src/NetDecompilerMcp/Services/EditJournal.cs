@@ -93,7 +93,15 @@ public sealed class EditJournal
                     int version = native.HasPatches && native.Patches.Version != state.Saved ? native.Patches.Version : -1;
                     if (version == state.Journaled) continue;
                     var file = state.File ??= FileFor(native.OriginalSha256, native.Id, PatchesSuffix);
-                    byte[]? content = version < 0 ? null : Envelope(JsonNode.Parse(NativeEditService.RenderPatches(native, PatchExport.Format.Json).Content)!);
+                    byte[]? content;
+                    // a patch set that cannot be rendered is not journaled; the tool call that made it must not fail for that
+                    try { content = version < 0 ? null : Envelope(JsonNode.Parse(NativeEditService.RenderPatches(native, PatchExport.Format.Json).Content)!); }
+                    catch (ToolError ex)
+                    {
+                        if (_lastProblem != ex.Message) _workspace.Notify($"The edit journal could not be written ({ex.Message}); unsaved edits are not crash-safe until it can.");
+                        _lastProblem = ex.Message;
+                        continue;
+                    }
                     pending.Add((native, version, file, content));
                 }
                 return 0;

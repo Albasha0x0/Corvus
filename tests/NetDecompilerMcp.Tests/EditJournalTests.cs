@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native.Annotations;
 using NetDecompilerMcp.Services;
+using NetDecompilerMcp.Tests.NativeFormats;
 using NetDecompilerMcp.Tools;
 
 namespace NetDecompilerMcp.Tests;
@@ -121,5 +122,29 @@ public sealed class EditJournalTests : IDisposable
         var again = await tools.MigrateNativePatches(native.Id, native.Id, patchSet: kept, dryRun: true);
         Assert.Equal("already_present", Assert.Single(again.Entries).Reason);
         await Assert.ThrowsAsync<ToolError>(() => tools.MigrateNativePatches(native.Id, native.Id));
+    }
+
+    [Fact]
+    public async Task Elf_patches_are_journaled_and_exported()
+    {
+        using var env = new Env();
+        var store = Store();
+        var code = new NativeCodeService(env.Workspace, env.Options, null, store);
+        var edits = new NativeEditService(env.Workspace, code);
+        var tools = new NativePatchTools(env.Workspace, code, edits);
+        var journal = new EditJournal(env.Workspace, store, env.History);
+        var path = _dir.File("tool");
+        // mov eax, 1; ret
+        var elf = new ElfWriter { Machine = ElfWriter.EmX64, Entry = ElfWriter.TextRva, Text = [0xB8, 1, 0, 0, 0, 0xC3] };
+        File.WriteAllBytes(path, elf.Build());
+        var native = env.Workspace.LoadAny(path).Native!;
+        var index = await code.Index(native, null, default);
+
+        edits.ApplyPatch(native, index, edits.PreparePatch(index, ElfWriter.TextRva, [0xB8, 2, 0, 0, 0], false, "patch_bytes 5 bytes"), dryRun: false);
+        journal.Sync();
+        Assert.Single(Directory.GetFiles(journal.Root, "*" + EditJournal.PatchesSuffix));
+        var report = await tools.ExportNativePatches(native.Id, _dir.File("tool.dif"), "dif");
+        Assert.Equal(1, report.Patches);
+        Assert.False(report.ChecksumUpdated);
     }
 }

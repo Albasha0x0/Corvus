@@ -451,14 +451,15 @@ public sealed class NativeEditService(AssemblyWorkspace workspace, NativeCodeSer
         var notes = new List<string>();
         var output = OutputBytes(native, stripSignature: false, notes);
         var original = native.Patches.OriginalBytes();
-        var pe = native.RequirePe("export_native_patches");
+        var image = native.Image;
         var appended = native.Patches.Patches.Where(p => p.Growth != null).Select(p =>
         {
             var g = p.Growth!;
             return new AppendedSection(g.SectionName, g.SectionRva, g.SectionVirtualSize, g.AppendFileOffset, g.AppendedData);
         }).ToList();
-        var source = new PatchExportSource(native.FilePath, native.OriginalSha256, pe.ImageBase, pe.Arch, native.Patches.Patches.ToList(), original, output,
-            pe.OptionalHeaderOffset + 64, offset => pe.TryFileOffsetToRva(offset, out var rva) ? rva : null, appended);
+        // ELF and Mach-O have no checksum field
+        var source = new PatchExportSource(native.FilePath, native.OriginalSha256, image.ImageBase, image.Arch, native.Patches.Patches.ToList(), original, output,
+            image is PeFile pe ? pe.OptionalHeaderOffset + 64 : -1, offset => image.TryFileOffsetToRva(offset, out var rva) ? rva : null, appended);
         var rendered = PatchExport.Render(source, format);
         rendered.Notes.InsertRange(0, notes.Where(n => n.StartsWith("The file is Authenticode-signed", StringComparison.Ordinal)));
         return rendered;
