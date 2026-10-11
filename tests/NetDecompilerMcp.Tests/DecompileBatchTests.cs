@@ -20,13 +20,13 @@ public sealed class DecompileBatchTests : IDisposable
         _dir.Dispose();
     }
 
-    private async Task<(NativeAnalysisTools Tools, BatchProvider Provider, LoadedNative Native, uint First, uint Second)> Setup()
+    private async Task<(NativeAnalysisTools Tools, BatchProvider Provider, LoadedNative Native, uint First, uint Second)> Setup(BatchProvider? other = null)
     {
         var options = new ServerOptions { BackgroundIndexing = false };
         var workspace = new AssemblyWorkspace(options);
         var code = new NativeCodeService(workspace, options, null, new Native.Annotations.AnnotationStore(_dir.File("annotations")));
         var provider = new BatchProvider();
-        var engines = new NativeEngineService([provider], _dir.File("cache"), code, workspace, options);
+        var engines = new NativeEngineService(other == null ? [provider] : [provider, other], _dir.File("cache"), code, workspace, options);
         _owned.Add(engines);
         _owned.Add(workspace);
         var tools = new NativeAnalysisTools(workspace, engines, new OutputPager(options), null, code);
@@ -34,6 +34,7 @@ public sealed class DecompileBatchTests : IDisposable
         var index = await code.Index(native, null, default);
         uint first = index.AddressOfName("First")!.Value, second = index.AddressOfName("Second")!.Value;
         provider.Functions = [(first, second, "First"), (second, second + 0x10, "Second")];
+        if (other != null) other.Functions = provider.Functions;
         return (tools, provider, native, first, second);
     }
 
@@ -75,6 +76,19 @@ public sealed class DecompileBatchTests : IDisposable
         Assert.Equal(2, provider.Decompiles); // First came from the cache
         await tools.DecompileNative(native.Id, "Second");
         Assert.Equal(2, provider.Decompiles);
+    }
+
+    [Fact]
+    public async Task Each_engine_decompiles_for_itself_when_both_have_the_same_names()
+    {
+        var ghidra = new BatchProvider("ghidra");
+        var (tools, ida, native, _, _) = await Setup(ghidra);
+        Assert.Contains("/* ida */", await tools.DecompileNative(native.Id, "First", engine: "ida"));
+        var text = await tools.DecompileNative(native.Id, "First", engine: "ghidra");
+        Assert.Contains("/* ghidra */", text);
+        Assert.Equal((1, 1), (ida.Decompiles, ghidra.Decompiles));
+        Assert.Contains("/* ghidra */", await tools.DecompileNative(native.Id, functions: ["First"], engine: "ghidra"));
+        Assert.Equal(1, ghidra.Decompiles);
     }
 
     [Fact]
@@ -126,14 +140,14 @@ public sealed class DecompileBatchTests : IDisposable
         Assert.Equal(DecompileStatus.Skipped, items[2].Status);
     }
 
-    internal sealed class BatchProvider : INativeDecompilerProvider
+    internal sealed class BatchProvider(string id = IdaProvider.ProviderId) : INativeDecompilerProvider
     {
         public List<(uint Start, uint End, string Name)> Functions { get; set; } = [];
         public HashSet<uint> Failing { get; } = [];
         public HashSet<uint> Slow { get; } = [];
         public int Decompiles;
         public TimeSpan? LastTimeout;
-        public string Id => IdaProvider.ProviderId;
+        public string Id => id;
         public string DisplayName => "fake engine";
         public ProviderAvailability CheckAvailability() => ProviderAvailability.Ok(Id, new Dictionary<string, string>());
         public Task<ProviderAvailability> ProbeAsync(CancellationToken cancellationToken = default) => Task.FromResult(CheckAvailability());
@@ -164,7 +178,7 @@ public sealed class DecompileBatchTests : IDisposable
             if (provider.Slow.Contains(f.Start)) await Task.Delay(10_000, cancellationToken);
             if (provider.Failing.Contains(f.Start)) throw new ToolError(ErrorCode.Failed, $"decompilation failed at 0x{f.Start:X}: fake");
             Interlocked.Increment(ref provider.Decompiles);
-            return new DecompiledFunction(f.Start, f.Name, $"int {f.Name}(void) {{ return 0; }}", []);
+            return new DecompiledFunction(f.Start, f.Name, $"int {f.Name}(void) {{ return 0; }} /* {provider.Id} */", []);
         }
 
         public Task<DecompiledFunction> DecompileWithinAsync(uint rva, TimeSpan? timeout, CancellationToken cancellationToken = default)
