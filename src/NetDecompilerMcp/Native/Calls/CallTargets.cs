@@ -57,6 +57,13 @@ public static class CallTargets
         return result.Values.OrderBy(s => s.Rva).ToList();
     }
 
+    /// <summary>The image's indirect sites when <see cref="Image"/> has computed them for the current names, else null (never computes).</summary>
+    public static List<CallTargetSite>? ImageIfComputed(CallAnalysis a, bool deep)
+    {
+        if (!ImageCache.TryGetValue(a, out var cache)) return null;
+        lock (cache) return cache.GetValueOrDefault((deep, a.Index.Sourced.Version));
+    }
+
     /// <summary>The indirect sites of the whole image (computed once per image, deep and names version).</summary>
     public static List<CallTargetSite> Image(CallAnalysis a, bool deep, CancellationToken ct = default)
     {

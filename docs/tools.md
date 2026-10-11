@@ -432,15 +432,15 @@ Structured output: `root`, `direction`, `depth`, `items`, `total`, `truncated`.
 
 **Call paths to a method** (read-only, idempotent)
 
-How execution reaches a method: call chains from 'from' to 'to', or — when 'from' is omitted — from entry points (methods nothing in the workspace calls: Main, Unity callbacks, event handlers). Shortest first, direct calls preferred; a hop that only happens through virtual dispatch (a call to a base/interface method this one overrides) is marked. 'to' may be a native export: paths then end at the P/Invoke declarations bound to it, followed by the native hop.
+How execution reaches a method: call chains from 'from' to 'to', or — when 'from' is omitted — from entry points (methods nothing in the workspace calls: Main, Unity callbacks, event handlers). Shortest first, direct calls preferred; a hop that only happens through virtual dispatch (a call to a base/interface method this one overrides) is marked. 'to' may be native code (an export, or native:<image>!<address or function>): chains then run through native callers across loaded images (calls, tail calls, imports bound between images, RTTI virtual calls, function pointers resolve_call_targets resolved) back to native roots (entry point, exports, TLS callbacks, callbacks, uncalled functions) and to managed methods through P/Invoke; 'from' may then be native too. Each native step carries its call site and edge kind; chains are ranked by length, uncertain hops and image changes.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `to` | string | yes |  | Target method. Type or member. Forms: 'Ns.Type', 'Ns.Outer+Inner', short 'Type', 'Ns.Type::Method', 'Ns.Type.Method', 'Ns.Type::Method(int, string)' for one overload, 'Ns.Type::.ctor', or a metadata token like '0x06000123'. Or a native export: 'kernel32.dll!CreateFileW' (module with .dll/.exe/.sys extension), or 'native:<image>!<export>' where image is a loaded image id, file name or path, or a DLL name found by the loader's search order, and export is a name, '#ordinal', or for a loaded image an address or function name ('native:KERNELBASE.dll!0x180034560'). Matches the P/Invoke declarations bound to that code and their callers. |
-| `from` | string |  |  | Start method (optional). Type or member. Forms: 'Ns.Type', 'Ns.Outer+Inner', short 'Type', 'Ns.Type::Method', 'Ns.Type.Method', 'Ns.Type::Method(int, string)' for one overload, 'Ns.Type::.ctor', or a metadata token like '0x06000123'. |
-| `maxDepth` | integer |  | `8` | Maximum chain length (default 8). |
+| `from` | string |  |  | Start method (optional): managed, or native (same forms as to) when to is native. Type or member. Forms: 'Ns.Type', 'Ns.Outer+Inner', short 'Type', 'Ns.Type::Method', 'Ns.Type.Method', 'Ns.Type::Method(int, string)' for one overload, 'Ns.Type::.ctor', or a metadata token like '0x06000123'. |
+| `maxDepth` | integer |  | `8` | Maximum chain length (default 8, max 30). |
 | `maxPaths` | integer |  | `10` | Maximum number of paths (default 10). |
-| `includeVirtual` | boolean |  | `true` | Also follow virtual dispatch: calls to a base/interface method reaching an override (default true). False keeps only direct calls, which avoids chains through widely overridden methods (ToString, Dispose, interface callbacks). |
+| `includeVirtual` | boolean |  | `true` | Also follow virtual dispatch: calls to a base/interface method reaching an override (default true). False keeps only direct calls, which avoids chains through widely overridden methods (ToString, Dispose, interface callbacks). In native code: RTTI virtual calls and resolved function pointers. |
 | `assembly` | string |  |  | Assembly id, name, file name or path (see list_assemblies). Optional: omit to use all loaded assemblies. |
 
 Structured output: `target`, `from`, `items`, `total`, `truncated`.

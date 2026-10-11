@@ -129,9 +129,12 @@ public sealed record CallTree(
     int Total,
     [property: Description("maxNodes stopped the walk, or items were cut to fit the response.")] bool Truncated);
 
-public sealed record PathStepEntry(SymbolRef Method, [property: Description("Reached by virtual dispatch through this base/interface method.")] string? Via);
+public sealed record PathStepEntry(SymbolRef Method, [property: Description("Reached by virtual dispatch through this base/interface method.")] string? Via,
+    [property: Description("Native steps: the call site (VA) in the previous step that reaches this one.")] string? Site = null,
+    [property: Description("Native steps: how it is reached: call, tail, import, virtual_exact, virtual_possible, pointer or pinvoke.")] string? Edge = null);
 
-public sealed record CallPathEntry(IReadOnlyList<PathStepEntry> Steps, int VirtualHops, [property: Description("Native targets: the final P/Invoke -> native hop.")] string? NativeHop);
+public sealed record CallPathEntry(IReadOnlyList<PathStepEntry> Steps, int VirtualHops, [property: Description("Native targets: the final P/Invoke -> native hop.")] string? NativeHop,
+    [property: Description("Native chains: why the first step is a start (entry point, export, TLS callback, address taken, no callers, from).")] string? Root = null);
 
 public sealed record CallPathList(string Target, string? From, IReadOnlyList<CallPathEntry> Items, int Total, bool Truncated);
 

@@ -9,7 +9,8 @@ code statistics once the index is built), list_imports
 list_resources / get_resource, survey_features.
 Code: list_functions, disassemble, inspect_instruction (operands, registers, flags, flow; mid-instruction and data
 addresses classified), get_cfg, find_xrefs (every call site of an import: 'kernel32!CreateFileW'; struct
-members through IDA: Type::member), native_call_tree, get_call_arguments (recovered arguments as data),
+members through IDA: Type::member), native_call_tree, find_call_paths to='native:<image>!<function>' (ranked call chains
+from roots, from='native:...' or managed callers through P/Invoke), get_call_arguments (recovered arguments as data),
 trace_native_values (where a value comes from or goes, across callers, callees and globals), resolve_call_targets
 (targets of indirect calls with their basis; scope=image lists the unresolved ones), search_native_strings, search_bytes (?? wildcards), read_bytes, resolve_address, list_cpp_classes (RTTI classes, bases,
 vftables), get_native_type (a type's layout from the PDB, RTTI, Il2Cpp or the engine by name, id or typed address; at=0x48 names a field), get_exception_info (MSVC try / catch, SEH scopes, funclets), find_virtual_calls (obj->vfunc() sites resolved
