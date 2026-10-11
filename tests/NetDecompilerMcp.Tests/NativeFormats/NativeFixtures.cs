@@ -8,6 +8,8 @@ public static class NativeFixtures
     private const string DbgShim = "9.0.621003";
 
     public static string LinuxArm64DbgShim => RealPackages.File("Microsoft.Diagnostics.DbgShim.linux-arm64", DbgShim, "runtimes/linux-arm64/native/libdbgshim.so");
+    /// <summary>The same sources as <see cref="LinuxArm64DbgShim"/> built against musl: a second build to match functions against.</summary>
+    public static string LinuxMuslArm64DbgShim => RealPackages.File("Microsoft.Diagnostics.DbgShim.linux-musl-arm64", DbgShim, "runtimes/linux-musl-arm64/native/libdbgshim.so");
     public static string LinuxArmDbgShim => RealPackages.File("Microsoft.Diagnostics.DbgShim.linux-arm", DbgShim, "runtimes/linux-arm/native/libdbgshim.so");
     public static string OsxArm64DbgShim => RealPackages.File("Microsoft.Diagnostics.DbgShim.osx-arm64", DbgShim, "runtimes/osx-arm64/native/libdbgshim.dylib");
     public static string WinArm64DbgShim => RealPackages.File("Microsoft.Diagnostics.DbgShim.win-arm64", DbgShim, "runtimes/win-arm64/native/dbgshim.dll");

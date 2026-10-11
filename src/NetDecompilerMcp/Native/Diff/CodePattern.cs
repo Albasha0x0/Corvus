@@ -237,7 +237,7 @@ public static class CodePatterns
             else
                 candidates = candidates.Where(c => pattern.MatchesAt(sections[c.Section].Bytes, c.Offset)).ToList();
             if (candidates.Count <= 1 && pattern.FixedBytes >= MinFixedBytes) break;
-            if (insn.Flow is Iced.Intel.FlowControl.Return && bytes.Count >= 32) { note = "the code ends with a return before the pattern became unique"; }
+            if (insn.Flow is FlowKind.Return && bytes.Count >= 32) { note = "the code ends with a return before the pattern became unique"; }
         }
         var result = Trim(new BytePattern(bytes.ToArray(), mask.ToArray()));
         int hits = candidates?.Count(c => result.MatchesAt(sections[c.Section].Bytes, c.Offset)) ?? CountAll(sections, result, ct);

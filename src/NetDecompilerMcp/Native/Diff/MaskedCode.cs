@@ -17,7 +17,8 @@ public enum AddressOperand : byte
 
 /// <summary>
 /// One decoded instruction with the bytes that change when code moves masked: branch displacements, RIP-relative
-/// displacements, relocated or in-image absolute addresses in displacements and immediates. Addresses are RVAs.
+/// displacements, relocated or in-image absolute addresses in displacements and immediates; on ARM64 branch and literal
+/// offsets, ADRP / ADR pages and the low 12 bits ADD / LDR / STR add to a page. Addresses are RVAs.
 /// </summary>
 public sealed class MaskedInsn
 {
@@ -25,8 +26,9 @@ public sealed class MaskedInsn
     public byte[] Bytes { get; init; } = [];
     /// <summary>Bit i set: byte i varies between builds (a wildcard in a pattern).</summary>
     public ushort Wild { get; init; }
-    public Mnemonic Mnemonic { get; init; }
-    public FlowControl Flow { get; init; }
+    /// <summary>The instruction's mnemonic (Iced on x86, AsmArm64 plus <see cref="MaskedDecoder.Arm64Mnemonics"/> on ARM64).</summary>
+    public int Mnemonic { get; init; }
+    public FlowKind Flow { get; init; }
     /// <summary>Opcode and operand shape (operand kinds and sizes, no registers or values): stable under register and address changes.</summary>
     public int Token { get; init; }
     /// <summary>Where the address operand sits in <see cref="Bytes"/>, its size and kind (the first one when several).</summary>
@@ -43,23 +45,30 @@ public sealed class MaskedInsn
     public bool IsWild(int i) => (Wild >> i & 1) != 0;
 }
 
-/// <summary>Decodes x86 / x64 code of an image into <see cref="MaskedInsn"/>. Not thread-safe; one per thread.</summary>
+/// <summary>Decodes x86 / x64 and ARM64 code of an image into <see cref="MaskedInsn"/>. Not thread-safe; one per thread.</summary>
 public sealed class MaskedDecoder
 {
+    /// <summary>ARM64 mnemonics are numbered from here, apart from x86 ones.</summary>
+    public const int Arm64Mnemonics = 0x10000;
+
     private readonly INativeImage _image;
     private readonly uint[] _relocs;
     private readonly int _bitness;
     private readonly ulong _base;
     private readonly ulong _limit;
     private byte[] _buffer = new byte[4096];
+    private readonly Arm64Decoder? _arm;
+    // ARM64: the address after the last decoded instruction; decoding on from there keeps ADRP pairs
+    private uint _armNext = uint.MaxValue;
 
     public MaskedDecoder(INativeImage image)
     {
-        if (image.Arch is not (NativeArch.X86 or NativeArch.X64))
+        if (image.Arch is not (NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64))
             throw new NotSupportedException(InstructionSets.For(image.Arch).Reason);
         _image = image;
         _relocs = image.RelocationRvas as uint[] ?? image.RelocationRvas.ToArray();
         if (!IsSorted(_relocs)) { _relocs = (uint[])_relocs.Clone(); Array.Sort(_relocs); }
+        if (image.Arch == NativeArch.Arm64) _arm = new Arm64Decoder(image, null, _relocs);
         _bitness = image.Arch == NativeArch.X64 ? 64 : 32;
         _base = image.ImageBase;
         _limit = image.ImageBase + image.SizeOfImage;
@@ -80,6 +89,7 @@ public sealed class MaskedDecoder
     public int Decode(uint start, uint end, List<MaskedInsn> output, int max = int.MaxValue)
     {
         if (end <= start) return 0;
+        if (_arm != null) return DecodeArm64(start, end, output, max);
         long want = Math.Min((long)end - start, 1L << 24);
         if (_buffer.Length < want) _buffer = new byte[Math.Max(want, _buffer.Length * 2L)];
         int read = _image.Read(start, _buffer.AsSpan(0, (int)want));
@@ -102,7 +112,88 @@ public sealed class MaskedDecoder
     public MaskedInsn? DecodeOne(uint rva)
     {
         var list = new List<MaskedInsn>(1);
-        return Decode(rva, rva + 15, list, 1) == 1 ? list[0] : null;
+        return Decode(rva, rva + (_arm != null ? 4u : 15u), list, 1) == 1 ? list[0] : null;
+    }
+
+    private int DecodeArm64(uint start, uint end, List<MaskedInsn> output, int max)
+    {
+        var arm = _arm!;
+        if (start != _armNext) arm.BeginRun(IndexBound.None);
+        int count = 0;
+        var bytes = new byte[4];
+        for (uint rva = start; rva + 4 <= end && count < max; rva += 4)
+        {
+            if (!arm.DecodeMapped(rva, out var insn) || insn.Flow == FlowKind.Invalid || _image.Read(rva, bytes) < 4) { _armNext = uint.MaxValue; break; }
+            output.Add(BuildArm64(arm.Last, in insn, bytes));
+            count++;
+            _armNext = rva + 4;
+        }
+        return count;
+    }
+
+    /// <summary>Masks the fields of an ARM64 instruction that hold addresses, byte by byte (a field touching a byte makes it wild).</summary>
+    private static MaskedInsn BuildArm64(AsmArm64.Arm64Instruction i, in Insn insn, byte[] bytes)
+    {
+        ushort wild = 0;
+        uint? target = null;
+        var kind = AddressOperand.None;
+        void Bits(int low, int high) { for (int b = low / 8; b <= high / 8; b++) wild |= (ushort)(1 << b); }
+        bool label = (i.Flags & AsmArm64.Arm64InstructionFlags.HasLabel) != 0;
+        if (label)
+        {
+            switch (i.Id)
+            {
+                case AsmArm64.Arm64InstructionId.B_only_branch_imm or AsmArm64.Arm64InstructionId.BL_only_branch_imm: Bits(0, 25); break;
+                case AsmArm64.Arm64InstructionId.ADRP_only_pcreladdr or AsmArm64.Arm64InstructionId.ADR_only_pcreladdr: Bits(5, 30); break;
+                default: Bits(5, 23); break; // imm19 of b.cond, cbz / cbnz, literal loads; imm14 of tbz / tbnz
+            }
+            kind = AddressOperand.Relative;
+            target = insn.HasTarget ? insn.Target : insn.HasMem ? insn.MemTarget : insn.HasImm ? insn.ImmTarget : null;
+        }
+        else if (insn.HasImm || insn.HasMem)
+        {
+            // the low 12 bits added to an ADRP page (add #imm12; ldr / str / ldp offsets): bits 10-21 at most
+            Bits(10, 21);
+            kind = AddressOperand.RipRelative;
+            target = insn.HasImm ? insn.ImmTarget : insn.MemTarget;
+        }
+        ulong? constant = null;
+        if (!label && kind == AddressOperand.None)
+            for (int k = 0; k < i.OperandCount; k++)
+                if (i.GetOperand(k).Kind == AsmArm64.Arm64OperandKind.Immediate && ((AsmArm64.Arm64ImmediateOperand)i.GetOperand(k)).Value is var v and (>= 0x100 or <= -0x100))
+                {
+                    constant = (ulong)v;
+                    break;
+                }
+        return new MaskedInsn
+        {
+            Rva = insn.Rva,
+            Bytes = (byte[])bytes.Clone(),
+            Wild = wild,
+            Mnemonic = Arm64Mnemonics + (int)i.Mnemonic,
+            Flow = insn.Flow,
+            Token = Arm64Token(i),
+            // ARM64 address fields are not whole bytes: no operand position to read the address back from
+            OperandOffset = 0,
+            OperandSize = 0,
+            OperandKind = AddressOperand.None,
+            Target = target,
+            Constant = constant,
+        };
+    }
+
+    /// <summary>Instruction form and operand shapes (register classes, no register numbers or values).</summary>
+    private static int Arm64Token(AsmArm64.Arm64Instruction i)
+    {
+        uint h = 2166136261;
+        void Mix(int v) { h = (h ^ (uint)v) * 16777619; }
+        Mix((int)i.Id);
+        for (int k = 0; k < i.OperandCount; k++)
+        {
+            var op = i.GetOperand(k);
+            Mix((int)op.Kind * 100 + (op.Kind == AsmArm64.Arm64OperandKind.Register ? (int)((AsmArm64.Arm64RegisterOperand)op).Value.Kind : 0));
+        }
+        return (int)h;
     }
 
     private bool InImage(ulong va) => va >= _base && va < _limit;
@@ -166,8 +257,18 @@ public sealed class MaskedDecoder
             Rva = rva,
             Bytes = bytes.ToArray(),
             Wild = wild,
-            Mnemonic = instr.Mnemonic,
-            Flow = instr.FlowControl,
+            Mnemonic = (int)instr.Mnemonic,
+            Flow = instr.FlowControl switch
+            {
+                FlowControl.Return => FlowKind.Return,
+                FlowControl.Call => FlowKind.Call,
+                FlowControl.IndirectCall => FlowKind.IndirectCall,
+                FlowControl.UnconditionalBranch => FlowKind.Jump,
+                FlowControl.IndirectBranch => FlowKind.IndirectJump,
+                FlowControl.ConditionalBranch => FlowKind.ConditionalJump,
+                FlowControl.Exception or FlowControl.Interrupt => FlowKind.Trap,
+                _ => FlowKind.Next,
+            },
             Token = Token(in instr),
             OperandOffset = opOffset,
             OperandSize = opSize,

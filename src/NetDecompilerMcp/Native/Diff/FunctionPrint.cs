@@ -124,7 +124,7 @@ public sealed class ImagePrints
         foreach (var insn in code)
         {
             for (int b = 0; b < insn.Length; b++) bytes.AddByte(insn.IsWild(b) ? 0x100 : insn.Bytes[b]);
-            histogram[(int)insn.Mnemonic] = histogram.GetValueOrDefault((int)insn.Mnemonic) + 1;
+            histogram[insn.Mnemonic] = histogram.GetValueOrDefault(insn.Mnemonic) + 1;
             if (insn.Constant is { } k) constants.Add(k);
         }
 

@@ -131,7 +131,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
     public sealed record PatternSearch(string Pattern, int Length, int Images, int Total, bool Truncated, IReadOnlyList<PatternHit> Hits, IReadOnlyList<string> Notes);
 
     [McpServerTool(Name = "compare_native_images", Title = "Compare native builds", UseStructuredContent = true)]
-    [Description("Match the functions of two builds of one native image (x86 / x64), e.g. before and after an application update. Tiers, each accepting a pair " +
+    [Description("Match the functions of two builds of one native image (x86 / x64 / ARM64), e.g. before and after an application update. Tiers, each accepting a pair " +
                  "only when unique on both sides: 1 same name (export, PDB, Il2Cpp, user), same import thunk, or identical bytes with addresses masked; " +
                  "2 same canonical control-flow graph and instruction shapes; 3 same imports, strings and constants; 4 call-graph propagation from matched " +
                  "pairs (callees in the same position, mutually best callers / callees, callers and callees in common, the same slot of matched " +
@@ -537,7 +537,7 @@ public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeServi
         var index = await code.Index(native, progress, ct);
         if (index.Support != CodeSupport.Full)
             throw new ToolError(ErrorCode.Unsupported, $"{native.Id}: {index.SupportNote ?? "instructions are not decoded for this architecture"}.",
-                "x86 and x64 images are supported");
+                "x86, x64 and ARM64 images are supported");
         return (native, index);
     }
 

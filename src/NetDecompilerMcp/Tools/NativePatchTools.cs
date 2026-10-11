@@ -116,7 +116,7 @@ public sealed class NativePatchTools(AssemblyWorkspace workspace, NativeCodeServ
         var oldIndex = await code.Index(oldNative, null, cancellationToken);
         var newIndex = await code.Index(newNative, null, cancellationToken);
         if (oldIndex.Support != CodeSupport.Full || newIndex.Support != CodeSupport.Full)
-            throw new ToolError(ErrorCode.Unsupported, "Patch migration needs x86 or x64 code on both builds.");
+            throw new ToolError(ErrorCode.Unsupported, "Patch migration needs x86, x64 or ARM64 code on both builds.");
         if (oldIndex.Image.Arch != newIndex.Image.Arch)
             throw new ToolError(ErrorCode.Unsupported, $"{oldNative.Id} is {oldIndex.Image.Arch} and {newNative.Id} is {newIndex.Image.Arch}; builds for different architectures are not migrated.");
 

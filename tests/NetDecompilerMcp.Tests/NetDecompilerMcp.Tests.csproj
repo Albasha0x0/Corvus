@@ -55,6 +55,7 @@
   <!-- Native images in ELF, Mach-O and ARM64 PE form for the native format readers (runtimes/<rid>/native). -->
   <ItemGroup>
     <PackageDownload Include="Microsoft.Diagnostics.DbgShim.linux-arm64" Version="[9.0.621003]" />
+    <PackageDownload Include="Microsoft.Diagnostics.DbgShim.linux-musl-arm64" Version="[9.0.621003]" />
     <PackageDownload Include="Microsoft.Diagnostics.DbgShim.linux-arm" Version="[9.0.621003]" />
     <PackageDownload Include="Microsoft.Diagnostics.DbgShim.osx-arm64" Version="[9.0.621003]" />
     <PackageDownload Include="Microsoft.Diagnostics.DbgShim.win-arm64" Version="[9.0.621003]" />

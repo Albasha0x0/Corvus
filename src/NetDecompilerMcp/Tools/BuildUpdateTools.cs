@@ -85,7 +85,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
     private sealed record Item(string Category, string Kind, uint? OldRva, uint? NewRva, string Value, string Outcome, string Reason, double Confidence, int? Tier, string Detail);
 
     [McpServerTool(Name = "update_to_new_build", Title = "Update work to a new build", UseStructuredContent = true)]
-    [Description("Carry everything done on an old build of a native image (x86 / x64) to its new build in one call, through one function match " +
+    [Description("Carry everything done on an old build of a native image (x86 / x64 / ARM64) to its new build in one call, through one function match " +
                  "(compare_native_images): user names, comments and engine types (migrate_native_names rules), imported names (the PDB layer is re-imported only " +
                  "from the new build's own matching PDB, else not_applicable pdb_mismatch; the Il2Cpp layer is re-applied from the new build's own " +
                  "metadata, else the old names are mapped through the function match and saved as a layer marked carried by match), byte patches " +
@@ -139,7 +139,7 @@ public sealed class BuildUpdateTools(AssemblyWorkspace workspace, NativeCodeServ
         var oldIndex = await code.Index(oldNative, null, ct);
         var newIndex = await code.Index(newNative, null, ct);
         if (oldIndex.Support != CodeSupport.Full || newIndex.Support != CodeSupport.Full)
-            throw new ToolError(ErrorCode.Unsupported, $"{(oldIndex.Support != CodeSupport.Full ? oldNative.Id : newNative.Id)}: x86 or x64 code is needed on both builds.");
+            throw new ToolError(ErrorCode.Unsupported, $"{(oldIndex.Support != CodeSupport.Full ? oldNative.Id : newNative.Id)}: x86, x64 or ARM64 code is needed on both builds.");
         if (oldIndex.Image.Arch != newIndex.Image.Arch)
             throw new ToolError(ErrorCode.Unsupported, $"{oldNative.Id} is {oldIndex.Image.Arch} and {newNative.Id} is {newIndex.Image.Arch}; builds for different architectures are not matched.");
         var matchOld = await Task.Run(() => Original(oldNative, oldIndex, ct), ct);
