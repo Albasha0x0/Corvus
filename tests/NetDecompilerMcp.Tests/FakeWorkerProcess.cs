@@ -8,7 +8,7 @@ namespace NetDecompilerMcp.Tests;
 
 /// <summary>
 /// A worker thread behind anonymous pipes, speaking <see cref="WorkerProtocol"/> with concurrent requests. Ops: echo,
-/// save, sleep {ms} (cancellable), partial (until cancelled, then a result marked partial), stubborn (ignores cancel),
+/// save, sleep {ms} (cancellable), hold (until <see cref="Release"/>, cancellable), partial (until cancelled, then a result marked partial), stubborn (ignores cancel),
 /// timeout (the request's time limit), set {key,value} / get {key} (per-process state), crash, close, cancel.
 /// </summary>
 internal sealed class FakeWorkerProcess : ChildProcess
@@ -28,6 +28,10 @@ internal sealed class FakeWorkerProcess : ChildProcess
     public readonly ConcurrentDictionary<string, string> State = new();
     public int MaxInFlight;
     public int Cancelled;
+    private readonly ManualResetEventSlim _released = new();
+
+    /// <summary>Lets every held request answer.</summary>
+    public void Release() => _released.Set();
 
     public FakeWorkerProcess(bool ready = false)
     {
@@ -63,6 +67,8 @@ internal sealed class FakeWorkerProcess : ChildProcess
                 }
                 var cts = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
                 _running[id] = cts;
+                // Counted on receipt, so a request is in flight before its thread gets to run.
+                InterlockedMax(ref MaxInFlight, Interlocked.Increment(ref _inFlight));
                 // Threads, not the pool: under the parallel suite a starved pool would delay replies past the test's limits.
                 new Thread(() => Handle(id, op, args, cts)) { IsBackground = true }.Start();
             }
@@ -74,8 +80,6 @@ internal sealed class FakeWorkerProcess : ChildProcess
 
     private void Handle(long id, string op, JsonObject args, CancellationTokenSource cts)
     {
-        var n = Interlocked.Increment(ref _inFlight);
-        InterlockedMax(ref MaxInFlight, n);
         try
         {
             switch (op)
@@ -85,6 +89,10 @@ internal sealed class FakeWorkerProcess : ChildProcess
                     break;
                 case "sleep":
                     if (!cts.Token.WaitHandle.WaitOne((int)args["ms"]!)) Reply(Ok(id, args.DeepClone()));
+                    else if (!_stop.IsCancellationRequested) Reply(Error(id, "failed", "cancelled"));
+                    break;
+                case "hold":
+                    if (WaitHandle.WaitAny([_released.WaitHandle, cts.Token.WaitHandle]) == 0) Reply(Ok(id, args.DeepClone()));
                     else if (!_stop.IsCancellationRequested) Reply(Error(id, "failed", "cancelled"));
                     break;
                 case "partial":
@@ -118,10 +126,15 @@ internal sealed class FakeWorkerProcess : ChildProcess
         }
         finally
         {
-            Interlocked.Decrement(ref _inFlight);
-            _running.TryRemove(id, out _);
+            Finish(id);
             cts.Dispose();
         }
+    }
+
+    /// <summary>Ends a request's time in flight, once; before its reply is written, so the next serial request never overlaps it.</summary>
+    private void Finish(long id)
+    {
+        if (_running.TryRemove(id, out _)) Interlocked.Decrement(ref _inFlight);
     }
 
     private static JsonObject Ok(long id, JsonNode result) => new() { ["id"] = id, ["ok"] = true, ["result"] = result };
@@ -131,6 +144,7 @@ internal sealed class FakeWorkerProcess : ChildProcess
 
     private void Reply(JsonObject o)
     {
+        if (o["id"] is { } id) Finish((long)id);
         var bytes = Encoding.UTF8.GetBytes(o.ToJsonString() + "\n");
         lock (_write)
         {

@@ -1,5 +1,4 @@
 
-using System.Diagnostics;
 using System.Text.Json.Nodes;
 using NetDecompilerMcp.Core;
 using NetDecompilerMcp.Native.Providers;
@@ -9,6 +8,8 @@ namespace NetDecompilerMcp.Tests;
 /// <summary><see cref="WorkerConnection"/> against an in-process worker: serial and concurrent requests, cancellation by request, kill fallback.</summary>
 public class WorkerConnectionTests
 {
+    /// <summary>A request time limit where the limit is not under test: a starved pool can delay a reply by seconds.</summary>
+    private static readonly TimeSpan NoLimit = TimeSpan.FromMinutes(10);
     private static readonly WorkerConnectionOptions Concurrent = new() { Concurrent = true, CancelGrace = TimeSpan.FromSeconds(10) };
 
     [Fact]
@@ -16,11 +17,11 @@ public class WorkerConnectionTests
     {
         using var worker = new FakeWorkerProcess();
         using var c = worker.Connect(Concurrent);
-        var slow = c.RequestAsync("sleep", new JsonObject { ["ms"] = 400, ["tag"] = "slow" }, TimeSpan.FromSeconds(10), default);
-        var fast = c.RequestAsync("sleep", new JsonObject { ["ms"] = 10, ["tag"] = "fast" }, TimeSpan.FromSeconds(10), default);
-        var first = await Task.WhenAny(slow, fast);
-        Assert.Same(fast, first);
+        var slow = c.RequestAsync("hold", new JsonObject { ["tag"] = "slow" }, NoLimit, default);
+        var fast = c.RequestAsync("echo", new JsonObject { ["tag"] = "fast" }, NoLimit, default);
         Assert.Equal("fast", (await fast).GetProperty("tag").GetString());
+        Assert.False(slow.IsCompleted);
+        worker.Release();
         Assert.Equal("slow", (await slow).GetProperty("tag").GetString());
         Assert.True(worker.MaxInFlight >= 2);
     }
@@ -30,7 +31,7 @@ public class WorkerConnectionTests
     {
         using var worker = new FakeWorkerProcess();
         using var c = worker.Connect(null);
-        await Task.WhenAll(Enumerable.Range(0, 4).Select(i => c.RequestAsync("sleep", new JsonObject { ["ms"] = 30 }, TimeSpan.FromSeconds(10), default)));
+        await Task.WhenAll(Enumerable.Range(0, 4).Select(i => c.RequestAsync("sleep", new JsonObject { ["ms"] = 30 }, NoLimit, default)));
         Assert.Equal(1, worker.MaxInFlight);
     }
 
@@ -40,12 +41,10 @@ public class WorkerConnectionTests
         using var worker = new FakeWorkerProcess();
         using var c = worker.Connect(Concurrent);
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
-        var clock = Stopwatch.StartNew();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => c.RequestAsync("sleep", new JsonObject { ["ms"] = 60_000 }, TimeSpan.FromMinutes(1), cts.Token));
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => c.RequestAsync("hold", null, NoLimit, cts.Token));
         Assert.True(c.IsAlive);
         Assert.Equal(1, worker.Cancelled);
-        Assert.Equal(7, (await c.RequestAsync("echo", new JsonObject { ["v"] = 7 }, TimeSpan.FromSeconds(5), default)).GetProperty("v").GetInt32());
+        Assert.Equal(7, (await c.RequestAsync("echo", new JsonObject { ["v"] = 7 }, NoLimit, default)).GetProperty("v").GetInt32());
     }
 
     [Fact]
@@ -64,7 +63,7 @@ public class WorkerConnectionTests
     {
         using var worker = new FakeWorkerProcess();
         using var c = worker.Connect(Concurrent with { CancelGrace = TimeSpan.FromMilliseconds(200) });
-        var other = c.RequestAsync("sleep", new JsonObject { ["ms"] = 60_000 }, TimeSpan.FromMinutes(1), default);
+        var other = c.RequestAsync("sleep", new JsonObject { ["ms"] = 60_000 }, NoLimit, default);
         var e = await Assert.ThrowsAsync<ToolError>(() => c.RequestAsync("stubborn", null, TimeSpan.FromMilliseconds(200), default));
         Assert.Equal(ErrorCode.Timeout, e.Code);
         Assert.Contains("stopped", e.Message);
@@ -94,11 +93,11 @@ public class WorkerConnectionTests
         Assert.True(c.IsAlive);
         Assert.Equal(1, worker.Cancelled);
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => c.RequestAsync("sleep", new JsonObject { ["ms"] = 60_000 }, TimeSpan.FromMinutes(1), cts.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => c.RequestAsync("sleep", new JsonObject { ["ms"] = 60_000 }, NoLimit, cts.Token));
         Assert.True(c.IsAlive);
         Assert.Equal(2, worker.Cancelled);
         Assert.Empty(c.Running);
-        Assert.Equal(3, (await c.RequestAsync("echo", new JsonObject { ["v"] = 3 }, TimeSpan.FromSeconds(5), default)).GetProperty("v").GetInt32());
+        Assert.Equal(3, (await c.RequestAsync("echo", new JsonObject { ["v"] = 3 }, NoLimit, default)).GetProperty("v").GetInt32());
     }
 
     [Fact]
@@ -118,9 +117,9 @@ public class WorkerConnectionTests
         using var worker = new FakeWorkerProcess();
         using var c = worker.Connect(Concurrent);
         Assert.Equal(90, (await c.RequestAsync("timeout", null, TimeSpan.FromSeconds(90), default)).GetProperty("timeout").GetDouble());
-        var running = c.RequestAsync("sleep", new JsonObject { ["ms"] = 500 }, TimeSpan.FromSeconds(10), default);
-        await Task.Delay(100);
-        Assert.Equal("sleep", Assert.Single(c.Running).Op);
+        var running = c.RequestAsync("hold", null, NoLimit, default);
+        Assert.Equal("hold", Assert.Single(c.Running).Op);
+        worker.Release();
         await running;
         Assert.Empty(c.Running);
     }
@@ -146,7 +145,7 @@ public class WorkerConnectionTests
     {
         using var worker = new FakeWorkerProcess();
         using var c = worker.Connect(Concurrent);
-        var e = await Assert.ThrowsAsync<ToolError>(() => c.RequestAsync("missing", null, TimeSpan.FromSeconds(5), default));
+        var e = await Assert.ThrowsAsync<ToolError>(() => c.RequestAsync("missing", null, NoLimit, default));
         Assert.Equal(ErrorCode.NotFound, e.Code);
     }
 }
