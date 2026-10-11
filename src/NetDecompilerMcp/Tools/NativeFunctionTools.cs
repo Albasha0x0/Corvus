@@ -35,6 +35,9 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         [property: Description("Exclusive end of its highest range (VA).")] string End, IReadOnlyList<DossierSection> Sections,
         [property: Description("Follow-up calls.")] IReadOnlyList<string> Next);
 
+    /// <summary>Records of the dossiers whose text the pager holds, by the same key (a later page needs both).</summary>
+    private static readonly Dictionary<string, FunctionDossier> Reports = [];
+
     private static readonly string[] AllSections = ["identity", "signature", "frame", "callers", "callees", "data", "flow", "annotations", "params", "pseudocode"];
     private static readonly string[] DefaultSections = ["identity", "signature", "frame", "callers", "callees", "data", "flow", "annotations"];
 
@@ -74,14 +77,19 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         string? pseudo = null, pseudoError = null;
         if (wanted.Contains("pseudocode")) (pseudo, pseudoError) = await Pseudocode(native, f, engine, progress, cancellationToken);
         var key = $"dossier|{native.Image.Sha256}|{f.Start:X}|{string.Join(",", wanted)}|{max}|{index.Sourced.Version}|{engine}|{pseudo?.GetHashCode()}|{pseudoError}";
-        FunctionDossier? report = null;
-        var text = await Task.Run(() => pager.GetOrCreate(key, () =>
+        var (text, report) = await Task.Run(() =>
         {
-            var (t, r) = Build(native, index, f, wanted, max, pseudo, pseudoError, cancellationToken);
-            report = r;
-            return t;
-        }), cancellationToken);
-        report ??= Build(native, index, f, wanted, max, pseudo, pseudoError, cancellationToken).Report;
+            lock (Reports)
+                if (Reports.TryGetValue(key, out var hit) && pager.TryGet(key, out var cached)) return (cached, hit);
+            var built = Build(native, index, f, wanted, max, pseudo, pseudoError, cancellationToken);
+            pager.GetOrCreate(key, () => built.Text);
+            lock (Reports)
+            {
+                if (Reports.Count >= 64) Reports.Clear();
+                Reports[key] = built.Report;
+            }
+            return built;
+        }, cancellationToken);
         return StructuredOutput.With(pager.Page(text, offset, maxChars), report);
     });
 

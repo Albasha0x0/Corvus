@@ -1,5 +1,6 @@
 using Iced.Intel;
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Mcp;
 using NetDecompilerMcp.Native.Annotations;
 using NetDecompilerMcp.Services;
 using NetDecompilerMcp.Tools;
@@ -133,6 +134,12 @@ public sealed class FunctionDossierTests : IDisposable
         NativeLinkTests.Has(params_, "parameter 1 (rcx): L\"config.ini\"");
         var e = await Assert.ThrowsAsync<ToolError>(() => tools.AnalyzeNativeFunction(path, "Helper", sections: "identity,nonsense"));
         Assert.Equal(ErrorCode.InvalidArgument, e.Code);
+        // a second call (a later page) is served from the cache, text and record alike
+        var first = StructuredOutput.Begin();
+        await tools.AnalyzeNativeFunction(path, "Helper", sections: "flow,callers");
+        var second = StructuredOutput.Begin();
+        await tools.AnalyzeNativeFunction(path, "Helper", sections: "flow,callers", offset: 10);
+        Assert.Same(first.Value, second.Value);
         var capped = await tools.AnalyzeNativeFunction(path, "Helper", sections: "callees,data", maxItems: 1);
         Assert.DoesNotContain("; first", capped.Split("== data")[0]); // one call: under the cap
     }
