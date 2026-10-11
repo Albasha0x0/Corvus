@@ -75,7 +75,7 @@ public static partial class ExternalTools
 
     public static readonly ExternalTool DexDisassembler = new("baksmali", "baksmali (test oracle)", "NDM_DEX_DISASSEMBLER", ExternalToolKind.Jar, ["baksmali*.jar"], ["--version"], 0,
         "oracle for the Dalvik disassembler in tests", true,
-        Ops(("disassemble", ["disassemble", "--sequential-labels", "-o", "{out}", "{dex}"])));
+        Ops(("disassemble", ["disassemble", "-o", "{out}", "{dex}"])));
 
     /// <summary>Every external program, in display order.</summary>
     public static readonly IReadOnlyList<ExternalTool> Table = [Java, JavaDecompiler, Adb, Aapt2, ApkSigner, DexDisassembler];

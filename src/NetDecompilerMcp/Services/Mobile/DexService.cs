@@ -255,6 +255,22 @@ public sealed class DexService
         return values;
     }
 
+    /// <summary>Smali of one method (exact id or a single overload) or of a whole class.</summary>
+    public string Disassemble(string path, string symbol, bool annotated, CancellationToken ct)
+    {
+        var index = Index(path, ct);
+        symbol = symbol.Trim();
+        bool member = symbol.Contains("->", StringComparison.Ordinal) || symbol.Contains("::", StringComparison.Ordinal) || symbol.Contains('(', StringComparison.Ordinal);
+        if (!member && index.FindClass(symbol) is { } cls)
+            return $"# {cls.Class.Descriptor} in {cls.File.Name}\n" + new DalvikDisassembler(cls.File) { Annotated = annotated }.Class(cls.Class);
+        var id = index.ResolveMethod(symbol);
+        if (!index.Methods.TryGetValue(id, out var m))
+            throw new ToolError(ErrorCode.NotFound, $"{id} is called by the package but not defined in it (a framework or library method).",
+                "find_dex_references with direction=to lists its callers");
+        var text = new DalvikDisassembler(m.File) { Annotated = annotated }.Method(m.Encoded, m.File.Annotations(m.Class));
+        return $"# {id} in {m.File.Name}\n{text}";
+    }
+
     public DexReferenceList References(string path, string target, string? kind, string? direction, int offset, int limit, CancellationToken ct)
     {
         var index = Index(path, ct);

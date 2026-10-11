@@ -89,6 +89,7 @@ public static class ToolEffects
         ["get_android_resource"] = Changes(destructive: true, idempotent: true), // savePath; overwrite=true replaces a file
         ["list_dex_classes"] = Reads(),
         ["get_dex_class"] = Reads(),
+        ["disassemble_dex"] = Reads(),
         ["search_dex"] = Reads(longRunning: true), // the first call builds the package's code index
         ["find_dex_references"] = Reads(longRunning: true),
 

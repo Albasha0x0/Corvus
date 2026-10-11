@@ -8,7 +8,7 @@ using static NetDecompilerMcp.Tools.ToolSupport;
 namespace NetDecompilerMcp.Tools;
 
 [McpServerToolType]
-public sealed class AndroidTools(AndroidPackageService packages, DexService dex)
+public sealed class AndroidTools(AndroidPackageService packages, DexService dex, OutputPager pager)
 {
     public const string PackageDescription = "An Android package: .apk, .aab (its base module), or a split set (.apks, .xapk, .apkm, read through its base APK).";
     public const string CodeDescription = "An Android package (.apk, .aab, .apks, .xapk, .apkm), a .dex file, or a jar / zip with classes*.dex.";
@@ -74,6 +74,25 @@ public sealed class AndroidTools(AndroidPackageService packages, DexService dex)
         [Description("Class: Lpkg/Name;, pkg.Name, or pkg.Outer.Inner / pkg.Outer$Inner.")] string @class,
         CancellationToken cancellationToken = default) =>
         Task.Run(() => dex.GetClass(path, @class, cancellationToken), cancellationToken);
+
+    [McpServerTool(Name = "disassemble_dex", Title = "Disassemble DEX")]
+    [Description("Smali of one method, or of a whole class, from the DEX code of an Android package, in baksmali's layout: registers as pN / vN, " +
+                 "string, type, field and method operands resolved, labels by code offset, .line numbers, try / catch blocks, switch and array " +
+                 "payloads, annotations. A method is one exact id (Lpkg/C;->m(I)V) or one overload (pkg.C::m(int)); never several at once. " +
+                 "format=annotated adds each instruction's code offset and code units.")]
+    public Task<string> DisassembleDex(
+        [Description(CodeDescription)] string path,
+        [Description("A method (Lpkg/C;->name(params)ret, or pkg.C::name with optional (int, String)) or a class (pkg.C, Lpkg/C;).")] string symbol,
+        [Description("smali (default) or annotated.")] string? format = null,
+        [Description(OffsetDescription)] int offset = 0,
+        [Description(MaxCharsDescription)] int? maxChars = null,
+        CancellationToken cancellationToken = default) =>
+        Task.Run(() => pager.Page(dex.Disassemble(path, symbol, (format ?? "smali").Trim().ToLowerInvariant() switch
+        {
+            "smali" or "" => false,
+            "annotated" => true,
+            var f => throw new ToolError(ErrorCode.InvalidArgument, $"unknown format '{f}'; use smali or annotated."),
+        }, cancellationToken), offset, maxChars), cancellationToken);
 
     [McpServerTool(Name = "search_dex", Title = "Search DEX code", UseStructuredContent = true)]
     [Description("Search the DEX code of an Android package. kind=string: string literals loaded by code, with the method and offset of each use; " +

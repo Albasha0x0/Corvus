@@ -2,7 +2,7 @@
 
 <!-- Generated from the tool catalog by DocsTests; run the tests with NDM_UPDATE_DOCS=1 to update. -->
 
-130 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
+131 tools in 13 toolsets. A server registers every tool unless it is started with `--toolsets` (README, "Server options"). From a terminal, `NetDecompilerMcp describe <tool>` prints the same reference and `NetDecompilerMcp <tool> name=value ...` calls a tool ([cli.md](cli.md)).
 
 Annotations: **read-only** tools change nothing; **edit** tools change the in-memory workspace; **destructive** tools can remove or overwrite state; **long-running** tools can take more than 10 s and have no call deadline.
 
@@ -18,7 +18,7 @@ Annotations: **read-only** tools change nothing; **edit** tools change the in-me
 | [builds](#builds) | yes | 10: build-to-build comparison and carrying work to a new build |
 | [notes](#notes) | yes | 3: analyst notes kept per binary across sessions |
 | [engine](#engine) | no | 7: edits inside the decompiler engine's database: types, locals, frames, declarations, scripting |
-| [android](#android) | no | 7: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
+| [android](#android) | no | 8: Android packages: manifest, resources, DEX code, Java decompilation, Java / .NET mapping, devices |
 | [dumps](#dumps) | no | 7: crash dumps and crash text |
 | [live](#live) | no | 1: read-only inspection of a running process |
 
@@ -1856,6 +1856,20 @@ One DEX class in full: access, superclass, interfaces, source file, generic sign
 | `class` | string | yes |  | Class: Lpkg/Name;, pkg.Name, or pkg.Outer.Inner / pkg.Outer$Inner. |
 
 Structured output: `descriptor`, `javaName`, `dexFile`, `access`, `super`, `interfaces`, `sourceFile`, `genericSignature`, `enclosingClass`, `enclosingMethod`, `innerClasses`, `kotlin`, `annotations`, `fields`, `methods`.
+
+### disassemble_dex
+
+**Disassemble DEX** (read-only, idempotent)
+
+Smali of one method, or of a whole class, from the DEX code of an Android package, in baksmali's layout: registers as pN / vN, string, type, field and method operands resolved, labels by code offset, .line numbers, try / catch blocks, switch and array payloads, annotations. A method is one exact id (Lpkg/C;->m(I)V) or one overload (pkg.C::m(int)); never several at once. format=annotated adds each instruction's code offset and code units.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `path` | string | yes |  | An Android package (.apk, .aab, .apks, .xapk, .apkm), a .dex file, or a jar / zip with classes*.dex. |
+| `symbol` | string | yes |  | A method (Lpkg/C;->name(params)ret, or pkg.C::name with optional (int, String)) or a class (pkg.C, Lpkg/C;). |
+| `format` | string |  |  | smali (default) or annotated. Values: smali, annotated. |
+| `offset` | integer |  | `0` | Character offset for paging long output (use the value from the truncation footer). |
+| `maxChars` | integer |  |  | Max characters in this page (default from server config, ~60000). |
 
 ### search_dex
 

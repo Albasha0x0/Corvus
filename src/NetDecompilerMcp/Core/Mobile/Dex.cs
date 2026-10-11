@@ -47,10 +47,10 @@ public sealed record DexValue(string Kind, object? Value)
         "enum" => ".enum " + Value,
         "long" => Hex((long)Value!) + "L",
         "int" => Hex((int)Value!),
-        "short" => Hex((short)Value!) + "S",
-        "byte" => Hex((sbyte)Value!) + "T",
-        "float" => ((float)Value!).ToString("R", CultureInfo.InvariantCulture) + "f",
-        "double" => ((double)Value!).ToString("R", CultureInfo.InvariantCulture),
+        "short" => Hex((short)Value!) + "s",
+        "byte" => Hex((sbyte)Value!) + "t",
+        "float" => DexFile.JavaNumber((float)Value!) + "f",
+        "double" => DexFile.JavaNumber((double)Value!),
         _ => Value?.ToString() ?? "",
     };
 
@@ -176,7 +176,7 @@ public sealed class DexFile
             if (b < 0x80) sb.Append((char)b);
             else if ((b & 0xE0) == 0xC0 && at < _d.Length) sb.Append((char)((b & 0x1F) << 6 | _d[at++] & 0x3F));
             else if ((b & 0xF0) == 0xE0 && at + 1 < _d.Length) { sb.Append((char)((b & 0x0F) << 12 | (_d[at] & 0x3F) << 6 | _d[at + 1] & 0x3F)); at += 2; }
-            else sb.Append('�');
+            else sb.Append((char)0xFFFD);
         }
         return sb.ToString();
     }
@@ -433,6 +433,40 @@ public sealed class DexFile
         return v;
     }
 
+    /// <summary>A float or double as Java's toString writes it: 1.0, 0.001, 1.0E7, NaN, -Infinity.</summary>
+    public static string JavaNumber(double v)
+    {
+        if (double.IsNaN(v)) return "NaN";
+        if (double.IsInfinity(v)) return v > 0 ? "Infinity" : "-Infinity";
+        var a = Math.Abs(v);
+        if (a == 0 || (a >= 1e-3 && a < 1e7))
+        {
+            var s = v.ToString("R", CultureInfo.InvariantCulture);
+            return s.Contains('.', StringComparison.Ordinal) || s.Contains('E', StringComparison.Ordinal) ? s : s + ".0";
+        }
+        // Shortest round-trip digits as d.ddddE-n, with at least one fraction digit.
+        var (digits, exp) = Shortest(a);
+        return (v < 0 ? "-" : "") + digits[0] + "." + (digits.Length > 1 ? digits[1..] : "0") + "E" + exp.ToString(CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>The shortest round-trip significant digits of a positive number and the exponent of its first digit.</summary>
+    public static (string Digits, int Exponent) Shortest(double a)
+    {
+        var s = a.ToString("R", CultureInfo.InvariantCulture);
+        int exp = 0, e = s.IndexOfAny(['E', 'e']);
+        if (e >= 0) { exp = int.Parse(s[(e + 1)..], CultureInfo.InvariantCulture); s = s[..e]; }
+        int dot = s.IndexOf('.', StringComparison.Ordinal);
+        int intDigits = dot >= 0 ? dot : s.Length;
+        var all = dot >= 0 ? s.Remove(dot, 1) : s;
+        int lead = 0;
+        while (lead < all.Length - 1 && all[lead] == '0') lead++;
+        var digits = all[lead..].TrimEnd('0');
+        return (digits.Length == 0 ? "0" : digits, exp + intDigits - lead - 1);
+    }
+
+    public static string JavaNumber(float v) =>
+        float.IsNaN(v) || float.IsInfinity(v) ? JavaNumber((double)v) : JavaNumber(double.Parse(v.ToString("R", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture));
+
     /// <summary>Smali string escaping.</summary>
     public static string Escape(string s)
     {
@@ -441,7 +475,7 @@ public sealed class DexFile
             sb.Append(c switch
             {
                 '"' => "\\\"", '\\' => "\\\\", '\'' => "\\'", '\n' => "\\n", '\r' => "\\r", '\t' => "\\t",
-                < ' ' or (>= '\u007f' and < ' ') or (>= '\ud800' and <= '\udfff') => $"\\u{(int)c:x4}",
+                < ' ' or > '~' => @"\u" + ((int)c).ToString("x4", CultureInfo.InvariantCulture),
                 _ => c.ToString(),
             });
         return sb.ToString();

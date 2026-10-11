@@ -102,7 +102,7 @@ internal static class AndroidSamples
         main.Method("compute", "I", ["I"], 1,
             Asm.Static(0x60, 0, CountField),
             Asm.AddIntLit8(0, 2, 42),
-            Asm.IfEqz(0, 3),
+            Asm.IfEqz(0, 4),
             Asm.Instance(0x54, 0, 1, NameField),
             Asm.Return(0x0f, 2)).Registers = 3;
         main.Method("compute", "I", ["Ljava/lang/String;"], 1,

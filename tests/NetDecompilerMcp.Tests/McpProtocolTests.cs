@@ -197,6 +197,7 @@ public abstract class McpProtocolTests : IAsyncLifetime
         ["get_android_manifest"] = (new() { ["path"] = AndroidSamples.Save(dir, "app.apk", AndroidSamples.Apk(30, ("classes.dex", AndroidSamples.Dex()))) }, "\"package\":\"com.example.app\""),
         ["list_dex_classes"] = (new() { ["path"] = dir.File("app.apk"), ["query"] = "Main" }, "com.example.app.Main"),
         ["get_dex_class"] = (new() { ["path"] = dir.File("app.apk"), ["class"] = "com.example.app.Main" }, "compute(I)I"),
+        ["disassemble_dex"] = (new() { ["path"] = dir.File("app.apk"), ["symbol"] = AndroidSamples.ComputeInt }, "add-int/lit8 v0, p0, 0x2a"),
         ["search_dex"] = (new() { ["path"] = dir.File("app.apk"), ["kind"] = "string", ["query"] = "api.example" }, "https://api.example.com/v1"),
         ["find_dex_references"] = (new() { ["path"] = dir.File("app.apk"), ["target"] = AndroidSamples.Log }, "onCreate"),
         ["list_android_resources"] = (new() { ["path"] = dir.File("app.apk"), ["type"] = "string" }, "\"Exemplo\""),
