@@ -57,6 +57,9 @@ public sealed class InspectionService(AssemblyWorkspace workspace, NativeCodeSer
 
         /// <summary>Set for an Android package: manifest facts, runtimes with evidence, ABIs, DEX, signature.</summary>
         public Mobile.AndroidPackageFacts? Android { get; init; }
+
+        /// <summary>Set for a loaded native image: counts, sections, entry points, top functions and strings, import groups, call graph shape.</summary>
+        public NativeTriage? Triage { get; init; }
     }
 
     private sealed record Scanned(ModuleDef Module, ModuleScan Scan, byte[] Image, string Label);

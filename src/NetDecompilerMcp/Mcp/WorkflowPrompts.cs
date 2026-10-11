@@ -106,7 +106,8 @@ public static class WorkflowPrompts
         [Description("Absolute path to the native file.")] string path,
         [Description("What you care about (optional), e.g. networking, file formats, plugin loading.")] string? focus = null) => $"""
         Use the net-decompiler native tools on {path}.
-        1. load_assembly (path={path}), then get_pe_info: machine, subsystem, mitigations, PDB path, version resource, rich header (toolchain), signature, overlay, parse issues.
+        1. load_assembly (path={path}), then summarize_file assembly=<image id> for triage (top functions with roles, top strings, import groups, roots),
+           and get_pe_info: machine, subsystem, mitigations, PDB path, version resource, rich header (toolchain), signature, overlay, parse issues.
         2. list_imports grouped by DLL: name the capabilities they imply (files, registry, network, crypto, processes, UI). list_exports if it is a DLL.
         3. list_functions (sort=callers for the most used helpers, sort=size for the largest), search_native_strings for URLs, paths, formats, error text; list_cpp_classes for C++ class names.
         4. Pick the 3-5 most important functions (entry point, exports, functions referencing key strings or APIs): analyze_native_function with their

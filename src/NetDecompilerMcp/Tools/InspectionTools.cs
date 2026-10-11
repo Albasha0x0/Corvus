@@ -1,11 +1,13 @@
 using System.ComponentModel;
 using ModelContextProtocol.Server;
+using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Services;
 using NetDecompilerMcp.Services.Analysis;
 
 namespace NetDecompilerMcp.Tools;
 
 [McpServerToolType]
-public sealed class InspectionTools(InspectionService inspection)
+public sealed class InspectionTools(InspectionService inspection, AssemblyWorkspace? workspace = null, NativeCodeService? code = null)
 {
     private const string AssemblyParam = "A loaded assembly (id, name, file name or path). Pass this or path.";
     private const string PathParam = "A .NET assembly file to analyze without loading it. Pass this or assembly.";
@@ -21,12 +23,35 @@ public sealed class InspectionTools(InspectionService inspection)
                  "executable, nativeAot gives the runtime version, module sections, recovery stages and counts of named methods, MethodTables and " +
                  "frozen strings. ELF / Mach-O: nativeImage gives format, slices, build id, libraries, platform, code signature, entitlements and FairPlay encryption. " +
                  "Android packages: android gives package, versions, SDKs, runtimes with evidence (dotnet-android, unity-il2cpp, unity-mono, flutter, " +
-                 "react-native, kotlin / java), ABIs, DEX files, exported components and the APK signature verdict. highlights lists the notable findings.")]
-    public Task<InspectionService.FileSummary> SummarizeFile(
+                 "react-native, kotlin / java), ABIs, DEX files, exported components and the APK signature verdict. A loaded native image adds triage" +
+                 " (entry points, top functions with roles, top strings, import groups, roots).")]
+    public async Task<InspectionService.FileSummary> SummarizeFile(
         [Description("Any file: assembly, single-file bundle, .nupkg, .apk, zip, native executable. Pass this or assembly.")] string? path = null,
         [Description(AssemblyParam)] string? assembly = null,
-        CancellationToken cancellationToken = default) =>
-        Task.Run(() => inspection.Summarize(assembly, path, cancellationToken), cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        var native = NativeNamed(assembly, path);
+        if (native == null || code == null) return await Task.Run(() => inspection.Summarize(assembly, path, cancellationToken), cancellationToken);
+        var index = await code.Index(native, null, cancellationToken);
+        var summary = await Task.Run(() => inspection.Summarize(null, native.FilePath, cancellationToken), cancellationToken);
+        return summary with { Triage = await Task.Run(() => NativeTriageBuilder.Build(index, cancellationToken), cancellationToken) };
+    }
+
+    /// <summary>The loaded native image an argument names (a managed assembly of that name wins), or null.</summary>
+    private LoadedNative? NativeNamed(string? assembly, string? path)
+    {
+        if (workspace == null || (assembly == null) == (path == null)) return null;
+        return workspace.Read(() =>
+        {
+            if (assembly != null)
+            {
+                if (workspace.FindNative(assembly) is not { } n) return null;
+                try { workspace.Get(assembly); return null; }
+                catch (ToolError) { return n; }
+            }
+            return File.Exists(path) ? workspace.FindNative(Path.GetFullPath(path!)) : null;
+        });
+    }
 
     [McpServerTool(Name = "survey_features", Title = "Survey features", UseStructuredContent = true)]
     [Description("Rule-based (capa-style) survey of the APIs an assembly calls, the native functions it imports (P/Invoke) and its string " +
@@ -34,8 +59,8 @@ public sealed class InspectionTools(InspectionService inspection)
                  "credentials), anti-debug / anti-VM, defense evasion, reflective loading and run-time compilation, process injection, " +
                  "discovery, crypto. Each matched feature has its MITRE ATT&CK technique where the operation is the technique itself, and " +
                  "its evidence (pattern, count, up to 5 locations). Native images (a loaded one, or a PE / ELF / Mach-O path) get the same rules over " +
-                 "static and late-bound (GetProcAddress) imports, call arguments (VirtualProtect with PAGE_EXECUTE_READWRITE, CreateProcess " +
-                 "with CREATE_SUSPENDED...), strings, sections (entropy, packer names, writable code) and RTTI class names, with addresses and functions as locations.")]
+                 "static and late-bound (GetProcAddress) imports, call arguments (VirtualProtect with PAGE_EXECUTE_READWRITE, " +
+                 "CREATE_SUSPENDED...), strings, sections (entropy, packer names, writable code) and RTTI class names, located by address and function.")]
     public Task<InspectionService.FeatureReport> SurveyFeatures(
         [Description(AssemblyParam + " A loaded native image works too.")] string? assembly = null,
         [Description("A .NET assembly or native PE / ELF / Mach-O file to analyze without loading it. Pass this or assembly.")] string? path = null,

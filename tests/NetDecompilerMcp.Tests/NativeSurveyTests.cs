@@ -81,6 +81,39 @@ public class NativeSurveyTests(ITestOutputHelper output)
         Assert.All(file.Features, f => Assert.Equal("anti-analysis", f.Category));
     }
 
+    [Fact]
+    public async Task Summarize_file_adds_triage_for_a_loaded_native_image()
+    {
+        using var env = new Env();
+        using var dir = new TempDir();
+        var path = FunctionDossierTests.Sample(dir);
+        var native = env.Workspace.LoadAny(path).Native!;
+        var code = new NetDecompilerMcp.Services.NativeCodeService(env.Workspace, env.Options);
+        var tools = new NetDecompilerMcp.Tools.InspectionTools(new InspectionService(env.Workspace, code), env.Workspace, code);
+        var image = native.Image;
+        string Va(uint rva) => $"0x{image.ImageBase + rva:X}";
+
+        var t = (await tools.SummarizeFile(assembly: native.Id)).Triage!;
+        Assert.Equal(t.Named + t.Unnamed, t.Functions);
+        Assert.True(t.Named >= 2);
+        // every entry point at its own address; ordinals only as a separate field
+        Assert.Equal(new TriageEntry(Va(image.EntryPointRva), "entry", "Main", null), t.EntryPoints[0]);
+        var helper = image.Exports.Single(e => e.Name == "Helper");
+        Assert.Contains(new TriageEntry(Va(helper.Rva), "export", "Helper", (int)helper.Ordinal), t.EntryPoints);
+        var top = Assert.Single(t.TopFunctions, f => f.Name == "Helper");
+        Assert.Equal(("wrapper", 1), (top.Role, top.Callees)); // one call (CreateFileW), small
+        Assert.Contains("Main", t.CallGraph.RootNames);
+        Assert.Equal("Main", t.CallGraph.RootNames[0]);
+        Assert.Contains(t.ImportGroups, g => g.Group == "files" && g.Apis.Contains("CreateFile"));
+        Assert.Contains(t.Segments, s => s.Access == "r-x" && s.Start == Va(image.Sections.First(x => x.IsExecutable).Rva));
+        Assert.Contains(t.TopStrings, s => s.Text == "L\"config.ini\"");
+
+        // by path too, when that file is loaded; an unloaded native path stays a plain summary
+        Assert.NotNull((await tools.SummarizeFile(path: path)).Triage);
+        Assert.Null((await tools.SummarizeFile(path: McpProtocolTests.NativeSample(dir))).Triage);
+        Assert.Equal("thunk", NativeTriageBuilder.Role(new NetDecompilerMcp.Native.Code.NativeFunction { Size = 6 }, 1));
+    }
+
     /// <summary>Native PE files: every System32 / SysWOW64 file in a fixed sample and the first Program Files binaries.</summary>
     private static IEnumerable<string> Sample()
     {
