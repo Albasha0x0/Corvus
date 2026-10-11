@@ -19,9 +19,9 @@ namespace NetDecompilerMcp.Tools;
 public sealed class NativeTypeTools(AssemblyWorkspace workspace, NativeEngineService engines, NativeUserTypePush userTypes, NativeCodeService? code = null,
     NativeNamePush? names = null, NativeTypePush? types = null, OutputPager? pager = null)
 {
-    private const string EngineDescription = "Engine: auto (default: an engine with a session of this image open, else IDA when installed, else Ghidra), ida or ghidra.";
+    private const string EngineDescription = "auto (default): the engine with this image open, else IDA when installed, else Ghidra.";
 
-    private const string KeptNote = " Kept with the image's annotations: replayed into new databases, exported, carried to new builds.";
+    private const string KeptNote = " Kept with the image's annotations.";
 
     /// <summary>The image, an address in it and its engine session, with names and recovered types pushed first so user types apply on top.</summary>
     private async Task<(LoadedNative Native, uint Rva, INativeDecompilerSession Session)> Open(string image, string address, string? engine,

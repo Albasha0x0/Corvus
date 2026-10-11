@@ -146,7 +146,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
 
     private const string BatchNote = "items: many in one sidecar write and one engine push, each reported.";
 
-    private const string PushEngineDescription = "Engine to push the change to now (default: one with this image open; else at its next use): auto, ida or ghidra.";
+    private const string PushEngineDescription = "Engine to push the change to now (default: one with this image open, else at its next use).";
 
     /// <summary>One item of a batch: the address and the value (a name or a comment's text), plus the optional per-item fields.</summary>
     internal sealed record BatchItem(string Address, string Value, string? Scope = null, bool? Append = null);

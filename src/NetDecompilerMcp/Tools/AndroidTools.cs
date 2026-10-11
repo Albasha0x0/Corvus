@@ -10,8 +10,8 @@ namespace NetDecompilerMcp.Tools;
 [McpServerToolType]
 public sealed class AndroidTools(AndroidPackageService packages, DexService dex, JavaDecompilerService java, JavaDotNetMap map, JniBindings jni, OutputPager pager)
 {
-    public const string PackageDescription = "An Android package: .apk, .aab (its base module), or a split set (.apks, .xapk, .apkm, read through its base APK).";
-    public const string CodeDescription = "An Android package (.apk, .aab, .apks, .xapk, .apkm), a .dex file, or a jar / zip with classes*.dex.";
+    public const string PackageDescription = "An .apk, .aab (base module) or split set (.apks, .xapk, .apkm).";
+    public const string CodeDescription = "An Android package (.apk, .aab, .apks, .xapk, .apkm), a .dex, or a jar / zip with classes*.dex.";
 
     [McpServerTool(Name = "get_android_manifest", Title = "Android manifest", UseStructuredContent = true)]
     [Description("AndroidManifest.xml of an Android package, decoded natively: package, versions and SDKs; permissions (-sdk-23, maxSdkVersion) " +

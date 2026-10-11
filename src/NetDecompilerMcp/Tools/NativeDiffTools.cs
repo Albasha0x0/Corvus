@@ -17,10 +17,10 @@ namespace NetDecompilerMcp.Tools;
 [McpServerToolType]
 public sealed class NativeDiffTools(AssemblyWorkspace workspace, NativeCodeService code, NativeEngineService? engines = null)
 {
-    private const string OldDescription = "The older build: native image id (e.g. game.dll) or path. Load both builds; the second gets an id like game.dll#2.";
-    private const string NewDescription = "The newer build: native image id (e.g. game.dll#2) or path.";
+    private const string OldDescription = "The older build: native image id or path (load both; the second gets an id like app.dll#2).";
+    private const string NewDescription = "The newer build: native image id or path.";
     private const string UseNamesDescription =
-        "Match functions by names from exports, PDB, Il2Cpp and user annotations (tier 1). false matches on code alone.";
+        "Match functions by export, PDB, Il2Cpp and user names first (tier 1); false: code only.";
 
     public sealed record TierCount(
         [property: Description("1 name_or_bytes, 2 structure, 3 signature, 4 call_graph, 5 fuzzy.")] int Tier, string Name, int Pairs);

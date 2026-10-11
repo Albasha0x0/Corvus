@@ -20,7 +20,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     /// <summary>A tool's timeoutSeconds as an engine request limit; null when not given.</summary>
     public static TimeSpan? EngineTimeout(int? seconds) => seconds is { } s ? TimeSpan.FromSeconds(Math.Clamp(s, 1, 3600)) : null;
 
-    public const string ImageDescription = "Native image id or file name (see list_assemblies), or the path of a native PE file, which is loaded.";
+    public const string ImageDescription = "Native image id, file name or path (a path is loaded).";
 
     /// <summary>Runs work on a loaded native image under the read lock; a path that is not loaded yet is loaded first.</summary>
     private Task<string> OnImage(string image, Func<LoadedNative, string> work, CancellationToken ct) => Task.Run(() =>
@@ -50,7 +50,7 @@ public sealed partial class NativeTools(AssemblyWorkspace workspace, OutputPager
     }
 
     public const string AddressDescription =
-        "Address: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixed, an export name, module!import, or a function name (one on several addresses is an ambiguous error listing them).";
+        "Hex VA or RVA (rva:/va:/off: prefix), export, module!import or function name.";
 
     [McpServerTool(Name = "get_pe_info", Title = "Native image overview", UseStructuredContent = true, OutputSchemaType = typeof(PeSummary))]
     [Description("Overview of a native image. PE: machine (ARM64X / ARM64EC views too), kind, subsystem, image base, entry point, timestamps, linker, sections (with flags and entropy), packers and protectors, " +

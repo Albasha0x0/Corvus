@@ -105,7 +105,8 @@ public static class Guide
             set_native_stack_var (stack frames), declare_native_types and list_native_types (C declarations kept per image),
             define_native (code, functions, data items, undefined bytes; list_functions view=candidates finds code outside functions),
             reanalyze_native (the engine's auto-analysis again, with per-run analyzer options), set_native_operand (operand display: number base,
-            offset, stack variable, enum member, struct offset);
+            offset, stack variable, enum member, struct offset). These engine edits are kept with the image's annotations: replayed into new
+            engine databases, exported and carried to new builds;
             ida_python runs IDAPython in the image's IDA worker, off unless --ida-scripting; ghidra_script runs a Java GhidraScript in the
             Ghidra worker (one transaction, rolled back on failure, saved after), off unless --ghidra-scripting; export_engine_database
             writes the IDA database as an .i64, or the Ghidra program as a .gzf, for the engine's GUI.
@@ -146,7 +147,8 @@ public static class Guide
             read=true adds the field values at an address), get_exception_info (MSVC try / catch, SEH scopes, funclets), find_virtual_calls (obj->vfunc() sites resolved
             through RTTI; crossCheck=true compares with IDA or Ghidra), decompile_native (C pseudocode through IDA or Ghidra when installed;
             functions=[...] decompiles several in one request, each with its own deadline; callersOf= the callers of one), search_decompiled (a regex over many functions' pseudocode; cursor= continues).
-            Addresses: hex VA or RVA, rva:/va:/off: prefixes, export names, module!import, sub_<rva>.
+            Addresses: hex VA (0x180001000) or RVA (0x1000), rva:/va:/off: prefixes, export names, module!import, sub_<rva>, function names
+            (a name on several addresses is an ambiguous error listing them).
             Symbols: a matching local PDB is read with the code index; load_pdb loads one by path or downloads it (download=true);
             search_pdb_symbols lists its symbols. Names from load_pdb and apply_il2cpp_names are saved per file SHA-256 and reapplied
             when the same file loads again; list_native_edits shows the layers, clear=true on either tool removes one.
@@ -156,7 +158,8 @@ public static class Guide
             forwarders and thunks into them.
             Engines: list_functions, disassemble, search_instructions, get_cfg, find_xrefs and native_call_tree take engine=auto|ours|ida|ghidra. auto
             (default) uses an engine's analysis once it has finished in this session (IDA's before Ghidra's), else the built-in index,
-            and never starts an engine; every result has an "Engine: ours|ida|ghidra (why)" line. 32-bit ARM: an odd address is Thumb code one byte
+            and never starts an engine; ida / ghidra start that engine; --engine / NDM_ENGINE sets the server default. Every result has an
+            "Engine: ours|ida|ghidra (why)" line. 32-bit ARM: an odd address is Thumb code one byte
             lower; list_functions flags A32 functions "arm". inspect_instruction takes auto|ours|ida|ghidra (auto: the built-in decoder for x86 / x64 / ARM).
             Name priority: user > pdb > nativeaot > il2cpp > ida > ghidra > discovered; our names win in engine output. decompile_native pushes
             names, patches, Il2Cpp prototypes, RTTI and PDB types into the engine's database; --prewarm ida|ghidra|auto analyzes images

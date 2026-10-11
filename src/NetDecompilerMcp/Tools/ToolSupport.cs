@@ -7,21 +7,18 @@ namespace NetDecompilerMcp.Tools;
 internal static class ToolSupport
 {
     public const string SymbolDescription =
-        "Type or member. Forms: 'Ns.Type', 'Ns.Outer+Inner', short 'Type', 'Ns.Type::Method', 'Ns.Type.Method', " +
-        "'Ns.Type::Method(int, string)' for one overload, 'Ns.Type::.ctor', or a metadata token like '0x06000123'.";
+        "Type or member: 'Ns.Type', 'Ns.Outer+Inner', 'Ns.Type::Method(int, string)', a short name or a token (0x06000123).";
 
     public const string SymbolOrNativeDescription = SymbolDescription +
-        " Or a native export: 'kernel32.dll!CreateFileW', 'libc.so.6!malloc' (.dll/.exe/.sys/.so/.dylib module), or 'native:<image>!<export>' (image: a loaded " +
-        "image id, file name or path, or a DLL the loader finds; export: a name, '#ordinal', or for a loaded image an " +
-        "address or function name). Matches the P/Invoke declarations bound to that code and their callers.";
+        " Or a native export ('kernel32.dll!CreateFileW', 'native:<image>!<name|#ordinal|address>'): its P/Invoke declarations and their callers.";
 
     public const string AssemblyFilterDescription =
-        "Assembly id, name, file name or path (see list_assemblies). Optional: omit to use all loaded assemblies.";
+        "Assembly id, name, file name or path; omit for all loaded.";
 
-    public const string AssemblyDescription = "Assembly id, name, file name or path (see list_assemblies).";
+    public const string AssemblyDescription = "Assembly id, name, file name or path.";
 
-    public const string OffsetDescription = "Character offset for paging long output (use the value from the truncation footer).";
-    public const string MaxCharsDescription = "Max characters in this page (default from server config, ~60000).";
+    public const string OffsetDescription = "Character offset from the truncation footer.";
+    public const string MaxCharsDescription = "Page size in characters (default ~60000).";
     public const string DryRunDescription = "Preview the change without applying it.";
 
     /// <summary>Runs work off the transport thread under the shared read lock.</summary>

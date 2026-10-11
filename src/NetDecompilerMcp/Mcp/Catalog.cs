@@ -49,8 +49,24 @@ public static partial class Catalog
             foreach (var tool in tools.Where(t => !Toolsets.Registers(enabled, serverOptions?.ToolAllowList, t.ProtocolTool.Name)).ToList()) tools.Remove(tool);
             ToolEffects.Apply(tools);
             ParameterDomains.Apply(tools);
+            DropNullDefaults(tools);
         });
         return builder;
+    }
+
+    /// <summary>Removes "default": null from input schemas; an optional parameter without a default says the same in fewer bytes.</summary>
+    private static void DropNullDefaults(IEnumerable<McpServerTool> tools)
+    {
+        foreach (var tool in tools)
+        {
+            var t = tool.ProtocolTool;
+            var schema = JsonNode.Parse(t.InputSchema.GetRawText())!.AsObject();
+            if (schema["properties"] is not JsonObject properties) continue;
+            bool changed = false;
+            foreach (var (_, property) in properties)
+                if (property is JsonObject p && p.TryGetPropertyValue("default", out var d) && d is null) changed |= p.Remove("default");
+            if (changed) t.InputSchema = JsonSerializer.SerializeToElement(schema);
+        }
     }
 
     /// <summary>This build's catalog as a server started without --toolsets lists it (what a client's default registration sees).</summary>

@@ -21,9 +21,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     /// <summary>Answers through an engine (IDA or Ghidra): for images whose instructions the built-in analysis does not decode, or when the engine preference picks one.</summary>
     private readonly NativeEngineCode? _engine = engines != null ? new NativeEngineCode(engines, pager, names) : null;
 
-    internal const string EngineDescription = "auto (default: IDA's or Ghidra's analysis when complete in this session, else the built-in index; never " +
-                                              "starts an engine), ours (built-in index only), ida or ghidra (that engine, started when needed). Server " +
-                                              "default: --engine / NDM_ENGINE.";
+    internal const string EngineDescription = "auto (default): a finished IDA / Ghidra analysis of this session, else ours (the built-in index); never " +
+                                              "starts one. ida / ghidra: that engine, started when needed.";
 
     /// <summary>The engine mode a call asks for (checked before the image is opened) and whether it named one.</summary>
     private (EngineMode Mode, bool Named) Mode(string? engine) =>
@@ -33,8 +32,7 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
     private EngineChoice Choose((EngineMode Mode, bool Named) mode, LoadedNative native, NativeCodeIndex index) =>
         NativeEngineCode.Choose(mode.Mode, mode.Named, engines, native, index);
 
-    private const string IndexNote ="The first call on an image waits for its code index (built in the background after loading; seconds for a typical DLL, " +
-                                     "one to two minutes for a 300 MB browser DLL; progress is reported).";
+    private const string IndexNote ="The first call on an image waits for its code index (seconds; minutes for a very large image).";
 
     /// <summary>Loads the image if given by path, waits for its index, and resolves the address (names include functions).</summary>
     private async Task<(LoadedNative Native, NativeCodeIndex Index)> Open(string image, RequestContext<CallToolRequestParams>? context,

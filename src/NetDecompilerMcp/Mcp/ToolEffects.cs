@@ -33,7 +33,7 @@ public static class ToolEffects
         new(false, destructive, idempotent, openWorld, longRunning);
 
     public const string LongRunningMetaKey = "net-decompiler/longRunning";
-    public const string LongRunningSuffix = " [Long-running: can take more than 10 s on large inputs.]";
+    public const string LongRunningSuffix = " [Long-running: can exceed 10 s.]";
 
     /// <summary>Every tool, by name.</summary>
     public static readonly IReadOnlyDictionary<string, Effects> Table = new Dictionary<string, Effects>(StringComparer.Ordinal)

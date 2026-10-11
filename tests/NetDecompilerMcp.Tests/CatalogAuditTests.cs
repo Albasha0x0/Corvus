@@ -39,6 +39,14 @@ public class CatalogAuditTests
     }
 
     [Fact]
+    public void InputSchemasCarryNoNullDefaults()
+    {
+        foreach (var tool in Tools)
+            foreach (var (name, property) in tool["inputSchema"]!["properties"]?.AsObject() ?? [])
+                Assert.False(property is JsonObject p && p.TryGetPropertyValue("default", out var d) && d is null, $"{tool["name"]}.{name}: default null");
+    }
+
+    [Fact]
     public void SchemaSizesStayWithinTheirCeilings()
     {
         long modelFacing = 0;

@@ -9,7 +9,7 @@ namespace NetDecompilerMcp.Tools;
 [McpServerToolType]
 public sealed class MinidumpTools(MinidumpService dumps)
 {
-    private const string DumpDescription = "A minidump: the path of a .dmp file, or the id open_minidump returned (its file name).";
+    private const string DumpDescription = "A .dmp path or the id open_minidump returned.";
     private const string ImageDirectoriesDescription =
         "Folders with the crashed program's binaries (';'-separated), searched by file name, then by timestamp and size, when a module's recorded path is not on " +
         "this machine or holds another build. The dump's own folder is always searched.";

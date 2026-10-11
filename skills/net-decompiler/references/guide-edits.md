@@ -26,7 +26,8 @@ Engine edits (IDA or Ghidra): set_native_type (prototypes), set_native_local (de
 set_native_stack_var (stack frames), declare_native_types and list_native_types (C declarations kept per image),
 define_native (code, functions, data items, undefined bytes; list_functions view=candidates finds code outside functions),
 reanalyze_native (the engine's auto-analysis again, with per-run analyzer options), set_native_operand (operand display: number base,
-offset, stack variable, enum member, struct offset);
+offset, stack variable, enum member, struct offset). These engine edits are kept with the image's annotations: replayed into new
+engine databases, exported and carried to new builds;
 ida_python runs IDAPython in the image's IDA worker, off unless --ida-scripting; ghidra_script runs a Java GhidraScript in the
 Ghidra worker (one transaction, rolled back on failure, saved after), off unless --ghidra-scripting; export_engine_database
 writes the IDA database as an .i64, or the Ghidra program as a .gzf, for the engine's GUI.

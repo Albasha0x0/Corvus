@@ -7,7 +7,7 @@ namespace NetDecompilerMcp.Tools;
 [McpServerToolType]
 public sealed class DeviceTools(DeviceService devices)
 {
-    private const string SerialDescription = "Device serial from list_android_devices; optional when exactly one device is ready.";
+    private const string SerialDescription = "Device serial (list_android_devices); optional with one ready device.";
 
     [McpServerTool(Name = "list_android_devices", Title = "List Android devices", UseStructuredContent = true)]
     [Description("Android devices and emulators adb sees (adb devices -l): serial, state (device, unauthorized, offline), product, model, transport. " +
