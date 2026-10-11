@@ -1,6 +1,10 @@
+using NetDecompilerMcp.Native.Annotations;
+using NetDecompilerMcp.Native.Code;
 using NetDecompilerMcp.Native.NativeAot;
 using NetDecompilerMcp.Native.Pdb;
 using NetDecompilerMcp.Native.Pe;
+using NetDecompilerMcp.Services;
+using Xunit.Abstractions;
 
 namespace NetDecompilerMcp.Tests;
 
@@ -20,7 +24,7 @@ public sealed class NativeAotSamplesTheoryAttribute : TheoryAttribute
 /// recovered names against the build's own PDB (method symbols at the named addresses, `vftable` symbols at MethodTables).
 /// </summary>
 [Trait("Speed", "Slow")]
-public class NativeAotSampleTests
+public class NativeAotSampleTests(ITestOutputHelper log)
 {
     public const string Variable = "NDM_NATIVEAOT_SAMPLES";
 
@@ -50,7 +54,7 @@ public class NativeAotSampleTests
 
     [NativeAotSamplesTheory]
     [MemberData(nameof(Names))]
-    public void Sample_NamesMatchThePdb(string variant)
+    public async Task Sample_NamesMatchThePdb(string variant)
     {
         var (tfm, runtime, properties) = Variants[variant];
         using var dir = new TempDir();
@@ -87,5 +91,18 @@ public class NativeAotSampleTests
         var types = aot.Types.ByRva.Values.Select(t => t.Name).ToHashSet();
         Assert.Contains("Sample.Zoo.Dog", types);
         Assert.Contains("Sample.Zoo.Box<Sample.Zoo.Point>", types);
+
+        // After load (no PDB service): the nativeaot layer names the functions; the rest is runtime and C library code.
+        using var env = new Env();
+        var service = new NativeCodeService(env.Workspace, env.Options, null, new AnnotationStore(dir.File("ann")));
+        var native = env.Workspace.LoadAny(exe).Native!;
+        var index = await service.Index(native, null, default);
+        int named = index.Functions.Count(f => index.Sourced.NameAt(f.Start) is { Source: NativeNameSource.NativeAot });
+        var managed = pdb.Symbols.Where(s => s.Rva is { } r && pe.SectionAt(r) is { IsExecutable: true } && s.Name.Contains("__", StringComparison.Ordinal))
+            .Select(s => s.Rva!.Value).ToHashSet();
+        int managedNamed = managed.Count(r => index.Sourced.NameAt(r) is { Source: NativeNameSource.NativeAot });
+        log.WriteLine($"{variant}: {named} of {index.Functions.Count} functions named ({100.0 * named / index.Functions.Count:0.0} %); " +
+                      $"{managedNamed} of {managed.Count} managed PDB code symbols ({100.0 * managedNamed / Math.Max(1, managed.Count):0.0} %)");
+        if (!properties.Contains("StackTraceSupport=false")) Assert.True(managedNamed > 0.8 * managed.Count, $"{managedNamed} of {managed.Count} managed code symbols named");
     }
 }
