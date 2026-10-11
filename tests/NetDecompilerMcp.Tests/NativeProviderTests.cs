@@ -170,7 +170,8 @@ public class NativeProviderTests
         var child = ChildProcess.Start(new ChildProcessStart(cmd, ["/d", "/c", "ping -n 30 127.0.0.1 >nul"]));
         IReadOnlyList<int> tree = [];
         var clock = Stopwatch.StartNew();
-        while (clock.Elapsed < TimeSpan.FromSeconds(5) && (tree = child.TreeProcessIds()).Count < 2) Thread.Sleep(10);
+        // cmd starts ping whenever it gets scheduled: wait for that (the minute only guards against a hang).
+        while ((tree = child.TreeProcessIds()).Count < 2 && !child.HasExited && clock.Elapsed < TimeSpan.FromMinutes(1)) Thread.Sleep(10);
         Assert.True(tree.Count >= 2, $"expected cmd and ping in the job, saw {tree.Count}");
         Assert.Contains(child.Id, tree);
         Assert.False(child.HasExited);
