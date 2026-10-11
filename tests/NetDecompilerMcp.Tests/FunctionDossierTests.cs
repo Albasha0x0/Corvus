@@ -41,6 +41,7 @@ public sealed class FunctionDossierTests : IDisposable
             for (int i = 0; i < 6; i++) a.int3();
             a.Label(ref helper);
             a.push(rbx);
+            a.mov(r10d, 0x5A17); // a magic number for the constants section
             a.sub(rsp, 0x40);
             a.mov(rbx, rcx);
             a.xor(eax, eax);
@@ -142,5 +143,30 @@ public sealed class FunctionDossierTests : IDisposable
         Assert.Same(first.Value, second.Value);
         var capped = await tools.AnalyzeNativeFunction(path, "Helper", sections: "callees,data", maxItems: 1);
         Assert.DoesNotContain("; first", capped.Split("== data")[0]); // one call: under the cap
+    }
+
+    [Fact]
+    public async Task Constants_complexity_xref_counts_and_a_batch_of_addresses()
+    {
+        var (ws, tools) = Rig();
+        using var _ = ws;
+        var path = Sample(_dir);
+        var helper = await tools.AnalyzeNativeFunction(path, "Helper", sections: "identity,flow,constants");
+        NativeLinkTests.Has(helper, "(1 call site in 1 caller), 1 call out");
+        NativeLinkTests.Has(helper, "3 blocks, cyclomatic complexity 2");
+        NativeLinkTests.Has(helper, "0x5A17 (23063) (1 site)");
+        Assert.DoesNotContain("0x80000000 (", helper); // GENERIC_READ: an all-ones-style mask, not a magic number
+        Assert.DoesNotContain("== constants", await tools.AnalyzeNativeFunction(path, "Helper")); // opt-in
+
+        var record = StructuredOutput.Begin();
+        var both = await tools.AnalyzeNativeFunction(path, "Main, Helper, Main, 0x1", sections: "identity");
+        Assert.Equal(2, both.Split("== identity").Length - 1);
+        NativeLinkTests.Has(both, "0x1: ");
+        var report = Assert.IsType<NativeFunctionTools.FunctionDossier>(record.Value);
+        Assert.Equal("Main", report.Name);
+        Assert.Equal(["Helper", null], report.Batch!.Select(b => b.Name));
+        Assert.NotNull(report.Batch![1].Error);
+        Assert.Equal(ErrorCode.LimitExceeded, (await Assert.ThrowsAsync<ToolError>(() =>
+            tools.AnalyzeNativeFunction(path, string.Join(",", Enumerable.Range(1, 17).Select(i => $"rva:0x{i:X}"))))).Code);
     }
 }

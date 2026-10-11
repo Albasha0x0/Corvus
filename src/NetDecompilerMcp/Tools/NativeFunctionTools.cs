@@ -9,6 +9,8 @@ using NetDecompilerMcp.Mcp;
 using NetDecompilerMcp.Native;
 using NetDecompilerMcp.Native.Calls;
 using NetDecompilerMcp.Native.Code;
+using MaskedDecoder = NetDecompilerMcp.Native.Diff.MaskedDecoder;
+using MaskedInsn = NetDecompilerMcp.Native.Diff.MaskedInsn;
 using NetDecompilerMcp.Native.Itanium;
 using NetDecompilerMcp.Native.Msvc;
 using NetDecompilerMcp.Native.Providers;
@@ -33,26 +35,34 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
 
     public sealed record FunctionDossier(string Image, string Address, string Name, [property: Description("Bytes of code in its blocks.")] long Size,
         [property: Description("Exclusive end of its highest range (VA).")] string End, IReadOnlyList<DossierSection> Sections,
-        [property: Description("Follow-up calls.")] IReadOnlyList<string> Next);
+        [property: Description("Follow-up calls.")] IReadOnlyList<string> Next,
+        [property: Description("Several addresses: the dossiers after the first, and the addresses that are in no function; null for one.")] IReadOnlyList<DossierPart>? Batch);
+
+    [Description("A further dossier of a batch, or an address that could not be analyzed (Error).")]
+    public sealed record DossierPart(string Query, string? Address, string? Name, long Size, string? End, IReadOnlyList<DossierSection> Sections, string? Error);
 
     /// <summary>Records of the dossiers whose text the pager holds, by the same key (a later page needs both).</summary>
     private static readonly Dictionary<string, FunctionDossier> Reports = [];
 
-    private static readonly string[] AllSections = ["identity", "signature", "frame", "callers", "callees", "data", "flow", "annotations", "params", "pseudocode"];
+    private static readonly string[] AllSections = ["identity", "signature", "frame", "callers", "callees", "data", "constants", "flow", "annotations", "params", "pseudocode"];
     private static readonly string[] DefaultSections = ["identity", "signature", "frame", "callers", "callees", "data", "flow", "annotations"];
+
+    /// <summary>Most addresses in one call.</summary>
+    private const int MaxBatch = 16;
 
     [McpServerTool(Name = "analyze_native_function", Title = "Native function dossier", UseStructuredContent = true, OutputSchemaType = typeof(FunctionDossier))]
     [Description("Everything known about one native function, in sections bounded by maxItems with totals: identity (name and source, ranges, " +
                  "flags, demangled and Il2Cpp names, vftable slots), signature evidence (ret n, argument registers read before written, this class, " +
                  "result use), frame (stack, saved registers, frame pointer, address-taken locals, EH), callers (edge kinds, importers in other " +
                  "images, roots), callees (targets, basis, arguments; unresolved with the reason), data (strings, globals read and written, import " +
-                 "slots), flow (blocks, loops, switches, unresolved jumps, noreturn and tail calls), annotations. Optional: params (values callers " +
-                 "pass) and pseudocode (IDA or Ghidra). A failing section reports its error. Ends with follow-up calls.")]
+                 "slots), flow (blocks, loops, switches, cyclomatic complexity, unresolved jumps, noreturn and tail calls), annotations. Optional: " +
+                 "constants (non-trivial immediates), params (values callers pass) and pseudocode (IDA or Ghidra). Several addresses give one dossier " +
+                 "each. A failing section reports its error. Ends with follow-up calls.")]
     public Task<string> AnalyzeNativeFunction(
         [Description(NativeTools.ImageDescription)] string image,
-        [Description("An address inside the function. " + NativeTools.AddressDescription)] string address,
-        [Description("Comma-separated sections (default all but params and pseudocode): identity, signature, frame, callers, callees, data, flow, " +
-                     "annotations, params, pseudocode.")] string? sections = null,
+        [Description("An address inside the function, or up to 16 comma-separated. " + NativeTools.AddressDescription)] string address,
+        [Description("Comma-separated sections (default all but constants, params and pseudocode): identity, signature, frame, callers, callees, " +
+                     "data, constants, flow, annotations, params, pseudocode.")] string? sections = null,
         [Description("Facts per section (default 40, 1-500).")] int maxItems = 40,
         [Description("Add the pseudocode section.")] bool pseudocode = false,
         [Description("Pseudocode engine: auto (default), ida or ghidra.")] string? engine = null,
@@ -69,17 +79,45 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         {
             Progress = (float)waited.Elapsed.TotalSeconds, Message = $"indexing {native.Id}: {p.Phase}",
         })), cancellationToken);
-        uint rva = NativeCodeTools.Address(index, address);
-        var f = index.FunctionAt(rva) ?? throw new ToolError(ErrorCode.NotFound, $"No function contains {NativeAddress.Va(index.Image, rva)}.",
-            "list_functions shows the functions; inspect_instruction says what is at any address");
-        string? pseudo = null, pseudoError = null;
-        if (wanted.Contains("pseudocode")) (pseudo, pseudoError) = await Pseudocode(native, f, engine, progress, cancellationToken);
-        var key = $"dossier|{native.Image.Sha256}|{f.Start:X}|{string.Join(",", wanted)}|{max}|{index.Sourced.Version}|{engine}|{pseudo?.GetHashCode()}|{pseudoError}";
+        var queries = address.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (queries.Count == 0) throw new ToolError(ErrorCode.InvalidArgument, "Pass an address.");
+        if (queries.Count > MaxBatch) throw new ToolError(ErrorCode.LimitExceeded, $"{queries.Count} addresses; at most {MaxBatch} per call.");
+        var found = new List<(string Query, NativeFunction? Function, string? Error)>();
+        foreach (var q in queries)
+        {
+            try
+            {
+                uint rva = NativeCodeTools.Address(index, q);
+                var at = index.FunctionAt(rva);
+                if (at == null && queries.Count == 1)
+                    throw new ToolError(ErrorCode.NotFound, $"No function contains {NativeAddress.Va(index.Image, rva)}.",
+                        "list_functions shows the functions; inspect_instruction says what is at any address");
+                found.Add((q, at, at == null ? $"no function contains {NativeAddress.Va(index.Image, rva)}" : null));
+            }
+            catch (ToolError e) when (queries.Count > 1) { found.Add((q, null, e.Message)); }
+        }
+        var functions = found.Where(x => x.Function != null).Select(x => x.Function!).DistinctBy(x => x.Start).ToList();
+        if (functions.Count == 0) throw new ToolError(ErrorCode.NotFound, "None of the addresses is inside a function.", "list_functions shows the functions");
+        var pseudo = wanted.Contains("pseudocode") ? await Pseudocode(native, functions, engine, progress, cancellationToken) : [];
+        var key = $"dossier|{native.Image.Sha256}|{string.Join(",", found.Select(x => $"{x.Query}={x.Function?.Start:X}"))}|{string.Join(",", wanted)}|{max}|" +
+                  $"{index.Sourced.Version}|{engine}|{string.Join(",", pseudo.Values.Select(p => $"{p.Text?.GetHashCode()}:{p.Error}"))}";
         var (text, report) = await Task.Run(() =>
         {
             lock (Reports)
                 if (Reports.TryGetValue(key, out var hit) && pager.TryGet(key, out var cached)) return (cached, hit);
-            var built = Build(native, index, f, wanted, max, pseudo, pseudoError, cancellationToken);
+            var parts = functions.Select(f => Build(native, index, f, wanted, max, pseudo.GetValueOrDefault(f.Start).Text, pseudo.GetValueOrDefault(f.Start).Error,
+                cancellationToken)).ToList();
+            var sb = new StringBuilder();
+            foreach (var p in parts) sb.Append(p.Text).AppendLine();
+            foreach (var (q, _, error) in found.Where(x => x.Function == null)) sb.AppendLine($"{q}: {error}");
+            sb.AppendLine("Next:");
+            foreach (var n in parts[0].Report.Next) sb.AppendLine("  " + n);
+            var first = parts[0].Report;
+            var batch = queries.Count == 1 ? null
+                : functions.Zip(parts).Skip(1).Select(t => new DossierPart(found.First(x => x.Function?.Start == t.First.Start).Query, t.Second.Report.Address,
+                        t.Second.Report.Name, t.Second.Report.Size, t.Second.Report.End, t.Second.Report.Sections, null))
+                    .Concat(found.Where(x => x.Function == null).Select(x => new DossierPart(x.Query, null, null, 0, null, [], x.Error))).ToList();
+            var built = (Text: sb.ToString(), Report: first with { Batch = batch });
             pager.GetOrCreate(key, () => built.Text);
             lock (Reports)
             {
@@ -102,20 +140,24 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         return AllSections.Where(wanted.Contains).ToList();
     }
 
-    private async Task<(string? Text, string? Error)> Pseudocode(LoadedNative native, NativeFunction f, string? engine, IProgress<ProgressNotificationValue> progress,
-        CancellationToken ct)
+    /// <summary>Pseudocode of each function by start, or why there is none.</summary>
+    private async Task<Dictionary<uint, (string? Text, string? Error)>> Pseudocode(LoadedNative native, List<NativeFunction> functions, string? engine,
+        IProgress<ProgressNotificationValue> progress, CancellationToken ct)
     {
-        if (engines == null) return (null, "no decompiler engine is set up in this server");
+        Dictionary<uint, (string?, string?)> All(string error) => functions.ToDictionary(f => f.Start, _ => ((string?)null, (string?)error));
+        if (engines == null) return All("no decompiler engine is set up in this server");
         try
         {
             var session = await engines.Session(native, engine, new Progress<NativeProviderProgress>(p =>
                 progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), ct);
-            if (!session.DecompilerAvailable) return (null, $"the {session.ProviderId} decompiler is not available for {session.Arch} code here");
+            if (!session.DecompilerAvailable) return All($"the {session.ProviderId} decompiler is not available for {session.Arch} code here");
             if (names != null) await names.EnsureAsync(native, session, ct);
-            var items = await session.DecompileManyAsync([f.Start], 60, 60, ct);
-            return items[0].Function is { } d ? ($"// {session.ProviderId}\n{d.Text}", null) : (null, $"{items[0].ErrorCode ?? "skipped"}: {items[0].Error ?? "not decompiled in time"}");
+            var items = await session.DecompileManyAsync([.. functions.Select(f => f.Start)], 60, 60 * functions.Count, ct);
+            return functions.Zip(items).ToDictionary(t => t.First.Start, t => t.Second.Function is { } d
+                ? ($"// {session.ProviderId}\n{d.Text}", (string?)null)
+                : ((string?)null, $"{t.Second.ErrorCode ?? "skipped"}: {t.Second.Error ?? "not decompiled in time"}"));
         }
-        catch (ToolError e) { return (null, $"{ToolError.CodeName(e.Code)}: {e.Message}"); }
+        catch (ToolError e) { return All($"{ToolError.CodeName(e.Code)}: {e.Message}"); }
     }
 
     /// <summary>Collects one section's facts; an exception becomes the section's error.</summary>
@@ -165,6 +207,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
                     case "callers": Callers(section); break;
                     case "callees": Callees(section); break;
                     case "data": Data(section); break;
+                    case "constants": Constants(section); break;
                     case "flow": Flow(section); break;
                     case "annotations": Annotations(section); break;
                     case "params": Params(section); break;
@@ -204,9 +247,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
                 sb.AppendLine(section.Name == "pseudocode" ? item.Text : $"  {(item.Address != null ? item.Address + "  " : "")}{item.Text}");
             if (section.Total == 0 && section.Error == null) sb.AppendLine("  (none)");
         }
-        sb.AppendLine("\nNext:");
-        foreach (var n in next) sb.AppendLine("  " + n);
-        return (sb.ToString(), new FunctionDossier(native.Id, Va(f.Start), name, f.Size, Va(end), built.Select(b => b.Record()).ToList(), next));
+        return (sb.ToString(), new FunctionDossier(native.Id, Va(f.Start), name, f.Size, Va(end), built.Select(b => b.Record()).ToList(), next, null));
 
         void Identity(Section x)
         {
@@ -214,6 +255,10 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             x.Add(Va(f.Start), $"name {name} ({(named is { } nm ? nm.Source.Id() : f.KnownName != null ? "export or import" : "discovered")})", "name");
             foreach (var (s, e) in ranges) x.Add(Va(s), $"range {Va(s)}-{Va(e)} ({e - s} bytes)", "range");
             x.Add(null, $"{Plural(f.BlockCount, "block")}, {Plural(f.InstructionCount, "instruction")}", "size");
+            var callers = index.Callers(f);
+            var refs = index.CountRefsTo(f.Start);
+            x.Add(null, $"xrefs: {Plural(refs, "reference")} to it ({Plural(callers.Count, "call site")} in {Plural(callers.Select(c => c.Caller?.Start).Distinct().Count(), "caller")}), " +
+                        $"{Plural(index.Callees(f).Count, "call")} out", "xrefs");
             if (NativeCodeTools.FlagList(f, index) is { Count: > 0 } flags) x.Add(null, "flags: " + string.Join(", ", flags), "flags");
             x.Add(null, $"found by: {f.Sources}", "discovery");
             if (name.StartsWith('?') && MsvcDemangler.Undecorate(name) is { } msvc && msvc != name) x.Add(null, $"demangled: {msvc}", "demangled");
@@ -326,7 +371,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         void Flow(Section x)
         {
             var graph = index.GetGraph(f, ct);
-            x.Add(null, $"{Plural(graph.Blocks.Count, "block")}{(graph.Truncated ? " (truncated)" : "")}", "blocks");
+            x.Add(null, $"{Plural(graph.Blocks.Count, "block")}{(graph.Truncated ? " (truncated)" : "")}, cyclomatic complexity {Cyclomatic(graph)}", "blocks");
             foreach (var b in graph.Blocks)
                 foreach (var e in b.Successors)
                     if (graph.BlockAt(e.To) is { } t && t.Start <= b.Start && e.Kind != EdgeKind.TailCall)
@@ -337,6 +382,16 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             foreach (var u in graph.UnresolvedJumps) x.Add(Va(u.Rva), $"unresolved indirect jump: {u.Reason}", "unresolved");
             foreach (var b in graph.Blocks.Where(b => b.EndKind == BlockEnd.NoReturnCall)) x.Add(Va(b.LastInstruction), "call that does not return", "noreturn");
             foreach (var t in graph.TailCalls) x.Add(Va(t), $"tail call to {index.NameAt(t) ?? Va(t)}", "tail_call");
+        }
+
+        void Constants(Section x)
+        {
+            // the masked decoder keeps only immediates worth matching on: not addresses, small counts, all-ones masks or frame sizes
+            var decoder = new MaskedDecoder(image);
+            var insns = new List<MaskedInsn>();
+            foreach (var (s, e) in ranges) decoder.Decode(s, e, insns);
+            foreach (var g in insns.Where(i => i.Constant != null).GroupBy(i => i.Constant!.Value).OrderByDescending(g => g.Count()).ThenBy(g => g.Key))
+                x.Add(Va(g.First().Rva), $"0x{g.Key:X} ({(long)g.Key}) ({Plural(g.Count(), "site")})", "constant");
         }
 
         void Annotations(Section x)
@@ -362,6 +417,10 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
             }
         }
     }
+
+    /// <summary>Edges between the graph's blocks minus blocks plus 2 (McCabe).</summary>
+    internal static int Cyclomatic(FunctionGraph graph) =>
+        graph.Blocks.Sum(b => b.Successors.Count(e => e.Kind != EdgeKind.TailCall && graph.BlockAt(e.To) != null)) - graph.Blocks.Count + 2;
 
     /// <summary>The argument registers the function reads before it writes them, in address order up to its first call.</summary>
     private static List<string> ArgumentRegisters(FunctionCode fc, bool is64)
