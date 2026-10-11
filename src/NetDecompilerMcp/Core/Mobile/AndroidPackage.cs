@@ -182,7 +182,7 @@ public sealed class AndroidPackage : IDisposable
     private AxmlDocument ReadManifest()
     {
         var bytes = Read("AndroidManifest.xml") ?? throw new ToolError(ErrorCode.MalformedInput, $"{Path} has no AndroidManifest.xml.");
-        if (_bundle) throw new ToolError(ErrorCode.Unsupported, $"{Path}: the protobuf manifest of an app bundle is not read yet.", "pass an APK built from the bundle");
+        if (_bundle) return AabProto.ReadManifest(bytes);
         if (!AxmlDocument.IsAxml(bytes)) throw new ToolError(ErrorCode.MalformedInput, $"AndroidManifest.xml in {Path} is not binary XML (it starts with 0x{(bytes.Length >= 2 ? bytes[0] | bytes[1] << 8 : 0):x4}).");
         return AxmlDocument.Read(bytes);
     }
@@ -194,7 +194,8 @@ public sealed class AndroidPackage : IDisposable
         {
             if (_resourcesRead) return _resources;
             _resourcesRead = true;
-            if (!_bundle) _resources = Read("resources.arsc") is { } arsc ? new ArscResources(ArscTable.Read(arsc)) : null;
+            if (_bundle) _resources = Read("resources.pb") is { } pb ? AabProto.ReadResources(pb) : null;
+            else _resources = Read("resources.arsc") is { } arsc ? new ArscResources(ArscTable.Read(arsc)) : null;
             return _resources;
         }
     }

@@ -49,6 +49,15 @@ public sealed class AxmlDocument
 
     private AxmlDocument() { }
 
+    /// <summary>A document built from an already decoded tree (an app bundle's protobuf XML).</summary>
+    internal static AxmlDocument FromTree(AxmlElement? root, IEnumerable<(string Prefix, string Uri)> namespaces, IEnumerable<ParseIssue> issues)
+    {
+        var doc = new AxmlDocument { Root = root };
+        doc._namespaces.AddRange(namespaces.Distinct());
+        doc._issues.AddRange(issues);
+        return doc;
+    }
+
     /// <summary>True when <paramref name="data"/> starts with a binary XML chunk header.</summary>
     public static bool IsAxml(ReadOnlySpan<byte> data) => data.Length >= 8 && ResChunk.U16(data, 0) == ResChunk.Xml && ResChunk.U16(data, 2) == 8;
 

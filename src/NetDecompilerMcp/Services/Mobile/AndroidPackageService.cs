@@ -93,9 +93,10 @@ public sealed class AndroidPackageService(OutputPager pager, JavaDotNetMap? dotn
         }
         var res = p.Resources;
         string body;
-        if (AxmlDocument.IsAxml(bytes))
+        bool protoXml = p.Kind == "aab" && entry.EndsWith(".xml", StringComparison.OrdinalIgnoreCase) && (entry.StartsWith("res/", StringComparison.Ordinal) || entry == "AndroidManifest.xml");
+        if (AxmlDocument.IsAxml(bytes) || protoXml)
         {
-            var doc = AxmlDocument.Read(bytes);
+            var doc = protoXml ? AabProto.ReadXml(bytes) : AxmlDocument.Read(bytes);
             body = doc.ToXml(res == null ? null : res.Name) + string.Concat(doc.Issues.Select(i => $"<!-- issue: {i.Message} -->\n"));
         }
         else if (Blob.LooksLikeText(bytes)) body = Encoding.UTF8.GetString(bytes);
