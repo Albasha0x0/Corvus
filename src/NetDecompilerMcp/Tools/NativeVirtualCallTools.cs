@@ -138,7 +138,7 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
         if (wanted is { } w) sites = sites.Where(s => s.Status == w);
         var list = sites.ToList();
 
-        var rtti = list.Any(s => s.ClassTypeDescriptor != 0) ? native.GetAnalysis(n => MsvcRtti.Analyze(n.Image, ct: cancellationToken)) : null;
+        var rtti = list.Any(s => s.ClassTypeDescriptor != 0) ? native.GetAnalysis(n => Native.Itanium.CppRtti.Analyze(n.Image, cancellationToken)) : null;
         var classNames = rtti?.Classes.GroupBy(c => c.TypeDescriptorRva).ToDictionary(g => g.Key, g => g.First().Name) ?? [];
         string Va(uint r) => NativeAddress.Va(index.Image, r);
         string Where(uint r) => index.FunctionAt(r) is { } f ? $"{f.Name}+0x{r - f.Start:X}" : Va(r);

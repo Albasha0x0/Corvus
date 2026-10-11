@@ -70,8 +70,8 @@ public sealed class NativeFeatureTools(AssemblyWorkspace workspace, NativeCodeSe
         var engine = session != null ? await Engine(session, cancellationToken) : null;
         var result = await Task.Run(() =>
         {
-            var classes = wanted.HasFlag(FeatureKinds.Classes) && index.Image.Format == ImageFormat.Pe
-                ? native.GetAnalysis(n => MsvcRtti.Analyze(n.Image, ct: cancellationToken)).Classes
+            var classes = wanted.HasFlag(FeatureKinds.Classes)
+                ? native.GetAnalysis(n => Native.Itanium.CppRtti.Analyze(n.Image, cancellationToken)).Classes
                     .SelectMany(c => c.Vtables.Take(1).Select(v => new FeatureClass(c.Name, v.VftableRva, v.SlotRvas))).ToList()
                 : [];
             return FeatureTrace.Run(index, query.Trim(), regex, wanted, Math.Clamp(maxSeeds, 1, 500), Math.Clamp(callerDepth, 0, 3), classes, cancellationToken, engine);

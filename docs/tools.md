@@ -1312,7 +1312,7 @@ MSVC exception handling of the native function containing an address: the handle
 
 **C++ classes from RTTI** (read-only, idempotent, open-world)
 
-C++ classes of an MSVC-built native image recovered from RTTI: demangled class names, base classes (with offsets, virtual and multiple inheritance), and vftables with their slot targets. Every structure is cross-checked; rejected candidates are counted with the reason. engine=ghidra lists Ghidra's class namespaces instead (also PDB and Itanium classes), with function counts and vftables.
+C++ classes recovered from RTTI (MSVC on PE, Itanium on ELF / Mach-O): demangled class names, base classes (with offsets, virtual and multiple inheritance), and vftables with their slot targets. Every structure is cross-checked; rejected candidates are counted with the reason. engine=ghidra lists Ghidra's class namespaces instead (also PDB classes), with function counts and vftables.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|

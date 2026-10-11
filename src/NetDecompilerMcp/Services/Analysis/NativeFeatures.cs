@@ -202,7 +202,7 @@ internal sealed class NativeFeatureScan(NativeCodeIndex index, CancellationToken
     private List<MsvcRttiClass> Classes()
     {
         if (_classes != null) return _classes;
-        try { _classes = [.. MsvcRtti.Analyze(index.Image, ct: ct).Classes]; }
+        try { _classes = [.. Native.Itanium.CppRtti.Analyze(index.Image, ct).Classes]; }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _notes.Add($"RTTI not read ({ex.GetType().Name}: {ex.Message})");

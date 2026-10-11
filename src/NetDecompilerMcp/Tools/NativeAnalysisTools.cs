@@ -352,9 +352,9 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
     }
 
     [McpServerTool(Name = "list_cpp_classes", Title = "C++ classes from RTTI")]
-    [Description("C++ classes of an MSVC-built native image recovered from RTTI: demangled class names, base classes (with offsets, virtual and multiple " +
+    [Description("C++ classes recovered from RTTI (MSVC on PE, Itanium on ELF / Mach-O): demangled class names, base classes (with offsets, virtual and multiple " +
                  "inheritance), and vftables with their slot targets. Every structure is cross-checked; rejected candidates are counted with the reason. " +
-                 "engine=ghidra lists Ghidra's class namespaces instead (also PDB and Itanium classes), with function counts and vftables.")]
+                 "engine=ghidra lists Ghidra's class namespaces instead (also PDB classes), with function counts and vftables.")]
     public async Task<string> ListCppClasses(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Only classes whose name contains this text (case-insensitive).")] string? filter = null,
@@ -395,15 +395,17 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
     private string RttiClasses(string image, string? filter, bool slots, int offset, int? maxChars, CancellationToken cancellationToken)
     {
         var (native, _) = Resolve(image, "rva:0");
-        var result = native.GetAnalysis(n => MsvcRtti.Analyze(n.Image, ct: cancellationToken));
+        var result = native.GetAnalysis(n => Native.Itanium.CppRtti.Analyze(n.Image, cancellationToken));
         var pe = native.Image;
         var classes = result.Classes.Where(c => filter == null || c.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
         var sb = new StringBuilder($"{native.Id}: {Plural(result.Classes.Count, "class")} with RTTI, {Plural(result.Stats.Vtables, "vftable")}, " +
-                                   $"{Plural(result.TypeDescriptors.Count, "type descriptor")}" +
+                                   $"{Plural(result.TypeDescriptors.Count, pe.Format == ImageFormat.Pe ? "type descriptor" : "typeinfo")}" +
                                    (filter != null ? $"; {classes.Count} match '{filter}'" : "") + "\n");
         foreach (var note in result.Notes) sb.AppendLine($"Note: {note}");
         if (result.Stats.TypeDescriptorCandidatesRejected + result.Stats.LocatorCandidatesRejected > 0)
-            sb.AppendLine($"Rejected candidates: {result.Stats.TypeDescriptorCandidatesRejected} type descriptors, {result.Stats.LocatorCandidatesRejected} locators (failed cross-checks)");
+            sb.AppendLine(pe.Format == ImageFormat.Pe
+                ? $"Rejected candidates: {result.Stats.TypeDescriptorCandidatesRejected} type descriptors, {result.Stats.LocatorCandidatesRejected} locators (failed cross-checks)"
+                : $"Rejected candidates: {result.Stats.TypeDescriptorCandidatesRejected} typeinfos (unreadable name or bases)");
         foreach (var c in classes)
         {
             sb.Append($"{c.Kind} {c.Name}");
@@ -417,7 +419,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
                 sb.AppendLine($"  vftable {NativeAddress.Va(pe, v.VftableRva)} for subobject +0x{v.Offset:X}: {Plural(v.SlotRvas.Count, "slot")}");
                 if (slots)
                     for (int i = 0; i < v.SlotRvas.Count; i++)
-                        sb.AppendLine($"    [{i}] {NativeAddress.Va(pe, v.SlotRvas[i])}");
+                        sb.AppendLine($"    [{i}] {(v.SlotRvas[i] == 0 ? "(import)" : NativeAddress.Va(pe, v.SlotRvas[i]))}");
             }
             foreach (var issue in c.Issues) sb.AppendLine($"  issue: {issue}");
         }

@@ -55,7 +55,7 @@ public static class VirtualCallCheck
     {
         var clock = Stopwatch.StartNew();
         var notes = new List<string>();
-        var rtti = native.GetAnalysis(n => MsvcRtti.Analyze(n.Image, ct: ct));
+        var rtti = native.GetAnalysis(n => Native.Itanium.CppRtti.Analyze(n.Image, ct));
         if (types != null) await types.EnsureAsync(native, session, ct).ConfigureAwait(false);
         else notes.Add("no type push: IDA sees the methods untyped");
 

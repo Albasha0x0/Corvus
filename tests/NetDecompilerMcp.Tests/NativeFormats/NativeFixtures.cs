@@ -14,6 +14,14 @@ public static class NativeFixtures
     public static string OsxArm64DbgShim => RealPackages.File("Microsoft.Diagnostics.DbgShim.osx-arm64", DbgShim, "runtimes/osx-arm64/native/libdbgshim.dylib");
     public static string LinuxX64DbgShim => RealPackages.File("Microsoft.Diagnostics.DbgShim.linux-x64", DbgShim, "runtimes/linux-x64/native/libdbgshim.so");
     public static string OsxX64DbgShim => RealPackages.File("Microsoft.Diagnostics.DbgShim.osx-x64", DbgShim, "runtimes/osx-x64/native/libdbgshim.dylib");
+    /// <summary>Itanium RTTI with vtables (x64 ELF and Mach-O), from the test SDK's code coverage package.</summary>
+    public static string LinuxX64Coverage => RealPackages.File("Microsoft.CodeCoverage", "17.14.1", "build", "netstandard2.0", "ubuntu", "x64", "libCoverageInstrumentationMethod.so");
+    public static string OsxX64Coverage => RealPackages.File("Microsoft.CodeCoverage", "17.14.1", "build", "netstandard2.0", "macos", "x64", "libCoverageInstrumentationMethod.dylib");
+    public static string LinuxX64InstrumentationEngine => RealPackages.File("Microsoft.CodeCoverage", "17.14.1", "build", "netstandard2.0", "ubuntu", "x64", "libInstrumentationEngine.so");
+    public static string OsxX64InstrumentationEngine => RealPackages.File("Microsoft.CodeCoverage", "17.14.1", "build", "netstandard2.0", "macos", "x64", "libInstrumentationEngine.dylib");
+    /// <summary>Itanium RTTI on ARM64 and ARM32 Android (slow set: the runtime packs download with NDM_ALL_TESTS=1).</summary>
+    public static string AndroidArm64Tracing => RealPackages.File("Microsoft.Android.Runtime.35.android-arm64", "35.0.105", "runtimes", "android-arm64", "native", "libxamarin-native-tracing.so");
+    public static string AndroidArmTracing => RealPackages.File("Microsoft.Android.Runtime.35.android-arm", "35.0.105", "runtimes", "android-arm", "native", "libxamarin-native-tracing.so");
     public static string WinArm64DbgShim => RealPackages.File("Microsoft.Diagnostics.DbgShim.win-arm64", DbgShim, "runtimes/win-arm64/native/dbgshim.dll");
     public static string OsxArm64AppHost => RealPackages.File("Microsoft.NETCore.App.Host.osx-arm64", "10.0.11", "runtimes/osx-arm64/native/apphost");
     /// <summary>Universal x86_64 + arm64 dylib with classic dyld info opcodes.</summary>

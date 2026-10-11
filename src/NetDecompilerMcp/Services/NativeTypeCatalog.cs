@@ -137,8 +137,8 @@ public sealed class NativeTypeCatalog(AssemblyWorkspace workspace, NativeCodeSer
 
     private static MsvcRttiResult? RttiOf(Context c, CancellationToken ct)
     {
-        if (!c.Uses(Rtti) || c.Native.Image.Format != ImageFormat.Pe) return null;
-        return c.RttiResult ??= c.Native.GetAnalysis(n => MsvcRtti.Analyze(n.Image, ct: ct));
+        if (!c.Uses(Rtti)) return null;
+        return c.RttiResult ??= c.Native.GetAnalysis(n => Native.Itanium.CppRtti.Analyze(n.Image, ct));
     }
 
     private List<TypeDef> Il2CppTypesOf(Context c)

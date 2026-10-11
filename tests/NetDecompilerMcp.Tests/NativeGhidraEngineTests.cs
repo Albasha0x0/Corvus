@@ -183,6 +183,21 @@ public sealed class NativeGhidraEngineTests(ITestOutputHelper output) : IDisposa
         Assert.Contains("NdmHeader *base", decompiled);
     }
 
+    /// <summary>Itanium RTTI classes of an ELF library become vftable and class structs in Ghidra.</summary>
+    [Trait("Speed", "Slow")]
+    [GhidraFact]
+    public async Task Itanium_class_types_reach_the_pseudocode()
+    {
+        var rig = Setup(_dir.File("cache"));
+        var path = NativeFormats.NativeFixtures.LinuxX64Coverage;
+        var image = Native.NativeImageLoader.Open(path);
+        var cls = Native.Itanium.CppRtti.Analyze(image).Classes.Single(c => c.Name == "vanguard::runtime::CInstrumentationMethod");
+        var slot = cls.Vtables.Single(v => v.Offset == 0).SlotRvas.Last(s => s != 0);
+        var text = await rig.Analysis.DecompileNative(path, $"rva:0x{slot:X}", engine: "ghidra");
+        output.WriteLine(text);
+        Assert.Matches(@"types: pushed .* and \d+ C\+\+ class\(es\) \([1-9]\d* structs, [1-9]\d* vftables", text);
+    }
+
     /// <summary>Where IDA is installed too: function starts and call references of the same image from both engines agree.</summary>
     [GhidraFact]
     public async Task Ghidra_and_IDA_agree_on_function_starts_and_calls()

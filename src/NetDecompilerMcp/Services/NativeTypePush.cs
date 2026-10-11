@@ -51,8 +51,8 @@ public sealed class NativeTypePush(AssemblyWorkspace? workspace = null)
         {
             var il2cpp = Il2CppNativeNames.Of(native);
             // a database with the PDB's types has the real classes: the RTTI outlines would replace them
-            var rtti = native.Image.Arch is NativeArch.X86 or NativeArch.X64 && !NativePdbTypes.Applied(session)
-                ? native.GetAnalysis(n => MsvcRtti.Analyze(n.Image, ct: ct)) : null;
+            var rtti = native.Image.Arch is NativeArch.X86 or NativeArch.X64 or NativeArch.Arm64 or NativeArch.Arm && !NativePdbTypes.Applied(session)
+                ? native.GetAnalysis(n => Native.Itanium.CppRtti.Analyze(n.Image, ct)) : null;
             object?[] inputs = [il2cpp, rtti, NativeNameLayers.OfOrNull(native)?.Get(NativeNameSource.Il2Cpp)];
             if (state.Inputs != null && inputs.SequenceEqual(state.Inputs)) return null;
 

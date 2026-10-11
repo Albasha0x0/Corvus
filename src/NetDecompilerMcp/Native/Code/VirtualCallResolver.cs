@@ -33,6 +33,8 @@ internal sealed class VirtualCallResolver
     private readonly CodeContext _ctx;
     private readonly INativeImage _image;
     private readonly bool _is64;
+    /// <summary>ELF / Mach-O x64: this in rdi, rsi and rdi volatile.</summary>
+    private readonly bool _systemV;
     private readonly int _ptr;
     private readonly int _maxTargets;
     private readonly CancellationToken _ct;
@@ -63,6 +65,7 @@ internal sealed class VirtualCallResolver
         _ctx = ctx;
         _image = index.Image;
         _is64 = _image.Arch == NativeArch.X64;
+        _systemV = _is64 && Calls.X64Abi.Of(_image).IsSystemV;
         _ptr = _is64 ? 8 : 4;
         _maxTargets = Math.Max(1, options.MaxVirtualTargets);
         _ct = ct;
@@ -77,7 +80,7 @@ internal sealed class VirtualCallResolver
         var r = new VirtualCallResolver(index, ctx, options, ct);
         int classes = r.BuildModel(rtti);
         if (classes == 0)
-            return (new VirtualCallSet([], VirtualCallStats.None with { Elapsed = sw.Elapsed }, ["no MSVC RTTI classes with vftables: virtual calls are not resolved"]), []);
+            return (new VirtualCallSet([], VirtualCallStats.None with { Elapsed = sw.Elapsed }, ["no RTTI classes with vftables: virtual calls are not resolved"]), []);
         return r.Run(classes, options, sw);
     }
 
@@ -97,6 +100,8 @@ internal sealed class VirtualCallResolver
                 _vftableStarts.Add(v.VftableRva);
                 foreach (var s in v.SlotRvas.Distinct())
                 {
+                    // a slot bound to an import (Itanium __cxa_pure_virtual)
+                    if (s == 0) { _pure.Add(0); continue; }
                     if (!_owners.TryGetValue(s, out var owners)) _owners[s] = owners = [];
                     if (!owners.Any(o => ReferenceEquals(o.Class, c) && o.Offset == v.Offset)) owners.Add((c, v.Offset));
                 }
@@ -146,10 +151,10 @@ internal sealed class VirtualCallResolver
             if (imp.Name is { Length: > 3 } name && name[0] == '?' && Signature(name, demangle) is { } sig && ClassOf(sig.Return) is var ret and >= 0)
                 _returns[imp.SlotRva] = ret;
 
-        // pure virtual stubs: functions that do not return, or thunks to an import named _purecall
+        // pure virtual stubs: functions that do not return, or thunks to _purecall / __cxa_pure_virtual
         foreach (var target in _owners.Keys)
             if (_index.FunctionByStart(target) is { } f
-                && ((f.Flags & FunctionFlags.NoReturn) != 0 || f.ThunkImport?.Name is "_purecall" or "purecall" || f.KnownName is "_purecall" or "__purecall"))
+                && ((f.Flags & FunctionFlags.NoReturn) != 0 || IsPureName(f.ThunkImport?.Name) || IsPureName(f.KnownName)))
                 _pure.Add(target);
 
         if (_image is PeFile { LoadConfig: { } lc })
@@ -165,6 +170,9 @@ internal sealed class VirtualCallResolver
         }
         return polymorphic.Count;
     }
+
+    private static bool IsPureName(string? name) =>
+        name is "_purecall" or "purecall" or "__purecall" or "__cxa_pure_virtual" or "___cxa_pure_virtual" or "__cxa_deleted_virtual" or "___cxa_deleted_virtual";
 
     /// <summary>A function's decorated name, decoded: a non-static member or not, virtual, its class, calling convention, return and parameter types.</summary>
     internal sealed record DecoratedSignature(bool Member, bool Virtual, string? Class, string Convention, string Return, IReadOnlyList<string> Params);
@@ -638,7 +646,7 @@ internal sealed class VirtualCallResolver
         private bool _summaryEmpty;
 
         private int Rsp => (int)(Register.RSP - Register.RAX);
-        private int ThisReg => (int)(Register.RCX - Register.RAX);
+        private int ThisReg => (int)((r._systemV ? Register.RDI : Register.RCX) - Register.RAX);
         private int Rax => 0;
 
         public (int, uint)[]? Analyze(NativeFunction f, bool summarize, bool record)
@@ -1071,7 +1079,7 @@ internal sealed class VirtualCallResolver
             (int, uint)[]? summary = null;
             if (direct is uint d0) r._summaries.TryGetValue(d0, out summary);
             // the call: volatile registers lost, the result is a new object (a constructor returns this)
-            int[] volatiles = r._is64 ? [0, 1, 2, 8, 9, 10, 11] : [0, 1, 2];
+            int[] volatiles = r._systemV ? [0, 1, 2, 6, 7, 8, 9, 10, 11] : r._is64 ? [0, 1, 2, 8, 9, 10, 11] : [0, 1, 2];
             foreach (int v in volatiles) s.Regs[v] = Val.Unknown;
             if (summary != null && thisArg.Kind is VKind.This or VKind.Obj or VKind.Stack)
             {

@@ -64,7 +64,7 @@ public sealed partial class NativeCodeIndex
         if (_ctx == null || !options.ResolveVirtualCalls || Image.Arch is not (NativeArch.X86 or NativeArch.X64)) return;
         try
         {
-            var rtti = MsvcRtti.Analyze(Image, ct: ct);
+            var rtti = Itanium.CppRtti.Analyze(Image, ct);
             var (set, edges) = VirtualCallResolver.Resolve(this, _ctx, options, rtti, ct);
             SetVirtualCalls(set, edges);
         }

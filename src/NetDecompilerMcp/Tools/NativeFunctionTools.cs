@@ -218,7 +218,7 @@ public sealed class NativeFunctionTools(AssemblyWorkspace workspace, NativeCodeS
         var name = index.NameAt(f.Start) ?? f.Name;
         var ranges = index.Ranges(f).ToList();
         uint end = ranges.Count > 0 ? ranges.Max(r => r.End) : f.End;
-        var rtti = image.Format == ImageFormat.Pe ? native.GetAnalysis(n => MsvcRtti.Analyze(n.Image, ct: ct)) : null;
+        var rtti = native.GetAnalysis(n => Native.Itanium.CppRtti.Analyze(n.Image, ct));
         var slots = rtti?.Classes.SelectMany(c => c.Vtables.SelectMany(v => v.SlotRvas.Select((s, i) => (Class: c, Vtable: v, Slot: i, Target: s))))
             .Where(x => x.Target == f.Start).ToList() ?? [];
         var built = new List<Section>();

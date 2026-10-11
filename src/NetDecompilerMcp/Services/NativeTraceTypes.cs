@@ -181,7 +181,7 @@ internal sealed partial class NativeTraceTypes : ITraceTypes
 
     private static void Rtti(ITraceHost host, LoadedNative native, Image image)
     {
-        var rtti = native.GetAnalysis(n => MsvcRtti.Analyze(n.Image));
+        var rtti = native.GetAnalysis(n => Native.Itanium.CppRtti.Analyze(n.Image));
         var location = host.Is64 ? host.ParameterLocation(0) : "ecx";
         foreach (var c in rtti.Classes)
             foreach (var v in c.Vtables.Where(v => v.Offset == 0))
