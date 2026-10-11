@@ -229,6 +229,45 @@ public class NativeAotNamesTests(ITestOutputHelper output)
         Assert.Equal(ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => tools.GetNativeAotInfo(plain))).Code);
     }
 
+    /// <summary>export_native_annotations: the nativeaot layer beneath the user's names in every format.</summary>
+    [Fact]
+    public async Task Export_IncludesTheNativeAotLayer()
+    {
+        using var env = new Env();
+        using var dir = new TempDir();
+        var code = new NativeCodeService(env.Workspace, env.Options, null, new AnnotationStore(dir.File("ann")));
+        var edits = new NativeEditService(env.Workspace, code);
+        var tools = new NetDecompilerMcp.Tools.NativeEditTools(env.Workspace, code, edits);
+        var (path, w) = WriteImage(dir);
+        var native = env.Workspace.LoadAny(path).Native!;
+        var index = await code.Index(native, null, default);
+        edits.Rename(native, index, w.Dog, "MyDogTable", false);
+
+        var report = await tools.ExportNativeAnnotations(native.Id, dir.File("a.py"), "ida");
+        Assert.Contains("1 name(s)", report);
+        Assert.Contains("of the nativeaot layer(s) beneath them", report);
+        var ida = File.ReadAllText(dir.File("a.py"));
+        Assert.Contains($"idc.set_name(base + 0x{T.SpeakCode:X}, \"Sample_Zoo_Dog__Speak\", idc.SN_NOWARN)", ida);
+        Assert.Contains($"idc.set_name(base + 0x{w.Dog:X}, \"MyDogTable\", idc.SN_NOWARN)", ida);
+        Assert.DoesNotContain("MT_Sample_Zoo_Dog\"", ida); // the user's name replaces it
+        Assert.True(ida.IndexOf("Sample_Zoo_Dog__Speak", StringComparison.Ordinal) < ida.IndexOf("MyDogTable", StringComparison.Ordinal));
+
+        await tools.ExportNativeAnnotations(native.Id, dir.File("a.java"), "ghidra");
+        Assert.Contains($"createLabel(base.add(0x{T.SpeakCode:X}L), \"Sample_Zoo_Dog__Speak\", true, SourceType.IMPORTED);", File.ReadAllText(dir.File("a.java")));
+        await tools.ExportNativeAnnotations(native.Id, dir.File("a.json"));
+        var imported = System.Text.Json.JsonDocument.Parse(File.ReadAllText(dir.File("a.json"))).RootElement.GetProperty("imported");
+        Assert.Contains(imported.EnumerateArray(), e => e.GetProperty("name").GetString() == "Sample_Zoo_Dog__Speak" && e.GetProperty("source").GetString() == "nativeaot");
+        await tools.ExportNativeAnnotations(native.Id, dir.File("a.h"), "header");
+        var header = File.ReadAllText(dir.File("a.h"));
+        Assert.Contains("/* functions named by the nativeaot layer(s) */", header);
+        Assert.Contains($"// Sample_Zoo_Dog__Speak: rva 0x{T.SpeakCode:X}, Sample.Zoo.Dog::Speak(", header);
+
+        // The engine push carries the same layer (IDA and Ghidra sessions).
+        var effective = NativeNamePush.Effective(code.Annotations(native), NativeNameLayers.Of(native).Layers, native.Image);
+        Assert.Equal(("Sample_Zoo_Dog__Speak", true), (effective[T.SpeakCode].Name, effective[T.SpeakCode].Function));
+        Assert.Equal("MyDogTable", effective[w.Dog].Name);
+    }
+
     [Fact]
     public async Task Disassemble_RendersStringLiteralsAndVirtualCalls()
     {

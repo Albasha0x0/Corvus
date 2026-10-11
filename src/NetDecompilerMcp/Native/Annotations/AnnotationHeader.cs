@@ -17,7 +17,8 @@ public static class AnnotationHeader
 
     /// <param name="nameAt">The name in effect at an RVA (user, export, PDB...), or null.</param>
     /// <param name="isFunction">Whether a function starts at an RVA.</param>
-    public static string Render(NativeAnnotations ann, Func<uint, string?> nameAt, Func<uint, bool> isFunction)
+    /// <param name="imported">Names of the imported metadata layers, listed after the user's declarations.</param>
+    public static string Render(NativeAnnotations ann, Func<uint, string?> nameAt, Func<uint, bool> isFunction, ImportedNames? imported = null)
     {
         var types = ann.UserTypes;
         var sb = new StringBuilder();
@@ -42,6 +43,16 @@ public static class AnnotationHeader
             functions.Add($"// {name}: rva 0x{rva:X}, no prototype set");
         if (functions.Count > 0) sb.AppendLine().AppendLine("/* functions */").AppendJoin(Environment.NewLine, functions).AppendLine();
         if (globals.Count > 0) sb.AppendLine().AppendLine("/* globals */").AppendJoin(Environment.NewLine, globals).AppendLine();
+        if (imported is { Count: > 0 })
+        {
+            // Imported names carry no C types: listed by address with the first line of their comment (the managed form).
+            string Line(ImportedName e) => $"// {e.Name}: rva 0x{e.Rva:X}" + (e.Comment is { } c ? $", {c.Split('\n')[0]}" : "");
+            var named = imported.Entries.Where(e => e.Name != null && !types.Types.ContainsKey(e.Rva)).ToList();
+            if (named.Any(e => isFunction(e.Rva)))
+                sb.AppendLine().AppendLine($"/* functions named by the {imported.Sources} layer(s) */").AppendJoin(Environment.NewLine, named.Where(e => isFunction(e.Rva)).Select(Line)).AppendLine();
+            if (named.Any(e => !isFunction(e.Rva)))
+                sb.AppendLine().AppendLine($"/* data named by the {imported.Sources} layer(s) */").AppendJoin(Environment.NewLine, named.Where(e => !isFunction(e.Rva)).Select(Line)).AppendLine();
+        }
         return sb.ToString();
     }
 

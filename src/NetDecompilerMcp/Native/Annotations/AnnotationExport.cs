@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using NetDecompilerMcp.Core;
+using NetDecompilerMcp.Native.Code;
 
 namespace NetDecompilerMcp.Native.Annotations;
 
@@ -22,22 +23,28 @@ public static class AnnotationExport
         _ => throw new ToolError(ErrorCode.InvalidArgument, $"Unknown format '{format}'.", "use ida, ghidra, json or header"),
     };
 
-    public static string Render(NativeAnnotations ann, Format format) => format switch
+    public static string Render(NativeAnnotations ann, Format format, ImportedNames? imported = null) => format switch
     {
-        Format.Ida => Ida(ann),
-        Format.Ghidra => Ghidra(ann),
-        _ => Json(ann),
+        Format.Ida => Ida(ann, imported ?? ImportedNames.None),
+        Format.Ghidra => Ghidra(ann, imported ?? ImportedNames.None),
+        _ => Json(ann, imported ?? ImportedNames.None),
     };
 
     public static string Extension(Format format) => format switch { Format.Ida => ".py", Format.Ghidra => ".java", Format.Header => ".h", _ => ".json" };
 
-    private static string Ida(NativeAnnotations ann)
+    private static string Ida(NativeAnnotations ann, ImportedNames imported)
     {
         var sb = new StringBuilder();
         sb.AppendLine("# IDAPython: apply names and comments exported from NetDecompilerMcp.");
         sb.AppendLine($"# Source: {ann.FilePath}  sha256 {ann.Sha256}");
         sb.AppendLine("import idaapi, idc");
         sb.AppendLine("base = idaapi.get_imagebase()");
+        if (imported.Count > 0) sb.AppendLine($"# {imported.Count} name(s) from the {imported.Sources} name layer(s) first; the user's names and comments after them win.");
+        foreach (var e in imported.Entries)
+        {
+            if (e.Name != null) sb.AppendLine($"idc.set_name(base + 0x{e.Rva:X}, {Py(e.Name)}, idc.SN_NOWARN)");
+            if (e.Comment != null) sb.AppendLine($"idc.set_cmt(base + 0x{e.Rva:X}, {Py(e.Comment)}, 0)");
+        }
         foreach (var (rva, name) in ann.Names())
             sb.AppendLine($"idc.set_name(base + 0x{rva:X}, {Py(name)}, idc.SN_NOWARN)");
         foreach (var (rva, comment) in ann.Comments())
@@ -249,7 +256,7 @@ public static class AnnotationExport
 
     private static string PyOrNone(string? s) => s == null ? "None" : Py(s);
 
-    private static string Ghidra(NativeAnnotations ann)
+    private static string Ghidra(NativeAnnotations ann, ImportedNames imported)
     {
         var sb = new StringBuilder();
         sb.AppendLine("// Ghidra script: apply names and comments exported from NetDecompilerMcp.");
@@ -262,6 +269,12 @@ public static class AnnotationExport
         sb.AppendLine("public class ApplyAnnotations extends GhidraScript {");
         sb.AppendLine("  public void run() throws Exception {");
         sb.AppendLine("    Address base = currentProgram.getImageBase();");
+        if (imported.Count > 0) sb.AppendLine($"    // {imported.Count} name(s) from the {imported.Sources} name layer(s) first; the user's names and comments after them win.");
+        foreach (var e in imported.Entries)
+        {
+            if (e.Name != null) sb.AppendLine($"    createLabel(base.add(0x{e.Rva:X}L), {Java(e.Name)}, true, SourceType.IMPORTED);");
+            if (e.Comment != null) sb.AppendLine($"    setPlateComment(base.add(0x{e.Rva:X}L), {Java(e.Comment)});");
+        }
         foreach (var (rva, name) in ann.Names())
             sb.AppendLine($"    createLabel(base.add(0x{rva:X}L), {Java(name)}, true, SourceType.USER_DEFINED);");
         foreach (var (rva, comment) in ann.Comments())
@@ -274,7 +287,7 @@ public static class AnnotationExport
         return sb.ToString();
     }
 
-    private static string Json(NativeAnnotations ann)
+    private static string Json(NativeAnnotations ann, ImportedNames imported)
     {
         var doc = new
         {
@@ -295,10 +308,46 @@ public static class AnnotationExport
             enumMembers = ann.UserTypes.ToBatch().EnumMembers.Select(e => new { @enum = e.Enum, member = e.Member, value = e.Value }),
             typeEdits = ann.UserTypes.TypeEdits.Select(e => new { name = e.Name, newName = e.NewName }),
             fields = ann.UserTypes.Fields.Select(f => new { type = f.Type, name = f.Name, offset = f.Offset, fieldType = f.FieldType }),
+            imported = imported.Entries.Select(e => new { rva = e.Rva, name = e.Name, comment = e.Comment, source = e.Source }),
         };
         return JsonSerializer.Serialize(doc, IndentedJson);
     }
 
     private static string Py(string s) => "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "") + "\"";
     private static string Java(string s) => Py(s);
+}
+
+/// <summary>An imported name or comment at an RVA and the layer it comes from (nativeaot, il2cpp).</summary>
+public readonly record struct ImportedName(uint Rva, string? Name, string? Comment, string Source);
+
+/// <summary>
+/// The names and comments of the image's imported metadata layers (NativeAOT, Il2Cpp), exported beneath the user's: the
+/// higher-ranked layer wins at an address, and what the user named or commented keeps only the user's. PDB names are left
+/// out (engines load the PDB themselves), as are the engines' own layers.
+/// </summary>
+public sealed record ImportedNames(IReadOnlyList<ImportedName> Entries, string Sources)
+{
+    public static readonly ImportedNames None = new([], "");
+
+    public int Count => Entries.Count;
+
+    public static ImportedNames Of(IReadOnlyList<NativeNameLayers.Layer> layers, NativeAnnotations user)
+    {
+        var merged = new Dictionary<uint, ImportedName>();
+        var used = layers.Where(l => l.Source is NativeNameSource.NativeAot or NativeNameSource.Il2Cpp).OrderBy(l => l.Source.Rank()).ToList();
+        foreach (var layer in used)
+        {
+            string source = layer.Source.Id();
+            foreach (var (rva, name) in layer.Names) merged[rva] = new ImportedName(rva, name, merged.GetValueOrDefault(rva).Comment, source);
+            foreach (var (rva, comment) in layer.Comments)
+                merged[rva] = merged.TryGetValue(rva, out var e) ? e with { Comment = comment } : new ImportedName(rva, null, comment, source);
+        }
+        var entries = new List<ImportedName>(merged.Count);
+        foreach (var e in merged.Values.OrderBy(e => e.Rva))
+        {
+            var kept = e with { Name = user.NameAt(e.Rva) == null ? e.Name : null, Comment = user.CommentAt(e.Rva) == null ? e.Comment : null };
+            if (kept.Name != null || kept.Comment != null) entries.Add(kept);
+        }
+        return new ImportedNames(entries, string.Join(", ", used.Select(l => l.Source.Id())));
+    }
 }

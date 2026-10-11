@@ -350,7 +350,7 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
     }
 
     [McpServerTool(Name = "export_native_annotations", Title = "Export native annotations")]
-    [Description("Write the image's names and comments as an IDAPython script (ida), a Ghidra script (ghidra) or JSON; the IDA script and JSON " +
+    [Description("Write the image's names and comments as an IDAPython script (ida), a Ghidra script (ghidra) or JSON, the user's over the NativeAOT and Il2Cpp name layers; the IDA script and JSON " +
                  "also carry the user's engine types. Scripts apply by RVA, rebased to the database's image base. header: a C header of declared " +
                  "types, prototypes by name and externs of typed globals.")]
     public Task<string> ExportNativeAnnotations(
@@ -364,11 +364,13 @@ public sealed class NativeEditTools(AssemblyWorkspace workspace, NativeCodeServi
         var (native, index) = await Open(image, progress, cancellationToken);
         var fmt = AnnotationExport.ParseFormat(format);
         var ann = edits.Annotations(native);
+        var imported = ImportedNames.Of(NativeNameLayers.OfOrNull(native)?.Layers ?? [], ann);
         var text = fmt == AnnotationExport.Format.Header
-            ? AnnotationHeader.Render(ann, index.NameAt, rva => index.FunctionByStart(rva) != null)
-            : AnnotationExport.Render(ann, fmt);
+            ? AnnotationHeader.Render(ann, index.NameAt, rva => index.FunctionByStart(rva) != null, imported)
+            : AnnotationExport.Render(ann, fmt, imported);
         var target = SafeFile.WriteAllText(outputPath, text, overwrite);
-        return $"Exported {ann.NameCount} name(s), {ann.CommentCount} comment(s), {ann.PseudoCommentCount} pseudocode comment(s) and {ann.UserTypes.Count} user type(s) to {target} ({fmt} format)" +
+        return $"Exported {ann.NameCount} name(s), {ann.CommentCount} comment(s), {ann.PseudoCommentCount} pseudocode comment(s) and {ann.UserTypes.Count} user type(s)" +
+               (imported.Count > 0 ? $", with {imported.Count} name(s) and comment(s) of the {imported.Sources} layer(s) beneath them," : "") + $" to {target} ({fmt} format)" +
                (fmt == AnnotationExport.Format.Ghidra && ann.UserTypes.Count > 0 ? "; user types are not in Ghidra scripts." : ".");
     });
 
