@@ -635,6 +635,27 @@ public sealed class ContractSweepTests(Xunit.Abstractions.ITestOutputHelper outp
         Assert.Equal(5_000, json.GetProperty("total").GetInt32());
         Assert.False(NetDecompilerMcp.Mcp.StructuredOutput.Serialize(big with { Items = big.Items.Take(3).ToList() }, 20_000).GetProperty("truncated").GetBoolean());
     }
+}
+
+/// <summary>The core of the sweep, in a class of its own so it runs beside the other contract tests rather than after them.</summary>
+public sealed class ContractSweepCoreTests(Xunit.Abstractions.ITestOutputHelper output) : IAsyncLifetime
+{
+    private readonly Xunit.Abstractions.ITestOutputHelper _output = output;
+    private readonly TempDir _dir = new();
+    private McpClient _client = null!;
+    private IList<McpClientTool> _tools = null!;
+
+    public async Task InitializeAsync()
+    {
+        _client = await ContractSweep.StartAsync(_dir);
+        _tools = await _client.ListToolsAsync();
+    }
+
+    public async Task DisposeAsync()
+    {
+        await _client.DisposeAsync();
+        _dir.Dispose();
+    }
 
     [Fact]
     public async Task CoreSweep()
