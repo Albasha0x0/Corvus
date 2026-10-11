@@ -19,7 +19,7 @@ trace_native_feature (strings, names, imports, exports and classes matching a te
 vftables), get_native_type (a type's layout from the PDB, RTTI, Il2Cpp or the engine by name, id or typed address; at=0x48 names a field;
 read=true adds the field values at an address), get_exception_info (MSVC try / catch, SEH scopes, funclets), find_virtual_calls (obj->vfunc() sites resolved
 through RTTI; crossCheck=true compares with IDA or Ghidra), decompile_native (C pseudocode through IDA or Ghidra when installed;
-functions=[...] decompiles several in one request, each with its own deadline), search_decompiled (a regex over many functions' pseudocode; cursor= continues).
+functions=[...] decompiles several in one request, each with its own deadline; callersOf= the callers of one), search_decompiled (a regex over many functions' pseudocode; cursor= continues).
 Addresses: hex VA or RVA, rva:/va:/off: prefixes, export names, module!import, sub_<rva>.
 Symbols: a matching local PDB is read with the code index; load_pdb loads one by path or downloads it (download=true);
 search_pdb_symbols lists its symbols. Names from load_pdb and apply_il2cpp_names are saved per file SHA-256 and reapplied

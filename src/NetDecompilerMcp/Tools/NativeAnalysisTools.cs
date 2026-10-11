@@ -70,20 +70,22 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         [Description("With functions: functions decompiled (default 32, 1-200); the rest are skipped with a follow-up call.")] int maxFunctions = 32,
         [Description("With address: a footer on the first page listing the globals, functions, strings and imports used.")] bool refs = false,
         [Description("Seconds for this call's engine requests (1-600; default NDM_ENGINE_REQUEST_TIMEOUT); Ghidra's decompiler retries once with 4x.")] int? timeoutSeconds = null,
+        [Description("Instead of address: the functions calling this one, by the engine's references, as with functions.")] string? callersOf = null,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default) => OrderedProgress.Run(context, async progress =>
     {
-        bool batch = functions is { Length: > 0 };
-        if (batch == !string.IsNullOrWhiteSpace(address))
-            throw new ToolError(ErrorCode.InvalidArgument, batch ? "Pass address or functions, not both." : "address is required (or functions for several).",
-                "address=<one function>, or functions=[...] for several");
+        bool callers = !string.IsNullOrWhiteSpace(callersOf);
+        bool batch = functions is { Length: > 0 } || callers;
+        if ((functions is { Length: > 0 } ? 1 : 0) + (callers ? 1 : 0) + (string.IsNullOrWhiteSpace(address) ? 0 : 1) != 1)
+            throw new ToolError(ErrorCode.InvalidArgument, batch ? "Pass one of address, functions or callersOf." : "address is required (or functions / callersOf for several).",
+                "address=<one function>, functions=[...] for several, or callersOf=<function>");
         if (timeoutSeconds is { } ts && (ts < 1 || ts > 600))
             throw new ToolError(ErrorCode.InvalidArgument, $"timeoutSeconds {ts} is outside 1-600.", "timeoutSeconds=120");
         TimeSpan? limit = timeoutSeconds is { } t ? TimeSpan.FromSeconds(t) : null;
         using var engineLimit = EngineRequestLimit.Use(limit);
         var native = batch ? await Task.Run(() => ResolveImage(workspace, image), cancellationToken) : null;
         uint rva = 0;
-        if (!batch) (native, rva) = await Task.Run(() => Resolve(image, address!), cancellationToken);
+        if (!batch || callers) (native, rva) = await Task.Run(() => Resolve(image, callers ? callersOf! : address!), cancellationToken);
         var session = await engines.Session(native!, engine, new Progress<NativeProviderProgress>(p =>
             progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = p.Stage })), cancellationToken);
         if (!session.DecompilerAvailable)
@@ -93,6 +95,7 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         if (batch)
         {
             if (refs) throw new ToolError(ErrorCode.InvalidArgument, "refs applies to one function (address), not functions.", "drop refs, or decompile one address");
+            if (callers) functions = await Callers(native!, session, rva, callersOf!, cancellationToken);
             var (text, report) = await Batch(native!, session, functions!, addresses, Math.Clamp(perFunctionSeconds, 1, 600), Math.Clamp(maxFunctions, 1, 200), cancellationToken);
             return StructuredOutput.With((pushed != null ? $"// {pushed}\n" : "") + pager.Page(text, offset, maxChars), report);
         }
@@ -309,6 +312,23 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
         var summary = $"// {Plural(n, "input")}: {ok} decompiled, {failed} failed, {skipped.Count} skipped, {items.Count(x => x.Status == "duplicate")} duplicate ({session.ProviderId})\n";
         if (next != null) sb.AppendLine($"// Next: {next}");
         return (summary + sb, new DecompileReport(native.Id, session.ProviderId, items, n, ok, failed, skipped.Count, next));
+    }
+
+    /// <summary>
+    /// callersOf: the functions with a call (or a tail-call jump) to the start of the function at <paramref name="rva"/>, by the
+    /// engine's references, as batch inputs in address order.
+    /// </summary>
+    private async Task<string[]> Callers(LoadedNative native, INativeDecompilerSession session, uint rva, string input, CancellationToken ct)
+    {
+        var all = await session.ListFunctionsAsync(ct);
+        var target = all.FirstOrDefault(f => rva >= f.StartRva && rva < f.EndRva)?.StartRva ?? code?.Ready(native)?.FunctionAt(rva)?.Start ?? rva;
+        var callers = (await session.GetXrefsToAsync(target, ct))
+            .Where(x => x.Kind is NativeXrefKind.Call or NativeXrefKind.Jump && x.FromFunctionRva is { } from && from != target)
+            .Select(x => x.FromFunctionRva!.Value).Distinct().Order().ToList();
+        if (callers.Count == 0)
+            throw new ToolError(ErrorCode.NotFound, $"The {session.ProviderId} analysis has no calls to {input} ({NativeAddress.Va(native.Image, target)}).",
+                $"find_xrefs image={native.Id} address={NativeAddress.Va(native.Image, target)} lists every reference, including data and indirect ones");
+        return [.. callers.Select(c => NativeAddress.Va(native.Image, c))];
     }
 
     /// <summary>The native image named by id or path (loaded by path when needed).</summary>

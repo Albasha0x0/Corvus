@@ -1364,6 +1364,7 @@ C pseudocode of the native function containing an address, through IDA (Hex-Rays
 | `maxFunctions` | integer |  | `32` | With functions: functions decompiled (default 32, 1-200); the rest are skipped with a follow-up call. |
 | `refs` | boolean |  | `false` | With address: a footer on the first page listing the globals, functions, strings and imports used. |
 | `timeoutSeconds` | integer |  |  | Seconds for this call's engine requests (1-600; default NDM_ENGINE_REQUEST_TIMEOUT); Ghidra's decompiler retries once with 4x. |
+| `callersOf` | string |  |  | Instead of address: the functions calling this one, by the engine's references, as with functions. |
 
 Structured output: `image`, `engine`, `items`, `total`, `succeeded`, `failed`, `skipped`, `next`.
 
