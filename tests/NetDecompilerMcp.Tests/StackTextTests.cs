@@ -120,6 +120,20 @@ public sealed class StackTextTests : IDisposable
         Assert.Equal(2, r.UnrecognizedLines); // the banner lines
     }
 
+    /// <summary>Unity writes "Crash!!!" before every crash report: a banner, not a module!function frame.</summary>
+    [Fact]
+    public async Task UnityCrashBannerIsNotAFrame()
+    {
+        var r = await Run("""
+            Crash!!!
+            0x00007FF610001005 (synth) Crash
+            C:\Game\synth.dll:synth.dll (00007FF610000000), size: 20480 (result: 0), SymType: '-exported-', PDB: '', fileVersion: 1.2.3.4
+            """);
+        Assert.Equal("Crash+0x5", Assert.Single(r.Frames).Resolved);
+        Assert.Empty(r.ModulesMissing);
+        Assert.Equal(["Crash!!!"], r.UnrecognizedSample);
+    }
+
     /// <summary>The fixture carries Il2CppDumper [Address] attributes (NativeThing::First at 0x1000, ::Second at 0x1100): GameAssembly frames get their names.</summary>
     [Fact]
     public async Task Il2CppFramesAreNamedThroughTheDummyAssemblies()

@@ -143,7 +143,8 @@ internal static class StackTextFormats
         new("eventlog", R(@"^\s*(?<k>Exception code|Fault offset|Faulting process id|Faulting module path|Faulting application path): (?<v>.+)$"),
             (m, _, _, _, s) => { s.Fields["ev:" + m.Groups["k"].Value] = m.Groups["v"].Value.Trim(); return true; }),
         // Debugger text: 00 000000a1`2b4ff6c8 00007ff6`1234abcd app!Crash+0x5 [c:\src\x.cpp @ 12]
-        new("windbg", R(@"^(?:\s*[0-9a-fA-F]{2,}\s+)?(?:[0-9a-fA-F`]{8,17}\s+){0,2}(?<module>[A-Za-z_][\w.-]*)!(?<sym>[^\s+\[]+)(?:\+0x(?<off>[0-9a-fA-F]+))?(?:\s+\[(?<src>[^\]]+)\])?\s*$"),
+        // The symbol starts like a name (decorated ?f@@, @f@8, <lambda_..>), so Unity's "Crash!!!" banner is no frame.
+        new("windbg", R(@"^(?:\s*[0-9a-fA-F]{2,}\s+)?(?:[0-9a-fA-F`]{8,17}\s+){0,2}(?<module>[A-Za-z_][\w.-]*)!(?<sym>[A-Za-z_?@$<~][^\s+\[]*)(?:\+0x(?<off>[0-9a-fA-F]+))?(?:\s+\[(?<src>[^\]]+)\])?\s*$"),
             (m, line, raw, into, _) => Add(into, new TextFrame(line, raw, "windbg", "native")
             {
                 Module = m.Groups["module"].Value, Symbol = m.Groups["sym"].Value, SymbolOffset = HexOrNull(m.Groups["off"]) ?? 0,
