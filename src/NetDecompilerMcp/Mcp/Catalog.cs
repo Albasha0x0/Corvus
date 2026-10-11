@@ -54,18 +54,33 @@ public static partial class Catalog
         return builder;
     }
 
-    /// <summary>Removes "default": null from input schemas; an optional parameter without a default says the same in fewer bytes.</summary>
+    /// <summary>Removes "default": null from input and output schemas; an optional property without a default says the same in fewer bytes.</summary>
     private static void DropNullDefaults(IEnumerable<McpServerTool> tools)
     {
         foreach (var tool in tools)
         {
             var t = tool.ProtocolTool;
-            var schema = JsonNode.Parse(t.InputSchema.GetRawText())!.AsObject();
-            if (schema["properties"] is not JsonObject properties) continue;
+            if (Without(t.InputSchema) is { } input) t.InputSchema = input;
+            if (t.OutputSchema is { } output && Without(output) is { } trimmed) t.OutputSchema = trimmed;
+        }
+
+        static JsonElement? Without(JsonElement schema)
+        {
+            var node = JsonNode.Parse(schema.GetRawText());
+            return Drop(node) ? JsonSerializer.SerializeToElement(node) : null;
+        }
+
+        static bool Drop(JsonNode? node)
+        {
             bool changed = false;
-            foreach (var (_, property) in properties)
-                if (property is JsonObject p && p.TryGetPropertyValue("default", out var d) && d is null) changed |= p.Remove("default");
-            if (changed) t.InputSchema = JsonSerializer.SerializeToElement(schema);
+            if (node is JsonObject o)
+            {
+                if (o.TryGetPropertyValue("default", out var d) && d is null) changed = o.Remove("default");
+                foreach (var (_, child) in o) changed |= Drop(child);
+            }
+            else if (node is JsonArray a)
+                foreach (var child in a) changed |= Drop(child);
+            return changed;
         }
     }
 
