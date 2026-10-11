@@ -18,13 +18,13 @@ configure, no admin rights, no .NET needed (the download is self-contained).
 **Windows** (PowerShell):
 
 ```powershell
-irm https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/Albasha0x0/NetDecompilerMcp/main/install.ps1 | iex
 ```
 
 **Linux / macOS:**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Albasha0x0/Corvus/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Albasha0x0/NetDecompilerMcp/main/install.sh | sh
 ```
 
 Options: `--version X` (a release to pin or roll back to), `--dry-run` (show the release, the checksum source, the

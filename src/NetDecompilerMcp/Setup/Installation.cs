@@ -13,7 +13,7 @@ namespace NetDecompilerMcp.Setup;
 /// </summary>
 internal static class Installation
 {
-    public const string DefaultRepository = "Albasha0x0/Corvus";
+    public const string DefaultRepository = "Albasha0x0/NetDecompilerMcp";
     public static string ExeName => OperatingSystem.IsWindows() ? "NetDecompilerMcp.exe" : "NetDecompilerMcp";
     public static string Version => typeof(Installation).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
