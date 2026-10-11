@@ -131,7 +131,8 @@ public sealed class EngineViewTests : IDisposable
         var all = await tools.ListCppClasses(rig.Image, engine: "ghidra", namespaces: true, filter: "std");
         Assert.Contains("namespace std  (2 functions)", all);
         Assert.Contains("2 match 'std'", all);
-        Assert.Equal(Core.ErrorCode.Unsupported, (await Assert.ThrowsAsync<ToolError>(() => tools.ListCppClasses(rig.Image, engine: "ida"))).Code);
+        // engine=ida asks IDA, which this rig does not have
+        Assert.Equal(Core.ErrorCode.InvalidArgument, (await Assert.ThrowsAsync<ToolError>(() => tools.ListCppClasses(rig.Image, engine: "ida"))).Code);
     }
 
     [Fact]

@@ -1163,7 +1163,7 @@ Callers or callees of a native function, several levels deep (calls through thun
 
 **Native virtual calls** (read-only, idempotent, open-world, long-running)
 
-Virtual call sites resolved through RTTI (MSVC or Itanium; ARM: calls through this): calls through a vftable slot, also through stack spills, this adjustments and the CFG dispatch. The receiver's class comes from a vftable stored into the object (constructors, or a constructor called on it), from this of a virtual method, or from decorated names (this of member functions, class pointers passed as parameters or returned); the slot's implementations in that class and its derived classes (RTTI hierarchy) give the targets: one is exact, several are possible (pure virtual stubs left out); the rest are unresolved, with the reason. The edges are part of the call graph (native_call_tree, find_xrefs, get_call_arguments, disassemble comments). crossCheck=true compares a sample with a decompiler engine (IDA when installed, else Ghidra; its decompiler with the RTTI class types pushed, and its code references) and reports the agreement rate; the report names the engine.
+Virtual call sites resolved through RTTI (MSVC or Itanium; ARM: calls through this): calls through a vftable slot, also through stack spills, this adjustments and the CFG dispatch. The receiver's class comes from a vftable stored into the object (also by a constructor called on it), this of a virtual method, or decorated names (this of members, class pointers passed or returned); the slot's implementations in it and its derived classes are the targets: one is exact, several possible (pure virtual stubs left out), the rest unresolved with the reason. The edges are part of the call graph (native_call_tree, find_xrefs, get_call_arguments, disassemble comments). crossCheck=true compares a sample with a decompiler engine (IDA when installed, else Ghidra; its decompiler with the RTTI class types pushed, and its code references) and reports the agreement rate; the report names the engine.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1312,7 +1312,7 @@ Exception handling of the native function containing an address. ELF / Mach-O: F
 
 **C++ classes from RTTI** (read-only, idempotent, open-world)
 
-C++ classes recovered from RTTI (MSVC on PE, Itanium on ELF / Mach-O): demangled class names, base classes (with offsets, virtual and multiple inheritance), and vftables with their slot targets. Every structure is cross-checked; rejected candidates are counted with the reason. engine=ghidra lists Ghidra's class namespaces instead (also PDB classes), with function counts and vftables.
+C++ classes recovered from RTTI (MSVC on PE, Itanium on ELF / Mach-O): demangled class names, base classes (with offsets, virtual and multiple inheritance), and vftables with their slot targets. Structures are cross-checked; rejects are counted with the reason. engine=ghidra lists Ghidra's class namespaces instead (also PDB classes), ida its C++ structs, with function counts and vftables.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1321,7 +1321,7 @@ C++ classes recovered from RTTI (MSVC on PE, Itanium on ELF / Mach-O): demangled
 | `slots` | boolean |  | `false` | Include each vftable's slot addresses. |
 | `offset` | integer |  | `0` | Character offset for paging long output (use the value from the truncation footer). |
 | `maxChars` | integer |  |  | Max characters in this page (default from server config, ~60000). |
-| `engine` | string |  |  | auto or ours (default: RTTI), or ghidra. Values: auto, ours, ghidra. |
+| `engine` | string |  |  | auto or ours (default: RTTI), ida or ghidra. Values: auto, ours, ida, ghidra. |
 | `namespaces` | boolean |  | `false` | engine=ghidra: plain namespaces and libraries too. |
 
 ### get_native_type

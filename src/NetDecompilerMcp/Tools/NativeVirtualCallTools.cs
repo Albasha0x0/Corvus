@@ -50,10 +50,10 @@ public sealed class NativeVirtualCallTools(AssemblyWorkspace workspace, NativeCo
 
     [McpServerTool(Name = "find_virtual_calls", Title = "Native virtual calls", UseStructuredContent = true, OutputSchemaType = typeof(VirtualCallReport))]
     [Description("Virtual call sites resolved through RTTI (MSVC or Itanium; ARM: calls through this): calls through a vftable slot, also through stack " +
-                 "spills, this adjustments and the CFG dispatch. The receiver's class comes from a vftable stored into the object (constructors, " +
-                 "or a constructor called on it), from this of a virtual method, or from decorated names (this of member functions, class pointers " +
-                 "passed as parameters or returned); the slot's implementations in that class and its derived classes (RTTI hierarchy) give the " +
-                 "targets: one is exact, several are possible (pure virtual stubs left out); the rest are unresolved, with the reason. The edges are " +
+                 "spills, this adjustments and the CFG dispatch. The receiver's class comes from a vftable stored into the object (also by a " +
+                 "constructor called on it), this of a virtual method, or decorated names (this of members, class pointers passed or returned); the " +
+                 "slot's implementations in it and its derived classes are the targets: one is exact, several possible (pure virtual stubs left " +
+                 "out), the rest unresolved with the reason. The edges are " +
                  "part of the call graph (native_call_tree, find_xrefs, get_call_arguments, disassemble comments). crossCheck=true compares a sample " +
                  "with a decompiler engine (IDA when installed, else Ghidra; its decompiler with the RTTI class types pushed, and its code references) " +
                  "and reports the agreement rate; the report names the engine.")]

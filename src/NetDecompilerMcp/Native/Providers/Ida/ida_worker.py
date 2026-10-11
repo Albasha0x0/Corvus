@@ -3321,6 +3321,62 @@ OPS["reanalyze"] = op_reanalyze
 OPS["set_marks"] = op_set_marks
 
 
+def op_classes(args):
+    # C++ classes among the local types: structs IDA marks as C++ objects, or with base classes or a vftable pointer.
+    # rows [name, size, vftable rva or null, slots, [[base, offset, virtual]], functions named Class::*]
+    need_open()
+    import ida_typeinf as ti
+    import re
+    m = ida()
+    til = ti.get_idati()
+    rows = []
+    for ordinal in range(1, ti.get_ordinal_limit(til)):
+        t = ti.tinfo_t()
+        if not t.get_numbered_type(til, ordinal) or not t.is_struct() or t.is_vftable():
+            continue
+        name = t.get_type_name()
+        udt = ti.udt_type_data_t()
+        if not name or not t.get_udt_details(udt):
+            continue
+        bases, vptr = [], None
+        for u in udt:
+            if u.is_baseclass():
+                bases.append([u.type.get_type_name() or str(u.type), u.offset // 8, bool(u.is_virtbase())])
+            elif u.name.startswith("__base_") and u.type.is_udt():  # the RTTI push's base subobjects
+                bases.append([u.type.get_type_name() or u.name[7:], u.offset // 8, False])
+            elif vptr is None and (u.is_vftable() or u.name in ("__vftable", "_vptr", "vfptr")):
+                vptr = u
+        if not (t.is_cpp_struct() or bases or vptr is not None):
+            continue
+        vftable, slots = None, 0
+        if vptr is not None and vptr.type.is_ptr():
+            table = vptr.type.get_pointed_object()
+            table_name = table.get_type_name()
+            if table.is_udt():
+                slots = table.get_udt_nmembers()
+            vord = ti.get_type_ordinal(til, table_name) if table_name else 0
+            ea = ti.get_vftable_ea(vord) if vord else m.idautils.ida_idaapi.BADADDR
+            if ea not in (0, m.idautils.ida_idaapi.BADADDR):
+                vftable = rva_of(ea)
+        rows.append([name, t.get_size(), vftable, slots, bases, 0])
+    counts = {}
+    for ea in m.idautils.Functions():
+        short = m.ida_name.get_short_name(ea) or ""
+        paren = short.find("(")
+        cut = short.rfind("::", 0, paren if paren >= 0 else len(short))
+        if cut > 0:
+            owner = short[:cut]
+            # also under the identifier the RTTI push names the class struct with
+            for key in {owner, re.sub(r"[^0-9A-Za-z_]", "_", owner.replace("::", "__"))}:
+                counts[key] = counts.get(key, 0) + 1
+    for row in rows:
+        row[5] = counts.get(row[0], 0)
+    return {"rows": rows}
+
+
+OPS["classes"] = op_classes
+
+
 def watch_parent(parent):
     # POSIX has no job object: exit when the server dies, even while a request runs (stdin EOF is only seen between requests)
     try:

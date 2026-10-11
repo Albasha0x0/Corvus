@@ -404,6 +404,18 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         await CallTreeBoth(rig.Tools, rig.Workspace, rig.Code, "ida", output);
     }
 
+    /// <summary>list_cpp_classes engine=ida: IDA's C++ structs, those the RTTI push made included, with bases and vftables.</summary>
+    [Trait("Speed", "Slow")]
+    [IdaFact]
+    public async Task Cpp_classes_through_IDA_list_its_structs_with_vftables()
+    {
+        var rig = Setup();
+        var text = await rig.Analysis.ListCppClasses(NativeFormats.NativeFixtures.LinuxX64Coverage, engine: "ida");
+        output.WriteLine(text);
+        Assert.Contains("Engine: ida", text);
+        Assert.Matches(@"class \S*runtime__CInstrumentationMethod  16 bytes  \([1-9]\d* functions\)  vftable type with \d+ slots", text);
+    }
+
     /// <summary>Itanium RTTI classes of an ELF library become vftable and class structs in IDA.</summary>
     [Trait("Speed", "Slow")]
     [IdaFact]

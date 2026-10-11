@@ -369,22 +369,22 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
 
     [McpServerTool(Name = "list_cpp_classes", Title = "C++ classes from RTTI")]
     [Description("C++ classes recovered from RTTI (MSVC on PE, Itanium on ELF / Mach-O): demangled class names, base classes (with offsets, virtual and multiple " +
-                 "inheritance), and vftables with their slot targets. Every structure is cross-checked; rejected candidates are counted with the reason. " +
-                 "engine=ghidra lists Ghidra's class namespaces instead (also PDB classes), with function counts and vftables.")]
+                 "inheritance), and vftables with their slot targets. Structures are cross-checked; rejects are counted with the reason. " +
+                 "engine=ghidra lists Ghidra's class namespaces instead (also PDB classes), ida its C++ structs, with function counts and vftables.")]
     public async Task<string> ListCppClasses(
         [Description(NativeTools.ImageDescription)] string image,
         [Description("Only classes whose name contains this text (case-insensitive).")] string? filter = null,
         [Description("Include each vftable's slot addresses.")] bool slots = false,
         [Description(OffsetDescription)] int offset = 0,
         [Description(MaxCharsDescription)] int? maxChars = null,
-        [Description("auto or ours (default: RTTI), or ghidra.")] string? engine = null,
+        [Description("auto or ours (default: RTTI), ida or ghidra.")] string? engine = null,
         [Description("engine=ghidra: plain namespaces and libraries too.")] bool namespaces = false,
         RequestContext<CallToolRequestParams> context = null!,
         CancellationToken cancellationToken = default)
     {
         var mode = EngineModes.Resolve(engine, EngineMode.Auto);
         if (mode == EngineMode.Ida)
-            throw new ToolError(ErrorCode.Unsupported, "IDA has no class namespaces to list.", "use engine=ours for RTTI classes or engine=ghidra");
+            return await OrderedProgress.Run(context, progress => IdaClasses(image, filter, offset, maxChars, progress, cancellationToken));
         if (mode == EngineMode.Ghidra)
             return await OrderedProgress.Run(context, progress => EngineClasses(image, filter, namespaces, offset, maxChars, progress, cancellationToken));
         return await Task.Run(() => RttiClasses(image, filter, slots, offset, maxChars, cancellationToken), cancellationToken);
@@ -405,6 +405,31 @@ public sealed class NativeAnalysisTools(AssemblyWorkspace workspace, NativeEngin
                                    (filter != null ? $"; {shown.Count} match '{filter}'" : "") + "\nEngine: ghidra\n");
         foreach (var n in shown)
             sb.AppendLine($"{n.Kind} {n.Name}  ({Plural(n.Functions, "function")})" + (n.Vftable is { } v ? $"  vftable {NativeAddress.Va(native.Image, v)}" : ""));
+        return pager.Page(sb.ToString(), offset, maxChars);
+    }
+
+    /// <summary>IDA's C++ structs (C++ objects, base classes or a vftable pointer) with their bases, vftable and Class:: functions.</summary>
+    private async Task<string> IdaClasses(string image, string? filter, int offset, int? maxChars, IProgress<ProgressNotificationValue> progress, CancellationToken ct)
+    {
+        var native = await Task.Run(() => ResolveImage(workspace, image), ct);
+        var session = await engines.Session(native, Native.Providers.Ida.IdaProvider.ProviderId, new Progress<NativeProviderProgress>(p =>
+            progress.Report(new ProgressNotificationValue { Progress = (float)p.Elapsed.TotalSeconds, Message = $"IDA {p.Stage}" })), ct);
+        if (names != null) await names.EnsureAsync(native, session, ct);
+        if (types != null) await types.EnsureAsync(native, session, ct);
+        if (session is not Native.Providers.Ida.IdaSession ida) throw new ToolError(ErrorCode.Unsupported, "engine=ida needs an IDA session.");
+        var rows = (await ida.CallAsync("classes", Native.Providers.Ida.IdaProvider.Args(), ct)).GetProperty("rows").EnumerateArray().ToList();
+        var shown = rows.Where(r => filter == null || (r[0].GetString() ?? "").Contains(filter, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(r => r[0].GetString(), StringComparer.Ordinal).ToList();
+        var sb = new StringBuilder($"{native.Id}: {Plural(rows.Count, "class")} in IDA's local types" + (filter != null ? $"; {shown.Count} match '{filter}'" : "") + "\nEngine: ida\n");
+        foreach (var r in shown)
+        {
+            var bases = r[4].EnumerateArray().Select(b => $"{(b[2].GetBoolean() ? "virtual " : "")}{b[0].GetString()}{(b[1].GetInt64() != 0 ? $" @+0x{b[1].GetInt64():X}" : "")}").ToList();
+            sb.Append($"class {r[0].GetString()}" + (bases.Count > 0 ? " : " + string.Join(", ", bases) : "") + (r[1].GetInt64() > 0 ? $"  {r[1].GetInt64()} bytes" : "") +
+                      $"  ({Plural(r[5].GetInt32(), "function")})");
+            if (r[2].ValueKind == System.Text.Json.JsonValueKind.Number) sb.Append($"  vftable {NativeAddress.Va(native.Image, r[2].GetUInt32())} ({Plural(r[3].GetInt32(), "slot")})");
+            else if (r[3].GetInt32() > 0) sb.Append($"  vftable type with {Plural(r[3].GetInt32(), "slot")}");
+            sb.AppendLine();
+        }
         return pager.Page(sb.ToString(), offset, maxChars);
     }
 
