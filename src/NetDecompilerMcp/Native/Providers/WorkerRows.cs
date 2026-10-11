@@ -46,15 +46,29 @@ internal static class WorkerRows
         return new FunctionDisassembly(rva, insns.Count > 0 ? insns[^1].Rva + (uint)insns[^1].Bytes.Length : rva, "", insns, r.GetProperty("truncated").GetBoolean());
     }
 
-    /// <summary>[start, end, instructions, kind, successors, switch] rows under "blocks", plus "tail_calls".</summary>
+    /// <summary>[start, end, instructions, kind, successors, switch, optional switch details] rows under "blocks", plus "tail_calls".</summary>
     public static NativeBlockGraph Blocks(JsonElement r)
     {
         var blocks = r.GetProperty("blocks").EnumerateArray()
             .Select(b => new NativeBlockInfo(b[0].GetUInt32(), b[1].GetUInt32(), b[2].GetInt32(), b[3].GetString() ?? "normal",
-                b[4].EnumerateArray().Select(s => s.GetUInt32()).ToList(), b[5].GetBoolean()))
+                b[4].EnumerateArray().Select(s => s.GetUInt32()).ToList(), b[5].GetBoolean())
+            {
+                SwitchInfo = b.GetArrayLength() > 6 && b[6].ValueKind == JsonValueKind.Object ? Switch(b[6]) : null,
+            })
             .ToList();
         return new NativeBlockGraph(r.GetProperty("start").GetUInt32(), r.GetProperty("name").GetString() ?? "", blocks,
             r.GetProperty("tail_calls").EnumerateArray().Select(t => t.GetUInt32()).ToList());
+    }
+
+    private static NativeSwitchInfo Switch(JsonElement s)
+    {
+        uint? Rva(string name) => s.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetUInt32() : null;
+        int? Int(string name) => s.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : null;
+        var cases = s.TryGetProperty("cases", out var c) && c.ValueKind == JsonValueKind.Array
+            ? c.EnumerateArray().Select(x => (x[0].GetUInt32(), (IReadOnlyList<long>)x[1].EnumerateArray().Select(v => v.GetInt64()).ToList())).ToList()
+            : [];
+        return new NativeSwitchInfo(Rva("jump"), cases, Rva("default"), Rva("table"), Int("entry_size") ?? 0, Int("entries") ?? 0, Rva("index_table"), Int("index_entries"),
+            s.TryGetProperty("bias", out var b) && b.ValueKind == JsonValueKind.Number ? b.GetInt64() : 0);
     }
 
     /// <summary>[from, to, kind, from function or null] rows.</summary>

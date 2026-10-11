@@ -3,8 +3,9 @@ namespace NetDecompilerMcp.Native.Code;
 /// <summary>
 /// An index known to be below <see cref="Count"/> (unsigned) on some path: register <see cref="Reg"/>, or with
 /// <see cref="SlotBase"/> set the frame slot [SlotBase + SlotDisp]. Registers are the decoder's own ids; 0 is none.
+/// <see cref="Default"/> is where the bounding branch goes for an index out of range; the switched value is index + <see cref="Bias"/>.
 /// </summary>
-internal readonly record struct IndexBound(int Reg, uint Count, int SlotBase = 0, ulong SlotDisp = 0)
+internal readonly record struct IndexBound(int Reg, uint Count, int SlotBase = 0, ulong SlotDisp = 0, uint? Default = null, long Bias = 0)
 {
     public static readonly IndexBound None = new(0, 0);
     public bool IsKnown => Reg != 0 || SlotBase != 0;
@@ -31,9 +32,18 @@ internal struct Insn
 /// <summary>
 /// A switch dispatch matched at an indirect jump. <see cref="BaseAssumed"/>: a register used as the image base is set
 /// outside the run (hoisted by the compiler); the caller must confirm the table by requiring every target inside the
-/// function's own unwind ranges.
+/// function's own unwind ranges. <see cref="Default"/>: the bounding branch's out-of-range target (null when an and-mask
+/// bounds the index, <see cref="BoundByMask"/>); the switched value is table index + <see cref="Bias"/>.
 /// </summary>
-internal sealed record SwitchMatch(uint TableRva, int EntrySize, bool Absolute, bool RelativeToTable, uint Count, uint? IndexTableRva, uint IndexTableCount, bool BaseAssumed);
+internal sealed record SwitchMatch(uint TableRva, int EntrySize, bool Absolute, bool RelativeToTable, uint Count, uint? IndexTableRva, uint IndexTableCount, bool BaseAssumed)
+{
+    public uint? Default { get; init; }
+    public long Bias { get; init; }
+    public bool BoundByMask { get; init; }
+
+    /// <summary>The reason when the instructions before an indirect jump are no table dispatch at all.</summary>
+    public const string NoDispatch = "no recognized table dispatch";
+}
 
 /// <summary>
 /// Decoding of one instruction set over the code of an image, keeping what the current linear run needs to match

@@ -242,7 +242,18 @@ public sealed record DisassembledInstruction(uint Rva, byte[] Bytes, string Text
 /// ends (engine kind: normal, indjump, ret, cndret, noret, enoret, error), its successors in the function, and whether
 /// its last instruction is a switch the engine resolved.
 /// </summary>
-public sealed record NativeBlockInfo(uint StartRva, uint EndRva, int Instructions, string Kind, IReadOnlyList<uint> Successors, bool Switch);
+public sealed record NativeBlockInfo(uint StartRva, uint EndRva, int Instructions, string Kind, IReadOnlyList<uint> Successors, bool Switch)
+{
+    /// <summary>The engine's switch details, when it reports them.</summary>
+    public NativeSwitchInfo? SwitchInfo { get; init; }
+}
+
+/// <summary>
+/// A switch as the engine recovered it: the indirect jump, switched values per target, the default, the jump table (entry
+/// size and count), a byte index table in front of it, and the bias (switched value = table index + bias).
+/// </summary>
+public sealed record NativeSwitchInfo(uint? Jump, IReadOnlyList<(uint Target, IReadOnlyList<long> Values)> Cases, uint? Default, uint? Table, int EntrySize, int Entries,
+    uint? IndexTable, int? IndexEntries, long Bias);
 
 /// <summary>The blocks of one function and the targets its jumps reach outside it (tail calls).</summary>
 public sealed record NativeBlockGraph(uint StartRva, string Name, IReadOnlyList<NativeBlockInfo> Blocks, IReadOnlyList<uint> TailCalls);

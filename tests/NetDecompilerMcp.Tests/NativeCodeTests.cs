@@ -192,7 +192,7 @@ public class NativeCodeTests
         var f = index.FunctionByStart(Code)!;
         var graph = index.GetGraph(f);
         Assert.Empty(graph.Switches);
-        Assert.Equal([jump], graph.UnresolvedJumps);
+        Assert.Equal([jump], graph.UnresolvedJumps.Select(u => u.Rva));
         Assert.NotEqual(0, (int)(f.Flags & FunctionFlags.UnresolvedJumps));
         Assert.Equal(BlockEnd.IndirectJump, graph.BlockAt(jump)!.EndKind);
         Assert.All(cases, c => Assert.Null(graph.BlockAt(c)));

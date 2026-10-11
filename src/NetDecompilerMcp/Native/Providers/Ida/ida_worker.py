@@ -283,8 +283,34 @@ def op_disasm_range(args):
     return {"insns": insns, "truncated": len(insns) >= count}
 
 
+def switch_row(m, ea, si):
+    # a recognized switch: its values per target (from IDA's case calculation), default, tables and bias
+    import ida_xref, ida_idaapi
+    bad = ida_idaapi.BADADDR
+    cases = []
+    try:
+        res = ida_xref.calc_switch_cases(ea, si)
+    except Exception:
+        res = None
+    if res is not None:
+        for i in range(len(res.targets)):
+            t = rva_of(res.targets[i])
+            values = [int(v) for v in res.cases[i]] if i < len(res.cases) else []
+            if t is not None and values:
+                cases.append([t, values])
+    indirect = si.is_indirect()
+    return {"jump": rva_of(ea), "cases": cases,
+            "default": rva_of(si.defjump) if si.defjump != bad else None,
+            "table": rva_of(si.jumps) if si.jumps not in (bad, 0) else None,
+            "entry_size": si.get_jtable_element_size(),
+            "entries": si.jcases if indirect else si.get_jtable_size(),
+            "index_table": rva_of(si.values) if indirect and si.values not in (bad, 0) else None,
+            "index_entries": si.get_jtable_size() if indirect else None,
+            "bias": int(si.ind_lowcase if indirect else (0 if si.is_sparse() else si.lowcase))}
+
+
 def op_blocks(args):
-    # basic blocks of the function containing rva: [start, end, instructions, kind, successors, switch]
+    # basic blocks of the function containing rva: [start, end, instructions, kind, successors, switch, switch details or None]
     m = need_open()
     import ida_gdl, ida_nalt
     f = func_at(m, ea_of(args))
@@ -309,8 +335,9 @@ def op_blocks(args):
                 g = m.ida_funcs.get_func(x.to)
                 if (g is None or g.start_ea != f.start_ea) and rva_of(x.to) is not None:
                     tails.add(rva_of(x.to))
-        switch = ida_nalt.get_switch_info(last) is not None
-        blocks.append([rva_of(b.start_ea), rva_of(b.end_ea), len(heads), kinds.get(b.type, "normal"), succs, switch])
+        si = ida_nalt.get_switch_info(last)
+        blocks.append([rva_of(b.start_ea), rva_of(b.end_ea), len(heads), kinds.get(b.type, "normal"), succs, si is not None,
+                       switch_row(m, last, si) if si is not None else None])
     return {"start": rva_of(f.start_ea), "name": m.ida_funcs.get_func_name(f.start_ea) or "", "blocks": blocks,
             "tail_calls": sorted(tails)}
 

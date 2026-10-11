@@ -235,8 +235,38 @@ public sealed class BasicBlock
     public List<CfgEdge> Predecessors { get; } = [];
 }
 
-/// <summary>A resolved switch: the indirect jump, its table, and the distinct case targets.</summary>
-public sealed record SwitchTable(uint JumpRva, uint TableRva, int EntryCount, int EntrySize, uint? IndexTableRva, int IndexEntryCount, IReadOnlyList<uint> Targets);
+/// <summary>A switch target and the switched values that select it.</summary>
+public sealed record SwitchCase(uint Target, IReadOnlyList<long> Values);
+
+/// <summary>What a switch table entry holds.</summary>
+public enum SwitchTableKind : byte
+{
+    /// <summary>The target's address (relocated).</summary>
+    Absolute,
+    /// <summary>The target's RVA.</summary>
+    Rva,
+    /// <summary>The target's offset from the table.</summary>
+    TableRelative,
+}
+
+/// <summary>
+/// A resolved switch: the indirect jump, its table, and the distinct case targets. <see cref="Cases"/> map switched values
+/// (table index + <see cref="Bias"/>) to targets; values whose entry is the default target are in <see cref="DefaultValues"/>.
+/// </summary>
+public sealed record SwitchTable(uint JumpRva, uint TableRva, int EntryCount, int EntrySize, uint? IndexTableRva, int IndexEntryCount, IReadOnlyList<uint> Targets)
+{
+    public IReadOnlyList<SwitchCase> Cases { get; init; } = [];
+    /// <summary>Where an out-of-range value goes (the bounding branch's target); null when an and-mask bounds the index.</summary>
+    public uint? Default { get; init; }
+    public IReadOnlyList<long> DefaultValues { get; init; } = [];
+    public long Bias { get; init; }
+    public SwitchTableKind Kind { get; init; }
+    /// <summary>False when the values are table indexes whose bound is not a compare (an and-mask, or an assumed image base).</summary>
+    public bool ValuesExact { get; init; } = true;
+}
+
+/// <summary>An indirect jump whose targets are unknown, and why.</summary>
+public readonly record struct UnresolvedJump(uint Rva, string Reason);
 
 /// <summary>Basic blocks and edges of one function, blocks sorted by start.</summary>
 public sealed class FunctionGraph
@@ -245,7 +275,7 @@ public sealed class FunctionGraph
     public required IReadOnlyList<BasicBlock> Blocks { get; init; }
     public required IReadOnlyList<SwitchTable> Switches { get; init; }
     /// <summary>Indirect jumps whose targets are unknown.</summary>
-    public required IReadOnlyList<uint> UnresolvedJumps { get; init; }
+    public required IReadOnlyList<UnresolvedJump> UnresolvedJumps { get; init; }
     /// <summary>Targets of tail calls (jumps to other functions).</summary>
     public required IReadOnlyList<uint> TailCalls { get; init; }
     public bool Truncated { get; init; }

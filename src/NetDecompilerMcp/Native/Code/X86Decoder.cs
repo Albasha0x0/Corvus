@@ -339,11 +339,14 @@ internal sealed class X86Decoder : ICodeDecoder
         var cc = Back(0).ConditionCode;
         if (cc is not (ConditionCode.a or ConditionCode.ae or ConditionCode.be or ConditionCode.b)) return;
         ulong imm;
+        ref var jcc = ref Back(0);
+        // out of range: the taken path of ja / jae, the fall-through of jbe / jb
+        uint? dflt = TryRva(cc is ConditionCode.a or ConditionCode.ae ? jcc.NearBranchTarget : jcc.NextIP, out uint d) ? d : null;
         IndexBound Make(uint n)
         {
-            if (TryCompare(1, 0, out var reg, out _)) return new((int)reg, n);
+            if (TryCompare(1, 0, out var reg, out _, out int step)) return new((int)reg, n, Default: dflt, Bias: BiasBefore(step + 1, reg));
             ref var c = ref Back(1);
-            return new(0, n, (int)c.MemoryBase.GetFullRegister(), c.MemoryDisplacement64);
+            return new(0, n, (int)c.MemoryBase.GetFullRegister(), c.MemoryDisplacement64, dflt);
         }
         if (TryCompare(1, 0, out _, out imm)) { }
         else if (Back(1) is { Mnemonic: Mnemonic.Cmp, Op0Kind: OpKind.Memory, MemoryIndex: Register.None } c
@@ -359,14 +362,17 @@ internal sealed class X86Decoder : ICodeDecoder
         }
     }
 
+    private bool TryCompare(int k, int jcc, out Register reg, out ulong imm) => TryCompare(k, jcc, out reg, out imm, out _);
+
     /// <summary>
-    /// The flags-setting instruction at or before step <paramref name="k"/> is "cmp reg, imm", and reg is unchanged up to
-    /// the conditional jump at step <paramref name="jcc"/>.
+    /// The flags-setting instruction at or before step <paramref name="k"/> (at <paramref name="step"/>) is "cmp reg, imm",
+    /// and reg is unchanged up to the conditional jump at step <paramref name="jcc"/>.
     /// </summary>
-    private bool TryCompare(int k, int jcc, out Register reg, out ulong imm)
+    private bool TryCompare(int k, int jcc, out Register reg, out ulong imm, out int step)
     {
         reg = Register.None;
         imm = 0;
+        step = -1;
         for (; k < _ringCount; k++)
         {
             ref var x = ref Back(k);
@@ -389,9 +395,42 @@ internal sealed class X86Decoder : ICodeDecoder
             reg = x.Op0Register.GetFullRegister();
             for (int j = k - 1; j > jcc; j--)
                 if (WritesRegister(in Back(j), reg)) return false;
+            step = k;
             return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// The constant <paramref name="reg"/> was adjusted by before step <paramref name="k"/> (sub / add / inc / dec, or
+    /// lea reg, [src + disp]), following register copies: the switched value is the register's value plus this bias.
+    /// One adjustment at most, within the last few instructions.
+    /// </summary>
+    private long BiasBefore(int k, Register reg)
+    {
+        for (int n = 0; k < _ringCount && n < 8; k++, n++)
+        {
+            ref var x = ref Back(k);
+            if (x.FlowControl is FlowControl.Call or FlowControl.IndirectCall) return 0;
+            if (!WritesRegister(in x, reg)) continue;
+            bool wide = x.Op0Register.GetSize() == 8;
+            switch (x.Mnemonic)
+            {
+                case Mnemonic.Sub or Mnemonic.Add when x.Op1Kind is not (OpKind.Register or OpKind.Memory):
+                    long v = wide ? (long)x.GetImmediate(1) : (int)(uint)x.GetImmediate(1);
+                    return x.Mnemonic == Mnemonic.Sub ? v : -v;
+                case Mnemonic.Dec: return 1;
+                case Mnemonic.Inc: return -1;
+                case Mnemonic.Lea when x.MemoryIndex == Register.None && x.MemoryBase != Register.None && !x.IsIPRelativeMemoryOperand:
+                    return -(_is64 ? (long)x.MemoryDisplacement64 : (int)(uint)x.MemoryDisplacement64);
+                case Mnemonic.Mov or Mnemonic.Movsxd or Mnemonic.Movzx when x.Op1Kind == OpKind.Register:
+                    reg = x.Op1Register.GetFullRegister();
+                    continue;
+                default:
+                    return 0;
+            }
+        }
+        return 0;
     }
 
     /// <summary>Operand 0 is the frame slot [base + disp] (no index).</summary>
@@ -437,7 +476,7 @@ internal sealed class X86Decoder : ICodeDecoder
     /// </summary>
     public SwitchMatch? MatchSwitch(out string reason)
     {
-        reason = "no recognized table dispatch";
+        reason = SwitchMatch.NoDispatch;
         if (_ringCount == 0) return null;
         ref var jmp = ref Back(0);
         Register index;
@@ -498,10 +537,11 @@ internal sealed class X86Decoder : ICodeDecoder
         }
         else return null;
 
-        if (!TryFindBound(k, index, ref baseAssumed, out uint count, out uint? indexTable, out reason)) return null;
-        if (indexTable is { } it)
-            return new SwitchMatch(table, 4, absolute, relative, 0, it, count, baseAssumed);
-        return new SwitchMatch(table, 4, absolute, relative, count, null, 0, baseAssumed);
+        if (!TryFindBound(k, index, ref baseAssumed, out uint count, out uint? indexTable, out reason, out var bound)) return null;
+        var match = indexTable is { } it
+            ? new SwitchMatch(table, 4, absolute, relative, 0, it, count, baseAssumed)
+            : new SwitchMatch(table, 4, absolute, relative, count, null, 0, baseAssumed);
+        return match with { Default = bound.Default, Bias = bound.Bias, BoundByMask = bound.Mask };
     }
 
     private enum BaseKind { ImageBase, Table, Unknown, Other }
@@ -541,10 +581,12 @@ internal sealed class X86Decoder : ICodeDecoder
     /// Walks back from step <paramref name="k"/> to the compare bounding <paramref name="index"/>, following register
     /// copies and at most one byte index table ("movzx rI, byte [rJ + table]").
     /// </summary>
-    private bool TryFindBound(int k, Register index, ref bool baseAssumed, out uint count, out uint? indexTable, out string reason)
+    private bool TryFindBound(int k, Register index, ref bool baseAssumed, out uint count, out uint? indexTable, out string reason,
+        out (uint? Default, long Bias, bool Mask) bound)
     {
         count = 0;
         indexTable = null;
+        bound = default;
         reason = "switch index bound not found";
         var current = index;
         var pending = ConditionCode.None;
@@ -570,10 +612,11 @@ internal sealed class X86Decoder : ICodeDecoder
                 bool bounded = x.Mnemonic == Mnemonic.Cmp && (inSlot
                     ? IsSlot(in x, slotBase, slotDisp) && CompareImmediate(in x, out imm)
                     : TryCompare(k, pendingStep, out var reg, out imm) && reg == current);
-                if (bounded && imm < uint.MaxValue)
+                if (bounded && imm < uint.MaxValue && pending is ConditionCode.a or ConditionCode.ae)
                 {
-                    if (pending == ConditionCode.a) { count = (uint)imm + 1; return true; }
-                    if (pending == ConditionCode.ae) { count = (uint)imm; return true; }
+                    count = pending == ConditionCode.a ? (uint)imm + 1 : (uint)imm;
+                    bound = (TryRva(Back(pendingStep).NearBranchTarget, out uint d) ? d : null, inSlot ? 0 : BiasBefore(k + 1, current), false);
+                    return true;
                 }
                 pending = ConditionCode.None;
             }
@@ -591,6 +634,7 @@ internal sealed class X86Decoder : ICodeDecoder
             {
                 // "and rI, mask" bounds the index by itself
                 count = (uint)mask + 1;
+                bound = (null, 0, true);
                 return true;
             }
             if (x.Mnemonic is Mnemonic.Mov or Mnemonic.Movsxd && x.Op1Kind == OpKind.Memory && x.MemoryIndex == Register.None
@@ -644,6 +688,7 @@ internal sealed class X86Decoder : ICodeDecoder
                 : _runBound.Reg == (int)current))
         {
             count = _runBound.Count;
+            bound = (_runBound.Default, _runBound.Bias, false);
             return true;
         }
         return false;

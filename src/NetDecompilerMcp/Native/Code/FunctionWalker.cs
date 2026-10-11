@@ -46,7 +46,7 @@ internal sealed class FunctionWalker
     private readonly List<(uint Insn, uint To, EdgeKind Kind)> _branches = [];
     private readonly HashSet<uint> _conditionals = [];
     private readonly List<SwitchTable> _switches = [];
-    private readonly List<uint> _unresolved = [];
+    private readonly List<UnresolvedJump> _unresolved = [];
     private readonly List<uint> _tails = [];
     private readonly List<uint> _fallsInto = [];
     /// <summary>Unresolved indirect jumps that a later path with a known bound may still resolve, and their runs.</summary>
@@ -157,7 +157,7 @@ internal sealed class FunctionWalker
         {
             if (SwitchDispatch.Redecode(_dec, _ctx, a, bound, jump, own) is not { } table) continue;
             _pending.Remove(jump);
-            _unresolved.Remove(jump);
+            _unresolved.RemoveAll(u => u.Rva == jump);
             int runIndex = _pendingRun[jump];
             var run = _runs[runIndex];
             run.EndKind = RunEnd.Switch;
@@ -265,11 +265,11 @@ internal sealed class FunctionWalker
                     run.EndKind = RunEnd.TailCall;
                     return true;
                 }
-                var match = _dec.MatchSwitch(out _);
-                var table = match != null ? _ctx.ReadSwitch(insn.Rva, match, own, out _) : null;
+                var match = _dec.MatchSwitch(out var reason);
+                var table = match != null ? _ctx.ReadSwitch(insn.Rva, match, own, out reason) : null;
                 if (table == null)
                 {
-                    _unresolved.Add(insn.Rva);
+                    _unresolved.Add(new UnresolvedJump(insn.Rva, match == null && insn.HasMem && reason == SwitchMatch.NoDispatch ? $"jump through memory at rva 0x{insn.MemTarget:X}" : reason));
                     _pending.Add(insn.Rva);
                     _pendingRun[insn.Rva] = _runs.Count;
                     run.EndKind = RunEnd.IndirectJump;

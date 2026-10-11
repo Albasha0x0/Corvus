@@ -496,4 +496,40 @@ public sealed class NativeIdaEngineTests(ITestOutputHelper output) : IDisposable
         var asm = await tools.DiffFunction(oldPath, newPath, "rva:0x1040");
         Assert.Equal(1, asm.Changed);
     }
+
+    /// <summary>Our switch cases (values per target, default) against IDA's on the switches of a system DLL.</summary>
+    [Trait("Speed", "Slow")]
+    [IdaFact]
+    public async Task Switch_cases_agree_with_IDA()
+    {
+        var rig = Setup();
+        var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "kernel32.dll");
+        await rig.Tools.ListFunctions(path, engine: "ours");
+        var native = rig.Workspace.Read(() => rig.Workspace.Natives[0]);
+        var index = await rig.Code.Index(native, null, default);
+        var functions = index.Functions.Where(f => index.RefsFrom(f).Any(x => x.Kind == Native.Code.XrefKind.JumpTable)).Take(12).ToList();
+        Assert.NotEmpty(functions);
+        int compared = 0, agreed = 0;
+        foreach (var f in functions)
+        {
+            var at = $"rva:0x{f.Start:X}";
+            var collector = Mcp.StructuredOutput.Begin();
+            await rig.Tools.GetCfg(path, at, engine: "ours");
+            var ours = Assert.IsType<CfgReport>(collector.Value);
+            collector = Mcp.StructuredOutput.Begin();
+            await rig.Tools.GetCfg(path, at, engine: "ida");
+            var ida = Assert.IsType<CfgReport>(collector.Value);
+            foreach (var sw in ours.Switches)
+            {
+                if (ida.Switches.FirstOrDefault(s => s.Jump == sw.Jump) is not { } other) { output.WriteLine($"{f.Name}: IDA has no switch at {sw.Jump}"); continue; }
+                compared++;
+                string Key(CfgSwitch s) => string.Join("; ", s.Cases.OrderBy(c => c.Target).Select(c => $"{c.Target}={string.Join(",", c.Values)}")) + $" default {s.Default}";
+                if (Key(sw) == Key(other)) agreed++;
+                else output.WriteLine($"{f.Name} {sw.Jump}:\n  ours {Key(sw)}\n  ida  {Key(other)}");
+            }
+        }
+        output.WriteLine($"{agreed} of {compared} switches agree");
+        Assert.True(compared > 0);
+        Assert.True(agreed * 10 >= compared * 9, $"{agreed} of {compared} switches agree");
+    }
 }

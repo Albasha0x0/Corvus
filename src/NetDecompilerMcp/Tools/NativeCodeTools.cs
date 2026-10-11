@@ -225,9 +225,10 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         return $"  {l.Address:X}  {l.Bytes,-24} {l.Text}{(comment != null ? "  ; " + comment : "")}";
     }
 
-    [McpServerTool(Name = "get_cfg", Title = "Native control-flow graph")]
+    [McpServerTool(Name = "get_cfg", Title = "Native control-flow graph", UseStructuredContent = true, OutputSchemaType = typeof(CfgReport))]
     [Description("Basic blocks of the native function containing an address: each block's range, instruction count, how it ends (return, jump, " +
-                 "switch, tail call, noreturn call...) and its successors; resolved switch tables with their cases; indirect jumps whose targets are unknown. " + IndexNote)]
+                 "switch, tail call, noreturn call...) and its successors; resolved switch tables with their cases (switched values per target, the " +
+                 "default from the bound check, the index bias, table kind and byte index table); indirect jumps whose targets are unknown, with the reason. " + IndexNote)]
     public Task<string> GetCfg(
         [Description(NativeTools.ImageDescription)] string image,
         [Description(NativeTools.AddressDescription)] string address,
@@ -245,17 +246,8 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         if (index.Support == CodeSupport.DeclaredFunctionsOnly) throw NativeEngineCode.Unsupported(index, engines);
         var fn = FunctionAt(index, Address(index, address));
         var graph = index.GetGraph(fn, cancellationToken);
-        string Va(uint rva) => NativeAddress.Va(index.Image, rva);
-        var sb = new StringBuilder($"{fn.Name} at {Va(fn.Start)}: {Plural(graph.Blocks.Count, "block")}{(graph.Truncated ? " (truncated)" : "")}\n");
-        foreach (var b in graph.Blocks)
-            sb.AppendLine($"  {Va(b.Start)}-{Va(b.End)}  {b.InstructionCount,4} insn  {b.EndKind}" +
-                          (b.Successors.Count > 0 ? "  -> " + string.Join(", ", b.Successors.Select(e => $"{Va(e.To)}{(e.Kind is EdgeKind.FallThrough or EdgeKind.Jump ? "" : " " + e.Kind)}")) : ""));
-        foreach (var sw in graph.Switches)
-            sb.AppendLine($"  switch at {Va(sw.JumpRva)}: table {Va(sw.TableRva)}, {sw.EntryCount} entries, {Plural(sw.Targets.Count, "distinct target")}: " +
-                          string.Join(", ", sw.Targets.Take(64).Select(Va)) + (sw.Targets.Count > 64 ? ", ..." : ""));
-        foreach (var j in graph.UnresolvedJumps) sb.AppendLine($"  unresolved indirect jump at {Va(j)}");
-        foreach (var t in graph.TailCalls) sb.AppendLine($"  tail call to {index.NameAt(t) ?? Va(t)}");
-        return choice.Line + "\n" + pager.Page(sb.ToString(), offset, maxChars);
+        var (text, report) = OurCfg(native, index, fn, graph);
+        return StructuredOutput.With(choice.Line + "\n" + pager.Page(text, offset, maxChars), report);
     });
 
     [McpServerTool(Name = "find_xrefs", Title = "Native cross-references", UseStructuredContent = true, OutputSchemaType = typeof(XrefList))]
@@ -309,8 +301,13 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         {
             // virtual call sites that may reach the address (RTTI resolution) among the instruction references, by source
             var refs = index.RefsTo(rva).Concat(index.VirtualEdgesTo(rva)).OrderBy(x => x.From).ToList();
-            rows.AddRange(NativeCallTools.WithArguments(index, refs.Select(x => (x.From, x.Kind.ToString(), x.Kind is XrefKind.Call or XrefKind.TailCall || x.IsVirtualCall)),
-                Where, cancellationToken));
+            var refRows = NativeCallTools.WithArguments(index, refs.Select(x => (x.From, x.Kind.ToString(), x.Kind is XrefKind.Call or XrefKind.TailCall || x.IsVirtualCall)),
+                Where, cancellationToken);
+            var graphs = new Dictionary<uint, FunctionGraph?>();
+            for (int i = 0; i < refs.Count && i < refRows.Count; i++)
+                if (refs[i].Kind == XrefKind.SwitchCase && CaseText(index, refs[i].From, rva, graphs, cancellationToken) is { } values)
+                    refRows[i] += "  " + values;
+            rows.AddRange(refRows);
         }
         if (dynamicRows != null) rows.AddRange(dynamicRows);
         var target = index.NameAt(rva) ?? NativeCallTools.PointerName(index, rva, cancellationToken) ?? (index.StringAt(rva) is { } s ? index.CommentFor(rva) : null);
@@ -326,6 +323,16 @@ public sealed partial class NativeCodeTools(AssemblyWorkspace workspace, NativeC
         return StructuredOutput.With(header + choice.Line + "\n" + Coverage(index) + pager.PageRows(rows, offset, limit, "reference"),
             Xrefs(native.Id, $"{Va(rva)}{(target != null ? $" ({target})" : "")}", rows, offset, limit, boundTo, choice));
     });
+
+    /// <summary>"case 3, 4" (or "default ...") for a switch case reference from the jump at <paramref name="jump"/> to <paramref name="target"/>.</summary>
+    private static string? CaseText(NativeCodeIndex index, uint jump, uint target, Dictionary<uint, FunctionGraph?> graphs, CancellationToken ct)
+    {
+        if (index.FunctionAt(jump) is not { } f) return null;
+        if (!graphs.TryGetValue(f.Start, out var graph)) graphs[f.Start] = graph = index.Support == CodeSupport.Full ? index.GetGraph(f, ct) : null;
+        if (graph?.Switches.FirstOrDefault(s => s.JumpRva == jump) is not { } sw) return null;
+        if (sw.Cases.FirstOrDefault(c => c.Target == target) is { } c) return "case " + string.Join(", ", ValueRanges(c.Values));
+        return sw.Default == target ? "default" + (sw.DefaultValues.Count > 0 ? $" (also {string.Join(", ", ValueRanges(sw.DefaultValues))})" : "") : null;
+    }
 
     /// <summary>
     /// find_xrefs rows ("[image] VA  Kind  function+0xN  detail") as fields; a row of another form (an importer whose index is

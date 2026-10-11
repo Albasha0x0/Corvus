@@ -256,6 +256,7 @@ internal sealed class CodeContext
         var raw = new byte[count * 4];
         if (Read(m.TableRva, raw) < raw.Length) { reason = "table outside the image"; return null; }
         var targets = new List<uint>((int)count);
+        var entries = new uint[count];
         var seen = new HashSet<uint>();
         for (int i = 0; i < count; i++)
         {
@@ -272,9 +273,33 @@ internal sealed class CodeContext
             else target = entry;
             if (!Code.IsCode(target)) { reason = $"entry {i} ({target:X}) is not in executable code"; return null; }
             if (m.BaseAssumed && !ownRanges!.Any(r => target >= r.Begin && target < r.End)) { reason = $"entry {i} ({target:X}) is outside the function"; return null; }
+            entries[i] = target;
             if (seen.Add(target)) targets.Add(target);
         }
-        return new SwitchTable(jumpRva, m.TableRva, (int)count, 4, m.IndexTableRva, (int)m.IndexTableCount, targets);
+        return new SwitchTable(jumpRva, m.TableRva, (int)count, 4, m.IndexTableRva, (int)m.IndexTableCount, targets)
+        {
+            Cases = Cases(entries, index, targets, m, out var defaultValues),
+            DefaultValues = defaultValues,
+            Default = m.Default,
+            Bias = m.Bias,
+            Kind = m.Absolute ? SwitchTableKind.Absolute : m.RelativeToTable ? SwitchTableKind.TableRelative : SwitchTableKind.Rva,
+            ValuesExact = !m.BoundByMask && !m.BaseAssumed,
+        };
+    }
+
+    /// <summary>Switched values per target, in table order: entry i (or index table byte i) is value i + bias.</summary>
+    private static List<SwitchCase> Cases(uint[] entries, byte[]? index, List<uint> targets, SwitchMatch m, out List<long> defaultValues)
+    {
+        var values = new Dictionary<uint, List<long>>();
+        int n = index?.Length ?? entries.Length;
+        for (int i = 0; i < n; i++)
+        {
+            uint t = entries[index != null ? index[i] : i];
+            if (!values.TryGetValue(t, out var list)) values[t] = list = [];
+            list.Add(i + m.Bias);
+        }
+        defaultValues = m.Default is { } d && values.TryGetValue(d, out var dv) ? dv : [];
+        return [.. targets.Where(t => t != m.Default && values.ContainsKey(t)).Select(t => new SwitchCase(t, values[t]))];
     }
 }
 
